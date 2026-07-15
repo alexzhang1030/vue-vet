@@ -12,6 +12,9 @@ edition = "2024"
 license = "MIT"
 repository = "https://github.com/alexzhang1030/vue-vet"
 rust-version = "1.97"
+readme = "README.md"
+keywords = ["vue", "nuxt", "lint", "static-analysis"]
+categories = ["development-tools"]
 
 [workspace.dependencies]
 clap = { version = "4.5", features = ["derive"] }
@@ -21,9 +24,19 @@ serde_json = "1"
 thiserror = "2"
 vize_atelier_sfc = "=0.291.0"
 
+[workspace.lints.rust]
+unsafe_code = "forbid"
+warnings = "deny"
+
 [workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+cargo = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }
-nursery = { level = "warn", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+
+# Vize's transitive graph currently contains parallel dependency major versions.
+# Vue Vet cannot unify those versions without replacing or patching Vize.
+multiple_crate_versions = "allow"
 
 # Restriction lints intentionally selected by Rolldown. Enabling the entire
 # restriction group would produce contradictory and impractical requirements.
@@ -35,14 +48,21 @@ dbg_macro = "deny"
 deref_by_slicing = "deny"
 empty_drop = "deny"
 empty_enum_variants_with_brackets = "deny"
+expect_used = "deny"
 exit = "deny"
 filetype_is_file = "deny"
 float_cmp_const = "deny"
 fn_to_numeric_cast_any = "deny"
 get_unwrap = "deny"
+indexing_slicing = "deny"
 large_include_file = "deny"
+let_underscore_must_use = "deny"
 lossy_float_literal = "deny"
+mem_forget = "deny"
+missing_assert_message = "deny"
 mixed_read_write_in_expression = "deny"
+panic = "deny"
+panic_in_result_fn = "deny"
 pathbuf_init_then_push = "deny"
 precedence_bits = "deny"
 print_stderr = "deny"
@@ -53,55 +73,17 @@ rc_mutex = "deny"
 rest_pat_in_fully_bound_structs = "deny"
 self_named_module_files = "deny"
 string_lit_chars_any = "deny"
+string_slice = "deny"
 suspicious_xor_used_as_pow = "deny"
 todo = "deny"
 unimplemented = "deny"
 unnecessary_safety_comment = "deny"
 unnecessary_safety_doc = "deny"
 unnecessary_self_imports = "deny"
+unreachable = "deny"
+unwrap_in_result = "deny"
+unwrap_used = "deny"
 unused_result_ok = "deny"
-
-# Intentional Rolldown exceptions to pedantic.
-case_sensitive_file_extension_comparisons = "allow"
-doc_markdown = "allow"
-missing_errors_doc = "allow"
-missing_panics_doc = "allow"
-module_inception = "allow"
-module_name_repetitions = "allow"
-must_use_candidate = "allow"
-needless_for_each = "allow"
-new_without_default = "allow"
-similar_names = "allow"
-struct_field_names = "allow"
-trivially_copy_pass_by_ref = "allow"
-unused_self = "allow"
-wrong_self_convention = "allow"
-
-# Intentional Rolldown exceptions to nursery.
-branches_sharing_code = "allow"
-cognitive_complexity = "allow"
-collapsible_if = "allow"
-equatable_if_let = "allow"
-fallible_impl_from = "allow"
-impl_trait_in_params = "allow"
-iter_with_drain = "allow"
-literal_string_with_formatting_args = "allow"
-map_unwrap_or = "allow"
-missing_const_for_fn = "allow"
-needless_collect = "allow"
-non_send_fields_in_send_ty = "allow"
-option_if_let_else = "allow"
-or_fun_call = "allow"
-significant_drop_tightening = "allow"
-single_match_else = "allow"
-single_option_map = "allow"
-string_lit_as_bytes = "allow"
-too_long_first_doc_paragraph = "allow"
-trivial_regex = "allow"
-unnecessary_struct_initialization = "allow"
-use_self = "allow"
-useless_let_if_seq = "allow"
-zero_sized_map_values = "allow"
 
 [profile.release]
 lto = "thin"

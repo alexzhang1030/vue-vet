@@ -29,8 +29,14 @@ fn main() -> ExitCode {
   let cli = Cli::parse();
   match scan(&cli.path) {
     Ok(summary) => {
-      print_summary(&summary, cli.format);
-      if summary.fails(cli.deny_warnings) { ExitCode::from(1) } else { ExitCode::SUCCESS }
+      if let Err(error) = print_summary(&summary, cli.format) {
+        eprintln!("vue-vet: failed to serialize report: {error}");
+        ExitCode::from(2)
+      } else if summary.fails(cli.deny_warnings) {
+        ExitCode::from(1)
+      } else {
+        ExitCode::SUCCESS
+      }
     }
     Err(error) => {
       eprintln!("vue-vet: {error}");
@@ -66,10 +72,10 @@ fn scan(root: &PathBuf) -> Result<ScanSummary, String> {
 }
 
 #[expect(clippy::print_stdout, reason = "a CLI must emit requested reports on stdout")]
-fn print_summary(summary: &ScanSummary, format: OutputFormat) {
+fn print_summary(summary: &ScanSummary, format: OutputFormat) -> Result<(), serde_json::Error> {
   match format {
     OutputFormat::Json => {
-      println!("{}", serde_json::to_string_pretty(summary).expect("ScanSummary is serializable"));
+      println!("{}", serde_json::to_string_pretty(summary)?);
     }
     OutputFormat::Text => {
       for diagnostic in &summary.diagnostics {
@@ -99,4 +105,5 @@ fn print_summary(summary: &ScanSummary, format: OutputFormat) {
       );
     }
   }
+  Ok(())
 }

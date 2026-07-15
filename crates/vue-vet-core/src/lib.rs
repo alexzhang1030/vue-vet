@@ -59,6 +59,7 @@ impl ScanSummary {
     self
   }
 
+  #[must_use]
   pub fn fails(&self, deny_warnings: bool) -> bool {
     self.diagnostics.iter().any(|diagnostic| {
       diagnostic.severity == Severity::Error
