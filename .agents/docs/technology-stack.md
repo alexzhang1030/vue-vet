@@ -4,6 +4,8 @@
 
 The scanner, semantic product layer, CLI, cache, graph, reporters, and fix engine stay in Rust. The future npm package is a thin installer/launcher whose only responsibilities are selecting the native binary and forwarding arguments, signals, output, and exit codes.
 
+The workspace tracks the latest stable Rust release and latest stable edition, following Rolldown's toolchain baseline. The repository pins the exact compiler in `rust-toolchain.toml`; all crates inherit the workspace `rust-version` and edition. `just` is the task runner and the canonical interface for local and CI validation. `prek` manages Git hooks from `.pre-commit-config.yaml` without adding a Python runtime requirement.
+
 ## Vize owns Vue semantics
 
 Vize parses Vue SFC structure and is the source of truth for template nodes, directives, bindings, and Vue-specific semantics. Vue Vet adapts Vize output into its own stable facts rather than exposing Vize AST types. Vize is experimental and releases rapidly, so its version is pinned exactly and upgrades require fixtures, snapshots, and compatibility evidence.
@@ -21,4 +23,3 @@ ast-grep will power YAML-defined structural rules for supported script and templ
 Diagnostics, source spans, rule metadata, confidence, configuration, suppression, fingerprints, scoring, project facts, cache formats, baselines, reporters, and edits are Vue Vet-owned types. This boundary prevents dependency churn from becoming a public API break.
 
 See [the analysis-stack ADR](../../docs/adr/0001-analysis-stack.md) for the original decision and [architecture](./architecture.md) for the planned data flow.
-

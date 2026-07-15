@@ -7,6 +7,9 @@ repository.workspace = true
 rust-version.workspace = true
 description = "A Rust-native health check for Vue and Nuxt codebases"
 
+[lints]
+workspace = true
+
 [dependencies]
 clap.workspace = true
 ignore.workspace = true
@@ -17,4 +20,3 @@ vue-vet-vize = { path = "../vue-vet-vize" }
 [[bin]]
 name = "vue-vet"
 path = "src/main.rs"
-

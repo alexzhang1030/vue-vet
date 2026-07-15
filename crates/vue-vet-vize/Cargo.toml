@@ -6,8 +6,10 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 thiserror.workspace = true
 vize_atelier_sfc.workspace = true
 vue-vet-core = { path = "../vue-vet-core" }
-

@@ -1,0 +1,32 @@
+minimum_prek_version: "0.4.9"
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+
+  - repo: local
+    hooks:
+      - id: rustfmt
+        name: rustfmt
+        entry: just fmt-check
+        language: system
+        pass_filenames: false
+        types_or: [rust, toml]
+      - id: clippy
+        name: clippy
+        entry: just clippy
+        language: system
+        pass_filenames: false
+        types_or: [rust, toml]
+      - id: rust-test
+        name: rust tests
+        entry: just test
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
