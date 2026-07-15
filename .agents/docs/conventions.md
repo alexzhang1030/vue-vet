@@ -21,7 +21,7 @@ Vize, Oxc, and ast-grep types remain inside their adapters. Stable downstream co
 
 ## Testing and completion
 
-Use `just` as the canonical task interface and inspect recipes with `just --list`; keep local and CI commands behind the same recipes. Rust work is not complete until `just roll-rust` passes, including format, the workspace's Rolldown-derived strict Clippy policy with warnings denied, workspace tests with the lockfile, and relevant fixture/integration tests. Use `prek` to manage hooks from `.pre-commit-config.yaml`. When local execution is unavailable, state that limitation and use CI as the evidence. Never claim a check passed when it was not run.
+Use `just` as the canonical task interface and inspect recipes with `just --list`; keep local and CI commands behind the same recipes. Rust work is not complete until `just roll-rust` passes, including format, the workspace's Rolldown-derived and Vue Vet-tightened Clippy policy with warnings denied, workspace tests with the lockfile, and relevant fixture/integration tests. Do not add a lint exception without a narrow reason tied to code or an upstream dependency constraint. Use `prek` to manage hooks from `.pre-commit-config.yaml`. When local execution is unavailable, state that limitation and use CI as the evidence. Never claim a check passed when it was not run.
 
 ## Commits and pull requests
 
