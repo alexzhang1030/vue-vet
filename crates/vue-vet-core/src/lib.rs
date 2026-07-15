@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -8,6 +8,23 @@ pub enum Severity {
   Info,
   Warning,
   Error,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Confidence {
+  High,
+  Medium,
+  Low,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct RuleMeta {
+  pub id: &'static str,
+  pub category: &'static str,
+  pub default_severity: Severity,
+  pub confidence: Confidence,
+  pub documentation: &'static str,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -27,6 +44,103 @@ pub struct Diagnostic {
   pub help: Option<String>,
   pub file: PathBuf,
   pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TemplateDirectiveFact {
+  pub name: String,
+  pub raw_name: String,
+  pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TemplateElementFact {
+  pub tag: String,
+  pub span: SourceSpan,
+  pub directives: Vec<TemplateDirectiveFact>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TemplateFacts {
+  pub elements: Vec<TemplateElementFact>,
+}
+
+pub trait Rule: Sync {
+  fn meta(&self) -> &'static RuleMeta;
+  fn run(&self, context: &mut RuleContext<'_>);
+}
+
+pub struct RuleContext<'a> {
+  file: &'a Path,
+  source: &'a str,
+  template: &'a TemplateFacts,
+  diagnostics: &'a mut Vec<Diagnostic>,
+}
+
+impl<'a> RuleContext<'a> {
+  pub const fn new(
+    file: &'a Path,
+    source: &'a str,
+    template: &'a TemplateFacts,
+    diagnostics: &'a mut Vec<Diagnostic>,
+  ) -> Self {
+    Self { file, source, template, diagnostics }
+  }
+
+  #[must_use]
+  pub const fn source(&self) -> &str {
+    self.source
+  }
+
+  #[must_use]
+  pub const fn template(&self) -> &TemplateFacts {
+    self.template
+  }
+
+  pub fn report(
+    &mut self,
+    meta: &RuleMeta,
+    span: SourceSpan,
+    message: String,
+    help: Option<String>,
+  ) {
+    self.diagnostics.push(Diagnostic {
+      rule_id: meta.id.into(),
+      category: meta.category.into(),
+      severity: meta.default_severity,
+      message,
+      help,
+      file: self.file.to_path_buf(),
+      span,
+    });
+  }
+}
+
+pub struct RuleRegistry {
+  rules: Vec<&'static dyn Rule>,
+}
+
+impl RuleRegistry {
+  #[must_use]
+  pub fn new(mut rules: Vec<&'static dyn Rule>) -> Self {
+    rules.sort_by_key(|rule| rule.meta().id);
+    Self { rules }
+  }
+
+  #[must_use]
+  pub fn run(&self, file: &Path, source: &str, template: &TemplateFacts) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    for rule in &self.rules {
+      let mut context = RuleContext::new(file, source, template, &mut diagnostics);
+      rule.run(&mut context);
+    }
+    diagnostics
+  }
+
+  #[must_use]
+  pub fn metadata(&self) -> Vec<&'static RuleMeta> {
+    self.rules.iter().map(|rule| rule.meta()).collect()
+  }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -72,6 +186,33 @@ impl ScanSummary {
 mod tests {
   use super::*;
 
+  struct TestRule(&'static RuleMeta);
+
+  impl Rule for TestRule {
+    fn meta(&self) -> &'static RuleMeta {
+      self.0
+    }
+
+    fn run(&self, _context: &mut RuleContext<'_>) {}
+  }
+
+  static A_META: RuleMeta = RuleMeta {
+    id: "vue-vet/test/a",
+    category: "test",
+    default_severity: Severity::Info,
+    confidence: Confidence::High,
+    documentation: "rules/test/a",
+  };
+  static Z_META: RuleMeta = RuleMeta {
+    id: "vue-vet/test/z",
+    category: "test",
+    default_severity: Severity::Info,
+    confidence: Confidence::High,
+    documentation: "rules/test/z",
+  };
+  static A_RULE: TestRule = TestRule(&A_META);
+  static Z_RULE: TestRule = TestRule(&Z_META);
+
   #[test]
   fn score_is_deterministic_and_saturating() {
     let diagnostic = Diagnostic {
@@ -89,5 +230,12 @@ mod tests {
     assert_eq!(summary.score, 0);
     assert!(summary.fails(true));
     assert!(!summary.fails(false));
+  }
+
+  #[test]
+  fn rule_registry_orders_rules_by_stable_id() {
+    let registry = RuleRegistry::new(vec![&Z_RULE, &A_RULE]);
+    let ids = registry.metadata().into_iter().map(|meta| meta.id).collect::<Vec<_>>();
+    assert_eq!(ids, ["vue-vet/test/a", "vue-vet/test/z"]);
   }
 }

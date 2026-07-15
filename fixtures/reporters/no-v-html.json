@@ -1,0 +1,20 @@
+{
+  "files_scanned": 1,
+  "diagnostics": [
+    {
+      "rule_id": "vue-vet/security/no-v-html",
+      "category": "security",
+      "severity": "warning",
+      "message": "`v-html` can render untrusted HTML into the page",
+      "help": "Prefer normal template interpolation. If raw HTML is required, sanitize it at the trust boundary.",
+      "file": "fixtures/reporters/no-v-html.vue",
+      "span": {
+        "offset": 19,
+        "length": 6,
+        "line": 2,
+        "column": 9
+      }
+    }
+  ],
+  "score": 97
+}

@@ -5,4 +5,3 @@ const html = '<strong>untrusted</strong>'
 <template>
   <main v-html="html" />
 </template>
-

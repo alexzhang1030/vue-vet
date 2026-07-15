@@ -1,0 +1,16 @@
+[
+  {
+    "rule_id": "vue-vet/security/no-v-html",
+    "category": "security",
+    "severity": "warning",
+    "message": "`v-html` can render untrusted HTML into the page",
+    "help": "Prefer normal template interpolation. If raw HTML is required, sanitize it at the trust boundary.",
+    "file": "fixtures/rules/no-v-html/invalid/unicode.vue",
+    "span": {
+      "offset": 40,
+      "length": 6,
+      "line": 3,
+      "column": 9
+    }
+  }
+]

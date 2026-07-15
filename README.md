@@ -19,7 +19,7 @@ The project is an early vertical slice. Today it:
 ```bash
 just vet .
 just vet . --format json
-just vet fixtures --deny-warnings
+just vet fixtures/projects/basic --deny-warnings
 ```
 
 Exit codes are `0` for a passing scan, `1` when diagnostics cross the configured
@@ -53,12 +53,14 @@ upgrades should be paired with fixture and compatibility tests.
 ## Development
 
 The repository pins Rust 1.97.0 and uses `just` as its task runner. Install
-`just` and [`prek`](https://prek.j178.dev/), then run:
+`just`, then prepare a fresh checkout with:
 
 ```sh
-just install-hooks
+just setup
 just roll-rust
 ```
 
-Use `just --list` to see focused formatting, linting, test, and fix tasks. CI
+`just setup` installs the pinned prek release, installs pre-commit and pre-push
+hooks, and runs `just doctor` to verify the complete toolchain. Use
+`just --list` to see focused formatting, linting, smoke-test, and fix tasks. CI
 invokes the same recipes as local development.

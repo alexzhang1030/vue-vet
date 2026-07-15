@@ -1,0 +1,1 @@
+Vize could not parse the SFC: Malformed <template> block: the closing tag is missing.

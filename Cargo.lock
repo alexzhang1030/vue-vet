@@ -2191,12 +2191,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "vue-vet-rules"
+version = "0.1.0"
+dependencies = [
+ "vue-vet-core",
+]
+
+[[package]]
 name = "vue-vet-vize"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "thiserror",
+ "vize_atelier_core",
  "vize_atelier_sfc",
  "vue-vet-core",
+ "vue-vet-rules",
 ]
 
 [[package]]

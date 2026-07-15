@@ -1,0 +1,4 @@
+fixtures/reporters/no-v-html.vue:2:9  warning  vue-vet/security/no-v-html  `v-html` can render untrusted HTML into the page
+  help: Prefer normal template interpolation. If raw HTML is required, sanitize it at the trust boundary.
+
+Vue Vet score: 97/100 — 1 file(s), 1 finding(s)

@@ -10,6 +10,11 @@ Vize 0.291.0 requires Rust 1.95 or newer, and its Oxc dependency requires Rust 1
 
 Vize block locations are offsets into the original SFC, while downstream parsers may operate on extracted script or template content. Every extraction needs an explicit offset map back to the original source. Unicode makes byte/character confusion visible; CRLF makes line calculations visible.
 
+The template parser reports offsets relative to the extracted template content.
+The Vize adapter must add the SFC template block's start offset exactly once
+before creating Vue Vet spans. Persist full diagnostic snapshots for ASCII,
+Unicode, multiline, and multiple-directive inputs whenever this adapter changes.
+
 ## A parsed SFC contains several language surfaces
 
 Template, ordinary script, script setup, styles, and custom blocks have different grammars and semantics. Never run one generic pattern language over the full `.vue` file and present the result as semantic certainty.
