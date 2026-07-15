@@ -4,6 +4,8 @@
 
 Vize is not yet production-stable and publishes frequently. Keep the dependency exact-pinned. An upgrade is a compatibility task: compile, inspect API changes, run golden fixtures and diagnostic snapshots, and record behavior differences. Do not change the version range just to unblock dependency resolution.
 
+Vize 0.291.0 requires Rust 1.95 or newer, and its Oxc dependency requires Rust 1.93 or newer. The original Rust 1.85 pin therefore failed before Vue Vet compiled. Keep the exact Rust toolchain aligned with the workspace `rust-version`, regenerate `Cargo.lock` only with that toolchain, and validate upgrades through `just roll-rust`.
+
 ## SFC offsets are not plain string positions
 
 Vize block locations are offsets into the original SFC, while downstream parsers may operate on extracted script or template content. Every extraction needs an explicit offset map back to the original source. Unicode makes byte/character confusion visible; CRLF makes line calculations visible.
@@ -23,4 +25,3 @@ A changed file can introduce a diagnostic whose best source location is in anoth
 ## The current score is provisional
 
 The initial score is a deterministic vertical-slice implementation, not yet a stable measure of repository health. Before external release, scoring needs documented weights, stable diagnostic fingerprints, baselines, and reference-corpus evidence. Do not optimize rules around the current arithmetic.
-

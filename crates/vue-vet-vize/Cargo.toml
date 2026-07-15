@@ -5,9 +5,15 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Vize-powered Vue SFC analysis for Vue Vet"
+
+[lints]
+workspace = true
 
 [dependencies]
 thiserror.workspace = true
 vize_atelier_sfc.workspace = true
 vue-vet-core = { path = "../vue-vet-core" }
-

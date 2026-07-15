@@ -17,9 +17,9 @@ The project is an early vertical slice. Today it:
 ## Try it
 
 ```bash
-cargo run -p vue-vet -- .
-cargo run -p vue-vet -- . --format json
-cargo run -p vue-vet -- fixtures --deny-warnings
+just vet .
+just vet . --format json
+just vet fixtures --deny-warnings
 ```
 
 Exit codes are `0` for a passing scan, `1` when diagnostics cross the configured
@@ -49,3 +49,16 @@ Durable project rationale and agent guidance are indexed in the
 
 Experimental. Vize itself is moving quickly, so its dependency is pinned and
 upgrades should be paired with fixture and compatibility tests.
+
+## Development
+
+The repository pins Rust 1.97.0 and uses `just` as its task runner. Install
+`just` and [`prek`](https://prek.j178.dev/), then run:
+
+```sh
+just install-hooks
+just roll-rust
+```
+
+Use `just --list` to see focused formatting, linting, test, and fix tasks. CI
+invokes the same recipes as local development.

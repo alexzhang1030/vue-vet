@@ -5,7 +5,13 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "A Rust-native health check for Vue and Nuxt codebases"
+
+[lints]
+workspace = true
 
 [dependencies]
 clap.workspace = true
@@ -17,4 +23,3 @@ vue-vet-vize = { path = "../vue-vet-vize" }
 [[bin]]
 name = "vue-vet"
 path = "src/main.rs"
-
