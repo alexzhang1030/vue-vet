@@ -4,6 +4,24 @@ set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 _default:
   @just --list -u
 
+# Prepare a fresh checkout after `just` itself is installed.
+setup:
+  rustup component add clippy rustfmt
+  cargo install prek --version 0.4.9 --locked
+  prek install --hook-type pre-commit --hook-type pre-push
+  just doctor
+
+# Verify the pinned Rust toolchain and all repository development tools.
+doctor:
+  rustc --version --verbose
+  cargo --version
+  cargo clippy --version
+  cargo fmt --version
+  just --version
+  prek --version
+  prek validate-config .pre-commit-config.yaml
+  cargo check --workspace --locked --quiet
+
 # Run Vue Vet; pass CLI arguments after the recipe name.
 vet *args:
   cargo run -p vue-vet -- {{args}}
@@ -33,6 +51,13 @@ clippy:
 # Run all tests using the committed lockfile.
 test:
   cargo test --workspace --all-features --locked
+
+# Run CLI fixture smoke tests only.
+smoke:
+  cargo test -p vue-vet --test cli --locked
+
+# Run the golden fixture and reporter snapshots in one unified feature build.
+snapshots: test
 
 # Apply safe formatter and Clippy fixes to the working tree.
 fix-rust:

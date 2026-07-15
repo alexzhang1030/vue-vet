@@ -66,9 +66,12 @@ Delivered:
 - `.vue` discovery with ignore support
 - Vize SFC parsing
 - stable serializable diagnostic model
+- dependency-neutral template facts and deterministic built-in rule registry
 - text and JSON reporters
 - deterministic score and CI exit policy
-- first diagnostic: `vue-vet/security/no-v-html`
+- Vize template AST-backed diagnostic: `vue-vet/security/no-v-html`
+- golden diagnostic, parser-error, and reporter snapshots
+- Unicode, multiline, multiple-finding, safe-pattern, and malformed fixtures
 - Linux, macOS, and Windows CI definition
 
 Exit criteria:
@@ -80,11 +83,11 @@ Exit criteria:
 
 Immediate tasks:
 
-1. Run the first GitHub Actions build and fix dependency/API drift.
-2. Replace the temporary attribute scanner with Vize template AST traversal.
-3. Add golden fixtures for valid, invalid, commented, and Unicode SFC input.
-4. Define the rule trait and a test harness for diagnostic snapshots.
-5. Add license, contribution guide, and security policy before outside access.
+1. Validate the completed vertical slice in GitHub Actions on all three operating
+   systems.
+2. Merge the M0 implementation PRs and close issues #1, #6, and #2 with CI
+   evidence.
+3. Add license, contribution guide, and security policy before outside access.
 
 ## M1 — useful local doctor
 

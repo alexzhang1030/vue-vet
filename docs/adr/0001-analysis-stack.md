@@ -26,3 +26,5 @@ fixes. Those capabilities require a semantic product layer.
   pipeline but must declare their language surface and severity.
 - Every dependency upgrade needs golden SFC fixtures and diagnostic snapshots.
 
+The executable Vize compatibility assumptions and upgrade checklist live in
+[the Vize compatibility baseline](../vize-compatibility.md).

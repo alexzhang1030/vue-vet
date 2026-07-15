@@ -2,6 +2,7 @@
 members = [
   "crates/vue-vet-cli",
   "crates/vue-vet-core",
+  "crates/vue-vet-rules",
   "crates/vue-vet-vize",
 ]
 resolver = "3"
@@ -23,6 +24,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 vize_atelier_sfc = "=0.291.0"
+vize_atelier_core = "=0.291.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

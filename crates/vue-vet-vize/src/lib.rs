@@ -1,76 +1,109 @@
 use std::path::Path;
 
 use thiserror::Error;
+use vize_atelier_core::{Allocator, ElementNode, PropNode, TemplateChildNode, parse};
 use vize_atelier_sfc::{SfcParseOptions, parse_sfc};
-use vue_vet_core::{Diagnostic, Severity, SourceSpan};
+use vue_vet_core::{
+  Diagnostic, SourceSpan, TemplateDirectiveFact, TemplateElementFact, TemplateFacts,
+};
+use vue_vet_rules::builtin_registry;
 
 #[derive(Debug, Error)]
 pub enum AnalyzeError {
   #[error("Vize could not parse the SFC: {0}")]
   Parse(String),
+  #[error("Vize could not parse the template: {0}")]
+  Template(String),
 }
 
 /// Analyze one Vue single-file component.
 ///
 /// # Errors
 ///
-/// Returns [`AnalyzeError::Parse`] when Vize cannot parse the component.
+/// Returns [`AnalyzeError::Parse`] when Vize cannot parse the component or
+/// [`AnalyzeError::Template`] when its template contains a fatal parse error.
 pub fn analyze_sfc(path: &Path, source: &str) -> Result<Vec<Diagnostic>, AnalyzeError> {
   let descriptor = parse_sfc(source, SfcParseOptions::default())
     .map_err(|error| AnalyzeError::Parse(error.message.into()))?;
-  let mut diagnostics = Vec::new();
-
-  if let Some(template) = descriptor.template {
-    for relative_offset in attribute_offsets(&template.content, "v-html") {
-      let offset = template.loc.start + relative_offset;
-      let (line, column) = line_column(source, offset);
-      diagnostics.push(Diagnostic {
-                rule_id: "vue-vet/security/no-v-html".into(),
-                category: "security".into(),
-                severity: Severity::Warning,
-                message: "`v-html` can render untrusted HTML into the page".into(),
-                help: Some(
-                    "Prefer normal template interpolation. If raw HTML is required, sanitize it at the trust boundary."
-                        .into(),
-                ),
-                file: path.to_path_buf(),
-                span: SourceSpan { offset, length: "v-html".len(), line, column },
-            });
-    }
-  }
-
-  Ok(diagnostics)
+  let Some(template) = descriptor.template else {
+    return Ok(Vec::new());
+  };
+  let facts = extract_template_facts(source, &template.content, template.loc.start)?;
+  Ok(builtin_registry().run(path, source, &facts))
 }
 
-fn attribute_offsets(template: &str, attribute: &str) -> Vec<usize> {
-  template
-    .match_indices(attribute)
-    .filter_map(|(offset, _)| {
-      let prefix = template.get(..offset)?;
-      let suffix = template.get(offset + attribute.len()..)?;
-      let before = prefix.chars().next_back();
-      let after = suffix.chars().next();
-      let boundary_before =
-        before.is_some_and(|character| character.is_ascii_whitespace() || character == '<');
-      let boundary_after = after.is_none_or(|character| {
-        character.is_ascii_whitespace() || matches!(character, '=' | '.' | '>' | '/')
-      });
+fn extract_template_facts(
+  source: &str,
+  template: &str,
+  template_offset: usize,
+) -> Result<TemplateFacts, AnalyzeError> {
+  let allocator = Allocator::default();
+  let (root, errors) = parse(allocator.as_bump(), template);
+  if let Some(error) = errors.iter().find(|error| !error.is_recoverable()) {
+    return Err(AnalyzeError::Template(error.to_string()));
+  }
 
-      let opening = prefix.rfind('<')?;
-      let closing = prefix.rfind('>');
-      let inside_tag = closing.is_none_or(|closing| opening > closing);
-      let tag_tail = template.get(opening + 1..offset)?;
-      let is_start_tag =
-        tag_tail.chars().next().is_none_or(|character| !matches!(character, '!' | '/' | '?'));
-      let comment_start = prefix.rfind("<!--");
-      let comment_end = prefix.rfind("-->");
-      let inside_comment =
-        comment_start.is_some_and(|start| comment_end.is_none_or(|end| start > end));
+  let mut facts = TemplateFacts::default();
+  collect_children(source, template_offset, &root.children, &mut facts);
+  Ok(facts)
+}
 
-      (boundary_before && boundary_after && inside_tag && is_start_tag && !inside_comment)
-        .then_some(offset)
+fn collect_children(
+  source: &str,
+  template_offset: usize,
+  children: &[TemplateChildNode<'_>],
+  facts: &mut TemplateFacts,
+) {
+  for child in children {
+    if let TemplateChildNode::Element(element) = child {
+      collect_element(source, template_offset, element, facts);
+    }
+  }
+}
+
+fn collect_element(
+  source: &str,
+  template_offset: usize,
+  element: &ElementNode<'_>,
+  facts: &mut TemplateFacts,
+) {
+  let offset = template_offset.saturating_add(position_offset(element.loc.start.offset));
+  let end = template_offset.saturating_add(position_offset(element.loc.end.offset));
+  let directives = element
+    .props
+    .iter()
+    .filter_map(|prop| {
+      let PropNode::Directive(directive) = prop else {
+        return None;
+      };
+      let raw_name = directive
+        .raw_name
+        .as_ref()
+        .map_or_else(|| format!("v-{}", directive.name), ToString::to_string);
+      let offset = template_offset.saturating_add(position_offset(directive.loc.start.offset));
+      Some(TemplateDirectiveFact {
+        name: directive.name.to_string(),
+        span: source_span(source, offset, raw_name.len()),
+        raw_name,
+      })
     })
-    .collect()
+    .collect();
+
+  facts.elements.push(TemplateElementFact {
+    tag: element.tag.to_string(),
+    span: source_span(source, offset, end.saturating_sub(offset)),
+    directives,
+  });
+  collect_children(source, template_offset, &element.children, facts);
+}
+
+fn position_offset(offset: u32) -> usize {
+  usize::try_from(offset).unwrap_or(usize::MAX)
+}
+
+fn source_span(source: &str, offset: usize, length: usize) -> SourceSpan {
+  let (line, column) = line_column(source, offset);
+  SourceSpan { offset, length, line, column }
 }
 
 fn line_column(source: &str, offset: usize) -> (usize, usize) {

@@ -5,12 +5,17 @@
 ```text
 vue-vet CLI
   -> ignore-aware .vue discovery
-  -> vue-vet-vize SFC parsing and analysis
+  -> vue-vet-vize SFC and template AST parsing
+  -> Vue Vet-owned template facts
+  -> vue-vet-rules built-in rule registry
   -> vue-vet-core diagnostics, spans, scoring
   -> text or JSON output and CI exit policy
 ```
 
-The current implementation is intentionally small. The existing `no-v-html` attribute scanner is temporary and is scheduled to become the reference Vize AST-backed built-in rule in issue #2.
+The current implementation is intentionally small. `no-v-html` is the reference
+AST-backed built-in rule: the Vize adapter traverses template elements and
+directives, converts them to dependency-neutral facts, then the deterministic
+rule registry emits Vue Vet diagnostics.
 
 ## Stable boundary
 
@@ -31,7 +36,11 @@ project discovery and configuration
 
 ## Crate evolution
 
-Existing crates are `vue-vet-core`, `vue-vet-vize`, and the `vue-vet` CLI. Planned boundaries include `vue-vet-oxc`, `vue-vet-rules`, `vue-vet-patterns`, `vue-vet-project`, and `vue-vet-reporters`. A planned name is not authorization to create an empty abstraction: introduce the crate only when a working vertical slice uses it.
+Existing crates are `vue-vet-core`, `vue-vet-vize`, `vue-vet-rules`, and the
+`vue-vet` CLI. Planned boundaries include `vue-vet-oxc`, `vue-vet-patterns`,
+`vue-vet-project`, and `vue-vet-reporters`. A planned name is not authorization
+to create an empty abstraction: introduce the crate only when a working vertical
+slice uses it.
 
 ## Identity and determinism
 
@@ -42,4 +51,3 @@ Rule IDs and diagnostic fingerprints must remain stable enough for baselines, di
 Cross-file findings are derived from a Vue Vet-owned graph of imports, components, composables, routes, stores, and Nuxt conventions. Diff mode must invalidate and re-run affected graph consumers; it cannot scan only changed files and silently lose a newly caused project-level failure.
 
 See [technology stack](./technology-stack.md), [conventions](./conventions.md), and [the roadmap](../../ROADMAP.md).
-
