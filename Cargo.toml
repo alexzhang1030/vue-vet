@@ -1,0 +1,28 @@
+[workspace]
+members = [
+  "crates/vue-vet-cli",
+  "crates/vue-vet-core",
+  "crates/vue-vet-vize",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/vue-vet/vue-vet"
+rust-version = "1.85"
+
+[workspace.dependencies]
+clap = { version = "4.5", features = ["derive"] }
+ignore = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+vize_atelier_sfc = "=0.291.0"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+
