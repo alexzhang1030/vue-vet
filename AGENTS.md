@@ -18,7 +18,7 @@ This file is the single source of truth for coding agents working in Vue Vet. `C
 - Keep results deterministic across operating systems: normalize paths, sort diagnostics, and never depend on hash-map iteration order.
 - Preserve source byte offsets and explicitly convert them to user-facing line/column positions. Test Unicode and CRLF when span logic changes.
 - Do not loosen a pinned analysis dependency or update snapshots merely to make CI green. Record why behavior changed and add compatibility evidence.
-- Run `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace --locked` before declaring Rust work complete. If the environment cannot run them, report that explicitly and rely on CI rather than claiming success.
+- Prefer repository `just` recipes over direct `cargo` commands; inspect available tasks with `just --list`. Run `just roll-rust` before declaring Rust work complete. If the environment cannot run it, report that explicitly and rely on CI rather than claiming success.
 - Use Conventional Commits in the form `type(scope): imperative summary`. Prefer `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, and `revert`; add `!` and a `BREAKING CHANGE:` footer for breaking contracts.
 - Prefer a focused branch and pull request over committing directly to `main`. Link the relevant issue, keep the PR draft until its acceptance criteria and checks are satisfied, and use a direct default-branch commit only when the user explicitly requests it or an emergency procedure requires it.
 - Update the relevant PCR record in the same change when architecture, intent, constraints, conventions, or known traps change.
