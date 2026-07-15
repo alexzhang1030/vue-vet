@@ -42,8 +42,10 @@ project rules; it will not replace Vue-aware analysis.
 See [the architecture decision](docs/adr/0001-analysis-stack.md) and
 [the roadmap](ROADMAP.md).
 
+Durable project rationale and agent guidance are indexed in the
+[project context map](.agents/docs/README.md).
+
 ## Status
 
 Experimental. Vize itself is moving quickly, so its dependency is pinned and
 upgrades should be paired with fixture and compatibility tests.
-
