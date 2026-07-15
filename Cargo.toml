@@ -10,7 +10,7 @@ resolver = "2"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/vue-vet/vue-vet"
+repository = "https://github.com/alexzhang1030/vue-vet"
 rust-version = "1.85"
 
 [workspace.dependencies]
@@ -25,4 +25,3 @@ vize_atelier_sfc = "=0.291.0"
 lto = "thin"
 codegen-units = 1
 strip = "symbols"
-
