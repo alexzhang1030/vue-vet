@@ -29,7 +29,7 @@ mod valid_aria_role;
 mod valid_v_html;
 mod valid_v_text;
 
-pub(super) fn builtins() -> Vec<&'static dyn Rule> {
+pub fn builtins() -> Vec<&'static dyn Rule> {
   vec![
     &anchor_has_content::RULE,
     &button_has_content::RULE,
