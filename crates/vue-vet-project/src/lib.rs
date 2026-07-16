@@ -359,6 +359,8 @@ mod tests {
           })
           .collect(),
         member_writes: Vec::new(),
+        destructures: Vec::new(),
+        reactivity_graph: vue_vet_core::ReactivityGraph::default(),
       }],
     };
     let template = TemplateFacts {

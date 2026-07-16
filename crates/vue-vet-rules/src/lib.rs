@@ -1,5 +1,6 @@
 use vue_vet_core::{
-  Confidence, Rule, RuleContext, RuleMeta, RuleRegistry, Severity, SourceSpan, TemplateElementFact,
+  Confidence, ReactiveBindingKind, Rule, RuleContext, RuleMeta, RuleRegistry, Severity, SourceSpan,
+  TemplateElementFact,
 };
 
 const NO_V_HTML_META: RuleMeta = RuleMeta {
@@ -134,6 +135,27 @@ const NO_MUTATING_PROPS_META: RuleMeta = RuleMeta {
   default_severity: Severity::Error,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-mutating-props",
+};
+const NO_CONDITIONAL_WATCH_EFFECT_DEPENDENCY_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-conditional-watch-effect-dependency",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-conditional-watch-effect-dependency",
+};
+const NO_NONREACTIVE_PROPS_DESTRUCTURE_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-nonreactive-props-destructure",
+  category: "reactivity",
+  default_severity: Severity::Error,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-nonreactive-props-destructure",
+};
+const PREFER_USE_TEMPLATE_REF_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/prefer-use-template-ref",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/prefer-use-template-ref",
 };
 const NO_POSITIVE_TABINDEX_META: RuleMeta = RuleMeta {
   id: "vue-vet/accessibility/no-positive-tabindex",
@@ -566,6 +588,9 @@ fn distracting_element(element: &TemplateElementFact) -> Option<Finding> {
 }
 
 struct NoMutatingProps;
+struct NoConditionalWatchEffectDependency;
+struct NoNonreactivePropsDestructure;
+struct PreferUseTemplateRef;
 
 struct SingleCompilerMacroRule {
   meta: &'static RuleMeta,
@@ -593,6 +618,117 @@ impl Rule for SingleCompilerMacroRule {
         span,
         format!("`{macro_name}` may only be called once in `<script setup>`"),
         Some(format!("Merge the declarations into a single `{macro_name}` call.")),
+      );
+    }
+  }
+}
+
+impl Rule for NoConditionalWatchEffectDependency {
+  fn meta(&self) -> &'static RuleMeta {
+    &NO_CONDITIONAL_WATCH_EFFECT_DEPENDENCY_META
+  }
+
+  fn run(&self, context: &mut RuleContext<'_>) {
+    let reads = context
+      .script()
+      .blocks
+      .iter()
+      .flat_map(|block| &block.reactivity_graph.effects)
+      .flat_map(|effect| &effect.reads)
+      .filter_map(|read| {
+        read
+          .guarded_by
+          .as_ref()
+          .map(|guard| (read.span.clone(), read.binding.clone(), guard.clone()))
+      })
+      .collect::<Vec<_>>();
+    for (span, binding, guard) in reads {
+      context.report(
+        self.meta(),
+        span,
+        format!("`{binding}` is only tracked after the `{guard}` guard passes"),
+        Some(
+          "If both values must invalidate the effect, use an explicit watch source array or read            every dependency before the guard."
+            .into(),
+        ),
+      );
+    }
+  }
+}
+
+impl Rule for NoNonreactivePropsDestructure {
+  fn meta(&self) -> &'static RuleMeta {
+    &NO_NONREACTIVE_PROPS_DESTRUCTURE_META
+  }
+
+  fn run(&self, context: &mut RuleContext<'_>) {
+    let Some(version) = context.environment().vue_version else {
+      return;
+    };
+    if version.is_at_least(3, 5) {
+      return;
+    }
+    let spans = context
+      .script()
+      .blocks
+      .iter()
+      .filter(|block| block.kind == vue_vet_core::ScriptKind::Setup)
+      .flat_map(|block| &block.destructures)
+      .filter(|destructure| destructure.source_call == "defineProps")
+      .map(|destructure| destructure.span.clone())
+      .collect::<Vec<_>>();
+    for span in spans {
+      context.report(
+        self.meta(),
+        span,
+        "destructured props are not reactive before Vue 3.5".into(),
+        Some(
+          "Assign defineProps() to an object, then destructure toRefs(props), or keep property            access through the props object."
+            .into(),
+        ),
+      );
+    }
+  }
+}
+
+impl Rule for PreferUseTemplateRef {
+  fn meta(&self) -> &'static RuleMeta {
+    &PREFER_USE_TEMPLATE_REF_META
+  }
+
+  fn run(&self, context: &mut RuleContext<'_>) {
+    let Some(version) = context.environment().vue_version else {
+      return;
+    };
+    if !version.is_at_least(3, 5) {
+      return;
+    }
+    let template_refs = context
+      .template()
+      .elements
+      .iter()
+      .filter_map(|element| element.attribute("ref"))
+      .filter_map(|attribute| attribute.value.as_deref())
+      .collect::<Vec<_>>();
+    let bindings = context
+      .script()
+      .blocks
+      .iter()
+      .filter(|block| block.kind == vue_vet_core::ScriptKind::Setup)
+      .flat_map(|block| &block.reactivity_graph.bindings)
+      .filter(|binding| {
+        binding.kind == ReactiveBindingKind::Ref
+          && binding.initialized_with_null
+          && template_refs.iter().any(|template_ref| **template_ref == binding.name)
+      })
+      .map(|binding| (binding.span.clone(), binding.name.clone()))
+      .collect::<Vec<_>>();
+    for (span, name) in bindings {
+      context.report(
+        self.meta(),
+        span,
+        format!("`{name}` mirrors a static template ref with `ref(null)`"),
+        Some(format!("Use `useTemplateRef('{name}')`, available in Vue 3.5 and newer.")),
       );
     }
   }
@@ -667,6 +803,11 @@ template_rule!(NO_REDUNDANT_ROLE, NO_REDUNDANT_ROLE_META, NoRedundantRole);
 template_rule!(NO_DEPRECATED_SLOT_SCOPE, NO_DEPRECATED_SLOT_SCOPE_META, NoDeprecatedSlotScope);
 template_rule!(NO_DISTRACTING_ELEMENTS, NO_DISTRACTING_ELEMENTS_META, NoDistractingElements);
 static NO_MUTATING_PROPS: NoMutatingProps = NoMutatingProps;
+static NO_CONDITIONAL_WATCH_EFFECT_DEPENDENCY: NoConditionalWatchEffectDependency =
+  NoConditionalWatchEffectDependency;
+static NO_NONREACTIVE_PROPS_DESTRUCTURE: NoNonreactivePropsDestructure =
+  NoNonreactivePropsDestructure;
+static PREFER_USE_TEMPLATE_REF: PreferUseTemplateRef = PreferUseTemplateRef;
 static NO_DUPLICATE_DEFINE_PROPS: SingleCompilerMacroRule =
   SingleCompilerMacroRule { meta: &NO_DUPLICATE_DEFINE_PROPS_META, macro_name: "defineProps" };
 static NO_DUPLICATE_DEFINE_EMITS: SingleCompilerMacroRule =
@@ -706,6 +847,9 @@ pub fn builtin_registry() -> RuleRegistry {
     &NO_DEPRECATED_SLOT_SCOPE,
     &NO_DISTRACTING_ELEMENTS,
     &NO_MUTATING_PROPS,
+    &NO_CONDITIONAL_WATCH_EFFECT_DEPENDENCY,
+    &NO_NONREACTIVE_PROPS_DESTRUCTURE,
+    &PREFER_USE_TEMPLATE_REF,
   ])
 }
 
@@ -716,7 +860,7 @@ mod tests {
   #[test]
   fn builtins_have_stable_metadata() {
     let metadata = builtin_registry().metadata();
-    assert_eq!(metadata.len(), 25, "the recommended preset contains twenty-five rules");
+    assert_eq!(metadata.len(), 28, "the recommended preset contains twenty-eight rules");
     assert!(
       metadata.windows(2).all(|pair| matches!(pair, [first, second] if first.id < second.id)),
       "registry metadata must be sorted by stable rule ID"

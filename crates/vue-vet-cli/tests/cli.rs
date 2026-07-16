@@ -276,6 +276,47 @@ fn written_baseline_hides_only_the_existing_fixture_findings() {
 }
 
 #[test]
+fn project_vue_version_gates_reactivity_rules() {
+  let old = fixture("projects/vue-3.4");
+  let old_output = run(&[old.to_string_lossy().as_ref(), "--format", "json", "--no-cache"]);
+  let old_report: Result<Value, _> = serde_json::from_slice(&old_output.stdout);
+  let old_ids = old_report
+    .as_ref()
+    .ok()
+    .and_then(|report| report.get("diagnostics"))
+    .and_then(Value::as_array)
+    .into_iter()
+    .flatten()
+    .filter_map(|diagnostic| diagnostic.get("rule_id"))
+    .filter_map(Value::as_str)
+    .collect::<Vec<_>>();
+  assert!(
+    old_ids.contains(&"vue-vet/reactivity/no-nonreactive-props-destructure"),
+    "Vue 3.4 must report direct props destructuring"
+  );
+  assert!(!old_ids.contains(&"vue-vet/reactivity/prefer-use-template-ref"));
+
+  let current = fixture("projects/vue-3.5");
+  let current_output = run(&[current.to_string_lossy().as_ref(), "--format", "json", "--no-cache"]);
+  let current_report: Result<Value, _> = serde_json::from_slice(&current_output.stdout);
+  let current_ids = current_report
+    .as_ref()
+    .ok()
+    .and_then(|report| report.get("diagnostics"))
+    .and_then(Value::as_array)
+    .into_iter()
+    .flatten()
+    .filter_map(|diagnostic| diagnostic.get("rule_id"))
+    .filter_map(Value::as_str)
+    .collect::<Vec<_>>();
+  assert!(!current_ids.contains(&"vue-vet/reactivity/no-nonreactive-props-destructure"));
+  assert!(
+    current_ids.contains(&"vue-vet/reactivity/prefer-use-template-ref"),
+    "Vue 3.5 must prefer useTemplateRef for matching ref(null) bindings"
+  );
+}
+
+#[test]
 fn reference_fixture_corpus_never_crashes() {
   let mut sources = Vec::new();
   collect_reference_sources(&fixture(""), &mut sources);

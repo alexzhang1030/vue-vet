@@ -9,7 +9,7 @@ vue-vet CLI
   -> vue-vet-vize SFC and template AST parsing
   -> Vue Vet-owned template facts
   -> vue-vet-oxc script parsing and semantic analysis
-  -> Vue Vet-owned script imports, bindings, calls, and write facts
+  -> Vue Vet-owned script imports, bindings, calls, writes, destructures, and reactivity graph facts
   -> vue-vet-rules built-in rule registry
   -> severity overrides and scoped suppressions
   -> vue-vet-core diagnostics, spans, scoring
@@ -18,7 +18,11 @@ vue-vet CLI
 
 `no-v-html` remains the reference AST-backed built-in rule. Phase 2 adds the Oxc
 adapter while keeping both dependency ASTs behind Vue Vet-owned facts.
-Configuration changes rule enablement and severity after semantic analysis;
+The CLI derives per-file Vue capabilities from the nearest package.json and passes
+them into per-file rules without exposing package-manager state to parser adapters.
+The Oxc adapter records reactive binding nodes and conditional effect-read edges as
+serializable Vue Vet facts; rules never receive Oxc nodes. Configuration changes
+rule enablement and severity after semantic analysis;
 suppressions are applied after diagnostic normalization and emit findings when
 unused.
 

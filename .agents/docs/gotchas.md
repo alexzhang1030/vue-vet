@@ -52,3 +52,17 @@ create a finding on a file that has no remaining path back to the changed file.
 ## The current score is provisional
 
 The initial score is a deterministic vertical-slice implementation, not yet a stable measure of repository health. Before external release, scoring needs documented weights, stable diagnostic fingerprints, baselines, and reference-corpus evidence. Do not optimize rules around the current arithmetic.
+
+## Vue behavior must be capability-gated
+
+Vue compiler behavior is not uniform across Vue 3 releases. Reactive props
+destructuring and `useTemplateRef()` are available in Vue 3.5+, while direct
+`defineProps()` destructuring loses reactivity in 3.4 and older. Version-aware
+rules read the nearest numeric `vue` requirement from `package.json`, include
+that manifest in cache inputs, and stay quiet when the capability is unknown.
+
+`watchEffect()` subscribes only to reactive reads reached during synchronous
+execution. Model guarded reads as graph edges derived from Oxc control structure;
+do not rediscover them with source text matching. A conditional edge is evidence
+about tracking behavior, so diagnostics must describe the condition and recommend
+explicit `watch` sources when all inputs are intended to invalidate the effect.

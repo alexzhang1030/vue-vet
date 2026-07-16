@@ -1,4 +1,13 @@
 <script setup lang="ts">
+import { computed, ref, watchEffect } from 'vue'
+
+const ready = computed(() => false)
+const guardedValue = ref(0)
+watchEffect(() => {
+  if (!ready.value) return
+  console.log(guardedValue.value)
+})
+
 const componentProps = defineProps<{ title: string }>()
 defineProps<{ count: number }>()
 defineEmits()

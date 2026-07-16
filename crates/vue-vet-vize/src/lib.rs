@@ -6,8 +6,8 @@ use vize_atelier_core::{
 };
 use vize_atelier_sfc::{SfcParseOptions, parse_sfc};
 use vue_vet_core::{
-  Diagnostic, ScriptFacts, ScriptKind, SfcFacts, SourceSpan, TemplateAttributeFact,
-  TemplateDirectiveFact, TemplateElementFact, TemplateFacts,
+  Diagnostic, RuleEnvironment, ScriptFacts, ScriptKind, SfcFacts, SourceSpan,
+  TemplateAttributeFact, TemplateDirectiveFact, TemplateElementFact, TemplateFacts,
 };
 use vue_vet_oxc::{AnalyzeScriptError, analyze_script};
 use vue_vet_rules::builtin_registry;
@@ -45,6 +45,19 @@ pub fn analyze_sfc(path: &Path, source: &str) -> Result<Vec<Diagnostic>, Analyze
 ///
 /// Returns the same deterministic parse and semantic errors as [`analyze_sfc`].
 pub fn analyze_sfc_with_facts(path: &Path, source: &str) -> Result<AnalyzedSfc, AnalyzeError> {
+  analyze_sfc_with_environment(path, source, RuleEnvironment::default())
+}
+
+/// Analyze one Vue SFC with project capability information.
+///
+/// # Errors
+///
+/// Returns the same deterministic parse and semantic errors as [`analyze_sfc`].
+pub fn analyze_sfc_with_environment(
+  path: &Path,
+  source: &str,
+  environment: RuleEnvironment,
+) -> Result<AnalyzedSfc, AnalyzeError> {
   let descriptor = parse_sfc(source, SfcParseOptions::default())
     .map_err(|error| AnalyzeError::Parse(error.message.into()))?;
   let template = if let Some(template) = descriptor.template {
@@ -71,7 +84,8 @@ pub fn analyze_sfc_with_facts(path: &Path, source: &str) -> Result<AnalyzedSfc, 
       ScriptKind::Setup,
     )?);
   }
-  let diagnostics = builtin_registry().run(path, source, &template, &script);
+  let diagnostics =
+    builtin_registry().run_with_environment(path, source, &template, &script, environment);
   Ok(AnalyzedSfc { diagnostics, facts: SfcFacts { template, script } })
 }
 
