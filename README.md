@@ -26,6 +26,9 @@ just vet .
 just vet . --format json
 just vet fixtures/projects/basic --deny-warnings
 just vet fixtures/projects/nuxt-graph --print-graph
+just vet . --cache-stats
+just vet . --write-baseline vue-vet-baseline.json
+just vet . --baseline vue-vet-baseline.json --diff main
 ```
 
 ## Configuration
@@ -79,6 +82,8 @@ project rules; it will not replace Vue-aware analysis.
 See [the architecture decision](docs/adr/0001-analysis-stack.md) and
 [the roadmap](ROADMAP.md). Project resolution and Nuxt convention limitations
 are documented in [the project graph guide](docs/project-graph.md).
+Cache keys, baseline fingerprints, and diff completeness guarantees are
+documented in [the cache and diff guide](docs/cache-baseline-diff.md).
 
 Durable project rationale and agent guidance are indexed in the
 [project context map](.agents/docs/README.md).
