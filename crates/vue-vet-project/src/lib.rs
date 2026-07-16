@@ -5,6 +5,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use vue_vet_core::{Diagnostic, ScriptFacts, Severity, SfcFacts, SourceSpan};
+use vue_vet_reactivity::{ModuleLink, ModuleReactivity, ModuleSource, trace_modules};
 
 pub const CONVENTIONS_VERSION: u32 = 1;
 pub const PROJECT_RULE_IDS: [&str; 2] =
@@ -15,6 +16,7 @@ pub struct ProjectFile {
   pub path: PathBuf,
   pub source_len: usize,
   pub facts: SfcFacts,
+  pub module_source: Option<ModuleSource>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -67,6 +69,8 @@ pub struct ProjectGraph {
   pub edges: Vec<GraphEdge>,
   pub diagnostics: Vec<Diagnostic>,
   pub invalidation_inputs: Vec<String>,
+  pub module_reactivity: Vec<ModuleReactivity>,
+  pub reactivity_error: Option<String>,
 }
 
 #[must_use]
@@ -87,6 +91,16 @@ pub fn build_project_graph(files: &[ProjectFile]) -> ProjectGraph {
     .filter(|node| node.kind == NodeKind::Composable)
     .map(|node| (node.name.clone(), node.id.clone()))
     .collect::<BTreeMap<_, _>>();
+  let module_sources = ordered
+    .iter()
+    .filter_map(|file| file.module_source.clone())
+    .map(|mut module| {
+      module.id = normalized_path(Path::new(&module.id));
+      module
+    })
+    .collect::<Vec<_>>();
+  let module_ids = module_sources.iter().map(|module| module.id.clone()).collect::<BTreeSet<_>>();
+  let mut module_links = Vec::new();
   let mut external_nodes = BTreeMap::new();
   let mut edges = Vec::new();
   let mut diagnostics = Vec::new();
@@ -100,6 +114,13 @@ pub fn build_project_graph(files: &[ProjectFile]) -> ProjectGraph {
         Resolution::File(target) => {
           if let Some(to) = node_by_path.get(&target) {
             edges.push(edge(&from, to, EdgeKind::Import, &import.source, import.span.clone()));
+          }
+          if module_ids.contains(&path) && module_ids.contains(&target) {
+            module_links.push(ModuleLink {
+              from: path.clone(),
+              specifier: import.source.clone(),
+              to: target,
+            });
           }
         }
         Resolution::External(package) => {
@@ -156,12 +177,18 @@ pub fn build_project_graph(files: &[ProjectFile]) -> ProjectGraph {
       &right.rule_id,
     ))
   });
+  let (module_reactivity, reactivity_error) = match trace_modules(&module_sources, &module_links) {
+    Ok(reactivity) => (reactivity, None),
+    Err(error) => (Vec::new(), Some(error.to_string())),
+  };
   ProjectGraph {
     conventions_version: CONVENTIONS_VERSION,
     nodes,
     edges,
     diagnostics,
     invalidation_inputs: known.into_iter().collect(),
+    module_reactivity,
+    reactivity_error,
   }
 }
 
@@ -376,7 +403,12 @@ mod tests {
         })
         .collect(),
     };
-    ProjectFile { path: path.into(), source_len: 100, facts: SfcFacts { template, script } }
+    ProjectFile {
+      path: path.into(),
+      source_len: 100,
+      facts: SfcFacts { template, script },
+      module_source: None,
+    }
   }
 
   #[test]
