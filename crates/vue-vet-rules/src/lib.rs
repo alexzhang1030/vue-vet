@@ -548,11 +548,7 @@ fn deprecated_slot_scope(element: &TemplateElementFact) -> Option<Finding> {
   element
     .attribute("slot-scope")
     .or_else(|| {
-      if element.tag.eq_ignore_ascii_case("template") {
-        element.attribute("scope")
-      } else {
-        None
-      }
+      if element.tag.eq_ignore_ascii_case("template") { element.attribute("scope") } else { None }
     })
     .map(|attribute| Finding {
       span: attribute.span.clone(),
@@ -589,9 +585,7 @@ impl Rule for SingleCompilerMacroRule {
       .blocks
       .iter()
       .filter(|block| block.kind == vue_vet_core::ScriptKind::Setup)
-      .flat_map(|block| {
-        block.calls.iter().filter(|call| call.callee == macro_name).skip(1)
-      })
+      .flat_map(|block| block.calls.iter().filter(|call| call.callee == macro_name).skip(1))
       .map(|call| call.span.clone())
       .collect::<Vec<_>>();
     for span in spans {
@@ -671,16 +665,8 @@ template_rule!(
 );
 template_rule!(VALID_ARIA_ROLE, VALID_ARIA_ROLE_META, ValidAriaRole);
 template_rule!(NO_REDUNDANT_ROLE, NO_REDUNDANT_ROLE_META, NoRedundantRole);
-template_rule!(
-  NO_DEPRECATED_SLOT_SCOPE,
-  NO_DEPRECATED_SLOT_SCOPE_META,
-  NoDeprecatedSlotScope
-);
-template_rule!(
-  NO_DISTRACTING_ELEMENTS,
-  NO_DISTRACTING_ELEMENTS_META,
-  NoDistractingElements
-);
+template_rule!(NO_DEPRECATED_SLOT_SCOPE, NO_DEPRECATED_SLOT_SCOPE_META, NoDeprecatedSlotScope);
+template_rule!(NO_DISTRACTING_ELEMENTS, NO_DISTRACTING_ELEMENTS_META, NoDistractingElements);
 static NO_MUTATING_PROPS: NoMutatingProps = NoMutatingProps;
 static NO_DUPLICATE_DEFINE_PROPS: SingleCompilerMacroRule =
   SingleCompilerMacroRule { meta: &NO_DUPLICATE_DEFINE_PROPS_META, macro_name: "defineProps" };
