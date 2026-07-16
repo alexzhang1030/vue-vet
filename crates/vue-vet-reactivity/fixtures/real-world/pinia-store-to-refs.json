@@ -1,0 +1,39 @@
+{
+  "name": "pinia-store-to-refs-dynamic-shape",
+  "provenance": {
+    "repository": "vuejs/pinia",
+    "commit": "ee1a590d82425e511db62d108df58bd0b4258ebe",
+    "path": "packages/pinia/src/storeToRefs.ts",
+    "adaptation": "Distilled semantic pattern; not a verbatim upstream copy."
+  },
+  "modules": [
+    {
+      "id": "storeToRefs.ts",
+      "source": "import { computed, toRef } from 'vue'; export function storeToRefs(store) { const refs = {}; for (const key in store) { const value = store[key]; if (value?.effect) { refs[key] = computed(() => store[key]); } else { refs[key] = toRef(store, key); } } return refs; }",
+      "language": "ts",
+      "kind": "script"
+    },
+    {
+      "id": "consumer.ts",
+      "source": "import { ref, watchEffect } from 'vue'; import { storeToRefs } from './storeToRefs'; const { count: payload } = storeToRefs({ count: 0 }); const ready = ref(false); const enabled = ref(false); watchEffect(() => { if (!ready.value) return; if (enabled.value) { try { for (const item of [1]) { if (item) { payload.value; } } } finally { sink(); } } });",
+      "language": "ts",
+      "kind": "script"
+    }
+  ],
+  "links": [
+    {
+      "from": "consumer.ts",
+      "specifier": "./storeToRefs",
+      "to": "storeToRefs.ts"
+    }
+  ],
+  "expected": {
+    "module": "consumer.ts",
+    "binding": "payload",
+    "kind": "conditional",
+    "guards": [
+      "ready"
+    ],
+    "trace": false
+  }
+}

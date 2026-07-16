@@ -262,8 +262,7 @@ fn composable_return_shape(
       let Some(exported) = property.key.static_name() else {
         continue;
       };
-      let Some(kind) =
-        reactive_return_kind(semantic, &property.value, graph, &imported_bindings)
+      let Some(kind) = reactive_return_kind(semantic, &property.value, graph, &imported_bindings)
       else {
         continue;
       };

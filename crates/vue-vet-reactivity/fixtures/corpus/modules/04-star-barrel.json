@@ -1,0 +1,442 @@
+[
+  {
+    "name": "modules::star_barrel::ref::nested_guards",
+    "modules": [
+      {
+        "id": "producer.ts",
+        "source": "import { ref } from 'vue'; export const signal = ref(0);",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "barrel.ts",
+        "source": "export * from './producer';",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "consumer.ts",
+        "source": "import { ref, watchEffect } from 'vue'; import { signal as payload } from './barrel'; const ready = ref(false); const enabled = ref(false); watchEffect(() => { if (!ready.value) return; if (enabled.value) { try { for (const item of [1]) { if (item) { payload.value; } } } finally { sink(); } } });",
+        "language": "ts",
+        "kind": "script"
+      }
+    ],
+    "links": [
+      {
+        "from": "barrel.ts",
+        "specifier": "./producer",
+        "to": "producer.ts"
+      },
+      {
+        "from": "consumer.ts",
+        "specifier": "./barrel",
+        "to": "barrel.ts"
+      }
+    ],
+    "expected": {
+      "module": "consumer.ts",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ],
+      "trace": true
+    }
+  },
+  {
+    "name": "modules::star_barrel::ref::logical_ternary",
+    "modules": [
+      {
+        "id": "producer.ts",
+        "source": "import { ref } from 'vue'; export const signal = ref(0);",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "barrel.ts",
+        "source": "export * from './producer';",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "consumer.ts",
+        "source": "import { ref, watchEffect } from 'vue'; import { signal as payload } from './barrel'; const ready = ref(false); const enabled = ref(false); watchEffect(() => { ready.value && (enabled.value ? payload.value : sink()); });",
+        "language": "ts",
+        "kind": "script"
+      }
+    ],
+    "links": [
+      {
+        "from": "barrel.ts",
+        "specifier": "./producer",
+        "to": "producer.ts"
+      },
+      {
+        "from": "consumer.ts",
+        "specifier": "./barrel",
+        "to": "barrel.ts"
+      }
+    ],
+    "expected": {
+      "module": "consumer.ts",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ],
+      "trace": true
+    }
+  },
+  {
+    "name": "modules::star_barrel::shallow_ref::nested_guards",
+    "modules": [
+      {
+        "id": "producer.ts",
+        "source": "import { shallowRef } from 'vue'; export const signal = shallowRef(0);",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "barrel.ts",
+        "source": "export * from './producer';",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "consumer.ts",
+        "source": "import { ref, watchEffect } from 'vue'; import { signal as payload } from './barrel'; const ready = ref(false); const enabled = ref(false); watchEffect(() => { if (!ready.value) return; if (enabled.value) { try { for (const item of [1]) { if (item) { payload.value; } } } finally { sink(); } } });",
+        "language": "ts",
+        "kind": "script"
+      }
+    ],
+    "links": [
+      {
+        "from": "barrel.ts",
+        "specifier": "./producer",
+        "to": "producer.ts"
+      },
+      {
+        "from": "consumer.ts",
+        "specifier": "./barrel",
+        "to": "barrel.ts"
+      }
+    ],
+    "expected": {
+      "module": "consumer.ts",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ],
+      "trace": true
+    }
+  },
+  {
+    "name": "modules::star_barrel::shallow_ref::logical_ternary",
+    "modules": [
+      {
+        "id": "producer.ts",
+        "source": "import { shallowRef } from 'vue'; export const signal = shallowRef(0);",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "barrel.ts",
+        "source": "export * from './producer';",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "consumer.ts",
+        "source": "import { ref, watchEffect } from 'vue'; import { signal as payload } from './barrel'; const ready = ref(false); const enabled = ref(false); watchEffect(() => { ready.value && (enabled.value ? payload.value : sink()); });",
+        "language": "ts",
+        "kind": "script"
+      }
+    ],
+    "links": [
+      {
+        "from": "barrel.ts",
+        "specifier": "./producer",
+        "to": "producer.ts"
+      },
+      {
+        "from": "consumer.ts",
+        "specifier": "./barrel",
+        "to": "barrel.ts"
+      }
+    ],
+    "expected": {
+      "module": "consumer.ts",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ],
+      "trace": true
+    }
+  },
+  {
+    "name": "modules::star_barrel::computed::nested_guards",
+    "modules": [
+      {
+        "id": "producer.ts",
+        "source": "import { computed } from 'vue'; export const signal = computed(() => 1);",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "barrel.ts",
+        "source": "export * from './producer';",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "consumer.ts",
+        "source": "import { ref, watchEffect } from 'vue'; import { signal as payload } from './barrel'; const ready = ref(false); const enabled = ref(false); watchEffect(() => { if (!ready.value) return; if (enabled.value) { try { for (const item of [1]) { if (item) { payload.value; } } } finally { sink(); } } });",
+        "language": "ts",
+        "kind": "script"
+      }
+    ],
+    "links": [
+      {
+        "from": "barrel.ts",
+        "specifier": "./producer",
+        "to": "producer.ts"
+      },
+      {
+        "from": "consumer.ts",
+        "specifier": "./barrel",
+        "to": "barrel.ts"
+      }
+    ],
+    "expected": {
+      "module": "consumer.ts",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ],
+      "trace": true
+    }
+  },
+  {
+    "name": "modules::star_barrel::computed::logical_ternary",
+    "modules": [
+      {
+        "id": "producer.ts",
+        "source": "import { computed } from 'vue'; export const signal = computed(() => 1);",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "barrel.ts",
+        "source": "export * from './producer';",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "consumer.ts",
+        "source": "import { ref, watchEffect } from 'vue'; import { signal as payload } from './barrel'; const ready = ref(false); const enabled = ref(false); watchEffect(() => { ready.value && (enabled.value ? payload.value : sink()); });",
+        "language": "ts",
+        "kind": "script"
+      }
+    ],
+    "links": [
+      {
+        "from": "barrel.ts",
+        "specifier": "./producer",
+        "to": "producer.ts"
+      },
+      {
+        "from": "consumer.ts",
+        "specifier": "./barrel",
+        "to": "barrel.ts"
+      }
+    ],
+    "expected": {
+      "module": "consumer.ts",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ],
+      "trace": true
+    }
+  },
+  {
+    "name": "modules::star_barrel::reactive::nested_guards",
+    "modules": [
+      {
+        "id": "producer.ts",
+        "source": "import { reactive } from 'vue'; export const signal = reactive({ count: 0 });",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "barrel.ts",
+        "source": "export * from './producer';",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "consumer.ts",
+        "source": "import { ref, watchEffect } from 'vue'; import { signal as payload } from './barrel'; const ready = ref(false); const enabled = ref(false); watchEffect(() => { if (!ready.value) return; if (enabled.value) { try { for (const item of [1]) { if (item) { payload.count; } } } finally { sink(); } } });",
+        "language": "ts",
+        "kind": "script"
+      }
+    ],
+    "links": [
+      {
+        "from": "barrel.ts",
+        "specifier": "./producer",
+        "to": "producer.ts"
+      },
+      {
+        "from": "consumer.ts",
+        "specifier": "./barrel",
+        "to": "barrel.ts"
+      }
+    ],
+    "expected": {
+      "module": "consumer.ts",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ],
+      "trace": true
+    }
+  },
+  {
+    "name": "modules::star_barrel::reactive::logical_ternary",
+    "modules": [
+      {
+        "id": "producer.ts",
+        "source": "import { reactive } from 'vue'; export const signal = reactive({ count: 0 });",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "barrel.ts",
+        "source": "export * from './producer';",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "consumer.ts",
+        "source": "import { ref, watchEffect } from 'vue'; import { signal as payload } from './barrel'; const ready = ref(false); const enabled = ref(false); watchEffect(() => { ready.value && (enabled.value ? payload.count : sink()); });",
+        "language": "ts",
+        "kind": "script"
+      }
+    ],
+    "links": [
+      {
+        "from": "barrel.ts",
+        "specifier": "./producer",
+        "to": "producer.ts"
+      },
+      {
+        "from": "consumer.ts",
+        "specifier": "./barrel",
+        "to": "barrel.ts"
+      }
+    ],
+    "expected": {
+      "module": "consumer.ts",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ],
+      "trace": true
+    }
+  },
+  {
+    "name": "modules::star_barrel::readonly::nested_guards",
+    "modules": [
+      {
+        "id": "producer.ts",
+        "source": "import { readonly } from 'vue'; export const signal = readonly({ count: 0 });",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "barrel.ts",
+        "source": "export * from './producer';",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "consumer.ts",
+        "source": "import { ref, watchEffect } from 'vue'; import { signal as payload } from './barrel'; const ready = ref(false); const enabled = ref(false); watchEffect(() => { if (!ready.value) return; if (enabled.value) { try { for (const item of [1]) { if (item) { payload.count; } } } finally { sink(); } } });",
+        "language": "ts",
+        "kind": "script"
+      }
+    ],
+    "links": [
+      {
+        "from": "barrel.ts",
+        "specifier": "./producer",
+        "to": "producer.ts"
+      },
+      {
+        "from": "consumer.ts",
+        "specifier": "./barrel",
+        "to": "barrel.ts"
+      }
+    ],
+    "expected": {
+      "module": "consumer.ts",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ],
+      "trace": true
+    }
+  },
+  {
+    "name": "modules::star_barrel::readonly::logical_ternary",
+    "modules": [
+      {
+        "id": "producer.ts",
+        "source": "import { readonly } from 'vue'; export const signal = readonly({ count: 0 });",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "barrel.ts",
+        "source": "export * from './producer';",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "consumer.ts",
+        "source": "import { ref, watchEffect } from 'vue'; import { signal as payload } from './barrel'; const ready = ref(false); const enabled = ref(false); watchEffect(() => { ready.value && (enabled.value ? payload.count : sink()); });",
+        "language": "ts",
+        "kind": "script"
+      }
+    ],
+    "links": [
+      {
+        "from": "barrel.ts",
+        "specifier": "./producer",
+        "to": "producer.ts"
+      },
+      {
+        "from": "consumer.ts",
+        "specifier": "./barrel",
+        "to": "barrel.ts"
+      }
+    ],
+    "expected": {
+      "module": "consumer.ts",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ],
+      "trace": true
+    }
+  }
+]

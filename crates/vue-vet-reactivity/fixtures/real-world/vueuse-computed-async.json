@@ -1,0 +1,39 @@
+{
+  "name": "vueuse-computed-async-tracking-boundary",
+  "provenance": {
+    "repository": "vueuse/vueuse",
+    "commit": "653283c07d8c65e45b86ecb1001d9d9443bd2191",
+    "path": "packages/core/computedAsync/index.ts",
+    "adaptation": "Distilled semantic pattern; not a verbatim upstream copy."
+  },
+  "modules": [
+    {
+      "id": "computedAsync.ts",
+      "source": "import { shallowRef, watchEffect } from 'vue'; export function useAsyncState() { const started = shallowRef(false); const current = shallowRef(0); watchEffect(async () => { if (!started.value) return; await Promise.resolve(); current.value = 1; }); return { started, current }; }",
+      "language": "ts",
+      "kind": "script"
+    },
+    {
+      "id": "consumer.ts",
+      "source": "import { ref, watchEffect } from 'vue'; import { useAsyncState } from './computedAsync'; const { current: payload } = useAsyncState(); const ready = ref(false); const enabled = ref(false); watchEffect(() => { if (!ready.value) return; if (enabled.value) { try { for (const item of [1]) { if (item) { payload.value; } } } finally { sink(); } } });",
+      "language": "ts",
+      "kind": "script"
+    }
+  ],
+  "links": [
+    {
+      "from": "consumer.ts",
+      "specifier": "./computedAsync",
+      "to": "computedAsync.ts"
+    }
+  ],
+  "expected": {
+    "module": "consumer.ts",
+    "binding": "payload",
+    "kind": "conditional",
+    "guards": [
+      "ready"
+    ],
+    "trace": true
+  }
+}

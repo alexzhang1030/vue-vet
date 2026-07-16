@@ -1,0 +1,39 @@
+{
+  "name": "nuxt-use-async-data-state",
+  "provenance": {
+    "repository": "nuxt/nuxt",
+    "commit": "b437b50f5049e2ad1b438dd53fb410410e8b8db5",
+    "path": "packages/nuxt/src/app/composables/asyncData.ts",
+    "adaptation": "Distilled semantic pattern; not a verbatim upstream copy."
+  },
+  "modules": [
+    {
+      "id": "asyncData.ts",
+      "source": "import { computed, shallowRef } from 'vue'; export function useAsyncDataState() { const data = shallowRef(0); const status = shallowRef('idle'); const pending = computed(() => status.value === 'pending'); return { data, pending, status }; }",
+      "language": "ts",
+      "kind": "script"
+    },
+    {
+      "id": "consumer.ts",
+      "source": "import { ref, watchEffect } from 'vue'; import { useAsyncDataState } from './asyncData'; const { data: payload } = useAsyncDataState(); const ready = ref(false); const enabled = ref(false); watchEffect(() => { if (!ready.value) return; if (enabled.value) { try { for (const item of [1]) { if (item) { payload.value; } } } finally { sink(); } } });",
+      "language": "ts",
+      "kind": "script"
+    }
+  ],
+  "links": [
+    {
+      "from": "consumer.ts",
+      "specifier": "./asyncData",
+      "to": "asyncData.ts"
+    }
+  ],
+  "expected": {
+    "module": "consumer.ts",
+    "binding": "payload",
+    "kind": "conditional",
+    "guards": [
+      "ready"
+    ],
+    "trace": true
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "name": "vueuse-computed-eager-readonly-result",
+  "provenance": {
+    "repository": "vueuse/vueuse",
+    "commit": "653283c07d8c65e45b86ecb1001d9d9443bd2191",
+    "path": "packages/shared/computedEager/index.ts",
+    "adaptation": "Distilled semantic pattern; not a verbatim upstream copy."
+  },
+  "modules": [
+    {
+      "id": "computedEager.ts",
+      "source": "import { readonly, shallowRef, watchEffect } from 'vue'; export function useEagerState() { const result = shallowRef(0); watchEffect(() => { result.value = source(); }); const exposed = readonly(result); return { exposed }; }",
+      "language": "ts",
+      "kind": "script"
+    },
+    {
+      "id": "consumer.ts",
+      "source": "import { ref, watchEffect } from 'vue'; import { useEagerState } from './computedEager'; const { exposed: payload } = useEagerState(); const ready = ref(false); const enabled = ref(false); watchEffect(() => { if (!ready.value) return; if (enabled.value) { try { for (const item of [1]) { if (item) { payload.value; } } } finally { sink(); } } });",
+      "language": "ts",
+      "kind": "script"
+    }
+  ],
+  "links": [
+    {
+      "from": "consumer.ts",
+      "specifier": "./computedEager",
+      "to": "computedEager.ts"
+    }
+  ],
+  "expected": {
+    "module": "consumer.ts",
+    "binding": "payload",
+    "kind": "conditional",
+    "guards": [
+      "ready"
+    ],
+    "trace": true
+  }
+}

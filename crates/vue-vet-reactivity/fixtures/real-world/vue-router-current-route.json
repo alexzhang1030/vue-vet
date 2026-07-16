@@ -1,0 +1,39 @@
+{
+  "name": "vue-router-current-route-shallow-ref",
+  "provenance": {
+    "repository": "vuejs/router",
+    "commit": "2ee3ed2b0eb88aa7b677e23a201396f2ceadf956",
+    "path": "packages/router/src/router.ts",
+    "adaptation": "Distilled semantic pattern; not a verbatim upstream copy."
+  },
+  "modules": [
+    {
+      "id": "router.ts",
+      "source": "import { shallowRef } from 'vue'; export function useRouterState() { const currentRoute = shallowRef({ matched: [] }); return { currentRoute }; }",
+      "language": "ts",
+      "kind": "script"
+    },
+    {
+      "id": "consumer.ts",
+      "source": "import { ref, watchEffect } from 'vue'; import { useRouterState } from './router'; const { currentRoute: payload } = useRouterState(); const ready = ref(false); const enabled = ref(false); watchEffect(() => { if (!ready.value) return; if (enabled.value) { try { for (const item of [1]) { if (item) { payload.value; } } } finally { sink(); } } });",
+      "language": "ts",
+      "kind": "script"
+    }
+  ],
+  "links": [
+    {
+      "from": "consumer.ts",
+      "specifier": "./router",
+      "to": "router.ts"
+    }
+  ],
+  "expected": {
+    "module": "consumer.ts",
+    "binding": "payload",
+    "kind": "conditional",
+    "guards": [
+      "ready"
+    ],
+    "trace": true
+  }
+}

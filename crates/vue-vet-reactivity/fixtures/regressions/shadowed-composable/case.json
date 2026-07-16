@@ -1,0 +1,10 @@
+{
+  "name": "parameter-shadowing-imported-composable",
+  "expected": {
+    "module": "consumer.ts",
+    "binding": "payload",
+    "kind": "conditional",
+    "guards": [],
+    "trace": false
+  }
+}
