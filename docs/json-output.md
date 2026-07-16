@@ -1,11 +1,11 @@
 # JSON output contract
 
 Vue Vet emits machine-readable results with `--format json`. The current wire
-format is version 2:
+format is version 1:
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 1,
   "tool": { "name": "vue-vet", "version": "0.1.0" },
   "ok": true,
   "mode": "full",
@@ -58,7 +58,7 @@ verify exact coverage instead of inferring it from a count.
 `mode` is one of `full`, `baseline`, or `diff`. Filtering changes the reported
 findings, not the analyzed-file coverage.
 
-With `--format json`, operational failures also use version 2 and retain exit
+With `--format json`, operational failures also use version 1 and retain exit
 code 2. They set `ok` and `project.complete` to `false`, leave diagnostics and
 coverage empty when the scan never completed, set `summary.score` to `null`, and
 provide the actionable failure in `error.message`. Text mode continues to write
@@ -75,10 +75,11 @@ replace it or silently omit lower-priority findings.
 ## Compatibility
 
 - `schema_version` is required; consumers must branch on versions they support.
-- Version 1 contained only `files_scanned`, `diagnostics`, and `score`. Version 2
-  replaces it with explicit tool, mode, coverage, identity, metadata, summary,
-  and error fields.
-- Adding optional fields is backward-compatible within version 2.
+- Version 1 is the initial public report contract and includes explicit tool,
+  mode, coverage, identity, metadata, summary, and error fields.
+- Before the first alpha release, version 1 may change without compatibility
+  guarantees. After alpha, incompatible changes require a new schema version.
+- Adding optional fields is backward-compatible within version 1.
 - Removing fields, changing their meaning or type, or changing diagnostic
   identity semantics requires a new schema version.
 - Object field order is not significant. Array order is deterministic.

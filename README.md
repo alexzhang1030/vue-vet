@@ -65,8 +65,8 @@ threshold, and `2` for an operational failure.
 
 ## JSON contract
 
-`--format json` emits a versioned top-level object. The current contract uses
-`"schema_version": 2` with deterministic finding IDs, normalized paths, exact
+`--format json` emits a versioned top-level object. The initial contract uses
+`"schema_version": 1` with deterministic finding IDs, normalized paths, exact
 scan coverage, and completeness metadata. Consumers must reject unsupported
 schema versions instead of guessing. Field ordering is not part of the contract.
 See [the JSON output contract](docs/json-output.md) for compatibility rules.

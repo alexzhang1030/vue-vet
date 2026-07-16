@@ -6,7 +6,7 @@ use std::{
 use serde::Serialize;
 use vue_vet_core::{Confidence, Diagnostic, ScanSummary, Severity, SourceSpan, diagnostic_id};
 
-pub const JSON_SCHEMA_VERSION: u8 = 2;
+pub const JSON_SCHEMA_VERSION: u8 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -348,7 +348,7 @@ mod tests {
   }
 
   #[test]
-  fn json_report_matches_the_version_two_snapshot() {
+  fn json_report_matches_the_version_one_snapshot() {
     let rendered = render(&fixture_summary(), ReportFormat::Json, &fixture_context());
     assert_eq!(
       rendered.as_deref().ok(),

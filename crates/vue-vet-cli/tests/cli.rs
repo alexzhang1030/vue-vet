@@ -73,7 +73,7 @@ fn unsafe_fixture_has_machine_readable_json_output() {
   assert!(output.status.success(), "warnings are non-fatal without --deny-warnings");
   assert_eq!(
     parsed.as_ref().ok().and_then(|value| value.get("schema_version")).and_then(Value::as_u64),
-    Some(2),
+    Some(1),
     "JSON output must declare its contract version"
   );
   assert_eq!(

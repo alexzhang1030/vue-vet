@@ -228,7 +228,7 @@ Exit criteria:
 
 - [x] M0 complete
 - [x] 28 documented high-confidence rules
-- [x] JSON output declares a versioned contract (`schema_version: 2` current)
+- [x] JSON output declares its initial versioned contract (`schema_version: 1`)
 - [x] the complete reference fixture corpus is covered by a no-crash integration test
 
 ### Beta
