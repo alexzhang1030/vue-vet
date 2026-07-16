@@ -369,7 +369,6 @@ fn click_without_keyboard(element: &TemplateElementFact) -> Option<Finding> {
   })
 }
 
-
 fn positive_tabindex(element: &TemplateElementFact) -> Option<Finding> {
   let attribute = element.attribute("tabindex")?;
   attribute
