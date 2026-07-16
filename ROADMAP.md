@@ -58,7 +58,7 @@ Crates are introduced only when their boundary is exercised by working code.
 
 ## M0 — runnable vertical slice
 
-Status: in progress
+Status: complete
 
 Delivered:
 
@@ -81,13 +81,13 @@ Exit criteria:
 - output locations point to the exact source span
 - malformed SFCs fail predictably without panics
 
-Immediate tasks:
+Completion evidence:
 
-1. Validate the completed vertical slice in GitHub Actions on all three operating
-   systems.
-2. Merge the M0 implementation PRs and close issues #1, #6, and #2 with CI
-   evidence.
-3. Add license, contribution guide, and security policy before outside access.
+- the locked workspace is formatted, linted, and tested on Linux, macOS, and Windows
+- text and JSON reporter snapshots cover exact source spans and stable rule IDs
+- malformed SFCs and the complete reference fixture corpus are exercised without panics
+- Vize is pinned and its compatibility assumptions are documented
+- license, contribution, and security policies are published
 
 ## M1 — useful local doctor
 
@@ -209,12 +209,12 @@ Exit criteria:
 
 ## Release gates
 
-### Alpha
+### Alpha — complete
 
-- M0 complete
-- at least 10 documented high-confidence rules
-- JSON contract versioned
-- no crashers in the reference fixture corpus
+- [x] M0 complete
+- [x] 15 documented high-confidence rules
+- [x] JSON output declares `schema_version: 1`
+- [x] the complete reference fixture corpus is covered by a no-crash integration test
 
 ### Beta
 
@@ -239,5 +239,6 @@ Exit criteria:
 
 ## Current next step
 
-Complete M0 by getting CI green, then land Vize AST-backed `no-v-html` as the
-reference implementation for the built-in rule API.
+Stabilize the Alpha contract on representative external Vue and Nuxt repositories,
+then complete the remaining M1 precision/performance evidence and M2 cross-file
+diagnostics required for Beta.

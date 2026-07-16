@@ -63,6 +63,13 @@ configuration.
 Exit codes are `0` for a passing scan, `1` when diagnostics cross the configured
 threshold, and `2` for an operational failure.
 
+## JSON contract
+
+`--format json` emits a versioned top-level object. Alpha uses
+`"schema_version": 1`; consumers must reject unsupported major schema versions
+instead of guessing. Field ordering is not part of the contract. See
+[the JSON output contract](docs/json-output.md) for compatibility rules.
+
 ## Architecture
 
 ```text
@@ -90,8 +97,13 @@ Durable project rationale and agent guidance are indexed in the
 
 ## Status
 
-Experimental. Vize itself is moving quickly, so its dependency is pinned and
-upgrades should be paired with fixture and compatibility tests.
+Alpha. The JSON contract is versioned and the reference fixture corpus is
+covered by no-crash tests on Linux, macOS, and Windows. Vize itself is moving
+quickly, so its dependency is pinned and upgrades must include fixture and
+compatibility evidence.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow and
+[SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 ## Development
 
