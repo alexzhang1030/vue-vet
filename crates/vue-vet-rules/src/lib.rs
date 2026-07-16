@@ -30,6 +30,34 @@ const NO_DUPLICATE_DEFINE_PROPS_META: RuleMeta = RuleMeta {
   confidence: Confidence::High,
   documentation: "rules/correctness/no-duplicate-define-props",
 };
+const NO_DUPLICATE_DEFINE_EMITS_META: RuleMeta = RuleMeta {
+  id: "vue-vet/correctness/no-duplicate-define-emits",
+  category: "correctness",
+  default_severity: Severity::Error,
+  confidence: Confidence::High,
+  documentation: "rules/correctness/no-duplicate-define-emits",
+};
+const NO_DUPLICATE_DEFINE_SLOTS_META: RuleMeta = RuleMeta {
+  id: "vue-vet/correctness/no-duplicate-define-slots",
+  category: "correctness",
+  default_severity: Severity::Error,
+  confidence: Confidence::High,
+  documentation: "rules/correctness/no-duplicate-define-slots",
+};
+const NO_DUPLICATE_DEFINE_EXPOSE_META: RuleMeta = RuleMeta {
+  id: "vue-vet/correctness/no-duplicate-define-expose",
+  category: "correctness",
+  default_severity: Severity::Error,
+  confidence: Confidence::High,
+  documentation: "rules/correctness/no-duplicate-define-expose",
+};
+const NO_DUPLICATE_DEFINE_OPTIONS_META: RuleMeta = RuleMeta {
+  id: "vue-vet/correctness/no-duplicate-define-options",
+  category: "correctness",
+  default_severity: Severity::Error,
+  confidence: Confidence::High,
+  documentation: "rules/correctness/no-duplicate-define-options",
+};
 const VALID_V_HTML_META: RuleMeta = RuleMeta {
   id: "vue-vet/correctness/valid-v-html",
   category: "correctness",
@@ -107,6 +135,48 @@ const NO_MUTATING_PROPS_META: RuleMeta = RuleMeta {
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-mutating-props",
 };
+const NO_POSITIVE_TABINDEX_META: RuleMeta = RuleMeta {
+  id: "vue-vet/accessibility/no-positive-tabindex",
+  category: "accessibility",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/accessibility/no-positive-tabindex",
+};
+const NO_ARIA_HIDDEN_ON_FOCUSABLE_META: RuleMeta = RuleMeta {
+  id: "vue-vet/accessibility/no-aria-hidden-on-focusable",
+  category: "accessibility",
+  default_severity: Severity::Error,
+  confidence: Confidence::High,
+  documentation: "rules/accessibility/no-aria-hidden-on-focusable",
+};
+const VALID_ARIA_ROLE_META: RuleMeta = RuleMeta {
+  id: "vue-vet/accessibility/valid-aria-role",
+  category: "accessibility",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/accessibility/valid-aria-role",
+};
+const NO_REDUNDANT_ROLE_META: RuleMeta = RuleMeta {
+  id: "vue-vet/maintainability/no-redundant-role",
+  category: "maintainability",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/maintainability/no-redundant-role",
+};
+const NO_DEPRECATED_SLOT_SCOPE_META: RuleMeta = RuleMeta {
+  id: "vue-vet/correctness/no-deprecated-slot-scope",
+  category: "correctness",
+  default_severity: Severity::Error,
+  confidence: Confidence::High,
+  documentation: "rules/correctness/no-deprecated-slot-scope",
+};
+const NO_DISTRACTING_ELEMENTS_META: RuleMeta = RuleMeta {
+  id: "vue-vet/accessibility/no-distracting-elements",
+  category: "accessibility",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/accessibility/no-distracting-elements",
+};
 
 #[derive(Clone, Copy)]
 enum TemplateCheck {
@@ -123,6 +193,12 @@ enum TemplateCheck {
   ClickHasKey,
   NoAutofocus,
   NoNativeModifier,
+  NoPositiveTabindex,
+  NoAriaHiddenOnFocusable,
+  ValidAriaRole,
+  NoRedundantRole,
+  NoDeprecatedSlotScope,
+  NoDistractingElements,
 }
 
 struct TemplateRule {
@@ -213,6 +289,12 @@ fn check_template(check: TemplateCheck, element: &TemplateElementFact) -> Option
         help: "Declare emitted events on the child component; undeclared \
           listeners fall through natively.",
       }),
+    TemplateCheck::NoPositiveTabindex => positive_tabindex(element),
+    TemplateCheck::NoAriaHiddenOnFocusable => aria_hidden_on_focusable(element),
+    TemplateCheck::ValidAriaRole => invalid_aria_role(element),
+    TemplateCheck::NoRedundantRole => redundant_role(element),
+    TemplateCheck::NoDeprecatedSlotScope => deprecated_slot_scope(element),
+    TemplateCheck::NoDistractingElements => distracting_element(element),
   }
 }
 
@@ -287,30 +369,237 @@ fn click_without_keyboard(element: &TemplateElementFact) -> Option<Finding> {
   })
 }
 
+
+fn positive_tabindex(element: &TemplateElementFact) -> Option<Finding> {
+  let attribute = element.attribute("tabindex")?;
+  attribute
+    .value
+    .as_deref()
+    .and_then(|value| value.trim().parse::<i32>().ok())
+    .is_some_and(|value| value > 0)
+    .then_some(Finding {
+      span: attribute.span.clone(),
+      message: "positive tabindex creates a surprising keyboard navigation order",
+      help: "Use tabindex=\"0\" to join the natural order or tabindex=\"-1\" for programmatic focus.",
+    })
+}
+
+fn aria_hidden_on_focusable(element: &TemplateElementFact) -> Option<Finding> {
+  let span = element
+    .attribute("aria-hidden")
+    .filter(|attribute| {
+      attribute.value.as_deref().is_some_and(|value| value.eq_ignore_ascii_case("true"))
+    })
+    .map(|attribute| &attribute.span)
+    .or_else(|| {
+      element
+        .bound_attribute("aria-hidden")
+        .filter(|directive| directive.expression.as_deref().is_some_and(|value| value == "true"))
+        .map(|directive| &directive.span)
+    })?;
+  element_is_focusable(element).then_some(Finding {
+    span: span.clone(),
+    message: "focusable element is hidden from assistive technology",
+    help: "Remove aria-hidden, or remove the element from keyboard interaction as well.",
+  })
+}
+
+fn element_is_focusable(element: &TemplateElementFact) -> bool {
+  if element.attribute("disabled").is_some() {
+    return false;
+  }
+  let native = match element.tag.to_ascii_lowercase().as_str() {
+    "a" => element.attribute("href").is_some() || element.bound_attribute("href").is_some(),
+    "button" | "select" | "textarea" => true,
+    "input" => element
+      .attribute("type")
+      .and_then(|attribute| attribute.value.as_deref())
+      .is_none_or(|kind| !kind.eq_ignore_ascii_case("hidden")),
+    _ => false,
+  };
+  native
+    || element
+      .attribute("tabindex")
+      .and_then(|attribute| attribute.value.as_deref())
+      .and_then(|value| value.trim().parse::<i32>().ok())
+      .is_some_and(|value| value >= 0)
+}
+
+fn invalid_aria_role(element: &TemplateElementFact) -> Option<Finding> {
+  const VALID_ROLES: &[&str] = &[
+    "alert",
+    "alertdialog",
+    "application",
+    "article",
+    "banner",
+    "blockquote",
+    "button",
+    "caption",
+    "cell",
+    "checkbox",
+    "code",
+    "columnheader",
+    "combobox",
+    "complementary",
+    "contentinfo",
+    "definition",
+    "deletion",
+    "dialog",
+    "directory",
+    "document",
+    "emphasis",
+    "feed",
+    "figure",
+    "form",
+    "generic",
+    "grid",
+    "gridcell",
+    "group",
+    "heading",
+    "img",
+    "insertion",
+    "link",
+    "list",
+    "listbox",
+    "listitem",
+    "log",
+    "main",
+    "marquee",
+    "math",
+    "menu",
+    "menubar",
+    "menuitem",
+    "menuitemcheckbox",
+    "menuitemradio",
+    "meter",
+    "navigation",
+    "none",
+    "note",
+    "option",
+    "paragraph",
+    "presentation",
+    "progressbar",
+    "radio",
+    "radiogroup",
+    "region",
+    "row",
+    "rowgroup",
+    "rowheader",
+    "scrollbar",
+    "search",
+    "searchbox",
+    "separator",
+    "slider",
+    "spinbutton",
+    "status",
+    "strong",
+    "subscript",
+    "superscript",
+    "switch",
+    "tab",
+    "table",
+    "tablist",
+    "tabpanel",
+    "term",
+    "textbox",
+    "time",
+    "timer",
+    "toolbar",
+    "tooltip",
+    "tree",
+    "treegrid",
+    "treeitem",
+  ];
+  let attribute = element.attribute("role")?;
+  let value = attribute.value.as_deref()?;
+  (!value
+    .split_ascii_whitespace()
+    .any(|role| VALID_ROLES.iter().any(|valid| role.eq_ignore_ascii_case(valid))))
+  .then_some(Finding {
+    span: attribute.span.clone(),
+    message: "role does not contain a recognized concrete ARIA role",
+    help: "Use a valid non-abstract ARIA role, or rely on the element's native semantics.",
+  })
+}
+
+fn redundant_role(element: &TemplateElementFact) -> Option<Finding> {
+  let attribute = element.attribute("role")?;
+  let role = attribute.value.as_deref()?;
+  let redundant = match element.tag.to_ascii_lowercase().as_str() {
+    "a" => role.eq_ignore_ascii_case("link") && element.attribute("href").is_some(),
+    "button" => role.eq_ignore_ascii_case("button"),
+    "img" => role.eq_ignore_ascii_case("img"),
+    "li" => role.eq_ignore_ascii_case("listitem"),
+    "main" => role.eq_ignore_ascii_case("main"),
+    "nav" => role.eq_ignore_ascii_case("navigation"),
+    "ol" | "ul" => role.eq_ignore_ascii_case("list"),
+    "table" => role.eq_ignore_ascii_case("table"),
+    "textarea" => role.eq_ignore_ascii_case("textbox"),
+    _ => false,
+  };
+  redundant.then_some(Finding {
+    span: attribute.span.clone(),
+    message: "explicit role duplicates the element's native semantics",
+    help: "Remove the role and keep the native element semantics.",
+  })
+}
+
+fn deprecated_slot_scope(element: &TemplateElementFact) -> Option<Finding> {
+  element
+    .attribute("slot-scope")
+    .or_else(|| {
+      if element.tag.eq_ignore_ascii_case("template") {
+        element.attribute("scope")
+      } else {
+        None
+      }
+    })
+    .map(|attribute| Finding {
+      span: attribute.span.clone(),
+      message: "slot-scope syntax was removed in Vue 3",
+      help: "Use v-slot or the # shorthand on <template> or the receiving component.",
+    })
+}
+
+fn distracting_element(element: &TemplateElementFact) -> Option<Finding> {
+  (element.tag.eq_ignore_ascii_case("blink") || element.tag.eq_ignore_ascii_case("marquee"))
+    .then_some(Finding {
+      span: element.span.clone(),
+      message: "distracting animated element is obsolete and inaccessible",
+      help: "Use normal content and respect the user's reduced-motion preference for animation.",
+    })
+}
+
 struct NoMutatingProps;
 
-struct NoDuplicateDefineProps;
+struct SingleCompilerMacroRule {
+  meta: &'static RuleMeta,
+  macro_name: &'static str,
+}
 
-impl Rule for NoDuplicateDefineProps {
+impl Rule for SingleCompilerMacroRule {
   fn meta(&self) -> &'static RuleMeta {
-    &NO_DUPLICATE_DEFINE_PROPS_META
+    self.meta
   }
 
   fn run(&self, context: &mut RuleContext<'_>) {
+    let macro_name = self.macro_name;
     let spans = context
       .script()
       .blocks
       .iter()
       .filter(|block| block.kind == vue_vet_core::ScriptKind::Setup)
-      .flat_map(|block| block.calls.iter().filter(|call| call.callee == "defineProps").skip(1))
+      .flat_map(|block| {
+        block.calls.iter().filter(|call| call.callee == macro_name).skip(1)
+      })
       .map(|call| call.span.clone())
       .collect::<Vec<_>>();
     for span in spans {
       context.report(
         self.meta(),
         span,
-        "`defineProps` may only be called once in `<script setup>`".into(),
-        Some("Merge the declarations into a single `defineProps` call.".into()),
+        format!("`{macro_name}` may only be called once in `<script setup>`"),
+        Some(format!("Merge the declarations into a single `{macro_name}` call.")),
       );
     }
   }
@@ -322,16 +611,26 @@ impl Rule for NoMutatingProps {
   }
 
   fn run(&self, context: &mut RuleContext<'_>) {
+    let prop_bindings = context
+      .script()
+      .blocks
+      .iter()
+      .filter(|block| block.kind == vue_vet_core::ScriptKind::Setup)
+      .flat_map(|block| {
+        block
+          .calls
+          .iter()
+          .filter(|call| call.callee == "defineProps")
+          .filter_map(|call| call.assigned_to.clone())
+      })
+      .collect::<Vec<_>>();
     let spans = context
       .script()
       .blocks
       .iter()
-      .filter(|block| {
-        block.kind == vue_vet_core::ScriptKind::Setup
-          && block.calls.iter().any(|call| call.callee == "defineProps")
-      })
+      .filter(|block| block.kind == vue_vet_core::ScriptKind::Setup)
       .flat_map(|block| &block.member_writes)
-      .filter(|write| write.object == "props")
+      .filter(|write| prop_bindings.contains(&write.object))
       .map(|write| write.span.clone())
       .collect::<Vec<_>>();
     for span in spans {
@@ -364,8 +663,35 @@ template_rule!(BUTTON_HAS_CONTENT, BUTTON_HAS_CONTENT_META, ButtonHasContent);
 template_rule!(CLICK_HAS_KEY, CLICK_HAS_KEY_META, ClickHasKey);
 template_rule!(NO_AUTOFOCUS, NO_AUTOFOCUS_META, NoAutofocus);
 template_rule!(NO_NATIVE_MODIFIER, NO_NATIVE_MODIFIER_META, NoNativeModifier);
+template_rule!(NO_POSITIVE_TABINDEX, NO_POSITIVE_TABINDEX_META, NoPositiveTabindex);
+template_rule!(
+  NO_ARIA_HIDDEN_ON_FOCUSABLE,
+  NO_ARIA_HIDDEN_ON_FOCUSABLE_META,
+  NoAriaHiddenOnFocusable
+);
+template_rule!(VALID_ARIA_ROLE, VALID_ARIA_ROLE_META, ValidAriaRole);
+template_rule!(NO_REDUNDANT_ROLE, NO_REDUNDANT_ROLE_META, NoRedundantRole);
+template_rule!(
+  NO_DEPRECATED_SLOT_SCOPE,
+  NO_DEPRECATED_SLOT_SCOPE_META,
+  NoDeprecatedSlotScope
+);
+template_rule!(
+  NO_DISTRACTING_ELEMENTS,
+  NO_DISTRACTING_ELEMENTS_META,
+  NoDistractingElements
+);
 static NO_MUTATING_PROPS: NoMutatingProps = NoMutatingProps;
-static NO_DUPLICATE_DEFINE_PROPS: NoDuplicateDefineProps = NoDuplicateDefineProps;
+static NO_DUPLICATE_DEFINE_PROPS: SingleCompilerMacroRule =
+  SingleCompilerMacroRule { meta: &NO_DUPLICATE_DEFINE_PROPS_META, macro_name: "defineProps" };
+static NO_DUPLICATE_DEFINE_EMITS: SingleCompilerMacroRule =
+  SingleCompilerMacroRule { meta: &NO_DUPLICATE_DEFINE_EMITS_META, macro_name: "defineEmits" };
+static NO_DUPLICATE_DEFINE_SLOTS: SingleCompilerMacroRule =
+  SingleCompilerMacroRule { meta: &NO_DUPLICATE_DEFINE_SLOTS_META, macro_name: "defineSlots" };
+static NO_DUPLICATE_DEFINE_EXPOSE: SingleCompilerMacroRule =
+  SingleCompilerMacroRule { meta: &NO_DUPLICATE_DEFINE_EXPOSE_META, macro_name: "defineExpose" };
+static NO_DUPLICATE_DEFINE_OPTIONS: SingleCompilerMacroRule =
+  SingleCompilerMacroRule { meta: &NO_DUPLICATE_DEFINE_OPTIONS_META, macro_name: "defineOptions" };
 
 #[must_use]
 pub fn builtin_registry() -> RuleRegistry {
@@ -374,6 +700,10 @@ pub fn builtin_registry() -> RuleRegistry {
     &REQUIRE_V_FOR_KEY,
     &NO_V_IF_WITH_V_FOR,
     &NO_DUPLICATE_DEFINE_PROPS,
+    &NO_DUPLICATE_DEFINE_EMITS,
+    &NO_DUPLICATE_DEFINE_SLOTS,
+    &NO_DUPLICATE_DEFINE_EXPOSE,
+    &NO_DUPLICATE_DEFINE_OPTIONS,
     &VALID_V_HTML,
     &VALID_V_TEXT,
     &REQUIRE_COMPONENT_IS,
@@ -384,6 +714,12 @@ pub fn builtin_registry() -> RuleRegistry {
     &CLICK_HAS_KEY,
     &NO_AUTOFOCUS,
     &NO_NATIVE_MODIFIER,
+    &NO_POSITIVE_TABINDEX,
+    &NO_ARIA_HIDDEN_ON_FOCUSABLE,
+    &VALID_ARIA_ROLE,
+    &NO_REDUNDANT_ROLE,
+    &NO_DEPRECATED_SLOT_SCOPE,
+    &NO_DISTRACTING_ELEMENTS,
     &NO_MUTATING_PROPS,
   ])
 }
@@ -395,7 +731,7 @@ mod tests {
   #[test]
   fn builtins_have_stable_metadata() {
     let metadata = builtin_registry().metadata();
-    assert_eq!(metadata.len(), 15, "the recommended preset contains fifteen rules");
+    assert_eq!(metadata.len(), 25, "the recommended preset contains twenty-five rules");
     assert!(
       metadata.windows(2).all(|pair| matches!(pair, [first, second] if first.id < second.id)),
       "registry metadata must be sorted by stable rule ID"

@@ -136,6 +136,7 @@ pub struct ScriptBindingFact {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ScriptCallFact {
   pub callee: String,
+  pub assigned_to: Option<String>,
   pub resolved_import: Option<(String, String)>,
   pub span: SourceSpan,
 }

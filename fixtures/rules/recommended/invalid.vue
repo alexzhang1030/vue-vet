@@ -1,7 +1,15 @@
 <script setup lang="ts">
-const props = defineProps<{ title: string }>()
+const componentProps = defineProps<{ title: string }>()
 defineProps<{ count: number }>()
-props.title = 'changed'
+defineEmits()
+defineEmits()
+defineSlots<{ default(): unknown }>()
+defineSlots<{ footer(): unknown }>()
+defineExpose({ ready: true })
+defineExpose({ active: true })
+defineOptions({ name: 'FirstName' })
+defineOptions({ name: 'SecondName' })
+componentProps.title = 'changed'
 </script>
 
 <template>
@@ -17,4 +25,10 @@ props.title = 'changed'
   <div @click="activate" />
   <input autofocus>
   <MyButton @click.native="activate" />
+  <div tabindex="2" />
+  <button aria-hidden="true">Hidden action</button>
+  <div role="definitely-invalid" />
+  <button role="button">Redundant role</button>
+  <template slot-scope="slotProps"><span>{{ slotProps }}</span></template>
+  <marquee>Breaking news</marquee>
 </template>

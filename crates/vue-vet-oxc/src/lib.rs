@@ -4,7 +4,7 @@ use oxc_allocator::Allocator;
 use oxc_ast::{
   AstKind,
   ast::{
-    AssignmentTarget, Expression, ImportDeclarationSpecifier, ModuleExportName,
+    AssignmentTarget, BindingPattern, Expression, ImportDeclarationSpecifier, ModuleExportName,
     SimpleAssignmentTarget,
   },
 };
@@ -116,12 +116,20 @@ pub fn analyze_script(
 
   let mut calls = Vec::new();
   let mut member_writes = Vec::new();
-  for node in semantic.nodes() {
+  for (node_id, node) in semantic.nodes().iter_enumerated() {
     match node.kind() {
       AstKind::CallExpression(call) => {
         if let Some(identifier) = call.callee.get_identifier_reference() {
           let callee = identifier.name.to_string();
+          let assigned_to = match semantic.nodes().parent_kind(node_id) {
+            AstKind::VariableDeclarator(declarator) => match &declarator.id {
+              BindingPattern::BindingIdentifier(binding) => Some(binding.name.to_string()),
+              _ => None,
+            },
+            _ => None,
+          };
           calls.push(ScriptCallFact {
+            assigned_to,
             resolved_import: imported_bindings.get(&callee).cloned(),
             callee,
             span: source_span(sfc_source, script_offset, call.span),
@@ -279,6 +287,15 @@ mod tests {
             .is_some_and(|(source, imported)| source == "vue" && imported == "ref")
       }),
       "aliased Vue imports must resolve at the fact boundary"
+    );
+    assert_eq!(
+      facts
+        .calls
+        .iter()
+        .find(|call| call.callee == "defineProps")
+        .and_then(|call| call.assigned_to.as_deref()),
+      Some("props"),
+      "the identifier assigned from a compiler macro must remain queryable"
     );
     assert!(
       facts

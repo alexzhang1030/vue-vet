@@ -353,6 +353,7 @@ mod tests {
           .enumerate()
           .map(|(index, callee)| ScriptCallFact {
             callee: (*callee).into(),
+            assigned_to: None,
             resolved_import: None,
             span: span(index.saturating_add(10)),
           })
