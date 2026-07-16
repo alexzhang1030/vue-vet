@@ -2179,8 +2179,20 @@ dependencies = [
  "clap",
  "ignore",
  "serde_json",
+ "vue-vet-config",
  "vue-vet-core",
+ "vue-vet-rules",
  "vue-vet-vize",
+]
+
+[[package]]
+name = "vue-vet-config"
+version = "0.1.0"
+dependencies = [
+ "globset",
+ "serde",
+ "thiserror",
+ "vue-vet-core",
 ]
 
 [[package]]
@@ -2188,6 +2200,19 @@ name = "vue-vet-core"
 version = "0.1.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "vue-vet-oxc"
+version = "0.1.0"
+dependencies = [
+ "oxc_allocator",
+ "oxc_ast",
+ "oxc_parser",
+ "oxc_semantic",
+ "oxc_span",
+ "thiserror",
+ "vue-vet-core",
 ]
 
 [[package]]
@@ -2206,6 +2231,7 @@ dependencies = [
  "vize_atelier_core",
  "vize_atelier_sfc",
  "vue-vet-core",
+ "vue-vet-oxc",
  "vue-vet-rules",
 ]
 

@@ -1,7 +1,7 @@
 # `vue-vet/security/no-v-html`
 
-Category: security  
-Default severity: warning  
+Category: security
+Default severity: warning
 Confidence: high
 
 `v-html` assigns a string to an element's HTML content. If that string contains
@@ -30,6 +30,16 @@ If raw HTML is a product requirement, sanitize it at the trust boundary before
 it reaches the component and document the sanitizer and allowed markup. Vue Vet
 still reports the directive because it cannot prove an application-specific
 sanitization contract from the template alone.
+
+## Limitations
+
+Vue Vet cannot prove that a value was sanitized by an application-specific
+policy, so reviewed uses should carry the narrowest possible suppression.
+
+## Remediation
+
+Prefer interpolation for text. For required rich content, sanitize at the trust
+boundary, document the allowlist, and scope any suppression to that directive.
 
 ## Detection
 

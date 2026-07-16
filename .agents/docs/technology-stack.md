@@ -14,6 +14,12 @@ Vize parses Vue SFC structure and is the source of truth for template nodes, dir
 
 Oxc will parse script blocks and provide scopes, symbols, references, imports, and expression facts. Vue Vet is not initially a complete TypeScript type checker; rules requiring unavailable type certainty must remain out of the default preset or explicitly experimental.
 
+The first adapter is pinned to the Oxc 0.127 family already present in Vize's
+locked dependency graph. It parses each extracted script surface using its
+declared `lang`, builds semantics with syntax checking, and maps every fact span
+back through the SFC block offset. Direct Oxc types remain private to
+`vue-vet-oxc`.
+
 ## ast-grep is the extension lane
 
 ast-grep will power YAML-defined structural rules for supported script and template surfaces. It is a fast and useful customization mechanism, but it does not own built-in Vue semantics, cross-file project reasoning, confidence, scoring, suppression, caching, baselines, or fix coordination.

@@ -1,7 +1,9 @@
 [workspace]
 members = [
   "crates/vue-vet-cli",
+  "crates/vue-vet-config",
   "crates/vue-vet-core",
+  "crates/vue-vet-oxc",
   "crates/vue-vet-rules",
   "crates/vue-vet-vize",
 ]
@@ -19,7 +21,13 @@ categories = ["development-tools"]
 
 [workspace.dependencies]
 clap = { version = "4.5", features = ["derive"] }
+globset = "0.4"
 ignore = "0.4"
+oxc_allocator = "=0.127.0"
+oxc_ast = "=0.127.0"
+oxc_parser = "=0.127.0"
+oxc_semantic = "=0.127.0"
+oxc_span = "=0.127.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

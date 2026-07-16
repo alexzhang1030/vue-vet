@@ -1,11 +1,15 @@
 use std::path::Path;
 
 use thiserror::Error;
-use vize_atelier_core::{Allocator, ElementNode, PropNode, TemplateChildNode, parse};
+use vize_atelier_core::{
+  Allocator, ElementNode, ExpressionNode, PropNode, TemplateChildNode, parse,
+};
 use vize_atelier_sfc::{SfcParseOptions, parse_sfc};
 use vue_vet_core::{
-  Diagnostic, SourceSpan, TemplateDirectiveFact, TemplateElementFact, TemplateFacts,
+  Diagnostic, ScriptFacts, ScriptKind, SourceSpan, TemplateAttributeFact, TemplateDirectiveFact,
+  TemplateElementFact, TemplateFacts,
 };
+use vue_vet_oxc::{AnalyzeScriptError, analyze_script};
 use vue_vet_rules::builtin_registry;
 
 #[derive(Debug, Error)]
@@ -14,6 +18,8 @@ pub enum AnalyzeError {
   Parse(String),
   #[error("Vize could not parse the template: {0}")]
   Template(String),
+  #[error(transparent)]
+  Script(#[from] AnalyzeScriptError),
 }
 
 /// Analyze one Vue single-file component.
@@ -21,15 +27,37 @@ pub enum AnalyzeError {
 /// # Errors
 ///
 /// Returns [`AnalyzeError::Parse`] when Vize cannot parse the component or
-/// [`AnalyzeError::Template`] when its template contains a fatal parse error.
+/// [`AnalyzeError::Template`] when its template contains a fatal parse error,
+/// or [`AnalyzeError::Script`] when an embedded JavaScript or TypeScript block
+/// cannot be analyzed.
 pub fn analyze_sfc(path: &Path, source: &str) -> Result<Vec<Diagnostic>, AnalyzeError> {
   let descriptor = parse_sfc(source, SfcParseOptions::default())
     .map_err(|error| AnalyzeError::Parse(error.message.into()))?;
-  let Some(template) = descriptor.template else {
-    return Ok(Vec::new());
+  let template = if let Some(template) = descriptor.template {
+    extract_template_facts(source, &template.content, template.loc.start)?
+  } else {
+    TemplateFacts::default()
   };
-  let facts = extract_template_facts(source, &template.content, template.loc.start)?;
-  Ok(builtin_registry().run(path, source, &facts))
+  let mut script = ScriptFacts::default();
+  if let Some(block) = descriptor.script {
+    script.blocks.push(analyze_script(
+      source,
+      &block.content,
+      block.loc.start,
+      block.lang.as_deref().unwrap_or("js"),
+      ScriptKind::Script,
+    )?);
+  }
+  if let Some(block) = descriptor.script_setup {
+    script.blocks.push(analyze_script(
+      source,
+      &block.content,
+      block.loc.start,
+      block.lang.as_deref().unwrap_or("js"),
+      ScriptKind::Setup,
+    )?);
+  }
+  Ok(builtin_registry().run(path, source, &template, &script))
 }
 
 fn extract_template_facts(
@@ -69,32 +97,59 @@ fn collect_element(
 ) {
   let offset = template_offset.saturating_add(position_offset(element.loc.start.offset));
   let end = template_offset.saturating_add(position_offset(element.loc.end.offset));
-  let directives = element
-    .props
-    .iter()
-    .filter_map(|prop| {
-      let PropNode::Directive(directive) = prop else {
-        return None;
-      };
-      let raw_name = directive
-        .raw_name
-        .as_ref()
-        .map_or_else(|| format!("v-{}", directive.name), ToString::to_string);
-      let offset = template_offset.saturating_add(position_offset(directive.loc.start.offset));
-      Some(TemplateDirectiveFact {
-        name: directive.name.to_string(),
-        span: source_span(source, offset, raw_name.len()),
-        raw_name,
-      })
-    })
-    .collect();
+  let mut attributes = Vec::new();
+  let mut directives = Vec::new();
+  for prop in &element.props {
+    match prop {
+      PropNode::Attribute(attribute) => {
+        let offset =
+          template_offset.saturating_add(position_offset(attribute.name_loc.start.offset));
+        attributes.push(TemplateAttributeFact {
+          name: attribute.name.to_string(),
+          value: attribute.value.as_ref().map(|value| value.content.to_string()),
+          span: source_span(source, offset, attribute.name.len()),
+        });
+      }
+      PropNode::Directive(directive) => {
+        let raw_name = directive
+          .raw_name
+          .as_ref()
+          .map_or_else(|| format!("v-{}", directive.name), ToString::to_string);
+        let offset = template_offset.saturating_add(position_offset(directive.loc.start.offset));
+        let argument = directive.arg.as_ref().map(expression_text);
+        let expression = directive.exp.as_ref().map(expression_text);
+        let modifiers = directive
+          .modifiers
+          .iter()
+          .map(|modifier| modifier.content.to_string())
+          .collect::<Vec<_>>();
+        directives.push(TemplateDirectiveFact {
+          name: directive.name.to_string(),
+          argument,
+          expression,
+          modifiers,
+          span: source_span(source, offset, raw_name.len()),
+          raw_name,
+        });
+      }
+    }
+  }
 
   facts.elements.push(TemplateElementFact {
     tag: element.tag.to_string(),
     span: source_span(source, offset, end.saturating_sub(offset)),
+    attributes,
     directives,
+    has_children: !element.children.is_empty(),
   });
   collect_children(source, template_offset, &element.children, facts);
+}
+
+fn expression_text(expression: &ExpressionNode<'_>) -> String {
+  match expression {
+    ExpressionNode::Simple(expression) => expression.content.to_string(),
+    ExpressionNode::Compound(expression) => expression.loc.source.to_string(),
+  }
 }
 
 fn position_offset(offset: u32) -> usize {

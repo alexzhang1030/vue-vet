@@ -4,18 +4,23 @@
 
 ```text
 vue-vet CLI
+  -> versioned configuration and path filters
   -> ignore-aware .vue discovery
   -> vue-vet-vize SFC and template AST parsing
   -> Vue Vet-owned template facts
+  -> vue-vet-oxc script parsing and semantic analysis
+  -> Vue Vet-owned script imports, bindings, calls, and write facts
   -> vue-vet-rules built-in rule registry
+  -> severity overrides and scoped suppressions
   -> vue-vet-core diagnostics, spans, scoring
   -> text or JSON output and CI exit policy
 ```
 
-The current implementation is intentionally small. `no-v-html` is the reference
-AST-backed built-in rule: the Vize adapter traverses template elements and
-directives, converts them to dependency-neutral facts, then the deterministic
-rule registry emits Vue Vet diagnostics.
+`no-v-html` remains the reference AST-backed built-in rule. Phase 2 adds the Oxc
+adapter while keeping both dependency ASTs behind Vue Vet-owned facts.
+Configuration changes rule enablement and severity after semantic analysis;
+suppressions are applied after diagnostic normalization and emit findings when
+unused.
 
 ## Stable boundary
 
@@ -36,9 +41,9 @@ project discovery and configuration
 
 ## Crate evolution
 
-Existing crates are `vue-vet-core`, `vue-vet-vize`, `vue-vet-rules`, and the
-`vue-vet` CLI. Planned boundaries include `vue-vet-oxc`, `vue-vet-patterns`,
-`vue-vet-project`, and `vue-vet-reporters`. A planned name is not authorization
+Existing crates are `vue-vet-core`, `vue-vet-config`, `vue-vet-vize`,
+`vue-vet-oxc`, `vue-vet-rules`, and the `vue-vet` CLI. Planned boundaries
+include `vue-vet-patterns`, `vue-vet-project`, and `vue-vet-reporters`. A planned name is not authorization
 to create an empty abstraction: introduce the crate only when a working vertical
 slice uses it.
 
