@@ -71,3 +71,22 @@ unconditional reads to suppress false positives. Reads after a top-level
 `await` are classified separately because Vue stops dependency collection at
 that synchronous boundary. Nested callbacks, local lookalike functions, and
 write-only assignment targets are not effect reads.
+
+## Cross-module reactivity is a summary problem
+
+Do not concatenate files and parse the result as one script. The reactivity
+linker analyzes each module separately, consumes only project-resolved edges,
+and propagates Vue Vet-owned summaries through named/default exports, barrels,
+multi-hop re-exports, and cycles. Exported composables are summarized only when
+a named function returns a statically keyed object whose values resolve to
+proven local reactive bindings; consumers are seeded only for direct object
+destructuring of a symbol-resolved imported call.
+
+Local variable names are never enough for module propagation. Export collection,
+composable returns, imported calls, and effect reads must agree on Oxc symbol
+identity so shadowed parameters and function-local refs do not leak across the
+module boundary. Conflicting star exports, ambiguous links, unresolved imports,
+dynamic keys, namespace consumers, and unsupported return shapes stay quiet
+instead of inventing certainty. Standalone JavaScript/TypeScript files are wired
+into the project graph today; extracted `.vue` script blocks remain a documented
+precision boundary until Vize supplies an exact module source/offset contract.
