@@ -10,11 +10,11 @@ use oxc_ast::{
 };
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
-use oxc_span::{GetSpan, SourceType, Span};
+use oxc_span::{SourceType, Span};
 use thiserror::Error;
 use vue_vet_core::{
-  ReactiveReadKind, ScriptBindingFact, ScriptBlockFacts, ScriptCallFact, ScriptDestructureFact,
-  ScriptImportFact, ScriptKind, ScriptMemberWriteFact, SourceSpan,
+  ScriptBindingFact, ScriptBlockFacts, ScriptCallFact, ScriptDestructureFact, ScriptImportFact,
+  ScriptKind, ScriptMemberWriteFact, SourceSpan,
 };
 use vue_vet_reactivity::trace_reactivity;
 
@@ -285,6 +285,7 @@ fn join_errors(errors: &[impl ToString]) -> String {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use vue_vet_core::ReactiveReadKind;
 
   #[expect(clippy::panic, reason = "unexpected Oxc errors must fail adapter tests")]
   fn analyze(source: &str, language: &str) -> ScriptBlockFacts {
