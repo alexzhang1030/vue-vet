@@ -73,7 +73,7 @@ fn unsafe_fixture_has_machine_readable_json_output() {
   assert!(output.status.success(), "warnings are non-fatal without --deny-warnings");
   assert_eq!(
     parsed.as_ref().ok().and_then(|value| value.get("schema_version")).and_then(Value::as_u64),
-    Some(1),
+    Some(2),
     "JSON output must declare its contract version"
   );
   assert_eq!(
@@ -88,6 +88,28 @@ fn unsafe_fixture_has_machine_readable_json_output() {
     Some("vue-vet/security/no-v-html"),
     "JSON output must contain the stable rule ID"
   );
+  assert_eq!(
+    parsed
+      .as_ref()
+      .ok()
+      .and_then(|value| value.get("project"))
+      .and_then(|project| project.get("complete"))
+      .and_then(Value::as_bool),
+    Some(true),
+    "a successful scan must make completeness explicit"
+  );
+  assert!(
+    parsed
+      .as_ref()
+      .ok()
+      .and_then(|value| value.get("diagnostics"))
+      .and_then(Value::as_array)
+      .and_then(|diagnostics| diagnostics.first())
+      .and_then(|diagnostic| diagnostic.get("id"))
+      .and_then(Value::as_str)
+      .is_some_and(|id| id.starts_with("basic.vue::2:9::vue-vet/security/no-v-html::")),
+    "JSON output must expose a deterministic normalized diagnostic identity"
+  );
 }
 
 #[test]
@@ -99,6 +121,40 @@ fn malformed_fixture_returns_an_operational_error_without_panicking() {
   assert_eq!(output.status.code(), Some(2), "a parser failure must return exit code 2");
   assert!(stderr.contains("failed to analyze"), "stderr must explain the parser failure: {stderr}");
   assert!(!stderr.contains("panicked"), "malformed input must never panic: {stderr}");
+}
+
+#[test]
+fn malformed_fixture_returns_a_structured_json_error() {
+  let path = fixture("parser/malformed/unclosed-template.vue");
+  let output = run(&[path.to_string_lossy().as_ref(), "--format", "json"]);
+  let parsed: Result<Value, _> = serde_json::from_slice(&output.stdout);
+
+  assert_eq!(output.status.code(), Some(2), "a parser failure must return exit code 2");
+  assert_eq!(
+    parsed.as_ref().ok().and_then(|report| report.get("ok")).and_then(Value::as_bool),
+    Some(false),
+    "JSON mode must keep operational failures machine readable"
+  );
+  assert_eq!(
+    parsed
+      .as_ref()
+      .ok()
+      .and_then(|report| report.get("project"))
+      .and_then(|project| project.get("complete"))
+      .and_then(Value::as_bool),
+    Some(false),
+    "failed scans must never claim complete coverage"
+  );
+  assert!(
+    parsed
+      .as_ref()
+      .ok()
+      .and_then(|report| report.get("error"))
+      .and_then(|error| error.get("message"))
+      .and_then(Value::as_str)
+      .is_some_and(|message| message.contains("failed to analyze")),
+    "the structured error must retain the actionable parser failure"
+  );
 }
 
 #[test]

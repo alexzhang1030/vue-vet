@@ -2218,6 +2218,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -2262,6 +2263,7 @@ dependencies = [
 name = "vue-vet-reporters"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "serde_json",
  "vue-vet-core",
 ]

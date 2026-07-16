@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, path::Path};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use vue_vet_core::{Diagnostic, Severity, SourceSpan};
+use vue_vet_core::{Confidence, Diagnostic, Severity, SourceSpan};
 
 pub const CONFIG_FILE: &str = "vue-vet.toml";
 pub const CONFIG_VERSION: u32 = 1;
@@ -241,6 +241,8 @@ pub fn apply_suppressions(
         rule_id: "vue-vet/config/unused-suppression".into(),
         category: "configuration".into(),
         severity: Severity::Warning,
+        confidence: Some(Confidence::High),
+        documentation: None,
         message: "suppression did not hide any diagnostic".into(),
         help: Some("Remove the suppression or correct its rule ID and scope.".into()),
         file: file.to_path_buf(),
@@ -390,6 +392,8 @@ mod tests {
       rule_id: rule_id.into(),
       category: "test".into(),
       severity: Severity::Warning,
+      confidence: Some(Confidence::High),
+      documentation: None,
       message: "test finding".into(),
       help: None,
       file: Path::new("App.vue").to_path_buf(),

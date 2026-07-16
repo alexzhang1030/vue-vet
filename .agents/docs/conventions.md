@@ -15,6 +15,11 @@ Internal locations are byte offsets into the original SFC source. User-facing li
 
 Sort diagnostics by normalized repository-relative path, byte offset, and rule ID. Do not expose platform path separators or hash-map iteration order in snapshots, JSON, baselines, or cache identities.
 
+Machine-readable finding IDs are opaque and deterministic. Their readable
+prefix uses normalized path, line/column, and rule ID; their digest changes with
+user-visible severity or message changes. Exact scan coverage and an explicit
+completeness flag accompany findings so empty output is never ambiguous.
+
 ## Edit contracts
 
 Text edits use byte offsets into the original file, carry explicit safe/unsafe

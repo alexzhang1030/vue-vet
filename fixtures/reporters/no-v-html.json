@@ -1,21 +1,51 @@
 {
+  "schema_version": 2,
+  "tool": {
+    "name": "vue-vet",
+    "version": "0.1.0"
+  },
+  "ok": true,
+  "mode": "full",
+  "project": {
+    "root": "fixtures/reporters",
+    "framework": "vue",
+    "analyzed_files": [
+      "no-v-html.vue"
+    ],
+    "analyzed_file_count": 1,
+    "files_scanned": 1,
+    "complete": true,
+    "skipped_checks": [],
+    "skipped_check_reasons": {}
+  },
   "diagnostics": [
     {
-      "category": "security",
-      "file": "fixtures/reporters/no-v-html.vue",
-      "help": "Prefer normal template interpolation. If raw HTML is required, sanitize it at the trust boundary.",
-      "message": "`v-html` can render untrusted HTML into the page",
+      "id": "no-v-html.vue::2:9::vue-vet/security/no-v-html::1177674fb6ab3aec2e2e1c3da30c47806bea15bf13c58a518af68375744fabca",
       "rule_id": "vue-vet/security/no-v-html",
+      "category": "security",
       "severity": "warning",
+      "confidence": "high",
+      "message": "`v-html` can render untrusted HTML into the page",
+      "help": "Prefer normal template interpolation. If raw HTML is required, sanitize it at the trust boundary.",
+      "documentation": "docs/rules/security/no-v-html.md",
+      "file": "no-v-html.vue",
       "span": {
-        "column": 9,
+        "offset": 19,
         "length": 6,
         "line": 2,
-        "offset": 19
+        "column": 9
       }
     }
   ],
-  "files_scanned": 1,
-  "schema_version": 1,
-  "score": 97
+  "summary": {
+    "score": 97,
+    "finding_count": 1,
+    "affected_file_count": 1,
+    "by_severity": {
+      "info": 0,
+      "warning": 1,
+      "error": 0
+    }
+  },
+  "error": null
 }

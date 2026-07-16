@@ -64,11 +64,20 @@ slice uses it.
 
 ## Reporting and edit planning
 
-`vue-vet-reporters` consumes only Vue Vet-owned `ScanSummary` values. It owns
-deterministic text and versioned JSON rendering, while the CLI retains stdout,
-operational-error messages, and exit policy. Renderers return content without a
-terminal newline so each surface can choose its transport framing. Existing text
-and JSON snapshots are byte-for-byte compatibility gates for the extraction.
+`vue-vet-reporters` consumes Vue Vet-owned `ScanSummary` values plus an explicit
+report context for scan mode, framework, exact analyzed files, completeness, and
+skipped-check reasons. It owns deterministic text and versioned JSON rendering,
+while the CLI retains stdout, operational-error messages, and exit policy.
+Renderers return content without a terminal newline so each surface can choose
+its transport framing. Text snapshots remain byte-for-byte compatibility gates;
+JSON snapshots are versioned wire-contract gates.
+
+JSON v2 is the shared fact layer for CI and future agent surfaces. Each finding
+has a deterministic opaque ID, normalized project-relative path, confidence,
+and repository-local documentation path. Consumers must use `complete` and exact
+analyzed-file coverage rather than treating an empty findings array as proof of
+a clean scan. A future bounded agent handoff may summarize and group this data,
+but it must reference the complete report instead of replacing it.
 
 The shared edit contract lives in `vue-vet-core`, not in a parser, rule engine,
 or reporter. A text edit carries a repository path, checked byte range,

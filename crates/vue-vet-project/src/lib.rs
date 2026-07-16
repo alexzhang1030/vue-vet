@@ -4,7 +4,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use vue_vet_core::{Diagnostic, ScriptFacts, Severity, SfcFacts, SourceSpan};
+use vue_vet_core::{Confidence, Diagnostic, ScriptFacts, Severity, SfcFacts, SourceSpan};
 use vue_vet_reactivity::{ModuleLink, ModuleReactivity, ModuleSource, trace_modules};
 
 pub const CONVENTIONS_VERSION: u32 = 1;
@@ -305,6 +305,8 @@ fn unresolved_diagnostic(file: &Path, specifier: &str, span: SourceSpan) -> Diag
     rule_id: PROJECT_RULE_IDS[0].into(),
     category: "project".into(),
     severity: Severity::Error,
+    confidence: Some(Confidence::High),
+    documentation: Some("project-graph".into()),
     message: format!("cannot resolve project import `{specifier}`"),
     help: Some(
       "Use a relative path, the @/ or ~/ project aliases, or a supported external package import."
@@ -338,6 +340,8 @@ fn unused_component_diagnostics(
         rule_id: PROJECT_RULE_IDS[1].into(),
         category: "project".into(),
         severity: Severity::Warning,
+        confidence: Some(Confidence::Medium),
+        documentation: Some("project-graph".into()),
         message: format!("component `{}` is never referenced", node.name),
         help: Some("Remove it or reference it from a template or script import.".into()),
         file: file.path.clone(),

@@ -1,6 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::{
+  fmt::Write,
+  path::{Path, PathBuf},
+};
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 mod edits;
 
@@ -44,10 +48,53 @@ pub struct Diagnostic {
   pub rule_id: String,
   pub category: String,
   pub severity: Severity,
+  pub confidence: Option<Confidence>,
+  pub documentation: Option<String>,
   pub message: String,
   pub help: Option<String>,
   pub file: PathBuf,
   pub span: SourceSpan,
+}
+
+/// Builds the stable, opaque identity used by machine-readable report consumers.
+///
+/// The caller supplies a repository-relative path because only the orchestration
+/// layer knows the scan root. The content digest changes with user-visible
+/// severity or message changes while the readable prefix keeps triage practical.
+#[must_use]
+pub fn diagnostic_id(diagnostic: &Diagnostic, normalized_file_path: &str) -> String {
+  let mut hasher = Sha256::new();
+  let severity = match diagnostic.severity {
+    Severity::Info => "info",
+    Severity::Warning => "warning",
+    Severity::Error => "error",
+  };
+  hash_identity_field(&mut hasher, b"severity", severity.as_bytes());
+  hash_identity_field(&mut hasher, b"message", diagnostic.message.as_bytes());
+  let digest = hex_digest(&hasher.finalize());
+  format!(
+    "{normalized_file_path}::{}:{}::{}::{digest}",
+    diagnostic.span.line, diagnostic.span.column, diagnostic.rule_id
+  )
+}
+
+fn hash_identity_field(hasher: &mut Sha256, name: &[u8], value: &[u8]) {
+  let name_length = u64::try_from(name.len()).unwrap_or(u64::MAX);
+  let value_length = u64::try_from(value.len()).unwrap_or(u64::MAX);
+  hasher.update(name_length.to_le_bytes());
+  hasher.update(name);
+  hasher.update(value_length.to_le_bytes());
+  hasher.update(value);
+}
+
+fn hex_digest(bytes: &[u8]) -> String {
+  let mut output = String::with_capacity(bytes.len().saturating_mul(2));
+  for byte in bytes {
+    if write!(&mut output, "{byte:02x}").is_err() {
+      break;
+    }
+  }
+  output
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -332,6 +379,8 @@ impl<'a> RuleContext<'a> {
       rule_id: meta.id.into(),
       category: meta.category.into(),
       severity: meta.default_severity,
+      confidence: Some(meta.confidence),
+      documentation: Some(meta.documentation.into()),
       message,
       help,
       file: self.file.to_path_buf(),
@@ -462,6 +511,8 @@ mod tests {
       rule_id: "test/rule".into(),
       category: "test".into(),
       severity: Severity::Warning,
+      confidence: Some(Confidence::High),
+      documentation: Some("rules/test/rule".into()),
       message: "test".into(),
       help: None,
       file: "Component.vue".into(),
@@ -473,6 +524,36 @@ mod tests {
     assert_eq!(summary.score, 0);
     assert!(summary.fails(true));
     assert!(!summary.fails(false));
+  }
+
+  #[test]
+  fn diagnostic_identity_is_stable_and_tracks_user_visible_content() {
+    let diagnostic = Diagnostic {
+      rule_id: "vue-vet/test/rule".into(),
+      category: "test".into(),
+      severity: Severity::Warning,
+      confidence: Some(Confidence::High),
+      documentation: Some("rules/test/rule".into()),
+      message: "finding".into(),
+      help: None,
+      file: "ignored-absolute-path/App.vue".into(),
+      span: SourceSpan { offset: 8, length: 3, line: 2, column: 4 },
+    };
+    let first = diagnostic_id(&diagnostic, "src/App.vue");
+    let second = diagnostic_id(&diagnostic, "src/App.vue");
+    assert_eq!(first, second, "unchanged findings must retain their identity");
+    assert!(
+      first.starts_with("src/App.vue::2:4::vue-vet/test/rule::"),
+      "the opaque identity must retain a useful normalized prefix"
+    );
+
+    let mut changed = diagnostic;
+    changed.severity = Severity::Error;
+    assert_ne!(
+      first,
+      diagnostic_id(&changed, "src/App.vue"),
+      "a user-visible severity change must produce a distinct identity"
+    );
   }
 
   #[test]

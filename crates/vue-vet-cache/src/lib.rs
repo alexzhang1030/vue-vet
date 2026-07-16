@@ -12,7 +12,7 @@ use thiserror::Error;
 use vue_vet_core::{Diagnostic, ScanSummary};
 use vue_vet_project::{CONVENTIONS_VERSION, ProjectGraph};
 
-pub const CACHE_FORMAT_VERSION: u32 = 1;
+pub const CACHE_FORMAT_VERSION: u32 = 2;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 pub const RULESET_VERSION: u32 = 1;
 
@@ -325,13 +325,15 @@ fn io_error<T>(path: &Path, message: &str) -> Result<T, CacheError> {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use vue_vet_core::{Severity, SourceSpan};
+  use vue_vet_core::{Confidence, Severity, SourceSpan};
 
   fn diagnostic(rule: &str, file: &str, line: usize, category: &str) -> Diagnostic {
     Diagnostic {
       rule_id: rule.into(),
       category: category.into(),
       severity: Severity::Warning,
+      confidence: Some(Confidence::High),
+      documentation: None,
       message: "finding".into(),
       help: None,
       file: file.into(),
