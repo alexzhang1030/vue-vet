@@ -1,5 +1,5 @@
 use vue_vet_core::{
-  Confidence, ReactiveBindingKind, Rule, RuleContext, RuleMeta, RuleRegistry, Severity, SourceSpan,
+  Confidence, ReactiveBindingKind, ReactiveReadKind, Rule, RuleContext, RuleMeta, RuleRegistry, Severity, SourceSpan,
   TemplateElementFact,
 };
 
@@ -634,21 +634,47 @@ impl Rule for NoConditionalWatchEffectDependency {
       .blocks
       .iter()
       .flat_map(|block| &block.reactivity_graph.effects)
-      .flat_map(|effect| &effect.reads)
-      .filter_map(|read| {
-        read
-          .guarded_by
-          .as_ref()
-          .map(|guard| (read.span.clone(), read.binding.clone(), guard.clone()))
+      .flat_map(|effect| {
+        effect
+          .reads
+          .iter()
+          .filter(|read| read.kind == ReactiveReadKind::Conditional)
+          .filter(|read| {
+            !effect.reads.iter().any(|candidate| {
+              candidate.kind == ReactiveReadKind::Unconditional
+                && candidate.span.offset < read.span.offset
+                && candidate.binding == read.binding
+                && candidate.property == read.property
+            })
+          })
+          .map(|read| {
+            let binding = read.property.as_ref().map_or_else(
+              || read.binding.clone(),
+              |property| format!("{}.{property}", read.binding),
+            );
+            let guards = read
+              .guards
+              .iter()
+              .map(|guard| {
+                guard.property.as_ref().map_or_else(
+                  || guard.binding.clone(),
+                  |property| format!("{}.{property}", guard.binding),
+                )
+              })
+              .collect::<Vec<_>>()
+              .join("`, `");
+            (read.span.clone(), binding, guards)
+          })
+          .collect::<Vec<_>>()
       })
       .collect::<Vec<_>>();
-    for (span, binding, guard) in reads {
+    for (span, binding, guards) in reads {
       context.report(
         self.meta(),
         span,
-        format!("`{binding}` is only tracked after the `{guard}` guard passes"),
+        format!("`{binding}` is only tracked after the `{guards}` guard passes"),
         Some(
-          "If both values must invalidate the effect, use an explicit watch source array or read            every dependency before the guard."
+          "If every value must invalidate the effect, use explicit watch sources or read each             dependency before the guard."
             .into(),
         ),
       );
