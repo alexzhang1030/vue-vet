@@ -161,6 +161,62 @@ pub fn analyze_script(
     }
   }
 
+  let mut reactive_bindings =
+    collect_reactive_bindings(&semantic, &imported_bindings, sfc_source, script_offset);
+  let mut effects = collect_effects(
+    &semantic,
+    &imported_bindings,
+    &reactive_bindings,
+    sfc_source,
+    script_offset,
+  );
+
+  imports.sort_by_key(|fact| fact.span.offset);
+  calls.sort_by_key(|fact| fact.span.offset);
+  member_writes.sort_by_key(|fact| fact.span.offset);
+  destructures.sort_by_key(|fact| fact.span.offset);
+  reactive_bindings.sort_by_key(|fact| fact.span.offset);
+  effects.sort_by_key(|fact| fact.span.offset);
+  Ok(ScriptBlockFacts {
+    kind,
+    language: language.into(),
+    imports,
+    bindings,
+    calls,
+    member_writes,
+    destructures,
+    reactivity_graph: ReactivityGraph { bindings: reactive_bindings, effects },
+  })
+}
+
+/// Analyze a standalone JavaScript or TypeScript module.
+///
+/// # Errors
+///
+/// Returns a deterministic parser, semantic, or language-selection error.
+pub fn analyze_module(
+  source: &str,
+  language: &str,
+) -> Result<ScriptBlockFacts, AnalyzeScriptError> {
+  analyze_script(source, source, 0, language, ScriptKind::Script)
+}
+
+fn resolved_vue_name<'a>(
+  local: &'a str,
+  imported_bindings: &'a BTreeMap<String, (String, String)>,
+) -> &'a str {
+  imported_bindings
+    .get(local)
+    .filter(|(source, _)| source == "vue")
+    .map_or(local, |(_, imported)| imported.as_str())
+}
+
+fn collect_reactive_bindings(
+  semantic: &oxc_semantic::Semantic<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  sfc_source: &str,
+  script_offset: usize,
+) -> Vec<ReactiveBindingFact> {
   let mut reactive_bindings = Vec::new();
   for node in semantic.nodes() {
     let AstKind::CallExpression(call) = node.kind() else {
@@ -170,11 +226,7 @@ pub fn analyze_script(
       continue;
     };
     let local = identifier.name.as_str();
-    let imported = imported_bindings
-      .get(local)
-      .filter(|(source, _)| source == "vue")
-      .map(|(_, imported)| imported.as_str())
-      .unwrap_or(local);
+    let imported = resolved_vue_name(local, imported_bindings);
     let binding_kind = match imported {
       "ref" => Some(ReactiveBindingKind::Ref),
       "shallowRef" => Some(ReactiveBindingKind::ShallowRef),
@@ -204,6 +256,16 @@ pub fn analyze_script(
     });
   }
 
+  reactive_bindings
+}
+
+fn collect_effects(
+  semantic: &oxc_semantic::Semantic<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  reactive_bindings: &[ReactiveBindingFact],
+  sfc_source: &str,
+  script_offset: usize,
+) -> Vec<ReactivityEffectFact> {
   let mut effects = Vec::new();
   for node in semantic.nodes() {
     let AstKind::CallExpression(call) = node.kind() else {
@@ -213,11 +275,7 @@ pub fn analyze_script(
       continue;
     };
     let callee = identifier.name.as_str();
-    let imported = imported_bindings
-      .get(callee)
-      .filter(|(source, _)| source == "vue")
-      .map(|(_, imported)| imported.as_str())
-      .unwrap_or(callee);
+    let imported = resolved_vue_name(callee, imported_bindings);
     if !matches!(imported, "watchEffect" | "watchPostEffect" | "watchSyncEffect") {
       continue;
     }
@@ -320,34 +378,7 @@ pub fn analyze_script(
     }
   }
 
-  imports.sort_by_key(|fact| fact.span.offset);
-  calls.sort_by_key(|fact| fact.span.offset);
-  member_writes.sort_by_key(|fact| fact.span.offset);
-  destructures.sort_by_key(|fact| fact.span.offset);
-  reactive_bindings.sort_by_key(|fact| fact.span.offset);
-  effects.sort_by_key(|fact| fact.span.offset);
-  Ok(ScriptBlockFacts {
-    kind,
-    language: language.into(),
-    imports,
-    bindings,
-    calls,
-    member_writes,
-    destructures,
-    reactivity_graph: ReactivityGraph { bindings: reactive_bindings, effects },
-  })
-}
-
-/// Analyze a standalone JavaScript or TypeScript module.
-///
-/// # Errors
-///
-/// Returns a deterministic parser, semantic, or language-selection error.
-pub fn analyze_module(
-  source: &str,
-  language: &str,
-) -> Result<ScriptBlockFacts, AnalyzeScriptError> {
-  analyze_script(source, source, 0, language, ScriptKind::Script)
+  effects
 }
 
 fn is_early_return(statement: &Statement<'_>) -> bool {
