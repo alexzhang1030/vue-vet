@@ -1,6 +1,6 @@
 use vue_vet_core::{
-  Confidence, ReactiveBindingKind, ReactiveReadKind, Rule, RuleContext, RuleMeta, RuleRegistry, Severity, SourceSpan,
-  TemplateElementFact,
+  Confidence, ReactiveBindingKind, ReactiveReadKind, Rule, RuleContext, RuleMeta, RuleRegistry,
+  Severity, SourceSpan, TemplateElementFact,
 };
 
 const NO_V_HTML_META: RuleMeta = RuleMeta {
