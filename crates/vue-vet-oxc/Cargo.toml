@@ -21,6 +21,5 @@ oxc_semantic.workspace = true
 oxc_span.workspace = true
 thiserror.workspace = true
 vue-vet-core = { path = "../vue-vet-core" }
+vue-vet-reactivity = { path = "../vue-vet-reactivity" }
 
-[dev-dependencies]
-serde_json.workspace = true
