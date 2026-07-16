@@ -252,9 +252,8 @@ fn scan(root: &Path, config: &Config) -> Result<ScanResult, String> {
     match extension {
       Some("vue") if filter.matches(logical_path) => {
         let source = read_source(path)?;
-        let environment = RuleEnvironment {
-          vue_version: vue_version_for(path, scan_directory(root)),
-        };
+        let environment =
+          RuleEnvironment { vue_version: vue_version_for(path, scan_directory(root)) };
         let analysis = analyze_sfc_with_environment(path, &source, environment)
           .map_err(|error| format!("failed to analyze {}: {error}", path.display()))?;
         let diagnostics = config.apply(analysis.diagnostics);
