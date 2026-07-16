@@ -47,9 +47,7 @@ fn analyze_versioned(path: &str, source: &str, minor: u64) -> Vec<Diagnostic> {
   match analyze_sfc_with_environment(
     Path::new(path),
     source,
-    RuleEnvironment {
-      vue_version: Some(VueVersion { major: 3, minor, patch: 0 }),
-    },
+    RuleEnvironment { vue_version: Some(VueVersion { major: 3, minor, patch: 0 }) },
   ) {
     Ok(analysis) => analysis.diagnostics,
     Err(error) => panic!("versioned rule fixture unexpectedly failed: {error}"),
