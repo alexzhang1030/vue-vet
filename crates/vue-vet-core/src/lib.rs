@@ -156,6 +156,12 @@ pub enum ReactiveBindingKind {
   Computed,
   Reactive,
   ShallowReactive,
+  Readonly,
+  ShallowReadonly,
+  CustomRef,
+  ToRef,
+  TemplateRef,
+  ModelRef,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -166,9 +172,28 @@ pub struct ReactiveBindingFact {
   pub span: SourceSpan,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReactiveReadKind {
+  Unconditional,
+  Conditional,
+  AfterAwait,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReactiveGuardFact {
+  pub binding: String,
+  pub property: Option<String>,
+  pub span: SourceSpan,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ReactiveReadFact {
   pub binding: String,
+  pub property: Option<String>,
+  pub kind: ReactiveReadKind,
+  pub guards: Vec<ReactiveGuardFact>,
+  /// Compatibility shortcut for consumers that only understand one guard.
   pub guarded_by: Option<String>,
   pub span: SourceSpan,
 }
