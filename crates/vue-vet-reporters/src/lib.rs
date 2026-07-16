@@ -258,11 +258,7 @@ fn normalize_path(path: &str) -> String {
 }
 
 fn documentation_path(documentation: &str) -> String {
-  if documentation.ends_with(".md") {
-    documentation.into()
-  } else {
-    format!("docs/{documentation}.md")
-  }
+  format!("docs/{documentation}.md")
 }
 
 fn render_text(summary: &ScanSummary) -> String {
