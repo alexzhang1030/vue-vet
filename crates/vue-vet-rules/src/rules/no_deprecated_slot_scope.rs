@@ -23,13 +23,15 @@ impl Rule for NoDeprecatedSlotScope {
       .elements
       .iter()
       .filter_map(|element| {
-        element.attribute("slot-scope").or_else(|| {
-          if element.tag.eq_ignore_ascii_case("template") {
-            element.attribute("scope")
-          } else {
-            None
-          }
-        })
+        element
+          .attribute("slot-scope")
+          .or_else(|| {
+            if element.tag.eq_ignore_ascii_case("template") {
+              element.attribute("scope")
+            } else {
+              None
+            }
+          })
           .map(|attribute| attribute.span.clone())
       })
       .collect::<Vec<_>>();
@@ -38,9 +40,7 @@ impl Rule for NoDeprecatedSlotScope {
         self.meta(),
         span,
         "slot-scope syntax was removed in Vue 3".into(),
-        Some(
-          "Use v-slot or the # shorthand on <template> or the receiving component.".into(),
-        ),
+        Some("Use v-slot or the # shorthand on <template> or the receiving component.".into()),
       );
     }
   }

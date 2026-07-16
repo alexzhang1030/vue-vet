@@ -24,8 +24,7 @@ impl Rule for NoDeprecatedVOnNativeModifier {
       .iter()
       .filter_map(|element| {
         element.directives.iter().find(|directive| {
-          directive.name == "on"
-            && directive.modifiers.iter().any(|modifier| modifier == "native")
+          directive.name == "on" && directive.modifiers.iter().any(|modifier| modifier == "native")
         })
       })
       .map(|directive| directive.span.clone())

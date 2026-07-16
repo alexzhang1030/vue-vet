@@ -30,8 +30,11 @@ mod tests {
   #[test]
   fn every_builtin_rule_has_unique_metadata() {
     let metadata = builtin_registry().metadata();
-    let unique_ids =
-      metadata.iter().map(|meta| meta.id).collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(unique_ids.len(), metadata.len(), "every rule module must register one unique rule ID");
+    let unique_ids = metadata.iter().map(|meta| meta.id).collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+      unique_ids.len(),
+      metadata.len(),
+      "every rule module must register one unique rule ID"
+    );
   }
 }

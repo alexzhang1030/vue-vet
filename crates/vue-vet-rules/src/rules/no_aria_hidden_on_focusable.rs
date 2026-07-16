@@ -45,9 +45,7 @@ impl Rule for NoAriaHiddenOnFocusable {
         self.meta(),
         span,
         "focusable element is hidden from assistive technology".into(),
-        Some(
-          "Remove aria-hidden, or remove the element from keyboard interaction as well.".into(),
-        ),
+        Some("Remove aria-hidden, or remove the element from keyboard interaction as well.".into()),
       );
     }
   }

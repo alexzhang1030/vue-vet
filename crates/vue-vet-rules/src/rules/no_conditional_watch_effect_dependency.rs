@@ -1,6 +1,4 @@
-use vue_vet_core::{
-  Confidence, ReactiveReadKind, Rule, RuleContext, RuleMeta, Severity,
-};
+use vue_vet_core::{Confidence, ReactiveReadKind, Rule, RuleContext, RuleMeta, Severity};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-conditional-watch-effect-dependency",

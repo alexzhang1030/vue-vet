@@ -109,9 +109,9 @@ impl Rule for ValidAriaRole {
       .filter_map(|element| element.attribute("role"))
       .filter(|attribute| {
         attribute.value.as_deref().is_some_and(|value| {
-          !value.split_ascii_whitespace().any(|role| {
-            VALID_ROLES.iter().any(|valid| role.eq_ignore_ascii_case(valid))
-          })
+          !value
+            .split_ascii_whitespace()
+            .any(|role| VALID_ROLES.iter().any(|valid| role.eq_ignore_ascii_case(valid)))
         })
       })
       .map(|attribute| attribute.span.clone())

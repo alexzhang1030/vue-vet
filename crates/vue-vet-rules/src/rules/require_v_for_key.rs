@@ -23,7 +23,10 @@ impl Rule for RequireVForKey {
       .elements
       .iter()
       .filter_map(|element| {
-        element.directive("for").filter(|_| !element.has_key()).map(|directive| directive.span.clone())
+        element
+          .directive("for")
+          .filter(|_| !element.has_key())
+          .map(|directive| directive.span.clone())
       })
       .collect::<Vec<_>>();
     for span in spans {
