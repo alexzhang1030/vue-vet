@@ -1,0 +1,41 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+early_access: false
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  review_status: true
+  commit_status: true
+  fail_commit_status: false
+  collapse_walkthrough: true
+  poem: false
+  enable_prompt_for_ai_agents: true
+  path_filters:
+    - "!Cargo.lock"
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+  path_instructions:
+    - path: "crates/**/*.rs"
+      instructions: |
+        Follow AGENTS.md and the routed Project Context Records. Preserve Vue
+        Vet-owned fact boundaries, deterministic ordering and normalized paths,
+        and exact source byte spans. Flag dependency AST leakage, panic-prone
+        code, nondeterministic output, and snapshot changes without behavioral
+        evidence.
+    - path: ".github/workflows/**"
+      instructions: |
+        Require least-privilege permissions. Prefer immutable commit SHAs for
+        third-party actions, reuse repository just recipes, and never execute
+        untrusted pull-request code with pull_request_target or write-capable
+        credentials.
+    - path: "docs/**"
+      instructions: |
+        Check that documented CLI, JSON, cache, baseline, and rule contracts
+        match the implementation and preserve the pre-alpha version policy.
+  tools:
+    clippy:
+      enabled: true
