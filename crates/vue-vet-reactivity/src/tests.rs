@@ -6,7 +6,7 @@ use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType;
 use vue_vet_core::{ReactiveBindingKind, ReactiveReadKind, ReactivityGraph, ScriptKind};
 
-use super::trace_reactivity;
+use super::{ModuleLink, ModuleReactivity, ModuleSource, trace_modules, trace_reactivity};
 
 #[expect(clippy::panic, reason = "unexpected Oxc errors must fail tracer tests")]
 fn trace(
@@ -659,4 +659,459 @@ fn covers_one_hundred_systematic_scenarios() {
   assert_eq!(scenario_count, 100, "the systematic corpus must contain exactly 100 cases");
   assert_eq!(names.len(), 100, "all systematic scenario names must be unique");
   assert_eq!(sources.len(), 100, "all systematic scenario sources must be unique");
+}
+
+#[derive(Clone, Copy)]
+struct PayloadAxis {
+  name: &'static str,
+  constructor: &'static str,
+  access: &'static str,
+}
+
+#[derive(Clone, Copy)]
+enum AliasAxis {
+  Direct,
+  Aliased,
+}
+
+impl AliasAxis {
+  const fn name(self) -> &'static str {
+    match self {
+      Self::Direct => "direct",
+      Self::Aliased => "aliased",
+    }
+  }
+}
+
+const COMPLEX_PAYLOAD_AXES: [PayloadAxis; 5] = [
+  PayloadAxis { name: "ref", constructor: "ref", access: "payload.value" },
+  PayloadAxis { name: "shallow_ref", constructor: "shallowRef", access: "payload.value" },
+  PayloadAxis { name: "computed", constructor: "computed", access: "payload.value" },
+  PayloadAxis { name: "reactive", constructor: "reactive", access: "payload.count" },
+  PayloadAxis {
+    name: "shallow_reactive",
+    constructor: "shallowReactive",
+    access: "payload.count",
+  },
+];
+
+const COMPLEX_CONTROLS: [&str; 10] = [
+  "sequential_early_returns",
+  "nested_if",
+  "if_logical",
+  "logical_chain",
+  "nested_ternary",
+  "early_return_then_if",
+  "else_if",
+  "try_finally_in_branch",
+  "switch_in_branch",
+  "loop_in_branch",
+];
+
+const ALIAS_AXES: [AliasAxis; 2] = [AliasAxis::Direct, AliasAxis::Aliased];
+
+fn payload_initializer(axis: PayloadAxis, constructor: &str) -> String {
+  match axis.name {
+    "ref" | "shallow_ref" => format!("{constructor}(0)"),
+    "computed" => format!("{constructor}(() => 1)"),
+    "reactive" | "shallow_reactive" => format!("{constructor}({{ count: 0 }})"),
+    _ => String::new(),
+  }
+}
+
+fn complex_control_body(control: &str, access: &str) -> String {
+  match control {
+    "sequential_early_returns" => {
+      format!("if (!ready.value) return; if (!enabled.value) return; {access};")
+    }
+    "nested_if" => format!("if (ready.value) {{ if (enabled.value) {{ {access}; }} }}"),
+    "if_logical" => format!("if (ready.value) {{ enabled.value && {access}; }}"),
+    "logical_chain" => format!("ready.value && enabled.value && {access};"),
+    "nested_ternary" => {
+      format!("ready.value ? (enabled.value ? {access} : sink()) : sink();")
+    }
+    "early_return_then_if" => {
+      format!("if (!ready.value) return; if (enabled.value) {{ {access}; }}")
+    }
+    "else_if" => {
+      format!("if (!ready.value) {{ sink(); }} else if (enabled.value) {{ {access}; }}")
+    }
+    "try_finally_in_branch" => {
+      format!("if (ready.value) {{ try {{ {access}; }} finally {{ sink(); }} }}")
+    }
+    "switch_in_branch" => format!(
+      "if (ready.value) {{ switch (enabled.value) {{ case true: {access}; break; default: sink(); }} }}"
+    ),
+    "loop_in_branch" => format!(
+      "if (ready.value) {{ for (const item of [enabled.value]) {{ if (item) {{ {access}; }} }} }}"
+    ),
+    _ => String::new(),
+  }
+}
+
+fn complex_source(payload: PayloadAxis, control: &str, alias: AliasAxis) -> String {
+  match alias {
+    AliasAxis::Direct => {
+      let imports =
+        BTreeSet::from(["ref", "watchEffect", payload.constructor]).into_iter().collect::<Vec<_>>();
+      format!(
+        "import {{ {} }} from 'vue'; const ready = ref(false); const enabled = ref(false); \
+         const payload = {}; watchEffect(() => {{ {} }});",
+        imports.join(", "),
+        payload_initializer(payload, payload.constructor),
+        complex_control_body(control, payload.access)
+      )
+    }
+    AliasAxis::Aliased => {
+      let (payload_import, payload_constructor) = if payload.constructor == "ref" {
+        (String::new(), "makeRef")
+      } else {
+        (format!(", {} as makePayload", payload.constructor), "makePayload")
+      };
+      format!(
+        "import {{ ref as makeRef, watchEffect as runEffect{payload_import} }} from 'vue'; \
+         const ready = makeRef(false); const enabled = makeRef(false); const payload = {}; \
+         runEffect(function () {{ {} }});",
+        payload_initializer(payload, payload_constructor),
+        complex_control_body(control, payload.access)
+      )
+    }
+  }
+}
+
+#[test]
+fn covers_one_hundred_complex_single_module_scenarios() {
+  let mut names = BTreeSet::new();
+  let mut sources = BTreeSet::new();
+  let mut scenario_count = 0_usize;
+
+  for payload_axis in COMPLEX_PAYLOAD_AXES {
+    for control in COMPLEX_CONTROLS {
+      for alias in ALIAS_AXES {
+        let name = format!("complex::{control}::{}::{}", payload_axis.name, alias.name());
+        let source = complex_source(payload_axis, control, alias);
+        assert!(names.insert(name.clone()), "duplicate complex scenario name: {name}");
+        assert!(sources.insert(source.clone()), "duplicate complex scenario source: {name}");
+
+        let graph = graph(&source);
+        let payload = graph
+          .effects
+          .first()
+          .into_iter()
+          .flat_map(|effect| &effect.reads)
+          .find(|read| read.binding == "payload");
+        assert_eq!(
+          payload.map(|read| read.kind),
+          Some(ReactiveReadKind::Conditional),
+          "complex payload must remain conditional in {name}"
+        );
+        assert!(
+          payload.is_some_and(|read| read.guards.iter().any(|guard| guard.binding == "ready")),
+          "outer ready guard evidence must survive in {name}"
+        );
+        scenario_count = scenario_count.saturating_add(1);
+      }
+    }
+  }
+
+  assert_eq!(scenario_count, 100, "the complex corpus must contain exactly 100 cases");
+  assert_eq!(names.len(), 100, "all complex scenario names must be unique");
+  assert_eq!(sources.len(), 100, "all complex scenario sources must be unique");
+}
+
+#[test]
+fn excludes_shadowed_reactive_symbols() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue'; const payload = ref(0); \
+     watchEffect((payload) => { payload.value; });",
+  );
+  assert!(
+    graph.effects.first().is_some_and(|effect| effect.reads.is_empty()),
+    "a callback parameter shadowing a reactive binding must not resolve to the outer symbol"
+  );
+}
+
+const CROSS_PRIMITIVES: [PayloadAxis; 5] = [
+  PayloadAxis { name: "ref", constructor: "ref", access: "payload.value" },
+  PayloadAxis { name: "shallow_ref", constructor: "shallowRef", access: "payload.value" },
+  PayloadAxis { name: "computed", constructor: "computed", access: "payload.value" },
+  PayloadAxis { name: "reactive", constructor: "reactive", access: "payload.count" },
+  PayloadAxis { name: "readonly", constructor: "readonly", access: "payload.count" },
+];
+
+const CROSS_TOPOLOGIES: [&str; 8] = [
+  "direct_named",
+  "aliased_export",
+  "default_export",
+  "named_barrel",
+  "star_barrel",
+  "two_hop_barrel",
+  "cycle",
+  "unresolved",
+];
+
+const CROSS_FLOWS: [&str; 2] = ["early_return", "logical"];
+
+fn module_source(id: &str, source: String) -> ModuleSource {
+  ModuleSource { id: id.into(), source, language: "ts".into(), kind: ScriptKind::Script }
+}
+
+fn module_link(from: &str, specifier: &str, to: &str) -> ModuleLink {
+  ModuleLink { from: from.into(), specifier: specifier.into(), to: to.into() }
+}
+
+fn producer_initializer(axis: PayloadAxis) -> String {
+  match axis.name {
+    "ref" | "shallow_ref" => format!("{}(0)", axis.constructor),
+    "computed" => format!("{}(() => 1)", axis.constructor),
+    "reactive" | "readonly" => format!("{}({{ count: 0 }})", axis.constructor),
+    _ => String::new(),
+  }
+}
+
+fn consumer_source(import_statement: &str, access: &str, flow: &str) -> String {
+  let body = if flow == "early_return" {
+    format!("if (!ready.value) return; {access};")
+  } else {
+    format!("ready.value && {access};")
+  };
+  format!(
+    "{import_statement} import {{ ref, watchEffect }} from 'vue'; \
+     const ready = ref(false); watchEffect(() => {{ {body} }});"
+  )
+}
+
+fn cross_module_case(
+  topology: &str,
+  primitive: PayloadAxis,
+  flow: &str,
+) -> (Vec<ModuleSource>, Vec<ModuleLink>, bool) {
+  let producer = format!(
+    "import {{ {} }} from 'vue'; export const signal = {};",
+    primitive.constructor,
+    producer_initializer(primitive)
+  );
+  match topology {
+    "direct_named" => (
+      vec![
+        module_source("producer.ts", producer),
+        module_source(
+          "consumer.ts",
+          consumer_source(
+            "import { signal as payload } from './producer';",
+            primitive.access,
+            flow,
+          ),
+        ),
+      ],
+      vec![module_link("consumer.ts", "./producer", "producer.ts")],
+      true,
+    ),
+    "aliased_export" => (
+      vec![
+        module_source(
+          "producer.ts",
+          format!(
+            "import {{ {} }} from 'vue'; const signal = {}; export {{ signal as exportedSignal }};",
+            primitive.constructor,
+            producer_initializer(primitive)
+          ),
+        ),
+        module_source(
+          "consumer.ts",
+          consumer_source(
+            "import { exportedSignal as payload } from './producer';",
+            primitive.access,
+            flow,
+          ),
+        ),
+      ],
+      vec![module_link("consumer.ts", "./producer", "producer.ts")],
+      true,
+    ),
+    "default_export" => (
+      vec![
+        module_source(
+          "producer.ts",
+          format!(
+            "import {{ {} }} from 'vue'; const signal = {}; export default signal;",
+            primitive.constructor,
+            producer_initializer(primitive)
+          ),
+        ),
+        module_source(
+          "consumer.ts",
+          consumer_source("import payload from './producer';", primitive.access, flow),
+        ),
+      ],
+      vec![module_link("consumer.ts", "./producer", "producer.ts")],
+      true,
+    ),
+    "named_barrel" => (
+      vec![
+        module_source("producer.ts", producer),
+        module_source(
+          "barrel.ts",
+          "export { signal as exportedSignal } from './producer';".into(),
+        ),
+        module_source(
+          "consumer.ts",
+          consumer_source(
+            "import { exportedSignal as payload } from './barrel';",
+            primitive.access,
+            flow,
+          ),
+        ),
+      ],
+      vec![
+        module_link("barrel.ts", "./producer", "producer.ts"),
+        module_link("consumer.ts", "./barrel", "barrel.ts"),
+      ],
+      true,
+    ),
+    "star_barrel" => (
+      vec![
+        module_source("producer.ts", producer),
+        module_source("barrel.ts", "export * from './producer';".into()),
+        module_source(
+          "consumer.ts",
+          consumer_source(
+            "import { signal as payload } from './barrel';",
+            primitive.access,
+            flow,
+          ),
+        ),
+      ],
+      vec![
+        module_link("barrel.ts", "./producer", "producer.ts"),
+        module_link("consumer.ts", "./barrel", "barrel.ts"),
+      ],
+      true,
+    ),
+    "two_hop_barrel" => (
+      vec![
+        module_source("producer.ts", producer),
+        module_source("first.ts", "export { signal as middle } from './producer';".into()),
+        module_source("second.ts", "export { middle as finalSignal } from './first';".into()),
+        module_source(
+          "consumer.ts",
+          consumer_source(
+            "import { finalSignal as payload } from './second';",
+            primitive.access,
+            flow,
+          ),
+        ),
+      ],
+      vec![
+        module_link("first.ts", "./producer", "producer.ts"),
+        module_link("second.ts", "./first", "first.ts"),
+        module_link("consumer.ts", "./second", "second.ts"),
+      ],
+      true,
+    ),
+    "cycle" => (
+      vec![
+        module_source(
+          "producer.ts",
+          format!(
+            "import {{ loop }} from './barrel'; import {{ {} }} from 'vue'; \
+             void loop; export const signal = {};",
+            primitive.constructor,
+            producer_initializer(primitive)
+          ),
+        ),
+        module_source(
+          "barrel.ts",
+          "export { signal } from './producer'; export const loop = 1;".into(),
+        ),
+        module_source(
+          "consumer.ts",
+          consumer_source(
+            "import { signal as payload } from './barrel';",
+            primitive.access,
+            flow,
+          ),
+        ),
+      ],
+      vec![
+        module_link("producer.ts", "./barrel", "barrel.ts"),
+        module_link("barrel.ts", "./producer", "producer.ts"),
+        module_link("consumer.ts", "./barrel", "barrel.ts"),
+      ],
+      true,
+    ),
+    _ => (
+      vec![
+        module_source("producer.ts", producer),
+        module_source(
+          "consumer.ts",
+          consumer_source(
+            "import { signal as payload } from './missing';",
+            primitive.access,
+            flow,
+          ),
+        ),
+      ],
+      Vec::new(),
+      false,
+    ),
+  }
+}
+
+#[expect(clippy::panic, reason = "module tracing errors must fail corpus tests")]
+fn traced_modules(modules: &[ModuleSource], links: &[ModuleLink]) -> Vec<ModuleReactivity> {
+  match trace_modules(modules, links) {
+    Ok(traced) => traced,
+    Err(error) => panic!("cross-module tracing unexpectedly failed: {error}"),
+  }
+}
+
+#[test]
+fn covers_eighty_real_cross_module_scenarios() {
+  let mut names = BTreeSet::new();
+  let mut signatures = BTreeSet::new();
+  let mut scenario_count = 0_usize;
+
+  for topology in CROSS_TOPOLOGIES {
+    for primitive in CROSS_PRIMITIVES {
+      for flow in CROSS_FLOWS {
+        let name = format!("modules::{topology}::{}::{flow}", primitive.name);
+        let (modules, links, should_trace) = cross_module_case(topology, primitive, flow);
+        assert!(modules.len() >= 2, "cross-module case must contain separate files: {name}");
+        let signature = modules
+          .iter()
+          .map(|module| format!("{}\n{}", module.id, module.source))
+          .collect::<Vec<_>>()
+          .join("\n---module---\n");
+        assert!(names.insert(name.clone()), "duplicate module scenario name: {name}");
+        assert!(signatures.insert(signature), "duplicate module scenario sources: {name}");
+
+        let traced = traced_modules(&modules, &links);
+        let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+        let payload = consumer
+          .into_iter()
+          .flat_map(|module| &module.graph.effects)
+          .flat_map(|effect| &effect.reads)
+          .find(|read| read.binding == "payload");
+        if should_trace {
+          assert_eq!(
+            payload.map(|read| read.kind),
+            Some(ReactiveReadKind::Conditional),
+            "linked payload must be conditional in {name}"
+          );
+          assert!(
+            payload.is_some_and(|read| read.guards.iter().any(|guard| guard.binding == "ready")),
+            "linked payload must retain its local guard in {name}"
+          );
+        } else {
+          assert!(payload.is_none(), "unresolved module shapes must stay quiet in {name}");
+        }
+        scenario_count = scenario_count.saturating_add(1);
+      }
+    }
+  }
+
+  assert_eq!(scenario_count, 80, "the module corpus must contain exactly 80 cases");
+  assert_eq!(names.len(), 80, "all module scenario names must be unique");
+  assert_eq!(signatures.len(), 80, "all module scenario sources must be unique");
 }
