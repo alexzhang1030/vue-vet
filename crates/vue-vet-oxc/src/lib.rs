@@ -4,17 +4,19 @@ use oxc_allocator::Allocator;
 use oxc_ast::{
   AstKind,
   ast::{
-    Argument, AssignmentTarget, BindingPattern, Expression, ImportDeclarationSpecifier,
-    ModuleExportName, SimpleAssignmentTarget, Statement,
+    Argument, AssignmentTarget, BindingPattern, Expression, FunctionBody,
+    ImportDeclarationSpecifier, ModuleExportName, SimpleAssignmentTarget, Statement,
   },
 };
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::{GetSpan, SourceType, Span};
+use oxc_syntax::node::NodeId;
 use thiserror::Error;
 use vue_vet_core::{
-  ReactiveBindingFact, ReactiveBindingKind, ReactiveReadFact, ReactivityEffectFact,
-  ReactivityGraph, ScriptBindingFact, ScriptBlockFacts, ScriptCallFact, ScriptDestructureFact,
+  ReactiveBindingFact, ReactiveBindingKind, ReactiveGuardFact, ReactiveReadFact,
+  ReactiveReadKind, ReactivityEffectFact, ReactivityGraph, ScriptBindingFact, ScriptBlockFacts,
+  ScriptCallFact, ScriptDestructureFact,
   ScriptImportFact, ScriptKind, ScriptMemberWriteFact, SourceSpan,
 };
 
@@ -162,7 +164,13 @@ pub fn analyze_script(
   }
 
   let mut reactive_bindings =
-    collect_reactive_bindings(&semantic, &imported_bindings, sfc_source, script_offset);
+    collect_reactive_bindings(
+      &semantic,
+      &imported_bindings,
+      sfc_source,
+      script_offset,
+      kind,
+    );
   let mut effects =
     collect_effects(&semantic, &imported_bindings, &reactive_bindings, sfc_source, script_offset);
 
@@ -196,14 +204,86 @@ pub fn analyze_module(
   analyze_script(source, source, 0, language, ScriptKind::Script)
 }
 
-fn resolved_vue_name<'a>(
-  local: &'a str,
-  imported_bindings: &'a BTreeMap<String, (String, String)>,
-) -> &'a str {
+fn resolved_vue_callee(
+  callee: &Expression<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  kind: ScriptKind,
+) -> Option<String> {
+  if let Some(identifier) = callee.get_identifier_reference() {
+    let local = identifier.name.as_str();
+    if local == "defineModel" && kind == ScriptKind::Setup && !imported_bindings.contains_key(local) {
+      return Some(local.into());
+    }
+    return imported_bindings
+      .get(local)
+      .filter(|(source, _)| matches!(source.as_str(), "vue" | "#imports"))
+      .map(|(_, imported)| imported.clone());
+  }
+
+  let (namespace, property) = match callee {
+    Expression::StaticMemberExpression(member) => (
+      member.object.get_identifier_reference()?.name.as_str(),
+      member.property.name.as_str(),
+    ),
+    Expression::ComputedMemberExpression(member) => (
+      member.object.get_identifier_reference()?.name.as_str(),
+      member.static_property_name()?.as_ref(),
+    ),
+    _ => return None,
+  };
   imported_bindings
-    .get(local)
-    .filter(|(source, _)| source == "vue")
-    .map_or(local, |(_, imported)| imported.as_str())
+    .get(namespace)
+    .filter(|(source, imported)| {
+      matches!(source.as_str(), "vue" | "#imports") && imported == "*"
+    })
+    .map(|_| property.to_owned())
+}
+
+fn reactive_binding_kind(callee: &str) -> Option<ReactiveBindingKind> {
+  match callee {
+    "ref" => Some(ReactiveBindingKind::Ref),
+    "shallowRef" => Some(ReactiveBindingKind::ShallowRef),
+    "computed" => Some(ReactiveBindingKind::Computed),
+    "reactive" => Some(ReactiveBindingKind::Reactive),
+    "shallowReactive" => Some(ReactiveBindingKind::ShallowReactive),
+    "readonly" => Some(ReactiveBindingKind::Readonly),
+    "shallowReadonly" => Some(ReactiveBindingKind::ShallowReadonly),
+    "customRef" => Some(ReactiveBindingKind::CustomRef),
+    "toRef" | "toRefs" => Some(ReactiveBindingKind::ToRef),
+    "useTemplateRef" => Some(ReactiveBindingKind::TemplateRef),
+    "defineModel" => Some(ReactiveBindingKind::ModelRef),
+    _ => None,
+  }
+}
+
+fn collect_binding_identifiers(
+  pattern: &BindingPattern<'_>,
+  identifiers: &mut Vec<(String, Span)>,
+) {
+  match pattern {
+    BindingPattern::BindingIdentifier(identifier) => {
+      identifiers.push((identifier.name.to_string(), identifier.span));
+    }
+    BindingPattern::ObjectPattern(object) => {
+      for property in &object.properties {
+        collect_binding_identifiers(&property.value, identifiers);
+      }
+      if let Some(rest) = &object.rest {
+        collect_binding_identifiers(&rest.argument, identifiers);
+      }
+    }
+    BindingPattern::ArrayPattern(array) => {
+      for element in array.elements.iter().flatten() {
+        collect_binding_identifiers(element, identifiers);
+      }
+      if let Some(rest) = &array.rest {
+        collect_binding_identifiers(&rest.argument, identifiers);
+      }
+    }
+    BindingPattern::AssignmentPattern(assignment) => {
+      collect_binding_identifiers(&assignment.left, identifiers);
+    }
+  }
 }
 
 fn collect_reactive_bindings(
@@ -211,47 +291,241 @@ fn collect_reactive_bindings(
   imported_bindings: &BTreeMap<String, (String, String)>,
   sfc_source: &str,
   script_offset: usize,
+  script_kind: ScriptKind,
 ) -> Vec<ReactiveBindingFact> {
   let mut reactive_bindings = Vec::new();
   for node in semantic.nodes() {
     let AstKind::CallExpression(call) = node.kind() else {
       continue;
     };
-    let Some(identifier) = call.callee.get_identifier_reference() else {
+    let Some(callee) = resolved_vue_callee(&call.callee, imported_bindings, script_kind) else {
       continue;
     };
-    let local = identifier.name.as_str();
-    let imported = resolved_vue_name(local, imported_bindings);
-    let binding_kind = match imported {
-      "ref" => Some(ReactiveBindingKind::Ref),
-      "shallowRef" => Some(ReactiveBindingKind::ShallowRef),
-      "computed" => Some(ReactiveBindingKind::Computed),
-      "reactive" => Some(ReactiveBindingKind::Reactive),
-      "shallowReactive" => Some(ReactiveBindingKind::ShallowReactive),
-      _ => None,
-    };
-    let Some(binding_kind) = binding_kind else {
+    let Some(binding_kind) = reactive_binding_kind(&callee) else {
       continue;
     };
     let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
     else {
       continue;
     };
-    let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
-      continue;
-    };
-    reactive_bindings.push(ReactiveBindingFact {
-      name: binding.name.to_string(),
-      kind: binding_kind,
-      initialized_with_null: call
-        .arguments
-        .first()
-        .is_some_and(|argument| matches!(argument, Argument::NullLiteral(_))),
-      span: source_span(sfc_source, script_offset, binding.span),
-    });
+
+    let mut identifiers = Vec::new();
+    if callee == "toRefs" {
+      if matches!(&declarator.id, BindingPattern::ObjectPattern(_)) {
+        collect_binding_identifiers(&declarator.id, &mut identifiers);
+      }
+    } else if let BindingPattern::BindingIdentifier(identifier) = &declarator.id {
+      identifiers.push((identifier.name.to_string(), identifier.span));
+    }
+
+    let initialized_with_null = call
+      .arguments
+      .first()
+      .is_some_and(|argument| matches!(argument, Argument::NullLiteral(_)));
+    for (name, span) in identifiers {
+      reactive_bindings.push(ReactiveBindingFact {
+        name,
+        kind: binding_kind,
+        initialized_with_null,
+        span: source_span(sfc_source, script_offset, span),
+      });
+    }
   }
 
   reactive_bindings
+}
+
+#[derive(Clone, Debug)]
+struct RawReactiveRead {
+  node_id: NodeId,
+  binding: String,
+  property: Option<String>,
+  span: Span,
+}
+
+fn is_ref_like(kind: ReactiveBindingKind) -> bool {
+  matches!(
+    kind,
+    ReactiveBindingKind::Ref
+      | ReactiveBindingKind::ShallowRef
+      | ReactiveBindingKind::Computed
+      | ReactiveBindingKind::CustomRef
+      | ReactiveBindingKind::ToRef
+      | ReactiveBindingKind::TemplateRef
+      | ReactiveBindingKind::ModelRef
+  )
+}
+
+fn span_contains(outer: Span, inner: Span) -> bool {
+  outer.start <= inner.start && outer.end >= inner.end
+}
+
+fn collect_callback_reads(
+  semantic: &oxc_semantic::Semantic<'_>,
+  callback_id: NodeId,
+  reactive_bindings: &[ReactiveBindingFact],
+) -> Vec<RawReactiveRead> {
+  let mut reads = semantic
+    .nodes()
+    .iter_enumerated()
+    .filter_map(|(member_id, member_node)| {
+      let (object, property, member_span) = match member_node.kind() {
+        AstKind::StaticMemberExpression(member) => (
+          member.object.get_identifier_reference()?.name.as_str(),
+          Some(member.property.name.to_string()),
+          member.span,
+        ),
+        AstKind::ComputedMemberExpression(member) => (
+          member.object.get_identifier_reference()?.name.as_str(),
+          member.static_property_name().map(|name| name.to_string()),
+          member.span,
+        ),
+        _ => return None,
+      };
+
+      let mut reached_callback = false;
+      let mut nested_function = false;
+      let mut write_only = false;
+      for ancestor_id in semantic.nodes().ancestor_ids(member_id) {
+        if ancestor_id == callback_id {
+          reached_callback = true;
+          break;
+        }
+        match semantic.nodes().kind(ancestor_id) {
+          AstKind::ArrowFunctionExpression(_) | AstKind::Function(_) => {
+            nested_function = true;
+            break;
+          }
+          AstKind::AssignmentExpression(assignment)
+            if assignment.operator.is_assign()
+              && span_contains(assignment.left.span(), member_span) =>
+          {
+            write_only = true;
+          }
+          _ => {}
+        }
+      }
+      if !reached_callback || nested_function || write_only {
+        return None;
+      }
+
+      let binding = reactive_bindings.iter().find(|binding| {
+        binding.name == object
+          && (!is_ref_like(binding.kind) || property.as_deref() == Some("value"))
+      })?;
+      Some(RawReactiveRead {
+        node_id: member_id,
+        binding: binding.name.clone(),
+        property,
+        span: member_span,
+      })
+    })
+    .collect::<Vec<_>>();
+  reads.sort_by_key(|read| read.span.start);
+  reads
+}
+
+fn push_guards_in_span(
+  guards: &mut Vec<RawReactiveRead>,
+  reads: &[RawReactiveRead],
+  span: Span,
+) {
+  for read in reads.iter().filter(|read| span_contains(span, read.span)) {
+    if !guards.iter().any(|guard| {
+      guard.binding == read.binding
+        && guard.property == read.property
+        && guard.span.start == read.span.start
+        && guard.span.end == read.span.end
+    }) {
+      guards.push(read.clone());
+    }
+  }
+}
+
+fn path_guards(
+  semantic: &oxc_semantic::Semantic<'_>,
+  callback_id: NodeId,
+  body: &FunctionBody<'_>,
+  reads: &[RawReactiveRead],
+  read: &RawReactiveRead,
+) -> Vec<RawReactiveRead> {
+  let mut guards = Vec::new();
+
+  for statement in &body.statements {
+    let Statement::IfStatement(guard) = statement else {
+      continue;
+    };
+    if guard.span.end > read.span.start
+      || guard.alternate.is_some()
+      || !is_early_return(&guard.consequent)
+    {
+      continue;
+    }
+    push_guards_in_span(&mut guards, reads, guard.test.span());
+  }
+
+  for ancestor_id in semantic.nodes().ancestor_ids(read.node_id) {
+    if ancestor_id == callback_id {
+      break;
+    }
+    match semantic.nodes().kind(ancestor_id) {
+      AstKind::IfStatement(statement) => {
+        let in_branch = span_contains(statement.consequent.span(), read.span)
+          || statement
+            .alternate
+            .as_ref()
+            .is_some_and(|alternate| span_contains(alternate.span(), read.span));
+        if in_branch {
+          push_guards_in_span(&mut guards, reads, statement.test.span());
+        }
+      }
+      AstKind::ConditionalExpression(expression) => {
+        if span_contains(expression.consequent.span(), read.span)
+          || span_contains(expression.alternate.span(), read.span)
+        {
+          push_guards_in_span(&mut guards, reads, expression.test.span());
+        }
+      }
+      AstKind::LogicalExpression(expression) => {
+        if span_contains(expression.right.span(), read.span) {
+          push_guards_in_span(&mut guards, reads, expression.left.span());
+        }
+      }
+      _ => {}
+    }
+  }
+
+  guards.sort_by_key(|guard| guard.span.start);
+  guards
+}
+
+fn is_after_top_level_await(
+  semantic: &oxc_semantic::Semantic<'_>,
+  callback_id: NodeId,
+  read: &RawReactiveRead,
+) -> bool {
+  semantic.nodes().iter_enumerated().any(|(await_id, node)| {
+    let AstKind::AwaitExpression(await_expression) = node.kind() else {
+      return false;
+    };
+    if await_expression.span.end > read.span.start {
+      return false;
+    }
+
+    for ancestor_id in semantic.nodes().ancestor_ids(await_id) {
+      if ancestor_id == callback_id {
+        return true;
+      }
+      match semantic.nodes().kind(ancestor_id) {
+        AstKind::ArrowFunctionExpression(_) | AstKind::Function(_) => return false,
+        AstKind::IfStatement(_)
+        | AstKind::ConditionalExpression(_)
+        | AstKind::LogicalExpression(_) => return false,
+        _ => {}
+      }
+    }
+    false
+  })
 }
 
 fn collect_effects(
@@ -266,111 +540,64 @@ fn collect_effects(
     let AstKind::CallExpression(call) = node.kind() else {
       continue;
     };
-    let Some(identifier) = call.callee.get_identifier_reference() else {
+    let Some(callee) = resolved_vue_callee(&call.callee, imported_bindings, ScriptKind::Script)
+    else {
       continue;
     };
-    let callee = identifier.name.as_str();
-    let imported = resolved_vue_name(callee, imported_bindings);
-    if !matches!(imported, "watchEffect" | "watchPostEffect" | "watchSyncEffect") {
+    if !matches!(callee.as_str(), "watchEffect" | "watchPostEffect" | "watchSyncEffect") {
       continue;
     }
-    let Some(Argument::ArrowFunctionExpression(callback)) = call.arguments.first() else {
+
+    let Some(argument) = call.arguments.first() else {
       continue;
     };
-    let callback_id = callback.node_id.get();
-    let mut reads = Vec::new();
-    for statement in &callback.body.statements {
-      let Statement::IfStatement(guard) = statement else {
-        continue;
-      };
-      if guard.alternate.is_some() || !is_early_return(&guard.consequent) {
-        continue;
-      }
-      let collect_reads = |range: Span| {
-        semantic
-          .nodes()
-          .iter_enumerated()
-          .filter_map(|(member_id, member_node)| {
-            let (object, property, member_span) = match member_node.kind() {
-              AstKind::StaticMemberExpression(member) => (
-                member.object.get_identifier_reference()?.name.as_str(),
-                Some(member.property.name.to_string()),
-                member.span,
-              ),
-              AstKind::ComputedMemberExpression(member) => (
-                member.object.get_identifier_reference()?.name.as_str(),
-                member.static_property_name().map(|name| name.to_string()),
-                member.span,
-              ),
-              _ => return None,
-            };
-            if member_span.start < range.start || member_span.end > range.end {
-              return None;
-            }
-            let mut nested_function = false;
-            let mut write_only = false;
-            for ancestor_id in semantic.nodes().ancestor_ids(member_id) {
-              if ancestor_id == callback_id {
-                break;
-              }
-              match semantic.nodes().kind(ancestor_id) {
-                AstKind::ArrowFunctionExpression(_) | AstKind::Function(_) => {
-                  nested_function = true;
-                  break;
-                }
-                AstKind::AssignmentExpression(assignment) => {
-                  let target = assignment.left.span();
-                  write_only = target.start <= member_span.start && target.end >= member_span.end;
-                }
-                _ => {}
-              }
-            }
-            if nested_function || write_only {
-              return None;
-            }
-            let binding = reactive_bindings.iter().find(|binding| {
-              binding.name == object
-                && match binding.kind {
-                  ReactiveBindingKind::Reactive | ReactiveBindingKind::ShallowReactive => true,
-                  ReactiveBindingKind::Ref
-                  | ReactiveBindingKind::ShallowRef
-                  | ReactiveBindingKind::Computed => property.as_deref() == Some("value"),
-                }
-            })?;
-            Some((binding.name.clone(), member_span))
-          })
-          .collect::<Vec<_>>()
-      };
-      let guard_reads = collect_reads(guard.test.span());
-      let before_reads = collect_reads(Span::new(callback.body.span.start, guard.span.start));
-      let after_reads = collect_reads(Span::new(guard.span.end, callback.body.span.end));
-      let guarded_by = guard_reads.first().map(|(binding, _)| binding.clone());
-      let Some(guarded_by) = guarded_by else {
-        continue;
-      };
-      for (binding, span) in after_reads {
-        if binding == guarded_by
-          || before_reads.iter().any(|(read, _)| read == &binding)
-          || guard_reads.iter().any(|(read, _)| read == &binding)
-          || reads.iter().any(|read: &ReactiveReadFact| read.binding == binding)
-        {
+    let (callback_id, body) = match argument {
+      Argument::ArrowFunctionExpression(callback) => (callback.node_id.get(), &*callback.body),
+      Argument::FunctionExpression(callback) => {
+        let Some(body) = &callback.body else {
           continue;
-        }
-        reads.push(ReactiveReadFact {
-          binding,
-          guarded_by: Some(guarded_by.clone()),
-          span: source_span(sfc_source, script_offset, span),
-        });
+        };
+        (callback.node_id.get(), &**body)
       }
-      break;
-    }
-    if !reads.is_empty() {
-      effects.push(ReactivityEffectFact {
-        callee: imported.into(),
-        span: source_span(sfc_source, script_offset, call.span),
-        reads,
-      });
-    }
+      _ => continue,
+    };
+
+    let raw_reads = collect_callback_reads(semantic, callback_id, reactive_bindings);
+    let reads = raw_reads
+      .iter()
+      .map(|read| {
+        let guards = path_guards(semantic, callback_id, body, &raw_reads, read);
+        let kind = if is_after_top_level_await(semantic, callback_id, read) {
+          ReactiveReadKind::AfterAwait
+        } else if guards.is_empty() {
+          ReactiveReadKind::Unconditional
+        } else {
+          ReactiveReadKind::Conditional
+        };
+        let guarded_by = guards.first().map(|guard| guard.binding.clone());
+        ReactiveReadFact {
+          binding: read.binding.clone(),
+          property: read.property.clone(),
+          kind,
+          guards: guards
+            .into_iter()
+            .map(|guard| ReactiveGuardFact {
+              binding: guard.binding,
+              property: guard.property,
+              span: source_span(sfc_source, script_offset, guard.span),
+            })
+            .collect(),
+          guarded_by,
+          span: source_span(sfc_source, script_offset, read.span),
+        }
+      })
+      .collect();
+
+    effects.push(ReactivityEffectFact {
+      callee,
+      span: source_span(sfc_source, script_offset, call.span),
+      reads,
+    });
   }
 
   effects
@@ -539,9 +766,12 @@ mod tests {
       effect
         .into_iter()
         .flat_map(|effect| &effect.reads)
-        .map(|read| (read.binding.as_str(), read.guarded_by.as_deref()))
+        .map(|read| (read.binding.as_str(), read.kind, read.guarded_by.as_deref()))
         .collect::<Vec<_>>(),
-      [("value", Some("ready"))]
+      [
+        ("ready", ReactiveReadKind::Unconditional, None),
+        ("value", ReactiveReadKind::Conditional, Some("ready")),
+      ]
     );
   }
 
