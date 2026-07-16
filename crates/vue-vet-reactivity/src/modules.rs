@@ -301,8 +301,7 @@ fn collect_destructured_calls(
     }) else {
       continue;
     };
-    let AstKind::VariableDeclarator(declarator) =
-      semantic.nodes().parent_kind(call.node_id.get())
+    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
     else {
       continue;
     };
@@ -515,10 +514,8 @@ fn imported_bindings(
         span: source_span(&summary.module.source, 0, import.span),
       }),
       ExportState::Composable(shape) => {
-        for call in summary
-          .destructured_calls
-          .iter()
-          .filter(|call| call.imported_local == import.local)
+        for call in
+          summary.destructured_calls.iter().filter(|call| call.imported_local == import.local)
         {
           let Some(kind) = shape.get(&call.property) else {
             continue;
