@@ -148,6 +148,50 @@ pub struct ScriptMemberWriteFact {
   pub span: SourceSpan,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReactiveBindingKind {
+  Ref,
+  ShallowRef,
+  Computed,
+  Reactive,
+  ShallowReactive,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReactiveBindingFact {
+  pub name: String,
+  pub kind: ReactiveBindingKind,
+  pub initialized_with_null: bool,
+  pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReactiveReadFact {
+  pub binding: String,
+  pub guarded_by: Option<String>,
+  pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReactivityEffectFact {
+  pub callee: String,
+  pub span: SourceSpan,
+  pub reads: Vec<ReactiveReadFact>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReactivityGraph {
+  pub bindings: Vec<ReactiveBindingFact>,
+  pub effects: Vec<ReactivityEffectFact>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ScriptDestructureFact {
+  pub source_call: String,
+  pub span: SourceSpan,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ScriptBlockFacts {
   pub kind: ScriptKind,
@@ -156,6 +200,8 @@ pub struct ScriptBlockFacts {
   pub bindings: Vec<ScriptBindingFact>,
   pub calls: Vec<ScriptCallFact>,
   pub member_writes: Vec<ScriptMemberWriteFact>,
+  pub destructures: Vec<ScriptDestructureFact>,
+  pub reactivity_graph: ReactivityGraph,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -169,6 +215,37 @@ pub struct SfcFacts {
   pub script: ScriptFacts,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct VueVersion {
+  pub major: u64,
+  pub minor: u64,
+  pub patch: u64,
+}
+
+impl VueVersion {
+  #[must_use]
+  pub fn parse_requirement(value: &str) -> Option<Self> {
+    let version = value
+      .split(|character: char| !character.is_ascii_digit() && character != '.')
+      .find(|part| !part.is_empty())?;
+    let mut parts = version.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next().and_then(|part| part.parse().ok()).unwrap_or(0);
+    let patch = parts.next().and_then(|part| part.parse().ok()).unwrap_or(0);
+    Some(Self { major, minor, patch })
+  }
+
+  #[must_use]
+  pub const fn is_at_least(self, major: u64, minor: u64) -> bool {
+    self.major > major || (self.major == major && self.minor >= minor)
+  }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct RuleEnvironment {
+  pub vue_version: Option<VueVersion>,
+}
+
 pub trait Rule: Sync {
   fn meta(&self) -> &'static RuleMeta;
   fn run(&self, context: &mut RuleContext<'_>);
@@ -179,6 +256,7 @@ pub struct RuleContext<'a> {
   source: &'a str,
   template: &'a TemplateFacts,
   script: &'a ScriptFacts,
+  environment: RuleEnvironment,
   diagnostics: &'a mut Vec<Diagnostic>,
 }
 
@@ -188,9 +266,10 @@ impl<'a> RuleContext<'a> {
     source: &'a str,
     template: &'a TemplateFacts,
     script: &'a ScriptFacts,
+    environment: RuleEnvironment,
     diagnostics: &'a mut Vec<Diagnostic>,
   ) -> Self {
-    Self { file, source, template, script, diagnostics }
+    Self { file, source, template, script, environment, diagnostics }
   }
 
   #[must_use]
@@ -206,6 +285,11 @@ impl<'a> RuleContext<'a> {
   #[must_use]
   pub const fn script(&self) -> &ScriptFacts {
     self.script
+  }
+
+  #[must_use]
+  pub const fn environment(&self) -> RuleEnvironment {
+    self.environment
   }
 
   pub fn report(
@@ -246,9 +330,22 @@ impl RuleRegistry {
     template: &TemplateFacts,
     script: &ScriptFacts,
   ) -> Vec<Diagnostic> {
+    self.run_with_environment(file, source, template, script, RuleEnvironment::default())
+  }
+
+  #[must_use]
+  pub fn run_with_environment(
+    &self,
+    file: &Path,
+    source: &str,
+    template: &TemplateFacts,
+    script: &ScriptFacts,
+    environment: RuleEnvironment,
+  ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for rule in &self.rules {
-      let mut context = RuleContext::new(file, source, template, script, &mut diagnostics);
+      let mut context =
+        RuleContext::new(file, source, template, script, environment, &mut diagnostics);
       rule.run(&mut context);
     }
     diagnostics
@@ -347,6 +444,18 @@ mod tests {
     assert_eq!(summary.score, 0);
     assert!(summary.fails(true));
     assert!(!summary.fails(false));
+  }
+
+  #[test]
+  fn parses_vue_dependency_requirements() {
+    assert_eq!(
+      VueVersion::parse_requirement("workspace:^3.5.13"),
+      Some(VueVersion { major: 3, minor: 5, patch: 13 })
+    );
+    assert!(VueVersion::parse_requirement("latest").is_none());
+    assert!(
+      VueVersion::parse_requirement("~3.4").is_some_and(|version| !version.is_at_least(3, 5))
+    );
   }
 
   #[test]
