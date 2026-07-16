@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, path::Path};
 
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
@@ -530,9 +530,17 @@ struct Provenance {
 struct RealWorldFixture {
   name: String,
   provenance: Provenance,
-  modules: Vec<ModuleSource>,
+  modules: Vec<FixtureModule>,
   links: Vec<ModuleLink>,
   expected: ModuleExpectation,
+}
+
+#[derive(serde::Deserialize)]
+struct FixtureModule {
+  id: String,
+  file: String,
+  language: String,
+  kind: ScriptKind,
 }
 
 #[derive(serde::Deserialize)]
@@ -585,23 +593,14 @@ const MODULE_FIXTURES: [(&str, &str); 8] = corpus_batches!(
 );
 
 const REAL_WORLD_FIXTURES: [(&str, &str); 5] = [
-  ("real-world/nuxt-async-data.json", include_str!("../fixtures/real-world/nuxt-async-data.json")),
+  ("nuxt-async-data", include_str!("../fixtures/real-world/nuxt-async-data/case.json")),
+  ("vueuse-computed-async", include_str!("../fixtures/real-world/vueuse-computed-async/case.json")),
+  ("vueuse-computed-eager", include_str!("../fixtures/real-world/vueuse-computed-eager/case.json")),
   (
-    "real-world/vueuse-computed-async.json",
-    include_str!("../fixtures/real-world/vueuse-computed-async.json"),
+    "vue-router-current-route",
+    include_str!("../fixtures/real-world/vue-router-current-route/case.json"),
   ),
-  (
-    "real-world/vueuse-computed-eager.json",
-    include_str!("../fixtures/real-world/vueuse-computed-eager.json"),
-  ),
-  (
-    "real-world/vue-router-current-route.json",
-    include_str!("../fixtures/real-world/vue-router-current-route.json"),
-  ),
-  (
-    "real-world/pinia-store-to-refs.json",
-    include_str!("../fixtures/real-world/pinia-store-to-refs.json"),
-  ),
+  ("pinia-store-to-refs", include_str!("../fixtures/real-world/pinia-store-to-refs/case.json")),
 ];
 
 #[expect(clippy::panic, reason = "malformed committed fixtures must fail corpus tests")]
@@ -774,6 +773,22 @@ fn module_source(id: &str, source: &str) -> ModuleSource {
   }
 }
 
+#[expect(clippy::panic, reason = "missing committed source files must fail corpus tests")]
+fn load_real_world_modules(case_dir: &str, files: &[FixtureModule]) -> Vec<ModuleSource> {
+  let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/real-world").join(case_dir);
+  files
+    .iter()
+    .map(|file| {
+      let path = root.join(&file.file);
+      let source = match std::fs::read_to_string(&path) {
+        Ok(source) => source,
+        Err(error) => panic!("could not read real-world fixture {}: {error}", path.display()),
+      };
+      ModuleSource { id: file.id.clone(), source, language: file.language.clone(), kind: file.kind }
+    })
+    .collect()
+}
+
 fn regression_case(
   manifest_path: &str,
   manifest_source: &str,
@@ -817,8 +832,9 @@ fn ignores_shadowed_composable_calls_across_modules() {
 fn validates_real_world_module_patterns() {
   let mut names = BTreeSet::new();
   let mut provenances = BTreeSet::new();
-  for (path, source) in REAL_WORLD_FIXTURES {
-    let fixture = parse_fixture::<RealWorldFixture>(path, source);
+  for (case_dir, source) in REAL_WORLD_FIXTURES {
+    let manifest_path = format!("real-world/{case_dir}/case.json");
+    let fixture = parse_fixture::<RealWorldFixture>(&manifest_path, source);
     assert!(names.insert(fixture.name.clone()), "real-world fixture names must be unique");
     assert!(
       fixture.provenance.commit.len() == 40
@@ -838,7 +854,8 @@ fn validates_real_world_module_patterns() {
       fixture.provenance.repository, fixture.provenance.commit, fixture.provenance.path
     );
     assert!(provenances.insert(provenance), "real-world provenance entries must be unique");
-    assert_module_case(&fixture.name, &fixture.modules, &fixture.links, &fixture.expected);
+    let modules = load_real_world_modules(case_dir, &fixture.modules);
+    assert_module_case(&fixture.name, &modules, &fixture.links, &fixture.expected);
   }
   assert_eq!(names.len(), 5, "the real-world corpus must retain five fixed-source cases");
 }

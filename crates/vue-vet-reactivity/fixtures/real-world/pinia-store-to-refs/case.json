@@ -9,13 +9,13 @@
   "modules": [
     {
       "id": "storeToRefs.ts",
-      "source": "import { computed, toRef } from 'vue'; export function storeToRefs(store) { const refs = {}; for (const key in store) { const value = store[key]; if (value?.effect) { refs[key] = computed(() => store[key]); } else { refs[key] = toRef(store, key); } } return refs; }",
+      "file": "storeToRefs.ts",
       "language": "ts",
       "kind": "script"
     },
     {
       "id": "consumer.ts",
-      "source": "import { ref, watchEffect } from 'vue'; import { storeToRefs } from './storeToRefs'; const { count: payload } = storeToRefs({ count: 0 }); const ready = ref(false); const enabled = ref(false); watchEffect(() => { if (!ready.value) return; if (enabled.value) { try { for (const item of [1]) { if (item) { payload.value; } } } finally { sink(); } } });",
+      "file": "consumer.ts",
       "language": "ts",
       "kind": "script"
     }
@@ -31,9 +31,7 @@
     "module": "consumer.ts",
     "binding": "payload",
     "kind": "conditional",
-    "guards": [
-      "ready"
-    ],
+    "guards": ["ready"],
     "trace": false
   }
 }

@@ -9,13 +9,13 @@
   "modules": [
     {
       "id": "asyncData.ts",
-      "source": "import { computed, shallowRef } from 'vue'; export function useAsyncDataState() { const data = shallowRef(0); const status = shallowRef('idle'); const pending = computed(() => status.value === 'pending'); return { data, pending, status }; }",
+      "file": "asyncData.ts",
       "language": "ts",
       "kind": "script"
     },
     {
       "id": "consumer.ts",
-      "source": "import { ref, watchEffect } from 'vue'; import { useAsyncDataState } from './asyncData'; const { data: payload } = useAsyncDataState(); const ready = ref(false); const enabled = ref(false); watchEffect(() => { if (!ready.value) return; if (enabled.value) { try { for (const item of [1]) { if (item) { payload.value; } } } finally { sink(); } } });",
+      "file": "consumer.ts",
       "language": "ts",
       "kind": "script"
     }
@@ -31,9 +31,7 @@
     "module": "consumer.ts",
     "binding": "payload",
     "kind": "conditional",
-    "guards": [
-      "ready"
-    ],
+    "guards": ["ready"],
     "trace": true
   }
 }
