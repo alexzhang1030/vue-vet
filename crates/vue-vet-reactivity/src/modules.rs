@@ -10,9 +10,7 @@ use oxc_semantic::SemanticBuilder;
 use oxc_span::{SourceType, Span};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use vue_vet_core::{
-  ReactiveBindingFact, ReactiveBindingKind, ReactivityGraph, ScriptKind, SourceSpan,
-};
+use vue_vet_core::{ReactiveBindingFact, ReactiveBindingKind, ReactivityGraph, ScriptKind};
 
 use super::{module_export_name, source_span, trace_reactivity_seeded};
 
@@ -234,10 +232,7 @@ fn resolved_links(
   let mut resolved = BTreeMap::new();
   for link in links {
     if !summaries.contains_key(&link.from) || !summaries.contains_key(&link.to) {
-      return Err(TraceModulesError::UnknownLink {
-        from: link.from.clone(),
-        to: link.to.clone(),
-      });
+      return Err(TraceModulesError::UnknownLink { from: link.from.clone(), to: link.to.clone() });
     }
     let key = (link.from.clone(), link.specifier.clone());
     match resolved.entry(key) {
@@ -260,17 +255,16 @@ fn resolve_exports(
   summaries: &BTreeMap<String, ModuleSummary>,
   links: &BTreeMap<(String, String), String>,
 ) -> BTreeMap<String, BTreeMap<String, ExportState>> {
-  let mut resolved = summaries
-    .keys()
-    .map(|id| (id.clone(), BTreeMap::new()))
-    .collect::<BTreeMap<_, _>>();
+  let mut resolved =
+    summaries.keys().map(|id| (id.clone(), BTreeMap::new())).collect::<BTreeMap<_, _>>();
 
   for (id, summary) in summaries {
     for export in &summary.exports {
       let ExportSummary::Local { local, exported } = export else {
         continue;
       };
-      if let Some(binding) = summary.local_graph.bindings.iter().find(|binding| &binding.name == local)
+      if let Some(binding) =
+        summary.local_graph.bindings.iter().find(|binding| &binding.name == local)
       {
         insert_export(&mut resolved, id, exported, ExportState::Known(binding.kind));
       }
