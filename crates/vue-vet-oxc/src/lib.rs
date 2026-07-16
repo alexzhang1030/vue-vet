@@ -9,15 +9,13 @@ use oxc_ast::{
   },
 };
 use oxc_parser::Parser;
-use oxc_semantic::SemanticBuilder;
+use oxc_semantic::{NodeId, SemanticBuilder};
 use oxc_span::{GetSpan, SourceType, Span};
-use oxc_syntax::node::NodeId;
 use thiserror::Error;
 use vue_vet_core::{
-  ReactiveBindingFact, ReactiveBindingKind, ReactiveGuardFact, ReactiveReadFact,
-  ReactiveReadKind, ReactivityEffectFact, ReactivityGraph, ScriptBindingFact, ScriptBlockFacts,
-  ScriptCallFact, ScriptDestructureFact,
-  ScriptImportFact, ScriptKind, ScriptMemberWriteFact, SourceSpan,
+  ReactiveBindingFact, ReactiveBindingKind, ReactiveGuardFact, ReactiveReadFact, ReactiveReadKind,
+  ReactivityEffectFact, ReactivityGraph, ScriptBindingFact, ScriptBlockFacts, ScriptCallFact,
+  ScriptDestructureFact, ScriptImportFact, ScriptKind, ScriptMemberWriteFact, SourceSpan,
 };
 
 #[derive(Debug, Error)]
@@ -164,13 +162,7 @@ pub fn analyze_script(
   }
 
   let mut reactive_bindings =
-    collect_reactive_bindings(
-      &semantic,
-      &imported_bindings,
-      sfc_source,
-      script_offset,
-      kind,
-    );
+    collect_reactive_bindings(&semantic, &imported_bindings, sfc_source, script_offset, kind);
   let mut effects =
     collect_effects(&semantic, &imported_bindings, &reactive_bindings, sfc_source, script_offset);
 
@@ -211,7 +203,8 @@ fn resolved_vue_callee(
 ) -> Option<String> {
   if let Some(identifier) = callee.get_identifier_reference() {
     let local = identifier.name.as_str();
-    if local == "defineModel" && kind == ScriptKind::Setup && !imported_bindings.contains_key(local) {
+    if local == "defineModel" && kind == ScriptKind::Setup && !imported_bindings.contains_key(local)
+    {
       return Some(local.into());
     }
     return imported_bindings
@@ -221,10 +214,9 @@ fn resolved_vue_callee(
   }
 
   let (namespace, property) = match callee {
-    Expression::StaticMemberExpression(member) => (
-      member.object.get_identifier_reference()?.name.as_str(),
-      member.property.name.as_str(),
-    ),
+    Expression::StaticMemberExpression(member) => {
+      (member.object.get_identifier_reference()?.name.as_str(), member.property.name.as_str())
+    }
     Expression::ComputedMemberExpression(member) => (
       member.object.get_identifier_reference()?.name.as_str(),
       member.static_property_name()?.as_ref(),
@@ -233,9 +225,7 @@ fn resolved_vue_callee(
   };
   imported_bindings
     .get(namespace)
-    .filter(|(source, imported)| {
-      matches!(source.as_str(), "vue" | "#imports") && imported == "*"
-    })
+    .filter(|(source, imported)| matches!(source.as_str(), "vue" | "#imports") && imported == "*")
     .map(|_| property.to_owned())
 }
 
@@ -318,10 +308,8 @@ fn collect_reactive_bindings(
       identifiers.push((identifier.name.to_string(), identifier.span));
     }
 
-    let initialized_with_null = call
-      .arguments
-      .first()
-      .is_some_and(|argument| matches!(argument, Argument::NullLiteral(_)));
+    let initialized_with_null =
+      call.arguments.first().is_some_and(|argument| matches!(argument, Argument::NullLiteral(_)));
     for (name, span) in identifiers {
       reactive_bindings.push(ReactiveBindingFact {
         name,
@@ -425,11 +413,7 @@ fn collect_callback_reads(
   reads
 }
 
-fn push_guards_in_span(
-  guards: &mut Vec<RawReactiveRead>,
-  reads: &[RawReactiveRead],
-  span: Span,
-) {
+fn push_guards_in_span(guards: &mut Vec<RawReactiveRead>, reads: &[RawReactiveRead], span: Span) {
   for read in reads.iter().filter(|read| span_contains(span, read.span)) {
     if !guards.iter().any(|guard| {
       guard.binding == read.binding
