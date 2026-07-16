@@ -80,6 +80,12 @@ struct ModuleSummary {
   exports: Vec<ExportSummary>,
 }
 
+/// Traces local and linked reactivity across a resolved module graph.
+///
+/// # Errors
+///
+/// Returns an error when a module cannot be parsed or analyzed, module identifiers
+/// are duplicated, or a supplied resolved link is unknown or ambiguous.
 pub fn trace_modules(
   modules: &[ModuleSource],
   links: &[ModuleLink],
@@ -214,10 +220,8 @@ fn collect_exports(
           });
         }
       }
-      AstKind::ExportAllDeclaration(declaration) => {
-        if declaration.exported.is_none() {
-          exports.push(ExportSummary::Star { source: declaration.source.value.to_string() });
-        }
+      AstKind::ExportAllDeclaration(declaration) if declaration.exported.is_none() => {
+        exports.push(ExportSummary::Star { source: declaration.source.value.to_string() });
       }
       _ => {}
     }
