@@ -28,10 +28,10 @@ reviews:
         evidence.
     - path: ".github/workflows/**"
       instructions: |
-        Require least-privilege permissions. Prefer immutable commit SHAs for
-        third-party actions, reuse repository just recipes, and never execute
-        untrusted pull-request code with pull_request_target or write-capable
-        credentials.
+        Require least-privilege permissions. Use versioned action tags that
+        match repository conventions, reuse repository just recipes, and never
+        execute untrusted pull-request code with pull_request_target or
+        write-capable credentials. Do not require immutable commit SHAs.
     - path: "docs/**"
       instructions: |
         Check that documented CLI, JSON, cache, baseline, and rule contracts

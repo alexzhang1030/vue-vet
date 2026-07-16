@@ -25,6 +25,7 @@ categories = ["development-tools"]
 
 [workspace.dependencies]
 clap = { version = "4.5", features = ["derive"] }
+divan = { package = "codspeed-divan-compat", version = "=5.0.1" }
 globset = "0.4"
 ignore = "0.4"
 oxc_allocator = "=0.127.0"
@@ -104,3 +105,9 @@ unused_result_ok = "deny"
 lto = "thin"
 codegen-units = 1
 strip = "symbols"
+
+# CodSpeed instrumentation and Oxc's generated code do not link reliably under
+# thin LTO. Keep release artifacts unchanged and isolate that constraint here.
+[profile.codspeed]
+inherits = "release"
+lto = false

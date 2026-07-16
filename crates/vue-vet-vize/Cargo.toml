@@ -22,4 +22,9 @@ vue-vet-oxc = { path = "../vue-vet-oxc" }
 vue-vet-rules = { path = "../vue-vet-rules" }
 
 [dev-dependencies]
+divan.workspace = true
 serde_json.workspace = true
+
+[[bench]]
+name = "analyze_sfc"
+harness = false

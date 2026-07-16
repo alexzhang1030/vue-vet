@@ -52,6 +52,22 @@ clippy:
 test:
   cargo test --workspace --all-features --locked
 
+# Run the representative SFC analysis benchmarks locally.
+bench:
+  cargo bench -p vue-vet-vize --bench analyze_sfc --locked
+
+# Build the representative benchmarks with CodSpeed instrumentation.
+bench-codspeed-build:
+  cargo codspeed build -p vue-vet-vize --bench analyze_sfc --profile codspeed --locked
+
+# Run the most recently built CodSpeed benchmark suite.
+bench-codspeed-run:
+  cargo codspeed run -p vue-vet-vize --bench analyze_sfc
+
+# Generate an LCOV report for Codecov and local coverage tools.
+coverage-lcov:
+  cargo llvm-cov --workspace --all-features --locked --lcov --output-path lcov.info
+
 # Run CLI fixture smoke tests only.
 smoke:
   cargo test -p vue-vet --test cli --locked
