@@ -214,10 +214,9 @@ fn resolved_vue_callee(
   }
 
   let (namespace, property) = match callee {
-    Expression::StaticMemberExpression(member) => (
-      member.object.get_identifier_reference()?.name.as_str(),
-      member.property.name.to_string(),
-    ),
+    Expression::StaticMemberExpression(member) => {
+      (member.object.get_identifier_reference()?.name.as_str(), member.property.name.to_string())
+    }
     Expression::ComputedMemberExpression(member) => (
       member.object.get_identifier_reference()?.name.as_str(),
       member.static_property_name()?.to_string(),
