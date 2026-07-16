@@ -451,7 +451,10 @@ fn serializes_deterministically() {
   let first = serde_json::to_string(&graph(source));
   let second = serde_json::to_string(&graph(source));
   assert!(first.is_ok(), "the reactivity graph must be serializable");
-  assert_eq!(first, second, "equivalent graphs must serialize identically");
+  assert!(
+    matches!((&first, &second), (Ok(first), Ok(second)) if first == second),
+    "equivalent graphs must serialize identically"
+  );
 }
 
 #[test]
