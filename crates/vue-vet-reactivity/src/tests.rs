@@ -16,17 +16,9 @@ fn trace(
 ) -> ReactivityGraph {
   let allocator = Allocator::default();
   let parsed = Parser::new(&allocator, script_source, SourceType::ts()).parse();
-  assert!(
-    parsed.errors.is_empty(),
-    "script parsing unexpectedly failed: {:?}",
-    parsed.errors
-  );
+  assert!(parsed.errors.is_empty(), "script parsing unexpectedly failed: {:?}", parsed.errors);
   let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
-  assert!(
-    built.errors.is_empty(),
-    "semantic analysis unexpectedly failed: {:?}",
-    built.errors
-  );
+  assert!(built.errors.is_empty(), "semantic analysis unexpectedly failed: {:?}", built.errors);
   trace_reactivity(&built.semantic, sfc_source, script_offset, kind)
 }
 
