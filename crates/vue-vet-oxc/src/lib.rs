@@ -331,7 +331,7 @@ struct RawReactiveRead {
   span: Span,
 }
 
-fn is_ref_like(kind: ReactiveBindingKind) -> bool {
+const fn is_ref_like(kind: ReactiveBindingKind) -> bool {
   matches!(
     kind,
     ReactiveBindingKind::Ref
@@ -344,7 +344,7 @@ fn is_ref_like(kind: ReactiveBindingKind) -> bool {
   )
 }
 
-fn span_contains(outer: Span, inner: Span) -> bool {
+const fn span_contains(outer: Span, inner: Span) -> bool {
   outer.start <= inner.start && outer.end >= inner.end
 }
 
@@ -470,10 +470,10 @@ fn path_guards(
           push_guards_in_span(&mut guards, reads, expression.test.span());
         }
       }
-      AstKind::LogicalExpression(expression) => {
-        if span_contains(expression.right.span(), read.span) {
-          push_guards_in_span(&mut guards, reads, expression.left.span());
-        }
+      AstKind::LogicalExpression(expression)
+        if span_contains(expression.right.span(), read.span) =>
+      {
+        push_guards_in_span(&mut guards, reads, expression.left.span());
       }
       _ => {}
     }
@@ -501,8 +501,9 @@ fn is_after_top_level_await(
         return true;
       }
       match semantic.nodes().kind(ancestor_id) {
-        AstKind::ArrowFunctionExpression(_) | AstKind::Function(_) => return false,
-        AstKind::IfStatement(_)
+        AstKind::ArrowFunctionExpression(_)
+        | AstKind::Function(_)
+        | AstKind::IfStatement(_)
         | AstKind::ConditionalExpression(_)
         | AstKind::LogicalExpression(_) => return false,
         _ => {}
