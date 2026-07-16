@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use oxc_ast::{
   AstKind,
   ast::{
-    Argument, BindingPattern, Expression, FunctionBody, ImportDeclarationSpecifier,
+    Argument, BindingPattern, Expression, FunctionBody, IdentifierReference, ImportDeclarationSpecifier,
     ModuleExportName, Statement,
   },
 };
@@ -241,10 +241,29 @@ const fn span_contains(outer: Span, inner: Span) -> bool {
   outer.start <= inner.start && outer.end >= inner.end
 }
 
+fn reference_resolves_to_binding(
+  semantic: &oxc_semantic::Semantic<'_>,
+  reference: &IdentifierReference<'_>,
+  binding: &ReactiveBindingFact,
+  script_offset: usize,
+) -> bool {
+  let Some(reference_id) = reference.reference_id.get() else {
+    return false;
+  };
+  let Some(symbol_id) = semantic.scoping().get_reference(reference_id).symbol_id() else {
+    return false;
+  };
+  let symbol_span = semantic.scoping().symbol_span(symbol_id);
+  let offset =
+    script_offset.saturating_add(usize::try_from(symbol_span.start).unwrap_or(usize::MAX));
+  semantic.scoping().symbol_name(symbol_id) == binding.name && offset == binding.span.offset
+}
+
 fn collect_callback_reads(
   semantic: &oxc_semantic::Semantic<'_>,
   callback_id: NodeId,
   reactive_bindings: &[ReactiveBindingFact],
+  script_offset: usize,
 ) -> Vec<RawReactiveRead> {
   let mut reads = semantic
     .nodes()
@@ -252,12 +271,12 @@ fn collect_callback_reads(
     .filter_map(|(member_id, member_node)| {
       let (object, property, member_span) = match member_node.kind() {
         AstKind::StaticMemberExpression(member) => (
-          member.object.get_identifier_reference()?.name.as_str(),
+          member.object.get_identifier_reference()?,
           Some(member.property.name.to_string()),
           member.span,
         ),
         AstKind::ComputedMemberExpression(member) => (
-          member.object.get_identifier_reference()?.name.as_str(),
+          member.object.get_identifier_reference()?,
           member.static_property_name().map(|name| name.to_string()),
           member.span,
         ),
@@ -291,7 +310,8 @@ fn collect_callback_reads(
       }
 
       let binding = reactive_bindings.iter().find(|binding| {
-        binding.name == object
+        binding.name == object.name
+          && reference_resolves_to_binding(semantic, object, binding, script_offset)
           && (!is_ref_like(binding.kind) || property.as_deref() == Some("value"))
       })?;
       Some(RawReactiveRead {
@@ -440,7 +460,8 @@ fn collect_effects(
       _ => continue,
     };
 
-    let raw_reads = collect_callback_reads(semantic, callback_id, reactive_bindings);
+    let raw_reads =
+      collect_callback_reads(semantic, callback_id, reactive_bindings, script_offset);
     let reads = raw_reads
       .iter()
       .map(|read| {
