@@ -147,6 +147,13 @@ Implemented in the project-graph branch:
 - unresolved-import and unused-component cross-file diagnostics
 - graph invalidation inputs and `--print-graph` debugging
 
+Implemented in the stacked cache/diff branch:
+
+- versioned SHA-256 content keys over source, config, tool, dependency, graph, and rule inputs
+- atomic normalized-result caching with corruption recovery and cache stats
+- versioned diagnostic-fingerprint baselines
+- changed-line filtering that retains all graph-backed project findings
+
 Work:
 
 - build an import, component, composable, route, store, and auto-import graph

@@ -36,6 +36,7 @@ project discovery and configuration
   -> versioned project graph and graph-backed cross-file rules
   -> ast-grep custom rules
   -> normalize, suppress, deduplicate, fingerprint
+  -> content-addressed normalized-result cache
   -> score, baseline/diff, report, preview/apply fixes
 ```
 
@@ -59,5 +60,10 @@ The first graph layer is `vue-vet-project`. It consumes serializable `SfcFacts`,
 uses repository-relative file IDs, stores source evidence on every edge, and
 publishes its exact file inputs for cache invalidation. Its convention version
 changes whenever Nuxt directory or naming behavior changes.
+
+Cache format version 1 stores only `ScanSummary` and `ProjectGraph`. Its key
+includes every source body plus configuration, tool, dependency, convention,
+and ruleset versions. Baseline filtering and diff filtering happen after cache
+lookup so those presentation choices do not fragment semantic cache entries.
 
 See [technology stack](./technology-stack.md), [conventions](./conventions.md), and [the roadmap](../../ROADMAP.md).

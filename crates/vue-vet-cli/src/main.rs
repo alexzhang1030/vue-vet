@@ -4,8 +4,12 @@ use std::{
   process::ExitCode,
 };
 
-use clap::{Parser, ValueEnum};
+use clap::{Args, Parser, ValueEnum};
 use ignore::WalkBuilder;
+use vue_vet_cache::{
+  Baseline, CacheLookup, CachePayload, CacheStore, content_key, default_cache_dir, filter_diff,
+  read_git_diff,
+};
 use vue_vet_config::{CONFIG_FILE, Config, apply_suppressions};
 use vue_vet_core::{ScanSummary, ScriptFacts, Severity, SfcFacts, TemplateFacts};
 use vue_vet_oxc::analyze_module;
@@ -33,6 +37,30 @@ struct Cli {
 
   #[arg(long, help = "Print the deterministic project graph as JSON and exit")]
   print_graph: bool,
+
+  #[command(flatten)]
+  cache: CacheArgs,
+
+  #[arg(long, value_name = "FILE", help = "Hide diagnostics matching a versioned baseline")]
+  baseline: Option<PathBuf>,
+
+  #[arg(long, value_name = "FILE", help = "Write a versioned baseline after scanning")]
+  write_baseline: Option<PathBuf>,
+
+  #[arg(long, value_name = "REF", help = "Report changed lines plus all project findings")]
+  diff: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct CacheArgs {
+  #[arg(long, help = "Disable the content-addressed local cache")]
+  no_cache: bool,
+
+  #[arg(long, value_name = "DIR", help = "Override the local cache directory")]
+  cache_dir: Option<PathBuf>,
+
+  #[arg(long, help = "Print cache hit, miss, or recovery status on stderr")]
+  cache_stats: bool,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -67,8 +95,38 @@ fn main() -> ExitCode {
       }
     };
   }
-  match scan(&cli.path, &config) {
-    Ok(result) => {
+  match cached_scan(&cli, &config) {
+    Ok((mut result, cache_status)) => {
+      if cli.cache.cache_stats {
+        eprintln!("vue-vet cache: {cache_status}");
+      }
+      if let Some(path) = &cli.baseline {
+        let baseline = match Baseline::read(path) {
+          Ok(baseline) => baseline,
+          Err(error) => {
+            eprintln!("vue-vet: {error}");
+            return ExitCode::from(2);
+          }
+        };
+        result.summary = baseline.filter(result.summary);
+      }
+      if let Some(reference) = &cli.diff {
+        let directory = scan_directory(&cli.path);
+        let changed = match read_git_diff(directory, reference) {
+          Ok(changed) => changed,
+          Err(error) => {
+            eprintln!("vue-vet: {error}");
+            return ExitCode::from(2);
+          }
+        };
+        result.summary = filter_diff(result.summary, &changed);
+      }
+      if let Some(path) = &cli.write_baseline
+        && let Err(error) = Baseline::from_summary(&result.summary).write(path)
+      {
+        eprintln!("vue-vet: {error}");
+        return ExitCode::from(2);
+      }
       if cli.print_graph {
         return match serde_json::to_string_pretty(&result.graph) {
           Ok(output) => {
@@ -100,6 +158,65 @@ fn main() -> ExitCode {
 struct ScanResult {
   summary: ScanSummary,
   graph: ProjectGraph,
+}
+
+fn cached_scan(cli: &Cli, config: &Config) -> Result<(ScanResult, &'static str), String> {
+  if cli.cache.no_cache {
+    return scan(&cli.path, config).map(|result| (result, "disabled"));
+  }
+  let files = cache_inputs(&cli.path)?;
+  let serialized_config =
+    serde_json::to_vec(config).map_err(|error| format!("failed to hash config: {error}"))?;
+  let key = content_key(&files, &serialized_config);
+  let store = CacheStore::new(cli.cache.cache_dir.clone().unwrap_or_else(default_cache_dir));
+  match store.load(&key) {
+    CacheLookup::Hit(payload) => {
+      Ok((ScanResult { summary: payload.summary, graph: payload.graph }, "hit"))
+    }
+    CacheLookup::Miss => fill_cache(&store, &key, &cli.path, config, "miss"),
+    CacheLookup::RecoveredCorruption => {
+      fill_cache(&store, &key, &cli.path, config, "recovered-corruption")
+    }
+  }
+}
+
+fn fill_cache(
+  store: &CacheStore,
+  key: &str,
+  root: &Path,
+  config: &Config,
+  status: &'static str,
+) -> Result<(ScanResult, &'static str), String> {
+  let result = scan(root, config)?;
+  store
+    .store(key, &CachePayload { summary: result.summary.clone(), graph: result.graph.clone() })
+    .map_err(|error| error.to_string())?;
+  Ok((result, status))
+}
+
+fn cache_inputs(root: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
+  let mut files = Vec::new();
+  for entry in WalkBuilder::new(root).standard_filters(true).build() {
+    let entry = entry.map_err(|error| error.to_string())?;
+    if entry.file_type().is_some_and(|kind| kind.is_dir()) {
+      continue;
+    }
+    let path = entry.path();
+    if !matches!(
+      path.extension().and_then(|extension| extension.to_str()),
+      Some("vue" | "js" | "jsx" | "ts" | "tsx")
+    ) {
+      continue;
+    }
+    let content = fs::read(path)
+      .map_err(|error| format!("failed to read {} for cache key: {error}", path.display()))?;
+    files.push((logical_path(root, path).to_string_lossy().replace('\\', "/"), content));
+  }
+  Ok(files)
+}
+
+fn scan_directory(path: &Path) -> &Path {
+  if path.is_dir() { path } else { path.parent().unwrap_or(path) }
 }
 
 fn scan(root: &Path, config: &Config) -> Result<ScanResult, String> {

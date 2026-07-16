@@ -44,6 +44,11 @@ Nuxt resolution. Missing relative or supported alias targets are diagnostics;
 package imports are external graph nodes; unsupported `#` aliases remain
 visible. Never silently reinterpret an unresolved edge as an external package.
 
+Cache corruption is a miss, not a scan failure. Cache keys must change when any
+normalized semantic input changes; raw dependency ASTs must never be persisted.
+Diff filtering keeps every project diagnostic because removing an edge can
+create a finding on a file that has no remaining path back to the changed file.
+
 ## The current score is provisional
 
 The initial score is a deterministic vertical-slice implementation, not yet a stable measure of repository health. Before external release, scoring needs documented weights, stable diagnostic fingerprints, baselines, and reference-corpus evidence. Do not optimize rules around the current arithmetic.
