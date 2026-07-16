@@ -1,17 +1,17 @@
 {
   "diagnostics": [
     {
-      "rule_id": "vue-vet/security/no-v-html",
       "category": "security",
-      "severity": "warning",
-      "message": "`v-html` can render untrusted HTML into the page",
-      "help": "Prefer normal template interpolation. If raw HTML is required, sanitize it at the trust boundary.",
       "file": "fixtures/reporters/no-v-html.vue",
+      "help": "Prefer normal template interpolation. If raw HTML is required, sanitize it at the trust boundary.",
+      "message": "`v-html` can render untrusted HTML into the page",
+      "rule_id": "vue-vet/security/no-v-html",
+      "severity": "warning",
       "span": {
-        "offset": 19,
+        "column": 9,
         "length": 6,
         "line": 2,
-        "column": 9
+        "offset": 19
       }
     }
   ],
