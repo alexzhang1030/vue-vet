@@ -1,5 +1,5 @@
 [package]
-name = "vue-vet-oxc"
+name = "vue-vet-reactivity"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,7 +8,7 @@ rust-version.workspace = true
 readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "Oxc-powered JavaScript and TypeScript semantic facts for Vue Vet"
+description = "Semantic Vue reactivity dependency tracing for Vue Vet"
 
 [lints]
 workspace = true
@@ -19,7 +19,9 @@ oxc_ast.workspace = true
 oxc_parser.workspace = true
 oxc_semantic.workspace = true
 oxc_span.workspace = true
+serde.workspace = true
 thiserror.workspace = true
 vue-vet-core = { path = "../vue-vet-core" }
-vue-vet-reactivity = { path = "../vue-vet-reactivity" }
 
+[dev-dependencies]
+serde_json.workspace = true

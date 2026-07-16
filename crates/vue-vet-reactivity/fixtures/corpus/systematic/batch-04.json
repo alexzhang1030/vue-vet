@@ -1,0 +1,122 @@
+[
+  {
+    "name": "computed::if_alternate::watch_effect_function::named",
+    "source": "import { computed, ref, watchEffect } from 'vue'; const guard = computed(() => true); const payload = ref(0); watchEffect(function () { if (guard.value) { sink(); } else { payload.value; } });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "computed::if_alternate::watch_effect_function::namespace",
+    "source": "import * as Vue from 'vue'; const guard = Vue.computed(() => true); const payload = Vue.ref(0); Vue.watchEffect(function () { if (guard.value) { sink(); } else { payload.value; } });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "computed::logical_rhs::watch_effect_arrow::named",
+    "source": "import { computed, ref, watchEffect } from 'vue'; const guard = computed(() => true); const payload = ref(0); watchEffect(() => { guard.value && payload.value; });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "computed::logical_rhs::watch_effect_arrow::namespace",
+    "source": "import * as Vue from 'vue'; const guard = Vue.computed(() => true); const payload = Vue.ref(0); Vue.watchEffect(() => { guard.value && payload.value; });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "computed::logical_rhs::watch_effect_function::named",
+    "source": "import { computed, ref, watchEffect } from 'vue'; const guard = computed(() => true); const payload = ref(0); watchEffect(function () { guard.value && payload.value; });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "computed::logical_rhs::watch_effect_function::namespace",
+    "source": "import * as Vue from 'vue'; const guard = Vue.computed(() => true); const payload = Vue.ref(0); Vue.watchEffect(function () { guard.value && payload.value; });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "computed::ternary_branch::watch_effect_arrow::named",
+    "source": "import { computed, ref, watchEffect } from 'vue'; const guard = computed(() => true); const payload = ref(0); watchEffect(() => { guard.value ? payload.value : sink(); });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "computed::ternary_branch::watch_effect_arrow::namespace",
+    "source": "import * as Vue from 'vue'; const guard = Vue.computed(() => true); const payload = Vue.ref(0); Vue.watchEffect(() => { guard.value ? payload.value : sink(); });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "computed::ternary_branch::watch_effect_function::named",
+    "source": "import { computed, ref, watchEffect } from 'vue'; const guard = computed(() => true); const payload = ref(0); watchEffect(function () { guard.value ? payload.value : sink(); });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "computed::ternary_branch::watch_effect_function::namespace",
+    "source": "import * as Vue from 'vue'; const guard = Vue.computed(() => true); const payload = Vue.ref(0); Vue.watchEffect(function () { guard.value ? payload.value : sink(); });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  }
+]

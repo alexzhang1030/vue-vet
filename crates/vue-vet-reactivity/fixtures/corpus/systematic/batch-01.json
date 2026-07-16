@@ -1,0 +1,122 @@
+[
+  {
+    "name": "ref::early_return::watch_effect_arrow::named",
+    "source": "import { ref, watchEffect } from 'vue'; const guard = ref(true); const payload = ref(0); watchEffect(() => { if (!guard.value) return; payload.value; });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "ref::early_return::watch_effect_arrow::namespace",
+    "source": "import * as Vue from 'vue'; const guard = Vue.ref(true); const payload = Vue.ref(0); Vue.watchEffect(() => { if (!guard.value) return; payload.value; });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "ref::early_return::watch_effect_function::named",
+    "source": "import { ref, watchEffect } from 'vue'; const guard = ref(true); const payload = ref(0); watchEffect(function () { if (!guard.value) return; payload.value; });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "ref::early_return::watch_effect_function::namespace",
+    "source": "import * as Vue from 'vue'; const guard = Vue.ref(true); const payload = Vue.ref(0); Vue.watchEffect(function () { if (!guard.value) return; payload.value; });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "ref::if_consequent::watch_effect_arrow::named",
+    "source": "import { ref, watchEffect } from 'vue'; const guard = ref(true); const payload = ref(0); watchEffect(() => { if (guard.value) payload.value; });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "ref::if_consequent::watch_effect_arrow::namespace",
+    "source": "import * as Vue from 'vue'; const guard = Vue.ref(true); const payload = Vue.ref(0); Vue.watchEffect(() => { if (guard.value) payload.value; });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "ref::if_consequent::watch_effect_function::named",
+    "source": "import { ref, watchEffect } from 'vue'; const guard = ref(true); const payload = ref(0); watchEffect(function () { if (guard.value) payload.value; });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "ref::if_consequent::watch_effect_function::namespace",
+    "source": "import * as Vue from 'vue'; const guard = Vue.ref(true); const payload = Vue.ref(0); Vue.watchEffect(function () { if (guard.value) payload.value; });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "ref::if_alternate::watch_effect_arrow::named",
+    "source": "import { ref, watchEffect } from 'vue'; const guard = ref(true); const payload = ref(0); watchEffect(() => { if (guard.value) { sink(); } else { payload.value; } });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "ref::if_alternate::watch_effect_arrow::namespace",
+    "source": "import * as Vue from 'vue'; const guard = Vue.ref(true); const payload = Vue.ref(0); Vue.watchEffect(() => { if (guard.value) { sink(); } else { payload.value; } });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  }
+]

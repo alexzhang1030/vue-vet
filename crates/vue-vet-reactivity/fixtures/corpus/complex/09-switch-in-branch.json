@@ -1,0 +1,122 @@
+[
+  {
+    "name": "complex::switch_in_branch::ref::direct",
+    "source": "import { ref, watchEffect } from 'vue'; const ready = ref(false); const enabled = ref(false); const payload = ref(0); watchEffect(() => { if (ready.value) { switch (enabled.value) { case true: payload.value; break; default: sink(); } } });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ]
+    }
+  },
+  {
+    "name": "complex::switch_in_branch::ref::aliased",
+    "source": "import { ref as makeRef, watchEffect as runEffect } from 'vue'; const ready = makeRef(false); const enabled = makeRef(false); const payload = makeRef(0); runEffect(function () { if (ready.value) { switch (enabled.value) { case true: payload.value; break; default: sink(); } } });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ]
+    }
+  },
+  {
+    "name": "complex::switch_in_branch::shallow_ref::direct",
+    "source": "import { ref, shallowRef, watchEffect } from 'vue'; const ready = ref(false); const enabled = ref(false); const payload = shallowRef(0); watchEffect(() => { if (ready.value) { switch (enabled.value) { case true: payload.value; break; default: sink(); } } });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ]
+    }
+  },
+  {
+    "name": "complex::switch_in_branch::shallow_ref::aliased",
+    "source": "import { ref as makeRef, watchEffect as runEffect, shallowRef as makePayload } from 'vue'; const ready = makeRef(false); const enabled = makeRef(false); const payload = makePayload(0); runEffect(function () { if (ready.value) { switch (enabled.value) { case true: payload.value; break; default: sink(); } } });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ]
+    }
+  },
+  {
+    "name": "complex::switch_in_branch::computed::direct",
+    "source": "import { computed, ref, watchEffect } from 'vue'; const ready = ref(false); const enabled = ref(false); const payload = computed(() => 1); watchEffect(() => { if (ready.value) { switch (enabled.value) { case true: payload.value; break; default: sink(); } } });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ]
+    }
+  },
+  {
+    "name": "complex::switch_in_branch::computed::aliased",
+    "source": "import { ref as makeRef, watchEffect as runEffect, computed as makePayload } from 'vue'; const ready = makeRef(false); const enabled = makeRef(false); const payload = makePayload(() => 1); runEffect(function () { if (ready.value) { switch (enabled.value) { case true: payload.value; break; default: sink(); } } });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ]
+    }
+  },
+  {
+    "name": "complex::switch_in_branch::reactive::direct",
+    "source": "import { reactive, ref, watchEffect } from 'vue'; const ready = ref(false); const enabled = ref(false); const payload = reactive({ count: 0 }); watchEffect(() => { if (ready.value) { switch (enabled.value) { case true: payload.count; break; default: sink(); } } });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ]
+    }
+  },
+  {
+    "name": "complex::switch_in_branch::reactive::aliased",
+    "source": "import { ref as makeRef, watchEffect as runEffect, reactive as makePayload } from 'vue'; const ready = makeRef(false); const enabled = makeRef(false); const payload = makePayload({ count: 0 }); runEffect(function () { if (ready.value) { switch (enabled.value) { case true: payload.count; break; default: sink(); } } });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ]
+    }
+  },
+  {
+    "name": "complex::switch_in_branch::shallow_reactive::direct",
+    "source": "import { ref, shallowReactive, watchEffect } from 'vue'; const ready = ref(false); const enabled = ref(false); const payload = shallowReactive({ count: 0 }); watchEffect(() => { if (ready.value) { switch (enabled.value) { case true: payload.count; break; default: sink(); } } });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ]
+    }
+  },
+  {
+    "name": "complex::switch_in_branch::shallow_reactive::aliased",
+    "source": "import { ref as makeRef, watchEffect as runEffect, shallowReactive as makePayload } from 'vue'; const ready = makeRef(false); const enabled = makeRef(false); const payload = makePayload({ count: 0 }); runEffect(function () { if (ready.value) { switch (enabled.value) { case true: payload.count; break; default: sink(); } } });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ]
+    }
+  }
+]

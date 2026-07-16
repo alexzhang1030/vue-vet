@@ -1,0 +1,37 @@
+{
+  "name": "nuxt-use-async-data-state",
+  "provenance": {
+    "repository": "nuxt/nuxt",
+    "commit": "b437b50f5049e2ad1b438dd53fb410410e8b8db5",
+    "path": "packages/nuxt/src/app/composables/asyncData.ts",
+    "adaptation": "Distilled semantic pattern; not a verbatim upstream copy."
+  },
+  "modules": [
+    {
+      "id": "asyncData.ts",
+      "file": "asyncData.ts",
+      "language": "ts",
+      "kind": "script"
+    },
+    {
+      "id": "consumer.ts",
+      "file": "consumer.ts",
+      "language": "ts",
+      "kind": "script"
+    }
+  ],
+  "links": [
+    {
+      "from": "consumer.ts",
+      "specifier": "./asyncData",
+      "to": "asyncData.ts"
+    }
+  ],
+  "expected": {
+    "module": "consumer.ts",
+    "binding": "payload",
+    "kind": "conditional",
+    "guards": ["ready"],
+    "trace": true
+  }
+}

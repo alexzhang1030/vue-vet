@@ -1,0 +1,10 @@
+{
+  "name": "function-local-ref-is-not-module-export",
+  "expected": {
+    "module": "consumer.ts",
+    "binding": "payload",
+    "kind": "conditional",
+    "guards": [],
+    "trace": false
+  }
+}

@@ -1,0 +1,122 @@
+[
+  {
+    "name": "readonly::early_return::watch_effect_arrow::named",
+    "source": "import { readonly, ref, watchEffect } from 'vue'; const guard = readonly({ active: true }); const payload = ref(0); watchEffect(() => { if (!guard.active) return; payload.value; });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "readonly::early_return::watch_effect_arrow::namespace",
+    "source": "import * as Vue from 'vue'; const guard = Vue.readonly({ active: true }); const payload = Vue.ref(0); Vue.watchEffect(() => { if (!guard.active) return; payload.value; });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "readonly::early_return::watch_effect_function::named",
+    "source": "import { readonly, ref, watchEffect } from 'vue'; const guard = readonly({ active: true }); const payload = ref(0); watchEffect(function () { if (!guard.active) return; payload.value; });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "readonly::early_return::watch_effect_function::namespace",
+    "source": "import * as Vue from 'vue'; const guard = Vue.readonly({ active: true }); const payload = Vue.ref(0); Vue.watchEffect(function () { if (!guard.active) return; payload.value; });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "readonly::if_consequent::watch_effect_arrow::named",
+    "source": "import { readonly, ref, watchEffect } from 'vue'; const guard = readonly({ active: true }); const payload = ref(0); watchEffect(() => { if (guard.active) payload.value; });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "readonly::if_consequent::watch_effect_arrow::namespace",
+    "source": "import * as Vue from 'vue'; const guard = Vue.readonly({ active: true }); const payload = Vue.ref(0); Vue.watchEffect(() => { if (guard.active) payload.value; });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "readonly::if_consequent::watch_effect_function::named",
+    "source": "import { readonly, ref, watchEffect } from 'vue'; const guard = readonly({ active: true }); const payload = ref(0); watchEffect(function () { if (guard.active) payload.value; });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "readonly::if_consequent::watch_effect_function::namespace",
+    "source": "import * as Vue from 'vue'; const guard = Vue.readonly({ active: true }); const payload = Vue.ref(0); Vue.watchEffect(function () { if (guard.active) payload.value; });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "readonly::if_alternate::watch_effect_arrow::named",
+    "source": "import { readonly, ref, watchEffect } from 'vue'; const guard = readonly({ active: true }); const payload = ref(0); watchEffect(() => { if (guard.active) { sink(); } else { payload.value; } });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  },
+  {
+    "name": "readonly::if_alternate::watch_effect_arrow::namespace",
+    "source": "import * as Vue from 'vue'; const guard = Vue.readonly({ active: true }); const payload = Vue.ref(0); Vue.watchEffect(() => { if (guard.active) { sink(); } else { payload.value; } });",
+    "expected": {
+      "effect": "watchEffect",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "guard"
+      ]
+    }
+  }
+]

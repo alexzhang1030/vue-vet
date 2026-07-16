@@ -1,0 +1,332 @@
+[
+  {
+    "name": "modules::default_export::ref::nested_guards",
+    "modules": [
+      {
+        "id": "producer.ts",
+        "source": "import { ref } from 'vue'; const signal = ref(0); export default signal;",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "consumer.ts",
+        "source": "import { ref, watchEffect } from 'vue'; import payload from './producer'; const ready = ref(false); const enabled = ref(false); watchEffect(() => { if (!ready.value) return; if (enabled.value) { try { for (const item of [1]) { if (item) { payload.value; } } } finally { sink(); } } });",
+        "language": "ts",
+        "kind": "script"
+      }
+    ],
+    "links": [
+      {
+        "from": "consumer.ts",
+        "specifier": "./producer",
+        "to": "producer.ts"
+      }
+    ],
+    "expected": {
+      "module": "consumer.ts",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ],
+      "trace": true
+    }
+  },
+  {
+    "name": "modules::default_export::ref::logical_ternary",
+    "modules": [
+      {
+        "id": "producer.ts",
+        "source": "import { ref } from 'vue'; const signal = ref(0); export default signal;",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "consumer.ts",
+        "source": "import { ref, watchEffect } from 'vue'; import payload from './producer'; const ready = ref(false); const enabled = ref(false); watchEffect(() => { ready.value && (enabled.value ? payload.value : sink()); });",
+        "language": "ts",
+        "kind": "script"
+      }
+    ],
+    "links": [
+      {
+        "from": "consumer.ts",
+        "specifier": "./producer",
+        "to": "producer.ts"
+      }
+    ],
+    "expected": {
+      "module": "consumer.ts",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ],
+      "trace": true
+    }
+  },
+  {
+    "name": "modules::default_export::shallow_ref::nested_guards",
+    "modules": [
+      {
+        "id": "producer.ts",
+        "source": "import { shallowRef } from 'vue'; const signal = shallowRef(0); export default signal;",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "consumer.ts",
+        "source": "import { ref, watchEffect } from 'vue'; import payload from './producer'; const ready = ref(false); const enabled = ref(false); watchEffect(() => { if (!ready.value) return; if (enabled.value) { try { for (const item of [1]) { if (item) { payload.value; } } } finally { sink(); } } });",
+        "language": "ts",
+        "kind": "script"
+      }
+    ],
+    "links": [
+      {
+        "from": "consumer.ts",
+        "specifier": "./producer",
+        "to": "producer.ts"
+      }
+    ],
+    "expected": {
+      "module": "consumer.ts",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ],
+      "trace": true
+    }
+  },
+  {
+    "name": "modules::default_export::shallow_ref::logical_ternary",
+    "modules": [
+      {
+        "id": "producer.ts",
+        "source": "import { shallowRef } from 'vue'; const signal = shallowRef(0); export default signal;",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "consumer.ts",
+        "source": "import { ref, watchEffect } from 'vue'; import payload from './producer'; const ready = ref(false); const enabled = ref(false); watchEffect(() => { ready.value && (enabled.value ? payload.value : sink()); });",
+        "language": "ts",
+        "kind": "script"
+      }
+    ],
+    "links": [
+      {
+        "from": "consumer.ts",
+        "specifier": "./producer",
+        "to": "producer.ts"
+      }
+    ],
+    "expected": {
+      "module": "consumer.ts",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ],
+      "trace": true
+    }
+  },
+  {
+    "name": "modules::default_export::computed::nested_guards",
+    "modules": [
+      {
+        "id": "producer.ts",
+        "source": "import { computed } from 'vue'; const signal = computed(() => 1); export default signal;",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "consumer.ts",
+        "source": "import { ref, watchEffect } from 'vue'; import payload from './producer'; const ready = ref(false); const enabled = ref(false); watchEffect(() => { if (!ready.value) return; if (enabled.value) { try { for (const item of [1]) { if (item) { payload.value; } } } finally { sink(); } } });",
+        "language": "ts",
+        "kind": "script"
+      }
+    ],
+    "links": [
+      {
+        "from": "consumer.ts",
+        "specifier": "./producer",
+        "to": "producer.ts"
+      }
+    ],
+    "expected": {
+      "module": "consumer.ts",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ],
+      "trace": true
+    }
+  },
+  {
+    "name": "modules::default_export::computed::logical_ternary",
+    "modules": [
+      {
+        "id": "producer.ts",
+        "source": "import { computed } from 'vue'; const signal = computed(() => 1); export default signal;",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "consumer.ts",
+        "source": "import { ref, watchEffect } from 'vue'; import payload from './producer'; const ready = ref(false); const enabled = ref(false); watchEffect(() => { ready.value && (enabled.value ? payload.value : sink()); });",
+        "language": "ts",
+        "kind": "script"
+      }
+    ],
+    "links": [
+      {
+        "from": "consumer.ts",
+        "specifier": "./producer",
+        "to": "producer.ts"
+      }
+    ],
+    "expected": {
+      "module": "consumer.ts",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ],
+      "trace": true
+    }
+  },
+  {
+    "name": "modules::default_export::reactive::nested_guards",
+    "modules": [
+      {
+        "id": "producer.ts",
+        "source": "import { reactive } from 'vue'; const signal = reactive({ count: 0 }); export default signal;",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "consumer.ts",
+        "source": "import { ref, watchEffect } from 'vue'; import payload from './producer'; const ready = ref(false); const enabled = ref(false); watchEffect(() => { if (!ready.value) return; if (enabled.value) { try { for (const item of [1]) { if (item) { payload.count; } } } finally { sink(); } } });",
+        "language": "ts",
+        "kind": "script"
+      }
+    ],
+    "links": [
+      {
+        "from": "consumer.ts",
+        "specifier": "./producer",
+        "to": "producer.ts"
+      }
+    ],
+    "expected": {
+      "module": "consumer.ts",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ],
+      "trace": true
+    }
+  },
+  {
+    "name": "modules::default_export::reactive::logical_ternary",
+    "modules": [
+      {
+        "id": "producer.ts",
+        "source": "import { reactive } from 'vue'; const signal = reactive({ count: 0 }); export default signal;",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "consumer.ts",
+        "source": "import { ref, watchEffect } from 'vue'; import payload from './producer'; const ready = ref(false); const enabled = ref(false); watchEffect(() => { ready.value && (enabled.value ? payload.count : sink()); });",
+        "language": "ts",
+        "kind": "script"
+      }
+    ],
+    "links": [
+      {
+        "from": "consumer.ts",
+        "specifier": "./producer",
+        "to": "producer.ts"
+      }
+    ],
+    "expected": {
+      "module": "consumer.ts",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ],
+      "trace": true
+    }
+  },
+  {
+    "name": "modules::default_export::readonly::nested_guards",
+    "modules": [
+      {
+        "id": "producer.ts",
+        "source": "import { readonly } from 'vue'; const signal = readonly({ count: 0 }); export default signal;",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "consumer.ts",
+        "source": "import { ref, watchEffect } from 'vue'; import payload from './producer'; const ready = ref(false); const enabled = ref(false); watchEffect(() => { if (!ready.value) return; if (enabled.value) { try { for (const item of [1]) { if (item) { payload.count; } } } finally { sink(); } } });",
+        "language": "ts",
+        "kind": "script"
+      }
+    ],
+    "links": [
+      {
+        "from": "consumer.ts",
+        "specifier": "./producer",
+        "to": "producer.ts"
+      }
+    ],
+    "expected": {
+      "module": "consumer.ts",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ],
+      "trace": true
+    }
+  },
+  {
+    "name": "modules::default_export::readonly::logical_ternary",
+    "modules": [
+      {
+        "id": "producer.ts",
+        "source": "import { readonly } from 'vue'; const signal = readonly({ count: 0 }); export default signal;",
+        "language": "ts",
+        "kind": "script"
+      },
+      {
+        "id": "consumer.ts",
+        "source": "import { ref, watchEffect } from 'vue'; import payload from './producer'; const ready = ref(false); const enabled = ref(false); watchEffect(() => { ready.value && (enabled.value ? payload.count : sink()); });",
+        "language": "ts",
+        "kind": "script"
+      }
+    ],
+    "links": [
+      {
+        "from": "consumer.ts",
+        "specifier": "./producer",
+        "to": "producer.ts"
+      }
+    ],
+    "expected": {
+      "module": "consumer.ts",
+      "binding": "payload",
+      "kind": "conditional",
+      "guards": [
+        "ready"
+      ],
+      "trace": true
+    }
+  }
+]

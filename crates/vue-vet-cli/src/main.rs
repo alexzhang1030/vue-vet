@@ -16,6 +16,7 @@ use vue_vet_core::{
 };
 use vue_vet_oxc::analyze_module;
 use vue_vet_project::{PROJECT_RULE_IDS, ProjectFile, ProjectGraph, build_project_graph};
+use vue_vet_reactivity::ModuleSource;
 use vue_vet_rules::builtin_registry;
 use vue_vet_vize::analyze_sfc_with_environment;
 
@@ -264,6 +265,7 @@ fn scan(root: &Path, config: &Config) -> Result<ScanResult, String> {
           path: logical_path.to_path_buf(),
           source_len: source.len(),
           facts: analysis.facts,
+          module_source: None,
         });
       }
       Some(language @ ("js" | "jsx" | "ts" | "tsx")) => {
@@ -277,6 +279,12 @@ fn scan(root: &Path, config: &Config) -> Result<ScanResult, String> {
             template: TemplateFacts::default(),
             script: ScriptFacts { blocks: vec![block] },
           },
+          module_source: Some(ModuleSource {
+            id: logical_path.to_string_lossy().replace('\\', "/"),
+            source,
+            language: language.into(),
+            kind: vue_vet_core::ScriptKind::Script,
+          }),
         });
       }
       _ => {}

@@ -4,19 +4,19 @@ use oxc_allocator::Allocator;
 use oxc_ast::{
   AstKind,
   ast::{
-    Argument, AssignmentTarget, BindingPattern, Expression, ImportDeclarationSpecifier,
-    ModuleExportName, SimpleAssignmentTarget, Statement,
+    AssignmentTarget, BindingPattern, Expression, ImportDeclarationSpecifier, ModuleExportName,
+    SimpleAssignmentTarget,
   },
 };
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
-use oxc_span::{GetSpan, SourceType, Span};
+use oxc_span::{SourceType, Span};
 use thiserror::Error;
 use vue_vet_core::{
-  ReactiveBindingFact, ReactiveBindingKind, ReactiveReadFact, ReactivityEffectFact,
-  ReactivityGraph, ScriptBindingFact, ScriptBlockFacts, ScriptCallFact, ScriptDestructureFact,
-  ScriptImportFact, ScriptKind, ScriptMemberWriteFact, SourceSpan,
+  ScriptBindingFact, ScriptBlockFacts, ScriptCallFact, ScriptDestructureFact, ScriptImportFact,
+  ScriptKind, ScriptMemberWriteFact, SourceSpan,
 };
+use vue_vet_reactivity::trace_reactivity;
 
 #[derive(Debug, Error)]
 pub enum AnalyzeScriptError {
@@ -161,17 +161,12 @@ pub fn analyze_script(
     }
   }
 
-  let mut reactive_bindings =
-    collect_reactive_bindings(&semantic, &imported_bindings, sfc_source, script_offset);
-  let mut effects =
-    collect_effects(&semantic, &imported_bindings, &reactive_bindings, sfc_source, script_offset);
+  let reactivity_graph = trace_reactivity(&semantic, sfc_source, script_offset, kind);
 
   imports.sort_by_key(|fact| fact.span.offset);
   calls.sort_by_key(|fact| fact.span.offset);
   member_writes.sort_by_key(|fact| fact.span.offset);
   destructures.sort_by_key(|fact| fact.span.offset);
-  reactive_bindings.sort_by_key(|fact| fact.span.offset);
-  effects.sort_by_key(|fact| fact.span.offset);
   Ok(ScriptBlockFacts {
     kind,
     language: language.into(),
@@ -180,7 +175,7 @@ pub fn analyze_script(
     calls,
     member_writes,
     destructures,
-    reactivity_graph: ReactivityGraph { bindings: reactive_bindings, effects },
+    reactivity_graph,
   })
 }
 
@@ -194,196 +189,6 @@ pub fn analyze_module(
   language: &str,
 ) -> Result<ScriptBlockFacts, AnalyzeScriptError> {
   analyze_script(source, source, 0, language, ScriptKind::Script)
-}
-
-fn resolved_vue_name<'a>(
-  local: &'a str,
-  imported_bindings: &'a BTreeMap<String, (String, String)>,
-) -> &'a str {
-  imported_bindings
-    .get(local)
-    .filter(|(source, _)| source == "vue")
-    .map_or(local, |(_, imported)| imported.as_str())
-}
-
-fn collect_reactive_bindings(
-  semantic: &oxc_semantic::Semantic<'_>,
-  imported_bindings: &BTreeMap<String, (String, String)>,
-  sfc_source: &str,
-  script_offset: usize,
-) -> Vec<ReactiveBindingFact> {
-  let mut reactive_bindings = Vec::new();
-  for node in semantic.nodes() {
-    let AstKind::CallExpression(call) = node.kind() else {
-      continue;
-    };
-    let Some(identifier) = call.callee.get_identifier_reference() else {
-      continue;
-    };
-    let local = identifier.name.as_str();
-    let imported = resolved_vue_name(local, imported_bindings);
-    let binding_kind = match imported {
-      "ref" => Some(ReactiveBindingKind::Ref),
-      "shallowRef" => Some(ReactiveBindingKind::ShallowRef),
-      "computed" => Some(ReactiveBindingKind::Computed),
-      "reactive" => Some(ReactiveBindingKind::Reactive),
-      "shallowReactive" => Some(ReactiveBindingKind::ShallowReactive),
-      _ => None,
-    };
-    let Some(binding_kind) = binding_kind else {
-      continue;
-    };
-    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
-    else {
-      continue;
-    };
-    let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
-      continue;
-    };
-    reactive_bindings.push(ReactiveBindingFact {
-      name: binding.name.to_string(),
-      kind: binding_kind,
-      initialized_with_null: call
-        .arguments
-        .first()
-        .is_some_and(|argument| matches!(argument, Argument::NullLiteral(_))),
-      span: source_span(sfc_source, script_offset, binding.span),
-    });
-  }
-
-  reactive_bindings
-}
-
-fn collect_effects(
-  semantic: &oxc_semantic::Semantic<'_>,
-  imported_bindings: &BTreeMap<String, (String, String)>,
-  reactive_bindings: &[ReactiveBindingFact],
-  sfc_source: &str,
-  script_offset: usize,
-) -> Vec<ReactivityEffectFact> {
-  let mut effects = Vec::new();
-  for node in semantic.nodes() {
-    let AstKind::CallExpression(call) = node.kind() else {
-      continue;
-    };
-    let Some(identifier) = call.callee.get_identifier_reference() else {
-      continue;
-    };
-    let callee = identifier.name.as_str();
-    let imported = resolved_vue_name(callee, imported_bindings);
-    if !matches!(imported, "watchEffect" | "watchPostEffect" | "watchSyncEffect") {
-      continue;
-    }
-    let Some(Argument::ArrowFunctionExpression(callback)) = call.arguments.first() else {
-      continue;
-    };
-    let callback_id = callback.node_id.get();
-    let mut reads = Vec::new();
-    for statement in &callback.body.statements {
-      let Statement::IfStatement(guard) = statement else {
-        continue;
-      };
-      if guard.alternate.is_some() || !is_early_return(&guard.consequent) {
-        continue;
-      }
-      let collect_reads = |range: Span| {
-        semantic
-          .nodes()
-          .iter_enumerated()
-          .filter_map(|(member_id, member_node)| {
-            let (object, property, member_span) = match member_node.kind() {
-              AstKind::StaticMemberExpression(member) => (
-                member.object.get_identifier_reference()?.name.as_str(),
-                Some(member.property.name.to_string()),
-                member.span,
-              ),
-              AstKind::ComputedMemberExpression(member) => (
-                member.object.get_identifier_reference()?.name.as_str(),
-                member.static_property_name().map(|name| name.to_string()),
-                member.span,
-              ),
-              _ => return None,
-            };
-            if member_span.start < range.start || member_span.end > range.end {
-              return None;
-            }
-            let mut nested_function = false;
-            let mut write_only = false;
-            for ancestor_id in semantic.nodes().ancestor_ids(member_id) {
-              if ancestor_id == callback_id {
-                break;
-              }
-              match semantic.nodes().kind(ancestor_id) {
-                AstKind::ArrowFunctionExpression(_) | AstKind::Function(_) => {
-                  nested_function = true;
-                  break;
-                }
-                AstKind::AssignmentExpression(assignment) => {
-                  let target = assignment.left.span();
-                  write_only = target.start <= member_span.start && target.end >= member_span.end;
-                }
-                _ => {}
-              }
-            }
-            if nested_function || write_only {
-              return None;
-            }
-            let binding = reactive_bindings.iter().find(|binding| {
-              binding.name == object
-                && match binding.kind {
-                  ReactiveBindingKind::Reactive | ReactiveBindingKind::ShallowReactive => true,
-                  ReactiveBindingKind::Ref
-                  | ReactiveBindingKind::ShallowRef
-                  | ReactiveBindingKind::Computed => property.as_deref() == Some("value"),
-                }
-            })?;
-            Some((binding.name.clone(), member_span))
-          })
-          .collect::<Vec<_>>()
-      };
-      let guard_reads = collect_reads(guard.test.span());
-      let before_reads = collect_reads(Span::new(callback.body.span.start, guard.span.start));
-      let after_reads = collect_reads(Span::new(guard.span.end, callback.body.span.end));
-      let guarded_by = guard_reads.first().map(|(binding, _)| binding.clone());
-      let Some(guarded_by) = guarded_by else {
-        continue;
-      };
-      for (binding, span) in after_reads {
-        if binding == guarded_by
-          || before_reads.iter().any(|(read, _)| read == &binding)
-          || guard_reads.iter().any(|(read, _)| read == &binding)
-          || reads.iter().any(|read: &ReactiveReadFact| read.binding == binding)
-        {
-          continue;
-        }
-        reads.push(ReactiveReadFact {
-          binding,
-          guarded_by: Some(guarded_by.clone()),
-          span: source_span(sfc_source, script_offset, span),
-        });
-      }
-      break;
-    }
-    if !reads.is_empty() {
-      effects.push(ReactivityEffectFact {
-        callee: imported.into(),
-        span: source_span(sfc_source, script_offset, call.span),
-        reads,
-      });
-    }
-  }
-
-  effects
-}
-
-fn is_early_return(statement: &Statement<'_>) -> bool {
-  match statement {
-    Statement::ReturnStatement(_) => true,
-    Statement::BlockStatement(block) => {
-      matches!(block.body.as_slice(), [Statement::ReturnStatement(_)])
-    }
-    _ => false,
-  }
 }
 
 fn source_type(language: &str) -> Result<SourceType, AnalyzeScriptError> {
@@ -480,6 +285,7 @@ fn join_errors(errors: &[impl ToString]) -> String {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use vue_vet_core::ReactiveReadKind;
 
   #[expect(clippy::panic, reason = "unexpected Oxc errors must fail adapter tests")]
   fn analyze(source: &str, language: &str) -> ScriptBlockFacts {
@@ -539,9 +345,12 @@ mod tests {
       effect
         .into_iter()
         .flat_map(|effect| &effect.reads)
-        .map(|read| (read.binding.as_str(), read.guarded_by.as_deref()))
+        .map(|read| (read.binding.as_str(), read.kind, read.guarded_by.as_deref()))
         .collect::<Vec<_>>(),
-      [("value", Some("ready"))]
+      [
+        ("ready", ReactiveReadKind::Unconditional, None),
+        ("value", ReactiveReadKind::Conditional, Some("ready")),
+      ]
     );
   }
 

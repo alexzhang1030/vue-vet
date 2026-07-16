@@ -9,7 +9,9 @@ vue-vet CLI
   -> vue-vet-vize SFC and template AST parsing
   -> Vue Vet-owned template facts
   -> vue-vet-oxc script parsing and semantic analysis
-  -> Vue Vet-owned script imports, bindings, calls, writes, destructures, and reactivity graph facts
+  -> Vue Vet-owned script imports, bindings, calls, writes, and destructures
+  -> vue-vet-reactivity local tracing and module-summary linking
+  -> vue-vet-project resolved edges and module reactivity graphs
   -> vue-vet-rules built-in rule registry
   -> severity overrides and scoped suppressions
   -> vue-vet-core diagnostics, spans, scoring
@@ -20,8 +22,14 @@ vue-vet CLI
 adapter while keeping both dependency ASTs behind Vue Vet-owned facts.
 The CLI derives per-file Vue capabilities from the nearest package.json and passes
 them into per-file rules without exposing package-manager state to parser adapters.
-The Oxc adapter records reactive binding nodes and conditional effect-read edges as
-serializable Vue Vet facts; rules never receive Oxc nodes. Configuration changes
+The Oxc adapter delegates reactivity construction to `vue-vet-reactivity`.
+That crate records Vue-resolved reactive binding nodes and every direct effect
+read as serializable Vue Vet facts. Read edges carry their property, exact span,
+classification (unconditional, conditional, or after-await), and ordered guard
+evidence; rules never receive Oxc nodes. Its module layer summarizes direct
+bindings and composable return shapes, then reaches a deterministic fixed point
+over resolved named/default exports, barrels, multi-hop re-exports, and cycles.
+Configuration changes
 rule enablement and severity after semantic analysis;
 suppressions are applied after diagnostic normalization and emit findings when
 unused.
@@ -47,8 +55,9 @@ project discovery and configuration
 ## Crate evolution
 
 Existing crates are `vue-vet-core`, `vue-vet-config`, `vue-vet-vize`,
-`vue-vet-oxc`, `vue-vet-rules`, and the `vue-vet` CLI. Planned boundaries
-include `vue-vet-patterns`, `vue-vet-project`, and `vue-vet-reporters`. A planned name is not authorization
+`vue-vet-oxc`, `vue-vet-reactivity`, `vue-vet-rules`, `vue-vet-project`,
+and the `vue-vet` CLI. Planned boundaries include `vue-vet-patterns` and
+`vue-vet-reporters`. A planned name is not authorization
 to create an empty abstraction: introduce the crate only when a working vertical
 slice uses it.
 
@@ -63,7 +72,11 @@ Cross-file findings are derived from a Vue Vet-owned graph of imports, component
 The first graph layer is `vue-vet-project`. It consumes serializable `SfcFacts`,
 uses repository-relative file IDs, stores source evidence on every edge, and
 publishes its exact file inputs for cache invalidation. Its convention version
-changes whenever Nuxt directory or naming behavior changes.
+changes whenever Nuxt directory or naming behavior changes. The project graph
+also supplies resolved standalone JavaScript/TypeScript module edges to
+`vue-vet-reactivity` and publishes the resulting per-module graphs. Cross-file
+tracing for extracted `.vue` script blocks is intentionally not inferred yet:
+it requires a Vize-owned source/offset handoff so SFC spans remain exact.
 
 Cache format version 1 stores only `ScanSummary` and `ProjectGraph`. Its key
 includes every source body plus configuration, tool, dependency, convention,
