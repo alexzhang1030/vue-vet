@@ -918,10 +918,7 @@ fn cross_module_case(
             producer_initializer(primitive)
           ),
         ),
-        module_source(
-          "barrel.ts",
-          "export { useSignal as usePayload } from './producer';".into(),
-        ),
+        module_source("barrel.ts", "export { useSignal as usePayload } from './producer';".into()),
         module_source(
           "consumer.ts",
           consumer_source(
