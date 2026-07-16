@@ -1,4 +1,5 @@
 use std::{
+  collections::BTreeMap,
   fs,
   path::{Path, PathBuf},
   process::ExitCode,
@@ -12,11 +13,14 @@ use vue_vet_cache::{
 };
 use vue_vet_config::{CONFIG_FILE, Config, apply_suppressions};
 use vue_vet_core::{
-  RuleEnvironment, ScanSummary, ScriptFacts, Severity, SfcFacts, TemplateFacts, VueVersion,
+  RuleEnvironment, ScanSummary, ScriptFacts, SfcFacts, TemplateFacts, VueVersion,
 };
 use vue_vet_oxc::analyze_module;
 use vue_vet_project::{PROJECT_RULE_IDS, ProjectFile, ProjectGraph, build_project_graph};
 use vue_vet_reactivity::ModuleSource;
+use vue_vet_reporters::{
+  ReportContext, ReportFormat, ReportFramework, ReportMode, render, render_error,
+};
 use vue_vet_rules::builtin_registry;
 use vue_vet_vize::analyze_sfc_with_environment;
 
@@ -72,6 +76,15 @@ enum OutputFormat {
   Json,
 }
 
+impl From<OutputFormat> for ReportFormat {
+  fn from(format: OutputFormat) -> Self {
+    match format {
+      OutputFormat::Text => Self::Text,
+      OutputFormat::Json => Self::Json,
+    }
+  }
+}
+
 #[expect(
   clippy::print_stderr,
   clippy::print_stdout,
@@ -81,10 +94,7 @@ fn main() -> ExitCode {
   let cli = Cli::parse();
   let config = match load_config(&cli.path, cli.config.as_deref()) {
     Ok(config) => config,
-    Err(error) => {
-      eprintln!("vue-vet: {error}");
-      return ExitCode::from(2);
-    }
+    Err(error) => return operational_failure(&cli, &error),
   };
   if cli.print_config {
     return match serde_json::to_string_pretty(&config) {
@@ -93,8 +103,7 @@ fn main() -> ExitCode {
         ExitCode::SUCCESS
       }
       Err(error) => {
-        eprintln!("vue-vet: failed to serialize effective config: {error}");
-        ExitCode::from(2)
+        operational_failure(&cli, &format!("failed to serialize effective config: {error}"))
       }
     };
   }
@@ -106,10 +115,7 @@ fn main() -> ExitCode {
       if let Some(path) = &cli.baseline {
         let baseline = match Baseline::read(path) {
           Ok(baseline) => baseline,
-          Err(error) => {
-            eprintln!("vue-vet: {error}");
-            return ExitCode::from(2);
-          }
+          Err(error) => return operational_failure(&cli, &error.to_string()),
         };
         result.summary = baseline.filter(result.summary);
       }
@@ -117,18 +123,14 @@ fn main() -> ExitCode {
         let directory = scan_directory(&cli.path);
         let changed = match read_git_diff(directory, reference) {
           Ok(changed) => changed,
-          Err(error) => {
-            eprintln!("vue-vet: {error}");
-            return ExitCode::from(2);
-          }
+          Err(error) => return operational_failure(&cli, &error.to_string()),
         };
         result.summary = filter_diff(result.summary, &changed);
       }
       if let Some(path) = &cli.write_baseline
         && let Err(error) = Baseline::from_summary(&result.summary).write(path)
       {
-        eprintln!("vue-vet: {error}");
-        return ExitCode::from(2);
+        return operational_failure(&cli, &error.to_string());
       }
       if cli.print_graph {
         return match serde_json::to_string_pretty(&result.graph) {
@@ -137,24 +139,20 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
           }
           Err(error) => {
-            eprintln!("vue-vet: failed to serialize project graph: {error}");
-            ExitCode::from(2)
+            operational_failure(&cli, &format!("failed to serialize project graph: {error}"))
           }
         };
       }
-      if let Err(error) = print_summary(&result.summary, cli.format) {
-        eprintln!("vue-vet: failed to serialize report: {error}");
-        ExitCode::from(2)
+      let report_context = report_context(&cli, &result);
+      if let Err(error) = print_summary(&result.summary, cli.format, &report_context) {
+        operational_failure(&cli, &format!("failed to serialize report: {error}"))
       } else if result.summary.fails(cli.deny_warnings) {
         ExitCode::from(1)
       } else {
         ExitCode::SUCCESS
       }
     }
-    Err(error) => {
-      eprintln!("vue-vet: {error}");
-      ExitCode::from(2)
-    }
+    Err(error) => operational_failure(&cli, &error),
   }
 }
 
@@ -309,6 +307,55 @@ fn vue_version_for(path: &Path, boundary: &Path) -> Option<VueVersion> {
     .find_map(VueVersion::parse_requirement)
 }
 
+fn report_context(cli: &Cli, result: &ScanResult) -> ReportContext {
+  let mut skipped_check_reasons = BTreeMap::new();
+  if let Some(error) = &result.graph.reactivity_error {
+    skipped_check_reasons.insert("module_reactivity".into(), error.clone());
+  }
+  ReportContext {
+    mode: report_mode(cli),
+    framework: report_framework(&cli.path),
+    project_root: report_root(&cli.path),
+    analyzed_files: result.graph.invalidation_inputs.clone(),
+    complete: skipped_check_reasons.is_empty(),
+    skipped_check_reasons,
+  }
+}
+
+const fn report_mode(cli: &Cli) -> ReportMode {
+  if cli.diff.is_some() {
+    ReportMode::Diff
+  } else if cli.baseline.is_some() {
+    ReportMode::Baseline
+  } else {
+    ReportMode::Full
+  }
+}
+
+fn report_root(path: &Path) -> String {
+  let root = scan_directory(path).to_string_lossy().replace('\\', "/");
+  if root.is_empty() { ".".into() } else { root }
+}
+
+fn report_framework(root: &Path) -> ReportFramework {
+  let package = if root.is_dir() {
+    root.join("package.json")
+  } else {
+    root.parent().unwrap_or(root).join("package.json")
+  };
+  let Ok(source) = fs::read_to_string(package) else {
+    return ReportFramework::Vue;
+  };
+  let Ok(package) = serde_json::from_str::<serde_json::Value>(&source) else {
+    return ReportFramework::Vue;
+  };
+  let is_nuxt = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
+    .iter()
+    .filter_map(|section| package.get(section))
+    .any(|section| section.get("nuxt").is_some());
+  if is_nuxt { ReportFramework::Nuxt } else { ReportFramework::Vue }
+}
+
 fn nearest_package_json(path: &Path, boundary: &Path) -> Option<PathBuf> {
   let mut directory = path.parent()?;
   loop {
@@ -362,45 +409,38 @@ fn load_config(root: &Path, explicit: Option<&Path>) -> Result<Config, String> {
   Ok(config)
 }
 
-#[expect(clippy::print_stdout, reason = "a CLI must emit requested reports on stdout")]
-fn print_summary(summary: &ScanSummary, format: OutputFormat) -> Result<(), serde_json::Error> {
-  match format {
-    OutputFormat::Json => {
-      let report = serde_json::json!({
-        "schema_version": 1,
-        "files_scanned": summary.files_scanned,
-        "diagnostics": &summary.diagnostics,
-        "score": summary.score,
-      });
-      println!("{}", serde_json::to_string_pretty(&report)?);
+#[expect(
+  clippy::print_stderr,
+  clippy::print_stdout,
+  reason = "a CLI must emit structured failures or human-readable operational errors"
+)]
+fn operational_failure(cli: &Cli, message: &str) -> ExitCode {
+  if matches!(cli.format, OutputFormat::Json) {
+    let context = ReportContext {
+      mode: report_mode(cli),
+      framework: report_framework(&cli.path),
+      project_root: report_root(&cli.path),
+      analyzed_files: Vec::new(),
+      complete: false,
+      skipped_check_reasons: BTreeMap::from([("scan".into(), message.into())]),
+    };
+    match render_error(message, &context) {
+      Ok(output) => println!("{output}"),
+      Err(error) => eprintln!("vue-vet: {message}; failed to serialize error report: {error}"),
     }
-    OutputFormat::Text => {
-      for diagnostic in &summary.diagnostics {
-        let severity = match diagnostic.severity {
-          Severity::Info => "info",
-          Severity::Warning => "warning",
-          Severity::Error => "error",
-        };
-        println!(
-          "{}:{}:{}  {}  {}  {}",
-          diagnostic.file.display(),
-          diagnostic.span.line,
-          diagnostic.span.column,
-          severity,
-          diagnostic.rule_id,
-          diagnostic.message
-        );
-        if let Some(help) = &diagnostic.help {
-          println!("  help: {help}");
-        }
-      }
-      println!(
-        "\nVue Vet score: {}/100 — {} file(s), {} finding(s)",
-        summary.score,
-        summary.files_scanned,
-        summary.diagnostics.len()
-      );
-    }
+  } else {
+    eprintln!("vue-vet: {message}");
   }
+  ExitCode::from(2)
+}
+
+#[expect(clippy::print_stdout, reason = "a CLI must emit requested reports on stdout")]
+fn print_summary(
+  summary: &ScanSummary,
+  format: OutputFormat,
+  context: &ReportContext,
+) -> Result<(), serde_json::Error> {
+  let output = render(summary, format.into(), context)?;
+  println!("{output}");
   Ok(())
 }
