@@ -20,8 +20,10 @@ vue-vet CLI
 adapter while keeping both dependency ASTs behind Vue Vet-owned facts.
 The CLI derives per-file Vue capabilities from the nearest package.json and passes
 them into per-file rules without exposing package-manager state to parser adapters.
-The Oxc adapter records reactive binding nodes and conditional effect-read edges as
-serializable Vue Vet facts; rules never receive Oxc nodes. Configuration changes
+The Oxc adapter records Vue-resolved reactive binding nodes and every direct
+effect read as serializable Vue Vet facts. Read edges carry their property, exact
+span, classification (unconditional, conditional, or after-await), and ordered
+guard evidence; rules never receive Oxc nodes. Configuration changes
 rule enablement and severity after semantic analysis;
 suppressions are applied after diagnostic normalization and emit findings when
 unused.
