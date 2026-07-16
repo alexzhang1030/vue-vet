@@ -39,6 +39,11 @@ Custom patterns may rediscover a problem already proven by a built-in rule. Buil
 
 A changed file can introduce a diagnostic whose best source location is in another file. Changed-line filtering must track causality through the project graph rather than dropping every finding outside the textual diff.
 
+Project resolution is deliberately smaller than Node, TypeScript, Vite, and
+Nuxt resolution. Missing relative or supported alias targets are diagnostics;
+package imports are external graph nodes; unsupported `#` aliases remain
+visible. Never silently reinterpret an unresolved edge as an external package.
+
 ## The current score is provisional
 
 The initial score is a deterministic vertical-slice implementation, not yet a stable measure of repository health. Before external release, scoring needs documented weights, stable diagnostic fingerprints, baselines, and reference-corpus evidence. Do not optimize rules around the current arithmetic.

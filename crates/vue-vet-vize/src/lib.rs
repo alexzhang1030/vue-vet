@@ -6,8 +6,8 @@ use vize_atelier_core::{
 };
 use vize_atelier_sfc::{SfcParseOptions, parse_sfc};
 use vue_vet_core::{
-  Diagnostic, ScriptFacts, ScriptKind, SourceSpan, TemplateAttributeFact, TemplateDirectiveFact,
-  TemplateElementFact, TemplateFacts,
+  Diagnostic, ScriptFacts, ScriptKind, SfcFacts, SourceSpan, TemplateAttributeFact,
+  TemplateDirectiveFact, TemplateElementFact, TemplateFacts,
 };
 use vue_vet_oxc::{AnalyzeScriptError, analyze_script};
 use vue_vet_rules::builtin_registry;
@@ -22,6 +22,11 @@ pub enum AnalyzeError {
   Script(#[from] AnalyzeScriptError),
 }
 
+pub struct AnalyzedSfc {
+  pub diagnostics: Vec<Diagnostic>,
+  pub facts: SfcFacts,
+}
+
 /// Analyze one Vue single-file component.
 ///
 /// # Errors
@@ -31,6 +36,15 @@ pub enum AnalyzeError {
 /// or [`AnalyzeError::Script`] when an embedded JavaScript or TypeScript block
 /// cannot be analyzed.
 pub fn analyze_sfc(path: &Path, source: &str) -> Result<Vec<Diagnostic>, AnalyzeError> {
+  analyze_sfc_with_facts(path, source).map(|analysis| analysis.diagnostics)
+}
+
+/// Analyze one Vue SFC and retain its dependency-neutral project facts.
+///
+/// # Errors
+///
+/// Returns the same deterministic parse and semantic errors as [`analyze_sfc`].
+pub fn analyze_sfc_with_facts(path: &Path, source: &str) -> Result<AnalyzedSfc, AnalyzeError> {
   let descriptor = parse_sfc(source, SfcParseOptions::default())
     .map_err(|error| AnalyzeError::Parse(error.message.into()))?;
   let template = if let Some(template) = descriptor.template {
@@ -57,7 +71,8 @@ pub fn analyze_sfc(path: &Path, source: &str) -> Result<Vec<Diagnostic>, Analyze
       ScriptKind::Setup,
     )?);
   }
-  Ok(builtin_registry().run(path, source, &template, &script))
+  let diagnostics = builtin_registry().run(path, source, &template, &script);
+  Ok(AnalyzedSfc { diagnostics, facts: SfcFacts { template, script } })
 }
 
 fn extract_template_facts(

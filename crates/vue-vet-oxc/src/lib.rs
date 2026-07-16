@@ -62,6 +62,12 @@ pub fn analyze_script(
     };
     let source = declaration.source.value.to_string();
     let Some(specifiers) = &declaration.specifiers else {
+      imports.push(ScriptImportFact {
+        source,
+        imported: String::new(),
+        local: String::new(),
+        span: source_span(sfc_source, script_offset, declaration.span),
+      });
       continue;
     };
     for specifier in specifiers {
@@ -140,6 +146,18 @@ pub fn analyze_script(
   calls.sort_by_key(|fact| fact.span.offset);
   member_writes.sort_by_key(|fact| fact.span.offset);
   Ok(ScriptBlockFacts { kind, language: language.into(), imports, bindings, calls, member_writes })
+}
+
+/// Analyze a standalone JavaScript or TypeScript module.
+///
+/// # Errors
+///
+/// Returns a deterministic parser, semantic, or language-selection error.
+pub fn analyze_module(
+  source: &str,
+  language: &str,
+) -> Result<ScriptBlockFacts, AnalyzeScriptError> {
+  analyze_script(source, source, 0, language, ScriptKind::Script)
 }
 
 fn source_type(language: &str) -> Result<SourceType, AnalyzeScriptError> {
@@ -294,5 +312,15 @@ mod tests {
         "Oxc spans must map back to the original SFC source"
       );
     }
+  }
+
+  #[test]
+  fn retains_side_effect_imports_for_project_edges() {
+    let facts = analyze("import './setup'", "ts");
+    assert_eq!(
+      facts.imports.first().map(|import| import.source.as_str()),
+      Some("./setup"),
+      "side-effect imports must remain visible to the project graph"
+    );
   }
 }

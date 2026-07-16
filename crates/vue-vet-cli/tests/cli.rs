@@ -152,3 +152,46 @@ fn effective_config_is_machine_readable() {
     Some("error")
   );
 }
+
+#[test]
+fn project_graph_reports_nuxt_edges_cycles_and_cross_file_findings() {
+  let project = fixture("projects/nuxt-graph");
+  let output = run(&[project.to_string_lossy().as_ref(), "--print-graph"]);
+  let parsed: Result<Value, _> = serde_json::from_slice(&output.stdout);
+
+  assert!(output.status.success(), "debug graph output must not apply the diagnostic exit policy");
+  let graph = parsed.as_ref().ok();
+  let edges = graph.and_then(|value| value.get("edges")).and_then(Value::as_array);
+  assert!(
+    edges.is_some_and(|edges| {
+      ["component_usage", "auto_component", "auto_composable"]
+        .iter()
+        .all(|kind| edges.iter().any(|edge| edge.get("kind").and_then(Value::as_str) == Some(kind)))
+    }),
+    "Nuxt and explicit project relationships must be serialized"
+  );
+  let diagnostics = graph.and_then(|value| value.get("diagnostics")).and_then(Value::as_array);
+  assert!(
+    diagnostics.is_some_and(|diagnostics| {
+      ["vue-vet/project/unresolved-import", "vue-vet/project/unused-component"].iter().all(|rule| {
+        diagnostics
+          .iter()
+          .any(|diagnostic| diagnostic.get("rule_id").and_then(Value::as_str) == Some(rule))
+      })
+    }),
+    "both graph-backed rules must report through debug output"
+  );
+  assert!(
+    edges.is_some_and(|edges| {
+      edges
+        .iter()
+        .filter(|edge| {
+          edge.get("specifier").and_then(Value::as_str) == Some("./a")
+            || edge.get("specifier").and_then(Value::as_str) == Some("./b")
+        })
+        .count()
+        == 2
+    }),
+    "monorepo import cycles must retain both directed edges"
+  );
+}

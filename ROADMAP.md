@@ -137,6 +137,16 @@ Exit criteria:
 
 ## M2 — project intelligence
 
+Status: implementation in progress
+
+Implemented in the project-graph branch:
+
+- dependency-neutral, deterministically serialized nodes, edges, and evidence
+- relative, `@/`, `~/`, extension, and index-file resolution
+- Nuxt component, composable, page, layout, plugin, middleware, and store conventions
+- unresolved-import and unused-component cross-file diagnostics
+- graph invalidation inputs and `--print-graph` debugging
+
 Work:
 
 - build an import, component, composable, route, store, and auto-import graph
