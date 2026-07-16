@@ -66,3 +66,8 @@ execution. Model guarded reads as graph edges derived from Oxc control structure
 do not rediscover them with source text matching. A conditional edge is evidence
 about tracking behavior, so diagnostics must describe the condition and recommend
 explicit `watch` sources when all inputs are intended to invalidate the effect.
+Keep every direct read occurrence in the graph: consumers need earlier
+unconditional reads to suppress false positives. Reads after a top-level
+`await` are classified separately because Vue stops dependency collection at
+that synchronous boundary. Nested callbacks, local lookalike functions, and
+write-only assignment targets are not effect reads.
