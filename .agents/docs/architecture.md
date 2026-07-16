@@ -33,7 +33,7 @@ project discovery and configuration
   -> Vize SFC/template facts
   -> Oxc script facts
   -> per-file built-in rules
-  -> project graph and cross-file rules
+  -> versioned project graph and graph-backed cross-file rules
   -> ast-grep custom rules
   -> normalize, suppress, deduplicate, fingerprint
   -> score, baseline/diff, report, preview/apply fixes
@@ -54,5 +54,10 @@ Rule IDs and diagnostic fingerprints must remain stable enough for baselines, di
 ## Project intelligence
 
 Cross-file findings are derived from a Vue Vet-owned graph of imports, components, composables, routes, stores, and Nuxt conventions. Diff mode must invalidate and re-run affected graph consumers; it cannot scan only changed files and silently lose a newly caused project-level failure.
+
+The first graph layer is `vue-vet-project`. It consumes serializable `SfcFacts`,
+uses repository-relative file IDs, stores source evidence on every edge, and
+publishes its exact file inputs for cache invalidation. Its convention version
+changes whenever Nuxt directory or naming behavior changes.
 
 See [technology stack](./technology-stack.md), [conventions](./conventions.md), and [the roadmap](../../ROADMAP.md).

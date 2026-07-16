@@ -15,6 +15,7 @@ The project is an early local-doctor implementation. Today it:
   and security rules with original-source locations;
 - supports strict versioned configuration, presets, severity overrides, path
   filters, and scoped suppressions;
+- builds a deterministic Vue/Nuxt project graph with initial cross-file findings;
 - emits human-readable or JSON output;
 - returns a CI-friendly exit code and a deterministic score.
 
@@ -24,6 +25,7 @@ The project is an early local-doctor implementation. Today it:
 just vet .
 just vet . --format json
 just vet fixtures/projects/basic --deny-warnings
+just vet fixtures/projects/nuxt-graph --print-graph
 ```
 
 ## Configuration
@@ -75,7 +77,8 @@ TypeScript semantics. ast-grep remains the planned extension engine for declarat
 project rules; it will not replace Vue-aware analysis.
 
 See [the architecture decision](docs/adr/0001-analysis-stack.md) and
-[the roadmap](ROADMAP.md).
+[the roadmap](ROADMAP.md). Project resolution and Nuxt convention limitations
+are documented in [the project graph guide](docs/project-graph.md).
 
 Durable project rationale and agent guidance are indexed in the
 [project context map](.agents/docs/README.md).

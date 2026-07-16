@@ -27,7 +27,7 @@ pub struct RuleMeta {
   pub documentation: &'static str,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct SourceSpan {
   pub offset: usize,
   pub length: usize,
@@ -46,7 +46,7 @@ pub struct Diagnostic {
   pub span: SourceSpan,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TemplateDirectiveFact {
   pub name: String,
   pub raw_name: String,
@@ -56,14 +56,14 @@ pub struct TemplateDirectiveFact {
   pub span: SourceSpan,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TemplateAttributeFact {
   pub name: String,
   pub value: Option<String>,
   pub span: SourceSpan,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TemplateElementFact {
   pub tag: String,
   pub span: SourceSpan,
@@ -105,18 +105,19 @@ impl TemplateElementFact {
   }
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TemplateFacts {
   pub elements: Vec<TemplateElementFact>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ScriptKind {
   Script,
   Setup,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ScriptImportFact {
   pub source: String,
   pub imported: String,
@@ -124,7 +125,7 @@ pub struct ScriptImportFact {
   pub span: SourceSpan,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ScriptBindingFact {
   pub name: String,
   pub reads: usize,
@@ -132,21 +133,21 @@ pub struct ScriptBindingFact {
   pub span: SourceSpan,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ScriptCallFact {
   pub callee: String,
   pub resolved_import: Option<(String, String)>,
   pub span: SourceSpan,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ScriptMemberWriteFact {
   pub object: String,
   pub property: Option<String>,
   pub span: SourceSpan,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ScriptBlockFacts {
   pub kind: ScriptKind,
   pub language: String,
@@ -156,9 +157,15 @@ pub struct ScriptBlockFacts {
   pub member_writes: Vec<ScriptMemberWriteFact>,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ScriptFacts {
   pub blocks: Vec<ScriptBlockFacts>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SfcFacts {
+  pub template: TemplateFacts,
+  pub script: ScriptFacts,
 }
 
 pub trait Rule: Sync {

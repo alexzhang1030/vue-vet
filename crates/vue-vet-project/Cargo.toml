@@ -1,0 +1,18 @@
+[package]
+name = "vue-vet-project"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Deterministic Vue and Nuxt project graph for Vue Vet"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+vue-vet-core = { path = "../vue-vet-core" }

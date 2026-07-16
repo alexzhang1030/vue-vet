@@ -4,6 +4,7 @@ members = [
   "crates/vue-vet-config",
   "crates/vue-vet-core",
   "crates/vue-vet-oxc",
+  "crates/vue-vet-project",
   "crates/vue-vet-rules",
   "crates/vue-vet-vize",
 ]

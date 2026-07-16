@@ -2181,6 +2181,8 @@ dependencies = [
  "serde_json",
  "vue-vet-config",
  "vue-vet-core",
+ "vue-vet-oxc",
+ "vue-vet-project",
  "vue-vet-rules",
  "vue-vet-vize",
 ]
@@ -2212,6 +2214,14 @@ dependencies = [
  "oxc_semantic",
  "oxc_span",
  "thiserror",
+ "vue-vet-core",
+]
+
+[[package]]
+name = "vue-vet-project"
+version = "0.1.0"
+dependencies = [
+ "serde",
  "vue-vet-core",
 ]
 
