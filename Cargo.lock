@@ -2226,9 +2226,9 @@ dependencies = [
  "oxc_parser",
  "oxc_semantic",
  "oxc_span",
- "serde_json",
  "thiserror",
  "vue-vet-core",
+ "vue-vet-reactivity",
 ]
 
 [[package]]
@@ -2236,6 +2236,19 @@ name = "vue-vet-project"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "vue-vet-core",
+]
+
+[[package]]
+name = "vue-vet-reactivity"
+version = "0.1.0"
+dependencies = [
+ "oxc_allocator",
+ "oxc_ast",
+ "oxc_parser",
+ "oxc_semantic",
+ "oxc_span",
+ "serde_json",
  "vue-vet-core",
 ]
 
