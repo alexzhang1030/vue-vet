@@ -15,7 +15,8 @@ vue-vet CLI
   -> vue-vet-rules built-in rule registry
   -> severity overrides and scoped suppressions
   -> vue-vet-core diagnostics, spans, scoring
-  -> text or JSON output and CI exit policy
+  -> vue-vet-reporters text or JSON rendering
+  -> CLI output and CI exit policy
 ```
 
 `no-v-html` remains the reference AST-backed built-in rule. Phase 2 adds the Oxc
@@ -56,10 +57,25 @@ project discovery and configuration
 
 Existing crates are `vue-vet-core`, `vue-vet-config`, `vue-vet-vize`,
 `vue-vet-oxc`, `vue-vet-reactivity`, `vue-vet-rules`, `vue-vet-project`,
-and the `vue-vet` CLI. Planned boundaries include `vue-vet-patterns` and
-`vue-vet-reporters`. A planned name is not authorization
+`vue-vet-reporters`, and the `vue-vet` CLI. The remaining planned boundary is
+`vue-vet-patterns`. A planned name is not authorization
 to create an empty abstraction: introduce the crate only when a working vertical
 slice uses it.
+
+## Reporting and edit planning
+
+`vue-vet-reporters` consumes only Vue Vet-owned `ScanSummary` values. It owns
+deterministic text and versioned JSON rendering, while the CLI retains stdout,
+operational-error messages, and exit policy. Renderers return content without a
+terminal newline so each surface can choose its transport framing. Existing text
+and JSON snapshots are byte-for-byte compatibility gates for the extraction.
+
+The shared edit contract lives in `vue-vet-core`, not in a parser, rule engine,
+or reporter. A text edit carries a repository path, checked byte range,
+replacement, safe/unsafe applicability, and originating rule ID. `EditPlan`
+normalizes ordering and rejects range overflow, overlapping replacements, and
+order-dependent insertions. It deliberately has no file-application API; disk
+mutation, rollback, and post-fix rescans belong to later issue #9 slices.
 
 ## Identity and determinism
 

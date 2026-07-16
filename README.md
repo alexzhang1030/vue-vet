@@ -73,13 +73,19 @@ instead of guessing. Field ordering is not part of the contract. See
 ## Architecture
 
 ```text
-vue-vet CLI       discovery, configuration, output, exit policy
+vue-vet CLI          discovery, configuration, orchestration, exit policy
       |
-vue-vet-vize      Vize SFC/template facts + Oxc script facts
+vue-vet-vize/oxc     Vize SFC/template facts + Oxc script facts
       |
-vue-vet-rules     deterministic high-confidence rule registry
+vue-vet-reactivity  local and cross-module reactive dependency graphs
       |
-vue-vet-core      diagnostics, spans, scoring, stable public model
+vue-vet-project      deterministic Vue/Nuxt graph and cross-file findings
+      |
+vue-vet-rules        deterministic high-confidence rule registry
+      |
+vue-vet-core         diagnostics, spans, scoring, edits, stable public model
+      |
+vue-vet-reporters    deterministic text and versioned JSON rendering
 ```
 
 Vize is the semantic source of truth for Vue SFCs. Oxc owns JavaScript and
@@ -91,6 +97,8 @@ See [the architecture decision](docs/adr/0001-analysis-stack.md) and
 are documented in [the project graph guide](docs/project-graph.md).
 Cache keys, baseline fingerprints, and diff completeness guarantees are
 documented in [the cache and diff guide](docs/cache-baseline-diff.md).
+The preview-only edit contract and conflict rules are documented in
+[the edit model guide](docs/edit-model.md).
 
 Durable project rationale and agent guidance are indexed in the
 [project context map](.agents/docs/README.md).

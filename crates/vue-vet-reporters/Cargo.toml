@@ -1,5 +1,5 @@
 [package]
-name = "vue-vet-core"
+name = "vue-vet-reporters"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,13 +8,11 @@ rust-version.workspace = true
 readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "Core diagnostics and scoring contracts for Vue Vet"
+description = "Deterministic text and machine-readable reporters for Vue Vet"
 
 [lints]
 workspace = true
 
 [dependencies]
-serde.workspace = true
-
-[dev-dependencies]
 serde_json.workspace = true
+vue-vet-core = { path = "../vue-vet-core" }

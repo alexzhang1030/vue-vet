@@ -41,7 +41,7 @@ vue-vet CLI
   -> normalize, rank, score, report, fix
 ```
 
-Planned crate boundaries:
+Current and planned crate boundaries:
 
 ```text
 vue-vet-core       stable diagnostics, spans, scoring, rule contracts
@@ -94,9 +94,9 @@ Completion evidence:
 
 Current: 28 high-confidence built-in rules.
 
-Status: implementation in progress
+Status: complete
 
-Implemented in the Phase 2 branch:
+Implemented across the merged Phase 2 and semantic-reactivity branches:
 
 - Oxc 0.127 semantic adapter for JavaScript, TypeScript, JSX, and TSX script blocks
 - dependency-neutral imports, bindings, calls, and member-write facts
@@ -143,7 +143,7 @@ Exit criteria:
 
 ## M2 — project intelligence
 
-Status: implementation in progress
+Status: complete
 
 Implemented in the project-graph branch:
 
@@ -179,6 +179,15 @@ Exit criteria:
 
 ## M3 — extensibility and CI
 
+Status: implementation in progress
+
+Implemented in the reporter/edit foundation slice:
+
+- dedicated `vue-vet-reporters` boundary exercised by unchanged text and JSON output
+- serializable byte-range edits with explicit safe/unsafe applicability and rule provenance
+- deterministic edit planning that rejects range overflow, overlap, and order-dependent insertions
+- preview-only contracts with no file mutation API
+
 Work:
 
 - integrate ast-grep Rust crates behind `vue-vet-patterns`
@@ -186,7 +195,7 @@ Work:
 - map custom findings into the same diagnostic and scoring model
 - add SARIF and GitHub annotations
 - implement baselines and `--diff <ref>`
-- introduce machine-readable edits and transactional safe autofix
+- extend machine-readable edits into preview and transactional safe autofix workflows
 - publish native binaries and a thin npm launcher
 
 ast-grep acceptance criteria:

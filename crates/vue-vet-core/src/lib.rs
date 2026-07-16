@@ -2,6 +2,10 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+mod edits;
+
+pub use edits::{ByteRange, EditApplicability, EditPlan, EditPlanError, TextEdit};
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {

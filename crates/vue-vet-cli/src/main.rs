@@ -12,11 +12,12 @@ use vue_vet_cache::{
 };
 use vue_vet_config::{CONFIG_FILE, Config, apply_suppressions};
 use vue_vet_core::{
-  RuleEnvironment, ScanSummary, ScriptFacts, Severity, SfcFacts, TemplateFacts, VueVersion,
+  RuleEnvironment, ScanSummary, ScriptFacts, SfcFacts, TemplateFacts, VueVersion,
 };
 use vue_vet_oxc::analyze_module;
 use vue_vet_project::{PROJECT_RULE_IDS, ProjectFile, ProjectGraph, build_project_graph};
 use vue_vet_reactivity::ModuleSource;
+use vue_vet_reporters::{ReportFormat, render};
 use vue_vet_rules::builtin_registry;
 use vue_vet_vize::analyze_sfc_with_environment;
 
@@ -70,6 +71,15 @@ struct CacheArgs {
 enum OutputFormat {
   Text,
   Json,
+}
+
+impl From<OutputFormat> for ReportFormat {
+  fn from(format: OutputFormat) -> Self {
+    match format {
+      OutputFormat::Text => Self::Text,
+      OutputFormat::Json => Self::Json,
+    }
+  }
 }
 
 #[expect(
@@ -364,43 +374,7 @@ fn load_config(root: &Path, explicit: Option<&Path>) -> Result<Config, String> {
 
 #[expect(clippy::print_stdout, reason = "a CLI must emit requested reports on stdout")]
 fn print_summary(summary: &ScanSummary, format: OutputFormat) -> Result<(), serde_json::Error> {
-  match format {
-    OutputFormat::Json => {
-      let report = serde_json::json!({
-        "schema_version": 1,
-        "files_scanned": summary.files_scanned,
-        "diagnostics": &summary.diagnostics,
-        "score": summary.score,
-      });
-      println!("{}", serde_json::to_string_pretty(&report)?);
-    }
-    OutputFormat::Text => {
-      for diagnostic in &summary.diagnostics {
-        let severity = match diagnostic.severity {
-          Severity::Info => "info",
-          Severity::Warning => "warning",
-          Severity::Error => "error",
-        };
-        println!(
-          "{}:{}:{}  {}  {}  {}",
-          diagnostic.file.display(),
-          diagnostic.span.line,
-          diagnostic.span.column,
-          severity,
-          diagnostic.rule_id,
-          diagnostic.message
-        );
-        if let Some(help) = &diagnostic.help {
-          println!("  help: {help}");
-        }
-      }
-      println!(
-        "\nVue Vet score: {}/100 — {} file(s), {} finding(s)",
-        summary.score,
-        summary.files_scanned,
-        summary.diagnostics.len()
-      );
-    }
-  }
+  let output = render(summary, format.into())?;
+  println!("{output}");
   Ok(())
 }

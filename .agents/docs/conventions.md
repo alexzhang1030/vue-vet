@@ -15,6 +15,16 @@ Internal locations are byte offsets into the original SFC source. User-facing li
 
 Sort diagnostics by normalized repository-relative path, byte offset, and rule ID. Do not expose platform path separators or hash-map iteration order in snapshots, JSON, baselines, or cache identities.
 
+## Edit contracts
+
+Text edits use byte offsets into the original file, carry explicit safe/unsafe
+applicability and rule provenance, and are sorted by normalized path and range
+before any consumer sees a plan. Reject overflowing ranges and all
+order-dependent overlap before touching disk. Two non-empty half-open ranges may
+meet at a boundary, but insertions at replacement boundaries conflict because
+their application order could change the result. Core planning and reporters
+must never mutate files.
+
 ## Dependency boundaries
 
 Vize, Oxc, and ast-grep types remain inside their adapters. Stable downstream code consumes Vue Vet-owned facts. Dependency upgrades are reviewed as behavior changes and include compatibility evidence rather than blind snapshot replacement.

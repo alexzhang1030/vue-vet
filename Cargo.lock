@@ -2185,6 +2185,7 @@ dependencies = [
  "vue-vet-oxc",
  "vue-vet-project",
  "vue-vet-reactivity",
+ "vue-vet-reporters",
  "vue-vet-rules",
  "vue-vet-vize",
 ]
@@ -2216,6 +2217,7 @@ name = "vue-vet-core"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2253,6 +2255,14 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "vue-vet-core",
+]
+
+[[package]]
+name = "vue-vet-reporters"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
  "vue-vet-core",
 ]
 
