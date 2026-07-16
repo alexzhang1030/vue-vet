@@ -1,5 +1,7 @@
 # Vue Vet
 
+[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/alexzhang1030/vue-vet?utm_source=badge)
+
 **Vet your Vue.**
 
 Vue Vet is a Rust-native health check for Vue and Nuxt codebases. It aims to

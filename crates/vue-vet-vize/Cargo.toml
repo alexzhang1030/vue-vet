@@ -22,4 +22,9 @@ vue-vet-oxc = { path = "../vue-vet-oxc" }
 vue-vet-rules = { path = "../vue-vet-rules" }
 
 [dev-dependencies]
+divan = { version = "5.0.1", package = "codspeed-divan-compat" }
 serde_json.workspace = true
+
+[[bench]]
+name = "analyze_sfc"
+harness = false
