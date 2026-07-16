@@ -214,19 +214,20 @@ fn resolved_vue_callee(
   }
 
   let (namespace, property) = match callee {
-    Expression::StaticMemberExpression(member) => {
-      (member.object.get_identifier_reference()?.name.as_str(), member.property.name.as_str())
-    }
+    Expression::StaticMemberExpression(member) => (
+      member.object.get_identifier_reference()?.name.as_str(),
+      member.property.name.to_string(),
+    ),
     Expression::ComputedMemberExpression(member) => (
       member.object.get_identifier_reference()?.name.as_str(),
-      member.static_property_name()?.as_ref(),
+      member.static_property_name()?.to_string(),
     ),
     _ => return None,
   };
   imported_bindings
     .get(namespace)
     .filter(|(source, imported)| matches!(source.as_str(), "vue" | "#imports") && imported == "*")
-    .map(|_| property.to_owned())
+    .map(|_| property)
 }
 
 fn reactive_binding_kind(callee: &str) -> Option<ReactiveBindingKind> {
