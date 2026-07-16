@@ -102,10 +102,9 @@ fn main() -> ExitCode {
         println!("{output}");
         ExitCode::SUCCESS
       }
-      Err(error) => operational_failure(
-        &cli,
-        &format!("failed to serialize effective config: {error}"),
-      ),
+      Err(error) => {
+        operational_failure(&cli, &format!("failed to serialize effective config: {error}"))
+      }
     };
   }
   match cached_scan(&cli, &config) {
@@ -139,10 +138,9 @@ fn main() -> ExitCode {
             println!("{output}");
             ExitCode::SUCCESS
           }
-          Err(error) => operational_failure(
-            &cli,
-            &format!("failed to serialize project graph: {error}"),
-          ),
+          Err(error) => {
+            operational_failure(&cli, &format!("failed to serialize project graph: {error}"))
+          }
         };
       }
       let report_context = report_context(&cli, &result);

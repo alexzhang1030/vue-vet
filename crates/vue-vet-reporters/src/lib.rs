@@ -4,9 +4,7 @@ use std::{
 };
 
 use serde::Serialize;
-use vue_vet_core::{
-  Confidence, Diagnostic, ScanSummary, Severity, SourceSpan, diagnostic_id,
-};
+use vue_vet_core::{Confidence, Diagnostic, ScanSummary, Severity, SourceSpan, diagnostic_id};
 
 pub const JSON_SCHEMA_VERSION: u8 = 2;
 
@@ -138,11 +136,8 @@ fn render_json(
   summary: &ScanSummary,
   context: &ReportContext,
 ) -> Result<String, serde_json::Error> {
-  let mut analyzed_files = context
-    .analyzed_files
-    .iter()
-    .map(|path| normalize_path(path))
-    .collect::<Vec<_>>();
+  let mut analyzed_files =
+    context.analyzed_files.iter().map(|path| normalize_path(path)).collect::<Vec<_>>();
   analyzed_files.sort();
   analyzed_files.dedup();
 
@@ -151,11 +146,8 @@ fn render_json(
     .iter()
     .map(|diagnostic| json_diagnostic(diagnostic, &analyzed_files))
     .collect::<Vec<_>>();
-  let affected_file_count = diagnostics
-    .iter()
-    .map(|diagnostic| diagnostic.file.as_str())
-    .collect::<BTreeSet<_>>()
-    .len();
+  let affected_file_count =
+    diagnostics.iter().map(|diagnostic| diagnostic.file.as_str()).collect::<BTreeSet<_>>().len();
   let mut by_severity = SeverityCounts::default();
   for diagnostic in &summary.diagnostics {
     match diagnostic.severity {
@@ -188,15 +180,9 @@ fn render_json(
 /// # Errors
 ///
 /// Returns a serialization error when JSON output cannot be encoded.
-pub fn render_error(
-  message: &str,
-  context: &ReportContext,
-) -> Result<String, serde_json::Error> {
-  let mut analyzed_files = context
-    .analyzed_files
-    .iter()
-    .map(|path| normalize_path(path))
-    .collect::<Vec<_>>();
+pub fn render_error(message: &str, context: &ReportContext) -> Result<String, serde_json::Error> {
+  let mut analyzed_files =
+    context.analyzed_files.iter().map(|path| normalize_path(path)).collect::<Vec<_>>();
   analyzed_files.sort();
   analyzed_files.dedup();
   let skipped_checks = context.skipped_check_reasons.keys().cloned().collect();
@@ -261,9 +247,7 @@ fn report_path(path: &Path, analyzed_files: &[String]) -> String {
     .iter()
     .find(|candidate| {
       normalized == candidate.as_str()
-        || normalized
-          .strip_suffix(candidate.as_str())
-          .is_some_and(|prefix| prefix.ends_with('/'))
+        || normalized.strip_suffix(candidate.as_str()).is_some_and(|prefix| prefix.ends_with('/'))
     })
     .cloned()
     .unwrap_or(normalized)
@@ -382,10 +366,8 @@ mod tests {
     if let Some(diagnostic) = summary.diagnostics.first_mut() {
       diagnostic.file = PathBuf::from(r"C:\repo\src\App.vue");
     }
-    let context = ReportContext {
-      analyzed_files: vec!["src/App.vue".into()],
-      ..ReportContext::default()
-    };
+    let context =
+      ReportContext { analyzed_files: vec!["src/App.vue".into()], ..ReportContext::default() };
     let rendered = render(&summary, ReportFormat::Json, &context);
     let parsed =
       rendered.as_ref().ok().and_then(|output| serde_json::from_str::<Value>(output).ok());
@@ -463,9 +445,6 @@ mod tests {
   #[test]
   fn empty_text_report_retains_the_summary_line() {
     let rendered = render(&ScanSummary::default(), ReportFormat::Text, &ReportContext::default());
-    assert_eq!(
-      rendered.as_deref().ok(),
-      Some("\nVue Vet score: 0/100 — 0 file(s), 0 finding(s)")
-    );
+    assert_eq!(rendered.as_deref().ok(), Some("\nVue Vet score: 0/100 — 0 file(s), 0 finding(s)"));
   }
 }
