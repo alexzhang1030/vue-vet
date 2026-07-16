@@ -2226,6 +2226,7 @@ dependencies = [
  "oxc_parser",
  "oxc_semantic",
  "oxc_span",
+ "serde_json",
  "thiserror",
  "vue-vet-core",
 ]
