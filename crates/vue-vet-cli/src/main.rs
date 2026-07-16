@@ -322,7 +322,7 @@ fn report_context(cli: &Cli, result: &ScanResult) -> ReportContext {
   }
 }
 
-fn report_mode(cli: &Cli) -> ReportMode {
+const fn report_mode(cli: &Cli) -> ReportMode {
   if cli.diff.is_some() {
     ReportMode::Diff
   } else if cli.baseline.is_some() {
