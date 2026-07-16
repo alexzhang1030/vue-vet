@@ -163,13 +163,8 @@ pub fn analyze_script(
 
   let mut reactive_bindings =
     collect_reactive_bindings(&semantic, &imported_bindings, sfc_source, script_offset);
-  let mut effects = collect_effects(
-    &semantic,
-    &imported_bindings,
-    &reactive_bindings,
-    sfc_source,
-    script_offset,
-  );
+  let mut effects =
+    collect_effects(&semantic, &imported_bindings, &reactive_bindings, sfc_source, script_offset);
 
   imports.sort_by_key(|fact| fact.span.offset);
   calls.sort_by_key(|fact| fact.span.offset);
