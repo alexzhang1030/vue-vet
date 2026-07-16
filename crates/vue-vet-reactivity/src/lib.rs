@@ -29,13 +29,8 @@ pub fn trace_reactivity(
   script_kind: ScriptKind,
 ) -> ReactivityGraph {
   let imported_bindings = collect_imported_bindings(semantic);
-  let mut bindings = collect_reactive_bindings(
-    semantic,
-    &imported_bindings,
-    sfc_source,
-    script_offset,
-    script_kind,
-  );
+  let mut bindings =
+    collect_reactive_bindings(semantic, &imported_bindings, sfc_source, script_offset, script_kind);
   let mut effects =
     collect_effects(semantic, &imported_bindings, &bindings, sfc_source, script_offset);
   bindings.sort_by_key(|fact| fact.span.offset);
@@ -43,9 +38,7 @@ pub fn trace_reactivity(
   ReactivityGraph { bindings, effects }
 }
 
-fn collect_imported_bindings(
-  semantic: &Semantic<'_>,
-) -> BTreeMap<String, (String, String)> {
+fn collect_imported_bindings(semantic: &Semantic<'_>) -> BTreeMap<String, (String, String)> {
   let mut imported_bindings = BTreeMap::new();
   for node in semantic.nodes() {
     let AstKind::ImportDeclaration(declaration) = node.kind() else {
@@ -57,10 +50,9 @@ fn collect_imported_bindings(
     let source = declaration.source.value.to_string();
     for specifier in specifiers {
       let (imported, local) = match specifier {
-        ImportDeclarationSpecifier::ImportSpecifier(specifier) => (
-          module_export_name(&specifier.imported),
-          specifier.local.name.to_string(),
-        ),
+        ImportDeclarationSpecifier::ImportSpecifier(specifier) => {
+          (module_export_name(&specifier.imported), specifier.local.name.to_string())
+        }
         ImportDeclarationSpecifier::ImportDefaultSpecifier(specifier) => {
           ("default".into(), specifier.local.name.to_string())
         }
