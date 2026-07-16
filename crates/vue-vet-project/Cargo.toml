@@ -16,3 +16,4 @@ workspace = true
 [dependencies]
 serde.workspace = true
 vue-vet-core = { path = "../vue-vet-core" }
+vue-vet-reactivity = { path = "../vue-vet-reactivity" }
