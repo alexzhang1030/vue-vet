@@ -2184,6 +2184,7 @@ dependencies = [
  "vue-vet-core",
  "vue-vet-oxc",
  "vue-vet-project",
+ "vue-vet-reactivity",
  "vue-vet-rules",
  "vue-vet-vize",
 ]
@@ -2237,6 +2238,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "vue-vet-core",
+ "vue-vet-reactivity",
 ]
 
 [[package]]
