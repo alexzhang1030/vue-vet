@@ -50,6 +50,16 @@ pub struct Diagnostic {
 pub struct TemplateDirectiveFact {
   pub name: String,
   pub raw_name: String,
+  pub argument: Option<String>,
+  pub expression: Option<String>,
+  pub modifiers: Vec<String>,
+  pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TemplateAttributeFact {
+  pub name: String,
+  pub value: Option<String>,
   pub span: SourceSpan,
 }
 
@@ -57,12 +67,98 @@ pub struct TemplateDirectiveFact {
 pub struct TemplateElementFact {
   pub tag: String,
   pub span: SourceSpan,
+  pub attributes: Vec<TemplateAttributeFact>,
   pub directives: Vec<TemplateDirectiveFact>,
+  pub has_children: bool,
+}
+
+impl TemplateElementFact {
+  #[must_use]
+  pub fn attribute(&self, name: &str) -> Option<&TemplateAttributeFact> {
+    self.attributes.iter().find(|attribute| attribute.name.eq_ignore_ascii_case(name))
+  }
+
+  #[must_use]
+  pub fn directive(&self, name: &str) -> Option<&TemplateDirectiveFact> {
+    self.directives.iter().find(|directive| directive.name == name)
+  }
+
+  #[must_use]
+  pub fn bound_attribute(&self, name: &str) -> Option<&TemplateDirectiveFact> {
+    self.directives.iter().find(|directive| {
+      directive.name == "bind"
+        && directive.argument.as_deref().is_some_and(|argument| argument.eq_ignore_ascii_case(name))
+    })
+  }
+
+  #[must_use]
+  pub fn event(&self, name: &str) -> Option<&TemplateDirectiveFact> {
+    self.directives.iter().find(|directive| {
+      directive.name == "on"
+        && directive.argument.as_deref().is_some_and(|argument| argument.eq_ignore_ascii_case(name))
+    })
+  }
+
+  #[must_use]
+  pub fn has_key(&self) -> bool {
+    self.attribute("key").is_some() || self.bound_attribute("key").is_some()
+  }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TemplateFacts {
   pub elements: Vec<TemplateElementFact>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ScriptKind {
+  Script,
+  Setup,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ScriptImportFact {
+  pub source: String,
+  pub imported: String,
+  pub local: String,
+  pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ScriptBindingFact {
+  pub name: String,
+  pub reads: usize,
+  pub writes: usize,
+  pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ScriptCallFact {
+  pub callee: String,
+  pub resolved_import: Option<(String, String)>,
+  pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ScriptMemberWriteFact {
+  pub object: String,
+  pub property: Option<String>,
+  pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ScriptBlockFacts {
+  pub kind: ScriptKind,
+  pub language: String,
+  pub imports: Vec<ScriptImportFact>,
+  pub bindings: Vec<ScriptBindingFact>,
+  pub calls: Vec<ScriptCallFact>,
+  pub member_writes: Vec<ScriptMemberWriteFact>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ScriptFacts {
+  pub blocks: Vec<ScriptBlockFacts>,
 }
 
 pub trait Rule: Sync {
@@ -74,6 +170,7 @@ pub struct RuleContext<'a> {
   file: &'a Path,
   source: &'a str,
   template: &'a TemplateFacts,
+  script: &'a ScriptFacts,
   diagnostics: &'a mut Vec<Diagnostic>,
 }
 
@@ -82,9 +179,10 @@ impl<'a> RuleContext<'a> {
     file: &'a Path,
     source: &'a str,
     template: &'a TemplateFacts,
+    script: &'a ScriptFacts,
     diagnostics: &'a mut Vec<Diagnostic>,
   ) -> Self {
-    Self { file, source, template, diagnostics }
+    Self { file, source, template, script, diagnostics }
   }
 
   #[must_use]
@@ -95,6 +193,11 @@ impl<'a> RuleContext<'a> {
   #[must_use]
   pub const fn template(&self) -> &TemplateFacts {
     self.template
+  }
+
+  #[must_use]
+  pub const fn script(&self) -> &ScriptFacts {
+    self.script
   }
 
   pub fn report(
@@ -128,10 +231,16 @@ impl RuleRegistry {
   }
 
   #[must_use]
-  pub fn run(&self, file: &Path, source: &str, template: &TemplateFacts) -> Vec<Diagnostic> {
+  pub fn run(
+    &self,
+    file: &Path,
+    source: &str,
+    template: &TemplateFacts,
+    script: &ScriptFacts,
+  ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for rule in &self.rules {
-      let mut context = RuleContext::new(file, source, template, &mut diagnostics);
+      let mut context = RuleContext::new(file, source, template, script, &mut diagnostics);
       rule.run(&mut context);
     }
     diagnostics

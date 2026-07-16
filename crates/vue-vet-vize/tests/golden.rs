@@ -37,7 +37,43 @@ fn parser_error_snapshot(logical_path: &str, source: &str) -> String {
     }
     Err(AnalyzeError::Parse(message)) => AnalyzeError::Parse(message).to_string(),
     Err(AnalyzeError::Template(message)) => AnalyzeError::Template(message).to_string(),
+    Err(AnalyzeError::Script(error)) => AnalyzeError::Script(error).to_string(),
   }
+}
+
+#[test]
+#[expect(clippy::panic, reason = "unexpected fixture analysis errors must fail golden tests")]
+fn recommended_rule_pack_covers_all_rules_with_valid_spans() {
+  let source = include_str!("../../../fixtures/rules/recommended/invalid.vue");
+  let diagnostics = match analyze_sfc(Path::new("fixtures/rules/recommended/invalid.vue"), source) {
+    Ok(diagnostics) => diagnostics,
+    Err(error) => panic!("recommended rule fixture unexpectedly failed: {error}"),
+  };
+  let ids = diagnostics
+    .iter()
+    .map(|diagnostic| diagnostic.rule_id.as_str())
+    .collect::<std::collections::BTreeSet<_>>();
+  assert_eq!(ids.len(), 15, "every recommended rule needs a positive fixture");
+  for diagnostic in diagnostics {
+    let end = diagnostic.span.offset.saturating_add(diagnostic.span.length);
+    let snippet = source.get(diagnostic.span.offset..end);
+    assert!(
+      snippet.is_some_and(|snippet| !snippet.is_empty()),
+      "{} must retain a non-empty original-source span",
+      diagnostic.rule_id
+    );
+  }
+}
+
+#[test]
+#[expect(clippy::panic, reason = "unexpected fixture analysis errors must fail golden tests")]
+fn recommended_rule_pack_safe_patterns_are_quiet() {
+  let source = include_str!("../../../fixtures/rules/recommended/valid.vue");
+  let diagnostics = match analyze_sfc(Path::new("fixtures/rules/recommended/valid.vue"), source) {
+    Ok(diagnostics) => diagnostics,
+    Err(error) => panic!("recommended safe fixture unexpectedly failed: {error}"),
+  };
+  assert!(diagnostics.is_empty(), "safe patterns must not produce recommended findings");
 }
 
 #[test]

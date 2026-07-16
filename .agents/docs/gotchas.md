@@ -19,6 +19,18 @@ Unicode, multiline, and multiple-directive inputs whenever this adapter changes.
 
 Template, ordinary script, script setup, styles, and custom blocks have different grammars and semantics. Never run one generic pattern language over the full `.vue` file and present the result as semantic certainty.
 
+Oxc spans are relative to the extracted script block. Add the Vize
+`SfcScriptBlock.loc.start` offset exactly once before deriving line and column.
+Ordinary script and script setup remain separate fact blocks so duplicate names
+and future merge semantics are explicit rather than accidental.
+
+## Configuration is part of diagnostic identity
+
+Preset expansion happens before explicit rule overrides. Path globs normalize
+separators before matching, severity overrides run before exit-policy scoring,
+and suppressions run after diagnostics exist so unused directives can be
+reported. Future cache keys must include the serialized effective configuration.
+
 ## ast-grep findings can overlap semantic findings
 
 Custom patterns may rediscover a problem already proven by a built-in rule. Built-in semantic evidence is authoritative. Deduplication and precedence must be deterministic before ast-grep rules ship.

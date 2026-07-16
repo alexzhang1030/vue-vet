@@ -4,9 +4,10 @@ Fixtures are small source inputs whose paths describe why they exist:
 
 - `rules/<rule>/invalid` contains the smallest inputs that must report.
 - `rules/<rule>/valid` contains safe patterns and false-positive regressions.
+- `rules/recommended` exercises the complete default preset as one integration corpus.
 - `parser/malformed` contains deterministic parser failures.
 - `reporters` contains checked-in text and JSON reporter snapshots.
-- `projects` contains multi-file layouts once a test needs project context.
+- `projects` contains layouts for configuration discovery, suppressions, and future cross-file facts.
 
 Use forward-slash logical paths in expected diagnostics. The test harness
 normalizes Windows and Unix separators before comparison.

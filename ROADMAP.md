@@ -93,6 +93,16 @@ Immediate tasks:
 
 Target: 15 high-confidence built-in rules.
 
+Status: implementation in progress
+
+Implemented in the Phase 2 branch:
+
+- Oxc 0.127 semantic adapter for JavaScript, TypeScript, JSX, and TSX script blocks
+- dependency-neutral imports, bindings, calls, and member-write facts
+- versioned strict configuration, recommended/none presets, severity overrides,
+  include/exclude globs, and scoped suppressions with unused-suppression diagnostics
+- 15 documented high-confidence recommended rules with positive and safe fixtures
+
 Work:
 
 - add Oxc parsing and semantic analysis for `<script>` and `<script setup>`

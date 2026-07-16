@@ -1,5 +1,5 @@
 [package]
-name = "vue-vet-vize"
+name = "vue-vet-config"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,18 +8,13 @@ rust-version.workspace = true
 readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "Vize-powered Vue SFC analysis for Vue Vet"
+description = "Configuration, presets, path filters, and suppressions for Vue Vet"
 
 [lints]
 workspace = true
 
 [dependencies]
+globset.workspace = true
+serde.workspace = true
 thiserror.workspace = true
-vize_atelier_core.workspace = true
-vize_atelier_sfc.workspace = true
 vue-vet-core = { path = "../vue-vet-core" }
-vue-vet-oxc = { path = "../vue-vet-oxc" }
-vue-vet-rules = { path = "../vue-vet-rules" }
-
-[dev-dependencies]
-serde_json.workspace = true

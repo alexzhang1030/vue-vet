@@ -103,3 +103,52 @@ fn reporter_json_snapshot_is_stable() {
     "JSON reporter snapshot changed"
   );
 }
+
+#[test]
+fn severity_override_changes_exit_policy() {
+  let project = fixture("projects/configured");
+  let config = project.join("vue-vet.toml");
+  let output =
+    run(&[project.to_string_lossy().as_ref(), "--config", config.to_string_lossy().as_ref()]);
+  let stdout = String::from_utf8_lossy(&output.stdout);
+
+  assert_eq!(output.status.code(), Some(1), "an error override must fail without --deny-warnings");
+  assert!(stdout.contains("  error  vue-vet/security/no-v-html"));
+}
+
+#[test]
+fn scoped_suppression_hides_a_matching_finding() {
+  let project = fixture("projects/suppressed");
+  let output = run(&[project.to_string_lossy().as_ref(), "--format", "json"]);
+  let parsed: Result<Value, _> = serde_json::from_slice(&output.stdout);
+
+  assert!(output.status.success(), "a used suppression must keep the scan passing");
+  assert_eq!(
+    parsed
+      .as_ref()
+      .ok()
+      .and_then(|value| value.get("diagnostics"))
+      .and_then(Value::as_array)
+      .map(Vec::len),
+    Some(0),
+    "the matching diagnostic must be suppressed"
+  );
+}
+
+#[test]
+fn effective_config_is_machine_readable() {
+  let project = fixture("projects/configured");
+  let output = run(&[project.to_string_lossy().as_ref(), "--print-config"]);
+  let parsed: Result<Value, _> = serde_json::from_slice(&output.stdout);
+
+  assert!(output.status.success(), "effective configuration must serialize");
+  assert_eq!(
+    parsed
+      .as_ref()
+      .ok()
+      .and_then(|value| value.get("rules"))
+      .and_then(|rules| rules.get("vue-vet/security/no-v-html"))
+      .and_then(Value::as_str),
+    Some("error")
+  );
+}
