@@ -4,9 +4,7 @@ use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType;
-use vue_vet_core::{
-  ReactiveBindingKind, ReactiveReadKind, ReactivityGraph, ScriptKind,
-};
+use vue_vet_core::{ReactiveBindingKind, ReactiveReadKind, ReactivityGraph, ScriptKind};
 
 use super::trace_reactivity;
 
@@ -577,9 +575,9 @@ fn primitive_initializer(axis: PrimitiveAxis, prefix: &str) -> String {
     "computed" => format!("{prefix}computed(() => true)"),
     "reactive" => format!("{prefix}reactive({{ active: true }})"),
     "readonly" => format!("{prefix}readonly({{ active: true }})"),
-    "custom_ref" => format!(
-      "{prefix}customRef(() => ({{ get: () => true, set: (_value: boolean) => {{}} }}))"
-    ),
+    "custom_ref" => {
+      format!("{prefix}customRef(() => ({{ get: () => true, set: (_value: boolean) => {{}} }}))")
+    }
     _ => String::new(),
   }
 }
