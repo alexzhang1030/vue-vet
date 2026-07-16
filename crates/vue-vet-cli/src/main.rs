@@ -314,7 +314,13 @@ fn load_config(root: &Path, explicit: Option<&Path>) -> Result<Config, String> {
 fn print_summary(summary: &ScanSummary, format: OutputFormat) -> Result<(), serde_json::Error> {
   match format {
     OutputFormat::Json => {
-      println!("{}", serde_json::to_string_pretty(summary)?);
+      let report = serde_json::json!({
+        "schema_version": 1,
+        "files_scanned": summary.files_scanned,
+        "diagnostics": &summary.diagnostics,
+        "score": summary.score,
+      });
+      println!("{}", serde_json::to_string_pretty(&report)?);
     }
     OutputFormat::Text => {
       for diagnostic in &summary.diagnostics {

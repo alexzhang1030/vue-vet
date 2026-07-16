@@ -1,5 +1,6 @@
 use std::{
-  path::PathBuf,
+  fs,
+  path::{Path, PathBuf},
   process::{Command, Output},
 };
 
@@ -11,6 +12,23 @@ fn fixture(name: &str) -> PathBuf {
 
 fn workspace_root() -> PathBuf {
   PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+fn collect_reference_sources(directory: &Path, sources: &mut Vec<PathBuf>) {
+  let Ok(entries) = fs::read_dir(directory) else {
+    return;
+  };
+  for entry in entries.flatten() {
+    let path = entry.path();
+    if path.is_dir() {
+      collect_reference_sources(&path, sources);
+    } else if matches!(
+      path.extension().and_then(|extension| extension.to_str()),
+      Some("vue" | "js" | "jsx" | "ts" | "tsx")
+    ) {
+      sources.push(path);
+    }
+  }
 }
 
 #[expect(clippy::panic, reason = "an unexpected process error must fail the integration test")]
@@ -53,6 +71,15 @@ fn unsafe_fixture_has_machine_readable_json_output() {
   let parsed: Result<Value, _> = serde_json::from_slice(&output.stdout);
 
   assert!(output.status.success(), "warnings are non-fatal without --deny-warnings");
+  assert_eq!(
+    parsed
+      .as_ref()
+      .ok()
+      .and_then(|value| value.get("schema_version"))
+      .and_then(Value::as_u64),
+    Some(1),
+    "JSON output must declare its contract version"
+  );
   assert_eq!(
     parsed
       .as_ref()
@@ -250,4 +277,28 @@ fn written_baseline_hides_only_the_existing_fixture_findings() {
     "the exact existing finding must be hidden by its baseline fingerprint"
   );
   let _ignored = std::fs::remove_file(baseline);
+}
+
+#[test]
+fn reference_fixture_corpus_never_crashes() {
+  let mut sources = Vec::new();
+  collect_reference_sources(&fixture(""), &mut sources);
+  sources.sort();
+  assert!(!sources.is_empty(), "the reference fixture corpus must contain source files");
+
+  for source in sources {
+    let argument = source.to_string_lossy();
+    let output = run(&[argument.as_ref(), "--no-cache"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+      output.status.code().is_some(),
+      "fixture terminated without an exit code: {}",
+      source.display()
+    );
+    assert!(
+      !stderr.contains("panicked at") && !stderr.contains("fatal runtime error"),
+      "fixture crashed: {}\n{stderr}",
+      source.display()
+    );
+  }
 }

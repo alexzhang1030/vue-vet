@@ -1,5 +1,4 @@
 {
-  "files_scanned": 1,
   "diagnostics": [
     {
       "rule_id": "vue-vet/security/no-v-html",
@@ -16,5 +15,7 @@
       }
     }
   ],
+  "files_scanned": 1,
+  "schema_version": 1,
   "score": 97
 }
