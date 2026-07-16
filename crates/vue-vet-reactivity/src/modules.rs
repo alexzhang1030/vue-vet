@@ -3,16 +3,22 @@ use std::collections::{BTreeMap, btree_map::Entry};
 use oxc_allocator::Allocator;
 use oxc_ast::{
   AstKind,
-  ast::{ExportDefaultDeclarationKind, ImportDeclarationSpecifier},
+  ast::{
+    BindingPattern, Declaration, ExportDefaultDeclarationKind, Expression,
+    ImportDeclarationSpecifier, ObjectPropertyKind,
+  },
 };
 use oxc_parser::Parser;
-use oxc_semantic::SemanticBuilder;
+use oxc_semantic::{NodeId, SemanticBuilder};
 use oxc_span::{SourceType, Span};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use vue_vet_core::{ReactiveBindingFact, ReactiveBindingKind, ReactivityGraph, ScriptKind};
 
-use super::{module_export_name, source_span, trace_reactivity_seeded};
+use super::{
+  collect_binding_identifiers, module_export_name, reference_resolves_to_binding, source_span,
+  trace_reactivity_seeded,
+};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ModuleSource {
@@ -66,9 +72,18 @@ enum ExportSummary {
   Star { source: String },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
+struct DestructuredCallBinding {
+  imported_local: String,
+  property: String,
+  local: String,
+  span: Span,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum ExportState {
   Known(ReactiveBindingKind),
+  Composable(BTreeMap<String, ReactiveBindingKind>),
   Ambiguous,
 }
 
@@ -78,6 +93,8 @@ struct ModuleSummary {
   local_graph: ReactivityGraph,
   imports: Vec<ImportSummary>,
   exports: Vec<ExportSummary>,
+  locals: BTreeMap<String, ExportState>,
+  destructured_calls: Vec<DestructuredCallBinding>,
 }
 
 /// Traces local and linked reactivity across a resolved module graph.
@@ -144,8 +161,17 @@ fn analyze_module(
   let semantic = built.semantic;
   let local_graph = trace_reactivity_seeded(&semantic, &module.source, 0, module.kind, seeds);
   let imports = collect_imports(&semantic);
-  let exports = collect_exports(&semantic, &local_graph);
-  Ok(ModuleSummary { module: module.clone(), local_graph, imports, exports })
+  let exports = collect_exports(&semantic);
+  let locals = collect_local_values(&semantic, &local_graph);
+  let destructured_calls = collect_destructured_calls(&semantic, &imports);
+  Ok(ModuleSummary {
+    module: module.clone(),
+    local_graph,
+    imports,
+    exports,
+    locals,
+    destructured_calls,
+  })
 }
 
 fn collect_imports(semantic: &oxc_semantic::Semantic<'_>) -> Vec<ImportSummary> {
@@ -179,24 +205,152 @@ fn collect_imports(semantic: &oxc_semantic::Semantic<'_>) -> Vec<ImportSummary> 
   imports
 }
 
-fn collect_exports(
+fn collect_local_values(
   semantic: &oxc_semantic::Semantic<'_>,
   graph: &ReactivityGraph,
-) -> Vec<ExportSummary> {
+) -> BTreeMap<String, ExportState> {
+  let mut locals = graph
+    .bindings
+    .iter()
+    .map(|binding| (binding.name.clone(), ExportState::Known(binding.kind)))
+    .collect::<BTreeMap<_, _>>();
+
+  for node in semantic.nodes() {
+    let AstKind::Function(function) = node.kind() else {
+      continue;
+    };
+    let Some(identifier) = &function.id else {
+      continue;
+    };
+    let shape = composable_return_shape(semantic, function.node_id.get(), graph);
+    if !shape.is_empty() {
+      locals.insert(identifier.name.to_string(), ExportState::Composable(shape));
+    }
+  }
+  locals
+}
+
+fn composable_return_shape(
+  semantic: &oxc_semantic::Semantic<'_>,
+  function_id: NodeId,
+  graph: &ReactivityGraph,
+) -> BTreeMap<String, ReactiveBindingKind> {
+  let mut shape = BTreeMap::new();
+  for (return_id, node) in semantic.nodes().iter_enumerated() {
+    let AstKind::ReturnStatement(statement) = node.kind() else {
+      continue;
+    };
+    let owner = semantic.nodes().ancestor_ids(return_id).find(|ancestor_id| {
+      matches!(
+        semantic.nodes().kind(*ancestor_id),
+        AstKind::Function(_) | AstKind::ArrowFunctionExpression(_)
+      )
+    });
+    if owner != Some(function_id) {
+      continue;
+    }
+    let Some(Expression::ObjectExpression(object)) = &statement.argument else {
+      continue;
+    };
+    for property in &object.properties {
+      let ObjectPropertyKind::ObjectProperty(property) = property else {
+        continue;
+      };
+      let Some(exported) = property.key.static_name() else {
+        continue;
+      };
+      let Some(reference) = property.value.get_identifier_reference() else {
+        continue;
+      };
+      let Some(binding) = graph.bindings.iter().find(|binding| {
+        binding.name == reference.name.as_str()
+          && reference_resolves_to_binding(semantic, reference, binding, 0)
+      }) else {
+        continue;
+      };
+      shape.insert(exported.into_owned(), binding.kind);
+    }
+  }
+  shape
+}
+
+fn collect_destructured_calls(
+  semantic: &oxc_semantic::Semantic<'_>,
+  imports: &[ImportSummary],
+) -> Vec<DestructuredCallBinding> {
+  let mut calls = Vec::new();
+  for node in semantic.nodes() {
+    let AstKind::CallExpression(call) = node.kind() else {
+      continue;
+    };
+    let Some(callee) = call.callee.get_identifier_reference() else {
+      continue;
+    };
+    let Some(import) = imports.iter().find(|import| {
+      if import.local != callee.name.as_str() {
+        return false;
+      }
+      let Some(reference_id) = callee.reference_id.get() else {
+        return false;
+      };
+      semantic
+        .scoping()
+        .get_reference(reference_id)
+        .symbol_id()
+        .is_some_and(|symbol_id| semantic.scoping().symbol_span(symbol_id) == import.span)
+    }) else {
+      continue;
+    };
+    let AstKind::VariableDeclarator(declarator) =
+      semantic.nodes().parent_kind(call.node_id.get())
+    else {
+      continue;
+    };
+    let BindingPattern::ObjectPattern(pattern) = &declarator.id else {
+      continue;
+    };
+    for property in &pattern.properties {
+      let Some(exported) = property.key.static_name() else {
+        continue;
+      };
+      let mut identifiers = Vec::new();
+      collect_binding_identifiers(&property.value, &mut identifiers);
+      for (local, span) in identifiers {
+        calls.push(DestructuredCallBinding {
+          imported_local: import.local.clone(),
+          property: exported.to_string(),
+          local,
+          span,
+        });
+      }
+    }
+  }
+  calls.sort_by_key(|call| call.span.start);
+  calls
+}
+
+fn collect_exports(semantic: &oxc_semantic::Semantic<'_>) -> Vec<ExportSummary> {
   let mut exports = Vec::new();
   for node in semantic.nodes() {
     match node.kind() {
       AstKind::ExportNamedDeclaration(declaration) => {
-        if declaration.declaration.is_some() {
-          for binding in &graph.bindings {
-            let offset = u32::try_from(binding.span.offset).unwrap_or(u32::MAX);
-            if declaration.span.start <= offset && declaration.span.end >= offset {
-              exports.push(ExportSummary::Local {
-                local: binding.name.clone(),
-                exported: binding.name.clone(),
-              });
+        match &declaration.declaration {
+          Some(Declaration::VariableDeclaration(variable)) => {
+            for declarator in &variable.declarations {
+              let mut identifiers = Vec::new();
+              collect_binding_identifiers(&declarator.id, &mut identifiers);
+              for (local, _) in identifiers {
+                exports.push(ExportSummary::Local { exported: local.clone(), local });
+              }
             }
           }
+          Some(Declaration::FunctionDeclaration(function)) => {
+            if let Some(identifier) = &function.id {
+              let local = identifier.name.to_string();
+              exports.push(ExportSummary::Local { exported: local.clone(), local });
+            }
+          }
+          _ => {}
         }
         for specifier in &declaration.specifiers {
           let local = module_export_name(&specifier.local);
@@ -267,10 +421,8 @@ fn resolve_exports(
       let ExportSummary::Local { local, exported } = export else {
         continue;
       };
-      if let Some(binding) =
-        summary.local_graph.bindings.iter().find(|binding| &binding.name == local)
-      {
-        insert_export(&mut resolved, id, exported, ExportState::Known(binding.kind));
+      if let Some(state) = summary.locals.get(local) {
+        insert_export(&mut resolved, id, exported, state.clone());
       }
     }
   }
@@ -289,7 +441,7 @@ fn resolve_exports(
             let Some(state) = snapshot.get(target).and_then(|exports| exports.get(imported)) else {
               continue;
             };
-            changed |= insert_export(&mut resolved, id, exported, *state);
+            changed |= insert_export(&mut resolved, id, exported, state.clone());
           }
           ExportSummary::Star { source } => {
             let Some(target) = links.get(&(id.clone(), source.clone())) else {
@@ -300,7 +452,7 @@ fn resolve_exports(
             };
             for (exported, state) in target_exports {
               if exported != "default" {
-                changed |= insert_export(&mut resolved, id, exported, *state);
+                changed |= insert_export(&mut resolved, id, exported, state.clone());
               }
             }
           }
@@ -330,7 +482,7 @@ fn insert_export(
       true
     }
     Entry::Occupied(mut entry)
-      if *entry.get() != state && *entry.get() != ExportState::Ambiguous =>
+      if entry.get() != &state && entry.get() != &ExportState::Ambiguous =>
     {
       entry.insert(ExportState::Ambiguous);
       true
@@ -344,23 +496,45 @@ fn imported_bindings(
   exports: &BTreeMap<String, BTreeMap<String, ExportState>>,
   links: &BTreeMap<(String, String), String>,
 ) -> Vec<ReactiveBindingFact> {
-  summary
-    .imports
-    .iter()
-    .filter(|import| import.imported != "*")
-    .filter_map(|import| {
-      let target = links.get(&(summary.module.id.clone(), import.source.clone()))?;
-      let ExportState::Known(kind) = exports.get(target)?.get(&import.imported)? else {
-        return None;
-      };
-      Some(ReactiveBindingFact {
+  let mut bindings = Vec::new();
+  for import in &summary.imports {
+    if import.imported == "*" {
+      continue;
+    }
+    let Some(target) = links.get(&(summary.module.id.clone(), import.source.clone())) else {
+      continue;
+    };
+    let Some(state) = exports.get(target).and_then(|exports| exports.get(&import.imported)) else {
+      continue;
+    };
+    match state {
+      ExportState::Known(kind) => bindings.push(ReactiveBindingFact {
         name: import.local.clone(),
         kind: *kind,
         initialized_with_null: false,
         span: source_span(&summary.module.source, 0, import.span),
-      })
-    })
-    .collect()
+      }),
+      ExportState::Composable(shape) => {
+        for call in summary
+          .destructured_calls
+          .iter()
+          .filter(|call| call.imported_local == import.local)
+        {
+          let Some(kind) = shape.get(&call.property) else {
+            continue;
+          };
+          bindings.push(ReactiveBindingFact {
+            name: call.local.clone(),
+            kind: *kind,
+            initialized_with_null: false,
+            span: source_span(&summary.module.source, 0, call.span),
+          });
+        }
+      }
+      ExportState::Ambiguous => {}
+    }
+  }
+  bindings
 }
 
 fn join_errors(errors: &[impl ToString]) -> String {
