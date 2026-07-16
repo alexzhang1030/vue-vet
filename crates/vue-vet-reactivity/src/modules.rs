@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, btree_map::Entry};
+use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
 use oxc_allocator::Allocator;
 use oxc_ast::{
@@ -16,7 +16,8 @@ use thiserror::Error;
 use vue_vet_core::{ReactiveBindingFact, ReactiveBindingKind, ReactivityGraph, ScriptKind};
 
 use super::{
-  collect_binding_identifiers, module_export_name, reference_resolves_to_binding, source_span,
+  collect_binding_identifiers, collect_imported_bindings, module_export_name,
+  reactive_binding_kind, reference_resolves_to_binding, resolved_vue_callee, source_span,
   trace_reactivity_seeded,
 };
 
@@ -235,7 +236,9 @@ fn composable_return_shape(
   function_id: NodeId,
   graph: &ReactivityGraph,
 ) -> BTreeMap<String, ReactiveBindingKind> {
+  let imported_bindings = collect_imported_bindings(semantic);
   let mut shape = BTreeMap::new();
+  let mut ambiguous = BTreeSet::new();
   for (return_id, node) in semantic.nodes().iter_enumerated() {
     let AstKind::ReturnStatement(statement) = node.kind() else {
       continue;
@@ -259,19 +262,52 @@ fn composable_return_shape(
       let Some(exported) = property.key.static_name() else {
         continue;
       };
-      let Some(reference) = property.value.get_identifier_reference() else {
+      let Some(kind) =
+        reactive_return_kind(semantic, &property.value, graph, &imported_bindings)
+      else {
         continue;
       };
-      let Some(binding) = graph.bindings.iter().find(|binding| {
-        binding.name == reference.name.as_str()
-          && reference_resolves_to_binding(semantic, reference, binding, 0)
-      }) else {
+      let exported = exported.into_owned();
+      if ambiguous.contains(&exported) {
         continue;
-      };
-      shape.insert(exported.into_owned(), binding.kind);
+      }
+      match shape.entry(exported.clone()) {
+        Entry::Vacant(entry) => {
+          entry.insert(kind);
+        }
+        Entry::Occupied(entry) if *entry.get() == kind => {}
+        Entry::Occupied(entry) => {
+          entry.remove();
+          ambiguous.insert(exported);
+        }
+      }
     }
   }
   shape
+}
+
+fn reactive_return_kind(
+  semantic: &oxc_semantic::Semantic<'_>,
+  expression: &Expression<'_>,
+  graph: &ReactivityGraph,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> Option<ReactiveBindingKind> {
+  if let Some(reference) = expression.get_identifier_reference() {
+    return graph
+      .bindings
+      .iter()
+      .find(|binding| {
+        binding.name == reference.name.as_str()
+          && reference_resolves_to_binding(semantic, reference, binding, 0)
+      })
+      .map(|binding| binding.kind);
+  }
+
+  let Expression::CallExpression(call) = expression else {
+    return None;
+  };
+  let callee = resolved_vue_callee(&call.callee, imported_bindings, ScriptKind::Script)?;
+  reactive_binding_kind(&callee)
 }
 
 fn collect_destructured_calls(
