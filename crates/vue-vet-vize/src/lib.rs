@@ -7,8 +7,7 @@ use vize_atelier_core::{
 use vize_atelier_sfc::{SfcParseOptions, parse_sfc};
 use vue_vet_core::{
   Diagnostic, RuleEnvironment, ScriptFacts, ScriptKind, SfcFacts, SourceSpan,
-  TemplateAttributeFact,
-  TemplateDirectiveFact, TemplateElementFact, TemplateFacts,
+  TemplateAttributeFact, TemplateDirectiveFact, TemplateElementFact, TemplateFacts,
 };
 use vue_vet_oxc::{AnalyzeScriptError, analyze_script};
 use vue_vet_rules::builtin_registry;
