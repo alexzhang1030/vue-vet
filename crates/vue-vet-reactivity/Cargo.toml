@@ -1,0 +1,25 @@
+[package]
+name = "vue-vet-reactivity"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Semantic Vue reactivity dependency tracing for Vue Vet"
+
+[lints]
+workspace = true
+
+[dependencies]
+oxc_ast.workspace = true
+oxc_semantic.workspace = true
+oxc_span.workspace = true
+vue-vet-core = { path = "../vue-vet-core" }
+
+[dev-dependencies]
+oxc_allocator.workspace = true
+oxc_parser.workspace = true
+serde_json.workspace = true
