@@ -11,11 +11,13 @@ use vue_vet_cache::{
   read_git_diff,
 };
 use vue_vet_config::{CONFIG_FILE, Config, apply_suppressions};
-use vue_vet_core::{ScanSummary, ScriptFacts, Severity, SfcFacts, TemplateFacts};
+use vue_vet_core::{
+  RuleEnvironment, ScanSummary, ScriptFacts, Severity, SfcFacts, TemplateFacts, VueVersion,
+};
 use vue_vet_oxc::analyze_module;
 use vue_vet_project::{PROJECT_RULE_IDS, ProjectFile, ProjectGraph, build_project_graph};
 use vue_vet_rules::builtin_registry;
-use vue_vet_vize::analyze_sfc_with_facts;
+use vue_vet_vize::analyze_sfc_with_environment;
 
 #[derive(Debug, Parser)]
 #[command(name = "vue-vet", version, about = "Vet your Vue codebase")]
@@ -202,16 +204,27 @@ fn cache_inputs(root: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
       continue;
     }
     let path = entry.path();
-    if !matches!(
+    let source_file = matches!(
       path.extension().and_then(|extension| extension.to_str()),
       Some("vue" | "js" | "jsx" | "ts" | "tsx")
-    ) {
+    );
+    let package_file = path.file_name().and_then(|name| name.to_str()) == Some("package.json");
+    if !source_file && !package_file {
       continue;
     }
     let content = fs::read(path)
       .map_err(|error| format!("failed to read {} for cache key: {error}", path.display()))?;
     files.push((logical_path(root, path).to_string_lossy().replace('\\', "/"), content));
   }
+  if root.is_file()
+    && let Some(package) = nearest_package_json(root, scan_directory(root))
+  {
+    let content = fs::read(&package)
+      .map_err(|error| format!("failed to read {} for cache key: {error}", package.display()))?;
+    files.push(("package.json".into(), content));
+  }
+  files.sort_by(|left, right| left.0.cmp(&right.0));
+  files.dedup_by(|left, right| left.0 == right.0);
   Ok(files)
 }
 
@@ -239,7 +252,10 @@ fn scan(root: &Path, config: &Config) -> Result<ScanResult, String> {
     match extension {
       Some("vue") if filter.matches(logical_path) => {
         let source = read_source(path)?;
-        let analysis = analyze_sfc_with_facts(path, &source)
+        let environment = RuleEnvironment {
+          vue_version: vue_version_for(path, scan_directory(root)),
+        };
+        let analysis = analyze_sfc_with_environment(path, &source, environment)
           .map_err(|error| format!("failed to analyze {}: {error}", path.display()))?;
         let diagnostics = config.apply(analysis.diagnostics);
         let diagnostics = apply_suppressions(path, &source, diagnostics);
@@ -272,6 +288,35 @@ fn scan(root: &Path, config: &Config) -> Result<ScanResult, String> {
   let project_diagnostics = config.apply(graph.diagnostics.clone());
   summary.diagnostics.extend(project_diagnostics);
   Ok(ScanResult { summary: summary.finish(), graph })
+}
+
+fn vue_version_for(path: &Path, boundary: &Path) -> Option<VueVersion> {
+  let package = nearest_package_json(path, boundary)?;
+  let source = fs::read_to_string(package).ok()?;
+  let package: serde_json::Value = serde_json::from_str(&source).ok()?;
+  ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
+    .iter()
+    .filter_map(|section| package.get(section))
+    .filter_map(|section| section.get("vue"))
+    .filter_map(serde_json::Value::as_str)
+    .find_map(VueVersion::parse_requirement)
+}
+
+fn nearest_package_json(path: &Path, boundary: &Path) -> Option<PathBuf> {
+  let mut directory = path.parent()?;
+  loop {
+    if !directory.starts_with(boundary) {
+      return None;
+    }
+    let candidate = directory.join("package.json");
+    if candidate.is_file() {
+      return Some(candidate);
+    }
+    if directory == boundary {
+      return None;
+    }
+    directory = directory.parent()?;
+  }
 }
 
 fn read_source(path: &Path) -> Result<String, String> {
