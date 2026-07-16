@@ -837,16 +837,16 @@ const CROSS_PRIMITIVES: [PayloadAxis; 5] = [
 
 const CROSS_TOPOLOGIES: [&str; 8] = [
   "direct_named",
-  "aliased_export",
+  "composable_alias",
   "default_export",
-  "named_barrel",
   "star_barrel",
-  "two_hop_barrel",
+  "named_multihop",
   "cycle",
   "unresolved",
+  "conflicting_star",
 ];
 
-const CROSS_FLOWS: [&str; 2] = ["early_return", "logical"];
+const CROSS_FLOWS: [&str; 2] = ["nested_guards", "logical_ternary"];
 
 fn module_source(id: &str, source: String) -> ModuleSource {
   ModuleSource { id: id.into(), source, language: "ts".into(), kind: ScriptKind::Script }
@@ -865,15 +865,19 @@ fn producer_initializer(axis: PayloadAxis) -> String {
   }
 }
 
-fn consumer_source(import_statement: &str, access: &str, flow: &str) -> String {
-  let body = if flow == "early_return" {
-    format!("if (!ready.value) return; {access};")
+fn consumer_source(setup: &str, access: &str, flow: &str) -> String {
+  let body = if flow == "nested_guards" {
+    format!(
+      "if (!ready.value) return; if (enabled.value) {{ try {{ for (const item of [1]) {{ \
+       if (item) {{ {access}; }} }} }} finally {{ sink(); }} }}"
+    )
   } else {
-    format!("ready.value && {access};")
+    format!("ready.value && (enabled.value ? {access} : sink());")
   };
   format!(
-    "{import_statement} import {{ ref, watchEffect }} from 'vue'; \
-     const ready = ref(false); watchEffect(() => {{ {body} }});"
+    "import {{ ref, watchEffect }} from 'vue'; {setup} \
+     const ready = ref(false); const enabled = ref(false); \
+     watchEffect(() => {{ {body} }});"
   )
 }
 
@@ -903,26 +907,35 @@ fn cross_module_case(
       vec![module_link("consumer.ts", "./producer", "producer.ts")],
       true,
     ),
-    "aliased_export" => (
+    "composable_alias" => (
       vec![
         module_source(
           "producer.ts",
           format!(
-            "import {{ {} }} from 'vue'; const signal = {}; export {{ signal as exportedSignal }};",
+            "import {{ {} }} from 'vue'; export function useSignal() {{ \
+             const signal = {}; return {{ signal }}; }}",
             primitive.constructor,
             producer_initializer(primitive)
           ),
         ),
         module_source(
+          "barrel.ts",
+          "export { useSignal as usePayload } from './producer';".into(),
+        ),
+        module_source(
           "consumer.ts",
           consumer_source(
-            "import { exportedSignal as payload } from './producer';",
+            "import { usePayload as buildPayload } from './barrel'; \
+             const { signal: payload } = buildPayload();",
             primitive.access,
             flow,
           ),
         ),
       ],
-      vec![module_link("consumer.ts", "./producer", "producer.ts")],
+      vec![
+        module_link("barrel.ts", "./producer", "producer.ts"),
+        module_link("consumer.ts", "./barrel", "barrel.ts"),
+      ],
       true,
     ),
     "default_export" => (
@@ -943,25 +956,6 @@ fn cross_module_case(
       vec![module_link("consumer.ts", "./producer", "producer.ts")],
       true,
     ),
-    "named_barrel" => (
-      vec![
-        module_source("producer.ts", producer),
-        module_source("barrel.ts", "export { signal as exportedSignal } from './producer';".into()),
-        module_source(
-          "consumer.ts",
-          consumer_source(
-            "import { exportedSignal as payload } from './barrel';",
-            primitive.access,
-            flow,
-          ),
-        ),
-      ],
-      vec![
-        module_link("barrel.ts", "./producer", "producer.ts"),
-        module_link("consumer.ts", "./barrel", "barrel.ts"),
-      ],
-      true,
-    ),
     "star_barrel" => (
       vec![
         module_source("producer.ts", producer),
@@ -977,7 +971,7 @@ fn cross_module_case(
       ],
       true,
     ),
-    "two_hop_barrel" => (
+    "named_multihop" => (
       vec![
         module_source("producer.ts", producer),
         module_source("first.ts", "export { signal as middle } from './producer';".into()),
@@ -1024,6 +1018,31 @@ fn cross_module_case(
         module_link("consumer.ts", "./barrel", "barrel.ts"),
       ],
       true,
+    ),
+    "conflicting_star" => (
+      vec![
+        module_source("producer.ts", producer),
+        module_source(
+          "conflict.ts",
+          "import { shallowReadonly } from 'vue'; \
+           export const signal = shallowReadonly({ value: 0, count: 0 });"
+            .into(),
+        ),
+        module_source(
+          "barrel.ts",
+          "export * from './producer'; export * from './conflict';".into(),
+        ),
+        module_source(
+          "consumer.ts",
+          consumer_source("import { signal as payload } from './barrel';", primitive.access, flow),
+        ),
+      ],
+      vec![
+        module_link("barrel.ts", "./producer", "producer.ts"),
+        module_link("barrel.ts", "./conflict", "conflict.ts"),
+        module_link("consumer.ts", "./barrel", "barrel.ts"),
+      ],
+      false,
     ),
     _ => (
       vec![
@@ -1095,4 +1114,65 @@ fn covers_eighty_real_cross_module_scenarios() {
   assert_eq!(scenario_count, 80, "the module corpus must contain exactly 80 cases");
   assert_eq!(names.len(), 80, "all module scenario names must be unique");
   assert_eq!(signatures.len(), 80, "all module scenario sources must be unique");
+}
+
+#[test]
+fn does_not_export_function_local_refs_as_module_bindings() {
+  let modules = vec![
+    module_source(
+      "producer.ts",
+      "import { ref } from 'vue'; export function useHidden() { \
+       const signal = ref(0); return { signal }; }"
+        .into(),
+    ),
+    module_source(
+      "consumer.ts",
+      consumer_source(
+        "import { signal as payload } from './producer';",
+        "payload.value",
+        "logical_ternary",
+      ),
+    ),
+  ];
+  let links = vec![module_link("consumer.ts", "./producer", "producer.ts")];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer
+      .into_iter()
+      .flat_map(|module| &module.graph.effects)
+      .flat_map(|effect| &effect.reads)
+      .all(|read| read.binding != "payload"),
+    "a composable's function-local ref is not itself a module export"
+  );
+}
+
+#[test]
+fn ignores_shadowed_composable_calls_across_modules() {
+  let modules = vec![
+    module_source(
+      "producer.ts",
+      "import { ref } from 'vue'; export function useSignal() { \
+       const signal = ref(0); return { signal }; }"
+        .into(),
+    ),
+    module_source(
+      "consumer.ts",
+      "import { useSignal } from './producer'; import { watchEffect } from 'vue'; \
+       function local(useSignal: () => { signal: { value: number } }) { \
+       const { signal: payload } = useSignal(); watchEffect(() => payload.value); }"
+        .into(),
+    ),
+  ];
+  let links = vec![module_link("consumer.ts", "./producer", "producer.ts")];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer
+      .into_iter()
+      .flat_map(|module| &module.graph.effects)
+      .flat_map(|effect| &effect.reads)
+      .all(|read| read.binding != "payload"),
+    "a parameter shadowing an imported composable must not receive its export shape"
+  );
 }
