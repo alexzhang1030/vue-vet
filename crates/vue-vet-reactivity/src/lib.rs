@@ -28,9 +28,24 @@ pub fn trace_reactivity(
   script_offset: usize,
   script_kind: ScriptKind,
 ) -> ReactivityGraph {
+  trace_reactivity_seeded(semantic, sfc_source, script_offset, script_kind, &[])
+}
+
+fn trace_reactivity_seeded(
+  semantic: &Semantic<'_>,
+  sfc_source: &str,
+  script_offset: usize,
+  script_kind: ScriptKind,
+  seed_bindings: &[ReactiveBindingFact],
+) -> ReactivityGraph {
   let imported_bindings = collect_imported_bindings(semantic);
   let mut bindings =
     collect_reactive_bindings(semantic, &imported_bindings, sfc_source, script_offset, script_kind);
+  for binding in seed_bindings {
+    if !bindings.iter().any(|local| local.name == binding.name) {
+      bindings.push(binding.clone());
+    }
+  }
   let mut effects =
     collect_effects(semantic, &imported_bindings, &bindings, sfc_source, script_offset);
   bindings.sort_by_key(|fact| fact.span.offset);
@@ -489,6 +504,10 @@ fn source_span(source: &str, base: usize, span: Span) -> SourceSpan {
     .map_or_else(|| prefix.len().saturating_add(1), |newline| prefix.len().saturating_sub(newline));
   SourceSpan { offset, length: end.saturating_sub(offset), line, column }
 }
+
+mod modules;
+
+pub use modules::{ModuleLink, ModuleReactivity, ModuleSource, TraceModulesError, trace_modules};
 
 #[cfg(test)]
 mod tests;
