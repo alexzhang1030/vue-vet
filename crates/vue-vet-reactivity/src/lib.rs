@@ -22,6 +22,7 @@ use vue_vet_core::{
 /// # Panics
 ///
 /// This function does not panic for valid Oxc semantic models.
+#[must_use]
 pub fn trace_reactivity(
   semantic: &Semantic<'_>,
   sfc_source: &str,
