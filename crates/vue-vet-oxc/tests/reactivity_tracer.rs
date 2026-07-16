@@ -356,10 +356,7 @@ fn classifies_reads_after_top_level_await() {
     .collect::<Vec<_>>();
   assert_eq!(
     kinds,
-    [
-      ("before", ReactiveReadKind::Unconditional),
-      ("after", ReactiveReadKind::AfterAwait),
-    ],
+    [("before", ReactiveReadKind::Unconditional), ("after", ReactiveReadKind::AfterAwait),],
     "only reads after the synchronous tracking boundary must be marked after-await"
   );
 }
@@ -372,11 +369,7 @@ fn ignores_await_inside_nested_callbacks() {
        value.value; void later; });",
   );
   assert_eq!(
-    graph
-      .effects
-      .first()
-      .and_then(|effect| effect.reads.first())
-      .map(|read| read.kind),
+    graph.effects.first().and_then(|effect| effect.reads.first()).map(|read| read.kind),
     Some(ReactiveReadKind::Unconditional),
     "nested async work must not create a tracking boundary in the parent callback"
   );
@@ -424,8 +417,7 @@ fn retains_read_before_a_later_conditional_read() {
 
 #[test]
 fn maps_read_and_guard_spans_to_the_sfc() {
-  let script =
-    "import { ref, watchEffect } from 'vue'; const ready = ref(false); const value = ref(0);\n\
+  let script = "import { ref, watchEffect } from 'vue'; const ready = ref(false); const value = ref(0);\n\
      watchEffect(() => { if (!ready.value) return; value.value; });";
   let sfc = format!("<template /><script setup lang=\"ts\">{script}</script>");
   let offset = sfc.find(script).unwrap_or_default();
@@ -454,8 +446,7 @@ fn maps_read_and_guard_spans_to_the_sfc() {
 
 #[test]
 fn serializes_deterministically() {
-  let source =
-    "import { ref, watchEffect } from 'vue'; const ready = ref(false); const value = ref(0);\n\
+  let source = "import { ref, watchEffect } from 'vue'; const ready = ref(false); const value = ref(0);\n\
      watchEffect(() => { if (!ready.value) return; value.value; });";
   let first = serde_json::to_string(&graph(source));
   let second = serde_json::to_string(&graph(source));
