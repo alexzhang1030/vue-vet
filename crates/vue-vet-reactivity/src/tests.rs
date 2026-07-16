@@ -688,11 +688,7 @@ const COMPLEX_PAYLOAD_AXES: [PayloadAxis; 5] = [
   PayloadAxis { name: "shallow_ref", constructor: "shallowRef", access: "payload.value" },
   PayloadAxis { name: "computed", constructor: "computed", access: "payload.value" },
   PayloadAxis { name: "reactive", constructor: "reactive", access: "payload.count" },
-  PayloadAxis {
-    name: "shallow_reactive",
-    constructor: "shallowReactive",
-    access: "payload.count",
-  },
+  PayloadAxis { name: "shallow_reactive", constructor: "shallowReactive", access: "payload.count" },
 ];
 
 const COMPLEX_CONTROLS: [&str; 10] = [
@@ -950,10 +946,7 @@ fn cross_module_case(
     "named_barrel" => (
       vec![
         module_source("producer.ts", producer),
-        module_source(
-          "barrel.ts",
-          "export { signal as exportedSignal } from './producer';".into(),
-        ),
+        module_source("barrel.ts", "export { signal as exportedSignal } from './producer';".into()),
         module_source(
           "consumer.ts",
           consumer_source(
@@ -975,11 +968,7 @@ fn cross_module_case(
         module_source("barrel.ts", "export * from './producer';".into()),
         module_source(
           "consumer.ts",
-          consumer_source(
-            "import { signal as payload } from './barrel';",
-            primitive.access,
-            flow,
-          ),
+          consumer_source("import { signal as payload } from './barrel';", primitive.access, flow),
         ),
       ],
       vec![
@@ -1026,11 +1015,7 @@ fn cross_module_case(
         ),
         module_source(
           "consumer.ts",
-          consumer_source(
-            "import { signal as payload } from './barrel';",
-            primitive.access,
-            flow,
-          ),
+          consumer_source("import { signal as payload } from './barrel';", primitive.access, flow),
         ),
       ],
       vec![
@@ -1045,11 +1030,7 @@ fn cross_module_case(
         module_source("producer.ts", producer),
         module_source(
           "consumer.ts",
-          consumer_source(
-            "import { signal as payload } from './missing';",
-            primitive.access,
-            flow,
-          ),
+          consumer_source("import { signal as payload } from './missing';", primitive.access, flow),
         ),
       ],
       Vec::new(),
