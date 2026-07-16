@@ -47,6 +47,7 @@ Planned crate boundaries:
 vue-vet-core       stable diagnostics, spans, scoring, rule contracts
 vue-vet-vize       Vize adapter and Vue semantic facts
 vue-vet-oxc        JS/TS semantic facts and import resolution
+vue-vet-reactivity local effect tracing and cross-module summaries/linking
 vue-vet-rules      built-in rules and presets
 vue-vet-patterns   ast-grep configuration and execution
 vue-vet-project    project graph, cache, baseline, diff
@@ -104,6 +105,9 @@ Implemented in the Phase 2 branch:
 - 28 documented high-confidence recommended rules with positive and safe fixtures
 - normalized compiler-macro assignment facts and alias-aware readonly-props enforcement
 - semantic reactivity graph facts plus package-version-gated Vue 3.4/3.5 diagnostics
+- dedicated reactivity tracer crate with local control-flow analysis, module
+  summaries, composable return shapes, and resolved-edge linking
+- exactly 280 systematic, complex single-module, and real multi-file tracer scenarios
 
 Work:
 
