@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use oxc_ast::{
   AstKind,
   ast::{
-    Argument, BindingPattern, Expression, FunctionBody, IdentifierReference, ImportDeclarationSpecifier,
-    ModuleExportName, Statement,
+    Argument, BindingPattern, Expression, FunctionBody, IdentifierReference,
+    ImportDeclarationSpecifier, ModuleExportName, Statement,
   },
 };
 use oxc_semantic::{NodeId, Semantic};
@@ -310,7 +310,7 @@ fn collect_callback_reads(
       }
 
       let binding = reactive_bindings.iter().find(|binding| {
-        binding.name == object.name
+        binding.name == object.name.as_str()
           && reference_resolves_to_binding(semantic, object, binding, script_offset)
           && (!is_ref_like(binding.kind) || property.as_deref() == Some("value"))
       })?;
@@ -460,8 +460,7 @@ fn collect_effects(
       _ => continue,
     };
 
-    let raw_reads =
-      collect_callback_reads(semantic, callback_id, reactive_bindings, script_offset);
+    let raw_reads = collect_callback_reads(semantic, callback_id, reactive_bindings, script_offset);
     let reads = raw_reads
       .iter()
       .map(|read| {
