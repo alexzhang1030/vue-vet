@@ -1,4 +1,12 @@
 <script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+
+const ready = computed(() => false)
+const watchedValue = ref(0)
+watch([ready, watchedValue], () => {
+  console.log(watchedValue.value)
+})
+
 const componentProps = defineProps<{ title: string }>()
 const emit = defineEmits<{ save: [value: string] }>()
 const slots = defineSlots<{ default(): unknown }>()
