@@ -297,8 +297,7 @@ fn project_vue_version_gates_reactivity_rules() {
   assert!(!old_ids.contains(&"vue-vet/reactivity/prefer-use-template-ref"));
 
   let current = fixture("projects/vue-3.5");
-  let current_output =
-    run(&[current.to_string_lossy().as_ref(), "--format", "json", "--no-cache"]);
+  let current_output = run(&[current.to_string_lossy().as_ref(), "--format", "json", "--no-cache"]);
   let current_report: Result<Value, _> = serde_json::from_slice(&current_output.stdout);
   let current_ids = current_report
     .as_ref()
