@@ -23,11 +23,24 @@ watch([enabled, result], () => {
 }, { immediate: true })
 ```
 
+## Detection
+
+The rule consumes Oxc-proven reactivity graph edges for `watchEffect`,
+`watchPostEffect`, and `watchSyncEffect`. It understands sequential early
+returns, if/else branches, logical short-circuiting, and ternaries. Each finding
+retains all reactive guards and the exact guarded property.
+
+Imported aliases, Vue namespace imports, explicit Nuxt imports, inline arrow and
+function callbacks, and Vue ref/proxy primitives are normalized before control
+flow is classified. A dependency already read unconditionally earlier in the
+same effect is not reported.
+
 ## Limitations
 
-The rule only reports an Oxc-proven Vue reactive binding read after an `if` early return in a
-synchronous `watchEffect`, `watchPostEffect`, or `watchSyncEffect` callback. Reads already made
-before the guard, reads in the guard, nested callback bodies, and write-only targets are excluded.
+Nested callback bodies, local lookalike functions, write-only assignment
+targets, and dependencies after an `await` are excluded from this rule. The
+tracer records after-await reads separately for future tracking-boundary
+diagnostics.
 
 ## Remediation
 
