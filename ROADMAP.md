@@ -91,7 +91,7 @@ Completion evidence:
 
 ## M1 — useful local doctor
 
-Current: 25 high-confidence built-in rules.
+Current: 28 high-confidence built-in rules.
 
 Status: implementation in progress
 
@@ -101,8 +101,9 @@ Implemented in the Phase 2 branch:
 - dependency-neutral imports, bindings, calls, and member-write facts
 - versioned strict configuration, recommended/none presets, severity overrides,
   include/exclude globs, and scoped suppressions with unused-suppression diagnostics
-- 25 documented high-confidence recommended rules with positive and safe fixtures
+- 28 documented high-confidence recommended rules with positive and safe fixtures
 - normalized compiler-macro assignment facts and alias-aware readonly-props enforcement
+- semantic reactivity graph facts plus package-version-gated Vue 3.4/3.5 diagnostics
 
 Work:
 
@@ -213,7 +214,7 @@ Exit criteria:
 ### Alpha — complete
 
 - [x] M0 complete
-- [x] 25 documented high-confidence rules
+- [x] 28 documented high-confidence rules
 - [x] JSON output declares `schema_version: 1`
 - [x] the complete reference fixture corpus is covered by a no-crash integration test
 
