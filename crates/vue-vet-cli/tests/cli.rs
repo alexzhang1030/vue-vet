@@ -195,3 +195,59 @@ fn project_graph_reports_nuxt_edges_cycles_and_cross_file_findings() {
     "monorepo import cycles must retain both directed edges"
   );
 }
+
+#[test]
+fn cold_and_warm_cache_results_are_byte_equivalent() {
+  let project = fixture("projects/nuxt-graph");
+  let cache = workspace_root().join("target").join(format!("test-cache-{}", std::process::id()));
+  let project_argument = project.to_string_lossy();
+  let cache_argument = cache.to_string_lossy();
+  let arguments = [
+    project_argument.as_ref(),
+    "--format",
+    "json",
+    "--cache-dir",
+    cache_argument.as_ref(),
+    "--cache-stats",
+  ];
+  let cold = run(&arguments);
+  let warm = run(&arguments);
+  assert_eq!(cold.stdout, warm.stdout, "warm and cold normalized output must be identical");
+  assert!(String::from_utf8_lossy(&cold.stderr).contains("cache: miss"));
+  assert!(String::from_utf8_lossy(&warm.stderr).contains("cache: hit"));
+  let _ignored = std::fs::remove_dir_all(cache);
+}
+
+#[test]
+fn written_baseline_hides_only_the_existing_fixture_findings() {
+  let project = fixture("rules/no-v-html/invalid/basic.vue");
+  let baseline =
+    workspace_root().join("target").join(format!("test-baseline-{}.json", std::process::id()));
+  let written = run(&[
+    project.to_string_lossy().as_ref(),
+    "--write-baseline",
+    baseline.to_string_lossy().as_ref(),
+    "--no-cache",
+  ]);
+  assert!(written.status.success(), "writing a warning-only baseline must succeed");
+  let filtered = run(&[
+    project.to_string_lossy().as_ref(),
+    "--baseline",
+    baseline.to_string_lossy().as_ref(),
+    "--format",
+    "json",
+    "--no-cache",
+  ]);
+  let parsed: Result<Value, _> = serde_json::from_slice(&filtered.stdout);
+  assert_eq!(
+    parsed
+      .as_ref()
+      .ok()
+      .and_then(|value| value.get("diagnostics"))
+      .and_then(Value::as_array)
+      .map(Vec::len),
+    Some(0),
+    "the exact existing finding must be hidden by its baseline fingerprint"
+  );
+  let _ignored = std::fs::remove_file(baseline);
+}

@@ -2179,12 +2179,25 @@ dependencies = [
  "clap",
  "ignore",
  "serde_json",
+ "vue-vet-cache",
  "vue-vet-config",
  "vue-vet-core",
  "vue-vet-oxc",
  "vue-vet-project",
  "vue-vet-rules",
  "vue-vet-vize",
+]
+
+[[package]]
+name = "vue-vet-cache"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "vue-vet-core",
+ "vue-vet-project",
 ]
 
 [[package]]
