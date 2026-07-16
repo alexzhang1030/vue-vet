@@ -186,8 +186,7 @@ pub fn analyze_script(
     let Some(binding_kind) = binding_kind else {
       continue;
     };
-    let AstKind::VariableDeclarator(declarator) =
-      semantic.nodes().parent_kind(call.node_id.get())
+    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
     else {
       continue;
     };
