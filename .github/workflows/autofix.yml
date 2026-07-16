@@ -1,0 +1,33 @@
+name: autofix.ci
+
+on:
+  pull_request:
+    paths:
+      - "**/*.rs"
+      - "**/*.toml"
+      - "Cargo.lock"
+      - "justfile"
+      - ".github/workflows/autofix.yml"
+
+concurrency:
+  group: autofix-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  autofix:
+    name: Rust autofix
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          components: clippy,rustfmt
+      - uses: extractions/setup-just@v3
+      - run: just fix-rust
+      - uses: autofix-ci/action@c5b2d67aa2274e7b5a18224e8171550871fc7e4a

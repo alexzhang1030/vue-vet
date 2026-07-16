@@ -38,6 +38,12 @@ Vize, Oxc, and ast-grep types remain inside their adapters. Stable downstream co
 
 Use `just` as the canonical task interface and inspect recipes with `just --list`; keep local and CI commands behind the same recipes. Rust work is not complete until `just roll-rust` passes, including format, the workspace's Rolldown-derived and Vue Vet-tightened Clippy policy with warnings denied, workspace tests with the lockfile, and relevant fixture/integration tests. Do not add a lint exception without a narrow reason tied to code or an upstream dependency constraint. Use `prek` to manage hooks from `.pre-commit-config.yaml`. When local execution is unavailable, state that limitation and use CI as the evidence. Never claim a check passed when it was not run.
 
+CodeRabbit review is advisory and never replaces repository CI or human
+ownership. autofix.ci may run only deterministic repository-owned fix recipes
+from a `pull_request` workflow with read-only GitHub Actions permissions; the
+autofix.ci GitHub App is the sole writer. Never expose a write token to
+pull-request code or use `pull_request_target` to execute untrusted changes.
+
 ## Commits and pull requests
 
 Commit messages follow Conventional Commits: `type(scope): imperative summary`. Use `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, or `revert`; use `!` and a `BREAKING CHANGE:` footer when a stable contract breaks. The scope names the affected product or crate boundary when that improves retrieval, for example `feat(rules): add stable v-for key diagnostic`.
