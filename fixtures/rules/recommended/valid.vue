@@ -1,6 +1,11 @@
 <script setup lang="ts">
-const props = defineProps<{ title: string }>()
-const localTitle = props.title
+const componentProps = defineProps<{ title: string }>()
+const emit = defineEmits<{ save: [value: string] }>()
+const slots = defineSlots<{ default(): unknown }>()
+defineExpose({ emit })
+defineOptions({ name: 'RecommendedFixture' })
+const localTitle = componentProps.title
+void slots
 </script>
 
 <template>
@@ -17,4 +22,9 @@ const localTitle = props.title
   <button type="button" @click="activate">Activate</button>
   <input>
   <MyButton @click="activate" />
+  <div tabindex="0">Focusable in document order</div>
+  <div aria-hidden="true">Decorative duplicate</div>
+  <div role="region" aria-label="Status">Ready</div>
+  <button role="switch" aria-checked="false">Notifications</button>
+  <template #default="{ value }"><span>{{ value }}</span></template>
 </template>

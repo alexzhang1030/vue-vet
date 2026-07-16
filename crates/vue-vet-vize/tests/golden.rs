@@ -53,7 +53,7 @@ fn recommended_rule_pack_covers_all_rules_with_valid_spans() {
     .iter()
     .map(|diagnostic| diagnostic.rule_id.as_str())
     .collect::<std::collections::BTreeSet<_>>();
-  assert_eq!(ids.len(), 15, "every recommended rule needs a positive fixture");
+  assert_eq!(ids.len(), 25, "every recommended rule needs a positive fixture");
   for diagnostic in diagnostics {
     let end = diagnostic.span.offset.saturating_add(diagnostic.span.length);
     let snippet = source.get(diagnostic.span.offset..end);

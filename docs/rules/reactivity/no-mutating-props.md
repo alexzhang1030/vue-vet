@@ -5,7 +5,7 @@ This high-confidence recommended rule reports a concrete Vue correctness, reacti
 ## Bad
 
 ```vue
-const props = defineProps<{ count: number }>()\nprops.count += 1
+const componentProps = defineProps<{ count: number }>()\ncomponentProps.count += 1
 ```
 
 ## Good
@@ -16,7 +16,7 @@ const props = defineProps<{ count: number }>()\nconst localCount = ref(props.cou
 
 ## Limitations
 
-The first implementation recognizes the conventional `props = defineProps()` binding; destructured and aliased patterns will be expanded with later semantic rules.
+The rule follows any identifier directly assigned from `defineProps()`. Destructured props are not treated as mutable objects.
 
 ## Remediation
 
