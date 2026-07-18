@@ -1,0 +1,15 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        target: 80%
+        threshold: 0%
+
+comment:
+  layout: "condensed_header, diff, condensed_files, condensed_footer"
+  behavior: default
+  require_changes: "coverage_drop OR uncovered_patch"

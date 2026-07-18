@@ -1,4 +1,4 @@
 /target
+lcov.info
 *.profraw
 .DS_Store
-

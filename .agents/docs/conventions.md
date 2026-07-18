@@ -44,6 +44,25 @@ from a `pull_request` workflow with read-only GitHub Actions permissions; the
 autofix.ci GitHub App is the sole writer. Never expose a write token to
 pull-request code or use `pull_request_target` to execute untrusted changes.
 
+## Performance regression checks
+
+CodSpeed's simulated-CPU results are the canonical pull-request performance
+comparison. Benchmarks use committed, representative fixtures and stable names
+so a result remains comparable across revisions. Keep benchmark inputs outside
+the measured closure, pin the CodSpeed compatibility layer and CLI, and run the
+same repository-owned recipes locally and in CI. Renaming a benchmark or
+materially changing its fixture establishes a new baseline and requires an
+explicit rationale in the pull request. Performance checks complement rather
+than replace correctness tests. CodSpeed builds use the dedicated `codspeed`
+profile because its instrumentation does not link Oxc reliably under thin LTO;
+the release profile remains the source of truth for shipped artifacts.
+
+Codecov is the canonical coverage comparison. Project coverage may fall by at
+most one percentage point relative to the base commit, while changed lines must
+retain at least 80% line coverage. CI and local runs generate the same LCOV
+artifact through `just coverage-lcov`; coverage status supplements the full
+cross-platform test matrix and never substitutes for behavior-focused tests.
+
 ## Commits and pull requests
 
 Commit messages follow Conventional Commits: `type(scope): imperative summary`. Use `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, or `revert`; use `!` and a `BREAKING CHANGE:` footer when a stable contract breaks. The scope names the affected product or crate boundary when that improves retrieval, for example `feat(rules): add stable v-for key diagnostic`.
