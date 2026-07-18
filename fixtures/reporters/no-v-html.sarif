@@ -50,7 +50,7 @@
           "properties": {
             "category": "security",
             "confidence": "high",
-            "help": "Prefer normal template interpolation.",
+            "help": "Prefer normal template interpolation. If raw HTML is required, sanitize it at the trust boundary.",
             "byteOffset": 19,
             "byteLength": 6
           }

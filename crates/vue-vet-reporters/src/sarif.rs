@@ -250,7 +250,10 @@ mod tests {
         confidence: Some(Confidence::High),
         documentation: Some("rules/security/no-v-html".into()),
         message: "`v-html` can render untrusted HTML into the page".into(),
-        help: Some("Prefer normal template interpolation.".into()),
+        help: Some(
+          "Prefer normal template interpolation. If raw HTML is required, sanitize it at the trust boundary."
+            .into(),
+        ),
         file: PathBuf::from("fixtures/reporters/no-v-html.vue"),
         span: SourceSpan { offset: 19, length: 6, line: 2, column: 9 },
       }],
