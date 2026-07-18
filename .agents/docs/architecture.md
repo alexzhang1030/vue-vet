@@ -21,6 +21,10 @@ vue-vet CLI
 
 `no-v-html` remains the reference AST-backed built-in rule. Phase 2 adds the Oxc
 adapter while keeping both dependency ASTs behind Vue Vet-owned facts.
+Every built-in rule is a self-contained module under `vue-vet-rules/src/rules`:
+the module owns its metadata, rule type, and detection/reporting logic. The
+parent module only declares modules and assembles the built-in registry; it does
+not dispatch rule behavior through a shared enum or central match.
 The CLI derives per-file Vue capabilities from the nearest package.json and passes
 them into per-file rules without exposing package-manager state to parser adapters.
 The Oxc adapter delegates reactivity construction to `vue-vet-reactivity`.
@@ -72,7 +76,7 @@ Renderers return content without a terminal newline so each surface can choose
 its transport framing. Text snapshots remain byte-for-byte compatibility gates;
 JSON snapshots are versioned wire-contract gates.
 
-JSON v2 is the shared fact layer for CI and future agent surfaces. Each finding
+JSON v1 is the shared fact layer for CI and future agent surfaces. Each finding
 has a deterministic opaque ID, normalized project-relative path, confidence,
 and repository-local documentation path. Consumers must use `complete` and exact
 analyzed-file coverage rather than treating an empty findings array as proof of
@@ -103,7 +107,8 @@ also supplies resolved standalone JavaScript/TypeScript module edges to
 tracing for extracted `.vue` script blocks is intentionally not inferred yet:
 it requires a Vize-owned source/offset handoff so SFC spans remain exact.
 
-Cache format version 1 stores only `ScanSummary` and `ProjectGraph`. Its key
+Cache format version 2 stores only `ScanSummary` and `ProjectGraph`, including
+rule confidence and documentation metadata on cached diagnostics. Its key
 includes every source body plus configuration, tool, dependency, convention,
 and ruleset versions. Baseline filtering and diff filtering happen after cache
 lookup so those presentation choices do not fragment semantic cache entries.

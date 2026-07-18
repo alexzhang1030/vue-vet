@@ -4,6 +4,9 @@
 
 - Built-in IDs use `vue-vet/<category>/<name>` and are treated as user-facing stable identifiers.
 - Every rule declares category, default severity, confidence, and a documentation key.
+- Every built-in rule keeps its metadata and `Rule` implementation in one
+  dedicated file under `vue-vet-rules/src/rules`; the registry module only
+  assembles rules and must not become a behavior dispatcher.
 - A rule lands with rationale, bad/good examples, limitations, positive fixtures, common safe patterns, false-positive regressions, exact-span assertions, and reporter snapshots.
 - Low-confidence heuristics are opt-in and never enter the default preset merely to increase rule count.
 
