@@ -108,7 +108,7 @@ struct SarifResultProperties {
   byte_length: usize,
 }
 
-pub(crate) fn render(
+pub fn render(
   summary: &ScanSummary,
   context: &ReportContext,
 ) -> Result<String, serde_json::Error> {
@@ -183,7 +183,8 @@ fn sarif_result(diagnostic: &Diagnostic, analyzed_files: &[String]) -> SarifResu
 }
 
 fn analyzed_files(context: &ReportContext) -> Vec<String> {
-  let mut files = context.analyzed_files.iter().map(|path| normalize_path(path)).collect::<Vec<_>>();
+  let mut files =
+    context.analyzed_files.iter().map(|path| normalize_path(path)).collect::<Vec<_>>();
   files.sort();
   files.dedup();
   files
@@ -284,12 +285,11 @@ mod tests {
     if let Some(diagnostic) = summary.diagnostics.first_mut() {
       diagnostic.file = PathBuf::from(r"C:\repo\src\App.vue");
     }
-    let context = ReportContext {
-      analyzed_files: vec!["src/App.vue".into()],
-      ..ReportContext::default()
-    };
+    let context =
+      ReportContext { analyzed_files: vec!["src/App.vue".into()], ..ReportContext::default() };
     let rendered = render(&summary, &context);
-    let parsed = rendered.as_ref().ok().and_then(|output| serde_json::from_str::<Value>(output).ok());
+    let parsed =
+      rendered.as_ref().ok().and_then(|output| serde_json::from_str::<Value>(output).ok());
     let result = parsed
       .as_ref()
       .and_then(|log| log.get("runs"))
@@ -310,10 +310,8 @@ mod tests {
       Some("src/App.vue"),
       "SARIF paths must be repository-relative and slash-normalized"
     );
-    let expected = summary
-      .diagnostics
-      .first()
-      .map(|diagnostic| diagnostic_id(diagnostic, "src/App.vue"));
+    let expected =
+      summary.diagnostics.first().map(|diagnostic| diagnostic_id(diagnostic, "src/App.vue"));
     assert_eq!(
       result
         .and_then(|value| value.get("partialFingerprints"))

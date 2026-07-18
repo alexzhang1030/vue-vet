@@ -4,7 +4,7 @@ use vue_vet_core::{Diagnostic, ScanSummary, Severity};
 
 use crate::ReportContext;
 
-pub(crate) fn render(summary: &ScanSummary, context: &ReportContext) -> String {
+pub fn render(summary: &ScanSummary, context: &ReportContext) -> String {
   let analyzed_files = analyzed_files(context);
   summary
     .diagnostics
@@ -31,7 +31,8 @@ fn annotation(diagnostic: &Diagnostic, analyzed_files: &[String]) -> String {
 }
 
 fn analyzed_files(context: &ReportContext) -> Vec<String> {
-  let mut files = context.analyzed_files.iter().map(|path| normalize_path(path)).collect::<Vec<_>>();
+  let mut files =
+    context.analyzed_files.iter().map(|path| normalize_path(path)).collect::<Vec<_>>();
   files.sort();
   files.dedup();
   files

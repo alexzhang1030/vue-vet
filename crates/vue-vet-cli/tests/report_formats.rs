@@ -23,12 +23,8 @@ fn run_from_workspace(arguments: &[&str]) -> Output {
 
 #[test]
 fn sarif_cli_output_is_parseable_and_snapshot_stable() {
-  let output = run_from_workspace(&[
-    "fixtures/reporters/no-v-html.vue",
-    "--format",
-    "sarif",
-    "--no-cache",
-  ]);
+  let output =
+    run_from_workspace(&["fixtures/reporters/no-v-html.vue", "--format", "sarif", "--no-cache"]);
   let stdout = String::from_utf8_lossy(&output.stdout).replace('\\', "/");
   let parsed: Result<Value, _> = serde_json::from_slice(&output.stdout);
 
@@ -47,12 +43,8 @@ fn sarif_cli_output_is_parseable_and_snapshot_stable() {
 
 #[test]
 fn github_cli_output_is_annotation_safe_and_snapshot_stable() {
-  let output = run_from_workspace(&[
-    "fixtures/reporters/no-v-html.vue",
-    "--format",
-    "github",
-    "--no-cache",
-  ]);
+  let output =
+    run_from_workspace(&["fixtures/reporters/no-v-html.vue", "--format", "github", "--no-cache"]);
   let stdout = String::from_utf8_lossy(&output.stdout).replace('\\', "/");
 
   assert!(output.status.success(), "warning-only GitHub annotation scans must pass");
