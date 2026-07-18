@@ -108,10 +108,7 @@ struct SarifResultProperties {
   byte_length: usize,
 }
 
-pub fn render(
-  summary: &ScanSummary,
-  context: &ReportContext,
-) -> Result<String, serde_json::Error> {
+pub fn render(summary: &ScanSummary, context: &ReportContext) -> Result<String, serde_json::Error> {
   let analyzed_files = analyzed_files(context);
   let mut rules = BTreeMap::new();
   let results = summary
