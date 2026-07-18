@@ -1,0 +1,1 @@
+::warning file=no-v-html.vue,line=2,col=9,title=vue-vet/security/no-v-html::`v-html` can render untrusted HTML into the page%0Ahelp: Prefer normal template interpolation.

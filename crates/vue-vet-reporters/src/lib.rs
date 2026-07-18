@@ -6,6 +6,9 @@ use std::{
 use serde::Serialize;
 use vue_vet_core::{Confidence, Diagnostic, ScanSummary, Severity, SourceSpan, diagnostic_id};
 
+mod github;
+mod sarif;
+
 pub const JSON_SCHEMA_VERSION: u8 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -50,13 +53,15 @@ impl Default for ReportContext {
 pub enum ReportFormat {
   Text,
   Json,
+  Sarif,
+  Github,
 }
 
 /// Renders a scan summary without a terminal newline.
 ///
 /// # Errors
 ///
-/// Returns a serialization error when JSON output cannot be encoded.
+/// Returns a serialization error when JSON or SARIF output cannot be encoded.
 pub fn render(
   summary: &ScanSummary,
   format: ReportFormat,
@@ -65,6 +70,8 @@ pub fn render(
   match format {
     ReportFormat::Text => Ok(render_text(summary)),
     ReportFormat::Json => render_json(summary, context),
+    ReportFormat::Sarif => sarif::render(summary, context),
+    ReportFormat::Github => Ok(github::render(summary, context)),
   }
 }
 
@@ -343,7 +350,8 @@ mod tests {
     let rendered = render(&fixture_summary(), ReportFormat::Text, &fixture_context());
     assert_eq!(
       rendered.as_deref().ok(),
-      Some(include_str!("../../../fixtures/reporters/no-v-html.txt").trim_end())
+      Some(include_str!("../../../fixtures/reporters/no-v-html.txt").trim_end()),
+      "text output must retain its stable snapshot"
     );
   }
 
@@ -352,7 +360,8 @@ mod tests {
     let rendered = render(&fixture_summary(), ReportFormat::Json, &fixture_context());
     assert_eq!(
       rendered.as_deref().ok(),
-      Some(include_str!("../../../fixtures/reporters/no-v-html.json").trim_end())
+      Some(include_str!("../../../fixtures/reporters/no-v-html.json").trim_end()),
+      "JSON v1 output must retain its stable snapshot"
     );
   }
 
@@ -375,7 +384,8 @@ mod tests {
         .and_then(|diagnostics| diagnostics.first())
         .and_then(|diagnostic| diagnostic.get("file"))
         .and_then(Value::as_str),
-      Some("src/App.vue")
+      Some("src/App.vue"),
+      "JSON paths must be normalized against analyzed coverage"
     );
   }
 
@@ -395,7 +405,8 @@ mod tests {
     let project = parsed.as_ref().and_then(|report| report.get("project"));
     assert_eq!(
       project.and_then(|value| value.get("complete")).and_then(Value::as_bool),
-      Some(false)
+      Some(false),
+      "incomplete scans must be explicit"
     );
     assert_eq!(
       project
@@ -403,7 +414,8 @@ mod tests {
         .and_then(Value::as_array)
         .and_then(|checks| checks.first())
         .and_then(Value::as_str),
-      Some("module_reactivity")
+      Some("module_reactivity"),
+      "skipped checks must name the omitted analysis"
     );
   }
 
@@ -419,14 +431,16 @@ mod tests {
       rendered.as_ref().ok().and_then(|output| serde_json::from_str::<Value>(output).ok());
     assert_eq!(
       parsed.as_ref().and_then(|report| report.get("ok")).and_then(Value::as_bool),
-      Some(false)
+      Some(false),
+      "operational failures must set ok=false"
     );
     assert_eq!(
       parsed
         .as_ref()
         .and_then(|report| report.get("summary"))
         .and_then(|summary| summary.get("score")),
-      Some(&Value::Null)
+      Some(&Value::Null),
+      "failed scans must not claim a score"
     );
     assert_eq!(
       parsed
@@ -434,13 +448,18 @@ mod tests {
         .and_then(|report| report.get("error"))
         .and_then(|error| error.get("message"))
         .and_then(Value::as_str),
-      Some("parser failed")
+      Some("parser failed"),
+      "structured failures must preserve the message"
     );
   }
 
   #[test]
   fn empty_text_report_retains_the_summary_line() {
     let rendered = render(&ScanSummary::default(), ReportFormat::Text, &ReportContext::default());
-    assert_eq!(rendered.as_deref().ok(), Some("\nVue Vet score: 0/100 — 0 file(s), 0 finding(s)"));
+    assert_eq!(
+      rendered.as_deref().ok(),
+      Some("\nVue Vet score: 0/100 — 0 file(s), 0 finding(s)"),
+      "empty text scans must retain the summary"
+    );
   }
 }
