@@ -24,6 +24,10 @@ use vue_vet_reporters::{
 use vue_vet_rules::builtin_registry;
 use vue_vet_vize::analyze_sfc_with_environment;
 
+mod fixes;
+
+use fixes::{FixMode, FixOutcome, execute_safe_edits};
+
 #[derive(Debug, Parser)]
 #[command(name = "vue-vet", version, about = "Vet your Vue codebase")]
 struct Cli {
@@ -56,6 +60,9 @@ struct Cli {
 
   #[arg(long, value_name = "REF", help = "Report changed lines plus all project findings")]
   diff: Option<String>,
+
+  #[command(flatten)]
+  fix: FixArgs,
 }
 
 #[derive(Args, Debug)]
@@ -68,6 +75,37 @@ struct CacheArgs {
 
   #[arg(long, help = "Print cache hit, miss, or recovery status on stderr")]
   cache_stats: bool,
+}
+
+#[derive(Args, Debug)]
+struct FixArgs {
+  #[arg(
+    long,
+    conflicts_with = "fix_safe",
+    conflicts_with_all = ["baseline", "write_baseline", "diff", "print_config", "print_graph"],
+    help = "Validate and preview explicitly safe edits without writing files"
+  )]
+  fix_dry_run: bool,
+
+  #[arg(
+    long,
+    conflicts_with = "fix_dry_run",
+    conflicts_with_all = ["baseline", "write_baseline", "diff", "print_config", "print_graph"],
+    help = "Atomically apply explicitly safe edits and report a fresh rescan"
+  )]
+  fix_safe: bool,
+}
+
+impl FixArgs {
+  const fn mode(&self) -> Option<FixMode> {
+    if self.fix_dry_run {
+      Some(FixMode::DryRun)
+    } else if self.fix_safe {
+      Some(FixMode::Apply)
+    } else {
+      None
+    }
+  }
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -115,6 +153,9 @@ fn main() -> ExitCode {
     Ok((mut result, cache_status)) => {
       if cli.cache.cache_stats {
         eprintln!("vue-vet cache: {cache_status}");
+      }
+      if let Err(error) = run_requested_fixes(&cli, &config, &mut result) {
+        return operational_failure(&cli, &error);
       }
       if let Some(path) = &cli.baseline {
         let baseline = match Baseline::read(path) {
@@ -166,7 +207,7 @@ struct ScanResult {
 }
 
 fn cached_scan(cli: &Cli, config: &Config) -> Result<(ScanResult, &'static str), String> {
-  if cli.cache.no_cache {
+  if cli.cache.no_cache || cli.fix.mode().is_some() {
     return scan(&cli.path, config).map(|result| (result, "disabled"));
   }
   let files = cache_inputs(&cli.path)?;
@@ -183,6 +224,36 @@ fn cached_scan(cli: &Cli, config: &Config) -> Result<(ScanResult, &'static str),
       fill_cache(&store, &key, &cli.path, config, "recovered-corruption")
     }
   }
+}
+
+fn run_requested_fixes(cli: &Cli, config: &Config, result: &mut ScanResult) -> Result<(), String> {
+  let Some(mode) = cli.fix.mode() else {
+    return Ok(());
+  };
+  let edits = result
+    .summary
+    .diagnostics
+    .iter()
+    .flat_map(|diagnostic| diagnostic.edits.iter().cloned())
+    .collect::<Vec<_>>();
+  let outcome = execute_safe_edits(&cli.path, edits, mode).map_err(|error| error.to_string())?;
+  print_fix_outcome(mode, outcome);
+  if mode == FixMode::Apply && outcome.changed() {
+    *result = scan(&cli.path, config)?;
+  }
+  Ok(())
+}
+
+#[expect(clippy::print_stderr, reason = "fix summaries belong on CLI stderr")]
+fn print_fix_outcome(mode: FixMode, outcome: FixOutcome) {
+  let action = if mode == FixMode::DryRun { "would apply" } else { "applied" };
+  let edit_label = if outcome.edit_count() == 1 { "edit" } else { "edits" };
+  let file_label = if outcome.file_count() == 1 { "file" } else { "files" };
+  eprintln!(
+    "vue-vet fixes: {action} {} safe {edit_label} to {} {file_label}",
+    outcome.edit_count(),
+    outcome.file_count()
+  );
 }
 
 fn fill_cache(
@@ -259,7 +330,12 @@ fn scan(root: &Path, config: &Config) -> Result<ScanResult, String> {
           RuleEnvironment { vue_version: vue_version_for(path, scan_directory(root)) };
         let analysis = analyze_sfc_with_environment(path, &source, environment)
           .map_err(|error| format!("failed to analyze {}: {error}", path.display()))?;
-        let diagnostics = config.apply(analysis.diagnostics);
+        let mut diagnostics = config.apply(analysis.diagnostics);
+        for diagnostic in &mut diagnostics {
+          for edit in &mut diagnostic.edits {
+            edit.file = logical_path.to_path_buf();
+          }
+        }
         let diagnostics = apply_suppressions(path, &source, diagnostics);
         summary.files_scanned = summary.files_scanned.saturating_add(1);
         summary.diagnostics.extend(diagnostics);

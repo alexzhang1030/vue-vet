@@ -1,7 +1,7 @@
 # Cache, baselines, and diff analysis
 
 Vue Vet caches only normalized `ScanSummary` and `ProjectGraph` values. It never
-persists Vize or Oxc AST objects. Cache format version 2 uses a SHA-256 key over:
+persists Vize or Oxc AST objects. Cache format version 3 uses a SHA-256 key over:
 
 - cache, graph-convention, and built-in ruleset versions;
 - Vue Vet, Vize, and Oxc versions;
@@ -10,9 +10,11 @@ persists Vize or Oxc AST objects. Cache format version 2 uses a SHA-256 key over
 
 Writes use a temporary file followed by an atomic rename. Invalid JSON and
 unsupported cache versions are deleted and rebuilt without failing the scan.
-Version 2 adds rule confidence and documentation metadata to cached diagnostics;
-version 1 entries are left untouched and naturally missed under the versioned
-cache directory.
+Version 2 added rule confidence and documentation metadata to cached
+diagnostics. Version 3 adds optional edit candidates so cold and warm JSON
+reports remain byte-equivalent. Older entries are left untouched and naturally
+missed under the versioned cache directory. Fix modes bypass cache regardless,
+so mutation always starts from a fresh scan.
 
 Use `--no-cache`, `--cache-dir <dir>`, and `--cache-stats` to control or inspect
 the local cache.

@@ -314,6 +314,7 @@ fn unresolved_diagnostic(file: &Path, specifier: &str, span: SourceSpan) -> Diag
     ),
     file: file.to_path_buf(),
     span,
+    edits: Vec::new(),
   }
 }
 
@@ -346,6 +347,7 @@ fn unused_component_diagnostics(
         help: Some("Remove it or reference it from a template or script import.".into()),
         file: file.path.clone(),
         span: SourceSpan { offset: 0, length: file.source_len.min(1), line: 1, column: 1 },
+        edits: Vec::new(),
       })
     })
     .collect()

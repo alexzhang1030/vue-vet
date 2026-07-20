@@ -247,6 +247,7 @@ pub fn apply_suppressions(
         help: Some("Remove the suppression or correct its rule ID and scope.".into()),
         file: file.to_path_buf(),
         span: line_span(source, suppression.offset),
+        edits: Vec::new(),
       },
     ),
   );
@@ -398,6 +399,7 @@ mod tests {
       help: None,
       file: Path::new("App.vue").to_path_buf(),
       span: SourceSpan { offset: 0, length: 1, line, column: 1 },
+      edits: Vec::new(),
     }
   }
 

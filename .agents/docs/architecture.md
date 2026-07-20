@@ -85,8 +85,19 @@ The shared edit contract lives in `vue-vet-core`, not in a parser, rule engine,
 or reporter. A text edit carries a repository path, checked byte range,
 replacement, safe/unsafe applicability, and originating rule ID. `EditPlan`
 normalizes ordering and rejects range overflow, overlapping replacements, and
-order-dependent insertions. It deliberately has no file-application API; disk
-mutation, rollback, and post-fix rescans belong to later issue #9 slices.
+order-dependent insertions. An active diagnostic may carry edit candidates so
+configuration and suppression remove the finding and its edits together. JSON
+v1 exposes those candidates as an optional field without changing diagnostic
+identity.
+
+The CLI's private fix module has one interface for previewing or applying active
+safe edits. It resolves repository-relative targets inside the scan scope,
+consumes `EditPlan`, validates source bounds and UTF-8 boundaries, and applies
+one file from the original source in reverse-range order. Apply mode uses a
+same-directory atomic replacement and then performs a fresh scan; both fix modes
+bypass cached results so a persisted plan can never authorize mutation. This
+first vertical slice fails closed on multi-file plans. Cross-file staging,
+rollback, and more edit producers remain later issue #9 work.
 
 ## Identity and determinism
 
@@ -105,10 +116,12 @@ also supplies resolved standalone JavaScript/TypeScript module edges to
 tracing for extracted `.vue` script blocks is intentionally not inferred yet:
 it requires a Vize-owned source/offset handoff so SFC spans remain exact.
 
-Cache format version 2 stores only `ScanSummary` and `ProjectGraph`, including
-rule confidence and documentation metadata on cached diagnostics. Its key
-includes every source body plus configuration, tool, dependency, convention,
-and ruleset versions. Baseline filtering and diff filtering happen after cache
-lookup so those presentation choices do not fragment semantic cache entries.
+Cache format version 3 stores only `ScanSummary` and `ProjectGraph`, including
+rule confidence, documentation metadata, and optional edit candidates on cached
+diagnostics. Its key includes every source body plus configuration, tool,
+dependency, convention, and ruleset versions. Baseline filtering and diff
+filtering happen after cache lookup so those presentation choices do not
+fragment semantic cache entries.
+Fix modes still force a fresh scan before planning.
 
 See [technology stack](./technology-stack.md), [conventions](./conventions.md), and [the roadmap](../../ROADMAP.md).

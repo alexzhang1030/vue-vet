@@ -33,6 +33,15 @@ meet at a boundary, but insertions at replacement boundaries conflict because
 their application order could change the result. Core planning and reporters
 must never mutate files.
 
+Attach an edit candidate to the diagnostic that authorizes it; rule overrides
+and suppressions must remove both together. Normalize target paths relative to
+the scan root before reporting or applying them. Safe application additionally
+validates scan-scope containment, file bounds, and UTF-8 boundaries, applies
+later byte ranges first, commits through atomic replacement, and reports a fresh
+post-fix scan. Fix modes never consume a cached edit plan. A rule may advertise a
+safe edit only for syntax it can replace completely; keep the diagnostic but
+omit the edit when source coverage is incomplete.
+
 ## Dependency boundaries
 
 Vize and Oxc types remain inside their adapters. Stable downstream code consumes Vue Vet-owned facts. Dependency upgrades are reviewed as behavior changes and include compatibility evidence rather than blind snapshot replacement.
