@@ -20,12 +20,18 @@ declared `lang`, builds semantics with syntax checking, and maps every fact span
 back through the SFC block offset. Direct Oxc types remain private to
 `vue-vet-oxc`.
 
-## ast-grep is the extension lane
+## Vize and Oxc are the complete analysis stack
 
-ast-grep will power YAML-defined structural rules for supported script and template surfaces. It is a fast and useful customization mechanism, but it does not own built-in Vue semantics, cross-file project reasoning, confidence, scoring, suppression, caching, baselines, or fix coordination.
+Vue Vet does not embed a parallel structural-pattern engine. Template and SFC
+diagnostics extend Vize-backed facts; JavaScript and TypeScript diagnostics
+extend Oxc-backed facts. This keeps source offsets, confidence, suppression,
+scoring, caching, baselines, and fixes on one semantic path. Teams that need
+repository-specific structural conventions can run standalone search tools in
+CI without making their grammar and rule contracts part of Vue Vet's stable
+product surface.
 
 ## Vue Vet owns the product contracts
 
 Diagnostics, source spans, rule metadata, confidence, configuration, suppression, fingerprints, scoring, project facts, cache formats, baselines, reporters, and edits are Vue Vet-owned types. This boundary prevents dependency churn from becoming a public API break.
 
-See [the analysis-stack ADR](../../docs/adr/0001-analysis-stack.md) for the original decision and [architecture](./architecture.md) for the planned data flow.
+See [the analysis-stack ADR](../../docs/adr/0001-analysis-stack.md) for the decision and [architecture](./architecture.md) for the planned data flow.

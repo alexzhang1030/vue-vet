@@ -4,7 +4,7 @@
 
 Vue Vet is a Rust-native health check for Vue and Nuxt codebases. It aims to
 combine project-level diagnostics, an actionable score, diff-aware CI, and
-user-defined structural rules without routing Vue source through JavaScript.
+conservative fixes without routing Vue source through JavaScript.
 
 The project is an early local-doctor implementation. Today it:
 
@@ -96,9 +96,9 @@ vue-vet-core         diagnostics, spans, scoring, edits, stable public model
 vue-vet-reporters    deterministic text, JSON, SARIF, and GitHub rendering
 ```
 
-Vize is the semantic source of truth for Vue SFCs. Oxc owns JavaScript and
-TypeScript semantics. ast-grep remains the planned extension engine for declarative
-project rules; it will not replace Vue-aware analysis.
+Vize is the semantic source of truth for Vue SFCs and templates. Oxc owns
+JavaScript and TypeScript semantics. Vue Vet keeps one semantic analysis stack
+instead of embedding a parallel structural-pattern engine.
 
 See [the architecture decision](docs/adr/0001-analysis-stack.md) and
 [the roadmap](ROADMAP.md). Project resolution and Nuxt convention limitations

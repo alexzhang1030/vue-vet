@@ -31,9 +31,13 @@ separators before matching, severity overrides run before exit-policy scoring,
 and suppressions run after diagnostics exist so unused directives can be
 reported. Future cache keys must include the serialized effective configuration.
 
-## ast-grep findings can overlap semantic findings
+## Do not add a parallel pattern engine
 
-Custom patterns may rediscover a problem already proven by a built-in rule. Built-in semantic evidence is authoritative. Deduplication and precedence must be deterministic before ast-grep rules ship.
+Structural patterns can rediscover problems already proven by Vize/Oxc-backed
+rules while adding a second parser, offset model, confidence model, and
+dependency lifecycle. Keep built-in analysis on the semantic stack. A future
+customization mechanism needs demonstrated user demand and a new product
+decision rather than being introduced as an implementation shortcut.
 
 ## Diff mode is a graph problem
 

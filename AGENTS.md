@@ -11,8 +11,8 @@ This file is the single source of truth for coding agents working in Vue Vet. `C
 ## Repository working agreement
 
 - Keep the engine and CLI Rust-native. JavaScript is allowed only for the future thin npm launcher; do not move analysis logic into it.
-- Treat Vize as the Vue SFC/template semantic source, Oxc as the JS/TS semantic source, and ast-grep as the custom structural-rule lane. Do not substitute pattern matching for built-in semantic rules.
-- Keep Vue Vet's stable types independent of Vize, Oxc, and ast-grep AST types.
+- Treat Vize as the Vue SFC/template semantic source and Oxc as the JS/TS semantic source. Do not introduce a parallel pattern engine or substitute source matching for semantic rules.
+- Keep Vue Vet's stable types independent of Vize and Oxc AST types.
 - Introduce a crate only when a working vertical slice exercises its boundary.
 - Every built-in rule change includes metadata, documentation, positive fixtures, safe-pattern fixtures, false-positive regressions, exact-span assertions, and reporter snapshots.
 - Keep results deterministic across operating systems: normalize paths, sort diagnostics, and never depend on hash-map iteration order.

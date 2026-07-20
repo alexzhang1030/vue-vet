@@ -8,7 +8,7 @@ The primary audience is Vue and Nuxt developers running a fast local command or 
 
 ## Product shape
 
-The target product combines Vue-aware semantic diagnostics, deterministic scoring, baselines and diff-aware CI, cross-file project intelligence, conservative fixes, and project-defined structural rules. CLI, CI, LSP, and agent surfaces must consume the same underlying analysis instead of growing independent implementations.
+The target product combines Vue-aware semantic diagnostics, deterministic scoring, baselines and diff-aware CI, cross-file project intelligence, and conservative fixes. CLI, CI, LSP, and agent surfaces must consume the same underlying analysis instead of growing independent implementations.
 
 ## Priorities
 
@@ -27,4 +27,3 @@ The target product combines Vue-aware semantic diagnostics, deterministic scorin
 - Matching another doctor's rule count at the expense of Vue-specific precision.
 
 The milestone plan and executable release gates live in [the root roadmap](../../ROADMAP.md) and [tracking issue #14](https://github.com/alexzhang1030/vue-vet/issues/14).
-
