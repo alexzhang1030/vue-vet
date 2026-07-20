@@ -35,7 +35,7 @@ must never mutate files.
 
 ## Dependency boundaries
 
-Vize, Oxc, and ast-grep types remain inside their adapters. Stable downstream code consumes Vue Vet-owned facts. Dependency upgrades are reviewed as behavior changes and include compatibility evidence rather than blind snapshot replacement.
+Vize and Oxc types remain inside their adapters. Stable downstream code consumes Vue Vet-owned facts. Dependency upgrades are reviewed as behavior changes and include compatibility evidence rather than blind snapshot replacement.
 
 ## Testing and completion
 

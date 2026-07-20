@@ -22,8 +22,8 @@ unstructured text.
 - The engine and CLI are implemented in Rust.
 - Vize is the source of truth for Vue SFC and template semantics.
 - Oxc owns JavaScript/TypeScript syntax, scopes, symbols, and imports.
-- ast-grep is the declarative extension lane for project-specific structural
-  rules; it is not the primary semantic engine.
+- Vize and Oxc form the complete analysis stack. New diagnostics extend their
+  Vue Vet-owned semantic facts instead of introducing a parallel pattern engine.
 - Vue Vet owns its diagnostic schema, scoring, suppression, caching, baselines,
   fixes, and output formats.
 - Vize stays pinned until its API stabilizes. Upgrades require compatibility
@@ -37,7 +37,6 @@ vue-vet CLI
   -> Vize SFC/template analysis
   -> Oxc script analysis
   -> project graph and cross-file rules
-  -> ast-grep custom rules
   -> normalize, rank, score, report, fix
 ```
 
@@ -49,7 +48,6 @@ vue-vet-vize       Vize adapter and Vue semantic facts
 vue-vet-oxc        JS/TS semantic facts and import resolution
 vue-vet-reactivity local effect tracing and cross-module summaries/linking
 vue-vet-rules      built-in rules and presets
-vue-vet-patterns   ast-grep configuration and execution
 vue-vet-project    project graph, cache, baseline, diff
 vue-vet-reporters  text, JSON, SARIF, GitHub annotations
 vue-vet            CLI binary
@@ -177,7 +175,7 @@ Exit criteria:
 - project rules report evidence across every relevant file
 - changed-line mode never hides a newly introduced project-level failure
 
-## M3 — extensibility and CI
+## M3 — CI and distribution
 
 Status: implementation in progress
 
@@ -190,20 +188,16 @@ Implemented in the reporter/edit foundation slice:
 
 Work:
 
-- integrate ast-grep Rust crates behind `vue-vet-patterns`
-- load project YAML rules with a versioned JSON Schema
-- map custom findings into the same diagnostic and scoring model
 - add SARIF and GitHub annotations
 - implement baselines and `--diff <ref>`
 - extend machine-readable edits into preview and transactional safe autofix workflows
 - publish native binaries and a thin npm launcher
 
-ast-grep acceptance criteria:
+Exit criteria:
 
-- custom rules work for supported script and template surfaces
-- invalid patterns fail during configuration loading, not halfway through a scan
-- custom and built-in findings deduplicate deterministically
-- semantic built-in rules remain authoritative when a pattern overlaps
+- SARIF and GitHub annotations preserve stable diagnostic identities
+- safe fixes are previewable and applied transactionally
+- supported native binaries and the npm launcher install without a Rust toolchain
 
 ## M4 — editor and agent surface
 
@@ -242,7 +236,7 @@ Exit criteria:
 
 - stable configuration and diagnostic contracts
 - Vue and Nuxt reference suites maintained in CI
-- upgrade policy for Vize, Oxc, and ast-grep documented
+- upgrade policy for Vize and Oxc documented
 - security, contribution, release, and support policies in place
 
 ## Non-goals before beta

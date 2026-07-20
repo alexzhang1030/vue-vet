@@ -51,7 +51,6 @@ project discovery and configuration
   -> Oxc script facts
   -> per-file built-in rules
   -> versioned project graph and graph-backed cross-file rules
-  -> ast-grep custom rules
   -> normalize, suppress, deduplicate, fingerprint
   -> content-addressed normalized-result cache
   -> score, baseline/diff, report, preview/apply fixes
@@ -61,10 +60,9 @@ project discovery and configuration
 
 Existing crates are `vue-vet-core`, `vue-vet-config`, `vue-vet-vize`,
 `vue-vet-oxc`, `vue-vet-reactivity`, `vue-vet-rules`, `vue-vet-project`,
-`vue-vet-reporters`, and the `vue-vet` CLI. The remaining planned boundary is
-`vue-vet-patterns`. A planned name is not authorization
-to create an empty abstraction: introduce the crate only when a working vertical
-slice uses it.
+`vue-vet-reporters`, and the `vue-vet` CLI. New rule capabilities extend these
+semantic and product boundaries only when a working vertical slice exercises
+them; there is no separate pattern-engine boundary in the roadmap.
 
 ## Reporting and edit planning
 

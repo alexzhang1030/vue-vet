@@ -19,7 +19,7 @@ Oxc, or serialized format versions without compatibility fixtures and rationale.
 
 - Add positive, safe, malformed, and regression fixtures as appropriate.
 - Every default rule needs documentation, confidence evidence, and exact-span tests.
-- Keep built-in semantic rules authoritative over overlapping custom patterns.
+- Build rules from Vize/Oxc-backed semantic facts rather than source-text patterns.
 - Run `just precommit` and `just roll-rust` before opening a pull request.
 - Use conventional commit messages.
 

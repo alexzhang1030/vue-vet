@@ -1,30 +1,36 @@
-# ADR 0001: Vize semantics with an ast-grep extension lane
+# ADR 0001: Vize and Oxc as the semantic analysis stack
 
 Status: accepted
 
 ## Decision
 
 Vue Vet is a Rust workspace. Vize owns Vue SFC parsing and Vue template
-semantics. Oxc owns JavaScript/TypeScript syntax and semantic analysis.
-ast-grep provides opt-in declarative pattern rules.
+semantics. Oxc owns JavaScript/TypeScript syntax and semantic analysis. New
+rules extend Vue Vet-owned facts produced by those adapters; Vue Vet does not
+embed a second structural-pattern engine.
 
 The stable boundary is Vue Vet's own diagnostic model. Neither Vize nor
-ast-grep types are exposed by the CLI JSON contract.
+Oxc types are exposed by the CLI JSON contract.
 
-## Why ast-grep is not the primary engine
+## Why the analysis stack stays semantic
 
-Pattern matching is excellent for local shapes and team-specific conventions.
-A doctor also needs binding resolution, Vue reactivity knowledge, component
-graphs, confidence ranking, deduplication, baselines, scoring, and coordinated
-fixes. Those capabilities require a semantic product layer.
+Vue Vet prioritizes high-confidence Vue and Nuxt diagnostics. Binding
+resolution, reactivity knowledge, component graphs, confidence ranking,
+baselines, scoring, and coordinated fixes depend on shared semantic facts.
+Embedding a separate pattern engine would add another parser and rule model,
+SFC offset mapping, overlap policy, dependency compatibility surface, and
+resource budget before project demand for an integrated custom-rule surface
+has been demonstrated. Teams can run standalone structural-search tools beside
+Vue Vet when they need repository-specific conventions.
 
 ## Consequences
 
 - Vize is pinned because its public API is still evolving.
-- Built-in rules may use deeper semantic APIs than user-authored rules.
-- Custom ast-grep rules can participate in the same scoring and reporting
-  pipeline but must declare their language surface and severity.
-- Every dependency upgrade needs golden SFC fixtures and diagnostic snapshots.
+- Oxc stays behind a dependency-neutral adapter just like Vize.
+- Rules consume Vue Vet-owned semantic facts and project graph evidence.
+- A future customization mechanism requires a separate product decision backed
+  by concrete user demand; it is not part of the current roadmap.
+- Every Vize or Oxc upgrade needs compatibility fixtures and diagnostic snapshots.
 
 The executable Vize compatibility assumptions and upgrade checklist live in
 [the Vize compatibility baseline](../vize-compatibility.md).
