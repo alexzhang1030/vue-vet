@@ -74,6 +74,8 @@ struct CacheArgs {
 enum OutputFormat {
   Text,
   Json,
+  Sarif,
+  Github,
 }
 
 impl From<OutputFormat> for ReportFormat {
@@ -81,6 +83,8 @@ impl From<OutputFormat> for ReportFormat {
     match format {
       OutputFormat::Text => Self::Text,
       OutputFormat::Json => Self::Json,
+      OutputFormat::Sarif => Self::Sarif,
+      OutputFormat::Github => Self::Github,
     }
   }
 }

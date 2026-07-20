@@ -16,7 +16,7 @@ The project is an early local-doctor implementation. Today it:
 - supports strict versioned configuration, presets, severity overrides, path
   filters, and scoped suppressions;
 - builds a deterministic Vue/Nuxt project graph with initial cross-file findings;
-- emits human-readable or JSON output;
+- emits human-readable, JSON v1, SARIF 2.1.0, or GitHub Actions annotation output;
 - returns a CI-friendly exit code and a deterministic score.
 
 ## Try it
@@ -24,6 +24,8 @@ The project is an early local-doctor implementation. Today it:
 ```bash
 just vet .
 just vet . --format json
+just vet . --format sarif > vue-vet.sarif
+just vet . --format github
 just vet fixtures/projects/basic --deny-warnings
 just vet fixtures/projects/nuxt-graph --print-graph
 just vet . --cache-stats
@@ -63,13 +65,18 @@ configuration.
 Exit codes are `0` for a passing scan, `1` when diagnostics cross the configured
 threshold, and `2` for an operational failure.
 
-## JSON contract
+## Machine-readable output
 
 `--format json` emits a versioned top-level object. The initial contract uses
 `"schema_version": 1` with deterministic finding IDs, normalized paths, exact
 scan coverage, and completeness metadata. Consumers must reject unsupported
 schema versions instead of guessing. Field ordering is not part of the contract.
 See [the JSON output contract](docs/json-output.md) for compatibility rules.
+
+`--format sarif` emits SARIF 2.1.0 with stable fingerprints and repository-relative
+source locations. `--format github` emits escaped GitHub Actions workflow commands.
+See [the SARIF and GitHub annotations guide](docs/sarif-github.md) for integration
+and security details.
 
 ## Architecture
 
@@ -86,7 +93,7 @@ vue-vet-rules        deterministic high-confidence rule registry
       |
 vue-vet-core         diagnostics, spans, scoring, edits, stable public model
       |
-vue-vet-reporters    deterministic text and versioned JSON rendering
+vue-vet-reporters    deterministic text, JSON, SARIF, and GitHub rendering
 ```
 
 Vize is the semantic source of truth for Vue SFCs. Oxc owns JavaScript and

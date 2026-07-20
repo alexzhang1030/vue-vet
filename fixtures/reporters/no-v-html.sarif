@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "vue-vet",
+          "semanticVersion": "0.1.0",
+          "informationUri": "https://github.com/alexzhang1030/vue-vet",
+          "rules": [
+            {
+              "id": "vue-vet/security/no-v-html",
+              "shortDescription": {
+                "text": "security diagnostic"
+              },
+              "helpUri": "https://github.com/alexzhang1030/vue-vet/blob/main/docs/rules/security/no-v-html.md",
+              "properties": {
+                "category": "security",
+                "severity": "warning",
+                "confidence": "high"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "vue-vet/security/no-v-html",
+          "level": "warning",
+          "message": {
+            "text": "`v-html` can render untrusted HTML into the page"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "no-v-html.vue"
+                },
+                "region": {
+                  "startLine": 2,
+                  "startColumn": 9
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "vueVetDiagnosticId/v1": "no-v-html.vue::2:9::vue-vet/security/no-v-html::1177674fb6ab3aec2e2e1c3da30c47806bea15bf13c58a518af68375744fabca"
+          },
+          "properties": {
+            "category": "security",
+            "confidence": "high",
+            "help": "Prefer normal template interpolation. If raw HTML is required, sanitize it at the trust boundary.",
+            "byteOffset": 19,
+            "byteLength": 6
+          }
+        }
+      ]
+    }
+  ]
+}
