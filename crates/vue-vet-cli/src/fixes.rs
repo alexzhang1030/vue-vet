@@ -235,10 +235,14 @@ mod tests {
     let sibling = directory.write("Sibling.vue", "<template autofocus />\n");
     let result =
       execute_safe_edits(&scanned, vec![safe_edit(sibling.clone(), 10, 9)], FixMode::DryRun);
+    let canonical_sibling = fs::canonicalize(&sibling);
 
     assert!(
-      matches!(result, Err(FixError::OutsideRoot { ref path }) if path == &sibling),
-      "a rule must not expand a file-scoped scan to a sibling: {result:?}"
+      matches!(
+        (&result, &canonical_sibling),
+        (Err(FixError::OutsideRoot { path }), Ok(expected)) if path == expected
+      ),
+      "a rule must not expand a file-scoped scan to a sibling: {result:?}; canonical sibling: {canonical_sibling:?}"
     );
   }
 
