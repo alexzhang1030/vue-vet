@@ -101,7 +101,8 @@ into the project graph today. Template→script join is **not** blocked on Vize:
 and `ExpressionNode::loc()`. The historical gap was vue-vet under-extraction
 (elements-only walk, directive-name spans, no interpolation surfaces). Today
 `TemplateFacts.expressions` carries those Vize surfaces with SFC-absolute spans
-and `join_template_reads` prefers them. Remaining precision boundaries:
-`SimpleExpressionNode::js_ast` is still a placeholder (lexical identifier scan),
-and extracted cross-file `.vue` module identity is a separate project-graph
-concern.
+and `join_template_reads` prefers them. Identifier reads are filled by Oxc
+(`vue-vet-oxc::template_expression_identifiers`) so static member properties are
+not mistaken for bindings; lexical scan is only the empty-list fallback. Remaining
+precision boundaries: nested free-var scoping inside inline handlers, and
+extracted cross-file `.vue` module identity (project-graph concern).

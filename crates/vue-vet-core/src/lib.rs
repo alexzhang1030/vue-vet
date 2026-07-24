@@ -165,6 +165,9 @@ pub struct TemplateExpressionFact {
   pub expression: String,
   /// Exact SFC-absolute span of the expression when known.
   pub span: SourceSpan,
+  /// Free identifier reads (prefer Oxc AST extraction; empty means “unknown”).
+  #[serde(default)]
+  pub identifiers: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -476,9 +479,9 @@ impl ReactivityGraph {
   /// (Vize interpolations + directive exp/arg with expression-absolute spans);
   /// fall back to element directives for hand-built fixtures that omit that list.
   ///
-  /// Vize already supplies `ExpressionNode` text + `SourceLocation` offsets.
-  /// A full JS expression AST inside templates is still a placeholder on
-  /// `SimpleExpressionNode::js_ast`, so identifier extraction stays lexical.
+  /// Vize supplies expression text + spans; Oxc-backed adapters should fill
+  /// [`TemplateExpressionFact::identifiers`]. When that list is empty, join
+  /// falls back to a lexical identifier scan (hand-built fixtures / parse miss).
   pub fn join_template_reads(&mut self, template: &TemplateFacts) {
     let binding_names = self
       .bindings
@@ -497,10 +500,11 @@ impl ReactivityGraph {
           } else {
             directive.name.clone()
           };
+          let identifiers = template_expression_identifiers(expression);
           push_template_reads(
             &mut template_reads,
             &binding_names,
-            expression,
+            &identifiers,
             &surface,
             &directive.span,
           );
@@ -508,10 +512,15 @@ impl ReactivityGraph {
       }
     } else {
       for expression in &template.expressions {
+        let identifiers = if expression.identifiers.is_empty() {
+          template_expression_identifiers(&expression.expression)
+        } else {
+          expression.identifiers.clone()
+        };
         push_template_reads(
           &mut template_reads,
           &binding_names,
-          &expression.expression,
+          &identifiers,
           &expression.surface,
           &expression.span,
         );
@@ -588,14 +597,14 @@ impl ReactivityGraph {
 fn push_template_reads(
   template_reads: &mut Vec<TemplateReactiveReadFact>,
   binding_names: &std::collections::BTreeSet<&str>,
-  expression: &str,
+  identifiers: &[String],
   surface: &str,
   span: &SourceSpan,
 ) {
-  for identifier in template_expression_identifiers(expression) {
+  for identifier in identifiers {
     if binding_names.contains(identifier.as_str()) {
       template_reads.push(TemplateReactiveReadFact {
-        binding: identifier,
+        binding: identifier.clone(),
         span: span.clone(),
         surface: surface.into(),
       });

@@ -1,13 +1,14 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use oxc_allocator::Allocator;
 use oxc_ast::{
   AstKind,
   ast::{
-    AssignmentTarget, BindingPattern, Expression, ImportDeclarationSpecifier, ModuleExportName,
-    SimpleAssignmentTarget,
+    AssignmentTarget, BindingPattern, Expression, IdentifierReference, ImportDeclarationSpecifier,
+    ModuleExportName, SimpleAssignmentTarget,
   },
 };
+use oxc_ast_visit::Visit;
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::{SourceType, Span};
@@ -191,6 +192,62 @@ pub fn analyze_module(
   analyze_script(source, source, 0, language, ScriptKind::Script)
 }
 
+/// Collect free identifier reads from one template expression surface.
+///
+/// Uses Oxc's expression parser so static member properties, object keys, and
+/// string/number literals are not mistaken for binding reads. `v-for` surfaces
+/// keep only the iterable source (`item in items` → `items`). On parse failure
+/// the result is empty so callers can fall back to a coarser strategy.
+#[must_use]
+pub fn template_expression_identifiers(expression: &str, surface: &str) -> Vec<String> {
+  let normalized = normalize_template_expression(expression, surface);
+  if normalized.is_empty() {
+    return Vec::new();
+  }
+  let allocator = Allocator::default();
+  let Ok(expr) = Parser::new(&allocator, &normalized, SourceType::mjs()).parse_expression() else {
+    return Vec::new();
+  };
+  let mut collector = IdentifierReferenceCollector::default();
+  collector.visit_expression(&expr);
+  collector.names.into_iter().collect()
+}
+
+fn normalize_template_expression(expression: &str, surface: &str) -> String {
+  let trimmed = expression.trim();
+  if surface == "for"
+    && let Some(source) = v_for_iterable_source(trimmed)
+  {
+    return source;
+  }
+  trimmed.to_owned()
+}
+
+/// Vue `v-for` is `alias in|of source`. Only `source` is a reactive read surface.
+fn v_for_iterable_source(expression: &str) -> Option<String> {
+  for separator in [" in ", " of "] {
+    if let Some((alias, source)) = expression.rsplit_once(separator) {
+      let alias = alias.trim();
+      let source = source.trim();
+      if !alias.is_empty() && !source.is_empty() {
+        return Some(source.to_owned());
+      }
+    }
+  }
+  None
+}
+
+#[derive(Default)]
+struct IdentifierReferenceCollector {
+  names: BTreeSet<String>,
+}
+
+impl<'a> Visit<'a> for IdentifierReferenceCollector {
+  fn visit_identifier_reference(&mut self, identifier: &IdentifierReference<'a>) {
+    self.names.insert(identifier.name.to_string());
+  }
+}
+
 fn source_type(language: &str) -> Result<SourceType, AnalyzeScriptError> {
   match language {
     "js" | "javascript" => Ok(SourceType::mjs()),
@@ -367,6 +424,29 @@ mod tests {
         .bindings
         .iter()
         .any(|binding| binding.name == "input" && binding.initialized_with_null)
+    );
+  }
+
+  #[test]
+  fn template_expression_identifiers_use_oxc_ast_not_property_names() {
+    assert_eq!(
+      template_expression_identifiers("user.name + count", "interpolation"),
+      vec!["count".to_owned(), "user".to_owned()],
+      "static member properties must not be collected as free reads"
+    );
+    assert_eq!(
+      template_expression_identifiers("item in items", "for"),
+      vec!["items".to_owned()],
+      "v-for must join only the iterable source, not the alias"
+    );
+    assert_eq!(
+      template_expression_identifiers("(item, index) of list", "for"),
+      vec!["list".to_owned()],
+      "destructured v-for aliases must not appear as free reads"
+    );
+    assert!(
+      template_expression_identifiers("??? not expression", "if").is_empty(),
+      "parse failures stay quiet so callers can fall back"
     );
   }
 

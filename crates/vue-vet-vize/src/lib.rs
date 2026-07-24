@@ -10,7 +10,7 @@ use vue_vet_core::{
   TemplateAttributeFact, TemplateDirectiveFact, TemplateElementFact, TemplateExpressionFact,
   TemplateFacts,
 };
-use vue_vet_oxc::{AnalyzeScriptError, analyze_script};
+use vue_vet_oxc::{AnalyzeScriptError, analyze_script, template_expression_identifiers};
 use vue_vet_rules::builtin_registry;
 
 #[derive(Debug, Error)]
@@ -244,10 +244,13 @@ fn push_expression_fact(
   let offset = template_offset.saturating_add(position_offset(loc.start.offset));
   let end = template_offset.saturating_add(position_offset(loc.end.offset));
   let length = end.saturating_sub(offset).max(text.len());
+  // Oxc expression AST free-identifier reads (empty on parse miss → join lexical fallback).
+  let identifiers = template_expression_identifiers(&text, surface);
   facts.expressions.push(TemplateExpressionFact {
     surface: surface.into(),
     expression: text,
     span: source_span(source, offset, length),
+    identifiers,
   });
 }
 
@@ -340,9 +343,13 @@ mod tests {
 import { ref } from 'vue'
 const count = ref(0)
 const label = ref('x')
+const user = ref({ name: 'a' })
+const items = ref([1])
+const name = ref('shadow')
 </script>
 <template>
-  <div v-if="count > 0">{{ label }}</div>
+  <div v-if="count > 0" :title="user.name">{{ label }}</div>
+  <li v-for="item in items" :key="item">{{ item }}</li>
 </template>"#;
     let facts = facts_for_test(Path::new("Join.vue"), source);
     let Some(graph) = facts.script.blocks.first().map(|block| &block.reactivity_graph) else {
@@ -355,6 +362,14 @@ const label = ref('x')
       "Vize interpolations must be extracted as expression surfaces"
     );
     assert!(
+      facts.template.expressions.iter().any(|expression| {
+        expression.surface == "title"
+          && expression.identifiers.iter().any(|identifier| identifier == "user")
+          && !expression.identifiers.iter().any(|identifier| identifier == "name")
+      }),
+      "Oxc AST extraction must keep member objects and drop static property names"
+    );
+    assert!(
       graph.template_reads.iter().any(|read| read.binding == "count" && read.surface == "if"),
       "v-if expression must join onto the count binding"
     );
@@ -364,6 +379,22 @@ const label = ref('x')
         .iter()
         .any(|read| read.binding == "label" && read.surface == "interpolation"),
       "mustache interpolation must join onto the label binding"
+    );
+    assert!(
+      graph.template_reads.iter().any(|read| read.binding == "user" && read.surface == "title"),
+      "v-bind member expression must join the object binding"
+    );
+    assert!(
+      !graph.template_reads.iter().any(|read| read.binding == "name"),
+      "static property `name` must not join a same-named reactive binding"
+    );
+    assert!(
+      graph.template_reads.iter().any(|read| read.binding == "items" && read.surface == "for"),
+      "v-for iterable source must join onto items"
+    );
+    assert!(
+      !graph.template_reads.iter().any(|read| read.binding == "item"),
+      "v-for alias must not be treated as a script binding read"
     );
     // Expression spans must be absolute SFC offsets (not template-relative zeros).
     assert!(

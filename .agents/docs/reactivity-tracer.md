@@ -140,8 +140,9 @@ SFC block absolute offsets); the prior gap was vue-vet under-use of that AST.
 | --- | --- |
 | Template directive expression identifiers → script bindings | shipped (`template_reads` + edges) |
 | Interpolation + directive exp/arg surfaces with expression spans | shipped (`TemplateExpressionFact` via Vize) |
-| Lexical identifier join (under-approx) | shipped |
-| Full JS expression AST inside templates | future (`SimpleExpressionNode::js_ast` is still a Vize placeholder) |
+| Oxc AST free-identifier extraction for template expressions | shipped (`vue-vet-oxc::template_expression_identifiers`) |
+| Lexical identifier join fallback | shipped (fixtures / Oxc parse miss) |
+| Nested free-var scoping inside template handlers | partial (collects IdentifierReference; no full scope filter yet) |
 | Cross-file extracted `.vue` script module identity | project-graph concern (not basic SFC offsets — those already work) |
 
 ## Non-goals
@@ -177,9 +178,8 @@ Shipped together as one tracer evolution:
 4. **Boundaries** — `AfterAwait` + `OutsideTracking` for deferred callbacks.
 5. **Module seeds** — destructure + `const bag = useX(); bag.field.value`.
 
-Still open: full template expression AST (beyond identifier scan; Vize `js_ast`
-placeholder), cross-file `.vue` module identity, pauseTracking nested in
-branches edge cases.
+Still open: nested free-var scoping inside inline template handlers, cross-file
+`.vue` module identity, pauseTracking nested in branches edge cases.
 
 ## Evolution wave 2 (landed 2026-07-25)
 
@@ -197,6 +197,14 @@ branches edge cases.
    element directives for hand-built fixtures.
 4. Confirmed against Vize 0.291.0: block offsets, interpolations, expression
    locs are supported; gap was under-extraction, not missing Vize APIs.
+
+## Evolution wave 4 (template expression Oxc AST reads)
+
+1. **`TemplateExpressionFact.identifiers`** — free identifier reads on each surface.
+2. **`vue-vet-oxc::template_expression_identifiers`** — `Parser::parse_expression`
+   + `Visit` over `IdentifierReference` (drops static member props / keys).
+3. **`v-for` source only** — `item in items` / `(a, b) of list` keep iterable side.
+4. Join prefers Oxc identifiers; lexical scan remains the empty-list fallback.
 
 ## Evolution wave 3 (landed 2026-07-25)
 
