@@ -1014,6 +1014,110 @@ fn seeds_composable_instance_member_access() {
 }
 
 #[test]
+fn seeds_export_const_arrow_and_function_composable_instances() {
+  for (label, producer) in [
+    (
+      "export-const-arrow",
+      "import { ref } from 'vue'; export const useSignal = () => ({ signal: ref(0) });",
+    ),
+    (
+      "export-const-function",
+      "import { ref } from 'vue'; export const useSignal = function () { const signal = ref(0); return { signal }; };",
+    ),
+  ] {
+    let modules = [
+      ModuleSource::standalone("producer.ts", producer, "ts", ScriptKind::Script),
+      ModuleSource::standalone(
+        "consumer.ts",
+        "import { watchEffect } from 'vue'; import { useSignal } from './producer'; const bag = useSignal(); watchEffect(() => bag.signal.value);",
+        "ts",
+        ScriptKind::Script,
+      ),
+    ];
+    let links = [ModuleLink {
+      from: "consumer.ts".into(),
+      specifier: "./producer".into(),
+      to: "producer.ts".into(),
+    }];
+    let traced = traced_modules(&modules, &links);
+    let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+    assert!(
+      consumer.is_some_and(|module| {
+        module.graph.composable_instances.contains_key("bag")
+          && module.graph.effects.iter().any(|effect| {
+            effect.reads.iter().any(|read| {
+              read.binding == "signal"
+                && read.property.as_deref() == Some("value")
+                && read.kind == ReactiveReadKind::Unconditional
+            })
+          })
+      }),
+      "{label}: export const useX must seed bag.signal across modules; got {:?}",
+      consumer.map(|module| {
+        (
+          module.graph.composable_instances.clone(),
+          module
+            .graph
+            .effects
+            .iter()
+            .flat_map(|effect| effect.reads.iter().map(|read| read.binding.clone()))
+            .collect::<Vec<_>>(),
+        )
+      })
+    );
+  }
+}
+
+#[test]
+fn seeds_default_export_function_composable_instance() {
+  let modules = [
+    ModuleSource::standalone(
+      "producer.ts",
+      "import { ref } from 'vue'; export default function useSignal() { return { signal: ref(0) }; }",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { watchEffect } from 'vue'; import useSignal from './producer'; const bag = useSignal(); watchEffect(() => bag.signal.value);",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./producer".into(),
+    to: "producer.ts".into(),
+  }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.composable_instances.contains_key("bag")
+        && module.graph.effects.iter().any(|effect| {
+          effect.reads.iter().any(|read| {
+            read.binding == "signal"
+              && read.property.as_deref() == Some("value")
+              && read.kind == ReactiveReadKind::Unconditional
+          })
+        })
+    }),
+    "export default function useX must seed bag.signal; got {:?}",
+    consumer.map(|module| {
+      (
+        module.graph.composable_instances.clone(),
+        module
+          .graph
+          .effects
+          .iter()
+          .flat_map(|effect| effect.reads.iter().map(|read| read.binding.clone()))
+          .collect::<Vec<_>>(),
+      )
+    })
+  );
+}
+
+#[test]
 fn instance_seed_does_not_pollute_top_level_bindings() {
   let modules = [
     ModuleSource::standalone(

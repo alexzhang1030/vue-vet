@@ -302,6 +302,7 @@ fn collect_local_values(
     .map(|binding| (binding.name.clone(), ExportState::Known(binding.kind)))
     .collect::<BTreeMap<_, _>>();
 
+  // `function useX() { return { field } }` (incl. `export default function useX`)
   for node in semantic.nodes() {
     let AstKind::Function(function) = node.kind() else {
       continue;
@@ -314,6 +315,29 @@ fn collect_local_values(
     if !shape.is_empty() {
       locals.insert(identifier.name.to_string(), ExportState::Composable(shape));
     }
+  }
+
+  // `const useX = () => ({ … })` / `export const useX = function () { … }`
+  for node in semantic.nodes() {
+    let AstKind::VariableDeclarator(declarator) = node.kind() else {
+      continue;
+    };
+    let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
+      continue;
+    };
+    let Some(init) = &declarator.init else {
+      continue;
+    };
+    let function_id = match init {
+      Expression::ArrowFunctionExpression(arrow) => arrow.node_id.get(),
+      Expression::FunctionExpression(function) => function.node_id.get(),
+      _ => continue,
+    };
+    let shape = composable_return_shape(semantic, function_id, shape_graph, script_offset);
+    if shape.is_empty() {
+      continue;
+    }
+    locals.insert(identifier.name.to_string(), ExportState::Composable(shape));
   }
   locals
 }
@@ -644,14 +668,24 @@ fn collect_exports(semantic: &oxc_semantic::Semantic<'_>) -> Vec<ExportSummary> 
           }
         }
       }
-      AstKind::ExportDefaultDeclaration(declaration) => {
-        if let ExportDefaultDeclarationKind::Identifier(identifier) = &declaration.declaration {
+      AstKind::ExportDefaultDeclaration(declaration) => match &declaration.declaration {
+        ExportDefaultDeclarationKind::Identifier(identifier) => {
           exports.push(ExportSummary::Local {
             local: identifier.name.to_string(),
             exported: "default".into(),
           });
         }
-      }
+        ExportDefaultDeclarationKind::FunctionDeclaration(function) => {
+          // `export default function useX() { … }` — local name is the function id.
+          if let Some(identifier) = &function.id {
+            exports.push(ExportSummary::Local {
+              local: identifier.name.to_string(),
+              exported: "default".into(),
+            });
+          }
+        }
+        _ => {}
+      },
       AstKind::ExportAllDeclaration(declaration) if declaration.exported.is_none() => {
         exports.push(ExportSummary::Star { source: declaration.source.value.to_string() });
       }

@@ -44,7 +44,7 @@ Contract version: **`REACTIVITY_GRAPH_VERSION = 5`** (scopes, writes, edges,
 | A3 Reads | partial | `.value` / reactive members / bag.field / **sync Array HOF** (filter/map/forEach/reduce/flatMap/every/find/…) / **watch ref sources use `.value` key** |
 | A4 Conditions | deep | if / early-exit / ternary / short-circuit / switch roles — do not deepen further yet |
 | A5 Boundaries | partial | await, pauseTracking, deferred callbacks, watch jobs |
-| A6 Modules | partial | composable shapes, parametric `toRef`, SFC module identity, seed→rules; **instance bags retained on graph for template `bag.field` joins**; **same-file `useX()` instance/destructure seeds (incl. SFC script offset)**; no top-level field pollution |
+| A6 Modules | partial | composable shapes, parametric `toRef`, SFC module identity, seed→rules; **instance bags retained on graph for template `bag.field` joins**; **same-file `useX()`**; **`export const useX = () =>` / `export default function useX`** cross-module bags; no top-level field pollution |
 | A7 Contract | improving | **v5**: + `composable_instances`; `from` labels as v4; `to` still bare binding names |
 | Evidence | improving | Runtime oracle **tracer ⊆ runtime** + ≥99% recall; **all 200 local fixtures** pin exhaustive `expected.reads`; SFC E2E for defineProps, cross-module instance template join, **same-file SFC bag.field template join** |
 
@@ -158,3 +158,4 @@ growing prose ledger.
 | 2026-07-25 | SFC E2E | defineProps+template; seeded instance bag template join; every/find oracle |
 | 2026-07-25 | Same-file local composables | `function useX` / `const useX = () =>` shapes; bag.field + destructure seeds; nested refs not published |
 | 2026-07-25 | SFC offset shape resolution | `composable_return_shape` uses binding script_offset; same-file bag works in Vize/project SFC path |
+| 2026-07-25 | Export const / default composables | module locals include const arrow/function shapes; default export named functions seed consumers |

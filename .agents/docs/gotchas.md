@@ -194,3 +194,8 @@ Composable return-shape resolution must use the **same `script_offset`** as
 binding spans. Hardcoding offset `0` makes `return { signal }` miss nested refs
 inside SFC `<script setup>` (absolute spans) and silently drops same-file
 instance bags — a quiet A6 failure, not under-approx by design.
+
+Cross-module export shapes are not only `export function useX`. Also register:
+- `export const useX = () => ({ … })` / `export const useX = function () { … }`
+- `export default function useX() { … }` (exported name `default`, local name `useX`)
+Anonymous default arrows stay quiet (no local name to hang a shape on).
