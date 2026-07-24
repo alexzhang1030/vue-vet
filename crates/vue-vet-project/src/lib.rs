@@ -17,6 +17,9 @@ pub struct ProjectFile {
   pub source_len: usize,
   pub facts: SfcFacts,
   pub module_source: Option<ModuleSource>,
+  /// Ordinary `<script>` companion when dual-script SFCs also have setup
+  /// (`id` ends with `#script`).
+  pub ordinary_module_source: Option<ModuleSource>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -93,9 +96,16 @@ pub fn build_project_graph(files: &[ProjectFile]) -> ProjectGraph {
     .collect::<BTreeMap<_, _>>();
   let module_sources = ordered
     .iter()
-    .filter_map(|file| file.module_source.clone())
+    .flat_map(|file| {
+      [file.module_source.clone(), file.ordinary_module_source.clone()].into_iter().flatten()
+    })
     .map(|mut module| {
-      module.id = normalized_path(Path::new(&module.id));
+      // Preserve `#script` dual suffix while normalizing the path prefix.
+      if let Some((base, suffix)) = module.id.rsplit_once('#') {
+        module.id = format!("{}#{suffix}", normalized_path(Path::new(base)));
+      } else {
+        module.id = normalized_path(Path::new(&module.id));
+      }
       module
     })
     .collect::<Vec<_>>();
@@ -115,12 +125,15 @@ pub fn build_project_graph(files: &[ProjectFile]) -> ProjectGraph {
           if let Some(to) = node_by_path.get(&target) {
             edges.push(edge(&from, to, EdgeKind::Import, &import.source, import.span.clone()));
           }
-          if module_ids.contains(&path) && module_ids.contains(&target) {
-            module_links.push(ModuleLink {
-              from: path.clone(),
-              specifier: import.source.clone(),
-              to: target,
-            });
+          // Link primary module id and dual `#script` companion when both re-trace.
+          for module_from in [&path, &format!("{path}#script")] {
+            if module_ids.contains(module_from.as_str()) && module_ids.contains(&target) {
+              module_links.push(ModuleLink {
+                from: module_from.clone(),
+                specifier: import.source.clone(),
+                to: target.clone(),
+              });
+            }
           }
         }
         Resolution::External(package) => {
@@ -426,6 +439,7 @@ mod tests {
       source_len: 100,
       facts: SfcFacts { template, script },
       module_source: None,
+      ordinary_module_source: None,
     }
   }
 
@@ -496,6 +510,7 @@ mod tests {
         "ts",
         ScriptKind::Script,
       )),
+      ordinary_module_source: None,
     };
     let consumer = ProjectFile {
       path: "pages/index.vue".into(),
@@ -536,6 +551,7 @@ mod tests {
         script_offset,
         sfc,
       )),
+      ordinary_module_source: None,
     };
     let graph = build_project_graph(&[producer, consumer]);
     assert!(

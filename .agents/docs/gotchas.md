@@ -163,12 +163,23 @@ remain outside.
 `#imports`) are allowlisted reactivity sources. Unknown package callees stay
 quiet. Do not treat every `use*` auto-import as reactive without evidence.
 
-## Edge `from` labels (graph v4)
+## Edge `from` / `to_id` labels (graph v4–v6)
 
 Computed edges prefer the assigned binding name (`doubled`). Other scopes use
 `{kind}:{callee}@{offset}`. Template joins use `template:{surface}@{offset}` so
-multiple interpolations do not collapse. `to` remains a bare binding name for
-consumer matching until symbol/module IDs land.
+multiple interpolations do not collapse. **`to` stays a bare binding name** for
+rule matching (`unused-binding` etc.). Graph **v6** adds optional
+`to_id = {name}@{offset}` (read span) via `ReactiveDependencyEdge::to_identity()`.
+
+## Dual ordinary + setup scripts
+
+When both `<script>` and `<script setup>` exist, Vize emits:
+- primary `module_source` = setup (id = file path)
+- `ordinary_module_source` = ordinary (id = `{path}#script`)
+
+Project re-traces both with seeds; CLI applies setup graph to Setup blocks and
+`#script` graph to ordinary Script blocks. Prefer-setup alone dropped ordinary
+seeded analysis.
 
 ## Instance seeds are bags, not field injections
 

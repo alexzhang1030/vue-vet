@@ -270,6 +270,10 @@ fn scan(root: &Path, config: &Config) -> Result<ScanResult, String> {
             module.id.clone_from(&module_id);
             module
           }),
+          ordinary_module_source: analysis.ordinary_module_source.map(|mut module| {
+            module.id = format!("{module_id}#script");
+            module
+          }),
         });
         pending_vue.push(PendingVueFile {
           path: path.to_path_buf(),
@@ -297,6 +301,7 @@ fn scan(root: &Path, config: &Config) -> Result<ScanResult, String> {
             language,
             vue_vet_core::ScriptKind::Script,
           )),
+          ordinary_module_source: None,
         });
       }
       _ => {}
@@ -315,6 +320,10 @@ fn scan(root: &Path, config: &Config) -> Result<ScanResult, String> {
     if let Some(graph) = modules.get(module_id.as_str()) {
       // Prefer the project-linked graph (composable seeds + template joins).
       facts.apply_module_reactivity((*graph).clone());
+    }
+    let ordinary_id = format!("{module_id}#script");
+    if let Some(graph) = modules.get(ordinary_id.as_str()) {
+      facts.apply_module_reactivity_for(vue_vet_core::ScriptKind::Script, (*graph).clone());
     }
     let diagnostics = builtin_registry().run_with_environment(
       &pending.path,

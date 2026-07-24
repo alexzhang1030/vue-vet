@@ -34,27 +34,26 @@ JavaScript soundness.
 
 ## Current baseline (honest)
 
-Contract version: **`REACTIVITY_GRAPH_VERSION = 5`** (scopes, writes, edges,
-`template_reads`, effects projection, edge `from` labels, **`composable_instances`**).
+Contract version: **`REACTIVITY_GRAPH_VERSION = 6`** (v5 + **`edge.to_id`** span-qualified
+identities; bare `to` retained for rule matching).
 
 | Axis | Status | Gap |
 | --- | --- | --- |
-| A1 Bindings | partial | Vue primitives, aliases, `#imports`, `defineModel`, `defineProps`, **`storeToRefs` (pinia/#imports)**, **`useRoute`/`useRouter`**, module seeds |
+| A1 Bindings | partial | Vue primitives, aliases, `#imports`, `defineModel`, `defineProps`, **`storeToRefs`**, **`useRoute`/`useRouter`**, **`unref`/`toValue` reads**, module seeds |
 | A2 Scopes | partial | effects, computed, watch (sources + callback outside), effectScope (`.run` requires provenance), dispose |
-| A3 Reads | partial | `.value` / reactive members / bag.field / **sync Array HOF** (filter/map/forEach/reduce/flatMap/every/find/…) / **watch ref sources use `.value` key** |
+| A3 Reads | partial | `.value` / reactive members / bag.field / **sync Array HOF** / **watch ref sources `.value`** / **`unref`/`toValue`** |
 | A4 Conditions | deep | if / early-exit / ternary / short-circuit / switch roles — do not deepen further yet |
 | A5 Boundaries | partial | await, pauseTracking, deferred callbacks, watch jobs |
-| A6 Modules | partial | composable shapes, parametric `toRef`, SFC module identity, seed→rules; **instance bags retained on graph for template `bag.field` joins**; **same-file `useX()`**; **`export const useX = () =>` / `export default function useX`** cross-module bags; no top-level field pollution |
-| A7 Contract | improving | **v5**: + `composable_instances`; `from` labels as v4; `to` still bare binding names |
-| Evidence | improving | Runtime oracle **tracer ⊆ runtime** + ≥99% recall; **all 200 local fixtures** pin exhaustive `expected.reads`; SFC E2E for defineProps, cross-module instance template join, **same-file SFC bag.field template join** |
+| A6 Modules | partial | composable shapes; instance bags; same-file + export const/default; **dual script: setup + `path#script` ordinary re-trace** |
+| A7 Contract | improving | **v6**: `to_id = name@offset`; bare `to` still for consumers |
+| Evidence | improving | Runtime oracle; exhaustive local fixtures; SFC E2E defineProps/instance/dual module sources |
 
 ### Deferred (honest — not “done”)
 
 | Gap | Why deferred |
 | --- | --- |
 | Bare `watch(reactiveObj)` deep keys | Runtime tracks iterate + many property keys; property-less static dep invents identity |
-| Edge `to` symbol/module IDs | Consumers match bare binding names; L5 contract bump separate |
-| Dual ordinary+setup script merge | Preferred block only (`setup` first); not one merged module |
+| Full module-qualified `to` (module:name) | `to_id` is span-local; cross-module symbol IDs still optional |
 | Further A4 control-flow depth | Already deep; wrong axis for recall |
 | Whole-program JS soundness | Charter: under-approx Vue tracking, not full alias analysis |
 
@@ -159,3 +158,6 @@ growing prose ledger.
 | 2026-07-25 | Same-file local composables | `function useX` / `const useX = () =>` shapes; bag.field + destructure seeds; nested refs not published |
 | 2026-07-25 | SFC offset shape resolution | `composable_return_shape` uses binding script_offset; same-file bag works in Vize/project SFC path |
 | 2026-07-25 | Export const / default composables | module locals include const arrow/function shapes; default export named functions seed consumers |
+| 2026-07-25 | Graph v6 `to_id` | edges carry `name@offset`; bare `to` kept for unused-binding etc. |
+| 2026-07-25 | unref / toValue | sync tracking reads of ref-like first args |
+| 2026-07-25 | Dual script modules | setup id + ordinary `path#script`; CLI applies both seeded graphs |

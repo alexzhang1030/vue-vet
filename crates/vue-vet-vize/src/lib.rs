@@ -33,6 +33,9 @@ pub struct AnalyzedSfc {
   pub facts: SfcFacts,
   /// Preferred script block for cross-module reactivity (`script setup` > `script`).
   pub module_source: Option<ModuleSource>,
+  /// Ordinary `<script>` block when dual-script SFCs also have `<script setup>`.
+  /// Id is `{path}#script` so both blocks re-trace with module seeds independently.
+  pub ordinary_module_source: Option<ModuleSource>,
 }
 
 /// Analyze one Vue single-file component.
@@ -91,7 +94,7 @@ pub fn analyze_sfc_facts_with_environment(
 ) -> Result<AnalyzedSfc, AnalyzeError> {
   let descriptor = parse_sfc(source, SfcParseOptions::default())
     .map_err(|error| AnalyzeError::Parse(error.message.into()))?;
-  let module_source = preferred_module_source(path, source, &descriptor);
+  let (module_source, ordinary_module_source) = dual_module_sources(path, source, &descriptor);
   let template = if let Some(template) = descriptor.template {
     // Vize already supplies template content + absolute SFC content offsets.
     extract_template_facts(source, &template.content, template.loc.start)?
@@ -122,36 +125,48 @@ pub fn analyze_sfc_facts_with_environment(
   for block in &mut script.blocks {
     block.reactivity_graph.join_template_reads(&template);
   }
-  Ok(AnalyzedSfc { diagnostics: Vec::new(), facts: SfcFacts { template, script }, module_source })
+  Ok(AnalyzedSfc {
+    diagnostics: Vec::new(),
+    facts: SfcFacts { template, script },
+    module_source,
+    ordinary_module_source,
+  })
 }
 
-fn preferred_module_source(
+/// Primary (`script setup` preferred) and optional ordinary dual companion.
+fn dual_module_sources(
   path: &Path,
   sfc_source: &str,
   descriptor: &SfcDescriptor<'_>,
-) -> Option<ModuleSource> {
+) -> (Option<ModuleSource>, Option<ModuleSource>) {
   let id = path.to_string_lossy().replace('\\', "/");
-  if let Some(block) = &descriptor.script_setup {
-    return Some(ModuleSource::sfc_script(
-      id,
+  let setup = descriptor.script_setup.as_ref().map(|block| {
+    ModuleSource::sfc_script(
+      id.clone(),
       block.content.as_ref(),
       block.lang.as_deref().unwrap_or("js"),
       ScriptKind::Setup,
       block.loc.start,
       sfc_source,
-    ));
-  }
-  if let Some(block) = &descriptor.script {
-    return Some(ModuleSource::sfc_script(
-      id,
+    )
+  });
+  let ordinary = descriptor.script.as_ref().map(|block| {
+    ModuleSource::sfc_script(
+      // Dual companion id so both blocks re-trace with seeds independently.
+      if setup.is_some() { format!("{id}#script") } else { id.clone() },
       block.content.as_ref(),
       block.lang.as_deref().unwrap_or("js"),
       ScriptKind::Script,
       block.loc.start,
       sfc_source,
-    ));
+    )
+  });
+  match (setup, ordinary) {
+    (Some(setup), Some(ordinary)) => (Some(setup), Some(ordinary)),
+    (Some(setup), None) => (Some(setup), None),
+    (None, Some(ordinary)) => (Some(ordinary), None),
+    (None, None) => (None, None),
   }
-  None
 }
 
 fn extract_template_facts(
@@ -665,6 +680,50 @@ const doubled = computed(() => props.count * 2)
   }
 
   #[test]
+  fn dual_script_emits_setup_and_ordinary_module_sources() {
+    let source = r#"<script lang="ts">
+import { ref } from 'vue'
+export function useShared() {
+  const shared = ref(0)
+  return { shared }
+}
+</script>
+<script setup lang="ts">
+import { watchEffect } from 'vue'
+import { useShared } from './unused'
+const bag = useShared()
+watchEffect(() => { void bag.shared.value })
+</script>
+<template><p>{{ bag.shared }}</p></template>
+"#;
+    let analysis = analysis_for_test(Path::new("Dual.vue"), source);
+    assert!(
+      analysis.module_source.as_ref().is_some_and(|module| {
+        module.kind == ScriptKind::Setup && module.id == "Dual.vue" && module.source.contains("bag")
+      }),
+      "primary module source must be script setup"
+    );
+    assert!(
+      analysis.ordinary_module_source.as_ref().is_some_and(|module| {
+        module.kind == ScriptKind::Script
+          && module.id == "Dual.vue#script"
+          && module.source.contains("useShared")
+      }),
+      "dual ordinary companion must use #script id; got {:?}",
+      analysis.ordinary_module_source.as_ref().map(|module| (
+        &module.id,
+        module.kind,
+        &module.source
+      ))
+    );
+    assert_eq!(
+      analysis.facts.script.blocks.len(),
+      2,
+      "both script blocks must be analyzed for rules"
+    );
+  }
+
+  #[test]
   fn same_file_composable_instance_tracks_and_joins_template_in_sfc() {
     use std::path::PathBuf;
     use vue_vet_project::{ProjectFile, build_project_graph};
@@ -729,6 +788,7 @@ watchEffect(() => { void bag.signal.value })
         source_len: sfc.len(),
         facts: analysis.facts,
         module_source: Some(module),
+        ordinary_module_source: None,
       }];
       let project = build_project_graph(&files);
       let page = project.module_reactivity.iter().find(|module| module.id == "LocalBag.vue");
@@ -783,12 +843,14 @@ watchEffect(() => { void bag.signal.value })
           "ts",
           ScriptKind::Script,
         )),
+        ordinary_module_source: None,
       },
       ProjectFile {
         path: PathBuf::from("App.vue"),
         source_len: sfc.len(),
         facts: analysis.facts,
         module_source: analysis.module_source,
+        ordinary_module_source: None,
       },
     ];
     let graph = build_project_graph(&files);
@@ -890,6 +952,7 @@ const count = ref(0)
           module.id = "App.vue".into();
           module
         }),
+        ordinary_module_source: None,
       },
       ProjectFile {
         path: PathBuf::from("composables/useField.ts"),
@@ -901,6 +964,7 @@ const count = ref(0)
           "ts",
           ScriptKind::Script,
         )),
+        ordinary_module_source: None,
       },
     ];
     let graph = build_project_graph(&files);

@@ -345,6 +345,8 @@ fn known_reactivity_export(source: &str, imported: &str) -> bool {
             | "pauseTracking"
             | "enableTracking"
             | "resetTracking"
+            | "unref"
+            | "toValue"
         )
     }
     "pinia" => matches!(imported, "storeToRefs"),
@@ -665,6 +667,7 @@ fn collect_scope_reads(
   scope_id: NodeId,
   reactive_bindings: &[ReactiveBindingFact],
   composable_instances: &BTreeMap<String, BTreeMap<String, ReactiveBindingKind>>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
   script_offset: usize,
 ) -> Vec<RawReactiveRead> {
   let mut reads = semantic
@@ -703,6 +706,29 @@ fn collect_scope_reads(
           binding: member.property.name.to_string(),
           property: Some(member.property.name.to_string()),
           span: member.span,
+          outside_tracking,
+        });
+      }
+
+      // `unref(x)` / `toValue(x)` track ref-like bindings (runtime reads `.value`).
+      if let AstKind::CallExpression(call) = member_node.kind()
+        && let Some(callee) =
+          resolved_vue_callee(&call.callee, imported_bindings, ScriptKind::Setup)
+        && matches!(callee.as_str(), "unref" | "toValue")
+        && let Some(argument) = call.arguments.first().and_then(Argument::as_expression)
+        && let Some(identifier) = argument.get_identifier_reference()
+      {
+        let (_, outside_tracking) = scope_context(semantic, scope_id, member_id, call.span)?;
+        let binding = reactive_bindings.iter().find(|binding| {
+          binding.name == identifier.name.as_str()
+            && reference_resolves_to_binding(semantic, identifier, binding, script_offset)
+            && is_ref_like(binding.kind)
+        })?;
+        return Some(RawReactiveRead {
+          node_id: member_id,
+          binding: binding.name.clone(),
+          property: Some("value".into()),
+          span: call.span,
           outside_tracking,
         });
       }
@@ -1184,6 +1210,7 @@ fn collect_tracking_scopes(
         scope_id,
         reactive_bindings,
         composable_instances,
+        imported_bindings,
         script_offset,
       );
       let reads = raw_reads
@@ -1242,6 +1269,7 @@ fn collect_tracking_scopes(
           scope_id,
           reactive_bindings,
           composable_instances,
+          imported_bindings,
           script_offset,
         );
         let mut reads = raw_reads
@@ -1295,6 +1323,7 @@ fn collect_tracking_scopes(
             scope_id,
             reactive_bindings,
             composable_instances,
+            imported_bindings,
             script_offset,
           );
           let reads = raw_reads
@@ -1360,6 +1389,7 @@ fn collect_tracking_scopes(
             scope_id,
             reactive_bindings,
             composable_instances,
+            imported_bindings,
             script_offset,
           );
           let reads = raw_reads
@@ -1430,6 +1460,7 @@ fn collect_watch_source_reads(
         scope_id,
         reactive_bindings,
         composable_instances,
+        imported_bindings,
         script_offset,
       );
       raw_reads
@@ -1456,6 +1487,7 @@ fn collect_watch_source_reads(
         scope_id,
         reactive_bindings,
         composable_instances,
+        imported_bindings,
         script_offset,
       );
       raw_reads

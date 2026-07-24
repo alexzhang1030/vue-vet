@@ -394,10 +394,22 @@ pub struct TrackingScopeFact {
 pub struct ReactiveDependencyEdge {
   /// Dependent binding or synthetic scope label.
   pub from: String,
-  /// Dependency binding that `from` reads.
+  /// Dependency binding name that `from` reads (bare; rules match on this).
   pub to: String,
+  /// Span-qualified identity `{name}@{offset}` for multi-consumer disambiguation.
+  /// Absent on legacy payloads; equals bare `to` when offset is unknown.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub to_id: Option<String>,
   pub kind: ReactiveDependencyKind,
   pub span: SourceSpan,
+}
+
+impl ReactiveDependencyEdge {
+  /// Prefer span-qualified `to_id`, else bare [`Self::to`].
+  #[must_use]
+  pub fn to_identity(&self) -> &str {
+    self.to_id.as_deref().unwrap_or(self.to.as_str())
+  }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -418,7 +430,7 @@ pub struct ReactivityEffectFact {
 
 /// Wire format version for [`ReactivityGraph`]. Bump when consumers must
 /// distinguish shape or semantic changes in serialized facts.
-pub const REACTIVITY_GRAPH_VERSION: u32 = 5;
+pub const REACTIVITY_GRAPH_VERSION: u32 = 6;
 
 const fn default_reactivity_graph_version() -> u32 {
   1
@@ -606,9 +618,10 @@ impl ReactivityGraph {
         }
         edges.push(ReactiveDependencyEdge {
           from: from.clone(),
-          // Binding name only for now — consumers (e.g. unused-binding) match on it.
-          // Module/symbol-qualified IDs remain a follow-up contract step.
+          // Bare name for rule matching (e.g. unused-binding).
           to: read.binding.clone(),
+          // Span-qualified for multi-consumer identity (graph v6).
+          to_id: Some(format!("{}@{}", read.binding, read.span.offset)),
           kind,
           span: read.span.clone(),
         });
@@ -619,6 +632,7 @@ impl ReactivityGraph {
         // Span-qualified so multiple interpolations are distinct nodes.
         from: format!("template:{}@{}", template_read.surface, template_read.span.offset),
         to: template_read.binding.clone(),
+        to_id: Some(format!("{}@{}", template_read.binding, template_read.span.offset)),
         kind: ReactiveDependencyKind::Template,
         span: template_read.span.clone(),
       });
@@ -807,12 +821,19 @@ impl SfcFacts {
   /// Replace the preferred script block's reactivity graph with a project-linked
   /// module graph (usually after cross-file seed linking). Prefers `script setup`.
   pub fn apply_module_reactivity(&mut self, graph: ReactivityGraph) {
-    if let Some(block) = self.script.blocks.iter_mut().find(|block| block.kind == ScriptKind::Setup)
-    {
+    self.apply_module_reactivity_for(ScriptKind::Setup, graph);
+  }
+
+  /// Apply a project-linked graph onto the script block of the given kind.
+  /// Falls back to the first block when the preferred kind is absent.
+  pub fn apply_module_reactivity_for(&mut self, kind: ScriptKind, graph: ReactivityGraph) {
+    if let Some(block) = self.script.blocks.iter_mut().find(|block| block.kind == kind) {
       block.reactivity_graph = graph;
       return;
     }
-    if let Some(block) = self.script.blocks.first_mut() {
+    if kind == ScriptKind::Setup
+      && let Some(block) = self.script.blocks.first_mut()
+    {
       block.reactivity_graph = graph;
     }
   }

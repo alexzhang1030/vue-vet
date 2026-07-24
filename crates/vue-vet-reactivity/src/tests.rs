@@ -865,6 +865,52 @@ fn seeds_parametric_composable_to_ref_fields() {
 }
 
 #[test]
+fn unref_and_to_value_track_ref_like_bindings() {
+  for (label, source) in [
+    (
+      "unref",
+      "import { ref, computed, unref } from 'vue'; const count = ref(1); const d = computed(() => unref(count) * 2); void d.value;",
+    ),
+    (
+      "toValue",
+      "import { ref, computed, toValue } from 'vue'; const count = ref(1); const d = computed(() => toValue(count) * 2); void d.value;",
+    ),
+  ] {
+    let graph = graph(source);
+    assert!(
+      graph.scopes.iter().any(|scope| {
+        scope.kind == TrackingScopeKind::Computed
+          && scope.reads.iter().any(|read| {
+            read.binding == "count"
+              && read.property.as_deref() == Some("value")
+              && read.kind == ReactiveReadKind::Unconditional
+          })
+      }),
+      "{label}(count) must track count.value; scopes={:?}",
+      graph.scopes
+    );
+  }
+}
+
+#[test]
+fn dependency_edges_include_span_qualified_to_id() {
+  let graph = graph(
+    "import { ref, computed } from 'vue'; const source = ref(1); const doubled = computed(() => source.value * 2);",
+  );
+  let edge = graph.edges.iter().find(|edge| {
+    edge.kind == ReactiveDependencyKind::Computed && edge.from == "doubled" && edge.to == "source"
+  });
+  assert!(
+    edge.is_some_and(|edge| {
+      edge.to_id.as_deref().is_some_and(|id| id.starts_with("source@"))
+        && edge.to_identity().split('@').next() == Some("source")
+    }),
+    "v6 edges must carry span-qualified to_id; got {:?}",
+    edge.map(|edge| &edge.to_id)
+  );
+}
+
+#[test]
 fn local_composable_instance_member_access() {
   for source in [
     "import { ref, watchEffect } from 'vue'; function useSignal() { const signal = ref(0); return { signal }; } const bag = useSignal(); watchEffect(() => bag.signal.value);",
