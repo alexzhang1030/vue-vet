@@ -226,9 +226,69 @@ pub struct ReactiveBindingFact {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReactiveReadKind {
+  /// Reached on every synchronous execution of the tracking scope.
   Unconditional,
+  /// Reached only when control-flow guards pass.
   Conditional,
+  /// Occurs after a top-level `await` that ends Vue's synchronous collection.
   AfterAwait,
+  /// Occurs outside synchronous tracking (e.g. `then` / `nextTick` callbacks).
+  OutsideTracking,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReactiveGuardRole {
+  /// `if (test) return` (or equivalent) before the read.
+  EarlyExit,
+  /// The read sits in a branch controlled by this test.
+  #[default]
+  BranchTest,
+  /// Short-circuit right-hand side guarded by the left-hand expression.
+  ShortCircuit,
+  /// The read sits in a `switch` case controlled by the discriminant.
+  SwitchDiscriminant,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TrackingScopeKind {
+  WatchEffect,
+  WatchPostEffect,
+  WatchSyncEffect,
+  Computed,
+  WatchSources,
+}
+
+impl TrackingScopeKind {
+  /// Effect-family scopes project into the legacy `effects` field.
+  #[must_use]
+  pub const fn is_effect_family(self) -> bool {
+    matches!(self, Self::WatchEffect | Self::WatchPostEffect | Self::WatchSyncEffect)
+  }
+
+  #[must_use]
+  pub const fn as_callee(self) -> &'static str {
+    match self {
+      Self::WatchEffect => "watchEffect",
+      Self::WatchPostEffect => "watchPostEffect",
+      Self::WatchSyncEffect => "watchSyncEffect",
+      Self::Computed => "computed",
+      Self::WatchSources => "watch",
+    }
+  }
+
+  #[must_use]
+  pub fn from_vue_callee(callee: &str) -> Option<Self> {
+    match callee {
+      "watchEffect" => Some(Self::WatchEffect),
+      "watchPostEffect" => Some(Self::WatchPostEffect),
+      "watchSyncEffect" => Some(Self::WatchSyncEffect),
+      "computed" => Some(Self::Computed),
+      "watch" => Some(Self::WatchSources),
+      _ => None,
+    }
+  }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -236,6 +296,8 @@ pub struct ReactiveGuardFact {
   pub binding: String,
   pub property: Option<String>,
   pub span: SourceSpan,
+  #[serde(default)]
+  pub role: ReactiveGuardRole,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -250,6 +312,16 @@ pub struct ReactiveReadFact {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TrackingScopeFact {
+  pub kind: TrackingScopeKind,
+  /// Canonical Vue callee name (`watchEffect`, `computed`, `watch`, …).
+  pub callee: String,
+  pub span: SourceSpan,
+  pub reads: Vec<ReactiveReadFact>,
+}
+
+/// Legacy projection of effect-family tracking scopes.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ReactivityEffectFact {
   pub callee: String,
   pub span: SourceSpan,
@@ -259,7 +331,27 @@ pub struct ReactivityEffectFact {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ReactivityGraph {
   pub bindings: Vec<ReactiveBindingFact>,
+  /// All tracking scopes (effects, computed, watch sources, …).
+  #[serde(default)]
+  pub scopes: Vec<TrackingScopeFact>,
+  /// Backward-compatible projection of effect-family scopes.
   pub effects: Vec<ReactivityEffectFact>,
+}
+
+impl ReactivityGraph {
+  /// Rebuild the legacy `effects` projection from `scopes`.
+  pub fn project_effects_from_scopes(&mut self) {
+    self.effects = self
+      .scopes
+      .iter()
+      .filter(|scope| scope.kind.is_effect_family())
+      .map(|scope| ReactivityEffectFact {
+        callee: scope.callee.clone(),
+        span: scope.span.clone(),
+        reads: scope.reads.clone(),
+      })
+      .collect();
+  }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

@@ -10,11 +10,11 @@ use oxc_ast::{
 use oxc_semantic::{NodeId, Semantic};
 use oxc_span::{GetSpan, Span};
 use vue_vet_core::{
-  ReactiveBindingFact, ReactiveBindingKind, ReactiveGuardFact, ReactiveReadFact, ReactiveReadKind,
-  ReactivityEffectFact, ReactivityGraph, ScriptKind, SourceSpan,
+  ReactiveBindingFact, ReactiveBindingKind, ReactiveGuardFact, ReactiveGuardRole, ReactiveReadFact,
+  ReactiveReadKind, ReactivityGraph, ScriptKind, SourceSpan, TrackingScopeFact, TrackingScopeKind,
 };
 
-/// Trace Vue reactive bindings and effect dependencies from an Oxc semantic model.
+/// Trace Vue reactive bindings and tracking-scope dependencies from an Oxc semantic model.
 ///
 /// The returned graph contains only Vue Vet-owned serializable facts. Oxc nodes
 /// remain an implementation detail of this crate.
@@ -29,7 +29,14 @@ pub fn trace_reactivity(
   script_offset: usize,
   script_kind: ScriptKind,
 ) -> ReactivityGraph {
-  trace_reactivity_seeded(semantic, sfc_source, script_offset, script_kind, &[])
+  trace_reactivity_seeded(semantic, sfc_source, script_offset, script_kind, &TraceSeeds::default())
+}
+
+#[derive(Clone, Debug, Default)]
+struct TraceSeeds {
+  bindings: Vec<ReactiveBindingFact>,
+  /// `const bag = useFoo()` locals mapped to composable return field kinds.
+  composable_instances: BTreeMap<String, BTreeMap<String, ReactiveBindingKind>>,
 }
 
 fn trace_reactivity_seeded(
@@ -37,21 +44,29 @@ fn trace_reactivity_seeded(
   sfc_source: &str,
   script_offset: usize,
   script_kind: ScriptKind,
-  seed_bindings: &[ReactiveBindingFact],
+  seeds: &TraceSeeds,
 ) -> ReactivityGraph {
   let imported_bindings = collect_imported_bindings(semantic);
   let mut bindings =
     collect_reactive_bindings(semantic, &imported_bindings, sfc_source, script_offset, script_kind);
-  for binding in seed_bindings {
+  for binding in &seeds.bindings {
     if !bindings.iter().any(|local| local.name == binding.name) {
       bindings.push(binding.clone());
     }
   }
-  let mut effects =
-    collect_effects(semantic, &imported_bindings, &bindings, sfc_source, script_offset);
+  let mut scopes = collect_tracking_scopes(
+    semantic,
+    &imported_bindings,
+    &bindings,
+    &seeds.composable_instances,
+    sfc_source,
+    script_offset,
+  );
   bindings.sort_by_key(|fact| fact.span.offset);
-  effects.sort_by_key(|fact| fact.span.offset);
-  ReactivityGraph { bindings, effects }
+  scopes.sort_by_key(|fact| fact.span.offset);
+  let mut graph = ReactivityGraph { bindings, scopes, effects: Vec::new() };
+  graph.project_effects_from_scopes();
+  graph
 }
 
 fn collect_imported_bindings(semantic: &Semantic<'_>) -> BTreeMap<String, (String, String)> {
@@ -223,6 +238,13 @@ struct RawReactiveRead {
   binding: String,
   property: Option<String>,
   span: Span,
+  outside_tracking: bool,
+}
+
+#[derive(Clone, Debug)]
+struct RawGuard {
+  read: RawReactiveRead,
+  role: ReactiveGuardRole,
 }
 
 const fn is_ref_like(kind: ReactiveBindingKind) -> bool {
@@ -260,16 +282,130 @@ fn reference_resolves_to_binding(
   semantic.scoping().symbol_name(symbol_id) == binding.name && offset == binding.span.offset
 }
 
-fn collect_callback_reads(
+fn is_deferred_callback_container(
   semantic: &oxc_semantic::Semantic<'_>,
-  callback_id: NodeId,
+  function_id: NodeId,
+) -> bool {
+  let function_span = match semantic.nodes().kind(function_id) {
+    AstKind::ArrowFunctionExpression(callback) => callback.span,
+    AstKind::Function(function) => function.span,
+    _ => return false,
+  };
+  for ancestor_id in semantic.nodes().ancestor_ids(function_id) {
+    let AstKind::CallExpression(call) = semantic.nodes().kind(ancestor_id) else {
+      if matches!(
+        semantic.nodes().kind(ancestor_id),
+        AstKind::ArrowFunctionExpression(_) | AstKind::Function(_)
+      ) {
+        return false;
+      }
+      continue;
+    };
+    let is_argument = call.arguments.iter().any(|argument| match argument {
+      Argument::ArrowFunctionExpression(callback) => callback.span == function_span,
+      Argument::FunctionExpression(function) => function.span == function_span,
+      _ => false,
+    });
+    if !is_argument {
+      continue;
+    }
+    return match &call.callee {
+      Expression::StaticMemberExpression(member) => {
+        matches!(member.property.name.as_str(), "then" | "catch" | "finally" | "nextTick")
+      }
+      Expression::Identifier(identifier) => {
+        matches!(identifier.name.as_str(), "nextTick" | "queueMicrotask" | "setTimeout")
+      }
+      _ => false,
+    };
+  }
+  false
+}
+
+fn scope_context(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
+  member_id: NodeId,
+  member_span: Span,
+) -> Option<(bool, bool)> {
+  let mut reached_scope = false;
+  let mut outside_tracking = false;
+  let mut write_only = false;
+  for ancestor_id in semantic.nodes().ancestor_ids(member_id) {
+    if ancestor_id == scope_id {
+      reached_scope = true;
+      break;
+    }
+    match semantic.nodes().kind(ancestor_id) {
+      AstKind::ArrowFunctionExpression(_) | AstKind::Function(_) => {
+        if is_deferred_callback_container(semantic, ancestor_id) {
+          outside_tracking = true;
+          continue;
+        }
+        return None;
+      }
+      AstKind::AssignmentExpression(assignment)
+        if assignment.operator.is_assign()
+          && span_contains(assignment.left.span(), member_span) =>
+      {
+        write_only = true;
+      }
+      _ => {}
+    }
+  }
+  if !reached_scope || write_only {
+    return None;
+  }
+  Some((reached_scope, outside_tracking))
+}
+
+fn collect_scope_reads(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
   reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &BTreeMap<String, BTreeMap<String, ReactiveBindingKind>>,
   script_offset: usize,
 ) -> Vec<RawReactiveRead> {
   let mut reads = semantic
     .nodes()
     .iter_enumerated()
     .filter_map(|(member_id, member_node)| {
+      // Nested composable instance: bag.field.value
+      if let AstKind::StaticMemberExpression(outer) = member_node.kind()
+        && outer.property.name.as_str() == "value"
+        && let Expression::StaticMemberExpression(inner) = &outer.object
+        && let Some(instance) = inner.object.get_identifier_reference()
+        && let Some(shape) = composable_instances.get(instance.name.as_str())
+        && let Some(kind) = shape.get(inner.property.name.as_str())
+        && is_ref_like(*kind)
+      {
+        let (_, outside_tracking) = scope_context(semantic, scope_id, member_id, outer.span)?;
+        return Some(RawReactiveRead {
+          node_id: member_id,
+          binding: inner.property.name.to_string(),
+          property: Some("value".into()),
+          span: outer.span,
+          outside_tracking,
+        });
+      }
+
+      // Nested composable instance: bag.field for non-ref-like kinds
+      if let AstKind::StaticMemberExpression(member) = member_node.kind()
+        && let Some(instance) = member.object.get_identifier_reference()
+        && let Some(shape) = composable_instances.get(instance.name.as_str())
+        && let Some(kind) = shape.get(member.property.name.as_str())
+        && !is_ref_like(*kind)
+      {
+        let (_, outside_tracking) = scope_context(semantic, scope_id, member_id, member.span)?;
+        return Some(RawReactiveRead {
+          node_id: member_id,
+          binding: member.property.name.to_string(),
+          property: Some(member.property.name.to_string()),
+          span: member.span,
+          outside_tracking,
+        });
+      }
+
       let (object, property, member_span) = match member_node.kind() {
         AstKind::StaticMemberExpression(member) => (
           member.object.get_identifier_reference()?,
@@ -284,31 +420,7 @@ fn collect_callback_reads(
         _ => return None,
       };
 
-      let mut reached_callback = false;
-      let mut nested_function = false;
-      let mut write_only = false;
-      for ancestor_id in semantic.nodes().ancestor_ids(member_id) {
-        if ancestor_id == callback_id {
-          reached_callback = true;
-          break;
-        }
-        match semantic.nodes().kind(ancestor_id) {
-          AstKind::ArrowFunctionExpression(_) | AstKind::Function(_) => {
-            nested_function = true;
-            break;
-          }
-          AstKind::AssignmentExpression(assignment)
-            if assignment.operator.is_assign()
-              && span_contains(assignment.left.span(), member_span) =>
-          {
-            write_only = true;
-          }
-          _ => {}
-        }
-      }
-      if !reached_callback || nested_function || write_only {
-        return None;
-      }
+      let (_, outside_tracking) = scope_context(semantic, scope_id, member_id, member_span)?;
 
       let binding = reactive_bindings.iter().find(|binding| {
         binding.name == object.name.as_str()
@@ -320,6 +432,7 @@ fn collect_callback_reads(
         binding: binding.name.clone(),
         property,
         span: member_span,
+        outside_tracking,
       })
     })
     .collect::<Vec<_>>();
@@ -327,43 +440,87 @@ fn collect_callback_reads(
   reads
 }
 
-fn push_guards_in_span(guards: &mut Vec<RawReactiveRead>, reads: &[RawReactiveRead], span: Span) {
-  for read in reads.iter().filter(|read| span_contains(span, read.span)) {
+fn push_guards_in_span(
+  guards: &mut Vec<RawGuard>,
+  reads: &[RawReactiveRead],
+  span: Span,
+  role: ReactiveGuardRole,
+) {
+  for read in reads.iter().filter(|read| span_contains(span, read.span) && !read.outside_tracking) {
     if !guards.iter().any(|guard| {
-      guard.binding == read.binding
-        && guard.property == read.property
-        && guard.span.start == read.span.start
-        && guard.span.end == read.span.end
+      guard.read.binding == read.binding
+        && guard.read.property == read.property
+        && guard.read.span.start == read.span.start
+        && guard.read.span.end == read.span.end
     }) {
-      guards.push(read.clone());
+      guards.push(RawGuard { read: read.clone(), role });
+    }
+  }
+}
+
+fn is_early_return(statement: &Statement<'_>) -> bool {
+  match statement {
+    Statement::ReturnStatement(_) | Statement::ThrowStatement(_) => true,
+    Statement::BlockStatement(block) => match block.body.as_slice() {
+      [only] => is_early_return(only),
+      _ => false,
+    },
+    _ => false,
+  }
+}
+
+fn collect_prefix_early_exits(
+  statements: &[Statement<'_>],
+  read_start: u32,
+  reads: &[RawReactiveRead],
+  guards: &mut Vec<RawGuard>,
+) {
+  for statement in statements {
+    if statement.span().start >= read_start {
+      break;
+    }
+    match statement {
+      // Only statements fully before the read can guard it. Reads inside the
+      // `if` test itself remain unconditional relative to that early exit.
+      Statement::IfStatement(guard)
+        if guard.span.end <= read_start
+          && guard.alternate.is_none()
+          && is_early_return(&guard.consequent) =>
+      {
+        push_guards_in_span(guards, reads, guard.test.span(), ReactiveGuardRole::EarlyExit);
+      }
+      Statement::BlockStatement(block) => {
+        collect_prefix_early_exits(&block.body, read_start, reads, guards);
+      }
+      Statement::TryStatement(try_statement) => {
+        collect_prefix_early_exits(&try_statement.block.body, read_start, reads, guards);
+        if let Some(handler) = &try_statement.handler {
+          collect_prefix_early_exits(&handler.body.body, read_start, reads, guards);
+        }
+        if let Some(finalizer) = &try_statement.finalizer {
+          collect_prefix_early_exits(&finalizer.body, read_start, reads, guards);
+        }
+      }
+      _ => {}
     }
   }
 }
 
 fn path_guards(
   semantic: &oxc_semantic::Semantic<'_>,
-  callback_id: NodeId,
-  body: &FunctionBody<'_>,
+  scope_id: NodeId,
+  body: Option<&FunctionBody<'_>>,
   reads: &[RawReactiveRead],
   read: &RawReactiveRead,
-) -> Vec<RawReactiveRead> {
+) -> Vec<RawGuard> {
   let mut guards = Vec::new();
 
-  for statement in &body.statements {
-    let Statement::IfStatement(guard) = statement else {
-      continue;
-    };
-    if guard.span.end > read.span.start
-      || guard.alternate.is_some()
-      || !is_early_return(&guard.consequent)
-    {
-      continue;
-    }
-    push_guards_in_span(&mut guards, reads, guard.test.span());
+  if let Some(body) = body {
+    collect_prefix_early_exits(&body.statements, read.span.start, reads, &mut guards);
   }
 
   for ancestor_id in semantic.nodes().ancestor_ids(read.node_id) {
-    if ancestor_id == callback_id {
+    if ancestor_id == scope_id {
       break;
     }
     match semantic.nodes().kind(ancestor_id) {
@@ -374,32 +531,58 @@ fn path_guards(
             .as_ref()
             .is_some_and(|alternate| span_contains(alternate.span(), read.span));
         if in_branch {
-          push_guards_in_span(&mut guards, reads, statement.test.span());
+          push_guards_in_span(
+            &mut guards,
+            reads,
+            statement.test.span(),
+            ReactiveGuardRole::BranchTest,
+          );
         }
       }
       AstKind::ConditionalExpression(expression) => {
         if span_contains(expression.consequent.span(), read.span)
           || span_contains(expression.alternate.span(), read.span)
         {
-          push_guards_in_span(&mut guards, reads, expression.test.span());
+          push_guards_in_span(
+            &mut guards,
+            reads,
+            expression.test.span(),
+            ReactiveGuardRole::BranchTest,
+          );
         }
       }
       AstKind::LogicalExpression(expression)
         if span_contains(expression.right.span(), read.span) =>
       {
-        push_guards_in_span(&mut guards, reads, expression.left.span());
+        push_guards_in_span(
+          &mut guards,
+          reads,
+          expression.left.span(),
+          ReactiveGuardRole::ShortCircuit,
+        );
+      }
+      AstKind::SwitchCase(case) if span_contains(case.span, read.span) => {
+        let switch_id = semantic.nodes().parent_id(ancestor_id);
+        if let AstKind::SwitchStatement(switch_statement) = semantic.nodes().kind(switch_id) {
+          push_guards_in_span(
+            &mut guards,
+            reads,
+            switch_statement.discriminant.span(),
+            ReactiveGuardRole::SwitchDiscriminant,
+          );
+        }
       }
       _ => {}
     }
   }
 
-  guards.sort_by_key(|guard| guard.span.start);
+  guards.sort_by_key(|guard| guard.read.span.start);
   guards
 }
 
 fn is_after_top_level_await(
   semantic: &oxc_semantic::Semantic<'_>,
-  callback_id: NodeId,
+  scope_id: NodeId,
   read: &RawReactiveRead,
 ) -> bool {
   semantic.nodes().iter_enumerated().any(|(await_id, node)| {
@@ -411,7 +594,7 @@ fn is_after_top_level_await(
     }
 
     for ancestor_id in semantic.nodes().ancestor_ids(await_id) {
-      if ancestor_id == callback_id {
+      if ancestor_id == scope_id {
         return true;
       }
       match semantic.nodes().kind(ancestor_id) {
@@ -427,14 +610,71 @@ fn is_after_top_level_await(
   })
 }
 
-fn collect_effects(
+fn classify_read(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
+  body: Option<&FunctionBody<'_>>,
+  raw_reads: &[RawReactiveRead],
+  read: &RawReactiveRead,
+  sfc_source: &str,
+  script_offset: usize,
+) -> ReactiveReadFact {
+  let guards = if read.outside_tracking {
+    Vec::new()
+  } else {
+    path_guards(semantic, scope_id, body, raw_reads, read)
+  };
+  let kind = if read.outside_tracking {
+    ReactiveReadKind::OutsideTracking
+  } else if is_after_top_level_await(semantic, scope_id, read) {
+    ReactiveReadKind::AfterAwait
+  } else if guards.is_empty() {
+    ReactiveReadKind::Unconditional
+  } else {
+    ReactiveReadKind::Conditional
+  };
+  let guarded_by = guards.first().map(|guard| guard.read.binding.clone());
+  ReactiveReadFact {
+    binding: read.binding.clone(),
+    property: read.property.clone(),
+    kind,
+    guards: guards
+      .into_iter()
+      .map(|guard| ReactiveGuardFact {
+        binding: guard.read.binding,
+        property: guard.read.property,
+        span: source_span(sfc_source, script_offset, guard.read.span),
+        role: guard.role,
+      })
+      .collect(),
+    guarded_by,
+    span: source_span(sfc_source, script_offset, read.span),
+  }
+}
+
+fn callback_parts<'a>(
+  argument: &'a Argument<'a>,
+) -> Option<(NodeId, Option<&'a FunctionBody<'a>>)> {
+  match argument {
+    Argument::ArrowFunctionExpression(callback) => {
+      Some((callback.node_id.get(), Some(&*callback.body)))
+    }
+    Argument::FunctionExpression(callback) => {
+      Some((callback.node_id.get(), callback.body.as_deref()))
+    }
+    _ => None,
+  }
+}
+
+fn collect_tracking_scopes(
   semantic: &oxc_semantic::Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
   reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &BTreeMap<String, BTreeMap<String, ReactiveBindingKind>>,
   sfc_source: &str,
   script_offset: usize,
-) -> Vec<ReactivityEffectFact> {
-  let mut effects = Vec::new();
+) -> Vec<TrackingScopeFact> {
+  let mut scopes = Vec::new();
   for node in semantic.nodes() {
     let AstKind::CallExpression(call) = node.kind() else {
       continue;
@@ -443,72 +683,220 @@ fn collect_effects(
     else {
       continue;
     };
-    if !matches!(callee.as_str(), "watchEffect" | "watchPostEffect" | "watchSyncEffect") {
-      continue;
-    }
-
-    let Some(argument) = call.arguments.first() else {
+    let Some(scope_kind) = TrackingScopeKind::from_vue_callee(&callee) else {
       continue;
     };
-    let (callback_id, body) = match argument {
-      Argument::ArrowFunctionExpression(callback) => (callback.node_id.get(), &*callback.body),
-      Argument::FunctionExpression(callback) => {
-        let Some(body) = &callback.body else {
+
+    match scope_kind {
+      TrackingScopeKind::WatchEffect
+      | TrackingScopeKind::WatchPostEffect
+      | TrackingScopeKind::WatchSyncEffect
+      | TrackingScopeKind::Computed => {
+        let Some(argument) = call.arguments.first() else {
           continue;
         };
-        (callback.node_id.get(), &**body)
-      }
-      _ => continue,
-    };
-
-    let raw_reads = collect_callback_reads(semantic, callback_id, reactive_bindings, script_offset);
-    let reads = raw_reads
-      .iter()
-      .map(|read| {
-        let guards = path_guards(semantic, callback_id, body, &raw_reads, read);
-        let kind = if is_after_top_level_await(semantic, callback_id, read) {
-          ReactiveReadKind::AfterAwait
-        } else if guards.is_empty() {
-          ReactiveReadKind::Unconditional
-        } else {
-          ReactiveReadKind::Conditional
+        let Some((scope_id, body)) = callback_parts(argument) else {
+          // computed may receive a non-function; skip quietly
+          continue;
         };
-        let guarded_by = guards.first().map(|guard| guard.binding.clone());
-        ReactiveReadFact {
-          binding: read.binding.clone(),
-          property: read.property.clone(),
-          kind,
-          guards: guards
-            .into_iter()
-            .map(|guard| ReactiveGuardFact {
-              binding: guard.binding,
-              property: guard.property,
-              span: source_span(sfc_source, script_offset, guard.span),
-            })
-            .collect(),
-          guarded_by,
-          span: source_span(sfc_source, script_offset, read.span),
-        }
-      })
-      .collect();
-
-    effects.push(ReactivityEffectFact {
-      callee,
-      span: source_span(sfc_source, script_offset, call.span),
-      reads,
-    });
+        let raw_reads = collect_scope_reads(
+          semantic,
+          scope_id,
+          reactive_bindings,
+          composable_instances,
+          script_offset,
+        );
+        let reads = raw_reads
+          .iter()
+          .map(|read| {
+            classify_read(semantic, scope_id, body, &raw_reads, read, sfc_source, script_offset)
+          })
+          .collect();
+        scopes.push(TrackingScopeFact {
+          kind: scope_kind,
+          callee,
+          span: source_span(sfc_source, script_offset, call.span),
+          reads,
+        });
+      }
+      TrackingScopeKind::WatchSources => {
+        let Some(source_argument) = call.arguments.first() else {
+          continue;
+        };
+        let reads = collect_watch_source_reads(
+          semantic,
+          source_argument,
+          reactive_bindings,
+          composable_instances,
+          sfc_source,
+          script_offset,
+        );
+        scopes.push(TrackingScopeFact {
+          kind: scope_kind,
+          callee,
+          span: source_span(sfc_source, script_offset, call.span),
+          reads,
+        });
+      }
+    }
   }
-
-  effects
+  scopes
 }
 
-fn is_early_return(statement: &Statement<'_>) -> bool {
-  match statement {
-    Statement::ReturnStatement(_) => true,
-    Statement::BlockStatement(block) => {
-      matches!(block.body.as_slice(), [Statement::ReturnStatement(_)])
+fn collect_watch_source_reads(
+  semantic: &oxc_semantic::Semantic<'_>,
+  argument: &Argument<'_>,
+  reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &BTreeMap<String, BTreeMap<String, ReactiveBindingKind>>,
+  sfc_source: &str,
+  script_offset: usize,
+) -> Vec<ReactiveReadFact> {
+  match argument {
+    Argument::ArrowFunctionExpression(callback) => {
+      let scope_id = callback.node_id.get();
+      let body = Some(&*callback.body);
+      let raw_reads = collect_scope_reads(
+        semantic,
+        scope_id,
+        reactive_bindings,
+        composable_instances,
+        script_offset,
+      );
+      raw_reads
+        .iter()
+        .map(|read| {
+          classify_read(semantic, scope_id, body, &raw_reads, read, sfc_source, script_offset)
+        })
+        .collect()
     }
-    _ => false,
+    Argument::FunctionExpression(callback) => {
+      let scope_id = callback.node_id.get();
+      let body = callback.body.as_deref();
+      let raw_reads = collect_scope_reads(
+        semantic,
+        scope_id,
+        reactive_bindings,
+        composable_instances,
+        script_offset,
+      );
+      raw_reads
+        .iter()
+        .map(|read| {
+          classify_read(semantic, scope_id, body, &raw_reads, read, sfc_source, script_offset)
+        })
+        .collect()
+    }
+    Argument::ArrayExpression(array) => {
+      let mut reads = Vec::new();
+      for element in &array.elements {
+        let Some(expression) = element.as_expression() else {
+          continue;
+        };
+        collect_expression_source_reads(
+          semantic,
+          expression,
+          reactive_bindings,
+          sfc_source,
+          script_offset,
+          &mut reads,
+        );
+      }
+      reads.sort_by_key(|read| read.span.offset);
+      reads
+    }
+    argument => {
+      let mut reads = Vec::new();
+      if let Some(expression) = argument.as_expression() {
+        collect_expression_source_reads(
+          semantic,
+          expression,
+          reactive_bindings,
+          sfc_source,
+          script_offset,
+          &mut reads,
+        );
+      }
+      reads
+    }
+  }
+}
+
+fn collect_expression_source_reads(
+  semantic: &oxc_semantic::Semantic<'_>,
+  expression: &Expression<'_>,
+  reactive_bindings: &[ReactiveBindingFact],
+  sfc_source: &str,
+  script_offset: usize,
+  reads: &mut Vec<ReactiveReadFact>,
+) {
+  match expression {
+    Expression::Identifier(identifier) => {
+      if let Some(binding) = reactive_bindings.iter().find(|binding| {
+        binding.name == identifier.name.as_str()
+          && reference_resolves_to_binding(semantic, identifier, binding, script_offset)
+      }) {
+        reads.push(ReactiveReadFact {
+          binding: binding.name.clone(),
+          property: None,
+          kind: ReactiveReadKind::Unconditional,
+          guards: Vec::new(),
+          guarded_by: None,
+          span: source_span(sfc_source, script_offset, identifier.span),
+        });
+      }
+    }
+    Expression::StaticMemberExpression(member) => {
+      if let Some(object) = member.object.get_identifier_reference()
+        && let Some(binding) = reactive_bindings.iter().find(|binding| {
+          binding.name == object.name.as_str()
+            && reference_resolves_to_binding(semantic, object, binding, script_offset)
+            && (!is_ref_like(binding.kind) || member.property.name.as_str() == "value")
+        })
+      {
+        reads.push(ReactiveReadFact {
+          binding: binding.name.clone(),
+          property: Some(member.property.name.to_string()),
+          kind: ReactiveReadKind::Unconditional,
+          guards: Vec::new(),
+          guarded_by: None,
+          span: source_span(sfc_source, script_offset, member.span),
+        });
+      }
+    }
+    Expression::ComputedMemberExpression(member) => {
+      if let Some(object) = member.object.get_identifier_reference()
+        && let Some(property) = member.static_property_name()
+        && let Some(binding) = reactive_bindings.iter().find(|binding| {
+          binding.name == object.name.as_str()
+            && reference_resolves_to_binding(semantic, object, binding, script_offset)
+            && (!is_ref_like(binding.kind) || property == "value")
+        })
+      {
+        reads.push(ReactiveReadFact {
+          binding: binding.name.clone(),
+          property: Some(property.to_string()),
+          kind: ReactiveReadKind::Unconditional,
+          guards: Vec::new(),
+          guarded_by: None,
+          span: source_span(sfc_source, script_offset, member.span),
+        });
+      }
+    }
+    Expression::ArrayExpression(array) => {
+      for element in &array.elements {
+        if let Some(inner) = element.as_expression() {
+          collect_expression_source_reads(
+            semantic,
+            inner,
+            reactive_bindings,
+            sfc_source,
+            script_offset,
+            reads,
+          );
+        }
+      }
+    }
+    _ => {}
   }
 }
 

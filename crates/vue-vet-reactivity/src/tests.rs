@@ -4,7 +4,10 @@ use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType;
-use vue_vet_core::{ReactiveBindingKind, ReactiveReadKind, ReactivityGraph, ScriptKind};
+use vue_vet_core::{
+  ReactiveBindingKind, ReactiveGuardRole, ReactiveReadKind, ReactivityGraph, ScriptKind,
+  TrackingScopeKind,
+};
 
 use super::{ModuleLink, ModuleReactivity, ModuleSource, trace_modules, trace_reactivity};
 
@@ -483,6 +486,137 @@ fn retains_empty_effect_nodes() {
   assert!(
     graph.effects.first().is_some_and(|effect| effect.reads.is_empty()),
     "recognized effects must remain visible even when they have no reactive reads"
+  );
+}
+
+#[test]
+fn traces_computed_tracking_scopes() {
+  let graph = graph(
+    "import { computed, ref } from 'vue';\n\
+     const ready = ref(false); const value = ref(0);\n\
+     const doubled = computed(() => { if (!ready.value) return 0; return value.value; });",
+  );
+  let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::Computed);
+  assert!(scope.is_some(), "computed must become a tracking scope");
+  assert!(
+    scope.is_some_and(|scope| {
+      scope
+        .reads
+        .iter()
+        .any(|read| read.binding == "value" && read.kind == ReactiveReadKind::Conditional)
+    }),
+    "computed bodies must classify conditional reactive reads"
+  );
+  assert!(
+    graph.effects.iter().all(|effect| effect.callee != "computed"),
+    "computed scopes must not project into legacy effects"
+  );
+}
+
+#[test]
+fn traces_watch_source_arrays() {
+  let graph = graph(
+    "import { ref, watch } from 'vue';\n\
+     const a = ref(0); const b = ref(1);\n\
+     watch([a, b], () => {});",
+  );
+  let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchSources);
+  assert_eq!(
+    scope.map(|scope| { scope.reads.iter().map(|read| read.binding.as_str()).collect::<Vec<_>>() }),
+    Some(vec!["a", "b"]),
+    "watch source arrays must record each reactive source"
+  );
+}
+
+#[test]
+fn traces_watch_source_getters() {
+  let graph = graph(
+    "import { ref, watch } from 'vue';\n\
+     const value = ref(0); watch(() => value.value, () => {});",
+  );
+  let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchSources);
+  assert!(
+    scope.is_some_and(|scope| {
+      scope
+        .reads
+        .iter()
+        .any(|read| read.binding == "value" && read.kind == ReactiveReadKind::Unconditional)
+    }),
+    "watch source getters must track reactive reads"
+  );
+}
+
+#[test]
+fn classifies_then_callbacks_as_outside_tracking() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue';\n\
+     const value = ref(0);\n\
+     watchEffect(() => { Promise.resolve().then(() => value.value); });",
+  );
+  assert!(
+    graph.effects.first().is_some_and(|effect| {
+      effect
+        .reads
+        .iter()
+        .any(|read| read.binding == "value" && read.kind == ReactiveReadKind::OutsideTracking)
+    }),
+    "promise then callbacks must be outside synchronous tracking"
+  );
+}
+
+#[test]
+fn records_guard_roles_for_early_exit() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue';\n\
+     const ready = ref(false); const value = ref(0);\n\
+     watchEffect(() => { if (!ready.value) return; value.value; });",
+  );
+  let value = graph
+    .effects
+    .first()
+    .into_iter()
+    .flat_map(|effect| &effect.reads)
+    .find(|read| read.binding == "value");
+  assert_eq!(
+    value.and_then(|read| read.guards.first().map(|guard| guard.role)),
+    Some(ReactiveGuardRole::EarlyExit),
+    "early-return guards must retain their role"
+  );
+}
+
+#[test]
+fn seeds_composable_instance_member_access() {
+  let modules = [
+    ModuleSource {
+      id: "producer.ts".into(),
+      source: "import { ref } from 'vue'; export function useSignal() { const signal = ref(0); return { signal }; }".into(),
+      language: "ts".into(),
+      kind: ScriptKind::Script,
+    },
+    ModuleSource {
+      id: "consumer.ts".into(),
+      source: "import { watchEffect } from 'vue'; import { useSignal } from './producer'; const bag = useSignal(); watchEffect(() => bag.signal.value);".into(),
+      language: "ts".into(),
+      kind: ScriptKind::Script,
+    },
+  ];
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./producer".into(),
+    to: "producer.ts".into(),
+  }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.effects.iter().any(|effect| {
+        effect
+          .reads
+          .iter()
+          .any(|read| read.binding == "signal" && read.kind == ReactiveReadKind::Unconditional)
+      })
+    }),
+    "const bag = useX(); bag.field.value must seed across modules"
   );
 }
 
