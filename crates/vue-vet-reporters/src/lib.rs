@@ -4,7 +4,10 @@ use std::{
 };
 
 use serde::Serialize;
-use vue_vet_core::{Confidence, Diagnostic, ScanSummary, Severity, SourceSpan, diagnostic_id};
+use vue_vet_core::{
+  ByteRange, Confidence, Diagnostic, EditApplicability, ScanSummary, Severity, SourceSpan,
+  diagnostic_id,
+};
 
 mod github;
 mod sarif;
@@ -117,6 +120,17 @@ struct JsonDiagnostic<'a> {
   documentation: Option<String>,
   file: String,
   span: &'a SourceSpan,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  edits: Vec<JsonTextEdit<'a>>,
+}
+
+#[derive(Serialize)]
+struct JsonTextEdit<'a> {
+  file: String,
+  range: &'a ByteRange,
+  replacement: &'a str,
+  applicability: EditApplicability,
+  rule_id: &'a str,
 }
 
 #[derive(Serialize)]
@@ -245,6 +259,17 @@ fn json_diagnostic<'a>(
     documentation: diagnostic.documentation.as_deref().map(documentation_path),
     file,
     span: &diagnostic.span,
+    edits: diagnostic
+      .edits
+      .iter()
+      .map(|edit| JsonTextEdit {
+        file: report_path(&edit.file, analyzed_files),
+        range: &edit.range,
+        replacement: &edit.replacement,
+        applicability: edit.applicability,
+        rule_id: &edit.rule_id,
+      })
+      .collect(),
   }
 }
 
@@ -332,6 +357,7 @@ mod tests {
         ),
         file: PathBuf::from("fixtures/reporters/no-v-html.vue"),
         span: SourceSpan { offset: 19, length: 6, line: 2, column: 9 },
+        edits: Vec::new(),
       }],
       score: 97,
     }

@@ -17,6 +17,8 @@ The project is an early local-doctor implementation. Today it:
   filters, and scoped suppressions;
 - builds a deterministic Vue/Nuxt project graph with initial cross-file findings;
 - emits human-readable, JSON v1, SARIF 2.1.0, or GitHub Actions annotation output;
+- previews explicitly safe edits and atomically applies the supported
+  single-file fixes before a fresh rescan;
 - returns a CI-friendly exit code and a deterministic score.
 
 ## Try it
@@ -31,6 +33,8 @@ just vet fixtures/projects/nuxt-graph --print-graph
 just vet . --cache-stats
 just vet . --write-baseline vue-vet-baseline.json
 just vet . --baseline vue-vet-baseline.json --diff main
+just vet src/App.vue --fix-dry-run --format json
+just vet src/App.vue --fix-safe
 ```
 
 ## Configuration
@@ -69,8 +73,9 @@ threshold, and `2` for an operational failure.
 
 `--format json` emits a versioned top-level object. The initial contract uses
 `"schema_version": 1` with deterministic finding IDs, normalized paths, exact
-scan coverage, and completeness metadata. Consumers must reject unsupported
-schema versions instead of guessing. Field ordering is not part of the contract.
+scan coverage, completeness metadata, and optional safe edit previews. Consumers
+must reject unsupported schema versions instead of guessing. Field ordering is
+not part of the contract.
 See [the JSON output contract](docs/json-output.md) for compatibility rules.
 
 `--format sarif` emits SARIF 2.1.0 with stable fingerprints and repository-relative
@@ -105,8 +110,8 @@ See [the architecture decision](docs/adr/0001-analysis-stack.md) and
 are documented in [the project graph guide](docs/project-graph.md).
 Cache keys, baseline fingerprints, and diff completeness guarantees are
 documented in [the cache and diff guide](docs/cache-baseline-diff.md).
-The preview-only edit contract and conflict rules are documented in
-[the edit model guide](docs/edit-model.md).
+The safe edit contract, current single-file application guarantees, and
+conflict rules are documented in [the edit model guide](docs/edit-model.md).
 
 Durable project rationale and agent guidance are indexed in the
 [project context map](.agents/docs/README.md).

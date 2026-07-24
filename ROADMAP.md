@@ -184,13 +184,21 @@ Implemented in the reporter/edit foundation slice:
 - dedicated `vue-vet-reporters` boundary exercised by unchanged text and JSON output
 - serializable byte-range edits with explicit safe/unsafe applicability and rule provenance
 - deterministic edit planning that rejects range overflow, overlap, and order-dependent insertions
-- preview-only contracts with no file mutation API
+- SARIF 2.1.0 and escaped GitHub Actions annotations
+
+Implemented in the first safe-fix vertical slice:
+
+- optional edit previews in JSON v1 plus `--fix-dry-run`
+- `--fix-safe` for active, explicitly safe edits, with cache bypass and a fresh post-fix rescan
+- scan-root containment, source bounds, UTF-8 boundaries, and deterministic conflict validation
+  before writes
+- atomic single-file replacement with Unicode and line-ending preservation
+- a conservative producer for boolean `autofocus`; valued attributes remain manual
 
 Work:
 
-- add SARIF and GitHub annotations
-- implement baselines and `--diff <ref>`
-- extend machine-readable edits into preview and transactional safe autofix workflows
+- extend safe fixes to multi-file transactions with failure rollback
+- add additional evidence-backed edit producers without enabling unsafe or speculative changes
 - publish native binaries and a thin npm launcher
 
 Exit criteria:

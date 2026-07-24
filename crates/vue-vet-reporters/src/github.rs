@@ -94,6 +94,7 @@ mod tests {
         ),
         file: PathBuf::from("fixtures/reporters/no-v-html.vue"),
         span: SourceSpan { offset: 19, length: 6, line: 2, column: 9 },
+        edits: Vec::new(),
       }],
       score: 97,
     }
@@ -131,6 +132,7 @@ mod tests {
         help: None,
         file: PathBuf::from(r"C:\repo\src\Odd:Name,One.vue"),
         span: SourceSpan { offset: 0, length: 1, line: 3, column: 7 },
+        edits: Vec::new(),
       }],
       score: 0,
     };

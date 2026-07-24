@@ -31,6 +31,23 @@ separators before matching, severity overrides run before exit-policy scoring,
 and suppressions run after diagnostics exist so unused directives can be
 reported. Future cache keys must include the serialized effective configuration.
 
+## Safe fixes need complete source coverage
+
+A diagnostic span is not automatically a safe replacement span. For example,
+the template fact for `autofocus` precisely covers its name but not a possible
+value. The first safe producer therefore removes only boolean `autofocus` and
+leaves `autofocus="..."` as a visible manual finding. Never turn a name-only span
+into a partial edit that leaves invalid syntax behind.
+
+Fix ranges are original-source UTF-8 byte ranges. Validate both endpoints before
+editing, apply multiple ranges from the end of the source, and preserve all
+untouched bytes so Unicode and CRLF remain unchanged. The current executor is
+deliberately single-file and rejects a multi-file plan before any write; do not
+weaken that failure until issue #9 adds a real cross-file transaction and
+rollback protocol. Atomic replacement preserves the intended file contents, not
+all timestamps, ACLs, extended attributes, or platform metadata; keep that
+limitation visible until the project defines and tests a metadata policy.
+
 ## Do not add a parallel pattern engine
 
 Structural patterns can rediscover problems already proven by Vize/Oxc-backed

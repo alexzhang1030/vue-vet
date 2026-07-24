@@ -340,6 +340,7 @@ mod tests {
       help: None,
       file: file.into(),
       span: SourceSpan { offset: line, length: 1, line, column: 1 },
+      edits: Vec::new(),
     }
   }
 
