@@ -16,7 +16,7 @@ mod tests {
   #[test]
   fn builtins_have_stable_metadata() {
     let metadata = builtin_registry().metadata();
-    assert_eq!(metadata.len(), 28, "the recommended preset contains twenty-eight rules");
+    assert_eq!(metadata.len(), 29, "the recommended preset contains twenty-nine rules");
     assert!(
       metadata.windows(2).all(|pair| matches!(pair, [first, second] if first.id < second.id)),
       "registry metadata must be sorted by stable rule ID"

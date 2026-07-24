@@ -39,13 +39,13 @@ JavaScript soundness.
 | Axis | Status |
 | --- | --- |
 | A1 Bindings | Vue primitives + aliases/`#imports`/`defineModel`; symbol identity |
-| A2 Scopes | `watchEffect*` + `computed` + `watch` sources (`TrackingScopeFact`) |
+| A2 Scopes | `watchEffect*` + `computed` + `watch` sources **and** callbacks |
 | A3 Reads | Direct ref-like `.value`, reactive members, composable instance `bag.field.value` |
-| A4 Conditions | if / early-return / ternary / short-circuit / switch → guards with **roles** |
-| A5 Boundaries | top-level `await` → `AfterAwait`; `then`/`catch`/`nextTick`/… → `OutsideTracking` |
+| A4 Conditions | if / early-exit / ternary / short-circuit / switch → guards with **roles** |
+| A5 Boundaries | top-level `await` → `AfterAwait`; deferred callbacks / watch jobs → `OutsideTracking` |
 | A6 Modules | export fixed point; composable shapes; destructure **and** instance member seeds |
-| A7 Contract | `ReactivityGraph { bindings, scopes, effects }`; effects projected from effect-family scopes |
-| Evidence | 280 corpus fixtures + unit coverage for scopes / boundaries / member seeds |
+| A7 Contract | `version` + `{ bindings, scopes, effects }`; effects projected from effect-family scopes |
+| Evidence | 280 corpus fixtures + unit coverage + after-await rule fixtures |
 
 ## Completeness ladder
 
@@ -73,7 +73,7 @@ Recognize every first-class tracking region the lib claims to model:
 | `watchEffect*` | shipped | projects into legacy `effects` |
 | `computed` | shipped | callback body is a tracking scope |
 | `watch` sources | shipped | source expressions / getters / arrays |
-| `watch` callback | later | optional; often non-tracking relative to sources |
+| `watch` callback | shipped | job body; all reads forced to `OutsideTracking` |
 | `effectScope` hooks | later | pause/resume boundaries |
 | setup / render | blocked | needs template + script join via Vize contract |
 
@@ -123,11 +123,11 @@ Raise the composable/export ceiling without file concatenation:
 Version the public fact shape for multi-consumer use:
 
 - explicit scope nodes and typed read/guard/seed edges (incremental evolution OK)
-- graph format/version field when the wire shape breaks
+- graph format/version field (`REACTIVITY_GRAPH_VERSION`, currently `2`) — shipped
 - deterministic ordering preserved
 - consumers: rules, project graph, JSON, future LSP
 
-**Exit:** documented contract + snapshot gates; no Oxc types cross the boundary.
+**Exit:** version field + documented contract; no Oxc types cross the boundary.
 
 ### L6 — SFC / template join
 
@@ -167,7 +167,15 @@ Shipped together as one tracer evolution:
 4. **Boundaries** — `AfterAwait` + `OutsideTracking` for deferred callbacks.
 5. **Module seeds** — destructure + `const bag = useX(); bag.field.value`.
 
-Still open: watch callback modeling, effectScope, parametric composables, SFC/template join (L6), graph format version field when wire consumers need it.
+Still open: effectScope / pauseTracking, parametric composables, SFC/template join (L6),
+prefer-computed and richer computed-chain rules.
+
+## Evolution wave 2 (landed 2026-07-25)
+
+1. **WatchCallback** scopes — watch job bodies modeled; reads are `OutsideTracking`.
+2. **Graph version** — `ReactivityGraph.version` / `REACTIVITY_GRAPH_VERSION = 2`.
+3. **Rule** — `vue-vet/reactivity/no-after-await-watch-effect-dependency` for
+   `AfterAwait` and deferred-callback `OutsideTracking` reads in effect scopes.
 
 ## Decision log
 
@@ -177,3 +185,4 @@ Still open: watch callback modeling, effectScope, parametric composables, SFC/te
 | 2026-07-24 | Static approximation only | Runtime is the semantic reference, never the execution mode |
 | 2026-07-24 | Under-approx + quiet failure remains default | Completeness does not mean guessing |
 | 2026-07-24 | Full evolution wave E1–E4 | scopes + guards + boundaries + module member seeds |
+| 2026-07-25 | Wave 2: WatchCallback + graph version + after-await rule | Vertical slice proving async-boundary facts |

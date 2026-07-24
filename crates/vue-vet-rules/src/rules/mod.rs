@@ -5,6 +5,7 @@ mod button_has_content;
 mod click_events_have_key_events;
 mod iframe_has_title;
 mod img_has_alt;
+mod no_after_await_watch_effect_dependency;
 mod no_aria_hidden_on_focusable;
 mod no_autofocus;
 mod no_conditional_watch_effect_dependency;
@@ -36,6 +37,7 @@ pub fn builtins() -> Vec<&'static dyn Rule> {
     &click_events_have_key_events::RULE,
     &iframe_has_title::RULE,
     &img_has_alt::RULE,
+    &no_after_await_watch_effect_dependency::RULE,
     &no_aria_hidden_on_focusable::RULE,
     &no_autofocus::RULE,
     &no_conditional_watch_effect_dependency::RULE,

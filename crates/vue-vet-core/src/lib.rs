@@ -257,7 +257,10 @@ pub enum TrackingScopeKind {
   WatchPostEffect,
   WatchSyncEffect,
   Computed,
+  /// Explicit `watch(...)` source list / getter (tracked).
   WatchSources,
+  /// `watch` callback body (not tracked for invalidation; side-effect surface).
+  WatchCallback,
 }
 
 impl TrackingScopeKind {
@@ -267,6 +270,19 @@ impl TrackingScopeKind {
     matches!(self, Self::WatchEffect | Self::WatchPostEffect | Self::WatchSyncEffect)
   }
 
+  /// Scopes whose reactive reads participate in Vue dependency collection.
+  #[must_use]
+  pub const fn tracks_dependencies(self) -> bool {
+    matches!(
+      self,
+      Self::WatchEffect
+        | Self::WatchPostEffect
+        | Self::WatchSyncEffect
+        | Self::Computed
+        | Self::WatchSources
+    )
+  }
+
   #[must_use]
   pub const fn as_callee(self) -> &'static str {
     match self {
@@ -274,7 +290,7 @@ impl TrackingScopeKind {
       Self::WatchPostEffect => "watchPostEffect",
       Self::WatchSyncEffect => "watchSyncEffect",
       Self::Computed => "computed",
-      Self::WatchSources => "watch",
+      Self::WatchSources | Self::WatchCallback => "watch",
     }
   }
 
@@ -328,19 +344,42 @@ pub struct ReactivityEffectFact {
   pub reads: Vec<ReactiveReadFact>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+/// Wire format version for [`ReactivityGraph`]. Bump when consumers must
+/// distinguish shape or semantic changes in serialized facts.
+pub const REACTIVITY_GRAPH_VERSION: u32 = 2;
+
+const fn default_reactivity_graph_version() -> u32 {
+  1
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ReactivityGraph {
+  /// Fact-schema version. Absent/legacy payloads deserialize as `1`.
+  #[serde(default = "default_reactivity_graph_version")]
+  pub version: u32,
   pub bindings: Vec<ReactiveBindingFact>,
-  /// All tracking scopes (effects, computed, watch sources, …).
+  /// All tracking scopes (effects, computed, watch sources/callbacks, …).
   #[serde(default)]
   pub scopes: Vec<TrackingScopeFact>,
   /// Backward-compatible projection of effect-family scopes.
   pub effects: Vec<ReactivityEffectFact>,
 }
 
+impl Default for ReactivityGraph {
+  fn default() -> Self {
+    Self {
+      version: REACTIVITY_GRAPH_VERSION,
+      bindings: Vec::new(),
+      scopes: Vec::new(),
+      effects: Vec::new(),
+    }
+  }
+}
+
 impl ReactivityGraph {
   /// Rebuild the legacy `effects` projection from `scopes`.
   pub fn project_effects_from_scopes(&mut self) {
+    self.version = REACTIVITY_GRAPH_VERSION;
     self.effects = self
       .scopes
       .iter()

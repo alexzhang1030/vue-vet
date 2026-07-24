@@ -64,7 +64,12 @@ fn trace_reactivity_seeded(
   );
   bindings.sort_by_key(|fact| fact.span.offset);
   scopes.sort_by_key(|fact| fact.span.offset);
-  let mut graph = ReactivityGraph { bindings, scopes, effects: Vec::new() };
+  let mut graph = ReactivityGraph {
+    version: vue_vet_core::REACTIVITY_GRAPH_VERSION,
+    bindings,
+    scopes,
+    effects: Vec::new(),
+  };
   graph.project_effects_from_scopes();
   graph
 }
@@ -723,6 +728,7 @@ fn collect_tracking_scopes(
         let Some(source_argument) = call.arguments.first() else {
           continue;
         };
+        let call_span = source_span(sfc_source, script_offset, call.span);
         let reads = collect_watch_source_reads(
           semantic,
           source_argument,
@@ -732,11 +738,52 @@ fn collect_tracking_scopes(
           script_offset,
         );
         scopes.push(TrackingScopeFact {
-          kind: scope_kind,
-          callee,
-          span: source_span(sfc_source, script_offset, call.span),
+          kind: TrackingScopeKind::WatchSources,
+          callee: callee.clone(),
+          span: call_span.clone(),
           reads,
         });
+
+        // Second argument is the watch job: it does not collect dependencies.
+        if let Some(callback_argument) = call.arguments.get(1)
+          && let Some((scope_id, body)) = callback_parts(callback_argument)
+        {
+          let raw_reads = collect_scope_reads(
+            semantic,
+            scope_id,
+            reactive_bindings,
+            composable_instances,
+            script_offset,
+          );
+          let reads = raw_reads
+            .iter()
+            .map(|read| {
+              let mut fact = classify_read(
+                semantic,
+                scope_id,
+                body,
+                &raw_reads,
+                read,
+                sfc_source,
+                script_offset,
+              );
+              // Vue does not re-subscribe from the watch job body.
+              fact.kind = ReactiveReadKind::OutsideTracking;
+              fact.guards.clear();
+              fact.guarded_by = None;
+              fact
+            })
+            .collect();
+          scopes.push(TrackingScopeFact {
+            kind: TrackingScopeKind::WatchCallback,
+            callee,
+            span: call_span,
+            reads,
+          });
+        }
+      }
+      TrackingScopeKind::WatchCallback => {
+        // Produced only as the second half of `watch(...)` above.
       }
     }
   }

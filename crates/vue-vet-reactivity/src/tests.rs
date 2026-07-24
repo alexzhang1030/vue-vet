@@ -547,6 +547,26 @@ fn traces_watch_source_getters() {
 }
 
 #[test]
+fn traces_watch_callback_as_outside_tracking() {
+  let graph = graph(
+    "import { ref, watch } from 'vue';\n\
+     const source = ref(0); const other = ref(1);\n\
+     watch(source, () => { other.value; });",
+  );
+  let callback = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchCallback);
+  assert!(
+    callback.is_some_and(|scope| {
+      scope
+        .reads
+        .iter()
+        .any(|read| read.binding == "other" && read.kind == ReactiveReadKind::OutsideTracking)
+    }),
+    "watch job bodies must not collect dependencies"
+  );
+  assert_eq!(graph.version, vue_vet_core::REACTIVITY_GRAPH_VERSION);
+}
+
+#[test]
 fn classifies_then_callbacks_as_outside_tracking() {
   let graph = graph(
     "import { ref, watchEffect } from 'vue';\n\

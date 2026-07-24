@@ -8,6 +8,12 @@ watchEffect(() => {
   console.log(guardedValue.value)
 })
 
+const asyncValue = ref(0)
+watchEffect(async () => {
+  await Promise.resolve()
+  console.log(asyncValue.value)
+})
+
 const componentProps = defineProps<{ title: string }>()
 defineProps<{ count: number }>()
 defineEmits()
