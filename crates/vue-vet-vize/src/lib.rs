@@ -665,6 +665,96 @@ const doubled = computed(() => props.count * 2)
   }
 
   #[test]
+  fn same_file_composable_instance_tracks_and_joins_template_in_sfc() {
+    use std::path::PathBuf;
+    use vue_vet_project::{ProjectFile, build_project_graph};
+
+    let sfc = r#"<script setup lang="ts">
+import { ref, watchEffect } from 'vue'
+function useSignal() {
+  const signal = ref(0)
+  return { signal }
+}
+const bag = useSignal()
+watchEffect(() => { void bag.signal.value })
+</script>
+<template>
+  <p>{{ bag.signal }}</p>
+</template>
+"#;
+    // Shipped Vize path: analyze_sfc_with_facts → per-block graph + template join.
+    let analysis = analysis_for_test(Path::new("LocalBag.vue"), sfc);
+    let vize_ok = analysis.facts.script.blocks.first().is_some_and(|block| {
+      let graph = &block.reactivity_graph;
+      graph.composable_instances.contains_key("bag")
+        && graph.effects.iter().any(|effect| {
+          effect.reads.iter().any(|read| {
+            read.binding == "signal" && read.kind == vue_vet_core::ReactiveReadKind::Unconditional
+          })
+        })
+        && graph
+          .template_reads
+          .iter()
+          .any(|read| read.binding == "signal" && read.surface == "interpolation")
+    });
+    assert!(
+      vize_ok,
+      "Vize SFC path must track same-file bag.signal and join template; blocks={:?}",
+      analysis
+        .facts
+        .script
+        .blocks
+        .iter()
+        .map(|block| {
+          (
+            block.reactivity_graph.composable_instances.clone(),
+            block
+              .reactivity_graph
+              .effects
+              .iter()
+              .flat_map(|effect| effect.reads.iter().map(|read| read.binding.clone()))
+              .collect::<Vec<_>>(),
+            block.reactivity_graph.template_reads.clone(),
+          )
+        })
+        .collect::<Vec<_>>()
+    );
+
+    // Project re-trace path (single module, no cross-file seed).
+    assert!(analysis.module_source.is_some(), "script setup must produce a project module source");
+    if let Some(mut module) = analysis.module_source {
+      module.id = "LocalBag.vue".into();
+      let files = [ProjectFile {
+        path: PathBuf::from("LocalBag.vue"),
+        source_len: sfc.len(),
+        facts: analysis.facts,
+        module_source: Some(module),
+      }];
+      let project = build_project_graph(&files);
+      let page = project.module_reactivity.iter().find(|module| module.id == "LocalBag.vue");
+      assert!(
+        page.is_some_and(|module| {
+          module.graph.composable_instances.contains_key("bag")
+            && module
+              .graph
+              .effects
+              .iter()
+              .any(|effect| effect.reads.iter().any(|read| read.binding == "signal"))
+            && module
+              .graph
+              .template_reads
+              .iter()
+              .any(|read| read.binding == "signal" && read.surface == "interpolation")
+        }),
+        "project re-trace must keep same-file instance + template join; got {:?}",
+        page.map(|module| {
+          (module.graph.composable_instances.clone(), module.graph.template_reads.clone())
+        })
+      );
+    }
+  }
+
+  #[test]
   fn composable_instance_member_joins_template_after_module_seeds() {
     use std::path::PathBuf;
     use vue_vet_project::{ProjectFile, build_project_graph};

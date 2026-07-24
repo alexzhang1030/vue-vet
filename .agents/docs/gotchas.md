@@ -189,3 +189,8 @@ parenthesized arrow objects) also seed instance bags and destructure fields.
 Function-local `const field = ref(0)` used only to build the return shape is
 **not** published as a top-level binding — otherwise it collides with
 `const { field } = useX()` and invents bare `field.value` edges.
+
+Composable return-shape resolution must use the **same `script_offset`** as
+binding spans. Hardcoding offset `0` makes `return { signal }` miss nested refs
+inside SFC `<script setup>` (absolute spans) and silently drops same-file
+instance bags — a quiet A6 failure, not under-approx by design.

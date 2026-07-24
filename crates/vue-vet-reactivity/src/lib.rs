@@ -130,7 +130,12 @@ fn collect_local_composable_usage(
     let Some(identifier) = &function.id else {
       continue;
     };
-    let shape = modules::composable_return_shape(semantic, function.node_id.get(), shape_graph);
+    let shape = modules::composable_return_shape(
+      semantic,
+      function.node_id.get(),
+      shape_graph,
+      script_offset,
+    );
     if shape.is_empty() {
       continue;
     }
@@ -153,7 +158,7 @@ fn collect_local_composable_usage(
       Expression::FunctionExpression(function) => function.node_id.get(),
       _ => continue,
     };
-    let shape = modules::composable_return_shape(semantic, function_id, shape_graph);
+    let shape = modules::composable_return_shape(semantic, function_id, shape_graph, script_offset);
     if shape.is_empty() {
       continue;
     }

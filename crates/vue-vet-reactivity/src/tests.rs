@@ -895,6 +895,53 @@ fn local_composable_instance_member_access() {
 }
 
 #[test]
+fn local_composable_instance_works_with_sfc_script_offset() {
+  let script = "import { ref, watchEffect } from 'vue'\n\
+     function useSignal() { const signal = ref(0); return { signal }; }\n\
+     const bag = useSignal()\n\
+     watchEffect(() => { void bag.signal.value })\n";
+  let prefix = "<script setup lang=\"ts\">\n";
+  let sfc =
+    format!("{prefix}{script}</script>\n<template><p>{{{{ bag.signal }}}}</p></template>\n");
+  let graph = trace(&sfc, script, prefix.len(), ScriptKind::Setup);
+  assert!(
+    graph.composable_instances.contains_key("bag"),
+    "SFC-offset same-file useX() must record bag; instances={:?}",
+    graph.composable_instances
+  );
+  assert!(
+    graph.effects.iter().any(|effect| {
+      effect.reads.iter().any(|read| {
+        read.binding == "signal"
+          && read.property.as_deref() == Some("value")
+          && read.kind == ReactiveReadKind::Unconditional
+      })
+    }),
+    "SFC-offset bag.signal.value must track; effects={:?}",
+    graph.effects
+  );
+  // Template join for pure bag.signal after instances are retained.
+  let template = TemplateFacts {
+    elements: Vec::new(),
+    expressions: vec![TemplateExpressionFact {
+      surface: "interpolation".into(),
+      expression: "bag.signal".into(),
+      span: test_span(sfc.find("bag.signal").unwrap_or(0)),
+      identifiers: Some(vec!["bag".into()]),
+    }],
+  };
+  let mut joined = graph;
+  joined.join_template_reads(&template);
+  assert!(
+    joined
+      .template_reads
+      .iter()
+      .any(|read| read.binding == "signal" && read.surface == "interpolation"),
+    "SFC-offset instance bags must join pure template bag.signal"
+  );
+}
+
+#[test]
 fn local_composable_destructure_seeds_fields() {
   let graph = graph(
     "import { ref, watchEffect } from 'vue'; function useSignal() { const signal = ref(0); return { signal }; } const { signal } = useSignal(); watchEffect(() => signal.value);",

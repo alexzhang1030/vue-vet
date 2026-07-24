@@ -44,9 +44,19 @@ Contract version: **`REACTIVITY_GRAPH_VERSION = 5`** (scopes, writes, edges,
 | A3 Reads | partial | `.value` / reactive members / bag.field / **sync Array HOF** (filter/map/forEach/reduce/flatMap/every/find/…) / **watch ref sources use `.value` key** |
 | A4 Conditions | deep | if / early-exit / ternary / short-circuit / switch roles — do not deepen further yet |
 | A5 Boundaries | partial | await, pauseTracking, deferred callbacks, watch jobs |
-| A6 Modules | partial | composable shapes, parametric `toRef`, SFC module identity, seed→rules; **instance bags retained on graph for template `bag.field` joins**; **same-file `useX()` instance/destructure seeds** (no top-level field pollution) |
+| A6 Modules | partial | composable shapes, parametric `toRef`, SFC module identity, seed→rules; **instance bags retained on graph for template `bag.field` joins**; **same-file `useX()` instance/destructure seeds (incl. SFC script offset)**; no top-level field pollution |
 | A7 Contract | improving | **v5**: + `composable_instances`; `from` labels as v4; `to` still bare binding names |
-| Evidence | improving | Runtime oracle **tracer ⊆ runtime** + ≥99% recall; **all 200 local fixtures** pin exhaustive `expected.reads`; SFC E2E for defineProps + instance template join |
+| Evidence | improving | Runtime oracle **tracer ⊆ runtime** + ≥99% recall; **all 200 local fixtures** pin exhaustive `expected.reads`; SFC E2E for defineProps, cross-module instance template join, **same-file SFC bag.field template join** |
+
+### Deferred (honest — not “done”)
+
+| Gap | Why deferred |
+| --- | --- |
+| Bare `watch(reactiveObj)` deep keys | Runtime tracks iterate + many property keys; property-less static dep invents identity |
+| Edge `to` symbol/module IDs | Consumers match bare binding names; L5 contract bump separate |
+| Dual ordinary+setup script merge | Preferred block only (`setup` first); not one merged module |
+| Further A4 control-flow depth | Already deep; wrong axis for recall |
+| Whole-program JS soundness | Charter: under-approx Vue tracking, not full alias analysis |
 
 ### Charter invariants (must not regress)
 
@@ -77,10 +87,11 @@ Hard failures (oracle + unit):
    “expected binding found”; drop integer-padding corpus gates as completeness proof.
 3. **Kill inventions** — `.run` requires `effectScope` provenance (**shipped**);
    review parametric pass-through and instance seed injection.
-4. **A1/A3 breadth** — `defineProps` + sync Array HOF (**started**); still need
-   `storeToRefs`, `useRoute`, more HOF/call shapes.
-5. **Stable edge identity** — symbol/module-qualified `from`/`to` before more
-   consumers depend on the graph.
+4. **A1/A3 breadth** — `defineProps`, sync Array HOF, `storeToRefs`, `useRoute`,
+   same-file + cross-module composable bags (**shipped core**); remaining breadth
+   is long-tail APIs, not the primary axis.
+5. **Stable edge identity** — `from` labels shipped (v4); symbol/module `to` still
+   deferred (L5) until consumers need it.
 
 Do **not** deepen A4 further until oracle coverage and A1 breadth keep growing.
 
@@ -146,3 +157,4 @@ growing prose ledger.
 | 2026-07-25 | Graph v5 composable_instances | retain instance bags; template joins pure `bag.field` / `bag.field.value` |
 | 2026-07-25 | SFC E2E | defineProps+template; seeded instance bag template join; every/find oracle |
 | 2026-07-25 | Same-file local composables | `function useX` / `const useX = () =>` shapes; bag.field + destructure seeds; nested refs not published |
+| 2026-07-25 | SFC offset shape resolution | `composable_return_shape` uses binding script_offset; same-file bag works in Vize/project SFC path |

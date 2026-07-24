@@ -232,7 +232,8 @@ fn analyze_module(
   let imports = collect_imports(&semantic);
   let exports = collect_exports(&semantic);
   // Export shapes need function-local refs (`const signal = ref(0); return { signal }`),
-  // which the public graph deliberately omits. Rebuild a shape-only binding set.
+  // which the public graph deliberately omits. Shape resolution uses a nested-inclusive
+  // binding set; Known export locals stay on the public graph only.
   let shape_graph = ReactivityGraph {
     bindings: super::collect_reactive_bindings(
       &semantic,
@@ -244,7 +245,7 @@ fn analyze_module(
     ),
     ..ReactivityGraph::default()
   };
-  let locals = collect_local_values(&semantic, &shape_graph);
+  let locals = collect_local_values(&semantic, &local_graph, &shape_graph, module.source_offset);
   let destructured_calls = collect_destructured_calls(&semantic, &imports);
   let instance_calls = collect_instance_calls(&semantic, &imports);
   Ok(ModuleSummary {
@@ -291,9 +292,11 @@ fn collect_imports(semantic: &oxc_semantic::Semantic<'_>) -> Vec<ImportSummary> 
 
 fn collect_local_values(
   semantic: &oxc_semantic::Semantic<'_>,
-  graph: &ReactivityGraph,
+  public_graph: &ReactivityGraph,
+  shape_graph: &ReactivityGraph,
+  script_offset: usize,
 ) -> BTreeMap<String, ExportState> {
-  let mut locals = graph
+  let mut locals = public_graph
     .bindings
     .iter()
     .map(|binding| (binding.name.clone(), ExportState::Known(binding.kind)))
@@ -306,7 +309,8 @@ fn collect_local_values(
     let Some(identifier) = &function.id else {
       continue;
     };
-    let shape = composable_return_shape(semantic, function.node_id.get(), graph);
+    let shape =
+      composable_return_shape(semantic, function.node_id.get(), shape_graph, script_offset);
     if !shape.is_empty() {
       locals.insert(identifier.name.to_string(), ExportState::Composable(shape));
     }
@@ -315,10 +319,14 @@ fn collect_local_values(
 }
 
 /// Object shape returned by a composable function / arrow (under-approx).
+///
+/// `script_offset` must match the offset used when materializing `graph.bindings`
+/// spans (0 for standalone modules, Vize `loc.start` for SFC script bodies).
 pub fn composable_return_shape(
   semantic: &oxc_semantic::Semantic<'_>,
   function_id: NodeId,
   graph: &ReactivityGraph,
+  script_offset: usize,
 ) -> BTreeMap<String, ReactiveBindingKind> {
   let imported_bindings = collect_imported_bindings(semantic);
   let param_names = function_param_names(semantic, function_id);
@@ -337,6 +345,7 @@ pub fn composable_return_shape(
       graph,
       &imported_bindings,
       &param_names,
+      script_offset,
       &mut shape,
       &mut ambiguous,
     );
@@ -364,6 +373,7 @@ pub fn composable_return_shape(
       graph,
       &imported_bindings,
       &param_names,
+      script_offset,
       &mut shape,
       &mut ambiguous,
     );
@@ -371,12 +381,17 @@ pub fn composable_return_shape(
   shape
 }
 
+#[expect(
+  clippy::too_many_arguments,
+  reason = "shape merge is a pure helper; packing args would obscure the call sites"
+)]
 fn merge_return_object_into_shape(
   semantic: &oxc_semantic::Semantic<'_>,
   expression: &Expression<'_>,
   graph: &ReactivityGraph,
   imported_bindings: &BTreeMap<String, (String, String)>,
   param_names: &BTreeSet<String>,
+  script_offset: usize,
   shape: &mut BTreeMap<String, ReactiveBindingKind>,
   ambiguous: &mut BTreeSet<String>,
 ) {
@@ -409,9 +424,14 @@ fn merge_return_object_into_shape(
     let Some(exported) = property.key.static_name() else {
       continue;
     };
-    let Some(kind) =
-      reactive_return_kind(semantic, &property.value, graph, imported_bindings, param_names)
-    else {
+    let Some(kind) = reactive_return_kind(
+      semantic,
+      &property.value,
+      graph,
+      imported_bindings,
+      param_names,
+      script_offset,
+    ) else {
       continue;
     };
     let exported = exported.into_owned();
@@ -457,6 +477,7 @@ fn reactive_return_kind(
   graph: &ReactivityGraph,
   imported_bindings: &BTreeMap<String, (String, String)>,
   param_names: &BTreeSet<String>,
+  script_offset: usize,
 ) -> Option<ReactiveBindingKind> {
   if let Some(reference) = expression.get_identifier_reference() {
     if param_names.contains(reference.name.as_str()) {
@@ -468,7 +489,7 @@ fn reactive_return_kind(
       .iter()
       .find(|binding| {
         binding.name == reference.name.as_str()
-          && reference_resolves_to_binding(semantic, reference, binding, 0)
+          && reference_resolves_to_binding(semantic, reference, binding, script_offset)
       })
       .map(|binding| binding.kind);
   }
