@@ -22,7 +22,7 @@ use vue_vet_reporters::{
   ReportContext, ReportFormat, ReportFramework, ReportMode, render, render_error,
 };
 use vue_vet_rules::builtin_registry;
-use vue_vet_vize::analyze_sfc_with_environment;
+use vue_vet_vize::analyze_sfc_facts_with_environment;
 
 #[derive(Debug, Parser)]
 #[command(name = "vue-vet", version, about = "Vet your Vue codebase")]
@@ -244,6 +244,8 @@ fn scan(root: &Path, config: &Config) -> Result<ScanResult, String> {
 
   let mut summary = ScanSummary::default();
   let mut project_files = Vec::new();
+  // Vue sources are deferred so rules can see cross-file module seeds.
+  let mut pending_vue = Vec::new();
   for entry in WalkBuilder::new(root).standard_filters(true).build() {
     let entry = entry.map_err(|error| error.to_string())?;
     let path = entry.path();
@@ -257,22 +259,26 @@ fn scan(root: &Path, config: &Config) -> Result<ScanResult, String> {
         let source = read_source(path)?;
         let environment =
           RuleEnvironment { vue_version: vue_version_for(path, scan_directory(root)) };
-        let analysis = analyze_sfc_with_environment(path, &source, environment)
+        let analysis = analyze_sfc_facts_with_environment(path, &source)
           .map_err(|error| format!("failed to analyze {}: {error}", path.display()))?;
-        let diagnostics = config.apply(analysis.diagnostics);
-        let diagnostics = apply_suppressions(path, &source, diagnostics);
-        summary.files_scanned = summary.files_scanned.saturating_add(1);
-        summary.diagnostics.extend(diagnostics);
+        let module_id = logical_path.to_string_lossy().replace('\\', "/");
         project_files.push(ProjectFile {
           path: logical_path.to_path_buf(),
           source_len: source.len(),
-          facts: analysis.facts,
+          facts: analysis.facts.clone(),
           module_source: analysis.module_source.map(|mut module| {
-            // Project graph normalizes ids to repository-relative paths.
-            module.id = logical_path.to_string_lossy().replace('\\', "/");
+            module.id.clone_from(&module_id);
             module
           }),
         });
+        pending_vue.push(PendingVueFile {
+          path: path.to_path_buf(),
+          logical_path: logical_path.to_path_buf(),
+          source,
+          environment,
+          facts: analysis.facts,
+        });
+        summary.files_scanned = summary.files_scanned.saturating_add(1);
       }
       Some(language @ ("js" | "jsx" | "ts" | "tsx")) => {
         let source = read_source(path)?;
@@ -298,9 +304,40 @@ fn scan(root: &Path, config: &Config) -> Result<ScanResult, String> {
   }
 
   let graph = build_project_graph(&project_files);
+  let modules = graph
+    .module_reactivity
+    .iter()
+    .map(|module| (module.id.as_str(), &module.graph))
+    .collect::<BTreeMap<_, _>>();
+  for pending in pending_vue {
+    let mut facts = pending.facts;
+    let module_id = pending.logical_path.to_string_lossy().replace('\\', "/");
+    if let Some(graph) = modules.get(module_id.as_str()) {
+      // Prefer the project-linked graph (composable seeds + template joins).
+      facts.apply_module_reactivity((*graph).clone());
+    }
+    let diagnostics = builtin_registry().run_with_environment(
+      &pending.path,
+      &pending.source,
+      &facts.template,
+      &facts.script,
+      pending.environment,
+    );
+    let diagnostics = config.apply(diagnostics);
+    let diagnostics = apply_suppressions(&pending.path, &pending.source, diagnostics);
+    summary.diagnostics.extend(diagnostics);
+  }
   let project_diagnostics = config.apply(graph.diagnostics.clone());
   summary.diagnostics.extend(project_diagnostics);
   Ok(ScanResult { summary: summary.finish(), graph })
+}
+
+struct PendingVueFile {
+  path: PathBuf,
+  logical_path: PathBuf,
+  source: String,
+  environment: RuleEnvironment,
+  facts: SfcFacts,
 }
 
 fn vue_version_for(path: &Path, boundary: &Path) -> Option<VueVersion> {

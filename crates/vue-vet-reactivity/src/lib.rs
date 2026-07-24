@@ -284,10 +284,19 @@ fn reference_resolves_to_binding(
   let Some(symbol_id) = semantic.scoping().get_reference(reference_id).symbol_id() else {
     return false;
   };
+  if semantic.scoping().symbol_name(symbol_id) != binding.name {
+    return false;
+  }
   let symbol_span = semantic.scoping().symbol_span(symbol_id);
-  let offset =
-    script_offset.saturating_add(usize::try_from(symbol_span.start).unwrap_or(usize::MAX));
-  semantic.scoping().symbol_name(symbol_id) == binding.name && offset == binding.span.offset
+  let relative = usize::try_from(symbol_span.start).unwrap_or(usize::MAX);
+  let absolute = script_offset.saturating_add(relative);
+  // Exact absolute match (local facts and correctly offset seeds).
+  if absolute == binding.span.offset {
+    return true;
+  }
+  // Seeds historically/occasionally store script-relative spans even when the
+  // module re-trace uses a non-zero SFC offset — accept the relative match too.
+  script_offset > 0 && relative == binding.span.offset
 }
 
 fn is_deferred_callback_container(

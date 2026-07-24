@@ -66,6 +66,29 @@ pub fn analyze_sfc_with_environment(
   source: &str,
   environment: RuleEnvironment,
 ) -> Result<AnalyzedSfc, AnalyzeError> {
+  let mut analysis = analyze_sfc_facts_with_environment(path, source)?;
+  analysis.diagnostics = builtin_registry().run_with_environment(
+    path,
+    source,
+    &analysis.facts.template,
+    &analysis.facts.script,
+    environment,
+  );
+  Ok(analysis)
+}
+
+/// Extract SFC facts and module identity without running built-in rules.
+///
+/// Used by the CLI project pass so cross-file module graphs can seed bindings
+/// before rule execution.
+///
+/// # Errors
+///
+/// Returns the same parse / template / script errors as [`analyze_sfc`].
+pub fn analyze_sfc_facts_with_environment(
+  path: &Path,
+  source: &str,
+) -> Result<AnalyzedSfc, AnalyzeError> {
   let descriptor = parse_sfc(source, SfcParseOptions::default())
     .map_err(|error| AnalyzeError::Parse(error.message.into()))?;
   let module_source = preferred_module_source(path, source, &descriptor);
@@ -99,9 +122,7 @@ pub fn analyze_sfc_with_environment(
   for block in &mut script.blocks {
     block.reactivity_graph.join_template_reads(&template);
   }
-  let diagnostics =
-    builtin_registry().run_with_environment(path, source, &template, &script, environment);
-  Ok(AnalyzedSfc { diagnostics, facts: SfcFacts { template, script }, module_source })
+  Ok(AnalyzedSfc { diagnostics: Vec::new(), facts: SfcFacts { template, script }, module_source })
 }
 
 fn preferred_module_source(
@@ -613,6 +634,62 @@ const count = ref(0)
       body,
       Some(module.source.as_str()),
       "extracted script body must be an exact slice of the original SFC at source_offset"
+    );
+  }
+
+  #[test]
+  #[expect(
+    clippy::expect_used,
+    clippy::panic,
+    reason = "fixture IO and analysis failures must fail the integration test"
+  )]
+  fn project_graph_uses_vize_module_source_for_seeds() {
+    use std::path::PathBuf;
+    use vue_vet_project::{ProjectFile, build_project_graph};
+    use vue_vet_reactivity::ModuleSource;
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/projects/module-seeds");
+    let app = std::fs::read_to_string(root.join("App.vue")).expect("app fixture");
+    let producer =
+      std::fs::read_to_string(root.join("composables/useField.ts")).expect("producer fixture");
+    let analysis = analysis_for_test(Path::new("App.vue"), &app);
+    let Some(module) = analysis.module_source.clone() else {
+      panic!("module source missing");
+    };
+    let files = [
+      ProjectFile {
+        path: PathBuf::from("App.vue"),
+        source_len: app.len(),
+        facts: analysis.facts,
+        module_source: Some({
+          let mut module = module;
+          module.id = "App.vue".into();
+          module
+        }),
+      },
+      ProjectFile {
+        path: PathBuf::from("composables/useField.ts"),
+        source_len: producer.len(),
+        facts: SfcFacts::default(),
+        module_source: Some(ModuleSource::standalone(
+          "composables/useField.ts",
+          producer,
+          "ts",
+          ScriptKind::Script,
+        )),
+      },
+    ];
+    let graph = build_project_graph(&files);
+    let app_mod = graph.module_reactivity.iter().find(|module| module.id == "App.vue");
+    assert!(
+      app_mod.is_some_and(|module| {
+        module.graph.effects.iter().any(|effect| {
+          effect.reads.iter().any(|read| {
+            read.binding == "title" && read.kind == vue_vet_core::ReactiveReadKind::AfterAwait
+          })
+        })
+      }),
+      "Vize module_source through project graph must seed after-await title reads"
     );
   }
 }

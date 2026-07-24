@@ -233,6 +233,32 @@ fn effective_config_is_machine_readable() {
 }
 
 #[test]
+fn project_module_seeds_feed_per_file_reactivity_rules() {
+  let project = fixture("projects/module-seeds");
+  let output = run(&[project.to_string_lossy().as_ref(), "--format", "json"]);
+  let parsed: Result<Value, _> = serde_json::from_slice(&output.stdout);
+  assert!(output.status.success(), "seeded project scan must succeed without deny-warnings");
+  let diagnostics = parsed
+    .as_ref()
+    .ok()
+    .and_then(|value| value.get("diagnostics"))
+    .and_then(Value::as_array)
+    .cloned()
+    .unwrap_or_default();
+  assert!(
+    diagnostics.iter().any(|diagnostic| {
+      diagnostic.get("rule_id").and_then(Value::as_str)
+        == Some("vue-vet/reactivity/no-after-await-watch-effect-dependency")
+        && diagnostic
+          .get("message")
+          .and_then(Value::as_str)
+          .is_some_and(|message| message.contains("title"))
+    }),
+    "cross-file composable seeds must backfill per-file rules; diagnostics were: {diagnostics:?}"
+  );
+}
+
+#[test]
 fn project_graph_reports_nuxt_edges_cycles_and_cross_file_findings() {
   let project = fixture("projects/nuxt-graph");
   let output = run(&[project.to_string_lossy().as_ref(), "--print-graph"]);

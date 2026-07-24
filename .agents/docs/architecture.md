@@ -5,14 +5,12 @@
 ```text
 vue-vet CLI
   -> versioned configuration and path filters
-  -> ignore-aware .vue discovery
-  -> vue-vet-vize SFC and template AST parsing
-  -> Vue Vet-owned template facts
-  -> vue-vet-oxc script parsing and semantic analysis
-  -> Vue Vet-owned script imports, bindings, calls, writes, and destructures
-  -> vue-vet-reactivity local tracing and module-summary linking
-  -> vue-vet-project resolved edges and module reactivity graphs
-  -> vue-vet-rules built-in rule registry
+  -> ignore-aware .vue / JS / TS discovery
+  -> vue-vet-vize SFC facts (template + local script graphs; rules deferred)
+  -> vue-vet-oxc standalone module facts
+  -> vue-vet-project edges + vue-vet-reactivity module seed linking
+  -> apply module graphs onto preferred SFC script blocks
+  -> vue-vet-rules on seed-aware facts
   -> severity overrides and scoped suppressions
   -> vue-vet-core diagnostics, spans, scoring
   -> vue-vet-reporters text or JSON rendering

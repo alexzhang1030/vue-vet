@@ -9,12 +9,13 @@ use std::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use vue_vet_core::{Diagnostic, ScanSummary};
+use vue_vet_core::{Diagnostic, REACTIVITY_GRAPH_VERSION, ScanSummary};
 use vue_vet_project::{CONVENTIONS_VERSION, ProjectGraph};
 
-pub const CACHE_FORMAT_VERSION: u32 = 2;
+pub const CACHE_FORMAT_VERSION: u32 = 3;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
-pub const RULESET_VERSION: u32 = 1;
+/// Bump when built-in rule set or seed-aware analysis behavior changes.
+pub const RULESET_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CachePayload {
@@ -117,6 +118,7 @@ pub fn content_key(files: &[(String, Vec<u8>)], config: &[u8]) -> String {
   hash_field(&mut hasher, b"oxc-version", b"0.127.0");
   hash_field(&mut hasher, b"conventions-version", &CONVENTIONS_VERSION.to_le_bytes());
   hash_field(&mut hasher, b"ruleset-version", &RULESET_VERSION.to_le_bytes());
+  hash_field(&mut hasher, b"reactivity-graph-version", &REACTIVITY_GRAPH_VERSION.to_le_bytes());
   hash_field(&mut hasher, b"config", config);
   for (path, content) in ordered {
     hash_field(&mut hasher, path.as_bytes(), content);

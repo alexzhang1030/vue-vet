@@ -25,6 +25,7 @@ vue-vet-rules = { path = "../vue-vet-rules" }
 [dev-dependencies]
 divan.workspace = true
 serde_json.workspace = true
+vue-vet-project = { path = "../vue-vet-project" }
 
 [[bench]]
 name = "analyze_sfc"

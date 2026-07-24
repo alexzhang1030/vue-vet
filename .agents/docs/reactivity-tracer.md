@@ -181,7 +181,8 @@ Shipped together as one tracer evolution:
 5. **Module seeds** — destructure + `const bag = useX(); bag.field.value`.
 
 Still open: pauseTracking nested in branches edge cases; dual ordinary+setup
-script blocks as a single merged module (currently setup preferred).
+script blocks as a single merged module (currently setup preferred). Per-file
+rules now see project-linked module graphs for preferred script blocks.
 
 ## Evolution wave 2 (landed 2026-07-25)
 
@@ -231,6 +232,14 @@ script blocks as a single merged module (currently setup preferred).
 2. **Vize `AnalyzedSfc.module_source`** — prefers `script setup`, else `script`.
 3. **CLI** feeds `.vue` module sources into `build_project_graph`.
 4. **Project graph** re-joins templates onto traced module graphs after seed linking.
+
+## Evolution wave 8 (module seeds → per-file rules)
+
+1. **`SfcFacts::apply_module_reactivity`** — swaps the preferred block graph for
+   the project-linked one (seeds + template joins).
+2. **`analyze_sfc_facts_with_environment`** — facts-only extract for the CLI.
+3. **CLI two-phase scan** — collect SFC facts → `build_project_graph` → apply
+   module graphs → run rules / suppressions.
 
 ## Evolution wave 3 (landed 2026-07-25)
 

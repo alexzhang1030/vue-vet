@@ -1168,3 +1168,46 @@ fn validates_real_world_module_patterns() {
   }
   assert_eq!(names.len(), 5, "the real-world corpus must retain five fixed-source cases");
 }
+
+#[test]
+fn seeds_destructured_composable_fields_in_sfc_script_with_offset() {
+  let producer = ModuleSource::standalone(
+    "composables/useField.ts",
+    "import { toRef } from 'vue'; export function useField(props: { title: string }) { return { title: toRef(props, 'title') }; }",
+    "ts",
+    ScriptKind::Script,
+  );
+  let script = "import { watchEffect } from 'vue';\nimport { useField } from './composables/useField';\nconst props = { title: 'x' };\nconst { title } = useField(props);\nwatchEffect(async () => {\n  await Promise.resolve();\n  console.log(title.value);\n});\n";
+  let prefix = "<script setup lang=\"ts\">\n";
+  let sfc = format!("{prefix}{script}</script>\n<template><p>{{{{ title }}}}</p></template>\n");
+  let consumer =
+    ModuleSource::sfc_script("App.vue", script, "ts", ScriptKind::Setup, prefix.len(), sfc);
+  let links = [ModuleLink {
+    from: "App.vue".into(),
+    specifier: "./composables/useField".into(),
+    to: "composables/useField.ts".into(),
+  }];
+  let traced = traced_modules(&[producer, consumer], &links);
+  let app = traced.iter().find(|module| module.id == "App.vue");
+  assert!(
+    app.is_some_and(|module| {
+      module.graph.bindings.iter().any(|binding| binding.name == "title")
+        && module.graph.effects.iter().any(|effect| {
+          effect
+            .reads
+            .iter()
+            .any(|read| read.binding == "title" && read.kind == ReactiveReadKind::AfterAwait)
+        })
+    }),
+    "SFC-offset seeds must resolve title.value reads after await; got {:?}",
+    app.map(|module| (
+      module.graph.bindings.iter().map(|b| (b.name.clone(), b.span.offset)).collect::<Vec<_>>(),
+      module
+        .graph
+        .effects
+        .iter()
+        .map(|e| e.reads.iter().map(|r| (r.binding.clone(), r.kind)).collect::<Vec<_>>())
+        .collect::<Vec<_>>()
+    ))
+  );
+}

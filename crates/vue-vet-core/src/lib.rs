@@ -690,6 +690,21 @@ pub struct SfcFacts {
   pub script: ScriptFacts,
 }
 
+impl SfcFacts {
+  /// Replace the preferred script block's reactivity graph with a project-linked
+  /// module graph (usually after cross-file seed linking). Prefers `script setup`.
+  pub fn apply_module_reactivity(&mut self, graph: ReactivityGraph) {
+    if let Some(block) = self.script.blocks.iter_mut().find(|block| block.kind == ScriptKind::Setup)
+    {
+      block.reactivity_graph = graph;
+      return;
+    }
+    if let Some(block) = self.script.blocks.first_mut() {
+      block.reactivity_graph = graph;
+    }
+  }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct VueVersion {
   pub major: u64,

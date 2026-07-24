@@ -110,6 +110,14 @@ fallback—do not treat empty `Some` as unknown.
 
 Cross-file module tracing for `.vue` uses the preferred script block
 (`script setup` first) as `ModuleSource::sfc_script` with Vize `loc.start` and
-the full SFC as `span_source`. Standalone JS/TS modules keep offset 0. After
-seed linking, project graph re-runs `join_template_reads` so template surfaces
-see seeded bindings. Dual ordinary+setup blocks are not merged into one module.
+the full SFC as `span_source`. Standalone JS/TS modules keep offset 0. Seed
+spans must use the same origin/offset as module re-trace (`source_offset` +
+`span_source`), or `reference_resolves_to_binding` will drop composable reads.
+After seed linking, project graph re-runs `join_template_reads`. The CLI then
+applies that module graph onto SFC facts and runs rules, so composable seeds
+affect per-file diagnostics—not only `module_reactivity` debug output.
+
+Content cache keys include `CACHE_FORMAT_VERSION`, ruleset version, and
+`REACTIVITY_GRAPH_VERSION`; bump those when analysis behavior changes so local
+caches do not serve stale graphs. Dual ordinary+setup blocks are not merged
+into one module.

@@ -704,12 +704,16 @@ fn imported_bindings(
     let Some(state) = exports.get(target).and_then(|exports| exports.get(&import.imported)) else {
       continue;
     };
+    // Seed spans must use the same origin/offset as module re-trace so
+    // `reference_resolves_to_binding` matches SFC-absolute symbol offsets.
+    let span_source = summary.module.span_origin();
+    let span_base = summary.module.source_offset;
     match state {
       ExportState::Known(kind) => seeds.bindings.push(ReactiveBindingFact {
         name: import.local.clone(),
         kind: *kind,
         initialized_with_null: false,
-        span: source_span(&summary.module.source, 0, import.span),
+        span: source_span(span_source, span_base, import.span),
       }),
       ExportState::Composable(shape) => {
         for call in
@@ -722,7 +726,7 @@ fn imported_bindings(
             name: call.local.clone(),
             kind: *kind,
             initialized_with_null: false,
-            span: source_span(&summary.module.source, 0, call.span),
+            span: source_span(span_source, span_base, call.span),
           });
         }
         for call in summary.instance_calls.iter().filter(|call| call.imported_local == import.local)
@@ -734,7 +738,7 @@ fn imported_bindings(
                 name: field.clone(),
                 kind: *kind,
                 initialized_with_null: false,
-                span: source_span(&summary.module.source, 0, call.span),
+                span: source_span(span_source, span_base, call.span),
               });
             }
           }
