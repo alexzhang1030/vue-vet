@@ -21,6 +21,8 @@ watchEffect(() => {
   fullName.value = `${first.value} ${last.value}`
 })
 
+const orphan = ref(0)
+
 const componentProps = defineProps<{ title: string }>()
 defineProps<{ count: number }>()
 defineEmits()

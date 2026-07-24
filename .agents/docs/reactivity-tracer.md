@@ -45,7 +45,7 @@ JavaScript soundness.
 | A5 Boundaries | await / pauseTracking / deferred callbacks / watch jobs → non-tracking kinds |
 | A6 Modules | composable shapes including parametric `toRef(param, key)` + instance seeds |
 | A7 Contract | v3: scopes/writes/edges/template_reads + effects projection |
-| Evidence | 280 corpus + unit coverage + after-await/prefer-computed rules |
+| Evidence | 280 corpus + unit coverage + after-await/prefer-computed/unused-binding rules |
 
 ## Completeness ladder
 
@@ -142,7 +142,8 @@ SFC block absolute offsets); the prior gap was vue-vet under-use of that AST.
 | Interpolation + directive exp/arg surfaces with expression spans | shipped (`TemplateExpressionFact` via Vize) |
 | Oxc AST free-identifier extraction for template expressions | shipped (`vue-vet-oxc::template_expression_identifiers`) |
 | Lexical identifier join fallback | shipped (fixtures / Oxc parse miss) |
-| Nested free-var scoping inside template handlers | partial (collects IdentifierReference; no full scope filter yet) |
+| Nested free-var scoping inside template handlers | shipped (param / inner binding filter on Oxc visit) |
+| Vertical rule on template join | shipped (`no-unused-reactive-binding`) |
 | Cross-file extracted `.vue` script module identity | project-graph concern (not basic SFC offsets — those already work) |
 
 ## Non-goals
@@ -178,8 +179,8 @@ Shipped together as one tracer evolution:
 4. **Boundaries** — `AfterAwait` + `OutsideTracking` for deferred callbacks.
 5. **Module seeds** — destructure + `const bag = useX(); bag.field.value`.
 
-Still open: nested free-var scoping inside inline template handlers, cross-file
-`.vue` module identity, pauseTracking nested in branches edge cases.
+Still open: cross-file `.vue` module identity, pauseTracking nested in branches
+edge cases, v-for alias scopes for template interpolations.
 
 ## Evolution wave 2 (landed 2026-07-25)
 
@@ -205,6 +206,14 @@ Still open: nested free-var scoping inside inline template handlers, cross-file
    + `Visit` over `IdentifierReference` (drops static member props / keys).
 3. **`v-for` source only** — `item in items` / `(a, b) of list` keep iterable side.
 4. Join prefers Oxc identifiers; lexical scan remains the empty-list fallback.
+
+## Evolution wave 5 (handler free-vars + unused binding rule)
+
+1. **Nested free-var filter** — arrow/function params and inner bindings excluded
+   from template expression identifier lists.
+2. **`vue-vet/reactivity/no-unused-reactive-binding`** — reports local reactive
+   bindings with no script reads, scope reads/writes, template joins, or static
+   `ref="…"` uses; quiets `defineModel` / `useTemplateRef` / `toRef` contracts.
 
 ## Evolution wave 3 (landed 2026-07-25)
 

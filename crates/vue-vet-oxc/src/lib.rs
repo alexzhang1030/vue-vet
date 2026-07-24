@@ -4,14 +4,16 @@ use oxc_allocator::Allocator;
 use oxc_ast::{
   AstKind,
   ast::{
-    AssignmentTarget, BindingPattern, Expression, IdentifierReference, ImportDeclarationSpecifier,
-    ModuleExportName, SimpleAssignmentTarget,
+    ArrowFunctionExpression, AssignmentTarget, BindingIdentifier, BindingPattern, Expression,
+    Function, IdentifierReference, ImportDeclarationSpecifier, ModuleExportName,
+    SimpleAssignmentTarget,
   },
 };
-use oxc_ast_visit::Visit;
+use oxc_ast_visit::{Visit, walk};
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::{SourceType, Span};
+use oxc_syntax::scope::ScopeFlags;
 use thiserror::Error;
 use vue_vet_core::{
   ScriptBindingFact, ScriptBlockFacts, ScriptCallFact, ScriptDestructureFact, ScriptImportFact,
@@ -195,9 +197,11 @@ pub fn analyze_module(
 /// Collect free identifier reads from one template expression surface.
 ///
 /// Uses Oxc's expression parser so static member properties, object keys, and
-/// string/number literals are not mistaken for binding reads. `v-for` surfaces
-/// keep only the iterable source (`item in items` → `items`). On parse failure
-/// the result is empty so callers can fall back to a coarser strategy.
+/// string/number literals are not mistaken for binding reads. Nested arrow /
+/// function parameters (and their inner bindings) are filtered so
+/// `(item) => item + count` yields only `count`. `v-for` surfaces keep only the
+/// iterable source (`item in items` → `items`). On parse failure the result is
+/// empty so callers can fall back to a coarser strategy.
 #[must_use]
 pub fn template_expression_identifiers(expression: &str, surface: &str) -> Vec<String> {
   let normalized = normalize_template_expression(expression, surface);
@@ -208,7 +212,7 @@ pub fn template_expression_identifiers(expression: &str, surface: &str) -> Vec<S
   let Ok(expr) = Parser::new(&allocator, &normalized, SourceType::mjs()).parse_expression() else {
     return Vec::new();
   };
-  let mut collector = IdentifierReferenceCollector::default();
+  let mut collector = FreeIdentifierCollector::default();
   collector.visit_expression(&expr);
   collector.names.into_iter().collect()
 }
@@ -238,13 +242,54 @@ fn v_for_iterable_source(expression: &str) -> Option<String> {
 }
 
 #[derive(Default)]
-struct IdentifierReferenceCollector {
+struct FreeIdentifierCollector {
   names: BTreeSet<String>,
+  /// Nested function / arrow scopes; identifiers bound here are not free reads.
+  bound_stack: Vec<BTreeSet<String>>,
 }
 
-impl<'a> Visit<'a> for IdentifierReferenceCollector {
+impl FreeIdentifierCollector {
+  fn is_bound(&self, name: &str) -> bool {
+    self.bound_stack.iter().any(|scope| scope.contains(name))
+  }
+
+  fn push_scope(&mut self) {
+    self.bound_stack.push(BTreeSet::new());
+  }
+
+  fn pop_scope(&mut self) {
+    self.bound_stack.pop();
+  }
+
+  fn bind(&mut self, name: &str) {
+    if let Some(scope) = self.bound_stack.last_mut() {
+      scope.insert(name.to_owned());
+    }
+  }
+}
+
+impl<'a> Visit<'a> for FreeIdentifierCollector {
   fn visit_identifier_reference(&mut self, identifier: &IdentifierReference<'a>) {
-    self.names.insert(identifier.name.to_string());
+    let name = identifier.name.as_str();
+    if !self.is_bound(name) {
+      self.names.insert(name.to_owned());
+    }
+  }
+
+  fn visit_binding_identifier(&mut self, identifier: &BindingIdentifier<'a>) {
+    self.bind(identifier.name.as_str());
+  }
+
+  fn visit_arrow_function_expression(&mut self, expr: &ArrowFunctionExpression<'a>) {
+    self.push_scope();
+    walk::walk_arrow_function_expression(self, expr);
+    self.pop_scope();
+  }
+
+  fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
+    self.push_scope();
+    walk::walk_function(self, func, flags);
+    self.pop_scope();
   }
 }
 
@@ -443,6 +488,19 @@ mod tests {
       template_expression_identifiers("(item, index) of list", "for"),
       vec!["list".to_owned()],
       "destructured v-for aliases must not appear as free reads"
+    );
+    assert_eq!(
+      template_expression_identifiers("(item) => item + count", "on"),
+      vec!["count".to_owned()],
+      "handler parameters must not be treated as free template reads"
+    );
+    assert_eq!(
+      template_expression_identifiers(
+        "(item) => { const local = item; return local + total }",
+        "on"
+      ),
+      vec!["total".to_owned()],
+      "inner let/const bindings must be filtered from free reads"
     );
     assert!(
       template_expression_identifiers("??? not expression", "if").is_empty(),

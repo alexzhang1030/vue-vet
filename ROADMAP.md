@@ -100,7 +100,7 @@ Implemented across the merged Phase 2 and semantic-reactivity branches:
 - dependency-neutral imports, bindings, calls, and member-write facts
 - versioned strict configuration, recommended/none presets, severity overrides,
   include/exclude globs, and scoped suppressions with unused-suppression diagnostics
-- 30 documented high-confidence recommended rules with positive and safe fixtures
+- 31 documented high-confidence recommended rules with positive and safe fixtures
 - normalized compiler-macro assignment facts and alias-aware readonly-props enforcement
 - semantic reactivity graph facts plus package-version-gated Vue 3.4/3.5 diagnostics
 - dedicated reactivity tracer crate with local control-flow analysis, module

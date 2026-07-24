@@ -103,6 +103,6 @@ and `ExpressionNode::loc()`. The historical gap was vue-vet under-extraction
 `TemplateFacts.expressions` carries those Vize surfaces with SFC-absolute spans
 and `join_template_reads` prefers them. Identifier reads are filled by Oxc
 (`vue-vet-oxc::template_expression_identifiers`) so static member properties are
-not mistaken for bindings; lexical scan is only the empty-list fallback. Remaining
-precision boundaries: nested free-var scoping inside inline handlers, and
-extracted cross-file `.vue` module identity (project-graph concern).
+not mistaken for bindings; lexical scan is only the empty-list fallback. Handler free-vars are filtered (params / inner bindings). Remaining precision
+boundaries: v-for alias scopes for interpolations, and extracted cross-file
+`.vue` module identity (project-graph concern).
