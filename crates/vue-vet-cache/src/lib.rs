@@ -15,7 +15,7 @@ use vue_vet_project::{CONVENTIONS_VERSION, ProjectGraph};
 pub const CACHE_FORMAT_VERSION: u32 = 3;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// Bump when built-in rule set or seed-aware analysis behavior changes.
-pub const RULESET_VERSION: u32 = 2;
+pub const RULESET_VERSION: u32 = 3;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CachePayload {

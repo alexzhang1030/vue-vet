@@ -418,7 +418,7 @@ pub struct ReactivityEffectFact {
 
 /// Wire format version for [`ReactivityGraph`]. Bump when consumers must
 /// distinguish shape or semantic changes in serialized facts.
-pub const REACTIVITY_GRAPH_VERSION: u32 = 3;
+pub const REACTIVITY_GRAPH_VERSION: u32 = 4;
 
 const fn default_reactivity_graph_version() -> u32 {
   1
@@ -454,6 +454,24 @@ impl Default for ReactivityGraph {
       template_reads: Vec::new(),
     }
   }
+}
+
+/// Stable-enough `from` label for a tracking scope in the inverted edge list.
+fn scope_edge_from(scope: &TrackingScopeFact) -> String {
+  if let Some(binding) = &scope.binding {
+    return binding.clone();
+  }
+  let kind = match scope.kind {
+    TrackingScopeKind::WatchEffect
+    | TrackingScopeKind::WatchPostEffect
+    | TrackingScopeKind::WatchSyncEffect => "effect",
+    TrackingScopeKind::Computed => "computed",
+    TrackingScopeKind::WatchSources => "watch_sources",
+    TrackingScopeKind::WatchCallback => "watch_callback",
+    TrackingScopeKind::EffectScope => "effect_scope",
+    TrackingScopeKind::OnScopeDispose => "on_scope_dispose",
+  };
+  format!("{kind}:{}@{}", scope.callee, scope.span.offset)
 }
 
 impl ReactivityGraph {
@@ -550,8 +568,9 @@ impl ReactivityGraph {
       if !scope.kind.tracks_dependencies() {
         continue;
       }
-      let from =
-        scope.binding.clone().unwrap_or_else(|| format!("{}@{}", scope.callee, scope.span.offset));
+      // Prefer stable computed binding names; otherwise qualify by kind+callee+span
+      // so multiple effects do not share an ambiguous bare callee label.
+      let from = scope_edge_from(scope);
       let kind = if scope.kind == TrackingScopeKind::Computed {
         ReactiveDependencyKind::Computed
       } else {
@@ -563,6 +582,8 @@ impl ReactivityGraph {
         }
         edges.push(ReactiveDependencyEdge {
           from: from.clone(),
+          // Binding name only for now — consumers (e.g. unused-binding) match on it.
+          // Module/symbol-qualified IDs remain a follow-up contract step.
           to: read.binding.clone(),
           kind,
           span: read.span.clone(),
@@ -571,7 +592,8 @@ impl ReactivityGraph {
     }
     for template_read in &self.template_reads {
       edges.push(ReactiveDependencyEdge {
-        from: format!("template:{}", template_read.surface),
+        // Span-qualified so multiple interpolations are distinct nodes.
+        from: format!("template:{}@{}", template_read.surface, template_read.span.offset),
         to: template_read.binding.clone(),
         kind: ReactiveDependencyKind::Template,
         span: template_read.span.clone(),

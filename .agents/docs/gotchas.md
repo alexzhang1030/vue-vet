@@ -143,3 +143,16 @@ recall evidence.
 tracking flush. Nested arrows that are arguments to known sync Array methods
 stay inside the parent scope; deferred containers (`then` / `nextTick` / …)
 remain outside.
+
+## Ecosystem APIs beyond `vue`
+
+`storeToRefs` (pinia / `#imports`) and `useRoute` / `useRouter` (vue-router /
+`#imports`) are allowlisted reactivity sources. Unknown package callees stay
+quiet. Do not treat every `use*` auto-import as reactive without evidence.
+
+## Edge `from` labels (graph v4)
+
+Computed edges prefer the assigned binding name (`doubled`). Other scopes use
+`{kind}:{callee}@{offset}`. Template joins use `template:{surface}@{offset}` so
+multiple interpolations do not collapse. `to` remains a bare binding name for
+consumer matching until symbol/module IDs land.

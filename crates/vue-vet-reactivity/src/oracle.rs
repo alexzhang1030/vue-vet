@@ -151,11 +151,33 @@ fn oracle_cases_cover_known_hard_facts() {
     "baseline-ref-computed",
     "props-reactive-object",
     "sync-filter-hof",
+    "sync-map-hof",
+    "use-route-like",
     "runner-run-no-track",
     "watch-effect-await",
   ] {
     assert!(ids.contains(required), "missing oracle case {required}");
   }
+}
+
+/// Exhaustive tracking-read set for a computed scope (not mere existence).
+fn assert_computed_reads_exact(graph: &ReactivityGraph, expected: &[(&str, Option<&str>)]) {
+  let computed =
+    graph.scopes.iter().find(|scope| scope.kind == vue_vet_core::TrackingScopeKind::Computed);
+  assert!(computed.is_some(), "computed scope missing; scopes={:?}", graph.scopes);
+  let actual = computed
+    .into_iter()
+    .flat_map(|scope| &scope.reads)
+    .filter(|read| {
+      matches!(read.kind, ReactiveReadKind::Unconditional | ReactiveReadKind::Conditional)
+    })
+    .map(|read| (read.binding.as_str(), read.property.as_deref()))
+    .collect::<BTreeSet<_>>();
+  let expected = expected.iter().copied().collect::<BTreeSet<_>>();
+  assert_eq!(
+    actual, expected,
+    "computed tracking reads must match exactly (no missing, no invented)"
+  );
 }
 
 #[test]
@@ -192,16 +214,70 @@ fn sync_filter_callback_tracks_nested_reactive_reads() {
      const query = ref('a')\n\
      const filtered = computed(() => list.value.filter((item) => item.includes(query.value)))\n",
   );
-  let computed =
-    graph.scopes.iter().find(|scope| scope.kind == vue_vet_core::TrackingScopeKind::Computed);
-  assert!(computed.is_some(), "computed scope missing");
-  let reads = computed
-    .into_iter()
-    .flat_map(|scope| &scope.reads)
-    .map(|read| (read.binding.as_str(), read.property.as_deref()))
-    .collect::<BTreeSet<_>>();
+  assert_computed_reads_exact(&graph, &[("list", Some("value")), ("query", Some("value"))]);
+}
+
+#[test]
+fn store_to_refs_destructure_fields_are_ref_like() {
+  let graph = graph(
+    "import { storeToRefs } from 'pinia'\n\
+     import { computed } from 'vue'\n\
+     const store = useCounterStore()\n\
+     const { count, label } = storeToRefs(store)\n\
+     const text = computed(() => count.value + label.value)\n",
+  );
   assert!(
-    reads.contains(&("list", Some("value"))) && reads.contains(&("query", Some("value"))),
-    "sync filter callback must track list and query; got {reads:?}"
+    graph.bindings.iter().any(|binding| {
+      binding.name == "count" && binding.kind == vue_vet_core::ReactiveBindingKind::ToRef
+    }) && graph.bindings.iter().any(|binding| {
+      binding.name == "label" && binding.kind == vue_vet_core::ReactiveBindingKind::ToRef
+    }),
+    "storeToRefs destructure must seed ToRef locals; bindings={:?}",
+    graph.bindings
+  );
+  assert_computed_reads_exact(&graph, &[("count", Some("value")), ("label", Some("value"))]);
+}
+
+#[test]
+fn use_route_is_reactive_object_source() {
+  let graph = graph(
+    "import { useRoute } from 'vue-router'\n\
+     import { computed } from 'vue'\n\
+     const route = useRoute()\n\
+     const title = computed(() => route.path)\n",
+  );
+  assert!(
+    graph.bindings.iter().any(|binding| {
+      binding.name == "route" && binding.kind == vue_vet_core::ReactiveBindingKind::Reactive
+    }),
+    "useRoute() must create a reactive binding"
+  );
+  assert_computed_reads_exact(&graph, &[("route", Some("path"))]);
+}
+
+#[test]
+fn dependency_edges_qualify_effect_and_template_from_nodes() {
+  let graph = graph(
+    "import { ref, computed, watchEffect } from 'vue'\n\
+     const source = ref(1)\n\
+     const doubled = computed(() => source.value * 2)\n\
+     watchEffect(() => { void source.value })\n",
+  );
+  assert!(
+    graph.edges.iter().any(|edge| {
+      edge.kind == vue_vet_core::ReactiveDependencyKind::Computed
+        && edge.from == "doubled"
+        && edge.to == "source"
+    }),
+    "computed edges keep binding-name from"
+  );
+  assert!(
+    graph.edges.iter().any(|edge| {
+      edge.kind == vue_vet_core::ReactiveDependencyKind::Effect
+        && edge.from.starts_with("effect:watchEffect@")
+        && edge.to == "source"
+    }),
+    "effect edges use kind:callee@offset from ids; edges={:?}",
+    graph.edges
   );
 }

@@ -19,8 +19,14 @@ completeness number — not a 280-case syntax matrix.
 | `baseline-ref-computed` | happy path ref → computed |
 | `props-reactive-object` | `props.count` style reactive object (defineProps stand-in) |
 | `sync-filter-hof` | sync Array#filter callback must track `query` |
-| `watch-effect-await` | post-await read is runtime-tracked only if read before await ends collection — documents boundary |
+| `sync-map-hof` | sync Array#map callback must track `factor` |
+| `use-route-like` | reactive route object member (`route.path`) |
+| `watch-effect-await` | post-await read is **not** runtime-tracked (boundary) |
 | `runner-run-no-track` | arbitrary `.run` invents nothing at runtime |
+
+Static-only (no oracle JSON): `storeToRefs` from `pinia` — unit-tested; runtime
+`toRefs` tracks the **underlying store object**, so key identity differs from
+local ref names and is not a fair under-approx pair without alias mapping.
 
 ## Refresh expected JSON
 

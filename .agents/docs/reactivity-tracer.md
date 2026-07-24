@@ -39,14 +39,14 @@ Contract version: **`REACTIVITY_GRAPH_VERSION = 3`** (scopes, writes, edges,
 
 | Axis | Status | Gap |
 | --- | --- | --- |
-| A1 Bindings | partial | Vue primitives, aliases, `#imports`, `defineModel`, **`defineProps` → reactive object**, module seeds. Still missing storeToRefs / route sources |
+| A1 Bindings | partial | Vue primitives, aliases, `#imports`, `defineModel`, `defineProps`, **`storeToRefs` (pinia/#imports)**, **`useRoute`/`useRouter`**, module seeds |
 | A2 Scopes | partial | effects, computed, watch, effectScope (`.run` requires provenance), dispose |
-| A3 Reads | partial | direct `.value` / reactive members / bag.field.value / **sync Array HOF callbacks** (filter/map/…). Still missing some HOF surfaces |
-| A4 Conditions | deep | if / early-exit / ternary / short-circuit / switch roles — **over-invested relative to A1/A3** |
+| A3 Reads | partial | `.value` / reactive members / bag.field / **sync Array HOF** (filter/map/forEach/reduce/…) |
+| A4 Conditions | deep | if / early-exit / ternary / short-circuit / switch roles — do not deepen further yet |
 | A5 Boundaries | partial | await, pauseTracking, deferred callbacks, watch jobs |
 | A6 Modules | partial | composable shapes, parametric `toRef`, SFC module identity, seed→rules |
-| A7 Contract | shipped | versioned graph; edge IDs still fragile (`callee@offset`, bare names) |
-| Evidence | improving | Runtime oracle (`oracle/expected`, `just oracle`) asserts **tracer ⊆ runtime** and gates **≥99% recall** on committed cases. 280 corpus remains a syntax matrix, not completeness proof |
+| A7 Contract | improving | **v4**: `from` = computed binding or `kind:callee@offset`; template `template:surface@offset`. `to` still bare binding names |
+| Evidence | improving | Runtime oracle asserts **tracer ⊆ runtime** + ≥99% recall on committed cases; exhaustive computed-read sets in oracle unit tests |
 
 ### Charter invariants (must not regress)
 
@@ -135,3 +135,4 @@ growing prose ledger.
 | 2026-07-25 | Reorient to A1/A3 + runtime oracle | Guards only matter when edges exist; 280 corpus ≠ recall |
 | 2026-07-25 | No official Vue reactivity-analysis plugin | Prior art is shallow ESLint rules + Vapor codegen + DevTools runtime |
 | 2026-07-25 | Runtime oracle skeleton + A1 fixes | onTrack expected JSON; defineProps; sync filter/map HOF; effectScope.run provenance |
+| 2026-07-25 | A1 breadth: storeToRefs / useRoute + edge from-ids | pinia/vue-router allowlist; graph v4 edge `from` labels; more oracle cases |

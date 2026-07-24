@@ -150,10 +150,9 @@ fn resolved_vue_callee(
     {
       return Some(local.into());
     }
-    return imported_bindings
-      .get(local)
-      .filter(|(source, _)| matches!(source.as_str(), "vue" | "#imports"))
-      .map(|(_, imported)| imported.clone());
+    return imported_bindings.get(local).and_then(|(source, imported)| {
+      known_reactivity_export(source, imported).then(|| imported.clone())
+    });
   }
 
   let (namespace, property) = match callee {
@@ -166,10 +165,35 @@ fn resolved_vue_callee(
     ),
     _ => return None,
   };
-  imported_bindings
-    .get(namespace)
-    .filter(|(source, imported)| matches!(source.as_str(), "vue" | "#imports") && imported == "*")
-    .map(|_| property)
+  imported_bindings.get(namespace).and_then(|(source, imported)| {
+    if imported == "*" && matches!(source.as_str(), "vue" | "#imports") {
+      known_reactivity_export("vue", &property).then_some(property)
+    } else {
+      None
+    }
+  })
+}
+
+/// Packages/exports the tracer treats as reactivity APIs (under-approx allowlist).
+fn known_reactivity_export(source: &str, imported: &str) -> bool {
+  match source {
+    "vue" | "#imports" => {
+      reactive_binding_kind(imported).is_some()
+        || TrackingScopeKind::from_vue_callee(imported).is_some()
+        || matches!(
+          imported,
+          "storeToRefs"
+            | "useRoute"
+            | "useRouter"
+            | "pauseTracking"
+            | "enableTracking"
+            | "resetTracking"
+        )
+    }
+    "pinia" => matches!(imported, "storeToRefs"),
+    "vue-router" => matches!(imported, "useRoute" | "useRouter"),
+    _ => false,
+  }
 }
 
 fn reactive_binding_kind(callee: &str) -> Option<ReactiveBindingKind> {
@@ -177,12 +201,13 @@ fn reactive_binding_kind(callee: &str) -> Option<ReactiveBindingKind> {
     "ref" => Some(ReactiveBindingKind::Ref),
     "shallowRef" => Some(ReactiveBindingKind::ShallowRef),
     "computed" => Some(ReactiveBindingKind::Computed),
-    "reactive" | "defineProps" => Some(ReactiveBindingKind::Reactive),
+    // defineProps / useRoute / useRouter expose reactive objects (member reads, not .value).
+    "reactive" | "defineProps" | "useRoute" | "useRouter" => Some(ReactiveBindingKind::Reactive),
     "shallowReactive" => Some(ReactiveBindingKind::ShallowReactive),
     "readonly" => Some(ReactiveBindingKind::Readonly),
     "shallowReadonly" => Some(ReactiveBindingKind::ShallowReadonly),
     "customRef" => Some(ReactiveBindingKind::CustomRef),
-    "toRef" | "toRefs" => Some(ReactiveBindingKind::ToRef),
+    "toRef" | "toRefs" | "storeToRefs" => Some(ReactiveBindingKind::ToRef),
     "useTemplateRef" => Some(ReactiveBindingKind::TemplateRef),
     "defineModel" => Some(ReactiveBindingKind::ModelRef),
     _ => None,
@@ -243,7 +268,8 @@ fn collect_reactive_bindings(
     };
 
     let mut identifiers = Vec::new();
-    if callee == "toRefs" {
+    if matches!(callee.as_str(), "toRefs" | "storeToRefs") {
+      // `const { count, name } = storeToRefs(store)` / `toRefs(obj)` → each local is ref-like.
       if matches!(&declarator.id, BindingPattern::ObjectPattern(_)) {
         collect_binding_identifiers(&declarator.id, &mut identifiers);
       }
