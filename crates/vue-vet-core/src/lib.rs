@@ -156,9 +156,23 @@ impl TemplateElementFact {
   }
 }
 
+/// One template expression surface that may read script bindings.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TemplateExpressionFact {
+  /// Where the expression appears (`if`, `for`, `bind`, `on`, `interpolation`, …).
+  pub surface: String,
+  /// Raw expression text.
+  pub expression: String,
+  /// Exact SFC-absolute span of the expression when known.
+  pub span: SourceSpan,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TemplateFacts {
   pub elements: Vec<TemplateElementFact>,
+  /// Flattened expression surfaces (directives + interpolations) with spans.
+  #[serde(default)]
+  pub expressions: Vec<TemplateExpressionFact>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -458,8 +472,13 @@ impl ReactivityGraph {
   /// Join template expression text onto known script reactive bindings.
   ///
   /// High-confidence under-approximation: only identifiers that exactly match
-  /// binding names are linked. Full template expression ASTs remain future work
-  /// once Vize exposes a richer expression contract.
+  /// binding names are linked. Prefer flattened [`TemplateFacts::expressions`]
+  /// (Vize interpolations + directive exp/arg with expression-absolute spans);
+  /// fall back to element directives for hand-built fixtures that omit that list.
+  ///
+  /// Vize already supplies `ExpressionNode` text + `SourceLocation` offsets.
+  /// A full JS expression AST inside templates is still a placeholder on
+  /// `SimpleExpressionNode::js_ast`, so identifier extraction stays lexical.
   pub fn join_template_reads(&mut self, template: &TemplateFacts) {
     let binding_names = self
       .bindings
@@ -467,25 +486,35 @@ impl ReactivityGraph {
       .map(|binding| binding.name.as_str())
       .collect::<std::collections::BTreeSet<_>>();
     let mut template_reads = Vec::new();
-    for element in &template.elements {
-      for directive in &element.directives {
-        let Some(expression) = directive.expression.as_deref() else {
-          continue;
-        };
-        let surface = if directive.name == "bind" {
-          directive.argument.clone().unwrap_or_else(|| "bind".into())
-        } else {
-          directive.name.clone()
-        };
-        for identifier in template_expression_identifiers(expression) {
-          if binding_names.contains(identifier.as_str()) {
-            template_reads.push(TemplateReactiveReadFact {
-              binding: identifier,
-              span: directive.span.clone(),
-              surface: surface.clone(),
-            });
-          }
+    if template.expressions.is_empty() {
+      for element in &template.elements {
+        for directive in &element.directives {
+          let Some(expression) = directive.expression.as_deref() else {
+            continue;
+          };
+          let surface = if directive.name == "bind" {
+            directive.argument.clone().unwrap_or_else(|| "bind".into())
+          } else {
+            directive.name.clone()
+          };
+          push_template_reads(
+            &mut template_reads,
+            &binding_names,
+            expression,
+            &surface,
+            &directive.span,
+          );
         }
+      }
+    } else {
+      for expression in &template.expressions {
+        push_template_reads(
+          &mut template_reads,
+          &binding_names,
+          &expression.expression,
+          &expression.surface,
+          &expression.span,
+        );
       }
     }
     template_reads.sort_by(|left, right| {
@@ -553,6 +582,24 @@ impl ReactivityGraph {
         && left.span.offset == right.span.offset
     });
     self.edges = edges;
+  }
+}
+
+fn push_template_reads(
+  template_reads: &mut Vec<TemplateReactiveReadFact>,
+  binding_names: &std::collections::BTreeSet<&str>,
+  expression: &str,
+  surface: &str,
+  span: &SourceSpan,
+) {
+  for identifier in template_expression_identifiers(expression) {
+    if binding_names.contains(identifier.as_str()) {
+      template_reads.push(TemplateReactiveReadFact {
+        binding: identifier,
+        span: span.clone(),
+        surface: surface.into(),
+      });
+    }
   }
 }
 

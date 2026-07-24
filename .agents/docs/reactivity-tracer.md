@@ -132,13 +132,17 @@ Version the public fact shape for multi-consumer use:
 
 ### L6 — SFC / template join
 
-Cross script and template reactive surfaces:
+Cross script and template reactive surfaces. Vize already supports the needed
+parse surfaces (`ExpressionNode` + `loc`, `Interpolation`, directive `exp`/`arg`,
+SFC block absolute offsets); the prior gap was vue-vet under-use of that AST.
 
 | Capability | Status |
 | --- | --- |
 | Template directive expression identifiers → script bindings | shipped (`template_reads` + edges) |
-| Exact expression AST / interpolation nodes | future (richer Vize expression contract) |
-| Cross-file extracted `.vue` script module offsets | blocked on Vize source/offset handoff |
+| Interpolation + directive exp/arg surfaces with expression spans | shipped (`TemplateExpressionFact` via Vize) |
+| Lexical identifier join (under-approx) | shipped |
+| Full JS expression AST inside templates | future (`SimpleExpressionNode::js_ast` is still a Vize placeholder) |
+| Cross-file extracted `.vue` script module identity | project-graph concern (not basic SFC offsets — those already work) |
 
 ## Non-goals
 
@@ -157,7 +161,7 @@ L0 charter (docs)
   → L3 boundaries
   → L4 module summary upgrades
   → L5 contract versioning (can start lightly in L1)
-  → L6 SFC join when Vize contract exists
+  → L6 SFC join (Vize surfaces already available; extract + join in adapter)
 ```
 
 Rules land after the facts they need. Prefer tracer-only PRs when the slice is
@@ -173,14 +177,26 @@ Shipped together as one tracer evolution:
 4. **Boundaries** — `AfterAwait` + `OutsideTracking` for deferred callbacks.
 5. **Module seeds** — destructure + `const bag = useX(); bag.field.value`.
 
-Still open: full template expression AST (beyond identifier scan), extracted
-`.vue` script module offset contract, pauseTracking nested in branches edge cases.
+Still open: full template expression AST (beyond identifier scan; Vize `js_ast`
+placeholder), cross-file `.vue` module identity, pauseTracking nested in
+branches edge cases.
 
 ## Evolution wave 2 (landed 2026-07-25)
 
 1. **WatchCallback** scopes — watch job bodies modeled; reads are `OutsideTracking`.
 2. **Graph version** — `ReactivityGraph.version` / `REACTIVITY_GRAPH_VERSION` (now 3).
 3. **Rule** — `vue-vet/reactivity/no-after-await-watch-effect-dependency`.
+
+## Evolution wave 3 (L6 template join — Vize-backed)
+
+1. **`TemplateExpressionFact`** — flattened surfaces (`if` / `for` / `bind` /
+   `interpolation` / …) with SFC-absolute expression spans.
+2. **Vize extraction** — walk `Interpolation`, `If`/`For` (transform-time), and
+   directive `exp`/`arg` using `ExpressionNode::loc()` + template block offset.
+3. **`join_template_reads`** — prefers `template.expressions`; falls back to
+   element directives for hand-built fixtures.
+4. Confirmed against Vize 0.291.0: block offsets, interpolations, expression
+   locs are supported; gap was under-extraction, not missing Vize APIs.
 
 ## Evolution wave 3 (landed 2026-07-25)
 

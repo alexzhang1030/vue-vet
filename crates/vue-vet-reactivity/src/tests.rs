@@ -699,9 +699,14 @@ fn joins_template_reads_onto_script_bindings() {
         argument: None,
         expression: Some("count > 0".into()),
         modifiers: Vec::new(),
-        span: binding_span,
+        span: binding_span.clone(),
       }],
       has_children: false,
+    }],
+    expressions: vec![vue_vet_core::TemplateExpressionFact {
+      surface: "if".into(),
+      expression: "count > 0".into(),
+      span: binding_span,
     }],
   };
   graph.join_template_reads(&template);

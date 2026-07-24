@@ -95,7 +95,13 @@ identity so shadowed parameters and function-local refs do not leak across the
 module boundary. Conflicting star exports, ambiguous links, unresolved imports,
 dynamic keys, namespace consumers, and unsupported return shapes stay quiet
 instead of inventing certainty. Standalone JavaScript/TypeScript files are wired
-into the project graph today. Template→script join currently matches binding
-names inside directive expression text (`v-if`, `v-bind`, …) with directive
-spans; full template expression ASTs and extracted `.vue` script module offsets
-remain precision boundaries until Vize exposes richer contracts.
+into the project graph today. Template→script join is **not** blocked on Vize:
+`vize_atelier_sfc` already gives absolute block `loc` offsets, and
+`vize_atelier_core` parse trees expose `Interpolation`, directive `exp`/`arg`,
+and `ExpressionNode::loc()`. The historical gap was vue-vet under-extraction
+(elements-only walk, directive-name spans, no interpolation surfaces). Today
+`TemplateFacts.expressions` carries those Vize surfaces with SFC-absolute spans
+and `join_template_reads` prefers them. Remaining precision boundaries:
+`SimpleExpressionNode::js_ast` is still a placeholder (lexical identifier scan),
+and extracted cross-file `.vue` module identity is a separate project-graph
+concern.

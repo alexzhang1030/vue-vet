@@ -406,6 +406,7 @@ mod tests {
           has_children: false,
         })
         .collect(),
+      expressions: Vec::new(),
     };
     ProjectFile {
       path: path.into(),

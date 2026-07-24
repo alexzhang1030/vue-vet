@@ -7,7 +7,8 @@ use vize_atelier_core::{
 use vize_atelier_sfc::{SfcParseOptions, parse_sfc};
 use vue_vet_core::{
   Diagnostic, RuleEnvironment, ScriptFacts, ScriptKind, SfcFacts, SourceSpan,
-  TemplateAttributeFact, TemplateDirectiveFact, TemplateElementFact, TemplateFacts,
+  TemplateAttributeFact, TemplateDirectiveFact, TemplateElementFact, TemplateExpressionFact,
+  TemplateFacts,
 };
 use vue_vet_oxc::{AnalyzeScriptError, analyze_script};
 use vue_vet_rules::builtin_registry;
@@ -61,12 +62,14 @@ pub fn analyze_sfc_with_environment(
   let descriptor = parse_sfc(source, SfcParseOptions::default())
     .map_err(|error| AnalyzeError::Parse(error.message.into()))?;
   let template = if let Some(template) = descriptor.template {
+    // Vize already supplies template content + absolute SFC content offsets.
     extract_template_facts(source, &template.content, template.loc.start)?
   } else {
     TemplateFacts::default()
   };
   let mut script = ScriptFacts::default();
   if let Some(block) = descriptor.script {
+    // `block.loc.start/end` are absolute offsets into the original SFC source.
     script.blocks.push(analyze_script(
       source,
       &block.content,
@@ -84,7 +87,7 @@ pub fn analyze_sfc_with_environment(
       ScriptKind::Setup,
     )?);
   }
-  // Join template expression identifiers onto script reactive bindings before rules run.
+  // Join Vize template expressions onto Oxc script reactive bindings.
   for block in &mut script.blocks {
     block.reactivity_graph.join_template_reads(&template);
   }
@@ -106,6 +109,7 @@ fn extract_template_facts(
 
   let mut facts = TemplateFacts::default();
   collect_children(source, template_offset, &root.children, &mut facts);
+  facts.expressions.sort_by_key(|expression| expression.span.offset);
   Ok(facts)
 }
 
@@ -116,8 +120,43 @@ fn collect_children(
   facts: &mut TemplateFacts,
 ) {
   for child in children {
-    if let TemplateChildNode::Element(element) = child {
-      collect_element(source, template_offset, element, facts);
+    match child {
+      TemplateChildNode::Element(element) => {
+        collect_element(source, template_offset, element, facts);
+      }
+      TemplateChildNode::Interpolation(interpolation) => {
+        push_expression_fact(
+          source,
+          template_offset,
+          "interpolation",
+          &interpolation.content,
+          facts,
+        );
+      }
+      TemplateChildNode::If(if_node) => {
+        for branch in &if_node.branches {
+          if let Some(condition) = &branch.condition {
+            push_expression_fact(source, template_offset, "if", condition, facts);
+          }
+          collect_children(source, template_offset, &branch.children, facts);
+        }
+      }
+      TemplateChildNode::For(for_node) => {
+        // Transform-time structural For nodes (raw parse keeps v-for on Element props).
+        push_expression_fact(source, template_offset, "for", &for_node.source, facts);
+        collect_children(source, template_offset, &for_node.children, facts);
+      }
+      TemplateChildNode::IfBranch(branch) => {
+        if let Some(condition) = &branch.condition {
+          push_expression_fact(source, template_offset, "if", condition, facts);
+        }
+        collect_children(source, template_offset, &branch.children, facts);
+      }
+      TemplateChildNode::Text(_)
+      | TemplateChildNode::Comment(_)
+      | TemplateChildNode::TextCall(_)
+      | TemplateChildNode::CompoundExpression(_)
+      | TemplateChildNode::Hoisted(_) => {}
     }
   }
 }
@@ -158,12 +197,24 @@ fn collect_element(
           .collect::<Vec<_>>();
         directives.push(TemplateDirectiveFact {
           name: directive.name.to_string(),
-          argument,
-          expression,
+          argument: argument.clone(),
+          expression: expression.clone(),
           modifiers,
           span: source_span(source, offset, raw_name.len()),
           raw_name,
         });
+        if let Some(exp) = &directive.exp {
+          let surface = if directive.name == "bind" {
+            argument.unwrap_or_else(|| "bind".into())
+          } else {
+            directive.name.to_string()
+          };
+          push_expression_fact(source, template_offset, &surface, exp, facts);
+        }
+        if let Some(arg) = &directive.arg {
+          // Dynamic argument: v-bind:[foo]
+          push_expression_fact(source, template_offset, "bind-arg", arg, facts);
+        }
       }
     }
   }
@@ -176,6 +227,28 @@ fn collect_element(
     has_children: !element.children.is_empty(),
   });
   collect_children(source, template_offset, &element.children, facts);
+}
+
+fn push_expression_fact(
+  source: &str,
+  template_offset: usize,
+  surface: &str,
+  expression: &ExpressionNode<'_>,
+  facts: &mut TemplateFacts,
+) {
+  let text = expression_text(expression);
+  if text.trim().is_empty() {
+    return;
+  }
+  let loc = expression.loc();
+  let offset = template_offset.saturating_add(position_offset(loc.start.offset));
+  let end = template_offset.saturating_add(position_offset(loc.end.offset));
+  let length = end.saturating_sub(offset).max(text.len());
+  facts.expressions.push(TemplateExpressionFact {
+    surface: surface.into(),
+    expression: text,
+    span: source_span(source, offset, length),
+  });
 }
 
 fn expression_text(expression: &ExpressionNode<'_>) -> String {
@@ -218,6 +291,14 @@ mod tests {
     }
   }
 
+  #[expect(clippy::panic, reason = "an unexpected parser error must fail the test")]
+  fn facts_for_test(path: &Path, source: &str) -> SfcFacts {
+    match analyze_sfc_with_facts(path, source) {
+      Ok(analysis) => analysis.facts,
+      Err(error) => panic!("analysis unexpectedly failed: {error}"),
+    }
+  }
+
   #[test]
   fn reports_v_html_at_the_source_location() {
     let source = "<template>\n  <div v-html=\"html\" />\n</template>";
@@ -251,5 +332,43 @@ mod tests {
     let diagnostics = analyze_for_test(Path::new("Safe.vue"), source);
 
     assert!(diagnostics.is_empty(), "non-directive text and attributes must not produce findings");
+  }
+
+  #[test]
+  fn joins_template_interpolation_and_directives_onto_script_bindings() {
+    let source = r#"<script setup lang="ts">
+import { ref } from 'vue'
+const count = ref(0)
+const label = ref('x')
+</script>
+<template>
+  <div v-if="count > 0">{{ label }}</div>
+</template>"#;
+    let facts = facts_for_test(Path::new("Join.vue"), source);
+    let Some(graph) = facts.script.blocks.first().map(|block| &block.reactivity_graph) else {
+      assert!(!facts.script.blocks.is_empty(), "script setup block must be analyzed");
+      return;
+    };
+
+    assert!(
+      facts.template.expressions.iter().any(|expression| expression.surface == "interpolation"),
+      "Vize interpolations must be extracted as expression surfaces"
+    );
+    assert!(
+      graph.template_reads.iter().any(|read| read.binding == "count" && read.surface == "if"),
+      "v-if expression must join onto the count binding"
+    );
+    assert!(
+      graph
+        .template_reads
+        .iter()
+        .any(|read| read.binding == "label" && read.surface == "interpolation"),
+      "mustache interpolation must join onto the label binding"
+    );
+    // Expression spans must be absolute SFC offsets (not template-relative zeros).
+    assert!(
+      facts.template.expressions.iter().all(|expression| expression.span.offset > 0),
+      "expression spans must use original SFC offsets via template.loc.start + expr.loc"
+    );
   }
 }
