@@ -145,7 +145,7 @@ SFC block absolute offsets); the prior gap was vue-vet under-use of that AST.
 | Nested free-var scoping inside template handlers | shipped (param / inner binding filter on Oxc visit) |
 | `v-for` / `v-slot` template-local alias scopes | shipped (extract-time alias stack) |
 | Vertical rule on template join | shipped (`no-unused-reactive-binding`) |
-| Cross-file extracted `.vue` script module identity | project-graph concern (not basic SFC offsets — those already work) |
+| Cross-file extracted `.vue` script module identity | shipped (`ModuleSource::sfc_script` + project links + template re-join) |
 
 ## Non-goals
 
@@ -180,8 +180,8 @@ Shipped together as one tracer evolution:
 4. **Boundaries** — `AfterAwait` + `OutsideTracking` for deferred callbacks.
 5. **Module seeds** — destructure + `const bag = useX(); bag.field.value`.
 
-Still open: cross-file `.vue` module identity, pauseTracking nested in branches
-edge cases.
+Still open: pauseTracking nested in branches edge cases; dual ordinary+setup
+script blocks as a single merged module (currently setup preferred).
 
 ## Evolution wave 2 (landed 2026-07-25)
 
@@ -223,6 +223,14 @@ edge cases.
 2. **Extract-time alias stack** — Vize walk pushes `v-for` / `v-slot` scopes so
    child expressions and same-element props (`:key="item"`) drop shadowed names.
 3. **Slot patterns are not free reads** — `v-slot="{ value }"` binds, does not join.
+
+## Evolution wave 7 (extracted `.vue` module identity)
+
+1. **`ModuleSource::{standalone,sfc_script}`** — `source_offset` + `span_source`
+   so Oxc re-trace spans map into the original SFC.
+2. **Vize `AnalyzedSfc.module_source`** — prefers `script setup`, else `script`.
+3. **CLI** feeds `.vue` module sources into `build_project_graph`.
+4. **Project graph** re-joins templates onto traced module graphs after seed linking.
 
 ## Evolution wave 3 (landed 2026-07-25)
 

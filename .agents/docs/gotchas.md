@@ -106,5 +106,10 @@ and `join_template_reads` prefers them. Identifier reads are filled by Oxc
 not mistaken for bindings; lexical scan is only the empty-list fallback. Handler free-vars and template-local `v-for` / `v-slot` aliases are filtered at
 extract time. `TemplateExpressionFact.identifiers` is `Some(…)` when resolved
 (including empty = no free reads); only `None` triggers the lexical join
-fallback—do not treat empty `Some` as unknown. Remaining precision boundary:
-extracted cross-file `.vue` module identity (project-graph concern).
+fallback—do not treat empty `Some` as unknown.
+
+Cross-file module tracing for `.vue` uses the preferred script block
+(`script setup` first) as `ModuleSource::sfc_script` with Vize `loc.start` and
+the full SFC as `span_source`. Standalone JS/TS modules keep offset 0. After
+seed linking, project graph re-runs `join_template_reads` so template surfaces
+see seeded bindings. Dual ordinary+setup blocks are not merged into one module.

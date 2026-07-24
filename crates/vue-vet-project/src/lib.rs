@@ -177,10 +177,23 @@ pub fn build_project_graph(files: &[ProjectFile]) -> ProjectGraph {
       &right.rule_id,
     ))
   });
-  let (module_reactivity, reactivity_error) = match trace_modules(&module_sources, &module_links) {
-    Ok(reactivity) => (reactivity, None),
-    Err(error) => (Vec::new(), Some(error.to_string())),
-  };
+  let (mut module_reactivity, reactivity_error) =
+    match trace_modules(&module_sources, &module_links) {
+      Ok(reactivity) => (reactivity, None),
+      Err(error) => (Vec::new(), Some(error.to_string())),
+    };
+  // Re-apply SFC template joins onto module graphs so cross-file seeds and
+  // template reads share one fact surface. Spans stay SFC-absolute when the
+  // module carried `source_offset` + `span_source`.
+  let templates = ordered
+    .iter()
+    .map(|file| (normalized_path(&file.path), &file.facts.template))
+    .collect::<BTreeMap<_, _>>();
+  for module in &mut module_reactivity {
+    if let Some(template) = templates.get(&module.id) {
+      module.graph.join_template_reads(template);
+    }
+  }
   ProjectGraph {
     conventions_version: CONVENTIONS_VERSION,
     nodes,
@@ -463,5 +476,86 @@ mod tests {
       .map(|diagnostic| diagnostic.rule_id.as_str())
       .collect::<BTreeSet<_>>();
     assert_eq!(ids, PROJECT_RULE_IDS.into_iter().collect());
+  }
+
+  #[test]
+  fn vue_modules_receive_composable_seeds_and_template_joins() {
+    let producer_source = "import { toRef } from 'vue'; export function useField(props) { return { title: toRef(props, 'title') }; }";
+    let consumer_script = "import { useField } from '../composables/useField'\nconst props = { title: 'x' }\nconst { title } = useField(props)\n";
+    let sfc = format!(
+      "<script setup lang=\"ts\">\n{consumer_script}</script>\n<template>\n  <p>{{{{ title }}}}</p>\n</template>\n"
+    );
+    let script_offset = sfc.find(consumer_script).unwrap_or(0);
+    let producer = ProjectFile {
+      path: "composables/useField.ts".into(),
+      source_len: producer_source.len(),
+      facts: SfcFacts { template: TemplateFacts::default(), script: ScriptFacts::default() },
+      module_source: Some(ModuleSource::standalone(
+        "composables/useField.ts",
+        producer_source,
+        "ts",
+        ScriptKind::Script,
+      )),
+    };
+    let consumer = ProjectFile {
+      path: "pages/index.vue".into(),
+      source_len: sfc.len(),
+      facts: SfcFacts {
+        template: TemplateFacts {
+          elements: Vec::new(),
+          expressions: vec![vue_vet_core::TemplateExpressionFact {
+            surface: "interpolation".into(),
+            expression: "title".into(),
+            span: span(script_offset.saturating_add(consumer_script.len().saturating_add(40))),
+            identifiers: Some(vec!["title".into()]),
+          }],
+        },
+        script: ScriptFacts {
+          blocks: vec![ScriptBlockFacts {
+            kind: ScriptKind::Setup,
+            language: "ts".into(),
+            imports: vec![ScriptImportFact {
+              source: "../composables/useField".into(),
+              imported: "useField".into(),
+              local: "useField".into(),
+              span: span(0),
+            }],
+            bindings: Vec::new(),
+            calls: Vec::new(),
+            member_writes: Vec::new(),
+            destructures: Vec::new(),
+            reactivity_graph: vue_vet_core::ReactivityGraph::default(),
+          }],
+        },
+      },
+      module_source: Some(ModuleSource::sfc_script(
+        "pages/index.vue",
+        consumer_script,
+        "ts",
+        ScriptKind::Setup,
+        script_offset,
+        sfc,
+      )),
+    };
+    let graph = build_project_graph(&[producer, consumer]);
+    assert!(
+      graph.reactivity_error.is_none(),
+      "module tracing must succeed: {:?}",
+      graph.reactivity_error
+    );
+    let page = graph.module_reactivity.iter().find(|module| module.id == "pages/index.vue");
+    assert!(
+      page.is_some_and(|module| {
+        module.graph.bindings.iter().any(|binding| {
+          binding.name == "title" && binding.kind == vue_vet_core::ReactiveBindingKind::ToRef
+        }) && module
+          .graph
+          .template_reads
+          .iter()
+          .any(|read| read.binding == "title" && read.surface == "interpolation")
+          && module.graph.bindings.iter().any(|binding| binding.span.offset >= script_offset)
+      }),
+      "SFC modules must seed composable fields with SFC-absolute spans and join template reads"
+    );
   }
 }

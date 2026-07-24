@@ -5,7 +5,7 @@ use thiserror::Error;
 use vize_atelier_core::{
   Allocator, ElementNode, ExpressionNode, ForNode, PropNode, TemplateChildNode, parse,
 };
-use vize_atelier_sfc::{SfcParseOptions, parse_sfc};
+use vize_atelier_sfc::{SfcDescriptor, SfcParseOptions, parse_sfc};
 use vue_vet_core::{
   Diagnostic, RuleEnvironment, ScriptFacts, ScriptKind, SfcFacts, SourceSpan,
   TemplateAttributeFact, TemplateDirectiveFact, TemplateElementFact, TemplateExpressionFact,
@@ -15,6 +15,7 @@ use vue_vet_oxc::{
   AnalyzeScriptError, analyze_script, slot_prop_alias_identifiers,
   template_expression_identifiers_with_shadow, v_for_alias_identifiers,
 };
+use vue_vet_reactivity::ModuleSource;
 use vue_vet_rules::builtin_registry;
 
 #[derive(Debug, Error)]
@@ -30,6 +31,8 @@ pub enum AnalyzeError {
 pub struct AnalyzedSfc {
   pub diagnostics: Vec<Diagnostic>,
   pub facts: SfcFacts,
+  /// Preferred script block for cross-module reactivity (`script setup` > `script`).
+  pub module_source: Option<ModuleSource>,
 }
 
 /// Analyze one Vue single-file component.
@@ -65,6 +68,7 @@ pub fn analyze_sfc_with_environment(
 ) -> Result<AnalyzedSfc, AnalyzeError> {
   let descriptor = parse_sfc(source, SfcParseOptions::default())
     .map_err(|error| AnalyzeError::Parse(error.message.into()))?;
+  let module_source = preferred_module_source(path, source, &descriptor);
   let template = if let Some(template) = descriptor.template {
     // Vize already supplies template content + absolute SFC content offsets.
     extract_template_facts(source, &template.content, template.loc.start)?
@@ -97,7 +101,36 @@ pub fn analyze_sfc_with_environment(
   }
   let diagnostics =
     builtin_registry().run_with_environment(path, source, &template, &script, environment);
-  Ok(AnalyzedSfc { diagnostics, facts: SfcFacts { template, script } })
+  Ok(AnalyzedSfc { diagnostics, facts: SfcFacts { template, script }, module_source })
+}
+
+fn preferred_module_source(
+  path: &Path,
+  sfc_source: &str,
+  descriptor: &SfcDescriptor<'_>,
+) -> Option<ModuleSource> {
+  let id = path.to_string_lossy().replace('\\', "/");
+  if let Some(block) = &descriptor.script_setup {
+    return Some(ModuleSource::sfc_script(
+      id,
+      block.content.as_ref(),
+      block.lang.as_deref().unwrap_or("js"),
+      ScriptKind::Setup,
+      block.loc.start,
+      sfc_source,
+    ));
+  }
+  if let Some(block) = &descriptor.script {
+    return Some(ModuleSource::sfc_script(
+      id,
+      block.content.as_ref(),
+      block.lang.as_deref().unwrap_or("js"),
+      ScriptKind::Script,
+      block.loc.start,
+      sfc_source,
+    ));
+  }
+  None
 }
 
 fn extract_template_facts(
@@ -399,6 +432,14 @@ mod tests {
     }
   }
 
+  #[expect(clippy::panic, reason = "an unexpected parser error must fail the test")]
+  fn analysis_for_test(path: &Path, source: &str) -> AnalyzedSfc {
+    match analyze_sfc_with_facts(path, source) {
+      Ok(analysis) => analysis,
+      Err(error) => panic!("analysis unexpectedly failed: {error}"),
+    }
+  }
+
   #[test]
   fn reports_v_html_at_the_source_location() {
     let source = "<template>\n  <div v-html=\"html\" />\n</template>";
@@ -542,6 +583,36 @@ const item = ref('script-item')
     assert!(
       facts.template.expressions.iter().all(|expression| expression.span.offset > 0),
       "expression spans must use original SFC offsets via template.loc.start + expr.loc"
+    );
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "missing module source must fail the extraction test")]
+  fn exposes_script_setup_module_source_with_sfc_span_mapping() {
+    let source = r#"<script setup lang="ts">
+import { ref } from 'vue'
+const count = ref(0)
+</script>
+<template>
+  <div>{{ count }}</div>
+</template>"#;
+    let analysis = analysis_for_test(Path::new("pages/Counter.vue"), source);
+    let Some(module) = analysis.module_source.as_ref() else {
+      panic!("script setup must produce a project module source");
+    };
+    assert_eq!(module.id, "pages/Counter.vue");
+    assert_eq!(module.kind, ScriptKind::Setup);
+    assert_eq!(module.language, "ts");
+    assert!(module.source.contains("const count = ref(0)"));
+    assert!(module.source_offset > 0, "script body offset must be absolute in the SFC");
+    assert_eq!(module.span_source, source);
+    let body = module
+      .span_source
+      .get(module.source_offset..module.source_offset.saturating_add(module.source.len()));
+    assert_eq!(
+      body,
+      Some(module.source.as_str()),
+      "extracted script body must be an exact slice of the original SFC at source_offset"
     );
   }
 }

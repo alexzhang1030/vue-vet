@@ -2547,6 +2547,7 @@ dependencies = [
  "vize_atelier_sfc",
  "vue-vet-core",
  "vue-vet-oxc",
+ "vue-vet-reactivity",
  "vue-vet-rules",
 ]
 

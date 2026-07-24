@@ -104,10 +104,11 @@ The first graph layer is `vue-vet-project`. It consumes serializable `SfcFacts`,
 uses repository-relative file IDs, stores source evidence on every edge, and
 publishes its exact file inputs for cache invalidation. Its convention version
 changes whenever Nuxt directory or naming behavior changes. The project graph
-also supplies resolved standalone JavaScript/TypeScript module edges to
-`vue-vet-reactivity` and publishes the resulting per-module graphs. Cross-file
-tracing for extracted `.vue` script blocks is intentionally not inferred yet:
-it requires a Vize-owned source/offset handoff so SFC spans remain exact.
+also supplies resolved module edges (standalone JS/TS **and** preferred SFC
+script blocks) to `vue-vet-reactivity` and publishes the resulting per-module
+graphs. Extracted `.vue` scripts use Vize block offsets plus the original SFC
+as `span_source` so absolute spans stay exact; template joins are re-applied on
+the module graph after cross-file seed linking.
 
 Cache format version 2 stores only `ScanSummary` and `ProjectGraph`, including
 rule confidence and documentation metadata on cached diagnostics. Its key

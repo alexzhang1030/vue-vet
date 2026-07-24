@@ -25,9 +25,61 @@ use oxc_ast::ast::Argument;
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ModuleSource {
   pub id: String,
+  /// Text parsed by Oxc (extracted `<script>` body for SFCs).
   pub source: String,
   pub language: String,
   pub kind: ScriptKind,
+  /// Byte offset of [`Self::source`] within [`Self::span_source`].
+  #[serde(default)]
+  pub source_offset: usize,
+  /// Full original file used for absolute line/column (SFC source). When empty,
+  /// spans are computed against [`Self::source`] (standalone modules).
+  #[serde(default)]
+  pub span_source: String,
+}
+
+impl ModuleSource {
+  /// Standalone JS/TS module (offset 0, spans against `source`).
+  #[must_use]
+  pub fn standalone(
+    id: impl Into<String>,
+    source: impl Into<String>,
+    language: impl Into<String>,
+    kind: ScriptKind,
+  ) -> Self {
+    Self {
+      id: id.into(),
+      source: source.into(),
+      language: language.into(),
+      kind,
+      source_offset: 0,
+      span_source: String::new(),
+    }
+  }
+
+  /// Extracted SFC script block with absolute span mapping into the original file.
+  #[must_use]
+  pub fn sfc_script(
+    id: impl Into<String>,
+    script_source: impl Into<String>,
+    language: impl Into<String>,
+    kind: ScriptKind,
+    source_offset: usize,
+    sfc_source: impl Into<String>,
+  ) -> Self {
+    Self {
+      id: id.into(),
+      source: script_source.into(),
+      language: language.into(),
+      kind,
+      source_offset,
+      span_source: sfc_source.into(),
+    }
+  }
+
+  const fn span_origin(&self) -> &str {
+    if self.span_source.is_empty() { self.source.as_str() } else { self.span_source.as_str() }
+  }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -170,7 +222,13 @@ fn analyze_module(
     });
   }
   let semantic = built.semantic;
-  let local_graph = trace_reactivity_seeded(&semantic, &module.source, 0, module.kind, seeds);
+  let local_graph = trace_reactivity_seeded(
+    &semantic,
+    module.span_origin(),
+    module.source_offset,
+    module.kind,
+    seeds,
+  );
   let imports = collect_imports(&semantic);
   let exports = collect_exports(&semantic);
   let locals = collect_local_values(&semantic, &local_graph);

@@ -727,18 +727,18 @@ fn joins_template_reads_onto_script_bindings() {
 #[test]
 fn seeds_parametric_composable_to_ref_fields() {
   let modules = [
-    ModuleSource {
-      id: "producer.ts".into(),
-      source: "import { toRef } from 'vue'; export function useField(props) { return { title: toRef(props, 'title') }; }".into(),
-      language: "ts".into(),
-      kind: ScriptKind::Script,
-    },
-    ModuleSource {
-      id: "consumer.ts".into(),
-      source: "import { watchEffect } from 'vue'; import { useField } from './producer'; const props = { title: 'x' }; const { title } = useField(props); watchEffect(() => title.value);".into(),
-      language: "ts".into(),
-      kind: ScriptKind::Script,
-    },
+    ModuleSource::standalone(
+      "producer.ts",
+      "import { toRef } from 'vue'; export function useField(props) { return { title: toRef(props, 'title') }; }",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { watchEffect } from 'vue'; import { useField } from './producer'; const props = { title: 'x' }; const { title } = useField(props); watchEffect(() => title.value);",
+      "ts",
+      ScriptKind::Script,
+    ),
   ];
   let links = [ModuleLink {
     from: "consumer.ts".into(),
@@ -767,18 +767,18 @@ fn seeds_parametric_composable_to_ref_fields() {
 #[test]
 fn seeds_composable_instance_member_access() {
   let modules = [
-    ModuleSource {
-      id: "producer.ts".into(),
-      source: "import { ref } from 'vue'; export function useSignal() { const signal = ref(0); return { signal }; }".into(),
-      language: "ts".into(),
-      kind: ScriptKind::Script,
-    },
-    ModuleSource {
-      id: "consumer.ts".into(),
-      source: "import { watchEffect } from 'vue'; import { useSignal } from './producer'; const bag = useSignal(); watchEffect(() => bag.signal.value);".into(),
-      language: "ts".into(),
-      kind: ScriptKind::Script,
-    },
+    ModuleSource::standalone(
+      "producer.ts",
+      "import { ref } from 'vue'; export function useSignal() { const signal = ref(0); return { signal }; }",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { watchEffect } from 'vue'; import { useSignal } from './producer'; const bag = useSignal(); watchEffect(() => bag.signal.value);",
+      "ts",
+      ScriptKind::Script,
+    ),
   ];
   let links = [ModuleLink {
     from: "consumer.ts".into(),
@@ -1079,12 +1079,7 @@ fn covers_eighty_real_cross_module_scenarios() {
 }
 
 fn module_source(id: &str, source: &str) -> ModuleSource {
-  ModuleSource {
-    id: id.into(),
-    source: source.into(),
-    language: "ts".into(),
-    kind: ScriptKind::Script,
-  }
+  ModuleSource::standalone(id, source, "ts", ScriptKind::Script)
 }
 
 #[expect(clippy::panic, reason = "missing committed source files must fail corpus tests")]
@@ -1098,7 +1093,7 @@ fn load_real_world_modules(case_dir: &str, files: &[FixtureModule]) -> Vec<Modul
         Ok(source) => source,
         Err(error) => panic!("could not read real-world fixture {}: {error}", path.display()),
       };
-      ModuleSource { id: file.id.clone(), source, language: file.language.clone(), kind: file.kind }
+      ModuleSource::standalone(file.id.clone(), source, file.language.clone(), file.kind)
     })
     .collect()
 }
