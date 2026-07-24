@@ -1,0 +1,14 @@
+{
+  "id": "pause-tracking-window",
+  "source": "import { ref, watchEffect, pauseTracking, enableTracking } from 'vue'\nconst before = ref(1)\nconst paused = ref(2)\nconst after = ref(3)\nwatchEffect(() => {\n  void before.value\n  pauseTracking()\n  void paused.value\n  enableTracking()\n  void after.value\n})\n",
+  "runtime_deps": [
+    {
+      "binding": "after",
+      "key": "value"
+    },
+    {
+      "binding": "before",
+      "key": "value"
+    }
+  ]
+}

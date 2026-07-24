@@ -137,6 +137,11 @@ Refresh with `just oracle-refresh` (Node + pnpm) when Vue tracking semantics
 change (including alien-signals / 3.6). Do not treat the 280 syntax corpus as
 recall evidence.
 
+`pauseTracking` / `enableTracking` are **not** public `vue` package exports in
+3.5.x; the oracle harness imports them from `@vue/reactivity` while static
+sources may still name them under `from 'vue'` (matching common docs / Nuxt
+re-exports). Treat that API surface as capability-gated, not guaranteed.
+
 ## Sync HOF callbacks still track
 
 `list.value.filter(x => query.value)` runs the callback during the parent

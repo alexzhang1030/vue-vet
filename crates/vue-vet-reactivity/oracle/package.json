@@ -8,6 +8,7 @@
     "oracle:write": "node harness.mjs --write"
   },
   "dependencies": {
+    "@vue/reactivity": "3.5.40",
     "vue": "^3.5.13"
   }
 }

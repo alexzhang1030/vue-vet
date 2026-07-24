@@ -149,11 +149,14 @@ fn oracle_cases_cover_known_hard_facts() {
   let ids = load_cases().into_iter().map(|case| case.id).collect::<BTreeSet<_>>();
   for required in [
     "baseline-ref-computed",
+    "pause-tracking-window",
     "props-reactive-object",
     "reactive-member",
     "sync-filter-hof",
+    "sync-forEach-hof",
     "sync-map-hof",
     "sync-reduce-hof",
+    "sync-some-hof",
     "use-route-like",
     "runner-run-no-track",
     "watch-effect-await",

@@ -19,6 +19,9 @@ import {
   toRaw,
   watchEffect,
 } from "vue";
+// Not re-exported from the public `vue` package; runtime pause window still
+// lives on `@vue/reactivity` and is the ground truth for this boundary.
+import { enableTracking, pauseTracking } from "@vue/reactivity";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const casesDir = path.join(root, "cases");
@@ -116,6 +119,8 @@ async function main() {
       computed,
       watchEffect,
       effectScope,
+      pauseTracking,
+      enableTracking,
       onTrack,
       name,
     });

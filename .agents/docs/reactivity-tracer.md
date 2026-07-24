@@ -46,7 +46,7 @@ Contract version: **`REACTIVITY_GRAPH_VERSION = 4`** (scopes, writes, edges,
 | A5 Boundaries | partial | await, pauseTracking, deferred callbacks, watch jobs |
 | A6 Modules | partial | composable shapes, parametric `toRef`, SFC module identity, seed→rules; **instance seeds no longer inject shape fields as top-level bindings** |
 | A7 Contract | improving | **v4**: `from` = computed binding or `kind:callee@offset`; template `template:surface@offset`. `to` still bare binding names |
-| Evidence | improving | Runtime oracle **tracer ⊆ runtime** + ≥99% recall; optional exhaustive `expected.reads` on local fixtures; oracle unit exact computed-read sets |
+| Evidence | improving | Runtime oracle **tracer ⊆ runtime** + ≥99% recall; **all 200 local fixtures** pin exhaustive `expected.reads`; oracle unit exact computed-read sets |
 
 ### Charter invariants (must not regress)
 
@@ -139,3 +139,5 @@ growing prose ledger.
 | 2026-07-25 | Instance seed no top-level pollution | `const bag = useX()` seeds `composable_instances` only; shape fields are not top-level bindings |
 | 2026-07-25 | Exhaustive local fixture reads | optional `expected.reads` exact effect set; pilot on systematic/01 + complex/01 |
 | 2026-07-25 | Oracle breadth | `reactive-member`, `sync-reduce-hof`, `watch-effect-ref` |
+| 2026-07-25 | Full corpus exhaustive reads | all 200 local fixtures pin exact effect read sets |
+| 2026-07-25 | Oracle boundaries + HOF | `pause-tracking-window`, `sync-forEach-hof`, `sync-some-hof` |

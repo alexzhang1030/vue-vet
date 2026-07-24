@@ -9,7 +9,7 @@ The corpus tests hard-assert 100 + 100 + 80 cases, unique names, and unique sour
 When adding a corpus case, update an existing batch and preserve the exact category count unless issue #28 is intentionally revised. Each module fixture must keep files separate and supply resolved links; concatenated source is not a valid cross-module test.
 
 Local fixtures always assert existence of one expected `(binding, kind, guards)`
-triple. Optionally set `expected.reads` to the **full** effect read set
-`[{ binding, kind, guards }, …]` so the harness rejects both missing and invented
-reads. Prefer exhaustive `reads` on new or reworked batches; existence-only
-cases remain valid for the historical 100+100 padding corpus.
+triple **and** an exhaustive `expected.reads` list
+`[{ binding, kind, guards }, …]` for the full effect read set (no missing, no
+invented). The 100 systematic + 100 complex cases are locked this way so A4
+control-flow changes cannot silently invent or drop edges.

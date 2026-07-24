@@ -1045,10 +1045,12 @@ fn assert_local_fixture(fixture: &LocalFixture) {
     "expected guard evidence must survive in {}",
     fixture.name
   );
-  if let Some(expected_reads) = &fixture.expected.reads {
-    let Some(effect) = effect else {
-      return;
-    };
+  assert!(
+    fixture.expected.reads.is_some(),
+    "local fixture {} must pin exhaustive expected.reads (regenerate from tracer if adding cases)",
+    fixture.name
+  );
+  if let (Some(effect), Some(expected_reads)) = (effect, fixture.expected.reads.as_ref()) {
     assert_effect_reads_exact(effect, expected_reads, &fixture.name);
   }
 }

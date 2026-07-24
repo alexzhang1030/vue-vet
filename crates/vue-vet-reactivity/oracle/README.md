@@ -17,11 +17,14 @@ completeness number — not a 280-case syntax matrix.
 | id | Intent |
 | --- | --- |
 | `baseline-ref-computed` | happy path ref → computed |
+| `pause-tracking-window` | `pauseTracking`/`enableTracking` window drops mid-window reads |
 | `props-reactive-object` | `props.count` style reactive object (defineProps stand-in) |
 | `reactive-member` | `reactive({ count }).count` member track |
 | `sync-filter-hof` | sync Array#filter callback must track `query` |
+| `sync-forEach-hof` | sync Array#forEach callback must track `factor` |
 | `sync-map-hof` | sync Array#map callback must track `factor` |
 | `sync-reduce-hof` | sync Array#reduce callback must track `factor` |
+| `sync-some-hof` | sync Array#some callback must track `threshold` |
 | `use-route-like` | reactive route object member (`route.path`) |
 | `watch-effect-ref` | `watchEffect` tracks `ref.value` |
 | `watch-effect-await` | post-await read is **not** runtime-tracked (boundary) |
@@ -30,6 +33,10 @@ completeness number — not a 280-case syntax matrix.
 Static-only (no oracle JSON): `storeToRefs` from `pinia` — unit-tested; runtime
 `toRefs` tracks the **underlying store object**, so key identity differs from
 local ref names and is not a fair under-approx pair without alias mapping.
+
+`pause-tracking-window` exercises `@vue/reactivity`'s `pauseTracking` /
+`enableTracking` (not re-exported from the public `vue` package in 3.5.x). The
+static source still names them under `from 'vue'` to match docs / re-exports.
 
 ## Refresh expected JSON
 

@@ -8,6 +8,28 @@
       "kind": "conditional",
       "guards": [
         "ready"
+      ],
+      "reads": [
+        {
+          "binding": "ready",
+          "guards": [],
+          "kind": "unconditional"
+        },
+        {
+          "binding": "enabled",
+          "guards": [
+            "ready"
+          ],
+          "kind": "conditional"
+        },
+        {
+          "binding": "payload",
+          "guards": [
+            "ready",
+            "enabled"
+          ],
+          "kind": "conditional"
+        }
       ]
     }
   },
@@ -20,6 +42,28 @@
       "kind": "conditional",
       "guards": [
         "ready"
+      ],
+      "reads": [
+        {
+          "binding": "ready",
+          "guards": [],
+          "kind": "unconditional"
+        },
+        {
+          "binding": "enabled",
+          "guards": [
+            "ready"
+          ],
+          "kind": "conditional"
+        },
+        {
+          "binding": "payload",
+          "guards": [
+            "ready",
+            "enabled"
+          ],
+          "kind": "conditional"
+        }
       ]
     }
   },
@@ -32,6 +76,28 @@
       "kind": "conditional",
       "guards": [
         "ready"
+      ],
+      "reads": [
+        {
+          "binding": "ready",
+          "guards": [],
+          "kind": "unconditional"
+        },
+        {
+          "binding": "enabled",
+          "guards": [
+            "ready"
+          ],
+          "kind": "conditional"
+        },
+        {
+          "binding": "payload",
+          "guards": [
+            "ready",
+            "enabled"
+          ],
+          "kind": "conditional"
+        }
       ]
     }
   },
@@ -44,6 +110,28 @@
       "kind": "conditional",
       "guards": [
         "ready"
+      ],
+      "reads": [
+        {
+          "binding": "ready",
+          "guards": [],
+          "kind": "unconditional"
+        },
+        {
+          "binding": "enabled",
+          "guards": [
+            "ready"
+          ],
+          "kind": "conditional"
+        },
+        {
+          "binding": "payload",
+          "guards": [
+            "ready",
+            "enabled"
+          ],
+          "kind": "conditional"
+        }
       ]
     }
   },
@@ -56,6 +144,28 @@
       "kind": "conditional",
       "guards": [
         "ready"
+      ],
+      "reads": [
+        {
+          "binding": "ready",
+          "guards": [],
+          "kind": "unconditional"
+        },
+        {
+          "binding": "enabled",
+          "guards": [
+            "ready"
+          ],
+          "kind": "conditional"
+        },
+        {
+          "binding": "payload",
+          "guards": [
+            "ready",
+            "enabled"
+          ],
+          "kind": "conditional"
+        }
       ]
     }
   },
@@ -68,6 +178,28 @@
       "kind": "conditional",
       "guards": [
         "ready"
+      ],
+      "reads": [
+        {
+          "binding": "ready",
+          "guards": [],
+          "kind": "unconditional"
+        },
+        {
+          "binding": "enabled",
+          "guards": [
+            "ready"
+          ],
+          "kind": "conditional"
+        },
+        {
+          "binding": "payload",
+          "guards": [
+            "ready",
+            "enabled"
+          ],
+          "kind": "conditional"
+        }
       ]
     }
   },
@@ -80,6 +212,28 @@
       "kind": "conditional",
       "guards": [
         "ready"
+      ],
+      "reads": [
+        {
+          "binding": "ready",
+          "guards": [],
+          "kind": "unconditional"
+        },
+        {
+          "binding": "enabled",
+          "guards": [
+            "ready"
+          ],
+          "kind": "conditional"
+        },
+        {
+          "binding": "payload",
+          "guards": [
+            "ready",
+            "enabled"
+          ],
+          "kind": "conditional"
+        }
       ]
     }
   },
@@ -92,6 +246,28 @@
       "kind": "conditional",
       "guards": [
         "ready"
+      ],
+      "reads": [
+        {
+          "binding": "ready",
+          "guards": [],
+          "kind": "unconditional"
+        },
+        {
+          "binding": "enabled",
+          "guards": [
+            "ready"
+          ],
+          "kind": "conditional"
+        },
+        {
+          "binding": "payload",
+          "guards": [
+            "ready",
+            "enabled"
+          ],
+          "kind": "conditional"
+        }
       ]
     }
   },
@@ -104,6 +280,28 @@
       "kind": "conditional",
       "guards": [
         "ready"
+      ],
+      "reads": [
+        {
+          "binding": "ready",
+          "guards": [],
+          "kind": "unconditional"
+        },
+        {
+          "binding": "enabled",
+          "guards": [
+            "ready"
+          ],
+          "kind": "conditional"
+        },
+        {
+          "binding": "payload",
+          "guards": [
+            "ready",
+            "enabled"
+          ],
+          "kind": "conditional"
+        }
       ]
     }
   },
@@ -116,6 +314,28 @@
       "kind": "conditional",
       "guards": [
         "ready"
+      ],
+      "reads": [
+        {
+          "binding": "ready",
+          "guards": [],
+          "kind": "unconditional"
+        },
+        {
+          "binding": "enabled",
+          "guards": [
+            "ready"
+          ],
+          "kind": "conditional"
+        },
+        {
+          "binding": "payload",
+          "guards": [
+            "ready",
+            "enabled"
+          ],
+          "kind": "conditional"
+        }
       ]
     }
   }
