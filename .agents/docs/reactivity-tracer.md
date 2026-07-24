@@ -1,9 +1,7 @@
 # Reactivity tracer
 
 `vue-vet-reactivity` is the Vue Vet-owned **static reactivity tracing library**.
-Lint rules are the first consumer, not the capability ceiling. The goal is the
-most complete static model of Vue reactivity tracking that stays high-confidence,
-deterministic, and free of dependency AST leakage.
+Lint rules are the first consumer, not the capability ceiling.
 
 Related: [architecture](./architecture.md), [gotchas](./gotchas.md),
 [literature matrix](./research/reactivity-tracer-literature.md),
@@ -12,7 +10,7 @@ Related: [architecture](./architecture.md), [gotchas](./gotchas.md),
 ## Product stance
 
 - Approximate Vue's **synchronous tracking semantics** with static facts.
-  Do not execute components, effects, or Proxies.
+  Do not execute components, effects, or Proxies for product analysis.
 - Prefer **under-approximation + quiet failure** over inventing edges.
 - Keep Vue Vet-owned serializable contracts independent of Oxc and Vize types.
 - Grow the graph so multiple consumers can share it: rules, project graph,
@@ -34,231 +32,103 @@ JavaScript soundness.
 | A6 Modules | How do composables and exports seed consumer bindings? |
 | A7 Contract | Is the graph versioned, deterministic, and multi-consumer stable? |
 
-## Current baseline (shipped)
+## Current baseline (honest)
 
-| Axis | Status |
-| --- | --- |
-| A1 Bindings | Vue primitives + aliases/`#imports`/`defineModel`; symbol identity |
-| A2 Scopes | effects + computed + watch sources/callbacks + effectScope + onScopeDispose |
-| A3 Reads | Direct ref-like `.value`, reactive members, composable instance `bag.field.value` |
-| A4 Conditions | if / early-exit / ternary / short-circuit / switch → guards with **roles** |
-| A5 Boundaries | await / pauseTracking / deferred callbacks / watch jobs → non-tracking kinds |
-| A6 Modules | composable shapes including parametric `toRef(param, key)` + instance seeds |
-| A7 Contract | v3: scopes/writes/edges/template_reads + effects projection |
-| Evidence | 280 corpus + unit coverage + after-await/prefer-computed/unused-binding rules |
+Contract version: **`REACTIVITY_GRAPH_VERSION = 3`** (scopes, writes, edges,
+`template_reads`, effects projection).
 
-## Completeness ladder
-
-Each level is a shippable lib slice: facts + fixtures + docs. Rules may follow
-in a later PR once the facts exist.
-
-### L0 — Semantic charter
-
-Record the static approximation of Vue tracking:
-
-- A tracking scope runs synchronously; only reached reactive reads subscribe.
-- Nested function bodies are outside the parent scope's tracking.
-- Write-only assignment targets are not reads.
-- Top-level `await` ends synchronous collection for that scope.
-- Unknown interprocedural or dynamic shapes stay quiet.
-
-**Exit:** this file + gotchas agree; no behavior change required.
-
-### L1 — Tracking scopes
-
-Recognize every first-class tracking region the lib claims to model:
-
-| Scope kind | Status | Notes |
+| Axis | Status | Gap |
 | --- | --- | --- |
-| `watchEffect*` | shipped | projects into legacy `effects` |
-| `computed` | shipped | callback body is a tracking scope |
-| `watch` sources | shipped | source expressions / getters / arrays |
-| `watch` callback | shipped | job body; all reads forced to `OutsideTracking` |
-| `effectScope` / `.run` | shipped | grouping scope; nested effects still tracked |
-| `onScopeDispose` | shipped | cleanup body; outside tracking |
-| setup / render | partial | template identifier join shipped; full expression AST still future |
+| A1 Bindings | partial | Vue primitives, aliases, `#imports`, `defineModel`, module seeds. **No `defineProps` / storeToRefs / route sources** |
+| A2 Scopes | partial | effects, computed, watch, effectScope (`.run` requires provenance), dispose |
+| A3 Reads | partial | direct `.value` / reactive members / bag.field.value. **Drops sync HOF callback reads** (`.filter`/`.map`/…) |
+| A4 Conditions | deep | if / early-exit / ternary / short-circuit / switch roles — **over-invested relative to A1/A3** |
+| A5 Boundaries | partial | await, pauseTracking, deferred callbacks, watch jobs |
+| A6 Modules | partial | composable shapes, parametric `toRef`, SFC module identity, seed→rules |
+| A7 Contract | shipped | versioned graph; edge IDs still fragile (`callee@offset`, bare names) |
+| Evidence | weak | 280 corpus is a **syntax matrix** (~43 semantic prefixes × surface variants), not measured recall. Assertions are mostly **existence** of expected reads, not exhaustive edge sets |
 
-**Exit:** met — scopes + effects projection; unit fixtures; 280 corpus green.
+### Charter invariants (must not regress)
 
-### L2 — Read precision
+1. **Under-approx:** invented edges are bugs; missing edges are acceptable quiet failure.
+2. **No runtime execution** as the product engine (runtime may be an **oracle** for tests).
+3. **Symbol identity** for cross-module linking; bare names are not enough (gotchas).
 
-Deepen demand-read modeling inside scopes:
+## Reorientation (2026-07-25)
 
-- richer early-exit and `else if` / `switch` guard attachment
-- guard roles (`early_exit`, `branch_test`, `short_circuit`)
-- keep every occurrence (unconditional earlier reads still suppress FP)
-- optional property-path depth policy (stay shallow until a consumer needs more)
+Waves 1–8 deepened **A4 / template join / module plumbing**. That is useful
+infrastructure, but real components still under-report because **A1/A3 breadth**
+was never expanded.
 
-**Exit:** complex corpus gains targeted cases; no SMT / full NTSCD required.
+Hard failures already observed:
 
-### L3 — Sync boundaries
+| Case | Expected | Actual |
+| --- | --- | --- |
+| `defineProps` → `props.count` in `computed` | read of props binding | `reads: []` |
+| `list.value.filter(x => x.includes(query.value))` | track `list` **and** `query` | only `list` |
+| `runner.run(() => count.value)` when `runner` is not `effectScope` | quiet | invents `effectScope.run` |
 
-Make non-tracking boundaries first-class:
+**Correct next order:**
 
-| Boundary | Status |
-| --- | --- |
-| top-level `await` | shipped as `AfterAwait` |
-| `then` / `catch` / `finally` callbacks | shipped as `OutsideTracking` |
-| `nextTick` / `queueMicrotask` / `setTimeout` | shipped as `OutsideTracking` |
-| arbitrary nested callbacks | remain excluded (under-approx) |
+1. **Runtime oracle** — Vue `onTrack` / `onRenderTracked` vs tracer edges;
+   assert `tracer ⊆ runtime` and publish recall.
+2. **Exhaustive fixture asserts** — full read/guard/edge sets, not only
+   “expected binding found”; drop integer-padding corpus gates as completeness proof.
+3. **Kill inventions** — `.run` only from `effectScope` provenance; review
+   parametric pass-through and instance seed injection.
+4. **A1/A3 breadth** — props, sync HOFs, `storeToRefs`, `useRoute`, …
+5. **Stable edge identity** — symbol/module-qualified `from`/`to` before more
+   consumers depend on the graph.
 
-**Exit:** boundary kinds documented; fixtures; rules may consume later.
+Do **not** deepen A4 further until oracle + A1 breadth move.
 
-### L4 — Module summaries
+### Prior art (verified)
 
-Raise the composable/export ceiling without file concatenation:
+There is **no official Vue “reactivity analysis plugin”** that builds a static
+dependency graph. Related pieces:
 
-| Capability | Status |
-| --- | --- |
-| named/default/star re-export fixed point | shipped |
-| object-return composable shapes | shipped |
-| destructured call seeds | shipped |
-| member seeds `const x = useFoo(); x.a` | shipped (`bag.field.value`) |
-| multi-return join when shapes agree | shipped (same field/kind kept; conflict → quiet) |
-| parametric / dynamic keys | stay quiet |
+| Artifact | What it is | Overlap |
+| --- | --- | --- |
+| `eslint-plugin-vue` reactivity-loss rules | shallow AST patterns (`no-setup-props-reactivity-loss`, …); not a graph | different rules; no edge set |
+| Vapor Mode compiler | static deps for codegen, not a public IR | same *problem*, different product |
+| Vue DevTools | runtime graph | oracle ground truth, not lint |
 
-**Exit:** module + real-world fixtures expand; Ambiguous/Opaque remains quiet.
+Differentiation still holds: a **serializable static reactivity graph library**
+is the gap. Vue 3.6 / alien-signals rewrites raise the value of a runtime oracle
+as both precision ruler and version-compat net (`pauseTracking` etc. must stay
+capability-gated).
 
-### L5 — Stable graph contract
+## Completeness ladder (revised)
 
-Version the public fact shape for multi-consumer use:
+| Level | Focus | Exit |
+| --- | --- | --- |
+| L0 Charter | under-approx, static-only, quiet failure | this file + gotchas |
+| L1 Scopes | tracking regions without invention | no false effectScope; known APIs only |
+| L2 A1/A3 breadth | props, sync HOF, common composables | oracle recall improves on real SFCs |
+| L3 Boundaries | await / pause / deferred | version-gated Vue APIs |
+| L4 Modules | seeds without top-level pollution | symbol identity across files |
+| L5 Contract | stable edge IDs + version | multi-consumer safe |
+| L6 Template join | Vize surfaces + Oxc free ids | shipped infrastructure; not a substitute for A1 |
 
-- explicit scope nodes and typed read/guard/seed edges (incremental evolution OK)
-- graph format/version field (`REACTIVITY_GRAPH_VERSION`, currently `2`) — shipped
-- deterministic ordering preserved
-- consumers: rules, project graph, JSON, future LSP
+## Shipped infrastructure (condensed)
 
-**Exit:** version field + documented contract; no Oxc types cross the boundary.
+Landed as evolution waves (do not re-litigate; do not treat as completeness):
 
-### L6 — SFC / template join
+- Scope IR, guards, after-await / outside-tracking, prefer-computed / unused-binding rules
+- Template expression facts, Oxc free-ids, v-for/slot alias scopes
+- SFC `ModuleSource`, seed spans, CLI two-phase seed→rules
+- Template joins on module graphs
 
-Cross script and template reactive surfaces. Vize already supports the needed
-parse surfaces (`ExpressionNode` + `loc`, `Interpolation`, directive `exp`/`arg`,
-SFC block absolute offsets); the prior gap was vue-vet under-use of that AST.
-
-| Capability | Status |
-| --- | --- |
-| Template directive expression identifiers → script bindings | shipped (`template_reads` + edges) |
-| Interpolation + directive exp/arg surfaces with expression spans | shipped (`TemplateExpressionFact` via Vize) |
-| Oxc AST free-identifier extraction for template expressions | shipped (`vue-vet-oxc::template_expression_identifiers`) |
-| Lexical identifier join fallback | shipped (fixtures / Oxc parse miss) |
-| Nested free-var scoping inside template handlers | shipped (param / inner binding filter on Oxc visit) |
-| `v-for` / `v-slot` template-local alias scopes | shipped (extract-time alias stack) |
-| Vertical rule on template join | shipped (`no-unused-reactive-binding`) |
-| Cross-file extracted `.vue` script module identity | shipped (`ModuleSource::sfc_script` + project links + template re-join) |
-
-## Non-goals
-
-- Executing Vue runtime, effects, or tests to discover dependencies
-- Whole-program TAJS-class abstract interpretation as the default engine
-- Pattern-engine duplicate of Oxc/Vize semantics
-- Inventing edges for unresolved, dynamic, or conflicting exports
-- Glitch-freedom scheduling (runtime concern; not a lint graph duty)
-
-## Default delivery order
-
-```text
-L0 charter (docs)
-  → L1 scopes (computed + watch sources)
-  → L2 read/guard precision
-  → L3 boundaries
-  → L4 module summary upgrades
-  → L5 contract versioning (can start lightly in L1)
-  → L6 SFC join (Vize surfaces already available; extract + join in adapter)
-```
-
-Rules land after the facts they need. Prefer tracer-only PRs when the slice is
-large; attach one vertical rule when it proves the slice.
-
-## Evolution wave (landed 2026-07-24)
-
-Shipped together as one tracer evolution:
-
-1. **Scope-centric IR** — `TrackingScopeFact` + `scopes`; `effects` projected from effect-family scopes.
-2. **Scope coverage** — `watchEffect*` / `computed` / `watch` sources.
-3. **Guard roles** — early-exit / branch / short-circuit / switch discriminant.
-4. **Boundaries** — `AfterAwait` + `OutsideTracking` for deferred callbacks.
-5. **Module seeds** — destructure + `const bag = useX(); bag.field.value`.
-
-Still open: pauseTracking nested in branches edge cases; dual ordinary+setup
-script blocks as a single merged module (currently setup preferred). Per-file
-rules now see project-linked module graphs for preferred script blocks.
-
-## Evolution wave 2 (landed 2026-07-25)
-
-1. **WatchCallback** scopes — watch job bodies modeled; reads are `OutsideTracking`.
-2. **Graph version** — `ReactivityGraph.version` / `REACTIVITY_GRAPH_VERSION` (now 3).
-3. **Rule** — `vue-vet/reactivity/no-after-await-watch-effect-dependency`.
-
-## Evolution wave 3 (L6 template join — Vize-backed)
-
-1. **`TemplateExpressionFact`** — flattened surfaces (`if` / `for` / `bind` /
-   `interpolation` / …) with SFC-absolute expression spans.
-2. **Vize extraction** — walk `Interpolation`, `If`/`For` (transform-time), and
-   directive `exp`/`arg` using `ExpressionNode::loc()` + template block offset.
-3. **`join_template_reads`** — prefers `template.expressions`; falls back to
-   element directives for hand-built fixtures.
-4. Confirmed against Vize 0.291.0: block offsets, interpolations, expression
-   locs are supported; gap was under-extraction, not missing Vize APIs.
-
-## Evolution wave 4 (template expression Oxc AST reads)
-
-1. **`TemplateExpressionFact.identifiers`** — free identifier reads on each surface.
-2. **`vue-vet-oxc::template_expression_identifiers`** — `Parser::parse_expression`
-   + `Visit` over `IdentifierReference` (drops static member props / keys).
-3. **`v-for` source only** — `item in items` / `(a, b) of list` keep iterable side.
-4. Join prefers Oxc identifiers; lexical scan remains the empty-list fallback.
-
-## Evolution wave 5 (handler free-vars + unused binding rule)
-
-1. **Nested free-var filter** — arrow/function params and inner bindings excluded
-   from template expression identifier lists.
-2. **`vue-vet/reactivity/no-unused-reactive-binding`** — reports local reactive
-   bindings with no script reads, scope reads/writes, template joins, or static
-   `ref="…"` uses; quiets `defineModel` / `useTemplateRef` / `toRef` contracts.
-
-## Evolution wave 6 (template-local alias scopes)
-
-1. **`v_for_alias_identifiers` / `slot_prop_alias_identifiers`** — recover locals
-   from `item in items`, `(a, i) of list`, `{ id }`, slot props.
-2. **Extract-time alias stack** — Vize walk pushes `v-for` / `v-slot` scopes so
-   child expressions and same-element props (`:key="item"`) drop shadowed names.
-3. **Slot patterns are not free reads** — `v-slot="{ value }"` binds, does not join.
-
-## Evolution wave 7 (extracted `.vue` module identity)
-
-1. **`ModuleSource::{standalone,sfc_script}`** — `source_offset` + `span_source`
-   so Oxc re-trace spans map into the original SFC.
-2. **Vize `AnalyzedSfc.module_source`** — prefers `script setup`, else `script`.
-3. **CLI** feeds `.vue` module sources into `build_project_graph`.
-4. **Project graph** re-joins templates onto traced module graphs after seed linking.
-
-## Evolution wave 8 (module seeds → per-file rules)
-
-1. **`SfcFacts::apply_module_reactivity`** — swaps the preferred block graph for
-   the project-linked one (seeds + template joins).
-2. **`analyze_sfc_facts_with_environment`** — facts-only extract for the CLI.
-3. **CLI two-phase scan** — collect SFC facts → `build_project_graph` → apply
-   module graphs → run rules / suppressions.
-
-## Evolution wave 3 (landed 2026-07-25)
-
-1. **Scope writes** — `ReactiveWriteFact` + `assignment_only` on tracking scopes.
-2. **Rule** — `vue-vet/reactivity/prefer-computed`.
-
-## Evolution wave 4 (landed 2026-07-25)
-
-1. **effectScope / onScopeDispose / pauseTracking** boundaries.
-2. **Parametric composable** `toRef(param, key)` / param pass-through shapes.
-3. **Template join** — identifier scan from directive expressions onto bindings.
-4. **Dependency edges** — computed/effect/template inverted depends-on list.
+Details live in git history on `feat/reactivity-tracer-evolution` rather than a
+growing prose ledger.
 
 ## Decision log
 
 | Date | Decision | Notes |
 | --- | --- | --- |
 | 2026-07-24 | Lib-first completeness over rule-only ROI | Tracer is an ecosystem library; lint is first consumer |
-| 2026-07-24 | Static approximation only | Runtime is the semantic reference, never the execution mode |
+| 2026-07-24 | Static approximation only | Runtime is the semantic reference, never the product execution mode |
 | 2026-07-24 | Under-approx + quiet failure remains default | Completeness does not mean guessing |
-| 2026-07-24 | Full evolution wave E1–E4 | scopes + guards + boundaries + module member seeds |
-| 2026-07-25 | Wave 2: WatchCallback + graph version + after-await rule | Vertical slice proving async-boundary facts |
+| 2026-07-24–25 | Waves 1–8: A4 depth, template join, module plumbing | Useful infra; **wrong primary axis for “complete”** |
+| 2026-07-25 | Reorient to A1/A3 + runtime oracle | Guards only matter when edges exist; 280 corpus ≠ recall |
+| 2026-07-25 | No official Vue reactivity-analysis plugin | Prior art is shallow ESLint rules + Vapor codegen + DevTools runtime |

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use oxc_ast::{
   AstKind,
@@ -111,6 +111,30 @@ fn module_export_name(name: &ModuleExportName<'_>) -> String {
     ModuleExportName::IdentifierReference(name) => name.name.to_string(),
     ModuleExportName::StringLiteral(name) => name.value.to_string(),
   }
+}
+
+/// Locals assigned from `effectScope()` (Vue import / `#imports` / namespace).
+fn effect_scope_instance_locals(
+  semantic: &oxc_semantic::Semantic<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> BTreeSet<String> {
+  let mut locals = BTreeSet::new();
+  for node in semantic.nodes() {
+    let AstKind::CallExpression(call) = node.kind() else {
+      continue;
+    };
+    let Some(callee) = resolved_vue_callee(&call.callee, imported_bindings, ScriptKind::Script)
+    else {
+      continue;
+    };
+    if callee != "effectScope" {
+      continue;
+    }
+    if let Some(name) = assigned_binding_name(semantic, call.node_id.get()) {
+      locals.insert(name);
+    }
+  }
+  locals
 }
 
 fn resolved_vue_callee(
@@ -879,15 +903,19 @@ fn collect_tracking_scopes(
   sfc_source: &str,
   script_offset: usize,
 ) -> Vec<TrackingScopeFact> {
+  // Only treat `.run(cb)` as an effect-scope body when the receiver was assigned
+  // from Vue's `effectScope()` — never invent edges for arbitrary `.run` APIs.
+  let effect_scope_locals = effect_scope_instance_locals(semantic, imported_bindings);
   let mut scopes = Vec::new();
   for node in semantic.nodes() {
     let AstKind::CallExpression(call) = node.kind() else {
       continue;
     };
 
-    // effectScopeInstance.run(() => { ... }) — not a vue import callee.
     if let Expression::StaticMemberExpression(member) = &call.callee
       && member.property.name.as_str() == "run"
+      && let Some(receiver) = member.object.get_identifier_reference()
+      && effect_scope_locals.contains(receiver.name.as_str())
       && let Some(argument) = call.arguments.first()
       && let Some((scope_id, body)) = callback_parts(argument)
     {

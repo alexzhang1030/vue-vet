@@ -121,3 +121,10 @@ Content cache keys include `CACHE_FORMAT_VERSION`, ruleset version, and
 `REACTIVITY_GRAPH_VERSION`; bump those when analysis behavior changes so local
 caches do not serve stale graphs. Dual ordinary+setup blocks are not merged
 into one module.
+
+## EffectScope `.run` requires provenance
+
+Only `const scope = effectScope(); scope.run(cb)` is a tracking-scope body.
+Arbitrary objects with a `.run` method must stay quiet — inventing
+`effectScope.run` edges violates under-approx. See the reorientation in
+[reactivity tracer](./reactivity-tracer.md).

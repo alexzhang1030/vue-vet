@@ -667,6 +667,24 @@ fn traces_effect_scope_run_callbacks() {
 }
 
 #[test]
+fn does_not_invent_effect_scope_for_arbitrary_run_methods() {
+  let graph = graph(
+    "import { ref } from 'vue';\n\
+     const count = ref(0);\n\
+     const runner = { run(fn) { fn(); } };\n\
+     runner.run(() => count.value);",
+  );
+  assert!(
+    !graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::EffectScope || scope.callee.contains("effectScope")
+    }),
+    "arbitrary `.run` must not invent effectScope edges; got {:?}",
+    graph.scopes.iter().map(|scope| (&scope.callee, scope.kind)).collect::<Vec<_>>()
+  );
+  assert!(graph.effects.is_empty(), "invented effect-family scopes must not project into effects");
+}
+
+#[test]
 fn builds_computed_dependency_edges() {
   let graph = graph(
     "import { computed, ref } from 'vue';\n\
