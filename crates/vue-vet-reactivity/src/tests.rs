@@ -818,12 +818,73 @@ fn seeds_composable_instance_member_access() {
   );
 }
 
+#[test]
+fn instance_seed_does_not_pollute_top_level_bindings() {
+  let modules = [
+    ModuleSource::standalone(
+      "producer.ts",
+      "import { ref } from 'vue'; export function useSignal() { const signal = ref(0); return { signal }; }",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      // Bare `signal.value` must stay quiet: the consumer never bound `signal`.
+      // Only `bag.signal.value` is a real edge (covered by the test above).
+      "import { watchEffect } from 'vue'; import { useSignal } from './producer'; const bag = useSignal(); watchEffect(() => { signal.value; });",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./producer".into(),
+    to: "producer.ts".into(),
+  }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      !module.graph.bindings.iter().any(|binding| binding.name == "signal")
+        && module
+          .graph
+          .effects
+          .iter()
+          .all(|effect| effect.reads.iter().all(|read| read.binding != "signal"))
+    }),
+    "instance seeds must not invent top-level bindings for composable shape fields; got {:?}",
+    consumer.map(|module| {
+      (
+        module.graph.bindings.iter().map(|b| b.name.clone()).collect::<Vec<_>>(),
+        module
+          .graph
+          .effects
+          .iter()
+          .flat_map(|e| e.reads.iter().map(|r| r.binding.clone()))
+          .collect::<Vec<_>>(),
+      )
+    })
+  );
+}
+
+/// One read in an exhaustive effect read-set assertion.
+#[derive(serde::Deserialize)]
+struct LocalReadExpectation {
+  binding: String,
+  kind: ReactiveReadKind,
+  #[serde(default)]
+  guards: Vec<String>,
+}
+
 #[derive(serde::Deserialize)]
 struct LocalExpectation {
   effect: String,
   binding: String,
   kind: ReactiveReadKind,
   guards: Vec<String>,
+  /// When present, the effect's full read set must match exactly (no missing, no invented).
+  #[serde(default)]
+  reads: Option<Vec<LocalReadExpectation>>,
 }
 
 #[derive(serde::Deserialize)]
@@ -983,6 +1044,39 @@ fn assert_local_fixture(fixture: &LocalFixture) {
     }),
     "expected guard evidence must survive in {}",
     fixture.name
+  );
+  if let Some(expected_reads) = &fixture.expected.reads {
+    let Some(effect) = effect else {
+      return;
+    };
+    assert_effect_reads_exact(effect, expected_reads, &fixture.name);
+  }
+}
+
+/// Exact effect read-set: every (binding, kind, guard-names) pair must match.
+fn assert_effect_reads_exact(
+  effect: &vue_vet_core::ReactivityEffectFact,
+  expected: &[LocalReadExpectation],
+  name: &str,
+) {
+  let actual = effect
+    .reads
+    .iter()
+    .map(|read| {
+      let guards = read.guards.iter().map(|guard| guard.binding.as_str()).collect::<BTreeSet<_>>();
+      (read.binding.as_str(), read.kind, guards)
+    })
+    .collect::<BTreeSet<_>>();
+  let expected = expected
+    .iter()
+    .map(|read| {
+      let guards = read.guards.iter().map(String::as_str).collect::<BTreeSet<_>>();
+      (read.binding.as_str(), read.kind, guards)
+    })
+    .collect::<BTreeSet<_>>();
+  assert_eq!(
+    actual, expected,
+    "effect read set must match exactly in {name} (no missing, no invented)"
   );
 }
 

@@ -1,0 +1,10 @@
+{
+  "id": "watch-effect-ref",
+  "source": "import { ref, watchEffect } from 'vue'\nconst count = ref(1)\nwatchEffect(() => {\n  void count.value\n})\n",
+  "runtime_deps": [
+    {
+      "binding": "count",
+      "key": "value"
+    }
+  ]
+}

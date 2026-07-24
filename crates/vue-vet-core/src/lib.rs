@@ -241,7 +241,7 @@ pub struct ReactiveBindingFact {
   pub span: SourceSpan,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReactiveReadKind {
   /// Reached on every synchronous execution of the tracking scope.

@@ -1,0 +1,14 @@
+{
+  "id": "sync-reduce-hof",
+  "source": "import { ref, computed } from 'vue'\nconst list = ref([1, 2, 3])\nconst factor = ref(10)\nconst total = computed(() => list.value.reduce((sum, n) => sum + n * factor.value, 0))\nvoid total.value\n",
+  "runtime_deps": [
+    {
+      "binding": "factor",
+      "key": "value"
+    },
+    {
+      "binding": "list",
+      "key": "value"
+    }
+  ]
+}

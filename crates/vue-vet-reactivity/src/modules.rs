@@ -731,17 +731,10 @@ fn imported_bindings(
         }
         for call in summary.instance_calls.iter().filter(|call| call.imported_local == import.local)
         {
+          // Only record the instance bag for `bag.field.value` resolution.
+          // Do **not** inject shape fields as top-level bindings — that invents
+          // edges for bare `field.value` when the consumer never destructured.
           seeds.composable_instances.insert(call.local.clone(), shape.clone());
-          for (field, kind) in shape {
-            if !seeds.bindings.iter().any(|binding| binding.name == *field) {
-              seeds.bindings.push(ReactiveBindingFact {
-                name: field.clone(),
-                kind: *kind,
-                initialized_with_null: false,
-                span: source_span(span_source, span_base, call.span),
-              });
-            }
-          }
         }
       }
       ExportState::Ambiguous => {}

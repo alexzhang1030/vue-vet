@@ -34,8 +34,8 @@ JavaScript soundness.
 
 ## Current baseline (honest)
 
-Contract version: **`REACTIVITY_GRAPH_VERSION = 3`** (scopes, writes, edges,
-`template_reads`, effects projection).
+Contract version: **`REACTIVITY_GRAPH_VERSION = 4`** (scopes, writes, edges,
+`template_reads`, effects projection, edge `from` labels).
 
 | Axis | Status | Gap |
 | --- | --- | --- |
@@ -44,9 +44,9 @@ Contract version: **`REACTIVITY_GRAPH_VERSION = 3`** (scopes, writes, edges,
 | A3 Reads | partial | `.value` / reactive members / bag.field / **sync Array HOF** (filter/map/forEach/reduce/…) |
 | A4 Conditions | deep | if / early-exit / ternary / short-circuit / switch roles — do not deepen further yet |
 | A5 Boundaries | partial | await, pauseTracking, deferred callbacks, watch jobs |
-| A6 Modules | partial | composable shapes, parametric `toRef`, SFC module identity, seed→rules |
+| A6 Modules | partial | composable shapes, parametric `toRef`, SFC module identity, seed→rules; **instance seeds no longer inject shape fields as top-level bindings** |
 | A7 Contract | improving | **v4**: `from` = computed binding or `kind:callee@offset`; template `template:surface@offset`. `to` still bare binding names |
-| Evidence | improving | Runtime oracle asserts **tracer ⊆ runtime** + ≥99% recall on committed cases; exhaustive computed-read sets in oracle unit tests |
+| Evidence | improving | Runtime oracle **tracer ⊆ runtime** + ≥99% recall; optional exhaustive `expected.reads` on local fixtures; oracle unit exact computed-read sets |
 
 ### Charter invariants (must not regress)
 
@@ -136,3 +136,6 @@ growing prose ledger.
 | 2026-07-25 | No official Vue reactivity-analysis plugin | Prior art is shallow ESLint rules + Vapor codegen + DevTools runtime |
 | 2026-07-25 | Runtime oracle skeleton + A1 fixes | onTrack expected JSON; defineProps; sync filter/map HOF; effectScope.run provenance |
 | 2026-07-25 | A1 breadth: storeToRefs / useRoute + edge from-ids | pinia/vue-router allowlist; graph v4 edge `from` labels; more oracle cases |
+| 2026-07-25 | Instance seed no top-level pollution | `const bag = useX()` seeds `composable_instances` only; shape fields are not top-level bindings |
+| 2026-07-25 | Exhaustive local fixture reads | optional `expected.reads` exact effect set; pilot on systematic/01 + complex/01 |
+| 2026-07-25 | Oracle breadth | `reactive-member`, `sync-reduce-hof`, `watch-effect-ref` |

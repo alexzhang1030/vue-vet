@@ -156,3 +156,11 @@ Computed edges prefer the assigned binding name (`doubled`). Other scopes use
 `{kind}:{callee}@{offset}`. Template joins use `template:{surface}@{offset}` so
 multiple interpolations do not collapse. `to` remains a bare binding name for
 consumer matching until symbol/module IDs land.
+
+## Instance seeds are bags, not field injections
+
+`const bag = useComposable()` records `bag` under `composable_instances` so
+`bag.field.value` can resolve. Do **not** also push each shape field as a
+top-level `ReactiveBindingFact` — that invents edges for bare `field.value`
+when the consumer never destructured. Destructured calls
+(`const { field } = useX()`) remain the only path that seeds a local `field`.

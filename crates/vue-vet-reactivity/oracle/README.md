@@ -18,9 +18,12 @@ completeness number — not a 280-case syntax matrix.
 | --- | --- |
 | `baseline-ref-computed` | happy path ref → computed |
 | `props-reactive-object` | `props.count` style reactive object (defineProps stand-in) |
+| `reactive-member` | `reactive({ count }).count` member track |
 | `sync-filter-hof` | sync Array#filter callback must track `query` |
 | `sync-map-hof` | sync Array#map callback must track `factor` |
+| `sync-reduce-hof` | sync Array#reduce callback must track `factor` |
 | `use-route-like` | reactive route object member (`route.path`) |
+| `watch-effect-ref` | `watchEffect` tracks `ref.value` |
 | `watch-effect-await` | post-await read is **not** runtime-tracked (boundary) |
 | `runner-run-no-track` | arbitrary `.run` invents nothing at runtime |
 

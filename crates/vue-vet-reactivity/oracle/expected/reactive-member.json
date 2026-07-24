@@ -1,0 +1,10 @@
+{
+  "id": "reactive-member",
+  "source": "import { reactive, computed } from 'vue'\nconst state = reactive({ count: 1 })\nconst doubled = computed(() => state.count * 2)\nvoid doubled.value\n",
+  "runtime_deps": [
+    {
+      "binding": "state",
+      "key": "count"
+    }
+  ]
+}

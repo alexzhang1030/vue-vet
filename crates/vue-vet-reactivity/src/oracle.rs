@@ -150,11 +150,14 @@ fn oracle_cases_cover_known_hard_facts() {
   for required in [
     "baseline-ref-computed",
     "props-reactive-object",
+    "reactive-member",
     "sync-filter-hof",
     "sync-map-hof",
+    "sync-reduce-hof",
     "use-route-like",
     "runner-run-no-track",
     "watch-effect-await",
+    "watch-effect-ref",
   ] {
     assert!(ids.contains(required), "missing oracle case {required}");
   }
