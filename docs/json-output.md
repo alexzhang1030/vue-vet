@@ -48,6 +48,23 @@ come from Vue Vet-owned rule metadata. `documentation` is a repository-local
 Markdown path so local tools and coding agents can read the exact rule guidance
 without a network request.
 
+An active diagnostic may include an optional `edits` array. Each edit has a
+normalized repository-relative `file`, original-source byte `range`, exact
+`replacement`, `applicability`, and originating `rule_id`. Absence of `edits`
+means Vue Vet has no machine-authorized change for that finding; consumers must
+not synthesize one from the diagnostic span. `--fix-dry-run` is the supported
+way to validate and inspect the current safe plan without writing files.
+
+```json
+{
+  "file": "src/App.vue",
+  "range": { "offset": 42, "length": 10 },
+  "replacement": "",
+  "applicability": "safe",
+  "rule_id": "vue-vet/accessibility/no-autofocus"
+}
+```
+
 ## Completeness
 
 An empty `diagnostics` array is clean only when `project.complete` is `true`.
@@ -69,8 +86,10 @@ operational failures to stderr.
 The JSON report is the complete fact layer, not a generated fix prompt. Agents
 should group diagnostics by `rule_id`, prioritize severity and confidence, read
 the referenced source and local documentation, and verify a finding before
-editing. Future bounded handoff prompts may point to this report, but must not
-replace it or silently omit lower-priority findings.
+editing. An edit is actionable only when Vue Vet emits it with explicit
+applicability; a diagnostic without one remains manual. Future bounded handoff
+prompts may point to this report, but must not replace it or silently omit
+lower-priority findings.
 
 ## Compatibility
 

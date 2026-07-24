@@ -54,6 +54,8 @@ pub struct Diagnostic {
   pub help: Option<String>,
   pub file: PathBuf,
   pub span: SourceSpan,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub edits: Vec<TextEdit>,
 }
 
 /// Builds the stable, opaque identity used by machine-readable report consumers.
@@ -375,6 +377,36 @@ impl<'a> RuleContext<'a> {
     message: String,
     help: Option<String>,
   ) {
+    self.push_diagnostic(meta, span, message, help, Vec::new());
+  }
+
+  pub fn report_with_safe_edit(
+    &mut self,
+    meta: &RuleMeta,
+    span: SourceSpan,
+    message: String,
+    help: Option<String>,
+    range: ByteRange,
+    replacement: String,
+  ) {
+    let edit = TextEdit {
+      file: self.file.to_path_buf(),
+      range,
+      replacement,
+      applicability: EditApplicability::Safe,
+      rule_id: meta.id.into(),
+    };
+    self.push_diagnostic(meta, span, message, help, vec![edit]);
+  }
+
+  fn push_diagnostic(
+    &mut self,
+    meta: &RuleMeta,
+    span: SourceSpan,
+    message: String,
+    help: Option<String>,
+    edits: Vec<TextEdit>,
+  ) {
     self.diagnostics.push(Diagnostic {
       rule_id: meta.id.into(),
       category: meta.category.into(),
@@ -385,6 +417,7 @@ impl<'a> RuleContext<'a> {
       help,
       file: self.file.to_path_buf(),
       span,
+      edits,
     });
   }
 }
@@ -517,6 +550,7 @@ mod tests {
       help: None,
       file: "Component.vue".into(),
       span: SourceSpan { offset: 0, length: 1, line: 1, column: 1 },
+      edits: Vec::new(),
     };
     let summary =
       ScanSummary { files_scanned: 1, diagnostics: vec![diagnostic; 40], score: 100 }.finish();
@@ -538,6 +572,7 @@ mod tests {
       help: None,
       file: "ignored-absolute-path/App.vue".into(),
       span: SourceSpan { offset: 8, length: 3, line: 2, column: 4 },
+      edits: Vec::new(),
     };
     let first = diagnostic_id(&diagnostic, "src/App.vue");
     let second = diagnostic_id(&diagnostic, "src/App.vue");

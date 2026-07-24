@@ -14,9 +14,11 @@ description = "A Rust-native health check for Vue and Nuxt codebases"
 workspace = true
 
 [dependencies]
+atomic-write-file.workspace = true
 clap.workspace = true
 ignore.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
 vue-vet-cache = { path = "../vue-vet-cache" }
 vue-vet-core = { path = "../vue-vet-core" }
 vue-vet-oxc = { path = "../vue-vet-oxc" }

@@ -256,6 +256,7 @@ mod tests {
         ),
         file: PathBuf::from("fixtures/reporters/no-v-html.vue"),
         span: SourceSpan { offset: 19, length: 6, line: 2, column: 9 },
+        edits: Vec::new(),
       }],
       score: 97,
     }

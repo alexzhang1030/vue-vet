@@ -24,6 +24,7 @@ keywords = ["vue", "nuxt", "lint", "static-analysis"]
 categories = ["development-tools"]
 
 [workspace.dependencies]
+atomic-write-file = "=0.3.0"
 clap = { version = "4.5", features = ["derive"] }
 divan = { package = "codspeed-divan-compat", version = "=5.0.1" }
 globset = "0.4"
@@ -50,8 +51,9 @@ cargo = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }
 nursery = { level = "deny", priority = -1 }
 
-# Vize's transitive graph currently contains parallel dependency major versions.
-# Vue Vet cannot unify those versions without replacing or patching Vize.
+# Vize and the cross-platform atomic writer currently bring parallel transitive
+# dependency versions. Vue Vet cannot unify them without replacing or patching
+# those boundary dependencies; each new duplicate still requires explicit review.
 multiple_crate_versions = "allow"
 
 # Restriction lints intentionally selected by Rolldown. Enabling the entire

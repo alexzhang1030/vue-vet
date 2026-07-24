@@ -12,7 +12,7 @@ use thiserror::Error;
 use vue_vet_core::{Diagnostic, ScanSummary};
 use vue_vet_project::{CONVENTIONS_VERSION, ProjectGraph};
 
-pub const CACHE_FORMAT_VERSION: u32 = 2;
+pub const CACHE_FORMAT_VERSION: u32 = 3;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 pub const RULESET_VERSION: u32 = 1;
 
@@ -338,6 +338,7 @@ mod tests {
       help: None,
       file: file.into(),
       span: SourceSpan { offset: line, length: 1, line, column: 1 },
+      edits: Vec::new(),
     }
   }
 
