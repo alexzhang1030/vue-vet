@@ -20,6 +20,7 @@ use super::{
   reactive_binding_kind, reference_resolves_to_binding, resolved_vue_callee, source_span,
   trace_reactivity_seeded,
 };
+use oxc_ast::ast::Argument;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ModuleSource {
@@ -248,6 +249,7 @@ fn composable_return_shape(
   graph: &ReactivityGraph,
 ) -> BTreeMap<String, ReactiveBindingKind> {
   let imported_bindings = collect_imported_bindings(semantic);
+  let param_names = function_param_names(semantic, function_id);
   let mut shape = BTreeMap::new();
   let mut ambiguous = BTreeSet::new();
   for (return_id, node) in semantic.nodes().iter_enumerated() {
@@ -263,6 +265,20 @@ fn composable_return_shape(
     if owner != Some(function_id) {
       continue;
     }
+    // `return toRefs(param)` — every static key is ToRef when the argument is a parameter.
+    if let Some(Expression::CallExpression(call)) = &statement.argument
+      && resolved_vue_callee(&call.callee, &imported_bindings, ScriptKind::Script)
+        .is_some_and(|callee| callee == "toRefs")
+      && call
+        .arguments
+        .first()
+        .and_then(Argument::as_expression)
+        .and_then(Expression::get_identifier_reference)
+        .is_some_and(|identifier| param_names.contains(identifier.name.as_str()))
+    {
+      // Without an object shape we cannot invent keys; leave quiet.
+      continue;
+    }
     let Some(Expression::ObjectExpression(object)) = &statement.argument else {
       continue;
     };
@@ -273,7 +289,8 @@ fn composable_return_shape(
       let Some(exported) = property.key.static_name() else {
         continue;
       };
-      let Some(kind) = reactive_return_kind(semantic, &property.value, graph, &imported_bindings)
+      let Some(kind) =
+        reactive_return_kind(semantic, &property.value, graph, &imported_bindings, &param_names)
       else {
         continue;
       };
@@ -296,13 +313,38 @@ fn composable_return_shape(
   shape
 }
 
+fn function_param_names(
+  semantic: &oxc_semantic::Semantic<'_>,
+  function_id: NodeId,
+) -> BTreeSet<String> {
+  let mut names = BTreeSet::new();
+  let parameters = match semantic.nodes().kind(function_id) {
+    AstKind::Function(function) => function.params.items.as_slice(),
+    AstKind::ArrowFunctionExpression(callback) => callback.params.items.as_slice(),
+    _ => return names,
+  };
+  for parameter in parameters {
+    let mut identifiers = Vec::new();
+    collect_binding_identifiers(&parameter.pattern, &mut identifiers);
+    for (name, _) in identifiers {
+      names.insert(name);
+    }
+  }
+  names
+}
+
 fn reactive_return_kind(
   semantic: &oxc_semantic::Semantic<'_>,
   expression: &Expression<'_>,
   graph: &ReactivityGraph,
   imported_bindings: &BTreeMap<String, (String, String)>,
+  param_names: &BTreeSet<String>,
 ) -> Option<ReactiveBindingKind> {
   if let Some(reference) = expression.get_identifier_reference() {
+    if param_names.contains(reference.name.as_str()) {
+      // Parametric pass-through: treat as reactive object/ref surface.
+      return Some(ReactiveBindingKind::Reactive);
+    }
     return graph
       .bindings
       .iter()
@@ -317,6 +359,18 @@ fn reactive_return_kind(
     return None;
   };
   let callee = resolved_vue_callee(&call.callee, imported_bindings, ScriptKind::Script)?;
+  if matches!(callee.as_str(), "toRef" | "toRefs") {
+    // Parametric when first argument is a function parameter.
+    if call
+      .arguments
+      .first()
+      .and_then(Argument::as_expression)
+      .and_then(Expression::get_identifier_reference)
+      .is_some_and(|identifier| param_names.contains(identifier.name.as_str()))
+    {
+      return Some(ReactiveBindingKind::ToRef);
+    }
+  }
   reactive_binding_kind(&callee)
 }
 

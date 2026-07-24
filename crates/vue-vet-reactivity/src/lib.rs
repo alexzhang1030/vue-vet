@@ -70,6 +70,8 @@ fn trace_reactivity_seeded(
     bindings,
     scopes,
     effects: Vec::new(),
+    edges: Vec::new(),
+    template_reads: Vec::new(),
   };
   graph.project_effects_from_scopes();
   graph
@@ -616,23 +618,90 @@ fn is_after_top_level_await(
   })
 }
 
-fn classify_read(
+fn is_pause_tracking_call(
+  call: &oxc_ast::ast::CallExpression<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> bool {
+  resolved_vue_callee(&call.callee, imported_bindings, ScriptKind::Script)
+    .is_some_and(|callee| matches!(callee.as_str(), "pauseTracking"))
+}
+
+fn is_resume_tracking_call(
+  call: &oxc_ast::ast::CallExpression<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> bool {
+  resolved_vue_callee(&call.callee, imported_bindings, ScriptKind::Script)
+    .is_some_and(|callee| matches!(callee.as_str(), "enableTracking" | "resetTracking"))
+}
+
+/// True when a top-level `pauseTracking()` in the scope precedes the read without a resume.
+fn is_after_pause_tracking(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
-  body: Option<&FunctionBody<'_>>,
-  raw_reads: &[RawReactiveRead],
   read: &RawReactiveRead,
-  sfc_source: &str,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> bool {
+  let mut paused = false;
+  let mut events = Vec::new();
+  for node in semantic.nodes() {
+    let AstKind::CallExpression(call) = node.kind() else {
+      continue;
+    };
+    let call_id = call.node_id.get();
+    let mut owned = false;
+    for ancestor_id in semantic.nodes().ancestor_ids(call_id) {
+      if ancestor_id == scope_id {
+        owned = true;
+        break;
+      }
+      if matches!(
+        semantic.nodes().kind(ancestor_id),
+        AstKind::ArrowFunctionExpression(_) | AstKind::Function(_)
+      ) {
+        break;
+      }
+    }
+    if !owned {
+      continue;
+    }
+    if is_pause_tracking_call(call, imported_bindings) {
+      events.push((call.span.end, true));
+    } else if is_resume_tracking_call(call, imported_bindings) {
+      events.push((call.span.end, false));
+    }
+  }
+  events.sort_by_key(|(end, _)| *end);
+  for (end, is_pause) in events {
+    if end > read.span.start {
+      break;
+    }
+    paused = is_pause;
+  }
+  paused
+}
+
+struct ClassifyRead<'a> {
+  semantic: &'a oxc_semantic::Semantic<'a>,
+  scope_id: NodeId,
+  body: Option<&'a FunctionBody<'a>>,
+  raw_reads: &'a [RawReactiveRead],
+  read: &'a RawReactiveRead,
+  sfc_source: &'a str,
   script_offset: usize,
-) -> ReactiveReadFact {
-  let guards = if read.outside_tracking {
+  imported_bindings: &'a BTreeMap<String, (String, String)>,
+}
+
+fn classify_read(input: &ClassifyRead<'_>) -> ReactiveReadFact {
+  let outside = input.read.outside_tracking
+    || is_after_pause_tracking(input.semantic, input.scope_id, input.read, input.imported_bindings);
+  let guards = if outside {
     Vec::new()
   } else {
-    path_guards(semantic, scope_id, body, raw_reads, read)
+    path_guards(input.semantic, input.scope_id, input.body, input.raw_reads, input.read)
   };
-  let kind = if read.outside_tracking {
+  let kind = if outside {
     ReactiveReadKind::OutsideTracking
-  } else if is_after_top_level_await(semantic, scope_id, read) {
+  } else if is_after_top_level_await(input.semantic, input.scope_id, input.read) {
     ReactiveReadKind::AfterAwait
   } else if guards.is_empty() {
     ReactiveReadKind::Unconditional
@@ -641,20 +710,20 @@ fn classify_read(
   };
   let guarded_by = guards.first().map(|guard| guard.read.binding.clone());
   ReactiveReadFact {
-    binding: read.binding.clone(),
-    property: read.property.clone(),
+    binding: input.read.binding.clone(),
+    property: input.read.property.clone(),
     kind,
     guards: guards
       .into_iter()
       .map(|guard| ReactiveGuardFact {
         binding: guard.read.binding,
         property: guard.read.property,
-        span: source_span(sfc_source, script_offset, guard.read.span),
+        span: source_span(input.sfc_source, input.script_offset, guard.read.span),
         role: guard.role,
       })
       .collect(),
     guarded_by,
-    span: source_span(sfc_source, script_offset, read.span),
+    span: source_span(input.sfc_source, input.script_offset, input.read.span),
   }
 }
 
@@ -761,6 +830,7 @@ struct ScopeBuild<'a> {
   callee: String,
   span: vue_vet_core::SourceSpan,
   reads: Vec<ReactiveReadFact>,
+  binding: Option<String>,
   semantic: &'a oxc_semantic::Semantic<'a>,
   scope_id: NodeId,
   body: Option<&'a FunctionBody<'a>>,
@@ -784,9 +854,14 @@ fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
     reads: build.reads,
     writes,
     assignment_only: is_assignment_only_body(build.body),
+    binding: build.binding,
   }
 }
 
+#[expect(
+  clippy::too_many_lines,
+  reason = "scope dispatch covers all Vue tracking APIs in one pass"
+)]
 fn collect_tracking_scopes(
   semantic: &oxc_semantic::Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
@@ -800,6 +875,51 @@ fn collect_tracking_scopes(
     let AstKind::CallExpression(call) = node.kind() else {
       continue;
     };
+
+    // effectScopeInstance.run(() => { ... }) — not a vue import callee.
+    if let Expression::StaticMemberExpression(member) = &call.callee
+      && member.property.name.as_str() == "run"
+      && let Some(argument) = call.arguments.first()
+      && let Some((scope_id, body)) = callback_parts(argument)
+    {
+      let raw_reads = collect_scope_reads(
+        semantic,
+        scope_id,
+        reactive_bindings,
+        composable_instances,
+        script_offset,
+      );
+      let reads = raw_reads
+        .iter()
+        .map(|read| {
+          classify_read(&ClassifyRead {
+            semantic,
+            scope_id,
+            body,
+            raw_reads: &raw_reads,
+            read,
+            sfc_source,
+            script_offset,
+            imported_bindings,
+          })
+        })
+        .collect();
+      scopes.push(finish_scope(ScopeBuild {
+        kind: TrackingScopeKind::EffectScope,
+        callee: "effectScope.run".into(),
+        span: source_span(sfc_source, script_offset, call.span),
+        reads,
+        binding: None,
+        semantic,
+        scope_id,
+        body,
+        reactive_bindings,
+        sfc_source,
+        script_offset,
+      }));
+      continue;
+    }
+
     let Some(callee) = resolved_vue_callee(&call.callee, imported_bindings, ScriptKind::Script)
     else {
       continue;
@@ -812,12 +932,12 @@ fn collect_tracking_scopes(
       TrackingScopeKind::WatchEffect
       | TrackingScopeKind::WatchPostEffect
       | TrackingScopeKind::WatchSyncEffect
-      | TrackingScopeKind::Computed => {
+      | TrackingScopeKind::Computed
+      | TrackingScopeKind::OnScopeDispose => {
         let Some(argument) = call.arguments.first() else {
           continue;
         };
         let Some((scope_id, body)) = callback_parts(argument) else {
-          // computed may receive a non-function; skip quietly
           continue;
         };
         let raw_reads = collect_scope_reads(
@@ -827,17 +947,39 @@ fn collect_tracking_scopes(
           composable_instances,
           script_offset,
         );
-        let reads = raw_reads
+        let mut reads = raw_reads
           .iter()
           .map(|read| {
-            classify_read(semantic, scope_id, body, &raw_reads, read, sfc_source, script_offset)
+            classify_read(&ClassifyRead {
+              semantic,
+              scope_id,
+              body,
+              raw_reads: &raw_reads,
+              read,
+              sfc_source,
+              script_offset,
+              imported_bindings,
+            })
           })
-          .collect();
+          .collect::<Vec<_>>();
+        if scope_kind == TrackingScopeKind::OnScopeDispose {
+          for read in &mut reads {
+            read.kind = ReactiveReadKind::OutsideTracking;
+            read.guards.clear();
+            read.guarded_by = None;
+          }
+        }
+        let binding = if scope_kind == TrackingScopeKind::Computed {
+          assigned_binding_name(semantic, call.node_id.get())
+        } else {
+          None
+        };
         scopes.push(finish_scope(ScopeBuild {
           kind: scope_kind,
           callee,
           span: source_span(sfc_source, script_offset, call.span),
           reads,
+          binding,
           semantic,
           scope_id,
           body,
@@ -845,6 +987,49 @@ fn collect_tracking_scopes(
           sfc_source,
           script_offset,
         }));
+      }
+      TrackingScopeKind::EffectScope => {
+        // effectScope(fn) or const s = effectScope(); s.run(fn)
+        if let Some(argument) = call.arguments.first()
+          && let Some((scope_id, body)) = callback_parts(argument)
+        {
+          let raw_reads = collect_scope_reads(
+            semantic,
+            scope_id,
+            reactive_bindings,
+            composable_instances,
+            script_offset,
+          );
+          let reads = raw_reads
+            .iter()
+            .map(|read| {
+              classify_read(&ClassifyRead {
+                semantic,
+                scope_id,
+                body,
+                raw_reads: &raw_reads,
+                read,
+                sfc_source,
+                script_offset,
+                imported_bindings,
+              })
+            })
+            .collect();
+          scopes.push(finish_scope(ScopeBuild {
+            kind: TrackingScopeKind::EffectScope,
+            callee: callee.clone(),
+            span: source_span(sfc_source, script_offset, call.span),
+            reads,
+            binding: assigned_binding_name(semantic, call.node_id.get()),
+            semantic,
+            scope_id,
+            body,
+            reactive_bindings,
+            sfc_source,
+            script_offset,
+          }));
+        }
+        // Also capture `.run(callback)` on effectScope instances via member call below.
       }
       TrackingScopeKind::WatchSources => {
         let Some(source_argument) = call.arguments.first() else {
@@ -856,6 +1041,7 @@ fn collect_tracking_scopes(
           source_argument,
           reactive_bindings,
           composable_instances,
+          imported_bindings,
           sfc_source,
           script_offset,
         );
@@ -866,9 +1052,9 @@ fn collect_tracking_scopes(
           reads,
           writes: Vec::new(),
           assignment_only: false,
+          binding: None,
         });
 
-        // Second argument is the watch job: it does not collect dependencies.
         if let Some(callback_argument) = call.arguments.get(1)
           && let Some((scope_id, body)) = callback_parts(callback_argument)
         {
@@ -882,16 +1068,16 @@ fn collect_tracking_scopes(
           let reads = raw_reads
             .iter()
             .map(|read| {
-              let mut fact = classify_read(
+              let mut fact = classify_read(&ClassifyRead {
                 semantic,
                 scope_id,
                 body,
-                &raw_reads,
+                raw_reads: &raw_reads,
                 read,
                 sfc_source,
                 script_offset,
-              );
-              // Vue does not re-subscribe from the watch job body.
+                imported_bindings,
+              });
               fact.kind = ReactiveReadKind::OutsideTracking;
               fact.guards.clear();
               fact.guarded_by = None;
@@ -903,6 +1089,7 @@ fn collect_tracking_scopes(
             callee,
             span: call_span,
             reads,
+            binding: None,
             semantic,
             scope_id,
             body,
@@ -912,12 +1099,20 @@ fn collect_tracking_scopes(
           }));
         }
       }
-      TrackingScopeKind::WatchCallback => {
-        // Produced only as the second half of `watch(...)` above.
-      }
+      TrackingScopeKind::WatchCallback => {}
     }
   }
   scopes
+}
+
+fn assigned_binding_name(semantic: &oxc_semantic::Semantic<'_>, call_id: NodeId) -> Option<String> {
+  let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call_id) else {
+    return None;
+  };
+  match &declarator.id {
+    BindingPattern::BindingIdentifier(identifier) => Some(identifier.name.to_string()),
+    _ => None,
+  }
 }
 
 fn collect_watch_source_reads(
@@ -925,6 +1120,7 @@ fn collect_watch_source_reads(
   argument: &Argument<'_>,
   reactive_bindings: &[ReactiveBindingFact],
   composable_instances: &BTreeMap<String, BTreeMap<String, ReactiveBindingKind>>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
   sfc_source: &str,
   script_offset: usize,
 ) -> Vec<ReactiveReadFact> {
@@ -942,7 +1138,16 @@ fn collect_watch_source_reads(
       raw_reads
         .iter()
         .map(|read| {
-          classify_read(semantic, scope_id, body, &raw_reads, read, sfc_source, script_offset)
+          classify_read(&ClassifyRead {
+            semantic,
+            scope_id,
+            body,
+            raw_reads: &raw_reads,
+            read,
+            sfc_source,
+            script_offset,
+            imported_bindings,
+          })
         })
         .collect()
     }
@@ -959,7 +1164,16 @@ fn collect_watch_source_reads(
       raw_reads
         .iter()
         .map(|read| {
-          classify_read(semantic, scope_id, body, &raw_reads, read, sfc_source, script_offset)
+          classify_read(&ClassifyRead {
+            semantic,
+            scope_id,
+            body,
+            raw_reads: &raw_reads,
+            read,
+            sfc_source,
+            script_offset,
+            imported_bindings,
+          })
         })
         .collect()
     }

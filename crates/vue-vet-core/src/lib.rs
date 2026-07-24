@@ -261,6 +261,10 @@ pub enum TrackingScopeKind {
   WatchSources,
   /// `watch` callback body (not tracked for invalidation; side-effect surface).
   WatchCallback,
+  /// `effectScope().run(...)` or `effectScope(() => ...)` callback region.
+  EffectScope,
+  /// `onScopeDispose(() => ...)` cleanup (not dependency-tracking).
+  OnScopeDispose,
 }
 
 impl TrackingScopeKind {
@@ -280,6 +284,7 @@ impl TrackingScopeKind {
         | Self::WatchSyncEffect
         | Self::Computed
         | Self::WatchSources
+        | Self::EffectScope
     )
   }
 
@@ -291,6 +296,8 @@ impl TrackingScopeKind {
       Self::WatchSyncEffect => "watchSyncEffect",
       Self::Computed => "computed",
       Self::WatchSources | Self::WatchCallback => "watch",
+      Self::EffectScope => "effectScope",
+      Self::OnScopeDispose => "onScopeDispose",
     }
   }
 
@@ -302,9 +309,22 @@ impl TrackingScopeKind {
       "watchSyncEffect" => Some(Self::WatchSyncEffect),
       "computed" => Some(Self::Computed),
       "watch" => Some(Self::WatchSources),
+      "effectScope" => Some(Self::EffectScope),
+      "onScopeDispose" => Some(Self::OnScopeDispose),
       _ => None,
     }
   }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReactiveDependencyKind {
+  /// `const x = computed(() => …)` depends on reads inside the getter.
+  Computed,
+  /// Effect-family scope depends on its tracked reads.
+  Effect,
+  /// Template expression mentions a script reactive binding.
+  Template,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -347,6 +367,27 @@ pub struct TrackingScopeFact {
   /// Every statement is an assignment expression statement (no calls/awaits/control).
   #[serde(default)]
   pub assignment_only: bool,
+  /// For `computed` scopes: the binding name assigned from that call, when known.
+  #[serde(default)]
+  pub binding: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReactiveDependencyEdge {
+  /// Dependent binding or synthetic scope label.
+  pub from: String,
+  /// Dependency binding that `from` reads.
+  pub to: String,
+  pub kind: ReactiveDependencyKind,
+  pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TemplateReactiveReadFact {
+  pub binding: String,
+  pub span: SourceSpan,
+  /// Template surface that mentioned the binding (`if`, `for`, `bind`, `on`, `text`, …).
+  pub surface: String,
 }
 
 /// Legacy projection of effect-family tracking scopes.
@@ -359,7 +400,7 @@ pub struct ReactivityEffectFact {
 
 /// Wire format version for [`ReactivityGraph`]. Bump when consumers must
 /// distinguish shape or semantic changes in serialized facts.
-pub const REACTIVITY_GRAPH_VERSION: u32 = 2;
+pub const REACTIVITY_GRAPH_VERSION: u32 = 3;
 
 const fn default_reactivity_graph_version() -> u32 {
   1
@@ -376,6 +417,12 @@ pub struct ReactivityGraph {
   pub scopes: Vec<TrackingScopeFact>,
   /// Backward-compatible projection of effect-family scopes.
   pub effects: Vec<ReactivityEffectFact>,
+  /// Inverted dependency edges (computed/effect/template → binding).
+  #[serde(default)]
+  pub edges: Vec<ReactiveDependencyEdge>,
+  /// Template expressions joined onto script reactive bindings.
+  #[serde(default)]
+  pub template_reads: Vec<TemplateReactiveReadFact>,
 }
 
 impl Default for ReactivityGraph {
@@ -385,12 +432,14 @@ impl Default for ReactivityGraph {
       bindings: Vec::new(),
       scopes: Vec::new(),
       effects: Vec::new(),
+      edges: Vec::new(),
+      template_reads: Vec::new(),
     }
   }
 }
 
 impl ReactivityGraph {
-  /// Rebuild the legacy `effects` projection from `scopes`.
+  /// Rebuild the legacy `effects` projection and dependency edges from `scopes`.
   pub fn project_effects_from_scopes(&mut self) {
     self.version = REACTIVITY_GRAPH_VERSION;
     self.effects = self
@@ -403,7 +452,156 @@ impl ReactivityGraph {
         reads: scope.reads.clone(),
       })
       .collect();
+    self.rebuild_dependency_edges();
   }
+
+  /// Join template expression text onto known script reactive bindings.
+  ///
+  /// High-confidence under-approximation: only identifiers that exactly match
+  /// binding names are linked. Full template expression ASTs remain future work
+  /// once Vize exposes a richer expression contract.
+  pub fn join_template_reads(&mut self, template: &TemplateFacts) {
+    let binding_names = self
+      .bindings
+      .iter()
+      .map(|binding| binding.name.as_str())
+      .collect::<std::collections::BTreeSet<_>>();
+    let mut template_reads = Vec::new();
+    for element in &template.elements {
+      for directive in &element.directives {
+        let Some(expression) = directive.expression.as_deref() else {
+          continue;
+        };
+        let surface = if directive.name == "bind" {
+          directive.argument.clone().unwrap_or_else(|| "bind".into())
+        } else {
+          directive.name.clone()
+        };
+        for identifier in template_expression_identifiers(expression) {
+          if binding_names.contains(identifier.as_str()) {
+            template_reads.push(TemplateReactiveReadFact {
+              binding: identifier,
+              span: directive.span.clone(),
+              surface: surface.clone(),
+            });
+          }
+        }
+      }
+    }
+    template_reads.sort_by(|left, right| {
+      (left.binding.as_str(), left.surface.as_str(), left.span.offset).cmp(&(
+        right.binding.as_str(),
+        right.surface.as_str(),
+        right.span.offset,
+      ))
+    });
+    template_reads.dedup_by(|left, right| {
+      left.binding == right.binding
+        && left.surface == right.surface
+        && left.span.offset == right.span.offset
+    });
+    self.template_reads = template_reads;
+    self.rebuild_dependency_edges();
+  }
+
+  /// Rebuild computed/effect dependency edges from scopes and template reads.
+  pub fn rebuild_dependency_edges(&mut self) {
+    let mut edges = Vec::new();
+    for scope in &self.scopes {
+      if !scope.kind.tracks_dependencies() {
+        continue;
+      }
+      let from =
+        scope.binding.clone().unwrap_or_else(|| format!("{}@{}", scope.callee, scope.span.offset));
+      let kind = if scope.kind == TrackingScopeKind::Computed {
+        ReactiveDependencyKind::Computed
+      } else {
+        ReactiveDependencyKind::Effect
+      };
+      for read in &scope.reads {
+        if matches!(read.kind, ReactiveReadKind::AfterAwait | ReactiveReadKind::OutsideTracking) {
+          continue;
+        }
+        edges.push(ReactiveDependencyEdge {
+          from: from.clone(),
+          to: read.binding.clone(),
+          kind,
+          span: read.span.clone(),
+        });
+      }
+    }
+    for template_read in &self.template_reads {
+      edges.push(ReactiveDependencyEdge {
+        from: format!("template:{}", template_read.surface),
+        to: template_read.binding.clone(),
+        kind: ReactiveDependencyKind::Template,
+        span: template_read.span.clone(),
+      });
+    }
+    edges.sort_by(|left, right| {
+      (left.kind, left.from.as_str(), left.to.as_str(), left.span.offset).cmp(&(
+        right.kind,
+        right.from.as_str(),
+        right.to.as_str(),
+        right.span.offset,
+      ))
+    });
+    edges.dedup_by(|left, right| {
+      left.from == right.from
+        && left.to == right.to
+        && left.kind == right.kind
+        && left.span.offset == right.span.offset
+    });
+    self.edges = edges;
+  }
+}
+
+fn template_expression_identifiers(expression: &str) -> Vec<String> {
+  const KEYWORDS: &[&str] = &[
+    "true",
+    "false",
+    "null",
+    "undefined",
+    "typeof",
+    "instanceof",
+    "new",
+    "void",
+    "in",
+    "of",
+    "if",
+    "else",
+    "return",
+    "const",
+    "let",
+    "var",
+    "function",
+    "this",
+    "as",
+    "await",
+    "async",
+  ];
+  let mut identifiers = Vec::new();
+  let mut current = String::new();
+  for character in expression.chars() {
+    if character.is_ascii_alphanumeric() || character == '_' || character == '$' {
+      current.push(character);
+    } else if !current.is_empty() {
+      if current.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || c == '$')
+        && !KEYWORDS.contains(&current.as_str())
+      {
+        identifiers.push(std::mem::take(&mut current));
+      } else {
+        current.clear();
+      }
+    }
+  }
+  if !current.is_empty()
+    && current.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || c == '$')
+    && !KEYWORDS.contains(&current.as_str())
+  {
+    identifiers.push(current);
+  }
+  identifiers
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

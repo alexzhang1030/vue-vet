@@ -5,7 +5,8 @@ use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType;
 use vue_vet_core::{
-  ReactiveBindingKind, ReactiveGuardRole, ReactiveReadKind, ReactivityGraph, ScriptKind,
+  ReactiveBindingKind, ReactiveDependencyKind, ReactiveGuardRole, ReactiveReadKind,
+  ReactivityGraph, ScriptKind, TemplateDirectiveFact, TemplateElementFact, TemplateFacts,
   TrackingScopeKind,
 };
 
@@ -626,6 +627,134 @@ fn records_guard_roles_for_early_exit() {
     value.and_then(|read| read.guards.first().map(|guard| guard.role)),
     Some(ReactiveGuardRole::EarlyExit),
     "early-return guards must retain their role"
+  );
+}
+
+#[test]
+fn classifies_pause_tracking_regions() {
+  let graph = graph(
+    "import { ref, watchEffect, pauseTracking, enableTracking } from 'vue';\n\
+     const value = ref(0);\n\
+     watchEffect(() => { pauseTracking(); value.value; enableTracking(); });",
+  );
+  assert!(
+    graph.effects.first().is_some_and(|effect| {
+      effect
+        .reads
+        .iter()
+        .any(|read| read.binding == "value" && read.kind == ReactiveReadKind::OutsideTracking)
+    }),
+    "reads after pauseTracking must not collect dependencies"
+  );
+}
+
+#[test]
+fn traces_effect_scope_run_callbacks() {
+  let graph = graph(
+    "import { effectScope, ref, watchEffect } from 'vue';\n\
+     const value = ref(0);\n\
+     const scope = effectScope();\n\
+     scope.run(() => { watchEffect(() => value.value); });",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| scope.kind == TrackingScopeKind::EffectScope),
+    "effectScope.run must produce an EffectScope fact"
+  );
+  assert!(
+    graph.effects.iter().any(|effect| { effect.reads.iter().any(|read| read.binding == "value") }),
+    "nested watchEffect inside effectScope.run must still track reads"
+  );
+}
+
+#[test]
+fn builds_computed_dependency_edges() {
+  let graph = graph(
+    "import { computed, ref } from 'vue';\n\
+     const source = ref(1);\n\
+     const doubled = computed(() => source.value * 2);",
+  );
+  assert!(
+    graph.edges.iter().any(|edge| {
+      edge.kind == ReactiveDependencyKind::Computed && edge.from == "doubled" && edge.to == "source"
+    }),
+    "computed scopes must invert into depends-on edges"
+  );
+}
+
+#[test]
+fn joins_template_reads_onto_script_bindings() {
+  let mut graph = graph("import { ref } from 'vue'; const count = ref(0);");
+  let Some(binding_span) = graph.bindings.first().map(|binding| binding.span.clone()) else {
+    assert!(!graph.bindings.is_empty(), "count binding missing");
+    return;
+  };
+  let template = TemplateFacts {
+    elements: vec![TemplateElementFact {
+      tag: "div".into(),
+      span: binding_span.clone(),
+      attributes: Vec::new(),
+      directives: vec![TemplateDirectiveFact {
+        name: "if".into(),
+        raw_name: "v-if".into(),
+        argument: None,
+        expression: Some("count > 0".into()),
+        modifiers: Vec::new(),
+        span: binding_span,
+      }],
+      has_children: false,
+    }],
+  };
+  graph.join_template_reads(&template);
+  assert!(
+    graph.template_reads.iter().any(|read| read.binding == "count" && read.surface == "if"),
+    "template v-if expressions must join onto reactive bindings"
+  );
+  assert!(
+    graph
+      .edges
+      .iter()
+      .any(|edge| edge.kind == ReactiveDependencyKind::Template && edge.to == "count"),
+    "template joins must appear in the inverted edge list"
+  );
+}
+
+#[test]
+fn seeds_parametric_composable_to_ref_fields() {
+  let modules = [
+    ModuleSource {
+      id: "producer.ts".into(),
+      source: "import { toRef } from 'vue'; export function useField(props) { return { title: toRef(props, 'title') }; }".into(),
+      language: "ts".into(),
+      kind: ScriptKind::Script,
+    },
+    ModuleSource {
+      id: "consumer.ts".into(),
+      source: "import { watchEffect } from 'vue'; import { useField } from './producer'; const props = { title: 'x' }; const { title } = useField(props); watchEffect(() => title.value);".into(),
+      language: "ts".into(),
+      kind: ScriptKind::Script,
+    },
+  ];
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./producer".into(),
+    to: "producer.ts".into(),
+  }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "title" && binding.kind == ReactiveBindingKind::ToRef)
+        && module
+          .graph
+          .effects
+          .iter()
+          .any(|effect| effect.reads.iter().any(|read| read.binding == "title"))
+    }),
+    "toRef(param, key) composable fields must seed consumers"
   );
 }
 

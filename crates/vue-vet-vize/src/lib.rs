@@ -84,6 +84,10 @@ pub fn analyze_sfc_with_environment(
       ScriptKind::Setup,
     )?);
   }
+  // Join template expression identifiers onto script reactive bindings before rules run.
+  for block in &mut script.blocks {
+    block.reactivity_graph.join_template_reads(&template);
+  }
   let diagnostics =
     builtin_registry().run_with_environment(path, source, &template, &script, environment);
   Ok(AnalyzedSfc { diagnostics, facts: SfcFacts { template, script } })

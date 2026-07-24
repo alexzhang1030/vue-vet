@@ -39,13 +39,13 @@ JavaScript soundness.
 | Axis | Status |
 | --- | --- |
 | A1 Bindings | Vue primitives + aliases/`#imports`/`defineModel`; symbol identity |
-| A2 Scopes | `watchEffect*` + `computed` + `watch` sources **and** callbacks |
+| A2 Scopes | effects + computed + watch sources/callbacks + effectScope + onScopeDispose |
 | A3 Reads | Direct ref-like `.value`, reactive members, composable instance `bag.field.value` |
 | A4 Conditions | if / early-exit / ternary / short-circuit / switch → guards with **roles** |
-| A5 Boundaries | top-level `await` → `AfterAwait`; deferred callbacks / watch jobs → `OutsideTracking` |
-| A6 Modules | export fixed point; composable shapes; destructure **and** instance member seeds |
-| A7 Contract | `version` + `{ bindings, scopes, effects }`; effects projected from effect-family scopes |
-| Evidence | 280 corpus fixtures + unit coverage + after-await rule fixtures |
+| A5 Boundaries | await / pauseTracking / deferred callbacks / watch jobs → non-tracking kinds |
+| A6 Modules | composable shapes including parametric `toRef(param, key)` + instance seeds |
+| A7 Contract | v3: scopes/writes/edges/template_reads + effects projection |
+| Evidence | 280 corpus + unit coverage + after-await/prefer-computed rules |
 
 ## Completeness ladder
 
@@ -74,8 +74,9 @@ Recognize every first-class tracking region the lib claims to model:
 | `computed` | shipped | callback body is a tracking scope |
 | `watch` sources | shipped | source expressions / getters / arrays |
 | `watch` callback | shipped | job body; all reads forced to `OutsideTracking` |
-| `effectScope` hooks | later | pause/resume boundaries |
-| setup / render | blocked | needs template + script join via Vize contract |
+| `effectScope` / `.run` | shipped | grouping scope; nested effects still tracked |
+| `onScopeDispose` | shipped | cleanup body; outside tracking |
+| setup / render | partial | template identifier join shipped; full expression AST still future |
 
 **Exit:** met — scopes + effects projection; unit fixtures; 280 corpus green.
 
@@ -131,8 +132,13 @@ Version the public fact shape for multi-consumer use:
 
 ### L6 — SFC / template join
 
-Cross script and template with exact spans. Blocked on Vize-owned
-source/offset handoff for extracted script blocks (see gotchas).
+Cross script and template reactive surfaces:
+
+| Capability | Status |
+| --- | --- |
+| Template directive expression identifiers → script bindings | shipped (`template_reads` + edges) |
+| Exact expression AST / interpolation nodes | future (richer Vize expression contract) |
+| Cross-file extracted `.vue` script module offsets | blocked on Vize source/offset handoff |
 
 ## Non-goals
 
@@ -167,20 +173,26 @@ Shipped together as one tracer evolution:
 4. **Boundaries** — `AfterAwait` + `OutsideTracking` for deferred callbacks.
 5. **Module seeds** — destructure + `const bag = useX(); bag.field.value`.
 
-Still open: effectScope / pauseTracking, parametric composables, SFC/template join (L6),
-richer computed-chain / data-flow inversion rules.
+Still open: full template expression AST (beyond identifier scan), extracted
+`.vue` script module offset contract, pauseTracking nested in branches edge cases.
 
 ## Evolution wave 2 (landed 2026-07-25)
 
 1. **WatchCallback** scopes — watch job bodies modeled; reads are `OutsideTracking`.
-2. **Graph version** — `ReactivityGraph.version` / `REACTIVITY_GRAPH_VERSION = 2`.
-3. **Rule** — `vue-vet/reactivity/no-after-await-watch-effect-dependency` for
-   `AfterAwait` and deferred-callback `OutsideTracking` reads in effect scopes.
+2. **Graph version** — `ReactivityGraph.version` / `REACTIVITY_GRAPH_VERSION` (now 3).
+3. **Rule** — `vue-vet/reactivity/no-after-await-watch-effect-dependency`.
 
 ## Evolution wave 3 (landed 2026-07-25)
 
 1. **Scope writes** — `ReactiveWriteFact` + `assignment_only` on tracking scopes.
-2. **Rule** — `vue-vet/reactivity/prefer-computed` for pure ref-sync `watchEffect` bodies.
+2. **Rule** — `vue-vet/reactivity/prefer-computed`.
+
+## Evolution wave 4 (landed 2026-07-25)
+
+1. **effectScope / onScopeDispose / pauseTracking** boundaries.
+2. **Parametric composable** `toRef(param, key)` / param pass-through shapes.
+3. **Template join** — identifier scan from directive expressions onto bindings.
+4. **Dependency edges** — computed/effect/template inverted depends-on list.
 
 ## Decision log
 
