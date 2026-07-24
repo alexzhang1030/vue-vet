@@ -5,17 +5,28 @@
 ```text
 vue-vet CLI
   -> versioned configuration and path filters
-  -> ignore-aware .vue / JS / TS discovery
-  -> vue-vet-vize SFC facts (template + local script graphs; rules deferred)
-  -> vue-vet-oxc standalone module facts
+  -> ignore-aware .vue / JS / TS discovery (sequential walk)
+  -> parallel per-file facts (Vize SFC / Oxc modules)   // oxlint-style
   -> vue-vet-project edges + vue-vet-reactivity module seed linking
-  -> apply module graphs onto preferred SFC script blocks
-  -> vue-vet-rules on seed-aware facts
+       (module first-pass + seeded re-trace also parallel)
+  -> apply module graphs onto setup and dual ordinary (#script) blocks
+  -> parallel seed-aware vue-vet-rules
   -> severity overrides and scoped suppressions
-  -> vue-vet-core diagnostics, spans, scoring
+  -> vue-vet-core diagnostics, spans, scoring (sorted for determinism)
   -> vue-vet-reporters text or JSON rendering
   -> CLI output and CI exit policy
 ```
+
+### Performance model (oxlint-inspired)
+
+- **Files parallel, pipeline per file sequential** — discovery is sequential; parse /
+  facts / seed-aware rules use Rayon (`--threads N` optional).
+- **Two-phase module reactivity is intentional** — first pass builds export shapes
+  without seeds; second pass re-traces consumers with seeds. Both phases fan out
+  by module; the seed barrier stays sequential and deterministic.
+- **Determinism after concurrency** — diagnostics are sorted in `ScanSummary::finish`;
+  module results are sorted by module id after parallel re-trace.
+- **Still single-process Rust** — no JS rule host; adapters stay behind Vue Vet facts.
 
 `no-v-html` remains the reference AST-backed built-in rule. Phase 2 adds the Oxc
 adapter while keeping both dependency ASTs behind Vue Vet-owned facts.

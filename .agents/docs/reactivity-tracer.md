@@ -161,3 +161,4 @@ growing prose ledger.
 | 2026-07-25 | Graph v6 `to_id` | edges carry `name@offset`; bare `to` kept for unused-binding etc. |
 | 2026-07-25 | unref / toValue | sync tracking reads of ref-like first args |
 | 2026-07-25 | Dual script modules | setup id + ordinary `path#script`; CLI applies both seeded graphs |
+| 2026-07-25 | Oxlint-style parallelism | Rayon file facts + module phases + seed-aware rules; `--threads N` |

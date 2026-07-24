@@ -136,8 +136,16 @@ affect per-file diagnostics—not only `module_reactivity` debug output.
 
 Content cache keys include `CACHE_FORMAT_VERSION`, ruleset version, and
 `REACTIVITY_GRAPH_VERSION`; bump those when analysis behavior changes so local
-caches do not serve stale graphs. Dual ordinary+setup blocks are not merged
-into one module.
+caches do not serve stale graphs. Dual ordinary+setup blocks re-trace as setup
+plus `{path}#script` (not a single concatenated module).
+
+## Performance: do not re-serialize the hot path
+
+CLI scan follows oxlint's model (parallel files, sequential seed barrier). Do
+not force single-threaded analysis without a determinism bug, and do not clone
+whole project graphs into every rule when a reference or scoped apply suffices.
+Module re-parse for seed re-trace is accepted cost until a shared semantic arena
+exists; optimize by parallelism first, not by inventing a second IR.
 
 ## EffectScope `.run` requires provenance
 

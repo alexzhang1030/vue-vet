@@ -170,22 +170,48 @@ pub fn trace_modules(
   modules: &[ModuleSource],
   links: &[ModuleLink],
 ) -> Result<Vec<ModuleReactivity>, TraceModulesError> {
-  let mut summaries = BTreeMap::new();
+  use rayon::prelude::*;
+
+  // Duplicate check is sequential and deterministic.
+  let mut seen = BTreeSet::new();
   for module in modules {
-    if summaries.contains_key(&module.id) {
+    if !seen.insert(module.id.as_str()) {
       return Err(TraceModulesError::DuplicateModule(module.id.clone()));
     }
-    summaries.insert(module.id.clone(), analyze_module(module, &TraceSeeds::default())?);
   }
+
+  // Phase 1 (oxlint-style): independent per-module parse/trace in parallel.
+  let first_pass = modules
+    .par_iter()
+    .map(|module| {
+      analyze_module(module, &TraceSeeds::default()).map(|summary| (module.id.clone(), summary))
+    })
+    .collect::<Vec<_>>();
+  let mut summaries = BTreeMap::new();
+  for result in first_pass {
+    let (id, summary) = result?;
+    summaries.insert(id, summary);
+  }
+
   let resolved_links = resolved_links(&summaries, links)?;
   let exports = resolve_exports(&summaries, &resolved_links);
 
-  let mut traced = Vec::with_capacity(summaries.len());
-  for (id, summary) in &summaries {
-    let seeds = imported_bindings(summary, &exports, &resolved_links);
-    let analysis = analyze_module(&summary.module, &seeds)?;
-    traced.push(ModuleReactivity { id: id.clone(), graph: analysis.local_graph });
+  // Phase 2: re-trace with cross-file seeds (still independent per module).
+  let second_pass = summaries
+    .par_iter()
+    .map(|(id, summary)| {
+      let seeds = imported_bindings(summary, &exports, &resolved_links);
+      analyze_module(&summary.module, &seeds)
+        .map(|analysis| ModuleReactivity { id: id.clone(), graph: analysis.local_graph })
+    })
+    .collect::<Vec<_>>();
+
+  let mut traced = Vec::with_capacity(second_pass.len());
+  for result in second_pass {
+    traced.push(result?);
   }
+  // BTreeMap par_iter is not ordered; restore deterministic module order by id.
+  traced.sort_by(|left, right| left.id.cmp(&right.id));
   Ok(traced)
 }
 
