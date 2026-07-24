@@ -231,7 +231,20 @@ fn analyze_module(
   );
   let imports = collect_imports(&semantic);
   let exports = collect_exports(&semantic);
-  let locals = collect_local_values(&semantic, &local_graph);
+  // Export shapes need function-local refs (`const signal = ref(0); return { signal }`),
+  // which the public graph deliberately omits. Rebuild a shape-only binding set.
+  let shape_graph = ReactivityGraph {
+    bindings: super::collect_reactive_bindings(
+      &semantic,
+      &super::collect_imported_bindings(&semantic),
+      module.span_origin(),
+      module.source_offset,
+      module.kind,
+      true,
+    ),
+    ..ReactivityGraph::default()
+  };
+  let locals = collect_local_values(&semantic, &shape_graph);
   let destructured_calls = collect_destructured_calls(&semantic, &imports);
   let instance_calls = collect_instance_calls(&semantic, &imports);
   Ok(ModuleSummary {
@@ -301,7 +314,8 @@ fn collect_local_values(
   locals
 }
 
-fn composable_return_shape(
+/// Object shape returned by a composable function / arrow (under-approx).
+pub fn composable_return_shape(
   semantic: &oxc_semantic::Semantic<'_>,
   function_id: NodeId,
   graph: &ReactivityGraph,
@@ -310,6 +324,24 @@ fn composable_return_shape(
   let param_names = function_param_names(semantic, function_id);
   let mut shape = BTreeMap::new();
   let mut ambiguous = BTreeSet::new();
+
+  // `() => ({ field: ref(0) })` expression body — no ReturnStatement node.
+  if let AstKind::ArrowFunctionExpression(arrow) = semantic.nodes().kind(function_id)
+    && arrow.expression
+    && let Some(statement) = arrow.body.statements.first()
+    && let oxc_ast::ast::Statement::ExpressionStatement(expression) = statement
+  {
+    merge_return_object_into_shape(
+      semantic,
+      &expression.expression,
+      graph,
+      &imported_bindings,
+      &param_names,
+      &mut shape,
+      &mut ambiguous,
+    );
+  }
+
   for (return_id, node) in semantic.nodes().iter_enumerated() {
     let AstKind::ReturnStatement(statement) = node.kind() else {
       continue;
@@ -323,52 +355,80 @@ fn composable_return_shape(
     if owner != Some(function_id) {
       continue;
     }
-    // `return toRefs(param)` — every static key is ToRef when the argument is a parameter.
-    if let Some(Expression::CallExpression(call)) = &statement.argument
-      && resolved_vue_callee(&call.callee, &imported_bindings, ScriptKind::Script)
-        .is_some_and(|callee| callee == "toRefs")
-      && call
-        .arguments
-        .first()
-        .and_then(Argument::as_expression)
-        .and_then(Expression::get_identifier_reference)
-        .is_some_and(|identifier| param_names.contains(identifier.name.as_str()))
-    {
-      // Without an object shape we cannot invent keys; leave quiet.
-      continue;
-    }
-    let Some(Expression::ObjectExpression(object)) = &statement.argument else {
+    let Some(argument) = &statement.argument else {
       continue;
     };
-    for property in &object.properties {
-      let ObjectPropertyKind::ObjectProperty(property) = property else {
-        continue;
-      };
-      let Some(exported) = property.key.static_name() else {
-        continue;
-      };
-      let Some(kind) =
-        reactive_return_kind(semantic, &property.value, graph, &imported_bindings, &param_names)
-      else {
-        continue;
-      };
-      let exported = exported.into_owned();
-      if ambiguous.contains(&exported) {
-        continue;
+    merge_return_object_into_shape(
+      semantic,
+      argument,
+      graph,
+      &imported_bindings,
+      &param_names,
+      &mut shape,
+      &mut ambiguous,
+    );
+  }
+  shape
+}
+
+fn merge_return_object_into_shape(
+  semantic: &oxc_semantic::Semantic<'_>,
+  expression: &Expression<'_>,
+  graph: &ReactivityGraph,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  param_names: &BTreeSet<String>,
+  shape: &mut BTreeMap<String, ReactiveBindingKind>,
+  ambiguous: &mut BTreeSet<String>,
+) {
+  // `() => ({ field })` wraps the object in parentheses.
+  let expression = match expression {
+    Expression::ParenthesizedExpression(paren) => &paren.expression,
+    other => other,
+  };
+  // `return toRefs(param)` — every static key is ToRef when the argument is a parameter.
+  if let Expression::CallExpression(call) = expression
+    && resolved_vue_callee(&call.callee, imported_bindings, ScriptKind::Script)
+      .is_some_and(|callee| callee == "toRefs")
+    && call
+      .arguments
+      .first()
+      .and_then(Argument::as_expression)
+      .and_then(Expression::get_identifier_reference)
+      .is_some_and(|identifier| param_names.contains(identifier.name.as_str()))
+  {
+    // Without an object shape we cannot invent keys; leave quiet.
+    return;
+  }
+  let Expression::ObjectExpression(object) = expression else {
+    return;
+  };
+  for property in &object.properties {
+    let ObjectPropertyKind::ObjectProperty(property) = property else {
+      continue;
+    };
+    let Some(exported) = property.key.static_name() else {
+      continue;
+    };
+    let Some(kind) =
+      reactive_return_kind(semantic, &property.value, graph, imported_bindings, param_names)
+    else {
+      continue;
+    };
+    let exported = exported.into_owned();
+    if ambiguous.contains(&exported) {
+      continue;
+    }
+    match shape.entry(exported.clone()) {
+      Entry::Vacant(entry) => {
+        entry.insert(kind);
       }
-      match shape.entry(exported.clone()) {
-        Entry::Vacant(entry) => {
-          entry.insert(kind);
-        }
-        Entry::Occupied(entry) if *entry.get() == kind => {}
-        Entry::Occupied(entry) => {
-          entry.remove();
-          ambiguous.insert(exported);
-        }
+      Entry::Occupied(entry) if *entry.get() == kind => {}
+      Entry::Occupied(entry) => {
+        entry.remove();
+        ambiguous.insert(exported);
       }
     }
   }
-  shape
 }
 
 fn function_param_names(

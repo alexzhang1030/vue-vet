@@ -48,18 +48,52 @@ fn trace_reactivity_seeded(
   seeds: &TraceSeeds,
 ) -> ReactivityGraph {
   let imported_bindings = collect_imported_bindings(semantic);
-  let mut bindings =
-    collect_reactive_bindings(semantic, &imported_bindings, sfc_source, script_offset, script_kind);
+  // Include function-local refs when resolving `return { signal }` shapes, but do
+  // not publish them as top-level graph bindings (they would collide with
+  // `const { signal } = useX()` seeds and invent bare-name edges).
+  let shape_bindings = collect_reactive_bindings(
+    semantic,
+    &imported_bindings,
+    sfc_source,
+    script_offset,
+    script_kind,
+    true,
+  );
+  let mut bindings = collect_reactive_bindings(
+    semantic,
+    &imported_bindings,
+    sfc_source,
+    script_offset,
+    script_kind,
+    false,
+  );
   for binding in &seeds.bindings {
     if !bindings.iter().any(|local| local.name == binding.name) {
       bindings.push(binding.clone());
     }
   }
+
+  // Same-file composables: `function useX()` / `const useX = () => …` shapes, then
+  // `const bag = useX()` / `const { field } = useX()` seeds. Cross-module seeds win
+  // on name conflict (already linked by the module graph).
+  let shape_graph = ReactivityGraph { bindings: shape_bindings, ..ReactivityGraph::default() };
+  let (local_instances, local_destructured) =
+    collect_local_composable_usage(semantic, &shape_graph, sfc_source, script_offset);
+  for binding in local_destructured {
+    if !bindings.iter().any(|local| local.name == binding.name) {
+      bindings.push(binding);
+    }
+  }
+  let mut composable_instances = local_instances;
+  for (bag, shape) in &seeds.composable_instances {
+    composable_instances.insert(bag.clone(), shape.clone());
+  }
+
   let mut scopes = collect_tracking_scopes(
     semantic,
     &imported_bindings,
     &bindings,
-    &seeds.composable_instances,
+    &composable_instances,
     sfc_source,
     script_offset,
   );
@@ -73,10 +107,126 @@ fn trace_reactivity_seeded(
     edges: Vec::new(),
     template_reads: Vec::new(),
     // Retain instance bags so template joins can resolve `bag.field` after tracing.
-    composable_instances: seeds.composable_instances.clone(),
+    composable_instances,
   };
   graph.project_effects_from_scopes();
   graph
+}
+
+/// Local composable defs + instance/destructure calls in the same file.
+fn collect_local_composable_usage(
+  semantic: &Semantic<'_>,
+  shape_graph: &ReactivityGraph,
+  sfc_source: &str,
+  script_offset: usize,
+) -> (BTreeMap<String, BTreeMap<String, ReactiveBindingKind>>, Vec<ReactiveBindingFact>) {
+  let mut composables = BTreeMap::<String, (Span, BTreeMap<String, ReactiveBindingKind>)>::new();
+
+  // `function useX() { return { field: ref(0) } }`
+  for node in semantic.nodes() {
+    let AstKind::Function(function) = node.kind() else {
+      continue;
+    };
+    let Some(identifier) = &function.id else {
+      continue;
+    };
+    let shape = modules::composable_return_shape(semantic, function.node_id.get(), shape_graph);
+    if shape.is_empty() {
+      continue;
+    }
+    composables.insert(identifier.name.to_string(), (identifier.span, shape));
+  }
+
+  // `const useX = () => ({ … })` / `const useX = function () { … }`
+  for node in semantic.nodes() {
+    let AstKind::VariableDeclarator(declarator) = node.kind() else {
+      continue;
+    };
+    let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
+      continue;
+    };
+    let Some(init) = &declarator.init else {
+      continue;
+    };
+    let function_id = match init {
+      Expression::ArrowFunctionExpression(arrow) => arrow.node_id.get(),
+      Expression::FunctionExpression(function) => function.node_id.get(),
+      _ => continue,
+    };
+    let shape = modules::composable_return_shape(semantic, function_id, shape_graph);
+    if shape.is_empty() {
+      continue;
+    }
+    composables.insert(identifier.name.to_string(), (identifier.span, shape));
+  }
+
+  let mut instances = BTreeMap::new();
+  let mut destructured = Vec::new();
+  for node in semantic.nodes() {
+    let AstKind::CallExpression(call) = node.kind() else {
+      continue;
+    };
+    let Some(callee) = call.callee.get_identifier_reference() else {
+      continue;
+    };
+    let Some((_, shape)) = composables
+      .get(callee.name.as_str())
+      .filter(|(def_span, _)| reference_resolves_to_span(semantic, callee, *def_span))
+    else {
+      continue;
+    };
+    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
+    else {
+      continue;
+    };
+    match &declarator.id {
+      BindingPattern::BindingIdentifier(identifier) => {
+        // `const bag = useX()` — bag.field via composable_instances only.
+        instances.insert(identifier.name.to_string(), shape.clone());
+      }
+      BindingPattern::ObjectPattern(pattern) => {
+        // `const { field } = useX()` — seed each known field as a local binding.
+        for property in &pattern.properties {
+          let Some(exported) = property.key.static_name() else {
+            continue;
+          };
+          let Some(kind) = shape.get(exported.as_ref()) else {
+            continue;
+          };
+          let mut identifiers = Vec::new();
+          collect_binding_identifiers(&property.value, &mut identifiers);
+          for (local, span) in identifiers {
+            if destructured.iter().any(|binding: &ReactiveBindingFact| binding.name == local) {
+              continue;
+            }
+            destructured.push(ReactiveBindingFact {
+              name: local,
+              kind: *kind,
+              initialized_with_null: false,
+              span: source_span(sfc_source, script_offset, span),
+            });
+          }
+        }
+      }
+      _ => {}
+    }
+  }
+  (instances, destructured)
+}
+
+fn reference_resolves_to_span(
+  semantic: &Semantic<'_>,
+  reference: &IdentifierReference<'_>,
+  def_span: Span,
+) -> bool {
+  let Some(reference_id) = reference.reference_id.get() else {
+    return false;
+  };
+  semantic
+    .scoping()
+    .get_reference(reference_id)
+    .symbol_id()
+    .is_some_and(|symbol_id| semantic.scoping().symbol_span(symbol_id) == def_span)
 }
 
 fn collect_imported_bindings(semantic: &Semantic<'_>) -> BTreeMap<String, (String, String)> {
@@ -252,6 +402,7 @@ fn collect_reactive_bindings(
   sfc_source: &str,
   script_offset: usize,
   script_kind: ScriptKind,
+  include_nested: bool,
 ) -> Vec<ReactiveBindingFact> {
   let mut reactive_bindings = Vec::new();
   for node in semantic.nodes() {
@@ -268,6 +419,9 @@ fn collect_reactive_bindings(
     else {
       continue;
     };
+    if !include_nested && is_nested_in_function(semantic, call.node_id.get()) {
+      continue;
+    }
 
     let mut identifiers = Vec::new();
     if matches!(callee.as_str(), "toRefs" | "storeToRefs") {
@@ -292,6 +446,15 @@ fn collect_reactive_bindings(
   }
 
   reactive_bindings
+}
+
+fn is_nested_in_function(semantic: &oxc_semantic::Semantic<'_>, node_id: NodeId) -> bool {
+  semantic.nodes().ancestor_ids(node_id).any(|ancestor_id| {
+    matches!(
+      semantic.nodes().kind(ancestor_id),
+      AstKind::Function(_) | AstKind::ArrowFunctionExpression(_)
+    )
+  })
 }
 
 #[derive(Clone, Debug)]

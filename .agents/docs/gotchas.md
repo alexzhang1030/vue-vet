@@ -183,3 +183,9 @@ member chains `bag.field` / `bag.field.value` after module re-trace. Free-id
 extraction only yields `bag` for those expressions; without the instance map,
 template would stay quiet. Operator-bearing expressions (`bag.field + x`) stay
 quiet — under-approx, not a mini expression evaluator.
+
+Same-file `function useX()` / `const useX = () => ({ field: ref(0) })` (including
+parenthesized arrow objects) also seed instance bags and destructure fields.
+Function-local `const field = ref(0)` used only to build the return shape is
+**not** published as a top-level binding — otherwise it collides with
+`const { field } = useX()` and invents bare `field.value` edges.

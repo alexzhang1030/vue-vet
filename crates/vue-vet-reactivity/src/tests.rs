@@ -865,6 +865,72 @@ fn seeds_parametric_composable_to_ref_fields() {
 }
 
 #[test]
+fn local_composable_instance_member_access() {
+  for source in [
+    "import { ref, watchEffect } from 'vue'; function useSignal() { const signal = ref(0); return { signal }; } const bag = useSignal(); watchEffect(() => bag.signal.value);",
+    "import { ref, watchEffect } from 'vue'; const useSignal = () => { const signal = ref(0); return { signal }; }; const bag = useSignal(); watchEffect(() => bag.signal.value);",
+    "import { ref, watchEffect } from 'vue'; function useSignal() { return { signal: ref(0) }; } const bag = useSignal(); watchEffect(() => bag.signal.value);",
+    "import { ref, watchEffect } from 'vue'; const useSignal = () => ({ signal: ref(0) }); const bag = useSignal(); watchEffect(() => bag.signal.value);",
+  ] {
+    let graph = graph(source);
+    assert!(
+      graph.composable_instances.contains_key("bag"),
+      "same-file useX() must record the instance bag; source={source}"
+    );
+    assert!(
+      graph.effects.iter().any(|effect| {
+        effect.reads.iter().any(|read| {
+          read.binding == "signal"
+            && read.property.as_deref() == Some("value")
+            && read.kind == ReactiveReadKind::Unconditional
+        })
+      }),
+      "bag.signal.value must track for same-file composables; source={source}"
+    );
+    assert!(
+      !graph.bindings.iter().any(|binding| binding.name == "signal"),
+      "function-local signal must not become a top-level binding; source={source}"
+    );
+  }
+}
+
+#[test]
+fn local_composable_destructure_seeds_fields() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue'; function useSignal() { const signal = ref(0); return { signal }; } const { signal } = useSignal(); watchEffect(() => signal.value);",
+  );
+  assert!(
+    graph
+      .bindings
+      .iter()
+      .any(|binding| { binding.name == "signal" && binding.kind == ReactiveBindingKind::Ref }),
+    "same-file destructure must seed the field binding"
+  );
+  assert!(
+    graph.effects.iter().any(|effect| {
+      effect.reads.iter().any(|read| {
+        read.binding == "signal"
+          && read.property.as_deref() == Some("value")
+          && read.kind == ReactiveReadKind::Unconditional
+      })
+    }),
+    "destructured same-file field must track .value"
+  );
+}
+
+#[test]
+fn local_instance_does_not_invent_bare_field_reads() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue'; function useSignal() { const signal = ref(0); return { signal }; } const bag = useSignal(); watchEffect(() => { signal.value; });",
+  );
+  assert!(graph.composable_instances.contains_key("bag"), "instance bag must still be recorded");
+  assert!(
+    graph.effects.iter().all(|effect| effect.reads.iter().all(|read| read.binding != "signal")),
+    "bare signal.value must stay quiet without a local signal binding"
+  );
+}
+
+#[test]
 fn seeds_composable_instance_member_access() {
   let modules = [
     ModuleSource::standalone(
