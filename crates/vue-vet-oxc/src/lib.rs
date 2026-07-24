@@ -202,8 +202,26 @@ pub fn analyze_module(
 /// `(item) => item + count` yields only `count`. `v-for` surfaces keep only the
 /// iterable source (`item in items` → `items`). On parse failure the result is
 /// empty so callers can fall back to a coarser strategy.
+///
+/// `shadowed` removes template-local aliases (`v-for` / `v-slot` bindings) so
+/// `{{ item }}` inside `v-for="item in items"` does not join a script `item`.
 #[must_use]
 pub fn template_expression_identifiers(expression: &str, surface: &str) -> Vec<String> {
+  template_expression_identifiers_with_shadow(expression, surface, &BTreeSet::new())
+}
+
+/// Like [`template_expression_identifiers`], with an explicit template-local
+/// alias set to exclude from free reads.
+#[must_use]
+pub fn template_expression_identifiers_with_shadow(
+  expression: &str,
+  surface: &str,
+  shadowed: &BTreeSet<String>,
+) -> Vec<String> {
+  // Slot prop patterns bind locals; they are not reactive reads themselves.
+  if matches!(surface, "slot" | "slot-scope" | "scope") {
+    return Vec::new();
+  }
   let normalized = normalize_template_expression(expression, surface);
   if normalized.is_empty() {
     return Vec::new();
@@ -214,7 +232,29 @@ pub fn template_expression_identifiers(expression: &str, surface: &str) -> Vec<S
   };
   let mut collector = FreeIdentifierCollector::default();
   collector.visit_expression(&expr);
-  collector.names.into_iter().collect()
+  collector.names.into_iter().filter(|name| !shadowed.contains(name)).collect()
+}
+
+/// Binding names introduced by a Vue `v-for` alias (`item in items` → `item`).
+#[must_use]
+pub fn v_for_alias_identifiers(expression: &str) -> Vec<String> {
+  let trimmed = expression.trim();
+  let Some(alias_part) = v_for_alias_part(trimmed) else {
+    return Vec::new();
+  };
+  let mut names = BTreeSet::new();
+  for part in split_top_level_aliases(alias_part) {
+    for name in binding_pattern_identifiers(part) {
+      names.insert(name);
+    }
+  }
+  names.into_iter().collect()
+}
+
+/// Binding names introduced by a slot prop pattern (`{ value }` / `slotProps`).
+#[must_use]
+pub fn slot_prop_alias_identifiers(expression: &str) -> Vec<String> {
+  binding_pattern_identifiers(expression.trim())
 }
 
 fn normalize_template_expression(expression: &str, surface: &str) -> String {
@@ -229,16 +269,95 @@ fn normalize_template_expression(expression: &str, surface: &str) -> String {
 
 /// Vue `v-for` is `alias in|of source`. Only `source` is a reactive read surface.
 fn v_for_iterable_source(expression: &str) -> Option<String> {
+  v_for_parts(expression).map(|(_, source)| source)
+}
+
+fn v_for_alias_part(expression: &str) -> Option<&str> {
+  v_for_parts(expression).map(|(alias, _)| alias)
+}
+
+fn v_for_parts(expression: &str) -> Option<(&str, String)> {
   for separator in [" in ", " of "] {
     if let Some((alias, source)) = expression.rsplit_once(separator) {
       let alias = alias.trim();
       let source = source.trim();
       if !alias.is_empty() && !source.is_empty() {
-        return Some(source.to_owned());
+        return Some((alias, source.to_owned()));
       }
     }
   }
   None
+}
+
+/// Split `item, index` / `(item, index)` / `({ a }, i)` into top-level alias parts.
+fn split_top_level_aliases(alias: &str) -> Vec<&str> {
+  let mut inner = alias.trim();
+  if inner.starts_with('(') && inner.ends_with(')') && inner.len() >= 2 {
+    inner = inner.get(1..inner.len().saturating_sub(1)).unwrap_or(inner).trim();
+  }
+  let mut parts = Vec::new();
+  let mut start = 0_usize;
+  let mut depth = 0_i32;
+  for (idx, character) in inner.char_indices() {
+    match character {
+      '(' | '[' | '{' => depth = depth.saturating_add(1),
+      ')' | ']' | '}' => depth = depth.saturating_sub(1),
+      ',' if depth == 0 => {
+        if let Some(part) = inner.get(start..idx).map(str::trim).filter(|part| !part.is_empty()) {
+          parts.push(part);
+        }
+        start = idx.saturating_add(character.len_utf8());
+      }
+      _ => {}
+    }
+  }
+  if let Some(part) = inner.get(start..).map(str::trim).filter(|part| !part.is_empty()) {
+    parts.push(part);
+  }
+  parts
+}
+
+/// Collect binding identifiers from a Vue alias / slot prop pattern.
+fn binding_pattern_identifiers(pattern: &str) -> Vec<String> {
+  let trimmed = pattern.trim();
+  if trimmed.is_empty() {
+    return Vec::new();
+  }
+  if is_simple_identifier(trimmed) {
+    return vec![trimmed.to_owned()];
+  }
+  let source = format!("let {trimmed} = null");
+  let allocator = Allocator::default();
+  let parsed = Parser::new(&allocator, &source, SourceType::mjs()).parse();
+  if !parsed.errors.is_empty() {
+    // Best-effort: pull simple identifier tokens from the pattern text.
+    return template_expression_identifiers(trimmed, "bind");
+  }
+  let mut collector = BindingIdentifierCollector::default();
+  collector.visit_program(&parsed.program);
+  collector.names.into_iter().collect()
+}
+
+fn is_simple_identifier(text: &str) -> bool {
+  let mut chars = text.chars();
+  let Some(first) = chars.next() else {
+    return false;
+  };
+  if !(first.is_ascii_alphabetic() || first == '_' || first == '$') {
+    return false;
+  }
+  chars.all(|character| character.is_ascii_alphanumeric() || character == '_' || character == '$')
+}
+
+#[derive(Default)]
+struct BindingIdentifierCollector {
+  names: BTreeSet<String>,
+}
+
+impl<'a> Visit<'a> for BindingIdentifierCollector {
+  fn visit_binding_identifier(&mut self, identifier: &BindingIdentifier<'a>) {
+    self.names.insert(identifier.name.to_string());
+  }
 }
 
 #[derive(Default)]
@@ -501,6 +620,36 @@ mod tests {
       ),
       vec!["total".to_owned()],
       "inner let/const bindings must be filtered from free reads"
+    );
+    assert_eq!(
+      v_for_alias_identifiers("item in items"),
+      vec!["item".to_owned()],
+      "simple v-for aliases must be recovered"
+    );
+    assert_eq!(
+      v_for_alias_identifiers("(item, index) of list"),
+      vec!["index".to_owned(), "item".to_owned()],
+      "paired v-for aliases must be recovered"
+    );
+    assert_eq!(
+      v_for_alias_identifiers("({ id, label }, index) in rows"),
+      vec!["id".to_owned(), "index".to_owned(), "label".to_owned()],
+      "destructured v-for aliases must be recovered"
+    );
+    assert_eq!(
+      slot_prop_alias_identifiers("{ value, meta }"),
+      vec!["meta".to_owned(), "value".to_owned()],
+      "slot prop destructuring must bind locals"
+    );
+    let shadowed = BTreeSet::from(["item".to_owned()]);
+    assert_eq!(
+      template_expression_identifiers_with_shadow("item + count", "interpolation", &shadowed),
+      vec!["count".to_owned()],
+      "template-local aliases must not appear as free reads"
+    );
+    assert!(
+      template_expression_identifiers("{ value }", "slot").is_empty(),
+      "slot prop patterns are bindings, not free reads"
     );
     assert!(
       template_expression_identifiers("??? not expression", "if").is_empty(),

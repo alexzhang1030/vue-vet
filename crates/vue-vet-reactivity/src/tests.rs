@@ -707,7 +707,7 @@ fn joins_template_reads_onto_script_bindings() {
       surface: "if".into(),
       expression: "count > 0".into(),
       span: binding_span,
-      identifiers: vec!["count".into()],
+      identifiers: Some(vec!["count".into()]),
     }],
   };
   graph.join_template_reads(&template);

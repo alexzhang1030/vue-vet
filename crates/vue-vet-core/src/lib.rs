@@ -165,9 +165,10 @@ pub struct TemplateExpressionFact {
   pub expression: String,
   /// Exact SFC-absolute span of the expression when known.
   pub span: SourceSpan,
-  /// Free identifier reads (prefer Oxc AST extraction; empty means “unknown”).
+  /// Free identifier reads when resolved (`Some`, possibly empty). `None` means
+  /// unknown and join may fall back to a lexical scan (hand-built fixtures).
   #[serde(default)]
-  pub identifiers: Vec<String>,
+  pub identifiers: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -480,8 +481,8 @@ impl ReactivityGraph {
   /// fall back to element directives for hand-built fixtures that omit that list.
   ///
   /// Vize supplies expression text + spans; Oxc-backed adapters should fill
-  /// [`TemplateExpressionFact::identifiers`]. When that list is empty, join
-  /// falls back to a lexical identifier scan (hand-built fixtures / parse miss).
+  /// [`TemplateExpressionFact::identifiers`] as `Some(...)` (empty means “no
+  /// free reads”). `None` keeps the lexical fallback for hand-built fixtures.
   pub fn join_template_reads(&mut self, template: &TemplateFacts) {
     let binding_names = self
       .bindings
@@ -512,15 +513,15 @@ impl ReactivityGraph {
       }
     } else {
       for expression in &template.expressions {
-        let identifiers = if expression.identifiers.is_empty() {
-          template_expression_identifiers(&expression.expression)
-        } else {
-          expression.identifiers.clone()
-        };
+        let fallback = expression
+          .identifiers
+          .is_none()
+          .then(|| template_expression_identifiers(&expression.expression));
+        let identifiers = expression.identifiers.as_deref().or(fallback.as_deref()).unwrap_or(&[]);
         push_template_reads(
           &mut template_reads,
           &binding_names,
-          &identifiers,
+          identifiers,
           &expression.surface,
           &expression.span,
         );

@@ -143,6 +143,7 @@ SFC block absolute offsets); the prior gap was vue-vet under-use of that AST.
 | Oxc AST free-identifier extraction for template expressions | shipped (`vue-vet-oxc::template_expression_identifiers`) |
 | Lexical identifier join fallback | shipped (fixtures / Oxc parse miss) |
 | Nested free-var scoping inside template handlers | shipped (param / inner binding filter on Oxc visit) |
+| `v-for` / `v-slot` template-local alias scopes | shipped (extract-time alias stack) |
 | Vertical rule on template join | shipped (`no-unused-reactive-binding`) |
 | Cross-file extracted `.vue` script module identity | project-graph concern (not basic SFC offsets — those already work) |
 
@@ -180,7 +181,7 @@ Shipped together as one tracer evolution:
 5. **Module seeds** — destructure + `const bag = useX(); bag.field.value`.
 
 Still open: cross-file `.vue` module identity, pauseTracking nested in branches
-edge cases, v-for alias scopes for template interpolations.
+edge cases.
 
 ## Evolution wave 2 (landed 2026-07-25)
 
@@ -214,6 +215,14 @@ edge cases, v-for alias scopes for template interpolations.
 2. **`vue-vet/reactivity/no-unused-reactive-binding`** — reports local reactive
    bindings with no script reads, scope reads/writes, template joins, or static
    `ref="…"` uses; quiets `defineModel` / `useTemplateRef` / `toRef` contracts.
+
+## Evolution wave 6 (template-local alias scopes)
+
+1. **`v_for_alias_identifiers` / `slot_prop_alias_identifiers`** — recover locals
+   from `item in items`, `(a, i) of list`, `{ id }`, slot props.
+2. **Extract-time alias stack** — Vize walk pushes `v-for` / `v-slot` scopes so
+   child expressions and same-element props (`:key="item"`) drop shadowed names.
+3. **Slot patterns are not free reads** — `v-slot="{ value }"` binds, does not join.
 
 ## Evolution wave 3 (landed 2026-07-25)
 
