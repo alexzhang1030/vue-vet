@@ -418,7 +418,7 @@ pub struct ReactivityEffectFact {
 
 /// Wire format version for [`ReactivityGraph`]. Bump when consumers must
 /// distinguish shape or semantic changes in serialized facts.
-pub const REACTIVITY_GRAPH_VERSION: u32 = 4;
+pub const REACTIVITY_GRAPH_VERSION: u32 = 5;
 
 const fn default_reactivity_graph_version() -> u32 {
   1
@@ -441,6 +441,11 @@ pub struct ReactivityGraph {
   /// Template expressions joined onto script reactive bindings.
   #[serde(default)]
   pub template_reads: Vec<TemplateReactiveReadFact>,
+  /// `const bag = useFoo()` locals → composable return field kinds.
+  /// Used for script `bag.field.value` and template `bag.field` joins.
+  #[serde(default)]
+  pub composable_instances:
+    std::collections::BTreeMap<String, std::collections::BTreeMap<String, ReactiveBindingKind>>,
 }
 
 impl Default for ReactivityGraph {
@@ -452,6 +457,7 @@ impl Default for ReactivityGraph {
       effects: Vec::new(),
       edges: Vec::new(),
       template_reads: Vec::new(),
+      composable_instances: std::collections::BTreeMap::new(),
     }
   }
 }
@@ -493,10 +499,14 @@ impl ReactivityGraph {
 
   /// Join template expression text onto known script reactive bindings.
   ///
-  /// High-confidence under-approximation: only identifiers that exactly match
-  /// binding names are linked. Prefer flattened [`TemplateFacts::expressions`]
-  /// (Vize interpolations + directive exp/arg with expression-absolute spans);
-  /// fall back to element directives for hand-built fixtures that omit that list.
+  /// High-confidence under-approximation:
+  /// - free identifiers that exactly match binding names
+  /// - pure member chains `bag.field` / `bag.field.value` when `bag` is a known
+  ///   [`Self::composable_instances`] entry and `field` is in that shape
+  ///
+  /// Prefer flattened [`TemplateFacts::expressions`] (Vize interpolations +
+  /// directive exp/arg with expression-absolute spans); fall back to element
+  /// directives for hand-built fixtures that omit that list.
   ///
   /// Vize supplies expression text + spans; Oxc-backed adapters should fill
   /// [`TemplateExpressionFact::identifiers`] as `Some(...)` (empty means “no
@@ -527,6 +537,13 @@ impl ReactivityGraph {
             &surface,
             &directive.span,
           );
+          push_instance_template_reads(
+            &mut template_reads,
+            &self.composable_instances,
+            expression,
+            &surface,
+            &directive.span,
+          );
         }
       }
     } else {
@@ -540,6 +557,13 @@ impl ReactivityGraph {
           &mut template_reads,
           &binding_names,
           identifiers,
+          &expression.surface,
+          &expression.span,
+        );
+        push_instance_template_reads(
+          &mut template_reads,
+          &self.composable_instances,
+          &expression.expression,
           &expression.surface,
           &expression.span,
         );
@@ -633,6 +657,73 @@ fn push_template_reads(
       });
     }
   }
+}
+
+/// Join pure `bag.field` / `bag.field.value` template chains onto composable shape fields.
+fn push_instance_template_reads(
+  template_reads: &mut Vec<TemplateReactiveReadFact>,
+  composable_instances: &std::collections::BTreeMap<
+    String,
+    std::collections::BTreeMap<String, ReactiveBindingKind>,
+  >,
+  expression: &str,
+  surface: &str,
+  span: &SourceSpan,
+) {
+  let Some(chain) = simple_member_chain(expression) else {
+    return;
+  };
+  // bag.field  |  bag.field.value
+  let (Some(bag), Some(field)) = (chain.first(), chain.get(1)) else {
+    return;
+  };
+  let trailing_ok = match chain.len() {
+    2 => true,
+    3 => chain.get(2).is_some_and(|part| part == "value"),
+    _ => false,
+  };
+  if !trailing_ok {
+    return;
+  }
+  let Some(shape) = composable_instances.get(bag.as_str()) else {
+    return;
+  };
+  if !shape.contains_key(field.as_str()) {
+    return;
+  }
+  template_reads.push(TemplateReactiveReadFact {
+    binding: field.clone(),
+    span: span.clone(),
+    surface: surface.into(),
+  });
+}
+
+/// `a.b.c` with only simple identifiers and dots — rejects operators / calls.
+fn simple_member_chain(expression: &str) -> Option<Vec<String>> {
+  let trimmed = expression.trim();
+  if trimmed.is_empty() {
+    return None;
+  }
+  let mut parts = Vec::new();
+  for part in trimmed.split('.') {
+    let part = part.trim();
+    if !is_simple_js_identifier(part) {
+      return None;
+    }
+    parts.push(part.to_owned());
+  }
+  (parts.len() >= 2).then_some(parts)
+}
+
+fn is_simple_js_identifier(text: &str) -> bool {
+  let mut chars = text.chars();
+  let Some(first) = chars.next() else {
+    return false;
+  };
+  if !(first.is_ascii_alphabetic() || first == '_' || first == '$') {
+    return false;
+  }
+  chars.all(|character| character.is_ascii_alphanumeric() || character == '_' || character == '$')
 }
 
 fn template_expression_identifiers(expression: &str) -> Vec<String> {

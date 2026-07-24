@@ -34,19 +34,19 @@ JavaScript soundness.
 
 ## Current baseline (honest)
 
-Contract version: **`REACTIVITY_GRAPH_VERSION = 4`** (scopes, writes, edges,
-`template_reads`, effects projection, edge `from` labels).
+Contract version: **`REACTIVITY_GRAPH_VERSION = 5`** (scopes, writes, edges,
+`template_reads`, effects projection, edge `from` labels, **`composable_instances`**).
 
 | Axis | Status | Gap |
 | --- | --- | --- |
 | A1 Bindings | partial | Vue primitives, aliases, `#imports`, `defineModel`, `defineProps`, **`storeToRefs` (pinia/#imports)**, **`useRoute`/`useRouter`**, module seeds |
 | A2 Scopes | partial | effects, computed, watch (sources + callback outside), effectScope (`.run` requires provenance), dispose |
-| A3 Reads | partial | `.value` / reactive members / bag.field / **sync Array HOF** (filter/map/forEach/reduce/flatMap/…) / **watch ref sources use `.value` key** |
+| A3 Reads | partial | `.value` / reactive members / bag.field / **sync Array HOF** (filter/map/forEach/reduce/flatMap/every/find/…) / **watch ref sources use `.value` key** |
 | A4 Conditions | deep | if / early-exit / ternary / short-circuit / switch roles — do not deepen further yet |
 | A5 Boundaries | partial | await, pauseTracking, deferred callbacks, watch jobs |
-| A6 Modules | partial | composable shapes, parametric `toRef`, SFC module identity, seed→rules; **instance seeds no longer inject shape fields as top-level bindings** |
-| A7 Contract | improving | **v4**: `from` = computed binding or `kind:callee@offset`; template `template:surface@offset`. `to` still bare binding names |
-| Evidence | improving | Runtime oracle **tracer ⊆ runtime** + ≥99% recall; **all 200 local fixtures** pin exhaustive `expected.reads`; oracle unit exact computed-read sets |
+| A6 Modules | partial | composable shapes, parametric `toRef`, SFC module identity, seed→rules; **instance bags retained on graph for template `bag.field` joins** (no top-level field pollution) |
+| A7 Contract | improving | **v5**: + `composable_instances`; `from` labels as v4; `to` still bare binding names |
+| Evidence | improving | Runtime oracle **tracer ⊆ runtime** + ≥99% recall; **all 200 local fixtures** pin exhaustive `expected.reads`; SFC E2E for defineProps + instance template join |
 
 ### Charter invariants (must not regress)
 
@@ -143,3 +143,5 @@ growing prose ledger.
 | 2026-07-25 | Oracle boundaries + HOF | `pause-tracking-window`, `sync-forEach-hof`, `sync-some-hof` |
 | 2026-07-25 | Watch source dep keys | bare ref sources → `property: value`; bare reactive sources stay quiet |
 | 2026-07-25 | Oracle watch + flatMap | `watch-source-{ref,array,getter}`, `sync-flatMap-hof` |
+| 2026-07-25 | Graph v5 composable_instances | retain instance bags; template joins pure `bag.field` / `bag.field.value` |
+| 2026-07-25 | SFC E2E | defineProps+template; seeded instance bag template join; every/find oracle |

@@ -177,3 +177,9 @@ consumer matching until symbol/module IDs land.
 top-level `ReactiveBindingFact` — that invents edges for bare `field.value`
 when the consumer never destructured. Destructured calls
 (`const { field } = useX()`) remain the only path that seeds a local `field`.
+
+The graph retains `composable_instances` (v5) so template joins can resolve pure
+member chains `bag.field` / `bag.field.value` after module re-trace. Free-id
+extraction only yields `bag` for those expressions; without the instance map,
+template would stay quiet. Operator-bearing expressions (`bag.field + x`) stay
+quiet — under-approx, not a mini expression evaluator.

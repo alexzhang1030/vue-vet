@@ -608,6 +608,140 @@ const item = ref('script-item')
   }
 
   #[test]
+  fn define_props_computed_and_template_join_end_to_end() {
+    let source = r#"<script setup lang="ts">
+import { computed } from 'vue'
+const props = defineProps<{ count: number; label: string }>()
+const doubled = computed(() => props.count * 2)
+</script>
+<template>
+  <p v-if="props.count > 0">{{ props.label }} · {{ doubled }}</p>
+</template>"#;
+    let facts = facts_for_test(Path::new("PropsCard.vue"), source);
+    let Some(graph) = facts.script.blocks.first().map(|block| &block.reactivity_graph) else {
+      assert!(!facts.script.blocks.is_empty(), "script setup must be analyzed");
+      return;
+    };
+    assert!(
+      graph.bindings.iter().any(|binding| {
+        binding.name == "props" && binding.kind == vue_vet_core::ReactiveBindingKind::Reactive
+      }),
+      "defineProps must seed a reactive props binding"
+    );
+    assert!(
+      graph.scopes.iter().any(|scope| {
+        scope.kind == vue_vet_core::TrackingScopeKind::Computed
+          && scope
+            .reads
+            .iter()
+            .any(|read| read.binding == "props" && read.property.as_deref() == Some("count"))
+      }),
+      "computed must track props.count"
+    );
+    assert!(
+      graph.template_reads.iter().any(|read| read.binding == "props" && read.surface == "if"),
+      "template v-if must join props"
+    );
+    assert!(
+      graph
+        .template_reads
+        .iter()
+        .any(|read| read.binding == "props" && read.surface == "interpolation"),
+      "template must join props member reads onto the props binding"
+    );
+    assert!(
+      graph
+        .template_reads
+        .iter()
+        .any(|read| read.binding == "doubled" && read.surface == "interpolation"),
+      "template must join the computed binding"
+    );
+    assert!(
+      graph.edges.iter().any(|edge| {
+        edge.kind == vue_vet_core::ReactiveDependencyKind::Template && edge.to == "props"
+      }),
+      "template edges must target props"
+    );
+  }
+
+  #[test]
+  fn composable_instance_member_joins_template_after_module_seeds() {
+    use std::path::PathBuf;
+    use vue_vet_project::{ProjectFile, build_project_graph};
+    use vue_vet_reactivity::ModuleSource;
+
+    let producer = "import { ref } from 'vue'; export function useSignal() { const signal = ref(0); return { signal }; }";
+    let sfc = r#"<script setup lang="ts">
+import { watchEffect } from 'vue'
+import { useSignal } from './useSignal'
+const bag = useSignal()
+watchEffect(() => { void bag.signal.value })
+</script>
+<template>
+  <p>{{ bag.signal }}</p>
+</template>
+"#;
+    let analysis = analysis_for_test(Path::new("App.vue"), sfc);
+    let files = [
+      ProjectFile {
+        path: PathBuf::from("useSignal.ts"),
+        source_len: producer.len(),
+        facts: SfcFacts::default(),
+        module_source: Some(ModuleSource::standalone(
+          "useSignal.ts",
+          producer,
+          "ts",
+          ScriptKind::Script,
+        )),
+      },
+      ProjectFile {
+        path: PathBuf::from("App.vue"),
+        source_len: sfc.len(),
+        facts: analysis.facts,
+        module_source: analysis.module_source,
+      },
+    ];
+    let graph = build_project_graph(&files);
+    assert!(
+      graph.reactivity_error.is_none(),
+      "module tracing must succeed: {:?}",
+      graph.reactivity_error
+    );
+    let app = graph.module_reactivity.iter().find(|module| module.id == "App.vue");
+    assert!(
+      app.is_some_and(|module| {
+        module.graph.composable_instances.contains_key("bag")
+          && module.graph.effects.iter().any(|effect| {
+            effect.reads.iter().any(|read| {
+              read.binding == "signal" && read.kind == vue_vet_core::ReactiveReadKind::Unconditional
+            })
+          })
+          && module
+            .graph
+            .template_reads
+            .iter()
+            .any(|read| read.binding == "signal" && read.surface == "interpolation")
+          && module.graph.edges.iter().any(|edge| {
+            edge.kind == vue_vet_core::ReactiveDependencyKind::Template && edge.to == "signal"
+          })
+      }),
+      "seeded bag.signal must track in effects and join template {{ bag.signal }}; got {:?}",
+      app.map(|module| {
+        (
+          module.graph.composable_instances.clone(),
+          module
+            .graph
+            .effects
+            .iter()
+            .flat_map(|effect| effect.reads.iter().map(|read| read.binding.clone()))
+            .collect::<Vec<_>>(),
+          module.graph.template_reads.clone(),
+        )
+      })
+    );
+  }
+
+  #[test]
   #[expect(clippy::panic, reason = "missing module source must fail the extraction test")]
   fn exposes_script_setup_module_source_with_sfc_span_mapping() {
     let source = r#"<script setup lang="ts">

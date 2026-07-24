@@ -6,8 +6,8 @@ use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType;
 use vue_vet_core::{
   ReactiveBindingKind, ReactiveDependencyKind, ReactiveGuardRole, ReactiveReadKind,
-  ReactivityGraph, ScriptKind, TemplateDirectiveFact, TemplateElementFact, TemplateFacts,
-  TrackingScopeKind,
+  ReactivityGraph, ScriptKind, SourceSpan, TemplateDirectiveFact, TemplateElementFact,
+  TemplateExpressionFact, TemplateFacts, TrackingScopeKind,
 };
 
 use super::{ModuleLink, ModuleReactivity, ModuleSource, trace_modules, trace_reactivity};
@@ -721,6 +721,63 @@ fn builds_computed_dependency_edges() {
       edge.kind == ReactiveDependencyKind::Computed && edge.from == "doubled" && edge.to == "source"
     }),
     "computed scopes must invert into depends-on edges"
+  );
+}
+
+fn test_span(offset: usize) -> SourceSpan {
+  SourceSpan { offset, length: 1, line: 1, column: offset.saturating_add(1) }
+}
+
+#[test]
+fn joins_composable_instance_member_chains_from_template() {
+  use std::collections::BTreeMap;
+
+  let mut graph = graph(
+    "import { watchEffect } from 'vue'; const bag = { signal: null }; watchEffect(() => {});",
+  );
+  // Simulate a module-seeded instance bag without inventing top-level field bindings.
+  graph
+    .composable_instances
+    .insert("bag".into(), BTreeMap::from([("signal".into(), ReactiveBindingKind::Ref)]));
+  let template = TemplateFacts {
+    elements: Vec::new(),
+    expressions: vec![
+      TemplateExpressionFact {
+        surface: "interpolation".into(),
+        expression: "bag.signal".into(),
+        span: test_span(0),
+        identifiers: Some(vec!["bag".into()]),
+      },
+      TemplateExpressionFact {
+        surface: "if".into(),
+        expression: "bag.signal.value".into(),
+        span: test_span(10),
+        identifiers: Some(vec!["bag".into()]),
+      },
+      TemplateExpressionFact {
+        surface: "interpolation".into(),
+        expression: "bag.signal + other".into(),
+        span: test_span(20),
+        identifiers: Some(vec!["bag".into(), "other".into()]),
+      },
+    ],
+  };
+  graph.join_template_reads(&template);
+  assert!(
+    graph.template_reads.iter().any(|read| read.binding == "signal"
+      && read.surface == "interpolation"
+      && read.span.offset == 0),
+    "pure bag.signal must join the shape field"
+  );
+  assert!(
+    graph.template_reads.iter().any(|read| read.binding == "signal" && read.surface == "if"),
+    "pure bag.signal.value must join the shape field"
+  );
+  assert!(
+    !graph.template_reads.iter().any(|read| {
+      read.binding == "signal" && read.surface == "interpolation" && read.span.offset == 20
+    }),
+    "operator-bearing expressions must stay quiet for instance field joins"
   );
 }
 

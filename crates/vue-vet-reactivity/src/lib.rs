@@ -72,6 +72,8 @@ fn trace_reactivity_seeded(
     effects: Vec::new(),
     edges: Vec::new(),
     template_reads: Vec::new(),
+    // Retain instance bags so template joins can resolve `bag.field` after tracing.
+    composable_instances: seeds.composable_instances.clone(),
   };
   graph.project_effects_from_scopes();
   graph

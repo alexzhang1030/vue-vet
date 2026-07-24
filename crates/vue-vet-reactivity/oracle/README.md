@@ -20,7 +20,9 @@ completeness number — not a 280-case syntax matrix.
 | `pause-tracking-window` | `pauseTracking`/`enableTracking` window drops mid-window reads |
 | `props-reactive-object` | `props.count` style reactive object (defineProps stand-in) |
 | `reactive-member` | `reactive({ count }).count` member track |
+| `sync-every-hof` | sync Array#every callback must track `threshold` |
 | `sync-filter-hof` | sync Array#filter callback must track `query` |
+| `sync-find-hof` | sync Array#find callback must track `target` |
 | `sync-flatMap-hof` | sync Array#flatMap callback must track nested reads |
 | `sync-forEach-hof` | sync Array#forEach callback must track `factor` |
 | `sync-map-hof` | sync Array#map callback must track `factor` |
