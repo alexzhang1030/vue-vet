@@ -168,7 +168,7 @@ Shipped together as one tracer evolution:
 5. **Module seeds** — destructure + `const bag = useX(); bag.field.value`.
 
 Still open: effectScope / pauseTracking, parametric composables, SFC/template join (L6),
-prefer-computed and richer computed-chain rules.
+richer computed-chain / data-flow inversion rules.
 
 ## Evolution wave 2 (landed 2026-07-25)
 
@@ -176,6 +176,11 @@ prefer-computed and richer computed-chain rules.
 2. **Graph version** — `ReactivityGraph.version` / `REACTIVITY_GRAPH_VERSION = 2`.
 3. **Rule** — `vue-vet/reactivity/no-after-await-watch-effect-dependency` for
    `AfterAwait` and deferred-callback `OutsideTracking` reads in effect scopes.
+
+## Evolution wave 3 (landed 2026-07-25)
+
+1. **Scope writes** — `ReactiveWriteFact` + `assignment_only` on tracking scopes.
+2. **Rule** — `vue-vet/reactivity/prefer-computed` for pure ref-sync `watchEffect` bodies.
 
 ## Decision log
 

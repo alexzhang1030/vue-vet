@@ -11,7 +11,7 @@ The project is an early local-doctor implementation. Today it:
 - discovers `.vue` files while respecting `.gitignore`;
 - parses every SFC with Vize;
 - analyzes JavaScript, TypeScript, JSX, and TSX in both Vue script blocks with Oxc;
-- runs 29 documented high-confidence correctness, reactivity, accessibility,
+- runs 30 documented high-confidence correctness, reactivity, accessibility,
   security, and maintainability rules with original-source locations;
 - supports strict versioned configuration, presets, severity overrides, path
   filters, and scoped suppressions;

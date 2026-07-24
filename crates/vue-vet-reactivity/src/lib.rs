@@ -11,7 +11,8 @@ use oxc_semantic::{NodeId, Semantic};
 use oxc_span::{GetSpan, Span};
 use vue_vet_core::{
   ReactiveBindingFact, ReactiveBindingKind, ReactiveGuardFact, ReactiveGuardRole, ReactiveReadFact,
-  ReactiveReadKind, ReactivityGraph, ScriptKind, SourceSpan, TrackingScopeFact, TrackingScopeKind,
+  ReactiveReadKind, ReactiveWriteFact, ReactivityGraph, ScriptKind, SourceSpan, TrackingScopeFact,
+  TrackingScopeKind,
 };
 
 /// Trace Vue reactive bindings and tracking-scope dependencies from an Oxc semantic model.
@@ -671,6 +672,121 @@ fn callback_parts<'a>(
   }
 }
 
+fn is_assignment_only_body(body: Option<&FunctionBody<'_>>) -> bool {
+  let Some(body) = body else {
+    return false;
+  };
+  if body.statements.is_empty() {
+    return false;
+  }
+  body.statements.iter().all(|statement| match statement {
+    Statement::ExpressionStatement(expression) => {
+      matches!(expression.expression, Expression::AssignmentExpression(_))
+    }
+    Statement::EmptyStatement(_) => true,
+    _ => false,
+  })
+}
+
+fn collect_scope_writes(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
+  reactive_bindings: &[ReactiveBindingFact],
+  sfc_source: &str,
+  script_offset: usize,
+) -> Vec<ReactiveWriteFact> {
+  let mut writes = Vec::new();
+  for node in semantic.nodes() {
+    let AstKind::AssignmentExpression(assignment) = node.kind() else {
+      continue;
+    };
+    if !assignment.operator.is_assign() {
+      continue;
+    }
+    let (object, property, write_span) = match &assignment.left {
+      oxc_ast::ast::AssignmentTarget::StaticMemberExpression(member) => (
+        member.object.get_identifier_reference(),
+        Some(member.property.name.to_string()),
+        member.span,
+      ),
+      oxc_ast::ast::AssignmentTarget::ComputedMemberExpression(member) => (
+        member.object.get_identifier_reference(),
+        member.static_property_name().map(|name| name.to_string()),
+        member.span,
+      ),
+      _ => continue,
+    };
+    let Some(object) = object else {
+      continue;
+    };
+
+    let mut reached_scope = false;
+    let mut nested_function = false;
+    for ancestor_id in semantic.nodes().ancestor_ids(node.id()) {
+      if ancestor_id == scope_id {
+        reached_scope = true;
+        break;
+      }
+      if matches!(
+        semantic.nodes().kind(ancestor_id),
+        AstKind::ArrowFunctionExpression(_) | AstKind::Function(_)
+      ) {
+        nested_function = true;
+        break;
+      }
+    }
+    if !reached_scope || nested_function {
+      continue;
+    }
+
+    let Some(binding) = reactive_bindings.iter().find(|binding| {
+      binding.name == object.name.as_str()
+        && reference_resolves_to_binding(semantic, object, binding, script_offset)
+        && (!is_ref_like(binding.kind) || property.as_deref() == Some("value"))
+    }) else {
+      continue;
+    };
+    writes.push(ReactiveWriteFact {
+      binding: binding.name.clone(),
+      property,
+      span: source_span(sfc_source, script_offset, write_span),
+    });
+  }
+  writes.sort_by_key(|write| write.span.offset);
+  writes
+}
+
+struct ScopeBuild<'a> {
+  kind: TrackingScopeKind,
+  callee: String,
+  span: vue_vet_core::SourceSpan,
+  reads: Vec<ReactiveReadFact>,
+  semantic: &'a oxc_semantic::Semantic<'a>,
+  scope_id: NodeId,
+  body: Option<&'a FunctionBody<'a>>,
+  reactive_bindings: &'a [ReactiveBindingFact],
+  sfc_source: &'a str,
+  script_offset: usize,
+}
+
+fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
+  let writes = collect_scope_writes(
+    build.semantic,
+    build.scope_id,
+    build.reactive_bindings,
+    build.sfc_source,
+    build.script_offset,
+  );
+  TrackingScopeFact {
+    kind: build.kind,
+    callee: build.callee,
+    span: build.span,
+    reads: build.reads,
+    writes,
+    assignment_only: is_assignment_only_body(build.body),
+  }
+}
+
 fn collect_tracking_scopes(
   semantic: &oxc_semantic::Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
@@ -717,12 +833,18 @@ fn collect_tracking_scopes(
             classify_read(semantic, scope_id, body, &raw_reads, read, sfc_source, script_offset)
           })
           .collect();
-        scopes.push(TrackingScopeFact {
+        scopes.push(finish_scope(ScopeBuild {
           kind: scope_kind,
           callee,
           span: source_span(sfc_source, script_offset, call.span),
           reads,
-        });
+          semantic,
+          scope_id,
+          body,
+          reactive_bindings,
+          sfc_source,
+          script_offset,
+        }));
       }
       TrackingScopeKind::WatchSources => {
         let Some(source_argument) = call.arguments.first() else {
@@ -742,6 +864,8 @@ fn collect_tracking_scopes(
           callee: callee.clone(),
           span: call_span.clone(),
           reads,
+          writes: Vec::new(),
+          assignment_only: false,
         });
 
         // Second argument is the watch job: it does not collect dependencies.
@@ -774,12 +898,18 @@ fn collect_tracking_scopes(
               fact
             })
             .collect();
-          scopes.push(TrackingScopeFact {
+          scopes.push(finish_scope(ScopeBuild {
             kind: TrackingScopeKind::WatchCallback,
             callee,
             span: call_span,
             reads,
-          });
+            semantic,
+            scope_id,
+            body,
+            reactive_bindings,
+            sfc_source,
+            script_offset,
+          }));
         }
       }
       TrackingScopeKind::WatchCallback => {

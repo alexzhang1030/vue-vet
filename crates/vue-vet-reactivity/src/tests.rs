@@ -547,6 +547,31 @@ fn traces_watch_source_getters() {
 }
 
 #[test]
+fn records_assignment_only_writes_on_watch_effect() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue';\n\
+     const first = ref('a'); const last = ref('b'); const full = ref('');\n\
+     watchEffect(() => { full.value = first.value + last.value; });",
+  );
+  let effect = graph.effects.first();
+  assert!(
+    effect.is_some_and(|effect| effect.reads.len() >= 2),
+    "derived assignment must still track source reads"
+  );
+  let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchEffect);
+  assert_eq!(scope.map(|scope| scope.assignment_only), Some(true));
+  assert!(
+    scope.is_some_and(|scope| {
+      scope
+        .writes
+        .iter()
+        .any(|write| write.binding == "full" && write.property.as_deref() == Some("value"))
+    }),
+    "assignment-only bodies must record reactive writes"
+  );
+}
+
+#[test]
 fn traces_watch_callback_as_outside_tracking() {
   let graph = graph(
     "import { ref, watch } from 'vue';\n\

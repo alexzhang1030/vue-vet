@@ -328,12 +328,25 @@ pub struct ReactiveReadFact {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReactiveWriteFact {
+  pub binding: String,
+  pub property: Option<String>,
+  pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TrackingScopeFact {
   pub kind: TrackingScopeKind,
   /// Canonical Vue callee name (`watchEffect`, `computed`, `watch`, …).
   pub callee: String,
   pub span: SourceSpan,
   pub reads: Vec<ReactiveReadFact>,
+  /// Reactive member writes inside the scope (e.g. `derived.value = …`).
+  #[serde(default)]
+  pub writes: Vec<ReactiveWriteFact>,
+  /// Every statement is an assignment expression statement (no calls/awaits/control).
+  #[serde(default)]
+  pub assignment_only: bool,
 }
 
 /// Legacy projection of effect-family tracking scopes.

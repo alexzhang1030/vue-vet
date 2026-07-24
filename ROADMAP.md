@@ -90,7 +90,7 @@ Completion evidence:
 
 ## M1 — useful local doctor
 
-Current: 29 high-confidence built-in rules.
+Current: 30 high-confidence built-in rules.
 
 Status: complete
 
@@ -100,7 +100,7 @@ Implemented across the merged Phase 2 and semantic-reactivity branches:
 - dependency-neutral imports, bindings, calls, and member-write facts
 - versioned strict configuration, recommended/none presets, severity overrides,
   include/exclude globs, and scoped suppressions with unused-suppression diagnostics
-- 29 documented high-confidence recommended rules with positive and safe fixtures
+- 30 documented high-confidence recommended rules with positive and safe fixtures
 - normalized compiler-macro assignment facts and alias-aware readonly-props enforcement
 - semantic reactivity graph facts plus package-version-gated Vue 3.4/3.5 diagnostics
 - dedicated reactivity tracer crate with local control-flow analysis, module
@@ -221,7 +221,7 @@ Exit criteria:
 ### Alpha — complete
 
 - [x] M0 complete
-- [x] 29 documented high-confidence rules
+- [x] 30 documented high-confidence rules
 - [x] JSON output declares its initial versioned contract (`schema_version: 1`)
 - [x] the complete reference fixture corpus is covered by a no-crash integration test
 

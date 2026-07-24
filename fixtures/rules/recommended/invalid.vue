@@ -14,6 +14,13 @@ watchEffect(async () => {
   console.log(asyncValue.value)
 })
 
+const first = ref('Ada')
+const last = ref('Lovelace')
+const fullName = ref('')
+watchEffect(() => {
+  fullName.value = `${first.value} ${last.value}`
+})
+
 const componentProps = defineProps<{ title: string }>()
 defineProps<{ count: number }>()
 defineEmits()

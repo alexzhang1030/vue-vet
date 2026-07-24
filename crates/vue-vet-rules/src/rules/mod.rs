@@ -23,6 +23,7 @@ mod no_positive_tabindex;
 mod no_redundant_role;
 mod no_v_html;
 mod no_v_if_with_v_for;
+mod prefer_computed;
 mod prefer_use_template_ref;
 mod require_component_is;
 mod require_v_for_key;
@@ -55,6 +56,7 @@ pub fn builtins() -> Vec<&'static dyn Rule> {
     &no_redundant_role::RULE,
     &no_v_html::RULE,
     &no_v_if_with_v_for::RULE,
+    &prefer_computed::RULE,
     &prefer_use_template_ref::RULE,
     &require_component_is::RULE,
     &require_v_for_key::RULE,
