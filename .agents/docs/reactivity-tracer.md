@@ -39,14 +39,14 @@ Contract version: **`REACTIVITY_GRAPH_VERSION = 3`** (scopes, writes, edges,
 
 | Axis | Status | Gap |
 | --- | --- | --- |
-| A1 Bindings | partial | Vue primitives, aliases, `#imports`, `defineModel`, module seeds. **No `defineProps` / storeToRefs / route sources** |
+| A1 Bindings | partial | Vue primitives, aliases, `#imports`, `defineModel`, **`defineProps` → reactive object**, module seeds. Still missing storeToRefs / route sources |
 | A2 Scopes | partial | effects, computed, watch, effectScope (`.run` requires provenance), dispose |
-| A3 Reads | partial | direct `.value` / reactive members / bag.field.value. **Drops sync HOF callback reads** (`.filter`/`.map`/…) |
+| A3 Reads | partial | direct `.value` / reactive members / bag.field.value / **sync Array HOF callbacks** (filter/map/…). Still missing some HOF surfaces |
 | A4 Conditions | deep | if / early-exit / ternary / short-circuit / switch roles — **over-invested relative to A1/A3** |
 | A5 Boundaries | partial | await, pauseTracking, deferred callbacks, watch jobs |
 | A6 Modules | partial | composable shapes, parametric `toRef`, SFC module identity, seed→rules |
 | A7 Contract | shipped | versioned graph; edge IDs still fragile (`callee@offset`, bare names) |
-| Evidence | weak | 280 corpus is a **syntax matrix** (~43 semantic prefixes × surface variants), not measured recall. Assertions are mostly **existence** of expected reads, not exhaustive edge sets |
+| Evidence | improving | Runtime oracle (`oracle/expected`, `just oracle`) asserts **tracer ⊆ runtime** and gates **≥99% recall** on committed cases. 280 corpus remains a syntax matrix, not completeness proof |
 
 ### Charter invariants (must not regress)
 
@@ -60,27 +60,29 @@ Waves 1–8 deepened **A4 / template join / module plumbing**. That is useful
 infrastructure, but real components still under-report because **A1/A3 breadth**
 was never expanded.
 
-Hard failures already observed:
+Hard failures (oracle + unit):
 
-| Case | Expected | Actual |
-| --- | --- | --- |
-| `defineProps` → `props.count` in `computed` | read of props binding | `reads: []` |
-| `list.value.filter(x => x.includes(query.value))` | track `list` **and** `query` | only `list` |
-| `runner.run(() => count.value)` when `runner` is not `effectScope` | quiet | invents `effectScope.run` |
+| Case | Status |
+| --- | --- |
+| `defineProps` → `props.count` in `computed` | **fixed** (defineProps → reactive binding) |
+| `list.value.filter(x => x.includes(query.value))` | **fixed** (sync Array HOF callbacks) |
+| `runner.run(() => count.value)` when `runner` is not `effectScope` | **fixed** (provenance required) |
 
 **Correct next order:**
 
-1. **Runtime oracle** — Vue `onTrack` / `onRenderTracked` vs tracer edges;
-   assert `tracer ⊆ runtime` and publish recall.
+1. **Runtime oracle** — **shipped skeleton**: Vue `onTrack` harness + committed
+   `oracle/expected/*.json`; Rust asserts `tracer ⊆ runtime` and ≥99% recall on
+   those cases (`just oracle` / `just oracle-refresh`).
 2. **Exhaustive fixture asserts** — full read/guard/edge sets, not only
    “expected binding found”; drop integer-padding corpus gates as completeness proof.
-3. **Kill inventions** — `.run` only from `effectScope` provenance; review
-   parametric pass-through and instance seed injection.
-4. **A1/A3 breadth** — props, sync HOFs, `storeToRefs`, `useRoute`, …
+3. **Kill inventions** — `.run` requires `effectScope` provenance (**shipped**);
+   review parametric pass-through and instance seed injection.
+4. **A1/A3 breadth** — `defineProps` + sync Array HOF (**started**); still need
+   `storeToRefs`, `useRoute`, more HOF/call shapes.
 5. **Stable edge identity** — symbol/module-qualified `from`/`to` before more
    consumers depend on the graph.
 
-Do **not** deepen A4 further until oracle + A1 breadth move.
+Do **not** deepen A4 further until oracle coverage and A1 breadth keep growing.
 
 ### Prior art (verified)
 
@@ -132,3 +134,4 @@ growing prose ledger.
 | 2026-07-24–25 | Waves 1–8: A4 depth, template join, module plumbing | Useful infra; **wrong primary axis for “complete”** |
 | 2026-07-25 | Reorient to A1/A3 + runtime oracle | Guards only matter when edges exist; 280 corpus ≠ recall |
 | 2026-07-25 | No official Vue reactivity-analysis plugin | Prior art is shallow ESLint rules + Vapor codegen + DevTools runtime |
+| 2026-07-25 | Runtime oracle skeleton + A1 fixes | onTrack expected JSON; defineProps; sync filter/map HOF; effectScope.run provenance |

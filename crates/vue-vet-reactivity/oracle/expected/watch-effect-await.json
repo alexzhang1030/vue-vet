@@ -1,0 +1,5 @@
+{
+  "id": "watch-effect-await",
+  "source": "import { ref, watchEffect } from 'vue'\nconst title = ref('x')\nwatchEffect(async () => {\n  await Promise.resolve()\n  console.log(title.value)\n})\n",
+  "runtime_deps": []
+}

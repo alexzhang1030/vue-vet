@@ -144,7 +144,9 @@ fn resolved_vue_callee(
 ) -> Option<String> {
   if let Some(identifier) = callee.get_identifier_reference() {
     let local = identifier.name.as_str();
-    if local == "defineModel" && kind == ScriptKind::Setup && !imported_bindings.contains_key(local)
+    if matches!(local, "defineModel" | "defineProps")
+      && kind == ScriptKind::Setup
+      && !imported_bindings.contains_key(local)
     {
       return Some(local.into());
     }
@@ -175,7 +177,7 @@ fn reactive_binding_kind(callee: &str) -> Option<ReactiveBindingKind> {
     "ref" => Some(ReactiveBindingKind::Ref),
     "shallowRef" => Some(ReactiveBindingKind::ShallowRef),
     "computed" => Some(ReactiveBindingKind::Computed),
-    "reactive" => Some(ReactiveBindingKind::Reactive),
+    "reactive" | "defineProps" => Some(ReactiveBindingKind::Reactive),
     "shallowReactive" => Some(ReactiveBindingKind::ShallowReactive),
     "readonly" => Some(ReactiveBindingKind::Readonly),
     "shallowReadonly" => Some(ReactiveBindingKind::ShallowReadonly),
@@ -323,6 +325,63 @@ fn reference_resolves_to_binding(
   script_offset > 0 && relative == binding.span.offset
 }
 
+/// True when `function_id` is a callback argument to a known **synchronously**
+/// invoked higher-order method (Array extras, etc.).
+fn is_sync_hof_callback(semantic: &oxc_semantic::Semantic<'_>, function_id: NodeId) -> bool {
+  let function_span = match semantic.nodes().kind(function_id) {
+    AstKind::ArrowFunctionExpression(callback) => callback.span,
+    AstKind::Function(function) => function.span,
+    _ => return false,
+  };
+  for ancestor_id in semantic.nodes().ancestor_ids(function_id) {
+    let AstKind::CallExpression(call) = semantic.nodes().kind(ancestor_id) else {
+      if matches!(
+        semantic.nodes().kind(ancestor_id),
+        AstKind::ArrowFunctionExpression(_) | AstKind::Function(_)
+      ) {
+        return false;
+      }
+      continue;
+    };
+    let is_argument = call.arguments.iter().any(|argument| match argument {
+      Argument::ArrowFunctionExpression(callback) => callback.span == function_span,
+      Argument::FunctionExpression(function) => function.span == function_span,
+      _ => false,
+    });
+    if !is_argument {
+      continue;
+    }
+    return is_sync_hof_callee(&call.callee);
+  }
+  false
+}
+
+fn is_sync_hof_callee(callee: &Expression<'_>) -> bool {
+  const METHODS: &[&str] = &[
+    "filter",
+    "map",
+    "forEach",
+    "reduce",
+    "reduceRight",
+    "some",
+    "every",
+    "find",
+    "findIndex",
+    "findLast",
+    "findLastIndex",
+    "flatMap",
+    "toSorted",
+    "toSpliced",
+  ];
+  match callee {
+    Expression::StaticMemberExpression(member) => METHODS.contains(&member.property.name.as_str()),
+    Expression::ComputedMemberExpression(member) => {
+      member.static_property_name().is_some_and(|name| METHODS.contains(&name.as_str()))
+    }
+    _ => false,
+  }
+}
+
 fn is_deferred_callback_container(
   semantic: &oxc_semantic::Semantic<'_>,
   function_id: NodeId,
@@ -381,6 +440,11 @@ fn scope_context(
       AstKind::ArrowFunctionExpression(_) | AstKind::Function(_) => {
         if is_deferred_callback_container(semantic, ancestor_id) {
           outside_tracking = true;
+          continue;
+        }
+        // Sync higher-order callbacks (Array#filter/map/…) run during the parent
+        // tracking flush, so Vue still tracks their reactive reads.
+        if is_sync_hof_callback(semantic, ancestor_id) {
           continue;
         }
         return None;
@@ -1346,5 +1410,7 @@ mod modules;
 
 pub use modules::{ModuleLink, ModuleReactivity, ModuleSource, TraceModulesError, trace_modules};
 
+#[cfg(test)]
+mod oracle;
 #[cfg(test)]
 mod tests;

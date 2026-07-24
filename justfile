@@ -29,6 +29,14 @@ vet *args:
 # Run the complete Rust validation suite.
 roll-rust: lint-rust test
 
+# Refresh committed Vue onTrack oracle fixtures (requires pnpm + Node).
+oracle-refresh:
+  cd crates/vue-vet-reactivity/oracle && pnpm install && pnpm oracle:write
+
+# Compare static tracer to committed runtime oracle (no Node required).
+oracle:
+  cargo test -p vue-vet-reactivity --lib oracle --locked
+
 # Run all non-mutating Rust linters.
 lint-rust: fmt-check check clippy
 

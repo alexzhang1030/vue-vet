@@ -1,0 +1,10 @@
+{
+  "id": "props-reactive-object",
+  "source": "import { reactive, computed } from 'vue'\nconst props = reactive({ count: 1 })\nconst doubled = computed(() => props.count * 2)\nvoid doubled.value\n",
+  "runtime_deps": [
+    {
+      "binding": "props",
+      "key": "count"
+    }
+  ]
+}

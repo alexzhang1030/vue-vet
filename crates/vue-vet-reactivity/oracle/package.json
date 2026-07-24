@@ -1,0 +1,13 @@
+{
+  "name": "vue-vet-reactivity-oracle",
+  "private": true,
+  "type": "module",
+  "description": "Vue runtime onTrack oracle for static tracer under-approx checks",
+  "scripts": {
+    "oracle": "node harness.mjs",
+    "oracle:write": "node harness.mjs --write"
+  },
+  "dependencies": {
+    "vue": "^3.5.13"
+  }
+}

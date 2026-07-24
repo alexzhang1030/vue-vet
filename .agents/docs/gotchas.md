@@ -128,3 +128,18 @@ Only `const scope = effectScope(); scope.run(cb)` is a tracking-scope body.
 Arbitrary objects with a `.run` method must stay quiet — inventing
 `effectScope.run` edges violates under-approx. See the reorientation in
 [reactivity tracer](./reactivity-tracer.md).
+
+## Runtime oracle is the precision ruler
+
+Committed `crates/vue-vet-reactivity/oracle/expected/*.json` capture Vue
+`onTrack` deps. Static tests must keep **tracer tracking-reads ⊆ runtime deps**.
+Refresh with `just oracle-refresh` (Node + pnpm) when Vue tracking semantics
+change (including alien-signals / 3.6). Do not treat the 280 syntax corpus as
+recall evidence.
+
+## Sync HOF callbacks still track
+
+`list.value.filter(x => query.value)` runs the callback during the parent
+tracking flush. Nested arrows that are arguments to known sync Array methods
+stay inside the parent scope; deferred containers (`then` / `nextTick` / …)
+remain outside.
