@@ -65,16 +65,19 @@ destructuring and `useTemplateRef()` are available in Vue 3.5+, while direct
 rules read the nearest numeric `vue` requirement from `package.json`, include
 that manifest in cache inputs, and stay quiet when the capability is unknown.
 
-`watchEffect()` subscribes only to reactive reads reached during synchronous
-execution. Model guarded reads as graph edges derived from Oxc control structure;
-do not rediscover them with source text matching. A conditional edge is evidence
-about tracking behavior, so diagnostics must describe the condition and recommend
-explicit `watch` sources when all inputs are intended to invalidate the effect.
-Keep every direct read occurrence in the graph: consumers need earlier
-unconditional reads to suppress false positives. Reads after a top-level
-`await` are classified separately because Vue stops dependency collection at
-that synchronous boundary. Nested callbacks, local lookalike functions, and
-write-only assignment targets are not effect reads.
+Tracking scopes (`watchEffect*`, `computed`, `watch` sources) subscribe only to
+reactive reads reached during synchronous execution. Model guarded reads as graph
+edges derived from Oxc control structure; do not rediscover them with source text
+matching. A conditional edge is evidence about tracking behavior, so diagnostics
+must describe the condition and recommend explicit `watch` sources when all
+inputs are intended to invalidate the effect. Keep every direct read occurrence
+in the graph: consumers need earlier unconditional reads to suppress false
+positives. Reads after a top-level `await` are `AfterAwait` because Vue stops
+dependency collection at that synchronous boundary. Deferred callbacks
+(`then` / `nextTick` / …) are `OutsideTracking` rather than silent drops.
+Arbitrary nested callbacks, local lookalike functions, and write-only assignment
+targets remain outside parent-scope tracking. See
+[reactivity tracer](./reactivity-tracer.md).
 
 ## Cross-module reactivity is a summary problem
 

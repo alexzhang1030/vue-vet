@@ -28,12 +28,16 @@ not dispatch rule behavior through a shared enum or central match.
 The CLI derives per-file Vue capabilities from the nearest package.json and passes
 them into per-file rules without exposing package-manager state to parser adapters.
 The Oxc adapter delegates reactivity construction to `vue-vet-reactivity`.
-That crate records Vue-resolved reactive binding nodes and every direct effect
-read as serializable Vue Vet facts. Read edges carry their property, exact span,
-classification (unconditional, conditional, or after-await), and ordered guard
-evidence; rules never receive Oxc nodes. Its module layer summarizes direct
-bindings and composable return shapes, then reaches a deterministic fixed point
-over resolved named/default exports, barrels, multi-hop re-exports, and cycles.
+That crate is the static reactivity tracing library: it records Vue-resolved
+bindings and **tracking scopes** (`watchEffect*`, `computed`, `watch` sources)
+as serializable Vue Vet facts. Each scope carries demand reads with property,
+exact span, classification (unconditional, conditional, after-await, or
+outside-tracking), and ordered guard evidence with roles; rules never receive
+Oxc nodes. Legacy `effects` is a projection of effect-family scopes for existing
+consumers. Its module layer summarizes direct bindings and composable return
+shapes (destructure and instance member seeds), then reaches a deterministic
+fixed point over resolved named/default exports, barrels, multi-hop re-exports,
+and cycles. See [reactivity tracer](./reactivity-tracer.md).
 Configuration changes
 rule enablement and severity after semantic analysis;
 suppressions are applied after diagnostic normalization and emit findings when
