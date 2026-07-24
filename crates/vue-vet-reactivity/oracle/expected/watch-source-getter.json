@@ -1,0 +1,10 @@
+{
+  "id": "watch-source-getter",
+  "source": "import { ref, watch } from 'vue'\nconst value = ref(0)\nwatch(() => value.value, () => {})\n",
+  "runtime_deps": [
+    {
+      "binding": "value",
+      "key": "value"
+    }
+  ]
+}

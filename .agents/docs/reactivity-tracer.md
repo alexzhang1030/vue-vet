@@ -40,8 +40,8 @@ Contract version: **`REACTIVITY_GRAPH_VERSION = 4`** (scopes, writes, edges,
 | Axis | Status | Gap |
 | --- | --- | --- |
 | A1 Bindings | partial | Vue primitives, aliases, `#imports`, `defineModel`, `defineProps`, **`storeToRefs` (pinia/#imports)**, **`useRoute`/`useRouter`**, module seeds |
-| A2 Scopes | partial | effects, computed, watch, effectScope (`.run` requires provenance), dispose |
-| A3 Reads | partial | `.value` / reactive members / bag.field / **sync Array HOF** (filter/map/forEach/reduce/…) |
+| A2 Scopes | partial | effects, computed, watch (sources + callback outside), effectScope (`.run` requires provenance), dispose |
+| A3 Reads | partial | `.value` / reactive members / bag.field / **sync Array HOF** (filter/map/forEach/reduce/flatMap/…) / **watch ref sources use `.value` key** |
 | A4 Conditions | deep | if / early-exit / ternary / short-circuit / switch roles — do not deepen further yet |
 | A5 Boundaries | partial | await, pauseTracking, deferred callbacks, watch jobs |
 | A6 Modules | partial | composable shapes, parametric `toRef`, SFC module identity, seed→rules; **instance seeds no longer inject shape fields as top-level bindings** |
@@ -141,3 +141,5 @@ growing prose ledger.
 | 2026-07-25 | Oracle breadth | `reactive-member`, `sync-reduce-hof`, `watch-effect-ref` |
 | 2026-07-25 | Full corpus exhaustive reads | all 200 local fixtures pin exact effect read sets |
 | 2026-07-25 | Oracle boundaries + HOF | `pause-tracking-window`, `sync-forEach-hof`, `sync-some-hof` |
+| 2026-07-25 | Watch source dep keys | bare ref sources → `property: value`; bare reactive sources stay quiet |
+| 2026-07-25 | Oracle watch + flatMap | `watch-source-{ref,array,getter}`, `sync-flatMap-hof` |

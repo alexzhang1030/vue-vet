@@ -522,10 +522,20 @@ fn traces_watch_source_arrays() {
      watch([a, b], () => {});",
   );
   let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchSources);
+  let reads = scope.map(|scope| {
+    scope
+      .reads
+      .iter()
+      .map(|read| (read.binding.as_str(), read.property.as_deref(), read.kind))
+      .collect::<Vec<_>>()
+  });
   assert_eq!(
-    scope.map(|scope| { scope.reads.iter().map(|read| read.binding.as_str()).collect::<Vec<_>>() }),
-    Some(vec!["a", "b"]),
-    "watch source arrays must record each reactive source"
+    reads,
+    Some(vec![
+      ("a", Some("value"), ReactiveReadKind::Unconditional),
+      ("b", Some("value"), ReactiveReadKind::Unconditional),
+    ]),
+    "watch source arrays must record each ref with the runtime .value dep key"
   );
 }
 
@@ -538,12 +548,27 @@ fn traces_watch_source_getters() {
   let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchSources);
   assert!(
     scope.is_some_and(|scope| {
-      scope
-        .reads
-        .iter()
-        .any(|read| read.binding == "value" && read.kind == ReactiveReadKind::Unconditional)
+      scope.reads.iter().any(|read| {
+        read.binding == "value"
+          && read.property.as_deref() == Some("value")
+          && read.kind == ReactiveReadKind::Unconditional
+      })
     }),
     "watch source getters must track reactive reads"
+  );
+}
+
+#[test]
+fn bare_reactive_watch_source_stays_quiet() {
+  let graph = graph(
+    "import { reactive, watch } from 'vue';\n\
+     const state = reactive({ n: 1 });\n\
+     watch(state, () => {});",
+  );
+  let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchSources);
+  assert!(
+    scope.is_some_and(|scope| scope.reads.is_empty()),
+    "bare reactive watch sources deep-track many keys; do not invent a property-less dep"
   );
 }
 

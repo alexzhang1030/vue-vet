@@ -142,6 +142,14 @@ recall evidence.
 sources may still name them under `from 'vue'` (matching common docs / Nuxt
 re-exports). Treat that API surface as capability-gated, not guaranteed.
 
+## Watch source dep keys
+
+`watch(ref)` / `watch([ref, …])` track each ref's **`.value`** key at runtime.
+Static bare-identifier sources must record `property: Some("value")` for
+ref-like bindings — a property-less read invents an onTrack identity that never
+appears. Bare `watch(reactiveObj)` deep-tracks many keys; stay quiet rather than
+emit a single property-less edge.
+
 ## Sync HOF callbacks still track
 
 `list.value.filter(x => query.value)` runs the callback during the parent

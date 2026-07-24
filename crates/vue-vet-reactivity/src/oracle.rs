@@ -153,6 +153,7 @@ fn oracle_cases_cover_known_hard_facts() {
     "props-reactive-object",
     "reactive-member",
     "sync-filter-hof",
+    "sync-flatMap-hof",
     "sync-forEach-hof",
     "sync-map-hof",
     "sync-reduce-hof",
@@ -161,6 +162,9 @@ fn oracle_cases_cover_known_hard_facts() {
     "runner-run-no-track",
     "watch-effect-await",
     "watch-effect-ref",
+    "watch-source-array",
+    "watch-source-getter",
+    "watch-source-ref",
   ] {
     assert!(ids.contains(required), "missing oracle case {required}");
   }

@@ -21,6 +21,7 @@ completeness number — not a 280-case syntax matrix.
 | `props-reactive-object` | `props.count` style reactive object (defineProps stand-in) |
 | `reactive-member` | `reactive({ count }).count` member track |
 | `sync-filter-hof` | sync Array#filter callback must track `query` |
+| `sync-flatMap-hof` | sync Array#flatMap callback must track nested reads |
 | `sync-forEach-hof` | sync Array#forEach callback must track `factor` |
 | `sync-map-hof` | sync Array#map callback must track `factor` |
 | `sync-reduce-hof` | sync Array#reduce callback must track `factor` |
@@ -28,7 +29,14 @@ completeness number — not a 280-case syntax matrix.
 | `use-route-like` | reactive route object member (`route.path`) |
 | `watch-effect-ref` | `watchEffect` tracks `ref.value` |
 | `watch-effect-await` | post-await read is **not** runtime-tracked (boundary) |
+| `watch-source-array` | `watch([a, b])` tracks each ref `.value` |
+| `watch-source-getter` | `watch(() => value.value)` source getter |
+| `watch-source-ref` | `watch(ref)` tracks `.value` (not property-less) |
 | `runner-run-no-track` | arbitrary `.run` invents nothing at runtime |
+
+Bare `watch(reactiveObj)` is **static-only quiet**: runtime deep-tracks many keys
+(`Object iterate`, each property). Emitting a property-less static dep would
+fail under-approx identity.
 
 Static-only (no oracle JSON): `storeToRefs` from `pinia` — unit-tested; runtime
 `toRefs` tracks the **underlying store object**, so key identity differs from

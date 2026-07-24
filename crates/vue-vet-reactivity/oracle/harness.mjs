@@ -17,6 +17,7 @@ import {
   reactive,
   ref,
   toRaw,
+  watch,
   watchEffect,
 } from "vue";
 // Not re-exported from the public `vue` package; runtime pause window still
@@ -117,6 +118,7 @@ async function main() {
       ref: namedRef,
       reactive: namedReactive,
       computed,
+      watch,
       watchEffect,
       effectScope,
       pauseTracking,

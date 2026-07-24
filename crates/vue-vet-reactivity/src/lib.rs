@@ -1353,14 +1353,19 @@ fn collect_expression_source_reads(
         binding.name == identifier.name.as_str()
           && reference_resolves_to_binding(semantic, identifier, binding, script_offset)
       }) {
-        reads.push(ReactiveReadFact {
-          binding: binding.name.clone(),
-          property: None,
-          kind: ReactiveReadKind::Unconditional,
-          guards: Vec::new(),
-          guarded_by: None,
-          span: source_span(sfc_source, script_offset, identifier.span),
-        });
+        // Vue's `watch(ref)` / `watch([ref])` tracks the ref's `.value` dep key.
+        // Bare reactive objects deep-track many keys — stay quiet rather than invent
+        // a property-less edge that is not a runtime onTrack identity.
+        if is_ref_like(binding.kind) {
+          reads.push(ReactiveReadFact {
+            binding: binding.name.clone(),
+            property: Some("value".into()),
+            kind: ReactiveReadKind::Unconditional,
+            guards: Vec::new(),
+            guarded_by: None,
+            span: source_span(sfc_source, script_offset, identifier.span),
+          });
+        }
       }
     }
     Expression::StaticMemberExpression(member) => {
