@@ -82,16 +82,19 @@ destructuring and `useTemplateRef()` are available in Vue 3.5+, while direct
 rules read the nearest numeric `vue` requirement from `package.json`, include
 that manifest in cache inputs, and stay quiet when the capability is unknown.
 
-`watchEffect()` subscribes only to reactive reads reached during synchronous
-execution. Model guarded reads as graph edges derived from Oxc control structure;
-do not rediscover them with source text matching. A conditional edge is evidence
-about tracking behavior, so diagnostics must describe the condition and recommend
-explicit `watch` sources when all inputs are intended to invalidate the effect.
-Keep every direct read occurrence in the graph: consumers need earlier
-unconditional reads to suppress false positives. Reads after a top-level
-`await` are classified separately because Vue stops dependency collection at
-that synchronous boundary. Nested callbacks, local lookalike functions, and
-write-only assignment targets are not effect reads.
+Tracking scopes (`watchEffect*`, `computed`, `watch` sources) subscribe only to
+reactive reads reached during synchronous execution. Model guarded reads as graph
+edges derived from Oxc control structure; do not rediscover them with source text
+matching. A conditional edge is evidence about tracking behavior, so diagnostics
+must describe the condition and recommend explicit `watch` sources when all
+inputs are intended to invalidate the effect. Keep every direct read occurrence
+in the graph: consumers need earlier unconditional reads to suppress false
+positives. Reads after a top-level `await` are `AfterAwait` because Vue stops
+dependency collection at that synchronous boundary. Deferred callbacks
+(`then` / `nextTick` / …) are `OutsideTracking` rather than silent drops.
+Arbitrary nested callbacks, local lookalike functions, and write-only assignment
+targets remain outside parent-scope tracking. See
+[reactivity tracer](./reactivity-tracer.md).
 
 ## Cross-module reactivity is a summary problem
 
@@ -109,5 +112,21 @@ identity so shadowed parameters and function-local refs do not leak across the
 module boundary. Conflicting star exports, ambiguous links, unresolved imports,
 dynamic keys, namespace consumers, and unsupported return shapes stay quiet
 instead of inventing certainty. Standalone JavaScript/TypeScript files are wired
-into the project graph today; extracted `.vue` script blocks remain a documented
-precision boundary until Vize supplies an exact module source/offset contract.
+into the project graph today. Template→script join is **not** blocked on Vize:
+`vize_atelier_sfc` already gives absolute block `loc` offsets, and
+`vize_atelier_core` parse trees expose `Interpolation`, directive `exp`/`arg`,
+and `ExpressionNode::loc()`. The historical gap was vue-vet under-extraction
+(elements-only walk, directive-name spans, no interpolation surfaces). Today
+`TemplateFacts.expressions` carries those Vize surfaces with SFC-absolute spans
+and `join_template_reads` prefers them. Identifier reads are filled by Oxc
+(`vue-vet-oxc::template_expression_identifiers`) so static member properties are
+not mistaken for bindings; lexical scan is only the empty-list fallback. Handler free-vars and template-local `v-for` / `v-slot` aliases are filtered at
+extract time. `TemplateExpressionFact.identifiers` is `Some(…)` when resolved
+(including empty = no free reads); only `None` triggers the lexical join
+fallback—do not treat empty `Some` as unknown.
+
+Cross-file module tracing for `.vue` uses the preferred script block
+(`script setup` first) as `ModuleSource::sfc_script` with Vize `loc.start` and
+the full SFC as `span_source`. Standalone JS/TS modules keep offset 0. After
+seed linking, project graph re-runs `join_template_reads` so template surfaces
+see seeded bindings. Dual ordinary+setup blocks are not merged into one module.

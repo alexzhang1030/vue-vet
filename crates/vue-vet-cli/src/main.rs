@@ -343,7 +343,11 @@ fn scan(root: &Path, config: &Config) -> Result<ScanResult, String> {
           path: logical_path.to_path_buf(),
           source_len: source.len(),
           facts: analysis.facts,
-          module_source: None,
+          module_source: analysis.module_source.map(|mut module| {
+            // Project graph normalizes ids to repository-relative paths.
+            module.id = logical_path.to_string_lossy().replace('\\', "/");
+            module
+          }),
         });
       }
       Some(language @ ("js" | "jsx" | "ts" | "tsx")) => {
@@ -357,12 +361,12 @@ fn scan(root: &Path, config: &Config) -> Result<ScanResult, String> {
             template: TemplateFacts::default(),
             script: ScriptFacts { blocks: vec![block] },
           },
-          module_source: Some(ModuleSource {
-            id: logical_path.to_string_lossy().replace('\\', "/"),
+          module_source: Some(ModuleSource::standalone(
+            logical_path.to_string_lossy().replace('\\', "/"),
             source,
-            language: language.into(),
-            kind: vue_vet_core::ScriptKind::Script,
-          }),
+            language,
+            vue_vet_core::ScriptKind::Script,
+          )),
         });
       }
       _ => {}

@@ -1,0 +1,3990 @@
+[
+  {
+    "score": 7,
+    "groups": [
+      "rp",
+      "depgraph",
+      "js_analysis"
+    ],
+    "id": "2306.12313v1",
+    "title": "Tackling the Awkward Squad for Reactive Programming: The Actor-Reactor Model",
+    "year": "2023",
+    "authors": [
+      "Sam Van den Vonder",
+      "Thierry Renaux",
+      "Bjarno Oeyen",
+      "Joeri De Koster",
+      "Wolfgang De Meuter"
+    ],
+    "summary": "Reactive programming is a programming paradigm whereby programs are internally represented by a dependency graph, which is used to automatically (re)compute parts of a program whenever its input changes. In practice reactive programming can only be used for some parts of an application: a reactive program is usually embedded in an application that is still written in ordinary imperative languages ",
+    "matched_queries": [
+      "all:\"reactive programming\" AND (all:dependency OR all:glitch OR all:signal OR all:dataflow)"
+    ]
+  },
+  {
+    "score": 7,
+    "groups": [
+      "dataflow_framework",
+      "js_analysis",
+      "frontend"
+    ],
+    "id": "2409.18280v1",
+    "title": "easylayout: an R package for interactive force-directed layouts within RStudio",
+    "year": "2024",
+    "authors": [
+      "Danilo Oliveira Imparato",
+      "Jo\u00e3o Vitor F. Cavalcante",
+      "Rodrigo J. S. Dalmolin"
+    ],
+    "summary": "Motivation Network visualization is critical for effective communication in various fields of knowledge. Currently, a gap separates network manipulation from network visualization in programming environments. Users often export network data to be laid out in external interactive software, like Cytoscape and Gephi. We argue the current R package ecosystem lacks an interactive layout engine well int",
+    "matched_queries": [
+      "all:Svelte OR all:SolidJS OR all:\"Vue.js\" AND (all:reactive OR all:compiler OR all:static)"
+    ]
+  },
+  {
+    "score": 5,
+    "groups": [
+      "incremental",
+      "js_analysis"
+    ],
+    "id": "2203.01037v1",
+    "title": "Asynchronous Optimisation for Event-based Visual Odometry",
+    "year": "2022",
+    "authors": [
+      "Daqi Liu",
+      "Alvaro Parra",
+      "Yasir Latif",
+      "Bo Chen",
+      "Tat-Jun Chin"
+    ],
+    "summary": "Event cameras open up new possibilities for robotic perception due to their low latency and high dynamic range. On the other hand, developing effective event-based vision algorithms that fully exploit the beneficial properties of event cameras remains work in progress. In this paper, we focus on event-based visual odometry (VO). While existing event-driven VO pipelines have adopted continuous-time",
+    "matched_queries": [
+      "all:\"self-adjusting computation\" OR all:Adapton OR all:\"incremental computation\" AND all:dependency"
+    ]
+  },
+  {
+    "score": 5,
+    "groups": [
+      "depgraph",
+      "js_analysis"
+    ],
+    "id": "2607.01929v1",
+    "title": "Beyond Textual Repository Exploration: Dual-Modal Structural Reasoning for Agentic Issue Resolution",
+    "year": "2026",
+    "authors": [
+      "Jiayi Zhang",
+      "Kai Huang",
+      "Yang Liu",
+      "Chunyang Chen"
+    ],
+    "summary": "Recent advances in agentic program repair have significantly improved issue resolution by enabling iterative repository exploration. However, existing approaches predominantly rely on sequential, text-based code navigation, which fundamentally limits their ability to reason over large-scale long-horizon repositories with complex and long-range dependencies. As issue-resolution agents traverse repo",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\""
+    ]
+  },
+  {
+    "score": 5,
+    "groups": [
+      "rp",
+      "js_analysis"
+    ],
+    "id": "2104.04563v1",
+    "title": "Context-Aware Task Handling in Resource-Constrained Robots with Virtualization",
+    "year": "2021",
+    "authors": [
+      "Ramyad Hadidi",
+      "Nima Shoghi Ghalehshahi",
+      "Bahar Asgari",
+      "Hyesoon Kim"
+    ],
+    "summary": "Intelligent mobile robots are critical in several scenarios. However, as their computational resources are limited, mobile robots struggle to handle several tasks concurrently and yet guaranteeing real-timeliness. To address this challenge and improve the real-timeliness of critical tasks under resource constraints, we propose a fast context-aware task handling technique. To effectively handling t",
+    "matched_queries": [
+      "all:\"reactive programming\" AND (all:dependency OR all:glitch OR all:signal OR all:dataflow)"
+    ]
+  },
+  {
+    "score": 5,
+    "groups": [
+      "dataflow_framework",
+      "js_analysis"
+    ],
+    "id": "2401.18029v1",
+    "title": "Context-Sensitive Abstract Interpretation of Dynamic Languages",
+    "year": "2024",
+    "authors": [
+      "Franciszek Piszcz"
+    ],
+    "summary": "There is a vast gap in the quality of IDE tooling between static languages like Java and dynamic languages like Python or JavaScript. Modern frameworks and libraries in these languages heavily use their dynamic capabilities to achieve the best ergonomics and readability. This has a side effect of making the current generation of IDEs blind to control flow and data flow, which often breaks navigati",
+    "matched_queries": [
+      "all:JavaScript AND all:\"abstract interpretation\""
+    ]
+  },
+  {
+    "score": 5,
+    "groups": [
+      "rp",
+      "js_analysis"
+    ],
+    "id": "2508.18787v1",
+    "title": "Design, Implementation and Evaluation of a Real-Time Remote Photoplethysmography (rPPG) Acquisition System for Non-Invasive Vital Sign Monitoring",
+    "year": "2025",
+    "authors": [
+      "Constantino \u00c1lvarez Casado",
+      "Sasan Sharifipour",
+      "Manuel Lage Ca\u00f1ellas",
+      "Nhi Nguyen",
+      "Le Nguyen"
+    ],
+    "summary": "The growing integration of smart environments and low-power computing devices, coupled with mass-market sensor technologies, is driving advancements in remote and non-contact physiological monitoring. However, deploying these systems in real-time on resource-constrained platforms introduces significant challenges related to scalability, interoperability, and performance. This paper presents a real",
+    "matched_queries": [
+      "all:\"reactive programming\" AND (all:dependency OR all:glitch OR all:signal OR all:dataflow)"
+    ]
+  },
+  {
+    "score": 5,
+    "groups": [
+      "rp",
+      "js_analysis"
+    ],
+    "id": "1902.00524v1",
+    "title": "Distributed Reactive Programming for Reactive Distributed Systems",
+    "year": "2019",
+    "authors": [
+      "Florian Myter",
+      "Christophe Scholliers",
+      "Wolfgang De Meuter"
+    ],
+    "summary": "Context: The term reactivity is popular in two areas of research: programming languages and distributed systems. On one hand, reactive programming is a paradigm which provides programmers with the means to declaratively write event-driven applications. On the other hand, reactive distributed systems handle client requests in a timely fashion regardless of load or failures. Inquiry: Reactive progra",
+    "matched_queries": [
+      "all:\"distributed reactive\" OR all:\"thread-safe reactive\"",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 5,
+    "groups": [
+      "depgraph",
+      "frontend"
+    ],
+    "id": "2508.20412v3",
+    "title": "MindGuard: Intrinsic Decision Inspection for Securing LLM Agents Against Metadata Poisoning",
+    "year": "2025",
+    "authors": [
+      "Zhiqiang Wang",
+      "Haohua Du",
+      "Guanquan Shi",
+      "Junyang Zhang",
+      "HaoRan Cheng"
+    ],
+    "summary": "The Model Context Protocol (MCP) is increasingly adopted to standardize the interaction between LLM agents and external tools. However, this trend introduces a new threat: Tool Poisoning Attacks (TPA), where tool metadata is poisoned to induce the agent to perform unauthorized operations. Existing defenses that primarily focus on behavior-level analysis are fundamentally ineffective against TPA, a",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\""
+    ]
+  },
+  {
+    "score": 5,
+    "groups": [
+      "dataflow_framework",
+      "js_analysis"
+    ],
+    "id": "2309.11298v1",
+    "title": "Parameterized Algorithms for Scalable Interprocedural Data-flow Analysis",
+    "year": "2023",
+    "authors": [
+      "Ahmed Khaled Zaher"
+    ],
+    "summary": "Data-flow analysis is a general technique used to compute information of interest at different points of a program and is considered to be a cornerstone of static analysis. In this thesis, we consider interprocedural data-flow analysis as formalized by the standard IFDS framework, which can express many widely-used static analyses such as reaching definitions, live variables, and null-pointer. We ",
+    "matched_queries": [
+      "all:IFDS OR all:\"interprocedural finite distributive\""
+    ]
+  },
+  {
+    "score": 5,
+    "groups": [
+      "dataflow_framework",
+      "js_analysis"
+    ],
+    "id": "1910.12935v1",
+    "title": "Precise Dataflow Analysis of Event-Driven Applications",
+    "year": "2019",
+    "authors": [
+      "Ming-Ho Yee",
+      "Ayaz Badouraly",
+      "Ond\u0159ej Lhot\u00e1k",
+      "Frank Tip",
+      "Jan Vitek"
+    ],
+    "summary": "Event-driven programming is widely used for implementing user interfaces, web applications, and non-blocking I/O. An event-driven program is organized as a collection of event handlers whose execution is triggered by events. Traditional static analysis techniques are unable to reason precisely about event-driven code because they conservatively assume that event handlers may execute in any order. ",
+    "matched_queries": [
+      "all:IFDS OR all:\"interprocedural finite distributive\"",
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 5,
+    "groups": [
+      "rp",
+      "js_analysis"
+    ],
+    "id": "2408.17044v1",
+    "title": "Relational Reactive Programming: miniKanren for the Web",
+    "year": "2024",
+    "authors": [
+      "Evan Donahue"
+    ],
+    "summary": "Over the past decade, reactive frameworks and languages have become the dominant programming paradigm in front-end web development. In this paradigm, user actions change application state, and those changes propagate reactively to derived state and to the display, reducing the likelihood that various parts of the data model and user-facing view will become out of sync due to programmer error. In t",
+    "matched_queries": [
+      "all:\"change propagation\" AND (all:reactive OR all:incremental OR all:memoization)",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 5,
+    "groups": [
+      "depgraph",
+      "js_analysis"
+    ],
+    "id": "2310.17304v2",
+    "title": "Static Semantics Reconstruction for Enhancing JavaScript-WebAssembly Multilingual Malware Detection",
+    "year": "2023",
+    "authors": [
+      "Yifan Xia",
+      "Ping He",
+      "Xuhong Zhang",
+      "Peiyu Liu",
+      "Shouling Ji"
+    ],
+    "summary": "The emergence of WebAssembly allows attackers to hide the malicious functionalities of JavaScript malware in cross-language interoperations, termed JavaScript-WebAssembly multilingual malware (JWMM). However, existing anti-virus solutions based on static program analysis are still limited to monolingual code. As a result, their detection effectiveness decreases significantly against JWMM. The dete",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\""
+    ]
+  },
+  {
+    "score": 5,
+    "groups": [
+      "depgraph",
+      "dataflow_framework"
+    ],
+    "id": "1903.05333v1",
+    "title": "SymPas: Symbolic Program Slicing",
+    "year": "2019",
+    "authors": [
+      "Yingzhou Zhang"
+    ],
+    "summary": "Program slicing is a technique for simplifying programs by focusing on selected aspects of their behaviour. Current mainstream static slicing methods operate on the PDG (program dependence graph) or SDG (system dependence graph), but these friendly graph representations may be expensive and error-prone for some users. We attempt in this paper to study a light-weight approach of static program slic",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\"",
+      "all:IFDS OR all:\"interprocedural finite distributive\""
+    ]
+  },
+  {
+    "score": 5,
+    "groups": [
+      "rp",
+      "js_analysis"
+    ],
+    "id": "2202.09228v1",
+    "title": "Topology-Level Reactivity in Distributed Reactive Programs: Reactive Acquaintance Management using Flocks",
+    "year": "2022",
+    "authors": [
+      "Sam Van den Vonder",
+      "Thierry Renaux",
+      "Wolfgang De Meuter"
+    ],
+    "summary": "Reactive programming is a popular paradigm to program event-driven applications, and it is often proposed as a paradigm to write distributed applications. One such type of application is *prosumer* applications, which are distributed applications that both produce and consume many events. We analyse the problems that occur when using a reactive programming language or framework to implement prosum",
+    "matched_queries": [
+      "all:\"functional reactive\" AND (all:static OR all:type OR all:modal OR all:causality)",
+      "all:\"distributed reactive\" OR all:\"thread-safe reactive\"",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 5,
+    "groups": [
+      "depgraph",
+      "js_analysis"
+    ],
+    "id": "2204.12575v1",
+    "title": "Wasmati: An Efficient Static Vulnerability Scanner for WebAssembly",
+    "year": "2022",
+    "authors": [
+      "Tiago Brito",
+      "Pedro Lopes",
+      "Nuno Santos",
+      "Jos\u00e9 Fragoso Santos"
+    ],
+    "summary": "WebAssembly is a new binary instruction format that allows targeted compiled code written in high-level languages to be executed with near-native speed by the browser's JavaScript engine. However, given that WebAssembly binaries can be compiled from unsafe languages like C/C++, classical code vulnerabilities such as buffer overflows or format strings can be transferred over from the original progr",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 5,
+    "groups": [
+      "depgraph",
+      "js_analysis"
+    ],
+    "id": "2003.12901v1",
+    "title": "liOS: Lifting iOS apps for fun and profit",
+    "year": "2020",
+    "authors": [
+      "Julian Sch\u00fctte",
+      "Dennis Titze"
+    ],
+    "summary": "Although iOS is the second most popular mobile operating system and is often considered the more secure one, approaches to automatically analyze iOS applications are scarce and generic app analysis frameworks do not exist. This is on the one hand due to the closed ecosystem putting obstacles in the way of reverse engineers and on the other hand due to the complexity of reverse engineering and anal",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)"
+    ]
+  },
+  {
+    "score": 4,
+    "groups": [
+      "depgraph",
+      "agent_fw"
+    ],
+    "id": "2607.01640v1",
+    "title": "AgentFlow: Building Agent Dependency Graphs for Static Analysis of Agent Programs",
+    "year": "2026",
+    "authors": [
+      "Shenao Wang",
+      "Xinyi Hou",
+      "Yanjie Zhao",
+      "Xiao Cheng",
+      "Haoyu Wang"
+    ],
+    "summary": "LLM agents are increasingly developed as source-code applications built on agent frameworks. These agent programs combine conventional host-language code with framework-defined semantics for models, prompts, tools, memory, and multi-agent orchestration logic. As a result, their behavior depends not only on traditional control and data flows, but also on a new class of agent dependencies. Such depe",
+    "matched_queries": [
+      "all:AgentFlow OR all:\"agent dependency graph\"",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 4,
+    "groups": [
+      "js_analysis",
+      "path"
+    ],
+    "id": "2502.21026v3",
+    "title": "Artemis: Toward Accurate Detection of Server-Side Request Forgeries through LLM-Assisted Inter-Procedural Path-Sensitive Taint Analysis",
+    "year": "2025",
+    "authors": [
+      "Yuchen Ji",
+      "Ting Dai",
+      "Zhichao Zhou",
+      "Yutian Tang",
+      "Jingzhu He"
+    ],
+    "summary": "Server-side request forgery (SSRF) vulnerabilities are inevitable in PHP web applications. Existing static tools in detecting vulnerabilities in PHP web applications neither contain SSRF-related features to enhance detection accuracy nor consider PHP's dynamic type features. In this paper, we present Artemis, a static taint analysis tool for detecting SSRF vulnerabilities in PHP web applications. ",
+    "matched_queries": [
+      "all:\"path-sensitive\" AND (all:slicing OR all:dataflow OR all:analysis)"
+    ]
+  },
+  {
+    "score": 4,
+    "groups": [
+      "rp",
+      "modal_frp"
+    ],
+    "id": "2303.03170v2",
+    "title": "Asynchronous Modal FRP",
+    "year": "2023",
+    "authors": [
+      "Patrick Bahr",
+      "Rasmus Ejlers M\u00f8gelberg"
+    ],
+    "summary": "Over the past decade, a number of languages for functional reactive programming (FRP) have been suggested, which use modal types to ensure properties like causality, productivity and lack of space leaks. So far, almost all of these languages have included a modal operator for delay on a global clock. For some applications, however, the notion of global clock is unnatural and leads to leaky abstrac",
+    "matched_queries": [
+      "all:\"reactive programming\" AND (all:dependency OR all:glitch OR all:signal OR all:dataflow)",
+      "all:\"functional reactive\" AND (all:static OR all:type OR all:modal OR all:causality)",
+      "all:\"modal FRP\" OR all:RaTT OR all:\"guarded recursion\" AND all:reactive",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 4,
+    "groups": [
+      "incremental",
+      "modal_frp"
+    ],
+    "id": "2512.23977v1",
+    "title": "Causify DataFlow: A Framework For High-performance Machine Learning Stream Computing",
+    "year": "2025",
+    "authors": [
+      "Giacinto Paolo Saggese",
+      "Paul Smith"
+    ],
+    "summary": "We present DataFlow, a computational framework for building, testing, and deploying high-performance machine learning systems on unbounded time-series data. Traditional data science workflows assume finite datasets and require substantial reimplementation when moving from batch prototypes to streaming production systems. This gap introduces causality violations, batch boundary artifacts, and poor ",
+    "matched_queries": [
+      "all:\"self-adjusting computation\" OR all:Adapton OR all:\"incremental computation\" AND all:dependency"
+    ]
+  },
+  {
+    "score": 4,
+    "groups": [
+      "depgraph",
+      "path"
+    ],
+    "id": "2508.00508v1",
+    "title": "Desyan: A Platform for Seamless Value-Flow and Symbolic Analysis",
+    "year": "2025",
+    "authors": [
+      "Panagiotis Diamantakis",
+      "Thanassis Avgerinos",
+      "Yannis Smaragdakis"
+    ],
+    "summary": "Over the past two decades, two different types of static analyses have emerged as dominant paradigms both in academia and industry: value-flow analysis (e.g., data-flow analysis or points-to analysis) and symbolic analysis (e.g., symbolic execution). Despite their individual successes in numerous application fields, the two approaches have remained largely separate; an artifact of the simple reali",
+    "matched_queries": [
+      "all:\"path-sensitive\" AND (all:slicing OR all:dataflow OR all:analysis)",
+      "all:\"value-flow\" AND all:analysis"
+    ]
+  },
+  {
+    "score": 4,
+    "groups": [
+      "rp",
+      "modal_frp"
+    ],
+    "id": "2003.03170v2",
+    "title": "Diamonds are not forever: Liveness in reactive programming with guarded recursion",
+    "year": "2020",
+    "authors": [
+      "Patrick Bahr",
+      "Christian Uldal Graulund",
+      "Rasmus M\u00f8gelberg"
+    ],
+    "summary": "When designing languages for functional reactive programming (FRP) the main challenge is to provide the user with a simple, flexible interface for writing programs on a high level of abstraction while ensuring that all programs can be implemented efficiently in a low-level language. To meet this challenge, a new family of modal FRP languages has been proposed, in which variants of Nakano's guarded",
+    "matched_queries": [
+      "all:\"functional reactive\" AND (all:static OR all:type OR all:modal OR all:causality)",
+      "all:\"modal FRP\" OR all:RaTT OR all:\"guarded recursion\" AND all:reactive",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 4,
+    "groups": [
+      "depgraph",
+      "path"
+    ],
+    "id": "2109.07923v1",
+    "title": "Efficient Path-Sensitive Data-Dependence Analysis",
+    "year": "2021",
+    "authors": [
+      "Peisen Yao",
+      "Jinguo Zhou",
+      "Xiao Xiao",
+      "Qingkai Shi",
+      "Rongxin Wu"
+    ],
+    "summary": "This paper presents a scalable path- and context-sensitive data-dependence analysis. The key is to address the aliasing-path-explosion problem via a sparse, demand-driven, and fused approach that piggybacks the computation of pointer information with the resolution of data dependence. Specifically, our approach decomposes the computational efforts of disjunctive reasoning into 1) a context- and se",
+    "matched_queries": [
+      "all:\"path-sensitive\" AND (all:slicing OR all:dataflow OR all:analysis)",
+      "all:\"value-flow\" AND all:analysis",
+      "all:\"demand-driven\" AND (all:pointer OR all:dataflow OR all:slicing OR all:abstract)"
+    ]
+  },
+  {
+    "score": 4,
+    "groups": [
+      "depgraph",
+      "path"
+    ],
+    "id": "2403.11254v1",
+    "title": "Efficiently Detecting Reentrancy Vulnerabilities in Complex Smart Contracts",
+    "year": "2024",
+    "authors": [
+      "Zexu Wang",
+      "Jiachi Chen",
+      "Yanlin Wang",
+      "Yu Zhang",
+      "Weizhe Zhang"
+    ],
+    "summary": "Reentrancy vulnerability as one of the most notorious vulnerabilities, has been a prominent topic in smart contract security research. Research shows that existing vulnerability detection presents a range of challenges, especially as smart contracts continue to increase in complexity. Existing tools perform poorly in terms of efficiency and successful detection rates for vulnerabilities in complex",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\""
+    ]
+  },
+  {
+    "score": 4,
+    "groups": [
+      "depgraph",
+      "path"
+    ],
+    "id": "2601.02438v3",
+    "title": "Focus on What Matters: Fisher-Guided Adaptive Multimodal Fusion for Vulnerability Detection",
+    "year": "2026",
+    "authors": [
+      "Yun Bian",
+      "Yi Chen",
+      "HaiQuan Wang",
+      "ShiHao Li",
+      "Zhe Cui"
+    ],
+    "summary": "Software vulnerability detection can be formulated as a binary classification problem that determines whether a given code snippet contains security defects. Existing multimodal methods typically fuse Natural Code Sequence (NCS) representations extracted by pretrained models with Code Property Graph (CPG) representations extracted by graph neural networks, under the implicit assumption that introd",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 4,
+    "groups": [
+      "depgraph",
+      "agent_fw"
+    ],
+    "id": "2603.00195v1",
+    "title": "Formal Analysis and Supply Chain Security for Agentic AI Skills",
+    "year": "2026",
+    "authors": [
+      "Varun Pratap Bhardwaj"
+    ],
+    "summary": "The rapid proliferation of agentic AI skill ecosystems -- exemplified by OpenClaw (228,000 GitHub stars) and Anthropic Agent Skills (75,600 stars) -- has introduced a critical supply chain attack surface. The ClawHavoc campaign (January-February 2026) infiltrated over 1,200 malicious skills into the OpenClaw marketplace, while MalTool catalogued 6,487 malicious tools that evade conventional detect",
+    "matched_queries": [
+      "all:AgentFlow OR all:\"agent dependency graph\""
+    ]
+  },
+  {
+    "score": 4,
+    "groups": [
+      "incremental",
+      "path"
+    ],
+    "id": "2603.10026v1",
+    "title": "RedFuser: An Automatic Operator Fusion Framework for Cascaded Reductions on AI Accelerators",
+    "year": "2026",
+    "authors": [
+      "Xinsheng Tang",
+      "Yangcheng Li",
+      "Nan Wang",
+      "Zhiyi Shu",
+      "Xingyu Ling"
+    ],
+    "summary": "Operator fusion, as a key performance optimization technique in the deployment of AI models, significantly improves execution efficiency and has been widely adopted in modern AI compilers. However, for cascaded reduction operations involving multiple loops with inter-loop data dependencies, such as the safe softmax followed by GEMM within attention mechanisms, existing compilers lack effective aut",
+    "matched_queries": [
+      "all:\"self-adjusting computation\" OR all:Adapton OR all:\"incremental computation\" AND all:dependency"
+    ]
+  },
+  {
+    "score": 4,
+    "groups": [
+      "rp",
+      "modal_frp"
+    ],
+    "id": "2512.09412v2",
+    "title": "Simple Modal Types for Functional Reactive Programming",
+    "year": "2025",
+    "authors": [
+      "Patrick Bahr"
+    ],
+    "summary": "Functional reactive programming (FRP) is a declarative programming paradigm for implementing reactive programs at a high level of abstraction. It applies functional programming principles to construct and manipulate time-varying values, also known as signals. However, for this programming paradigm to work in practice, an FRP language must ensure that programs are causal, productive, and free of sp",
+    "matched_queries": [
+      "all:\"reactive programming\" AND (all:dependency OR all:glitch OR all:signal OR all:dataflow)",
+      "all:\"functional reactive\" AND (all:static OR all:type OR all:modal OR all:causality)",
+      "all:\"modal FRP\" OR all:RaTT OR all:\"guarded recursion\" AND all:reactive",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 4,
+    "groups": [
+      "rp",
+      "modal_frp"
+    ],
+    "id": "1903.05879v2",
+    "title": "Simply RaTT: A Fitch-style Modal Calculus for Reactive Programming without Space Leaks",
+    "year": "2019",
+    "authors": [
+      "Patrick Bahr",
+      "Christian Graulund",
+      "Rasmus M\u00f8gelberg"
+    ],
+    "summary": "Functional reactive programming (FRP) is a paradigm for programming with signals and events, allowing the user to describe reactive programs on a high level of abstraction. For this to make sense, an FRP language must ensure that all programs are causal, and can be implemented without introducing space leaks and time leaks. To this end, some FRP languages do not give direct access to signals, but ",
+    "matched_queries": [
+      "all:\"reactive programming\" AND (all:dependency OR all:glitch OR all:signal OR all:dataflow)",
+      "all:\"functional reactive\" AND (all:static OR all:type OR all:modal OR all:causality)",
+      "all:\"modal FRP\" OR all:RaTT OR all:\"guarded recursion\" AND all:reactive",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 4,
+    "groups": [
+      "depgraph",
+      "path"
+    ],
+    "id": "2412.13467v1",
+    "title": "Transducer Tuning: Efficient Model Adaptation for Software Tasks Using Code Property Graphs",
+    "year": "2024",
+    "authors": [
+      "Imam Nur Bani Yusuf",
+      "Lingxiao Jiang"
+    ],
+    "summary": "Large language models have demonstrated promising performance across various software engineering tasks. While fine-tuning is a common practice to adapt these models for downstream tasks, it becomes challenging in resource-constrained environments due to increased memory requirements from growing trainable parameters in increasingly large language models. We introduce \\approach, a technique to ada",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2603.27204v1",
+    "title": "\"Elementary, My Dear Watson.\" Detecting Malicious Skills via Neuro-Symbolic Reasoning across Heterogeneous Artifacts",
+    "year": "2026",
+    "authors": [
+      "Shenao Wang",
+      "Junjie He",
+      "Yanjie Zhao",
+      "Yayi Wang",
+      "Kan Yu"
+    ],
+    "summary": "Skills are increasingly used to extend LLM agents by packaging prompts, code, and configurations into reusable modules. As public registries and marketplaces expand, they form an emerging agentic supply chain, but also introduce a new attack surface for malicious skills. Detecting malicious skills is challenging because relevant evidence is often distributed across heterogeneous artifacts and must",
+    "matched_queries": [
+      "all:\"value-flow\" AND all:analysis"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "incremental"
+    ],
+    "id": "1106.0478v1",
+    "title": "A Consistent Semantics of Self-Adjusting Computation",
+    "year": "2011",
+    "authors": [
+      "Umut A. Acar",
+      "Matthias Blume",
+      "Jacob Donham"
+    ],
+    "summary": "This paper presents a semantics of self-adjusting computation and proves that the semantics are correct and consistent. The semantics integrate change propagation with the classic idea of memoization to enable reuse of computations under mutation to memory. During evaluation, reuse of a computation via memoization triggers a change propagation that adjusts the reused computation to reflect the mut",
+    "matched_queries": [
+      "all:\"self-adjusting computation\" OR all:Adapton OR all:\"incremental computation\" AND all:dependency",
+      "all:\"change propagation\" AND (all:reactive OR all:incremental OR all:memoization)",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "1801.06144v1",
+    "title": "A Formalization for Specifying and Implementing Correct Pull-Stream Modules",
+    "year": "2018",
+    "authors": [
+      "Erick Lavoie",
+      "Laurie Hendren"
+    ],
+    "summary": "Pull-stream is a JavaScript demand-driven functional design pattern based on callback functions that enables the creation and easy composition of independent modules that are used to create streaming applications. It is used in popular open source projects and the community around it has created over a hundred compatible modules. While the description of the pull-stream design pattern may seem sim",
+    "matched_queries": [
+      "all:\"demand-driven\" AND (all:pointer OR all:dataflow OR all:slicing OR all:abstract)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2203.08424v1",
+    "title": "A Language-Independent Analysis Platform for Source Code",
+    "year": "2022",
+    "authors": [
+      "Konrad Weiss",
+      "Christian Banse"
+    ],
+    "summary": "In this paper, we present the CPG analysis platform, which enables the translation of source code into a programming language-independent representation, based on a code property graph. This allows security experts and developers to capture language level semantics for security analyses or identify patterns with respect to code compliance. Through the use of fuzzy parsing, also incomplete or non-c",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "incremental"
+    ],
+    "id": "2207.00003v1",
+    "title": "A Multi-stage Framework with Mean Subspace Computation and Recursive Feedback for Online Unsupervised Domain Adaptation",
+    "year": "2022",
+    "authors": [
+      "Jihoon Moon",
+      "Debasmit Das",
+      "C. S. George Lee"
+    ],
+    "summary": "In this paper, we address the Online Unsupervised Domain Adaptation (OUDA) problem and propose a novel multi-stage framework to solve real-world situations when the target data are unlabeled and arriving online sequentially in batches. To project the data from the source and the target domains to a common subspace and manipulate the projected data in real-time, our proposed framework institutes a ",
+    "matched_queries": [
+      "all:\"self-adjusting computation\" OR all:Adapton OR all:\"incremental computation\" AND all:dependency"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "1403.0100v1",
+    "title": "A Novel Approach for Computing Dynamic Slices of Aspect-Oriented Programs",
+    "year": "2014",
+    "authors": [
+      "Abhishek Ray",
+      "Siba Mishra",
+      "Durga Prasad Mohapatra"
+    ],
+    "summary": "We propose a dynamic slicing algorithm to compute the slices of aspect-oriented programs. We use a dependence based intermediate program representation called Aspect System Dependence Graph (AOSG) to represent aspect-oriented programs. Then, we propose the dynamic slicing algorithm for AOPs, which is an extended version of EMDS algorithm for object-oriented programs. Our algorithm is based on mark",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2308.06113v2",
+    "title": "A Uniform Representation of Classical and Quantum Source Code for Static Code Analysis",
+    "year": "2023",
+    "authors": [
+      "Maximilian Kaul",
+      "Alexander K\u00fcchler",
+      "Christian Banse"
+    ],
+    "summary": "The emergence of quantum computing raises the question of how to identify (security-relevant) programming errors during development. However, current static code analysis tools fail to model information specific to quantum computing. In this paper, we identify this information and propose to extend classical code analysis tools accordingly. Among such tools, we identify the Code Property Graph to ",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "1608.06012v1",
+    "title": "A Vision for Online Verification-Validation",
+    "year": "2016",
+    "authors": [
+      "Matthew A. Hammer",
+      "Bor-Yuh Evan Chang",
+      "David Van Horn"
+    ],
+    "summary": "Today's programmers face a false choice between creating software that is extensible and software that is correct. Specifically, dynamic languages permit software that is richly extensible (via dynamic code loading, dynamic object extension, and various forms of reflection), and today's programmers exploit this flexibility to \"bring their own language features\" to enrich extensible languages (e.g.",
+    "matched_queries": [
+      "all:JavaScript AND all:\"abstract interpretation\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "1705.00811v1",
+    "title": "ACDC: Altering Control Dependence Chains for Automated Patch Generation",
+    "year": "2017",
+    "authors": [
+      "Rawad Abou Assi",
+      "Chadi Trad",
+      "Wes Masri"
+    ],
+    "summary": "Once a failure is observed, the primary concern of the developer is to identify what caused it in order to repair the code that induced the incorrect behavior. Until a permanent repair is afforded, code repair patches are invaluable. The aim of this work is to devise an automated patch generation technique that proceeds as follows: Step1) It identifies a set of failure-causing control dependence c",
+    "matched_queries": [
+      "all:\"control dependence\" AND all:program"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2603.20637v1",
+    "title": "AEGIS: From Clues to Verdicts -- Graph-Guided Deep Vulnerability Reasoning via Dialectics and Meta-Auditing",
+    "year": "2026",
+    "authors": [
+      "Sen Fang",
+      "Weiyuan Ding",
+      "Zhezhen Cao",
+      "Zhou Yang",
+      "Bowen Xu"
+    ],
+    "summary": "Large Language Models (LLMs) are increasingly adopted for vulnerability detection, yet their reasoning remains fundamentally unsound. We identify a root cause shared by both major mitigation paradigms (agent-based debate and retrieval augmentation): reasoning in an ungrounded deliberative space that lacks a bounded, hypothesis-specific evidence base. Without such grounding, agents fabricate cross-",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "1411.7839v2",
+    "title": "An Abstract Interpretation-based Model of Tracing Just-In-Time Compilation",
+    "year": "2014",
+    "authors": [
+      "Stefano Dissegna",
+      "Francesco Logozzo",
+      "Francesco Ranzato"
+    ],
+    "summary": "Tracing just-in-time compilation is a popular compilation technique for the efficient implementation of dynamic languages, which is commonly used for JavaScript, Python and PHP. We provide a formal model of tracing JIT compilation of programs using abstract interpretation. Hot path detection corresponds to an abstraction of the trace semantics of the program. The optimization phase corresponds to ",
+    "matched_queries": [
+      "all:JavaScript AND all:\"abstract interpretation\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "1404.3382v1",
+    "title": "An Approach for Computing Dynamic Slice of Concurrent Aspect-Oriented Programs",
+    "year": "2014",
+    "authors": [
+      "Abhishek Ray",
+      "Siba Mishra",
+      "Durga Prasad Mohapatra"
+    ],
+    "summary": "We propose a dynamic slicing algorithm to compute the slice of concurrent aspect-oriented programs. We use a dependence based intermediate program representation called Concurrent Aspect-oriented System Dependence Graph (CASDG) to represent a concurrent aspect-oriented program. The CASDG of an aspect-oriented program consists of a system dependence graph (SDG) for the non-aspect code, a group of d",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2410.00603v2",
+    "title": "An Empirical Study of Large Language Models for Type and Call Graph Analysis in Python and JavaScript",
+    "year": "2024",
+    "authors": [
+      "Ashwin Prasad Shivarpatna Venkatesh",
+      "Rose Sunil",
+      "Samkutty Sabu",
+      "Amir M. Mir",
+      "Sofia Reis"
+    ],
+    "summary": "Large Language Models (LLMs) are increasingly being explored for their potential in software engineering, particularly in static analysis tasks. In this study, we investigate the potential of current LLMs to enhance call-graph analysis and type inference for Python and JavaScript programs. We empirically evaluated 24 LLMs, including OpenAI's GPT series and open-source models like LLaMA and Mistral",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "1006.2816v1",
+    "title": "An approach to find dynamic slice for C++ Program",
+    "year": "2010",
+    "authors": [
+      "Santosh Kumar Pani",
+      "Priya Arundhati"
+    ],
+    "summary": "Object-oriented programming has been considered a most promising method in program development and maintenance. An important feature of object-oriented programs (OOPs) is their reusability which can be achieved through the inheritance of classes or reusable components.Dynamic program slicing is an effective technique for narrowing the errors to the relevant parts of a program when debugging. Given",
+    "matched_queries": [
+      "all:\"control dependence\" AND all:program"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2101.11611v1",
+    "title": "Analyzing the Overhead of Filesystem Protection Using Linux Security Modules",
+    "year": "2021",
+    "authors": [
+      "Wenhui Zhang",
+      "Trent Jaeger",
+      "Peng Liu"
+    ],
+    "summary": "Over the years, the complexity of the Linux Security Module (LSM) is keeping increasing, and the count of the authorization hooks is nearly doubled. It is important to provide up-to-date measurement results of LSM for system practitioners so that they can make prudent trade-offs between security and performance. This work evaluates the overhead of LSM for file accesses on Linux v5.3.0. We build a ",
+    "matched_queries": [
+      "all:\"watchEffect\" OR all:\"useEffect\" OR all:hooks AND all:\"static analysis\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "incremental"
+    ],
+    "id": "2502.02549v1",
+    "title": "Anytime Incremental $\u03c1$POMDP Planning in Continuous Spaces",
+    "year": "2025",
+    "authors": [
+      "Ron Benchetrit",
+      "Idan Lev-Yehudi",
+      "Andrey Zhitnikov",
+      "Vadim Indelman"
+    ],
+    "summary": "Partially Observable Markov Decision Processes (POMDPs) provide a robust framework for decision-making under uncertainty in applications such as autonomous driving and robotic exploration. Their extension, $\u03c1$POMDPs, introduces belief-dependent rewards, enabling explicit reasoning about uncertainty. Existing online $\u03c1$POMDP solvers for continuous spaces rely on fixed belief representations, limiti",
+    "matched_queries": [
+      "all:\"self-adjusting computation\" OR all:Adapton OR all:\"incremental computation\" AND all:dependency"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2607.12058v1",
+    "title": "AutoTrace: From Patches to Triggers via Agentic Interprocedural Exploration",
+    "year": "2026",
+    "authors": [
+      "Arastoo Zibaeirad",
+      "Marco Vieira",
+      "Thomas Zimmermann"
+    ],
+    "summary": "Given a vulnerability-fixing commit, trigger localization asks which specific statement turns the vulnerable program state into a concrete unsafe operation. This question is harder than binary vulnerability detection because the answer demands interprocedural, causal reasoning: in a substantial fraction of real-world CVEs the triggering statement lies several call layers outside the patched functi",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2205.06780v1",
+    "title": "Automatic Root Cause Quantification for Missing Edges in JavaScript Call Graphs (Extended Version)",
+    "year": "2022",
+    "authors": [
+      "Madhurima Chakraborty",
+      "Renzo Olivares",
+      "Manu Sridharan",
+      "Behnaz Hassanshahi"
+    ],
+    "summary": "Building sound and precise static call graphs for real-world JavaScript applications poses an enormous challenge, due to many hard-to-analyze language features. Further, the relative importance of these features may vary depending on the call graph algorithm being used and the class of applications being analyzed. In this paper, we present a technique to automatically quantify the relative importa",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "incremental"
+    ],
+    "id": "2005.14510v1",
+    "title": "Avoiding Unnecessary Information Loss: Correct and Efficient Model Synchronization Based on Triple Graph Grammars",
+    "year": "2020",
+    "authors": [
+      "Lars Fritsche",
+      "Jens Kosiol",
+      "Andy Sch\u00fcrr",
+      "Gabriele Taentzer"
+    ],
+    "summary": "Model synchronization, i.e., the task of restoring consistency between two interrelated models after a model change, is a challenging task. Triple Graph Grammars (TGGs) specify model consistency by means of rules that describe how to create consistent pairs of models. These rules can be used to automatically derive further rules, which describe how to propagate changes from one model to the other ",
+    "matched_queries": [
+      "all:\"change propagation\" AND (all:reactive OR all:incremental OR all:memoization)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2301.10545v1",
+    "title": "Beware of the Unexpected: Bimodal Taint Analysis",
+    "year": "2023",
+    "authors": [
+      "Yiu Wai Chow",
+      "Max Sch\u00e4fer",
+      "Michael Pradel"
+    ],
+    "summary": "Static analysis is a powerful tool for detecting security vulnerabilities and other programming problems. Global taint tracking, in particular, can spot vulnerabilities arising from complicated data flow across multiple functions. However, precisely identifying which flows are problematic is challenging, and sometimes depends on factors beyond the reach of pure program analysis, such as convention",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2509.22530v2",
+    "title": "Boosting Pointer Analysis With LLM-Enhanced Allocation Function Detection",
+    "year": "2025",
+    "authors": [
+      "Baijun Cheng",
+      "Kailong Wang",
+      "Ling Shi",
+      "Haoyu Wang",
+      "Peng Di"
+    ],
+    "summary": "Pointer analysis is foundational for many static analysis tasks, yet its effectiveness is often hindered by imprecise modeling of heap allocations, particularly in C/C++ programs where custom allocation functions (CAFs) are pervasive. Existing approaches largely overlook these custom allocators, leading to coarse aliasing and low analysis precision. In this paper, we present CAFD, a novel and ligh",
+    "matched_queries": [
+      "all:\"value-flow\" AND all:analysis"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2506.21014v1",
+    "title": "Boosting Vulnerability Detection with Inter-function Multilateral Association Insights",
+    "year": "2025",
+    "authors": [
+      "Shaojian Qiu",
+      "Mengyang Huang",
+      "Jiahao Cheng"
+    ],
+    "summary": "Vulnerability detection is a crucial yet challenging technique for ensuring the security of software systems. Currently, most deep learning-based vulnerability detection methods focus on stand-alone functions, neglecting the complex inter-function interrelations, particularly the multilateral associations. This oversight can fail to detect vulnerabilities in these interrelations. To address this g",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\"",
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2603.24837v1",
+    "title": "Bridging Code Property Graphs and Language Models for Program Analysis",
+    "year": "2026",
+    "authors": [
+      "Ahmed Lekssays"
+    ],
+    "summary": "Large Language Models (LLMs) face critical challenges when analyzing security vulnerabilities in real world codebases: token limits prevent loading entire repositories, code embeddings fail to capture inter procedural data flows, and LLMs struggle to generate complex static analysis queries. These limitations force existing approaches to operate on isolated code snippets, missing vulnerabilities t",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2601.04085v2",
+    "title": "CSSG: Measuring Code Similarity with Semantic Graphs",
+    "year": "2026",
+    "authors": [
+      "Yiyang Lu",
+      "Jingwen Xu",
+      "Changze Lv",
+      "Zisu Huang",
+      "Zhengkang Guo"
+    ],
+    "summary": "Existing code similarity metrics, such as BLEU, CodeBLEU, and TSED, largely rely on surface-level string overlap or abstract syntax tree structures, and often fail to capture deeper semantic relationships between programs.We propose CSSG (Code Similarity using Semantic Graphs), a novel metric that leverages program dependence graphs to explicitly model control dependencies and variable interaction",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2606.21187v1",
+    "title": "Change Impact Recommendation for JavaScript: Lessons from History and Runtime Analysis",
+    "year": "2026",
+    "authors": [
+      "Sadjad Tavakoli",
+      "Saba Alimadadi"
+    ],
+    "summary": "Understanding the downstream effects of code changes is essential for software maintenance, debugging, and regression testing. This task is particularly challenging for JavaScript applications, where dynamic language features such as callbacks, events, asynchronous execution, and shared mutable state make dependencies difficult to infer precisely. Existing change impact recommendation approaches r",
+    "matched_queries": [
+      "all:\"type-based dependency\" OR all:\"dependency analysis\" AND all:JavaScript"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "1705.09615v1",
+    "title": "Characterizing Minimal Semantics-preserving Slices of predicate-linear, Free, Liberal Program Schemas",
+    "year": "2017",
+    "authors": [
+      "Sebastian Danicic",
+      "Robert M Hierons",
+      "Michael R Laurence"
+    ],
+    "summary": "A program schema defines a class of programs, all of which have identical statement structure, but whose functions and predicates may differ. A schema thus defines an entire class of programs according to how its symbols are interpreted. A subschema of a schema is obtained from a schema by deleting some of its statements. We prove that given a schema $S$ which is predicate-linear, free and liberal",
+    "matched_queries": [
+      "all:\"control dependence\" AND all:program"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "frontend"
+    ],
+    "id": "2607.17987v1",
+    "title": "Chiral Analysis of Smart Contracts: Detecting Vulnerabilities from Relational Inconsistencies Across Business Paths",
+    "year": "2026",
+    "authors": [
+      "Yue Xue"
+    ],
+    "summary": "Smart-contract vulnerabilities often arise from inconsistencies between business paths that should correspond to one another, such as single and batch entry points, direct and adapter-based flows, quote and execution paths, or inverse operations such as buy and sell. Existing analyzers are effective for many local syntactic and data-flow patterns, but they provide limited support for bugs whose or",
+    "matched_queries": [
+      "all:\"value-flow\" AND all:analysis"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2604.10235v1",
+    "title": "CodeComp: Structural KV Cache Compression for Agentic Coding",
+    "year": "2026",
+    "authors": [
+      "Qiujiang Chen",
+      "Jing Xiong",
+      "Chenyang Zhao",
+      "Sidi Yang",
+      "Ngai Wong"
+    ],
+    "summary": "Agentic code tasks such as fault localization and patch generation require processing long codebases under tight memory constraints, where the Key-Value (KV) cache becomes the primary inference bottleneck. Existing compression methods rely exclusively on attention signals to estimate token importance, systematically discarding structurally critical tokens such as call sites, branch conditions, and",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "1912.06878v1",
+    "title": "Conquering the Extensional Scalability Problem for Value-Flow Analysis Frameworks",
+    "year": "2019",
+    "authors": [
+      "Qingkai Shi",
+      "Rongxin Wu",
+      "Gang Fan",
+      "Charles Zhang"
+    ],
+    "summary": "With an increasing number of value-flow properties to check, existing static program analysis still tends to have scalability issues when high precision is required. We observe that the key design flaw behind the scalability problem is that the core static analysis engine is oblivious of the mutual synergies among different properties being checked and, thus, inevitably loses many optimization opp",
+    "matched_queries": [
+      "all:\"value-flow\" AND all:analysis"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "rp"
+    ],
+    "id": "2502.20534v1",
+    "title": "Consistent Distributed Reactive Programming with Retroactive Computation",
+    "year": "2025",
+    "authors": [
+      "Tetsuo Kamina",
+      "Tomoyuki Aotani",
+      "Hidehiko Masuhara"
+    ],
+    "summary": "Context: Many systems require receiving data from multiple information sources, which act as distributed network devices that asynchronously send the latest data at their own pace to generalize various kinds of devices and connections, known as the Internet of Things (IoT). These systems often perform computations both **reactively** and **retroactively** on information received from the sources f",
+    "matched_queries": [
+      "all:\"reactive programming\" AND (all:dependency OR all:glitch OR all:signal OR all:dataflow)",
+      "all:\"distributed reactive\" OR all:\"thread-safe reactive\"",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2602.00457v1",
+    "title": "Context-Sensitive Pointer Analysis for ArkTS",
+    "year": "2026",
+    "authors": [
+      "Yizhuo Yang",
+      "Lingyun Xu",
+      "Mingyi Zhou",
+      "Li Li"
+    ],
+    "summary": "Current call graph generation methods for ArkTS, a new programming language for OpenHarmony, exhibit precision limitations when supporting advanced static analysis tasks such as data flow analysis and vulnerability pattern detection, while the workflow of traditional JavaScript(JS)/TypeScript(TS) analysis tools fails to interpret ArkUI component tree semantics. The core technical bottleneck origin",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2605.00179v1",
+    "title": "DEPTEX: Organization-First, Open Source Dependency Risk Monitoring",
+    "year": "2026",
+    "authors": [
+      "Henry Ruckman-Utting",
+      "Vrushal Nedungadi",
+      "Taiga Okuma",
+      "LeTian Wang",
+      "Stephen Ehebald"
+    ],
+    "summary": "Open-source software (OSS) dependencies introduce systemic risks that are difficult to manage at scale. Existing Software Composition Analysis (SCA) and reachability tools generate severe alert fatigue by treating risk as an intrinsic component property, ignoring semantic context and forcing enterprises into rigid compliance frameworks. We present Deptex, an organization-first, graph-based platfor",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2209.02638v1",
+    "title": "DFI: An Interprocedural Value-Flow Analysis Framework that Scales to Large Codebases",
+    "year": "2022",
+    "authors": [
+      "Min-Yih Hsu",
+      "Felicitas Hetzelt",
+      "Michael Franz"
+    ],
+    "summary": "Context- and flow-sensitive value-flow information is an important building block for many static analysis tools. Unfortunately, current approaches to compute value-flows do not scale to large codebases, due to high memory and runtime requirements. This paper proposes a new scalable approach to compute value-flows via graph reachability. To this end, we develop a new graph structure as an extensio",
+    "matched_queries": [
+      "all:\"value-flow\" AND all:analysis"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2306.01376v3",
+    "title": "DSHGT: Dual-Supervisors Heterogeneous Graph Transformer -- A pioneer study of using heterogeneous graph learning for detecting software vulnerabilities",
+    "year": "2023",
+    "authors": [
+      "Tiehua Zhang",
+      "Rui Xu",
+      "Jianping Zhang",
+      "Yuze Liu",
+      "Xin Chen"
+    ],
+    "summary": "Vulnerability detection is a critical problem in software security and attracts growing attention both from academia and industry. Traditionally, software security is safeguarded by designated rule-based detectors that heavily rely on empirical expertise, requiring tremendous effort from software experts to generate rule repositories for large code corpus. Recent advances in deep learning, especia",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2508.20911v1",
+    "title": "Deep Learning Based Concurrency Bug Detection and Localization",
+    "year": "2025",
+    "authors": [
+      "Zuocheng Feng",
+      "Kaiwen Zhang",
+      "Miaomiao Wang",
+      "Yiming Cheng",
+      "Yuandao Cai"
+    ],
+    "summary": "Concurrency bugs, caused by improper synchronization of shared resources in multi-threaded or distributed systems, are notoriously hard to detect and thus compromise software reliability and security. The existing deep learning methods face three main limitations. First, there is an absence of large and dedicated datasets of diverse concurrency bugs for them. Second, they lack sufficient represent",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "1701.05650v1",
+    "title": "Demand-Driven Pointer Analysis with Strong Updates via Value-Flow Refinement",
+    "year": "2017",
+    "authors": [
+      "Yulei Sui",
+      "Jingling Xue"
+    ],
+    "summary": "We present a new demand-driven flow- and context-sensitive pointer analysis with strong updates for C programs, called SUPA, that enables computing points-to information via value-flow refinement, in environments with small time and memory budgets such as IDEs. We formulate SUPA by solving a graph reachability problem on an inter-procedural value-flow graph representing a program's def-use chains,",
+    "matched_queries": [
+      "all:\"value-flow\" AND all:analysis",
+      "all:\"demand-driven\" AND (all:pointer OR all:dataflow OR all:slicing OR all:abstract)",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "incremental"
+    ],
+    "id": "2104.01270v2",
+    "title": "Demanded Abstract Interpretation (Extended Version)",
+    "year": "2021",
+    "authors": [
+      "Benno Stein",
+      "Bor-Yuh Evan Chang",
+      "Manu Sridharan"
+    ],
+    "summary": "We consider the problem of making expressive static analyzers interactive. Formal static analysis is seeing increasingly widespread adoption as a tool for verification and bug-finding, but even with powerful cloud infrastructure it can take minutes or hours to get batch analysis results after a code change. While existing techniques offer some demand-driven or incremental aspects for certain class",
+    "matched_queries": [
+      "all:\"self-adjusting computation\" OR all:Adapton OR all:\"incremental computation\" AND all:dependency",
+      "all:\"demand-driven\" AND (all:pointer OR all:dataflow OR all:slicing OR all:abstract)",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "1904.13088v5",
+    "title": "Dependence-Aware, Unbounded Sound Predictive Race Detection",
+    "year": "2019",
+    "authors": [
+      "Kaan Gen\u00e7",
+      "Jake Roemer",
+      "Yufan Xu",
+      "Michael D. Bond"
+    ],
+    "summary": "Data races are a real problem for parallel software, yet hard to detect. Sound predictive analysis observes a program execution and detects data races that exist in some other, unobserved execution. However, existing predictive analyses miss races because they do not scale to full program executions or do not precisely incorporate data and control dependence. This paper introduces two novel, sound",
+    "matched_queries": [
+      "all:\"control dependence\" AND all:program"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "incremental"
+    ],
+    "id": "2105.06712v1",
+    "title": "Efficient Parallel Self-Adjusting Computation",
+    "year": "2021",
+    "authors": [
+      "Daniel Anderson",
+      "Guy E. Blelloch",
+      "Anubhav Baweja",
+      "Umut A. Acar"
+    ],
+    "summary": "Self-adjusting computation is an approach for automatically producing dynamic algorithms from static ones. The approach works by tracking control and data dependencies, and propagating changes through the dependencies when making an update. Extensively studied in the sequential setting, some results on parallel self-adjusting computation exist, but are either only applicable to limited classes of ",
+    "matched_queries": [
+      "all:\"self-adjusting computation\" OR all:Adapton OR all:\"incremental computation\" AND all:dependency",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2503.18175v1",
+    "title": "Enhancing Software Vulnerability Detection Using Code Property Graphs and Convolutional Neural Networks",
+    "year": "2025",
+    "authors": [
+      "Amanpreet Singh Saimbhi"
+    ],
+    "summary": "The increasing complexity of modern software systems has led to a rise in vulnerabilities that malicious actors can exploit. Traditional methods of vulnerability detection, such as static and dynamic analysis, have limitations in scalability and automation. This paper proposes a novel approach to detecting software vulnerabilities using a combination of code property graphs and machine learning te",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\"",
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2102.03997v1",
+    "title": "Evaluating the robustness of source code plagiarism detection tools to pervasive plagiarism-hiding modifications",
+    "year": "2021",
+    "authors": [
+      "Hayden Cheers",
+      "Yuqing Lin",
+      "Shamus P. Smith"
+    ],
+    "summary": "Source code plagiarism is a common occurrence in undergraduate computer science education. In order to identify such cases, many source code plagiarism detection tools have been proposed. A source code plagiarism detection tool evaluates pairs of assignment submissions to detect indications of plagiarism. However, a plagiarising student will commonly apply plagiarism-hiding modifications to source",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "1804.05445v1",
+    "title": "Evolving Event-driven Programs with SignalGP",
+    "year": "2018",
+    "authors": [
+      "Alexander Lalejini",
+      "Charles Ofria"
+    ],
+    "summary": "We present SignalGP, a new genetic programming (GP) technique designed to incorporate the event-driven programming paradigm into computational evolution's toolbox. Event-driven programming is a software design philosophy that simplifies the development of reactive programs by automatically triggering program modules (event-handlers) in response to external events, such as signals from the environm",
+    "matched_queries": [
+      "all:\"reactive programming\" AND (all:dependency OR all:glitch OR all:signal OR all:dataflow)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2308.03312v9",
+    "title": "Exploiting Code Symmetries for Learning Program Semantics",
+    "year": "2023",
+    "authors": [
+      "Kexin Pei",
+      "Weichen Li",
+      "Qirui Jin",
+      "Shuyang Liu",
+      "Scott Geng"
+    ],
+    "summary": "This paper tackles the challenge of teaching code semantics to Large Language Models (LLMs) for program analysis by incorporating code symmetries into the model architecture. We introduce a group-theoretic framework that defines code symmetries as semantics-preserving transformations, where forming a code symmetry group enables precise and efficient reasoning of code semantics. Our solution, SymC,",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "frontend"
+    ],
+    "id": "2506.21297v2",
+    "title": "Exploring Micro Frontends: A Case Study Application in E-Commerce",
+    "year": "2025",
+    "authors": [
+      "Ricardo Hideki Hangai Kojo",
+      "Luiz Fernando Corte Real",
+      "Renato Cordeiro Ferreira",
+      "Thatiane de Oliveira Rosa",
+      "Alfredo Goldman"
+    ],
+    "summary": "In the micro frontends architectural style, the frontend is divided into smaller components, which can range from a simple button to an entire page. The goal is to improve scalability, resilience, and team independence, albeit at the cost of increased complexity and infrastructure demands. This paper seeks to understand when it is worth adopting micro frontends, particularly in the context of indu",
+    "matched_queries": [
+      "all:Svelte OR all:SolidJS OR all:\"Vue.js\" AND (all:reactive OR all:compiler OR all:static)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2410.20862v1",
+    "title": "Fakeium: A Dynamic Execution Environment for JavaScript Program Analysis",
+    "year": "2024",
+    "authors": [
+      "Jos\u00e9 Miguel Moreno",
+      "Narseo Vallina-Rodriguez",
+      "Juan Tapiador"
+    ],
+    "summary": "The JavaScript programming language, which began as a simple scripting language for the Web, has become ubiquitous, spanning desktop, mobile, and server applications. This increase in usage has made JavaScript an attractive target for nefarious actors, resulting in the proliferation of malicious browser extensions that steal user information and supply chain attacks that target the official Node.j",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)",
+      "all:\"watchEffect\" OR all:\"useEffect\" OR all:hooks AND all:\"static analysis\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2011.01564v1",
+    "title": "Fast Computation of Strong Control Dependencies",
+    "year": "2020",
+    "authors": [
+      "Marek Chalupa",
+      "David Kla\u0161ka",
+      "Jan Strej\u010dek",
+      "Luk\u00e1\u0161 Tomovi\u010d"
+    ],
+    "summary": "We introduce new algorithms for computing non-termination sensitive control dependence (NTSCD) and decisive order dependence (DOD). These relations on control flow graph vertices have many applications including program slicing and compiler optimizations. Our algorithms are asymptotically faster than the current algorithms. We also show that the original algorithms for computing NTSCD and DOD may ",
+    "matched_queries": [
+      "all:\"control dependence\" AND all:program",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "1201.3985v1",
+    "title": "Fault Localization for Java Programs using Probabilistic Program Dependence Graph",
+    "year": "2012",
+    "authors": [
+      "A. Askarunisa",
+      "T. Manju",
+      "B. Giri Babu"
+    ],
+    "summary": "Fault localization is a process to find the location of faults. It determines the root cause of the failure. It identifies the causes of abnormal behaviour of a faulty program. It identifies exactly where the bugs are. Existing fault localization techniques are Slice based technique, Program- Spectrum based Technique, Statistics Based Technique, Program State Based Technique, Machine learning base",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2302.07717v1",
+    "title": "Field-sensitive Data Flow Integrity",
+    "year": "2023",
+    "authors": [
+      "So Shizukuishi",
+      "Yoshitaka Arahori",
+      "Katsuhiko Gondow"
+    ],
+    "summary": "Although numerous defenses against memory vulnerability exploits have been studied so far, highly-compatible, precise, and efficient defense is still an open problem. In fact, existing defense methods have at least one of the following problems: they (1) cannot precisely protect structure fields, (2) incur high protection overheads, and/or (3) cannot maintain compatibility with existing code due t",
+    "matched_queries": [
+      "all:\"value-flow\" AND all:analysis"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "dataflow_framework"
+    ],
+    "id": "2306.15967v1",
+    "title": "Fine-grained reductions around CFL-reachability",
+    "year": "2023",
+    "authors": [
+      "Aleksandra Istomina",
+      "Semyon Grigorev",
+      "Ekaterina Shemetova"
+    ],
+    "summary": "In this paper we study the fine-grained complexity of the CFL reachability problem. We first present one of the existing algorithms for the problem and an overview of conditional lower bounds based on widely believed hypotheses. We then use the existing reduction techniques to obtain new conditional lower bounds on CFL reachability and related problems. We also devise a faster algorithm for the pr",
+    "matched_queries": [
+      "all:\"CFL-reachability\" OR all:\"context-free language reachability\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "dataflow_framework"
+    ],
+    "id": "2005.06496v1",
+    "title": "FlowCFL: A Framework for Type-based Reachability Analysis in the Presence of Mutable Data",
+    "year": "2020",
+    "authors": [
+      "Ana Milanova"
+    ],
+    "summary": "Reachability analysis is a fundamental program analysis with a wide variety of applications. We present FlowCFL, a framework for type-based reachability analysis in the presence of mutable data. Interestingly, the underlying semantics of FlowCFL is CFL-reachability. We make three contributions. First, we define a dynamic semantics that captures the notion of flow commonly used in reachability anal",
+    "matched_queries": [
+      "all:\"CFL-reachability\" OR all:\"context-free language reachability\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "rp"
+    ],
+    "id": "2606.15013v1",
+    "title": "Formal Semantics and Type System for Vega Data Transformations",
+    "year": "2026",
+    "authors": [
+      "Krist\u00fdna Petrl\u00edkov\u00e1",
+      "Tomas Petricek"
+    ],
+    "summary": "Vega is a popular declarative language for creating interactive data visualizations. It supports reactive data transformations using its streaming dataflow architecture. Despite its widespread adoption, the exact semantics of Vega is subtle and poorly documented. This leads to incorrect or confusing visualizations and difficult-to-understand error messages. This paper makes two contributions. Firs",
+    "matched_queries": [
+      "all:\"reactive programming\" AND (all:dependency OR all:glitch OR all:signal OR all:dataflow)",
+      "all:\"functional reactive\" AND (all:static OR all:type OR all:modal OR all:causality)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "1912.03584v1",
+    "title": "Formalizing Event-Driven Behavior of Serverless Applications",
+    "year": "2019",
+    "authors": [
+      "Matthew Obetz",
+      "Stacy Patterson",
+      "Ana Milanova"
+    ],
+    "summary": "We present new operational semantics for serverless computing that model the event-driven relationships between serverless functions, as well as their interaction with platforms services such as databases and object stores. These semantics precisely encapsulate how control transfers between functions, both directly and through reads and writes to platform services. We use these semantics to define",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2402.07442v1",
+    "title": "Game Agent Driven by Free-Form Text Command: Using LLM-based Code Generation and Behavior Branch",
+    "year": "2024",
+    "authors": [
+      "Ray Ito",
+      "Junichiro Takahashi"
+    ],
+    "summary": "Several attempts have been made to implement text command control for game agents. However, current technologies are limited to processing predefined format commands. This paper proposes a pioneering text command control system for a game agent that can understand natural language commands expressed in free-form. The proposed system uses a large language model (LLM) for code generation to interpre",
+    "matched_queries": [
+      "all:\"Type Analysis for JavaScript\" OR all:TAJS OR all:JSAI"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "rp"
+    ],
+    "id": "2002.06188v1",
+    "title": "Gavial: Programming the web with multi-tier FRP",
+    "year": "2020",
+    "authors": [
+      "Bob Reynders",
+      "Frank Piessens",
+      "Dominique Devriese"
+    ],
+    "summary": "Developing web applications requires dealing with their distributed nature and the natural asynchronicity of user input and network communication. For facilitating this, different researchers have explored the combination of a multi-tier programming language and functional reactive programming. However, existing proposals take this approach only part of the way (some parts of the application remai",
+    "matched_queries": [
+      "all:\"reactive programming\" AND (all:dependency OR all:glitch OR all:signal OR all:dataflow)",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "frontend"
+    ],
+    "id": "2309.10886v1",
+    "title": "GelSight Svelte Hand: A Three-finger, Two-DoF, Tactile-rich, Low-cost Robot Hand for Dexterous Manipulation",
+    "year": "2023",
+    "authors": [
+      "Jialiang Zhao",
+      "Edward H. Adelson"
+    ],
+    "summary": "This paper presents GelSight Svelte Hand, a novel 3-finger 2-DoF tactile robotic hand that is capable of performing precision grasps, power grasps, and intermediate grasps. Rich tactile signals are obtained from one camera on each finger, with an extended sensing area similar to the full length of a human finger. Each finger of GelSight Svelte Hand is supported by a semi-rigid endoskeleton and cov",
+    "matched_queries": [
+      "all:Svelte OR all:SolidJS OR all:\"Vue.js\" AND (all:reactive OR all:compiler OR all:static)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "frontend"
+    ],
+    "id": "2309.10885v1",
+    "title": "GelSight Svelte: A Human Finger-shaped Single-camera Tactile Robot Finger with Large Sensing Coverage and Proprioceptive Sensing",
+    "year": "2023",
+    "authors": [
+      "Jialiang Zhao",
+      "Edward H. Adelson"
+    ],
+    "summary": "Camera-based tactile sensing is a low-cost, popular approach to obtain highly detailed contact geometry information. However, most existing camera-based tactile sensors are fingertip sensors, and longer fingers often require extraneous elements to obtain an extended sensing area similar to the full length of a human finger. Moreover, existing methods to estimate proprioceptive information such as ",
+    "matched_queries": [
+      "all:Svelte OR all:SolidJS OR all:\"Vue.js\" AND (all:reactive OR all:compiler OR all:static)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2004.06292v1",
+    "title": "Gelato: Feedback-driven and Guided Security Analysis of Client-side Web Applications",
+    "year": "2020",
+    "authors": [
+      "Behnaz Hassanshahi",
+      "Hyunjun Lee",
+      "Paddy Krishnan",
+      "J\u00f6rn G\u00fcy Su\u00df"
+    ],
+    "summary": "Even though a lot of effort has been invested in analyzing client-side web applications during the past decade, the existing tools often fail to deal with the complexity of modern JavaScript applications. However, from an attacker point of view, the client side of such web applications can reveal invaluable information about the server side. In this paper, first we study the existing tools and enu",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "1506.03950v2",
+    "title": "Generalizing Permissive-Upgrade in Dynamic Information Flow Analysis",
+    "year": "2015",
+    "authors": [
+      "Abhishek Bichhawat",
+      "Vineet Rajani",
+      "Deepak Garg",
+      "Christian Hammer"
+    ],
+    "summary": "Preventing implicit information flows by dynamic program analysis requires coarse approximations that result in false positives, because a dynamic monitor sees only the executed trace of the program. One widely deployed method is the no-sensitive-upgrade check, which terminates a program whenever a variable's taint is upgraded (made more sensitive) due to a control dependence on tainted data. Alth",
+    "matched_queries": [
+      "all:\"control dependence\" AND all:program"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2202.02501v1",
+    "title": "GraphEye: A Novel Solution for Detecting Vulnerable Functions Based on Graph Attention Network",
+    "year": "2022",
+    "authors": [
+      "Li Zhou",
+      "Minhuan Huang",
+      "Yujun Li",
+      "Yuanping Nie",
+      "Jin Li"
+    ],
+    "summary": "With the continuous extension of the Industrial Internet, cyber incidents caused by software vulnerabilities have been increasing in recent years. However, software vulnerabilities detection is still heavily relying on code review done by experts, and how to automatedly detect software vulnerabilities is an open problem so far. In this paper, we propose a novel solution named GraphEye to identify ",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2203.00364v3",
+    "title": "HCC: A Language-Independent Hardening Contract Compiler for Smart Contracts",
+    "year": "2022",
+    "authors": [
+      "Jens-Rene Giesen",
+      "Sebastien Andreina",
+      "Michael Rodler",
+      "Ghassan O. Karame",
+      "Lucas Davi"
+    ],
+    "summary": "Developing secure smart contracts remains a challenging task. Existing approaches are either impractical or leave the burden to developers for fixing bugs. In this paper, we propose the first practical smart contract compiler, called HCC, which automatically inserts security hardening checks at the source-code level based on a novel and language-independent code property graph (CPG) notation. The ",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2506.23063v1",
+    "title": "HF-DGF: Hybrid Feedback Guided Directed Grey-box Fuzzing",
+    "year": "2025",
+    "authors": [
+      "Guangfa Lyu",
+      "Zhenzhong Cao",
+      "Xiaofei Ren",
+      "Fengyu Wang"
+    ],
+    "summary": "Directed Grey-box Fuzzing (DGF) has emerged as a widely adopted technique for crash reproduction and patch testing, leveraging its capability to precisely navigate toward target locations and exploit vulnerabilities. However, current DGF tools are constrained by insufficient runtime feedback, limiting their efficiency in reaching targets and exploring state spaces. This study presents HF-DGF, a no",
+    "matched_queries": [
+      "all:\"value-flow\" AND all:analysis"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2306.13984v1",
+    "title": "HODOR: Shrinking Attack Surface on Node.js via System Call Limitation",
+    "year": "2023",
+    "authors": [
+      "Wenya Wang",
+      "Xingwei Lin",
+      "Jingyi Wang",
+      "Wang Gao",
+      "Dawu Gu"
+    ],
+    "summary": "Node.js provides Node.js applications with system interaction capabilities using system calls. However, such convenience comes with a price, i.e., the attack surface of JavaScript arbitrary code execution (ACE) vulnerabilities is expanded to the system call level. There lies a noticeable gap between existing protection techniques in the JavaScript code level (either by code debloating or read-writ",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "rp"
+    ],
+    "id": "1803.10199v1",
+    "title": "Harmonizing Signals and Events with a Lightweight Extension to Java",
+    "year": "2018",
+    "authors": [
+      "Tetsuo Kamina",
+      "Tomoyuki Aotani"
+    ],
+    "summary": "The current demands for seamless connections with the surrounding environment make software more reactive. For example, such demands are evident in systems consisting of the Internet of Things. Such systems include a set of reactive values that are periodically updated in response to external or internal events to form a dataflow in the sense that such updates are propagated to other reactive valu",
+    "matched_queries": [
+      "all:\"reactive programming\" AND (all:dependency OR all:glitch OR all:signal OR all:dataflow)",
+      "all:\"functional reactive\" AND (all:static OR all:type OR all:modal OR all:causality)",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "rp"
+    ],
+    "id": "1607.04180v5",
+    "title": "Hazelnut: A Bidirectionally Typed Structure Editor Calculus",
+    "year": "2016",
+    "authors": [
+      "Cyrus Omar",
+      "Ian Voysey",
+      "Michael Hilton",
+      "Jonathan Aldrich",
+      "Matthew A. Hammer"
+    ],
+    "summary": "Structure editors allow programmers to edit the tree structure of a program directly. This can have cognitive benefits, particularly for novice and end-user programmers. It also simplifies matters for tool designers, because they do not need to contend with malformed program text. This paper defines Hazelnut, a structure editor based on a small bidirectionally typed lambda calculus extended with h",
+    "matched_queries": [
+      "all:\"functional reactive\" AND (all:static OR all:type OR all:modal OR all:causality)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "dataflow_framework"
+    ],
+    "id": "2103.16240v1",
+    "title": "IFDS Taint Analysis with Access Paths",
+    "year": "2021",
+    "authors": [
+      "Nicholas Allen",
+      "Fran\u00e7ois Gauthier",
+      "Alexander Jordan"
+    ],
+    "summary": "Over the years, static taint analysis emerged as the analysis of choice to detect some of the most common web application vulnerabilities, such as SQL injection (SQLi) and cross-site scripting (XSS)~\\cite{OWASP}. Furthermore, from an implementation perspective, the IFDS dataflow framework stood out as one of the most successful vehicles to implement static taint analysis for real-world Java applic",
+    "matched_queries": [
+      "all:IFDS OR all:\"interprocedural finite distributive\"",
+      "all:\"demand-driven\" AND (all:pointer OR all:dataflow OR all:slicing OR all:abstract)",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "incremental"
+    ],
+    "id": "1503.07792v6",
+    "title": "Incremental Computation with Names",
+    "year": "2015",
+    "authors": [
+      "Matthew A. Hammer",
+      "Jana Dunfield",
+      "Kyle Headley",
+      "Nicholas Labich",
+      "Jeffrey S. Foster"
+    ],
+    "summary": "Over the past thirty years, there has been significant progress in developing general-purpose, language-based approaches to incremental computation, which aims to efficiently update the result of a computation when an input is changed. A key design challenge in such approaches is how to provide efficient incremental support for a broad range of programs. In this paper, we argue that first-class na",
+    "matched_queries": [
+      "all:\"self-adjusting computation\" OR all:Adapton OR all:\"incremental computation\" AND all:dependency"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2111.09625v1",
+    "title": "InspectJS: Leveraging Code Similarity and User-Feedback for Effective Taint Specification Inference for JavaScript",
+    "year": "2021",
+    "authors": [
+      "Saikat Dutta",
+      "Diego Garbervetsky",
+      "Shuvendu Lahiri",
+      "Max Sch\u00e4fer"
+    ],
+    "summary": "Static analysis has established itself as a weapon of choice for detecting security vulnerabilities. Taint analysis in particular is a very general and powerful technique, where security policies are expressed in terms of forbidden flows, either from untrusted input sources to sensitive sinks (in integrity policies) or from sensitive sources to untrusted sinks (in confidentiality policies). The ap",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "1403.3996v1",
+    "title": "JSAI: Designing a Sound, Configurable, and Efficient Static Analyzer for JavaScript",
+    "year": "2014",
+    "authors": [
+      "Vineeth Kashyap",
+      "Kyle Dewey",
+      "Ethan A. Kuefner",
+      "John Wagner",
+      "Kevin Gibbons"
+    ],
+    "summary": "We describe JSAI, an abstract interpreter for JavaScript. JSAI uses novel abstract domains to compute a reduced product of type inference, pointer analysis, string analysis, integer and boolean constant propagation, and control-flow analysis. In addition, JSAI allows for analysis control-flow sensitivity (i.e., context-, path-, and heap-sensitivity) to be modularly configured without requiring any",
+    "matched_queries": [
+      "all:JavaScript AND all:\"abstract interpretation\"",
+      "all:\"Type Analysis for JavaScript\" OR all:TAJS OR all:JSAI",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2509.24498v1",
+    "title": "JSProtect: A Scalable Obfuscation Framework for Mini-Games in WeChat",
+    "year": "2025",
+    "authors": [
+      "Zhihao Li",
+      "Chaozheng Wang",
+      "Zongjie Li",
+      "Xinyong Peng",
+      "Zelin Su"
+    ],
+    "summary": "The WeChat mini-game ecosystem faces rampant intellectual property theft to other platforms via secondary development, yet existing JavaScript obfuscation tools are ill-equipped for large-scale applications, suffering from prohibitive processing times, severe runtime performance degradation, and unsustainable code size inflation. This paper introduces JSProtect, a high-throughput parallelized obfu",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "rp"
+    ],
+    "id": "1911.12932v1",
+    "title": "Juniper: A Functional Reactive Programming Language for the Arduino",
+    "year": "2019",
+    "authors": [
+      "Caleb Helbling",
+      "Samuel Z Guyer"
+    ],
+    "summary": "This paper presents the design and implementation of Juniper: a functional reactive programming language (FRP) targeting the Arduino and related microcontroller systems. Juniper provides a number of high level features, including parametric polymorphic functions, anonymous functions, automatic memory management, and immutable data structures. Also included is a standard library which offers many u",
+    "matched_queries": [
+      "all:\"reactive programming\" AND (all:dependency OR all:glitch OR all:signal OR all:dataflow)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2410.21673v4",
+    "title": "Knowledge-Guided Prompt Learning for Request Quality Assurance in Public Code Review",
+    "year": "2024",
+    "authors": [
+      "Lin Li",
+      "Xinchun Yu",
+      "Xinyu Chen",
+      "Peng Liang"
+    ],
+    "summary": "Public Code Review (PCR) is developed in the Software Question Answering (SQA) community, assisting developers in exploring high-quality and efficient review services. Current methods on PCR mainly focus on the reviewer's perspective, including finding a capable reviewer, predicting comment quality, and recommending/generating review comments. However, it is not well studied that how to satisfy th",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2507.16585v1",
+    "title": "LLMxCPG: Context-Aware Vulnerability Detection Through Code Property Graph-Guided Large Language Models",
+    "year": "2025",
+    "authors": [
+      "Ahmed Lekssays",
+      "Hamza Mouhcine",
+      "Khang Tran",
+      "Ting Yu",
+      "Issa Khalil"
+    ],
+    "summary": "Software vulnerabilities present a persistent security challenge, with over 25,000 new vulnerabilities reported in the Common Vulnerabilities and Exposures (CVE) database in 2024 alone. While deep learning based approaches show promise for vulnerability detection, recent studies reveal critical limitations in terms of accuracy and robustness: accuracy drops by up to 45% on rigorously verified data",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "incremental"
+    ],
+    "id": "2304.07458v1",
+    "title": "Layph: Making Change Propagation Constraint in Incremental Graph Processing by Layering Graph",
+    "year": "2023",
+    "authors": [
+      "Song Yu",
+      "Shufeng Gong",
+      "Yanfeng Zhang",
+      "Wenyuan Yu",
+      "Qiang Yin"
+    ],
+    "summary": "Real-world graphs are constantly evolving, which demands updates of the previous analysis results to accommodate graph changes. By using the memoized previous computation state, incremental graph computation can reduce unnecessary recomputation. However, a small change may propagate over the whole graph and lead to large-scale iterative computations. To address this problem, we propose Layph, a tw",
+    "matched_queries": [
+      "all:\"change propagation\" AND (all:reactive OR all:incremental OR all:memoization)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "incremental"
+    ],
+    "id": "2004.03436v1",
+    "title": "Learning Individual Models for Imputation (Technical Report)",
+    "year": "2020",
+    "authors": [
+      "Aoqian Zhang",
+      "Shaoxu Song",
+      "Yu Sun",
+      "Jianmin Wang"
+    ],
+    "summary": "Missing numerical values are prevalent, e.g., owing to unreliable sensor reading, collection and transmission among heterogeneous sources. Unlike categorized data imputation over a limited domain, the numerical values suffer from two issues: (1) sparsity problem, the incomplete tuple may not have sufficient complete neighbors sharing the same/similar values for imputation, owing to the (almost) in",
+    "matched_queries": [
+      "all:\"self-adjusting computation\" OR all:Adapton OR all:\"incremental computation\" AND all:dependency"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "1611.01752v2",
+    "title": "Learning a Static Analyzer from Data",
+    "year": "2016",
+    "authors": [
+      "Pavol Bielik",
+      "Veselin Raychev",
+      "Martin Vechev"
+    ],
+    "summary": "To be practically useful, modern static analyzers must precisely model the effect of both, statements in the programming language as well as frameworks used by the program under analysis. While important, manually addressing these challenges is difficult for at least two reasons: (i) the effects on the overall analysis can be non-trivial, and (ii) as the size and complexity of modern libraries inc",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2107.13708v3",
+    "title": "Learning how to listen: Automatically finding bug patterns in event-driven JavaScript APIs",
+    "year": "2021",
+    "authors": [
+      "Ellen Arteca",
+      "Max Sch\u00e4fer",
+      "Frank Tip"
+    ],
+    "summary": "Event-driven programming is widely practiced in the JavaScript community, both on the client side to handle UI events and AJAX requests, and on the server side to accommodate long-running operations such as file or network I/O. Many popular event-based APIs allow event names to be specified as free-form strings without any validation, potentially leading to lost events for which no listener has be",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2006.08614v1",
+    "title": "Learning to map source code to software vulnerability using code-as-a-graph",
+    "year": "2020",
+    "authors": [
+      "Sahil Suneja",
+      "Yunhui Zheng",
+      "Yufan Zhuang",
+      "Jim Laredo",
+      "Alessandro Morari"
+    ],
+    "summary": "We explore the applicability of Graph Neural Networks in learning the nuances of source code from a security perspective. Specifically, whether signatures of vulnerabilities in source code can be learned from its graph representation, in terms of relationships between nodes and edges. We create a pipeline we call AI4VA, which first encodes a sample source code into a Code Property Graph. The extra",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "dataflow_framework"
+    ],
+    "id": "2606.20323v1",
+    "title": "Leveraging systems' non-linearity to tackle the scarcity of data in the design of Intelligent Fault Diagnosis Systems",
+    "year": "2026",
+    "authors": [
+      "Giancarlo Santamato",
+      "Andrea Mattia Garavagno",
+      "Massimiliano Solazzi",
+      "Antonio Frisoli"
+    ],
+    "summary": "Deep Transfer Learning (DTL) allows for the efficient building of Intelligent Fault Diagnosis Systems (IFDS). On the other hand, DTL methods still heavily rely on large amounts of labelled data. Obtaining such an amount of data can be challenging when dealing with machines or structures faults. This document proposes a novel approach to the design of vibration-based IFDS using DTL in condition of ",
+    "matched_queries": [
+      "all:IFDS OR all:\"interprocedural finite distributive\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "incremental"
+    ],
+    "id": "2003.11227v2",
+    "title": "Logarithmic Regret Bound in Partially Observable Linear Dynamical Systems",
+    "year": "2020",
+    "authors": [
+      "Sahin Lale",
+      "Kamyar Azizzadenesheli",
+      "Babak Hassibi",
+      "Anima Anandkumar"
+    ],
+    "summary": "We study the problem of system identification and adaptive control in partially observable linear dynamical systems. Adaptive and closed-loop system identification is a challenging problem due to correlations introduced in data collection. In this paper, we present the first model estimation method with finite-time guarantees in both open and closed-loop system identification. Deploying this estim",
+    "matched_queries": [
+      "all:\"self-adjusting computation\" OR all:Adapton OR all:\"incremental computation\" AND all:dependency"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2503.22228v2",
+    "title": "MFH: A Multi-faceted Heuristic Algorithm Selection Approach for Software Verification",
+    "year": "2025",
+    "authors": [
+      "Jie Su",
+      "Liansai Deng",
+      "Cheng Wen",
+      "Rong Wang",
+      "Zhi Ma"
+    ],
+    "summary": "Currently, many verification algorithms are available to improve the reliability of software systems. Selecting the appropriate verification algorithm typically demands domain expertise and non-trivial manpower. An automated algorithm selector is thus desired. However, existing selectors, either depend on machine-learned strategies or manually designed heuristics, encounter issues such as reliance",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "rp"
+    ],
+    "id": "2406.01521v1",
+    "title": "MOSEAC: Streamlined Variable Time Step Reinforcement Learning",
+    "year": "2024",
+    "authors": [
+      "Dong Wang",
+      "Giovanni Beltrame"
+    ],
+    "summary": "Traditional reinforcement learning (RL) methods typically employ a fixed control loop, where each cycle corresponds to an action. This rigidity poses challenges in practical applications, as the optimal control frequency is task-dependent. A suboptimal choice can lead to high computational demands and reduced exploration efficiency. Variable Time Step Reinforcement Learning (VTS-RL) addresses thes",
+    "matched_queries": [
+      "all:\"reactive programming\" AND (all:dependency OR all:glitch OR all:signal OR all:dataflow)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "rp"
+    ],
+    "id": "2407.06885v1",
+    "title": "Meerkat: A Distributed Reactive Programming Language with Live Updates",
+    "year": "2024",
+    "authors": [
+      "Heng Zhong",
+      "Anrui Liu"
+    ],
+    "summary": "We propose a novel type-safe reactive programming language with live updates that extends an existing work to support multiple distributed evolution queues. Dependency sets of definitions are incorporated in the type system to protect the interaction between the frontend user interface and the backend database. Distributed live updates submitted by multiple programmers are ensured strong consisten",
+    "matched_queries": [
+      "all:\"reactive programming\" AND (all:dependency OR all:glitch OR all:signal OR all:dataflow)",
+      "all:\"distributed reactive\" OR all:\"thread-safe reactive\"",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2605.23951v1",
+    "title": "Methods for Formal Verification of Agent Skills: Three Layers Toward a Mechanically Checkable Capability-Containment Proof",
+    "year": "2026",
+    "authors": [
+      "Alfredo Metere"
+    ],
+    "summary": "The companion paper introduced a four-level verification lattice on agent-skill manifests (unverified, declared, tested, formal) and left the top level aspirational. This paper closes that gap. We give a precise semantics for skill behaviour faithful to how a skill is consumed by an LLM-driven runtime (a deterministic script-side reachable through a non-deterministic LLM-side), state the verificat",
+    "matched_queries": [
+      "all:JavaScript AND all:\"abstract interpretation\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2607.12605v1",
+    "title": "Multi-Perspective Agentic Program Repair via Code Property Graphs and Temporal Execution Graphs",
+    "year": "2026",
+    "authors": [
+      "Zhili Huang",
+      "Ling Xu",
+      "Hongyu Zhang"
+    ],
+    "summary": "Large language models (LLMs) have improved automated program repair (APR), but two limitations remain. First, raw execution traces are often too large and repetitive to serve as effective model context. Second, repeated patch sampling may produce different implementations without yielding distinct root-cause hypotheses or repair strategies. We present CT-Repair, an agentic APR framework representi",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2305.09315v1",
+    "title": "Neural Program Repair with Program Dependence Analysis and Effective Filter Mechanism",
+    "year": "2023",
+    "authors": [
+      "Yuwei Zhang",
+      "Ge Li",
+      "Zhi Jin",
+      "Ying Xing"
+    ],
+    "summary": "Automated program repair is a crucial task for improving the efficiency of software developers. Recently, neural-based techniques have demonstrated significant promise in generating correct patches for buggy code snippets. However, most existing approaches arbitrarily treat the buggy context without any analysis to capture the semantic relationship between the buggy statement and its context. Addi",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2504.16057v5",
+    "title": "Neuro-symbolic Static Analysis with LLM-generated Vulnerability Patterns",
+    "year": "2025",
+    "authors": [
+      "Penghui Li",
+      "Songchen Yao",
+      "Josef Sarfati Korich",
+      "Changhua Luo",
+      "Jianjia Yu"
+    ],
+    "summary": "In this work, we present MoCQ, a neuro-symbolic static analysis framework that leverages large language models (LLMs) to automatically generate vulnerability detection patterns. This approach combines the precision and scalability of pattern-based static analysis with the semantic understanding and automation capabilities of LLMs. MoCQ extracts the domain-specific languages for expressing vulnerab",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "1705.07686v1",
+    "title": "On the computational complexity of dynamic slicing problems for program schemas",
+    "year": "2017",
+    "authors": [
+      "Sebastian Danicic",
+      "Robert M. Hierons",
+      "Michael R. Laurence"
+    ],
+    "summary": "Given a program, a quotient can be obtained from it by deleting zero or more statements. The field of program slicing is concerned with computing a quotient of a program which preserves part of the behaviour of the original program. All program slicing algorithms take account of the structural properties of a program such as control dependence and data dependence rather than the semantics of its f",
+    "matched_queries": [
+      "all:\"control dependence\" AND all:program"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "incremental"
+    ],
+    "id": "2106.12732v2",
+    "title": "Online Verification of Deep Neural Networks under Domain Shift or Network Updates",
+    "year": "2021",
+    "authors": [
+      "Tianhao Wei",
+      "Changliu Liu"
+    ],
+    "summary": "Although neural networks are widely used, it remains challenging to formally verify the safety and robustness of neural networks in real-world applications. Existing methods are designed to verify the network before deployment, which are limited to relatively simple specifications and fixed networks. These methods are not ready to be applied to real-world problems with complex and/or dynamically c",
+    "matched_queries": [
+      "all:\"self-adjusting computation\" OR all:Adapton OR all:\"incremental computation\" AND all:dependency"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "dataflow_framework"
+    ],
+    "id": "2001.11070v2",
+    "title": "Optimal and Perfectly Parallel Algorithms for On-demand Data-flow Analysis",
+    "year": "2020",
+    "authors": [
+      "Krishnendu Chatterjee",
+      "Amir Kafshdar Goharshady",
+      "Rasmus Ibsen-Jensen",
+      "Andreas Pavlogiannis"
+    ],
+    "summary": "Interprocedural data-flow analyses form an expressive and useful paradigm of numerous static analysis applications, such as live variables analysis, alias analysis and null pointers analysis. The most widely-used framework for interprocedural data-flow analysis is IFDS, which encompasses distributive data-flow functions over a finite domain. On-demand data-flow analyses restrict the focus of the a",
+    "matched_queries": [
+      "all:IFDS OR all:\"interprocedural finite distributive\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2512.22113v3",
+    "title": "PRAXIS: Integrating Program Analysis with Observability for Root-Cause Analysis",
+    "year": "2025",
+    "authors": [
+      "Shengkun Cui",
+      "Rahul Krishna",
+      "Saurabh Jha",
+      "Ravishankar K. Iyer"
+    ],
+    "summary": "Unresolved production cloud incidents cost an average of over $2M per hour. This paper introduces PRAXIS, an orchestrator that manages and deploys an agentic workflow for diagnosing code- and configuration-caused cloud incidents. PRAXIS employs an LLM-driven structured traversal over two types of graph: (1) a service dependency graph (SDG) that captures microservice-level dependencies; and (2) a h",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "incremental"
+    ],
+    "id": "2003.09667v11",
+    "title": "Partial Quantifier Elimination By Certificate Clauses",
+    "year": "2020",
+    "authors": [
+      "Eugene Goldberg"
+    ],
+    "summary": "In this report, we study partial quantifier elimination (PQE) for propositional CNF formulas. PQE is a generalization of quantifier elimination where one can limit the set of clauses taken out of the scope of quantifiers to a small subset of target clauses. The appeal of PQE is twofold. First, PQE can be dramatically simpler than full quantifier elimination. Second, PQE provides a language for per",
+    "matched_queries": [
+      "all:\"self-adjusting computation\" OR all:Adapton OR all:\"incremental computation\" AND all:dependency"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "frontend"
+    ],
+    "id": "1909.09757v2",
+    "title": "Positive-Unlabeled Compression on the Cloud",
+    "year": "2019",
+    "authors": [
+      "Yixing Xu",
+      "Yunhe Wang",
+      "Hanting Chen",
+      "Kai Han",
+      "Chunjing Xu"
+    ],
+    "summary": "Many attempts have been done to extend the great success of convolutional neural networks (CNNs) achieved on high-end GPU servers to portable devices such as smart phones. Providing compression and acceleration service of deep learning models on the cloud is therefore of significance and is attractive for end users. However, existing network compression and acceleration approaches usually fine-tun",
+    "matched_queries": [
+      "all:Svelte OR all:SolidJS OR all:\"Vue.js\" AND (all:reactive OR all:compiler OR all:static)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2402.00657v1",
+    "title": "Pre-training by Predicting Program Dependencies for Vulnerability Analysis Tasks",
+    "year": "2024",
+    "authors": [
+      "Zhongxin Liu",
+      "Zhijie Tang",
+      "Junwei Zhang",
+      "Xin Xia",
+      "Xiaohu Yang"
+    ],
+    "summary": "Vulnerability analysis is crucial for software security. This work focuses on using pre-training techniques to enhance the understanding of vulnerable code and boost vulnerability analysis. The code understanding ability of a pre-trained model is highly related to its pre-training objectives. The semantic structure, e.g., control and data dependencies, of code is important for vulnerability analys",
+    "matched_queries": [
+      "all:\"control dependence\" AND all:program"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "1703.00757v1",
+    "title": "Predicting Rankings of Software Verification Competitions",
+    "year": "2017",
+    "authors": [
+      "Mike Czech",
+      "Eyke H\u00fcllermeier",
+      "Marie-Christine Jakobs",
+      "Heike Wehrheim"
+    ],
+    "summary": "Software verification competitions, such as the annual SV-COMP, evaluate software verification tools with respect to their effectivity and efficiency. Typically, the outcome of a competition is a (possibly category-specific) ranking of the tools. For many applications, such as building portfolio solvers, it would be desirable to have an idea of the (relative) performance of verification tools on a",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2606.10172v1",
+    "title": "Proof of Source of Funds: Efficient On-chain Provenance of Cryptoassets",
+    "year": "2026",
+    "authors": [
+      "Alireza Kavousi",
+      "Istv\u00e1n Andr\u00e1s Seres",
+      "Zhipeng Wang"
+    ],
+    "summary": "Regulatory compliance is increasingly mandatory for decentralized finance and privacy-enhancing technologies. Current approaches rely on binary inclusion/exclusion lists or retroactive graph analysis by centralized blockchain intelligence firms. This approach strips honest users of their financial privacy, leads to false positives and negatives, and forces decentralized platforms to bear the burde",
+    "matched_queries": [
+      "all:\"value-flow\" AND all:analysis"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "incremental"
+    ],
+    "id": "0812.0564v1",
+    "title": "Provenance Traces",
+    "year": "2008",
+    "authors": [
+      "James Cheney",
+      "Umut Acar",
+      "Amal Ahmed"
+    ],
+    "summary": "Provenance is information about the origin, derivation, ownership, or history of an object. It has recently been studied extensively in scientific databases and other settings due to its importance in helping scientists judge data validity, quality and integrity. However, most models of provenance have been stated as ad hoc definitions motivated by informal concepts such as \"comes from\", \"influenc",
+    "matched_queries": [
+      "all:\"self-adjusting computation\" OR all:Adapton OR all:\"incremental computation\" AND all:dependency",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "incremental"
+    ],
+    "id": "2501.00417v8",
+    "title": "PureRank: A parameter-free recursive importance measure for network nodes",
+    "year": "2024",
+    "authors": [
+      "Hiroyuki Masuyama"
+    ],
+    "summary": "This study develops PureRank, a parameter-free importance measure for network nodes based on the recursive definition of importance (RDI). For any directed network, PureRank uniquely determines an importance score vector without user-specified parameters. PureRank can thus provide a neutral reference for parameter-dependent importance measures. PureRank is constructed in three steps: (i) nodes are",
+    "matched_queries": [
+      "all:\"self-adjusting computation\" OR all:Adapton OR all:\"incremental computation\" AND all:dependency"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "1109.4467v2",
+    "title": "Pushdown Abstractions of JavaScript",
+    "year": "2011",
+    "authors": [
+      "David Van Horn",
+      "Matthew Might"
+    ],
+    "summary": "We design a family of program analyses for JavaScript that make no approximation in matching calls with returns, exceptions with handlers, and breaks with labels. We do so by starting from an established reduction semantics for JavaScript and systematically deriving its intensional abstract interpretation. Our first step is to transform the semantics into an equivalent low-level abstract machine: ",
+    "matched_queries": [
+      "all:JavaScript AND all:\"abstract interpretation\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "rp"
+    ],
+    "id": "2010.00354v4",
+    "title": "ReactiFi: Reactive Programming of Wi-Fi Firmware on Mobile Devices",
+    "year": "2020",
+    "authors": [
+      "Artur Sterz",
+      "Matthias Eichholz",
+      "Ragnar Mogk",
+      "Lars Baumg\u00e4rtner",
+      "Pablo Graubner"
+    ],
+    "summary": "Network programmability will be required to handle future increased network traffic and constantly changing application needs. However, there is currently no way of using a high-level, easy to use programming language to program Wi-Fi firmware. This impedes rapid prototyping and deployment of novel network services/applications and hinders continuous performance optimization in Wi-Fi networks, sin",
+    "matched_queries": [
+      "all:\"reactive programming\" AND (all:dependency OR all:glitch OR all:signal OR all:dataflow)",
+      "all:\"functional reactive\" AND (all:static OR all:type OR all:modal OR all:causality)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "rp"
+    ],
+    "id": "2606.30137v1",
+    "title": "Reactive Graphs for Efficient Markov Chain Monte Carlo Inference in Probabilistic Programming Languages",
+    "year": "2026",
+    "authors": [
+      "Viktor Palmkvist",
+      "Fredrik Ronquist",
+      "David Broman"
+    ],
+    "summary": "An important aspect of making inference based on a probabilistic program practical is efficiency; faster evaluation enables more work per unit of time, which can be translated into more precision. Inference via Markov chain Monte Carlo has a property that can be favorably exploited for efficiency: most proposed samples are computed as minor variations of previous samples, i.e., a clever implementa",
+    "matched_queries": [
+      "all:\"reactive programming\" AND (all:dependency OR all:glitch OR all:signal OR all:dataflow)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "incremental"
+    ],
+    "id": "1104.2293v1",
+    "title": "Reactive Imperative Programming with Dataflow Constraints",
+    "year": "2011",
+    "authors": [
+      "Camil Demetrescu",
+      "Irene Finocchi",
+      "Andrea Ribichini"
+    ],
+    "summary": "Dataflow languages provide natural support for specifying constraints between objects in dynamic applications, where programs need to react efficiently to changes of their environment. Researchers have long investigated how to take advantage of dataflow constraints by embedding them into procedural languages. Previous mixed imperative/dataflow systems, however, require syntactic extensions or libr",
+    "matched_queries": [
+      "all:\"self-adjusting computation\" OR all:Adapton OR all:\"incremental computation\" AND all:dependency",
+      "all:\"change propagation\" AND (all:reactive OR all:incremental OR all:memoization)",
+      "all:\"dataflow constraints\" OR all:\"reactive imperative\"",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "rp"
+    ],
+    "id": "2602.05625v2",
+    "title": "Reactive Knowledge Representation and Asynchronous Reasoning",
+    "year": "2026",
+    "authors": [
+      "Simon Kohaut",
+      "Benedict Flade",
+      "Julian Eggert",
+      "Kristian Kersting",
+      "Devendra Singh Dhami"
+    ],
+    "summary": "Exact inference in complex probabilistic models often incurs prohibitive computational costs. This challenge is particularly acute for autonomous agents in dynamic environments that require frequent, real-time belief updates. Existing methods are often inefficient for ongoing reasoning, as they re-evaluate the entire model upon any change, failing to exploit that real-world information streams hav",
+    "matched_queries": [
+      "all:\"reactive programming\" AND (all:dependency OR all:glitch OR all:signal OR all:dataflow)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "rp"
+    ],
+    "id": "1409.7256v1",
+    "title": "Reactive Programming for Interactive Graphics",
+    "year": "2014",
+    "authors": [
+      "Yihui Xie",
+      "Heike Hofmann",
+      "Xiaoyue Cheng"
+    ],
+    "summary": "One of the big challenges of developing interactive statistical applications is the management of the data pipeline, which controls transformations from data to plot. The user's interactions needs to be propagated through these modules and reflected in the output representation at a fast pace. Each individual module may be easy to develop and manage, but the dependency structure can be quite chall",
+    "matched_queries": [
+      "all:\"reactive programming\" AND (all:dependency OR all:glitch OR all:signal OR all:dataflow)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "rp"
+    ],
+    "id": "2403.02296v1",
+    "title": "Reactive Programming without Functions",
+    "year": "2024",
+    "authors": [
+      "Bjarno Oeyen",
+      "Joeri De Koster",
+      "Wolfgang De Meuter"
+    ],
+    "summary": "Context: Reactive programming (RP) is a declarative programming paradigm suitable for expressing the handling of events. It enables programmers to create applications that react automatically to changes over time. Whenever a time-varying signal changes -- e.g. in response to values produced by event stream (e.g., sensor data, user input...) -- the program state is updated automatically in tandem w",
+    "matched_queries": [
+      "all:\"reactive programming\" AND (all:dependency OR all:glitch OR all:signal OR all:dataflow)",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "incremental"
+    ],
+    "id": "1610.00097v5",
+    "title": "Refinement types for precisely named cache locations",
+    "year": "2016",
+    "authors": [
+      "Matthew A. Hammer",
+      "Jana Dunfield",
+      "Dimitrios J. Economou",
+      "Monal Narasimhamurthy"
+    ],
+    "summary": "Many programming language techniques for incremental computation employ programmer-specified names for cached information. At runtime, each name identifies a \"cache location\" for a dynamic data value or a sub-computation; in sum, these cache location choices guide change propagation and incremental (re)execution. We call a cache location name precise when it identifies at most one value or subcomp",
+    "matched_queries": [
+      "all:\"change propagation\" AND (all:reactive OR all:incremental OR all:memoization)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2211.05627v2",
+    "title": "Representing LLVM-IR in a Code Property Graph",
+    "year": "2022",
+    "authors": [
+      "Alexander K\u00fcchler",
+      "Christian Banse"
+    ],
+    "summary": "In the past years, a number of static application security testing tools have been proposed which make use of so-called code property graphs, a graph model which keeps rich information about the source code while enabling its user to write language-agnostic analyses. However, they suffer from several shortcomings. They work mostly on source code and exclude the analysis of third-party dependencies",
+    "matched_queries": [
+      "all:\"code property graph\"",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2309.03524v1",
+    "title": "ReuNify: A Step Towards Whole Program Analysis for React Native Android Apps",
+    "year": "2023",
+    "authors": [
+      "Yonghui Liu",
+      "Xiao Chen",
+      "Pei Liu",
+      "John Grundy",
+      "Chunyang Chen"
+    ],
+    "summary": "React Native is a widely-used open-source framework that facilitates the development of cross-platform mobile apps. The framework enables JavaScript code to interact with native-side code, such as Objective-C/Swift for iOS and Java/Kotlin for Android, via a communication mechanism provided by React Native. However, previous research and tools have overlooked this mechanism, resulting in incomplete",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2605.17279v1",
+    "title": "Rover: Context-aware Conflict Resolution with LLM",
+    "year": "2026",
+    "authors": [
+      "Qingyu Zhang",
+      "Junzhe Li",
+      "Jiayi Lin",
+      "Changhua Luo",
+      "Chenxiong Qian"
+    ],
+    "summary": "Code merging is a significant challenge, particularly in large-scale projects. Existing solutions, including program analysis and machine learning, show promise but face critical limitations. Program analysis lacks the ability to infer developers' intentions, relying on conservative strategies that offload unresolved conflicts for manual handling. Meanwhile, model-based approaches struggle with co",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "1810.12490v1",
+    "title": "SAFE-PDF: Robust Detection of JavaScript PDF Malware Using Abstract Interpretation",
+    "year": "2018",
+    "authors": [
+      "Alexander Jordan",
+      "Fran\u00e7ois Gauthier",
+      "Behnaz Hassanshahi",
+      "David Zhao"
+    ],
+    "summary": "The popularity of the PDF format and the rich JavaScript environment that PDF viewers offer make PDF documents an attractive attack vector for malware developers. PDF documents present a serious threat to the security of organizations because most users are unsuspecting of them and thus likely to open documents from untrusted sources. We propose to identify malicious PDFs by using conservative abs",
+    "matched_queries": [
+      "all:JavaScript AND all:\"abstract interpretation\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2509.17338v1",
+    "title": "SLICET5: Static Program Slicing using Language Models with Copy Mechanism and Constrained Decoding",
+    "year": "2025",
+    "authors": [
+      "Pengfei He",
+      "Shaowei Wang",
+      "Tse-Hsun Chen"
+    ],
+    "summary": "Static program slicing is a fundamental technique in software engineering. Traditional static slicing tools rely on parsing complete source code, which limits their applicability to real-world scenarios where code snippets are incomplete or unparsable. While recent research developed learning-based approaches to predict slices, they face critical challenges: (1) Inaccurate dependency identificatio",
+    "matched_queries": [
+      "all:\"control dependence\" AND all:program"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2406.08098v1",
+    "title": "Scalable Defect Detection via Traversal on Code Graph",
+    "year": "2024",
+    "authors": [
+      "Zhengyao Liu",
+      "Xitong Zhong",
+      "Xingjing Deng",
+      "Shuo Hong",
+      "Xiang Gao"
+    ],
+    "summary": "Detecting defects and vulnerabilities in the early stage has long been a challenge in software engineering. Static analysis, a technique that inspects code without execution, has emerged as a key strategy to address this challenge. Among recent advancements, the use of graph-based representations, particularly Code Property Graph (CPG), has gained traction due to its comprehensive depiction of cod",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2310.15582v2",
+    "title": "SecV: Secure Code Partitioning via Multi-Language Secure Values",
+    "year": "2023",
+    "authors": [
+      "Peterson Yuhala",
+      "Pascal Felber",
+      "Hugo Guiroux",
+      "Jean-Pierre Lozi",
+      "Alain Tchana"
+    ],
+    "summary": "Trusted execution environments like Intel SGX provide \\emph{enclaves}, which offer strong security guarantees for applications. Running entire applications inside enclaves is possible, but this approach leads to a large trusted computing base (TCB). As such, various tools have been developed to partition programs written in languages such as C or Java into \\emph{trusted} and \\emph{untrusted} parts",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "incremental"
+    ],
+    "id": "1108.3265v1",
+    "title": "Self-Adjusting Stack Machines",
+    "year": "2011",
+    "authors": [
+      "Matthew A. Hammer",
+      "Georg Neis",
+      "Yan Chen",
+      "Umut A. Acar"
+    ],
+    "summary": "Self-adjusting computation offers a language-based approach to writing programs that automatically respond to dynamically changing data. Recent work made significant progress in developing sound semantics and associated implementations of self-adjusting computation for high-level, functional languages. These techniques, however, do not address issues that arise for low-level languages, i.e., stack",
+    "matched_queries": [
+      "all:\"self-adjusting computation\" OR all:Adapton OR all:\"incremental computation\" AND all:dependency",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "1803.02976v1",
+    "title": "Semantical Equivalence of the Control Flow Graph and the Program Dependence Graph",
+    "year": "2018",
+    "authors": [
+      "Sohei Ito"
+    ],
+    "summary": "The program dependence graph (PDG) represents data and control dependence between statements in a program. This paper presents an operational semantics of program dependence graphs. Since PDGs exclude artificial order of statements that resides in sequential programs, executions of PDGs are not unique. However, we identified a class of PDGs that have unique final states of executions, called deter",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\"",
+      "all:\"control dependence\" AND all:program",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2207.11171v2",
+    "title": "Silent Spring: Prototype Pollution Leads to Remote Code Execution in Node.js",
+    "year": "2022",
+    "authors": [
+      "Mikhail Shcherbakov",
+      "Musard Balliu",
+      "Cristian-Alexandru Staicu"
+    ],
+    "summary": "Prototype pollution is a dangerous vulnerability affecting prototype-based languages like JavaScript and the Node.js platform. It refers to the ability of an attacker to inject properties into an object's root prototype at runtime and subsequently trigger the execution of legitimate code gadgets that access these properties on the object's prototype, leading to attacks such as Denial of Service (D",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "rp"
+    ],
+    "id": "2008.12592v2",
+    "title": "Smoothly Navigating between Functional Reactive Programming and Actors",
+    "year": "2020",
+    "authors": [
+      "N. Webster",
+      "M. Servetto"
+    ],
+    "summary": "We formally define an elegant multi-paradigm unification of Functional Reactive Programming, Actor Systems, and Object-Oriented Programming. This enables an intuitive form of declarative programming, harvesting the power of concurrency while maintaining safety. We use object and reference capabilities to highlight and tame imperative features: reference capabilities track aliasing and mutability, ",
+    "matched_queries": [
+      "all:\"reactive programming\" AND (all:dependency OR all:glitch OR all:signal OR all:dataflow)",
+      "all:\"functional reactive\" AND (all:static OR all:type OR all:modal OR all:causality)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "rp"
+    ],
+    "id": "2108.07389v2",
+    "title": "Solving the Funarg Problem with Static Types",
+    "year": "2021",
+    "authors": [
+      "Caleb Helbling",
+      "F\u0131rat Aksoy"
+    ],
+    "summary": "The difficulty associated with storing closures in a stack-based environment is known as the funarg problem. The funarg problem was first identified with the development of Lisp in the 1970s and hasn't received much attention since then. The modern solution taken by most languages is to allocate closures on the heap, or to apply static analysis to determine when closures can be stack allocated. Th",
+    "matched_queries": [
+      "all:\"functional reactive\" AND (all:static OR all:type OR all:modal OR all:causality)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2006.14505v1",
+    "title": "Source Code Comments: Overlooked in the Realm of Code Clone Detection",
+    "year": "2020",
+    "authors": [
+      "Sandeep Kaur Kuttal",
+      "Akash Ghosh"
+    ],
+    "summary": "Reusing code can produce duplicate or near-duplicate code clones in code repositories. Current code clone detection techniques, like Program Dependence Graphs, rely on code structure and their dependencies to detect clones. These techniques are expensive, using large amounts of processing power, time, and memory. In practice, programmers often utilize code comments to comprehend and reuse code, as",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2509.20491v3",
+    "title": "SpecDetect4ML: Detecting Non-Local ML Code Smells with Code Property Graphs",
+    "year": "2025",
+    "authors": [
+      "Brahim Mahmoudi",
+      "Naouel Moha",
+      "Quentin Sti\u00e9venart",
+      "Florent Avellaneda"
+    ],
+    "summary": "Machine Learning (ML) pipelines encode quality-relevant decisions across data preparation, training, evaluation, and configuration code. Some recurring source-level quality problems in these pipelines, known as ML code smells, may not cause immediate failures but can harm reproducibility, robustness, efficiency, or maintainability. Detecting ML code smell occurrences is challenging because the dec",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "1003.1395v2",
+    "title": "Start-phase control of distributed systems written in Erlang/OTP",
+    "year": "2010",
+    "authors": [
+      "Peter Burcsi",
+      "Attila Kov\u00e1cs",
+      "Antal T\u00e1trai"
+    ],
+    "summary": "This paper presents a realization for the reliable and fast startup of distributed systems written in Erlang. The traditional startup provided by the Erlang/OTP library is sequential, parallelization usually requires unsafe and ad-hoc solutions. The proposed method calls only for slight modifications in the Erlang/OTP stdlib by applying a system dependency graph. It makes the startup safe, quick, ",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "1901.03575v1",
+    "title": "Static Analysis for Asynchronous JavaScript Programs",
+    "year": "2019",
+    "authors": [
+      "Thodoris Sotiropoulos",
+      "Benjamin Livshits"
+    ],
+    "summary": "Asynchrony has become an inherent element of JavaScript, as an effort to improve the scalability and performance of modern web applications. To this end, JavaScript provides programmers with a wide range of constructs and features for developing code that performs asynchronous computations, including but not limited to timers, promises, and non-blocking I/O. However, the data flow imposed by async",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2405.07206v1",
+    "title": "Static JavaScript Call Graphs: A Comparative Study",
+    "year": "2024",
+    "authors": [
+      "G\u00e1bor Antal",
+      "P\u00e9ter Heged\u0171s",
+      "Zolt\u00e1n T\u00f3th",
+      "Rudolf Ferenc",
+      "Tibor Gyim\u00f3thy"
+    ],
+    "summary": "The popularity and wide adoption of JavaScript both at the client and server side makes its code analysis more important than ever before. Most of the algorithms for vulnerability analysis, coding issue detection, or type inference rely on the call graph representation of the underlying program. Despite some obvious advantages of dynamic analysis, static algorithms should also be considered for ca",
+    "matched_queries": [
+      "all:\"Type Analysis for JavaScript\" OR all:TAJS OR all:JSAI",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "1808.07827v2",
+    "title": "Static Program Analysis for String Manipulation Languages",
+    "year": "2018",
+    "authors": [
+      "Vincenzo Arceri",
+      "Isabella Mastroeni"
+    ],
+    "summary": "In recent years, dynamic languages, such as JavaScript or Python, have been increasingly used in a wide range of fields and applications. Their tricky and misunderstood behaviors pose a hard challenge for static analysis of these programming languages. A key aspect of any dynamic language program is the multiple usage of strings, since they can be implicitly converted to another type value, transf",
+    "matched_queries": [
+      "all:JavaScript AND all:\"abstract interpretation\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "1809.09319v1",
+    "title": "Syntactic Conditions for Antichain Property in Consistency Restoring Prolog",
+    "year": "2018",
+    "authors": [
+      "Vu Phan"
+    ],
+    "summary": "We study syntactic conditions which guarantee when a CR-Prolog (Consistency Restoring Prolog) program has antichain property: no answer set is a proper subset of another. A notable such condition is that the program's dependency graph being acyclic and having no directed path from one cr-rule head literal to another.",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2408.04040v1",
+    "title": "Synthesizing Abstract Transformers for Reduced-Product Domains",
+    "year": "2024",
+    "authors": [
+      "Pankaj Kumar Kalita",
+      "Thomas Reps",
+      "Subhajit Roy"
+    ],
+    "summary": "Recently, we showed how to apply program-synthesis techniques to create abstract transformers in a user-provided domain-specific language (DSL) L (i.e., ''L-transformers\"). However, we found that the algorithm of Kalita et al. does not succeed when applied to reduced-product domains: the need to synthesize transformers for all of the domains simultaneously blows up the search space. Because reduce",
+    "matched_queries": [
+      "all:JavaScript AND all:\"abstract interpretation\"",
+      "all:\"Type Analysis for JavaScript\" OR all:TAJS OR all:JSAI"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2512.12313v3",
+    "title": "Taint-Based Code Slicing for LLMs-based Malicious NPM Package Detection",
+    "year": "2025",
+    "authors": [
+      "Dang-Khoa Nguyen",
+      "Gia-Thang Ho",
+      "Quang-Minh Pham",
+      "Tuyet A. Dang-Thi",
+      "Minh-Khanh Vu"
+    ],
+    "summary": "Software supply chain attacks on the npm ecosystem have grown increasingly sophisticated, exploiting obfuscation and complex logic to evade detection. Large Language Models (LLMs) offer strong semantic understanding of code but face practical constraints: limited context windows and high inference costs make full-package analysis infeasible, while naive token-based splitting fragments semantic con",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2607.16456v1",
+    "title": "TaintRadar: Semantic-Aware Taint-Style Vulnerability Detection via Augmented Code Property Graphs",
+    "year": "2026",
+    "authors": [
+      "Elie Rizk",
+      "Firas Ben Hmida",
+      "Birhanu Eshete"
+    ],
+    "summary": "Despite significant advances, static vulnerability analysis suffers from three critical limitations: coarse sanitization modeling, which treats validation as a binary barrier; database blindness, which breaks taint tracking across persistence layers; and shallow object-oriented analysis, which misses field-level and interprocedural data flows. These flaws stem from a common root cause: Code Proper",
+    "matched_queries": [
+      "all:\"code property graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2604.13114v1",
+    "title": "The Code Whisperer: LLM and Graph-Based AI for Smell and Vulnerability Resolution",
+    "year": "2026",
+    "authors": [
+      "Mohammad Baqar",
+      "Raji Rustamov",
+      "Alexander Hughes"
+    ],
+    "summary": "Code smells and software vulnerabilities both increase maintenance cost, yet they are often handled by separate tools that miss structural context and produce noisy warnings. This paper presents The Code Whisperer, a hybrid framework that combines graph-based program analysis with large language models to detect, explain, and repair maintainability and security issues within a unified workflow. Th",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "incremental"
+    ],
+    "id": "1611.08573v1",
+    "title": "The Marriage of Incremental and Approximate Computing",
+    "year": "2016",
+    "authors": [
+      "Dhanya R Krishnan"
+    ],
+    "summary": "Most data analytics systems that require low-latency execution and efficient utilization of computing resources, increasingly adopt two computational paradigms, namely, incremental and approximate computing. Incremental computation updates the output incrementally instead of re-computing everything from scratch for successive runs of a job with input changes. Approximate computation returns an app",
+    "matched_queries": [
+      "all:\"self-adjusting computation\" OR all:Adapton OR all:\"incremental computation\" AND all:dependency"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2402.00986v1",
+    "title": "The Parallel Semantics Program Dependence Graph",
+    "year": "2024",
+    "authors": [
+      "Brian Homerding",
+      "Atmn Patel",
+      "Enrico Armenio Deiana",
+      "Yian Su",
+      "Zujun Tan"
+    ],
+    "summary": "A compiler's intermediate representation (IR) defines a program's execution plan by encoding its instructions and their relative order. Compiler optimizations aim to replace a given execution plan with a semantically-equivalent one that increases the program's performance for the target architecture. Alternative representations of an IR, like the Program Dependence Graph (PDG), aid this process by",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\"",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2602.00303v1",
+    "title": "Towards Analyzing N-language Polyglot Programs",
+    "year": "2026",
+    "authors": [
+      "Jyoti Prakash",
+      "Abhishek Tiwari",
+      "Mikkel Baun Kj\u00e6rgaard"
+    ],
+    "summary": "Polyglot programming is gaining popularity as developers integrate multiple programming languages to harness their individual strengths. With the recent popularity of platforms like GraalVM and other multi-language runtimes, creating and managing these systems has become much more feasible. However, current research on analyzing multilingual programs mainly focuses on two languages, leaving out th",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "incremental"
+    ],
+    "id": "2501.11778v1",
+    "title": "Towards Change Impact Analysis in Microservices-based System Evolution",
+    "year": "2025",
+    "authors": [
+      "Tomas Cerny",
+      "Gabriel Goulis",
+      "Amr S. Abdelfattah"
+    ],
+    "summary": "Cloud-native systems are the mainstream for enterprise solutions, given their scalability, resilience, and other benefits. While the benefits of cloud-native systems fueled by microservices are known, less guidance exists on their evolution. One could assume that since microservices encapsulate their code, code changes remain encapsulated as well; however, the community is becoming more aware of t",
+    "matched_queries": [
+      "all:\"change propagation\" AND (all:reactive OR all:incremental OR all:memoization)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "1512.07067v1",
+    "title": "Transforming Javascript Event-Loop Into a Pipeline",
+    "year": "2015",
+    "authors": [
+      "Etienne Brodu",
+      "St\u00e9phane Fr\u00e9not",
+      "Fr\u00e9d\u00e9ric Obl\u00e9"
+    ],
+    "summary": "The development of a real-time web application often starts with a feature-driven approach allowing to quickly react to users feedbacks. However, this approach poorly scales in performance. Yet, the user-base can increase by an order of magnitude in a matter of hours. This first approach is unable to deal with the highest connections spikes. It leads the development team to shift to a scalable app",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "1305.6721v1",
+    "title": "Type-based Dependency Analysis for JavaScript",
+    "year": "2013",
+    "authors": [
+      "Matthias Keil",
+      "Peter Thiemann"
+    ],
+    "summary": "Dependency analysis is a program analysis that determines potential data flow between program points. While it is not a security analysis per se, it is a viable basis for investigating data integrity, for ensuring confidentiality, and for guaranteeing sanitization. A noninterference property can be stated and proved for the dependency analysis. We have designed and implemented a dependency analysi",
+    "matched_queries": [
+      "all:\"type-based dependency\" OR all:\"dependency analysis\" AND all:JavaScript",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2404.08619v1",
+    "title": "Using Information Flow to estimate interference between developers same method contributions",
+    "year": "2024",
+    "authors": [
+      "Roberto Souto Maior de Barros Filho",
+      "Paulo Borba"
+    ],
+    "summary": "This work's main goal is to understand if Information Flow Control (IFC), a security technique used for discovering leaks in software, could be used to indicate the presence of dynamic semantic conflicts between developers contributions in merge scenarios. However, as defining if a dynamic semantic conflict exists involves understanding the expected behaviour of a system, and as such behavioural s",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\""
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "rp"
+    ],
+    "id": "1803.10383v1",
+    "title": "Vehicle Platooning Simulations with Functional Reactive Programming",
+    "year": "2018",
+    "authors": [
+      "Bernd Finkbeiner",
+      "Felix Klein",
+      "Ruzica Piskac",
+      "Mark Santolucito"
+    ],
+    "summary": "Functional languages have provided major benefits to the verification community. Although features such as purity, a strong type system, and computational abstractions can help guide programmers away from costly errors, these can present challenges when used in a reactive system. Functional Reactive Programming is a paradigm that allows users the benefits of functional languages and an easy interf",
+    "matched_queries": [
+      "all:\"functional reactive\" AND (all:static OR all:type OR all:modal OR all:causality)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "frontend"
+    ],
+    "id": "2504.13846v1",
+    "title": "VoxLogicA UI: Supporting Declarative Medical Image Analysis",
+    "year": "2025",
+    "authors": [
+      "Antonio Strippoli"
+    ],
+    "summary": "This Master's Thesis in Computer Science dives into the design and creation of a user-friendly interface for VoxLogicA, an image analysis tool using spatial model checking with a focus on neuroimaging. The research tackles the problem of existing tools being too complex, which makes them hard for medical professionals and researchers to use. By using spatial logic, the goal is to make these powerf",
+    "matched_queries": [
+      "all:Svelte OR all:SolidJS OR all:\"Vue.js\" AND (all:reactive OR all:compiler OR all:static)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "1808.10652v1",
+    "title": "Wasabi: A Framework for Dynamically Analyzing WebAssembly",
+    "year": "2018",
+    "authors": [
+      "Daniel Lehmann",
+      "Michael Pradel"
+    ],
+    "summary": "WebAssembly is the new low-level language for the web and has now been implemented in all major browsers since over a year. To ensure the security, performance, and correctness of future web applications, there is a strong need for dynamic analysis tools for WebAssembly. Unfortunately, building such tools from scratch requires knowledge of low-level details of the language, and perhaps even its ru",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "js_analysis"
+    ],
+    "id": "2601.17390v2",
+    "title": "YASA: Scalable Multi-Language Taint Analysis on the Unified AST at Ant Group",
+    "year": "2026",
+    "authors": [
+      "Yayi Wang",
+      "Shenao Wang",
+      "Jian Zhao",
+      "Shaosen Shi",
+      "Ting Li"
+    ],
+    "summary": "Modern enterprises increasingly adopt diverse technology stacks with various programming languages, posing significant challenges for static application security testing (SAST). Existing taint analysis tools are predominantly designed for single languages, requiring substantial engineering effort that scales with language diversity. While multi-language tools like CodeQL, Joern, and WALA attempt t",
+    "matched_queries": [
+      "all:JavaScript AND (all:taint OR all:dataflow OR all:\"call graph\" OR all:\"static analysis\") AND (all:event OR all:callback OR all:framework)"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "incremental"
+    ],
+    "id": "1609.05337v1",
+    "title": "miniAdapton: A Minimal Implementation of Incremental Computation in Scheme",
+    "year": "2016",
+    "authors": [
+      "Dakota Fisher",
+      "Matthew A. Hammer",
+      "William Byrd",
+      "Matthew Might"
+    ],
+    "summary": "We describe a complete Scheme implementation of miniAdapton, which implements the core functionality of the Adapton system for incremental computation (also known as self-adjusting computation). Like Adapton, miniAdapton allows programmers to safely combine mutation and memoization. miniAdapton is built on top of an even simpler system, microAdapton. Both miniAdapton and microAdapton are designed ",
+    "matched_queries": [
+      "all:\"self-adjusting computation\" OR all:Adapton OR all:\"incremental computation\" AND all:dependency",
+      "seed_id"
+    ]
+  },
+  {
+    "score": 3,
+    "groups": [
+      "rp"
+    ],
+    "id": "2512.00250v1",
+    "title": "ng-reactive-lint: Smarter Linting for Angular Apps",
+    "year": "2025",
+    "authors": [
+      "Shrinivass Arunachalam Balasubramanian"
+    ],
+    "summary": "Reactivity is central to Angular applications, yet subtle misuse of Observables, Signals, and change-detection often leads to performance regressions that are difficult to diagnose. Although Angular 17 introduced a unified, signal-first model, most enterprise codebases still rely heavily on legacy RxJS patterns that create unpredictable update flows, memory leaks, and excessive change cycles. To a",
+    "matched_queries": [
+      "all:\"watchEffect\" OR all:\"useEffect\" OR all:hooks AND all:\"static analysis\""
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "path"
+    ],
+    "id": "1705.00595v1",
+    "title": "Abstract Interpretation with Unfoldings",
+    "year": "2017",
+    "authors": [
+      "Marcelo Sousa",
+      "C\u00e9sar Rodr\u00edguez",
+      "Vijay D'Silva",
+      "Daniel Kroening"
+    ],
+    "summary": "We present and evaluate a technique for computing path-sensitive interference conditions during abstract interpretation of concurrent programs. In lieu of fixed point computation, we use prime event structures to compactly represent causal dependence and interference between sequences of transformers. Our main contribution is an unfolding algorithm that uses a new notion of independence to avoid r",
+    "matched_queries": [
+      "all:\"path-sensitive\" AND (all:slicing OR all:dataflow OR all:analysis)"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "rp"
+    ],
+    "id": "1703.10859v1",
+    "title": "Active Expressions: Basic Building Blocks for Reactive Programming",
+    "year": "2017",
+    "authors": [
+      "Stefan Ramson",
+      "Robert Hirschfeld"
+    ],
+    "summary": "Modern software development without reactive programming is hard to imagine. Reactive programming favors a wide class of contemporary software systems that respond to user input, network messages, and other events. While reactive programming is an active field of research, the implementation of reactive concepts remains challenging. In particular, change detection represents a hard but inevitable ",
+    "matched_queries": [
+      "seed_id"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "agent_fw"
+    ],
+    "id": "2505.07603v1",
+    "title": "AgentFlow: Resilient Adaptive Cloud-Edge Framework for Multi-Agent Coordination",
+    "year": "2025",
+    "authors": [
+      "Ching Han Chen",
+      "Ming Fang Shiu"
+    ],
+    "summary": "This paper presents AgentFlow, a MAS-based framework for programmable distributed systems in heterogeneous cloud-edge environments. It introduces logistics objects and abstract agent interfaces to enable dynamic service flows and modular orchestration. AgentFlow supports decentralized publish-subscribe messaging and many-to-many service elections, enabling decision coordination without a central s",
+    "matched_queries": [
+      "all:AgentFlow OR all:\"agent dependency graph\""
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "path"
+    ],
+    "id": "2605.12091v1",
+    "title": "Automated Amortised Analysis of Skew Heaps and Leftist Heaps (Extended Version)",
+    "year": "2026",
+    "authors": [
+      "Armin Walch",
+      "Georg Moser",
+      "Berry Schoenmakers",
+      "Florian Zuleger"
+    ],
+    "summary": "We study the fully automated amortised analysis of purely functional data structures like skew heaps, as well as weight- and rank-biased leftist heaps. For that we generalise earlier works on automated amortised resource analysis by developing a type inference based approach with a generic type system. This allows for modular reasoning and the inference of precise and optimal cost bounds. More spe",
+    "matched_queries": [
+      "all:\"path-sensitive\" AND (all:slicing OR all:dataflow OR all:analysis)"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "modal_frp"
+    ],
+    "id": "1810.13261v1",
+    "title": "Bisimulation as path type for guarded recursive types",
+    "year": "2018",
+    "authors": [
+      "Rasmus Ejlers M\u00f8gelberg",
+      "Niccol\u00f2 Veltri"
+    ],
+    "summary": "In type theory, coinductive types are used to represent processes, and are thus crucial for the formal verification of non-terminating reactive programs in proof assistants based on type theory, such as Coq and Agda. Currently, programming and reasoning about coinductive types is difficult for two reasons: The need for recursive definitions to be productive, and the lack of coincidence of the buil",
+    "matched_queries": [
+      "all:\"modal FRP\" OR all:RaTT OR all:\"guarded recursion\" AND all:reactive"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "path"
+    ],
+    "id": "2502.04952v3",
+    "title": "Boosting Path-Sensitive Value Flow Analysis via Removal of Redundant Summaries",
+    "year": "2025",
+    "authors": [
+      "Yongchao Wang",
+      "Yuandao Cai",
+      "Charles Zhang"
+    ],
+    "summary": "Value flow analysis that tracks the flow of values via data dependence is a widely used technique for detecting a broad spectrum of software bugs. However, the scalability issue often deteriorates when high precision (i.e., path-sensitivity) is required, as the instantiation of function summaries becomes excessively time- and memory-intensive. The primary culprit, as we observe, is the existence o",
+    "matched_queries": [
+      "all:\"path-sensitive\" AND (all:slicing OR all:dataflow OR all:analysis)",
+      "all:\"value-flow\" AND all:analysis"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "2104.09107v1",
+    "title": "Causal Program Dependence Analysis",
+    "year": "2021",
+    "authors": [
+      "Seongmin Lee",
+      "Dave Binkley",
+      "Robert Feldt",
+      "Nicolas Gold",
+      "Shin Yoo"
+    ],
+    "summary": "We introduce Causal Program Dependence Analysis (CPDA), a dynamic dependence analysis that applies causal inference to model the strength of program dependence relations in a continuous space. CPDA observes the association between program elements by constructing and executing modified versions of a program. One advantage of CPDA is that this construction requires only light-weight parsing rather ",
+    "matched_queries": [
+      "seed_id"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "incremental"
+    ],
+    "id": "2002.05256v2",
+    "title": "Change actions: from incremental computation to discrete derivatives",
+    "year": "2020",
+    "authors": [
+      "Mario Alvarez-Picallo"
+    ],
+    "summary": "The goal of this thesis is threefold: first, to provide a general semantic setting for reasoning about incremental computation. Second, to establish and clarify the connection between derivatives in the incremental sense and derivatives in the analytic sense, that is to say, to provide a common definition of derivative of which the previous two are particular instances. Third, to give a theoretica",
+    "matched_queries": [
+      "seed_id"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "path"
+    ],
+    "id": "2307.06346v5",
+    "title": "Compositional Shape Analysis with Shared Abduction and Biabductive Loop Acceleration (Extended Version)",
+    "year": "2023",
+    "authors": [
+      "Florian Sextl",
+      "Adam Rogalewicz",
+      "Tom\u00e1\u0161 Vojnar",
+      "Florian Zuleger"
+    ],
+    "summary": "Biabduction-based shape analysis is a compositional verification and analysis technique that can prove memory safety in the presence of complex, linked data structures. Despite its usefulness, several open problems persist for this kind of analysis; two of which we address in this paper. On the one hand, the original analysis is path-sensitive but cannot combine safety requirements for related bra",
+    "matched_queries": [
+      "all:\"path-sensitive\" AND (all:slicing OR all:dataflow OR all:analysis)"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "path"
+    ],
+    "id": "2208.12561v1",
+    "title": "Computing Maximum Fixed Point Solutions over Feasible Paths in Data Flow Analyses",
+    "year": "2022",
+    "authors": [
+      "Komal Pathade",
+      "Uday Khedker"
+    ],
+    "summary": "The control flow graph (CFG) representation of a procedure used by virtually all flow-sensitive program analyses, admits a large number of infeasible control flow paths i.e., these paths do not occur in any execution of the program. Hence the information reaching along infeasible paths in an analysis is spurious. This affects the precision of the conventional maximum fixed point (MFP) solution of ",
+    "matched_queries": [
+      "all:\"path-sensitive\" AND (all:slicing OR all:dataflow OR all:analysis)"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "path"
+    ],
+    "id": "1710.01545v1",
+    "title": "Contribution of cellular automata to the understanding of corrosion phenomena",
+    "year": "2017",
+    "authors": [
+      "M. Zenkri",
+      "D. di Caprio",
+      "C. P\u00e9rez-Brokate",
+      "D. F\u00e9ron",
+      "J. de Lamare"
+    ],
+    "summary": "We present a stochastic CA modelling approach of corrosion based on spatially separated electrochemical half-reactions, diffusion, acido-basic neutralization in solution and passive properties of the oxide layers. Starting from different initial conditions, a single framework allows one to describe generalised corrosion, localised corrosion, reactive and passive surfaces, including occluded corros",
+    "matched_queries": [
+      "all:\"bare metal\" AND all:reactive"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "modal_frp"
+    ],
+    "id": "2606.11692v1",
+    "title": "Evaluation of Alternative-Based Information Systems for Deliberative Polling using an Agentic Simulator",
+    "year": "2026",
+    "authors": [
+      "Rwaida Alssadi",
+      "Khulud Alawaji",
+      "Balaji Kasula",
+      "Muntaser Syed",
+      "Badria Alfurhood"
+    ],
+    "summary": "Deliberative polling promises to improve collective decision-making by exposing shareholders to a broad range of arguments before they vote. Yet ensuring that every voter encounters a representative sample of the reason space, the coverage problem, remains an open challenge, particularly at scale and in adversarial or strategically motivated electorates. This paper introduces a way of evaluating s",
+    "matched_queries": [
+      "all:\"modal FRP\" OR all:RaTT OR all:\"guarded recursion\" AND all:reactive"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "path"
+    ],
+    "id": "1404.1279v3",
+    "title": "Event-Flow Graphs for Efficient Path-Sensitive Analyses",
+    "year": "2014",
+    "authors": [
+      "Ahmed Tamrawi",
+      "Suresh Kothari"
+    ],
+    "summary": "Efficient and accurate path-sensitive analyses pose the challenges of: (a) analyzing an exponentially-increasing number of paths in a control-flow graph (CFG), and (b) checking feasibility of paths in a CFG. We address these challenges by introducing an equivalence relation on the CFG paths to partition them into equivalence classes. It is then sufficient to perform analysis on these equivalence c",
+    "matched_queries": [
+      "all:\"path-sensitive\" AND (all:slicing OR all:dataflow OR all:analysis)"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "path"
+    ],
+    "id": "1212.6542v1",
+    "title": "Explicit-Value Analysis Based on CEGAR and Interpolation",
+    "year": "2012",
+    "authors": [
+      "Dirk Beyer",
+      "Stefan L\u00f6we"
+    ],
+    "summary": "Abstraction, counterexample-guided refinement, and interpolation are techniques that are essential to the success of predicate-based program analysis. These techniques have not yet been applied together to explicit-value program analysis. We present an approach that integrates abstraction and interpolation-based refinement into an explicit-value analysis, i.e., a program analysis that tracks expli",
+    "matched_queries": [
+      "all:\"path-sensitive\" AND (all:slicing OR all:dataflow OR all:analysis)"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "path"
+    ],
+    "id": "2305.13483v4",
+    "title": "Extracting Protocol Format as State Machine via Controlled Static Loop Analysis",
+    "year": "2023",
+    "authors": [
+      "Qingkai Shi",
+      "Xiangzhe Xu",
+      "Xiangyu Zhang"
+    ],
+    "summary": "Reverse engineering of protocol message formats is critical for many security applications. Mainstream techniques use dynamic analysis and inherit its low-coverage problem -- the inferred message formats only reflect the features of their inputs. To achieve high coverage, we choose to use static analysis to infer message formats from the implementation of protocol parsers. In this work, we focus o",
+    "matched_queries": [
+      "all:\"path-sensitive\" AND (all:slicing OR all:dataflow OR all:analysis)"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "path"
+    ],
+    "id": "2603.27224v4",
+    "title": "Finding Memory Leaks in C/C++ Programs via Neuro-Symbolic Augmented Static Analysis",
+    "year": "2026",
+    "authors": [
+      "Huihui Huang",
+      "Jieke Shi",
+      "Bo Wang",
+      "Zhou Yang",
+      "David Lo"
+    ],
+    "summary": "Memory leaks remain prevalent in real-world C/C++ software. Static analyzers such as CodeQL provide scalable program analysis but frequently miss such bugs because they cannot recognize project-specific custom memory-management functions and lack path-sensitive control-flow modeling. We present MemHint, a neuro-symbolic pipeline that addresses both limitations by combining LLMs' semantic understan",
+    "matched_queries": [
+      "all:\"path-sensitive\" AND (all:slicing OR all:dataflow OR all:analysis)"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "incremental"
+    ],
+    "id": "1811.06069v2",
+    "title": "Fixing Incremental Computation: Derivatives of Fixpoints, and the Recursive Semantics of Datalog",
+    "year": "2018",
+    "authors": [
+      "Mario Alvarez-Picallo",
+      "Alex Eyers-Taylor",
+      "Michael Peyton Jones",
+      "C. -H. Luke Ong"
+    ],
+    "summary": "Incremental computation has recently been studied using the concepts of change structures and derivatives of programs, where the derivative of a function allows updating the output of the function based on a change to its input. We generalise change structures to change actions, and study their algebraic properties. We develop change actions for common structures in computer science, including dir",
+    "matched_queries": [
+      "seed_id"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "incremental"
+    ],
+    "id": "2004.05297v2",
+    "title": "Graphsurge: Graph Analytics on View Collections Using Differential Computation",
+    "year": "2020",
+    "authors": [
+      "Siddhartha Sahu",
+      "Semih Salihoglu"
+    ],
+    "summary": "This paper presents the design and implementation of a new open-source view-based graph analytics system called Graphsurge. Graphsurge is designed to support applications that analyze multiple snapshots or views of a large-scale graph. Users program Graphsurge through a declarative graph view definition language (GVDL) to create views over input graphs and a Differential Dataflow-based programming",
+    "matched_queries": [
+      "seed_id"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "dataflow_framework"
+    ],
+    "id": "cond-mat/0408613v6",
+    "title": "Hall resistance and Lorenz ratio models in YBa2Cu3O7",
+    "year": "2004",
+    "authors": [
+      "Andrew Das Arulsamy"
+    ],
+    "summary": "The 2D models of heat capacity, its conductivity ($\u03ba$), Hall resistance ($R_H$) and the Lorenz ratio ($\\mathcal{L}$) have been derived using the ionization energy ($E_I$) based Fermi-Dirac statistics (iFDS). These models reproduce the experimentally measured $\u03c1(T)$ and $R_H(T)$. The variation of $\\mathcal{L}$ is proportional to 1/T due to electron-phonon ($e$-$ph$) scattering in $\u03ba$. However, the ",
+    "matched_queries": [
+      "all:IFDS OR all:\"interprocedural finite distributive\""
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "agent_fw"
+    ],
+    "id": "2510.05592v2",
+    "title": "In-the-Flow Agentic System Optimization for Effective Planning and Tool Use",
+    "year": "2025",
+    "authors": [
+      "Zhuofeng Li",
+      "Haoxiang Zhang",
+      "Seungju Han",
+      "Sheng Liu",
+      "Jianwen Xie"
+    ],
+    "summary": "Outcome-driven reinforcement learning has advanced reasoning in large language models (LLMs), but prevailing tool-augmented approaches train a single, monolithic policy that interleaves thoughts and tool calls under full context; this scales poorly with long horizons and diverse tools and generalizes weakly to new scenarios. Agentic systems offer a promising alternative by decomposing work across ",
+    "matched_queries": [
+      "all:AgentFlow OR all:\"agent dependency graph\""
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "path"
+    ],
+    "id": "1911.07988v2",
+    "title": "Invariant Diffs",
+    "year": "2019",
+    "authors": [
+      "Ashwin Kallingal Joshy",
+      "Wei Le"
+    ],
+    "summary": "Software development is inherently incremental. Nowadays, many software companies adopt an agile process and a shorter release cycle, where software needs to be delivered faster with quality assurances. On the other hand, the majority of existing program analysis tools still target single versions of programs and are slow and inflexible to handle changes. In the popular version control systems suc",
+    "matched_queries": [
+      "all:\"path-sensitive\" AND (all:slicing OR all:dataflow OR all:analysis)"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "dataflow_framework"
+    ],
+    "id": "cond-mat/0410443v3",
+    "title": "Ionization energy based Fermi-Dirac statistics",
+    "year": "2004",
+    "authors": [
+      "Andrew Das Arulsamy"
+    ],
+    "summary": "Quantitative differences of Lagrange multipliers between standard Fermi-Dirac statistics (FDS) and Ionization energy ($E_I$) based FDS (iFDS) are analyzed in detail. It is shown here that iFDS is degenerate and its total energy remains the same with the standard FDS. The total energy can be obtained by recasting the $E_I$ in quantized form, as required by the restrictive condition.",
+    "matched_queries": [
+      "all:IFDS OR all:\"interprocedural finite distributive\""
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "path"
+    ],
+    "id": "2412.15931v2",
+    "title": "Large Language Model assisted Hybrid Fuzzing",
+    "year": "2024",
+    "authors": [
+      "Ruijie Meng",
+      "Gregory J. Duck",
+      "Abhik Roychoudhury"
+    ],
+    "summary": "Greybox fuzzing is one of the most popular methods for detecting software vulnerabilities, which conducts a biased random search within the program input space. To enhance its effectiveness in achieving deep coverage of program behaviors, greybox fuzzing is often combined with concolic execution, which performs a path-sensitive search over the domain of program inputs. In hybrid fuzzing, conventio",
+    "matched_queries": [
+      "all:\"path-sensitive\" AND (all:slicing OR all:dataflow OR all:analysis)"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "dataflow_framework"
+    ],
+    "id": "cond-mat/0212202v13",
+    "title": "Magneto-electronic transport theory in ferromagnets above the Curie temperature and in semiconductors",
+    "year": "2002",
+    "authors": [
+      "Andrew Das Arulsamy"
+    ],
+    "summary": "Quantitative differences of Lagrange multipliers between standard Fermi-Dirac statistics (FDS) and Ionization energy ($E_I$) based FDS (iFDS) are analyzed in detail to obtain reasonably accurate interpretations without violating the standard FDS. The resistivity and Hall-resistance models in 1D, 2D and 3D are also derived to illustrate the transport phenomena in semiconducting manganites. It is sh",
+    "matched_queries": [
+      "all:IFDS OR all:\"interprocedural finite distributive\""
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "incremental"
+    ],
+    "id": "2509.13992v2",
+    "title": "On Tackling High-Dimensional Nonconvex Stochastic Optimization via Stochastic First-Order Methods with Non-smooth Proximal Terms and Variance Reduction",
+    "year": "2025",
+    "authors": [
+      "Yue Xie",
+      "Jiawen Bi",
+      "Hongcheng Liu"
+    ],
+    "summary": "When the nonconvex problem is complicated by stochasticity, the sample complexity of stochastic first-order methods may depend linearly on the problem dimension, which is undesirable for large-scale problems. To alleviate this linear dependence, we adopt non-Euclidean settings and propose two choices of non-smooth proximal terms when taking the stochastic gradient steps. This approach leads to str",
+    "matched_queries": [
+      "all:\"self-adjusting computation\" OR all:Adapton OR all:\"incremental computation\" AND all:dependency"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "incremental"
+    ],
+    "id": "1912.09747v1",
+    "title": "Online Analysis of Distributed Dataflows with Timely Dataflow",
+    "year": "2019",
+    "authors": [
+      "Malte Sandstede"
+    ],
+    "summary": "We present ST2, an end-to-end solution to analyze distributed dataflows in an online setting. It is powered by Timely Dataflow, a low-latency, distributed data-parallel dataflow computational framework, and expands on its predecessor SnailTrail 1, a system to run online critical path analysis on program activity graphs derived from dataflow execution traces. ST2 connects to a running Timely comput",
+    "matched_queries": [
+      "seed_id"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "path"
+    ],
+    "id": "2302.07512v1",
+    "title": "Path-sensitive Type Analysis with Backward Analysis for Quality Assurance of Dynamic Typed Language Code",
+    "year": "2023",
+    "authors": [
+      "Ryutaro Kodama",
+      "Yoshitaka Arahori",
+      "Kathuhiko Gondow"
+    ],
+    "summary": "Precise and fast static type analysis for dynamically typed language is very difficult. This is mainly because the lack of static type information makes it difficult to approximate all possible values of a variable. Actually, the existing static type analysis methods are imprecise or slow. In this paper, we propose a novel method to improve the precision of static type analysis for Python code, wh",
+    "matched_queries": [
+      "all:\"path-sensitive\" AND (all:slicing OR all:dataflow OR all:analysis)"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "path"
+    ],
+    "id": "2510.14341v1",
+    "title": "PathFix: Automated Program Repair with Expected Path",
+    "year": "2025",
+    "authors": [
+      "Xu He",
+      "Shu Wang",
+      "Kun Sun"
+    ],
+    "summary": "Automated program repair (APR) techniques are effective in fixing inevitable defects in software, enhancing development efficiency and software robustness. However, due to the difficulty of generating precise specifications, existing APR methods face two main challenges: generating too many plausible patch candidates and overfitting them to partial test cases. To tackle these challenges, we introd",
+    "matched_queries": [
+      "all:\"path-sensitive\" AND (all:slicing OR all:dataflow OR all:analysis)"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "modal_frp"
+    ],
+    "id": "2406.02746v5",
+    "title": "RATT: A Thought Structure for Coherent and Correct LLM Reasoning",
+    "year": "2024",
+    "authors": [
+      "Jinghan Zhang",
+      "Xiting Wang",
+      "Weijieying Ren",
+      "Lu Jiang",
+      "Dongjie Wang"
+    ],
+    "summary": "Large Language Models (LLMs) gain substantial reasoning and decision-making capabilities from thought structures. However, existing methods such as Tree of Thought and Retrieval Augmented Thoughts often fall short in complex tasks due to the limitations of insufficient local retrieval of factual knowledge and inadequate global selection of strategies. These limitations make it challenging for thes",
+    "matched_queries": [
+      "all:\"modal FRP\" OR all:RaTT OR all:\"guarded recursion\" AND all:reactive"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "modal_frp"
+    ],
+    "id": "2105.00303v2",
+    "title": "RATT: Leveraging Unlabeled Data to Guarantee Generalization",
+    "year": "2021",
+    "authors": [
+      "Saurabh Garg",
+      "Sivaraman Balakrishnan",
+      "J. Zico Kolter",
+      "Zachary C. Lipton"
+    ],
+    "summary": "To assess generalization, machine learning scientists typically either (i) bound the generalization gap and then (after training) plug in the empirical risk to obtain a bound on the true risk; or (ii) validate empirically on holdout data. However, (i) typically yields vacuous guarantees for overparameterized models. Furthermore, (ii) shrinks the training set and its guarantee erodes with each re-u",
+    "matched_queries": [
+      "all:\"modal FRP\" OR all:RaTT OR all:\"guarded recursion\" AND all:reactive"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "modal_frp"
+    ],
+    "id": "2007.06271v2",
+    "title": "RATT: Recurrent Attention to Transient Tasks for Continual Image Captioning",
+    "year": "2020",
+    "authors": [
+      "Riccardo Del Chiaro",
+      "Bart\u0142omiej Twardowski",
+      "Andrew D. Bagdanov",
+      "Joost van de Weijer"
+    ],
+    "summary": "Research on continual learning has led to a variety of approaches to mitigating catastrophic forgetting in feed-forward classification networks. Until now surprisingly little attention has been focused on continual learning of recurrent models applied to problems like image captioning. In this paper we take a systematic look at continual learning of LSTM-based models for image captioning. We propo",
+    "matched_queries": [
+      "all:\"modal FRP\" OR all:RaTT OR all:\"guarded recursion\" AND all:reactive"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "modal_frp"
+    ],
+    "id": "2109.09838v1",
+    "title": "Robust Multi-Robot Active Target Tracking Against Sensing and Communication Attacks",
+    "year": "2021",
+    "authors": [
+      "Lifeng Zhou",
+      "Vijay Kumar"
+    ],
+    "summary": "The problem of multi-robot target tracking asks for actively planning the joint motion of robots to track targets. In this paper, we focus on such target tracking problems in adversarial environments, where attacks or failures may deactivate robots' sensors and communications. In contrast to the previous works that consider no attacks or sensing attacks only, we formalize the first robust multi-ro",
+    "matched_queries": [
+      "all:\"modal FRP\" OR all:RaTT OR all:\"guarded recursion\" AND all:reactive"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "path"
+    ],
+    "id": "2103.15420v2",
+    "title": "SafeDrop: Detecting Memory Deallocation Bugs of Rust Programs via Static Data-Flow Analysis",
+    "year": "2021",
+    "authors": [
+      "Mohan Cui",
+      "Chengjun Chen",
+      "Hui Xu",
+      "Yangfan Zhou"
+    ],
+    "summary": "Rust is an emerging programming language that aims to prevent memory-safety bugs. However, the current design of Rust also brings side effects which may increase the risk of memory-safety issues. In particular, it employs OBRM (ownership-based resource management) and enforces automatic deallocation of unused resources without the garbage collector. It may therefore falsely deallocate reclaimed me",
+    "matched_queries": [
+      "all:\"path-sensitive\" AND (all:slicing OR all:dataflow OR all:analysis)"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "rp"
+    ],
+    "id": "2506.13815v1",
+    "title": "Signal-First Architectures: Rethinking Front-End Reactivity",
+    "year": "2025",
+    "authors": [
+      "Shrinivass Arunachalam Balasubramanian"
+    ],
+    "summary": "Modern front-end frameworks face escalating reactivity management challenges, including performance degradation from complex observable chains and unpredictable re-renders. This paper introduces Signal-First Architecture--a novel paradigm where granular, dependency-tracked signals are the atomic unit of reactivity. Unlike traditional RxJS or NgRx patterns, Signal-First enforces reactive flows from",
+    "matched_queries": [
+      "seed_id"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "depgraph"
+    ],
+    "id": "1903.02518v3",
+    "title": "Stability and steady state of complex cooperative systems: a diakoptic approach",
+    "year": "2019",
+    "authors": [
+      "Philip Greulich",
+      "Benjamin D. MacArthur",
+      "Cristina Parigini",
+      "Rub\u00e9n J. S\u00e1nchez Garc\u00eda"
+    ],
+    "summary": "Cooperative dynamics are common in ecology and population dynamics. However, their commonly high degree of complexity with a large number of coupled degrees of freedom renders them difficult to analyse. Here we present a graph-theoretical criterion, via a diakoptic approach (`divide-and-conquer') to determine a cooperative system's stability by decomposing the system's dependence graph into its st",
+    "matched_queries": [
+      "all:\"program dependence graph\" OR all:\"system dependence graph\""
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "incremental"
+    ],
+    "id": "2309.10611v1",
+    "title": "Sym\u00e9trons et K-boucles omega-stables",
+    "year": "2023",
+    "authors": [
+      "Samuel Zamour"
+    ],
+    "summary": "We develop the model theory of omega-stable K-loops and 'sym\u00e9trons'. Continuing Poizat's seminal work, we notably establish an appropriate version of the indecomposability theorem and we adapt Lascar's analysis to this context. -- Nous d\u00e9veloppons la th\u00e9orie des mod\u00e8les des K-boucles et des sym\u00e9trons omega-stables. En poursuivant le travail s\u00e9minal de Poizat, nous \u00e9tablissons notamment une version",
+    "matched_queries": [
+      "all:\"self-adjusting computation\" OR all:Adapton OR all:\"incremental computation\" AND all:dependency"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "agent_fw"
+    ],
+    "id": "2604.20801v1",
+    "title": "Synthesizing Multi-Agent Harnesses for Vulnerability Discovery",
+    "year": "2026",
+    "authors": [
+      "Hanzhi Liu",
+      "Chaofan Shou",
+      "Xiaonan Liu",
+      "Hongbo Wen",
+      "Yanju Chen"
+    ],
+    "summary": "LLM agents have begun to find real security vulnerabilities that human auditors and automated fuzzers missed for decades, in source-available targets where the analyst can build and instrument the code. In practice the work is split among several agents, wired together by a harness: the program that fixes which roles exist, how they pass information, which tools each may call, and how retries are ",
+    "matched_queries": [
+      "all:AgentFlow OR all:\"agent dependency graph\""
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "path"
+    ],
+    "id": "1511.00039v1",
+    "title": "Theory of diffusion-influenced reactions in complex geometries",
+    "year": "2015",
+    "authors": [
+      "Marta Galanti",
+      "Duccio Fanelli",
+      "Francesco Piazza"
+    ],
+    "summary": "Chemical reactions involving diffusion of reactants and subsequent chemical fixation steps are generally termed \"diffusion-influenced\" (DI). Virtually all biochemical processes in living media can be counted among them, together with those occurring in an ever-growing number of emerging nano-technologies. The role of the environment's geometry (obstacles, compartmentalization) and distributed reac",
+    "matched_queries": [
+      "all:\"distributed reactive\" OR all:\"thread-safe reactive\""
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "path"
+    ],
+    "id": "1706.01407v2",
+    "title": "Towards a Flow- and Path-Sensitive Information Flow Analysis: Technical Report",
+    "year": "2017",
+    "authors": [
+      "Peixuan Li",
+      "Danfeng Zhang"
+    ],
+    "summary": "This paper investigates a flow- and path-sensitive static information flow analysis. Compared with security type systems with fixed labels, it has been shown that flow-sensitive type systems accept more secure programs. We show that an information flow analysis with fixed labels can be both flow- and path-sensitive. The novel analysis has two major components: 1) a general-purpose program transfor",
+    "matched_queries": [
+      "all:\"path-sensitive\" AND (all:slicing OR all:dataflow OR all:analysis)"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "path"
+    ],
+    "id": "1504.08039v1",
+    "title": "Trust, but Verify: Two-Phase Typing for Dynamic Languages",
+    "year": "2015",
+    "authors": [
+      "Panagiotis Vekris",
+      "Benjamin Cosman",
+      "Ranjit Jhala"
+    ],
+    "summary": "A key challenge when statically typing so-called dynamic languages is the ubiquity of value-based overloading, where a given function can dynamically reflect upon and behave according to the types of its arguments. Thus, to establish basic types, the analysis must reason precisely about values, but in the presence of higher-order functions and polymorphism, this reasoning itself can require basic ",
+    "matched_queries": [
+      "all:\"path-sensitive\" AND (all:slicing OR all:dataflow OR all:analysis)"
+    ]
+  },
+  {
+    "score": 2,
+    "groups": [
+      "path"
+    ],
+    "id": "2410.12351v1",
+    "title": "Yama: Precise Opcode-based Data Flow Analysis for Detecting PHP Applications Vulnerabilities",
+    "year": "2024",
+    "authors": [
+      "Zhao Jiazhen",
+      "Zhu Kailong",
+      "Yu Lu",
+      "Huang Hui",
+      "Lu Yuliang"
+    ],
+    "summary": "Web applications encompass various aspects of daily life, including online shopping, e-learning, and internet banking. Once there is a vulnerability, it can cause severe societal and economic damage. Due to its ease of use, PHP has become the preferred server-side programming language for web applications, making PHP applications a primary target for attackers. Data flow analysis is widely used fo",
+    "matched_queries": [
+      "all:\"path-sensitive\" AND (all:slicing OR all:dataflow OR all:analysis)"
+    ]
+  }
+]

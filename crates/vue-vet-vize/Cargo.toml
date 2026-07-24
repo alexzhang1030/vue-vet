@@ -19,6 +19,7 @@ vize_atelier_core.workspace = true
 vize_atelier_sfc.workspace = true
 vue-vet-core = { path = "../vue-vet-core" }
 vue-vet-oxc = { path = "../vue-vet-oxc" }
+vue-vet-reactivity = { path = "../vue-vet-reactivity" }
 vue-vet-rules = { path = "../vue-vet-rules" }
 
 [dev-dependencies]

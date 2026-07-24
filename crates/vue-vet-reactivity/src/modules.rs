@@ -16,17 +16,70 @@ use thiserror::Error;
 use vue_vet_core::{ReactiveBindingFact, ReactiveBindingKind, ReactivityGraph, ScriptKind};
 
 use super::{
-  collect_binding_identifiers, collect_imported_bindings, module_export_name,
+  TraceSeeds, collect_binding_identifiers, collect_imported_bindings, module_export_name,
   reactive_binding_kind, reference_resolves_to_binding, resolved_vue_callee, source_span,
   trace_reactivity_seeded,
 };
+use oxc_ast::ast::Argument;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ModuleSource {
   pub id: String,
+  /// Text parsed by Oxc (extracted `<script>` body for SFCs).
   pub source: String,
   pub language: String,
   pub kind: ScriptKind,
+  /// Byte offset of [`Self::source`] within [`Self::span_source`].
+  #[serde(default)]
+  pub source_offset: usize,
+  /// Full original file used for absolute line/column (SFC source). When empty,
+  /// spans are computed against [`Self::source`] (standalone modules).
+  #[serde(default)]
+  pub span_source: String,
+}
+
+impl ModuleSource {
+  /// Standalone JS/TS module (offset 0, spans against `source`).
+  #[must_use]
+  pub fn standalone(
+    id: impl Into<String>,
+    source: impl Into<String>,
+    language: impl Into<String>,
+    kind: ScriptKind,
+  ) -> Self {
+    Self {
+      id: id.into(),
+      source: source.into(),
+      language: language.into(),
+      kind,
+      source_offset: 0,
+      span_source: String::new(),
+    }
+  }
+
+  /// Extracted SFC script block with absolute span mapping into the original file.
+  #[must_use]
+  pub fn sfc_script(
+    id: impl Into<String>,
+    script_source: impl Into<String>,
+    language: impl Into<String>,
+    kind: ScriptKind,
+    source_offset: usize,
+    sfc_source: impl Into<String>,
+  ) -> Self {
+    Self {
+      id: id.into(),
+      source: script_source.into(),
+      language: language.into(),
+      kind,
+      source_offset,
+      span_source: sfc_source.into(),
+    }
+  }
+
+  const fn span_origin(&self) -> &str {
+    if self.span_source.is_empty() { self.source.as_str() } else { self.span_source.as_str() }
+  }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -81,6 +134,14 @@ struct DestructuredCallBinding {
   span: Span,
 }
 
+/// `const bag = useFoo()` — whole-object composable call used via member access.
+#[derive(Clone, Debug)]
+struct InstanceCallBinding {
+  imported_local: String,
+  local: String,
+  span: Span,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum ExportState {
   Known(ReactiveBindingKind),
@@ -96,6 +157,7 @@ struct ModuleSummary {
   exports: Vec<ExportSummary>,
   locals: BTreeMap<String, ExportState>,
   destructured_calls: Vec<DestructuredCallBinding>,
+  instance_calls: Vec<InstanceCallBinding>,
 }
 
 /// Traces local and linked reactivity across a resolved module graph.
@@ -113,7 +175,7 @@ pub fn trace_modules(
     if summaries.contains_key(&module.id) {
       return Err(TraceModulesError::DuplicateModule(module.id.clone()));
     }
-    summaries.insert(module.id.clone(), analyze_module(module, &[])?);
+    summaries.insert(module.id.clone(), analyze_module(module, &TraceSeeds::default())?);
   }
   let resolved_links = resolved_links(&summaries, links)?;
   let exports = resolve_exports(&summaries, &resolved_links);
@@ -142,7 +204,7 @@ fn source_type(module: &ModuleSource) -> Result<SourceType, TraceModulesError> {
 
 fn analyze_module(
   module: &ModuleSource,
-  seeds: &[ReactiveBindingFact],
+  seeds: &TraceSeeds,
 ) -> Result<ModuleSummary, TraceModulesError> {
   let allocator = Allocator::default();
   let parsed = Parser::new(&allocator, &module.source, source_type(module)?).parse();
@@ -160,11 +222,18 @@ fn analyze_module(
     });
   }
   let semantic = built.semantic;
-  let local_graph = trace_reactivity_seeded(&semantic, &module.source, 0, module.kind, seeds);
+  let local_graph = trace_reactivity_seeded(
+    &semantic,
+    module.span_origin(),
+    module.source_offset,
+    module.kind,
+    seeds,
+  );
   let imports = collect_imports(&semantic);
   let exports = collect_exports(&semantic);
   let locals = collect_local_values(&semantic, &local_graph);
   let destructured_calls = collect_destructured_calls(&semantic, &imports);
+  let instance_calls = collect_instance_calls(&semantic, &imports);
   Ok(ModuleSummary {
     module: module.clone(),
     local_graph,
@@ -172,6 +241,7 @@ fn analyze_module(
     exports,
     locals,
     destructured_calls,
+    instance_calls,
   })
 }
 
@@ -237,6 +307,7 @@ fn composable_return_shape(
   graph: &ReactivityGraph,
 ) -> BTreeMap<String, ReactiveBindingKind> {
   let imported_bindings = collect_imported_bindings(semantic);
+  let param_names = function_param_names(semantic, function_id);
   let mut shape = BTreeMap::new();
   let mut ambiguous = BTreeSet::new();
   for (return_id, node) in semantic.nodes().iter_enumerated() {
@@ -252,6 +323,20 @@ fn composable_return_shape(
     if owner != Some(function_id) {
       continue;
     }
+    // `return toRefs(param)` — every static key is ToRef when the argument is a parameter.
+    if let Some(Expression::CallExpression(call)) = &statement.argument
+      && resolved_vue_callee(&call.callee, &imported_bindings, ScriptKind::Script)
+        .is_some_and(|callee| callee == "toRefs")
+      && call
+        .arguments
+        .first()
+        .and_then(Argument::as_expression)
+        .and_then(Expression::get_identifier_reference)
+        .is_some_and(|identifier| param_names.contains(identifier.name.as_str()))
+    {
+      // Without an object shape we cannot invent keys; leave quiet.
+      continue;
+    }
     let Some(Expression::ObjectExpression(object)) = &statement.argument else {
       continue;
     };
@@ -262,7 +347,8 @@ fn composable_return_shape(
       let Some(exported) = property.key.static_name() else {
         continue;
       };
-      let Some(kind) = reactive_return_kind(semantic, &property.value, graph, &imported_bindings)
+      let Some(kind) =
+        reactive_return_kind(semantic, &property.value, graph, &imported_bindings, &param_names)
       else {
         continue;
       };
@@ -285,13 +371,38 @@ fn composable_return_shape(
   shape
 }
 
+fn function_param_names(
+  semantic: &oxc_semantic::Semantic<'_>,
+  function_id: NodeId,
+) -> BTreeSet<String> {
+  let mut names = BTreeSet::new();
+  let parameters = match semantic.nodes().kind(function_id) {
+    AstKind::Function(function) => function.params.items.as_slice(),
+    AstKind::ArrowFunctionExpression(callback) => callback.params.items.as_slice(),
+    _ => return names,
+  };
+  for parameter in parameters {
+    let mut identifiers = Vec::new();
+    collect_binding_identifiers(&parameter.pattern, &mut identifiers);
+    for (name, _) in identifiers {
+      names.insert(name);
+    }
+  }
+  names
+}
+
 fn reactive_return_kind(
   semantic: &oxc_semantic::Semantic<'_>,
   expression: &Expression<'_>,
   graph: &ReactivityGraph,
   imported_bindings: &BTreeMap<String, (String, String)>,
+  param_names: &BTreeSet<String>,
 ) -> Option<ReactiveBindingKind> {
   if let Some(reference) = expression.get_identifier_reference() {
+    if param_names.contains(reference.name.as_str()) {
+      // Parametric pass-through: treat as reactive object/ref surface.
+      return Some(ReactiveBindingKind::Reactive);
+    }
     return graph
       .bindings
       .iter()
@@ -306,7 +417,39 @@ fn reactive_return_kind(
     return None;
   };
   let callee = resolved_vue_callee(&call.callee, imported_bindings, ScriptKind::Script)?;
+  if matches!(callee.as_str(), "toRef" | "toRefs") {
+    // Parametric when first argument is a function parameter.
+    if call
+      .arguments
+      .first()
+      .and_then(Argument::as_expression)
+      .and_then(Expression::get_identifier_reference)
+      .is_some_and(|identifier| param_names.contains(identifier.name.as_str()))
+    {
+      return Some(ReactiveBindingKind::ToRef);
+    }
+  }
   reactive_binding_kind(&callee)
+}
+
+fn resolve_imported_callee<'a>(
+  semantic: &oxc_semantic::Semantic<'_>,
+  callee: &oxc_ast::ast::IdentifierReference<'_>,
+  imports: &'a [ImportSummary],
+) -> Option<&'a ImportSummary> {
+  imports.iter().find(|import| {
+    if import.local != callee.name.as_str() {
+      return false;
+    }
+    let Some(reference_id) = callee.reference_id.get() else {
+      return false;
+    };
+    semantic
+      .scoping()
+      .get_reference(reference_id)
+      .symbol_id()
+      .is_some_and(|symbol_id| semantic.scoping().symbol_span(symbol_id) == import.span)
+  })
 }
 
 fn collect_destructured_calls(
@@ -321,19 +464,7 @@ fn collect_destructured_calls(
     let Some(callee) = call.callee.get_identifier_reference() else {
       continue;
     };
-    let Some(import) = imports.iter().find(|import| {
-      if import.local != callee.name.as_str() {
-        return false;
-      }
-      let Some(reference_id) = callee.reference_id.get() else {
-        return false;
-      };
-      semantic
-        .scoping()
-        .get_reference(reference_id)
-        .symbol_id()
-        .is_some_and(|symbol_id| semantic.scoping().symbol_span(symbol_id) == import.span)
-    }) else {
+    let Some(import) = resolve_imported_callee(semantic, callee, imports) else {
       continue;
     };
     let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
@@ -358,6 +489,38 @@ fn collect_destructured_calls(
         });
       }
     }
+  }
+  calls.sort_by_key(|call| call.span.start);
+  calls
+}
+
+fn collect_instance_calls(
+  semantic: &oxc_semantic::Semantic<'_>,
+  imports: &[ImportSummary],
+) -> Vec<InstanceCallBinding> {
+  let mut calls = Vec::new();
+  for node in semantic.nodes() {
+    let AstKind::CallExpression(call) = node.kind() else {
+      continue;
+    };
+    let Some(callee) = call.callee.get_identifier_reference() else {
+      continue;
+    };
+    let Some(import) = resolve_imported_callee(semantic, callee, imports) else {
+      continue;
+    };
+    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
+    else {
+      continue;
+    };
+    let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
+      continue;
+    };
+    calls.push(InstanceCallBinding {
+      imported_local: import.local.clone(),
+      local: identifier.name.to_string(),
+      span: identifier.span,
+    });
   }
   calls.sort_by_key(|call| call.span.start);
   calls
@@ -529,8 +692,8 @@ fn imported_bindings(
   summary: &ModuleSummary,
   exports: &BTreeMap<String, BTreeMap<String, ExportState>>,
   links: &BTreeMap<(String, String), String>,
-) -> Vec<ReactiveBindingFact> {
-  let mut bindings = Vec::new();
+) -> TraceSeeds {
+  let mut seeds = TraceSeeds::default();
   for import in &summary.imports {
     if import.imported == "*" {
       continue;
@@ -542,7 +705,7 @@ fn imported_bindings(
       continue;
     };
     match state {
-      ExportState::Known(kind) => bindings.push(ReactiveBindingFact {
+      ExportState::Known(kind) => seeds.bindings.push(ReactiveBindingFact {
         name: import.local.clone(),
         kind: *kind,
         initialized_with_null: false,
@@ -555,18 +718,32 @@ fn imported_bindings(
           let Some(kind) = shape.get(&call.property) else {
             continue;
           };
-          bindings.push(ReactiveBindingFact {
+          seeds.bindings.push(ReactiveBindingFact {
             name: call.local.clone(),
             kind: *kind,
             initialized_with_null: false,
             span: source_span(&summary.module.source, 0, call.span),
           });
         }
+        for call in summary.instance_calls.iter().filter(|call| call.imported_local == import.local)
+        {
+          seeds.composable_instances.insert(call.local.clone(), shape.clone());
+          for (field, kind) in shape {
+            if !seeds.bindings.iter().any(|binding| binding.name == *field) {
+              seeds.bindings.push(ReactiveBindingFact {
+                name: field.clone(),
+                kind: *kind,
+                initialized_with_null: false,
+                span: source_span(&summary.module.source, 0, call.span),
+              });
+            }
+          }
+        }
       }
       ExportState::Ambiguous => {}
     }
   }
-  bindings
+  seeds
 }
 
 fn join_errors(errors: &[impl ToString]) -> String {
