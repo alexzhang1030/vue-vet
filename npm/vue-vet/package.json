@@ -1,6 +1,6 @@
 {
   "name": "@vue-vet/cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Thin npm launcher for the Vue Vet native CLI",
   "license": "MIT",
   "repository": {
