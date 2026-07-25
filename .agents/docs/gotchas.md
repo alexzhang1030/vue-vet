@@ -69,10 +69,15 @@ decision rather than being introduced as an implementation shortcut.
 
 A changed file can introduce a diagnostic whose best source location is in another file. Changed-line filtering must track causality through the project graph rather than dropping every finding outside the textual diff.
 
-Project resolution is deliberately smaller than Node, TypeScript, Vite, and
-Nuxt resolution. Missing relative or supported alias targets are diagnostics;
-package imports are external graph nodes; unsupported `#` aliases remain
-visible. Never silently reinterpret an unresolved edge as an external package.
+Project import resolution uses `oxc_resolver` (Rolldown / enhanced-resolve), not
+a hand-rolled path matcher. Successful resolves into `node_modules` or outside
+the scanned file set are external graph nodes; only true resolve failures raise
+`unresolved-import`. Vue Vet still does **not** execute `vite.config.*` /
+`nuxt.config.*` — aliases come from Vite defaults (`@` → `src`, `~` → root),
+tsconfig paths (including `.nuxt/tsconfig.json`), and package `exports`.
+Never silently reinterpret an unresolved edge as an external package.
+`oxc_resolver` is pinned to `11.21.0` because `11.22+` requires `dashmap 6.2.1`
+while Vize pins `dashmap =6.1.0`.
 
 Cache corruption is a miss, not a scan failure. Cache keys must change when any
 normalized semantic input changes; raw dependency ASTs must never be persisted.

@@ -13,6 +13,7 @@ Open the record routed for the code or decision you are about to change. These r
 | Vize upgrades, offsets, SFC surface extraction, parallel pattern engines, or score stability | [gotchas](./gotchas.md) | Lists traps already identified and the evidence required before changing the current approach. |
 | npm launcher, native binaries, release tags, or install matrix | [technology stack](./technology-stack.md), [architecture](./architecture.md), and [install docs](../../docs/install.md) | Thin JS launcher only; platform packages and release/rollback rules. |
 | CLI project walks, cache keys, or `node_modules` / symlink installs | [gotchas](./gotchas.md) (`Package directories can look like source files`) | Skip `node_modules`; only read paths that are files after symlink resolution. |
+| Project import resolution, scoped packages, tsconfig / `.nuxt` paths | [project graph](../../docs/project-graph.md), [gotchas](./gotchas.md), [technology stack](./technology-stack.md) | `oxc_resolver` bundler resolution; no Vite/Nuxt config execution. |
 | Current implementation order or delivery status | [GitHub tracker](https://github.com/alexzhang1030/vue-vet/issues/14) and [root roadmap](../../ROADMAP.md) | Issues are the live execution plan; the roadmap records milestone intent and release gates. |
 
 Related records should be cross-linked. When a new record or important heading is added, update this map in the same change.
