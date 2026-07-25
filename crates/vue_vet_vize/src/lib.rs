@@ -724,6 +724,7 @@ watchEffect(() => { void bag.shared.value })
   }
 
   #[test]
+  #[expect(clippy::panic, reason = "test setup failures must fail the integration test")]
   fn same_file_composable_instance_tracks_and_joins_template_in_sfc() {
     use std::path::PathBuf;
     use vue_vet_project::{ProjectFile, build_project_graph};
@@ -741,6 +742,16 @@ watchEffect(() => { void bag.signal.value })
   <p>{{ bag.signal }}</p>
 </template>
 "#;
+    let temp = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+      .join("../../target")
+      .join(format!("vize-same-file-{}", std::process::id()));
+    let _ignored = std::fs::remove_dir_all(&temp);
+    if let Err(error) = std::fs::create_dir_all(&temp) {
+      panic!("failed to create temp project: {error}");
+    }
+    if let Err(error) = std::fs::write(temp.join("LocalBag.vue"), sfc) {
+      panic!("failed to write LocalBag.vue: {error}");
+    }
     // Shipped Vize path: analyze_sfc_with_facts → per-block graph + template join.
     let analysis = analysis_for_test(Path::new("LocalBag.vue"), sfc);
     let vize_ok = analysis.facts.script.blocks.first().is_some_and(|block| {
@@ -790,7 +801,8 @@ watchEffect(() => { void bag.signal.value })
         module_source: Some(module),
         ordinary_module_source: None,
       }];
-      let project = build_project_graph(&files);
+      let project = build_project_graph(&temp, &files);
+      let _ignored = std::fs::remove_dir_all(&temp);
       let page = project.module_reactivity.iter().find(|module| module.id == "LocalBag.vue");
       assert!(
         page.is_some_and(|module| {
@@ -815,6 +827,7 @@ watchEffect(() => { void bag.signal.value })
   }
 
   #[test]
+  #[expect(clippy::panic, reason = "test setup failures must fail the integration test")]
   fn composable_instance_member_joins_template_after_module_seeds() {
     use std::path::PathBuf;
     use vue_vet_project::{ProjectFile, build_project_graph};
@@ -831,6 +844,19 @@ watchEffect(() => { void bag.signal.value })
   <p>{{ bag.signal }}</p>
 </template>
 "#;
+    let temp = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+      .join("../../target")
+      .join(format!("vize-composable-{}", std::process::id()));
+    let _ignored = std::fs::remove_dir_all(&temp);
+    if let Err(error) = std::fs::create_dir_all(&temp) {
+      panic!("failed to create temp project: {error}");
+    }
+    if let Err(error) = std::fs::write(temp.join("useSignal.ts"), producer) {
+      panic!("failed to write useSignal.ts: {error}");
+    }
+    if let Err(error) = std::fs::write(temp.join("App.vue"), sfc) {
+      panic!("failed to write App.vue: {error}");
+    }
     let analysis = analysis_for_test(Path::new("App.vue"), sfc);
     let files = [
       ProjectFile {
@@ -853,7 +879,8 @@ watchEffect(() => { void bag.signal.value })
         ordinary_module_source: None,
       },
     ];
-    let graph = build_project_graph(&files);
+    let graph = build_project_graph(&temp, &files);
+    let _ignored = std::fs::remove_dir_all(&temp);
     assert!(
       graph.reactivity_error.is_none(),
       "module tracing must succeed: {:?}",
@@ -967,7 +994,7 @@ const count = ref(0)
         ordinary_module_source: None,
       },
     ];
-    let graph = build_project_graph(&files);
+    let graph = build_project_graph(&root, &files);
     let app_mod = graph.module_reactivity.iter().find(|module| module.id == "App.vue");
     assert!(
       app_mod.is_some_and(|module| {

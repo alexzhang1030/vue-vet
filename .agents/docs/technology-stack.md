@@ -20,6 +20,16 @@ declared `lang`, builds semantics with syntax checking, and maps every fact span
 back through the SFC block offset. Direct Oxc types remain private to
 `vue_vet_oxc`.
 
+## oxc_resolver owns bundler module resolution
+
+Cross-file import edges in `vue_vet_project` resolve through exact-pinned
+`oxc_resolver` (the Rolldown / enhanced-resolve stack), not a parallel path
+engine. Vue Vet owns classification of resolve results into project edges,
+external nodes, and `unresolved-import` diagnostics. The resolver does not
+execute Vite or Nuxt config files; tsconfig paths and Vite default aliases are
+the configuration surface. Pin note: stay on `11.21.0` until Vize loosens its
+`dashmap =6.1.0` requirement (`oxc_resolver 11.22+` needs `dashmap 6.2.1`).
+
 ## Vize and Oxc are the complete analysis stack
 
 Vue Vet does not embed a parallel structural-pattern engine. Template and SFC

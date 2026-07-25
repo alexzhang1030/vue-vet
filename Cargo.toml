@@ -14,7 +14,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/alexzhang1030/vue-vet"
@@ -33,6 +33,8 @@ oxc_allocator = "=0.127.0"
 oxc_ast = "=0.127.0"
 oxc_ast_visit = "=0.127.0"
 oxc_parser = "=0.127.0"
+# 11.22+ pulls dashmap 6.2.1; Vize pins dashmap =6.1.0. Stay on 11.21 until Vize moves.
+oxc_resolver = { version = "=11.21.0", features = ["yarn_pnp"] }
 oxc_semantic = "=0.127.0"
 oxc_span = "=0.127.0"
 oxc_syntax = "=0.127.0"

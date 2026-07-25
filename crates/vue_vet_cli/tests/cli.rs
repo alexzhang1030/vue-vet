@@ -557,9 +557,15 @@ fn effective_config_is_machine_readable() {
 #[test]
 fn project_module_seeds_feed_per_file_reactivity_rules() {
   let project = fixture("projects/module-seeds");
-  let output = run(&[project.to_string_lossy().as_ref(), "--format", "json"]);
+  // Fixture ships a stub node_modules/vue; --no-cache avoids stale entries keyed
+  // without package-tree inputs.
+  let output = run(&[project.to_string_lossy().as_ref(), "--format", "json", "--no-cache"]);
   let parsed: Result<Value, _> = serde_json::from_slice(&output.stdout);
-  assert!(output.status.success(), "seeded project scan must succeed without deny-warnings");
+  assert!(
+    output.status.success(),
+    "seeded project scan must succeed without deny-warnings: {}",
+    String::from_utf8_lossy(&output.stderr)
+  );
   let diagnostics = parsed
     .as_ref()
     .ok()
@@ -701,6 +707,59 @@ fn cache_key_ignores_node_modules_package_directories() {
     !String::from_utf8_lossy(&output.stderr).contains("Is a directory"),
     "must not try to read directory symlinks as source files: {}",
     String::from_utf8_lossy(&output.stderr)
+  );
+}
+
+#[test]
+#[expect(clippy::panic, reason = "test setup failures must fail the integration test")]
+fn scoped_package_import_in_config_is_not_unresolved() {
+  let project = TempProject::new("scoped-tailwind", "<template><div /></template>\n");
+  let package = project.root().join("node_modules").join("@tailwindcss").join("vite");
+  if let Err(error) = fs::create_dir_all(&package) {
+    panic!("failed to create scoped package directory: {error}");
+  }
+  if let Err(error) = fs::write(
+    package.join("package.json"),
+    r#"{"name":"@tailwindcss/vite","version":"1.0.0","exports":{".":"./index.js"}}"#,
+  ) {
+    panic!("failed to write scoped package.json: {error}");
+  }
+  if let Err(error) = fs::write(package.join("index.js"), "export default {}\n") {
+    panic!("failed to write scoped package entry: {error}");
+  }
+  if let Err(error) = fs::write(
+    project.root().join("nuxt.config.ts"),
+    "import tailwindcss from '@tailwindcss/vite'\nexport default { vite: { plugins: [tailwindcss()] } }\n",
+  ) {
+    panic!("failed to write nuxt.config.ts: {error}");
+  }
+  let output = run(&[project.root().to_string_lossy().as_ref(), "--format", "json", "--no-cache"]);
+  assert!(
+    output.status.success(),
+    "scoped package imports must resolve as external: {}",
+    String::from_utf8_lossy(&output.stderr)
+  );
+  let report: Result<Value, _> = serde_json::from_slice(&output.stdout);
+  let unresolved = report
+    .as_ref()
+    .ok()
+    .and_then(|value| value.get("diagnostics"))
+    .and_then(Value::as_array)
+    .into_iter()
+    .flatten()
+    .filter(|diagnostic| {
+      diagnostic.get("rule_id").and_then(Value::as_str) == Some("vue-vet/project/unresolved-import")
+        && diagnostic
+          .get("message")
+          .and_then(Value::as_str)
+          .is_some_and(|message| message.contains("@tailwindcss/vite"))
+    })
+    .count();
+  assert_eq!(
+    unresolved,
+    0,
+    "must not report unresolved-import for installed scoped packages: {:?}",
+    report.as_ref().ok()
   );
 }
 

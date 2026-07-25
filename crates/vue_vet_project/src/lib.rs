@@ -1,13 +1,19 @@
+mod resolve;
+
 use std::{
   collections::{BTreeMap, BTreeSet},
-  path::{Component, Path, PathBuf},
+  path::{Path, PathBuf},
 };
 
 use serde::{Deserialize, Serialize};
 use vue_vet_core::{Confidence, Diagnostic, ScriptFacts, Severity, SfcFacts, SourceSpan};
 use vue_vet_reactivity::{ModuleLink, ModuleReactivity, ModuleSource, trace_modules};
 
-pub const CONVENTIONS_VERSION: u32 = 1;
+pub use resolve::{OXC_RESOLVER_VERSION, resolver_config_inputs};
+
+use resolve::{ProjectResolver, Resolution, normalized_path};
+
+pub const CONVENTIONS_VERSION: u32 = 2;
 pub const PROJECT_RULE_IDS: [&str; 2] =
   ["vue-vet/project/unresolved-import", "vue-vet/project/unused-component"];
 
@@ -77,10 +83,11 @@ pub struct ProjectGraph {
 }
 
 #[must_use]
-pub fn build_project_graph(files: &[ProjectFile]) -> ProjectGraph {
+pub fn build_project_graph(root: &Path, files: &[ProjectFile]) -> ProjectGraph {
   let mut ordered = files.iter().collect::<Vec<_>>();
   ordered.sort_by_key(|file| normalized_path(&file.path));
   let known = ordered.iter().map(|file| normalized_path(&file.path)).collect::<BTreeSet<_>>();
+  let resolver = ProjectResolver::new(root);
   let mut nodes = ordered.iter().map(|file| file_node(file)).collect::<Vec<_>>();
   let node_by_path =
     nodes.iter().map(|node| (node.path.clone(), node.id.clone())).collect::<BTreeMap<_, _>>();
@@ -120,7 +127,7 @@ pub fn build_project_graph(files: &[ProjectFile]) -> ProjectGraph {
     let from = file_id(&path);
     let imports = all_imports(&file.facts.script);
     for import in &imports {
-      match resolve_import(&path, &import.source, &known) {
+      match resolver.resolve(&path, &import.source, &known) {
         Resolution::File(target) => {
           if let Some(to) = node_by_path.get(&target) {
             edges.push(edge(&from, to, EdgeKind::Import, &import.source, import.span.clone()));
@@ -161,7 +168,7 @@ pub fn build_project_graph(files: &[ProjectFile]) -> ProjectGraph {
     for element in &file.facts.template.elements {
       let tag = comparable_name(&element.tag);
       if let Some(import) = imports.iter().find(|import| comparable_name(&import.local) == tag) {
-        if let Resolution::File(target) = resolve_import(&path, &import.source, &known)
+        if let Resolution::File(target) = resolver.resolve(&path, &import.source, &known)
           && let Some(to) = node_by_path.get(&target)
         {
           edges.push(edge(&from, to, EdgeKind::ComponentUsage, &element.tag, element.span.clone()));
@@ -207,12 +214,16 @@ pub fn build_project_graph(files: &[ProjectFile]) -> ProjectGraph {
       module.graph.join_template_reads(template);
     }
   }
+  let mut invalidation_inputs = known.into_iter().collect::<Vec<_>>();
+  invalidation_inputs.extend(resolver_config_inputs(root));
+  invalidation_inputs.sort();
+  invalidation_inputs.dedup();
   ProjectGraph {
     conventions_version: CONVENTIONS_VERSION,
     nodes,
     edges,
     diagnostics,
-    invalidation_inputs: known.into_iter().collect(),
+    invalidation_inputs,
     module_reactivity,
     reactivity_error,
   }
@@ -250,65 +261,6 @@ fn node_kind(path: &str) -> NodeKind {
   }
 }
 
-enum Resolution {
-  File(String),
-  External(String),
-  Unresolved,
-}
-
-fn resolve_import(from: &str, specifier: &str, known: &BTreeSet<String>) -> Resolution {
-  if specifier == "#imports"
-    || (!specifier.starts_with('.')
-      && !specifier.starts_with('@')
-      && !specifier.starts_with('~')
-      && !specifier.starts_with('#'))
-  {
-    return Resolution::External(specifier.into());
-  }
-  let base = if let Some(relative) = specifier.strip_prefix("@/") {
-    format!("src/{relative}")
-  } else if let Some(relative) = specifier.strip_prefix("~/") {
-    relative.into()
-  } else if specifier.starts_with('.') {
-    let parent = Path::new(from).parent().unwrap_or_else(|| Path::new(""));
-    normalized_path(&parent.join(specifier))
-  } else {
-    return Resolution::Unresolved;
-  };
-  resolution_candidates(&base)
-    .into_iter()
-    .find(|candidate| known.contains(candidate))
-    .map_or(Resolution::Unresolved, Resolution::File)
-}
-
-fn resolution_candidates(base: &str) -> Vec<String> {
-  let base = normalized_path(Path::new(base));
-  let mut candidates = vec![base.clone()];
-  if Path::new(&base).extension().is_none() {
-    for extension in ["vue", "ts", "tsx", "js", "jsx"] {
-      candidates.push(format!("{base}.{extension}"));
-    }
-    for extension in ["vue", "ts", "tsx", "js", "jsx"] {
-      candidates.push(format!("{base}/index.{extension}"));
-    }
-  }
-  candidates
-}
-
-fn normalized_path(path: &Path) -> String {
-  let mut parts = Vec::new();
-  for component in path.components() {
-    match component {
-      Component::Normal(part) => parts.push(part.to_string_lossy().into_owned()),
-      Component::ParentDir => {
-        parts.pop();
-      }
-      Component::CurDir | Component::RootDir | Component::Prefix(_) => {}
-    }
-  }
-  parts.join("/")
-}
-
 fn comparable_name(name: &str) -> String {
   name.chars().filter(char::is_ascii_alphanumeric).flat_map(char::to_lowercase).collect()
 }
@@ -335,7 +287,7 @@ fn unresolved_diagnostic(file: &Path, specifier: &str, span: SourceSpan) -> Diag
     documentation: Some("project-graph".into()),
     message: format!("cannot resolve project import `{specifier}`"),
     help: Some(
-      "Use a relative path, the @/ or ~/ project aliases, or a supported external package import."
+      "Check that the import resolves under Node/Vite rules: a relative path, tsconfig paths / @ or ~ aliases, or an installed package."
         .into(),
     ),
     file: file.to_path_buf(),
@@ -382,10 +334,59 @@ fn unused_component_diagnostics(
 #[cfg(test)]
 mod tests {
   use super::*;
+  use std::{
+    fs,
+    sync::atomic::{AtomicUsize, Ordering},
+  };
+
   use vue_vet_core::{
     ScriptBlockFacts, ScriptCallFact, ScriptImportFact, ScriptKind, TemplateElementFact,
     TemplateFacts,
   };
+
+  static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
+
+  struct TempProject {
+    root: PathBuf,
+  }
+
+  impl TempProject {
+    #[expect(clippy::panic, reason = "test setup failures must fail the unit test")]
+    fn new(name: &str) -> Self {
+      let sequence = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+      let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target")
+        .join(format!("vue-vet-project-{name}-{}-{sequence}", std::process::id()));
+      let _ignored = fs::remove_dir_all(&root);
+      if let Err(error) = fs::create_dir_all(&root) {
+        panic!("failed to create temp project {}: {error}", root.display());
+      }
+      Self { root }
+    }
+
+    fn root(&self) -> &Path {
+      &self.root
+    }
+
+    #[expect(clippy::panic, reason = "test setup failures must fail the unit test")]
+    fn write(&self, relative: &str, contents: &str) {
+      let path = self.root.join(relative);
+      if let Some(parent) = path.parent()
+        && let Err(error) = fs::create_dir_all(parent)
+      {
+        panic!("failed to create {}: {error}", parent.display());
+      }
+      if let Err(error) = fs::write(&path, contents) {
+        panic!("failed to write {}: {error}", path.display());
+      }
+    }
+  }
+
+  impl Drop for TempProject {
+    fn drop(&mut self) {
+      let _ignored = fs::remove_dir_all(&self.root);
+    }
+  }
 
   fn span(offset: usize) -> SourceSpan {
     SourceSpan { offset, length: 1, line: 1, column: offset.saturating_add(1) }
@@ -445,18 +446,36 @@ mod tests {
     }
   }
 
+  fn materialize(project: &TempProject, files: &[ProjectFile]) {
+    for file in files {
+      let relative = normalized_path(&file.path);
+      let stub = if Path::new(&relative)
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("vue"))
+      {
+        "<template><div /></template>\n"
+      } else {
+        "export {}\n"
+      };
+      project.write(&relative, stub);
+    }
+  }
+
   #[test]
   fn graph_is_deterministic_and_preserves_cycles() {
+    let project = TempProject::new("cycles");
     let first = file("src/a.ts", &[("./b", "b")], &[], &[]);
     let second = file("src/b.ts", &[("./a", "a")], &[], &[]);
-    let forward = build_project_graph(&[first.clone(), second.clone()]);
-    let reverse = build_project_graph(&[second, first]);
+    materialize(&project, &[first.clone(), second.clone()]);
+    let forward = build_project_graph(project.root(), &[first.clone(), second.clone()]);
+    let reverse = build_project_graph(project.root(), &[second, first]);
     assert_eq!(forward, reverse, "input traversal order must not affect the graph");
     assert_eq!(forward.edges.len(), 2, "both sides of an import cycle must be represented");
   }
 
   #[test]
   fn resolves_aliases_and_nuxt_auto_imports() {
+    let project = TempProject::new("aliases");
     let page = file(
       "pages/index.vue",
       &[("@/components/AppCard", "Card")],
@@ -466,7 +485,8 @@ mod tests {
     let imported = file("src/components/AppCard.vue", &[], &[], &[]);
     let automatic = file("components/AutoButton.vue", &[], &[], &[]);
     let composable = file("composables/useAccount.ts", &[], &[], &[]);
-    let graph = build_project_graph(&[page, imported, automatic, composable]);
+    materialize(&project, &[page.clone(), imported.clone(), automatic.clone(), composable.clone()]);
+    let graph = build_project_graph(project.root(), &[page, imported, automatic, composable]);
     assert!(
       graph.edges.iter().any(|edge| edge.kind == EdgeKind::ComponentUsage),
       "explicit component imports must connect template usage"
@@ -483,9 +503,11 @@ mod tests {
 
   #[test]
   fn reports_broken_imports_and_unused_components() {
+    let project = TempProject::new("broken");
     let page = file("pages/index.vue", &[("./missing", "missing")], &[], &[]);
     let component = file("components/UnusedPanel.vue", &[], &[], &[]);
-    let graph = build_project_graph(&[page, component]);
+    materialize(&project, &[page.clone(), component.clone()]);
+    let graph = build_project_graph(project.root(), &[page, component]);
     let ids = graph
       .diagnostics
       .iter()
@@ -495,13 +517,92 @@ mod tests {
   }
 
   #[test]
+  fn scoped_package_imports_are_external_not_unresolved() {
+    let project = TempProject::new("scoped-pkg");
+    project.write(
+      "node_modules/@tailwindcss/vite/package.json",
+      r#"{"name":"@tailwindcss/vite","version":"1.0.0","exports":{".":"./index.js"}}"#,
+    );
+    project.write("node_modules/@tailwindcss/vite/index.js", "export default {}\n");
+    let config = file("nuxt.config.ts", &[("@tailwindcss/vite", "tailwind")], &[], &[]);
+    materialize(&project, std::slice::from_ref(&config));
+    let graph = build_project_graph(project.root(), &[config]);
+    assert!(
+      graph.diagnostics.iter().all(|diagnostic| diagnostic.rule_id != PROJECT_RULE_IDS[0]),
+      "scoped packages must not raise unresolved-import: {:?}",
+      graph.diagnostics
+    );
+    assert!(
+      graph.edges.iter().any(|edge| {
+        edge.kind == EdgeKind::ExternalImport && edge.specifier == "@tailwindcss/vite"
+      }),
+      "scoped packages must become external import edges"
+    );
+  }
+
+  #[test]
+  fn broken_package_exports_are_unresolved() {
+    let project = TempProject::new("bad-exports");
+    project.write(
+      "node_modules/broken-pkg/package.json",
+      r#"{"name":"broken-pkg","version":"1.0.0","exports":{".":"./missing.js"}}"#,
+    );
+    let importer = file("src/main.ts", &[("broken-pkg", "broken")], &[], &[]);
+    materialize(&project, std::slice::from_ref(&importer));
+    let graph = build_project_graph(project.root(), &[importer]);
+    assert!(
+      graph.diagnostics.iter().any(|diagnostic| {
+        diagnostic.rule_id == PROJECT_RULE_IDS[0] && diagnostic.message.contains("broken-pkg")
+      }),
+      "broken package exports must be unresolved: {:?}",
+      graph.diagnostics
+    );
+  }
+
+  #[test]
+  fn nuxt_tsconfig_paths_resolve_hash_aliases_into_known_files() {
+    let project = TempProject::new("nuxt-tsconfig");
+    project.write(
+      ".nuxt/tsconfig.json",
+      r##"{
+  "compilerOptions": {
+    "baseUrl": "..",
+    "paths": {
+      "#components/*": ["components/*"]
+    }
+  }
+}"##,
+    );
+    let page = file("pages/index.vue", &[("#components/Panel", "Panel")], &["Panel"], &[]);
+    let component = file("components/Panel.vue", &[], &[], &[]);
+    materialize(&project, &[page.clone(), component.clone()]);
+    let graph = build_project_graph(project.root(), &[page, component]);
+    assert!(
+      graph
+        .edges
+        .iter()
+        .any(|edge| edge.kind == EdgeKind::Import || edge.kind == EdgeKind::ComponentUsage),
+      "Nuxt tsconfig hash aliases must resolve into known project files: {:?}",
+      graph.edges
+    );
+    assert!(
+      graph.diagnostics.iter().all(|diagnostic| diagnostic.rule_id != PROJECT_RULE_IDS[0]),
+      "resolved hash aliases must not be unresolved: {:?}",
+      graph.diagnostics
+    );
+  }
+
+  #[test]
   fn vue_modules_receive_composable_seeds_and_template_joins() {
+    let project = TempProject::new("module-seeds");
     let producer_source = "import { toRef } from 'vue'; export function useField(props) { return { title: toRef(props, 'title') }; }";
     let consumer_script = "import { useField } from '../composables/useField'\nconst props = { title: 'x' }\nconst { title } = useField(props)\n";
     let sfc = format!(
       "<script setup lang=\"ts\">\n{consumer_script}</script>\n<template>\n  <p>{{{{ title }}}}</p>\n</template>\n"
     );
     let script_offset = sfc.find(consumer_script).unwrap_or(0);
+    project.write("composables/useField.ts", producer_source);
+    project.write("pages/index.vue", &sfc);
     let producer = ProjectFile {
       path: "composables/useField.ts".into(),
       source_len: producer_source.len(),
@@ -555,7 +656,7 @@ mod tests {
       )),
       ordinary_module_source: None,
     };
-    let graph = build_project_graph(&[producer, consumer]);
+    let graph = build_project_graph(project.root(), &[producer, consumer]);
     assert!(
       graph.reactivity_error.is_none(),
       "module tracing must succeed: {:?}",

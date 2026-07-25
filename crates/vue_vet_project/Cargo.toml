@@ -15,6 +15,7 @@ description = "Deterministic Vue and Nuxt project graph for Vue Vet"
 workspace = true
 
 [dependencies]
+oxc_resolver.workspace = true
 serde.workspace = true
 vue_vet_core = { path = "../vue_vet_core" }
 vue_vet_reactivity = { path = "../vue_vet_reactivity" }

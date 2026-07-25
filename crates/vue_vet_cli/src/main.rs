@@ -17,7 +17,9 @@ use vue_vet_core::{
   RuleEnvironment, ScanSummary, ScriptFacts, SfcFacts, TemplateFacts, VueVersion,
 };
 use vue_vet_oxc::analyze_module;
-use vue_vet_project::{PROJECT_RULE_IDS, ProjectFile, ProjectGraph, build_project_graph};
+use vue_vet_project::{
+  PROJECT_RULE_IDS, ProjectFile, ProjectGraph, build_project_graph, resolver_config_inputs,
+};
 use vue_vet_reactivity::ModuleSource;
 use vue_vet_reporters::{
   ReportContext, ReportFormat, ReportFramework, ReportMode, render, render_error,
@@ -309,6 +311,16 @@ fn cache_inputs(root: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
       .map_err(|error| format!("failed to read {} for cache key: {error}", package.display()))?;
     files.push(("package.json".into(), content));
   }
+  let boundary = scan_directory(root);
+  for relative in resolver_config_inputs(boundary) {
+    let path = boundary.join(&relative);
+    if !path.is_file() {
+      continue;
+    }
+    let content = fs::read(&path)
+      .map_err(|error| format!("failed to read {} for cache key: {error}", path.display()))?;
+    files.push((relative, content));
+  }
   files.sort_by(|left, right| left.0.cmp(&right.0));
   files.dedup_by(|left, right| left.0 == right.0);
   Ok(files)
@@ -414,7 +426,7 @@ fn scan_parallel(root: &Path, config: &Config) -> Result<ScanResult, String> {
   }
 
   // Phase 2: project graph + module seed linking (module re-trace is itself parallel).
-  let graph = build_project_graph(&project_files);
+  let graph = build_project_graph(boundary, &project_files);
   let modules = graph
     .module_reactivity
     .iter()
