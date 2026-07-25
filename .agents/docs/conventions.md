@@ -53,6 +53,12 @@ directory under `crates/` (for example `vue_vet_reactivity`), matching the Oxc /
 Rolldown layout. The CLI package remains `vue-vet` so the installed binary stays
 `vue-vet`. User-facing rule IDs keep the `vue-vet/<category>/<name>` form.
 
+## npm launcher boundary
+
+JavaScript under `npm/` may only select a native binary and forward process
+I/O. Do not move analysis, parsing, or rule logic into Node. Prefer repository
+`just` recipes (`npm-test`, `pack-platform`, `npm-smoke`) for launcher work.
+
 ## Dependency boundaries
 
 Vize and Oxc types remain inside their adapters. Stable downstream code consumes Vue Vet-owned facts. Dependency upgrades are reviewed as behavior changes and include compatibility evidence rather than blind snapshot replacement.

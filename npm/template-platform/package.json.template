@@ -1,0 +1,26 @@
+{
+  "name": "@vue-vet/__OS_CPU__",
+  "version": "__VERSION__",
+  "description": "Vue Vet native binary for __OS_CPU__",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alexzhang1030/vue-vet.git",
+    "directory": "npm/template-platform"
+  },
+  "homepage": "https://github.com/alexzhang1030/vue-vet",
+  "os": ["__OS__"],
+  "cpu": ["__CPU__"],
+  "bin": {
+    "vue-vet": "bin/__BIN__"
+  },
+  "files": [
+    "bin"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

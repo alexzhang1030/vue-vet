@@ -21,7 +21,21 @@ The project is an early local-doctor implementation. Today it:
   single-file fixes before a fresh rescan;
 - returns a CI-friendly exit code and a deterministic score.
 
+## Install
+
+```bash
+npm install -D vue-vet
+npx vue-vet .
+```
+
+Prebuilt binaries cover Linux/macOS/Windows x64 and Linux/macOS arm64 via
+`@vue-vet/{os}-{arch}` optional dependencies. See
+[install docs](docs/install.md) for GitHub Release archives, checksums, and
+source builds.
+
 ## Try it
+
+From a source checkout (`just setup` first):
 
 ```bash
 just vet .

@@ -1,0 +1,217 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build and pack without creating a GitHub Release or publishing to npm'
+        type: boolean
+        default: true
+      version:
+        description: 'Version to embed (workflow_dispatch only; tags use the tag name)'
+        type: string
+        required: false
+        default: '0.1.0'
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      dry_run: ${{ steps.resolve.outputs.dry_run }}
+    steps:
+      - id: resolve
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            version="${{ inputs.version }}"
+            dry_run="${{ inputs.dry_run }}"
+          else
+            ref="${GITHUB_REF_NAME}"
+            version="${ref#v}"
+            dry_run="false"
+          fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-].*)?$ ]]; then
+            echo "Invalid version: $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "dry_run=$dry_run" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build (${{ matrix.target }})
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            npm_pkg: linux-x64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            npm_pkg: linux-arm64
+          - target: x86_64-apple-darwin
+            os: macos-15
+            npm_pkg: darwin-x64
+          - target: aarch64-apple-darwin
+            os: macos-15
+            npm_pkg: darwin-arm64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            npm_pkg: win32-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build release binary
+        shell: bash
+        run: cargo build -p vue-vet --release --target ${{ matrix.target }} --locked
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Archive and pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="target/${{ matrix.target }}/release/vue-vet"
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            binary="${binary}.exe"
+          fi
+          mkdir -p dist/release "dist/npm/@vue-vet/${{ matrix.npm_pkg }}"
+          node npm/scripts/archive-binary.mjs \
+            --target "${{ matrix.target }}" \
+            --binary "$binary" \
+            --out dist/release
+          node npm/scripts/pack-platform.mjs \
+            --target "${{ matrix.target }}" \
+            --binary "$binary" \
+            --version "${{ needs.version.outputs.version }}" \
+            --out "dist/npm/@vue-vet/${{ matrix.npm_pkg }}"
+
+      - name: Smoke --version on native host
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="target/${{ matrix.target }}/release/vue-vet"
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            binary="${binary}.exe"
+          fi
+          host="$(rustc -vV | sed -n 's/^host: //p')"
+          if [[ "$host" == "${{ matrix.target }}" ]]; then
+            "$binary" --version
+          else
+            echo "skip host smoke for ${{ matrix.target }} on $host"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: asset-${{ matrix.target }}
+          path: dist/release/*
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-${{ matrix.npm_pkg }}
+          path: dist/npm/@vue-vet/${{ matrix.npm_pkg }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/release
+          pattern: asset-*
+          merge-multiple: true
+
+      - name: Download npm packages
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/npm-artifacts
+          pattern: npm-*
+
+      - name: Arrange npm packages and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/npm/@vue-vet
+          for dir in dist/npm-artifacts/npm-*; do
+            name="${dir##*/npm-}"
+            rm -rf "dist/npm/@vue-vet/$name"
+            cp -R "$dir" "dist/npm/@vue-vet/$name"
+          done
+          ls -la dist/release
+          ls -laR dist/npm/@vue-vet
+          (
+            cd dist/release
+            sha256sum vue-vet-* > SHA256SUMS
+            cat SHA256SUMS
+          )
+
+      - name: Sync launcher version
+        run: node npm/scripts/sync-launcher-version.mjs "${{ needs.version.outputs.version }}"
+
+      - name: Create GitHub Release
+        if: needs.version.outputs.dry_run != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          name: v${{ needs.version.outputs.version }}
+          generate_release_notes: true
+          files: |
+            dist/release/*
+
+      - name: Publish npm platform packages
+        if: needs.version.outputs.dry_run != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for dir in dist/npm/@vue-vet/*; do
+            echo "Publishing $dir"
+            npm publish --access public --provenance "$dir"
+          done
+
+      - name: Publish npm launcher
+        if: needs.version.outputs.dry_run != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance npm/vue-vet
+
+      - name: Dry-run summary
+        if: needs.version.outputs.dry_run == 'true'
+        shell: bash
+        run: |
+          echo "Dry run complete for version ${{ needs.version.outputs.version }}"
+          ls -la dist/release
+          ls -la dist/npm/@vue-vet
+          cat npm/vue-vet/package.json

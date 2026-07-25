@@ -1,0 +1,47 @@
+{
+  "name": "vue-vet",
+  "version": "0.1.0",
+  "description": "Thin npm launcher for the Vue Vet native CLI",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alexzhang1030/vue-vet.git",
+    "directory": "npm/vue-vet"
+  },
+  "homepage": "https://github.com/alexzhang1030/vue-vet",
+  "bugs": {
+    "url": "https://github.com/alexzhang1030/vue-vet/issues"
+  },
+  "keywords": [
+    "vue",
+    "nuxt",
+    "lint",
+    "static-analysis",
+    "cli"
+  ],
+  "bin": {
+    "vue-vet": "bin/vue-vet.js"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "optionalDependencies": {
+    "@vue-vet/linux-x64": "0.1.0",
+    "@vue-vet/linux-arm64": "0.1.0",
+    "@vue-vet/darwin-x64": "0.1.0",
+    "@vue-vet/darwin-arm64": "0.1.0",
+    "@vue-vet/win32-x64": "0.1.0"
+  }
+}

@@ -2,7 +2,7 @@
 
 ## Rust is the implementation language
 
-The scanner, semantic product layer, CLI, cache, graph, reporters, and fix engine stay in Rust. The future npm package is a thin installer/launcher whose only responsibilities are selecting the native binary and forwarding arguments, signals, output, and exit codes.
+The scanner, semantic product layer, CLI, cache, graph, reporters, and fix engine stay in Rust. The npm package `vue-vet` is a thin installer/launcher under `npm/vue-vet`: it selects an `@vue-vet/{os}-{arch}` optional dependency, spawns the native binary, and forwards arguments, signals, output, and exit codes. It must never grow analysis logic. See [install docs](../../docs/install.md).
 
 The workspace tracks the latest stable Rust release and latest stable edition, following Rolldown's toolchain baseline. The repository pins the exact compiler in `rust-toolchain.toml`; all crates inherit the workspace `rust-version` and edition. Rolldown's lint policy is a floor: Vue Vet additionally denies the Clippy `all`, `cargo`, `pedantic`, and `nursery` groups, forbids unsafe Rust, and denies panic-prone conveniences such as unchecked indexing, string slicing, `unwrap`, and `expect`. The group-level duplicate-version exception covers the reviewed Vize and atomic-writer dependency graphs; each additional duplicate still requires explicit rationale. `just` is the task runner and the canonical interface for local and CI validation. `prek` manages Git hooks from `.pre-commit-config.yaml` without adding a Python runtime requirement.
 

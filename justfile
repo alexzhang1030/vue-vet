@@ -29,6 +29,9 @@ vet *args:
 # Run the complete Rust validation suite.
 roll-rust: lint-rust test
 
+# Run Rust validation plus npm launcher tests.
+roll: roll-rust npm-test
+
 # Refresh committed Vue onTrack oracle fixtures (requires pnpm + Node).
 oracle-refresh:
   cd crates/vue_vet_reactivity/oracle && pnpm install && pnpm oracle:write
@@ -95,3 +98,78 @@ precommit:
 # Install the prek-managed Git hook.
 install-hooks:
   prek install
+
+# Run npm launcher unit tests (Node >= 18).
+npm-test:
+  cd npm/vue-vet && npm test
+
+# Sync npm/vue-vet package.json version + optionalDependencies.
+npm-sync-version version:
+  node npm/scripts/sync-launcher-version.mjs {{version}}
+
+# Pack the host release binary into dist/npm/@vue-vet/<os>-<cpu>.
+pack-platform:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cargo build -p vue-vet --release --locked
+  host="$(rustc -vV | sed -n 's/^host: //p')"
+  case "$host" in
+    x86_64-unknown-linux-gnu) pkg=linux-x64 ;;
+    aarch64-unknown-linux-gnu) pkg=linux-arm64 ;;
+    x86_64-apple-darwin) pkg=darwin-x64 ;;
+    aarch64-apple-darwin) pkg=darwin-arm64 ;;
+    x86_64-pc-windows-msvc) pkg=win32-x64 ;;
+    *) echo "unsupported host target: $host" >&2; exit 1 ;;
+  esac
+  version="$(cargo metadata --no-deps --format-version 1 --manifest-path crates/vue_vet_cli/Cargo.toml \
+    | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const j=JSON.parse(s);const p=j.packages.find(p=>p.name==="vue-vet");if(!p)process.exit(1);process.stdout.write(p.version)})')"
+  binary="target/release/vue-vet"
+  if [[ "$host" == *windows* ]]; then
+    binary="${binary}.exe"
+  fi
+  node npm/scripts/pack-platform.mjs \
+    --target "$host" \
+    --binary "$binary" \
+    --version "$version" \
+    --out "dist/npm/@vue-vet/${pkg}"
+
+# Smoke the host release binary (--version + fixture scan).
+release-smoke:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cargo build -p vue-vet --release --locked
+  binary="target/release/vue-vet"
+  "$binary" --version
+  "$binary" fixtures/projects/basic
+
+# Pack host platform package and smoke the npm launcher against it (no registry).
+npm-smoke:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  just pack-platform
+  just npm-sync-version 0.1.0
+  host="$(rustc -vV | sed -n 's/^host: //p')"
+  case "$host" in
+    x86_64-unknown-linux-gnu) pkg=linux-x64 ;;
+    aarch64-unknown-linux-gnu) pkg=linux-arm64 ;;
+    x86_64-apple-darwin) pkg=darwin-x64 ;;
+    aarch64-apple-darwin) pkg=darwin-arm64 ;;
+    x86_64-pc-windows-msvc) pkg=win32-x64 ;;
+    *) echo "unsupported host target: $host" >&2; exit 1 ;;
+  esac
+  smoke="$(mktemp -d)"
+  cleanup() { rm -rf "$smoke"; }
+  trap cleanup EXIT
+  mkdir -p "$smoke"
+  (
+    cd "$smoke"
+    npm init -y >/dev/null
+    npm install --omit=optional "$OLDPWD/dist/npm/@vue-vet/${pkg}"
+    npm install --omit=optional "$OLDPWD/npm/vue-vet"
+    npx vue-vet --version
+    npx vue-vet "$OLDPWD/fixtures/projects/basic"
+  )
+
+# Publish host platform package + launcher (requires valid npm auth + @vue-vet org).
+npm-publish-host *args:
+  node npm/scripts/publish-local-host.mjs {{args}}
