@@ -17,6 +17,9 @@ Related: [architecture](./architecture.md), [gotchas](./gotchas.md),
 - Keep Vue Vet-owned serializable contracts independent of Oxc and Vize types.
 - Grow the graph so multiple consumers can share it: rules, project graph,
   cache, future LSP/codemod surfaces.
+- The CLI surfaces a **Reactivity** digest after the score line (and optional
+  `--print-reactivity` detail) so a clean score is distinguishable from a
+  no-op tracer. Machine consumers get the same totals via JSON `reactivity`.
 
 ## What “complete” means
 

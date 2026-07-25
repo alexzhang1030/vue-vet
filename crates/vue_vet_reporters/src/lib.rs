@@ -10,7 +10,13 @@ use vue_vet_core::{
 };
 
 mod github;
+mod reactivity;
 mod sarif;
+
+pub use reactivity::{
+  ReactivityDigest, ReactivityHotspot, ReactivityModuleDetail, ReactivityModuleStats,
+  render_reactivity_detail, render_reactivity_footer,
+};
 
 pub const JSON_SCHEMA_VERSION: u8 = 1;
 
@@ -37,6 +43,7 @@ pub struct ReportContext {
   pub analyzed_files: Vec<String>,
   pub complete: bool,
   pub skipped_check_reasons: BTreeMap<String, String>,
+  pub reactivity: Option<ReactivityDigest>,
 }
 
 impl Default for ReportContext {
@@ -48,6 +55,7 @@ impl Default for ReportContext {
       analyzed_files: Vec::new(),
       complete: true,
       skipped_check_reasons: BTreeMap::new(),
+      reactivity: None,
     }
   }
 }
@@ -71,7 +79,7 @@ pub fn render(
   context: &ReportContext,
 ) -> Result<String, serde_json::Error> {
   match format {
-    ReportFormat::Text => Ok(render_text(summary)),
+    ReportFormat::Text => Ok(render_text(summary, context)),
     ReportFormat::Json => render_json(summary, context),
     ReportFormat::Sarif => sarif::render(summary, context),
     ReportFormat::Github => Ok(github::render(summary, context)),
@@ -87,6 +95,8 @@ struct JsonReport<'a> {
   project: JsonProject,
   diagnostics: Vec<JsonDiagnostic<'a>>,
   summary: JsonSummary,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  reactivity: Option<&'a ReactivityDigest>,
   error: Option<JsonError<'a>>,
 }
 
@@ -191,6 +201,7 @@ fn render_json(
       affected_file_count,
       by_severity,
     },
+    reactivity: context.reactivity.as_ref(),
     error: None,
   };
   serde_json::to_string_pretty(&report)
@@ -220,6 +231,7 @@ pub fn render_error(message: &str, context: &ReportContext) -> Result<String, se
       affected_file_count: 0,
       by_severity: SeverityCounts::default(),
     },
+    reactivity: context.reactivity.as_ref(),
     error: Some(JsonError { message }),
   };
   serde_json::to_string_pretty(&report)
@@ -293,7 +305,7 @@ fn documentation_path(documentation: &str) -> String {
   format!("docs/{documentation}.md")
 }
 
-fn render_text(summary: &ScanSummary) -> String {
+fn render_text(summary: &ScanSummary, context: &ReportContext) -> String {
   let mut output = String::new();
   for diagnostic in &summary.diagnostics {
     output.push_str(&diagnostic.file.display().to_string());
@@ -322,6 +334,9 @@ fn render_text(summary: &ScanSummary) -> String {
   output.push_str(" file(s), ");
   output.push_str(&summary.diagnostics.len().to_string());
   output.push_str(" finding(s)");
+  if let Some(digest) = &context.reactivity {
+    output.push_str(&render_reactivity_footer(digest));
+  }
   output
 }
 
@@ -367,6 +382,7 @@ mod tests {
     ReportContext {
       project_root: "fixtures/reporters".into(),
       analyzed_files: vec!["no-v-html.vue".into()],
+      reactivity: Some(ReactivityDigest::default()),
       ..ReportContext::default()
     }
   }
@@ -375,7 +391,7 @@ mod tests {
   fn text_report_matches_the_existing_snapshot() {
     let rendered = render(&fixture_summary(), ReportFormat::Text, &fixture_context());
     assert_eq!(
-      rendered.as_deref().ok(),
+      rendered.as_deref().ok().map(str::trim_end),
       Some(include_str!("../../../fixtures/reporters/no-v-html.txt").trim_end()),
       "text output must retain its stable snapshot"
     );
@@ -486,6 +502,46 @@ mod tests {
       rendered.as_deref().ok(),
       Some("\nVue Vet score: 0/100 — 0 file(s), 0 finding(s)"),
       "empty text scans must retain the summary"
+    );
+  }
+
+  #[test]
+  fn text_report_appends_reactivity_digest() {
+    let digest = ReactivityDigest::from_modules(
+      &[ReactivityModuleStats {
+        id: "App.vue".into(),
+        bindings: 2,
+        scopes: 1,
+        edges: 1,
+        template_reads: 1,
+        binding_labels: Vec::new(),
+        scope_labels: Vec::new(),
+        edge_labels: Vec::new(),
+        template_labels: Vec::new(),
+      }],
+      None,
+    );
+    let context = ReportContext { reactivity: Some(digest), ..ReportContext::default() };
+    let rendered = render(&ScanSummary::default(), ReportFormat::Text, &context);
+    let rendered = rendered.as_deref().ok().unwrap_or("");
+    assert!(rendered.contains("Vue Vet score: 0/100"));
+    assert!(rendered.contains("Reactivity"));
+    assert!(
+      rendered.contains("traced 1 module(s) · 2 bindings · 1 scopes · 1 edges · 1 template reads")
+    );
+    assert!(rendered.contains("App.vue"));
+  }
+
+  #[test]
+  fn json_report_includes_reactivity_when_present() {
+    let digest = ReactivityDigest::from_modules(&[], Some("tracing failed".into()));
+    let context = ReportContext { reactivity: Some(digest), ..fixture_context() };
+    let rendered = render(&fixture_summary(), ReportFormat::Json, &context);
+    let parsed =
+      rendered.as_ref().ok().and_then(|output| serde_json::from_str::<Value>(output).ok());
+    assert_eq!(
+      parsed.as_ref().and_then(|value| value.pointer("/reactivity/error")).and_then(Value::as_str),
+      Some("tracing failed")
     );
   }
 }
