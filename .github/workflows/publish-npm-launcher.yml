@@ -1,0 +1,35 @@
+# One-shot / recovery publish for the thin npm launcher when platform packages
+# already exist on the registry (e.g. after a partial Release run).
+name: Publish npm launcher
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Launcher version to sync into package.json'
+        type: string
+        required: true
+        default: '0.1.0'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Sync launcher version
+        run: node npm/scripts/sync-launcher-version.mjs "${{ inputs.version }}"
+
+      - name: Publish vue-vet launcher
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance ./npm/vue-vet
