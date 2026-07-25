@@ -7,5 +7,6 @@ const account = useAccount()
 <template>
   <AppCard />
   <AutoBadge />
+  <HeroDemo />
   <p>{{ account.name }}</p>
 </template>

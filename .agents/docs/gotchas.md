@@ -81,6 +81,13 @@ while Vize pins `dashmap =6.1.0`. Always absolutize/canonicalize the scan root
 before building the resolver: `vue-vet .` must not leave alias targets as `"."`,
 or Nuxt `~/…` imports fail even when the files exist.
 
+Nuxt component auto-imports do not use the raw file stem. `HeroDemo.client.vue`
+is registered as `HeroDemo` (and `LazyHeroDemo`); nesting and `index.vue` also
+change the PascalCase name. Matching only `file_stem` produces false
+`unused-component` warnings. Prefer convention naming, and when present read
+`.nuxt/components.d.ts` / `.nuxt/types/components.d.ts` instead of executing
+`nuxt.config`.
+
 Cache corruption is a miss, not a scan failure. Cache keys must change when any
 normalized semantic input changes; raw dependency ASTs must never be persisted.
 Diff filtering keeps every project diagnostic because removing an edge can
