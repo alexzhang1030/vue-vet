@@ -235,3 +235,17 @@ Cross-module export shapes are not only `export function useX`. Also register:
 - `export const useX = () => ({ … })` / `export const useX = function () { … }`
 - `export default function useX() { … }` (exported name `default`, local name `useX`)
 Anonymous default arrows stay quiet (no local name to hang a shape on).
+
+## provide/inject without an App Tree
+
+Injection is linked by a **project-wide provide index**, not a component
+ancestor chain. Rules:
+
+- Seed an `inject` local only when **exactly one** provide site for that key has
+  a known reactive shape (or when a static default value has a known shape).
+- **Multiple** provides of the same key stay quiet — nearest-ancestor selection
+  needs an App Tree we deliberately do not build yet.
+- String keys match exactly; identifier keys match by local name only (opaque
+  symbols with the same binding name can collapse — multi-provider stays quiet).
+- Factory defaults (`inject(key, () => ref(0))`) stay quiet; plain
+  `inject(key, someRef)` may seed from the default.

@@ -1,0 +1,14 @@
+{
+  "id": "sort-hof",
+  "source": "import { ref, watchEffect } from 'vue'\nconst list = ref([3, 1, 2])\nconst key = ref(0)\nwatchEffect(() => {\n  list.value.slice().sort((a, b) => a - b + key.value)\n})\n",
+  "runtime_deps": [
+    {
+      "binding": "key",
+      "key": "value"
+    },
+    {
+      "binding": "list",
+      "key": "value"
+    }
+  ]
+}

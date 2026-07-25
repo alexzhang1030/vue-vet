@@ -17,6 +17,7 @@ completeness number — not a 280-case syntax matrix.
 | id | Intent |
 | --- | --- |
 | `baseline-ref-computed` | happy path ref → computed |
+| `computed-object-get` | `computed({ get, set })` tracks getter reads |
 | `pause-tracking-window` | `pauseTracking`/`enableTracking` window drops mid-window reads |
 | `props-reactive-object` | `props.count` style reactive object (defineProps stand-in) |
 | `reactive-member` | `reactive({ count }).count` member track |
@@ -28,10 +29,12 @@ completeness number — not a 280-case syntax matrix.
 | `sync-map-hof` | sync Array#map callback must track `factor` |
 | `sync-reduce-hof` | sync Array#reduce callback must track `factor` |
 | `sync-some-hof` | sync Array#some callback must track `threshold` |
+| `sort-hof` | Array#sort comparator tracks nested reactive reads |
 | `use-route-like` | reactive route object member (`route.path`) |
 | `watch-effect-ref` | `watchEffect` tracks `ref.value` |
 | `watch-effect-await` | post-await read is **not** runtime-tracked (boundary) |
 | `watch-source-array` | `watch([a, b])` tracks each ref `.value` |
+| `watch-source-array-getters` | `watch([() => a.value, () => b.value])` each getter body |
 | `watch-source-getter` | `watch(() => value.value)` source getter |
 | `watch-source-ref` | `watch(ref)` tracks `.value` (not property-less) |
 | `runner-run-no-track` | arbitrary `.run` invents nothing at runtime |

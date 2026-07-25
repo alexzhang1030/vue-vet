@@ -865,6 +865,111 @@ fn seeds_parametric_composable_to_ref_fields() {
 }
 
 #[test]
+fn same_file_provide_inject_seeds_reactive_binding() {
+  let graph = graph(
+    "import { provide, inject, ref, computed } from 'vue';\n\
+     const count = ref(1);\n\
+     provide('count', count);\n\
+     const injected = inject('count');\n\
+     const doubled = computed(() => injected.value * 2);\n\
+     void doubled.value;",
+  );
+  assert!(
+    graph
+      .bindings
+      .iter()
+      .any(|binding| { binding.name == "injected" && binding.kind == ReactiveBindingKind::Ref }),
+    "unique same-file provide must seed inject binding; bindings={:?}",
+    graph.bindings
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "injected" && read.property.as_deref() == Some("value"))
+    }),
+    "computed must track injected.value; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn inject_default_seeds_when_provide_missing() {
+  let graph = graph(
+    "import { inject, ref, computed } from 'vue';\n\
+     const fallback = ref(0);\n\
+     const count = inject('missing', fallback);\n\
+     const doubled = computed(() => count.value * 2);\n\
+     void doubled.value;",
+  );
+  assert!(
+    graph
+      .bindings
+      .iter()
+      .any(|binding| { binding.name == "count" && binding.kind == ReactiveBindingKind::Ref }),
+    "inject default ref must seed when no provide exists; bindings={:?}",
+    graph.bindings
+  );
+}
+
+#[test]
+fn ambiguous_provide_keys_stay_quiet() {
+  let graph = graph(
+    "import { provide, inject, ref, computed } from 'vue';\n\
+     provide('count', ref(1));\n\
+     provide('count', ref(2));\n\
+     const count = inject('count');\n\
+     const doubled = computed(() => count.value * 2);\n\
+     void doubled.value;",
+  );
+  assert!(
+    !graph.bindings.iter().any(|binding| binding.name == "count"),
+    "multiple provides of the same key must not invent an inject binding; bindings={:?}",
+    graph.bindings
+  );
+}
+
+#[test]
+fn cross_module_provide_inject_unique_key_seeds() {
+  let modules = [
+    ModuleSource::standalone(
+      "provider.ts",
+      "import { provide, ref } from 'vue'; const count = ref(1); provide('count', count);",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { inject, computed } from 'vue'; const count = inject('count'); const d = computed(() => count.value); void d.value;",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  // No import link required — provide index is project-wide by key.
+  let traced = traced_modules(&modules, &[]);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "count" && binding.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope
+              .reads
+              .iter()
+              .any(|read| read.binding == "count" && read.property.as_deref() == Some("value"))
+        })
+    }),
+    "unique project provide must seed cross-module inject; consumer={consumer:?}"
+  );
+}
+
+#[test]
 fn unref_and_to_value_track_ref_like_bindings() {
   for (label, source) in [
     (

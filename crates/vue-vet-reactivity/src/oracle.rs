@@ -149,9 +149,12 @@ fn oracle_cases_cover_known_hard_facts() {
   let ids = load_cases().into_iter().map(|case| case.id).collect::<BTreeSet<_>>();
   for required in [
     "baseline-ref-computed",
+    "computed-object-get",
     "pause-tracking-window",
     "props-reactive-object",
     "reactive-member",
+    "runner-run-no-track",
+    "sort-hof",
     "sync-every-hof",
     "sync-filter-hof",
     "sync-find-hof",
@@ -161,10 +164,10 @@ fn oracle_cases_cover_known_hard_facts() {
     "sync-reduce-hof",
     "sync-some-hof",
     "use-route-like",
-    "runner-run-no-track",
     "watch-effect-await",
     "watch-effect-ref",
     "watch-source-array",
+    "watch-source-array-getters",
     "watch-source-getter",
     "watch-source-ref",
   ] {
@@ -215,6 +218,111 @@ fn define_props_is_modeled_as_reactive_binding() {
     }),
     "computed must read props.count; scopes={:?}",
     graph.scopes
+  );
+}
+
+#[test]
+fn with_defaults_define_props_is_reactive_binding() {
+  let graph = graph(
+    "import { computed, withDefaults } from 'vue'\n\
+     const props = withDefaults(defineProps<{ n: number }>(), { n: 0 })\n\
+     const doubled = computed(() => props.n * 2)\n",
+  );
+  assert!(
+    graph.bindings.iter().any(|binding| {
+      binding.name == "props" && binding.kind == vue_vet_core::ReactiveBindingKind::Reactive
+    }),
+    "withDefaults(defineProps()) must seed a reactive props binding; bindings={:?}",
+    graph.bindings
+  );
+  assert_computed_reads_exact(&graph, &[("props", Some("n"))]);
+}
+
+#[test]
+fn computed_object_get_set_tracks_getter_reads() {
+  let graph = graph(
+    "import { ref, computed } from 'vue'\n\
+     const count = ref(1)\n\
+     const doubled = computed({\n\
+       get() { return count.value * 2 },\n\
+       set(v) { count.value = v },\n\
+     })\n",
+  );
+  assert_computed_reads_exact(&graph, &[("count", Some("value"))]);
+}
+
+#[test]
+fn watch_source_array_of_getters_tracks_each_body() {
+  let graph = graph(
+    "import { ref, watch } from 'vue'\n\
+     const a = ref(1)\n\
+     const b = ref(2)\n\
+     watch([() => a.value, () => b.value], () => {})\n",
+  );
+  let Some(sources) =
+    graph.scopes.iter().find(|scope| scope.kind == vue_vet_core::TrackingScopeKind::WatchSources)
+  else {
+    panic!("watch sources scope missing; scopes={:?}", graph.scopes);
+  };
+  let keys = sources
+    .reads
+    .iter()
+    .map(|read| (read.binding.as_str(), read.property.as_deref()))
+    .collect::<BTreeSet<_>>();
+  assert_eq!(
+    keys,
+    BTreeSet::from([("a", Some("value")), ("b", Some("value"))]),
+    "array of getters must contribute both source reads"
+  );
+}
+
+#[test]
+fn watch_source_mixed_ref_and_getter() {
+  let graph = graph(
+    "import { ref, watch } from 'vue'\n\
+     const a = ref(1)\n\
+     const b = ref(2)\n\
+     watch([a, () => b.value], () => {})\n",
+  );
+  let Some(sources) =
+    graph.scopes.iter().find(|scope| scope.kind == vue_vet_core::TrackingScopeKind::WatchSources)
+  else {
+    panic!("watch sources scope missing; scopes={:?}", graph.scopes);
+  };
+  let keys = sources
+    .reads
+    .iter()
+    .map(|read| (read.binding.as_str(), read.property.as_deref()))
+    .collect::<BTreeSet<_>>();
+  assert_eq!(
+    keys,
+    BTreeSet::from([("a", Some("value")), ("b", Some("value"))]),
+    "mixed ref + getter sources must both track"
+  );
+}
+
+#[test]
+fn sort_comparator_tracks_nested_reactive_reads() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue'\n\
+     const list = ref([3, 1, 2])\n\
+     const key = ref(0)\n\
+     watchEffect(() => { list.value.slice().sort((a, b) => a - b + key.value) })\n",
+  );
+  let Some(effect) = graph.scopes.iter().find(|scope| scope.kind.is_effect_family()) else {
+    panic!("watchEffect scope missing; scopes={:?}", graph.scopes);
+  };
+  let keys = effect
+    .reads
+    .iter()
+    .filter(|read| {
+      matches!(read.kind, ReactiveReadKind::Unconditional | ReactiveReadKind::Conditional)
+    })
+    .map(|read| (read.binding.as_str(), read.property.as_deref()))
+    .collect::<BTreeSet<_>>();
+  assert!(
+    keys.contains(&("list", Some("value"))) && keys.contains(&("key", Some("value"))),
+    "sort comparator must track list.value and key.value; got {keys:?}"
   );
 }
 

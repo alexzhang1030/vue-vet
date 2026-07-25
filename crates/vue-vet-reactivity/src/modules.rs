@@ -20,8 +20,9 @@ use thiserror::Error;
 use vue_vet_core::{ReactiveBindingFact, ReactiveBindingKind, ReactivityGraph, ScriptKind};
 
 use super::{
-  TraceSeeds, collect_binding_identifiers, collect_imported_bindings, module_export_name,
-  reactive_binding_kind, reference_resolves_to_binding, resolved_vue_callee, source_span,
+  TraceSeeds, collect_binding_identifiers, collect_imported_bindings, collect_inject_sites,
+  collect_provide_sites, module_export_name, provide_kind_index, reactive_binding_kind,
+  reference_resolves_to_binding, resolve_inject_kind, resolved_vue_callee, source_span,
   trace_reactivity_seeded,
 };
 use oxc_ast::ast::Argument;
@@ -163,11 +164,29 @@ struct ModuleExportFacts {
   imports: Vec<ImportSummary>,
   exports: Vec<ExportSummary>,
   locals: BTreeMap<String, ExportState>,
+  /// `provide(key, value)` sites with optional known value shapes.
+  provides: Vec<super::ProvideSite>,
+  /// `const local = inject(key)` sites for unique-key seed resolution.
+  injects: Vec<super::InjectSite>,
 }
 
 /// Per-import resolution for one consumer module (`import.local` → export state).
 /// Spans are applied on the worker that still holds the parse.
-type SeedPlan = BTreeMap<String, ExportState>;
+type ImportSeedPlan = BTreeMap<String, ExportState>;
+
+/// Cross-module seeds delivered after the barrier (imports + unique inject keys).
+#[derive(Debug, Default)]
+struct ModuleSeedPlan {
+  imports: ImportSeedPlan,
+  /// inject local → reactive kind (from unique provide or static default).
+  injects: BTreeMap<String, ReactiveBindingKind>,
+}
+
+impl ModuleSeedPlan {
+  fn is_empty(&self) -> bool {
+    self.imports.is_empty() && self.injects.is_empty()
+  }
+}
 
 /// Traces local and linked reactivity across a resolved module graph.
 ///
@@ -206,7 +225,7 @@ pub fn trace_modules(
 
     for module in modules {
       let (facts_tx, facts_rx) = mpsc::channel::<Result<ModuleExportFacts, TraceModulesError>>();
-      let (seed_tx, seed_rx) = mpsc::channel::<SeedPlan>();
+      let (seed_tx, seed_rx) = mpsc::channel::<ModuleSeedPlan>();
       let (result_tx, result_rx) = mpsc::channel::<Result<ModuleReactivity, TraceModulesError>>();
       facts_rxs.push(facts_rx);
       seed_txs.push(seed_tx);
@@ -231,13 +250,17 @@ pub fn trace_modules(
     let resolved_links = resolved_links(&facts_by_id, links)?;
     let link_index = link_index(&resolved_links);
     let exports = resolve_exports(&facts_by_id, &link_index);
+    let provide_index = global_provide_index(&facts_by_id);
 
-    // Phase 2: deliver seed plans (moved ExportState, no source/graph).
+    // Phase 2: deliver seed plans (import shapes + unique inject keys).
     for (module, seed_tx) in modules.iter().zip(seed_txs) {
       let Some(facts) = facts_by_id.get(module.id.as_str()) else {
         return Err(TraceModulesError::WorkerDisconnected);
       };
-      let plan = seed_plan_for(facts, &exports, &link_index);
+      let plan = ModuleSeedPlan {
+        imports: seed_plan_for(facts, &exports, &link_index),
+        injects: inject_seed_plan(facts, &provide_index),
+      };
       if seed_tx.send(plan).is_err() {
         return Err(TraceModulesError::WorkerDisconnected);
       }
@@ -256,7 +279,7 @@ pub fn trace_modules(
 fn worker_trace_module(
   module: &ModuleSource,
   facts_tx: &mpsc::Sender<Result<ModuleExportFacts, TraceModulesError>>,
-  seed_rx: &mpsc::Receiver<SeedPlan>,
+  seed_rx: &mpsc::Receiver<ModuleSeedPlan>,
 ) -> Result<ModuleReactivity, TraceModulesError> {
   let allocator = Allocator::default();
   let source_type = source_type(module)?;
@@ -300,10 +323,22 @@ fn worker_trace_module(
     ..ReactivityGraph::default()
   };
   let locals = collect_local_values(&semantic, &local_graph, &shape_graph, module.source_offset);
+  let imported_bindings = super::collect_imported_bindings(&semantic);
+  let provides =
+    collect_provide_sites(&semantic, &imported_bindings, &local_graph.bindings, module.kind);
+  let injects =
+    collect_inject_sites(&semantic, &imported_bindings, &local_graph.bindings, module.kind);
 
   // Move export facts out; keep `local_graph` for the empty-seed fast path.
   // Destructure/instance call sites are re-read on the worker when materializing seeds.
-  let facts = ModuleExportFacts { id: module.id.clone(), imports, exports: export_decls, locals };
+  let facts = ModuleExportFacts {
+    id: module.id.clone(),
+    imports,
+    exports: export_decls,
+    locals,
+    provides,
+    injects,
+  };
   if facts_tx.send(Ok(facts)).is_err() {
     return Ok(ModuleReactivity { id: module.id.clone(), graph: local_graph });
   }
@@ -921,8 +956,8 @@ fn seed_plan_for(
   facts: &ModuleExportFacts,
   exports: &BTreeMap<String, BTreeMap<String, ExportState>>,
   links: &BTreeMap<(&str, &str), &str>,
-) -> SeedPlan {
-  let mut plan = SeedPlan::new();
+) -> ImportSeedPlan {
+  let mut plan = ImportSeedPlan::new();
   for import in &facts.imports {
     if import.imported == "*" {
       continue;
@@ -941,11 +976,37 @@ fn seed_plan_for(
   plan
 }
 
+/// Project-wide provide index (no App Tree): key → kinds from every known site.
+fn global_provide_index(
+  facts: &BTreeMap<String, ModuleExportFacts>,
+) -> BTreeMap<super::InjectionKey, Vec<ReactiveBindingKind>> {
+  let mut all = Vec::new();
+  for module in facts.values() {
+    all.extend(module.provides.iter().cloned());
+  }
+  provide_kind_index(&all)
+}
+
+/// Unique inject seeds for one consumer (multi-provide keys stay quiet).
+fn inject_seed_plan(
+  facts: &ModuleExportFacts,
+  provide_index: &BTreeMap<super::InjectionKey, Vec<ReactiveBindingKind>>,
+) -> BTreeMap<String, ReactiveBindingKind> {
+  let mut plan = BTreeMap::new();
+  for inject in &facts.injects {
+    let Some(kind) = resolve_inject_kind(provide_index, inject) else {
+      continue;
+    };
+    plan.insert(inject.local.clone(), kind);
+  }
+  plan
+}
+
 /// Worker-side: attach SFC-absolute spans from the live parse (no second parse).
 fn materialize_seeds(
   module: &ModuleSource,
   semantic: &Semantic<'_>,
-  plan: &SeedPlan,
+  plan: &ModuleSeedPlan,
 ) -> TraceSeeds {
   if plan.is_empty() {
     return TraceSeeds::default();
@@ -957,7 +1018,7 @@ fn materialize_seeds(
   let span_base = module.source_offset;
   let mut seeds = TraceSeeds::default();
   for import in &imports {
-    let Some(state) = plan.get(&import.local) else {
+    let Some(state) = plan.imports.get(&import.local) else {
       continue;
     };
     match state {
@@ -985,6 +1046,25 @@ fn materialize_seeds(
         }
       }
       ExportState::Ambiguous => {}
+    }
+  }
+  // Inject locals: re-read sites for exact spans, kinds from the coordinator plan.
+  if !plan.injects.is_empty() {
+    let imported_bindings = super::collect_imported_bindings(semantic);
+    let injects = collect_inject_sites(semantic, &imported_bindings, &[], module.kind);
+    for inject in injects {
+      let Some(kind) = plan.injects.get(&inject.local).copied() else {
+        continue;
+      };
+      if seeds.bindings.iter().any(|binding| binding.name == inject.local) {
+        continue;
+      }
+      seeds.bindings.push(ReactiveBindingFact {
+        name: inject.local,
+        kind,
+        initialized_with_null: false,
+        span: source_span(span_source, span_base, inject.span),
+      });
     }
   }
   seeds

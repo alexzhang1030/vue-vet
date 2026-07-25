@@ -4,7 +4,8 @@ use oxc_ast::{
   AstKind,
   ast::{
     Argument, BindingPattern, Expression, FunctionBody, IdentifierReference,
-    ImportDeclarationSpecifier, ModuleExportName, Statement,
+    ImportDeclarationSpecifier, ModuleExportName, ObjectPropertyKind, PropertyKey, PropertyKind,
+    Statement,
   },
 };
 use oxc_semantic::{NodeId, Semantic};
@@ -80,6 +81,17 @@ fn trace_reactivity_seeded(
   let (local_instances, local_destructured) =
     collect_local_composable_usage(semantic, &shape_graph, sfc_source, script_offset);
   for binding in local_destructured {
+    if !bindings.iter().any(|local| local.name == binding.name) {
+      bindings.push(binding);
+    }
+  }
+  // Same-file provide → inject: unique key with known reactive shape (or inject default).
+  for binding in resolve_inject_bindings(
+    &collect_provide_sites(semantic, &imported_bindings, &bindings, script_kind),
+    &collect_inject_sites(semantic, &imported_bindings, &bindings, script_kind),
+    sfc_source,
+    script_offset,
+  ) {
     if !bindings.iter().any(|local| local.name == binding.name) {
       bindings.push(binding);
     }
@@ -301,7 +313,7 @@ fn resolved_vue_callee(
 ) -> Option<String> {
   if let Some(identifier) = callee.get_identifier_reference() {
     let local = identifier.name.as_str();
-    if matches!(local, "defineModel" | "defineProps")
+    if matches!(local, "defineModel" | "defineProps" | "withDefaults")
       && kind == ScriptKind::Setup
       && !imported_bindings.contains_key(local)
     {
@@ -347,6 +359,9 @@ fn known_reactivity_export(source: &str, imported: &str) -> bool {
             | "resetTracking"
             | "unref"
             | "toValue"
+            | "withDefaults"
+            | "provide"
+            | "inject"
         )
     }
     "pinia" => matches!(imported, "storeToRefs"),
@@ -371,6 +386,210 @@ fn reactive_binding_kind(callee: &str) -> Option<ReactiveBindingKind> {
     "defineModel" => Some(ReactiveBindingKind::ModelRef),
     _ => None,
   }
+}
+
+/// Injection key identity for provide/inject linking (under-approx).
+///
+/// String keys match exactly. Identifier keys match by local name only (no full
+/// symbol identity) — multiple distinct `Symbol()` values with the same binding
+/// name collapse and become ambiguous when more than one provider exists.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum InjectionKey {
+  String(String),
+  Ident(String),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ProvideSite {
+  pub key: InjectionKey,
+  pub kind: Option<ReactiveBindingKind>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct InjectSite {
+  pub local: String,
+  pub key: InjectionKey,
+  pub span: Span,
+  pub default_kind: Option<ReactiveBindingKind>,
+}
+
+/// `provide(key, value)` and `*.provide(key, value)` with a known-or-unknown value shape.
+pub(crate) fn collect_provide_sites(
+  semantic: &Semantic<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  reactive_bindings: &[ReactiveBindingFact],
+  script_kind: ScriptKind,
+) -> Vec<ProvideSite> {
+  let mut sites = Vec::new();
+  for node in semantic.nodes() {
+    let AstKind::CallExpression(call) = node.kind() else {
+      continue;
+    };
+    if !is_provide_call(&call.callee, imported_bindings, script_kind) {
+      continue;
+    }
+    let Some(key_expr) = call.arguments.first().and_then(Argument::as_expression) else {
+      continue;
+    };
+    let Some(key) = injection_key(key_expr) else {
+      continue;
+    };
+    let kind = call.arguments.get(1).and_then(Argument::as_expression).and_then(|value| {
+      expression_reactive_kind(value, imported_bindings, reactive_bindings, script_kind)
+    });
+    sites.push(ProvideSite { key, kind });
+  }
+  sites
+}
+
+/// `const local = inject(key)` / `inject(key, default)`.
+pub(crate) fn collect_inject_sites(
+  semantic: &Semantic<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  reactive_bindings: &[ReactiveBindingFact],
+  script_kind: ScriptKind,
+) -> Vec<InjectSite> {
+  let mut sites = Vec::new();
+  for node in semantic.nodes() {
+    let AstKind::CallExpression(call) = node.kind() else {
+      continue;
+    };
+    let Some(callee) = resolved_vue_callee(&call.callee, imported_bindings, script_kind) else {
+      continue;
+    };
+    if callee != "inject" {
+      continue;
+    }
+    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
+    else {
+      continue;
+    };
+    let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
+      continue;
+    };
+    let Some(key_expr) = call.arguments.first().and_then(Argument::as_expression) else {
+      continue;
+    };
+    let Some(key) = injection_key(key_expr) else {
+      continue;
+    };
+    let default_kind = call.arguments.get(1).and_then(Argument::as_expression).and_then(|value| {
+      // Factory defaults (`inject(key, () => ref(0))`) stay quiet — shape is dynamic.
+      if matches!(value, Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_))
+      {
+        return None;
+      }
+      expression_reactive_kind(value, imported_bindings, reactive_bindings, script_kind)
+    });
+    sites.push(InjectSite {
+      local: identifier.name.to_string(),
+      key,
+      span: identifier.span,
+      default_kind,
+    });
+  }
+  sites
+}
+
+/// Unique known provide → inject binding, else inject default kind, else quiet.
+pub(crate) fn resolve_inject_bindings(
+  provides: &[ProvideSite],
+  injects: &[InjectSite],
+  sfc_source: &str,
+  script_offset: usize,
+) -> Vec<ReactiveBindingFact> {
+  let index = provide_kind_index(provides);
+  let mut bindings = Vec::new();
+  for inject in injects {
+    let Some(kind) = resolve_inject_kind(&index, inject) else {
+      continue;
+    };
+    if bindings.iter().any(|binding: &ReactiveBindingFact| binding.name == inject.local) {
+      continue;
+    }
+    bindings.push(ReactiveBindingFact {
+      name: inject.local.clone(),
+      kind,
+      initialized_with_null: false,
+      span: source_span(sfc_source, script_offset, inject.span),
+    });
+  }
+  bindings
+}
+
+/// Global/same-file index: injection key → known provide value kinds (one entry per site).
+pub(crate) fn provide_kind_index(
+  provides: &[ProvideSite],
+) -> BTreeMap<InjectionKey, Vec<ReactiveBindingKind>> {
+  let mut index: BTreeMap<InjectionKey, Vec<ReactiveBindingKind>> = BTreeMap::new();
+  for site in provides {
+    let Some(kind) = site.kind else {
+      continue;
+    };
+    index.entry(site.key.clone()).or_default().push(kind);
+  }
+  index
+}
+
+/// Exactly one known provide kind wins; otherwise a static default; multi-provide stays quiet.
+pub(crate) fn resolve_inject_kind(
+  index: &BTreeMap<InjectionKey, Vec<ReactiveBindingKind>>,
+  inject: &InjectSite,
+) -> Option<ReactiveBindingKind> {
+  match index.get(&inject.key).map(Vec::as_slice) {
+    Some([kind]) => Some(*kind),
+    Some([_, _, ..]) => None,
+    Some([]) | None => inject.default_kind,
+  }
+}
+
+fn is_provide_call(
+  callee: &Expression<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  script_kind: ScriptKind,
+) -> bool {
+  if resolved_vue_callee(callee, imported_bindings, script_kind).as_deref() == Some("provide") {
+    return true;
+  }
+  // `app.provide(key, value)` — under-approx any `.provide` member call.
+  match callee {
+    Expression::StaticMemberExpression(member) => member.property.name.as_str() == "provide",
+    Expression::ComputedMemberExpression(member) => {
+      member.static_property_name().is_some_and(|name| name == "provide")
+    }
+    _ => false,
+  }
+}
+
+fn injection_key(expression: &Expression<'_>) -> Option<InjectionKey> {
+  match expression {
+    Expression::StringLiteral(literal) => Some(InjectionKey::String(literal.value.to_string())),
+    Expression::Identifier(identifier) => Some(InjectionKey::Ident(identifier.name.to_string())),
+    Expression::TemplateLiteral(template) if template.expressions.is_empty() => {
+      let quasi = template.quasis.first()?;
+      Some(InjectionKey::String(quasi.value.cooked.as_ref()?.to_string()))
+    }
+    _ => None,
+  }
+}
+
+fn expression_reactive_kind(
+  expression: &Expression<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  reactive_bindings: &[ReactiveBindingFact],
+  script_kind: ScriptKind,
+) -> Option<ReactiveBindingKind> {
+  if let Some(identifier) = expression.get_identifier_reference() {
+    return reactive_bindings
+      .iter()
+      .find(|binding| binding.name == identifier.name.as_str())
+      .map(|binding| binding.kind);
+  }
+  if let Expression::CallExpression(call) = expression {
+    let callee = resolved_vue_callee(&call.callee, imported_bindings, script_kind)?;
+    return reactive_binding_kind(&callee);
+  }
+  None
 }
 
 fn collect_binding_identifiers(
@@ -419,8 +638,29 @@ fn collect_reactive_bindings(
     let Some(callee) = resolved_vue_callee(&call.callee, imported_bindings, script_kind) else {
       continue;
     };
-    let Some(binding_kind) = reactive_binding_kind(&callee) else {
-      continue;
+    // `const props = withDefaults(defineProps(...), defaults)` — binding is the
+    // outer call's assignee; peel defineProps for the reactive kind.
+    let binding_kind = if callee == "withDefaults" {
+      let Some(inner) = call.arguments.first().and_then(Argument::as_expression) else {
+        continue;
+      };
+      let Expression::CallExpression(inner_call) = inner else {
+        continue;
+      };
+      let Some(inner_callee) =
+        resolved_vue_callee(&inner_call.callee, imported_bindings, script_kind)
+      else {
+        continue;
+      };
+      if inner_callee != "defineProps" {
+        continue;
+      }
+      ReactiveBindingKind::Reactive
+    } else {
+      let Some(kind) = reactive_binding_kind(&callee) else {
+        continue;
+      };
+      kind
     };
     let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
     else {
@@ -555,6 +795,7 @@ fn is_sync_hof_callback(semantic: &oxc_semantic::Semantic<'_>, function_id: Node
 }
 
 fn is_sync_hof_callee(callee: &Expression<'_>) -> bool {
+  // Synchronously invoked callbacks only. Async iterators / event listeners stay out.
   const METHODS: &[&str] = &[
     "filter",
     "map",
@@ -568,6 +809,8 @@ fn is_sync_hof_callee(callee: &Expression<'_>) -> bool {
     "findLast",
     "findLastIndex",
     "flatMap",
+    // Comparator runs during the call (in-place or copy).
+    "sort",
     "toSorted",
     "toSpliced",
   ];
@@ -1060,6 +1303,47 @@ fn callback_parts<'a>(
   }
 }
 
+/// Function/arrow body for a tracking scope, including `computed({ get, set })`.
+fn tracking_callback_parts<'a>(
+  argument: &'a Argument<'a>,
+) -> Option<(NodeId, Option<&'a FunctionBody<'a>>)> {
+  if let Some(parts) = callback_parts(argument) {
+    return Some(parts);
+  }
+  let expression = argument.as_expression()?;
+  let Expression::ObjectExpression(object) = expression else {
+    return None;
+  };
+  for property in &object.properties {
+    let ObjectPropertyKind::ObjectProperty(property) = property else {
+      continue;
+    };
+    // Prefer explicit getters; also accept `get: () => …` / `get() { … }`.
+    let is_get = property.kind == PropertyKind::Get || property_key_is_name(&property.key, "get");
+    if !is_get {
+      continue;
+    }
+    return match &property.value {
+      Expression::FunctionExpression(callback) => {
+        Some((callback.node_id.get(), callback.body.as_deref()))
+      }
+      Expression::ArrowFunctionExpression(callback) => {
+        Some((callback.node_id.get(), Some(&*callback.body)))
+      }
+      _ => None,
+    };
+  }
+  None
+}
+
+fn property_key_is_name(key: &PropertyKey<'_>, name: &str) -> bool {
+  match key {
+    PropertyKey::StaticIdentifier(identifier) => identifier.name.as_str() == name,
+    PropertyKey::StringLiteral(literal) => literal.value.as_str() == name,
+    _ => false,
+  }
+}
+
 fn is_assignment_only_body(body: Option<&FunctionBody<'_>>) -> bool {
   let Some(body) = body else {
     return false;
@@ -1261,7 +1545,12 @@ fn collect_tracking_scopes(
         let Some(argument) = call.arguments.first() else {
           continue;
         };
-        let Some((scope_id, body)) = callback_parts(argument) else {
+        // `computed` accepts a getter function or `{ get, set }` object form.
+        let Some((scope_id, body)) = (if scope_kind == TrackingScopeKind::Computed {
+          tracking_callback_parts(argument)
+        } else {
+          callback_parts(argument)
+        }) else {
           continue;
         };
         let raw_reads = collect_scope_reads(
@@ -1451,75 +1740,54 @@ fn collect_watch_source_reads(
   sfc_source: &str,
   script_offset: usize,
 ) -> Vec<ReactiveReadFact> {
+  let ctx = WatchSourceCtx {
+    semantic,
+    reactive_bindings,
+    composable_instances,
+    imported_bindings,
+    sfc_source,
+    script_offset,
+  };
   match argument {
     Argument::ArrowFunctionExpression(callback) => {
-      let scope_id = callback.node_id.get();
-      let body = Some(&*callback.body);
-      let raw_reads = collect_scope_reads(
-        semantic,
-        scope_id,
-        reactive_bindings,
-        composable_instances,
-        imported_bindings,
-        script_offset,
-      );
-      raw_reads
-        .iter()
-        .map(|read| {
-          classify_read(&ClassifyRead {
-            semantic,
-            scope_id,
-            body,
-            raw_reads: &raw_reads,
-            read,
-            sfc_source,
-            script_offset,
-            imported_bindings,
-          })
-        })
-        .collect()
+      collect_watch_getter_reads(&ctx, callback.node_id.get(), Some(&*callback.body))
     }
     Argument::FunctionExpression(callback) => {
-      let scope_id = callback.node_id.get();
-      let body = callback.body.as_deref();
-      let raw_reads = collect_scope_reads(
-        semantic,
-        scope_id,
-        reactive_bindings,
-        composable_instances,
-        imported_bindings,
-        script_offset,
-      );
-      raw_reads
-        .iter()
-        .map(|read| {
-          classify_read(&ClassifyRead {
-            semantic,
-            scope_id,
-            body,
-            raw_reads: &raw_reads,
-            read,
-            sfc_source,
-            script_offset,
-            imported_bindings,
-          })
-        })
-        .collect()
+      collect_watch_getter_reads(&ctx, callback.node_id.get(), callback.body.as_deref())
     }
     Argument::ArrayExpression(array) => {
+      // `watch([a, () => b.value, () => c.value])` — each element is a source.
       let mut reads = Vec::new();
       for element in &array.elements {
         let Some(expression) = element.as_expression() else {
           continue;
         };
-        collect_expression_source_reads(
-          semantic,
-          expression,
-          reactive_bindings,
-          sfc_source,
-          script_offset,
-          &mut reads,
-        );
+        match expression {
+          Expression::ArrowFunctionExpression(callback) => {
+            reads.extend(collect_watch_getter_reads(
+              &ctx,
+              callback.node_id.get(),
+              Some(&*callback.body),
+            ));
+          }
+          Expression::FunctionExpression(callback) => {
+            reads.extend(collect_watch_getter_reads(
+              &ctx,
+              callback.node_id.get(),
+              callback.body.as_deref(),
+            ));
+          }
+          other => {
+            collect_expression_source_reads(
+              ctx.semantic,
+              other,
+              ctx.reactive_bindings,
+              ctx.sfc_source,
+              ctx.script_offset,
+              &mut reads,
+            );
+          }
+        }
       }
       reads.sort_by_key(|read| read.span.offset);
       reads
@@ -1527,18 +1795,72 @@ fn collect_watch_source_reads(
     argument => {
       let mut reads = Vec::new();
       if let Some(expression) = argument.as_expression() {
-        collect_expression_source_reads(
-          semantic,
-          expression,
-          reactive_bindings,
-          sfc_source,
-          script_offset,
-          &mut reads,
-        );
+        match expression {
+          Expression::ArrowFunctionExpression(callback) => {
+            return collect_watch_getter_reads(&ctx, callback.node_id.get(), Some(&*callback.body));
+          }
+          Expression::FunctionExpression(callback) => {
+            return collect_watch_getter_reads(
+              &ctx,
+              callback.node_id.get(),
+              callback.body.as_deref(),
+            );
+          }
+          other => {
+            collect_expression_source_reads(
+              ctx.semantic,
+              other,
+              ctx.reactive_bindings,
+              ctx.sfc_source,
+              ctx.script_offset,
+              &mut reads,
+            );
+          }
+        }
       }
       reads
     }
   }
+}
+
+struct WatchSourceCtx<'a> {
+  semantic: &'a oxc_semantic::Semantic<'a>,
+  reactive_bindings: &'a [ReactiveBindingFact],
+  composable_instances: &'a BTreeMap<String, BTreeMap<String, ReactiveBindingKind>>,
+  imported_bindings: &'a BTreeMap<String, (String, String)>,
+  sfc_source: &'a str,
+  script_offset: usize,
+}
+
+/// Reads collected from a `watch` source getter function body.
+fn collect_watch_getter_reads(
+  ctx: &WatchSourceCtx<'_>,
+  scope_id: NodeId,
+  body: Option<&FunctionBody<'_>>,
+) -> Vec<ReactiveReadFact> {
+  let raw_reads = collect_scope_reads(
+    ctx.semantic,
+    scope_id,
+    ctx.reactive_bindings,
+    ctx.composable_instances,
+    ctx.imported_bindings,
+    ctx.script_offset,
+  );
+  raw_reads
+    .iter()
+    .map(|read| {
+      classify_read(&ClassifyRead {
+        semantic: ctx.semantic,
+        scope_id,
+        body,
+        raw_reads: &raw_reads,
+        read,
+        sfc_source: ctx.sfc_source,
+        script_offset: ctx.script_offset,
+        imported_bindings: ctx.imported_bindings,
+      })
+    })
+    .collect()
 }
 
 fn collect_expression_source_reads(

@@ -1,0 +1,14 @@
+{
+  "id": "watch-source-array-getters",
+  "source": "import { ref, watch } from 'vue'\nconst a = ref(1)\nconst b = ref(2)\nwatch([() => a.value, () => b.value], () => {})\n",
+  "runtime_deps": [
+    {
+      "binding": "a",
+      "key": "value"
+    },
+    {
+      "binding": "b",
+      "key": "value"
+    }
+  ]
+}

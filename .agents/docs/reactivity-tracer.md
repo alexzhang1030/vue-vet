@@ -39,12 +39,12 @@ identities; bare `to` retained for rule matching).
 
 | Axis | Status | Gap |
 | --- | --- | --- |
-| A1 Bindings | partial | Vue primitives, aliases, `#imports`, `defineModel`, `defineProps`, **`storeToRefs`**, **`useRoute`/`useRouter`**, **`unref`/`toValue` reads**, module seeds |
-| A2 Scopes | partial | effects, computed, watch (sources + callback outside), effectScope (`.run` requires provenance), dispose |
-| A3 Reads | partial | `.value` / reactive members / bag.field / **sync Array HOF** / **watch ref sources `.value`** / **`unref`/`toValue`** |
+| A1 Bindings | partial | Vue primitives, aliases, `#imports`, `defineModel`, `defineProps`, **`withDefaults(defineProps())`**, **`storeToRefs`**, **`useRoute`/`useRouter`**, **`unref`/`toValue` reads**, module seeds |
+| A2 Scopes | partial | effects, **computed getter fn + `{ get, set }`**, watch (sources + callback outside), effectScope (`.run` requires provenance), dispose |
+| A3 Reads | partial | `.value` / reactive members / bag.field / **sync Array HOF (+ sort)** / **watch ref sources `.value`** / **`unref`/`toValue`** |
 | A4 Conditions | deep | if / early-exit / ternary / short-circuit / switch roles — do not deepen further yet |
 | A5 Boundaries | partial | await, pauseTracking, deferred callbacks, watch jobs |
-| A6 Modules | partial | composable shapes; instance bags; same-file + export const/default; **dual script: setup + `path#script` ordinary re-trace** |
+| A6 Modules | partial | composable shapes; instance bags; same-file + export const/default; **dual script: setup + `path#script` ordinary re-trace**; **provide/inject unique-key index (no App Tree)** |
 | A7 Contract | improving | **v6**: `to_id = name@offset`; bare `to` still for consumers |
 | Evidence | improving | Runtime oracle; exhaustive local fixtures; SFC E2E defineProps/instance/dual module sources |
 
@@ -162,3 +162,6 @@ growing prose ledger.
 | 2026-07-25 | unref / toValue | sync tracking reads of ref-like first args |
 | 2026-07-25 | Dual script modules | setup id + ordinary `path#script`; CLI applies both seeded graphs |
 | 2026-07-25 | Oxlint-style parallelism | Rayon file facts + module phases + seed-aware rules; `--threads N` |
+| 2026-07-25 | A1/A3: computed object get, sort HOF, withDefaults | `{ get, set }` getter body; Array#sort comparator; peel `withDefaults(defineProps())` |
+| 2026-07-25 | A3: watch source array of getters | `watch([() => a.value, () => b.value])` and mixed `[ref, getter]` |
+| 2026-07-25 | provide/inject unique-key seeds | project-wide provide index; exactly one known shape seeds inject; multi-provide quiet; defaults allowed |
