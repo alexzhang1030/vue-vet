@@ -1,5 +1,6 @@
 [package]
-name = "vue-vet-rules"
+publish = false
+name = "vue_vet_reporters"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,10 +9,12 @@ rust-version.workspace = true
 readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "Built-in semantic rules for Vue Vet"
+description = "Deterministic text and machine-readable reporters for Vue Vet"
 
 [lints]
 workspace = true
 
 [dependencies]
-vue-vet-core = { path = "../vue-vet-core" }
+serde.workspace = true
+serde_json.workspace = true
+vue_vet_core = { path = "../vue_vet_core" }

@@ -119,7 +119,7 @@ and `ExpressionNode::loc()`. The historical gap was vue-vet under-extraction
 (elements-only walk, directive-name spans, no interpolation surfaces). Today
 `TemplateFacts.expressions` carries those Vize surfaces with SFC-absolute spans
 and `join_template_reads` prefers them. Identifier reads are filled by Oxc
-(`vue-vet-oxc::template_expression_identifiers`) so static member properties are
+(`vue_vet_oxc::template_expression_identifiers`) so static member properties are
 not mistaken for bindings; lexical scan is only the empty-list fallback. Handler free-vars and template-local `v-for` / `v-slot` aliases are filtered at
 extract time. `TemplateExpressionFact.identifiers` is `Some(…)` when resolved
 (including empty = no free reads); only `None` triggers the lexical join
@@ -156,7 +156,7 @@ Arbitrary objects with a `.run` method must stay quiet — inventing
 
 ## Runtime oracle is the precision ruler
 
-Committed `crates/vue-vet-reactivity/oracle/expected/*.json` capture Vue
+Committed `crates/vue_vet_reactivity/oracle/expected/*.json` capture Vue
 `onTrack` deps. Static tests must keep **tracer tracking-reads ⊆ runtime deps**.
 Refresh with `just oracle-refresh` (Node + pnpm) when Vue tracking semantics
 change (including alien-signals / 3.6). Do not treat the 280 syntax corpus as

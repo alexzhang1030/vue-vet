@@ -58,7 +58,7 @@ static source still names them under `from 'vue'` to match docs / re-exports.
 ## Refresh expected JSON
 
 ```bash
-cd crates/vue-vet-reactivity/oracle
+cd crates/vue_vet_reactivity/oracle
 pnpm install
 pnpm oracle:write
 ```
@@ -68,5 +68,5 @@ require Node at test time.
 
 ## Rust comparison
 
-`cargo test -p vue-vet-reactivity --lib oracle` loads each expected file, runs
+`cargo test -p vue_vet_reactivity --lib oracle` loads each expected file, runs
 `trace_reactivity` on `source`, and asserts under-approx + prints recall.

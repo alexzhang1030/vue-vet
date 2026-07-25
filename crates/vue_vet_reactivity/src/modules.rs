@@ -27,11 +27,14 @@ use super::{
 };
 use oxc_ast::ast::Argument;
 
+/// One script surface to analyze — standalone JS/TS or an extracted SFC block.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ModuleSource {
+  /// Stable module identity used in [`ModuleLink`] and result ordering.
   pub id: String,
   /// Text parsed by Oxc (extracted `<script>` body for SFCs).
   pub source: String,
+  /// Language hint (`js`, `ts`, `jsx`, `tsx`, …).
   pub language: String,
   pub kind: ScriptKind,
   /// Byte offset of [`Self::source`] within [`Self::span_source`].
@@ -87,6 +90,10 @@ impl ModuleSource {
   }
 }
 
+/// Already-resolved import edge between two [`ModuleSource::id`] values.
+///
+/// This crate does not open the filesystem or resolve bare specifiers; the
+/// caller (for example Vue Vet's project graph) must supply concrete targets.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ModuleLink {
   pub from: String,
@@ -94,12 +101,14 @@ pub struct ModuleLink {
   pub to: String,
 }
 
+/// Per-module reactivity graph produced by [`trace_modules`].
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ModuleReactivity {
   pub id: String,
   pub graph: ReactivityGraph,
 }
 
+/// Failures while parsing, linking, or tracing a module set.
 #[derive(Debug, Error)]
 pub enum TraceModulesError {
   #[error("duplicate reactivity module id `{0}`")]

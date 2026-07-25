@@ -1,5 +1,6 @@
 [package]
-name = "vue-vet-reporters"
+publish = false
+name = "vue_vet_cache"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,7 +9,7 @@ rust-version.workspace = true
 readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "Deterministic text and machine-readable reporters for Vue Vet"
+description = "Content-addressed cache, baselines, and diff filtering for Vue Vet"
 
 [lints]
 workspace = true
@@ -16,4 +17,7 @@ workspace = true
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-vue-vet-core = { path = "../vue-vet-core" }
+sha2.workspace = true
+thiserror.workspace = true
+vue_vet_core = { path = "../vue_vet_core" }
+vue_vet_project = { path = "../vue_vet_project" }

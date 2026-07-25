@@ -14,7 +14,7 @@ repository baseline.
 - Template node offsets are byte offsets relative to the extracted template.
 - Element properties expose directives as `PropNode::Directive`; the normalized
   directive name for `v-html` is `html`.
-- Vize types stay inside `vue-vet-vize`; downstream crates consume Vue Vet
+- Vize types stay inside `vue_vet_vize`; downstream crates consume Vue Vet
   diagnostics and facts.
 
 ## Initial performance baseline

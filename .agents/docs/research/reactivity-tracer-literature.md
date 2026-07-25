@@ -2,7 +2,7 @@
 
 Status: **systematic harvest, not a finished academic survey**.  
 Harvested: 2026-07-24.  
-Goal: ground improvements to `vue-vet-reactivity` (local effect tracing, guards, module summaries).
+Goal: ground improvements to `vue_vet_reactivity` (local effect tracing, guards, module summaries).
 
 ## How this was built
 
@@ -222,7 +222,7 @@ Use for: formalizing “sync tick / after await” boundaries — not for implem
 
 ---
 
-## K. Mapping to `vue-vet-reactivity` capabilities
+## K. Mapping to `vue_vet_reactivity` capabilities
 
 | Tracer concern | Current state | Primary literature |
 | --- | --- | --- |

@@ -1,4 +1,5 @@
 [package]
+publish = false
 name = "vue-vet"
 version.workspace = true
 edition.workspace = true
@@ -20,15 +21,15 @@ ignore.workspace = true
 rayon.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-vue-vet-cache = { path = "../vue-vet-cache" }
-vue-vet-core = { path = "../vue-vet-core" }
-vue-vet-oxc = { path = "../vue-vet-oxc" }
-vue-vet-project = { path = "../vue-vet-project" }
-vue-vet-reactivity = { path = "../vue-vet-reactivity" }
-vue-vet-reporters = { path = "../vue-vet-reporters" }
-vue-vet-config = { path = "../vue-vet-config" }
-vue-vet-rules = { path = "../vue-vet-rules" }
-vue-vet-vize = { path = "../vue-vet-vize" }
+vue_vet_cache = { path = "../vue_vet_cache" }
+vue_vet_core = { path = "../vue_vet_core" }
+vue_vet_oxc = { path = "../vue_vet_oxc" }
+vue_vet_project = { path = "../vue_vet_project" }
+vue_vet_reactivity = { path = "../vue_vet_reactivity" }
+vue_vet_reporters = { path = "../vue_vet_reporters" }
+vue_vet_config = { path = "../vue_vet_config" }
+vue_vet_rules = { path = "../vue_vet_rules" }
+vue_vet_vize = { path = "../vue_vet_vize" }
 
 [[bin]]
 name = "vue-vet"

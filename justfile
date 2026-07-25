@@ -31,11 +31,11 @@ roll-rust: lint-rust test
 
 # Refresh committed Vue onTrack oracle fixtures (requires pnpm + Node).
 oracle-refresh:
-  cd crates/vue-vet-reactivity/oracle && pnpm install && pnpm oracle:write
+  cd crates/vue_vet_reactivity/oracle && pnpm install && pnpm oracle:write
 
 # Compare static tracer to committed runtime oracle (no Node required).
 oracle:
-  cargo test -p vue-vet-reactivity --lib oracle --locked
+  cargo test -p vue_vet_reactivity --lib oracle --locked
 
 # Run all non-mutating Rust linters.
 lint-rust: fmt-check check clippy
@@ -62,15 +62,15 @@ test:
 
 # Run the representative SFC analysis benchmarks locally.
 bench:
-  cargo bench -p vue-vet-vize --bench analyze_sfc --locked
+  cargo bench -p vue_vet_vize --bench analyze_sfc --locked
 
 # Build the representative benchmarks with CodSpeed instrumentation.
 bench-codspeed-build:
-  cargo codspeed build -p vue-vet-vize --bench analyze_sfc --profile codspeed --locked
+  cargo codspeed build -p vue_vet_vize --bench analyze_sfc --profile codspeed --locked
 
 # Run the most recently built CodSpeed benchmark suite.
 bench-codspeed-run:
-  cargo codspeed run -p vue-vet-vize --bench analyze_sfc
+  cargo codspeed run -p vue_vet_vize --bench analyze_sfc
 
 # Generate an LCOV report for Codecov and local coverage tools.
 coverage-lcov:

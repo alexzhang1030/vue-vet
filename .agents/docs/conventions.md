@@ -5,7 +5,7 @@
 - Built-in IDs use `vue-vet/<category>/<name>` and are treated as user-facing stable identifiers.
 - Every rule declares category, default severity, confidence, and a documentation key.
 - Every built-in rule keeps its metadata and `Rule` implementation in one
-  dedicated file under `vue-vet-rules/src/rules`; the registry module only
+  dedicated file under `vue_vet_rules/src/rules`; the registry module only
   assembles rules and must not become a behavior dispatcher.
 - Rules use the pass API: declare `fact_kinds`, implement `run_on` for per-fact
   checks, and use `run_once` only for true multi-fact aggregation. Prefer
@@ -45,6 +45,13 @@ later byte ranges first, commits through atomic replacement, and reports a fresh
 post-fix scan. Fix modes never consume a cached edit plan. A rule may advertise a
 safe edit only for syntax it can replace completely; keep the diagnostic but
 omit the edit when source coverage is incomplete.
+
+## Crate and directory names
+
+Workspace crates use **snake_case** for both the Cargo package name and the
+directory under `crates/` (for example `vue_vet_reactivity`), matching the Oxc /
+Rolldown layout. The CLI package remains `vue-vet` so the installed binary stays
+`vue-vet`. User-facing rule IDs keep the `vue-vet/<category>/<name>` form.
 
 ## Dependency boundaries
 

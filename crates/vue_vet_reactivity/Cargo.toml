@@ -1,14 +1,17 @@
 [package]
-name = "vue-vet-reactivity"
+name = "vue_vet_reactivity"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-readme.workspace = true
-keywords.workspace = true
-categories.workspace = true
-description = "Semantic Vue reactivity dependency tracing for Vue Vet"
+readme = "README.md"
+description = "Static Vue reactivity dependency tracing for Vue Vet"
+documentation = "https://docs.rs/vue_vet_reactivity"
+homepage = "https://github.com/alexzhang1030/vue-vet"
+keywords = ["vue", "reactivity", "static-analysis", "oxc", "lint"]
+categories = ["development-tools"]
+exclude = ["/fixtures", "/oracle"]
 
 [lints]
 workspace = true
@@ -22,7 +25,7 @@ oxc_span.workspace = true
 rayon.workspace = true
 serde.workspace = true
 thiserror.workspace = true
-vue-vet-core = { path = "../vue-vet-core" }
+vue_vet_core = { version = "0.1.0", path = "../vue_vet_core" }
 
 [dev-dependencies]
 serde_json.workspace = true
