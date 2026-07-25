@@ -29,6 +29,8 @@ completeness number — not a 280-case syntax matrix.
 | `sync-map-hof` | sync Array#map callback must track `factor` |
 | `sync-reduce-hof` | sync Array#reduce callback must track `factor` |
 | `sync-some-hof` | sync Array#some callback must track `threshold` |
+| `array-from-mapfn` | `Array.from(iter, mapFn)` tracks mapFn body |
+| `json-parse-reviver` | `JSON.parse(text, reviver)` tracks reviver body |
 | `sort-hof` | Array#sort comparator tracks nested reactive reads |
 | `string-replace-hof` | String#replace replacer tracks nested reactive reads |
 | `to-value-getter` | `toValue(() => count.value)` tracks getter body |

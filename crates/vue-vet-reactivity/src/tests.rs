@@ -1120,6 +1120,58 @@ fn string_replace_callback_tracks_nested_reactive_reads() {
 }
 
 #[test]
+fn array_from_mapfn_tracks_nested_reactive_reads() {
+  let graph = graph(
+    "import { ref, computed } from 'vue';\n\
+     const list = ref([1, 2]);\n\
+     const factor = ref(2);\n\
+     const d = computed(() => Array.from(list.value, x => x * factor.value));\n\
+     void d.value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "factor" && read.property.as_deref() == Some("value"))
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "list" && read.property.as_deref() == Some("value"))
+    }),
+    "Array.from mapFn must track nested reactive reads; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn json_parse_reviver_tracks_nested_reactive_reads() {
+  let graph = graph(
+    "import { ref, computed } from 'vue';\n\
+     const raw = ref('{\"a\":1}');\n\
+     const flag = ref(true);\n\
+     const d = computed(() => JSON.parse(raw.value, (k, v) => flag.value ? v : v));\n\
+     void d.value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "flag" && read.property.as_deref() == Some("value"))
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "raw" && read.property.as_deref() == Some("value"))
+    }),
+    "JSON.parse reviver must track nested reactive reads; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
 fn provide_direct_composable_call_seeds_inject_bag() {
   let graph = graph(
     "import { provide, inject, ref, computed } from 'vue';\n\

@@ -930,7 +930,18 @@ fn is_sync_hof_callee(callee: &Expression<'_>) -> bool {
     "replaceAll",
   ];
   match callee {
-    Expression::StaticMemberExpression(member) => METHODS.contains(&member.property.name.as_str()),
+    Expression::StaticMemberExpression(member) => {
+      let method = member.property.name.as_str();
+      if METHODS.contains(&method) {
+        return true;
+      }
+      // Well-known statics only — bare `.from` / `.parse` on unknown receivers may be async.
+      if let Expression::Identifier(object) = &member.object {
+        matches!((object.name.as_str(), method), ("Array", "from") | ("JSON", "parse"))
+      } else {
+        false
+      }
+    }
     Expression::ComputedMemberExpression(member) => {
       member.static_property_name().is_some_and(|name| METHODS.contains(&name.as_str()))
     }

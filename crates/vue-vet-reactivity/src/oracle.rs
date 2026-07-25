@@ -154,6 +154,8 @@ fn oracle_cases_cover_known_hard_facts() {
     "props-reactive-object",
     "reactive-member",
     "runner-run-no-track",
+    "array-from-mapfn",
+    "json-parse-reviver",
     "sort-hof",
     "string-replace-hof",
     "sync-every-hof",
@@ -338,6 +340,30 @@ fn string_replace_callback_tracks_nested_reactive_reads() {
      void d.value\n",
   );
   assert_computed_reads_exact(&graph, &[("flag", Some("value")), ("text", Some("value"))]);
+}
+
+#[test]
+fn array_from_mapfn_tracks_nested_reactive_reads() {
+  let graph = graph(
+    "import { ref, computed } from 'vue'\n\
+     const list = ref([1, 2])\n\
+     const factor = ref(2)\n\
+     const d = computed(() => Array.from(list.value, x => x * factor.value))\n\
+     void d.value\n",
+  );
+  assert_computed_reads_exact(&graph, &[("factor", Some("value")), ("list", Some("value"))]);
+}
+
+#[test]
+fn json_parse_reviver_tracks_nested_reactive_reads() {
+  let graph = graph(
+    "import { ref, computed } from 'vue'\n\
+     const raw = ref('{\"a\":1}')\n\
+     const flag = ref(true)\n\
+     const d = computed(() => JSON.parse(raw.value, (k, v) => flag.value ? v : v))\n\
+     void d.value\n",
+  );
+  assert_computed_reads_exact(&graph, &[("flag", Some("value")), ("raw", Some("value"))]);
 }
 
 #[test]

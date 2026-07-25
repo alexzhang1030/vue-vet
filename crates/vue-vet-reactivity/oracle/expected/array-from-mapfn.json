@@ -1,0 +1,14 @@
+{
+  "id": "array-from-mapfn",
+  "source": "import { ref, computed } from 'vue'\nconst list = ref([1, 2])\nconst factor = ref(2)\nconst d = computed(() => Array.from(list.value, x => x * factor.value))\nvoid d.value\n",
+  "runtime_deps": [
+    {
+      "binding": "factor",
+      "key": "value"
+    },
+    {
+      "binding": "list",
+      "key": "value"
+    }
+  ]
+}

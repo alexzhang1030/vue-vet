@@ -1,0 +1,14 @@
+{
+  "id": "json-parse-reviver",
+  "source": "import { ref, computed } from 'vue'\nconst raw = ref('{\"a\":1}')\nconst flag = ref(true)\nconst d = computed(() => JSON.parse(raw.value, (k, v) => flag.value ? v : v))\nvoid d.value\n",
+  "runtime_deps": [
+    {
+      "binding": "flag",
+      "key": "value"
+    },
+    {
+      "binding": "raw",
+      "key": "value"
+    }
+  ]
+}

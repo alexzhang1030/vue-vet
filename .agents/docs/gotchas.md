@@ -258,7 +258,9 @@ ancestor chain. Rules:
   stay in the parent tracking scope (like Array HOF callbacks). `unref` does not
   call functions.
 - Sync HOF callbacks also include **String#replace / replaceAll** replacers
-  (and Array methods). Deferred callbacks (`then`/`setTimeout`/`nextTick`) stay
-  outside tracking.
+  (and Array methods), plus well-known statics **`Array.from(…, mapFn)`** and
+  **`JSON.parse(…, reviver)`** (receiver must be the `Array`/`JSON` identifier —
+  bare `.from`/`.parse` on unknown objects stay quiet). Deferred callbacks
+  (`then`/`setTimeout`/`nextTick`) stay outside tracking.
 - Factory defaults (`inject(key, () => ref(0))`) stay quiet; plain
   `inject(key, someRef)` may seed from the default.
