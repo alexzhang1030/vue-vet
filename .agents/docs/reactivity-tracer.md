@@ -41,7 +41,7 @@ identities; bare `to` retained for rule matching).
 | --- | --- | --- |
 | A1 Bindings | partial | Vue primitives, aliases, `#imports`, `defineModel`, `defineProps`, **`withDefaults(defineProps())`**, **`storeToRefs`**, **`useRoute`/`useRouter`**, **`unref`/`toValue` reads**, module seeds |
 | A2 Scopes | partial | effects, **computed getter fn + `{ get, set }`**, watch (sources + callback outside), effectScope (`.run` requires provenance), dispose |
-| A3 Reads | partial | `.value` / reactive members / bag.field / **sync Array HOF (+ sort)** / **watch ref sources `.value`** / **`unref`/`toValue`/`toValue(getter)`** |
+| A3 Reads | partial | `.value` / reactive members / bag.field / **sync Array HOF (+ sort)** / **String#replace/replaceAll** / **watch ref sources `.value`** / **`unref`/`toValue`/`toValue(getter)`** |
 | A4 Conditions | deep | if / early-exit / ternary / short-circuit / switch roles — do not deepen further yet |
 | A5 Boundaries | partial | await, pauseTracking, deferred callbacks, watch jobs |
 | A6 Modules | partial | composable shapes; instance bags; same-file + export const/default; **dual script: setup + `path#script` ordinary re-trace**; **provide/inject unique-key index (no App Tree)** |
@@ -167,3 +167,4 @@ growing prose ledger.
 | 2026-07-25 | provide/inject unique-key seeds | project-wide provide index; exactly one known shape seeds inject; multi-provide quiet; defaults allowed |
 | 2026-07-25 | inject key identity + bag provide | Imported `(specifier,export)` vs Local `def_span`; provide(composable bag) seeds inject instances |
 | 2026-07-25 | toValue(getter) + provide(useX()) | Getter arg tracks like sync HOF; direct composable call provide seeds inject bag |
+| 2026-07-25 | String#replace/replaceAll HOF | Replacer callback tracks nested reactive reads (sync, like Array HOF) |

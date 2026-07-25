@@ -1,0 +1,14 @@
+{
+  "id": "string-replace-hof",
+  "source": "import { ref, computed } from 'vue'\nconst text = ref('ab')\nconst flag = ref(true)\nconst d = computed(() => text.value.replace(/./g, c => flag.value ? c : ''))\nvoid d.value\n",
+  "runtime_deps": [
+    {
+      "binding": "flag",
+      "key": "value"
+    },
+    {
+      "binding": "text",
+      "key": "value"
+    }
+  ]
+}

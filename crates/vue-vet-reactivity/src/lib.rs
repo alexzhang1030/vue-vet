@@ -906,6 +906,8 @@ fn is_sync_hof_callback(semantic: &oxc_semantic::Semantic<'_>, function_id: Node
 
 fn is_sync_hof_callee(callee: &Expression<'_>) -> bool {
   // Synchronously invoked callbacks only. Async iterators / event listeners stay out.
+  // Method names are shared across Array / TypedArray / String / Map / Set where the
+  // runtime still runs the callback during the call (e.g. String#replace(re, fn)).
   const METHODS: &[&str] = &[
     "filter",
     "map",
@@ -923,6 +925,9 @@ fn is_sync_hof_callee(callee: &Expression<'_>) -> bool {
     "sort",
     "toSorted",
     "toSpliced",
+    // String#replace / replaceAll invoke the replacer function synchronously.
+    "replace",
+    "replaceAll",
   ];
   match callee {
     Expression::StaticMemberExpression(member) => METHODS.contains(&member.property.name.as_str()),

@@ -155,6 +155,7 @@ fn oracle_cases_cover_known_hard_facts() {
     "reactive-member",
     "runner-run-no-track",
     "sort-hof",
+    "string-replace-hof",
     "sync-every-hof",
     "sync-filter-hof",
     "sync-find-hof",
@@ -325,6 +326,18 @@ fn sort_comparator_tracks_nested_reactive_reads() {
     keys.contains(&("list", Some("value"))) && keys.contains(&("key", Some("value"))),
     "sort comparator must track list.value and key.value; got {keys:?}"
   );
+}
+
+#[test]
+fn string_replace_callback_tracks_nested_reactive_reads() {
+  let graph = graph(
+    "import { ref, computed } from 'vue'\n\
+     const text = ref('ab')\n\
+     const flag = ref(true)\n\
+     const d = computed(() => text.value.replace(/./g, c => flag.value ? c : ''))\n\
+     void d.value\n",
+  );
+  assert_computed_reads_exact(&graph, &[("flag", Some("value")), ("text", Some("value"))]);
 }
 
 #[test]

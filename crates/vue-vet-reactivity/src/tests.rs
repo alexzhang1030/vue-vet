@@ -1092,6 +1092,34 @@ fn to_value_getter_tracks_nested_reactive_reads() {
 }
 
 #[test]
+fn string_replace_callback_tracks_nested_reactive_reads() {
+  for (label, method) in [("replace", "replace"), ("replaceAll", "replaceAll")] {
+    let graph = graph(&format!(
+      "import {{ ref, computed }} from 'vue';\n\
+       const text = ref('ab');\n\
+       const flag = ref(true);\n\
+       const d = computed(() => text.value.{method}(/./g, c => flag.value ? c : ''));\n\
+       void d.value;"
+    ));
+    assert!(
+      graph.scopes.iter().any(|scope| {
+        scope.kind == TrackingScopeKind::Computed
+          && scope
+            .reads
+            .iter()
+            .any(|read| read.binding == "flag" && read.property.as_deref() == Some("value"))
+          && scope
+            .reads
+            .iter()
+            .any(|read| read.binding == "text" && read.property.as_deref() == Some("value"))
+      }),
+      "String#{label} replacer must track nested reactive reads; scopes={:?}",
+      graph.scopes
+    );
+  }
+}
+
+#[test]
 fn provide_direct_composable_call_seeds_inject_bag() {
   let graph = graph(
     "import { provide, inject, ref, computed } from 'vue';\n\

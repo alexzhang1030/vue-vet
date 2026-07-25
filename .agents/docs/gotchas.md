@@ -257,5 +257,8 @@ ancestor chain. Rules:
 - `toValue(() => …)` invokes the getter synchronously; reads inside that getter
   stay in the parent tracking scope (like Array HOF callbacks). `unref` does not
   call functions.
+- Sync HOF callbacks also include **String#replace / replaceAll** replacers
+  (and Array methods). Deferred callbacks (`then`/`setTimeout`/`nextTick`) stay
+  outside tracking.
 - Factory defaults (`inject(key, () => ref(0))`) stay quiet; plain
   `inject(key, someRef)` may seed from the default.
