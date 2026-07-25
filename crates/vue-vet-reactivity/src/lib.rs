@@ -34,11 +34,16 @@ pub fn trace_reactivity(
   trace_reactivity_seeded(semantic, sfc_source, script_offset, script_kind, &TraceSeeds::default())
 }
 
+/// Composable return shape: field name → reactive kind.
+type ComposableShape = BTreeMap<String, ReactiveBindingKind>;
+/// Map of bag/composable name → return shape.
+type ComposableShapeMap = BTreeMap<String, ComposableShape>;
+
 #[derive(Clone, Debug, Default)]
 struct TraceSeeds {
   bindings: Vec<ReactiveBindingFact>,
   /// `const bag = useFoo()` locals mapped to composable return field kinds.
-  composable_instances: BTreeMap<String, BTreeMap<String, ReactiveBindingKind>>,
+  composable_instances: ComposableShapeMap,
 }
 
 fn trace_reactivity_seeded(
@@ -78,7 +83,7 @@ fn trace_reactivity_seeded(
   // `const bag = useX()` / `const { field } = useX()` seeds. Cross-module seeds win
   // on name conflict (already linked by the module graph).
   let shape_graph = ReactivityGraph { bindings: shape_bindings, ..ReactivityGraph::default() };
-  let (local_instances, local_destructured) =
+  let (local_instances, local_destructured, local_composable_shapes) =
     collect_local_composable_usage(semantic, &shape_graph, sfc_source, script_offset);
   for binding in local_destructured {
     if !bindings.iter().any(|local| local.name == binding.name) {
@@ -95,6 +100,7 @@ fn trace_reactivity_seeded(
     &imported_bindings,
     &bindings,
     &composable_instances,
+    &local_composable_shapes,
     script_kind,
   );
   let injects = collect_inject_sites(semantic, &imported_bindings, &bindings, script_kind);
@@ -133,13 +139,15 @@ fn trace_reactivity_seeded(
 }
 
 /// Local composable defs + instance/destructure calls in the same file.
+///
+/// Returns `(instances, destructured_bindings, composable_shapes_by_name)`.
 fn collect_local_composable_usage(
   semantic: &Semantic<'_>,
   shape_graph: &ReactivityGraph,
   sfc_source: &str,
   script_offset: usize,
-) -> (BTreeMap<String, BTreeMap<String, ReactiveBindingKind>>, Vec<ReactiveBindingFact>) {
-  let mut composables = BTreeMap::<String, (Span, BTreeMap<String, ReactiveBindingKind>)>::new();
+) -> (ComposableShapeMap, Vec<ReactiveBindingFact>, ComposableShapeMap) {
+  let mut composables = BTreeMap::<String, (Span, ComposableShape)>::new();
 
   // `function useX() { return { field: ref(0) } }`
   for node in semantic.nodes() {
@@ -235,7 +243,9 @@ fn collect_local_composable_usage(
       _ => {}
     }
   }
-  (instances, destructured)
+  let shapes =
+    composables.into_iter().map(|(name, (_span, shape))| (name, shape)).collect::<BTreeMap<_, _>>();
+  (instances, destructured, shapes)
 }
 
 fn reference_resolves_to_span(
@@ -412,7 +422,7 @@ pub(crate) enum InjectionKey {
 #[derive(Clone, Debug)]
 pub(crate) struct ProvideOffer {
   pub kind: Option<ReactiveBindingKind>,
-  pub instance_shape: Option<BTreeMap<String, ReactiveBindingKind>>,
+  pub instance_shape: Option<ComposableShape>,
 }
 
 impl ProvideOffer {
@@ -433,14 +443,14 @@ pub(crate) struct InjectSite {
   pub key: InjectionKey,
   pub span: Span,
   pub default_kind: Option<ReactiveBindingKind>,
-  pub default_instance_shape: Option<BTreeMap<String, ReactiveBindingKind>>,
+  pub default_instance_shape: Option<ComposableShape>,
 }
 
 /// Resolved inject seeds for one file/module.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ResolvedInjectLinks {
   pub bindings: Vec<ReactiveBindingFact>,
-  pub instances: BTreeMap<String, BTreeMap<String, ReactiveBindingKind>>,
+  pub instances: ComposableShapeMap,
 }
 
 /// `provide(key, value)` and `*.provide(key, value)` with a known-or-unknown value shape.
@@ -448,7 +458,8 @@ pub(crate) fn collect_provide_sites(
   semantic: &Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
   reactive_bindings: &[ReactiveBindingFact],
-  composable_instances: &BTreeMap<String, BTreeMap<String, ReactiveBindingKind>>,
+  composable_instances: &ComposableShapeMap,
+  local_composable_shapes: &ComposableShapeMap,
   script_kind: ScriptKind,
 ) -> Vec<ProvideSite> {
   let mut sites = Vec::new();
@@ -473,6 +484,7 @@ pub(crate) fn collect_provide_sites(
           imported_bindings,
           reactive_bindings,
           composable_instances,
+          local_composable_shapes,
           script_kind,
         )
       },
@@ -525,6 +537,7 @@ pub(crate) fn collect_inject_sites(
             value,
             imported_bindings,
             reactive_bindings,
+            &BTreeMap::new(),
             &BTreeMap::new(),
             script_kind,
           );
@@ -658,7 +671,8 @@ fn expression_provide_offer(
   expression: &Expression<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
   reactive_bindings: &[ReactiveBindingFact],
-  composable_instances: &BTreeMap<String, BTreeMap<String, ReactiveBindingKind>>,
+  composable_instances: &ComposableShapeMap,
+  local_composable_shapes: &ComposableShapeMap,
   script_kind: ScriptKind,
 ) -> ProvideOffer {
   if let Some(identifier) = expression.get_identifier_reference() {
@@ -671,11 +685,19 @@ fn expression_provide_offer(
     }
     return ProvideOffer { kind: None, instance_shape: None };
   }
-  if let Expression::CallExpression(call) = expression
-    && let Some(callee) = resolved_vue_callee(&call.callee, imported_bindings, script_kind)
-    && let Some(kind) = reactive_binding_kind(&callee)
-  {
-    return ProvideOffer { kind: Some(kind), instance_shape: None };
+  if let Expression::CallExpression(call) = expression {
+    // `provide('api', useCounter())` — same-file composable call with known return shape.
+    if let Some(callee) = call.callee.get_identifier_reference()
+      && let Some(shape) = local_composable_shapes.get(callee.name.as_str())
+      && !shape.is_empty()
+    {
+      return ProvideOffer { kind: None, instance_shape: Some(shape.clone()) };
+    }
+    if let Some(callee) = resolved_vue_callee(&call.callee, imported_bindings, script_kind)
+      && let Some(kind) = reactive_binding_kind(&callee)
+    {
+      return ProvideOffer { kind: Some(kind), instance_shape: None };
+    }
   }
   ProvideOffer { kind: None, instance_shape: None }
 }
@@ -911,6 +933,45 @@ fn is_sync_hof_callee(callee: &Expression<'_>) -> bool {
   }
 }
 
+/// True when `function_id` is the first argument to Vue `toValue(...)`.
+///
+/// Runtime `toValue` calls function sources immediately (`isFunction(source) ?
+/// source() : unref(source)`), so reactive reads inside the getter stay in the
+/// parent tracking scope.
+fn is_to_value_getter_callback(
+  semantic: &oxc_semantic::Semantic<'_>,
+  function_id: NodeId,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> bool {
+  let function_span = match semantic.nodes().kind(function_id) {
+    AstKind::ArrowFunctionExpression(callback) => callback.span,
+    AstKind::Function(function) => function.span,
+    _ => return false,
+  };
+  for ancestor_id in semantic.nodes().ancestor_ids(function_id) {
+    let AstKind::CallExpression(call) = semantic.nodes().kind(ancestor_id) else {
+      if matches!(
+        semantic.nodes().kind(ancestor_id),
+        AstKind::ArrowFunctionExpression(_) | AstKind::Function(_)
+      ) {
+        return false;
+      }
+      continue;
+    };
+    let is_first_argument = call.arguments.first().is_some_and(|argument| match argument {
+      Argument::ArrowFunctionExpression(callback) => callback.span == function_span,
+      Argument::FunctionExpression(function) => function.span == function_span,
+      _ => false,
+    });
+    if !is_first_argument {
+      continue;
+    }
+    return resolved_vue_callee(&call.callee, imported_bindings, ScriptKind::Setup).as_deref()
+      == Some("toValue");
+  }
+  false
+}
+
 fn is_deferred_callback_container(
   semantic: &oxc_semantic::Semantic<'_>,
   function_id: NodeId,
@@ -956,6 +1017,7 @@ fn scope_context(
   scope_id: NodeId,
   member_id: NodeId,
   member_span: Span,
+  imported_bindings: &BTreeMap<String, (String, String)>,
 ) -> Option<(bool, bool)> {
   let mut reached_scope = false;
   let mut outside_tracking = false;
@@ -974,6 +1036,10 @@ fn scope_context(
         // Sync higher-order callbacks (Array#filter/map/…) run during the parent
         // tracking flush, so Vue still tracks their reactive reads.
         if is_sync_hof_callback(semantic, ancestor_id) {
+          continue;
+        }
+        // `toValue(() => count.value)` invokes the getter synchronously.
+        if is_to_value_getter_callback(semantic, ancestor_id, imported_bindings) {
           continue;
         }
         return None;
@@ -997,7 +1063,7 @@ fn collect_scope_reads(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
   reactive_bindings: &[ReactiveBindingFact],
-  composable_instances: &BTreeMap<String, BTreeMap<String, ReactiveBindingKind>>,
+  composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
   script_offset: usize,
 ) -> Vec<RawReactiveRead> {
@@ -1014,7 +1080,8 @@ fn collect_scope_reads(
         && let Some(kind) = shape.get(inner.property.name.as_str())
         && is_ref_like(*kind)
       {
-        let (_, outside_tracking) = scope_context(semantic, scope_id, member_id, outer.span)?;
+        let (_, outside_tracking) =
+          scope_context(semantic, scope_id, member_id, outer.span, imported_bindings)?;
         return Some(RawReactiveRead {
           node_id: member_id,
           binding: inner.property.name.to_string(),
@@ -1031,7 +1098,8 @@ fn collect_scope_reads(
         && let Some(kind) = shape.get(member.property.name.as_str())
         && !is_ref_like(*kind)
       {
-        let (_, outside_tracking) = scope_context(semantic, scope_id, member_id, member.span)?;
+        let (_, outside_tracking) =
+          scope_context(semantic, scope_id, member_id, member.span, imported_bindings)?;
         return Some(RawReactiveRead {
           node_id: member_id,
           binding: member.property.name.to_string(),
@@ -1042,6 +1110,8 @@ fn collect_scope_reads(
       }
 
       // `unref(x)` / `toValue(x)` track ref-like bindings (runtime reads `.value`).
+      // `toValue(() => …)` is handled via `is_to_value_getter_callback` so nested
+      // member reads stay in the parent tracking scope.
       if let AstKind::CallExpression(call) = member_node.kind()
         && let Some(callee) =
           resolved_vue_callee(&call.callee, imported_bindings, ScriptKind::Setup)
@@ -1049,7 +1119,8 @@ fn collect_scope_reads(
         && let Some(argument) = call.arguments.first().and_then(Argument::as_expression)
         && let Some(identifier) = argument.get_identifier_reference()
       {
-        let (_, outside_tracking) = scope_context(semantic, scope_id, member_id, call.span)?;
+        let (_, outside_tracking) =
+          scope_context(semantic, scope_id, member_id, call.span, imported_bindings)?;
         let binding = reactive_bindings.iter().find(|binding| {
           binding.name == identifier.name.as_str()
             && reference_resolves_to_binding(semantic, identifier, binding, script_offset)
@@ -1078,7 +1149,8 @@ fn collect_scope_reads(
         _ => return None,
       };
 
-      let (_, outside_tracking) = scope_context(semantic, scope_id, member_id, member_span)?;
+      let (_, outside_tracking) =
+        scope_context(semantic, scope_id, member_id, member_span, imported_bindings)?;
 
       let binding = reactive_bindings.iter().find(|binding| {
         binding.name == object.name.as_str()
@@ -1557,7 +1629,7 @@ fn collect_tracking_scopes(
   semantic: &oxc_semantic::Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
   reactive_bindings: &[ReactiveBindingFact],
-  composable_instances: &BTreeMap<String, BTreeMap<String, ReactiveBindingKind>>,
+  composable_instances: &ComposableShapeMap,
   sfc_source: &str,
   script_offset: usize,
 ) -> Vec<TrackingScopeFact> {
@@ -1823,7 +1895,7 @@ fn collect_watch_source_reads(
   semantic: &oxc_semantic::Semantic<'_>,
   argument: &Argument<'_>,
   reactive_bindings: &[ReactiveBindingFact],
-  composable_instances: &BTreeMap<String, BTreeMap<String, ReactiveBindingKind>>,
+  composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
   sfc_source: &str,
   script_offset: usize,
@@ -1914,7 +1986,7 @@ fn collect_watch_source_reads(
 struct WatchSourceCtx<'a> {
   semantic: &'a oxc_semantic::Semantic<'a>,
   reactive_bindings: &'a [ReactiveBindingFact],
-  composable_instances: &'a BTreeMap<String, BTreeMap<String, ReactiveBindingKind>>,
+  composable_instances: &'a ComposableShapeMap,
   imported_bindings: &'a BTreeMap<String, (String, String)>,
   sfc_source: &'a str,
   script_offset: usize,

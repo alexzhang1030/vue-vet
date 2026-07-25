@@ -324,11 +324,14 @@ fn worker_trace_module(
   };
   let locals = collect_local_values(&semantic, &local_graph, &shape_graph, module.source_offset);
   let imported_bindings = super::collect_imported_bindings(&semantic);
+  // Phase-1 provide shapes only need instance bags already on the local graph;
+  // same-file `provide(useX())` shapes are resolved again on seeded re-trace.
   let provides = collect_provide_sites(
     &semantic,
     &imported_bindings,
     &local_graph.bindings,
     &local_graph.composable_instances,
+    &BTreeMap::new(),
     module.kind,
   );
   let injects =

@@ -163,6 +163,7 @@ fn oracle_cases_cover_known_hard_facts() {
     "sync-map-hof",
     "sync-reduce-hof",
     "sync-some-hof",
+    "to-value-getter",
     "use-route-like",
     "watch-effect-await",
     "watch-effect-ref",

@@ -1071,6 +1071,57 @@ fn provide_composable_instance_seeds_inject_bag() {
 }
 
 #[test]
+fn to_value_getter_tracks_nested_reactive_reads() {
+  let graph = graph(
+    "import { ref, computed, toValue } from 'vue';\n\
+     const count = ref(1);\n\
+     const d = computed(() => toValue(() => count.value) * 2);\n\
+     void d.value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "count" && read.property.as_deref() == Some("value"))
+    }),
+    "toValue(getter) must track reads inside the getter; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn provide_direct_composable_call_seeds_inject_bag() {
+  let graph = graph(
+    "import { provide, inject, ref, computed } from 'vue';\n\
+     function useCounter() { const count = ref(0); return { count }; }\n\
+     provide('api', useCounter());\n\
+     const bag = inject('api');\n\
+     const d = computed(() => bag.count.value);\n\
+     void d.value;",
+  );
+  assert!(
+    graph
+      .composable_instances
+      .get("bag")
+      .is_some_and(|shape| shape.get("count") == Some(&ReactiveBindingKind::Ref)),
+    "provide(useX()) must seed inject bag; instances={:?}",
+    graph.composable_instances
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope
+        .reads
+        .iter()
+        .any(|read| read.binding == "count" && read.property.as_deref() == Some("value"))
+    }),
+    "computed must track bag.count.value; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
 fn unref_and_to_value_track_ref_like_bindings() {
   for (label, source) in [
     (

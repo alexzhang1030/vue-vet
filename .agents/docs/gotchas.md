@@ -252,5 +252,10 @@ ancestor chain. Rules:
   two files each defining their own `Symbol()` never cross-link.
 - `provide(api)` where `api` is a composable instance bag seeds
   `composable_instances` on the inject local (not a scalar binding).
+- Same-file `provide('k', useX())` also seeds when `useX` has a known return
+  shape (no intermediate bag variable required).
+- `toValue(() => …)` invokes the getter synchronously; reads inside that getter
+  stay in the parent tracking scope (like Array HOF callbacks). `unref` does not
+  call functions.
 - Factory defaults (`inject(key, () => ref(0))`) stay quiet; plain
   `inject(key, someRef)` may seed from the default.

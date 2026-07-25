@@ -1,0 +1,10 @@
+{
+  "id": "to-value-getter",
+  "source": "import { ref, computed, toValue } from 'vue'\nconst count = ref(1)\nconst doubled = computed(() => toValue(() => count.value) * 2)\nvoid doubled.value\n",
+  "runtime_deps": [
+    {
+      "binding": "count",
+      "key": "value"
+    }
+  ]
+}

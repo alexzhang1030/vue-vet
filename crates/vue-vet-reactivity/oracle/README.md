@@ -30,6 +30,7 @@ completeness number — not a 280-case syntax matrix.
 | `sync-reduce-hof` | sync Array#reduce callback must track `factor` |
 | `sync-some-hof` | sync Array#some callback must track `threshold` |
 | `sort-hof` | Array#sort comparator tracks nested reactive reads |
+| `to-value-getter` | `toValue(() => count.value)` tracks getter body |
 | `use-route-like` | reactive route object member (`route.path`) |
 | `watch-effect-ref` | `watchEffect` tracks `ref.value` |
 | `watch-effect-await` | post-await read is **not** runtime-tracked (boundary) |
