@@ -26,9 +26,36 @@ format is version 1:
     "affected_file_count": 0,
     "by_severity": { "info": 0, "warning": 0, "error": 0 }
   },
+  "reactivity": {
+    "modules": 2,
+    "bindings": 3,
+    "scopes": 1,
+    "edges": 2,
+    "template_reads": 1,
+    "hotspots": [
+      {
+        "id": "App.vue",
+        "bindings": 2,
+        "scopes": 1,
+        "edges": 2,
+        "template_reads": 1
+      }
+    ]
+  },
   "error": null
 }
 ```
+
+`reactivity` is an additive optional field (still `schema_version` 1). It summarizes the
+static tracer so consumers can tell a clean score is not the same as “tracer did
+nothing.” Totals cover traced modules, bindings, tracking scopes, dependency
+edges, and template joins. `hotspots` lists up to five busiest modules. When
+tracing fails, `error` is set on this object (and `project.skipped_checks`
+includes `module_reactivity`). `--print-reactivity` also fills
+`modules_detail` with per-module binding/scope/edge/template labels.
+
+Default `--format text` prints the same digest under a `Reactivity` footer after
+the score line.
 
 ## Diagnostic identity
 

@@ -587,6 +587,36 @@ fn project_module_seeds_feed_per_file_reactivity_rules() {
 }
 
 #[test]
+fn text_report_includes_reactivity_digest() {
+  let project = fixture("projects/module-seeds");
+  let output = run(&[project.to_string_lossy().as_ref(), "--no-cache"]);
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  assert!(output.status.success(), "text scan must succeed: {stdout}");
+  assert!(stdout.contains("Reactivity"), "text report must surface a Reactivity footer: {stdout}");
+  assert!(
+    stdout.contains("bindings") && stdout.contains("scopes"),
+    "digest must show tracer totals: {stdout}"
+  );
+  assert!(
+    stdout.contains("App.vue") || stdout.contains("busiest"),
+    "digest should highlight busy modules when facts exist: {stdout}"
+  );
+}
+
+#[test]
+fn print_reactivity_lists_module_detail() {
+  let project = fixture("projects/module-seeds");
+  let output = run(&[project.to_string_lossy().as_ref(), "--print-reactivity", "--no-cache"]);
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  assert!(output.status.success(), "print-reactivity scan must succeed: {stdout}");
+  assert!(stdout.contains("Reactivity detail"), "detail section missing: {stdout}");
+  assert!(
+    stdout.contains("bindings:") || stdout.contains("scopes:"),
+    "detail must list bindings/scopes: {stdout}"
+  );
+}
+
+#[test]
 fn project_graph_reports_nuxt_edges_cycles_and_cross_file_findings() {
   let project = fixture("projects/nuxt-graph");
   let output = run(&[project.to_string_lossy().as_ref(), "--print-graph"]);

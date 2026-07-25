@@ -14,15 +14,17 @@ use vue_vet_cache::{
 };
 use vue_vet_config::{CONFIG_FILE, Config, apply_suppressions};
 use vue_vet_core::{
-  RuleEnvironment, ScanSummary, ScriptFacts, SfcFacts, TemplateFacts, VueVersion,
+  ReactiveBindingKind, RuleEnvironment, ScanSummary, ScriptFacts, SfcFacts, TemplateFacts,
+  TrackingScopeKind, VueVersion,
 };
 use vue_vet_oxc::analyze_module;
 use vue_vet_project::{
   PROJECT_RULE_IDS, ProjectFile, ProjectGraph, build_project_graph, resolver_config_inputs,
 };
-use vue_vet_reactivity::ModuleSource;
+use vue_vet_reactivity::{ModuleReactivity, ModuleSource};
 use vue_vet_reporters::{
-  ReportContext, ReportFormat, ReportFramework, ReportMode, render, render_error,
+  ReactivityDigest, ReactivityModuleStats, ReportContext, ReportFormat, ReportFramework,
+  ReportMode, render, render_error, render_reactivity_detail,
 };
 use vue_vet_rules::builtin_registry;
 use vue_vet_vize::analyze_sfc_facts_with_environment;
@@ -33,6 +35,7 @@ use fixes::{FixMode, FixOutcome, execute_safe_edits};
 
 #[derive(Debug, Parser)]
 #[command(name = "vue-vet", version, about = "Vet your Vue codebase")]
+#[expect(clippy::struct_excessive_bools, reason = "clap maps independent CLI flags to bool fields")]
 struct Cli {
   #[arg(default_value = ".")]
   path: PathBuf,
@@ -51,6 +54,9 @@ struct Cli {
 
   #[arg(long, help = "Print the deterministic project graph as JSON and exit")]
   print_graph: bool,
+
+  #[arg(long, help = "Print a per-module reactivity tracer breakdown after the normal report")]
+  print_reactivity: bool,
 
   #[command(flatten)]
   cache: CacheArgs,
@@ -93,7 +99,14 @@ struct FixArgs {
   #[arg(
     long,
     conflicts_with = "fix_safe",
-    conflicts_with_all = ["baseline", "write_baseline", "diff", "print_config", "print_graph"],
+    conflicts_with_all = [
+      "baseline",
+      "write_baseline",
+      "diff",
+      "print_config",
+      "print_graph",
+      "print_reactivity"
+    ],
     help = "Validate and preview explicitly safe edits without writing files"
   )]
   fix_dry_run: bool,
@@ -101,7 +114,14 @@ struct FixArgs {
   #[arg(
     long,
     conflicts_with = "fix_dry_run",
-    conflicts_with_all = ["baseline", "write_baseline", "diff", "print_config", "print_graph"],
+    conflicts_with_all = [
+      "baseline",
+      "write_baseline",
+      "diff",
+      "print_config",
+      "print_graph",
+      "print_reactivity"
+    ],
     help = "Atomically apply explicitly safe edits and report a fresh rescan"
   )]
   fix_safe: bool,
@@ -201,12 +221,15 @@ fn main() -> ExitCode {
       }
       let report_context = report_context(&cli, &result);
       if let Err(error) = print_summary(&result.summary, cli.format, &report_context) {
-        operational_failure(&cli, &format!("failed to serialize report: {error}"))
-      } else if result.summary.fails(cli.deny_warnings) {
-        ExitCode::from(1)
-      } else {
-        ExitCode::SUCCESS
+        return operational_failure(&cli, &format!("failed to serialize report: {error}"));
       }
+      if cli.print_reactivity
+        && matches!(cli.format, OutputFormat::Text)
+        && let Some(digest) = &report_context.reactivity
+      {
+        print!("{}", render_reactivity_detail(digest));
+      }
+      if result.summary.fails(cli.deny_warnings) { ExitCode::from(1) } else { ExitCode::SUCCESS }
     }
     Err(error) => operational_failure(&cli, &error),
   }
@@ -575,6 +598,12 @@ fn report_context(cli: &Cli, result: &ScanResult) -> ReportContext {
   if let Some(error) = &result.graph.reactivity_error {
     skipped_check_reasons.insert("module_reactivity".into(), error.clone());
   }
+  let module_stats = reactivity_module_stats(&result.graph.module_reactivity);
+  let mut digest =
+    ReactivityDigest::from_modules(&module_stats, result.graph.reactivity_error.clone());
+  if cli.print_reactivity {
+    digest = digest.with_modules_detail(&module_stats);
+  }
   ReportContext {
     mode: report_mode(cli),
     framework: report_framework(&cli.path),
@@ -582,6 +611,91 @@ fn report_context(cli: &Cli, result: &ScanResult) -> ReportContext {
     analyzed_files: result.graph.invalidation_inputs.clone(),
     complete: skipped_check_reasons.is_empty(),
     skipped_check_reasons,
+    reactivity: Some(digest),
+  }
+}
+
+fn reactivity_module_stats(modules: &[ModuleReactivity]) -> Vec<ReactivityModuleStats> {
+  let mut stats = modules
+    .iter()
+    .map(|module| {
+      let mut binding_labels = module
+        .graph
+        .bindings
+        .iter()
+        .map(|binding| format!("{}:{}", binding.name, binding_kind_label(binding.kind)))
+        .collect::<Vec<_>>();
+      binding_labels.sort();
+      let mut scope_labels = module
+        .graph
+        .scopes
+        .iter()
+        .map(|scope| {
+          let kind = scope_kind_label(scope.kind);
+          scope.binding.as_ref().map_or_else(
+            || format!("{kind}({})", scope.callee),
+            |binding| format!("{kind}({binding})"),
+          )
+        })
+        .collect::<Vec<_>>();
+      scope_labels.sort();
+      let mut edge_labels = module
+        .graph
+        .edges
+        .iter()
+        .map(|edge| format!("{} -> {}", edge.from, edge.to))
+        .collect::<Vec<_>>();
+      edge_labels.sort();
+      let mut template_labels = module
+        .graph
+        .template_reads
+        .iter()
+        .map(|read| format!("{}@{}", read.binding, read.surface))
+        .collect::<Vec<_>>();
+      template_labels.sort();
+      ReactivityModuleStats {
+        id: module.id.clone(),
+        bindings: module.graph.bindings.len(),
+        scopes: module.graph.scopes.len(),
+        edges: module.graph.edges.len(),
+        template_reads: module.graph.template_reads.len(),
+        binding_labels,
+        scope_labels,
+        edge_labels,
+        template_labels,
+      }
+    })
+    .collect::<Vec<_>>();
+  stats.sort_by(|left, right| left.id.cmp(&right.id));
+  stats
+}
+
+const fn binding_kind_label(kind: ReactiveBindingKind) -> &'static str {
+  match kind {
+    ReactiveBindingKind::Ref => "ref",
+    ReactiveBindingKind::ShallowRef => "shallow_ref",
+    ReactiveBindingKind::Computed => "computed",
+    ReactiveBindingKind::Reactive => "reactive",
+    ReactiveBindingKind::ShallowReactive => "shallow_reactive",
+    ReactiveBindingKind::Readonly => "readonly",
+    ReactiveBindingKind::ShallowReadonly => "shallow_readonly",
+    ReactiveBindingKind::CustomRef => "custom_ref",
+    ReactiveBindingKind::ToRef => "to_ref",
+    ReactiveBindingKind::TemplateRef => "template_ref",
+    ReactiveBindingKind::ModelRef => "model_ref",
+  }
+}
+
+const fn scope_kind_label(kind: TrackingScopeKind) -> &'static str {
+  match kind {
+    TrackingScopeKind::WatchEffect => "watch_effect",
+    TrackingScopeKind::WatchPostEffect => "watch_post_effect",
+    TrackingScopeKind::WatchSyncEffect => "watch_sync_effect",
+    TrackingScopeKind::Computed => "computed",
+    TrackingScopeKind::WatchSources => "watch_sources",
+    TrackingScopeKind::WatchCallback => "watch_callback",
+    TrackingScopeKind::EffectScope => "effect_scope",
+    TrackingScopeKind::OnScopeDispose => "on_scope_dispose",
   }
 }
 
@@ -686,6 +800,7 @@ fn operational_failure(cli: &Cli, message: &str) -> ExitCode {
       analyzed_files: Vec::new(),
       complete: false,
       skipped_check_reasons: BTreeMap::from([("scan".into(), message.into())]),
+      reactivity: None,
     };
     match render_error(message, &context) {
       Ok(output) => println!("{output}"),
