@@ -646,6 +646,54 @@ fn cold_and_warm_cache_results_are_byte_equivalent() {
 }
 
 #[test]
+#[expect(clippy::panic, reason = "test setup failures must fail the integration test")]
+fn cache_key_ignores_node_modules_package_directories() {
+  let project = TempProject::new("nm-pixi-js", "<template><div /></template>\n");
+  let package_dir = project.root().join("node_modules").join("pixi.js");
+  if let Err(error) = fs::create_dir_all(&package_dir) {
+    panic!("failed to create node_modules/pixi.js directory: {error}");
+  }
+  if let Err(error) =
+    fs::write(package_dir.join("package.json"), r#"{"name":"pixi.js","version":"1.0.0"}"#)
+  {
+    panic!("failed to write nested package.json: {error}");
+  }
+  if let Err(error) = fs::write(package_dir.join("index.js"), "export default {}\n") {
+    panic!("failed to write package entry: {error}");
+  }
+  // Symlink install shape: alias pointing at a directory package.
+  let link = project.root().join("node_modules").join("alias.js");
+  #[cfg(unix)]
+  if let Err(error) = std::os::unix::fs::symlink(&package_dir, &link) {
+    panic!("failed to create symlink to package dir: {error}");
+  }
+  #[cfg(windows)]
+  if let Err(error) = std::os::windows::fs::symlink_dir(&package_dir, &link) {
+    panic!("failed to create symlink to package dir: {error}");
+  }
+
+  let cache = project.root().join("cache");
+  let output = run(&[
+    project.root().to_string_lossy().as_ref(),
+    "--format",
+    "json",
+    "--cache-dir",
+    cache.to_string_lossy().as_ref(),
+    "--cache-stats",
+  ]);
+  assert!(
+    output.status.success(),
+    "cache key must tolerate node_modules/pixi.js directories and symlink installs: {}",
+    String::from_utf8_lossy(&output.stderr)
+  );
+  assert!(
+    !String::from_utf8_lossy(&output.stderr).contains("Is a directory"),
+    "must not try to read package directories as source files: {}",
+    String::from_utf8_lossy(&output.stderr)
+  );
+}
+
+#[test]
 fn cached_diagnostics_preserve_safe_edit_previews() {
   let source = "<template>\n  <input autofocus>\n</template>\n";
   let project = TempProject::new("safe-fix-cache", source);

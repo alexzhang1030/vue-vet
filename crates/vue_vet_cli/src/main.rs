@@ -1,12 +1,13 @@
 use std::{
   collections::BTreeMap,
+  ffi::OsStr,
   fs,
   path::{Path, PathBuf},
   process::ExitCode,
 };
 
 use clap::{Args, Parser, ValueEnum};
-use ignore::WalkBuilder;
+use ignore::{DirEntry, WalkBuilder};
 use vue_vet_cache::{
   Baseline, CacheLookup, CachePayload, CacheStore, content_key, default_cache_dir, filter_diff,
   read_git_diff,
@@ -281,12 +282,14 @@ fn fill_cache(
 
 fn cache_inputs(root: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
   let mut files = Vec::new();
-  for entry in WalkBuilder::new(root).standard_filters(true).build() {
+  for entry in project_walk(root) {
     let entry = entry.map_err(|error| error.to_string())?;
-    if entry.file_type().is_some_and(|kind| kind.is_dir()) {
+    let path = entry.path();
+    // Follow symlinks: package dirs named `*.js` (e.g. node_modules/pixi.js)
+    // and symlink installs must not be treated as source files.
+    if !path.is_file() {
       continue;
     }
-    let path = entry.path();
     let source_file = matches!(
       path.extension().and_then(|extension| extension.to_str()),
       Some("vue" | "js" | "jsx" | "ts" | "tsx")
@@ -313,6 +316,22 @@ fn cache_inputs(root: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
 
 fn scan_directory(path: &Path) -> &Path {
   if path.is_dir() { path } else { path.parent().unwrap_or(path) }
+}
+
+/// Walk project files for cache keys and analysis.
+///
+/// Always skips `node_modules` even when `.gitignore` is absent (common when
+/// scanning a nested docs/app directory). `standard_filters` still applies
+/// gitignore/global ignore when present.
+fn project_walk(root: &Path) -> ignore::Walk {
+  WalkBuilder::new(root)
+    .standard_filters(true)
+    .filter_entry(|entry| !is_node_modules_entry(entry))
+    .build()
+}
+
+fn is_node_modules_entry(entry: &DirEntry) -> bool {
+  entry.file_name() == OsStr::new("node_modules")
 }
 
 /// Oxlint-style scan: walk/collect paths sequentially, analyze files and run
@@ -347,10 +366,11 @@ fn scan_parallel(root: &Path, config: &Config) -> Result<ScanResult, String> {
 
   // Phase 0: collect candidates (sequential; ignore crate walk is not parallel-safe).
   let mut candidates = Vec::new();
-  for entry in WalkBuilder::new(root).standard_filters(true).build() {
+  for entry in project_walk(root) {
     let entry = entry.map_err(|error| error.to_string())?;
     let path = entry.path().to_path_buf();
-    if entry.file_type().is_some_and(|kind| kind.is_dir()) {
+    // Follow symlinks so directory packages / symlink installs are skipped.
+    if !path.is_file() {
       continue;
     }
     let logical = logical_path(root, &path).to_path_buf();
