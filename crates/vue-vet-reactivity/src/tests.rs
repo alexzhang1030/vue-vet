@@ -1172,6 +1172,50 @@ fn json_parse_reviver_tracks_nested_reactive_reads() {
 }
 
 #[test]
+fn sync_hof_first_arg_function_does_not_invent_tracking() {
+  // Callback-at-index-1 callees must not treat a sole first-arg function as the
+  // sync callback (runtime never invokes it as mapFn/reviver/replacer).
+  for (label, source) in [
+    (
+      "Array.from",
+      "import { ref, computed } from 'vue';\n\
+       const factor = ref(2);\n\
+       const d = computed(() => Array.from(() => factor.value));\n\
+       void d.value;",
+    ),
+    (
+      "JSON.parse",
+      "import { ref, computed } from 'vue';\n\
+       const flag = ref(true);\n\
+       const d = computed(() => JSON.parse(() => flag.value));\n\
+       void d.value;",
+    ),
+    (
+      "String.replace",
+      "import { ref, computed } from 'vue';\n\
+       const text = ref('ab');\n\
+       const flag = ref(true);\n\
+       const d = computed(() => text.value.replace(() => flag.value));\n\
+       void d.value;",
+    ),
+  ] {
+    let graph = graph(source);
+    let invented = graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.iter().any(|read| {
+          matches!(read.binding.as_str(), "factor" | "flag")
+            && read.property.as_deref() == Some("value")
+        })
+    });
+    assert!(
+      !invented,
+      "{label} first-arg function must not invent nested reactive reads; scopes={:?}",
+      graph.scopes
+    );
+  }
+}
+
+#[test]
 fn provide_direct_composable_call_seeds_inject_bag() {
   let graph = graph(
     "import { provide, inject, ref, computed } from 'vue';\n\
@@ -1197,6 +1241,38 @@ fn provide_direct_composable_call_seeds_inject_bag() {
         .any(|read| read.binding == "count" && read.property.as_deref() == Some("value"))
     }),
     "computed must track bag.count.value; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn provide_direct_composable_call_stays_quiet_when_callee_shadowed() {
+  // Outer composable has a known bag shape; block-local `useCounter` is a plain
+  // function. Name-only seeding would invent bag.count from the outer def.
+  let graph = graph(
+    "import { provide, inject, ref, computed } from 'vue';\n\
+     function useCounter() { const count = ref(0); return { count }; }\n\
+     {\n\
+       const useCounter = () => ({});\n\
+       provide('api', useCounter());\n\
+     }\n\
+     const bag = inject('api');\n\
+     const d = computed(() => bag.count.value);\n\
+     void d.value;",
+  );
+  assert!(
+    !graph.composable_instances.contains_key("bag"),
+    "shadowed provide(useX()) must not invent outer composable shape; instances={:?}",
+    graph.composable_instances
+  );
+  assert!(
+    !graph.scopes.iter().any(|scope| {
+      scope
+        .reads
+        .iter()
+        .any(|read| read.binding == "count" && read.property.as_deref() == Some("value"))
+    }),
+    "must not invent bag.count.value via shadowed provide(useX()); scopes={:?}",
     graph.scopes
   );
 }

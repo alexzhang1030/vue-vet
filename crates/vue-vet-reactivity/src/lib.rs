@@ -38,6 +38,9 @@ pub fn trace_reactivity(
 type ComposableShape = BTreeMap<String, ReactiveBindingKind>;
 /// Map of bag/composable name → return shape.
 type ComposableShapeMap = BTreeMap<String, ComposableShape>;
+/// Same-file composable defs: name → (definition span, return shape).
+/// Span is required so call sites resolve like instance-bag seeding (no name-only invent).
+type LocalComposableDefs = BTreeMap<String, (Span, ComposableShape)>;
 
 #[derive(Clone, Debug, Default)]
 struct TraceSeeds {
@@ -140,14 +143,14 @@ fn trace_reactivity_seeded(
 
 /// Local composable defs + instance/destructure calls in the same file.
 ///
-/// Returns `(instances, destructured_bindings, composable_shapes_by_name)`.
+/// Returns `(instances, destructured_bindings, composable_defs_with_spans)`.
 fn collect_local_composable_usage(
   semantic: &Semantic<'_>,
   shape_graph: &ReactivityGraph,
   sfc_source: &str,
   script_offset: usize,
-) -> (ComposableShapeMap, Vec<ReactiveBindingFact>, ComposableShapeMap) {
-  let mut composables = BTreeMap::<String, (Span, ComposableShape)>::new();
+) -> (ComposableShapeMap, Vec<ReactiveBindingFact>, LocalComposableDefs) {
+  let mut composables = LocalComposableDefs::new();
 
   // `function useX() { return { field: ref(0) } }`
   for node in semantic.nodes() {
@@ -243,9 +246,7 @@ fn collect_local_composable_usage(
       _ => {}
     }
   }
-  let shapes =
-    composables.into_iter().map(|(name, (_span, shape))| (name, shape)).collect::<BTreeMap<_, _>>();
-  (instances, destructured, shapes)
+  (instances, destructured, composables)
 }
 
 fn reference_resolves_to_span(
@@ -459,7 +460,7 @@ pub(crate) fn collect_provide_sites(
   imported_bindings: &BTreeMap<String, (String, String)>,
   reactive_bindings: &[ReactiveBindingFact],
   composable_instances: &ComposableShapeMap,
-  local_composable_shapes: &ComposableShapeMap,
+  local_composable_defs: &LocalComposableDefs,
   script_kind: ScriptKind,
 ) -> Vec<ProvideSite> {
   let mut sites = Vec::new();
@@ -480,11 +481,12 @@ pub(crate) fn collect_provide_sites(
       ProvideOffer { kind: None, instance_shape: None },
       |value| {
         expression_provide_offer(
+          semantic,
           value,
           imported_bindings,
           reactive_bindings,
           composable_instances,
-          local_composable_shapes,
+          local_composable_defs,
           script_kind,
         )
       },
@@ -534,6 +536,7 @@ pub(crate) fn collect_inject_sites(
           (None, None)
         } else {
           let offer = expression_provide_offer(
+            semantic,
             value,
             imported_bindings,
             reactive_bindings,
@@ -668,11 +671,12 @@ fn injection_key(
 }
 
 fn expression_provide_offer(
+  semantic: &Semantic<'_>,
   expression: &Expression<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
   reactive_bindings: &[ReactiveBindingFact],
   composable_instances: &ComposableShapeMap,
-  local_composable_shapes: &ComposableShapeMap,
+  local_composable_defs: &LocalComposableDefs,
   script_kind: ScriptKind,
 ) -> ProvideOffer {
   if let Some(identifier) = expression.get_identifier_reference() {
@@ -686,10 +690,13 @@ fn expression_provide_offer(
     return ProvideOffer { kind: None, instance_shape: None };
   }
   if let Expression::CallExpression(call) = expression {
-    // `provide('api', useCounter())` — same-file composable call with known return shape.
+    // `provide('api', useCounter())` — resolve callee to the composable def span
+    // (name-only would invent outer shape when a block shadows `useCounter`).
     if let Some(callee) = call.callee.get_identifier_reference()
-      && let Some(shape) = local_composable_shapes.get(callee.name.as_str())
-      && !shape.is_empty()
+      && let Some((_, shape)) =
+        local_composable_defs.get(callee.name.as_str()).filter(|(def_span, shape)| {
+          !shape.is_empty() && reference_resolves_to_span(semantic, callee, *def_span)
+        })
     {
       return ProvideOffer { kind: None, instance_shape: Some(shape.clone()) };
     }
@@ -875,6 +882,10 @@ fn reference_resolves_to_binding(
 
 /// True when `function_id` is a callback argument to a known **synchronously**
 /// invoked higher-order method (Array extras, etc.).
+///
+/// Callback argument **index** is callee-specific: prototype HOF methods take the
+/// callback at index 0; `replace`/`replaceAll`/`Array.from`/`JSON.parse` take it
+/// at index 1. Matching any-argument would invent deps (e.g. `Array.from(() => x)`).
 fn is_sync_hof_callback(semantic: &oxc_semantic::Semantic<'_>, function_id: NodeId) -> bool {
   let function_span = match semantic.nodes().kind(function_id) {
     AstKind::ArrowFunctionExpression(callback) => callback.span,
@@ -891,24 +902,24 @@ fn is_sync_hof_callback(semantic: &oxc_semantic::Semantic<'_>, function_id: Node
       }
       continue;
     };
-    let is_argument = call.arguments.iter().any(|argument| match argument {
+    let Some(arg_index) = call.arguments.iter().position(|argument| match argument {
       Argument::ArrowFunctionExpression(callback) => callback.span == function_span,
       Argument::FunctionExpression(function) => function.span == function_span,
       _ => false,
-    });
-    if !is_argument {
+    }) else {
       continue;
-    }
-    return is_sync_hof_callee(&call.callee);
+    };
+    return is_sync_hof_at_arg(&call.callee, arg_index);
   }
   false
 }
 
-fn is_sync_hof_callee(callee: &Expression<'_>) -> bool {
-  // Synchronously invoked callbacks only. Async iterators / event listeners stay out.
-  // Method names are shared across Array / TypedArray / String / Map / Set where the
-  // runtime still runs the callback during the call (e.g. String#replace(re, fn)).
-  const METHODS: &[&str] = &[
+/// Whether a function at `arg_index` of a call with this `callee` runs synchronously
+/// during the parent tracking flush.
+fn is_sync_hof_at_arg(callee: &Expression<'_>, arg_index: usize) -> bool {
+  // Prototype methods: callback is the first argument (index 0).
+  // `reduce`/`reduceRight` also place the reducer at 0 (init is optional 2nd).
+  const PROTO_CALLBACK_AT_0: &[&str] = &[
     "filter",
     "map",
     "forEach",
@@ -921,30 +932,34 @@ fn is_sync_hof_callee(callee: &Expression<'_>) -> bool {
     "findLast",
     "findLastIndex",
     "flatMap",
-    // Comparator runs during the call (in-place or copy).
     "sort",
     "toSorted",
     "toSpliced",
-    // String#replace / replaceAll invoke the replacer function synchronously.
-    "replace",
-    "replaceAll",
   ];
+  // Replacer / mapFn / reviver is the *second* argument (index 1).
+  const CALLBACK_AT_1: &[&str] = &["replace", "replaceAll"];
+
   match callee {
     Expression::StaticMemberExpression(member) => {
       let method = member.property.name.as_str();
-      if METHODS.contains(&method) {
-        return true;
+      if PROTO_CALLBACK_AT_0.contains(&method) {
+        return arg_index == 0;
+      }
+      if CALLBACK_AT_1.contains(&method) {
+        return arg_index == 1;
       }
       // Well-known statics only — bare `.from` / `.parse` on unknown receivers may be async.
-      if let Expression::Identifier(object) = &member.object {
-        matches!((object.name.as_str(), method), ("Array", "from") | ("JSON", "parse"))
-      } else {
-        false
+      // mapFn / reviver is always the second argument.
+      if arg_index == 1
+        && let Expression::Identifier(object) = &member.object
+      {
+        return matches!((object.name.as_str(), method), ("Array", "from") | ("JSON", "parse"));
       }
+      false
     }
-    Expression::ComputedMemberExpression(member) => {
-      member.static_property_name().is_some_and(|name| METHODS.contains(&name.as_str()))
-    }
+    Expression::ComputedMemberExpression(member) => member
+      .static_property_name()
+      .is_some_and(|name| PROTO_CALLBACK_AT_0.contains(&name.as_str()) && arg_index == 0),
     _ => false,
   }
 }

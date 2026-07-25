@@ -253,14 +253,20 @@ ancestor chain. Rules:
 - `provide(api)` where `api` is a composable instance bag seeds
   `composable_instances` on the inject local (not a scalar binding).
 - Same-file `provide('k', useX())` also seeds when `useX` has a known return
-  shape (no intermediate bag variable required).
+  shape (no intermediate bag variable required). The call must **resolve to the
+  composable def span** — a block-shadowed non-composable `useX` stays quiet
+  (name-only matching invents outer bag fields).
 - `toValue(() => …)` invokes the getter synchronously; reads inside that getter
   stay in the parent tracking scope (like Array HOF callbacks). `unref` does not
   call functions.
 - Sync HOF callbacks also include **String#replace / replaceAll** replacers
   (and Array methods), plus well-known statics **`Array.from(…, mapFn)`** and
   **`JSON.parse(…, reviver)`** (receiver must be the `Array`/`JSON` identifier —
-  bare `.from`/`.parse` on unknown objects stay quiet). Deferred callbacks
-  (`then`/`setTimeout`/`nextTick`) stay outside tracking.
+  bare `.from`/`.parse` on unknown objects stay quiet). Callback **argument
+  index** is callee-specific: prototype HOF → arg 0; replace/from/parse → arg 1.
+  First-arg-only forms (`Array.from(() => x)`, `JSON.parse(() => x)`,
+  `str.replace(() => x)`) must stay quiet — runtime does not invoke them as
+  mapFn/reviver/replacer. Deferred callbacks (`then`/`setTimeout`/`nextTick`)
+  stay outside tracking.
 - Factory defaults (`inject(key, () => ref(0))`) stay quiet; plain
   `inject(key, someRef)` may seed from the default.
