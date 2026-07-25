@@ -672,6 +672,17 @@ fn cache_key_ignores_node_modules_package_directories() {
     panic!("failed to create symlink to package dir: {error}");
   }
 
+  // Project-root symlink to a directory: ensures filtering works outside node_modules.
+  let root_link = project.root().join("alias-root.js");
+  #[cfg(unix)]
+  if let Err(error) = std::os::unix::fs::symlink(&package_dir, &root_link) {
+    panic!("failed to create project-root symlink to package dir: {error}");
+  }
+  #[cfg(windows)]
+  if let Err(error) = std::os::windows::fs::symlink_dir(&package_dir, &root_link) {
+    panic!("failed to create project-root symlink to package dir: {error}");
+  }
+
   let cache = project.root().join("cache");
   let output = run(&[
     project.root().to_string_lossy().as_ref(),
@@ -683,12 +694,12 @@ fn cache_key_ignores_node_modules_package_directories() {
   ]);
   assert!(
     output.status.success(),
-    "cache key must tolerate node_modules/pixi.js directories and symlink installs: {}",
+    "cache key must tolerate directory packages and symlinks in node_modules and project root: {}",
     String::from_utf8_lossy(&output.stderr)
   );
   assert!(
     !String::from_utf8_lossy(&output.stderr).contains("Is a directory"),
-    "must not try to read package directories as source files: {}",
+    "must not try to read directory symlinks as source files: {}",
     String::from_utf8_lossy(&output.stderr)
   );
 }
