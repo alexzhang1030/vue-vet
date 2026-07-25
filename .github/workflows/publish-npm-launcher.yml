@@ -26,8 +26,18 @@ jobs:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Sync launcher version
-        run: node npm/scripts/sync-launcher-version.mjs "${{ inputs.version }}"
+      - name: Sync launcher version only
+        # Do not rewrite optionalDependencies — platform packages may still be
+        # on an older patch (e.g. cli@0.1.1 depending on darwin-arm64@0.1.0).
+        run: |
+          node -e '
+            const fs = require("fs");
+            const path = "npm/vue-vet/package.json";
+            const pkg = JSON.parse(fs.readFileSync(path, "utf8"));
+            pkg.version = process.argv[1];
+            fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + "\n");
+            console.log("synced " + pkg.name + "@" + pkg.version);
+          ' "${{ inputs.version }}"
 
       - name: Publish @vue-vet/cli launcher
         env:
