@@ -211,6 +211,12 @@ remain outside.
 `#imports`) are allowlisted reactivity sources. Unknown package callees stay
 quiet. Do not treat every `use*` auto-import as reactive without evidence.
 
+Nuxt (and unplugin-auto-import) often call `ref` / `watchEffect` with **no**
+`import` statement. The tracer treats bare identifiers as Vue APIs only when
+Oxc marks them unresolved and the name is on the `vue` / `#imports` allowlist.
+A local `function ref()` still wins and stays quiet. Empty module facts mean
+under-approx miss, not “100% reactive.”
+
 ## Edge `from` / `to_id` labels (graph v4–v6)
 
 Computed edges prefer the assigned binding name (`doubled`). Other scopes use

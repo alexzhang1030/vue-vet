@@ -138,7 +138,9 @@ pub fn render_reactivity_footer(digest: &ReactivityDigest) -> String {
     .saturating_add(digest.edges)
     .saturating_add(digest.template_reads);
   if digest.modules > 0 && facts == 0 {
-    output.push_str("  tracer ran; no reactive facts in scanned scripts\n");
+    output.push_str(
+      "  tracer ran; no reactive facts in scanned scripts (empty ≠ fully reactive — often missing imports / Nuxt auto-import gaps)\n",
+    );
     return output;
   }
   if digest.hotspots.is_empty() {
@@ -251,7 +253,7 @@ mod tests {
   fn footer_explains_empty_facts() {
     let digest = ReactivityDigest::from_modules(&[module("a.ts", 0, 0, 0, 0)], None);
     let rendered = render_reactivity_footer(&digest);
-    assert!(rendered.contains("tracer ran; no reactive facts in scanned scripts"));
+    assert!(rendered.contains("empty ≠ fully reactive"));
   }
 
   #[test]

@@ -110,6 +110,32 @@ fn resolves_explicit_nuxt_imports() {
 }
 
 #[test]
+fn resolves_bare_vue_auto_imports_without_import() {
+  let graph = graph(
+    "const host = ref<HTMLElement | null>(null);\n\
+     const failed = ref(false);\n\
+     watchEffect(() => { void failed.value; });",
+  );
+  assert!(
+    graph
+      .bindings
+      .iter()
+      .any(|binding| { binding.name == "host" && binding.kind == ReactiveBindingKind::Ref }),
+    "Nuxt-style bare ref() must create bindings: {:?}",
+    graph.bindings
+  );
+  assert!(
+    graph
+      .bindings
+      .iter()
+      .any(|binding| { binding.name == "failed" && binding.kind == ReactiveBindingKind::Ref }),
+    "second bare ref() must also bind: {:?}",
+    graph.bindings
+  );
+  assert_eq!(graph.effects.len(), 1, "bare watchEffect must create a tracking scope");
+}
+
+#[test]
 fn ignores_local_lookalike_functions() {
   let graph = graph(
     "function ref(value: number) { return { value }; }\n\

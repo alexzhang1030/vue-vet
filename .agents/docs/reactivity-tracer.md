@@ -44,7 +44,7 @@ identities; bare `to` retained for rule matching).
 
 | Axis | Status | Gap |
 | --- | --- | --- |
-| A1 Bindings | partial | Vue primitives, aliases, `#imports`, `defineModel`, `defineProps`, **`withDefaults(defineProps())`**, **`storeToRefs`**, **`useRoute`/`useRouter`**, **`unref`/`toValue` reads**, module seeds |
+| A1 Bindings | partial | Vue primitives, aliases, `#imports`, **bare Nuxt/auto-import Vue APIs (unresolved allowlist names)**, `defineModel`, `defineProps`, **`withDefaults(defineProps())`**, **`storeToRefs`**, **`useRoute`/`useRouter`**, **`unref`/`toValue` reads**, module seeds |
 | A2 Scopes | partial | effects, **computed getter fn + `{ get, set }`**, watch (sources + callback outside), effectScope (`.run` requires provenance), dispose |
 | A3 Reads | partial | `.value` / reactive members / bag.field / **sync Array HOF (+ sort)** / **String#replace/replaceAll** / **`Array.from` mapFn** / **`JSON.parse` reviver** / **watch ref sources `.value`** / **`unref`/`toValue`/`toValue(getter)`** |
 | A4 Conditions | deep | if / early-exit / ternary / short-circuit / switch roles — do not deepen further yet |
@@ -176,3 +176,4 @@ growing prose ledger.
 | 2026-07-25 | Array.from mapFn + JSON.parse reviver | Well-known static sync callbacks only (`Array`/`JSON` receiver) |
 | 2026-07-25 | under-approx fixes: provide span + HOF arg index | provide(useX()) resolves def span; replace/from/parse callback only at arg 1 |
 | 2026-07-25 | crates.io library packaging | crate README + rustdoc; publish `vue_vet_core` then `vue_vet_reactivity` to reserve names; fixtures/oracle git-only |
+| 2026-07-26 | Bare Nuxt/auto-import Vue APIs | Unresolved allowlist names (`ref`, `watchEffect`, …) resolve without `import`; local lookalikes still quiet |
