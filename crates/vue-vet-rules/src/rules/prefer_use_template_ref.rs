@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use vue_vet_core::{
   Confidence, ReactiveBindingKind, Rule, RuleContext, RuleMeta, ScriptKind, Severity,
 };
@@ -19,21 +21,25 @@ impl Rule for PreferUseTemplateRef {
     &META
   }
 
-  fn run(&self, context: &mut RuleContext<'_>) {
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    // Needs template refs + script bindings together.
     let Some(version) = context.environment().vue_version else {
       return;
     };
     if !version.is_at_least(3, 5) {
       return;
     }
-    let template_refs = context
+    let template_refs: BTreeSet<String> = context
       .template()
       .elements
       .iter()
       .filter_map(|element| element.attribute("ref"))
-      .filter_map(|attribute| attribute.value.as_deref())
-      .collect::<Vec<_>>();
-    let bindings = context
+      .filter_map(|attribute| attribute.value.clone())
+      .collect();
+    if template_refs.is_empty() {
+      return;
+    }
+    let findings: Vec<_> = context
       .script()
       .blocks
       .iter()
@@ -42,11 +48,11 @@ impl Rule for PreferUseTemplateRef {
       .filter(|binding| {
         binding.kind == ReactiveBindingKind::Ref
           && binding.initialized_with_null
-          && template_refs.iter().any(|template_ref| **template_ref == binding.name)
+          && template_refs.contains(&binding.name)
       })
       .map(|binding| (binding.span.clone(), binding.name.clone()))
-      .collect::<Vec<_>>();
-    for (span, name) in bindings {
+      .collect();
+    for (span, name) in findings {
       context.report(
         self.meta(),
         span,

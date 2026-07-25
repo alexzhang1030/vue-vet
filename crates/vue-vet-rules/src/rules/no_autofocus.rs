@@ -1,4 +1,6 @@
-use vue_vet_core::{ByteRange, Confidence, Rule, RuleContext, RuleMeta, Severity, SourceSpan};
+use vue_vet_core::{
+  ByteRange, Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity, SourceSpan,
+};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/accessibility/no-autofocus",
@@ -17,29 +19,34 @@ impl Rule for NoAutofocus {
     &META
   }
 
-  fn run(&self, context: &mut RuleContext<'_>) {
-    let findings = context
-      .template()
-      .elements
-      .iter()
-      .filter_map(|element| element.attribute("autofocus"))
-      .map(|attribute| {
-        let edit =
-          attribute.value.is_none().then(|| removal_range(context.source(), &attribute.span));
-        (attribute.span.clone(), edit)
-      })
-      .collect::<Vec<_>>();
-    for (span, edit) in findings {
-      let message = "autofocus can disorient keyboard and screen-reader users".into();
-      let help = Some(
-        "Let users choose focus, or move focus programmatically only after an explicit interaction."
-          .into(),
+  fn fact_kinds(&self) -> FactKinds {
+    FactKinds::TEMPLATE_ELEMENT
+  }
+
+  fn run_on(&self, fact: FactRef<'_>, context: &mut RuleContext<'_>) {
+    let FactRef::TemplateElement(element) = fact else {
+      return;
+    };
+    let Some(attribute) = element.attribute("autofocus") else {
+      return;
+    };
+    let message = "autofocus can disorient keyboard and screen-reader users".into();
+    let help = Some(
+      "Let users choose focus, or move focus programmatically only after an explicit interaction."
+        .into(),
+    );
+    if attribute.value.is_none() {
+      let range = removal_range(context.source(), &attribute.span);
+      context.report_with_safe_edit(
+        self.meta(),
+        attribute.span.clone(),
+        message,
+        help,
+        range,
+        String::new(),
       );
-      if let Some(range) = edit {
-        context.report_with_safe_edit(self.meta(), span, message, help, range, String::new());
-      } else {
-        context.report(self.meta(), span, message, help);
-      }
+    } else {
+      context.report(self.meta(), attribute.span.clone(), message, help);
     }
   }
 }

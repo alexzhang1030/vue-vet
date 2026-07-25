@@ -1,4 +1,4 @@
-use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, Severity};
+use vue_vet_core::{Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/accessibility/iframe-has-title",
@@ -17,25 +17,25 @@ impl Rule for IframeHasTitle {
     &META
   }
 
-  fn run(&self, context: &mut RuleContext<'_>) {
-    let spans = context
-      .template()
-      .elements
-      .iter()
-      .filter(|element| {
-        element.tag.eq_ignore_ascii_case("iframe")
-          && element.attribute("title").is_none()
-          && element.bound_attribute("title").is_none()
-      })
-      .map(|element| element.span.clone())
-      .collect::<Vec<_>>();
-    for span in spans {
-      context.report(
-        self.meta(),
-        span,
-        "iframe is missing a `title` attribute".into(),
-        Some("Add a concise title describing the embedded content.".into()),
-      );
+  fn fact_kinds(&self) -> FactKinds {
+    FactKinds::TEMPLATE_ELEMENT
+  }
+
+  fn run_on(&self, fact: FactRef<'_>, context: &mut RuleContext<'_>) {
+    let FactRef::TemplateElement(element) = fact else {
+      return;
+    };
+    if !element.tag.eq_ignore_ascii_case("iframe")
+      || element.attribute("title").is_some()
+      || element.bound_attribute("title").is_some()
+    {
+      return;
     }
+    context.report(
+      self.meta(),
+      element.span.clone(),
+      "iframe is missing a `title` attribute".into(),
+      Some("Add a concise title describing the embedded content.".into()),
+    );
   }
 }

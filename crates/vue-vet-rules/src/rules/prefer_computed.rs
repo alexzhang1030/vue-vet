@@ -1,5 +1,6 @@
 use vue_vet_core::{
-  Confidence, ReactiveReadKind, Rule, RuleContext, RuleMeta, Severity, TrackingScopeKind,
+  Confidence, FactKinds, FactRef, ReactiveReadKind, Rule, RuleContext, RuleMeta, Severity,
+  TrackingScopeKind,
 };
 
 const META: RuleMeta = RuleMeta {
@@ -19,51 +20,49 @@ impl Rule for PreferComputed {
     &META
   }
 
-  fn run(&self, context: &mut RuleContext<'_>) {
-    let findings = context
-      .script()
-      .blocks
-      .iter()
-      .flat_map(|block| &block.reactivity_graph.scopes)
-      .filter(|scope| {
-        matches!(
-          scope.kind,
-          TrackingScopeKind::WatchEffect
-            | TrackingScopeKind::WatchPostEffect
-            | TrackingScopeKind::WatchSyncEffect
-        )
-      })
-      .filter(|scope| scope.assignment_only)
-      .filter(|scope| !scope.writes.is_empty())
-      .filter(|scope| {
-        !scope.reads.is_empty()
-          && scope.reads.iter().all(|read| read.kind == ReactiveReadKind::Unconditional)
-      })
-      .filter(|scope| {
-        // Pure derivation: every write target is a ref-like `.value`, and at least one
-        // tracked read is not among the written bindings.
-        let write_bindings =
-          scope.writes.iter().map(|write| write.binding.as_str()).collect::<Vec<_>>();
-        scope.writes.iter().all(|write| write.property.as_deref() == Some("value"))
-          && scope.reads.iter().any(|read| !write_bindings.contains(&read.binding.as_str()))
-      })
-      .map(|scope| {
-        let targets =
-          scope.writes.iter().map(|write| write.binding.as_str()).collect::<Vec<_>>().join("`, `");
-        (scope.span.clone(), targets)
-      })
-      .collect::<Vec<_>>();
+  fn fact_kinds(&self) -> FactKinds {
+    FactKinds::TRACKING_SCOPE
+  }
 
-    for (span, targets) in findings {
-      context.report(
-        self.meta(),
-        span,
-        format!("`watchEffect` only assigns `{targets}` from other reactive reads"),
-        Some(
-          "Use `computed(() => …)` for pure derived state instead of syncing refs in `watchEffect`."
-            .into(),
-        ),
-      );
+  fn run_on(&self, fact: FactRef<'_>, context: &mut RuleContext<'_>) {
+    let FactRef::TrackingScope { scope, .. } = fact else {
+      return;
+    };
+    if !matches!(
+      scope.kind,
+      TrackingScopeKind::WatchEffect
+        | TrackingScopeKind::WatchPostEffect
+        | TrackingScopeKind::WatchSyncEffect
+    ) {
+      return;
     }
+    if !scope.assignment_only || scope.writes.is_empty() {
+      return;
+    }
+    if scope.reads.is_empty()
+      || !scope.reads.iter().all(|read| read.kind == ReactiveReadKind::Unconditional)
+    {
+      return;
+    }
+    // Pure derivation: every write target is a ref-like `.value`, and at least one
+    // tracked read is not among the written bindings.
+    let write_bindings: Vec<&str> =
+      scope.writes.iter().map(|write| write.binding.as_str()).collect();
+    if !scope.writes.iter().all(|write| write.property.as_deref() == Some("value")) {
+      return;
+    }
+    if !scope.reads.iter().any(|read| !write_bindings.contains(&read.binding.as_str())) {
+      return;
+    }
+    let targets = write_bindings.join("`, `");
+    context.report(
+      self.meta(),
+      scope.span.clone(),
+      format!("`watchEffect` only assigns `{targets}` from other reactive reads"),
+      Some(
+        "Use `computed(() => …)` for pure derived state instead of syncing refs in `watchEffect`."
+          .into(),
+      ),
+    );
   }
 }

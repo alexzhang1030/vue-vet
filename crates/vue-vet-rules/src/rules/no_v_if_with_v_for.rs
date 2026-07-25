@@ -1,4 +1,4 @@
-use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, Severity};
+use vue_vet_core::{Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/correctness/no-v-if-with-v-for",
@@ -17,25 +17,25 @@ impl Rule for NoVIfWithVFor {
     &META
   }
 
-  fn run(&self, context: &mut RuleContext<'_>) {
-    let spans = context
-      .template()
-      .elements
-      .iter()
-      .filter_map(|element| {
-        element
-          .directive("for")
-          .filter(|_| element.directive("if").is_some())
-          .map(|directive| directive.span.clone())
-      })
-      .collect::<Vec<_>>();
-    for span in spans {
-      context.report(
-        self.meta(),
-        span,
-        "`v-if` and `v-for` on the same element have surprising precedence".into(),
-        Some("Move `v-if` to a wrapping `<template>` or pre-filter the collection.".into()),
-      );
+  fn fact_kinds(&self) -> FactKinds {
+    FactKinds::TEMPLATE_ELEMENT
+  }
+
+  fn run_on(&self, fact: FactRef<'_>, context: &mut RuleContext<'_>) {
+    let FactRef::TemplateElement(element) = fact else {
+      return;
+    };
+    let Some(directive) = element.directive("for") else {
+      return;
+    };
+    if element.directive("if").is_none() {
+      return;
     }
+    context.report(
+      self.meta(),
+      directive.span.clone(),
+      "`v-if` and `v-for` on the same element have surprising precedence".into(),
+      Some("Move `v-if` to a wrapping `<template>` or pre-filter the collection.".into()),
+    );
   }
 }

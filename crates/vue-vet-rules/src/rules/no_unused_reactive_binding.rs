@@ -21,51 +21,45 @@ impl Rule for NoUnusedReactiveBinding {
     &META
   }
 
-  fn run(&self, context: &mut RuleContext<'_>) {
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    // Cross-fact aggregation across template + scopes + edges + script reads.
     let template_ref_names = static_template_ref_names(context.template().elements.as_slice());
-    let findings = context
-      .script()
-      .blocks
-      .iter()
-      .flat_map(|block| {
-        let graph = &block.reactivity_graph;
-        let mut used = BTreeSet::new();
-        for read in &graph.template_reads {
+    let mut findings = Vec::new();
+    for block in &context.script().blocks {
+      let graph = &block.reactivity_graph;
+      let mut used = BTreeSet::new();
+      for read in &graph.template_reads {
+        used.insert(read.binding.as_str());
+      }
+      for scope in &graph.scopes {
+        for read in &scope.reads {
           used.insert(read.binding.as_str());
         }
-        for scope in &graph.scopes {
-          for read in &scope.reads {
-            used.insert(read.binding.as_str());
-          }
-          for write in &scope.writes {
-            used.insert(write.binding.as_str());
-          }
+        for write in &scope.writes {
+          used.insert(write.binding.as_str());
         }
-        for edge in &graph.edges {
-          used.insert(edge.to.as_str());
+      }
+      for edge in &graph.edges {
+        used.insert(edge.to.as_str());
+      }
+      for name in &template_ref_names {
+        used.insert(name.as_str());
+      }
+      for binding in &graph.bindings {
+        if !is_local_value_binding(binding.kind) || used.contains(binding.name.as_str()) {
+          continue;
         }
-        for name in &template_ref_names {
-          used.insert(name.as_str());
-        }
-        let script_read_counts = block
+        let script_reads = block
           .bindings
           .iter()
-          .map(|binding| (binding.name.as_str(), binding.reads))
-          .collect::<std::collections::BTreeMap<_, _>>();
-
-        graph
-          .bindings
-          .iter()
-          .filter(|binding| is_local_value_binding(binding.kind))
-          .filter(|binding| !used.contains(binding.name.as_str()))
-          .filter(|binding| {
-            script_read_counts.get(binding.name.as_str()).copied().unwrap_or(0) == 0
-          })
-          .map(|binding| (binding.span.clone(), binding.name.clone(), binding.kind))
-          .collect::<Vec<_>>()
-      })
-      .collect::<Vec<_>>();
-
+          .find(|script_binding| script_binding.name == binding.name)
+          .map_or(0, |script_binding| script_binding.reads);
+        if script_reads != 0 {
+          continue;
+        }
+        findings.push((binding.span.clone(), binding.name.clone(), binding.kind));
+      }
+    }
     for (span, name, kind) in findings {
       let kind_label = binding_kind_label(kind);
       context.report(

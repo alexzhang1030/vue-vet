@@ -1,11 +1,11 @@
 use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, ScriptKind, Severity};
 
 const META: RuleMeta = RuleMeta {
-  id: "vue-vet/reactivity/no-mutating-props",
-  category: "reactivity",
+  id: "vue-vet/correctness/no-mutating-props",
+  category: "correctness",
   default_severity: Severity::Error,
   confidence: Confidence::High,
-  documentation: "rules/reactivity/no-mutating-props",
+  documentation: "rules/correctness/no-mutating-props",
 };
 
 pub(super) struct NoMutatingProps;
@@ -17,8 +17,8 @@ impl Rule for NoMutatingProps {
     &META
   }
 
-  fn run(&self, context: &mut RuleContext<'_>) {
-    let prop_bindings = context
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    let prop_bindings: Vec<String> = context
       .script()
       .blocks
       .iter()
@@ -30,16 +30,19 @@ impl Rule for NoMutatingProps {
           .filter(|call| call.callee == "defineProps")
           .filter_map(|call| call.assigned_to.clone())
       })
-      .collect::<Vec<_>>();
-    let spans = context
+      .collect();
+    if prop_bindings.is_empty() {
+      return;
+    }
+    let spans: Vec<_> = context
       .script()
       .blocks
       .iter()
       .filter(|block| block.kind == ScriptKind::Setup)
       .flat_map(|block| &block.member_writes)
-      .filter(|write| prop_bindings.contains(&write.object))
+      .filter(|write| prop_bindings.iter().any(|name| name == &write.object))
       .map(|write| write.span.clone())
-      .collect::<Vec<_>>();
+      .collect();
     for span in spans {
       context.report(
         self.meta(),

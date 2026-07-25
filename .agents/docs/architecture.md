@@ -21,12 +21,25 @@ vue-vet CLI
 
 - **Files parallel, pipeline per file sequential** — discovery is sequential; parse /
   facts / seed-aware rules use Rayon (`--threads N` optional).
-- **Two-phase module reactivity is intentional** — first pass builds export shapes
-  without seeds; second pass re-traces consumers with seeds. Both phases fan out
-  by module; the seed barrier stays sequential and deterministic.
+- **Rules are pass-based, not “each rule re-scans everything”** — `Rule` exposes
+  oxlint-style hooks over Vue Vet facts (not dependency AST):
+  - `run_once` — whole-file / cross-fact aggregation
+  - `run_on` + `fact_kinds` — per-fact visitor with a bitset interest set
+  - `RuleRegistry` runs `run_once` once per rule, then a **single walk** over each
+    fact surface (template elements, script calls, reactivity scopes, …) dispatching
+    only bucketed interested rules. Rules must report immediately; they must not
+    `collect` intermediate vectors and re-scan them.
+- **Two-phase module reactivity, one parse** — sticky workers (`std::thread::scope`)
+  keep each module's Oxc allocator/semantic on the worker stack. Phase 1 builds
+  export shapes and an empty-seed local graph; after the coordinator resolves
+  seeds, phase 2 re-traces on the **same** semantic when cross-file seeds exist
+  (no second parse). Sessions never leave their thread (arena types are not
+  `Send`; the workspace forbids `unsafe_code`). Results stay deterministic after
+  sort-by-module-id.
 - **Determinism after concurrency** — diagnostics are sorted in `ScanSummary::finish`;
   module results are sorted by module id after parallel re-trace.
 - **Still single-process Rust** — no JS rule host; adapters stay behind Vue Vet facts.
+  Facts remain the stable rule surface; the pass walks those facts, not Oxc/Vize nodes.
 
 `no-v-html` remains the reference AST-backed built-in rule. Phase 2 adds the Oxc
 adapter while keeping both dependency ASTs behind Vue Vet-owned facts.

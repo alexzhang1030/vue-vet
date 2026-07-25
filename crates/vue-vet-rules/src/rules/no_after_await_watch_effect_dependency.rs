@@ -1,4 +1,6 @@
-use vue_vet_core::{Confidence, ReactiveReadKind, Rule, RuleContext, RuleMeta, Severity};
+use vue_vet_core::{
+  Confidence, FactKinds, FactRef, ReactiveReadKind, Rule, RuleContext, RuleMeta, Severity,
+};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-after-await-watch-effect-dependency",
@@ -17,40 +19,30 @@ impl Rule for NoAfterAwaitWatchEffectDependency {
     &META
   }
 
-  fn run(&self, context: &mut RuleContext<'_>) {
-    let reads = context
-      .script()
-      .blocks
-      .iter()
-      .flat_map(|block| &block.reactivity_graph.effects)
-      .flat_map(|effect| {
-        effect
-          .reads
-          .iter()
-          .filter(|read| {
-            matches!(read.kind, ReactiveReadKind::AfterAwait | ReactiveReadKind::OutsideTracking)
-          })
-          .map(|read| {
-            let binding = read.property.as_ref().map_or_else(
-              || read.binding.clone(),
-              |property| format!("{}.{property}", read.binding),
-            );
-            let reason = match read.kind {
-              ReactiveReadKind::AfterAwait => "after `await`",
-              ReactiveReadKind::OutsideTracking => {
-                "inside a deferred callback (`then` / `nextTick` / …)"
-              }
-              ReactiveReadKind::Unconditional | ReactiveReadKind::Conditional => "outside tracking",
-            };
-            (read.span.clone(), binding, reason)
-          })
-          .collect::<Vec<_>>()
-      })
-      .collect::<Vec<_>>();
-    for (span, binding, reason) in reads {
+  fn fact_kinds(&self) -> FactKinds {
+    FactKinds::REACTIVITY_EFFECT
+  }
+
+  fn run_on(&self, fact: FactRef<'_>, context: &mut RuleContext<'_>) {
+    let FactRef::ReactivityEffect { effect, .. } = fact else {
+      return;
+    };
+    for read in &effect.reads {
+      if !matches!(read.kind, ReactiveReadKind::AfterAwait | ReactiveReadKind::OutsideTracking) {
+        continue;
+      }
+      let binding = read
+        .property
+        .as_ref()
+        .map_or_else(|| read.binding.clone(), |property| format!("{}.{property}", read.binding));
+      let reason = match read.kind {
+        ReactiveReadKind::AfterAwait => "after `await`",
+        ReactiveReadKind::OutsideTracking => "inside a deferred callback (`then` / `nextTick` / …)",
+        ReactiveReadKind::Unconditional | ReactiveReadKind::Conditional => "outside tracking",
+      };
       context.report(
         self.meta(),
-        span,
+        read.span.clone(),
         format!("`{binding}` is read {reason}, so `watchEffect` will not track it"),
         Some(
           "Read every dependency before the first `await`, or use explicit `watch` sources for values needed after async work."

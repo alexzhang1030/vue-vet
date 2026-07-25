@@ -1,4 +1,6 @@
-use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, Severity, TemplateElementFact};
+use vue_vet_core::{
+  Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity, TemplateElementFact,
+};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/accessibility/no-aria-hidden-on-focusable",
@@ -17,37 +19,38 @@ impl Rule for NoAriaHiddenOnFocusable {
     &META
   }
 
-  fn run(&self, context: &mut RuleContext<'_>) {
-    let spans = context
-      .template()
-      .elements
-      .iter()
-      .filter_map(|element| {
-        let span = element
-          .attribute("aria-hidden")
-          .filter(|attribute| {
-            attribute.value.as_deref().is_some_and(|value| value.eq_ignore_ascii_case("true"))
-          })
-          .map(|attribute| &attribute.span)
-          .or_else(|| {
-            element
-              .bound_attribute("aria-hidden")
-              .filter(|directive| {
-                directive.expression.as_deref().is_some_and(|value| value == "true")
-              })
-              .map(|directive| &directive.span)
-          })?;
-        element_is_focusable(element).then_some(span.clone())
+  fn fact_kinds(&self) -> FactKinds {
+    FactKinds::TEMPLATE_ELEMENT
+  }
+
+  fn run_on(&self, fact: FactRef<'_>, context: &mut RuleContext<'_>) {
+    let FactRef::TemplateElement(element) = fact else {
+      return;
+    };
+    let span = element
+      .attribute("aria-hidden")
+      .filter(|attribute| {
+        attribute.value.as_deref().is_some_and(|value| value.eq_ignore_ascii_case("true"))
       })
-      .collect::<Vec<_>>();
-    for span in spans {
-      context.report(
-        self.meta(),
-        span,
-        "focusable element is hidden from assistive technology".into(),
-        Some("Remove aria-hidden, or remove the element from keyboard interaction as well.".into()),
-      );
+      .map(|attribute| &attribute.span)
+      .or_else(|| {
+        element
+          .bound_attribute("aria-hidden")
+          .filter(|directive| directive.expression.as_deref().is_some_and(|value| value == "true"))
+          .map(|directive| &directive.span)
+      });
+    let Some(span) = span else {
+      return;
+    };
+    if !element_is_focusable(element) {
+      return;
     }
+    context.report(
+      self.meta(),
+      span.clone(),
+      "focusable element is hidden from assistive technology".into(),
+      Some("Remove aria-hidden, or remove the element from keyboard interaction as well.".into()),
+    );
   }
 }
 
