@@ -102,7 +102,7 @@ impl CacheStore {
 #[must_use]
 pub fn default_cache_dir() -> PathBuf {
   std::env::var_os("XDG_CACHE_HOME").map_or_else(
-    || std::env::temp_dir().join("vue-vet-cache"),
+    || std::env::temp_dir().join("vue_vet_cache"),
     |directory| PathBuf::from(directory).join("vue-vet"),
   )
 }
@@ -389,7 +389,7 @@ mod tests {
 
   #[test]
   fn corrupt_cache_recovers_as_a_miss() {
-    let root = std::env::temp_dir().join(format!("vue-vet-cache-test-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("vue_vet_cache-test-{}", std::process::id()));
     let store = CacheStore::new(root.clone());
     let path = store.entry_path("broken");
     assert!(path.parent().is_some(), "cache path must have a parent");

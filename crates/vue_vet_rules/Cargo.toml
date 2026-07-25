@@ -1,5 +1,6 @@
 [package]
-name = "vue-vet-config"
+publish = false
+name = "vue_vet_rules"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,13 +9,10 @@ rust-version.workspace = true
 readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "Configuration, presets, path filters, and suppressions for Vue Vet"
+description = "Built-in semantic rules for Vue Vet"
 
 [lints]
 workspace = true
 
 [dependencies]
-globset.workspace = true
-serde.workspace = true
-thiserror.workspace = true
-vue-vet-core = { path = "../vue-vet-core" }
+vue_vet_core = { path = "../vue_vet_core" }

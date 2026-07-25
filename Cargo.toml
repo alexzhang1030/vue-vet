@@ -1,15 +1,15 @@
 [workspace]
 members = [
-  "crates/vue-vet-cli",
-  "crates/vue-vet-cache",
-  "crates/vue-vet-config",
-  "crates/vue-vet-core",
-  "crates/vue-vet-oxc",
-  "crates/vue-vet-project",
-  "crates/vue-vet-reactivity",
-  "crates/vue-vet-reporters",
-  "crates/vue-vet-rules",
-  "crates/vue-vet-vize",
+  "crates/vue_vet_cli",
+  "crates/vue_vet_cache",
+  "crates/vue_vet_config",
+  "crates/vue_vet_core",
+  "crates/vue_vet_oxc",
+  "crates/vue_vet_project",
+  "crates/vue_vet_reactivity",
+  "crates/vue_vet_reporters",
+  "crates/vue_vet_rules",
+  "crates/vue_vet_vize",
 ]
 resolver = "3"
 

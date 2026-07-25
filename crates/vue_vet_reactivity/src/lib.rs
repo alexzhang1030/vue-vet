@@ -1,3 +1,28 @@
+//! Static Vue reactivity dependency tracing.
+//!
+//! Builds a serializable [`vue_vet_core::ReactivityGraph`] from an Oxc semantic
+//! model (single script) or a resolved module graph ([`trace_modules`]).
+//!
+//! # Charter
+//!
+//! - **Static only** — does not execute Vue effects or Proxies.
+//! - **Under-approximation** — missing edges are acceptable; invented edges are
+//!   bugs.
+//! - **Stable facts** — returned types live in `vue_vet_core`; Oxc AST nodes do
+//!   not cross this boundary.
+//!
+//! # Single-file entry
+//!
+//! [`trace_reactivity`] records bindings and tracking scopes for one Oxc
+//! semantic model. Pass the original file text and script byte offset so spans
+//! map back to the SFC or module source.
+//!
+//! # Cross-module entry
+//!
+//! [`trace_modules`] parses each [`ModuleSource`] once, links composable /
+//! export seeds across [`ModuleLink`] edges, and re-traces consumers with those
+//! seeds. Callers supply already-resolved links.
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use oxc_ast::{
@@ -21,9 +46,9 @@ use vue_vet_core::{
 /// The returned graph contains only Vue Vet-owned serializable facts. Oxc nodes
 /// remain an implementation detail of this crate.
 ///
-/// # Panics
-///
-/// This function does not panic for valid Oxc semantic models.
+/// `sfc_source` is the original file used for absolute line/column mapping;
+/// `script_offset` is the byte offset of the analyzed script within that file
+/// (use `0` for a standalone module).
 #[must_use]
 pub fn trace_reactivity(
   semantic: &Semantic<'_>,

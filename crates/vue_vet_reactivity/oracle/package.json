@@ -1,5 +1,5 @@
 {
-  "name": "vue-vet-reactivity-oracle",
+  "name": "vue_vet_reactivity-oracle",
   "private": true,
   "type": "module",
   "description": "Vue runtime onTrack oracle for static tracer under-approx checks",

@@ -1,3 +1,9 @@
+//! Vue Vet-owned diagnostics, spans, edits, and reactivity fact contracts.
+//!
+//! Parser adapters and the reactivity tracer produce these types; rules,
+//! reporters, cache, and the CLI consume them. Vize and Oxc AST types never
+//! appear in this crate.
+
 use std::{
   fmt::Write,
   path::{Path, PathBuf},

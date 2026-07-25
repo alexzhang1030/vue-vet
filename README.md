@@ -88,18 +88,23 @@ and security details.
 ```text
 vue-vet CLI          discovery, configuration, orchestration, exit policy
       |
-vue-vet-vize/oxc     Vize SFC/template facts + Oxc script facts
+vue_vet_vize/oxc     Vize SFC/template facts + Oxc script facts
       |
-vue-vet-reactivity  local and cross-module reactive dependency graphs
+vue_vet_reactivity  local and cross-module reactive dependency graphs
       |
-vue-vet-project      deterministic Vue/Nuxt graph and cross-file findings
+vue_vet_project      deterministic Vue/Nuxt graph and cross-file findings
       |
-vue-vet-rules        deterministic high-confidence rule registry
+vue_vet_rules        deterministic high-confidence rule registry
       |
-vue-vet-core         diagnostics, spans, scoring, edits, stable public model
+vue_vet_core         diagnostics, spans, scoring, edits, stable public model
       |
-vue-vet-reporters    deterministic text, JSON, SARIF, and GitHub rendering
+vue_vet_reporters    deterministic text, JSON, SARIF, and GitHub rendering
 ```
+
+`vue_vet_core` and `vue_vet_reactivity` are the first crates prepared for
+crates.io (name reservation + library consumers). See
+[vue_vet_reactivity](crates/vue_vet_reactivity/README.md).
+
 
 Vize is the semantic source of truth for Vue SFCs and templates. Oxc owns
 JavaScript and TypeScript semantics. Vue Vet keeps one semantic analysis stack

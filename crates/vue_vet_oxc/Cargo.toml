@@ -1,5 +1,6 @@
 [package]
-name = "vue-vet-oxc"
+publish = false
+name = "vue_vet_oxc"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -22,6 +23,6 @@ oxc_semantic.workspace = true
 oxc_span.workspace = true
 oxc_syntax.workspace = true
 thiserror.workspace = true
-vue-vet-core = { path = "../vue-vet-core" }
-vue-vet-reactivity = { path = "../vue-vet-reactivity" }
+vue_vet_core = { path = "../vue_vet_core" }
+vue_vet_reactivity = { path = "../vue_vet_reactivity" }
 

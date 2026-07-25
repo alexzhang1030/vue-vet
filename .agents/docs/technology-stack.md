@@ -18,7 +18,7 @@ The first adapter is pinned to the Oxc 0.127 family already present in Vize's
 locked dependency graph. It parses each extracted script surface using its
 declared `lang`, builds semantics with syntax checking, and maps every fact span
 back through the SFC block offset. Direct Oxc types remain private to
-`vue-vet-oxc`.
+`vue_vet_oxc`.
 
 ## Vize and Oxc are the complete analysis stack
 

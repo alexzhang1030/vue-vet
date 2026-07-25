@@ -43,13 +43,13 @@ vue-vet CLI
 Current and planned crate boundaries:
 
 ```text
-vue-vet-core       stable diagnostics, spans, scoring, rule contracts
-vue-vet-vize       Vize adapter and Vue semantic facts
-vue-vet-oxc        JS/TS semantic facts and import resolution
-vue-vet-reactivity local effect tracing and cross-module summaries/linking
-vue-vet-rules      built-in rules and presets
-vue-vet-project    project graph, cache, baseline, diff
-vue-vet-reporters  text, JSON, SARIF, GitHub annotations
+vue_vet_core       stable diagnostics, spans, scoring, rule contracts
+vue_vet_vize       Vize adapter and Vue semantic facts
+vue_vet_oxc        JS/TS semantic facts and import resolution
+vue_vet_reactivity local effect tracing and cross-module summaries/linking
+vue_vet_rules      built-in rules and presets
+vue_vet_project    project graph, cache, baseline, diff
+vue_vet_reporters  text, JSON, SARIF, GitHub annotations
 vue-vet            CLI binary
 ```
 
@@ -181,7 +181,7 @@ Status: implementation in progress
 
 Implemented in the reporter/edit foundation slice:
 
-- dedicated `vue-vet-reporters` boundary exercised by unchanged text and JSON output
+- dedicated `vue_vet_reporters` boundary exercised by unchanged text and JSON output
 - serializable byte-range edits with explicit safe/unsafe applicability and rule provenance
 - deterministic edit planning that rejects range overflow, overlap, and order-dependent insertions
 - SARIF 2.1.0 and escaped GitHub Actions annotations

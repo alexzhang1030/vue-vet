@@ -7,13 +7,13 @@ vue-vet CLI
   -> versioned configuration and path filters
   -> ignore-aware .vue / JS / TS discovery (sequential walk)
   -> parallel per-file facts (Vize SFC / Oxc modules)   // oxlint-style
-  -> vue-vet-project edges + vue-vet-reactivity module seed linking
+  -> vue_vet_project edges + vue_vet_reactivity module seed linking
        (module first-pass + seeded re-trace also parallel)
   -> apply module graphs onto setup and dual ordinary (#script) blocks
-  -> parallel seed-aware vue-vet-rules
+  -> parallel seed-aware vue_vet_rules
   -> severity overrides and scoped suppressions
-  -> vue-vet-core diagnostics, spans, scoring (sorted for determinism)
-  -> vue-vet-reporters text or JSON rendering
+  -> vue_vet_core diagnostics, spans, scoring (sorted for determinism)
+  -> vue_vet_reporters text or JSON rendering
   -> CLI output and CI exit policy
 ```
 
@@ -43,13 +43,13 @@ vue-vet CLI
 
 `no-v-html` remains the reference AST-backed built-in rule. Phase 2 adds the Oxc
 adapter while keeping both dependency ASTs behind Vue Vet-owned facts.
-Every built-in rule is a self-contained module under `vue-vet-rules/src/rules`:
+Every built-in rule is a self-contained module under `vue_vet_rules/src/rules`:
 the module owns its metadata, rule type, and detection/reporting logic. The
 parent module only declares modules and assembles the built-in registry; it does
 not dispatch rule behavior through a shared enum or central match.
 The CLI derives per-file Vue capabilities from the nearest package.json and passes
 them into per-file rules without exposing package-manager state to parser adapters.
-The Oxc adapter delegates reactivity construction to `vue-vet-reactivity`.
+The Oxc adapter delegates reactivity construction to `vue_vet_reactivity`.
 That crate is the static reactivity tracing library: it records Vue-resolved
 bindings and **tracking scopes** (`watchEffect*`, `computed`, `watch` sources)
 as serializable Vue Vet facts. Each scope carries demand reads with property,
@@ -84,15 +84,26 @@ project discovery and configuration
 
 ## Crate evolution
 
-Existing crates are `vue-vet-core`, `vue-vet-config`, `vue-vet-vize`,
-`vue-vet-oxc`, `vue-vet-reactivity`, `vue-vet-rules`, `vue-vet-project`,
-`vue-vet-reporters`, and the `vue-vet` CLI. New rule capabilities extend these
+Existing crates are `vue_vet_core`, `vue_vet_config`, `vue_vet_vize`,
+`vue_vet_oxc`, `vue_vet_reactivity`, `vue_vet_rules`, `vue_vet_project`,
+`vue_vet_reporters`, and the `vue-vet` CLI. New rule capabilities extend these
 semantic and product boundaries only when a working vertical slice exercises
 them; there is no separate pattern-engine boundary in the roadmap.
 
+### Published library crates
+
+`vue_vet_core` and `vue_vet_reactivity` are the first crates intended for
+crates.io. Goals: reserve the names, expose the stable fact / tracer contracts
+to external consumers, and keep the rest of the workspace (`publish = false`)
+until the CLI and adapters have a deliberate release story. Published packages
+omit in-tree fixtures and the runtime oracle; those remain git-only evidence.
+Path dependencies between publishable crates carry an explicit `version` so
+`cargo publish` can resolve them from the registry. Crate directories and package
+names use snake_case (see [conventions](./conventions.md)).
+
 ## Reporting and edit planning
 
-`vue-vet-reporters` consumes Vue Vet-owned `ScanSummary` values plus an explicit
+`vue_vet_reporters` consumes Vue Vet-owned `ScanSummary` values plus an explicit
 report context for scan mode, framework, exact analyzed files, completeness, and
 skipped-check reasons. It owns deterministic text and versioned JSON rendering,
 while the CLI retains stdout, operational-error messages, and exit policy.
@@ -107,7 +118,7 @@ analyzed-file coverage rather than treating an empty findings array as proof of
 a clean scan. A future bounded agent handoff may summarize and group this data,
 but it must reference the complete report instead of replacing it.
 
-The shared edit contract lives in `vue-vet-core`, not in a parser, rule engine,
+The shared edit contract lives in `vue_vet_core`, not in a parser, rule engine,
 or reporter. A text edit carries a repository path, checked byte range,
 replacement, safe/unsafe applicability, and originating rule ID. `EditPlan`
 normalizes ordering and rejects range overflow, overlapping replacements, and
@@ -133,12 +144,12 @@ Rule IDs and diagnostic fingerprints must remain stable enough for baselines, di
 
 Cross-file findings are derived from a Vue Vet-owned graph of imports, components, composables, routes, stores, and Nuxt conventions. Diff mode must invalidate and re-run affected graph consumers; it cannot scan only changed files and silently lose a newly caused project-level failure.
 
-The first graph layer is `vue-vet-project`. It consumes serializable `SfcFacts`,
+The first graph layer is `vue_vet_project`. It consumes serializable `SfcFacts`,
 uses repository-relative file IDs, stores source evidence on every edge, and
 publishes its exact file inputs for cache invalidation. Its convention version
 changes whenever Nuxt directory or naming behavior changes. The project graph
 also supplies resolved module edges (standalone JS/TS **and** preferred SFC
-script blocks) to `vue-vet-reactivity` and publishes the resulting per-module
+script blocks) to `vue_vet_reactivity` and publishes the resulting per-module
 graphs. Extracted `.vue` scripts use Vize block offsets plus the original SFC
 as `span_source` so absolute spans stay exact; template joins are re-applied on
 the module graph after cross-file seed linking.

@@ -1,0 +1,23 @@
+[package]
+name = "vue_vet_core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+description = "Core diagnostics, spans, edits, and reactivity fact contracts for Vue Vet"
+documentation = "https://docs.rs/vue_vet_core"
+homepage = "https://github.com/alexzhang1030/vue-vet"
+keywords = ["vue", "nuxt", "lint", "static-analysis", "diagnostics"]
+categories = ["development-tools"]
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

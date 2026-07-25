@@ -1,5 +1,6 @@
 [package]
-name = "vue-vet-vize"
+publish = false
+name = "vue_vet_vize"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -17,15 +18,15 @@ workspace = true
 thiserror.workspace = true
 vize_atelier_core.workspace = true
 vize_atelier_sfc.workspace = true
-vue-vet-core = { path = "../vue-vet-core" }
-vue-vet-oxc = { path = "../vue-vet-oxc" }
-vue-vet-reactivity = { path = "../vue-vet-reactivity" }
-vue-vet-rules = { path = "../vue-vet-rules" }
+vue_vet_core = { path = "../vue_vet_core" }
+vue_vet_oxc = { path = "../vue_vet_oxc" }
+vue_vet_reactivity = { path = "../vue_vet_reactivity" }
+vue_vet_rules = { path = "../vue_vet_rules" }
 
 [dev-dependencies]
 divan.workspace = true
 serde_json.workspace = true
-vue-vet-project = { path = "../vue-vet-project" }
+vue_vet_project = { path = "../vue_vet_project" }
 
 [[bench]]
 name = "analyze_sfc"
