@@ -1,3 +1,4 @@
+mod conventions;
 mod resolve;
 
 use std::{
@@ -11,9 +12,12 @@ use vue_vet_reactivity::{ModuleLink, ModuleReactivity, ModuleSource, trace_modul
 
 pub use resolve::{OXC_RESOLVER_VERSION, resolver_config_inputs};
 
+use conventions::{
+  convention_component_name, load_nuxt_component_dts_names, strip_lazy_component_prefix,
+};
 use resolve::{ProjectResolver, Resolution, normalized_path};
 
-pub const CONVENTIONS_VERSION: u32 = 2;
+pub const CONVENTIONS_VERSION: u32 = 3;
 pub const PROJECT_RULE_IDS: [&str; 2] =
   ["vue-vet/project/unresolved-import", "vue-vet/project/unused-component"];
 
@@ -91,11 +95,28 @@ pub fn build_project_graph(root: &Path, files: &[ProjectFile]) -> ProjectGraph {
   let mut nodes = ordered.iter().map(|file| file_node(file)).collect::<Vec<_>>();
   let node_by_path =
     nodes.iter().map(|node| (node.path.clone(), node.id.clone())).collect::<BTreeMap<_, _>>();
-  let component_by_name = nodes
-    .iter()
-    .filter(|node| node.kind == NodeKind::Component)
-    .map(|node| (comparable_name(&node.name), node.id.clone()))
-    .collect::<BTreeMap<_, _>>();
+  let dts_names = load_nuxt_component_dts_names(root, &known);
+  for node in &mut nodes {
+    if node.kind != NodeKind::Component {
+      continue;
+    }
+    if let Some(name) = dts_names
+      .iter()
+      .find_map(|(name, path)| (path == &node.path).then_some(name.clone()))
+      .or_else(|| convention_component_name(&node.path))
+    {
+      node.name = name;
+    }
+  }
+  let mut component_by_name: BTreeMap<String, Vec<String>> = BTreeMap::new();
+  for node in nodes.iter().filter(|node| node.kind == NodeKind::Component) {
+    insert_component_name(&mut component_by_name, &node.name, &node.id);
+  }
+  for (name, path) in &dts_names {
+    if let Some(id) = node_by_path.get(path) {
+      insert_component_name(&mut component_by_name, name, id);
+    }
+  }
   let composable_by_name = nodes
     .iter()
     .filter(|node| node.kind == NodeKind::Composable)
@@ -173,8 +194,10 @@ pub fn build_project_graph(root: &Path, files: &[ProjectFile]) -> ProjectGraph {
         {
           edges.push(edge(&from, to, EdgeKind::ComponentUsage, &element.tag, element.span.clone()));
         }
-      } else if let Some(to) = component_by_name.get(&tag) {
-        edges.push(edge(&from, to, EdgeKind::AutoComponent, &element.tag, element.span.clone()));
+      } else {
+        for to in auto_component_targets(&element.tag, &component_by_name) {
+          edges.push(edge(&from, &to, EdgeKind::AutoComponent, &element.tag, element.span.clone()));
+        }
       }
     }
 
@@ -235,7 +258,35 @@ fn all_imports(script: &ScriptFacts) -> Vec<&vue_vet_core::ScriptImportFact> {
 
 fn file_node(file: &ProjectFile) -> GraphNode {
   let path = normalized_path(&file.path);
-  GraphNode { id: file_id(&path), kind: node_kind(&path), name: file_stem(&path), path }
+  let kind = node_kind(&path);
+  let name = if kind == NodeKind::Component {
+    convention_component_name(&path).unwrap_or_else(|| file_stem(&path))
+  } else {
+    file_stem(&path)
+  };
+  GraphNode { id: file_id(&path), kind, name, path }
+}
+
+fn insert_component_name(map: &mut BTreeMap<String, Vec<String>>, name: &str, id: &str) {
+  let key = comparable_name(name);
+  let entry = map.entry(key).or_default();
+  if !entry.iter().any(|existing| existing == id) {
+    entry.push(id.to_owned());
+  }
+}
+
+fn auto_component_targets(tag: &str, map: &BTreeMap<String, Vec<String>>) -> Vec<String> {
+  let mut targets = map.get(&comparable_name(tag)).cloned().unwrap_or_default();
+  if let Some(base) = strip_lazy_component_prefix(tag)
+    && let Some(more) = map.get(&comparable_name(base))
+  {
+    for id in more {
+      if !targets.iter().any(|existing| existing == id) {
+        targets.push(id.clone());
+      }
+    }
+  }
+  targets
 }
 
 fn node_kind(path: &str) -> NodeKind {
@@ -514,6 +565,103 @@ mod tests {
       .map(|diagnostic| diagnostic.rule_id.as_str())
       .collect::<BTreeSet<_>>();
     assert_eq!(ids, PROJECT_RULE_IDS.into_iter().collect());
+  }
+
+  #[test]
+  fn client_suffix_and_lazy_prefix_resolve_auto_imports() {
+    let project = TempProject::new("client-lazy");
+    let page = file("pages/index.vue", &[], &["HeroDemo", "LazyPlaygroundDemo"], &[]);
+    let hero = file("components/HeroDemo.client.vue", &[], &[], &[]);
+    let playground = file("components/PlaygroundDemo.client.vue", &[], &[], &[]);
+    materialize(&project, &[page.clone(), hero.clone(), playground.clone()]);
+    let graph = build_project_graph(project.root(), &[page, hero, playground]);
+    assert!(
+      graph.edges.iter().filter(|edge| edge.kind == EdgeKind::AutoComponent).count() >= 2,
+      "`.client` components must match Nuxt tags / Lazy* tags: {:?}",
+      graph.edges
+    );
+    assert!(
+      graph.diagnostics.iter().all(|diagnostic| diagnostic.rule_id != PROJECT_RULE_IDS[1]),
+      "referenced `.client` components must not be unused: {:?}",
+      graph.diagnostics
+    );
+    assert!(
+      graph
+        .nodes
+        .iter()
+        .any(|node| node.path.ends_with("HeroDemo.client.vue") && node.name == "HeroDemo"),
+      "graph node names must use the Nuxt auto-import name"
+    );
+  }
+
+  #[test]
+  fn nested_index_and_paired_client_server_components() {
+    let project = TempProject::new("nested-paired");
+    let page = file("pages/index.vue", &[], &["BaseButton", "Ui", "Comments"], &[]);
+    let button = file("components/base/Button.vue", &[], &[], &[]);
+    let ui = file("components/ui/index.vue", &[], &[], &[]);
+    let client = file("components/Comments.client.vue", &[], &[], &[]);
+    let server = file("components/Comments.server.vue", &[], &[], &[]);
+    materialize(
+      &project,
+      &[page.clone(), button.clone(), ui.clone(), client.clone(), server.clone()],
+    );
+    let graph = build_project_graph(project.root(), &[page, button, ui, client, server]);
+    let auto_targets = graph
+      .edges
+      .iter()
+      .filter(|edge| edge.kind == EdgeKind::AutoComponent)
+      .map(|edge| edge.to.as_str())
+      .collect::<BTreeSet<_>>();
+    assert!(
+      auto_targets.contains("file:components/base/Button.vue"),
+      "path-prefixed nested components must auto-import: {:?}",
+      graph.edges
+    );
+    assert!(
+      auto_targets.contains("file:components/ui/index.vue"),
+      "components/*/index.vue must resolve to the folder name: {:?}",
+      graph.edges
+    );
+    assert!(
+      auto_targets.contains("file:components/Comments.client.vue")
+        && auto_targets.contains("file:components/Comments.server.vue"),
+      "paired .client/.server components must both count as referenced: {:?}",
+      graph.edges
+    );
+    assert!(
+      graph.diagnostics.iter().all(|diagnostic| diagnostic.rule_id != PROJECT_RULE_IDS[1]),
+      "nested and paired components must not be unused: {:?}",
+      graph.diagnostics
+    );
+  }
+
+  #[test]
+  fn nuxt_components_dts_overrides_path_prefix_false_names() {
+    let project = TempProject::new("dts-override");
+    project.write(
+      ".nuxt/components.d.ts",
+      r#"export const Button: typeof import("../components/base/Button.vue")['default']
+export const LazyButton: LazyComponent<typeof import("../components/base/Button.vue")['default']>
+"#,
+    );
+    let page = file("pages/index.vue", &[], &["Button"], &[]);
+    let button = file("components/base/Button.vue", &[], &[], &[]);
+    materialize(&project, &[page.clone(), button.clone()]);
+    let graph = build_project_graph(project.root(), &[page, button]);
+    assert!(
+      graph
+        .edges
+        .iter()
+        .any(|edge| { edge.kind == EdgeKind::AutoComponent && edge.specifier == "Button" }),
+      ".nuxt component dts must supply pathPrefix:false names: {:?}",
+      graph.edges
+    );
+    assert!(
+      graph.invalidation_inputs.iter().any(|input| input == ".nuxt/components.d.ts"),
+      "component dts must join invalidation inputs: {:?}",
+      graph.invalidation_inputs
+    );
   }
 
   #[test]

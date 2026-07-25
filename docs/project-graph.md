@@ -38,12 +38,26 @@ are part of the graph invalidation set and the content-addressed cache key.
 Convention recognition covers files under `components`, `composables`,
 `pages`, `layouts`, `plugins`, `middleware`, and `stores`. Component tags and
 composable calls create auto-import edges. Explicit imports shadow convention
-matches. `CONVENTIONS_VERSION` (currently 2) invalidates cached graphs when
+matches. `CONVENTIONS_VERSION` (currently 3) invalidates cached graphs when
 convention or resolver semantics change.
+
+Component auto-import names follow Nuxt defaults without executing
+`nuxt.config`:
+
+- Strip `.client` / `.server` / `.global` / `.island` from the file stem
+- Prefix nested directories (`components/base/Button.vue` → `BaseButton`)
+- Treat `index.vue` as the parent folder name (`components/ui/index.vue` → `Ui`)
+- Match template tags with an optional `Lazy` prefix (`LazyHeroDemo` → `HeroDemo`)
+- Pair `.client` / `.server` halves under one PascalCase name
+
+When `.nuxt/components.d.ts` or `.nuxt/types/components.d.ts` exists, those
+generated name→path maps enrich (and can override) the convention names so
+`pathPrefix: false` and custom `components` dirs stay accurate. Those dts files
+are part of the graph invalidation set.
 
 ## Initial cross-file rules
 
 - `vue-vet/project/unresolved-import` reports imports that fail bundler
   resolution at the import span.
 - `vue-vet/project/unused-component` reports files under a component directory
-  that have no import or template usage edge.
+  that have no import or template usage edge (after Nuxt auto-import naming).

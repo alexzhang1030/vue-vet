@@ -154,6 +154,8 @@ pub fn resolver_config_inputs(root: &Path) -> Vec<String> {
     "tsconfig.app.json",
     "tsconfig.node.json",
     ".nuxt/tsconfig.json",
+    ".nuxt/components.d.ts",
+    ".nuxt/types/components.d.ts",
   ];
   let mut inputs = Vec::new();
   for candidate in CANDIDATES {
