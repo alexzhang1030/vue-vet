@@ -205,7 +205,8 @@ jobs:
         if: needs.version.outputs.dry_run != 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --provenance npm/vue-vet
+        # Path must be ./… — bare `npm/vue-vet` is parsed as git host github.com/npm/vue-vet.
+        run: npm publish --access public --provenance ./npm/vue-vet
 
       - name: Dry-run summary
         if: needs.version.outputs.dry_run == 'true'
