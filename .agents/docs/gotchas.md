@@ -31,6 +31,15 @@ separators before matching, severity overrides run before exit-policy scoring,
 and suppressions run after diagnostics exist so unused directives can be
 reported. Future cache keys must include the serialized effective configuration.
 
+## Package directories can look like source files
+
+npm/pnpm install trees often contain directories (or directory symlinks) named
+like packages with a `.js` suffix, for example `node_modules/pixi.js`.
+`Path::extension` reports `js`, and `DirEntry::file_type` may describe a
+symlink rather than a directory, so naive walks try to `fs::read` them and
+fail with EISDIR. Project walks must skip `node_modules` entirely and only
+accept paths where `Path::is_file()` is true after symlink resolution.
+
 ## Safe fixes need complete source coverage
 
 A diagnostic span is not automatically a safe replacement span. For example,
