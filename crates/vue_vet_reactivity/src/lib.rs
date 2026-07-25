@@ -335,7 +335,8 @@ fn effect_scope_instance_locals(
     let AstKind::CallExpression(call) = node.kind() else {
       continue;
     };
-    let Some(callee) = resolved_vue_callee(&call.callee, imported_bindings, ScriptKind::Script)
+    let Some(callee) =
+      resolved_vue_callee(semantic, &call.callee, imported_bindings, ScriptKind::Script)
     else {
       continue;
     };
@@ -350,6 +351,7 @@ fn effect_scope_instance_locals(
 }
 
 fn resolved_vue_callee(
+  semantic: &Semantic<'_>,
   callee: &Expression<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
   kind: ScriptKind,
@@ -362,9 +364,18 @@ fn resolved_vue_callee(
     {
       return Some(local.into());
     }
-    return imported_bindings.get(local).and_then(|(source, imported)| {
-      known_reactivity_export(source, imported).then(|| imported.clone())
-    });
+    if let Some((source, imported)) = imported_bindings.get(local) {
+      return known_reactivity_export(source, imported).then(|| imported.clone());
+    }
+    // Nuxt / unplugin-auto-import: bare `ref()` / `watchEffect()` with no local binding.
+    // Compiler macros stay setup-only (handled above); do not invent them in ordinary scripts.
+    if !matches!(local, "defineModel" | "defineProps" | "withDefaults")
+      && known_reactivity_export("vue", local)
+      && identifier_reference_is_unresolved(semantic, identifier)
+    {
+      return Some(local.into());
+    }
+    return None;
   }
 
   let (namespace, property) = match callee {
@@ -384,6 +395,16 @@ fn resolved_vue_callee(
       None
     }
   })
+}
+
+fn identifier_reference_is_unresolved(
+  semantic: &Semantic<'_>,
+  identifier: &IdentifierReference<'_>,
+) -> bool {
+  let Some(reference_id) = identifier.reference_id.get() else {
+    return false;
+  };
+  semantic.scoping().get_reference(reference_id).symbol_id().is_none()
 }
 
 /// Packages/exports the tracer treats as reactivity APIs (under-approx allowlist).
@@ -493,7 +514,7 @@ pub(crate) fn collect_provide_sites(
     let AstKind::CallExpression(call) = node.kind() else {
       continue;
     };
-    if !is_provide_call(&call.callee, imported_bindings, script_kind) {
+    if !is_provide_call(semantic, &call.callee, imported_bindings, script_kind) {
       continue;
     }
     let Some(key_expr) = call.arguments.first().and_then(Argument::as_expression) else {
@@ -533,7 +554,8 @@ pub(crate) fn collect_inject_sites(
     let AstKind::CallExpression(call) = node.kind() else {
       continue;
     };
-    let Some(callee) = resolved_vue_callee(&call.callee, imported_bindings, script_kind) else {
+    let Some(callee) = resolved_vue_callee(semantic, &call.callee, imported_bindings, script_kind)
+    else {
       continue;
     };
     if callee != "inject" {
@@ -648,11 +670,14 @@ pub(crate) fn resolve_inject_offer(
 }
 
 fn is_provide_call(
+  semantic: &Semantic<'_>,
   callee: &Expression<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
   script_kind: ScriptKind,
 ) -> bool {
-  if resolved_vue_callee(callee, imported_bindings, script_kind).as_deref() == Some("provide") {
+  if resolved_vue_callee(semantic, callee, imported_bindings, script_kind).as_deref()
+    == Some("provide")
+  {
     return true;
   }
   match callee {
@@ -725,7 +750,8 @@ fn expression_provide_offer(
     {
       return ProvideOffer { kind: None, instance_shape: Some(shape.clone()) };
     }
-    if let Some(callee) = resolved_vue_callee(&call.callee, imported_bindings, script_kind)
+    if let Some(callee) =
+      resolved_vue_callee(semantic, &call.callee, imported_bindings, script_kind)
       && let Some(kind) = reactive_binding_kind(&callee)
     {
       return ProvideOffer { kind: Some(kind), instance_shape: None };
@@ -777,7 +803,8 @@ fn collect_reactive_bindings(
     let AstKind::CallExpression(call) = node.kind() else {
       continue;
     };
-    let Some(callee) = resolved_vue_callee(&call.callee, imported_bindings, script_kind) else {
+    let Some(callee) = resolved_vue_callee(semantic, &call.callee, imported_bindings, script_kind)
+    else {
       continue;
     };
     // `const props = withDefaults(defineProps(...), defaults)` — binding is the
@@ -790,7 +817,7 @@ fn collect_reactive_bindings(
         continue;
       };
       let Some(inner_callee) =
-        resolved_vue_callee(&inner_call.callee, imported_bindings, script_kind)
+        resolved_vue_callee(semantic, &inner_call.callee, imported_bindings, script_kind)
       else {
         continue;
       };
@@ -1022,7 +1049,8 @@ fn is_to_value_getter_callback(
     if !is_first_argument {
       continue;
     }
-    return resolved_vue_callee(&call.callee, imported_bindings, ScriptKind::Setup).as_deref()
+    return resolved_vue_callee(semantic, &call.callee, imported_bindings, ScriptKind::Setup)
+      .as_deref()
       == Some("toValue");
   }
   false
@@ -1170,7 +1198,7 @@ fn collect_scope_reads(
       // member reads stay in the parent tracking scope.
       if let AstKind::CallExpression(call) = member_node.kind()
         && let Some(callee) =
-          resolved_vue_callee(&call.callee, imported_bindings, ScriptKind::Setup)
+          resolved_vue_callee(semantic, &call.callee, imported_bindings, ScriptKind::Setup)
         && matches!(callee.as_str(), "unref" | "toValue")
         && let Some(argument) = call.arguments.first().and_then(Argument::as_expression)
         && let Some(identifier) = argument.get_identifier_reference()
@@ -1397,18 +1425,20 @@ fn is_after_top_level_await(
 }
 
 fn is_pause_tracking_call(
+  semantic: &Semantic<'_>,
   call: &oxc_ast::ast::CallExpression<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
 ) -> bool {
-  resolved_vue_callee(&call.callee, imported_bindings, ScriptKind::Script)
+  resolved_vue_callee(semantic, &call.callee, imported_bindings, ScriptKind::Script)
     .is_some_and(|callee| matches!(callee.as_str(), "pauseTracking"))
 }
 
 fn is_resume_tracking_call(
+  semantic: &Semantic<'_>,
   call: &oxc_ast::ast::CallExpression<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
 ) -> bool {
-  resolved_vue_callee(&call.callee, imported_bindings, ScriptKind::Script)
+  resolved_vue_callee(semantic, &call.callee, imported_bindings, ScriptKind::Script)
     .is_some_and(|callee| matches!(callee.as_str(), "enableTracking" | "resetTracking"))
 }
 
@@ -1442,9 +1472,9 @@ fn is_after_pause_tracking(
     if !owned {
       continue;
     }
-    if is_pause_tracking_call(call, imported_bindings) {
+    if is_pause_tracking_call(semantic, call, imported_bindings) {
       events.push((call.span.end, true));
-    } else if is_resume_tracking_call(call, imported_bindings) {
+    } else if is_resume_tracking_call(semantic, call, imported_bindings) {
       events.push((call.span.end, false));
     }
   }
@@ -1744,7 +1774,8 @@ fn collect_tracking_scopes(
       continue;
     }
 
-    let Some(callee) = resolved_vue_callee(&call.callee, imported_bindings, ScriptKind::Script)
+    let Some(callee) =
+      resolved_vue_callee(semantic, &call.callee, imported_bindings, ScriptKind::Script)
     else {
       continue;
     };

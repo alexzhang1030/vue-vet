@@ -583,7 +583,7 @@ fn merge_return_object_into_shape(
   };
   // `return toRefs(param)` — every static key is ToRef when the argument is a parameter.
   if let Expression::CallExpression(call) = expression
-    && resolved_vue_callee(&call.callee, imported_bindings, ScriptKind::Script)
+    && resolved_vue_callee(semantic, &call.callee, imported_bindings, ScriptKind::Script)
       .is_some_and(|callee| callee == "toRefs")
     && call
       .arguments
@@ -678,7 +678,7 @@ fn reactive_return_kind(
   let Expression::CallExpression(call) = expression else {
     return None;
   };
-  let callee = resolved_vue_callee(&call.callee, imported_bindings, ScriptKind::Script)?;
+  let callee = resolved_vue_callee(semantic, &call.callee, imported_bindings, ScriptKind::Script)?;
   if matches!(callee.as_str(), "toRef" | "toRefs") {
     // Parametric when first argument is a function parameter.
     if call
