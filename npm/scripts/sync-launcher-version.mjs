@@ -22,4 +22,4 @@ const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 pkg.version = version;
 pkg.optionalDependencies = optionalDependencies(version);
 fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
-console.log(`synced vue-vet@${version}`);
+console.log(`synced @vue-vet/cli@${version}`);

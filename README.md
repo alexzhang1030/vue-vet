@@ -24,7 +24,7 @@ The project is an early local-doctor implementation. Today it:
 ## Install
 
 ```bash
-npm install -D vue-vet
+npm install -D @vue-vet/cli
 npx vue-vet .
 ```
 

@@ -7,10 +7,10 @@ never runs in JavaScript.
 ## npm / pnpm / yarn / bun
 
 ```bash
-npm install -D vue-vet
-# pnpm add -D vue-vet
-# yarn add -D vue-vet
-# bun add -d vue-vet
+npm install -D @vue-vet/cli
+# pnpm add -D @vue-vet/cli
+# yarn add -D @vue-vet/cli
+# bun add -d @vue-vet/cli
 ```
 
 ```bash
@@ -18,10 +18,10 @@ npx vue-vet .
 pnpm exec vue-vet .
 ```
 
-The `vue-vet` package declares `@vue-vet/{os}-{arch}` packages as
+The `@vue-vet/cli` package declares `@vue-vet/{os}-{arch}` packages as
 `optionalDependencies`. Your package manager installs only the host platform
 package. The launcher resolves that package and forwards argv, stdio, signals,
-and exit codes.
+and exit codes. The CLI binary name remains `vue-vet`.
 
 ### Supported platforms (initial matrix)
 
@@ -97,14 +97,16 @@ Do not publish mismatched versions across these surfaces.
 2. Bump workspace + npm versions together when cutting a release.
 3. Push tag `vX.Y.Z` (or run the Release workflow via `workflow_dispatch`).
 4. The workflow builds every matrix target, writes `SHA256SUMS`, creates the
-   GitHub Release, publishes `@vue-vet/*`, then publishes `vue-vet`.
-5. Smoke-install with `npx vue-vet@X.Y.Z --version` on at least one Linux,
-   macOS, and Windows host.
+   GitHub Release, publishes `@vue-vet/*` platform packages, then publishes
+   `@vue-vet/cli`.
+5. Smoke-install with `npx --package=@vue-vet/cli@X.Y.Z vue-vet --version` on
+   at least one Linux, macOS, and Windows host.
 
-**Rollback:** yank a bad npm version with `npm unpublish vue-vet@X.Y.Z` only
-within the npm unpublish window; otherwise publish a fixed `X.Y.Z+1` and mark
-the GitHub Release as deprecated in the release notes. Prefer forward fixes over
-deleting artifacts consumers may have cached.
+**Rollback:** yank a bad npm version with
+`npm unpublish @vue-vet/cli@X.Y.Z` only within the npm unpublish window;
+otherwise publish a fixed `X.Y.Z+1` and mark the GitHub Release as deprecated
+in the release notes. Prefer forward fixes over deleting artifacts consumers
+may have cached.
 
 **Failed mid-publish:** platform packages may exist without the launcher (or
 the reverse). Re-run the Release workflow after fixing the failure; npm rejects
@@ -115,9 +117,11 @@ already succeeded.
 
 1. Create the npm organization [`@vue-vet`](https://www.npmjs.com/org/create)
    (CLI cannot create orgs).
-2. Log in with a granular access token that can publish `vue-vet` and
-   `@vue-vet/*` (`npm login`), or set `NPM_TOKEN` in the environment.
-3. Add repository secret `NPM_TOKEN` for the Release workflow.
+2. Log in with a granular access token that can publish `@vue-vet/*`
+   (`npm login`), or set `NPM_TOKEN` in the environment. Prefer npm Trusted
+   Publishing (OIDC) over long-lived write tokens for CI.
+3. Add repository secret `NPM_TOKEN` for the Release workflow (until Trusted
+   Publishing is configured for every package).
 4. Local host-only claim (optional before the full matrix release):
 
    ```bash
@@ -132,4 +136,6 @@ already succeeded.
 GitHub Releases use `GITHUB_TOKEN`. npm provenance uses OIDC (`id-token: write`).
 
 **Note:** publish paths must be absolute or start with `./`. Passing `npm/vue-vet`
-to `npm publish` is treated as the git host `github.com/npm/vue-vet`.
+to `npm publish` is treated as the git host `github.com/npm/vue-vet`. The
+launcher package name is `@vue-vet/cli` (not unscoped `vue-vet`) so it stays
+inside the `@vue-vet` org permission boundary.

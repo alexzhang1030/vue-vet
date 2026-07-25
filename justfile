@@ -166,8 +166,8 @@ npm-smoke:
     npm init -y >/dev/null
     npm install --omit=optional "$OLDPWD/dist/npm/@vue-vet/${pkg}"
     npm install --omit=optional "$OLDPWD/npm/vue-vet"
-    npx vue-vet --version
-    npx vue-vet "$OLDPWD/fixtures/projects/basic"
+    npx --package=@vue-vet/cli vue-vet --version
+    npx --package=@vue-vet/cli vue-vet "$OLDPWD/fixtures/projects/basic"
   )
 
 # Publish host platform package + launcher (requires valid npm auth + @vue-vet org).
