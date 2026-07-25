@@ -1,0 +1,2370 @@
+{
+  "seeds": {
+    "4f22bfee57a540216334d15f87e739b5cea191ae": {
+      "paperId": "4f22bfee57a540216334d15f87e739b5cea191ae",
+      "externalIds": {
+        "MAG": "1986923831",
+        "DBLP": "conf/debs/MargaraS14",
+        "DOI": "10.1145/2611286.2611290",
+        "CorpusId": 15799598
+      },
+      "title": "We have a DREAM: distributed reactive programming with consistency guarantees",
+      "venue": "Distributed Event-Based Systems",
+      "year": 2014,
+      "citationCount": 45,
+      "openAccessPdf": {
+        "url": "",
+        "status": "CLOSED",
+        "license": null,
+        "disclaimer": "Notice: The following paper fields have been elided by the publisher: {'abstract'}. Paper or abstract available at https://api.unpaywall.org/v2/10.1145/2611286.2611290?email=<INSERT_YOUR_EMAIL> or https://doi.org/10.1145/2611286.2611290, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2866882",
+          "name": "Alessandro Margara"
+        },
+        {
+          "authorId": "3095489",
+          "name": "G. Salvaneschi"
+        }
+      ],
+      "abstract": null
+    },
+    "ac8c20585827b608f8eccfa1cb2824554d78280a": {
+      "paperId": "ac8c20585827b608f8eccfa1cb2824554d78280a",
+      "externalIds": {
+        "MAG": "2539212037",
+        "DBLP": "conf/oopsla/MyterCSM16",
+        "DOI": "10.1145/3001929.3001930",
+        "CorpusId": 13816447
+      },
+      "title": "I now pronounce you reactive and consistent: handling distributed and replicated state in reactive programming",
+      "venue": "REBLS@SPLASH",
+      "year": 2016,
+      "citationCount": 9,
+      "openAccessPdf": {
+        "url": "",
+        "status": "CLOSED",
+        "license": null,
+        "disclaimer": "Notice: The following paper fields have been elided by the publisher: {'abstract'}. Paper or abstract available at https://api.unpaywall.org/v2/10.1145/3001929.3001930?email=<INSERT_YOUR_EMAIL> or https://doi.org/10.1145/3001929.3001930, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "8514579",
+          "name": "Florian Myter"
+        },
+        {
+          "authorId": "2435862",
+          "name": "Tim Coppieters"
+        },
+        {
+          "authorId": "2293984",
+          "name": "Christophe Scholliers"
+        },
+        {
+          "authorId": "1685727",
+          "name": "W. Meuter"
+        }
+      ],
+      "abstract": null
+    },
+    "92aa18eff6121c25db239c83e0eb9ecff0d6f662": {
+      "paperId": "92aa18eff6121c25db239c83e0eb9ecff0d6f662",
+      "externalIds": {
+        "DBLP": "journals/corr/abs-2503-18175",
+        "ArXiv": "2503.18175",
+        "DOI": "10.1109/ICCCIT62592.2025.10928033",
+        "CorpusId": 277272794
+      },
+      "title": "Enhancing Software Vulnerability Detection Using Code Property Graphs and Convolutional Neural Networks",
+      "venue": "2025 International Conference on Computational, Communication and Information Technology (ICCCIT)",
+      "year": 2025,
+      "citationCount": 7,
+      "openAccessPdf": {
+        "url": "https://arxiv.org/pdf/2503.18175",
+        "status": "GREEN",
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://arxiv.org/abs/2503.18175, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "1834491185",
+          "name": "A. Saimbhi"
+        }
+      ],
+      "abstract": "The increasing complexity of modern software sys- tems has led to a rise in vulnerabilities that malicious actors can exploit. Traditional methods of vulnerability detection, such as static and dynamic analysis, have limitations in scalability and automation. This paper proposes a novel approach to detecting software vulnerabilities using a combination of code property graphs and machine learning techniques. By leveraging code property graphs, which integrate abstract syntax trees, control flow graphs, and program dependency graphs, we achieve a detailed representation of software code that enhances the accuracy and granularity of vulnerability detection. We intro- duce various neural network models, including convolutional neural networks adapted for graph data, to process these rep- resentations. Our approach provides a scalable and automated solution for vulnerability detection, addressing the shortcomings of existing methods. We also present a newly generated dataset labeled with function-level vulnerability types sourced from open- source repositories. Our contributions include a methodology for transforming software code into code property graphs, the implementation of a convolutional neural network model for graph data, and the creation of a comprehensive dataset for training and evaluation. This work lays the foundation for more effective and efficient vulnerability detection in complex software systems."
+    },
+    "3a77858bd375c64bf9be99059f260edb64df79c6": {
+      "paperId": "3a77858bd375c64bf9be99059f260edb64df79c6",
+      "externalIds": {
+        "DBLP": "conf/www/WiWWS22",
+        "DOI": "10.1145/3485447.3512235",
+        "CorpusId": 248367462
+      },
+      "title": "HiddenCPG: Large-Scale Vulnerable Clone Detection Using Subgraph Isomorphism of Code Property Graphs",
+      "venue": "The Web Conference",
+      "year": 2022,
+      "citationCount": 30,
+      "openAccessPdf": {
+        "url": "",
+        "status": "CLOSED",
+        "license": null,
+        "disclaimer": "Notice: Paper or abstract available at https://api.unpaywall.org/v2/10.1145/3485447.3512235?email=<INSERT_YOUR_EMAIL> or https://doi.org/10.1145/3485447.3512235, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "1490966645",
+          "name": "Seongil Wi"
+        },
+        {
+          "authorId": "2159595330",
+          "name": "Sijae Woo"
+        },
+        {
+          "authorId": "34826931",
+          "name": "Joyce Jiyoung Whang"
+        },
+        {
+          "authorId": "6248724",
+          "name": "Sooel Son"
+        }
+      ],
+      "abstract": "A code property graph (CPG) is a joint representation of syntax, control flows, and data flows of a target application. Recent studies have demonstrated the promising efficacy of leveraging CPGs for the identification of vulnerabilities. It recasts the problem of implementing a specific static analysis for a target vulnerability as a graph query composition problem. It requires devising coarse-grained graph queries that model vulnerable code patterns. Unfortunately, such coarse-grained queries often leave vulnerabilities due to faulty input sanitization undetected. In this paper, we propose, a scalable system designed to identify various web vulnerabilities, including bugs that stem from incorrect sanitization. We designed to find a subgraph in a target CPG that matches a given CPG query having a known vulnerability, which is known as the subgraph isomorphism problem. To address the scalability challenge that stems from the NP-complete nature of this problem, leverages optimization techniques designed to boost the efficiency of matching vulnerable subgraphs. found confirmed vulnerabilities including CVEs among 2,464 potential vulnerabilities in real-world CPGs having a combined total of 1 billion nodes and 1.2 billion edges."
+    },
+    "98e19f4f96607e53c91df399e551bc023b2f9453": {
+      "paperId": "98e19f4f96607e53c91df399e551bc023b2f9453",
+      "externalIds": {
+        "DBLP": "conf/icfp/Nilsson05",
+        "MAG": "2070203924",
+        "DOI": "10.1145/1086365.1086374",
+        "CorpusId": 5374929
+      },
+      "title": "Dynamic optimization for functional reactive programming using generalized algebraic data types",
+      "venue": "ACM SIGPLAN International Conference on Functional Programming",
+      "year": 2005,
+      "citationCount": 34,
+      "openAccessPdf": {
+        "url": "http://www.cs.nott.ac.uk/~nhn/Publications/icfp2005.pdf",
+        "status": "GREEN",
+        "license": null,
+        "disclaimer": "Notice: The following paper fields have been elided by the publisher: {'abstract'}. Paper or abstract available at https://api.unpaywall.org/v2/10.1145/1086365.1086374?email=<INSERT_YOUR_EMAIL> or https://doi.org/10.1145/1086365.1086374, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "48214267",
+          "name": "H. Nilsson"
+        }
+      ],
+      "abstract": null
+    },
+    "2ca2ad6e4b12a6dab4c1785d2c18116e38c1a74d": {
+      "paperId": "2ca2ad6e4b12a6dab4c1785d2c18116e38c1a74d",
+      "externalIds": {
+        "DBLP": "conf/oopsla/AbadiFS13",
+        "MAG": "2073794317",
+        "DOI": "10.1145/2508075.2508090",
+        "CorpusId": 17602789
+      },
+      "title": "A screen-oriented representation for mobile applications",
+      "venue": "ACM SIGPLAN International Conference on Systems, Programming, Languages and Applications: Software for Humanity",
+      "year": 2013,
+      "citationCount": 2,
+      "openAccessPdf": {
+        "url": "",
+        "status": "CLOSED",
+        "license": null,
+        "disclaimer": "Notice: The following paper fields have been elided by the publisher: {'abstract'}. Paper or abstract available at https://api.unpaywall.org/v2/10.1145/2508075.2508090?email=<INSERT_YOUR_EMAIL> or https://doi.org/10.1145/2508075.2508090, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "145511967",
+          "name": "Aharon Abadi"
+        },
+        {
+          "authorId": "49394812",
+          "name": "Y. Feldman"
+        },
+        {
+          "authorId": "3110225",
+          "name": "K. Shagin"
+        }
+      ],
+      "abstract": null
+    },
+    "635c5024f130f0f5dc1561a25ce5047774b7e1bf": {
+      "paperId": "635c5024f130f0f5dc1561a25ce5047774b7e1bf",
+      "externalIds": {
+        "CorpusId": 2679690
+      },
+      "title": "RETROSPECTIVE: Interprocedural Slicing Using Dependence Graphs",
+      "venue": "",
+      "year": null,
+      "citationCount": 1581,
+      "openAccessPdf": {
+        "url": "",
+        "status": null,
+        "license": null,
+        "disclaimer": "Notice: The following paper fields have been elided by the publisher: {'abstract'}. Paper or abstract available at http://research.cs.wisc.edu/wpis/papers/pldi88.retrospective.pdf, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [],
+      "abstract": null
+    },
+    "2f774c20248b488fc8a00aa18c007ca2d1ef80cd": {
+      "paperId": "2f774c20248b488fc8a00aa18c007ca2d1ef80cd",
+      "externalIds": {
+        "MAG": "1506870877",
+        "DBLP": "conf/scam/Gallagher04",
+        "DOI": "10.1109/SCAM.2004.21",
+        "CorpusId": 32098988
+      },
+      "title": "Some notes on interprocedural program slicing",
+      "venue": "Source Code Analysis and Manipulation, Fourth IEEE International Workshop on",
+      "year": 2004,
+      "citationCount": 11,
+      "openAccessPdf": {
+        "url": "https://durham-repository.worktribe.com/output/1698010",
+        "status": "GREEN",
+        "license": "CCBY",
+        "disclaimer": "Notice: Paper or abstract available at https://api.unpaywall.org/v2/10.1109/SCAM.2004.21?email=<INSERT_YOUR_EMAIL> or https://doi.org/10.1109/SCAM.2004.21, which is subject to the license by the author or copyright owner provided with this content. Please go to the source to verify the license and copyright information for your use."
+      },
+      "authors": [
+        {
+          "authorId": "2613561",
+          "name": "K. Gallagher"
+        }
+      ],
+      "abstract": "Weiser's algorithm for computing interprocedural slices has a serious drawback: it generates spurious criteria which are not feasible in the control flow of the program. When these extraneous criteria are used the slice becomes imprecise in that it has statements that are not relevant to the computation. Horwitz, Reps and Binkley solved this problem by devising the system dependence graph with an associated algorithm that produced more precise interprocedural slices. We take a \"step backward'' and show how to generate exactly the interprocedural slicing criteria needed, using the program's call graph or a stack. This technique can also be used on a family of program dependence graphs that represent all procedures in a program and are not interconnected by a system dependence graph. Then we show how to use the Horwitz, Reps and Binkley interprocedural slicing algorithm to generate criteria and show that the criteria so generated are equal to those generated by the call-graph/stack technique. Thus we present alternative, equivalent ways to generate precise slicing criteria across procedure boundaries. And finally we show that under certain circumstances. Weiser's technique for slicing across procedures is a bit \"too strong,\" for it always generates sufficient criteria to obtain the entire program as a slice on any criteria."
+    }
+  },
+  "refs": {},
+  "cites": {
+    "635c5024f130f0f5dc1561a25ce5047774b7e1bf": {
+      "seed_title": "RETROSPECTIVE: Interprocedural Slicing Using Dependence Graphs",
+      "items": [
+        {
+          "paperId": "4a71db235c3f72fd339e08e6f73407ace62df25a",
+          "title": "The expression dependence graph",
+          "year": 2025,
+          "venue": "J. Log. Algebraic Methods Program.",
+          "citationCount": 1,
+          "externalIds": {
+            "DBLP": "journals/jlap/GalindoPS25",
+            "DOI": "10.1016/j.jlamp.2024.101016",
+            "CorpusId": 272821567
+          },
+          "authors": [
+            "Carlos Galindo",
+            "Sergio P\u00e9rez",
+            "Josep Silva"
+          ]
+        },
+        {
+          "paperId": "c1eae16b19c5419a61dc071e74b3365a74e48208",
+          "title": "Counterfactual Explanations for MITL Violations",
+          "year": 2024,
+          "venue": "Foundations of Software Technology and Theoretical Computer Science",
+          "citationCount": 3,
+          "externalIds": {
+            "ArXiv": "2412.10386",
+            "DBLP": "journals/corr/abs-2412-10386",
+            "DOI": "10.4230/LIPIcs.FSTTCS.2024.22",
+            "CorpusId": 274515977
+          },
+          "authors": [
+            "Bernd Finkbeiner",
+            "Felix Jahn",
+            "Julian Siber"
+          ]
+        },
+        {
+          "paperId": "2dcc25c9bfbfa38e6017db6416598c954d893d98",
+          "title": "STASE: Static Analysis Guided Symbolic Execution for UEFI Vulnerability Signature Generation*",
+          "year": 2024,
+          "venue": "International Conference on Automated Software Engineering",
+          "citationCount": 9,
+          "externalIds": {
+            "DBLP": "conf/kbse/ShafiuzzamanDSB24",
+            "DOI": "10.1145/3691620.3695543",
+            "CorpusId": 273477503
+          },
+          "authors": [
+            "Md Shafiuzzaman",
+            "Achintya Desai",
+            "Laboni Sarker"
+          ]
+        },
+        {
+          "paperId": "5c161638cdb23e6d9324b106ce020cc6c32da95a",
+          "title": "Vulnerability detection based on transformer and high\u2010quality number embedding",
+          "year": 2024,
+          "venue": "Concurrency and Computation",
+          "citationCount": 5,
+          "externalIds": {
+            "DBLP": "journals/concurrency/CaoDP24",
+            "DOI": "10.1002/cpe.8292",
+            "CorpusId": 272846869
+          },
+          "authors": [
+            "Yang Cao",
+            "Yunwei Dong",
+            "Jiajie Peng"
+          ]
+        },
+        {
+          "paperId": "8c9f2f5a11fece56f2abd5c9c153fc4c95e019f4",
+          "title": "Fault localization by abstract interpretation and its applications",
+          "year": 2024,
+          "venue": "Journal of Computer Languages",
+          "citationCount": 3,
+          "externalIds": {
+            "DBLP": "journals/vlc/Dimovski24",
+            "DOI": "10.1016/j.cola.2024.101288",
+            "CorpusId": 271288177
+          },
+          "authors": [
+            "Aleksandar S. Dimovski"
+          ]
+        },
+        {
+          "paperId": "492f6d249a93d2c6484c58f1b6927668fb69995c",
+          "title": "Falcon: A Fused Approach to Path-Sensitive Sparse Data Dependence Analysis",
+          "year": 2024,
+          "venue": "Proc. ACM Program. Lang.",
+          "citationCount": 15,
+          "externalIds": {
+            "DBLP": "journals/pacmpl/YaoZXSWZ24",
+            "DOI": "10.1145/3656400",
+            "CorpusId": 270617855
+          },
+          "authors": [
+            "Peisen Yao",
+            "Jinguo Zhou",
+            "Xiao Xiao"
+          ]
+        },
+        {
+          "paperId": "954dfb83516f1b17bc59dd3a2f67055fb4a105fb",
+          "title": "Unveiling the Power of Intermediate Representations for Static Analysis: A Survey",
+          "year": 2024,
+          "venue": "arXiv.org",
+          "citationCount": 3,
+          "externalIds": {
+            "ArXiv": "2405.12841",
+            "DBLP": "journals/corr/abs-2405-12841",
+            "DOI": "10.48550/arXiv.2405.12841",
+            "CorpusId": 269930298
+          },
+          "authors": [
+            "Bowen Zhang",
+            "Wei Chen",
+            "Hung-Chun Chiu"
+          ]
+        },
+        {
+          "paperId": "a114ec6327f18ceb95cac0b0f5be5221e91adddb",
+          "title": "Nyx: Detecting Exploitable Front-Running Vulnerabilities in Smart Contracts",
+          "year": 2024,
+          "venue": "IEEE Symposium on Security and Privacy",
+          "citationCount": 28,
+          "externalIds": {
+            "DBLP": "conf/sp/ZhangZSLWLZC24",
+            "DOI": "10.1109/SP54263.2024.00146",
+            "CorpusId": 268130797
+          },
+          "authors": [
+            "Wuqi Zhang",
+            "Zhuo Zhang",
+            "Qingkai Shi"
+          ]
+        },
+        {
+          "paperId": "f4b11eb093d46e5f54156ac16afa735a2153bdb1",
+          "title": "LIBALCHEMY: A Two-Layer Persistent Summary Design for Taming Third-Party Libraries in Static Bug-Finding Systems",
+          "year": 2024,
+          "venue": "International Conference on Software Engineering",
+          "citationCount": 7,
+          "externalIds": {
+            "DBLP": "conf/icse/WuHHWTS0024",
+            "DOI": "10.1145/3597503.3639132",
+            "CorpusId": 268618796
+          },
+          "authors": [
+            "Rongxin Wu",
+            "Yuxuan He",
+            "Jiafeng Huang"
+          ]
+        },
+        {
+          "paperId": "100d02c42629a5d92946f0caeb7cbce3e1a98389",
+          "title": "Toward an Android Static Analysis Approach for Data Protection",
+          "year": 2024,
+          "venue": "International Conference on Mobile Software Engineering and Systems",
+          "citationCount": 8,
+          "externalIds": {
+            "DBLP": "journals/corr/abs-2402-07889",
+            "ArXiv": "2402.07889",
+            "DOI": "10.1145/3647632.3651389",
+            "CorpusId": 267627250
+          },
+          "authors": [
+            "Mugdha Khedkar",
+            "Eric Bodden"
+          ]
+        },
+        {
+          "paperId": "e455b0b7635f6db8ff15ac6259d7a1ae061e1c84",
+          "title": "Program Decomposition and Translation with Static Analysis",
+          "year": 2024,
+          "venue": "2024 IEEE/ACM 46th International Conference on Software Engineering: Companion Proceedings (ICSE-Companion)",
+          "citationCount": 9,
+          "externalIds": {
+            "DBLP": "journals/corr/abs-2401-12412",
+            "ArXiv": "2401.12412",
+            "DOI": "10.1145/3639478.3641226",
+            "CorpusId": 267095153
+          },
+          "authors": [
+            "Ali Reza Ibrahimzada"
+          ]
+        },
+        {
+          "paperId": "3ef5cc31c0731e2c30fdd5ec28853146d6fea62d",
+          "title": "MalOSDF: An Opcode Slice-Based Malware Detection Framework Using Active and Ensemble Learning",
+          "year": 2024,
+          "venue": "Electronics",
+          "citationCount": 8,
+          "externalIds": {
+            "DOI": "10.3390/electronics13020359",
+            "CorpusId": 267168305
+          },
+          "authors": [
+            "Wenjie Guo",
+            "Jingfeng Xue",
+            "Wenheng Meng"
+          ]
+        },
+        {
+          "paperId": "2a33978bec281866ef370377fb08ecdd5f7adb49",
+          "title": "Field-Sensitive Program Slicing",
+          "year": 2024,
+          "venue": "IEEE International Conference on Software Engineering and Formal Methods",
+          "citationCount": 3,
+          "externalIds": {
+            "DBLP": "journals/jss/GalindoKPS24",
+            "DOI": "10.1007/978-3-031-17108-6_5",
+            "CorpusId": 252569100
+          },
+          "authors": [
+            "Carlos Galindo",
+            "J. Krinke",
+            "Sergio P\u00e9rez"
+          ]
+        },
+        {
+          "paperId": "5afc588310a16fde9c65b47290a7c6d0c20256a2",
+          "title": "Learning Program Semantics for Vulnerability Detection via Vulnerability-Specific Inter-procedural Slicing",
+          "year": 2023,
+          "venue": "ESEC/SIGSOFT FSE",
+          "citationCount": 27,
+          "externalIds": {
+            "DBLP": "conf/sigsoft/WuLXLS023",
+            "DOI": "10.1145/3611643.3616351",
+            "CorpusId": 265509720
+          },
+          "authors": [
+            "Bozhi Wu",
+            "Shangqing Liu",
+            "Yang Xiao"
+          ]
+        },
+        {
+          "paperId": "b5f868fc76bd75874a1455eac3dc0a12f7a2ca15",
+          "title": "Automatically Defining Game Action Spaces for Exploration Using Program Analysis",
+          "year": 2023,
+          "venue": "Artificial Intelligence and Interactive Digital Entertainment Conference",
+          "citationCount": 2,
+          "externalIds": {
+            "DBLP": "conf/aiide/VolokhH23",
+            "DOI": "10.1609/aiide.v19i1.27510",
+            "CorpusId": 263838707
+          },
+          "authors": [
+            "Sasha Volokh",
+            "William G. J. Halfond"
+          ]
+        },
+        {
+          "paperId": "83051a21847236fefc5e66f5cadf40dc18cb0dd6",
+          "title": "Learning Type Inference for Enhanced Dataflow Analysis",
+          "year": 2023,
+          "venue": "European Symposium on Research in Computer Security",
+          "citationCount": 3,
+          "externalIds": {
+            "DBLP": "journals/corr/abs-2310-00673",
+            "ArXiv": "2310.00673",
+            "DOI": "10.48550/arXiv.2310.00673",
+            "CorpusId": 263333897
+          },
+          "authors": [
+            "Lukas Seidel",
+            "Sedick Baker Effendi",
+            "Xavier Pinho"
+          ]
+        },
+        {
+          "paperId": "1ce7d41dce9106bd3747c349cc97e48c4a58e5eb",
+          "title": "Slicing Shared-Memory Concurrent Programs The Threaded System Dependence Graph Revisited",
+          "year": 2023,
+          "venue": "IEEE International Conference on Software Maintenance and Evolution",
+          "citationCount": 0,
+          "externalIds": {
+            "DBLP": "conf/icsm/0002L0S23",
+            "DOI": "10.1109/ICSME58846.2023.00019",
+            "CorpusId": 266199366
+          },
+          "authors": [
+            "Carlos Galindo",
+            "Marisa Llorens",
+            "Sergio P\u00e9rez"
+          ]
+        },
+        {
+          "paperId": "c2275360204b65a51a13e008683ef147e5319dc7",
+          "title": "FuzzyFlow: Leveraging Dataflow To Find and Squash Program Optimization Bugs",
+          "year": 2023,
+          "venue": "International Conference for High Performance Computing, Networking, Storage and Analysis",
+          "citationCount": 5,
+          "externalIds": {
+            "DBLP": "journals/corr/abs-2306-16178",
+            "ArXiv": "2306.16178",
+            "DOI": "10.1145/3581784.3613214",
+            "CorpusId": 259275233
+          },
+          "authors": [
+            "Philipp Schaad",
+            "Timo Schneider",
+            "Tal Ben-Nun"
+          ]
+        },
+        {
+          "paperId": "631c5aa5067cfb54083a65c1284c4c38006b131c",
+          "title": "Decomposing Source Codes by Program Slicing for Bug Localization",
+          "year": 2023,
+          "venue": "IEEE International Joint Conference on Neural Network",
+          "citationCount": 5,
+          "externalIds": {
+            "DBLP": "conf/ijcnn/JiangZL23",
+            "DOI": "10.1109/IJCNN54540.2023.10191494",
+            "CorpusId": 260385739
+          },
+          "authors": [
+            "Yong Jiang",
+            "Ziye Zhu",
+            "Yun Li"
+          ]
+        },
+        {
+          "paperId": "9536695d90fa60fb7d1c3a44214a6db27474b454",
+          "title": "Microservice architecture recovery based on intra-service and inter-service features",
+          "year": 2023,
+          "venue": "Journal of Systems and Software",
+          "citationCount": 8,
+          "externalIds": {
+            "DBLP": "journals/jss/WangHKOLXS23",
+            "DOI": "10.1016/j.jss.2023.111754",
+            "CorpusId": 259072290
+          },
+          "authors": [
+            "Lulu Wang",
+            "Peng Hu",
+            "Xianglong Kong"
+          ]
+        },
+        {
+          "paperId": "9a70009af0a60eaad2d85ac1bd2f7750c371dab8",
+          "title": "Event-aware precise dynamic slicing for automatic debugging of Android applications",
+          "year": 2023,
+          "venue": "Journal of Systems and Software",
+          "citationCount": 6,
+          "externalIds": {
+            "DBLP": "journals/jss/WinTS23",
+            "DOI": "10.2139/ssrn.4106322",
+            "CorpusId": 249166776
+          },
+          "authors": [
+            "Hsu Myat Win",
+            "Shin Hwei Tan",
+            "Yulei Sui"
+          ]
+        },
+        {
+          "paperId": "8f004e8213bf52b6f9b605f8cce05035247c8e2e",
+          "title": "Program Dependence Net and on-demand slicing for property verification of concurrent system and software",
+          "year": 2023,
+          "venue": "Journal of Systems and Software",
+          "citationCount": 2,
+          "externalIds": {
+            "ArXiv": "2301.11723",
+            "DBLP": "journals/jss/DingLCH25",
+            "DOI": "10.1016/j.jss.2024.112221",
+            "CorpusId": 256358533
+          },
+          "authors": [
+            "Zhijun Ding",
+            "Shuo Li",
+            "Cheng Chen"
+          ]
+        },
+        {
+          "paperId": "9b1eaed98b253b965f4e50d226437d28a2eaf60f",
+          "title": "Exception-sensitive program slicing",
+          "year": 2023,
+          "venue": "J. Log. Algebraic Methods Program.",
+          "citationCount": 8,
+          "externalIds": {
+            "DBLP": "journals/jlap/GalindoPS23a",
+            "DOI": "10.1016/j.jlamp.2022.100832",
+            "CorpusId": 253193118
+          },
+          "authors": [
+            "Carlos Galindo",
+            "Sergio P\u00e9rez",
+            "Josep Silva"
+          ]
+        },
+        {
+          "paperId": "e4daca77cb243b326b1ab4810f88b1ec51795d10",
+          "title": "CFLOBDDs: Context-Free-Language Ordered Binary Decision Diagrams",
+          "year": 2022,
+          "venue": "ACM Transactions on Programming Languages and Systems",
+          "citationCount": 16,
+          "externalIds": {
+            "ArXiv": "2211.06818",
+            "DBLP": "journals/toplas/SistlaCR24",
+            "DOI": "10.1145/3651157",
+            "CorpusId": 253510556
+          },
+          "authors": [
+            "M. Sistla",
+            "Swarat Chaudhuri",
+            "T. Reps"
+          ]
+        },
+        {
+          "paperId": "dcf3d45adfe1bcd1ea7bb08dde4c834bed2c2bb2",
+          "title": "Anchor: Fast and Precise Value-flow Analysis for Containers via Memory Orientation",
+          "year": 2022,
+          "venue": "ACM Transactions on Software Engineering and Methodology",
+          "citationCount": 15,
+          "externalIds": {
+            "DBLP": "journals/tosem/WangWYSZXZ23",
+            "DOI": "10.1145/3565800",
+            "CorpusId": 252684136
+          },
+          "authors": [
+            "Chengpeng Wang",
+            "Wenyang Wang",
+            "Peisen Yao"
+          ]
+        },
+        {
+          "paperId": "98488008a4bf3594887df7acb7281dd9bb208cb8",
+          "title": "Program slicing of Java programs",
+          "year": 2022,
+          "venue": "J. Log. Algebraic Methods Program.",
+          "citationCount": 11,
+          "externalIds": {
+            "DBLP": "journals/jlap/GalindoPS23",
+            "DOI": "10.1016/j.jlamp.2022.100826",
+            "CorpusId": 252699368
+          },
+          "authors": [
+            "Carlos Galindo",
+            "Sergio P\u00e9rez",
+            "Josep Silva"
+          ]
+        },
+        {
+          "paperId": "8c9db8b51817f44c33180db7e0cca86fc1925916",
+          "title": "Using Multiple Code Representations to Prioritize Static Analysis Warnings",
+          "year": 2022,
+          "venue": "International Conference on Knowledge and Systems Engineering",
+          "citationCount": 7,
+          "externalIds": {
+            "DBLP": "conf/kse/VuV22",
+            "ArXiv": "2209.12181",
+            "DOI": "10.1109/KSE56063.2022.9953786",
+            "CorpusId": 252532066
+          },
+          "authors": [
+            "Thanh Vu",
+            "H. Vo"
+          ]
+        },
+        {
+          "paperId": "743a416342d52209526e8cd7a4ca9ad4176aebf9",
+          "title": "A Method for Enterprise Architecture Model Slicing",
+          "year": 2022,
+          "venue": "Applied Sciences",
+          "citationCount": 1,
+          "externalIds": {
+            "DOI": "10.3390/app12199604",
+            "CorpusId": 252558608
+          },
+          "authors": [
+            "Hong Guo",
+            "Jingyue Li",
+            "Shang Gao"
+          ]
+        },
+        {
+          "paperId": "db5037c145b75fb37fc7c4fa9e3472d209d37ee4",
+          "title": "The improved dynamic slicing for spectrum-based fault localization",
+          "year": 2022,
+          "venue": "PeerJ Computer Science",
+          "citationCount": 4,
+          "externalIds": {
+            "DBLP": "journals/peerj-cs/CaoWDL22",
+            "PubMedCentral": "9575932",
+            "DOI": "10.7717/peerj-cs.1071",
+            "CorpusId": 252150465,
+            "PubMed": "36262143"
+          },
+          "authors": [
+            "Heling Cao",
+            "Fei Wang",
+            "Miaolei Deng"
+          ]
+        },
+        {
+          "paperId": "b0460fa89c7dea50076edf9d259aa2fbecbe42d1",
+          "title": "Tai-e: A Static Analysis Framework for Java by Harnessing the Best Designs of Classics",
+          "year": 2022,
+          "venue": "arXiv.org",
+          "citationCount": 8,
+          "externalIds": {
+            "ArXiv": "2208.00337",
+            "DBLP": "journals/corr/abs-2208-00337",
+            "DOI": "10.48550/arXiv.2208.00337",
+            "CorpusId": 251224221
+          },
+          "authors": [
+            "Tian Tan",
+            "Yue Li"
+          ]
+        },
+        {
+          "paperId": "f6508eb5d337d72552ed8632556aa8b241a14cac",
+          "title": "CARGO: AI-Guided Dependency Analysis for Migrating Monolithic Applications to Microservices Architecture",
+          "year": 2022,
+          "venue": "International Conference on Automated Software Engineering",
+          "citationCount": 51,
+          "externalIds": {
+            "ArXiv": "2207.11784",
+            "DBLP": "conf/kbse/NitinARK22",
+            "DOI": "10.1145/3551349.3556960",
+            "CorpusId": 251040142
+          },
+          "authors": [
+            "V. Nitin",
+            "Shubhi Asthana",
+            "Baishakhi Ray"
+          ]
+        },
+        {
+          "paperId": "a84a1085f99b2e3fa145e2f775a2d086a7fca9c2",
+          "title": "Test case recommendation based on balanced distance of test targets",
+          "year": 2022,
+          "venue": "Information and Software Technology",
+          "citationCount": 3,
+          "externalIds": {
+            "DBLP": "journals/infsof/SunZFCWW22",
+            "DOI": "10.1016/j.infsof.2022.106994",
+            "CorpusId": 250251411
+          },
+          "authors": [
+            "Weisong Sun",
+            "Quanjun Zhang",
+            "Chunrong Fang"
+          ]
+        },
+        {
+          "paperId": "1af596227583e6126b87ec57b348562717608fdd",
+          "title": "Research on Binary Program Dynamic Slicing Technology for Cause Analysis of Vulnerability",
+          "year": 2022,
+          "venue": "2022 3rd International Conference on Computer Vision, Image and Deep Learning & International Conference on Computer Engineering and Applications (CVIDL & ICCEA)",
+          "citationCount": 0,
+          "externalIds": {
+            "DOI": "10.1109/cvidliccea56201.2022.9825448",
+            "CorpusId": 250658469
+          },
+          "authors": [
+            "Peiyu Lu",
+            "Chao Feng",
+            "Chaojing Tang"
+          ]
+        },
+        {
+          "paperId": "6d8ca462cd07b49ab868e1808108bdd04ae0b7d2",
+          "title": "Cape: compiler-aided program transformation for HTM-based cache side-channel defense",
+          "year": 2022,
+          "venue": "International Conference on Compiler Construction",
+          "citationCount": 4,
+          "externalIds": {
+            "DBLP": "conf/cc/ZhangBZ22",
+            "DOI": "10.1145/3497776.3517778",
+            "CorpusId": 247522127
+          },
+          "authors": [
+            "Rui Zhang",
+            "Michael D. Bond",
+            "Yinqian Zhang"
+          ]
+        },
+        {
+          "paperId": "5b41cea593368d42130ab611bdc29b5772ce9e18",
+          "title": "A Composable Design Space Exploration Framework to Optimize Behavioral Locking",
+          "year": 2022,
+          "venue": "Design, Automation and Test in Europe",
+          "citationCount": 7,
+          "externalIds": {
+            "DBLP": "conf/date/ColliniKP22",
+            "DOI": "10.23919/DATE54114.2022.9774602",
+            "CorpusId": 248921984
+          },
+          "authors": [
+            "L. Collini",
+            "R. Karri",
+            "C. Pilato"
+          ]
+        },
+        {
+          "paperId": "d26e328121c1e6ba50d64aeac1c7a5da0197d5e8",
+          "title": "Identifying Relevant Changes for Incremental Verification of Evolving Software Systems",
+          "year": 2022,
+          "venue": "IEEE International Conference on Software Analysis, Evolution, and Reengineering",
+          "citationCount": 3,
+          "externalIds": {
+            "DBLP": "conf/wcre/ChimdyalwarJKKG22",
+            "DOI": "10.1109/saner53432.2022.00083",
+            "CorpusId": 250974172
+          },
+          "authors": [
+            "Bharti Chimdyalwar",
+            "Anushri Jana",
+            "Shrawan Kumar"
+          ]
+        },
+        {
+          "paperId": "df1615975448d35e3b470e92f6d87e66e7344e33",
+          "title": "An Automated Approach for Privacy Leakage Identification in IoT Apps",
+          "year": 2022,
+          "venue": "IEEE Access",
+          "citationCount": 4,
+          "externalIds": {
+            "ArXiv": "2202.02895",
+            "DBLP": "journals/access/NazzalA22",
+            "DOI": "10.1109/access.2022.3192562",
+            "CorpusId": 246634437
+          },
+          "authors": [
+            "Bara\u2019 Nazzal",
+            "Manar H. Alalfi"
+          ]
+        },
+        {
+          "paperId": "193d1aef5e9cf12bb4ff1d19311d385710a66326",
+          "title": "A Survey of Binary Code Fingerprinting Approaches: Taxonomy, Methodologies, and Features",
+          "year": 2022,
+          "venue": "ACM Computing Surveys",
+          "citationCount": 41,
+          "externalIds": {
+            "DBLP": "journals/csur/AlrabaeeDW23",
+            "DOI": "10.1145/3486860",
+            "CorpusId": 253421967
+          },
+          "authors": [
+            "Saed Alrabaee",
+            "M. Debbabi",
+            "Lingyu Wang"
+          ]
+        },
+        {
+          "paperId": "c3875f10a70b5a9007cd3e8d47d7dfe847877ac0",
+          "title": "Trusted And Confidential Program Analysis",
+          "year": 2021,
+          "venue": "arXiv.org",
+          "citationCount": 0,
+          "externalIds": {
+            "ArXiv": "2112.00346",
+            "DBLP": "journals/corr/abs-2112-00346",
+            "CorpusId": 244773333
+          },
+          "authors": [
+            "Han Liu",
+            "P. Antonino",
+            "Zhiqiang Yang"
+          ]
+        },
+        {
+          "paperId": "b6e61ff869efb8db1007296058362d3ad19a4c58",
+          "title": "<sc>D<inline-formula><tex-math notation=\"LaTeX\">$^2$</tex-math><alternatives><mml:math><mml:msup><mml:mrow/><mml:mn>2</mml:mn></mml:msup></mml:math><inline-graphic xlink:href=\"cai-ieq1-3124795.gif\"/></alternatives></inline-formula>Abs</sc>: A Framework for Dynamic Dependence Analysis of Distributed ",
+          "year": 2021,
+          "venue": "IEEE Transactions on Software Engineering",
+          "citationCount": 3,
+          "externalIds": {
+            "DBLP": "journals/tse/CaiF22",
+            "ArXiv": "2111.04837",
+            "DOI": "10.1109/TSE.2021.3124795",
+            "CorpusId": 254481496
+          },
+          "authors": [
+            "Haipeng Cai",
+            "Xiaoqin Fu"
+          ]
+        }
+      ]
+    },
+    "98e19f4f96607e53c91df399e551bc023b2f9453": {
+      "seed_title": "Dynamic optimization for functional reactive programming using generalized algebraic data types",
+      "items": [
+        {
+          "paperId": "907ab7074c76b3f84462704bc602bf0d1a738e29",
+          "title": "Reactamole: functional reactive molecular programming",
+          "year": 2024,
+          "venue": "Natural Computing",
+          "citationCount": 1,
+          "externalIds": {
+            "DBLP": "conf/dna/KlingeLOR21",
+            "DOI": "10.1007/s11047-024-09982-5",
+            "CorpusId": 237444663
+          },
+          "authors": [
+            "T. Klinge",
+            "James I. Lathrop",
+            "Peter-Michael Osera"
+          ]
+        },
+        {
+          "paperId": "b4678b24438ceadd3bc1b92680159acbc51f02e3",
+          "title": "This Is Driving Me Loopy: Efficient Loops in Arrowized Functional Reactive Programs",
+          "year": 2023,
+          "venue": "ACM SIGPLAN Symposium/Workshop on Haskell",
+          "citationCount": 1,
+          "externalIds": {
+            "DBLP": "conf/haskell/KeatingG23",
+            "DOI": "10.1145/3609026.3609726",
+            "CorpusId": 261397500
+          },
+          "authors": [
+            "Finnbar Keating",
+            "Michael B. Gale"
+          ]
+        },
+        {
+          "paperId": "ebfe74b906b6e4fef8ca068d35bcad67e3c0bf7b",
+          "title": "Functional Reactive Programming, restated",
+          "year": 2019,
+          "venue": "ACM-SIGPLAN International Conference on Principles and Practice of Declarative Programming",
+          "citationCount": 17,
+          "externalIds": {
+            "MAG": "2977030256",
+            "DBLP": "conf/ppdp/ChupinN19",
+            "DOI": "10.1145/3354166.3354172",
+            "CorpusId": 202729250
+          },
+          "authors": [
+            "Guerric Chupin",
+            "H. Nilsson"
+          ]
+        },
+        {
+          "paperId": "6cf6b39162102a72cfca1c567211fe5eb0cdb86e",
+          "title": "Causal commutative arrows revisited",
+          "year": 2016,
+          "venue": "ACM SIGPLAN Symposium/Workshop on Haskell",
+          "citationCount": 7,
+          "externalIds": {
+            "DBLP": "conf/haskell/YallopL16",
+            "MAG": "2517648758",
+            "DOI": "10.1145/2976002.2976019",
+            "CorpusId": 12891989
+          },
+          "authors": [
+            "J. Yallop",
+            "Hai Liu"
+          ]
+        },
+        {
+          "paperId": "899c9dc36a13cd14ca183914e118f89c2dc09d36",
+          "title": "Functional reactive programming, refactored",
+          "year": 2016,
+          "venue": "ACM SIGPLAN Symposium/Workshop on Haskell",
+          "citationCount": 52,
+          "externalIds": {
+            "DBLP": "conf/haskell/PerezBN16",
+            "MAG": "2514237507",
+            "DOI": "10.1145/2976002.2976010",
+            "CorpusId": 2934855
+          },
+          "authors": [
+            "Ivan Perez",
+            "Manuel B\u00e4renz",
+            "H. Nilsson"
+          ]
+        },
+        {
+          "paperId": "e0c5df4932c84f8e696b6df4423c097f639b93ec",
+          "title": "A Robust Framework for Asynchronous Operations on a Functional Object-Oriented Model",
+          "year": 2015,
+          "venue": "2015 International Conference on Cloud Computing (ICCC)",
+          "citationCount": 2,
+          "externalIds": {
+            "MAG": "1500814630",
+            "DOI": "10.1109/CLOUDCOMP.2015.7149623",
+            "CorpusId": 17344981
+          },
+          "authors": [
+            "Mohamed A. El-Zawawy"
+          ]
+        },
+        {
+          "paperId": "4e938676f7b446946b2ff3c317738e66063868fe",
+          "title": "Asynchronous functional reactive programming for GUIs",
+          "year": 2013,
+          "venue": "ACM-SIGPLAN Symposium on Programming Language Design and Implementation",
+          "citationCount": 238,
+          "externalIds": {
+            "MAG": "3006529926",
+            "DBLP": "conf/pldi/CzaplickiC13",
+            "DOI": "10.1145/2491956.2462161",
+            "CorpusId": 1569785
+          },
+          "authors": [
+            "Evan Czaplicki",
+            "Stephen Chong"
+          ]
+        },
+        {
+          "paperId": "93ae966468dd8b08a4dddb607dd2eac3f0771040",
+          "title": "First-class models : on a noncausal language for higher-order and structurally dynamic modelling and simulation",
+          "year": 2012,
+          "venue": "",
+          "citationCount": 9,
+          "externalIds": {
+            "MAG": "2103209875",
+            "DBLP": "phd/ethos/Giorgidze12",
+            "CorpusId": 34124515
+          },
+          "authors": [
+            "George Giorgidze"
+          ]
+        },
+        {
+          "paperId": "21dd6d7fa70a71294fac9aa398af975187cb5cde",
+          "title": "Causal commutative arrows",
+          "year": 2011,
+          "venue": "Journal of functional programming",
+          "citationCount": 17,
+          "externalIds": {
+            "MAG": "1979330843",
+            "DBLP": "journals/jfp/LiuCH11",
+            "DOI": "10.1017/S0956796811000153",
+            "CorpusId": 16332025
+          },
+          "authors": [
+            "Hai Liu",
+            "Eric Cheng",
+            "P. Hudak"
+          ]
+        },
+        {
+          "paperId": "b1e8d289488bed8ef5bf9e93f442de6e3cc65ef2",
+          "title": "Push-pull functional reactive programming",
+          "year": 2009,
+          "venue": "ACM SIGPLAN Symposium/Workshop on Haskell",
+          "citationCount": 146,
+          "externalIds": {
+            "MAG": "2041337116",
+            "DBLP": "conf/haskell/Elliott09",
+            "DOI": "10.1145/1596638.1596643",
+            "CorpusId": 5661008
+          },
+          "authors": [
+            "Conal Elliott"
+          ]
+        },
+        {
+          "paperId": "91089de63930c421efb813e74f2b206323d7f755",
+          "title": "Causal commutative arrows and their optimization",
+          "year": 2009,
+          "venue": "ACM SIGPLAN International Conference on Functional Programming",
+          "citationCount": 54,
+          "externalIds": {
+            "MAG": "2006232221",
+            "DBLP": "conf/icfp/LiuCH09",
+            "DOI": "10.1145/1596550.1596559",
+            "CorpusId": 989652
+          },
+          "authors": [
+            "Hai Liu",
+            "Eric Cheng",
+            "P. Hudak"
+          ]
+        },
+        {
+          "paperId": "0f2c0fb6bc99cdff6bffc519b1f3971109a6bea0",
+          "title": "Lowering: a static optimization technique for transparent functional reactivity",
+          "year": 2007,
+          "venue": "ACM SIGPLAN Workshop on Partial Evaluation and Program Manipulation",
+          "citationCount": 35,
+          "externalIds": {
+            "MAG": "2085931775",
+            "DBLP": "conf/pepm/BurchettCK07",
+            "DOI": "10.1145/1244381.1244393",
+            "CorpusId": 8605267
+          },
+          "authors": [
+            "K. Burchett",
+            "G. Cooper",
+            "S. Krishnamurthi"
+          ]
+        },
+        {
+          "paperId": "329be1fe28e31384b011134d36e815012f54b8e8",
+          "title": "Type Processing by Constraint Reasoning",
+          "year": 2006,
+          "venue": "Asian Symposium on Programming Languages and Systems",
+          "citationCount": 22,
+          "externalIds": {
+            "DBLP": "conf/aplas/StuckeySW06",
+            "MAG": "2523755777",
+            "DOI": "10.1007/11924661_1",
+            "CorpusId": 16599992
+          },
+          "authors": [
+            "Peter James Stuckey",
+            "Martin Sulzmann",
+            "J. Wazny"
+          ]
+        },
+        {
+          "paperId": "ebc71f7a25ea2f26ebb85e3a7fac05ebe8df828a",
+          "title": "A Framework for Extended Algebraic Data Types",
+          "year": 2006,
+          "venue": "Fuji International Symposium on Functional and Logic Programming",
+          "citationCount": 32,
+          "externalIds": {
+            "MAG": "1489195191",
+            "DBLP": "conf/flops/SulzmannWS06",
+            "DOI": "10.1007/11737414_5",
+            "CorpusId": 14215722
+          },
+          "authors": [
+            "Martin Sulzmann",
+            "J. Wazny",
+            "Peter James Stuckey"
+          ]
+        },
+        {
+          "paperId": "16fc2ccf928d6549b533fdf8c1b74fb166a931c7",
+          "title": "Why dependent types matter",
+          "year": 2006,
+          "venue": "ACM-SIGACT Symposium on Principles of Programming Languages",
+          "citationCount": 126,
+          "externalIds": {
+            "MAG": "1996857980",
+            "DBLP": "conf/popl/McKinna06",
+            "DOI": "10.1145/1111320.1111038",
+            "CorpusId": 18960574
+          },
+          "authors": [
+            "James McKinna"
+          ]
+        },
+        {
+          "paperId": "8dbdcd2f4423dad78a37e6896496f7c6f95f929d",
+          "title": "Aivika 3 : Creating a Simulation Library based on Functional Programming",
+          "year": 2015,
+          "venue": "",
+          "citationCount": 1,
+          "externalIds": {
+            "CorpusId": 44782195
+          },
+          "authors": [
+            "D. E. Sorokin"
+          ]
+        },
+        {
+          "paperId": "822879faca0f20f8628122176ab03a3f0eea0b46",
+          "title": "Patterns in Reactive Programming: from Transformative to Reactive",
+          "year": 2015,
+          "venue": "",
+          "citationCount": 0,
+          "externalIds": {
+            "MAG": "2181507758",
+            "CorpusId": 61699393
+          },
+          "authors": [
+            "Thesis Teemu Kaukoranta"
+          ]
+        },
+        {
+          "paperId": "2d191079f7060433d7be6dbb0d1ce627e650957c",
+          "title": "TimeFlies: Push-Pull Signal-Function Functional Reactive Programming",
+          "year": 2013,
+          "venue": "",
+          "citationCount": 0,
+          "externalIds": {
+            "MAG": "607336758",
+            "CorpusId": 60149017
+          },
+          "authors": [
+            "Edward Amsden"
+          ]
+        },
+        {
+          "paperId": "864ab6ebe254eeada6fee110da35a2bebcf9fbb3",
+          "title": "Ways to React: Comparing Reactive Languages and Complex Event Processing",
+          "year": 2013,
+          "venue": "",
+          "citationCount": 17,
+          "externalIds": {
+            "MAG": "172513044",
+            "CorpusId": 16502617
+          },
+          "authors": [
+            "Alessandro Margara",
+            "G. Salvaneschi"
+          ]
+        },
+        {
+          "paperId": "eb9a0a7d378cdcc10bc0d6538d1b0fe82c35d7cd",
+          "title": "Push-Pull Signal-Function Functional Reactive Programming",
+          "year": 2013,
+          "venue": "",
+          "citationCount": 2,
+          "externalIds": {
+            "MAG": "2187177494",
+            "CorpusId": 61572556
+          },
+          "authors": [
+            "Edward Amsden"
+          ]
+        },
+        {
+          "paperId": "1791a8a278b83c54425d7581cb45320feba5f4b0",
+          "title": "Elm : Concurrent FRP for Functional GUIs",
+          "year": 2012,
+          "venue": "",
+          "citationCount": 69,
+          "externalIds": {
+            "MAG": "2901185630",
+            "CorpusId": 11022636
+          },
+          "authors": [
+            "Evan Czaplicki"
+          ]
+        },
+        {
+          "paperId": "e7ca1f2c24199241d6df61975c37b1e7a998ee66",
+          "title": "Denotational translation validation",
+          "year": 2012,
+          "venue": "",
+          "citationCount": 6,
+          "externalIds": {
+            "MAG": "1882188591",
+            "CorpusId": 60671036
+          },
+          "authors": [
+            "J. G. Morrisett",
+            "Paul Govereau"
+          ]
+        },
+        {
+          "paperId": "5046034fe0cddda681ad9374d306fd27eec8b5fb",
+          "title": "A Survey of Functional Reactive Programming Concepts , Implementations , Optimizations , and Applications",
+          "year": 2011,
+          "venue": "",
+          "citationCount": 11,
+          "externalIds": {
+            "CorpusId": 33206772
+          },
+          "authors": [
+            "Edward Amsden"
+          ]
+        },
+        {
+          "paperId": "b0dc195c96abc3e2f792ba315b8b237c0de750f9",
+          "title": "Towards safe and efficient functional reactive programming",
+          "year": 2011,
+          "venue": "",
+          "citationCount": 14,
+          "externalIds": {
+            "MAG": "2125519398",
+            "DBLP": "phd/ethos/Sculthorpe11",
+            "CorpusId": 7936945
+          },
+          "authors": [
+            "Neil Sculthorpe"
+          ]
+        },
+        {
+          "paperId": "10cbb25e3d98c0e8b0511bccd76b53e5f2615270",
+          "title": "Keeping calm in the face of change - Towards optimisation of FRP by reasoning about change",
+          "year": 2010,
+          "venue": "High. Order Symb. Comput.",
+          "citationCount": 15,
+          "externalIds": {
+            "DBLP": "journals/lisp/SculthorpeN10",
+            "DOI": "10.1007/s10990-011-9068-x",
+            "CorpusId": 264409400
+          },
+          "authors": [
+            "Neil Sculthorpe",
+            "H. Nilsson"
+          ]
+        },
+        {
+          "paperId": "2eaf9e821c56922cbdee033288bbc83fc51b1a9c",
+          "title": "Practical type inference for the gadt type system",
+          "year": 2010,
+          "venue": "",
+          "citationCount": 5,
+          "externalIds": {
+            "MAG": "174139873",
+            "DOI": "10.15760/ETD.367",
+            "CorpusId": 59921408
+          },
+          "authors": [
+            "T. Sheard",
+            "Chuan-Kai Lin"
+          ]
+        },
+        {
+          "paperId": "3dac64ee01b9a33f25e8b0c796309c6085820234",
+          "title": "Optimisation of Dynamic, Hybrid Signal Function Networks",
+          "year": 2008,
+          "venue": "Symposium on Trends in Functional Programming",
+          "citationCount": 6,
+          "externalIds": {
+            "MAG": "1590583227",
+            "DBLP": "conf/sfp/SculthorpeN08",
+            "CorpusId": 17293941
+          },
+          "authors": [
+            "Neil Sculthorpe",
+            "H. Nilsson"
+          ]
+        },
+        {
+          "paperId": "68879d43459961e3b35cf15cf23ebc78877adb76",
+          "title": "Simply efficient functional reactivity",
+          "year": 2008,
+          "venue": "",
+          "citationCount": 4,
+          "externalIds": {
+            "MAG": "181132469",
+            "CorpusId": 54918859
+          },
+          "authors": [
+            "Conal Elliott"
+          ]
+        },
+        {
+          "paperId": "8eb25137b442787686016c801888a79198d04938",
+          "title": "Chapter 7 Optimisation of Dynamic , Hybrid Signal Function Networks",
+          "year": 2008,
+          "venue": "",
+          "citationCount": 0,
+          "externalIds": {
+            "CorpusId": 204315822
+          },
+          "authors": [
+            "Neil Sculthorpe",
+            "H. Nilsson"
+          ]
+        },
+        {
+          "paperId": "87bee4d4becd0803e97c6acfd20fa09b9207c871",
+          "title": "Integrating Dataflow Evaluation into a Practical Higher-Order Call-by-Value Language",
+          "year": 2008,
+          "venue": "",
+          "citationCount": 37,
+          "externalIds": {
+            "DBLP": "phd/us/Cooper08",
+            "MAG": "2149092902",
+            "CorpusId": 12139545
+          },
+          "authors": [
+            "G. Cooper"
+          ]
+        },
+        {
+          "paperId": "2376a24f3888bcde296bdb8523f9d5fdc74bcd8a",
+          "title": "GADTless Programming in Haskell 98",
+          "year": 2006,
+          "venue": "",
+          "citationCount": 0,
+          "externalIds": {
+            "MAG": "2255745027",
+            "CorpusId": 54071875
+          },
+          "authors": [
+            "Meng Wang"
+          ]
+        },
+        {
+          "paperId": "a3473932331404b48193cc0f3e335cba557d3229",
+          "title": "Translating Generalized Algebraic Data Types to System F",
+          "year": 2005,
+          "venue": "",
+          "citationCount": 2,
+          "externalIds": {
+            "MAG": "2466334148",
+            "CorpusId": 63850692
+          },
+          "authors": [
+            "Martin Sulzmann",
+            "Meng Wang"
+          ]
+        },
+        {
+          "paperId": "a26aac6dd7ccb4b978ed592c19a04f5f800ea0ba",
+          "title": "Title word cross-reference",
+          "year": 2003,
+          "venue": "",
+          "citationCount": 223,
+          "externalIds": {
+            "CorpusId": 622465
+          },
+          "authors": [
+            "Nelson H. F. Beebe"
+          ]
+        },
+        {
+          "paperId": "66c5de2309bbebd9677511994e011774716dc485",
+          "title": "Under Consideration for Publication in J. Functional Programming Implicit Self-adjusting Computation for Purely Functional Programs",
+          "year": null,
+          "venue": "",
+          "citationCount": 33,
+          "externalIds": {
+            "CorpusId": 34942
+          },
+          "authors": [
+            "Yan Chen",
+            "Jana Dunfield",
+            "Matthew A. Hammer"
+          ]
+        }
+      ]
+    },
+    "3a77858bd375c64bf9be99059f260edb64df79c6": {
+      "seed_title": "HiddenCPG: Large-Scale Vulnerable Clone Detection Using Subgraph Isomorphism of Code Property Graphs",
+      "items": [
+        {
+          "paperId": "965df045b86d0e93a4135a16222f157dbccefbef",
+          "title": "TaintRadar: Semantic-Aware Taint-Style Vulnerability Detection via Augmented Code Property Graphs",
+          "year": 2026,
+          "venue": "",
+          "citationCount": 0,
+          "externalIds": {
+            "ArXiv": "2607.16456",
+            "CorpusId": 290362518
+          },
+          "authors": [
+            "Elie Rizk",
+            "F. Hmida",
+            "Birhanu Eshete"
+          ]
+        },
+        {
+          "paperId": "c164bf5fc2400e6c64482f2e9a6459123cc905f2",
+          "title": "Reparameterizing adversarial reprogramming in low-dimensional subspace for efficient software vulnerability detection",
+          "year": 2026,
+          "venue": "Journal of Information Security and Applications",
+          "citationCount": 0,
+          "externalIds": {
+            "DBLP": "journals/istr/AlavizadehCZ26",
+            "DOI": "10.1016/j.jisa.2026.104443",
+            "CorpusId": 286662521
+          },
+          "authors": [
+            "Hootan Alavizadeh",
+            "Lingwei Chen",
+            "Junjie Zhang"
+          ]
+        },
+        {
+          "paperId": "e1ccab51def588572e568a9dfae4868d4ea13038",
+          "title": "Poking Around in the Dark: Why a Shared Understanding of Components Matters",
+          "year": 2026,
+          "venue": "",
+          "citationCount": 0,
+          "externalIds": {
+            "ArXiv": "2606.02442",
+            "CorpusId": 288861170
+          },
+          "authors": [
+            "Felix Reichmann",
+            "Wolfgang Krane",
+            "Alena Naiakshina"
+          ]
+        },
+        {
+          "paperId": "e5bbc19ef44abb9b9f70958e8e1e9b7e435db27d",
+          "title": "Friends or Foes? Combining Static Analysis Tools and LLMs for Vulnerability Detection",
+          "year": 2026,
+          "venue": "International Conference on Software Testing, Verification and Validation Workshops",
+          "citationCount": 0,
+          "externalIds": {
+            "DOI": "10.1109/ICSTW72326.2026.00040",
+            "CorpusId": 290252804
+          },
+          "authors": [
+            "Rafael Ramires",
+            "Sarmad Bashir",
+            "Abbas Khan"
+          ]
+        },
+        {
+          "paperId": "b63c90d21dfb14d4fae25a87dc117409a55849d5",
+          "title": "Zelda: Feedback-driven Closed-box Fuzzing for Identifying Web Application Vulnerabilities",
+          "year": 2026,
+          "venue": "The Web Conference",
+          "citationCount": 0,
+          "externalIds": {
+            "DBLP": "conf/www/LeePKS26",
+            "DOI": "10.1145/3774904.3792378",
+            "CorpusId": 287344596
+          },
+          "authors": [
+            "Soyoung Lee",
+            "Sunnyeo Park",
+            "Yonghwi Kwon"
+          ]
+        },
+        {
+          "paperId": "ed786e4889255571664406935261e35f2627631e",
+          "title": "MDFVD: vulnerability detection via multi-dimensional-feature-based code representation",
+          "year": 2026,
+          "venue": "Journal of King Saud University: Computer and Information Sciences",
+          "citationCount": 0,
+          "externalIds": {
+            "DOI": "10.1007/s44443-026-00569-x",
+            "CorpusId": 287395403
+          },
+          "authors": [
+            "Jingyi Wei",
+            "Yao Zhang",
+            "Yanling Chen"
+          ]
+        },
+        {
+          "paperId": "9f085c3b6285ec8211f185e7598c83802c3eda36",
+          "title": "Towards Compositional Generalization in LLMs for Smart Contract Security: A Case Study on Reentrancy Vulnerabilities",
+          "year": 2026,
+          "venue": "arXiv.org",
+          "citationCount": 0,
+          "externalIds": {
+            "ArXiv": "2601.06914",
+            "DBLP": "journals/corr/abs-2601-06914",
+            "DOI": "10.48550/arXiv.2601.06914",
+            "CorpusId": 284648725
+          },
+          "authors": [
+            "Ying Zhou",
+            "Jiacheng Wei",
+            "Yu Qi"
+          ]
+        },
+        {
+          "paperId": "55c979aae6b181b7cafec14739443fcf6edd03cb",
+          "title": "AutoVulnPHP: LLM-Powered Two-Stage PHP Vulnerability Detection and Automated Localization",
+          "year": 2026,
+          "venue": "arXiv.org",
+          "citationCount": 0,
+          "externalIds": {
+            "DBLP": "journals/corr/abs-2601-06177",
+            "ArXiv": "2601.06177",
+            "DOI": "10.48550/arXiv.2601.06177",
+            "CorpusId": 284647893
+          },
+          "authors": [
+            "Zhiqiang Wang",
+            "Yizhong Ding",
+            "Zilong Xiao"
+          ]
+        },
+        {
+          "paperId": "9332bb6647a4423246bf96ee5c5465cdb4272dbf",
+          "title": "Bridging Code Graphs and Large Language Models for Better Code Understanding",
+          "year": 2025,
+          "venue": "arXiv.org",
+          "citationCount": 3,
+          "externalIds": {
+            "DBLP": "journals/corr/abs-2512-07666",
+            "ArXiv": "2512.07666",
+            "DOI": "10.48550/arXiv.2512.07666",
+            "CorpusId": 283693399
+          },
+          "authors": [
+            "Zeqi Chen",
+            "Zhaoyang Chu",
+            "Yi Gui"
+          ]
+        },
+        {
+          "paperId": "826d6c1bf19bf3808e4a2ad92b0330a2cab4b706",
+          "title": "PHPJoy: A Novel Extended Graph-Based PHP Code Analysis Framework",
+          "year": 2025,
+          "venue": "IEEE Transactions on Software Engineering",
+          "citationCount": 1,
+          "externalIds": {
+            "DBLP": "journals/tse/ShiZLYYYLLY25",
+            "DOI": "10.1109/TSE.2025.3614304",
+            "CorpusId": 281650037
+          },
+          "authors": [
+            "You-Qun Shi",
+            "Yuan Zhang",
+            "Tianhan Luo"
+          ]
+        },
+        {
+          "paperId": "bf0fc70464a1ca8cc883d6863f8393f9bfd1b65d",
+          "title": "TriFMatch: a flash subgraph matching algorithm with effective filtering techniques",
+          "year": 2025,
+          "venue": "Knowledge and Information Systems",
+          "citationCount": 1,
+          "externalIds": {
+            "DBLP": "journals/kais/HeCJLLT25",
+            "DOI": "10.1007/s10115-025-02608-x",
+            "CorpusId": 282474377
+          },
+          "authors": [
+            "Jiezhong He",
+            "Yixin Chen",
+            "Menghan Jia"
+          ]
+        },
+        {
+          "paperId": "f8589b22319a04d073c864f1117a3bdca49c05e3",
+          "title": "Rethinking Code Similarity: A Logic-Based Framework for Cross-Language Analysis beyond Functional Equivalence",
+          "year": 2025,
+          "venue": "ACM Transactions on Software Engineering and Methodology",
+          "citationCount": 0,
+          "externalIds": {
+            "DOI": "10.1145/3769305",
+            "CorpusId": 281965663
+          },
+          "authors": [
+            "Jican Zhang",
+            "Jianeng Zhang",
+            "Xin Shen"
+          ]
+        },
+        {
+          "paperId": "1db5a2e998be92fcccbe992615dd5eb753633d4f",
+          "title": "Vulnerability-Affected Versions Identification: How Far Are We?",
+          "year": 2025,
+          "venue": "International Conference on Automated Software Engineering",
+          "citationCount": 3,
+          "externalIds": {
+            "DBLP": "journals/corr/abs-2509-03876",
+            "ArXiv": "2509.03876",
+            "DOI": "10.1109/ASE63991.2025.00244",
+            "CorpusId": 281103849
+          },
+          "authors": [
+            "Xingchu Chen",
+            "Chengwei Liu",
+            "Jialun Cao"
+          ]
+        },
+        {
+          "paperId": "44550bf6a43c872682030df0d47c480ce8605ff3",
+          "title": "POSTER: Multimodal Graph Networks for Systematic Generalization in Code Clone Detection",
+          "year": 2025,
+          "venue": "ACM Asia Conference on Computer and Communications Security",
+          "citationCount": 0,
+          "externalIds": {
+            "DBLP": "conf/asiaccs/DaoTTTN25",
+            "DOI": "10.1145/3708821.3735348",
+            "CorpusId": 280787969
+          },
+          "authors": [
+            "Cuong Dao",
+            "Van Tong",
+            "Hai-Anh Tran"
+          ]
+        },
+        {
+          "paperId": "4d5c7c860d9a6b39b7dd45153cf578cb32f0a945",
+          "title": "Software Vulnerability Analysis Across Programming Language and Program Representation Landscapes: A Survey",
+          "year": 2025,
+          "venue": "arXiv.org",
+          "citationCount": 3,
+          "externalIds": {
+            "ArXiv": "2503.20244",
+            "DBLP": "journals/corr/abs-2503-20244",
+            "DOI": "10.48550/arXiv.2503.20244",
+            "CorpusId": 277321710
+          },
+          "authors": [
+            "Zhuoyun Qian",
+            "Fangtian Zhong",
+            "Qin Hu"
+          ]
+        },
+        {
+          "paperId": "91313acb1b25d61e04e4d4a7ae0bf82c76ec9b13",
+          "title": "HardVD: High-capacity cross-modal adversarial reprogramming for data-efficient vulnerability detection",
+          "year": 2025,
+          "venue": "Information Sciences",
+          "citationCount": 7,
+          "externalIds": {
+            "DBLP": "journals/isci/TianLSCC25",
+            "DOI": "10.1016/j.ins.2024.121370",
+            "CorpusId": 272097613
+          },
+          "authors": [
+            "Zhenzhou Tian",
+            "Haojiang Li",
+            "Hanlin Sun"
+          ]
+        },
+        {
+          "paperId": "6b1fb57ff097371542fafecf7aecf38adb3bfc82",
+          "title": "VMud: Detecting Recurring Vulnerabilities with Multiple Fixing Functions via Function Selection and Semantic Equivalent Statement Matching",
+          "year": 2024,
+          "venue": "Conference on Computer and Communications Security",
+          "citationCount": 10,
+          "externalIds": {
+            "DBLP": "conf/ccs/0001LC0024",
+            "DOI": "10.1145/3658644.3690372",
+            "CorpusId": 274611066
+          },
+          "authors": [
+            "Kaifeng Huang",
+            "Chenhao Lu",
+            "Yiheng Cao"
+          ]
+        },
+        {
+          "paperId": "3bf911c564073f42f231de62a6f46de53f4c147a",
+          "title": "New PHP Language Features Make Your Static Code Analysis Tools Miss Vulnerabilities",
+          "year": 2024,
+          "venue": "IEEE International Conference on Software Maintenance and Evolution",
+          "citationCount": 2,
+          "externalIds": {
+            "DBLP": "conf/icsm/WangZTYY24",
+            "DOI": "10.1109/ICSME58944.2024.00017",
+            "CorpusId": 274763855
+          },
+          "authors": [
+            "Lin Wang",
+            "Yuan Zhang",
+            "Xin Tan"
+          ]
+        },
+        {
+          "paperId": "0e31bec6f77a078d6e2d7c79a7a98703745efdb1",
+          "title": "RecurScan: Detecting Recurring Vulnerabilities in PHP Web Applications",
+          "year": 2024,
+          "venue": "The Web Conference",
+          "citationCount": 14,
+          "externalIds": {
+            "DBLP": "conf/www/ShiZBZTY24",
+            "DOI": "10.1145/3589334.3645530",
+            "CorpusId": 269656000
+          },
+          "authors": [
+            "You-Qun Shi",
+            "Yuan Zhang",
+            "Tianhao Bai"
+          ]
+        },
+        {
+          "paperId": "3c56981ec0484204b8f18c1b8a43b41dd4c86d2f",
+          "title": "AnomalyLLM: Few-Shot Anomaly Edge Detection for Dynamic Graphs Using Large Language Models",
+          "year": 2024,
+          "venue": "Industrial Conference on Data Mining",
+          "citationCount": 16,
+          "externalIds": {
+            "DBLP": "journals/corr/abs-2405-07626",
+            "ArXiv": "2405.07626",
+            "DOI": "10.1109/ICDM59182.2024.00093",
+            "CorpusId": 269758155
+          },
+          "authors": [
+            "Shuo Liu",
+            "Di Yao",
+            "Lanting Fang"
+          ]
+        },
+        {
+          "paperId": "1f97f5a39c6d55e6d19b99fb848953007e8b02bf",
+          "title": "Malicious Package Detection using Metadata Information",
+          "year": 2024,
+          "venue": "The Web Conference",
+          "citationCount": 24,
+          "externalIds": {
+            "DBLP": "conf/www/HalderBMJI0IAR024",
+            "ArXiv": "2402.07444",
+            "DOI": "10.1145/3589334.3645543",
+            "CorpusId": 267627517
+          },
+          "authors": [
+            "Sajal Halder",
+            "Michael Bewong",
+            "Arash Mahboubi"
+          ]
+        },
+        {
+          "paperId": "f7e6fb9521deb8e1273de011fed26fb79acbf0a1",
+          "title": "Enhancing vulnerability detection via AST decomposition and neural sub-tree encoding",
+          "year": 2023,
+          "venue": "Expert systems with applications",
+          "citationCount": 43,
+          "externalIds": {
+            "DBLP": "journals/eswa/TianTLCC24",
+            "DOI": "10.1016/j.eswa.2023.121865",
+            "CorpusId": 263319223
+          },
+          "authors": [
+            "Zhenzhou Tian",
+            "Binhui Tian",
+            "Jiajun Lv"
+          ]
+        },
+        {
+          "paperId": "b80ae564b9dbef366dd4ecb6e214814a30f0cced",
+          "title": "Unleashing the Potential of Stage-Wise Decision-Making in Scheduling of Graph-Structured Tasks Over Mobile Vehicular Clouds",
+          "year": 2023,
+          "venue": "IEEE Communications Magazine",
+          "citationCount": 0,
+          "externalIds": {
+            "DBLP": "journals/cm/LiwangGMSJHWD25",
+            "ArXiv": "2307.15490",
+            "DOI": "10.1109/MCOM.001.2300816",
+            "CorpusId": 260315994
+          },
+          "authors": [
+            "Minghui Liwang",
+            "Bingshuo Guo",
+            "Zhanxiao Ma"
+          ]
+        },
+        {
+          "paperId": "0d6f72f7683efc2d3e211fe92e3b0b2959652436",
+          "title": "Precise (Un)Affected Version Analysis for Web Vulnerabilities",
+          "year": 2022,
+          "venue": "International Conference on Automated Software Engineering",
+          "citationCount": 14,
+          "externalIds": {
+            "DBLP": "conf/kbse/Shi0LMY22",
+            "DOI": "10.1145/3551349.3556933",
+            "CorpusId": 255441490
+          },
+          "authors": [
+            "You-Qun Shi",
+            "Yuan Zhang",
+            "Tianhan Luo"
+          ]
+        },
+        {
+          "paperId": "9b65a7d56676a5ffd39e9a60bc8215cb57c68053",
+          "title": "Evaluating few-shot and contrastive learning methods for code clone detection",
+          "year": 2022,
+          "venue": "Empirical Software Engineering",
+          "citationCount": 11,
+          "externalIds": {
+            "DBLP": "journals/ese/KhajezadeFS24",
+            "ArXiv": "2204.07501",
+            "DOI": "10.1007/s10664-024-10441-z",
+            "CorpusId": 248218691
+          },
+          "authors": [
+            "Mohamad Khajezade",
+            "F. H. Fard",
+            "M. Shehata"
+          ]
+        },
+        {
+          "paperId": "dcb135a814804ab2618e67da3932d212f254506d",
+          "title": "Your Firmware Has Arrived: A Study of Firmware Update Vulnerabilities",
+          "year": 2024,
+          "venue": "USENIX Security Symposium",
+          "citationCount": 41,
+          "externalIds": {
+            "DBLP": "conf/uss/WuWWZLH00024",
+            "CorpusId": 269324383
+          },
+          "authors": [
+            "Yuhao Wu",
+            "Jinwen Wang",
+            "Yujie Wang"
+          ]
+        },
+        {
+          "paperId": "28c9f6015272f5bf13dee83d6cb1ce837a5f070f",
+          "title": "SymBisect: Accurate Bisection for Fuzzer-Exposed Vulnerabilities",
+          "year": 2024,
+          "venue": "USENIX Security Symposium",
+          "citationCount": 8,
+          "externalIds": {
+            "DBLP": "conf/uss/Zhang0CZLLZQL24",
+            "CorpusId": 271325614
+          },
+          "authors": [
+            "Zheng Zhang",
+            "Yu Hao",
+            "Weiteng Chen"
+          ]
+        },
+        {
+          "paperId": "9210d71913ec9de42812d900c017bbbc1c997f91",
+          "title": "Remote Code Execution from SSTI in the Sandbox: Automatically Detecting and Exploiting Template Escape Bugs",
+          "year": 2023,
+          "venue": "USENIX Security Symposium",
+          "citationCount": 10,
+          "externalIds": {
+            "DBLP": "conf/uss/Zhao0023",
+            "CorpusId": 260777635
+          },
+          "authors": [
+            "Yudi Zhao",
+            "Yuan Zhang",
+            "Min Yang"
+          ]
+        },
+        {
+          "paperId": "4d88d2ce3e4a7c52980eac33dd753d378cf13a71",
+          "title": "DISCO: Achieving Low Latency and High Reliability in Scheduling of Graph-Structured Tasks over Mobile Vehicular Cloud",
+          "year": 2023,
+          "venue": "arXiv.org",
+          "citationCount": 0,
+          "externalIds": {
+            "DBLP": "journals/corr/abs-2307-15490",
+            "DOI": "10.48550/arXiv.2307.15490",
+            "CorpusId": 283428212
+          },
+          "authors": [
+            "Minghui Liwang",
+            "Bingshuo Guo",
+            "Zhanxi Ma"
+          ]
+        },
+        {
+          "paperId": "2a02d307b20c76084936ed0d0bede384272a3428",
+          "title": "AnomalyLLM: A Graph-based Long-term Dependency Modeling Approach for Trajectory Similarity Computation",
+          "year": null,
+          "venue": "",
+          "citationCount": 0,
+          "externalIds": {
+            "CorpusId": 271974783
+          },
+          "authors": [
+            "Shuo Liu",
+            "Di Yao",
+            "Lanting Fang"
+          ]
+        }
+      ]
+    },
+    "2f774c20248b488fc8a00aa18c007ca2d1ef80cd": {
+      "seed_title": "Some notes on interprocedural program slicing",
+      "items": [
+        {
+          "paperId": "cf2c48337d029a65199d875b7e1579acb100755f",
+          "title": "Program Slicing: A Brief Retrospective",
+          "year": 2025,
+          "venue": "IEEE Transactions on Software Engineering",
+          "citationCount": 3,
+          "externalIds": {
+            "DBLP": "journals/tse/GallagherK25",
+            "DOI": "10.1109/TSE.2025.3538279",
+            "CorpusId": 276142559
+          },
+          "authors": [
+            "K. Gallagher",
+            "Suzanne Kozaitis"
+          ]
+        },
+        {
+          "paperId": "8627758f3b103fae5a8d164be9dee93d8fa8be79",
+          "title": "Dynamic Slicing Algorithm for FeatureC++ Programs",
+          "year": 2023,
+          "venue": "2023 4th International Conference on Communication, Computing and Industry 6.0 (C216)",
+          "citationCount": 0,
+          "externalIds": {
+            "DOI": "10.1109/C2I659362.2023.10431250",
+            "CorpusId": 267773647
+          },
+          "authors": [
+            "A. Mishra",
+            "Harapriya Senapati",
+            "H. S. Behera"
+          ]
+        },
+        {
+          "paperId": "c965c18376a6a0cadb5b7b73e691d0045f92e41c",
+          "title": "BarrierFinder: recognizing ad hoc barriers",
+          "year": 2019,
+          "venue": "Empirical Software Engineering",
+          "citationCount": 2,
+          "externalIds": {
+            "MAG": "3082345325",
+            "DBLP": "conf/icsm/WangYQJM19",
+            "DOI": "10.1109/ICSME.2019.00049",
+            "CorpusId": 201082212
+          },
+          "authors": [
+            "Tao Wang",
+            "Xiao Yu",
+            "Zhengyi Qiu"
+          ]
+        },
+        {
+          "paperId": "be0b9c6c21044220c6359ed06f2205b8b9c20422",
+          "title": "A Software Framework for Identifying the Law of Demeter Violations",
+          "year": 2015,
+          "venue": "International Conference on Information Technology",
+          "citationCount": 0,
+          "externalIds": {
+            "MAG": "1581258808",
+            "DBLP": "conf/itng/MelladoMCD15",
+            "DOI": "10.1109/ITNG.2015.72",
+            "CorpusId": 15522237
+          },
+          "authors": [
+            "Roberto Pepato Mellado",
+            "G. Moreira",
+            "A. Cunha"
+          ]
+        },
+        {
+          "paperId": "8e9fb28476b70df53725d4ea6734e0652484a076",
+          "title": "srcSlice: very efficient and scalable forward static slicing",
+          "year": 2014,
+          "venue": "J. Softw. Evol. Process.",
+          "citationCount": 37,
+          "externalIds": {
+            "DBLP": "journals/smr/AlomariCMAM14",
+            "MAG": "1535045235",
+            "DOI": "10.1002/smr.1651",
+            "CorpusId": 18520643
+          },
+          "authors": [
+            "Hakam W. Alomari",
+            "Michael L. Collard",
+            "J. Maletic"
+          ]
+        },
+        {
+          "paperId": "0f146b75a0f33168fc94ac0f17e145f2b9451efe",
+          "title": "A Very Efficient and Scalable Forward Static Slicing Approach",
+          "year": 2012,
+          "venue": "Working Conference on Reverse Engineering",
+          "citationCount": 16,
+          "externalIds": {
+            "DBLP": "conf/wcre/AlomariCM12",
+            "MAG": "2046361453",
+            "DOI": "10.1109/WCRE.2012.52",
+            "CorpusId": 16530121
+          },
+          "authors": [
+            "Hakam W. Alomari",
+            "Michael L. Collard",
+            "J. Maletic"
+          ]
+        },
+        {
+          "paperId": "e5b7740d7ca905ea30636c8910ec3096577073a4",
+          "title": "A vocabulary of program slicing-based techniques",
+          "year": 2012,
+          "venue": "CSUR",
+          "citationCount": 175,
+          "externalIds": {
+            "MAG": "2079083905",
+            "DBLP": "journals/csur/Silva12",
+            "DOI": "10.1145/2187671.2187674",
+            "CorpusId": 16374826
+          },
+          "authors": [
+            "Josep Silva"
+          ]
+        },
+        {
+          "paperId": "5322f2fa8ebab5102d67dadc6215740485f06bbb",
+          "title": "Using Structural Constraints to Specify and Check Design Intent in Source Code - Ph.D. Dissertation Synopsis -",
+          "year": 2006,
+          "venue": "2006 22nd IEEE International Conference on Software Maintenance",
+          "citationCount": 1,
+          "externalIds": {
+            "DBLP": "conf/icsm/Hou06",
+            "MAG": "2159401921",
+            "DOI": "10.1109/ICSM.2006.73",
+            "CorpusId": 14831591
+          },
+          "authors": [
+            "Daqing Hou"
+          ]
+        },
+        {
+          "paperId": "3192bfe33307a5ea711c5ec87fa3b0a701f2feb1",
+          "title": "Source-Level Linkage: Adding Semantic Information to C++ Fact-bases",
+          "year": 2006,
+          "venue": "2006 22nd IEEE International Conference on Software Maintenance",
+          "citationCount": 5,
+          "externalIds": {
+            "DBLP": "conf/icsm/HouH06",
+            "MAG": "2151277370",
+            "DOI": "10.1109/ICSM.2006.61",
+            "CorpusId": 14050215
+          },
+          "authors": [
+            "Daqing Hou",
+            "H. Hoover"
+          ]
+        },
+        {
+          "paperId": "335048a1927489c555a9d3bb2898252af3efe401",
+          "title": "Using SCL to specify and check design intent in source code",
+          "year": 2006,
+          "venue": "IEEE Transactions on Software Engineering",
+          "citationCount": 90,
+          "externalIds": {
+            "DBLP": "journals/tse/HouH06",
+            "MAG": "2110726411",
+            "DOI": "10.1109/TSE.2006.60",
+            "CorpusId": 9796543
+          },
+          "authors": [
+            "Daqing Hou",
+            "H. Hoover"
+          ]
+        },
+        {
+          "paperId": "d5f37b914912017de07c02bf7858ff1c553aca9c",
+          "title": "Specifying framework constraints with FCL",
+          "year": 2004,
+          "venue": "Conference of the Centre for Advanced Studies on Collaborative Research",
+          "citationCount": 16,
+          "externalIds": {
+            "DBLP": "conf/cascon/HouHR04",
+            "MAG": "1581898678",
+            "DOI": "10.1145/1034914.1034922",
+            "CorpusId": 31017662
+          },
+          "authors": [
+            "Daqing Hou",
+            "H. Hoover",
+            "P. Rudnicki"
+          ]
+        }
+      ]
+    },
+    "ac8c20585827b608f8eccfa1cb2824554d78280a": {
+      "seed_title": "I now pronounce you reactive and consistent: handling distributed and replicated state in reactive programming",
+      "items": [
+        {
+          "paperId": "e662de9fe71eb31c9b84e4996bbbd1731e2b563e",
+          "title": "A fault-tolerant programming model for distributed interactive applications",
+          "year": 2019,
+          "venue": "Proc. ACM Program. Lang.",
+          "citationCount": 21,
+          "externalIds": {
+            "DBLP": "journals/pacmpl/MogkDSM19",
+            "MAG": "2979761551",
+            "DOI": "10.1145/3360570",
+            "CorpusId": 204732592
+          },
+          "authors": [
+            "R. Mogk",
+            "Joscha Drechsler",
+            "G. Salvaneschi"
+          ]
+        },
+        {
+          "paperId": "8283f8e465b2d1dc90c011c219bee66d8baff128",
+          "title": "Issues on Performance of Reactive Programming in the Java Ecosystem with Persistent Data Sources",
+          "year": 2019,
+          "venue": "International Conference on Man-Machine Interactions",
+          "citationCount": 2,
+          "externalIds": {
+            "MAG": "2973809716",
+            "DBLP": "conf/icmmi/WycislikO19",
+            "DOI": "10.1007/978-3-030-31964-9_24",
+            "CorpusId": 203637643
+          },
+          "authors": [
+            "Lukasz Wycislik",
+            "Lukasz Ogorek"
+          ]
+        },
+        {
+          "paperId": "3754f8865107727ca4e50847387aa8068b7b2060",
+          "title": "A lightweight push-pull mechanism for implicitly using signals in imperative programming",
+          "year": 2019,
+          "venue": "Journal of Computer Languages",
+          "citationCount": 5,
+          "externalIds": {
+            "MAG": "2946645264",
+            "DBLP": "journals/vlc/Zhuang19",
+            "DOI": "10.1016/J.COLA.2019.100903",
+            "CorpusId": 181511417
+          },
+          "authors": [
+            "Yungyu Zhuang"
+          ]
+        },
+        {
+          "paperId": "2d8e5ee9f2f0697722833d01e787b24dbd6e6307",
+          "title": "Distributed system development with ScalaLoci",
+          "year": 2018,
+          "venue": "Proc. ACM Program. Lang.",
+          "citationCount": 60,
+          "externalIds": {
+            "MAG": "2898179350",
+            "DBLP": "journals/pacmpl/WeisenburgerKS18",
+            "DOI": "10.1145/3276499",
+            "CorpusId": 53090153
+          },
+          "authors": [
+            "P. Weisenburger",
+            "M. K\u00f6hler",
+            "G. Salvaneschi"
+          ]
+        },
+        {
+          "paperId": "a9a696f061ff2ad7310447bfcb1574c14e1d8050",
+          "title": "On the Semantics of Distributed Reactive Programming: The Cost of Consistency",
+          "year": 2018,
+          "venue": "IEEE Transactions on Software Engineering",
+          "citationCount": 28,
+          "externalIds": {
+            "DBLP": "journals/tse/MargaraS18",
+            "MAG": "2801707263",
+            "DOI": "10.1109/TSE.2018.2833109",
+            "CorpusId": 49867276
+          },
+          "authors": [
+            "Alessandro Margara",
+            "G. Salvaneschi"
+          ]
+        },
+        {
+          "paperId": "edcf3e028651a4743016fa4f72bbed8007fef2c3",
+          "title": "Reactive programming experience with REScala",
+          "year": 2018,
+          "venue": "International Conference on the Art, Science and Engineering of Programming",
+          "citationCount": 4,
+          "externalIds": {
+            "MAG": "2810135794",
+            "DBLP": "conf/programming/MogkSM18",
+            "DOI": "10.1145/3191697.3214337",
+            "CorpusId": 49562213
+          },
+          "authors": [
+            "R. Mogk",
+            "G. Salvaneschi",
+            "M. Mezini"
+          ]
+        },
+        {
+          "paperId": "b811fc7b786b82ac05cde9d87679d368d5a86e69",
+          "title": "Practical evaluation of the Lasp programming model at large scale: an experience report",
+          "year": 2017,
+          "venue": "ACM-SIGPLAN International Conference on Principles and Practice of Declarative Programming",
+          "citationCount": 11,
+          "externalIds": {
+            "MAG": "2747455075",
+            "DBLP": "conf/ppdp/MeiklejohnEYBRB17",
+            "ArXiv": "1708.06423",
+            "DOI": "10.1145/3131851.3131862",
+            "CorpusId": 12849744
+          },
+          "authors": [
+            "Christopher S. Meiklejohn",
+            "Vitor Enes",
+            "Junghun Yoo"
+          ]
+        },
+        {
+          "paperId": "9dabeeec8cb9fe2f3c4eb0e00936ccd9f537178f",
+          "title": "Distributing Thread-Safety for Reactive Programming In-Progress Paper",
+          "year": 2018,
+          "venue": "",
+          "citationCount": 0,
+          "externalIds": {
+            "CorpusId": 145036021
+          },
+          "authors": [
+            "Joscha Drechsler"
+          ]
+        },
+        {
+          "paperId": "ca78b2b72d244f1020bc28bbba631f1ff7f874c0",
+          "title": "Fault-tolerant Distributed Reactive Programming",
+          "year": 2018,
+          "venue": "European Conference on Object-Oriented Programming",
+          "citationCount": 27,
+          "externalIds": {
+            "DBLP": "conf/ecoop/MogkBSFM18",
+            "MAG": "2922202139",
+            "DOI": "10.4230/LIPIcs.ECOOP.2018.1",
+            "CorpusId": 51615645
+          },
+          "authors": [
+            "R. Mogk",
+            "Lars Baumg\u00e4rtner",
+            "G. Salvaneschi"
+          ]
+        }
+      ]
+    },
+    "2ca2ad6e4b12a6dab4c1785d2c18116e38c1a74d": {
+      "seed_title": "A screen-oriented representation for mobile applications",
+      "items": [
+        {
+          "paperId": "52749926393576582648184349904577e2420077",
+          "title": "Improving Test Suites Via a Novel Testing with Model Learning Approach",
+          "year": 2018,
+          "venue": "IEEE International Workshops on Enabling Technologies: Infrastracture for Collaborative Enterprises",
+          "citationCount": 3,
+          "externalIds": {
+            "DBLP": "conf/wetice/NovellaTF18",
+            "MAG": "2897727915",
+            "DOI": "10.1109/WETICE.2018.00051",
+            "CorpusId": 53014698
+          },
+          "authors": [
+            "L. Novella",
+            "M. Tufo",
+            "G. Fiengo"
+          ]
+        },
+        {
+          "paperId": "98a6db56f31ec30bcfd43cacf14d7e41f930c640",
+          "title": "A Qualitative Empirical Study in the Development of Multi-platform Mobile Applications",
+          "year": 2015,
+          "venue": "International Conference on Product Focused Software Process Improvement",
+          "citationCount": 0,
+          "externalIds": {
+            "DBLP": "conf/profes/FranceseRST15a",
+            "MAG": "2294733633",
+            "DOI": "10.1007/978-3-319-26844-6_34",
+            "CorpusId": 43077973
+          },
+          "authors": [
+            "R. Francese",
+            "M. Risi",
+            "G. Scanniello"
+          ]
+        }
+      ]
+    }
+  }
+}

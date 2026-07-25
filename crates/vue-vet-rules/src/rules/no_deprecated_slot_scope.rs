@@ -1,4 +1,4 @@
-use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, Severity};
+use vue_vet_core::{Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/correctness/no-deprecated-slot-scope",
@@ -17,31 +17,25 @@ impl Rule for NoDeprecatedSlotScope {
     &META
   }
 
-  fn run(&self, context: &mut RuleContext<'_>) {
-    let spans = context
-      .template()
-      .elements
-      .iter()
-      .filter_map(|element| {
-        element
-          .attribute("slot-scope")
-          .or_else(|| {
-            if element.tag.eq_ignore_ascii_case("template") {
-              element.attribute("scope")
-            } else {
-              None
-            }
-          })
-          .map(|attribute| attribute.span.clone())
-      })
-      .collect::<Vec<_>>();
-    for span in spans {
-      context.report(
-        self.meta(),
-        span,
-        "slot-scope syntax was removed in Vue 3".into(),
-        Some("Use v-slot or the # shorthand on <template> or the receiving component.".into()),
-      );
-    }
+  fn fact_kinds(&self) -> FactKinds {
+    FactKinds::TEMPLATE_ELEMENT
+  }
+
+  fn run_on(&self, fact: FactRef<'_>, context: &mut RuleContext<'_>) {
+    let FactRef::TemplateElement(element) = fact else {
+      return;
+    };
+    let attribute = element.attribute("slot-scope").or_else(|| {
+      if element.tag.eq_ignore_ascii_case("template") { element.attribute("scope") } else { None }
+    });
+    let Some(attribute) = attribute else {
+      return;
+    };
+    context.report(
+      self.meta(),
+      attribute.span.clone(),
+      "slot-scope syntax was removed in Vue 3".into(),
+      Some("Use v-slot or the # shorthand on <template> or the receiving component.".into()),
+    );
   }
 }

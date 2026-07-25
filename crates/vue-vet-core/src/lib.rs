@@ -158,9 +158,27 @@ impl TemplateElementFact {
   }
 }
 
+/// One template expression surface that may read script bindings.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TemplateExpressionFact {
+  /// Where the expression appears (`if`, `for`, `bind`, `on`, `interpolation`, …).
+  pub surface: String,
+  /// Raw expression text.
+  pub expression: String,
+  /// Exact SFC-absolute span of the expression when known.
+  pub span: SourceSpan,
+  /// Free identifier reads when resolved (`Some`, possibly empty). `None` means
+  /// unknown and join may fall back to a lexical scan (hand-built fixtures).
+  #[serde(default)]
+  pub identifiers: Option<Vec<String>>,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TemplateFacts {
   pub elements: Vec<TemplateElementFact>,
+  /// Flattened expression surfaces (directives + interpolations) with spans.
+  #[serde(default)]
+  pub expressions: Vec<TemplateExpressionFact>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -225,12 +243,108 @@ pub struct ReactiveBindingFact {
   pub span: SourceSpan,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReactiveReadKind {
+  /// Reached on every synchronous execution of the tracking scope.
   Unconditional,
+  /// Reached only when control-flow guards pass.
   Conditional,
+  /// Occurs after a top-level `await` that ends Vue's synchronous collection.
   AfterAwait,
+  /// Occurs outside synchronous tracking (e.g. `then` / `nextTick` callbacks).
+  OutsideTracking,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReactiveGuardRole {
+  /// `if (test) return` (or equivalent) before the read.
+  EarlyExit,
+  /// The read sits in a branch controlled by this test.
+  #[default]
+  BranchTest,
+  /// Short-circuit right-hand side guarded by the left-hand expression.
+  ShortCircuit,
+  /// The read sits in a `switch` case controlled by the discriminant.
+  SwitchDiscriminant,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TrackingScopeKind {
+  WatchEffect,
+  WatchPostEffect,
+  WatchSyncEffect,
+  Computed,
+  /// Explicit `watch(...)` source list / getter (tracked).
+  WatchSources,
+  /// `watch` callback body (not tracked for invalidation; side-effect surface).
+  WatchCallback,
+  /// `effectScope().run(...)` or `effectScope(() => ...)` callback region.
+  EffectScope,
+  /// `onScopeDispose(() => ...)` cleanup (not dependency-tracking).
+  OnScopeDispose,
+}
+
+impl TrackingScopeKind {
+  /// Effect-family scopes project into the legacy `effects` field.
+  #[must_use]
+  pub const fn is_effect_family(self) -> bool {
+    matches!(self, Self::WatchEffect | Self::WatchPostEffect | Self::WatchSyncEffect)
+  }
+
+  /// Scopes whose reactive reads participate in Vue dependency collection.
+  #[must_use]
+  pub const fn tracks_dependencies(self) -> bool {
+    matches!(
+      self,
+      Self::WatchEffect
+        | Self::WatchPostEffect
+        | Self::WatchSyncEffect
+        | Self::Computed
+        | Self::WatchSources
+        | Self::EffectScope
+    )
+  }
+
+  #[must_use]
+  pub const fn as_callee(self) -> &'static str {
+    match self {
+      Self::WatchEffect => "watchEffect",
+      Self::WatchPostEffect => "watchPostEffect",
+      Self::WatchSyncEffect => "watchSyncEffect",
+      Self::Computed => "computed",
+      Self::WatchSources | Self::WatchCallback => "watch",
+      Self::EffectScope => "effectScope",
+      Self::OnScopeDispose => "onScopeDispose",
+    }
+  }
+
+  #[must_use]
+  pub fn from_vue_callee(callee: &str) -> Option<Self> {
+    match callee {
+      "watchEffect" => Some(Self::WatchEffect),
+      "watchPostEffect" => Some(Self::WatchPostEffect),
+      "watchSyncEffect" => Some(Self::WatchSyncEffect),
+      "computed" => Some(Self::Computed),
+      "watch" => Some(Self::WatchSources),
+      "effectScope" => Some(Self::EffectScope),
+      "onScopeDispose" => Some(Self::OnScopeDispose),
+      _ => None,
+    }
+  }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReactiveDependencyKind {
+  /// `const x = computed(() => …)` depends on reads inside the getter.
+  Computed,
+  /// Effect-family scope depends on its tracked reads.
+  Effect,
+  /// Template expression mentions a script reactive binding.
+  Template,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -238,6 +352,8 @@ pub struct ReactiveGuardFact {
   pub binding: String,
   pub property: Option<String>,
   pub span: SourceSpan,
+  #[serde(default)]
+  pub role: ReactiveGuardRole,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -252,16 +368,426 @@ pub struct ReactiveReadFact {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReactiveWriteFact {
+  pub binding: String,
+  pub property: Option<String>,
+  pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TrackingScopeFact {
+  pub kind: TrackingScopeKind,
+  /// Canonical Vue callee name (`watchEffect`, `computed`, `watch`, …).
+  pub callee: String,
+  pub span: SourceSpan,
+  pub reads: Vec<ReactiveReadFact>,
+  /// Reactive member writes inside the scope (e.g. `derived.value = …`).
+  #[serde(default)]
+  pub writes: Vec<ReactiveWriteFact>,
+  /// Every statement is an assignment expression statement (no calls/awaits/control).
+  #[serde(default)]
+  pub assignment_only: bool,
+  /// For `computed` scopes: the binding name assigned from that call, when known.
+  #[serde(default)]
+  pub binding: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReactiveDependencyEdge {
+  /// Dependent binding or synthetic scope label.
+  pub from: String,
+  /// Dependency binding name that `from` reads (bare; rules match on this).
+  pub to: String,
+  /// Span-qualified identity `{name}@{offset}` for multi-consumer disambiguation.
+  /// Absent on legacy payloads; equals bare `to` when offset is unknown.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub to_id: Option<String>,
+  pub kind: ReactiveDependencyKind,
+  pub span: SourceSpan,
+}
+
+impl ReactiveDependencyEdge {
+  /// Prefer span-qualified `to_id`, else bare [`Self::to`].
+  #[must_use]
+  pub fn to_identity(&self) -> &str {
+    self.to_id.as_deref().unwrap_or(self.to.as_str())
+  }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TemplateReactiveReadFact {
+  pub binding: String,
+  pub span: SourceSpan,
+  /// Template surface that mentioned the binding (`if`, `for`, `bind`, `on`, `text`, …).
+  pub surface: String,
+}
+
+/// Legacy projection of effect-family tracking scopes.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ReactivityEffectFact {
   pub callee: String,
   pub span: SourceSpan,
   pub reads: Vec<ReactiveReadFact>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+/// Wire format version for [`ReactivityGraph`]. Bump when consumers must
+/// distinguish shape or semantic changes in serialized facts.
+pub const REACTIVITY_GRAPH_VERSION: u32 = 6;
+
+const fn default_reactivity_graph_version() -> u32 {
+  1
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ReactivityGraph {
+  /// Fact-schema version. Absent/legacy payloads deserialize as `1`.
+  #[serde(default = "default_reactivity_graph_version")]
+  pub version: u32,
   pub bindings: Vec<ReactiveBindingFact>,
+  /// All tracking scopes (effects, computed, watch sources/callbacks, …).
+  #[serde(default)]
+  pub scopes: Vec<TrackingScopeFact>,
+  /// Backward-compatible projection of effect-family scopes.
   pub effects: Vec<ReactivityEffectFact>,
+  /// Inverted dependency edges (computed/effect/template → binding).
+  #[serde(default)]
+  pub edges: Vec<ReactiveDependencyEdge>,
+  /// Template expressions joined onto script reactive bindings.
+  #[serde(default)]
+  pub template_reads: Vec<TemplateReactiveReadFact>,
+  /// `const bag = useFoo()` locals → composable return field kinds.
+  /// Used for script `bag.field.value` and template `bag.field` joins.
+  #[serde(default)]
+  pub composable_instances:
+    std::collections::BTreeMap<String, std::collections::BTreeMap<String, ReactiveBindingKind>>,
+}
+
+impl Default for ReactivityGraph {
+  fn default() -> Self {
+    Self {
+      version: REACTIVITY_GRAPH_VERSION,
+      bindings: Vec::new(),
+      scopes: Vec::new(),
+      effects: Vec::new(),
+      edges: Vec::new(),
+      template_reads: Vec::new(),
+      composable_instances: std::collections::BTreeMap::new(),
+    }
+  }
+}
+
+/// Stable-enough `from` label for a tracking scope in the inverted edge list.
+fn scope_edge_from(scope: &TrackingScopeFact) -> String {
+  if let Some(binding) = &scope.binding {
+    return binding.clone();
+  }
+  let kind = match scope.kind {
+    TrackingScopeKind::WatchEffect
+    | TrackingScopeKind::WatchPostEffect
+    | TrackingScopeKind::WatchSyncEffect => "effect",
+    TrackingScopeKind::Computed => "computed",
+    TrackingScopeKind::WatchSources => "watch_sources",
+    TrackingScopeKind::WatchCallback => "watch_callback",
+    TrackingScopeKind::EffectScope => "effect_scope",
+    TrackingScopeKind::OnScopeDispose => "on_scope_dispose",
+  };
+  format!("{kind}:{}@{}", scope.callee, scope.span.offset)
+}
+
+impl ReactivityGraph {
+  /// Rebuild the legacy `effects` projection and dependency edges from `scopes`.
+  pub fn project_effects_from_scopes(&mut self) {
+    self.version = REACTIVITY_GRAPH_VERSION;
+    self.effects = self
+      .scopes
+      .iter()
+      .filter(|scope| scope.kind.is_effect_family())
+      .map(|scope| ReactivityEffectFact {
+        callee: scope.callee.clone(),
+        span: scope.span.clone(),
+        reads: scope.reads.clone(),
+      })
+      .collect();
+    self.rebuild_dependency_edges();
+  }
+
+  /// Join template expression text onto known script reactive bindings.
+  ///
+  /// High-confidence under-approximation:
+  /// - free identifiers that exactly match binding names
+  /// - pure member chains `bag.field` / `bag.field.value` when `bag` is a known
+  ///   [`Self::composable_instances`] entry and `field` is in that shape
+  ///
+  /// Prefer flattened [`TemplateFacts::expressions`] (Vize interpolations +
+  /// directive exp/arg with expression-absolute spans); fall back to element
+  /// directives for hand-built fixtures that omit that list.
+  ///
+  /// Vize supplies expression text + spans; Oxc-backed adapters should fill
+  /// [`TemplateExpressionFact::identifiers`] as `Some(...)` (empty means “no
+  /// free reads”). `None` keeps the lexical fallback for hand-built fixtures.
+  pub fn join_template_reads(&mut self, template: &TemplateFacts) {
+    let binding_names = self
+      .bindings
+      .iter()
+      .map(|binding| binding.name.as_str())
+      .collect::<std::collections::BTreeSet<_>>();
+    let mut template_reads = Vec::new();
+    if template.expressions.is_empty() {
+      for element in &template.elements {
+        for directive in &element.directives {
+          let Some(expression) = directive.expression.as_deref() else {
+            continue;
+          };
+          let surface = if directive.name == "bind" {
+            directive.argument.clone().unwrap_or_else(|| "bind".into())
+          } else {
+            directive.name.clone()
+          };
+          let identifiers = template_expression_identifiers(expression);
+          push_template_reads(
+            &mut template_reads,
+            &binding_names,
+            &identifiers,
+            &surface,
+            &directive.span,
+          );
+          push_instance_template_reads(
+            &mut template_reads,
+            &self.composable_instances,
+            expression,
+            &surface,
+            &directive.span,
+          );
+        }
+      }
+    } else {
+      for expression in &template.expressions {
+        let fallback = expression
+          .identifiers
+          .is_none()
+          .then(|| template_expression_identifiers(&expression.expression));
+        let identifiers = expression.identifiers.as_deref().or(fallback.as_deref()).unwrap_or(&[]);
+        push_template_reads(
+          &mut template_reads,
+          &binding_names,
+          identifiers,
+          &expression.surface,
+          &expression.span,
+        );
+        push_instance_template_reads(
+          &mut template_reads,
+          &self.composable_instances,
+          &expression.expression,
+          &expression.surface,
+          &expression.span,
+        );
+      }
+    }
+    template_reads.sort_by(|left, right| {
+      (left.binding.as_str(), left.surface.as_str(), left.span.offset).cmp(&(
+        right.binding.as_str(),
+        right.surface.as_str(),
+        right.span.offset,
+      ))
+    });
+    template_reads.dedup_by(|left, right| {
+      left.binding == right.binding
+        && left.surface == right.surface
+        && left.span.offset == right.span.offset
+    });
+    self.template_reads = template_reads;
+    self.rebuild_dependency_edges();
+  }
+
+  /// Rebuild computed/effect dependency edges from scopes and template reads.
+  pub fn rebuild_dependency_edges(&mut self) {
+    let mut edges = Vec::new();
+    for scope in &self.scopes {
+      if !scope.kind.tracks_dependencies() {
+        continue;
+      }
+      // Prefer stable computed binding names; otherwise qualify by kind+callee+span
+      // so multiple effects do not share an ambiguous bare callee label.
+      let from = scope_edge_from(scope);
+      let kind = if scope.kind == TrackingScopeKind::Computed {
+        ReactiveDependencyKind::Computed
+      } else {
+        ReactiveDependencyKind::Effect
+      };
+      for read in &scope.reads {
+        if matches!(read.kind, ReactiveReadKind::AfterAwait | ReactiveReadKind::OutsideTracking) {
+          continue;
+        }
+        edges.push(ReactiveDependencyEdge {
+          from: from.clone(),
+          // Bare name for rule matching (e.g. unused-binding).
+          to: read.binding.clone(),
+          // Span-qualified for multi-consumer identity (graph v6).
+          to_id: Some(format!("{}@{}", read.binding, read.span.offset)),
+          kind,
+          span: read.span.clone(),
+        });
+      }
+    }
+    for template_read in &self.template_reads {
+      edges.push(ReactiveDependencyEdge {
+        // Span-qualified so multiple interpolations are distinct nodes.
+        from: format!("template:{}@{}", template_read.surface, template_read.span.offset),
+        to: template_read.binding.clone(),
+        to_id: Some(format!("{}@{}", template_read.binding, template_read.span.offset)),
+        kind: ReactiveDependencyKind::Template,
+        span: template_read.span.clone(),
+      });
+    }
+    edges.sort_by(|left, right| {
+      (left.kind, left.from.as_str(), left.to.as_str(), left.span.offset).cmp(&(
+        right.kind,
+        right.from.as_str(),
+        right.to.as_str(),
+        right.span.offset,
+      ))
+    });
+    edges.dedup_by(|left, right| {
+      left.from == right.from
+        && left.to == right.to
+        && left.kind == right.kind
+        && left.span.offset == right.span.offset
+    });
+    self.edges = edges;
+  }
+}
+
+fn push_template_reads(
+  template_reads: &mut Vec<TemplateReactiveReadFact>,
+  binding_names: &std::collections::BTreeSet<&str>,
+  identifiers: &[String],
+  surface: &str,
+  span: &SourceSpan,
+) {
+  for identifier in identifiers {
+    if binding_names.contains(identifier.as_str()) {
+      template_reads.push(TemplateReactiveReadFact {
+        binding: identifier.clone(),
+        span: span.clone(),
+        surface: surface.into(),
+      });
+    }
+  }
+}
+
+/// Join pure `bag.field` / `bag.field.value` template chains onto composable shape fields.
+fn push_instance_template_reads(
+  template_reads: &mut Vec<TemplateReactiveReadFact>,
+  composable_instances: &std::collections::BTreeMap<
+    String,
+    std::collections::BTreeMap<String, ReactiveBindingKind>,
+  >,
+  expression: &str,
+  surface: &str,
+  span: &SourceSpan,
+) {
+  let Some(chain) = simple_member_chain(expression) else {
+    return;
+  };
+  // bag.field  |  bag.field.value
+  let (Some(bag), Some(field)) = (chain.first(), chain.get(1)) else {
+    return;
+  };
+  let trailing_ok = match chain.len() {
+    2 => true,
+    3 => chain.get(2).is_some_and(|part| part == "value"),
+    _ => false,
+  };
+  if !trailing_ok {
+    return;
+  }
+  let Some(shape) = composable_instances.get(bag.as_str()) else {
+    return;
+  };
+  if !shape.contains_key(field.as_str()) {
+    return;
+  }
+  template_reads.push(TemplateReactiveReadFact {
+    binding: field.clone(),
+    span: span.clone(),
+    surface: surface.into(),
+  });
+}
+
+/// `a.b.c` with only simple identifiers and dots — rejects operators / calls.
+fn simple_member_chain(expression: &str) -> Option<Vec<String>> {
+  let trimmed = expression.trim();
+  if trimmed.is_empty() {
+    return None;
+  }
+  let mut parts = Vec::new();
+  for part in trimmed.split('.') {
+    let part = part.trim();
+    if !is_simple_js_identifier(part) {
+      return None;
+    }
+    parts.push(part.to_owned());
+  }
+  (parts.len() >= 2).then_some(parts)
+}
+
+fn is_simple_js_identifier(text: &str) -> bool {
+  let mut chars = text.chars();
+  let Some(first) = chars.next() else {
+    return false;
+  };
+  if !(first.is_ascii_alphabetic() || first == '_' || first == '$') {
+    return false;
+  }
+  chars.all(|character| character.is_ascii_alphanumeric() || character == '_' || character == '$')
+}
+
+fn template_expression_identifiers(expression: &str) -> Vec<String> {
+  const KEYWORDS: &[&str] = &[
+    "true",
+    "false",
+    "null",
+    "undefined",
+    "typeof",
+    "instanceof",
+    "new",
+    "void",
+    "in",
+    "of",
+    "if",
+    "else",
+    "return",
+    "const",
+    "let",
+    "var",
+    "function",
+    "this",
+    "as",
+    "await",
+    "async",
+  ];
+  let mut identifiers = Vec::new();
+  let mut current = String::new();
+  for character in expression.chars() {
+    if character.is_ascii_alphanumeric() || character == '_' || character == '$' {
+      current.push(character);
+    } else if !current.is_empty() {
+      if current.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || c == '$')
+        && !KEYWORDS.contains(&current.as_str())
+      {
+        identifiers.push(std::mem::take(&mut current));
+      } else {
+        current.clear();
+      }
+    }
+  }
+  if !current.is_empty()
+    && current.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || c == '$')
+    && !KEYWORDS.contains(&current.as_str())
+  {
+    identifiers.push(current);
+  }
+  identifiers
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -291,6 +817,28 @@ pub struct ScriptFacts {
 pub struct SfcFacts {
   pub template: TemplateFacts,
   pub script: ScriptFacts,
+}
+
+impl SfcFacts {
+  /// Replace the preferred script block's reactivity graph with a project-linked
+  /// module graph (usually after cross-file seed linking). Prefers `script setup`.
+  pub fn apply_module_reactivity(&mut self, graph: ReactivityGraph) {
+    self.apply_module_reactivity_for(ScriptKind::Setup, graph);
+  }
+
+  /// Apply a project-linked graph onto the script block of the given kind.
+  /// Falls back to the first block when the preferred kind is absent.
+  pub fn apply_module_reactivity_for(&mut self, kind: ScriptKind, graph: ReactivityGraph) {
+    if let Some(block) = self.script.blocks.iter_mut().find(|block| block.kind == kind) {
+      block.reactivity_graph = graph;
+      return;
+    }
+    if kind == ScriptKind::Setup
+      && let Some(block) = self.script.blocks.first_mut()
+    {
+      block.reactivity_graph = graph;
+    }
+  }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -324,9 +872,74 @@ pub struct RuleEnvironment {
   pub vue_version: Option<VueVersion>,
 }
 
+/// Interest set for the single facts pass (oxlint `NODE_TYPES` analogue).
+///
+/// Rules declare which fact kinds they visit. The registry walks each fact
+/// vector once and dispatches only interested rules — no per-rule full scans.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FactKinds(u32);
+
+impl FactKinds {
+  pub const NONE: Self = Self(0);
+  pub const TEMPLATE_ELEMENT: Self = Self(1 << 0);
+  pub const SCRIPT_CALL: Self = Self(1 << 1);
+  pub const SCRIPT_MEMBER_WRITE: Self = Self(1 << 2);
+  pub const SCRIPT_DESTRUCTURE: Self = Self(1 << 3);
+  pub const SCRIPT_BINDING: Self = Self(1 << 4);
+  pub const REACTIVE_BINDING: Self = Self(1 << 5);
+  pub const TRACKING_SCOPE: Self = Self(1 << 6);
+  pub const REACTIVITY_EFFECT: Self = Self(1 << 7);
+
+  #[must_use]
+  pub const fn union(self, other: Self) -> Self {
+    Self(self.0 | other.0)
+  }
+
+  #[must_use]
+  pub const fn contains(self, kind: Self) -> bool {
+    self.0 & kind.0 == kind.0 && kind.0 != 0
+  }
+
+  #[must_use]
+  pub const fn is_empty(self) -> bool {
+    self.0 == 0
+  }
+}
+
+/// One fact in the single pass over Vue Vet-owned surfaces (not dependency AST).
+#[derive(Clone, Copy, Debug)]
+pub enum FactRef<'a> {
+  TemplateElement(&'a TemplateElementFact),
+  ScriptCall { block_kind: ScriptKind, call: &'a ScriptCallFact },
+  ScriptMemberWrite { block_kind: ScriptKind, write: &'a ScriptMemberWriteFact },
+  ScriptDestructure { block_kind: ScriptKind, destructure: &'a ScriptDestructureFact },
+  ScriptBinding { block_kind: ScriptKind, binding: &'a ScriptBindingFact },
+  ReactiveBinding { block_kind: ScriptKind, binding: &'a ReactiveBindingFact },
+  TrackingScope { block_kind: ScriptKind, scope: &'a TrackingScopeFact },
+  ReactivityEffect { block_kind: ScriptKind, effect: &'a ReactivityEffectFact },
+}
+
+/// Built-in rule contract (oxlint-style pass hooks over stable facts).
+///
+/// - [`Self::run_once`]: whole-file / cross-fact aggregation (oxlint `run_once`)
+/// - [`Self::run_on`]: per-fact visitor during the single facts pass (oxlint `run`)
+/// - [`Self::fact_kinds`]: interest bitset for bucketed dispatch (oxlint `NODE_TYPES`)
+///
+/// Prefer `run_on` + immediate `report`. Do not `collect` intermediate vectors
+/// and re-scan them. Use `run_once` only when the rule needs multi-fact state.
 pub trait Rule: Sync {
   fn meta(&self) -> &'static RuleMeta;
-  fn run(&self, context: &mut RuleContext<'_>);
+
+  /// Facts this rule visits. Empty means only [`Self::run_once`] runs.
+  fn fact_kinds(&self) -> FactKinds {
+    FactKinds::NONE
+  }
+
+  /// File-level pass. Default no-op.
+  fn run_once(&self, _context: &mut RuleContext<'_>) {}
+
+  /// Per-fact pass. Default no-op. Report immediately; do not buffer findings.
+  fn run_on(&self, _fact: FactRef<'_>, _context: &mut RuleContext<'_>) {}
 }
 
 pub struct RuleContext<'a> {
@@ -422,15 +1035,79 @@ impl<'a> RuleContext<'a> {
   }
 }
 
+/// Per-kind rule buckets for the single facts pass (oxlint `RuleBuckets` analogue).
+#[derive(Default)]
+struct FactBuckets {
+  template_element: Vec<&'static dyn Rule>,
+  script_call: Vec<&'static dyn Rule>,
+  script_member_write: Vec<&'static dyn Rule>,
+  script_destructure: Vec<&'static dyn Rule>,
+  script_binding: Vec<&'static dyn Rule>,
+  reactive_binding: Vec<&'static dyn Rule>,
+  tracking_scope: Vec<&'static dyn Rule>,
+  reactivity_effect: Vec<&'static dyn Rule>,
+}
+
+impl FactBuckets {
+  fn push(&mut self, kinds: FactKinds, rule: &'static dyn Rule) {
+    if kinds.contains(FactKinds::TEMPLATE_ELEMENT) {
+      self.template_element.push(rule);
+    }
+    if kinds.contains(FactKinds::SCRIPT_CALL) {
+      self.script_call.push(rule);
+    }
+    if kinds.contains(FactKinds::SCRIPT_MEMBER_WRITE) {
+      self.script_member_write.push(rule);
+    }
+    if kinds.contains(FactKinds::SCRIPT_DESTRUCTURE) {
+      self.script_destructure.push(rule);
+    }
+    if kinds.contains(FactKinds::SCRIPT_BINDING) {
+      self.script_binding.push(rule);
+    }
+    if kinds.contains(FactKinds::REACTIVE_BINDING) {
+      self.reactive_binding.push(rule);
+    }
+    if kinds.contains(FactKinds::TRACKING_SCOPE) {
+      self.tracking_scope.push(rule);
+    }
+    if kinds.contains(FactKinds::REACTIVITY_EFFECT) {
+      self.reactivity_effect.push(rule);
+    }
+  }
+
+  fn needs_script_pass(&self) -> bool {
+    !self.script_call.is_empty()
+      || !self.script_member_write.is_empty()
+      || !self.script_destructure.is_empty()
+      || !self.script_binding.is_empty()
+      || !self.reactive_binding.is_empty()
+      || !self.tracking_scope.is_empty()
+      || !self.reactivity_effect.is_empty()
+  }
+}
+
 pub struct RuleRegistry {
   rules: Vec<&'static dyn Rule>,
+  /// Rules that implement file-level aggregation.
+  once_rules: Vec<&'static dyn Rule>,
+  /// Per-kind buckets for the single facts pass.
+  buckets: FactBuckets,
 }
 
 impl RuleRegistry {
   #[must_use]
   pub fn new(mut rules: Vec<&'static dyn Rule>) -> Self {
     rules.sort_by_key(|rule| rule.meta().id);
-    Self { rules }
+    let mut once_rules = Vec::new();
+    let mut buckets = FactBuckets::default();
+    for rule in &rules {
+      // Always schedule run_once; no-op default is free. Rules that only use
+      // run_on simply leave it empty.
+      once_rules.push(*rule);
+      buckets.push(rule.fact_kinds(), *rule);
+    }
+    Self { rules, once_rules, buckets }
   }
 
   #[must_use]
@@ -454,11 +1131,85 @@ impl RuleRegistry {
     environment: RuleEnvironment,
   ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
-    for rule in &self.rules {
-      let mut context =
-        RuleContext::new(file, source, template, script, environment, &mut diagnostics);
-      rule.run(&mut context);
+    let mut context =
+      RuleContext::new(file, source, template, script, environment, &mut diagnostics);
+
+    // Pass 1: file-level hooks (oxlint run_once).
+    for rule in &self.once_rules {
+      rule.run_once(&mut context);
     }
+
+    // Pass 2: single walk over each fact surface with type-bucketed dispatch.
+    if !self.buckets.template_element.is_empty() {
+      for element in &template.elements {
+        let fact = FactRef::TemplateElement(element);
+        for rule in &self.buckets.template_element {
+          rule.run_on(fact, &mut context);
+        }
+      }
+    }
+
+    if self.buckets.needs_script_pass() {
+      for block in &script.blocks {
+        if !self.buckets.script_call.is_empty() {
+          for call in &block.calls {
+            let fact = FactRef::ScriptCall { block_kind: block.kind, call };
+            for rule in &self.buckets.script_call {
+              rule.run_on(fact, &mut context);
+            }
+          }
+        }
+        if !self.buckets.script_member_write.is_empty() {
+          for write in &block.member_writes {
+            let fact = FactRef::ScriptMemberWrite { block_kind: block.kind, write };
+            for rule in &self.buckets.script_member_write {
+              rule.run_on(fact, &mut context);
+            }
+          }
+        }
+        if !self.buckets.script_destructure.is_empty() {
+          for destructure in &block.destructures {
+            let fact = FactRef::ScriptDestructure { block_kind: block.kind, destructure };
+            for rule in &self.buckets.script_destructure {
+              rule.run_on(fact, &mut context);
+            }
+          }
+        }
+        if !self.buckets.script_binding.is_empty() {
+          for binding in &block.bindings {
+            let fact = FactRef::ScriptBinding { block_kind: block.kind, binding };
+            for rule in &self.buckets.script_binding {
+              rule.run_on(fact, &mut context);
+            }
+          }
+        }
+        if !self.buckets.reactive_binding.is_empty() {
+          for binding in &block.reactivity_graph.bindings {
+            let fact = FactRef::ReactiveBinding { block_kind: block.kind, binding };
+            for rule in &self.buckets.reactive_binding {
+              rule.run_on(fact, &mut context);
+            }
+          }
+        }
+        if !self.buckets.tracking_scope.is_empty() {
+          for scope in &block.reactivity_graph.scopes {
+            let fact = FactRef::TrackingScope { block_kind: block.kind, scope };
+            for rule in &self.buckets.tracking_scope {
+              rule.run_on(fact, &mut context);
+            }
+          }
+        }
+        if !self.buckets.reactivity_effect.is_empty() {
+          for effect in &block.reactivity_graph.effects {
+            let fact = FactRef::ReactivityEffect { block_kind: block.kind, effect };
+            for rule in &self.buckets.reactivity_effect {
+              rule.run_on(fact, &mut context);
+            }
+          }
+        }
+      }
+    }
+
     diagnostics
   }
 
@@ -517,8 +1268,6 @@ mod tests {
     fn meta(&self) -> &'static RuleMeta {
       self.0
     }
-
-    fn run(&self, _context: &mut RuleContext<'_>) {}
   }
 
   static A_META: RuleMeta = RuleMeta {

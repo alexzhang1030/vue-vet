@@ -7,6 +7,10 @@
 - Every built-in rule keeps its metadata and `Rule` implementation in one
   dedicated file under `vue-vet-rules/src/rules`; the registry module only
   assembles rules and must not become a behavior dispatcher.
+- Rules use the pass API: declare `fact_kinds`, implement `run_on` for per-fact
+  checks, and use `run_once` only for true multi-fact aggregation. Prefer
+  immediate `report` inside the visitor. Do not filter the whole fact set into a
+  temporary `Vec` and then iterate it again.
 - A rule lands with rationale, bad/good examples, limitations, positive fixtures, common safe patterns, false-positive regressions, exact-span assertions, and reporter snapshots.
 - Low-confidence heuristics are opt-in and never enter the default preset merely to increase rule count.
 

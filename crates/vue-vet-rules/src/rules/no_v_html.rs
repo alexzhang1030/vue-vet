@@ -1,4 +1,4 @@
-use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, Severity};
+use vue_vet_core::{Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/security/no-v-html",
@@ -17,24 +17,25 @@ impl Rule for NoVHtml {
     &META
   }
 
-  fn run(&self, context: &mut RuleContext<'_>) {
-    let spans = context
-      .template()
-      .elements
-      .iter()
-      .filter_map(|element| element.directive("html"))
-      .map(|directive| directive.span.clone())
-      .collect::<Vec<_>>();
-    for span in spans {
-      context.report(
-        self.meta(),
-        span,
-        "`v-html` can render untrusted HTML into the page".into(),
-        Some(
-          "Prefer normal template interpolation. If raw HTML is required, sanitize it at the trust boundary."
-            .into(),
-        ),
-      );
-    }
+  fn fact_kinds(&self) -> FactKinds {
+    FactKinds::TEMPLATE_ELEMENT
+  }
+
+  fn run_on(&self, fact: FactRef<'_>, context: &mut RuleContext<'_>) {
+    let FactRef::TemplateElement(element) = fact else {
+      return;
+    };
+    let Some(directive) = element.directive("html") else {
+      return;
+    };
+    context.report(
+      self.meta(),
+      directive.span.clone(),
+      "`v-html` can render untrusted HTML into the page".into(),
+      Some(
+        "Prefer normal template interpolation. If raw HTML is required, sanitize it at the trust boundary."
+          .into(),
+      ),
+    );
   }
 }

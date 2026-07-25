@@ -1,4 +1,6 @@
-use vue_vet_core::{Confidence, ReactiveReadKind, Rule, RuleContext, RuleMeta, Severity};
+use vue_vet_core::{
+  Confidence, FactKinds, FactRef, ReactiveReadKind, Rule, RuleContext, RuleMeta, Severity,
+};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-conditional-watch-effect-dependency",
@@ -17,50 +19,45 @@ impl Rule for NoConditionalWatchEffectDependency {
     &META
   }
 
-  fn run(&self, context: &mut RuleContext<'_>) {
-    let reads = context
-      .script()
-      .blocks
-      .iter()
-      .flat_map(|block| &block.reactivity_graph.effects)
-      .flat_map(|effect| {
-        effect
-          .reads
-          .iter()
-          .filter(|read| read.kind == ReactiveReadKind::Conditional)
-          .filter(|read| {
-            !effect.reads.iter().any(|candidate| {
-              candidate.kind == ReactiveReadKind::Unconditional
-                && candidate.span.offset < read.span.offset
-                && candidate.binding == read.binding
-                && candidate.property == read.property
-            })
-          })
-          .map(|read| {
-            let binding = read.property.as_ref().map_or_else(
-              || read.binding.clone(),
-              |property| format!("{}.{property}", read.binding),
-            );
-            let guards = read
-              .guards
-              .iter()
-              .map(|guard| {
-                guard.property.as_ref().map_or_else(
-                  || guard.binding.clone(),
-                  |property| format!("{}.{property}", guard.binding),
-                )
-              })
-              .collect::<Vec<_>>()
-              .join("`, `");
-            (read.span.clone(), binding, guards)
-          })
-          .collect::<Vec<_>>()
-      })
-      .collect::<Vec<_>>();
-    for (span, binding, guards) in reads {
+  fn fact_kinds(&self) -> FactKinds {
+    FactKinds::REACTIVITY_EFFECT
+  }
+
+  fn run_on(&self, fact: FactRef<'_>, context: &mut RuleContext<'_>) {
+    let FactRef::ReactivityEffect { effect, .. } = fact else {
+      return;
+    };
+    for read in &effect.reads {
+      if read.kind != ReactiveReadKind::Conditional {
+        continue;
+      }
+      let already_unconditional = effect.reads.iter().any(|candidate| {
+        candidate.kind == ReactiveReadKind::Unconditional
+          && candidate.span.offset < read.span.offset
+          && candidate.binding == read.binding
+          && candidate.property == read.property
+      });
+      if already_unconditional {
+        continue;
+      }
+      let binding = read
+        .property
+        .as_ref()
+        .map_or_else(|| read.binding.clone(), |property| format!("{}.{property}", read.binding));
+      let guards = read
+        .guards
+        .iter()
+        .map(|guard| {
+          guard.property.as_ref().map_or_else(
+            || guard.binding.clone(),
+            |property| format!("{}.{property}", guard.binding),
+          )
+        })
+        .collect::<Vec<_>>()
+        .join("`, `");
       context.report(
         self.meta(),
-        span,
+        read.span.clone(),
         format!("`{binding}` is only tracked after the `{guards}` guard passes"),
         Some(
           "If every value must invalidate the effect, use explicit watch sources or read each             dependency before the guard."

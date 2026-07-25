@@ -17,15 +17,15 @@ impl Rule for NoDuplicateDefineExpose {
     &META
   }
 
-  fn run(&self, context: &mut RuleContext<'_>) {
-    let spans = context
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    let spans: Vec<_> = context
       .script()
       .blocks
       .iter()
       .filter(|block| block.kind == ScriptKind::Setup)
       .flat_map(|block| block.calls.iter().filter(|call| call.callee == "defineExpose").skip(1))
       .map(|call| call.span.clone())
-      .collect::<Vec<_>>();
+      .collect();
     for span in spans {
       context.report(
         self.meta(),

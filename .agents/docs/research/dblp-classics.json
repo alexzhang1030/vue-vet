@@ -1,0 +1,181 @@
+{
+  "count": 22,
+  "hits": [
+    {
+      "q": "program dependence graph Ferrante",
+      "title": "The Program Dependence Graph and Its Use in Optimization.",
+      "year": "1987",
+      "venue": "ACM Trans. Program. Lang. Syst.",
+      "ee": "https://doi.org/10.1145/24039.24041",
+      "key": "journals/toplas/FerranteOW87"
+    },
+    {
+      "q": "program dependence graph Ferrante",
+      "title": "The program Dependence Graph and its Use in Optimization.",
+      "year": "1984",
+      "venue": "Symposium on Programming",
+      "ee": "https://doi.org/10.1007/3-540-12925-1_33",
+      "key": "conf/programm/FerranteOW84"
+    },
+    {
+      "q": "program dependence graph Ferrante",
+      "title": "Efficiently Computing Static Single Assignment Form and the Control Dependence Graph.",
+      "year": "1991",
+      "venue": "ACM Trans. Program. Lang. Syst.",
+      "ee": "https://doi.org/10.1145/115372.115320",
+      "key": "journals/toplas/CytronFRWZ91"
+    },
+    {
+      "q": "thin slicing Sridharan",
+      "title": "Thin slicing.",
+      "year": "2007",
+      "venue": "PLDI",
+      "ee": "https://doi.org/10.1145/1250734.1250748",
+      "key": "conf/pldi/SridharanFB07"
+    },
+    {
+      "q": "REScala Salvaneschi",
+      "title": "Reactive programming experience with REScala.",
+      "year": "2018",
+      "venue": "Programming",
+      "ee": "https://doi.org/10.1145/3191697.3214337",
+      "key": "conf/programming/MogkSM18"
+    },
+    {
+      "q": "REScala Salvaneschi",
+      "title": "REScala: bridging between object-oriented and functional style in reactive applications.",
+      "year": "2014",
+      "venue": "MODULARITY",
+      "ee": "https://doi.org/10.1145/2577080.2577083",
+      "key": "conf/aosd/SalvaneschiHM14"
+    },
+    {
+      "q": "REScala Salvaneschi",
+      "title": "Distributed REScala: an update algorithm for distributed reactive programming.",
+      "year": "2014",
+      "venue": "OOPSLA",
+      "ee": "https://doi.org/10.1145/2660193.2660240",
+      "key": "conf/oopsla/DrechslerSMM14"
+    },
+    {
+      "q": "Flapjax Meyerovich",
+      "title": "Flapjax: a programming language for Ajax applications.",
+      "year": "2009",
+      "venue": "OOPSLA",
+      "ee": "https://doi.org/10.1145/1640089.1640091",
+      "key": "conf/oopsla/MeyerovichGBCGBK09"
+    },
+    {
+      "q": "thread-safe reactive programming Drechsler",
+      "title": "Thread-safe reactive programming.",
+      "year": "2018",
+      "venue": "Proc. ACM Program. Lang.",
+      "ee": "https://doi.org/10.1145/3276477",
+      "key": "journals/pacmpl/DrechslerMSM18"
+    },
+    {
+      "q": "Type Analysis for JavaScript Jensen",
+      "title": "Type Analysis for JavaScript.",
+      "year": "2009",
+      "venue": "SAS",
+      "ee": "https://doi.org/10.1007/978-3-642-03237-0_17",
+      "key": "conf/sas/JensenMT09"
+    },
+    {
+      "q": "Static Analysis of Event-Driven Node Madsen",
+      "title": "Static analysis of event-driven Node.js JavaScript applications.",
+      "year": "2015",
+      "venue": "OOPSLA",
+      "ee": "https://doi.org/10.1145/2814270.2814272",
+      "key": "conf/oopsla/MadsenTL15"
+    },
+    {
+      "q": "ReactiveML Mandel",
+      "title": "ReactiveML, ten years later.",
+      "year": "2015",
+      "venue": "PPDP",
+      "ee": "https://doi.org/10.1145/2790449.2790509",
+      "key": "conf/ppdp/MandelPP15"
+    },
+    {
+      "q": "ReactiveML Mandel",
+      "title": "Ex\u00e9cution efficace de programmes ReactiveML.",
+      "year": "2014",
+      "venue": "JFLA",
+      "ee": null,
+      "key": "conf/jfla/MandelP14"
+    },
+    {
+      "q": "ReactiveML Mandel",
+      "title": "Reactivity of Cooperative Systems - Application to ReactiveML.",
+      "year": "2014",
+      "venue": "SAS",
+      "ee": "https://doi.org/10.1007/978-3-319-10936-7_14",
+      "key": "conf/sas/MandelP14"
+    },
+    {
+      "q": "ReactiveML Mandel",
+      "title": "Programming mixed music in ReactiveML.",
+      "year": "2013",
+      "venue": "FARM@ICFP",
+      "ee": "https://doi.org/10.1145/2505341.2505344",
+      "key": "conf/icfp/BaudartMP13"
+    },
+    {
+      "q": "ReactiveML Mandel",
+      "title": "ReactiveML, un langage fonctionnel pour la programmation r\u00e9active.",
+      "year": "2008",
+      "venue": "Tech. Sci. Informatiques",
+      "ee": "https://doi.org/10.3166/tsi.27.1097-1128",
+      "key": "journals/tsi/MandelP08"
+    },
+    {
+      "q": "ReactiveML Mandel",
+      "title": "ReactiveML: a reactive extension to ML.",
+      "year": "2005",
+      "venue": "PPDP",
+      "ee": "https://doi.org/10.1145/1069774.1069782",
+      "key": "conf/ppdp/MandelP05"
+    },
+    {
+      "q": "code property graphs Yamaguchi",
+      "title": "Modeling and Discovering Vulnerabilities with Code Property Graphs.",
+      "year": "2014",
+      "venue": "IEEE Symposium on Security and Privacy",
+      "ee": "https://doi.org/10.1109/SP.2014.44",
+      "key": "conf/sp/YamaguchiGAR14"
+    },
+    {
+      "q": "differential dataflow McSherry",
+      "title": "K-Pg: Shared State in Differential Dataflows.",
+      "year": "2018",
+      "venue": "CoRR",
+      "ee": "http://arxiv.org/abs/1812.02639",
+      "key": "journals/corr/abs-1812-02639"
+    },
+    {
+      "q": "differential dataflow McSherry",
+      "title": "Foundations of Differential Dataflow.",
+      "year": "2015",
+      "venue": "FoSSaCS",
+      "ee": "https://doi.org/10.1007/978-3-662-46678-0_5",
+      "key": "conf/fossacs/AbadiMP15"
+    },
+    {
+      "q": "differential dataflow McSherry",
+      "title": "Differential Dataflow.",
+      "year": "2013",
+      "venue": "CIDR",
+      "ee": "http://cidrdb.org/cidr2013/Papers/CIDR13_Paper111.pdf",
+      "key": "conf/cidr/McSherryMII13"
+    },
+    {
+      "q": "We Have a DREAM Margara",
+      "title": "We have a DREAM: distributed reactive programming with consistency guarantees.",
+      "year": "2014",
+      "venue": "DEBS",
+      "ee": "https://doi.org/10.1145/2611286.2611290",
+      "key": "conf/debs/MargaraS14"
+    }
+  ]
+}

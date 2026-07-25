@@ -1,4 +1,4 @@
-use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, Severity};
+use vue_vet_core::{Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/correctness/no-deprecated-v-on-native-modifier",
@@ -17,28 +17,27 @@ impl Rule for NoDeprecatedVOnNativeModifier {
     &META
   }
 
-  fn run(&self, context: &mut RuleContext<'_>) {
-    let spans = context
-      .template()
-      .elements
-      .iter()
-      .filter_map(|element| {
-        element.directives.iter().find(|directive| {
-          directive.name == "on" && directive.modifiers.iter().any(|modifier| modifier == "native")
-        })
-      })
-      .map(|directive| directive.span.clone())
-      .collect::<Vec<_>>();
-    for span in spans {
-      context.report(
-        self.meta(),
-        span,
-        "the `.native` event modifier was removed in Vue 3".into(),
-        Some(
-          "Declare emitted events on the child component; undeclared listeners fall through natively."
-            .into(),
-        ),
-      );
-    }
+  fn fact_kinds(&self) -> FactKinds {
+    FactKinds::TEMPLATE_ELEMENT
+  }
+
+  fn run_on(&self, fact: FactRef<'_>, context: &mut RuleContext<'_>) {
+    let FactRef::TemplateElement(element) = fact else {
+      return;
+    };
+    let Some(directive) = element.directives.iter().find(|directive| {
+      directive.name == "on" && directive.modifiers.iter().any(|modifier| modifier == "native")
+    }) else {
+      return;
+    };
+    context.report(
+      self.meta(),
+      directive.span.clone(),
+      "the `.native` event modifier was removed in Vue 3".into(),
+      Some(
+        "Declare emitted events on the child component; undeclared listeners fall through natively."
+          .into(),
+      ),
+    );
   }
 }

@@ -22,7 +22,7 @@ use vue_vet_reporters::{
   ReportContext, ReportFormat, ReportFramework, ReportMode, render, render_error,
 };
 use vue_vet_rules::builtin_registry;
-use vue_vet_vize::analyze_sfc_with_environment;
+use vue_vet_vize::analyze_sfc_facts_with_environment;
 
 mod fixes;
 
@@ -60,6 +60,14 @@ struct Cli {
 
   #[arg(long, value_name = "REF", help = "Report changed lines plus all project findings")]
   diff: Option<String>,
+
+  /// Analysis worker threads (oxlint-style file parallelism). Defaults to available parallelism.
+  #[arg(
+    long,
+    value_name = "N",
+    help = "Number of analysis threads (default: available parallelism)"
+  )]
+  threads: Option<usize>,
 
   #[command(flatten)]
   fix: FixArgs,
@@ -208,7 +216,7 @@ struct ScanResult {
 
 fn cached_scan(cli: &Cli, config: &Config) -> Result<(ScanResult, &'static str), String> {
   if cli.cache.no_cache || cli.fix.mode().is_some() {
-    return scan(&cli.path, config).map(|result| (result, "disabled"));
+    return scan_with_threads(&cli.path, config, cli.threads).map(|result| (result, "disabled"));
   }
   let files = cache_inputs(&cli.path)?;
   let serialized_config =
@@ -219,9 +227,9 @@ fn cached_scan(cli: &Cli, config: &Config) -> Result<(ScanResult, &'static str),
     CacheLookup::Hit(payload) => {
       Ok((ScanResult { summary: payload.summary, graph: payload.graph }, "hit"))
     }
-    CacheLookup::Miss => fill_cache(&store, &key, &cli.path, config, "miss"),
+    CacheLookup::Miss => fill_cache(&store, &key, &cli.path, config, "miss", cli.threads),
     CacheLookup::RecoveredCorruption => {
-      fill_cache(&store, &key, &cli.path, config, "recovered-corruption")
+      fill_cache(&store, &key, &cli.path, config, "recovered-corruption", cli.threads)
     }
   }
 }
@@ -239,7 +247,7 @@ fn run_requested_fixes(cli: &Cli, config: &Config, result: &mut ScanResult) -> R
   let outcome = execute_safe_edits(&cli.path, edits, mode).map_err(|error| error.to_string())?;
   print_fix_outcome(mode, outcome);
   if mode == FixMode::Apply && outcome.changed() {
-    *result = scan(&cli.path, config)?;
+    *result = scan_with_threads(&cli.path, config, cli.threads)?;
   }
   Ok(())
 }
@@ -262,8 +270,9 @@ fn fill_cache(
   root: &Path,
   config: &Config,
   status: &'static str,
+  threads: Option<usize>,
 ) -> Result<(ScanResult, &'static str), String> {
-  let result = scan(root, config)?;
+  let result = scan_with_threads(root, config, threads)?;
   store
     .store(key, &CachePayload { summary: result.summary.clone(), graph: result.graph.clone() })
     .map_err(|error| error.to_string())?;
@@ -306,73 +315,215 @@ fn scan_directory(path: &Path) -> &Path {
   if path.is_dir() { path } else { path.parent().unwrap_or(path) }
 }
 
-fn scan(root: &Path, config: &Config) -> Result<ScanResult, String> {
+/// Oxlint-style scan: walk/collect paths sequentially, analyze files and run
+/// seed-aware rules in parallel, then sort diagnostics for determinism.
+fn scan_with_threads(
+  root: &Path,
+  config: &Config,
+  threads: Option<usize>,
+) -> Result<ScanResult, String> {
   if !root.exists() {
     return Err(format!("path does not exist: {}", root.display()));
   }
 
-  let filter = config.path_filter().map_err(|error| error.to_string())?;
+  let run = || scan_parallel(root, config);
+  match threads {
+    Some(threads) => {
+      let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(threads.max(1))
+        .build()
+        .map_err(|error| format!("failed to configure analysis threads: {error}"))?;
+      pool.install(run)
+    }
+    None => run(),
+  }
+}
 
-  let mut summary = ScanSummary::default();
-  let mut project_files = Vec::new();
+fn scan_parallel(root: &Path, config: &Config) -> Result<ScanResult, String> {
+  use rayon::prelude::*;
+
+  let filter = config.path_filter().map_err(|error| error.to_string())?;
+  let boundary = scan_directory(root);
+
+  // Phase 0: collect candidates (sequential; ignore crate walk is not parallel-safe).
+  let mut candidates = Vec::new();
   for entry in WalkBuilder::new(root).standard_filters(true).build() {
     let entry = entry.map_err(|error| error.to_string())?;
-    let path = entry.path();
+    let path = entry.path().to_path_buf();
     if entry.file_type().is_some_and(|kind| kind.is_dir()) {
       continue;
     }
-    let logical_path = logical_path(root, path);
-    let extension = path.extension().and_then(|extension| extension.to_str());
-    match extension {
-      Some("vue") if filter.matches(logical_path) => {
-        let source = read_source(path)?;
-        let environment =
-          RuleEnvironment { vue_version: vue_version_for(path, scan_directory(root)) };
-        let analysis = analyze_sfc_with_environment(path, &source, environment)
-          .map_err(|error| format!("failed to analyze {}: {error}", path.display()))?;
-        let mut diagnostics = config.apply(analysis.diagnostics);
-        for diagnostic in &mut diagnostics {
-          for edit in &mut diagnostic.edits {
-            edit.file = logical_path.to_path_buf();
-          }
-        }
-        let diagnostics = apply_suppressions(path, &source, diagnostics);
-        summary.files_scanned = summary.files_scanned.saturating_add(1);
-        summary.diagnostics.extend(diagnostics);
-        project_files.push(ProjectFile {
-          path: logical_path.to_path_buf(),
-          source_len: source.len(),
-          facts: analysis.facts,
-          module_source: None,
-        });
+    let logical = logical_path(root, &path).to_path_buf();
+    let extension = path.extension().and_then(|extension| extension.to_str()).map(str::to_owned);
+    match extension.as_deref() {
+      Some("vue") if filter.matches(&logical) => {
+        candidates.push(ScanCandidate::Vue { path, logical_path: logical });
       }
       Some(language @ ("js" | "jsx" | "ts" | "tsx")) => {
-        let source = read_source(path)?;
-        let block = analyze_module(&source, language)
-          .map_err(|error| format!("failed to analyze {}: {error}", path.display()))?;
-        project_files.push(ProjectFile {
-          path: logical_path.to_path_buf(),
-          source_len: source.len(),
-          facts: SfcFacts {
-            template: TemplateFacts::default(),
-            script: ScriptFacts { blocks: vec![block] },
-          },
-          module_source: Some(ModuleSource {
-            id: logical_path.to_string_lossy().replace('\\', "/"),
-            source,
-            language: language.into(),
-            kind: vue_vet_core::ScriptKind::Script,
-          }),
+        candidates.push(ScanCandidate::Script {
+          path,
+          logical_path: logical,
+          language: language.to_owned(),
         });
       }
       _ => {}
     }
   }
+  candidates.sort_by(|left, right| left.sort_key().cmp(right.sort_key()));
 
+  // Phase 1: per-file parse/facts in parallel (oxlint Runtime model).
+  let analyzed = candidates
+    .par_iter()
+    .map(|candidate| analyze_candidate(candidate, boundary))
+    .collect::<Result<Vec<_>, _>>()?;
+
+  let mut summary = ScanSummary::default();
+  let mut project_files = Vec::new();
+  let mut pending_vue = Vec::new();
+  for item in analyzed {
+    match item {
+      AnalyzedCandidate::Vue { project_file, pending } => {
+        summary.files_scanned = summary.files_scanned.saturating_add(1);
+        project_files.push(project_file);
+        pending_vue.push(pending);
+      }
+      AnalyzedCandidate::Script { project_file } => {
+        project_files.push(project_file);
+      }
+    }
+  }
+
+  // Phase 2: project graph + module seed linking (module re-trace is itself parallel).
   let graph = build_project_graph(&project_files);
+  let modules = graph
+    .module_reactivity
+    .iter()
+    .map(|module| (module.id.clone(), module.graph.clone()))
+    .collect::<BTreeMap<_, _>>();
+
+  // Phase 3: seed-aware rules in parallel; diagnostics sorted later by finish().
+  let file_diagnostics = pending_vue
+    .into_par_iter()
+    .map(|pending| {
+      let mut facts = pending.facts;
+      let module_id = pending.logical_path.to_string_lossy().replace('\\', "/");
+      if let Some(graph) = modules.get(module_id.as_str()) {
+        facts.apply_module_reactivity(graph.clone());
+      }
+      let ordinary_id = format!("{module_id}#script");
+      if let Some(graph) = modules.get(ordinary_id.as_str()) {
+        facts.apply_module_reactivity_for(vue_vet_core::ScriptKind::Script, graph.clone());
+      }
+      let diagnostics = builtin_registry().run_with_environment(
+        &pending.path,
+        &pending.source,
+        &facts.template,
+        &facts.script,
+        pending.environment,
+      );
+      let mut diagnostics = config.apply(diagnostics);
+      for diagnostic in &mut diagnostics {
+        for edit in &mut diagnostic.edits {
+          edit.file.clone_from(&pending.logical_path);
+        }
+      }
+      let diagnostics = apply_suppressions(&pending.path, &pending.source, diagnostics);
+      Ok::<_, String>((pending.logical_path, diagnostics))
+    })
+    .collect::<Result<Vec<_>, _>>()?;
+
+  for (_, diagnostics) in file_diagnostics {
+    summary.diagnostics.extend(diagnostics);
+  }
   let project_diagnostics = config.apply(graph.diagnostics.clone());
   summary.diagnostics.extend(project_diagnostics);
   Ok(ScanResult { summary: summary.finish(), graph })
+}
+
+enum ScanCandidate {
+  Vue { path: PathBuf, logical_path: PathBuf },
+  Script { path: PathBuf, logical_path: PathBuf, language: String },
+}
+
+impl ScanCandidate {
+  fn sort_key(&self) -> &Path {
+    match self {
+      Self::Vue { logical_path, .. } | Self::Script { logical_path, .. } => logical_path,
+    }
+  }
+}
+
+enum AnalyzedCandidate {
+  Vue { project_file: ProjectFile, pending: PendingVueFile },
+  Script { project_file: ProjectFile },
+}
+
+fn analyze_candidate(
+  candidate: &ScanCandidate,
+  boundary: &Path,
+) -> Result<AnalyzedCandidate, String> {
+  match candidate {
+    ScanCandidate::Vue { path, logical_path } => {
+      let source = read_source(path)?;
+      let environment = RuleEnvironment { vue_version: vue_version_for(path, boundary) };
+      let analysis = analyze_sfc_facts_with_environment(path, &source)
+        .map_err(|error| format!("failed to analyze {}: {error}", path.display()))?;
+      let module_id = logical_path.to_string_lossy().replace('\\', "/");
+      let project_file = ProjectFile {
+        path: logical_path.clone(),
+        source_len: source.len(),
+        facts: analysis.facts.clone(),
+        module_source: analysis.module_source.map(|mut module| {
+          module.id.clone_from(&module_id);
+          module
+        }),
+        ordinary_module_source: analysis.ordinary_module_source.map(|mut module| {
+          module.id = format!("{module_id}#script");
+          module
+        }),
+      };
+      Ok(AnalyzedCandidate::Vue {
+        project_file,
+        pending: PendingVueFile {
+          path: path.clone(),
+          logical_path: logical_path.clone(),
+          source,
+          environment,
+          facts: analysis.facts,
+        },
+      })
+    }
+    ScanCandidate::Script { path, logical_path, language } => {
+      let source = read_source(path)?;
+      let block = analyze_module(&source, language)
+        .map_err(|error| format!("failed to analyze {}: {error}", path.display()))?;
+      Ok(AnalyzedCandidate::Script {
+        project_file: ProjectFile {
+          path: logical_path.clone(),
+          source_len: source.len(),
+          facts: SfcFacts {
+            template: TemplateFacts::default(),
+            script: ScriptFacts { blocks: vec![block] },
+          },
+          module_source: Some(ModuleSource::standalone(
+            logical_path.to_string_lossy().replace('\\', "/"),
+            source,
+            language.clone(),
+            vue_vet_core::ScriptKind::Script,
+          )),
+          ordinary_module_source: None,
+        },
+      })
+    }
+  }
+}
+
+struct PendingVueFile {
+  path: PathBuf,
+  logical_path: PathBuf,
+  source: String,
+  environment: RuleEnvironment,
+  facts: SfcFacts,
 }
 
 fn vue_version_for(path: &Path, boundary: &Path) -> Option<VueVersion> {

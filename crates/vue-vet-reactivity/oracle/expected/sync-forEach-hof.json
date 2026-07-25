@@ -1,0 +1,14 @@
+{
+  "id": "sync-forEach-hof",
+  "source": "import { ref, computed } from 'vue'\nconst list = ref([1, 2, 3])\nconst factor = ref(2)\nconst scaled = computed(() => {\n  const out = []\n  list.value.forEach((n) => {\n    out.push(n * factor.value)\n  })\n  return out\n})\nvoid scaled.value\n",
+  "runtime_deps": [
+    {
+      "binding": "factor",
+      "key": "value"
+    },
+    {
+      "binding": "list",
+      "key": "value"
+    }
+  ]
+}

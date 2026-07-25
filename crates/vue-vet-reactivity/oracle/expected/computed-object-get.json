@@ -1,0 +1,10 @@
+{
+  "id": "computed-object-get",
+  "source": "import { ref, computed } from 'vue'\nconst count = ref(1)\nconst doubled = computed({\n  get() { return count.value * 2 },\n  set(v) { count.value = v },\n})\nvoid doubled.value\n",
+  "runtime_deps": [
+    {
+      "binding": "count",
+      "key": "value"
+    }
+  ]
+}

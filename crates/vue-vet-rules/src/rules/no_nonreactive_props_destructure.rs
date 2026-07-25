@@ -1,4 +1,6 @@
-use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, ScriptKind, Severity};
+use vue_vet_core::{
+  Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, ScriptKind, Severity,
+};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-nonreactive-props-destructure",
@@ -17,32 +19,31 @@ impl Rule for NoNonreactivePropsDestructure {
     &META
   }
 
-  fn run(&self, context: &mut RuleContext<'_>) {
+  fn fact_kinds(&self) -> FactKinds {
+    FactKinds::SCRIPT_DESTRUCTURE
+  }
+
+  fn run_on(&self, fact: FactRef<'_>, context: &mut RuleContext<'_>) {
+    let FactRef::ScriptDestructure { block_kind, destructure } = fact else {
+      return;
+    };
+    if block_kind != ScriptKind::Setup || destructure.source_call != "defineProps" {
+      return;
+    }
     let Some(version) = context.environment().vue_version else {
       return;
     };
     if version.is_at_least(3, 5) {
       return;
     }
-    let spans = context
-      .script()
-      .blocks
-      .iter()
-      .filter(|block| block.kind == ScriptKind::Setup)
-      .flat_map(|block| &block.destructures)
-      .filter(|destructure| destructure.source_call == "defineProps")
-      .map(|destructure| destructure.span.clone())
-      .collect::<Vec<_>>();
-    for span in spans {
-      context.report(
-        self.meta(),
-        span,
-        "destructured props are not reactive before Vue 3.5".into(),
-        Some(
-          "Assign defineProps() to an object, then destructure toRefs(props), or keep property            access through the props object."
-            .into(),
-        ),
-      );
-    }
+    context.report(
+      self.meta(),
+      destructure.span.clone(),
+      "destructured props are not reactive before Vue 3.5".into(),
+      Some(
+        "Assign defineProps() to an object, then destructure toRefs(props), or keep property            access through the props object."
+          .into(),
+      ),
+    );
   }
 }

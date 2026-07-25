@@ -8,6 +8,21 @@ watchEffect(() => {
   console.log(guardedValue.value)
 })
 
+const asyncValue = ref(0)
+watchEffect(async () => {
+  await Promise.resolve()
+  console.log(asyncValue.value)
+})
+
+const first = ref('Ada')
+const last = ref('Lovelace')
+const fullName = ref('')
+watchEffect(() => {
+  fullName.value = `${first.value} ${last.value}`
+})
+
+const orphan = ref(0)
+
 const componentProps = defineProps<{ title: string }>()
 defineProps<{ count: number }>()
 defineEmits()

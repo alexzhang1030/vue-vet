@@ -1,0 +1,14 @@
+{
+  "id": "sync-find-hof",
+  "source": "import { ref, computed } from 'vue'\nconst list = ref([1, 2, 3])\nconst target = ref(2)\nconst hit = computed(() => list.value.find((n) => n === target.value))\nvoid hit.value\n",
+  "runtime_deps": [
+    {
+      "binding": "list",
+      "key": "value"
+    },
+    {
+      "binding": "target",
+      "key": "value"
+    }
+  ]
+}

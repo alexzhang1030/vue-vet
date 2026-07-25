@@ -4,7 +4,11 @@ use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType;
-use vue_vet_core::{ReactiveBindingKind, ReactiveReadKind, ReactivityGraph, ScriptKind};
+use vue_vet_core::{
+  ReactiveBindingKind, ReactiveDependencyKind, ReactiveGuardRole, ReactiveReadKind,
+  ReactivityGraph, ScriptKind, SourceSpan, TemplateDirectiveFact, TemplateElementFact,
+  TemplateExpressionFact, TemplateFacts, TrackingScopeKind,
+};
 
 use super::{ModuleLink, ModuleReactivity, ModuleSource, trace_modules, trace_reactivity};
 
@@ -486,12 +490,1159 @@ fn retains_empty_effect_nodes() {
   );
 }
 
+#[test]
+fn traces_computed_tracking_scopes() {
+  let graph = graph(
+    "import { computed, ref } from 'vue';\n\
+     const ready = ref(false); const value = ref(0);\n\
+     const doubled = computed(() => { if (!ready.value) return 0; return value.value; });",
+  );
+  let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::Computed);
+  assert!(scope.is_some(), "computed must become a tracking scope");
+  assert!(
+    scope.is_some_and(|scope| {
+      scope
+        .reads
+        .iter()
+        .any(|read| read.binding == "value" && read.kind == ReactiveReadKind::Conditional)
+    }),
+    "computed bodies must classify conditional reactive reads"
+  );
+  assert!(
+    graph.effects.iter().all(|effect| effect.callee != "computed"),
+    "computed scopes must not project into legacy effects"
+  );
+}
+
+#[test]
+fn traces_watch_source_arrays() {
+  let graph = graph(
+    "import { ref, watch } from 'vue';\n\
+     const a = ref(0); const b = ref(1);\n\
+     watch([a, b], () => {});",
+  );
+  let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchSources);
+  let reads = scope.map(|scope| {
+    scope
+      .reads
+      .iter()
+      .map(|read| (read.binding.as_str(), read.property.as_deref(), read.kind))
+      .collect::<Vec<_>>()
+  });
+  assert_eq!(
+    reads,
+    Some(vec![
+      ("a", Some("value"), ReactiveReadKind::Unconditional),
+      ("b", Some("value"), ReactiveReadKind::Unconditional),
+    ]),
+    "watch source arrays must record each ref with the runtime .value dep key"
+  );
+}
+
+#[test]
+fn traces_watch_source_getters() {
+  let graph = graph(
+    "import { ref, watch } from 'vue';\n\
+     const value = ref(0); watch(() => value.value, () => {});",
+  );
+  let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchSources);
+  assert!(
+    scope.is_some_and(|scope| {
+      scope.reads.iter().any(|read| {
+        read.binding == "value"
+          && read.property.as_deref() == Some("value")
+          && read.kind == ReactiveReadKind::Unconditional
+      })
+    }),
+    "watch source getters must track reactive reads"
+  );
+}
+
+#[test]
+fn bare_reactive_watch_source_stays_quiet() {
+  let graph = graph(
+    "import { reactive, watch } from 'vue';\n\
+     const state = reactive({ n: 1 });\n\
+     watch(state, () => {});",
+  );
+  let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchSources);
+  assert!(
+    scope.is_some_and(|scope| scope.reads.is_empty()),
+    "bare reactive watch sources deep-track many keys; do not invent a property-less dep"
+  );
+}
+
+#[test]
+fn records_assignment_only_writes_on_watch_effect() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue';\n\
+     const first = ref('a'); const last = ref('b'); const full = ref('');\n\
+     watchEffect(() => { full.value = first.value + last.value; });",
+  );
+  let effect = graph.effects.first();
+  assert!(
+    effect.is_some_and(|effect| effect.reads.len() >= 2),
+    "derived assignment must still track source reads"
+  );
+  let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchEffect);
+  assert_eq!(scope.map(|scope| scope.assignment_only), Some(true));
+  assert!(
+    scope.is_some_and(|scope| {
+      scope
+        .writes
+        .iter()
+        .any(|write| write.binding == "full" && write.property.as_deref() == Some("value"))
+    }),
+    "assignment-only bodies must record reactive writes"
+  );
+}
+
+#[test]
+fn traces_watch_callback_as_outside_tracking() {
+  let graph = graph(
+    "import { ref, watch } from 'vue';\n\
+     const source = ref(0); const other = ref(1);\n\
+     watch(source, () => { other.value; });",
+  );
+  let callback = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchCallback);
+  assert!(
+    callback.is_some_and(|scope| {
+      scope
+        .reads
+        .iter()
+        .any(|read| read.binding == "other" && read.kind == ReactiveReadKind::OutsideTracking)
+    }),
+    "watch job bodies must not collect dependencies"
+  );
+  assert_eq!(graph.version, vue_vet_core::REACTIVITY_GRAPH_VERSION);
+}
+
+#[test]
+fn classifies_then_callbacks_as_outside_tracking() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue';\n\
+     const value = ref(0);\n\
+     watchEffect(() => { Promise.resolve().then(() => value.value); });",
+  );
+  assert!(
+    graph.effects.first().is_some_and(|effect| {
+      effect
+        .reads
+        .iter()
+        .any(|read| read.binding == "value" && read.kind == ReactiveReadKind::OutsideTracking)
+    }),
+    "promise then callbacks must be outside synchronous tracking"
+  );
+}
+
+#[test]
+fn records_guard_roles_for_early_exit() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue';\n\
+     const ready = ref(false); const value = ref(0);\n\
+     watchEffect(() => { if (!ready.value) return; value.value; });",
+  );
+  let value = graph
+    .effects
+    .first()
+    .into_iter()
+    .flat_map(|effect| &effect.reads)
+    .find(|read| read.binding == "value");
+  assert_eq!(
+    value.and_then(|read| read.guards.first().map(|guard| guard.role)),
+    Some(ReactiveGuardRole::EarlyExit),
+    "early-return guards must retain their role"
+  );
+}
+
+#[test]
+fn classifies_pause_tracking_regions() {
+  let graph = graph(
+    "import { ref, watchEffect, pauseTracking, enableTracking } from 'vue';\n\
+     const value = ref(0);\n\
+     watchEffect(() => { pauseTracking(); value.value; enableTracking(); });",
+  );
+  assert!(
+    graph.effects.first().is_some_and(|effect| {
+      effect
+        .reads
+        .iter()
+        .any(|read| read.binding == "value" && read.kind == ReactiveReadKind::OutsideTracking)
+    }),
+    "reads after pauseTracking must not collect dependencies"
+  );
+}
+
+#[test]
+fn traces_effect_scope_run_callbacks() {
+  let graph = graph(
+    "import { effectScope, ref, watchEffect } from 'vue';\n\
+     const value = ref(0);\n\
+     const scope = effectScope();\n\
+     scope.run(() => { watchEffect(() => value.value); });",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| scope.kind == TrackingScopeKind::EffectScope),
+    "effectScope.run must produce an EffectScope fact"
+  );
+  assert!(
+    graph.effects.iter().any(|effect| { effect.reads.iter().any(|read| read.binding == "value") }),
+    "nested watchEffect inside effectScope.run must still track reads"
+  );
+}
+
+#[test]
+fn does_not_invent_effect_scope_for_arbitrary_run_methods() {
+  let graph = graph(
+    "import { ref } from 'vue';\n\
+     const count = ref(0);\n\
+     const runner = { run(fn) { fn(); } };\n\
+     runner.run(() => count.value);",
+  );
+  assert!(
+    !graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::EffectScope || scope.callee.contains("effectScope")
+    }),
+    "arbitrary `.run` must not invent effectScope edges; got {:?}",
+    graph.scopes.iter().map(|scope| (&scope.callee, scope.kind)).collect::<Vec<_>>()
+  );
+  assert!(graph.effects.is_empty(), "invented effect-family scopes must not project into effects");
+}
+
+#[test]
+fn builds_computed_dependency_edges() {
+  let graph = graph(
+    "import { computed, ref } from 'vue';\n\
+     const source = ref(1);\n\
+     const doubled = computed(() => source.value * 2);",
+  );
+  assert!(
+    graph.edges.iter().any(|edge| {
+      edge.kind == ReactiveDependencyKind::Computed && edge.from == "doubled" && edge.to == "source"
+    }),
+    "computed scopes must invert into depends-on edges"
+  );
+}
+
+fn test_span(offset: usize) -> SourceSpan {
+  SourceSpan { offset, length: 1, line: 1, column: offset.saturating_add(1) }
+}
+
+#[test]
+fn joins_composable_instance_member_chains_from_template() {
+  use std::collections::BTreeMap;
+
+  let mut graph = graph(
+    "import { watchEffect } from 'vue'; const bag = { signal: null }; watchEffect(() => {});",
+  );
+  // Simulate a module-seeded instance bag without inventing top-level field bindings.
+  graph
+    .composable_instances
+    .insert("bag".into(), BTreeMap::from([("signal".into(), ReactiveBindingKind::Ref)]));
+  let template = TemplateFacts {
+    elements: Vec::new(),
+    expressions: vec![
+      TemplateExpressionFact {
+        surface: "interpolation".into(),
+        expression: "bag.signal".into(),
+        span: test_span(0),
+        identifiers: Some(vec!["bag".into()]),
+      },
+      TemplateExpressionFact {
+        surface: "if".into(),
+        expression: "bag.signal.value".into(),
+        span: test_span(10),
+        identifiers: Some(vec!["bag".into()]),
+      },
+      TemplateExpressionFact {
+        surface: "interpolation".into(),
+        expression: "bag.signal + other".into(),
+        span: test_span(20),
+        identifiers: Some(vec!["bag".into(), "other".into()]),
+      },
+    ],
+  };
+  graph.join_template_reads(&template);
+  assert!(
+    graph.template_reads.iter().any(|read| read.binding == "signal"
+      && read.surface == "interpolation"
+      && read.span.offset == 0),
+    "pure bag.signal must join the shape field"
+  );
+  assert!(
+    graph.template_reads.iter().any(|read| read.binding == "signal" && read.surface == "if"),
+    "pure bag.signal.value must join the shape field"
+  );
+  assert!(
+    !graph.template_reads.iter().any(|read| {
+      read.binding == "signal" && read.surface == "interpolation" && read.span.offset == 20
+    }),
+    "operator-bearing expressions must stay quiet for instance field joins"
+  );
+}
+
+#[test]
+fn joins_template_reads_onto_script_bindings() {
+  let mut graph = graph("import { ref } from 'vue'; const count = ref(0);");
+  let Some(binding_span) = graph.bindings.first().map(|binding| binding.span.clone()) else {
+    assert!(!graph.bindings.is_empty(), "count binding missing");
+    return;
+  };
+  let template = TemplateFacts {
+    elements: vec![TemplateElementFact {
+      tag: "div".into(),
+      span: binding_span.clone(),
+      attributes: Vec::new(),
+      directives: vec![TemplateDirectiveFact {
+        name: "if".into(),
+        raw_name: "v-if".into(),
+        argument: None,
+        expression: Some("count > 0".into()),
+        modifiers: Vec::new(),
+        span: binding_span.clone(),
+      }],
+      has_children: false,
+    }],
+    expressions: vec![vue_vet_core::TemplateExpressionFact {
+      surface: "if".into(),
+      expression: "count > 0".into(),
+      span: binding_span,
+      identifiers: Some(vec!["count".into()]),
+    }],
+  };
+  graph.join_template_reads(&template);
+  assert!(
+    graph.template_reads.iter().any(|read| read.binding == "count" && read.surface == "if"),
+    "template v-if expressions must join onto reactive bindings"
+  );
+  assert!(
+    graph
+      .edges
+      .iter()
+      .any(|edge| edge.kind == ReactiveDependencyKind::Template && edge.to == "count"),
+    "template joins must appear in the inverted edge list"
+  );
+}
+
+#[test]
+fn seeds_parametric_composable_to_ref_fields() {
+  let modules = [
+    ModuleSource::standalone(
+      "producer.ts",
+      "import { toRef } from 'vue'; export function useField(props) { return { title: toRef(props, 'title') }; }",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { watchEffect } from 'vue'; import { useField } from './producer'; const props = { title: 'x' }; const { title } = useField(props); watchEffect(() => title.value);",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./producer".into(),
+    to: "producer.ts".into(),
+  }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "title" && binding.kind == ReactiveBindingKind::ToRef)
+        && module
+          .graph
+          .effects
+          .iter()
+          .any(|effect| effect.reads.iter().any(|read| read.binding == "title"))
+    }),
+    "toRef(param, key) composable fields must seed consumers"
+  );
+}
+
+#[test]
+fn same_file_provide_inject_seeds_reactive_binding() {
+  let graph = graph(
+    "import { provide, inject, ref, computed } from 'vue';\n\
+     const count = ref(1);\n\
+     provide('count', count);\n\
+     const injected = inject('count');\n\
+     const doubled = computed(() => injected.value * 2);\n\
+     void doubled.value;",
+  );
+  assert!(
+    graph
+      .bindings
+      .iter()
+      .any(|binding| { binding.name == "injected" && binding.kind == ReactiveBindingKind::Ref }),
+    "unique same-file provide must seed inject binding; bindings={:?}",
+    graph.bindings
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "injected" && read.property.as_deref() == Some("value"))
+    }),
+    "computed must track injected.value; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn inject_default_seeds_when_provide_missing() {
+  let graph = graph(
+    "import { inject, ref, computed } from 'vue';\n\
+     const fallback = ref(0);\n\
+     const count = inject('missing', fallback);\n\
+     const doubled = computed(() => count.value * 2);\n\
+     void doubled.value;",
+  );
+  assert!(
+    graph
+      .bindings
+      .iter()
+      .any(|binding| { binding.name == "count" && binding.kind == ReactiveBindingKind::Ref }),
+    "inject default ref must seed when no provide exists; bindings={:?}",
+    graph.bindings
+  );
+}
+
+#[test]
+fn ambiguous_provide_keys_stay_quiet() {
+  let graph = graph(
+    "import { provide, inject, ref, computed } from 'vue';\n\
+     provide('count', ref(1));\n\
+     provide('count', ref(2));\n\
+     const count = inject('count');\n\
+     const doubled = computed(() => count.value * 2);\n\
+     void doubled.value;",
+  );
+  assert!(
+    !graph.bindings.iter().any(|binding| binding.name == "count"),
+    "multiple provides of the same key must not invent an inject binding; bindings={:?}",
+    graph.bindings
+  );
+}
+
+#[test]
+fn cross_module_provide_inject_unique_key_seeds() {
+  let modules = [
+    ModuleSource::standalone(
+      "provider.ts",
+      "import { provide, ref } from 'vue'; const count = ref(1); provide('count', count);",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { inject, computed } from 'vue'; const count = inject('count'); const d = computed(() => count.value); void d.value;",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  // No import link required — provide index is project-wide by key.
+  let traced = traced_modules(&modules, &[]);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "count" && binding.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope
+              .reads
+              .iter()
+              .any(|read| read.binding == "count" && read.property.as_deref() == Some("value"))
+        })
+    }),
+    "unique project provide must seed cross-module inject; consumer={consumer:?}"
+  );
+}
+
+#[test]
+fn imported_symbol_keys_match_across_modules() {
+  let modules = [
+    ModuleSource::standalone(
+      "keys.ts",
+      "export const ThemeKey = Symbol('theme');",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "provider.ts",
+      "import { provide, ref } from 'vue'; import { ThemeKey } from './keys'; const mode = ref('dark'); provide(ThemeKey, mode);",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { inject, computed } from 'vue'; import { ThemeKey } from './keys'; const mode = inject(ThemeKey); const d = computed(() => mode.value); void d.value;",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let traced = traced_modules(&modules, &[]);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "mode" && binding.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope
+            .reads
+            .iter()
+            .any(|read| read.binding == "mode" && read.property.as_deref() == Some("value"))
+        })
+    }),
+    "imported injection keys must match by specifier+export; consumer={consumer:?}"
+  );
+}
+
+#[test]
+fn distinct_local_symbols_do_not_cross_link() {
+  let modules = [
+    ModuleSource::standalone(
+      "provider.ts",
+      "import { provide, ref } from 'vue'; const ThemeKey = Symbol('theme'); const mode = ref('dark'); provide(ThemeKey, mode);",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { inject, computed } from 'vue'; const ThemeKey = Symbol('theme'); const mode = inject(ThemeKey); const d = computed(() => mode.value); void d.value;",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let traced = traced_modules(&modules, &[]);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| !module
+      .graph
+      .bindings
+      .iter()
+      .any(|binding| binding.name == "mode")),
+    "file-local Symbol() keys must not match across modules; consumer={consumer:?}"
+  );
+}
+
+#[test]
+fn provide_composable_instance_seeds_inject_bag() {
+  let graph = graph(
+    "import { provide, inject, ref, computed } from 'vue';\n\
+     function useCounter() { const count = ref(0); return { count }; }\n\
+     const api = useCounter();\n\
+     provide('api', api);\n\
+     const bag = inject('api');\n\
+     const d = computed(() => bag.count.value);\n\
+     void d.value;",
+  );
+  assert!(
+    graph
+      .composable_instances
+      .get("bag")
+      .is_some_and(|shape| { shape.get("count") == Some(&ReactiveBindingKind::Ref) }),
+    "provide(composable bag) must seed inject as instance shape; instances={:?}",
+    graph.composable_instances
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope
+        .reads
+        .iter()
+        .any(|read| read.binding == "count" && read.property.as_deref() == Some("value"))
+    }),
+    "computed must track bag.count.value via inject instance; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn to_value_getter_tracks_nested_reactive_reads() {
+  let graph = graph(
+    "import { ref, computed, toValue } from 'vue';\n\
+     const count = ref(1);\n\
+     const d = computed(() => toValue(() => count.value) * 2);\n\
+     void d.value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "count" && read.property.as_deref() == Some("value"))
+    }),
+    "toValue(getter) must track reads inside the getter; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn string_replace_callback_tracks_nested_reactive_reads() {
+  for (label, method) in [("replace", "replace"), ("replaceAll", "replaceAll")] {
+    let graph = graph(&format!(
+      "import {{ ref, computed }} from 'vue';\n\
+       const text = ref('ab');\n\
+       const flag = ref(true);\n\
+       const d = computed(() => text.value.{method}(/./g, c => flag.value ? c : ''));\n\
+       void d.value;"
+    ));
+    assert!(
+      graph.scopes.iter().any(|scope| {
+        scope.kind == TrackingScopeKind::Computed
+          && scope
+            .reads
+            .iter()
+            .any(|read| read.binding == "flag" && read.property.as_deref() == Some("value"))
+          && scope
+            .reads
+            .iter()
+            .any(|read| read.binding == "text" && read.property.as_deref() == Some("value"))
+      }),
+      "String#{label} replacer must track nested reactive reads; scopes={:?}",
+      graph.scopes
+    );
+  }
+}
+
+#[test]
+fn array_from_mapfn_tracks_nested_reactive_reads() {
+  let graph = graph(
+    "import { ref, computed } from 'vue';\n\
+     const list = ref([1, 2]);\n\
+     const factor = ref(2);\n\
+     const d = computed(() => Array.from(list.value, x => x * factor.value));\n\
+     void d.value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "factor" && read.property.as_deref() == Some("value"))
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "list" && read.property.as_deref() == Some("value"))
+    }),
+    "Array.from mapFn must track nested reactive reads; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn json_parse_reviver_tracks_nested_reactive_reads() {
+  let graph = graph(
+    "import { ref, computed } from 'vue';\n\
+     const raw = ref('{\"a\":1}');\n\
+     const flag = ref(true);\n\
+     const d = computed(() => JSON.parse(raw.value, (k, v) => flag.value ? v : v));\n\
+     void d.value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "flag" && read.property.as_deref() == Some("value"))
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "raw" && read.property.as_deref() == Some("value"))
+    }),
+    "JSON.parse reviver must track nested reactive reads; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn sync_hof_first_arg_function_does_not_invent_tracking() {
+  // Callback-at-index-1 callees must not treat a sole first-arg function as the
+  // sync callback (runtime never invokes it as mapFn/reviver/replacer).
+  for (label, source) in [
+    (
+      "Array.from",
+      "import { ref, computed } from 'vue';\n\
+       const factor = ref(2);\n\
+       const d = computed(() => Array.from(() => factor.value));\n\
+       void d.value;",
+    ),
+    (
+      "JSON.parse",
+      "import { ref, computed } from 'vue';\n\
+       const flag = ref(true);\n\
+       const d = computed(() => JSON.parse(() => flag.value));\n\
+       void d.value;",
+    ),
+    (
+      "String.replace",
+      "import { ref, computed } from 'vue';\n\
+       const text = ref('ab');\n\
+       const flag = ref(true);\n\
+       const d = computed(() => text.value.replace(() => flag.value));\n\
+       void d.value;",
+    ),
+  ] {
+    let graph = graph(source);
+    let invented = graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.iter().any(|read| {
+          matches!(read.binding.as_str(), "factor" | "flag")
+            && read.property.as_deref() == Some("value")
+        })
+    });
+    assert!(
+      !invented,
+      "{label} first-arg function must not invent nested reactive reads; scopes={:?}",
+      graph.scopes
+    );
+  }
+}
+
+#[test]
+fn provide_direct_composable_call_seeds_inject_bag() {
+  let graph = graph(
+    "import { provide, inject, ref, computed } from 'vue';\n\
+     function useCounter() { const count = ref(0); return { count }; }\n\
+     provide('api', useCounter());\n\
+     const bag = inject('api');\n\
+     const d = computed(() => bag.count.value);\n\
+     void d.value;",
+  );
+  assert!(
+    graph
+      .composable_instances
+      .get("bag")
+      .is_some_and(|shape| shape.get("count") == Some(&ReactiveBindingKind::Ref)),
+    "provide(useX()) must seed inject bag; instances={:?}",
+    graph.composable_instances
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope
+        .reads
+        .iter()
+        .any(|read| read.binding == "count" && read.property.as_deref() == Some("value"))
+    }),
+    "computed must track bag.count.value; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn provide_direct_composable_call_stays_quiet_when_callee_shadowed() {
+  // Outer composable has a known bag shape; block-local `useCounter` is a plain
+  // function. Name-only seeding would invent bag.count from the outer def.
+  let graph = graph(
+    "import { provide, inject, ref, computed } from 'vue';\n\
+     function useCounter() { const count = ref(0); return { count }; }\n\
+     {\n\
+       const useCounter = () => ({});\n\
+       provide('api', useCounter());\n\
+     }\n\
+     const bag = inject('api');\n\
+     const d = computed(() => bag.count.value);\n\
+     void d.value;",
+  );
+  assert!(
+    !graph.composable_instances.contains_key("bag"),
+    "shadowed provide(useX()) must not invent outer composable shape; instances={:?}",
+    graph.composable_instances
+  );
+  assert!(
+    !graph.scopes.iter().any(|scope| {
+      scope
+        .reads
+        .iter()
+        .any(|read| read.binding == "count" && read.property.as_deref() == Some("value"))
+    }),
+    "must not invent bag.count.value via shadowed provide(useX()); scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn unref_and_to_value_track_ref_like_bindings() {
+  for (label, source) in [
+    (
+      "unref",
+      "import { ref, computed, unref } from 'vue'; const count = ref(1); const d = computed(() => unref(count) * 2); void d.value;",
+    ),
+    (
+      "toValue",
+      "import { ref, computed, toValue } from 'vue'; const count = ref(1); const d = computed(() => toValue(count) * 2); void d.value;",
+    ),
+  ] {
+    let graph = graph(source);
+    assert!(
+      graph.scopes.iter().any(|scope| {
+        scope.kind == TrackingScopeKind::Computed
+          && scope.reads.iter().any(|read| {
+            read.binding == "count"
+              && read.property.as_deref() == Some("value")
+              && read.kind == ReactiveReadKind::Unconditional
+          })
+      }),
+      "{label}(count) must track count.value; scopes={:?}",
+      graph.scopes
+    );
+  }
+}
+
+#[test]
+fn dependency_edges_include_span_qualified_to_id() {
+  let graph = graph(
+    "import { ref, computed } from 'vue'; const source = ref(1); const doubled = computed(() => source.value * 2);",
+  );
+  let edge = graph.edges.iter().find(|edge| {
+    edge.kind == ReactiveDependencyKind::Computed && edge.from == "doubled" && edge.to == "source"
+  });
+  assert!(
+    edge.is_some_and(|edge| {
+      edge.to_id.as_deref().is_some_and(|id| id.starts_with("source@"))
+        && edge.to_identity().split('@').next() == Some("source")
+    }),
+    "v6 edges must carry span-qualified to_id; got {:?}",
+    edge.map(|edge| &edge.to_id)
+  );
+}
+
+#[test]
+fn local_composable_instance_member_access() {
+  for source in [
+    "import { ref, watchEffect } from 'vue'; function useSignal() { const signal = ref(0); return { signal }; } const bag = useSignal(); watchEffect(() => bag.signal.value);",
+    "import { ref, watchEffect } from 'vue'; const useSignal = () => { const signal = ref(0); return { signal }; }; const bag = useSignal(); watchEffect(() => bag.signal.value);",
+    "import { ref, watchEffect } from 'vue'; function useSignal() { return { signal: ref(0) }; } const bag = useSignal(); watchEffect(() => bag.signal.value);",
+    "import { ref, watchEffect } from 'vue'; const useSignal = () => ({ signal: ref(0) }); const bag = useSignal(); watchEffect(() => bag.signal.value);",
+  ] {
+    let graph = graph(source);
+    assert!(
+      graph.composable_instances.contains_key("bag"),
+      "same-file useX() must record the instance bag; source={source}"
+    );
+    assert!(
+      graph.effects.iter().any(|effect| {
+        effect.reads.iter().any(|read| {
+          read.binding == "signal"
+            && read.property.as_deref() == Some("value")
+            && read.kind == ReactiveReadKind::Unconditional
+        })
+      }),
+      "bag.signal.value must track for same-file composables; source={source}"
+    );
+    assert!(
+      !graph.bindings.iter().any(|binding| binding.name == "signal"),
+      "function-local signal must not become a top-level binding; source={source}"
+    );
+  }
+}
+
+#[test]
+fn local_composable_instance_works_with_sfc_script_offset() {
+  let script = "import { ref, watchEffect } from 'vue'\n\
+     function useSignal() { const signal = ref(0); return { signal }; }\n\
+     const bag = useSignal()\n\
+     watchEffect(() => { void bag.signal.value })\n";
+  let prefix = "<script setup lang=\"ts\">\n";
+  let sfc =
+    format!("{prefix}{script}</script>\n<template><p>{{{{ bag.signal }}}}</p></template>\n");
+  let graph = trace(&sfc, script, prefix.len(), ScriptKind::Setup);
+  assert!(
+    graph.composable_instances.contains_key("bag"),
+    "SFC-offset same-file useX() must record bag; instances={:?}",
+    graph.composable_instances
+  );
+  assert!(
+    graph.effects.iter().any(|effect| {
+      effect.reads.iter().any(|read| {
+        read.binding == "signal"
+          && read.property.as_deref() == Some("value")
+          && read.kind == ReactiveReadKind::Unconditional
+      })
+    }),
+    "SFC-offset bag.signal.value must track; effects={:?}",
+    graph.effects
+  );
+  // Template join for pure bag.signal after instances are retained.
+  let template = TemplateFacts {
+    elements: Vec::new(),
+    expressions: vec![TemplateExpressionFact {
+      surface: "interpolation".into(),
+      expression: "bag.signal".into(),
+      span: test_span(sfc.find("bag.signal").unwrap_or(0)),
+      identifiers: Some(vec!["bag".into()]),
+    }],
+  };
+  let mut joined = graph;
+  joined.join_template_reads(&template);
+  assert!(
+    joined
+      .template_reads
+      .iter()
+      .any(|read| read.binding == "signal" && read.surface == "interpolation"),
+    "SFC-offset instance bags must join pure template bag.signal"
+  );
+}
+
+#[test]
+fn local_composable_destructure_seeds_fields() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue'; function useSignal() { const signal = ref(0); return { signal }; } const { signal } = useSignal(); watchEffect(() => signal.value);",
+  );
+  assert!(
+    graph
+      .bindings
+      .iter()
+      .any(|binding| { binding.name == "signal" && binding.kind == ReactiveBindingKind::Ref }),
+    "same-file destructure must seed the field binding"
+  );
+  assert!(
+    graph.effects.iter().any(|effect| {
+      effect.reads.iter().any(|read| {
+        read.binding == "signal"
+          && read.property.as_deref() == Some("value")
+          && read.kind == ReactiveReadKind::Unconditional
+      })
+    }),
+    "destructured same-file field must track .value"
+  );
+}
+
+#[test]
+fn local_instance_does_not_invent_bare_field_reads() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue'; function useSignal() { const signal = ref(0); return { signal }; } const bag = useSignal(); watchEffect(() => { signal.value; });",
+  );
+  assert!(graph.composable_instances.contains_key("bag"), "instance bag must still be recorded");
+  assert!(
+    graph.effects.iter().all(|effect| effect.reads.iter().all(|read| read.binding != "signal")),
+    "bare signal.value must stay quiet without a local signal binding"
+  );
+}
+
+#[test]
+fn seeds_composable_instance_member_access() {
+  let modules = [
+    ModuleSource::standalone(
+      "producer.ts",
+      "import { ref } from 'vue'; export function useSignal() { const signal = ref(0); return { signal }; }",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { watchEffect } from 'vue'; import { useSignal } from './producer'; const bag = useSignal(); watchEffect(() => bag.signal.value);",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./producer".into(),
+    to: "producer.ts".into(),
+  }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.effects.iter().any(|effect| {
+        effect
+          .reads
+          .iter()
+          .any(|read| read.binding == "signal" && read.kind == ReactiveReadKind::Unconditional)
+      })
+    }),
+    "const bag = useX(); bag.field.value must seed across modules"
+  );
+}
+
+#[test]
+fn seeds_export_const_arrow_and_function_composable_instances() {
+  for (label, producer) in [
+    (
+      "export-const-arrow",
+      "import { ref } from 'vue'; export const useSignal = () => ({ signal: ref(0) });",
+    ),
+    (
+      "export-const-function",
+      "import { ref } from 'vue'; export const useSignal = function () { const signal = ref(0); return { signal }; };",
+    ),
+  ] {
+    let modules = [
+      ModuleSource::standalone("producer.ts", producer, "ts", ScriptKind::Script),
+      ModuleSource::standalone(
+        "consumer.ts",
+        "import { watchEffect } from 'vue'; import { useSignal } from './producer'; const bag = useSignal(); watchEffect(() => bag.signal.value);",
+        "ts",
+        ScriptKind::Script,
+      ),
+    ];
+    let links = [ModuleLink {
+      from: "consumer.ts".into(),
+      specifier: "./producer".into(),
+      to: "producer.ts".into(),
+    }];
+    let traced = traced_modules(&modules, &links);
+    let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+    assert!(
+      consumer.is_some_and(|module| {
+        module.graph.composable_instances.contains_key("bag")
+          && module.graph.effects.iter().any(|effect| {
+            effect.reads.iter().any(|read| {
+              read.binding == "signal"
+                && read.property.as_deref() == Some("value")
+                && read.kind == ReactiveReadKind::Unconditional
+            })
+          })
+      }),
+      "{label}: export const useX must seed bag.signal across modules; got {:?}",
+      consumer.map(|module| {
+        (
+          module.graph.composable_instances.clone(),
+          module
+            .graph
+            .effects
+            .iter()
+            .flat_map(|effect| effect.reads.iter().map(|read| read.binding.clone()))
+            .collect::<Vec<_>>(),
+        )
+      })
+    );
+  }
+}
+
+#[test]
+fn seeds_default_export_function_composable_instance() {
+  let modules = [
+    ModuleSource::standalone(
+      "producer.ts",
+      "import { ref } from 'vue'; export default function useSignal() { return { signal: ref(0) }; }",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { watchEffect } from 'vue'; import useSignal from './producer'; const bag = useSignal(); watchEffect(() => bag.signal.value);",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./producer".into(),
+    to: "producer.ts".into(),
+  }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.composable_instances.contains_key("bag")
+        && module.graph.effects.iter().any(|effect| {
+          effect.reads.iter().any(|read| {
+            read.binding == "signal"
+              && read.property.as_deref() == Some("value")
+              && read.kind == ReactiveReadKind::Unconditional
+          })
+        })
+    }),
+    "export default function useX must seed bag.signal; got {:?}",
+    consumer.map(|module| {
+      (
+        module.graph.composable_instances.clone(),
+        module
+          .graph
+          .effects
+          .iter()
+          .flat_map(|effect| effect.reads.iter().map(|read| read.binding.clone()))
+          .collect::<Vec<_>>(),
+      )
+    })
+  );
+}
+
+#[test]
+fn instance_seed_does_not_pollute_top_level_bindings() {
+  let modules = [
+    ModuleSource::standalone(
+      "producer.ts",
+      "import { ref } from 'vue'; export function useSignal() { const signal = ref(0); return { signal }; }",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      // Bare `signal.value` must stay quiet: the consumer never bound `signal`.
+      // Only `bag.signal.value` is a real edge (covered by the test above).
+      "import { watchEffect } from 'vue'; import { useSignal } from './producer'; const bag = useSignal(); watchEffect(() => { signal.value; });",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./producer".into(),
+    to: "producer.ts".into(),
+  }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      !module.graph.bindings.iter().any(|binding| binding.name == "signal")
+        && module
+          .graph
+          .effects
+          .iter()
+          .all(|effect| effect.reads.iter().all(|read| read.binding != "signal"))
+    }),
+    "instance seeds must not invent top-level bindings for composable shape fields; got {:?}",
+    consumer.map(|module| {
+      (
+        module.graph.bindings.iter().map(|b| b.name.clone()).collect::<Vec<_>>(),
+        module
+          .graph
+          .effects
+          .iter()
+          .flat_map(|e| e.reads.iter().map(|r| r.binding.clone()))
+          .collect::<Vec<_>>(),
+      )
+    })
+  );
+}
+
+/// One read in an exhaustive effect read-set assertion.
+#[derive(serde::Deserialize)]
+struct LocalReadExpectation {
+  binding: String,
+  kind: ReactiveReadKind,
+  #[serde(default)]
+  guards: Vec<String>,
+}
+
 #[derive(serde::Deserialize)]
 struct LocalExpectation {
   effect: String,
   binding: String,
   kind: ReactiveReadKind,
   guards: Vec<String>,
+  /// When present, the effect's full read set must match exactly (no missing, no invented).
+  #[serde(default)]
+  reads: Option<Vec<LocalReadExpectation>>,
 }
 
 #[derive(serde::Deserialize)]
@@ -652,6 +1803,41 @@ fn assert_local_fixture(fixture: &LocalFixture) {
     "expected guard evidence must survive in {}",
     fixture.name
   );
+  assert!(
+    fixture.expected.reads.is_some(),
+    "local fixture {} must pin exhaustive expected.reads (regenerate from tracer if adding cases)",
+    fixture.name
+  );
+  if let (Some(effect), Some(expected_reads)) = (effect, fixture.expected.reads.as_ref()) {
+    assert_effect_reads_exact(effect, expected_reads, &fixture.name);
+  }
+}
+
+/// Exact effect read-set: every (binding, kind, guard-names) pair must match.
+fn assert_effect_reads_exact(
+  effect: &vue_vet_core::ReactivityEffectFact,
+  expected: &[LocalReadExpectation],
+  name: &str,
+) {
+  let actual = effect
+    .reads
+    .iter()
+    .map(|read| {
+      let guards = read.guards.iter().map(|guard| guard.binding.as_str()).collect::<BTreeSet<_>>();
+      (read.binding.as_str(), read.kind, guards)
+    })
+    .collect::<BTreeSet<_>>();
+  let expected = expected
+    .iter()
+    .map(|read| {
+      let guards = read.guards.iter().map(String::as_str).collect::<BTreeSet<_>>();
+      (read.binding.as_str(), read.kind, guards)
+    })
+    .collect::<BTreeSet<_>>();
+  assert_eq!(
+    actual, expected,
+    "effect read set must match exactly in {name} (no missing, no invented)"
+  );
 }
 
 fn module_fixture_signature(modules: &[ModuleSource], links: &[ModuleLink]) -> String {
@@ -765,12 +1951,7 @@ fn covers_eighty_real_cross_module_scenarios() {
 }
 
 fn module_source(id: &str, source: &str) -> ModuleSource {
-  ModuleSource {
-    id: id.into(),
-    source: source.into(),
-    language: "ts".into(),
-    kind: ScriptKind::Script,
-  }
+  ModuleSource::standalone(id, source, "ts", ScriptKind::Script)
 }
 
 #[expect(clippy::panic, reason = "missing committed source files must fail corpus tests")]
@@ -784,7 +1965,7 @@ fn load_real_world_modules(case_dir: &str, files: &[FixtureModule]) -> Vec<Modul
         Ok(source) => source,
         Err(error) => panic!("could not read real-world fixture {}: {error}", path.display()),
       };
-      ModuleSource { id: file.id.clone(), source, language: file.language.clone(), kind: file.kind }
+      ModuleSource::standalone(file.id.clone(), source, file.language.clone(), file.kind)
     })
     .collect()
 }
@@ -858,4 +2039,47 @@ fn validates_real_world_module_patterns() {
     assert_module_case(&fixture.name, &modules, &fixture.links, &fixture.expected);
   }
   assert_eq!(names.len(), 5, "the real-world corpus must retain five fixed-source cases");
+}
+
+#[test]
+fn seeds_destructured_composable_fields_in_sfc_script_with_offset() {
+  let producer = ModuleSource::standalone(
+    "composables/useField.ts",
+    "import { toRef } from 'vue'; export function useField(props: { title: string }) { return { title: toRef(props, 'title') }; }",
+    "ts",
+    ScriptKind::Script,
+  );
+  let script = "import { watchEffect } from 'vue';\nimport { useField } from './composables/useField';\nconst props = { title: 'x' };\nconst { title } = useField(props);\nwatchEffect(async () => {\n  await Promise.resolve();\n  console.log(title.value);\n});\n";
+  let prefix = "<script setup lang=\"ts\">\n";
+  let sfc = format!("{prefix}{script}</script>\n<template><p>{{{{ title }}}}</p></template>\n");
+  let consumer =
+    ModuleSource::sfc_script("App.vue", script, "ts", ScriptKind::Setup, prefix.len(), sfc);
+  let links = [ModuleLink {
+    from: "App.vue".into(),
+    specifier: "./composables/useField".into(),
+    to: "composables/useField.ts".into(),
+  }];
+  let traced = traced_modules(&[producer, consumer], &links);
+  let app = traced.iter().find(|module| module.id == "App.vue");
+  assert!(
+    app.is_some_and(|module| {
+      module.graph.bindings.iter().any(|binding| binding.name == "title")
+        && module.graph.effects.iter().any(|effect| {
+          effect
+            .reads
+            .iter()
+            .any(|read| read.binding == "title" && read.kind == ReactiveReadKind::AfterAwait)
+        })
+    }),
+    "SFC-offset seeds must resolve title.value reads after await; got {:?}",
+    app.map(|module| (
+      module.graph.bindings.iter().map(|b| (b.name.clone(), b.span.offset)).collect::<Vec<_>>(),
+      module
+        .graph
+        .effects
+        .iter()
+        .map(|e| e.reads.iter().map(|r| (r.binding.clone(), r.kind)).collect::<Vec<_>>())
+        .collect::<Vec<_>>()
+    ))
+  );
 }

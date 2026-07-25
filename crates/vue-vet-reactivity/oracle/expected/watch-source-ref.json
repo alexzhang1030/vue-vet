@@ -1,0 +1,10 @@
+{
+  "id": "watch-source-ref",
+  "source": "import { ref, watch } from 'vue'\nconst count = ref(1)\nwatch(count, () => {})\n",
+  "runtime_deps": [
+    {
+      "binding": "count",
+      "key": "value"
+    }
+  ]
+}

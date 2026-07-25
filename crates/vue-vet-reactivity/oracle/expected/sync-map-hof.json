@@ -1,0 +1,14 @@
+{
+  "id": "sync-map-hof",
+  "source": "import { ref, computed } from 'vue'\nconst items = ref([1, 2, 3])\nconst factor = ref(2)\nconst scaled = computed(() => items.value.map((n) => n * factor.value))\nvoid scaled.value\n",
+  "runtime_deps": [
+    {
+      "binding": "factor",
+      "key": "value"
+    },
+    {
+      "binding": "items",
+      "key": "value"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "id": "runner-run-no-track",
+  "source": "import { ref } from 'vue'\nconst count = ref(0)\nconst runner = { run(fn) { fn() } }\nrunner.run(() => count.value)\n",
+  "runtime_deps": []
+}

@@ -2498,6 +2498,7 @@ dependencies = [
  "atomic-write-file",
  "clap",
  "ignore",
+ "rayon",
  "serde_json",
  "thiserror",
  "vue-vet-cache",
@@ -2548,9 +2549,11 @@ version = "0.1.0"
 dependencies = [
  "oxc_allocator",
  "oxc_ast",
+ "oxc_ast_visit",
  "oxc_parser",
  "oxc_semantic",
  "oxc_span",
+ "oxc_syntax",
  "thiserror",
  "vue-vet-core",
  "vue-vet-reactivity",
@@ -2574,6 +2577,7 @@ dependencies = [
  "oxc_parser",
  "oxc_semantic",
  "oxc_span",
+ "rayon",
  "serde",
  "serde_json",
  "thiserror",
@@ -2607,6 +2611,8 @@ dependencies = [
  "vize_atelier_sfc",
  "vue-vet-core",
  "vue-vet-oxc",
+ "vue-vet-project",
+ "vue-vet-reactivity",
  "vue-vet-rules",
 ]
 

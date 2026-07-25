@@ -1,0 +1,196 @@
+{
+  "count": 16,
+  "hits": [
+    {
+      "q": "reactive programming survey",
+      "title": "A survey on reactive programming.",
+      "year": "2013",
+      "venue": "ACM Comput. Surv.",
+      "ee": "https://doi.org/10.1145/2501654.2501666",
+      "authors": [
+        "Engineer Bainomugisha",
+        "Andoni Lombide Carreton",
+        "Tom Van Cutsem",
+        "Stijn Mostinckx"
+      ]
+    },
+    {
+      "q": "self-adjusting computation",
+      "title": "A Software Architecture Based on Coarse-Grained Self-Adjusting Computations.",
+      "year": "2023",
+      "venue": "FUNARCH",
+      "ee": "https://doi.org/10.1145/3609025.3609481",
+      "authors": [
+        "Stefan Wehr"
+      ]
+    },
+    {
+      "q": "self-adjusting computation",
+      "title": "Efficient Parallel Self-Adjusting Computation.",
+      "year": "2021",
+      "venue": "SPAA",
+      "ee": "https://doi.org/10.1145/3409964.3461799",
+      "authors": [
+        "Daniel Anderson",
+        "Guy E. Blelloch",
+        "Anubhav Baweja",
+        "Umut A. Acar"
+      ]
+    },
+    {
+      "q": "self-adjusting computation",
+      "title": "Efficient Parallel Self-Adjusting Computation.",
+      "year": "2021",
+      "venue": "CoRR",
+      "ee": "https://arxiv.org/abs/2105.06712",
+      "authors": [
+        "Daniel Anderson",
+        "Guy E. Blelloch",
+        "Anubhav Baweja",
+        "Umut A. Acar"
+      ]
+    },
+    {
+      "q": "self-adjusting computation",
+      "title": "Implicit Self-Adjusting Computation for Purely Functional Programs.",
+      "year": "2018",
+      "venue": "",
+      "ee": "https://kluedo.ub.rptu.de/frontdoor/index/index/docId/5417",
+      "authors": [
+        "Yan Chen 0024"
+      ]
+    },
+    {
+      "q": "self-adjusting computation",
+      "title": "Brief Announcement: Parallel Dynamic Tree Contraction via Self-Adjusting Computation.",
+      "year": "2017",
+      "venue": "SPAA",
+      "ee": "https://doi.org/10.1145/3087556.3087595",
+      "authors": [
+        "Umut A. Acar",
+        "Vitaly Aksenov",
+        "Sam Westrick"
+      ]
+    },
+    {
+      "q": "self-adjusting computation",
+      "title": "Implicit self-adjusting computation for purely functional programs.",
+      "year": "2014",
+      "venue": "J. Funct. Program.",
+      "ee": "https://doi.org/10.1017/S0956796814000033",
+      "authors": [
+        "Yan Chen 0001",
+        "Jana Dunfield",
+        "Matthew A. Hammer",
+        "Umut A. Acar"
+      ]
+    },
+    {
+      "q": "self-adjusting computation",
+      "title": "Functional programming for dynamic and large data with self-adjusting computation.",
+      "year": "2014",
+      "venue": "ICFP",
+      "ee": "https://doi.org/10.1145/2628136.2628150",
+      "authors": [
+        "Yan Chen 0001",
+        "Umut A. Acar",
+        "Kanat Tangwongsan"
+      ]
+    },
+    {
+      "q": "self-adjusting computation",
+      "title": "A consistent semantics of self-adjusting computation.",
+      "year": "2013",
+      "venue": "J. Funct. Program.",
+      "ee": "https://doi.org/10.1017/S0956796813000099",
+      "authors": [
+        "Umut A. Acar",
+        "Matthias Blume",
+        "Jacob Donham"
+      ]
+    },
+    {
+      "q": "self-adjusting computation",
+      "title": "Streaming big data with self-adjusting computation.",
+      "year": "2013",
+      "venue": "DDFP",
+      "ee": "https://doi.org/10.1145/2429376.2429382",
+      "authors": [
+        "Umut A. Acar",
+        "Yan Chen 0001"
+      ]
+    },
+    {
+      "q": "self-adjusting computation",
+      "title": "Non-monotonic Self-Adjusting Computation.",
+      "year": "2012",
+      "venue": "ESOP",
+      "ee": "https://doi.org/10.1007/978-3-642-28869-2_24",
+      "authors": [
+        "Ruy Ley-Wild",
+        "Umut A. Acar",
+        "Guy E. Blelloch"
+      ]
+    },
+    {
+      "q": "self-adjusting computation",
+      "title": "Implicit self-adjusting computation for purely functional programs.",
+      "year": "2011",
+      "venue": "ICFP",
+      "ee": "https://doi.org/10.1145/2034773.2034792",
+      "authors": [
+        "Yan Chen 0001",
+        "Jana Dunfield",
+        "Matthew A. Hammer",
+        "Umut A. Acar"
+      ]
+    },
+    {
+      "q": "self-adjusting computation",
+      "title": "A Consistent Semantics of Self-Adjusting Computation",
+      "year": "2011",
+      "venue": "CoRR",
+      "ee": "http://arxiv.org/abs/1106.0478",
+      "authors": [
+        "Umut A. Acar",
+        "Matthias Blume",
+        "Jacob Donham"
+      ]
+    },
+    {
+      "q": "Adapton",
+      "title": "Enhancing Symbol Detection Accuracy in Pilot-Aided Multiple Access Networks Using the Novel Deep Learning Approach Adaptonet.",
+      "year": "2026",
+      "venue": "KSII Trans. Internet Inf. Syst.",
+      "ee": "https://doi.org/10.3837/tiis.2026.03.021",
+      "authors": [
+        "Manchuri Tulasi",
+        "D. Sreenivasa Rao"
+      ]
+    },
+    {
+      "q": "Adapton",
+      "title": "Typed Adapton: Refinement types for nominal memoization.",
+      "year": "2016",
+      "venue": "CoRR",
+      "ee": "http://arxiv.org/abs/1610.00097",
+      "authors": [
+        "Matthew A. Hammer",
+        "Jana Dunfield"
+      ]
+    },
+    {
+      "q": "Adapton",
+      "title": "Adapton: composable, demand-driven incremental computation.",
+      "year": "2014",
+      "venue": "PLDI",
+      "ee": "https://doi.org/10.1145/2594291.2594324",
+      "authors": [
+        "Matthew A. Hammer",
+        "Yit Phang Khoo",
+        "Michael Hicks 0001",
+        "Jeffrey S. Foster"
+      ]
+    }
+  ]
+}

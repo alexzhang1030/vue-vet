@@ -1,4 +1,4 @@
-use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, Severity};
+use vue_vet_core::{Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/accessibility/click-events-have-key-events",
@@ -17,33 +17,33 @@ impl Rule for ClickEventsHaveKeyEvents {
     &META
   }
 
-  fn run(&self, context: &mut RuleContext<'_>) {
+  fn fact_kinds(&self) -> FactKinds {
+    FactKinds::TEMPLATE_ELEMENT
+  }
+
+  fn run_on(&self, fact: FactRef<'_>, context: &mut RuleContext<'_>) {
     const NON_INTERACTIVE: [&str; 6] = ["div", "span", "p", "section", "article", "li"];
-    let spans = context
-      .template()
-      .elements
-      .iter()
-      .filter(|element| {
-        NON_INTERACTIVE.iter().any(|tag| element.tag.eq_ignore_ascii_case(tag))
-          && element.event("click").is_some()
-          && element.event("keydown").is_none()
-          && element.event("keyup").is_none()
-          && element.event("keypress").is_none()
-      })
-      .map(|element| {
-        element.event("click").map_or_else(|| element.span.clone(), |event| event.span.clone())
-      })
-      .collect::<Vec<_>>();
-    for span in spans {
-      context.report(
-        self.meta(),
-        span,
-        "clickable non-interactive element has no keyboard handler".into(),
-        Some(
-          "Prefer a native button or link; otherwise add keyboard behavior and an appropriate role."
-            .into(),
-        ),
-      );
+    let FactRef::TemplateElement(element) = fact else {
+      return;
+    };
+    if !NON_INTERACTIVE.iter().any(|tag| element.tag.eq_ignore_ascii_case(tag))
+      || element.event("click").is_none()
+      || element.event("keydown").is_some()
+      || element.event("keyup").is_some()
+      || element.event("keypress").is_some()
+    {
+      return;
     }
+    let span =
+      element.event("click").map_or_else(|| element.span.clone(), |event| event.span.clone());
+    context.report(
+      self.meta(),
+      span,
+      "clickable non-interactive element has no keyboard handler".into(),
+      Some(
+        "Prefer a native button or link; otherwise add keyboard behavior and an appropriate role."
+          .into(),
+      ),
+    );
   }
 }

@@ -1,0 +1,10 @@
+{
+  "id": "baseline-ref-computed",
+  "source": "import { ref, computed } from 'vue'\nconst count = ref(1)\nconst doubled = computed(() => count.value * 2)\nvoid doubled.value\n",
+  "runtime_deps": [
+    {
+      "binding": "count",
+      "key": "value"
+    }
+  ]
+}

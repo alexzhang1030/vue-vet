@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 
 const ready = computed(() => false)
 const watchedValue = ref(0)
+const templateOnly = ref(1)
 watch([ready, watchedValue], () => {
   console.log(watchedValue.value)
 })
@@ -21,7 +22,7 @@ void slots
     <div v-if="item.visible">{{ item.label }}</div>
   </template>
   <div v-show="visible" />
-  <div>{{ localTitle }}</div>
+  <div>{{ localTitle }} · {{ templateOnly }}</div>
   <component :is="currentComponent" />
   <img alt="">
   <iframe title="Preview" />

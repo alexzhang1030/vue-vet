@@ -1,4 +1,4 @@
-use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, Severity};
+use vue_vet_core::{Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/correctness/valid-v-text",
@@ -17,29 +17,31 @@ impl Rule for ValidVText {
     &META
   }
 
-  fn run(&self, context: &mut RuleContext<'_>) {
-    let spans = context
-      .template()
-      .elements
-      .iter()
-      .filter_map(|element| {
-        let directive = element.directive("text")?;
-        let invalid = directive.expression.as_deref().is_none_or(str::is_empty)
-          || directive.argument.is_some()
-          || !directive.modifiers.is_empty()
-          || element.has_children;
-        invalid.then_some(directive.span.clone())
-      })
-      .collect::<Vec<_>>();
-    for span in spans {
-      context.report(
-        self.meta(),
-        span,
-        "invalid `v-text` usage".into(),
-        Some(
-          "Provide exactly one expression, no argument or modifiers, and no child content.".into(),
-        ),
-      );
+  fn fact_kinds(&self) -> FactKinds {
+    FactKinds::TEMPLATE_ELEMENT
+  }
+
+  fn run_on(&self, fact: FactRef<'_>, context: &mut RuleContext<'_>) {
+    let FactRef::TemplateElement(element) = fact else {
+      return;
+    };
+    let Some(directive) = element.directive("text") else {
+      return;
+    };
+    let invalid = directive.expression.as_deref().is_none_or(str::is_empty)
+      || directive.argument.is_some()
+      || !directive.modifiers.is_empty()
+      || element.has_children;
+    if !invalid {
+      return;
     }
+    context.report(
+      self.meta(),
+      directive.span.clone(),
+      "invalid `v-text` usage".into(),
+      Some(
+        "Provide exactly one expression, no argument or modifiers, and no child content.".into(),
+      ),
+    );
   }
 }

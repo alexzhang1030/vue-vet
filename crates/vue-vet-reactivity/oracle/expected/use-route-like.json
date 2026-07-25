@@ -1,0 +1,10 @@
+{
+  "id": "use-route-like",
+  "source": "import { reactive, computed } from 'vue'\nconst route = reactive({ path: '/home', name: 'home' })\nconst title = computed(() => route.path)\nvoid title.value\n",
+  "runtime_deps": [
+    {
+      "binding": "route",
+      "key": "path"
+    }
+  ]
+}

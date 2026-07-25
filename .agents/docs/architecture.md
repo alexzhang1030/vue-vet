@@ -5,19 +5,41 @@
 ```text
 vue-vet CLI
   -> versioned configuration and path filters
-  -> ignore-aware .vue discovery
-  -> vue-vet-vize SFC and template AST parsing
-  -> Vue Vet-owned template facts
-  -> vue-vet-oxc script parsing and semantic analysis
-  -> Vue Vet-owned script imports, bindings, calls, writes, and destructures
-  -> vue-vet-reactivity local tracing and module-summary linking
-  -> vue-vet-project resolved edges and module reactivity graphs
-  -> vue-vet-rules built-in rule registry
+  -> ignore-aware .vue / JS / TS discovery (sequential walk)
+  -> parallel per-file facts (Vize SFC / Oxc modules)   // oxlint-style
+  -> vue-vet-project edges + vue-vet-reactivity module seed linking
+       (module first-pass + seeded re-trace also parallel)
+  -> apply module graphs onto setup and dual ordinary (#script) blocks
+  -> parallel seed-aware vue-vet-rules
   -> severity overrides and scoped suppressions
-  -> vue-vet-core diagnostics, spans, scoring
+  -> vue-vet-core diagnostics, spans, scoring (sorted for determinism)
   -> vue-vet-reporters text or JSON rendering
   -> CLI output and CI exit policy
 ```
+
+### Performance model (oxlint-inspired)
+
+- **Files parallel, pipeline per file sequential** — discovery is sequential; parse /
+  facts / seed-aware rules use Rayon (`--threads N` optional).
+- **Rules are pass-based, not “each rule re-scans everything”** — `Rule` exposes
+  oxlint-style hooks over Vue Vet facts (not dependency AST):
+  - `run_once` — whole-file / cross-fact aggregation
+  - `run_on` + `fact_kinds` — per-fact visitor with a bitset interest set
+  - `RuleRegistry` runs `run_once` once per rule, then a **single walk** over each
+    fact surface (template elements, script calls, reactivity scopes, …) dispatching
+    only bucketed interested rules. Rules must report immediately; they must not
+    `collect` intermediate vectors and re-scan them.
+- **Two-phase module reactivity, one parse** — sticky workers (`std::thread::scope`)
+  keep each module's Oxc allocator/semantic on the worker stack. Phase 1 builds
+  export shapes and an empty-seed local graph; after the coordinator resolves
+  seeds, phase 2 re-traces on the **same** semantic when cross-file seeds exist
+  (no second parse). Sessions never leave their thread (arena types are not
+  `Send`; the workspace forbids `unsafe_code`). Results stay deterministic after
+  sort-by-module-id.
+- **Determinism after concurrency** — diagnostics are sorted in `ScanSummary::finish`;
+  module results are sorted by module id after parallel re-trace.
+- **Still single-process Rust** — no JS rule host; adapters stay behind Vue Vet facts.
+  Facts remain the stable rule surface; the pass walks those facts, not Oxc/Vize nodes.
 
 `no-v-html` remains the reference AST-backed built-in rule. Phase 2 adds the Oxc
 adapter while keeping both dependency ASTs behind Vue Vet-owned facts.
@@ -28,12 +50,16 @@ not dispatch rule behavior through a shared enum or central match.
 The CLI derives per-file Vue capabilities from the nearest package.json and passes
 them into per-file rules without exposing package-manager state to parser adapters.
 The Oxc adapter delegates reactivity construction to `vue-vet-reactivity`.
-That crate records Vue-resolved reactive binding nodes and every direct effect
-read as serializable Vue Vet facts. Read edges carry their property, exact span,
-classification (unconditional, conditional, or after-await), and ordered guard
-evidence; rules never receive Oxc nodes. Its module layer summarizes direct
-bindings and composable return shapes, then reaches a deterministic fixed point
-over resolved named/default exports, barrels, multi-hop re-exports, and cycles.
+That crate is the static reactivity tracing library: it records Vue-resolved
+bindings and **tracking scopes** (`watchEffect*`, `computed`, `watch` sources)
+as serializable Vue Vet facts. Each scope carries demand reads with property,
+exact span, classification (unconditional, conditional, after-await, or
+outside-tracking), and ordered guard evidence with roles; rules never receive
+Oxc nodes. Legacy `effects` is a projection of effect-family scopes for existing
+consumers. Its module layer summarizes direct bindings and composable return
+shapes (destructure and instance member seeds), then reaches a deterministic
+fixed point over resolved named/default exports, barrels, multi-hop re-exports,
+and cycles. See [reactivity tracer](./reactivity-tracer.md).
 Configuration changes
 rule enablement and severity after semantic analysis;
 suppressions are applied after diagnostic normalization and emit findings when
@@ -111,10 +137,11 @@ The first graph layer is `vue-vet-project`. It consumes serializable `SfcFacts`,
 uses repository-relative file IDs, stores source evidence on every edge, and
 publishes its exact file inputs for cache invalidation. Its convention version
 changes whenever Nuxt directory or naming behavior changes. The project graph
-also supplies resolved standalone JavaScript/TypeScript module edges to
-`vue-vet-reactivity` and publishes the resulting per-module graphs. Cross-file
-tracing for extracted `.vue` script blocks is intentionally not inferred yet:
-it requires a Vize-owned source/offset handoff so SFC spans remain exact.
+also supplies resolved module edges (standalone JS/TS **and** preferred SFC
+script blocks) to `vue-vet-reactivity` and publishes the resulting per-module
+graphs. Extracted `.vue` scripts use Vize block offsets plus the original SFC
+as `span_source` so absolute spans stay exact; template joins are re-applied on
+the module graph after cross-file seed linking.
 
 Cache format version 3 stores only `ScanSummary` and `ProjectGraph`, including
 rule confidence, documentation metadata, and optional edit candidates on cached

@@ -1,0 +1,14 @@
+{
+  "id": "sync-filter-hof",
+  "source": "import { ref, computed } from 'vue'\nconst list = ref(['ada', 'linus'])\nconst query = ref('a')\nconst filtered = computed(() => list.value.filter((item) => item.includes(query.value)))\nvoid filtered.value\n",
+  "runtime_deps": [
+    {
+      "binding": "list",
+      "key": "value"
+    },
+    {
+      "binding": "query",
+      "key": "value"
+    }
+  ]
+}

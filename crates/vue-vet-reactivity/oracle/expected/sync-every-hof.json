@@ -1,0 +1,14 @@
+{
+  "id": "sync-every-hof",
+  "source": "import { ref, computed } from 'vue'\nconst list = ref([1, 2, 3])\nconst threshold = ref(0)\nconst ok = computed(() => list.value.every((n) => n > threshold.value))\nvoid ok.value\n",
+  "runtime_deps": [
+    {
+      "binding": "list",
+      "key": "value"
+    },
+    {
+      "binding": "threshold",
+      "key": "value"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "id": "sync-flatMap-hof",
+  "source": "import { ref, computed } from 'vue'\nconst list = ref([[1], [2]])\nconst n = ref(0)\nconst out = computed(() => list.value.flatMap((xs) => xs.map((x) => x + n.value)))\nvoid out.value\n",
+  "runtime_deps": [
+    {
+      "binding": "list",
+      "key": "value"
+    },
+    {
+      "binding": "n",
+      "key": "value"
+    }
+  ]
+}
