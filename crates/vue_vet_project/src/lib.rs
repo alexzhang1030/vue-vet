@@ -541,6 +541,44 @@ mod tests {
   }
 
   #[test]
+  #[expect(clippy::panic, reason = "test setup failures must fail the unit test")]
+  fn relative_dot_root_resolves_tilde_aliases() {
+    use std::sync::{Mutex, OnceLock};
+    static CWD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let _guard = CWD_LOCK
+      .get_or_init(|| Mutex::new(()))
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    let project = TempProject::new("tilde-dot");
+    let page = file("components/App.vue", &[("~/utils/contract", "Contract")], &[], &[]);
+    let contract = file("utils/contract.ts", &[], &[], &[]);
+    materialize(&project, &[page.clone(), contract.clone()]);
+    let previous = match std::env::current_dir() {
+      Ok(cwd) => cwd,
+      Err(error) => panic!("failed to read current dir: {error}"),
+    };
+    if let Err(error) = std::env::set_current_dir(project.root()) {
+      panic!("failed to enter temp project: {error}");
+    }
+    let graph = build_project_graph(Path::new("."), &[page, contract]);
+    let _ignored = std::env::set_current_dir(previous);
+    assert!(
+      graph.diagnostics.iter().all(|diagnostic| diagnostic.rule_id != PROJECT_RULE_IDS[0]),
+      "`vue-vet .` style relative roots must still resolve ~/ aliases: {:?}",
+      graph.diagnostics
+    );
+    assert!(
+      graph
+        .edges
+        .iter()
+        .any(|edge| { edge.kind == EdgeKind::Import && edge.specifier == "~/utils/contract" }),
+      "tilde imports must become project edges from a relative root: {:?}",
+      graph.edges
+    );
+  }
+
+  #[test]
   fn broken_package_exports_are_unresolved() {
     let project = TempProject::new("bad-exports");
     project.write(

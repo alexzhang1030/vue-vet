@@ -712,6 +712,60 @@ fn cache_key_ignores_node_modules_package_directories() {
 
 #[test]
 #[expect(clippy::panic, reason = "test setup failures must fail the integration test")]
+fn relative_dot_scan_resolves_nuxt_tilde_imports() {
+  let project = TempProject::new(
+    "tilde-dot-cli",
+    "<script setup lang=\"ts\">\nimport type { Contract } from '~/utils/contract'\n</script>\n<template><div /></template>\n",
+  );
+  if let Err(error) = fs::create_dir_all(project.root().join("utils")) {
+    panic!("failed to create utils: {error}");
+  }
+  if let Err(error) =
+    fs::write(project.root().join("utils/contract.ts"), "export type Contract = string\n")
+  {
+    panic!("failed to write contract: {error}");
+  }
+  // Move the SFC under components/ so ~/utils is not a relative look-alike.
+  if let Err(error) = fs::create_dir_all(project.root().join("components")) {
+    panic!("failed to create components: {error}");
+  }
+  if let Err(error) = fs::rename(project.source_path(), project.root().join("components/App.vue")) {
+    panic!("failed to move App.vue: {error}");
+  }
+  let output = match Command::new(env!("CARGO_BIN_EXE_vue-vet"))
+    .current_dir(project.root())
+    .args([".", "--format", "json", "--no-cache"])
+    .output()
+  {
+    Ok(output) => output,
+    Err(error) => panic!("failed to run vue-vet: {error}"),
+  };
+  assert!(
+    output.status.success(),
+    "relative `.` scan roots must resolve Nuxt ~/ imports: {}",
+    String::from_utf8_lossy(&output.stderr)
+  );
+  let report: Result<Value, _> = serde_json::from_slice(&output.stdout);
+  let unresolved = report
+    .as_ref()
+    .ok()
+    .and_then(|value| value.get("diagnostics"))
+    .and_then(Value::as_array)
+    .into_iter()
+    .flatten()
+    .filter(|diagnostic| {
+      diagnostic.get("rule_id").and_then(Value::as_str) == Some("vue-vet/project/unresolved-import")
+        && diagnostic
+          .get("message")
+          .and_then(Value::as_str)
+          .is_some_and(|message| message.contains("~/utils/contract"))
+    })
+    .count();
+  assert_eq!(unresolved, 0, "must resolve ~/ from a relative scan root: {report:?}");
+}
+
+#[test]
+#[expect(clippy::panic, reason = "test setup failures must fail the integration test")]
 fn scoped_package_import_in_config_is_not_unresolved() {
   let project = TempProject::new("scoped-tailwind", "<template><div /></template>\n");
   let package = project.root().join("node_modules").join("@tailwindcss").join("vite");
