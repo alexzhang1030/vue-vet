@@ -195,11 +195,16 @@ Implemented in the first safe-fix vertical slice:
 - atomic single-file replacement with Unicode and line-ending preservation
 - a conservative producer for boolean `autofocus`; valued attributes remain manual
 
+Implemented in the native distribution slice:
+
+- thin npm launcher (`vue-vet`) with `@vue-vet/{os}-{arch}` optionalDependencies
+- release workflow for Linux/macOS/Windows matrix builds, `SHA256SUMS`, and npm publish
+- install, checksum, and rollback documentation
+
 Work:
 
 - extend safe fixes to multi-file transactions with failure rollback
 - add additional evidence-backed edit producers without enabling unsafe or speculative changes
-- publish native binaries and a thin npm launcher
 
 Exit criteria:
 

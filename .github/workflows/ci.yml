@@ -36,3 +36,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.97.0
       - uses: extractions/setup-just@v3
       - run: just test
+
+  npm:
+    name: npm launcher
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: extractions/setup-just@v3
+      - run: just npm-test

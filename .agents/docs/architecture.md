@@ -101,6 +101,15 @@ Path dependencies between publishable crates carry an explicit `version` so
 `cargo publish` can resolve them from the registry. Crate directories and package
 names use snake_case (see [conventions](./conventions.md)).
 
+### Native binary and npm distribution
+
+End-user installs go through npm (`vue-vet` + `@vue-vet/*` platform packages) or
+GitHub Release archives, not crates.io for the CLI (`publish = false`). The
+Release workflow (`.github/workflows/release.yml`) builds the matrix targets,
+writes `SHA256SUMS`, publishes platform packages, then the launcher. Version
+numbers stay aligned across Cargo workspace, npm, and `v*` tags. Details:
+[install docs](../../docs/install.md).
+
 ## Reporting and edit planning
 
 `vue_vet_reporters` consumes Vue Vet-owned `ScanSummary` values plus an explicit
