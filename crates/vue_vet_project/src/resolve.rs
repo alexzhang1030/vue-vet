@@ -25,7 +25,8 @@ pub struct ProjectResolver {
 
 impl ProjectResolver {
   pub fn new(root: &Path) -> Self {
-    let root = root.to_path_buf();
+    // Relative roots like `.` break alias targets (`~` → ".") and tsconfig paths.
+    let root = absolutize_root(root);
     let options = bundler_resolve_options(&root);
     Self { root, resolver: Resolver::new(options) }
   }
@@ -102,21 +103,23 @@ fn classify_resolved(
   }
 }
 
+fn absolutize_root(root: &Path) -> PathBuf {
+  let absolute = if root.is_absolute() {
+    root.to_path_buf()
+  } else {
+    std::env::current_dir().map_or_else(|_| root.to_path_buf(), |cwd| cwd.join(root))
+  };
+  absolute.canonicalize().unwrap_or(absolute)
+}
+
 fn absolute_under_root(root: &Path, logical: &str) -> PathBuf {
   let path = Path::new(logical);
   if path.is_absolute() { path.to_path_buf() } else { root.join(path) }
 }
 
 fn relativize(root: &Path, absolute: &Path) -> Option<String> {
-  let root = dunce_canonicalize(root)?;
-  let absolute = dunce_canonicalize(absolute)?;
-  absolute.strip_prefix(&root).ok().map(normalized_path)
-}
-
-/// Prefer `dunce`-style simplification without adding a dependency: canonicalize
-/// when possible, otherwise return the path as-is for prefix stripping.
-fn dunce_canonicalize(path: &Path) -> Option<PathBuf> {
-  path.canonicalize().ok().or_else(|| Some(path.to_path_buf()))
+  let absolute = absolute.canonicalize().unwrap_or_else(|_| absolute.to_path_buf());
+  absolute.strip_prefix(root).ok().map(normalized_path)
 }
 
 fn path_string(path: &Path) -> String {

@@ -77,7 +77,9 @@ the scanned file set are external graph nodes; only true resolve failures raise
 tsconfig paths (including `.nuxt/tsconfig.json`), and package `exports`.
 Never silently reinterpret an unresolved edge as an external package.
 `oxc_resolver` is pinned to `11.21.0` because `11.22+` requires `dashmap 6.2.1`
-while Vize pins `dashmap =6.1.0`.
+while Vize pins `dashmap =6.1.0`. Always absolutize/canonicalize the scan root
+before building the resolver: `vue-vet .` must not leave alias targets as `"."`,
+or Nuxt `~/…` imports fail even when the files exist.
 
 Cache corruption is a miss, not a scan failure. Cache keys must change when any
 normalized semantic input changes; raw dependency ASTs must never be persisted.
