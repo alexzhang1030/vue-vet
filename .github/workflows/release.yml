@@ -197,6 +197,8 @@ jobs:
         run: |
           set -euo pipefail
           for dir in dist/npm/@vue-vet/*; do
+            # upload-artifact does not preserve unix execute bits.
+            chmod a+x "$dir"/bin/vue-vet "$dir"/bin/vue-vet.exe 2>/dev/null || true
             echo "Publishing $dir"
             npm publish --access public --provenance "$dir"
           done

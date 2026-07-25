@@ -49,6 +49,15 @@ function resolveBinary(options = {}) {
       `Package ${entry.package} is installed but ${entry.bin} is missing at ${binaryPath}.`,
     );
   }
+  // GitHub Actions artifacts and some pack pipelines drop the executable bit.
+  // Restore it before spawn so optionalDependencies installs stay runnable.
+  if (process.platform !== 'win32') {
+    try {
+      fs.accessSync(binaryPath, fs.constants.X_OK);
+    } catch {
+      fs.chmodSync(binaryPath, 0o755);
+    }
+  }
   return binaryPath;
 }
 
