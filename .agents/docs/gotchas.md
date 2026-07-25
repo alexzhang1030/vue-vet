@@ -245,7 +245,12 @@ ancestor chain. Rules:
   a known reactive shape (or when a static default value has a known shape).
 - **Multiple** provides of the same key stay quiet — nearest-ancestor selection
   needs an App Tree we deliberately do not build yet.
-- String keys match exactly; identifier keys match by local name only (opaque
-  symbols with the same binding name can collapse — multi-provider stays quiet).
+- String keys match exactly.
+- **Imported** keys (`import { ThemeKey } from './keys'`) match by
+  `(specifier, export name)` so shared symbol modules link across files.
+- **Local** keys (`const ThemeKey = Symbol()`) use definition span identity —
+  two files each defining their own `Symbol()` never cross-link.
+- `provide(api)` where `api` is a composable instance bag seeds
+  `composable_instances` on the inject local (not a scalar binding).
 - Factory defaults (`inject(key, () => ref(0))`) stay quiet; plain
   `inject(key, someRef)` may seed from the default.

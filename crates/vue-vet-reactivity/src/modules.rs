@@ -20,10 +20,10 @@ use thiserror::Error;
 use vue_vet_core::{ReactiveBindingFact, ReactiveBindingKind, ReactivityGraph, ScriptKind};
 
 use super::{
-  TraceSeeds, collect_binding_identifiers, collect_imported_bindings, collect_inject_sites,
-  collect_provide_sites, module_export_name, provide_kind_index, reactive_binding_kind,
-  reference_resolves_to_binding, resolve_inject_kind, resolved_vue_callee, source_span,
-  trace_reactivity_seeded,
+  ProvideOffer, TraceSeeds, collect_binding_identifiers, collect_imported_bindings,
+  collect_inject_sites, collect_provide_sites, module_export_name, provide_offer_index,
+  reactive_binding_kind, reference_resolves_to_binding, resolve_inject_offer, resolved_vue_callee,
+  source_span, trace_reactivity_seeded,
 };
 use oxc_ast::ast::Argument;
 
@@ -178,8 +178,8 @@ type ImportSeedPlan = BTreeMap<String, ExportState>;
 #[derive(Debug, Default)]
 struct ModuleSeedPlan {
   imports: ImportSeedPlan,
-  /// inject local → reactive kind (from unique provide or static default).
-  injects: BTreeMap<String, ReactiveBindingKind>,
+  /// inject local → offer (scalar kind and/or composable bag shape).
+  injects: BTreeMap<String, ProvideOffer>,
 }
 
 impl ModuleSeedPlan {
@@ -324,8 +324,13 @@ fn worker_trace_module(
   };
   let locals = collect_local_values(&semantic, &local_graph, &shape_graph, module.source_offset);
   let imported_bindings = super::collect_imported_bindings(&semantic);
-  let provides =
-    collect_provide_sites(&semantic, &imported_bindings, &local_graph.bindings, module.kind);
+  let provides = collect_provide_sites(
+    &semantic,
+    &imported_bindings,
+    &local_graph.bindings,
+    &local_graph.composable_instances,
+    module.kind,
+  );
   let injects =
     collect_inject_sites(&semantic, &imported_bindings, &local_graph.bindings, module.kind);
 
@@ -976,28 +981,28 @@ fn seed_plan_for(
   plan
 }
 
-/// Project-wide provide index (no App Tree): key → kinds from every known site.
+/// Project-wide provide index (no App Tree): key → offers from every known site.
 fn global_provide_index(
   facts: &BTreeMap<String, ModuleExportFacts>,
-) -> BTreeMap<super::InjectionKey, Vec<ReactiveBindingKind>> {
+) -> BTreeMap<super::InjectionKey, Vec<ProvideOffer>> {
   let mut all = Vec::new();
   for module in facts.values() {
     all.extend(module.provides.iter().cloned());
   }
-  provide_kind_index(&all)
+  provide_offer_index(&all)
 }
 
 /// Unique inject seeds for one consumer (multi-provide keys stay quiet).
 fn inject_seed_plan(
   facts: &ModuleExportFacts,
-  provide_index: &BTreeMap<super::InjectionKey, Vec<ReactiveBindingKind>>,
-) -> BTreeMap<String, ReactiveBindingKind> {
+  provide_index: &BTreeMap<super::InjectionKey, Vec<ProvideOffer>>,
+) -> BTreeMap<String, ProvideOffer> {
   let mut plan = BTreeMap::new();
   for inject in &facts.injects {
-    let Some(kind) = resolve_inject_kind(provide_index, inject) else {
+    let Some(offer) = resolve_inject_offer(provide_index, inject) else {
       continue;
     };
-    plan.insert(inject.local.clone(), kind);
+    plan.insert(inject.local.clone(), offer);
   }
   plan
 }
@@ -1048,23 +1053,27 @@ fn materialize_seeds(
       ExportState::Ambiguous => {}
     }
   }
-  // Inject locals: re-read sites for exact spans, kinds from the coordinator plan.
+  // Inject locals: re-read sites for exact spans; offers from the coordinator plan.
   if !plan.injects.is_empty() {
     let imported_bindings = super::collect_imported_bindings(semantic);
     let injects = collect_inject_sites(semantic, &imported_bindings, &[], module.kind);
     for inject in injects {
-      let Some(kind) = plan.injects.get(&inject.local).copied() else {
+      let Some(offer) = plan.injects.get(&inject.local) else {
         continue;
       };
-      if seeds.bindings.iter().any(|binding| binding.name == inject.local) {
-        continue;
+      if let Some(kind) = offer.kind
+        && !seeds.bindings.iter().any(|binding| binding.name == inject.local)
+      {
+        seeds.bindings.push(ReactiveBindingFact {
+          name: inject.local.clone(),
+          kind,
+          initialized_with_null: false,
+          span: source_span(span_source, span_base, inject.span),
+        });
       }
-      seeds.bindings.push(ReactiveBindingFact {
-        name: inject.local,
-        kind,
-        initialized_with_null: false,
-        span: source_span(span_source, span_base, inject.span),
-      });
+      if let Some(shape) = &offer.instance_shape {
+        seeds.composable_instances.entry(inject.local).or_insert_with(|| shape.clone());
+      }
     }
   }
   seeds

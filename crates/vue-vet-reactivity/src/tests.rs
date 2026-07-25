@@ -970,6 +970,107 @@ fn cross_module_provide_inject_unique_key_seeds() {
 }
 
 #[test]
+fn imported_symbol_keys_match_across_modules() {
+  let modules = [
+    ModuleSource::standalone(
+      "keys.ts",
+      "export const ThemeKey = Symbol('theme');",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "provider.ts",
+      "import { provide, ref } from 'vue'; import { ThemeKey } from './keys'; const mode = ref('dark'); provide(ThemeKey, mode);",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { inject, computed } from 'vue'; import { ThemeKey } from './keys'; const mode = inject(ThemeKey); const d = computed(() => mode.value); void d.value;",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let traced = traced_modules(&modules, &[]);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "mode" && binding.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope
+            .reads
+            .iter()
+            .any(|read| read.binding == "mode" && read.property.as_deref() == Some("value"))
+        })
+    }),
+    "imported injection keys must match by specifier+export; consumer={consumer:?}"
+  );
+}
+
+#[test]
+fn distinct_local_symbols_do_not_cross_link() {
+  let modules = [
+    ModuleSource::standalone(
+      "provider.ts",
+      "import { provide, ref } from 'vue'; const ThemeKey = Symbol('theme'); const mode = ref('dark'); provide(ThemeKey, mode);",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { inject, computed } from 'vue'; const ThemeKey = Symbol('theme'); const mode = inject(ThemeKey); const d = computed(() => mode.value); void d.value;",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let traced = traced_modules(&modules, &[]);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| !module
+      .graph
+      .bindings
+      .iter()
+      .any(|binding| binding.name == "mode")),
+    "file-local Symbol() keys must not match across modules; consumer={consumer:?}"
+  );
+}
+
+#[test]
+fn provide_composable_instance_seeds_inject_bag() {
+  let graph = graph(
+    "import { provide, inject, ref, computed } from 'vue';\n\
+     function useCounter() { const count = ref(0); return { count }; }\n\
+     const api = useCounter();\n\
+     provide('api', api);\n\
+     const bag = inject('api');\n\
+     const d = computed(() => bag.count.value);\n\
+     void d.value;",
+  );
+  assert!(
+    graph
+      .composable_instances
+      .get("bag")
+      .is_some_and(|shape| { shape.get("count") == Some(&ReactiveBindingKind::Ref) }),
+    "provide(composable bag) must seed inject as instance shape; instances={:?}",
+    graph.composable_instances
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope
+        .reads
+        .iter()
+        .any(|read| read.binding == "count" && read.property.as_deref() == Some("value"))
+    }),
+    "computed must track bag.count.value via inject instance; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
 fn unref_and_to_value_track_ref_like_bindings() {
   for (label, source) in [
     (

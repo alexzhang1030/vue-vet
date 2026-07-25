@@ -85,20 +85,27 @@ fn trace_reactivity_seeded(
       bindings.push(binding);
     }
   }
-  // Same-file provide → inject: unique key with known reactive shape (or inject default).
-  for binding in resolve_inject_bindings(
-    &collect_provide_sites(semantic, &imported_bindings, &bindings, script_kind),
-    &collect_inject_sites(semantic, &imported_bindings, &bindings, script_kind),
-    sfc_source,
-    script_offset,
-  ) {
+  let mut composable_instances = local_instances;
+  for (bag, shape) in &seeds.composable_instances {
+    composable_instances.insert(bag.clone(), shape.clone());
+  }
+  // Same-file provide → inject after instance bags exist (provide(api) where api = useX()).
+  let provides = collect_provide_sites(
+    semantic,
+    &imported_bindings,
+    &bindings,
+    &composable_instances,
+    script_kind,
+  );
+  let injects = collect_inject_sites(semantic, &imported_bindings, &bindings, script_kind);
+  let resolved = resolve_inject_links(&provides, &injects, sfc_source, script_offset);
+  for binding in resolved.bindings {
     if !bindings.iter().any(|local| local.name == binding.name) {
       bindings.push(binding);
     }
   }
-  let mut composable_instances = local_instances;
-  for (bag, shape) in &seeds.composable_instances {
-    composable_instances.insert(bag.clone(), shape.clone());
+  for (bag, shape) in resolved.instances {
+    composable_instances.entry(bag).or_insert(shape);
   }
 
   let mut scopes = collect_tracking_scopes(
@@ -390,19 +397,34 @@ fn reactive_binding_kind(callee: &str) -> Option<ReactiveBindingKind> {
 
 /// Injection key identity for provide/inject linking (under-approx).
 ///
-/// String keys match exactly. Identifier keys match by local name only (no full
-/// symbol identity) — multiple distinct `Symbol()` values with the same binding
-/// name collapse and become ambiguous when more than one provider exists.
+/// - [`InjectionKey::String`]: exact string / cooked template key.
+/// - [`InjectionKey::Imported`]: named import used as key (`import { ThemeKey } from '…'`).
+/// - [`InjectionKey::Local`]: file-local binding (e.g. `const ThemeKey = Symbol()`), keyed by
+///   definition span so two `Symbol()` locals never collapse across files.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) enum InjectionKey {
   String(String),
-  Ident(String),
+  Imported { specifier: String, imported: String },
+  Local { name: String, def_start: u32 },
+}
+
+/// One `provide` site's offered value shape (scalar kind and/or composable bag).
+#[derive(Clone, Debug)]
+pub(crate) struct ProvideOffer {
+  pub kind: Option<ReactiveBindingKind>,
+  pub instance_shape: Option<BTreeMap<String, ReactiveBindingKind>>,
+}
+
+impl ProvideOffer {
+  const fn is_known(&self) -> bool {
+    self.kind.is_some() || self.instance_shape.is_some()
+  }
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct ProvideSite {
   pub key: InjectionKey,
-  pub kind: Option<ReactiveBindingKind>,
+  pub offer: ProvideOffer,
 }
 
 #[derive(Clone, Debug)]
@@ -411,6 +433,14 @@ pub(crate) struct InjectSite {
   pub key: InjectionKey,
   pub span: Span,
   pub default_kind: Option<ReactiveBindingKind>,
+  pub default_instance_shape: Option<BTreeMap<String, ReactiveBindingKind>>,
+}
+
+/// Resolved inject seeds for one file/module.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ResolvedInjectLinks {
+  pub bindings: Vec<ReactiveBindingFact>,
+  pub instances: BTreeMap<String, BTreeMap<String, ReactiveBindingKind>>,
 }
 
 /// `provide(key, value)` and `*.provide(key, value)` with a known-or-unknown value shape.
@@ -418,6 +448,7 @@ pub(crate) fn collect_provide_sites(
   semantic: &Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
   reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &BTreeMap<String, BTreeMap<String, ReactiveBindingKind>>,
   script_kind: ScriptKind,
 ) -> Vec<ProvideSite> {
   let mut sites = Vec::new();
@@ -431,13 +462,22 @@ pub(crate) fn collect_provide_sites(
     let Some(key_expr) = call.arguments.first().and_then(Argument::as_expression) else {
       continue;
     };
-    let Some(key) = injection_key(key_expr) else {
+    let Some(key) = injection_key(semantic, key_expr, imported_bindings) else {
       continue;
     };
-    let kind = call.arguments.get(1).and_then(Argument::as_expression).and_then(|value| {
-      expression_reactive_kind(value, imported_bindings, reactive_bindings, script_kind)
-    });
-    sites.push(ProvideSite { key, kind });
+    let offer = call.arguments.get(1).and_then(Argument::as_expression).map_or(
+      ProvideOffer { kind: None, instance_shape: None },
+      |value| {
+        expression_provide_offer(
+          value,
+          imported_bindings,
+          reactive_bindings,
+          composable_instances,
+          script_kind,
+        )
+      },
+    );
+    sites.push(ProvideSite { key, offer });
   }
   sites
 }
@@ -470,76 +510,99 @@ pub(crate) fn collect_inject_sites(
     let Some(key_expr) = call.arguments.first().and_then(Argument::as_expression) else {
       continue;
     };
-    let Some(key) = injection_key(key_expr) else {
+    let Some(key) = injection_key(semantic, key_expr, imported_bindings) else {
       continue;
     };
-    let default_kind = call.arguments.get(1).and_then(Argument::as_expression).and_then(|value| {
-      // Factory defaults (`inject(key, () => ref(0))`) stay quiet — shape is dynamic.
-      if matches!(value, Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_))
-      {
-        return None;
-      }
-      expression_reactive_kind(value, imported_bindings, reactive_bindings, script_kind)
-    });
+    let (default_kind, default_instance_shape) =
+      call.arguments.get(1).and_then(Argument::as_expression).map_or((None, None), |value| {
+        if matches!(
+          value,
+          Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
+        ) {
+          (None, None)
+        } else {
+          let offer = expression_provide_offer(
+            value,
+            imported_bindings,
+            reactive_bindings,
+            &BTreeMap::new(),
+            script_kind,
+          );
+          (offer.kind, offer.instance_shape)
+        }
+      });
     sites.push(InjectSite {
       local: identifier.name.to_string(),
       key,
       span: identifier.span,
       default_kind,
+      default_instance_shape,
     });
   }
   sites
 }
 
-/// Unique known provide → inject binding, else inject default kind, else quiet.
-pub(crate) fn resolve_inject_bindings(
+/// Unique known provide → inject binding/bag, else inject default, else quiet.
+pub(crate) fn resolve_inject_links(
   provides: &[ProvideSite],
   injects: &[InjectSite],
   sfc_source: &str,
   script_offset: usize,
-) -> Vec<ReactiveBindingFact> {
-  let index = provide_kind_index(provides);
-  let mut bindings = Vec::new();
+) -> ResolvedInjectLinks {
+  let index = provide_offer_index(provides);
+  let mut out = ResolvedInjectLinks::default();
   for inject in injects {
-    let Some(kind) = resolve_inject_kind(&index, inject) else {
+    let Some(offer) = resolve_inject_offer(&index, inject) else {
       continue;
     };
-    if bindings.iter().any(|binding: &ReactiveBindingFact| binding.name == inject.local) {
-      continue;
+    if let Some(kind) = offer.kind
+      && !out.bindings.iter().any(|binding| binding.name == inject.local)
+    {
+      out.bindings.push(ReactiveBindingFact {
+        name: inject.local.clone(),
+        kind,
+        initialized_with_null: false,
+        span: source_span(sfc_source, script_offset, inject.span),
+      });
     }
-    bindings.push(ReactiveBindingFact {
-      name: inject.local.clone(),
-      kind,
-      initialized_with_null: false,
-      span: source_span(sfc_source, script_offset, inject.span),
-    });
+    if let Some(shape) = offer.instance_shape {
+      out.instances.entry(inject.local.clone()).or_insert(shape);
+    }
   }
-  bindings
+  out
 }
 
-/// Global/same-file index: injection key → known provide value kinds (one entry per site).
-pub(crate) fn provide_kind_index(
+/// Global/same-file index: injection key → known offers (one entry per provide site).
+pub(crate) fn provide_offer_index(
   provides: &[ProvideSite],
-) -> BTreeMap<InjectionKey, Vec<ReactiveBindingKind>> {
-  let mut index: BTreeMap<InjectionKey, Vec<ReactiveBindingKind>> = BTreeMap::new();
+) -> BTreeMap<InjectionKey, Vec<ProvideOffer>> {
+  let mut index: BTreeMap<InjectionKey, Vec<ProvideOffer>> = BTreeMap::new();
   for site in provides {
-    let Some(kind) = site.kind else {
+    if !site.offer.is_known() {
       continue;
-    };
-    index.entry(site.key.clone()).or_default().push(kind);
+    }
+    index.entry(site.key.clone()).or_default().push(site.offer.clone());
   }
   index
 }
 
-/// Exactly one known provide kind wins; otherwise a static default; multi-provide stays quiet.
-pub(crate) fn resolve_inject_kind(
-  index: &BTreeMap<InjectionKey, Vec<ReactiveBindingKind>>,
+/// Exactly one known provide offer wins; otherwise a static default; multi-provide stays quiet.
+pub(crate) fn resolve_inject_offer(
+  index: &BTreeMap<InjectionKey, Vec<ProvideOffer>>,
   inject: &InjectSite,
-) -> Option<ReactiveBindingKind> {
+) -> Option<ProvideOffer> {
   match index.get(&inject.key).map(Vec::as_slice) {
-    Some([kind]) => Some(*kind),
+    Some([offer]) => Some(offer.clone()),
     Some([_, _, ..]) => None,
-    Some([]) | None => inject.default_kind,
+    Some([]) | None => {
+      if inject.default_kind.is_none() && inject.default_instance_shape.is_none() {
+        return None;
+      }
+      Some(ProvideOffer {
+        kind: inject.default_kind,
+        instance_shape: inject.default_instance_shape.clone(),
+      })
+    }
   }
 }
 
@@ -551,7 +614,6 @@ fn is_provide_call(
   if resolved_vue_callee(callee, imported_bindings, script_kind).as_deref() == Some("provide") {
     return true;
   }
-  // `app.provide(key, value)` — under-approx any `.provide` member call.
   match callee {
     Expression::StaticMemberExpression(member) => member.property.name.as_str() == "provide",
     Expression::ComputedMemberExpression(member) => {
@@ -561,35 +623,61 @@ fn is_provide_call(
   }
 }
 
-fn injection_key(expression: &Expression<'_>) -> Option<InjectionKey> {
+fn injection_key(
+  semantic: &Semantic<'_>,
+  expression: &Expression<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> Option<InjectionKey> {
   match expression {
     Expression::StringLiteral(literal) => Some(InjectionKey::String(literal.value.to_string())),
-    Expression::Identifier(identifier) => Some(InjectionKey::Ident(identifier.name.to_string())),
     Expression::TemplateLiteral(template) if template.expressions.is_empty() => {
       let quasi = template.quasis.first()?;
       Some(InjectionKey::String(quasi.value.cooked.as_ref()?.to_string()))
+    }
+    Expression::Identifier(identifier) => {
+      let name = identifier.name.as_str();
+      if let Some((specifier, imported)) = imported_bindings.get(name) {
+        if imported == "*" {
+          return None;
+        }
+        return Some(InjectionKey::Imported {
+          specifier: specifier.clone(),
+          imported: imported.clone(),
+        });
+      }
+      let reference_id = identifier.reference_id.get()?;
+      let symbol_id = semantic.scoping().get_reference(reference_id).symbol_id()?;
+      let def_start = semantic.scoping().symbol_span(symbol_id).start;
+      Some(InjectionKey::Local { name: name.into(), def_start })
     }
     _ => None,
   }
 }
 
-fn expression_reactive_kind(
+fn expression_provide_offer(
   expression: &Expression<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
   reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &BTreeMap<String, BTreeMap<String, ReactiveBindingKind>>,
   script_kind: ScriptKind,
-) -> Option<ReactiveBindingKind> {
+) -> ProvideOffer {
   if let Some(identifier) = expression.get_identifier_reference() {
-    return reactive_bindings
-      .iter()
-      .find(|binding| binding.name == identifier.name.as_str())
-      .map(|binding| binding.kind);
+    let name = identifier.name.as_str();
+    if let Some(shape) = composable_instances.get(name) {
+      return ProvideOffer { kind: None, instance_shape: Some(shape.clone()) };
+    }
+    if let Some(binding) = reactive_bindings.iter().find(|binding| binding.name == name) {
+      return ProvideOffer { kind: Some(binding.kind), instance_shape: None };
+    }
+    return ProvideOffer { kind: None, instance_shape: None };
   }
-  if let Expression::CallExpression(call) = expression {
-    let callee = resolved_vue_callee(&call.callee, imported_bindings, script_kind)?;
-    return reactive_binding_kind(&callee);
+  if let Expression::CallExpression(call) = expression
+    && let Some(callee) = resolved_vue_callee(&call.callee, imported_bindings, script_kind)
+    && let Some(kind) = reactive_binding_kind(&callee)
+  {
+    return ProvideOffer { kind: Some(kind), instance_shape: None };
   }
-  None
+  ProvideOffer { kind: None, instance_shape: None }
 }
 
 fn collect_binding_identifiers(
