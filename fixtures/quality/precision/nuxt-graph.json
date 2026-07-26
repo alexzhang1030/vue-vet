@@ -1,0 +1,17 @@
+{
+  "project": "nuxt-graph",
+  "findings": [
+    {
+      "rule_id": "vue-vet/project/unresolved-import",
+      "file": "pages/broken.vue",
+      "classification": "true_positive",
+      "rationale": "broken.vue intentionally imports a missing module for graph diagnostics"
+    },
+    {
+      "rule_id": "vue-vet/project/unused-component",
+      "file": "components/UnusedPanel.vue",
+      "classification": "true_positive",
+      "rationale": "UnusedPanel is never referenced by pages or other components"
+    }
+  ]
+}

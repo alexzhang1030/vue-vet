@@ -1,0 +1,11 @@
+{
+  "project": "basic",
+  "findings": [
+    {
+      "rule_id": "vue-vet/security/no-v-html",
+      "file": "App.vue",
+      "classification": "true_positive",
+      "rationale": "basic App.vue is the canonical no-v-html positive fixture"
+    }
+  ]
+}

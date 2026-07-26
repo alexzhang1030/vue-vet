@@ -90,6 +90,11 @@ than replace correctness tests. CodSpeed builds use the dedicated `codspeed`
 profile because its instrumentation does not link Oxc reliably under thin LTO;
 the release profile remains the source of truth for shipped artifacts.
 
+Project-level cold / warm / overlay / diff-filter benches live in
+`vue_vet_session` (`scan_modes`) on the quality corpus. SFC micro-benchmarks
+remain in `vue_vet_vize`. Methodology and release checklists:
+[quality gates](../../docs/quality-gates.md).
+
 Codecov is the canonical coverage comparison. Project coverage may fall by at
 most one percentage point relative to the base commit, while changed lines must
 retain at least 80% line coverage. CI and local runs generate the same LCOV

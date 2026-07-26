@@ -1,0 +1,17 @@
+{
+  "project": "vue-3.5",
+  "findings": [
+    {
+      "rule_id": "vue-vet/project/unresolved-import",
+      "file": "App.vue",
+      "classification": "true_positive",
+      "rationale": "Vue 3.5 fixture imports a missing module for project-graph coverage"
+    },
+    {
+      "rule_id": "vue-vet/reactivity/prefer-use-template-ref",
+      "file": "App.vue",
+      "classification": "true_positive",
+      "rationale": "Vue 3.5 fixture prefers useTemplateRef over ref(null) template refs"
+    }
+  ]
+}

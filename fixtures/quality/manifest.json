@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "digest_algorithm": "tree-sha256-v1",
+  "projects": [
+    {
+      "id": "basic",
+      "path": "fixtures/projects/basic",
+      "roles": ["vue", "smoke", "precision"],
+      "tree_digest": "f3cbb0029d7beea075c12884137fae816d6aefe7fd7c6a27280c62b07570c8d1"
+    },
+    {
+      "id": "nuxt-graph",
+      "path": "fixtures/projects/nuxt-graph",
+      "roles": ["nuxt", "performance", "precision"],
+      "tree_digest": "8c731ee5ad628e69c023be556e90efc1e4c88108bca5c9e223ae81dbaf79028a"
+    },
+    {
+      "id": "configured",
+      "path": "fixtures/projects/configured",
+      "roles": ["vue", "config", "precision"],
+      "tree_digest": "98da177754cdf32b1774aa7249ccf160b7f8e908514d020d755afd4f3a2ca17e"
+    },
+    {
+      "id": "vue-3.4",
+      "path": "fixtures/projects/vue-3.4",
+      "roles": ["vue", "compatibility", "precision"],
+      "tree_digest": "ab2343c8303764f9b3165f33ba5840b8c1f0801e65bb2a9f327e2f95460b805b"
+    },
+    {
+      "id": "vue-3.5",
+      "path": "fixtures/projects/vue-3.5",
+      "roles": ["vue", "compatibility", "precision"],
+      "tree_digest": "052dea6cfd02ba586b68a4c101b477305557c0878c466fea7384217eeedcbbb2"
+    }
+  ]
+}

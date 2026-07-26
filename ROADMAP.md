@@ -226,12 +226,21 @@ Implemented (#12):
 - safe quick-fix code actions from explicitly safe diagnostic edits (client-applied)
 - thin `vue-vet --mcp` agent tools (scan / explain / safe-fix preview; no silent apply)
 
-Work (#13):
+Implemented (#13):
 
-- add benchmark, precision, and regression suites over representative Vue and
-  Nuxt repositories
-- turn agreed thresholds into blocking release checks
-- document a stable API for third-party integrations
+- quality corpus manifest + tree digests (`fixtures/quality`)
+- precision labels for corpus projects (`just quality-gates`)
+- cold/warm diagnostic identity tests; CodSpeed scan-mode benches
+- compatibility matrix (`just compat-matrix`, CI + release job)
+- release workflow runs compat + quality-gates + oracle before builds
+- methodology + published baselines: [quality-gates.md](./docs/quality-gates.md),
+  [quality-baselines.md](./docs/quality-baselines.md)
+
+Work (post-#13 hygiene):
+
+- expand corpus / precision labels as product surface grows
+- cite CodSpeed + baselines in Beta release notes
+- document a stable API for third-party integrations beyond JSON v1
 
 Exit criteria:
 
@@ -271,6 +280,6 @@ Exit criteria:
 
 ## Current next step
 
-Stabilize the Alpha contract on representative external Vue and Nuxt repositories,
-then complete the remaining M1 precision/performance evidence and M2 cross-file
-diagnostics required for Beta.
+Keep `#13` quality gates green while expanding the checksummed corpus and
+precision labels. Beta still requires publishing measured precision/performance
+evidence with the release notes.

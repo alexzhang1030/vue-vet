@@ -47,3 +47,15 @@ jobs:
           node-version: '22'
       - uses: extractions/setup-just@v3
       - run: just npm-test
+
+  compat:
+    name: Compatibility matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.0
+      - uses: extractions/setup-just@v3
+      - name: Pinned analysis stack vs compat-matrix.json
+        run: just compat-matrix
+      - name: Quality corpus integrity and precision
+        run: just quality-gates

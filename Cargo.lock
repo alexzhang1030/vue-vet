@@ -3975,7 +3975,9 @@ dependencies = [
  "ignore",
  "ratatui",
  "rayon",
+ "serde",
  "serde_json",
+ "sha2 0.11.0",
  "thiserror 2.0.18",
  "vue_vet_cache",
  "vue_vet_config",
@@ -4107,6 +4109,7 @@ dependencies = [
 name = "vue_vet_session"
 version = "0.1.11"
 dependencies = [
+ "codspeed-divan-compat",
  "ignore",
  "rayon",
  "serde_json",

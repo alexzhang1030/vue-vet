@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "rust_channel": "1.97.0",
+  "rust_version_msrv": "1.97",
+  "workspace_pins": {
+    "vize_atelier_sfc": "0.291.0",
+    "vize_atelier_core": "0.291.0",
+    "oxc_parser": "0.127.0",
+    "oxc_semantic": "0.127.0",
+    "oxc_resolver": "11.21.0"
+  },
+  "vue_fixture_ranges": {
+    "fixtures/projects/vue-3.4": "^3.4.38",
+    "fixtures/projects/vue-3.5": "^3.5.0"
+  },
+  "evidence": {
+    "upgrade_doc": "docs/vize-compatibility.md",
+    "quality_gates_doc": "docs/quality-gates.md",
+    "commands": ["just roll-rust", "just quality-gates", "just compat-matrix"]
+  }
+}

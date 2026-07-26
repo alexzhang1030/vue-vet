@@ -49,9 +49,24 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "dry_run=$dry_run" >> "$GITHUB_OUTPUT"
 
+  quality-gates:
+    name: Quality gates
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.0
+      - uses: extractions/setup-just@v3
+      - name: Compatibility matrix
+        run: just compat-matrix
+      - name: Corpus integrity, precision, cold/warm identity
+        run: just quality-gates
+      - name: Reactivity oracle
+        run: just oracle
+
   build:
     name: Build (${{ matrix.target }})
-    needs: version
+    needs: [version, quality-gates]
     strategy:
       fail-fast: false
       matrix:

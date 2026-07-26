@@ -1,0 +1,11 @@
+{
+  "project": "configured",
+  "findings": [
+    {
+      "rule_id": "vue-vet/security/no-v-html",
+      "file": "App.vue",
+      "classification": "true_positive",
+      "rationale": "configured project still reports no-v-html under its vue-vet.toml"
+    }
+  ]
+}
