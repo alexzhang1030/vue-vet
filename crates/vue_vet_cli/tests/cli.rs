@@ -150,6 +150,71 @@ fn explain_rejects_unknown_rule_ids() {
 }
 
 #[test]
+#[expect(clippy::panic, reason = "malformed scan/explain JSON must fail the integration test")]
+fn explain_finding_includes_evidence_and_rule_docs() {
+  let path = fixture("rules/no-v-html/invalid/basic.vue");
+  let path_argument = path.to_string_lossy();
+  let scan = run(&[path_argument.as_ref(), "--format", "json"]);
+  let scan_stdout = String::from_utf8_lossy(&scan.stdout);
+  assert!(scan.status.success(), "fixture scan must succeed: {scan_stdout}");
+  let Ok(scan_json) = serde_json::from_str::<Value>(&scan_stdout) else {
+    panic!("scan JSON must parse: {scan_stdout}");
+  };
+  let Some(finding_id) =
+    scan_json.pointer("/diagnostics/0/id").and_then(Value::as_str).map(str::to_owned)
+  else {
+    panic!("fixture must emit a diagnostic id: {scan_stdout}");
+  };
+
+  let explained = run(&[path_argument.as_ref(), "--explain", &finding_id, "--format", "json"]);
+  let stdout = String::from_utf8_lossy(&explained.stdout);
+  assert!(explained.status.success(), "finding explain must succeed: {stdout}");
+  let Ok(parsed) = serde_json::from_str::<Value>(&stdout) else {
+    panic!("explain JSON must parse: {stdout}");
+  };
+  assert_eq!(parsed.get("id").and_then(Value::as_str), Some(finding_id.as_str()));
+  assert!(
+    parsed.get("message").and_then(Value::as_str).is_some_and(|message| message.contains("v-html")),
+    "finding evidence must include the diagnostic message: {stdout}"
+  );
+  assert_eq!(
+    parsed.pointer("/rule/rule_id").and_then(Value::as_str),
+    Some("vue-vet/security/no-v-html")
+  );
+  assert!(
+    parsed
+      .pointer("/rule/body")
+      .and_then(Value::as_str)
+      .is_some_and(|body| body.contains("v-html")),
+    "finding explain must nest rule markdown: {stdout}"
+  );
+  assert!(parsed.get("diagnostics").is_none(), "finding explain must not emit a scan report");
+
+  let text = run(&[path_argument.as_ref(), "--explain", &finding_id]);
+  let text_stdout = String::from_utf8_lossy(&text.stdout);
+  assert!(text.status.success(), "text finding explain must succeed: {text_stdout}");
+  assert!(text_stdout.contains("finding: "));
+  assert!(text_stdout.contains("message: "));
+  assert!(text_stdout.contains("vue-vet/security/no-v-html"));
+}
+
+#[test]
+fn explain_rejects_unknown_finding_ids() {
+  let path = fixture("rules/no-v-html/invalid/basic.vue");
+  let output = run(&[
+    path.to_string_lossy().as_ref(),
+    "--explain",
+    "basic.vue::1:1::vue-vet/security/no-v-html::0000000000000000000000000000000000000000000000000000000000000000",
+  ]);
+  let stderr = String::from_utf8_lossy(&output.stderr);
+  assert_eq!(output.status.code(), Some(2), "unknown finding ids are operational failures");
+  assert!(
+    stderr.contains("no finding with id"),
+    "stderr must say the finding was missing: {stderr}"
+  );
+}
+
+#[test]
 fn unsafe_fixture_has_stable_text_output_and_exit_code() {
   let path = fixture("rules/no-v-html/invalid/basic.vue");
   let output = run(&[path.to_string_lossy().as_ref(), "--deny-warnings"]);
