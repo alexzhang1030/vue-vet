@@ -191,15 +191,40 @@ coverage empty when the scan never completed, set `summary.score` to `null`, and
 provide the actionable failure in `error.message`. Text mode continues to write
 operational failures to stderr.
 
+## `--explain` (rule documentation)
+
+`--explain <RULE>` is an early-exit surface (no scan report). With
+`--format json` it prints a standalone object — not wrapped in
+`schema_version` / `diagnostics`:
+
+```json
+{
+  "rule_id": "vue-vet/security/no-v-html",
+  "category": "security",
+  "severity": "warning",
+  "confidence": "high",
+  "documentation": "docs/rules/security/no-v-html.md",
+  "body": "# `vue-vet/security/no-v-html`\n…",
+  "body_path": "/path/to/docs/rules/security/no-v-html.md"
+}
+```
+
+`documentation` matches the path shape on scan diagnostics. When the Markdown
+file cannot be found (for example a binary-only install without the docs tree),
+`body` is omitted and `body_error` explains why. Unknown rule ids use the normal
+operational-failure contract (exit 2). Text mode prints the same fields as a
+short header plus the Markdown body. Explaining by opaque diagnostic finding id
+is not implemented yet (issue #12 follow-up).
+
 ## Agent consumption
 
 The JSON report is the complete fact layer, not a generated fix prompt. Agents
 should group diagnostics by `rule_id`, prioritize severity and confidence, read
-the referenced source and local documentation, and verify a finding before
-editing. An edit is actionable only when Vue Vet emits it with explicit
-applicability; a diagnostic without one remains manual. Future bounded handoff
-prompts may point to this report, but must not replace it or silently omit
-lower-priority findings.
+the referenced source and local documentation (`--explain` or the `documentation`
+path), and verify a finding before editing. An edit is actionable only when Vue
+Vet emits it with explicit applicability; a diagnostic without one remains
+manual. Future bounded handoff prompts may point to this report, but must not
+replace it or silently omit lower-priority findings.
 
 ## Compatibility
 

@@ -10,6 +10,7 @@ use vue_vet_core::{
 };
 
 mod component_nav;
+mod explain;
 mod github;
 mod humanize;
 mod reactivity;
@@ -18,6 +19,10 @@ mod sarif;
 pub use component_nav::{
   ComponentNavDigest, ComponentNavEdgeInput, ComponentNavLink, ComponentNavModule,
   component_nav_from_edges,
+};
+pub use explain::{
+  RuleExplain, documentation_path, explain_rule, find_rule_meta, render_rule_explain_json,
+  render_rule_explain_text,
 };
 pub use humanize::{
   humanize_binding, humanize_edge, humanize_edge_parts_with_property, humanize_scope,
@@ -318,10 +323,6 @@ fn report_path(path: &Path, analyzed_files: &[String]) -> String {
 
 fn normalize_path(path: &str) -> String {
   path.replace('\\', "/")
-}
-
-fn documentation_path(documentation: &str) -> String {
-  format!("docs/{documentation}.md")
 }
 
 fn render_text(summary: &ScanSummary, context: &ReportContext) -> String {
