@@ -144,6 +144,7 @@ fn lsp_flag_is_advertised_in_help() {
   let stdout = String::from_utf8_lossy(&output.stdout);
   assert!(output.status.success(), "help must succeed: {stdout}");
   assert!(stdout.contains("--lsp"), "help must advertise the language server flag: {stdout}");
+  assert!(stdout.contains("--mcp"), "help must advertise the MCP server flag: {stdout}");
 }
 
 #[test]

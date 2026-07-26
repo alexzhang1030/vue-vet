@@ -224,10 +224,11 @@ Implemented:
 - `vue_vet_session` shared scan / explain / workspace bounds / buffer overlays
 - thin `vue-vet --lsp` diagnostics (open/change/save, unsaved overlays, versioned publish)
 - safe quick-fix code actions from explicitly safe diagnostic edits (client-applied)
+- thin `vue-vet --mcp` agent tools (scan / explain / safe-fix preview; no silent apply)
 
 Work:
 
-- expose the project model through an MCP/agent interface
+- request-level cancellation across interactive surfaces
 - add benchmark, precision, and regression suites over representative Vue and
   Nuxt repositories
 - document a stable API for third-party integrations
