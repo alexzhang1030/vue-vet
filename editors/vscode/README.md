@@ -46,6 +46,8 @@ From a development host, open this folder in VS Code and use **Run Extension**
 | `Vue Vet: Show Reactivity` | Scan workspace, fill the sidebar, decorate the active file |
 | `Vue Vet: Refresh Reactivity` | Re-run the scan |
 | `Vue Vet: Clear Reactivity Highlights` | Drop decorations and tree data |
+| `Vue Vet: Show Who Reads This` | Right-click a binding (editor or tree) → inbound readers |
+| `Vue Vet: Show Dependencies` | Right-click a computed/effect binding → outbound deps |
 
 ## Settings
 

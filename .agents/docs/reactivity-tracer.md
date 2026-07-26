@@ -188,3 +188,4 @@ growing prose ledger.
 | 2026-07-26 | Digest structured spans | `--print-reactivity` JSON adds `binding_details` / `edge_details` / `scope_details` / `template_details` with byte spans + shared humanize labels |
 | 2026-07-26 | Thin VS Code host | `editors/vscode` consumes CLI JSON only (TreeView / decorations / hover); not the #12 LSP surface |
 | 2026-07-26 | Editor UTF-8→UTF-16 | VS Code decorations must convert byte spans; raw `positionAt(byteOffset)` shifts highlights after multi-byte prefixes |
+| 2026-07-26 | Binding inspect | TUI `b`/Enter/right-click selects a binding: inbound readers + outbound deps; Esc/x clears. VS Code context menus mirror this |

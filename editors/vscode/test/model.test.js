@@ -12,6 +12,9 @@ const {
   buildTree,
   utf8OffsetToUtf16,
   utf16OffsetToUtf8,
+  inboundFor,
+  outboundFor,
+  bindingAtOffset,
 } = require('../lib/model');
 
 const sample = JSON.parse(
@@ -67,5 +70,49 @@ describe('reactivity model', () => {
     assert.equal(utf16OffsetToUtf8(text, 1), byteOffset);
     // ASCII stays identity.
     assert.equal(utf8OffsetToUtf16('backend', 3), 3);
+  });
+
+  it('lists inbound readers and outbound dependencies for a binding', () => {
+    const module = {
+      id: 'App.vue',
+      bindings: [],
+      scopes: [],
+      edges: [],
+      template_reads: [],
+      binding_details: [
+        { name: 'count', kind: 'ref', span: { offset: 10, length: 5 }, label: 'count  (ref)' },
+        {
+          name: 'double',
+          kind: 'computed',
+          span: { offset: 20, length: 6 },
+          label: 'double  (computed)',
+        },
+      ],
+      edge_details: [
+        {
+          from: 'double',
+          to: 'count',
+          kind: 'computed',
+          span: { offset: 30, length: 5 },
+          to_span: { offset: 10, length: 5 },
+          label: 'double  →  count',
+        },
+        {
+          from: 'template:if@40',
+          to: 'count',
+          kind: 'template',
+          span: { offset: 40, length: 2 },
+          label: 'v-if  →  count',
+        },
+      ],
+      template_details: [],
+    };
+    const readers = inboundFor(module, 'count');
+    assert.equal(readers.length, 2);
+    const deps = outboundFor(module, 'double');
+    assert.equal(deps.length, 1);
+    assert.equal(deps[0].to, 'count');
+    assert.equal(bindingAtOffset(module, 12), 'count');
+    assert.equal(bindingAtOffset(module, 22), 'double');
   });
 });

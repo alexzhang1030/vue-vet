@@ -11,6 +11,9 @@ const {
   normalizePath,
   utf8OffsetToUtf16,
   utf16OffsetToUtf8,
+  inboundFor,
+  outboundFor,
+  bindingAtOffset,
 } = require('./lib/model');
 const { ReactivityTreeProvider } = require('./lib/tree');
 
@@ -67,6 +70,12 @@ function activate(context) {
     vscode.commands.registerCommand('vue-vet.refreshReactivity', () => refreshReactivity(false)),
     vscode.commands.registerCommand('vue-vet.clearReactivity', clearHighlights),
     vscode.commands.registerCommand('vue-vet.revealTreeNode', revealTreeNode),
+    vscode.commands.registerCommand('vue-vet.showReaders', (element) =>
+      inspectBinding(element, 'readers'),
+    ),
+    vscode.commands.registerCommand('vue-vet.showDependencies', (element) =>
+      inspectBinding(element, 'dependencies'),
+    ),
     vscode.languages.registerHoverProvider(
       [
         { language: 'vue' },
@@ -261,6 +270,107 @@ function rangeFromByteSpan(document, span) {
   const startUtf16 = utf8OffsetToUtf16(text, span.offset);
   const endUtf16 = utf8OffsetToUtf16(text, span.offset + (span.length || 1));
   return new vscode.Range(document.positionAt(startUtf16), document.positionAt(endUtf16));
+}
+
+/**
+ * @param {any} element tree node or undefined (editor context)
+ * @param {'readers' | 'dependencies'} direction
+ */
+async function inspectBinding(element, direction) {
+  if (modules.length === 0) {
+    await refreshReactivity(false);
+  }
+  const resolved = resolveInspectTarget(element);
+  if (!resolved) {
+    void vscode.window.showWarningMessage(
+      'Vue Vet: place the cursor on a traced binding, or right-click a binding in the Reactivity view.',
+    );
+    return;
+  }
+  const { module, bindingName } = resolved;
+  const items =
+    direction === 'readers' ? inboundFor(module, bindingName) : outboundFor(module, bindingName);
+  if (items.length === 0) {
+    const empty =
+      direction === 'readers'
+        ? `No readers found for “${bindingName}”.`
+        : `No outbound dependencies for “${bindingName}” (typical for a plain ref).`;
+    void vscode.window.showInformationMessage(`Vue Vet: ${empty}`);
+    selection = {
+      kind: 'binding',
+      key: `binding:${bindingName}@0`,
+      moduleId: module.id,
+    };
+    // Prefer highlighting the binding declaration if present.
+    const binding = (module.binding_details || []).find((item) => item.name === bindingName);
+    if (binding) {
+      selection.key = `binding:${binding.name}@${binding.span.offset}`;
+    }
+    applyDecorations();
+    return;
+  }
+
+  const picked = await vscode.window.showQuickPick(
+    items.map((item) => ({
+      label: item.label,
+      description: item.kind,
+      detail: direction === 'readers' ? `reads ${bindingName}` : `from ${bindingName}`,
+      item,
+    })),
+    {
+      title:
+        direction === 'readers'
+          ? `Who reads ${bindingName}`
+          : `Dependencies of ${bindingName}`,
+      matchOnDescription: true,
+    },
+  );
+  if (!picked) {
+    return;
+  }
+
+  selection = {
+    kind: picked.item.key.startsWith('template:') ? 'template' : 'edge',
+    key: picked.item.key,
+    moduleId: module.id,
+  };
+  await revealTreeNode({
+    kind: selection.kind,
+    key: selection.key,
+    moduleId: module.id,
+    span: picked.item.span,
+  });
+}
+
+/**
+ * @param {any} element
+ * @returns {{ module: import('./lib/model').ModuleDetail, bindingName: string } | null}
+ */
+function resolveInspectTarget(element) {
+  if (element?.bindingName && element?.moduleId) {
+    const module = modules.find((item) => item.id === element.moduleId);
+    if (module) {
+      return { module, bindingName: element.bindingName };
+    }
+  }
+
+  const editor = vscode.window.activeTextEditor;
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  if (!editor || !folder) {
+    return null;
+  }
+  const relative = normalizePath(path.relative(folder.uri.fsPath, editor.document.uri.fsPath));
+  const module = moduleForFile(modules, relative);
+  if (!module) {
+    return null;
+  }
+  const utf16 = editor.document.offsetAt(editor.selection.active);
+  const byteOffset = utf16OffsetToUtf8(editor.document.getText(), utf16);
+  const bindingName = bindingAtOffset(module, byteOffset);
+  if (!bindingName) {
+    return null;
+  }
+  return { module, bindingName };
 }
 
 function deactivate() {

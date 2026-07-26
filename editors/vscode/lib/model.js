@@ -264,6 +264,7 @@ function buildTree(modules) {
         children: bindings.map((binding) => ({
           kind: 'binding',
           moduleId: module.id,
+          bindingName: binding.name,
           label: binding.label || binding.name,
           key: `binding:${binding.name}@${binding.span.offset}`,
           span: binding.span,
@@ -326,6 +327,93 @@ function buildTree(modules) {
   });
 }
 
+/**
+ * Who reads / tracks a binding (inbound).
+ * @param {ModuleDetail | undefined} module
+ * @param {string} bindingName
+ */
+function inboundFor(module, bindingName) {
+  /** @type {{ label: string, kind: string, span?: SpanRef, toSpan?: SpanRef, key: string }[]} */
+  const items = [];
+  if (!module || !bindingName) return items;
+  for (const edge of module.edge_details || []) {
+    if (edge.to !== bindingName) continue;
+    items.push({
+      label: edge.label || `${edge.from} → ${edge.to}`,
+      kind: `reader · ${edge.kind}`,
+      span: edge.span,
+      toSpan: edge.to_span,
+      key: `edge:${edge.from}->${edge.to}@${edge.span?.offset ?? 0}`,
+    });
+  }
+  for (const read of module.template_details || []) {
+    if (read.binding !== bindingName) continue;
+    items.push({
+      label: read.label || `${read.surface} reads ${read.binding}`,
+      kind: `template · ${read.surface}`,
+      span: read.span,
+      key: `template:${read.binding}@${read.surface}@${read.span?.offset ?? 0}`,
+    });
+  }
+  items.sort((left, right) => left.label.localeCompare(right.label));
+  return items;
+}
+
+/**
+ * What a computed / effect-as-from binding depends on (outbound).
+ * @param {ModuleDetail | undefined} module
+ * @param {string} bindingName
+ */
+function outboundFor(module, bindingName) {
+  /** @type {{ label: string, kind: string, span?: SpanRef, toSpan?: SpanRef, key: string, to: string }[]} */
+  const items = [];
+  if (!module || !bindingName) return items;
+  for (const edge of module.edge_details || []) {
+    if (!edgeFromIsBinding(edge.from, bindingName)) continue;
+    items.push({
+      label: edge.label || `${edge.from} → ${edge.to}`,
+      kind: `dependency · ${edge.kind}`,
+      span: edge.span,
+      toSpan: edge.to_span,
+      key: `edge:${edge.from}->${edge.to}@${edge.span?.offset ?? 0}`,
+      to: edge.to,
+    });
+  }
+  items.sort((left, right) => left.label.localeCompare(right.label));
+  return items;
+}
+
+/**
+ * @param {string} from
+ * @param {string} binding
+ */
+function edgeFromIsBinding(from, binding) {
+  if (from === binding) return true;
+  const head = from.includes('@') ? from.slice(0, from.lastIndexOf('@')) : from;
+  return head === binding || head.endsWith(`:${binding}`);
+}
+
+/**
+ * Resolve a binding name under a UTF-8 byte offset (editor cursor).
+ * @param {ModuleDetail | undefined} module
+ * @param {number} byteOffset
+ */
+function bindingAtOffset(module, byteOffset) {
+  if (!module || typeof byteOffset !== 'number') return null;
+  for (const binding of module.binding_details || []) {
+    if (!isSpan(binding.span)) continue;
+    if (byteOffset >= binding.span.offset && byteOffset < binding.span.offset + binding.span.length) {
+      return binding.name;
+    }
+  }
+  for (const edge of module.edge_details || []) {
+    if (isSpan(edge.to_span) && byteOffset >= edge.to_span.offset && byteOffset < edge.to_span.offset + edge.to_span.length) {
+      return edge.to;
+    }
+  }
+  return null;
+}
+
 module.exports = {
   modulesFromReport,
   normalizePath,
@@ -336,4 +424,8 @@ module.exports = {
   isSpan,
   utf8OffsetToUtf16,
   utf16OffsetToUtf8,
+  inboundFor,
+  outboundFor,
+  edgeFromIsBinding,
+  bindingAtOffset,
 };
