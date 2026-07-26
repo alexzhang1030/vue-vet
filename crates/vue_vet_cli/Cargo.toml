@@ -35,6 +35,10 @@ vue_vet_mcp = { path = "../vue_vet_mcp" }
 vue_vet_vize = { path = "../vue_vet_vize" }
 ratatui.workspace = true
 
+[dev-dependencies]
+serde.workspace = true
+sha2.workspace = true
+
 [[bin]]
 name = "vue-vet"
 path = "src/main.rs"

@@ -63,17 +63,27 @@ clippy:
 test:
   cargo test --workspace --all-features --locked
 
-# Run the representative SFC analysis benchmarks locally.
+# Run the representative SFC and project scan-mode benchmarks locally.
 bench:
   cargo bench -p vue_vet_vize --bench analyze_sfc --locked
+  cargo bench -p vue_vet_session --bench scan_modes --locked
 
 # Build the representative benchmarks with CodSpeed instrumentation.
 bench-codspeed-build:
   cargo codspeed build -p vue_vet_vize --bench analyze_sfc --profile codspeed --locked
+  cargo codspeed build -p vue_vet_session --bench scan_modes --profile codspeed --locked
 
 # Run the most recently built CodSpeed benchmark suite.
 bench-codspeed-run:
-  cargo codspeed run -p vue_vet_vize --bench analyze_sfc
+  cargo codspeed run
+
+# Print quality-corpus tree digests (update fixtures/quality/manifest.json after intentional edits).
+quality-digest:
+  cargo test -p vue-vet --test quality_gates digest_printer -- --exact --ignored --nocapture
+
+# Integrity, precision expectations, and cold/warm diagnostic identity for issue #13.
+quality-gates:
+  cargo test -p vue-vet --test quality_gates --locked
 
 # Generate an LCOV report for Codecov and local coverage tools.
 coverage-lcov:

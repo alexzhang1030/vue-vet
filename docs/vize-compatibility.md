@@ -31,7 +31,8 @@ the commands and environment when comparing future Vize or toolchain upgrades.
 
 1. Keep the new Vize version exact-pinned while evaluating it.
 2. Confirm its MSRV and Oxc dependency versions against `rust-toolchain.toml`.
-3. Run `just roll-rust` and `just smoke` on Linux, macOS, and Windows.
+3. Run `just roll-rust`, `just quality-gates`, and `just smoke` on Linux, macOS,
+   and Windows.
 4. Run the parser and rule golden fixtures, including malformed, Unicode, CRLF,
    comment, and safe-pattern cases.
 5. Review every diagnostic snapshot change for rule identity, message, help,

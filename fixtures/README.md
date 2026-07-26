@@ -7,7 +7,8 @@ Fixtures are small source inputs whose paths describe why they exist:
 - `rules/recommended` exercises the complete default preset as one integration corpus.
 - `parser/malformed` contains deterministic parser failures.
 - `reporters` contains checked-in text and JSON reporter snapshots.
-- `projects` contains layouts for configuration discovery, suppressions, and future cross-file facts.
+- `projects` contains layouts for configuration discovery, suppressions, and cross-file facts.
+- `quality` lists the issue [#13](https://github.com/alexzhang1030/vue-vet/issues/13) reference corpus digests and precision labels; see [docs/quality-gates.md](../docs/quality-gates.md).
 
 Use forward-slash logical paths in expected diagnostics. The test harness
 normalizes Windows and Unix separators before comparison.
