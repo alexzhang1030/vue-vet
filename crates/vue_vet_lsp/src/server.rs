@@ -1,9 +1,10 @@
 //! Stdio language server backed by [`vue_vet_session::ProjectSession`].
 //!
 //! Publishes diagnostics from on-disk files plus unsaved buffer overlays
-//! (`textDocument/didOpen` / `didChange` / `didSave`). Safe code actions and
-//! request-level cancellation remain later issue #12 work; overlapping overlay
-//! analyses are dropped via per-document generation tokens.
+//! (`textDocument/didOpen` / `didChange` / `didSave`) and exposes explicitly
+//! safe quick-fix code actions. Request-level cancellation and MCP remain later
+//! issue #12 work; overlapping overlay analyses are dropped via per-document
+//! generation tokens.
 
 use std::{
   collections::{BTreeMap, HashMap},
@@ -14,14 +15,15 @@ use std::{
 use tokio::sync::RwLock;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
-  DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-  DidSaveTextDocumentParams, InitializeParams, InitializeResult, InitializedParams, MessageType,
-  ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
+  CodeActionParams, CodeActionProviderCapability, CodeActionResponse, DidChangeTextDocumentParams,
+  DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+  InitializeParams, InitializeResult, InitializedParams, MessageType, ServerCapabilities,
+  ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
 };
 use tower_lsp::{Client, LanguageServer};
-use vue_vet_session::{ProjectSession, SessionOptions};
+use vue_vet_session::{AnalysisSnapshot, ProjectSession, SessionOptions};
 
-use crate::convert::to_lsp_diagnostic;
+use crate::convert::{SafeCodeActionRequest, safe_code_actions, to_lsp_diagnostic};
 
 #[derive(Debug)]
 pub struct Backend {
@@ -71,35 +73,13 @@ impl Backend {
       request
     };
 
-    let options = SessionOptions {
-      root: snapshot_state.root.clone(),
-      config_path: None,
-      cache_dir: None,
-      no_cache: true,
-      threads: None,
-    };
-    let session = match ProjectSession::open(options) {
-      Ok(session) => session,
-      Err(error) => {
-        self
-          .client
-          .log_message(MessageType::ERROR, format!("vue-vet session failed: {error}"))
-          .await;
-        return;
-      }
-    };
     if !self.generation_current(&snapshot_state.uri, snapshot_state.generation).await {
       return;
     }
-    let analysis = match session.analyze_with_overlays(&snapshot_state.overlays) {
-      Ok(analysis) => analysis,
-      Err(error) => {
-        self
-          .client
-          .log_message(MessageType::ERROR, format!("vue-vet analyze failed: {error}"))
-          .await;
-        return;
-      }
+    let Some(analysis) =
+      self.analyze_open(snapshot_state.root.clone(), &snapshot_state.overlays).await
+    else {
+      return;
     };
     if !self.generation_current(&snapshot_state.uri, snapshot_state.generation).await {
       return;
@@ -130,6 +110,35 @@ impl Backend {
   async fn generation_current(&self, uri: &Url, expected: u64) -> bool {
     let state = self.state.read().await;
     is_current_generation(state.open.get(uri).map(|doc| doc.generation), expected)
+  }
+
+  async fn analyze_open(
+    &self,
+    root: PathBuf,
+    overlays: &BTreeMap<PathBuf, String>,
+  ) -> Option<AnalysisSnapshot> {
+    let options =
+      SessionOptions { root, config_path: None, cache_dir: None, no_cache: true, threads: None };
+    let session = match ProjectSession::open(options) {
+      Ok(session) => session,
+      Err(error) => {
+        self
+          .client
+          .log_message(MessageType::ERROR, format!("vue-vet session failed: {error}"))
+          .await;
+        return None;
+      }
+    };
+    match session.analyze_with_overlays(overlays) {
+      Ok(analysis) => Some(analysis),
+      Err(error) => {
+        self
+          .client
+          .log_message(MessageType::ERROR, format!("vue-vet analyze failed: {error}"))
+          .await;
+        None
+      }
+    }
   }
 }
 
@@ -173,6 +182,7 @@ impl LanguageServer for Backend {
     Ok(InitializeResult {
       capabilities: ServerCapabilities {
         text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
+        code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
         ..ServerCapabilities::default()
       },
       server_info: Some(ServerInfo {
@@ -185,10 +195,7 @@ impl LanguageServer for Backend {
   async fn initialized(&self, _: InitializedParams) {
     self
       .client
-      .log_message(
-        MessageType::INFO,
-        "vue-vet LSP ready (disk + unsaved overlays on open/change/save)",
-      )
+      .log_message(MessageType::INFO, "vue-vet LSP ready (overlays + safe quick-fix code actions)")
       .await;
   }
 
@@ -254,6 +261,39 @@ impl LanguageServer for Backend {
     let uri = params.text_document.uri;
     self.state.write().await.open.remove(&uri);
     self.client.publish_diagnostics(uri, Vec::new(), None).await;
+  }
+
+  async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+    let uri = params.text_document.uri;
+    let (root, path, text, version, overlays) = {
+      let state = self.state.read().await;
+      let Some(doc) = state.open.get(&uri) else {
+        return Ok(None);
+      };
+      let root = state.root.clone().unwrap_or_else(|| parent_or_cwd(&doc.path));
+      let overlays = collect_overlays(&state.open);
+      let snapshot = (root, doc.path.clone(), doc.text.clone(), doc.version, overlays);
+      drop(state);
+      snapshot
+    };
+    let Some(analysis) = self.analyze_open(root.clone(), &overlays).await else {
+      return Ok(None);
+    };
+    let only = params.context.only.as_deref();
+    let actions = safe_code_actions(
+      &analysis.summary.diagnostics,
+      &SafeCodeActionRequest {
+        uri,
+        version,
+        source: &text,
+        root: &root,
+        document_path: &path,
+        analyzed_files: &analysis.analyzed_files,
+        range: params.range,
+        only,
+      },
+    );
+    Ok(Some(actions).filter(|actions| !actions.is_empty()))
   }
 }
 

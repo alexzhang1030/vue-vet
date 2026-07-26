@@ -99,8 +99,10 @@ diagnostic identity stays shared across surfaces. The thin LSP (`vue-vet --lsp`)
 publishes diagnostics on `didOpen` / `didChange` / `didSave` from open-buffer
 overlays (FULL sync) with the opaque finding id in LSP `data` and the document
 version on `publishDiagnostics`. Overlapping overlay analyses are dropped via
-per-document generation tokens. Safe code actions, request-level cancellation,
-and MCP remain later issue #12 work.
+per-document generation tokens. Safe quick-fix code actions return versioned
+workspace edits from explicitly safe diagnostic edits only (client applies;
+server never writes). Request-level cancellation and MCP remain later issue #12
+work.
 
 ### Published library crates
 
@@ -171,8 +173,9 @@ a parallel tracer.
 `vue-vet --lsp` is the first diagnostics LSP surface (`vue_vet_lsp`). It uses
 `vue_vet_session` with open-buffer overlays and publishes
 `textDocument/publishDiagnostics` with the same opaque finding ids as JSON
-`diagnostics[].id` (stored in LSP `data`) plus the document version. Request-level
-cancellation and safe code actions remain later issue #12 work.
+`diagnostics[].id` (stored in LSP `data`) plus the document version. Safe
+quick-fix code actions map active safe edits to versioned `WorkspaceEdit`s.
+Request-level cancellation and MCP remain later issue #12 work.
 
 ## Project intelligence
 
