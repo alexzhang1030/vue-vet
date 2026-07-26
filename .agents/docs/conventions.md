@@ -6,8 +6,8 @@
 - Every rule declares category, default severity, confidence, and a documentation key.
 - Prefer Info (not Warning) when the diagnosed pattern remains correct and the rule only
   recommends a newer Vue API — for example `prefer-use-template-ref`. Reserve Warning for
-  real risk, unused waste, or likely bugs. Severity still affects score (Info −1, Warning −3)
-  and finding-ID digests.
+  real risk, unused waste, or likely bugs. Severity weights still feed the density score
+  (Info 1 / Warning 3 / Error 10) and finding-ID digests; absolute count alone does not.
 - Every built-in rule keeps its metadata and `Rule` implementation in one
   dedicated file under `vue_vet_rules/src/rules`; the registry module only
   assembles rules and must not become a behavior dispatcher.

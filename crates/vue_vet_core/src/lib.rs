@@ -1250,7 +1250,7 @@ impl ScanSummary {
         Severity::Info => 1,
       })
     });
-    self.score = progressive_score(raw_weight);
+    self.score = density_score(raw_weight, self.files_scanned);
     self
   }
 
@@ -1263,21 +1263,24 @@ impl ScanSummary {
   }
 }
 
-/// Maps summed severity weights to a 0–100 score with diminishing returns.
+/// Maps severity weights to a 0–100 score by finding density, not absolute count.
 ///
-/// Linear `100 - weight` floors at zero after ~34 warnings. Large Vue/Nuxt
-/// repos routinely exceed that, so the public score uses an asymptotic curve:
-/// `penalty = floor(100 * raw / (raw + 100))`, then `score = 100 - penalty`.
-/// Small totals stay close to the old linear feel; large totals compress toward
-/// zero without saturating after a few dozen findings.
+/// Industry health scores (`SonarQube` / `CodeClimate` technical-debt ratio,
+/// `StackHealth` lint density) normalize by codebase size so a large Nuxt app
+/// with sparse warnings is not punished like a tiny project with the same
+/// absolute count. Vue Vet uses scanned files as the size proxy:
+/// `score = floor(100 × capacity / (capacity + raw))` where
+/// `capacity = max(files, 1) × 50` and raw uses Error 10 / Warning 3 / Info 1.
 #[must_use]
-pub(crate) fn progressive_score(raw_weight: u32) -> u8 {
-  const SOFTNESS: u32 = 100;
+pub(crate) fn density_score(raw_weight: u32, files_scanned: usize) -> u8 {
+  const FILE_BUDGET: u32 = 50;
   if raw_weight == 0 {
     return 100;
   }
-  let penalty = (100_u32.saturating_mul(raw_weight)) / raw_weight.saturating_add(SOFTNESS);
-  u8::try_from(100_u32.saturating_sub(penalty.min(100))).unwrap_or(0)
+  let files = u32::try_from(files_scanned.max(1)).unwrap_or(1);
+  let capacity = files.saturating_mul(FILE_BUDGET);
+  let score = (100_u32.saturating_mul(capacity)) / capacity.saturating_add(raw_weight);
+  u8::try_from(score.min(100)).unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -1310,7 +1313,7 @@ mod tests {
   static Z_RULE: TestRule = TestRule(&Z_META);
 
   #[test]
-  fn score_is_deterministic_and_progressive() {
+  fn score_is_deterministic_and_density_normalized() {
     let diagnostic = Diagnostic {
       rule_id: "test/rule".into(),
       category: "test".into(),
@@ -1323,16 +1326,21 @@ mod tests {
       span: SourceSpan { offset: 0, length: 1, line: 1, column: 1 },
       edits: Vec::new(),
     };
-    let summary =
-      ScanSummary { files_scanned: 1, diagnostics: vec![diagnostic; 40], score: 100 }.finish();
+    let concentrated =
+      ScanSummary { files_scanned: 1, diagnostics: vec![diagnostic.clone(); 40], score: 100 }
+        .finish();
+    let sparse =
+      ScanSummary { files_scanned: 200, diagnostics: vec![diagnostic; 100], score: 100 }.finish();
 
-    // 40 warnings → raw 120 → penalty floor(100*120/220)=54 → score 46
-    assert_eq!(summary.score, 46);
-    assert_eq!(progressive_score(0), 100);
-    assert_eq!(progressive_score(3), 98); // one warning stays near the old linear result
-    assert_eq!(progressive_score(300), 25); // 100 warnings no longer floor at 0
-    assert!(summary.fails(true));
-    assert!(!summary.fails(false));
+    // 40 warnings in 1 file → raw 120, capacity 50 → score floor(100*50/170)=29
+    assert_eq!(concentrated.score, 29);
+    // 100 warnings across 200 files → raw 300, capacity 10000 → score floor(100*10000/10300)=97
+    assert_eq!(sparse.score, 97);
+    assert_eq!(density_score(0, 10), 100);
+    assert_eq!(density_score(3, 1), 94); // one warning in a tiny project still matters
+    assert_eq!(density_score(300, 200), 97); // same absolute count is mild when sparse
+    assert!(concentrated.fails(true));
+    assert!(!concentrated.fails(false));
   }
 
   #[test]

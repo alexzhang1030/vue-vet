@@ -96,12 +96,14 @@ create a finding on a file that has no remaining path back to the changed file.
 ## The current score is provisional
 
 Scoring is deterministic but still a product experiment, not a stable health
-certificate. Severity weights remain Error 10 / Warning 3 / Info 1. The mapped
-score uses diminishing returns —
-`penalty = floor(100 × raw / (raw + 100))`, then `score = 100 − penalty` —
-so large Vue/Nuxt corpora do not linear-floor at ~34 warnings. Before external
-release, keep documenting weights, fingerprints, baselines, and corpus evidence.
-Do not tune rules merely to chase the current number.
+certificate. Severity weights remain Error 10 / Warning 3 / Info 1. The public
+score is **density-normalized by scanned files** (Sonar/CodeClimate debt-ratio
+and StackHealth lint-density style), not absolute finding count:
+`score = floor(100 × capacity / (capacity + raw))` with
+`capacity = max(files_scanned, 1) × 50`. Sparse warnings in a large Nuxt app
+stay high; the same absolute count concentrated in a tiny project drops harder.
+Before external release, keep documenting weights, fingerprints, baselines, and
+corpus evidence. Do not tune rules merely to chase the current number.
 
 ## Vue behavior must be capability-gated
 
