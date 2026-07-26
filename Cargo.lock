@@ -3564,7 +3564,7 @@ dependencies = [
 
 [[package]]
 name = "vue-vet"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "atomic-write-file",
  "clap",
@@ -3586,7 +3586,7 @@ dependencies = [
 
 [[package]]
 name = "vue_vet_cache"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "serde",
  "serde_json",
@@ -3598,7 +3598,7 @@ dependencies = [
 
 [[package]]
 name = "vue_vet_config"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "globset",
  "serde",
@@ -3608,7 +3608,7 @@ dependencies = [
 
 [[package]]
 name = "vue_vet_core"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "serde",
  "serde_json",
@@ -3617,7 +3617,7 @@ dependencies = [
 
 [[package]]
 name = "vue_vet_oxc"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "oxc_allocator",
  "oxc_ast",
@@ -3633,7 +3633,7 @@ dependencies = [
 
 [[package]]
 name = "vue_vet_project"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "oxc_resolver",
  "serde",
@@ -3643,7 +3643,7 @@ dependencies = [
 
 [[package]]
 name = "vue_vet_reactivity"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "oxc_allocator",
  "oxc_ast",
@@ -3659,7 +3659,7 @@ dependencies = [
 
 [[package]]
 name = "vue_vet_reporters"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "serde",
  "serde_json",
@@ -3668,14 +3668,14 @@ dependencies = [
 
 [[package]]
 name = "vue_vet_rules"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "vue_vet_core",
 ]
 
 [[package]]
 name = "vue_vet_vize"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "codspeed-divan-compat",
  "serde_json",
