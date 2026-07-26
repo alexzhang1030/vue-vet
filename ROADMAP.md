@@ -216,10 +216,17 @@ Exit criteria:
 
 ## M4 — editor and agent surface
 
+Status: in progress (#12, #13)
+
+Implemented:
+
+- CLI `--explain` for rule ids and opaque finding ids
+- `vue_vet_session` shared scan / explain / workspace bounds / buffer overlays
+- thin `vue-vet --lsp` diagnostics (open/change/save, unsaved overlays, versioned publish)
+
 Work:
 
-- expose diagnostics and code actions over LSP
-- add `--explain` with evidence and rule documentation
+- expose safe code actions over LSP
 - expose the project model through an MCP/agent interface
 - add benchmark, precision, and regression suites over representative Vue and
   Nuxt repositories

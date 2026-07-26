@@ -26,8 +26,31 @@ pub fn analyze(
   no_cache: bool,
   threads: Option<usize>,
 ) -> Result<AnalysisSnapshot, SessionError> {
+  analyze_inner(root, config, cache_dir, no_cache, threads, &BTreeMap::new())
+}
+
+/// Analyze with unsaved buffer overlays. Always bypasses the content-addressed cache
+/// because disk bytes are not the analysis input for overlaid paths.
+pub fn analyze_with_overlays(
+  root: &Path,
+  config: &Config,
+  threads: Option<usize>,
+  overlays: &BTreeMap<PathBuf, String>,
+) -> Result<AnalysisSnapshot, SessionError> {
+  // Cache keys hash disk content; overlays must never authorize a cached plan.
+  analyze_inner(root, config, Path::new(""), true, threads, overlays)
+}
+
+fn analyze_inner(
+  root: &Path,
+  config: &Config,
+  cache_dir: &Path,
+  no_cache: bool,
+  threads: Option<usize>,
+  overlays: &BTreeMap<PathBuf, String>,
+) -> Result<AnalysisSnapshot, SessionError> {
   let (summary, graph, cache_status) = if no_cache {
-    let result = scan_with_threads(root, config, threads)?;
+    let result = scan_with_threads(root, config, threads, overlays)?;
     (result.summary, result.graph, "disabled")
   } else {
     let files = cache_inputs(root)?;
@@ -37,9 +60,9 @@ pub fn analyze(
     let store = CacheStore::new(cache_dir.to_path_buf());
     match store.load(&key) {
       CacheLookup::Hit(payload) => (payload.summary, payload.graph, "hit"),
-      CacheLookup::Miss => fill_cache(&store, &key, root, config, "miss", threads)?,
+      CacheLookup::Miss => fill_cache(&store, &key, root, config, "miss", threads, overlays)?,
       CacheLookup::RecoveredCorruption => {
-        fill_cache(&store, &key, root, config, "recovered-corruption", threads)?
+        fill_cache(&store, &key, root, config, "recovered-corruption", threads, overlays)?
       }
     }
   };
@@ -58,8 +81,9 @@ fn fill_cache(
   config: &Config,
   status: &'static str,
   threads: Option<usize>,
+  overlays: &BTreeMap<PathBuf, String>,
 ) -> Result<(ScanSummary, ProjectGraph, &'static str), SessionError> {
-  let result = scan_with_threads(root, config, threads)?;
+  let result = scan_with_threads(root, config, threads, overlays)?;
   store
     .store(key, &CachePayload { summary: result.summary.clone(), graph: result.graph.clone() })
     .map_err(|error| SessionError::message(error.to_string()))?;
@@ -154,12 +178,13 @@ fn scan_with_threads(
   root: &Path,
   config: &Config,
   threads: Option<usize>,
+  overlays: &BTreeMap<PathBuf, String>,
 ) -> Result<ScanResult, SessionError> {
   if !root.exists() {
     return Err(SessionError::message(format!("path does not exist: {}", root.display())));
   }
 
-  let run = || scan_parallel(root, config);
+  let run = || scan_parallel(root, config, overlays);
   match threads {
     Some(threads) => {
       let pool =
@@ -172,7 +197,11 @@ fn scan_with_threads(
   }
 }
 
-fn scan_parallel(root: &Path, config: &Config) -> Result<ScanResult, SessionError> {
+fn scan_parallel(
+  root: &Path,
+  config: &Config,
+  overlays: &BTreeMap<PathBuf, String>,
+) -> Result<ScanResult, SessionError> {
   use rayon::prelude::*;
 
   let filter = config.path_filter().map_err(|error| SessionError::message(error.to_string()))?;
@@ -184,6 +213,7 @@ fn scan_parallel(root: &Path, config: &Config) -> Result<ScanResult, SessionErro
     let entry = entry.map_err(|error| SessionError::message(error.to_string()))?;
     let path = entry.path().to_path_buf();
     // Follow symlinks so directory packages / symlink installs are skipped.
+    // Overlay-only paths still require a walk entry (file must exist on disk).
     if !path.is_file() {
       continue;
     }
@@ -208,7 +238,7 @@ fn scan_parallel(root: &Path, config: &Config) -> Result<ScanResult, SessionErro
   // Phase 1: per-file parse/facts in parallel (oxlint Runtime model).
   let analyzed = candidates
     .par_iter()
-    .map(|candidate| analyze_candidate(candidate, boundary))
+    .map(|candidate| analyze_candidate(candidate, boundary, overlays))
     .collect::<Result<Vec<_>, _>>()?;
 
   let mut summary = ScanSummary::default();
@@ -295,10 +325,11 @@ enum AnalyzedCandidate {
 fn analyze_candidate(
   candidate: &ScanCandidate,
   boundary: &Path,
+  overlays: &BTreeMap<PathBuf, String>,
 ) -> Result<AnalyzedCandidate, SessionError> {
   match candidate {
     ScanCandidate::Vue { path, logical_path } => {
-      let source = read_source(path)?;
+      let source = read_source(path, overlays)?;
       let environment = RuleEnvironment { vue_version: vue_version_for(path, boundary) };
       let analysis = analyze_sfc_facts_with_environment(path, &source).map_err(|error| {
         SessionError::message(format!("failed to analyze {}: {error}", path.display()))
@@ -329,7 +360,7 @@ fn analyze_candidate(
       })
     }
     ScanCandidate::Script { path, logical_path, language } => {
-      let source = read_source(path)?;
+      let source = read_source(path, overlays)?;
       let block = analyze_module(&source, language).map_err(|error| {
         SessionError::message(format!("failed to analyze {}: {error}", path.display()))
       })?;
@@ -391,9 +422,23 @@ fn nearest_package_json(path: &Path, boundary: &Path) -> Option<PathBuf> {
   }
 }
 
-fn read_source(path: &Path) -> Result<String, SessionError> {
+fn read_source(path: &Path, overlays: &BTreeMap<PathBuf, String>) -> Result<String, SessionError> {
+  if let Some(source) = overlay_source(path, overlays) {
+    return Ok(source.to_owned());
+  }
   fs::read_to_string(path)
     .map_err(|error| SessionError::message(format!("failed to read {}: {error}", path.display())))
+}
+
+fn overlay_source<'a>(path: &Path, overlays: &'a BTreeMap<PathBuf, String>) -> Option<&'a str> {
+  if let Some(source) = overlays.get(path) {
+    return Some(source.as_str());
+  }
+  // Clients and `ignore` walks may disagree on slash style only.
+  let needle = path.to_string_lossy().replace('\\', "/");
+  overlays.iter().find_map(|(overlay_path, source)| {
+    (overlay_path.to_string_lossy().replace('\\', "/") == needle).then_some(source.as_str())
+  })
 }
 
 fn logical_path<'a>(root: &'a Path, path: &'a Path) -> &'a Path {

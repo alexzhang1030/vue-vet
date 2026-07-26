@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 
 use vue_vet_reporters::report_diagnostic_id;
 use vue_vet_session::{ProjectSession, SessionOptions};
@@ -52,6 +52,39 @@ fn explain_rule_loads_documentation_without_scan_diagnostics() {
   };
   assert_eq!(explain.rule_id, "vue-vet/security/no-v-html");
   assert!(explain.body.as_deref().is_some_and(|body| body.contains("v-html")));
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn analyze_with_overlays_uses_unsaved_buffer_source() {
+  let root = fixture("rules/no-v-html/invalid/basic.vue");
+  let Ok(session) = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+  }) else {
+    panic!("session must open");
+  };
+  let Ok(disk) = session.analyze() else {
+    panic!("disk analyze must succeed");
+  };
+  assert!(
+    disk.summary.diagnostics.iter().any(|diagnostic| diagnostic.rule_id.contains("no-v-html")),
+    "disk fixture must report no-v-html"
+  );
+
+  let clean = "<template>\n  <main>{{ html }}</main>\n</template>\n";
+  let mut overlays = BTreeMap::new();
+  overlays.insert(root, clean.into());
+  let Ok(overlay) = session.analyze_with_overlays(&overlays) else {
+    panic!("overlay analyze must succeed");
+  };
+  assert!(
+    !overlay.summary.diagnostics.iter().any(|diagnostic| diagnostic.rule_id.contains("no-v-html")),
+    "unsaved buffer without v-html must clear the finding"
+  );
 }
 
 #[test]

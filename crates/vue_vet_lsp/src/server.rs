@@ -1,10 +1,12 @@
 //! Stdio language server backed by [`vue_vet_session::ProjectSession`].
 //!
-//! This thin slice analyzes **on-disk** content (didOpen / didSave). Unsaved
-//! buffer overlays and cancellation remain later issue #12 work.
+//! Publishes diagnostics from on-disk files plus unsaved buffer overlays
+//! (`textDocument/didOpen` / `didChange` / `didSave`). Safe code actions and
+//! request-level cancellation remain later issue #12 work; overlapping overlay
+//! analyses are dropped via per-document generation tokens.
 
 use std::{
-  collections::HashMap,
+  collections::{BTreeMap, HashMap},
   path::{Path, PathBuf},
   sync::Arc,
 };
@@ -12,9 +14,9 @@ use std::{
 use tokio::sync::RwLock;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
-  DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-  InitializeParams, InitializeResult, InitializedParams, MessageType, ServerCapabilities,
-  ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
+  DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+  DidSaveTextDocumentParams, InitializeParams, InitializeResult, InitializedParams, MessageType,
+  ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
 };
 use tower_lsp::{Client, LanguageServer};
 use vue_vet_session::{ProjectSession, SessionOptions};
@@ -30,8 +32,16 @@ pub struct Backend {
 #[derive(Debug, Default)]
 struct ServerState {
   root: Option<PathBuf>,
-  /// Open document URIs we have published diagnostics for.
-  open: HashMap<Url, PathBuf>,
+  open: HashMap<Url, OpenDocument>,
+}
+
+#[derive(Clone, Debug)]
+struct OpenDocument {
+  path: PathBuf,
+  text: String,
+  version: i32,
+  /// Bumped on every open/change/save publish request; stale analyses drop results.
+  generation: u64,
 }
 
 impl Backend {
@@ -40,12 +50,32 @@ impl Backend {
     Self { client, state: Arc::new(RwLock::new(ServerState::default())) }
   }
 
-  async fn publish_for_path(&self, uri: Url, path: &Path, root: &Path) {
+  async fn publish_uri(&self, uri: Url) {
+    let snapshot_state = {
+      let state = self.state.read().await;
+      let Some(doc) = state.open.get(&uri) else {
+        return;
+      };
+      let root = state.root.clone().unwrap_or_else(|| parent_or_cwd(&doc.path));
+      let overlays = collect_overlays(&state.open);
+      let request = PublishRequest {
+        uri: uri.clone(),
+        path: doc.path.clone(),
+        text: doc.text.clone(),
+        version: doc.version,
+        generation: doc.generation,
+        root,
+        overlays,
+      };
+      drop(state);
+      request
+    };
+
     let options = SessionOptions {
-      root: root.to_path_buf(),
+      root: snapshot_state.root.clone(),
       config_path: None,
       cache_dir: None,
-      no_cache: false,
+      no_cache: true,
       threads: None,
     };
     let session = match ProjectSession::open(options) {
@@ -58,8 +88,11 @@ impl Backend {
         return;
       }
     };
-    let snapshot = match session.analyze() {
-      Ok(snapshot) => snapshot,
+    if !self.generation_current(&snapshot_state.uri, snapshot_state.generation).await {
+      return;
+    }
+    let analysis = match session.analyze_with_overlays(&snapshot_state.overlays) {
+      Ok(analysis) => analysis,
       Err(error) => {
         self
           .client
@@ -68,10 +101,12 @@ impl Backend {
         return;
       }
     };
+    if !self.generation_current(&snapshot_state.uri, snapshot_state.generation).await {
+      return;
+    }
 
-    let source = std::fs::read_to_string(path).ok();
-    let normalized_path = normalize_report_path(path, root);
-    let diagnostics = snapshot
+    let normalized_path = normalize_report_path(&snapshot_state.path, &snapshot_state.root);
+    let diagnostics = analysis
       .summary
       .diagnostics
       .iter()
@@ -81,11 +116,45 @@ impl Backend {
           || file.ends_with(&normalized_path)
           || normalized_path.ends_with(&file)
       })
-      .map(|diagnostic| to_lsp_diagnostic(diagnostic, &snapshot.analyzed_files, source.as_deref()))
+      .map(|diagnostic| {
+        to_lsp_diagnostic(diagnostic, &analysis.analyzed_files, Some(snapshot_state.text.as_str()))
+      })
       .collect::<Vec<_>>();
 
-    self.client.publish_diagnostics(uri, diagnostics, None).await;
+    self
+      .client
+      .publish_diagnostics(snapshot_state.uri, diagnostics, Some(snapshot_state.version))
+      .await;
   }
+
+  async fn generation_current(&self, uri: &Url, expected: u64) -> bool {
+    let state = self.state.read().await;
+    is_current_generation(state.open.get(uri).map(|doc| doc.generation), expected)
+  }
+}
+
+struct PublishRequest {
+  uri: Url,
+  path: PathBuf,
+  text: String,
+  version: i32,
+  generation: u64,
+  root: PathBuf,
+  overlays: BTreeMap<PathBuf, String>,
+}
+
+/// Returns true when `current` still matches the generation captured before analyze.
+#[must_use]
+pub const fn is_current_generation(current: Option<u64>, expected: u64) -> bool {
+  matches!(current, Some(value) if value == expected)
+}
+
+fn collect_overlays(open: &HashMap<Url, OpenDocument>) -> BTreeMap<PathBuf, String> {
+  open.values().map(|doc| (doc.path.clone(), doc.text.clone())).collect()
+}
+
+fn full_change_text(params: &DidChangeTextDocumentParams) -> Option<String> {
+  params.content_changes.last().map(|change| change.text.clone())
 }
 
 #[tower_lsp::async_trait]
@@ -118,7 +187,7 @@ impl LanguageServer for Backend {
       .client
       .log_message(
         MessageType::INFO,
-        "vue-vet LSP ready (disk diagnostics on open/save; overlays deferred)",
+        "vue-vet LSP ready (disk + unsaved overlays on open/change/save)",
       )
       .await;
   }
@@ -132,26 +201,53 @@ impl LanguageServer for Backend {
     let Ok(path) = uri.to_file_path() else {
       return;
     };
-    let root = {
+    {
       let mut state = self.state.write().await;
       let root = state.root.clone().unwrap_or_else(|| parent_or_cwd(&path));
-      state.open.insert(uri.clone(), path.clone());
-      root
+      state.root.get_or_insert(root);
+      state.open.insert(
+        uri.clone(),
+        OpenDocument {
+          path,
+          text: params.text_document.text,
+          version: params.text_document.version,
+          generation: 1,
+        },
+      );
+    }
+    self.publish_uri(uri).await;
+  }
+
+  async fn did_change(&self, params: DidChangeTextDocumentParams) {
+    let uri = params.text_document.uri.clone();
+    let Some(text) = full_change_text(&params) else {
+      return;
     };
-    self.publish_for_path(uri, &path, &root).await;
+    let mut state = self.state.write().await;
+    let Some(doc) = state.open.get_mut(&uri) else {
+      return;
+    };
+    doc.text = text;
+    doc.version = params.text_document.version;
+    doc.generation = doc.generation.saturating_add(1);
+    drop(state);
+    self.publish_uri(uri).await;
   }
 
   async fn did_save(&self, params: DidSaveTextDocumentParams) {
     let uri = params.text_document.uri;
-    let path = {
-      let state = self.state.read().await;
-      state.open.get(&uri).cloned()
-    };
-    let Some(path) = path.or_else(|| uri.to_file_path().ok()) else {
+    let mut state = self.state.write().await;
+    let Some(doc) = state.open.get_mut(&uri) else {
       return;
     };
-    let root = self.state.read().await.root.clone().unwrap_or_else(|| parent_or_cwd(&path));
-    self.publish_for_path(uri, &path, &root).await;
+    if let Some(text) = params.text {
+      doc.text = text;
+    } else if let Ok(disk) = std::fs::read_to_string(&doc.path) {
+      doc.text = disk;
+    }
+    doc.generation = doc.generation.saturating_add(1);
+    drop(state);
+    self.publish_uri(uri).await;
   }
 
   async fn did_close(&self, params: DidCloseTextDocumentParams) {
@@ -170,4 +266,35 @@ fn parent_or_cwd(path: &Path) -> PathBuf {
 
 fn normalize_report_path(path: &Path, root: &Path) -> String {
   path.strip_prefix(root).unwrap_or(path).to_string_lossy().replace('\\', "/")
+}
+
+#[cfg(test)]
+mod tests {
+  use super::{OpenDocument, collect_overlays, is_current_generation};
+  use std::{collections::HashMap, path::PathBuf};
+  use tower_lsp::lsp_types::Url;
+
+  #[test]
+  fn drops_stale_generations() {
+    assert!(is_current_generation(Some(3), 3));
+    assert!(!is_current_generation(Some(4), 3));
+    assert!(!is_current_generation(None, 3));
+  }
+
+  #[test]
+  #[expect(clippy::expect_used, reason = "unit test asserts Url::parse succeeds")]
+  fn collects_all_open_overlays() {
+    let mut open = HashMap::new();
+    open.insert(
+      Url::parse("file:///a.vue").expect("url"),
+      OpenDocument { path: PathBuf::from("/a.vue"), text: "a".into(), version: 1, generation: 1 },
+    );
+    open.insert(
+      Url::parse("file:///b.vue").expect("url"),
+      OpenDocument { path: PathBuf::from("/b.vue"), text: "b".into(), version: 2, generation: 2 },
+    );
+    let overlays = collect_overlays(&open);
+    assert_eq!(overlays.get(PathBuf::from("/a.vue").as_path()).map(String::as_str), Some("a"));
+    assert_eq!(overlays.get(PathBuf::from("/b.vue").as_path()).map(String::as_str), Some("b"));
+  }
 }

@@ -9,8 +9,9 @@ inside the CLI crate. Analysis logic stays out of the TUI; it only presents
 `ReactivityModuleStats` already produced by the scan.
 
 The thin diagnostics LSP (`vue-vet --lsp`) uses `tower-lsp` + `tokio` in
-`vue_vet_lsp` as a protocol adapter only: it maps session diagnostics to LSP
-types and must not re-implement analysis. Unsaved overlays remain later work.
+`vue_vet_lsp` as a protocol adapter only: it maps session diagnostics (including
+unsaved buffer overlays) to LSP types and must not re-implement analysis. Safe
+code actions and MCP remain later issue #12 work.
 
 The workspace tracks the latest stable Rust release and latest stable edition, following Rolldown's toolchain baseline. The repository pins the exact compiler in `rust-toolchain.toml`; all crates inherit the workspace `rust-version` and edition. Rolldown's lint policy is a floor: Vue Vet additionally denies the Clippy `all`, `cargo`, `pedantic`, and `nursery` groups, forbids unsafe Rust, and denies panic-prone conveniences such as unchecked indexing, string slicing, `unwrap`, and `expect`. The group-level duplicate-version exception covers the reviewed Vize and atomic-writer dependency graphs; each additional duplicate still requires explicit rationale. `just` is the task runner and the canonical interface for local and CI validation. `prek` manages Git hooks from `.pre-commit-config.yaml` without adding a Python runtime requirement.
 
