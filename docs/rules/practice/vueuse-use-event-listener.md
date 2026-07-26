@@ -2,7 +2,7 @@
 
 Default severity: **info**. Category: **practice** (excluded from score and default CI exit).
 
-Registering `addEventListener` without a matching `removeEventListener` in the same script block often leaks handlers across remounts. VueUse `useEventListener` pairs registration with automatic cleanup.
+Registering `addEventListener` inside a setup lifecycle hook (`onMounted` / `onBeforeMount` / `onActivated`) without a matching `removeEventListener` often leaks handlers across remounts. VueUse `useEventListener` pairs registration with automatic cleanup.
 
 ## Bad
 
@@ -28,7 +28,7 @@ useEventListener(window, 'resize', () => {})
 
 ## Limitations
 
-Reports when an `addEventListener` (including `window.` / `document.` members) appears without any `removeEventListener` in the same block. Explicit add/remove pairs stay quiet even when verbose. Already importing or calling `useEventListener` is a safe pattern. Test files are skipped.
+Reports only when a setup lifecycle hook and an `addEventListener` (including `window.` / `document.` members) appear in the same block with no `removeEventListener`. Bare module-level listeners and explicit add/remove pairs stay quiet. Already importing or calling `useEventListener` is a safe pattern. Test files are skipped.
 
 ## Remediation
 

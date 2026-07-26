@@ -8,6 +8,7 @@ use vue_vet_core::RuleRegistry;
 
 mod recipe;
 mod rules;
+mod util;
 
 pub use recipe::{EcosystemApi, PracticeRecipe};
 

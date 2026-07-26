@@ -1,10 +1,9 @@
-use std::path::Path;
+use vue_vet_core::{Confidence, PRACTICE_CATEGORY, Rule, RuleContext, RuleMeta, Severity};
 
-use vue_vet_core::{
-  Confidence, PRACTICE_CATEGORY, Recommendation, Rule, RuleContext, RuleMeta, Severity,
+use crate::{
+  recipe::{EcosystemApi, PracticeRecipe},
+  util::{already_uses_target, is_test_path, optional_dependency_help, recommendation_from},
 };
-
-use crate::recipe::{EcosystemApi, PracticeRecipe};
 
 const RECIPE: PracticeRecipe = PracticeRecipe {
   rule_id: "vue-vet/practice/vueuse-use-event-listener",
@@ -16,6 +15,9 @@ const RECIPE: PracticeRecipe = PracticeRecipe {
     import_example: "import { useEventListener } from '@vueuse/core'",
   },
 };
+
+/// Setup lifecycle hooks that commonly wrap listeners without cleanup.
+const LIFECYCLE_HOOKS: &[&str] = &["onMounted", "onBeforeMount", "onActivated"];
 
 const META: RuleMeta = RuleMeta {
   id: RECIPE.rule_id,
@@ -38,29 +40,34 @@ impl Rule for VueuseUseEventListener {
     if is_test_path(context.file()) {
       return;
     }
-    let spans = context
-      .script()
-      .blocks
-      .iter()
-      .filter(|block| !already_uses_target(block, RECIPE.recommend.export))
-      .filter(|block| !block.calls.iter().any(|call| is_remove_listener(&call.callee)))
-      .filter_map(|block| {
-        block.calls.iter().find(|call| is_add_listener(&call.callee)).map(|call| call.span.clone())
-      })
-      .collect::<Vec<_>>();
-    for span in spans {
+    let findings =
+      context
+        .script()
+        .blocks
+        .iter()
+        .filter(|block| !already_uses_target(block, RECIPE.recommend.export))
+        .filter(|block| block.calls.iter().any(|call| is_lifecycle_hook(&call.callee)))
+        .filter(|block| !block.calls.iter().any(|call| is_remove_listener(&call.callee)))
+        .filter_map(|block| {
+          block.calls.iter().find(|call| is_add_listener(&call.callee)).map(|call| {
+            (call.span.clone(), optional_dependency_help(block, RECIPE.recommend.export))
+          })
+        })
+        .collect::<Vec<_>>();
+    for (span, help) in findings {
       context.report_with_recommendation(
         self.meta(),
         span,
-        "This registers a DOM listener without a matching `removeEventListener`; consider VueUse `useEventListener` for automatic cleanup.".into(),
-        Some(
-          "Optional dependency: install `@vueuse/core` when you want the helper. It pairs add/remove with the component lifecycle."
-            .into(),
-        ),
+        "This registers a DOM listener inside a setup lifecycle hook without `removeEventListener`; consider VueUse `useEventListener` for automatic cleanup.".into(),
+        Some(help),
         recommendation_from(RECIPE.recommend),
       );
     }
   }
+}
+
+fn is_lifecycle_hook(callee: &str) -> bool {
+  LIFECYCLE_HOOKS.contains(&callee)
 }
 
 fn is_add_listener(callee: &str) -> bool {
@@ -69,33 +76,6 @@ fn is_add_listener(callee: &str) -> bool {
 
 fn is_remove_listener(callee: &str) -> bool {
   callee == "removeEventListener" || callee.ends_with(".removeEventListener")
-}
-
-fn already_uses_target(block: &vue_vet_core::ScriptBlockFacts, export: &str) -> bool {
-  block.imports.iter().any(|import| {
-    is_vueuse_source(&import.source) && (import.imported == export || import.local == export)
-  }) || block.calls.iter().any(|call| call.callee == export)
-}
-
-fn is_vueuse_source(source: &str) -> bool {
-  source == "@vueuse/core" || source.starts_with("@vueuse/")
-}
-
-fn is_test_path(path: &Path) -> bool {
-  let normalized = path.to_string_lossy().replace('\\', "/");
-  normalized.contains("/__tests__/")
-    || normalized.contains(".test.")
-    || normalized.contains(".spec.")
-}
-
-fn recommendation_from(api: EcosystemApi) -> Recommendation {
-  Recommendation {
-    kind: "ecosystem_api".into(),
-    package: api.package.into(),
-    export: api.export.into(),
-    docs_url: api.docs_url.into(),
-    import_example: api.import_example.into(),
-  }
 }
 
 #[cfg(test)]
@@ -112,6 +92,16 @@ mod tests {
 
   fn span(offset: usize) -> SourceSpan {
     SourceSpan { offset, length: 24, line: 1, column: offset.saturating_add(1) }
+  }
+
+  fn call(callee: &str, offset: usize) -> ScriptCallFact {
+    ScriptCallFact {
+      callee: callee.into(),
+      assigned_to: None,
+      resolved_import: None,
+      argument_identifiers: Vec::new(),
+      span: span(offset),
+    }
   }
 
   fn run(calls: Vec<ScriptCallFact>) -> Vec<vue_vet_core::Diagnostic> {
@@ -131,13 +121,8 @@ mod tests {
   }
 
   #[test]
-  fn reports_add_without_remove() {
-    let diagnostics = run(vec![ScriptCallFact {
-      callee: "window.addEventListener".into(),
-      assigned_to: None,
-      resolved_import: None,
-      span: span(0),
-    }]);
+  fn reports_lifecycle_add_without_remove() {
+    let diagnostics = run(vec![call("onMounted", 0), call("window.addEventListener", 20)]);
     assert_eq!(diagnostics.len(), 1);
     let Some(diagnostic) = diagnostics.first() else {
       return;
@@ -147,20 +132,17 @@ mod tests {
   }
 
   #[test]
+  fn stays_quiet_for_bare_add_without_lifecycle() {
+    let diagnostics = run(vec![call("window.addEventListener", 0)]);
+    assert!(diagnostics.is_empty());
+  }
+
+  #[test]
   fn stays_quiet_when_remove_is_present() {
     let diagnostics = run(vec![
-      ScriptCallFact {
-        callee: "window.addEventListener".into(),
-        assigned_to: None,
-        resolved_import: None,
-        span: span(0),
-      },
-      ScriptCallFact {
-        callee: "window.removeEventListener".into(),
-        assigned_to: None,
-        resolved_import: None,
-        span: span(40),
-      },
+      call("onMounted", 0),
+      call("window.addEventListener", 20),
+      call("window.removeEventListener", 60),
     ]);
     assert!(diagnostics.is_empty());
   }

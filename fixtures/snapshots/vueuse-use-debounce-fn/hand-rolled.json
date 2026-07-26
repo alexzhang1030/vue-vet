@@ -5,8 +5,8 @@
     "severity": "info",
     "confidence": "medium",
     "documentation": "rules/practice/vueuse-use-debounce-fn",
-    "message": "This looks like a hand-rolled debounce with `setTimeout` / `clearTimeout`; consider VueUse `useDebounceFn`.",
-    "help": "Optional dependency: install `@vueuse/core` when you want the helper, then replace the timer wrapper.",
+    "message": "This looks like a hand-rolled debounce that clears and reassigns the same timer; consider VueUse `useDebounceFn`.",
+    "help": "Optional dependency: install `@vueuse/core` when you want `useDebounceFn`, then replace the hand-rolled pattern.",
     "file": "fixtures/rules/vueuse-use-debounce-fn/invalid/hand-rolled.vue",
     "span": {
       "offset": 143,

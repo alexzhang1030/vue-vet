@@ -212,6 +212,10 @@ fn practice_vueuse_safe_fixtures_produce_no_diagnostics() {
       include_str!("../../../fixtures/rules/vueuse-use-debounce-fn/valid/plain-timeout.vue"),
     ),
     (
+      "fixtures/rules/vueuse-use-debounce-fn/valid/unrelated-clear.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-debounce-fn/valid/unrelated-clear.vue"),
+    ),
+    (
       "fixtures/rules/vueuse-use-event-listener/valid/use-event-listener.vue",
       include_str!(
         "../../../fixtures/rules/vueuse-use-event-listener/valid/use-event-listener.vue"
@@ -220,6 +224,10 @@ fn practice_vueuse_safe_fixtures_produce_no_diagnostics() {
     (
       "fixtures/rules/vueuse-use-event-listener/valid/with-remove.vue",
       include_str!("../../../fixtures/rules/vueuse-use-event-listener/valid/with-remove.vue"),
+    ),
+    (
+      "fixtures/rules/vueuse-use-event-listener/valid/bare-add.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-event-listener/valid/bare-add.vue"),
     ),
   ] {
     assert_diagnostics(path, source, empty);

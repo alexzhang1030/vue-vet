@@ -5,8 +5,8 @@
     "severity": "info",
     "confidence": "medium",
     "documentation": "rules/practice/vueuse-use-event-listener",
-    "message": "This registers a DOM listener without a matching `removeEventListener`; consider VueUse `useEventListener` for automatic cleanup.",
-    "help": "Optional dependency: install `@vueuse/core` when you want the helper. It pairs add/remove with the component lifecycle.",
+    "message": "This registers a DOM listener inside a setup lifecycle hook without `removeEventListener`; consider VueUse `useEventListener` for automatic cleanup.",
+    "help": "Optional dependency: install `@vueuse/core` when you want `useEventListener`, then replace the hand-rolled pattern.",
     "file": "fixtures/rules/vueuse-use-event-listener/invalid/add-without-remove.vue",
     "span": {
       "offset": 78,
