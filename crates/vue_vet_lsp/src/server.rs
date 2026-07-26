@@ -2,7 +2,7 @@
 //!
 //! Publishes diagnostics from on-disk files plus unsaved buffer overlays
 //! (`textDocument/didOpen` / `didChange` / `didSave`) and exposes explicitly
-//! safe quick-fix code actions. Request-level cancellation and MCP remain later
+//! safe quick-fix code actions. Request-level cancellation remains later
 //! issue #12 work; overlapping overlay analyses are dropped via per-document
 //! generation tokens.
 

@@ -2,8 +2,8 @@
 //!
 //! Publishes diagnostics for on-disk files and unsaved buffer overlays with the
 //! same opaque finding ids as CLI JSON, and offers explicitly safe quick-fix
-//! code actions as versioned workspace edits. Request-level cancellation and
-//! MCP remain later issue #12 work.
+//! code actions as versioned workspace edits. Request-level cancellation remains
+//! later issue #12 work.
 
 mod convert;
 mod server;
