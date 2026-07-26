@@ -1,39 +1,25 @@
 use std::{
   collections::BTreeMap,
-  ffi::OsStr,
   fs,
   path::{Path, PathBuf},
   process::ExitCode,
 };
 
 use clap::{Args, Parser, ValueEnum};
-use ignore::{DirEntry, WalkBuilder};
-use vue_vet_cache::{
-  Baseline, CacheLookup, CachePayload, CacheStore, content_key, default_cache_dir, filter_diff,
-  read_git_diff,
-};
-use vue_vet_config::{CONFIG_FILE, Config, apply_suppressions};
-use vue_vet_core::{
-  Confidence, ReactiveBindingKind, ReactiveDependencyKind, RuleEnvironment, RuleMeta, ScanSummary,
-  ScriptFacts, Severity, SfcFacts, TemplateFacts, TrackingScopeKind, VueVersion,
-};
-use vue_vet_oxc::analyze_module;
-use vue_vet_project::{
-  EdgeKind, PROJECT_RULE_IDS, ProjectFile, ProjectGraph, build_project_graph,
-  resolver_config_inputs,
-};
-use vue_vet_reactivity::{ModuleReactivity, ModuleSource};
+use vue_vet_cache::{Baseline, filter_diff, read_git_diff};
+use vue_vet_core::{ReactiveBindingKind, ReactiveDependencyKind, ScanSummary, TrackingScopeKind};
+use vue_vet_project::{EdgeKind, ProjectGraph};
+use vue_vet_reactivity::ModuleReactivity;
 use vue_vet_reporters::{
   ComponentNavDigest, ComponentNavEdgeInput, ReactivityDigest, ReactivityModuleStats,
   ReactivitySpanRef, ReportContext, ReportFormat, ReportFramework, ReportMode, binding_detail,
-  component_nav_from_edges, edge_detail, explain_finding, explain_rule, find_rule_meta,
-  looks_like_finding_id, render, render_error, render_finding_explain_json,
+  component_nav_from_edges, edge_detail, render, render_error, render_finding_explain_json,
   render_finding_explain_text, render_reactivity_detail, render_rule_explain_json,
-  render_rule_explain_text, report_diagnostic_id, scope_detail, template_read_detail,
-  to_span_from_identity,
+  render_rule_explain_text, scope_detail, template_read_detail, to_span_from_identity,
 };
-use vue_vet_rules::builtin_registry;
-use vue_vet_vize::analyze_sfc_facts_with_environment;
+use vue_vet_session::{
+  AnalysisSnapshot, Explained, ProjectSession, SessionOptions, scan_directory,
+};
 
 mod fixes;
 mod reactivity_tui;
@@ -193,12 +179,12 @@ fn main() -> ExitCode {
   if let Some(target) = cli.explain.as_deref() {
     return run_explain(&cli, target);
   }
-  let config = match load_config(&cli.path, cli.config.as_deref()) {
-    Ok(config) => config,
+  let session = match open_session(&cli) {
+    Ok(session) => session,
     Err(error) => return operational_failure(&cli, &error),
   };
   if cli.print_config {
-    return match serde_json::to_string_pretty(&config) {
+    return match serde_json::to_string_pretty(session.config()) {
       Ok(output) => {
         println!("{output}");
         ExitCode::SUCCESS
@@ -208,12 +194,12 @@ fn main() -> ExitCode {
       }
     };
   }
-  match cached_scan(&cli, &config) {
-    Ok((mut result, cache_status)) => {
+  match session.analyze() {
+    Ok(mut snapshot) => {
       if cli.cache.cache_stats {
-        eprintln!("vue-vet cache: {cache_status}");
+        eprintln!("vue-vet cache: {}", snapshot.cache_status);
       }
-      if let Err(error) = run_requested_fixes(&cli, &config, &mut result) {
+      if let Err(error) = run_requested_fixes(&cli, &session, &mut snapshot) {
         return operational_failure(&cli, &error);
       }
       if let Some(path) = &cli.baseline {
@@ -221,23 +207,23 @@ fn main() -> ExitCode {
           Ok(baseline) => baseline,
           Err(error) => return operational_failure(&cli, &error.to_string()),
         };
-        result.summary = baseline.filter(result.summary);
+        snapshot.summary = baseline.filter(snapshot.summary);
       }
       if let Some(reference) = &cli.diff {
-        let directory = scan_directory(&cli.path);
+        let directory = session.workspace_root();
         let changed = match read_git_diff(directory, reference) {
           Ok(changed) => changed,
           Err(error) => return operational_failure(&cli, &error.to_string()),
         };
-        result.summary = filter_diff(result.summary, &changed);
+        snapshot.summary = filter_diff(snapshot.summary, &changed);
       }
       if let Some(path) = &cli.write_baseline
-        && let Err(error) = Baseline::from_summary(&result.summary).write(path)
+        && let Err(error) = Baseline::from_summary(&snapshot.summary).write(path)
       {
         return operational_failure(&cli, &error.to_string());
       }
       if cli.print_graph {
-        return match serde_json::to_string_pretty(&result.graph) {
+        return match serde_json::to_string_pretty(&snapshot.graph) {
           Ok(output) => {
             println!("{output}");
             ExitCode::SUCCESS
@@ -250,8 +236,8 @@ fn main() -> ExitCode {
       if cli.reactivity_tui && !matches!(cli.format, OutputFormat::Text) {
         return operational_failure(&cli, "--reactivity-tui requires --format text");
       }
-      let report_context = report_context(&cli, &result);
-      if let Err(error) = print_summary(&result.summary, cli.format, &report_context) {
+      let report_context = report_context(&cli, &snapshot);
+      if let Err(error) = print_summary(&snapshot.summary, cli.format, &report_context) {
         return operational_failure(&cli, &format!("failed to serialize report: {error}"));
       }
       if cli.print_reactivity
@@ -262,50 +248,40 @@ fn main() -> ExitCode {
         print!("{}", render_reactivity_detail(digest));
       }
       if cli.reactivity_tui {
-        let module_stats = reactivity_module_stats(&result.graph.module_reactivity);
-        let component_nav = component_nav_digest(&result.graph);
+        let module_stats = reactivity_module_stats(&snapshot.graph.module_reactivity);
+        let component_nav = component_nav_digest(&snapshot.graph);
         if let Err(error) =
-          run_reactivity_tui(&module_stats, result.graph.reactivity_error.clone(), &component_nav)
+          run_reactivity_tui(&module_stats, snapshot.graph.reactivity_error.clone(), &component_nav)
         {
           return operational_failure(&cli, &error);
         }
       }
-      if result.summary.fails(cli.deny_warnings) { ExitCode::from(1) } else { ExitCode::SUCCESS }
+      if snapshot.summary.fails(cli.deny_warnings) { ExitCode::from(1) } else { ExitCode::SUCCESS }
     }
-    Err(error) => operational_failure(&cli, &error),
+    Err(error) => operational_failure(&cli, &error.to_string()),
   }
 }
 
-struct ScanResult {
-  summary: ScanSummary,
-  graph: ProjectGraph,
+fn open_session(cli: &Cli) -> Result<ProjectSession, String> {
+  ProjectSession::open(SessionOptions {
+    root: cli.path.clone(),
+    config_path: cli.config.clone(),
+    cache_dir: cli.cache.cache_dir.clone(),
+    no_cache: cli.cache.no_cache || cli.fix.mode().is_some(),
+    threads: cli.threads,
+  })
+  .map_err(|error| error.to_string())
 }
 
-fn cached_scan(cli: &Cli, config: &Config) -> Result<(ScanResult, &'static str), String> {
-  if cli.cache.no_cache || cli.fix.mode().is_some() {
-    return scan_with_threads(&cli.path, config, cli.threads).map(|result| (result, "disabled"));
-  }
-  let files = cache_inputs(&cli.path)?;
-  let serialized_config =
-    serde_json::to_vec(config).map_err(|error| format!("failed to hash config: {error}"))?;
-  let key = content_key(&files, &serialized_config);
-  let store = CacheStore::new(cli.cache.cache_dir.clone().unwrap_or_else(default_cache_dir));
-  match store.load(&key) {
-    CacheLookup::Hit(payload) => {
-      Ok((ScanResult { summary: payload.summary, graph: payload.graph }, "hit"))
-    }
-    CacheLookup::Miss => fill_cache(&store, &key, &cli.path, config, "miss", cli.threads),
-    CacheLookup::RecoveredCorruption => {
-      fill_cache(&store, &key, &cli.path, config, "recovered-corruption", cli.threads)
-    }
-  }
-}
-
-fn run_requested_fixes(cli: &Cli, config: &Config, result: &mut ScanResult) -> Result<(), String> {
+fn run_requested_fixes(
+  cli: &Cli,
+  session: &ProjectSession,
+  snapshot: &mut AnalysisSnapshot,
+) -> Result<(), String> {
   let Some(mode) = cli.fix.mode() else {
     return Ok(());
   };
-  let edits = result
+  let edits = snapshot
     .summary
     .diagnostics
     .iter()
@@ -314,7 +290,7 @@ fn run_requested_fixes(cli: &Cli, config: &Config, result: &mut ScanResult) -> R
   let outcome = execute_safe_edits(&cli.path, edits, mode).map_err(|error| error.to_string())?;
   print_fix_outcome(mode, outcome);
   if mode == FixMode::Apply && outcome.changed() {
-    *result = scan_with_threads(&cli.path, config, cli.threads)?;
+    *snapshot = session.analyze_fresh().map_err(|error| error.to_string())?;
   }
   Ok(())
 }
@@ -331,327 +307,24 @@ fn print_fix_outcome(mode: FixMode, outcome: FixOutcome) {
   );
 }
 
-fn fill_cache(
-  store: &CacheStore,
-  key: &str,
-  root: &Path,
-  config: &Config,
-  status: &'static str,
-  threads: Option<usize>,
-) -> Result<(ScanResult, &'static str), String> {
-  let result = scan_with_threads(root, config, threads)?;
-  store
-    .store(key, &CachePayload { summary: result.summary.clone(), graph: result.graph.clone() })
-    .map_err(|error| error.to_string())?;
-  Ok((result, status))
-}
-
-fn cache_inputs(root: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
-  let mut files = Vec::new();
-  for entry in project_walk(root) {
-    let entry = entry.map_err(|error| error.to_string())?;
-    let path = entry.path();
-    // Follow symlinks: package dirs named `*.js` (e.g. node_modules/pixi.js)
-    // and symlink installs must not be treated as source files.
-    if !path.is_file() {
-      continue;
-    }
-    let source_file = matches!(
-      path.extension().and_then(|extension| extension.to_str()),
-      Some("vue" | "js" | "jsx" | "ts" | "tsx")
-    );
-    let package_file = path.file_name().and_then(|name| name.to_str()) == Some("package.json");
-    if !source_file && !package_file {
-      continue;
-    }
-    let content = fs::read(path)
-      .map_err(|error| format!("failed to read {} for cache key: {error}", path.display()))?;
-    files.push((logical_path(root, path).to_string_lossy().replace('\\', "/"), content));
-  }
-  if root.is_file()
-    && let Some(package) = nearest_package_json(root, scan_directory(root))
-  {
-    let content = fs::read(&package)
-      .map_err(|error| format!("failed to read {} for cache key: {error}", package.display()))?;
-    files.push(("package.json".into(), content));
-  }
-  let boundary = scan_directory(root);
-  for relative in resolver_config_inputs(boundary) {
-    let path = boundary.join(&relative);
-    if !path.is_file() {
-      continue;
-    }
-    let content = fs::read(&path)
-      .map_err(|error| format!("failed to read {} for cache key: {error}", path.display()))?;
-    files.push((relative, content));
-  }
-  files.sort_by(|left, right| left.0.cmp(&right.0));
-  files.dedup_by(|left, right| left.0 == right.0);
-  Ok(files)
-}
-
-fn scan_directory(path: &Path) -> &Path {
-  if path.is_dir() { path } else { path.parent().unwrap_or(path) }
-}
-
-/// Walk project files for cache keys and analysis.
-///
-/// Always skips `node_modules` even when `.gitignore` is absent (common when
-/// scanning a nested docs/app directory). `standard_filters` still applies
-/// gitignore/global ignore when present.
-fn project_walk(root: &Path) -> ignore::Walk {
-  WalkBuilder::new(root)
-    .standard_filters(true)
-    .filter_entry(|entry| !is_node_modules_entry(entry))
-    .build()
-}
-
-fn is_node_modules_entry(entry: &DirEntry) -> bool {
-  entry.file_name() == OsStr::new("node_modules")
-}
-
-/// Oxlint-style scan: walk/collect paths sequentially, analyze files and run
-/// seed-aware rules in parallel, then sort diagnostics for determinism.
-fn scan_with_threads(
-  root: &Path,
-  config: &Config,
-  threads: Option<usize>,
-) -> Result<ScanResult, String> {
-  if !root.exists() {
-    return Err(format!("path does not exist: {}", root.display()));
-  }
-
-  let run = || scan_parallel(root, config);
-  match threads {
-    Some(threads) => {
-      let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(threads.max(1))
-        .build()
-        .map_err(|error| format!("failed to configure analysis threads: {error}"))?;
-      pool.install(run)
-    }
-    None => run(),
-  }
-}
-
-fn scan_parallel(root: &Path, config: &Config) -> Result<ScanResult, String> {
-  use rayon::prelude::*;
-
-  let filter = config.path_filter().map_err(|error| error.to_string())?;
-  let boundary = scan_directory(root);
-
-  // Phase 0: collect candidates (sequential; ignore crate walk is not parallel-safe).
-  let mut candidates = Vec::new();
-  for entry in project_walk(root) {
-    let entry = entry.map_err(|error| error.to_string())?;
-    let path = entry.path().to_path_buf();
-    // Follow symlinks so directory packages / symlink installs are skipped.
-    if !path.is_file() {
-      continue;
-    }
-    let logical = logical_path(root, &path).to_path_buf();
-    let extension = path.extension().and_then(|extension| extension.to_str()).map(str::to_owned);
-    match extension.as_deref() {
-      Some("vue") if filter.matches(&logical) => {
-        candidates.push(ScanCandidate::Vue { path, logical_path: logical });
-      }
-      Some(language @ ("js" | "jsx" | "ts" | "tsx")) => {
-        candidates.push(ScanCandidate::Script {
-          path,
-          logical_path: logical,
-          language: language.to_owned(),
-        });
-      }
-      _ => {}
-    }
-  }
-  candidates.sort_by(|left, right| left.sort_key().cmp(right.sort_key()));
-
-  // Phase 1: per-file parse/facts in parallel (oxlint Runtime model).
-  let analyzed = candidates
-    .par_iter()
-    .map(|candidate| analyze_candidate(candidate, boundary))
-    .collect::<Result<Vec<_>, _>>()?;
-
-  let mut summary = ScanSummary::default();
-  let mut project_files = Vec::new();
-  let mut pending_vue = Vec::new();
-  for item in analyzed {
-    match item {
-      AnalyzedCandidate::Vue { project_file, pending } => {
-        summary.files_scanned = summary.files_scanned.saturating_add(1);
-        project_files.push(project_file);
-        pending_vue.push(pending);
-      }
-      AnalyzedCandidate::Script { project_file } => {
-        project_files.push(project_file);
-      }
-    }
-  }
-
-  // Phase 2: project graph + module seed linking (module re-trace is itself parallel).
-  let graph = build_project_graph(boundary, &project_files);
-  let modules = graph
-    .module_reactivity
-    .iter()
-    .map(|module| (module.id.clone(), module.graph.clone()))
-    .collect::<BTreeMap<_, _>>();
-
-  // Phase 3: seed-aware rules in parallel; diagnostics sorted later by finish().
-  let file_diagnostics = pending_vue
-    .into_par_iter()
-    .map(|pending| {
-      let mut facts = pending.facts;
-      let module_id = pending.logical_path.to_string_lossy().replace('\\', "/");
-      if let Some(graph) = modules.get(module_id.as_str()) {
-        facts.apply_module_reactivity(graph.clone());
-      }
-      let ordinary_id = format!("{module_id}#script");
-      if let Some(graph) = modules.get(ordinary_id.as_str()) {
-        facts.apply_module_reactivity_for(vue_vet_core::ScriptKind::Script, graph.clone());
-      }
-      let diagnostics = builtin_registry().run_with_environment(
-        &pending.path,
-        &pending.source,
-        &facts.template,
-        &facts.script,
-        pending.environment,
-      );
-      let mut diagnostics = config.apply(diagnostics);
-      for diagnostic in &mut diagnostics {
-        for edit in &mut diagnostic.edits {
-          edit.file.clone_from(&pending.logical_path);
-        }
-      }
-      let diagnostics = apply_suppressions(&pending.path, &pending.source, diagnostics);
-      Ok::<_, String>((pending.logical_path, diagnostics))
-    })
-    .collect::<Result<Vec<_>, _>>()?;
-
-  for (_, diagnostics) in file_diagnostics {
-    summary.diagnostics.extend(diagnostics);
-  }
-  let project_diagnostics = config.apply(graph.diagnostics.clone());
-  summary.diagnostics.extend(project_diagnostics);
-  Ok(ScanResult { summary: summary.finish(), graph })
-}
-
-enum ScanCandidate {
-  Vue { path: PathBuf, logical_path: PathBuf },
-  Script { path: PathBuf, logical_path: PathBuf, language: String },
-}
-
-impl ScanCandidate {
-  fn sort_key(&self) -> &Path {
-    match self {
-      Self::Vue { logical_path, .. } | Self::Script { logical_path, .. } => logical_path,
-    }
-  }
-}
-
-enum AnalyzedCandidate {
-  Vue { project_file: ProjectFile, pending: PendingVueFile },
-  Script { project_file: ProjectFile },
-}
-
-fn analyze_candidate(
-  candidate: &ScanCandidate,
-  boundary: &Path,
-) -> Result<AnalyzedCandidate, String> {
-  match candidate {
-    ScanCandidate::Vue { path, logical_path } => {
-      let source = read_source(path)?;
-      let environment = RuleEnvironment { vue_version: vue_version_for(path, boundary) };
-      let analysis = analyze_sfc_facts_with_environment(path, &source)
-        .map_err(|error| format!("failed to analyze {}: {error}", path.display()))?;
-      let module_id = logical_path.to_string_lossy().replace('\\', "/");
-      let project_file = ProjectFile {
-        path: logical_path.clone(),
-        source_len: source.len(),
-        facts: analysis.facts.clone(),
-        module_source: analysis.module_source.map(|mut module| {
-          module.id.clone_from(&module_id);
-          module
-        }),
-        ordinary_module_source: analysis.ordinary_module_source.map(|mut module| {
-          module.id = format!("{module_id}#script");
-          module
-        }),
-      };
-      Ok(AnalyzedCandidate::Vue {
-        project_file,
-        pending: PendingVueFile {
-          path: path.clone(),
-          logical_path: logical_path.clone(),
-          source,
-          environment,
-          facts: analysis.facts,
-        },
-      })
-    }
-    ScanCandidate::Script { path, logical_path, language } => {
-      let source = read_source(path)?;
-      let block = analyze_module(&source, language)
-        .map_err(|error| format!("failed to analyze {}: {error}", path.display()))?;
-      Ok(AnalyzedCandidate::Script {
-        project_file: ProjectFile {
-          path: logical_path.clone(),
-          source_len: source.len(),
-          facts: SfcFacts {
-            template: TemplateFacts::default(),
-            script: ScriptFacts { blocks: vec![block] },
-          },
-          module_source: Some(ModuleSource::standalone(
-            logical_path.to_string_lossy().replace('\\', "/"),
-            source,
-            language.clone(),
-            vue_vet_core::ScriptKind::Script,
-          )),
-          ordinary_module_source: None,
-        },
-      })
-    }
-  }
-}
-
-struct PendingVueFile {
-  path: PathBuf,
-  logical_path: PathBuf,
-  source: String,
-  environment: RuleEnvironment,
-  facts: SfcFacts,
-}
-
-fn vue_version_for(path: &Path, boundary: &Path) -> Option<VueVersion> {
-  let package = nearest_package_json(path, boundary)?;
-  let source = fs::read_to_string(package).ok()?;
-  let package: serde_json::Value = serde_json::from_str(&source).ok()?;
-  ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
-    .iter()
-    .filter_map(|section| package.get(section))
-    .filter_map(|section| section.get("vue"))
-    .filter_map(serde_json::Value::as_str)
-    .find_map(VueVersion::parse_requirement)
-}
-
-fn report_context(cli: &Cli, result: &ScanResult) -> ReportContext {
+fn report_context(cli: &Cli, snapshot: &AnalysisSnapshot) -> ReportContext {
   let mut skipped_check_reasons = BTreeMap::new();
-  if let Some(error) = &result.graph.reactivity_error {
+  if let Some(error) = &snapshot.graph.reactivity_error {
     skipped_check_reasons.insert("module_reactivity".into(), error.clone());
   }
-  let module_stats = reactivity_module_stats(&result.graph.module_reactivity);
+  let module_stats = reactivity_module_stats(&snapshot.graph.module_reactivity);
   let mut digest =
-    ReactivityDigest::from_modules(&module_stats, result.graph.reactivity_error.clone());
+    ReactivityDigest::from_modules(&module_stats, snapshot.graph.reactivity_error.clone());
   if cli.print_reactivity || cli.reactivity_tui {
     digest = digest.with_modules_detail(&module_stats);
   }
   // Always expose structural component nav in JSON; cheap and editor-facing.
-  let component_nav = Some(component_nav_digest(&result.graph));
+  let component_nav = Some(component_nav_digest(&snapshot.graph));
   ReportContext {
     mode: report_mode(cli),
     framework: report_framework(&cli.path),
     project_root: report_root(&cli.path),
-    analyzed_files: result.graph.invalidation_inputs.clone(),
+    analyzed_files: snapshot.analyzed_files.clone(),
     complete: skipped_check_reasons.is_empty(),
     skipped_check_reasons,
     reactivity: Some(digest),
@@ -883,138 +556,35 @@ fn report_framework(root: &Path) -> ReportFramework {
   if is_nuxt { ReportFramework::Nuxt } else { ReportFramework::Vue }
 }
 
-fn nearest_package_json(path: &Path, boundary: &Path) -> Option<PathBuf> {
-  let mut directory = path.parent()?;
-  loop {
-    if !directory.starts_with(boundary) {
-      return None;
-    }
-    let candidate = directory.join("package.json");
-    if candidate.is_file() {
-      return Some(candidate);
-    }
-    if directory == boundary {
-      return None;
-    }
-    directory = directory.parent()?;
-  }
-}
-
-fn read_source(path: &Path) -> Result<String, String> {
-  fs::read_to_string(path).map_err(|error| format!("failed to read {}: {error}", path.display()))
-}
-
-fn logical_path<'a>(root: &'a Path, path: &'a Path) -> &'a Path {
-  if root.is_file() {
-    path.file_name().map_or(path, |name| Path::new(name))
-  } else {
-    path.strip_prefix(root).unwrap_or(path)
-  }
-}
-
-/// Project-graph rules live outside `builtin_registry` but share the same docs key.
-static PROJECT_RULE_META: [RuleMeta; 2] = [
-  RuleMeta {
-    id: PROJECT_RULE_IDS[0],
-    category: "project",
-    default_severity: Severity::Error,
-    confidence: Confidence::High,
-    documentation: "project-graph",
-  },
-  RuleMeta {
-    id: PROJECT_RULE_IDS[1],
-    category: "project",
-    default_severity: Severity::Warning,
-    confidence: Confidence::Medium,
-    documentation: "project-graph",
-  },
-];
-
-fn run_explain(cli: &Cli, target: &str) -> ExitCode {
-  if let Some(meta) = resolve_explain_meta(target) {
-    let explain = explain_rule(meta, &explain_search_roots(&cli.path));
-    let output = match cli.format {
-      OutputFormat::Text => Ok(render_rule_explain_text(&explain)),
-      OutputFormat::Json => render_rule_explain_json(&explain),
-      OutputFormat::Sarif | OutputFormat::Github => {
-        return operational_failure(cli, "--explain supports --format text or json only");
-      }
-    };
-    return print_explain(cli, output);
-  }
-  if looks_like_finding_id(target) {
-    return run_explain_finding(cli, target);
-  }
-  operational_failure(
-    cli,
-    &format!(
-      "unknown rule `{target}`; pass a full rule id such as `vue-vet/security/no-v-html`, or a finding id from `--format json`"
-    ),
-  )
-}
-
 #[expect(clippy::print_stderr, reason = "cache stats for finding explain belong on stderr")]
-fn run_explain_finding(cli: &Cli, finding_id: &str) -> ExitCode {
-  let config = match load_config(&cli.path, cli.config.as_deref()) {
-    Ok(config) => config,
+fn run_explain(cli: &Cli, target: &str) -> ExitCode {
+  let session = match open_session(cli) {
+    Ok(session) => session,
     Err(error) => return operational_failure(cli, &error),
   };
-  let (result, cache_status) = match cached_scan(cli, &config) {
-    Ok(result) => result,
-    Err(error) => return operational_failure(cli, &error),
+  let explained = match session.explain(target) {
+    Ok(explained) => explained,
+    Err(error) => return operational_failure(cli, &error.to_string()),
   };
-  if cli.cache.cache_stats {
+  if cli.cache.cache_stats
+    && let Explained::Finding { cache_status, .. } = &explained
+  {
     eprintln!("vue-vet cache: {cache_status}");
   }
-  let analyzed_files = analyzed_report_files(&result);
-  let Some(diagnostic) = result
-    .summary
-    .diagnostics
-    .iter()
-    .find(|diagnostic| report_diagnostic_id(diagnostic, &analyzed_files) == finding_id)
-  else {
-    return operational_failure(
-      cli,
-      &format!(
-        "no finding with id `{finding_id}` in the current scan; re-run with the same path that produced the id"
-      ),
-    );
-  };
-  let file = {
-    let normalized = diagnostic.file.to_string_lossy().replace('\\', "/");
-    analyzed_files
-      .iter()
-      .find(|candidate| {
-        normalized == candidate.as_str()
-          || normalized.strip_suffix(candidate.as_str()).is_some_and(|prefix| prefix.ends_with('/'))
-      })
-      .cloned()
-      .unwrap_or(normalized)
-  };
-  let search_roots = explain_search_roots(&cli.path);
-  let Some(meta) = resolve_explain_meta(&diagnostic.rule_id) else {
-    return operational_failure(
-      cli,
-      &format!("finding `{finding_id}` references unknown rule `{}`", diagnostic.rule_id),
-    );
-  };
-  let explain = explain_finding(finding_id, diagnostic, file, explain_rule(meta, &search_roots));
-  let output = match cli.format {
-    OutputFormat::Text => Ok(render_finding_explain_text(&explain)),
-    OutputFormat::Json => render_finding_explain_json(&explain),
-    OutputFormat::Sarif | OutputFormat::Github => {
+  let output = match (&cli.format, explained) {
+    (OutputFormat::Text, Explained::Rule(explain)) => Ok(render_rule_explain_text(&explain)),
+    (OutputFormat::Json, Explained::Rule(explain)) => render_rule_explain_json(&explain),
+    (OutputFormat::Text, Explained::Finding { explain, .. }) => {
+      Ok(render_finding_explain_text(&explain))
+    }
+    (OutputFormat::Json, Explained::Finding { explain, .. }) => {
+      render_finding_explain_json(&explain)
+    }
+    (OutputFormat::Sarif | OutputFormat::Github, _) => {
       return operational_failure(cli, "--explain supports --format text or json only");
     }
   };
   print_explain(cli, output)
-}
-
-fn analyzed_report_files(result: &ScanResult) -> Vec<String> {
-  let mut analyzed_files =
-    result.graph.invalidation_inputs.iter().map(|path| path.replace('\\', "/")).collect::<Vec<_>>();
-  analyzed_files.sort();
-  analyzed_files.dedup();
-  analyzed_files
 }
 
 #[expect(clippy::print_stdout, reason = "explain is an early-exit CLI surface")]
@@ -1026,53 +596,6 @@ fn print_explain(cli: &Cli, output: Result<String, serde_json::Error>) -> ExitCo
     }
     Err(error) => operational_failure(cli, &format!("failed to serialize explain output: {error}")),
   }
-}
-
-fn resolve_explain_meta(rule_id: &str) -> Option<&'static RuleMeta> {
-  let builtins = builtin_registry().metadata();
-  let mut metas = builtins;
-  metas.extend(PROJECT_RULE_META.iter());
-  find_rule_meta(rule_id, &metas)
-}
-
-fn explain_search_roots(scan_path: &Path) -> Vec<PathBuf> {
-  let mut roots = Vec::new();
-  let scan = if scan_path.is_file() {
-    scan_path.parent().unwrap_or(scan_path).to_path_buf()
-  } else {
-    scan_path.to_path_buf()
-  };
-  roots.push(scan);
-  if let Ok(cwd) = std::env::current_dir()
-    && !roots.iter().any(|root| root == &cwd)
-  {
-    roots.push(cwd);
-  }
-  roots
-}
-
-fn load_config(root: &Path, explicit: Option<&Path>) -> Result<Config, String> {
-  let discovered = explicit.map_or_else(
-    || {
-      let directory = if root.is_dir() { root } else { root.parent().unwrap_or(root) };
-      let candidate = directory.join(CONFIG_FILE);
-      candidate.exists().then_some(candidate)
-    },
-    |explicit| Some(explicit.to_path_buf()),
-  );
-  let config = if let Some(path) = discovered {
-    let source = fs::read_to_string(&path)
-      .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
-    Config::parse(&source).map_err(|error| format!("{}: {error}", path.display()))?
-  } else {
-    Config::default()
-  };
-  config
-    .validate_rules(
-      builtin_registry().metadata().into_iter().map(|meta| meta.id).chain(PROJECT_RULE_IDS),
-    )
-    .map_err(|error| error.to_string())?;
-  Ok(config)
 }
 
 #[expect(

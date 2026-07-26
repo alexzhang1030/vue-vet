@@ -193,9 +193,10 @@ operational failures to stderr.
 
 ## `--explain` (rule or finding documentation)
 
-`--explain <RULE_OR_FINDING>` exits after printing documentation. With
-`--format json` it prints a standalone object — not wrapped in
-`schema_version` / `diagnostics`.
+`--explain <RULE_OR_FINDING>` exits after printing documentation. Lookup and
+scan orchestration live in `vue_vet_session` (shared with future LSP/MCP);
+the CLI only formats stdout. With `--format json` it prints a standalone
+object — not wrapped in `schema_version` / `diagnostics`.
 
 ### Rule id
 

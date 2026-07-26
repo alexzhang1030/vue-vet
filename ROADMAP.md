@@ -50,6 +50,7 @@ vue_vet_reactivity local effect tracing and cross-module summaries/linking
 vue_vet_rules      built-in rules and presets
 vue_vet_project    project graph, cache, baseline, diff
 vue_vet_reporters  text, JSON, SARIF, GitHub annotations
+vue_vet_session    long-lived project session (scan, explain, workspace paths)
 vue-vet            CLI binary
 ```
 
