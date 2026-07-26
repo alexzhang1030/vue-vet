@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use vue_vet_core::{Recommendation, ScriptBlockFacts};
+use vue_vet_core::{Recommendation, RuleEnvironment, ScriptBlockFacts};
 
 use crate::recipe::EcosystemApi;
 
@@ -11,11 +11,6 @@ pub fn already_uses_target(block: &ScriptBlockFacts, export: &str) -> bool {
   block.imports.iter().any(|import| {
     is_vueuse_source(&import.source) && (import.imported == export || import.local == export)
   }) || block.calls.iter().any(|call| call.callee == export)
-}
-
-#[must_use]
-pub fn has_vueuse_import(block: &ScriptBlockFacts) -> bool {
-  block.imports.iter().any(|import| is_vueuse_source(&import.source))
 }
 
 #[must_use]
@@ -43,12 +38,55 @@ pub fn recommendation_from(api: EcosystemApi) -> Recommendation {
 }
 
 #[must_use]
-pub fn optional_dependency_help(block: &ScriptBlockFacts, export: &str) -> String {
-  if has_vueuse_import(block) {
-    format!("Prefer `{export}` from `@vueuse/core` for this pattern.")
+pub fn vueuse_help(
+  environment: &RuleEnvironment,
+  block: &ScriptBlockFacts,
+  export: &str,
+) -> String {
+  if already_uses_target(block, export) {
+    return format!("Prefer `{export}` from `@vueuse/core` for this pattern.");
+  }
+  if environment.has_package("@vueuse/core")
+    || block.imports.iter().any(|import| is_vueuse_source(&import.source))
+  {
+    format!("`@vueuse/core` is already available; prefer `{export}` for this pattern.")
   } else {
     format!(
       "Optional dependency: install `@vueuse/core` when you want `{export}`, then replace the hand-rolled pattern."
     )
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use vue_vet_core::{ReactivityGraph, RuleEnvironment, ScriptBlockFacts, ScriptKind};
+
+  use super::*;
+
+  fn empty_block() -> ScriptBlockFacts {
+    ScriptBlockFacts {
+      kind: ScriptKind::Setup,
+      language: "ts".into(),
+      imports: Vec::new(),
+      bindings: Vec::new(),
+      calls: Vec::new(),
+      member_writes: Vec::new(),
+      destructures: Vec::new(),
+      reactivity_graph: ReactivityGraph::default(),
+    }
+  }
+
+  #[test]
+  fn help_mentions_installed_vueuse_from_package_json() {
+    let environment =
+      RuleEnvironment { vue_version: None, packages: vec!["@vueuse/core".into()] };
+    let help = vueuse_help(&environment, &empty_block(), "useDebounceFn");
+    assert!(help.contains("already available"));
+  }
+
+  #[test]
+  fn help_mentions_optional_install_when_missing() {
+    let help = vueuse_help(&RuleEnvironment::default(), &empty_block(), "useDebounceFn");
+    assert!(help.contains("Optional dependency"));
   }
 }

@@ -1,5 +1,5 @@
 use std::{
-  collections::BTreeMap,
+  collections::{BTreeMap, BTreeSet},
   ffi::OsStr,
   fs,
   path::{Path, PathBuf},
@@ -330,7 +330,7 @@ fn analyze_candidate(
   match candidate {
     ScanCandidate::Vue { path, logical_path } => {
       let source = read_source(path, overlays)?;
-      let environment = RuleEnvironment { vue_version: vue_version_for(path, boundary) };
+      let environment = rule_environment_for(path, boundary);
       let analysis = analyze_sfc_facts_with_environment(path, &source).map_err(|error| {
         SessionError::message(format!("failed to analyze {}: {error}", path.display()))
       })?;
@@ -393,16 +393,37 @@ struct PendingVueFile {
   facts: SfcFacts,
 }
 
-fn vue_version_for(path: &Path, boundary: &Path) -> Option<VueVersion> {
-  let package = nearest_package_json(path, boundary)?;
-  let source = fs::read_to_string(package).ok()?;
-  let package: serde_json::Value = serde_json::from_str(&source).ok()?;
-  ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
+fn rule_environment_for(path: &Path, boundary: &Path) -> RuleEnvironment {
+  let Some(package_path) = nearest_package_json(path, boundary) else {
+    return RuleEnvironment::default();
+  };
+  let Ok(source) = fs::read_to_string(package_path) else {
+    return RuleEnvironment::default();
+  };
+  let Ok(package) = serde_json::from_str::<serde_json::Value>(&source) else {
+    return RuleEnvironment::default();
+  };
+  let packages = dependency_package_names(&package);
+  let vue_version = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
     .iter()
-    .filter_map(|section| package.get(section))
+    .filter_map(|section| package.get(*section))
     .filter_map(|section| section.get("vue"))
     .filter_map(serde_json::Value::as_str)
-    .find_map(VueVersion::parse_requirement)
+    .find_map(VueVersion::parse_requirement);
+  RuleEnvironment { vue_version, packages }
+}
+
+fn dependency_package_names(package: &serde_json::Value) -> Vec<String> {
+  let mut names = BTreeSet::new();
+  for section in ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"] {
+    let Some(map) = package.get(section).and_then(serde_json::Value::as_object) else {
+      continue;
+    };
+    for name in map.keys() {
+      names.insert(name.clone());
+    }
+  }
+  names.into_iter().collect()
 }
 
 fn nearest_package_json(path: &Path, boundary: &Path) -> Option<PathBuf> {

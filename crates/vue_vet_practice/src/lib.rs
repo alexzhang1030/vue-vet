@@ -26,26 +26,27 @@ pub fn practice_registry() -> RuleRegistry {
 
 #[cfg(test)]
 mod tests {
-  use vue_vet_core::{Confidence, PRACTICE_CATEGORY, Severity};
+  use vue_vet_core::{PRACTICE_CATEGORY, Severity};
 
   use super::*;
 
   #[test]
   fn practice_rules_have_stable_metadata() {
     let metadata = practice_registry().metadata();
-    assert_eq!(metadata.len(), 2, "the first practice slice ships two VueUse recipes");
+    assert_eq!(metadata.len(), 3, "practice ships VueUse recipes plus prefer-use-template-ref");
     assert!(
       metadata.windows(2).all(|pair| matches!(pair, [first, second] if first.id < second.id)),
       "practice metadata must be sorted by stable rule ID"
     );
     assert!(
       metadata.iter().all(|meta| {
-        meta.category == PRACTICE_CATEGORY
-          && meta.default_severity == Severity::Info
-          && meta.confidence == Confidence::Medium
-          && meta.id.starts_with("vue-vet/practice/")
+        meta.category == PRACTICE_CATEGORY && meta.default_severity == Severity::Info
       }),
       "practice rules must stay on the suggestion channel"
+    );
+    assert!(
+      metadata.iter().any(|meta| meta.id == "vue-vet/reactivity/prefer-use-template-ref"),
+      "prefer-use-template-ref keeps its stable historical id"
     );
   }
 }

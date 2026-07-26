@@ -48,12 +48,16 @@ Every built-in lint rule is a self-contained module under `vue_vet_rules/src/rul
 the module owns its metadata, rule type, and detection/reporting logic. The
 parent module only declares modules and assembles the built-in registry; it does
 not dispatch rule behavior through a shared enum or central match.
-Ecosystem practice suggestions live in `vue_vet_practice`: recipe metadata plus
-thin `Rule` implementations that consume the same Vue Vet facts (no parallel
-pattern engine). Practice findings use `category: "practice"`, attach an optional
-`recommendation` payload, and stay off the score / default CI exit path.
-The CLI derives per-file Vue capabilities from the nearest package.json and passes
-them into per-file rules without exposing package-manager state to parser adapters.
+Ecosystem and migration practice suggestions live in `vue_vet_practice`: recipe
+metadata plus thin `Rule` implementations that consume the same Vue Vet facts
+(no parallel pattern engine). Practice findings use `category: "practice"`,
+attach an optional `recommendation` payload, and stay off the score / default CI
+exit path. Some practice rules keep a historical rule id segment (for example
+`vue-vet/reactivity/prefer-use-template-ref`) for configuration stability.
+The CLI/session derives per-file Vue capabilities from the nearest package.json
+(`vue` version plus dependency package names) and passes them in
+`RuleEnvironment` without exposing package-manager state to parser adapters.
+Practice recipes may adjust help text when `@vueuse/core` is already declared.
 The Oxc adapter delegates reactivity construction to `vue_vet_reactivity`.
 That crate is the static reactivity tracing library: it records Vue-resolved
 bindings and **tracking scopes** (`watchEffect*`, `computed`, `watch` sources)
