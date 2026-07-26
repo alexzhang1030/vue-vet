@@ -30,8 +30,10 @@ use vue_vet_rules::builtin_registry;
 use vue_vet_vize::analyze_sfc_facts_with_environment;
 
 mod fixes;
+mod reactivity_tui;
 
 use fixes::{FixMode, FixOutcome, execute_safe_edits};
+use reactivity_tui::run_reactivity_tui;
 
 #[derive(Debug, Parser)]
 #[command(name = "vue-vet", version, about = "Vet your Vue codebase")]
@@ -57,6 +59,12 @@ struct Cli {
 
   #[arg(long, help = "Print a per-module reactivity tracer breakdown after the normal report")]
   print_reactivity: bool,
+
+  #[arg(
+    long,
+    help = "Browse per-module reactivity facts in an interactive TUI after the normal report"
+  )]
+  reactivity_tui: bool,
 
   #[command(flatten)]
   cache: CacheArgs,
@@ -105,7 +113,8 @@ struct FixArgs {
       "diff",
       "print_config",
       "print_graph",
-      "print_reactivity"
+      "print_reactivity",
+      "reactivity_tui"
     ],
     help = "Validate and preview explicitly safe edits without writing files"
   )]
@@ -120,7 +129,8 @@ struct FixArgs {
       "diff",
       "print_config",
       "print_graph",
-      "print_reactivity"
+      "print_reactivity",
+      "reactivity_tui"
     ],
     help = "Atomically apply explicitly safe edits and report a fresh rescan"
   )]
@@ -219,15 +229,26 @@ fn main() -> ExitCode {
           }
         };
       }
+      if cli.reactivity_tui && !matches!(cli.format, OutputFormat::Text) {
+        return operational_failure(&cli, "--reactivity-tui requires --format text");
+      }
       let report_context = report_context(&cli, &result);
       if let Err(error) = print_summary(&result.summary, cli.format, &report_context) {
         return operational_failure(&cli, &format!("failed to serialize report: {error}"));
       }
       if cli.print_reactivity
+        && !cli.reactivity_tui
         && matches!(cli.format, OutputFormat::Text)
         && let Some(digest) = &report_context.reactivity
       {
         print!("{}", render_reactivity_detail(digest));
+      }
+      if cli.reactivity_tui {
+        let module_stats = reactivity_module_stats(&result.graph.module_reactivity);
+        if let Err(error) = run_reactivity_tui(&module_stats, result.graph.reactivity_error.clone())
+        {
+          return operational_failure(&cli, &error);
+        }
       }
       if result.summary.fails(cli.deny_warnings) { ExitCode::from(1) } else { ExitCode::SUCCESS }
     }
@@ -601,7 +622,7 @@ fn report_context(cli: &Cli, result: &ScanResult) -> ReportContext {
   let module_stats = reactivity_module_stats(&result.graph.module_reactivity);
   let mut digest =
     ReactivityDigest::from_modules(&module_stats, result.graph.reactivity_error.clone());
-  if cli.print_reactivity {
+  if cli.print_reactivity || cli.reactivity_tui {
     digest = digest.with_modules_detail(&module_stats);
   }
   ReportContext {

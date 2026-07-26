@@ -618,6 +618,36 @@ fn print_reactivity_lists_module_detail() {
 }
 
 #[test]
+fn reactivity_tui_requires_an_interactive_terminal() {
+  let project = fixture("projects/module-seeds");
+  let output = run(&[project.to_string_lossy().as_ref(), "--reactivity-tui", "--no-cache"]);
+  let stderr = String::from_utf8_lossy(&output.stderr);
+  assert_eq!(output.status.code(), Some(2), "non-TTY TUI must be an operational failure");
+  assert!(
+    stderr.contains("interactive terminal"),
+    "non-TTY TUI should explain the requirement: {stderr}"
+  );
+}
+
+#[test]
+fn reactivity_tui_requires_text_format() {
+  let project = fixture("projects/module-seeds");
+  let output = run(&[
+    project.to_string_lossy().as_ref(),
+    "--reactivity-tui",
+    "--format",
+    "json",
+    "--no-cache",
+  ]);
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  assert_eq!(output.status.code(), Some(2), "json + TUI must be an operational failure");
+  assert!(
+    stdout.contains("--format text"),
+    "JSON operational errors must mention text format: {stdout}"
+  );
+}
+
+#[test]
 fn project_graph_reports_nuxt_edges_cycles_and_cross_file_findings() {
   let project = fixture("projects/nuxt-graph");
   let output = run(&[project.to_string_lossy().as_ref(), "--print-graph"]);
