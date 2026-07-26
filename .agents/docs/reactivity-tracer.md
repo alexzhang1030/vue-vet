@@ -17,9 +17,11 @@ Related: [architecture](./architecture.md), [gotchas](./gotchas.md),
 - Keep Vue Vet-owned serializable contracts independent of Oxc and Vize types.
 - Grow the graph so multiple consumers can share it: rules, project graph,
   cache, future LSP/codemod surfaces.
-- The CLI surfaces a **Reactivity** digest after the score line (and optional
-  `--print-reactivity` detail) so a clean score is distinguishable from a
-  no-op tracer. Machine consumers get the same totals via JSON `reactivity`.
+- The CLI surfaces a **Reactivity** digest after the score line (optional
+  `--print-reactivity` text detail, or `--reactivity-tui` interactive browser)
+  so a clean score is distinguishable from a no-op tracer. Machine consumers get
+  the same totals via JSON `reactivity`. The TUI ranks modules busiest-first,
+  hides empty modules by default, and requires an interactive TTY.
 
 ## What “complete” means
 
@@ -177,3 +179,4 @@ growing prose ledger.
 | 2026-07-25 | under-approx fixes: provide span + HOF arg index | provide(useX()) resolves def span; replace/from/parse callback only at arg 1 |
 | 2026-07-25 | crates.io library packaging | crate README + rustdoc; publish `vue_vet_core` then `vue_vet_reactivity` to reserve names; fixtures/oracle git-only |
 | 2026-07-26 | Bare Nuxt/auto-import Vue APIs | Unresolved allowlist names (`ref`, `watchEffect`, …) resolve without `import`; local lookalikes still quiet |
+| 2026-07-26 | `--reactivity-tui` | Interactive busiest-first browser for module facts; TTY-only; empty modules hidden until toggled |
