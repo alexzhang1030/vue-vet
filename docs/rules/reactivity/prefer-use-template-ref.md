@@ -1,7 +1,10 @@
 # Prefer useTemplateRef on Vue 3.5 and newer
 
-Default severity: **info**. The older `ref(null)` mirror remains correct; this is a Vue 3.5+
-migration preference, not a correctness warning.
+Default severity: **info**. Category: **practice** (excluded from score and default CI exit).
+The older `ref(null)` mirror remains correct; this is a Vue 3.5+ migration preference.
+
+The stable rule id remains `vue-vet/reactivity/prefer-use-template-ref` for configuration
+and suppression compatibility.
 
 Vue 3.5 provides `useTemplateRef()` to connect a script binding to a static template ref without
 manually mirroring the key with `ref(null)`.

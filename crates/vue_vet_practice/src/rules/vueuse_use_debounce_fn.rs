@@ -2,7 +2,7 @@ use vue_vet_core::{Confidence, PRACTICE_CATEGORY, Rule, RuleContext, RuleMeta, S
 
 use crate::{
   recipe::{EcosystemApi, PracticeRecipe},
-  util::{already_uses_target, is_test_path, optional_dependency_help, recommendation_from},
+  util::{already_uses_target, is_test_path, recommendation_from, vueuse_help},
 };
 
 const RECIPE: PracticeRecipe = PracticeRecipe {
@@ -37,6 +37,7 @@ impl Rule for VueuseUseDebounceFn {
     if is_test_path(context.file()) {
       return;
     }
+    let environment = context.environment().clone();
     let findings = context
       .script()
       .blocks
@@ -53,7 +54,7 @@ impl Rule for VueuseUseDebounceFn {
             && call.argument_identifiers.iter().any(|name| name == timer)
         });
         linked_clear.then(|| {
-          (set_timeout.span.clone(), optional_dependency_help(block, RECIPE.recommend.export))
+          (set_timeout.span.clone(), vueuse_help(&environment, block, RECIPE.recommend.export))
         })
       })
       .collect::<Vec<_>>();

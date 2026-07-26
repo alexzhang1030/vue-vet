@@ -2,7 +2,7 @@ use vue_vet_core::{Confidence, PRACTICE_CATEGORY, Rule, RuleContext, RuleMeta, S
 
 use crate::{
   recipe::{EcosystemApi, PracticeRecipe},
-  util::{already_uses_target, is_test_path, optional_dependency_help, recommendation_from},
+  util::{already_uses_target, is_test_path, recommendation_from, vueuse_help},
 };
 
 const RECIPE: PracticeRecipe = PracticeRecipe {
@@ -40,20 +40,20 @@ impl Rule for VueuseUseEventListener {
     if is_test_path(context.file()) {
       return;
     }
-    let findings =
-      context
-        .script()
-        .blocks
-        .iter()
-        .filter(|block| !already_uses_target(block, RECIPE.recommend.export))
-        .filter(|block| block.calls.iter().any(|call| is_lifecycle_hook(&call.callee)))
-        .filter(|block| !block.calls.iter().any(|call| is_remove_listener(&call.callee)))
-        .filter_map(|block| {
-          block.calls.iter().find(|call| is_add_listener(&call.callee)).map(|call| {
-            (call.span.clone(), optional_dependency_help(block, RECIPE.recommend.export))
-          })
+    let environment = context.environment().clone();
+    let findings = context
+      .script()
+      .blocks
+      .iter()
+      .filter(|block| !already_uses_target(block, RECIPE.recommend.export))
+      .filter(|block| block.calls.iter().any(|call| is_lifecycle_hook(&call.callee)))
+      .filter(|block| !block.calls.iter().any(|call| is_remove_listener(&call.callee)))
+      .filter_map(|block| {
+        block.calls.iter().find(|call| is_add_listener(&call.callee)).map(|call| {
+          (call.span.clone(), vueuse_help(&environment, block, RECIPE.recommend.export))
         })
-        .collect::<Vec<_>>();
+      })
+      .collect::<Vec<_>>();
     for (span, help) in findings {
       context.report_with_recommendation(
         self.meta(),

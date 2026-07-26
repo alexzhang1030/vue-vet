@@ -4,10 +4,11 @@
 
 - Built-in IDs use `vue-vet/<category>/<name>` and are treated as user-facing stable identifiers.
 - Every rule declares category, default severity, confidence, and a documentation key.
-- Prefer Info (not Warning) when the diagnosed pattern remains correct and the rule only
-  recommends a newer Vue API — for example `prefer-use-template-ref`. Reserve Warning for
-  real risk, unused waste, or likely bugs. Severity weights still feed the density score
-  (Info 1 / Warning 3 / Error 10) and finding-ID digests; absolute count alone does not.
+- Prefer the practice channel (`category: practice`) when the pattern remains correct and
+  the finding only recommends a newer/ecosystem API — for example `prefer-use-template-ref`
+  and VueUse recipes. Reserve Warning for real risk, unused waste, or likely bugs. Lint
+  severity weights still feed the density score (Info 1 / Warning 3 / Error 10); practice
+  findings do not.
 - Every built-in lint rule keeps its metadata and `Rule` implementation in one
   dedicated file under `vue_vet_rules/src/rules`; the registry module only
   assembles rules and must not become a behavior dispatcher. Practice

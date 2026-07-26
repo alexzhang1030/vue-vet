@@ -925,9 +925,22 @@ impl VueVersion {
   }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+/// Per-file analysis capabilities derived from the nearest `package.json`.
+///
+/// Stable Vue Vet-owned surface: rules see version/package names only, never
+/// package-manager state or raw manifests.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RuleEnvironment {
   pub vue_version: Option<VueVersion>,
+  /// Sorted unique dependency names from nearest package.json dependency fields.
+  pub packages: Vec<String>,
+}
+
+impl RuleEnvironment {
+  #[must_use]
+  pub fn has_package(&self, name: &str) -> bool {
+    self.packages.iter().any(|package| package == name)
+  }
 }
 
 /// Interest set for the single facts pass (oxlint `NODE_TYPES` analogue).
@@ -1042,8 +1055,8 @@ impl<'a> RuleContext<'a> {
   }
 
   #[must_use]
-  pub const fn environment(&self) -> RuleEnvironment {
-    self.environment
+  pub const fn environment(&self) -> &RuleEnvironment {
+    &self.environment
   }
 
   pub fn report(

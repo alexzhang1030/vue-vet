@@ -1,12 +1,14 @@
 use std::collections::BTreeSet;
 
 use vue_vet_core::{
-  Confidence, ReactiveBindingKind, Rule, RuleContext, RuleMeta, ScriptKind, Severity,
+  Confidence, PRACTICE_CATEGORY, ReactiveBindingKind, Recommendation, Rule, RuleContext, RuleMeta,
+  ScriptKind, Severity,
 };
 
+/// Historical ID keeps the `reactivity` segment for config/suppression stability.
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/prefer-use-template-ref",
-  category: "reactivity",
+  category: PRACTICE_CATEGORY,
   default_severity: Severity::Info,
   confidence: Confidence::High,
   documentation: "rules/reactivity/prefer-use-template-ref",
@@ -22,7 +24,6 @@ impl Rule for PreferUseTemplateRef {
   }
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
-    // Needs template refs + script bindings together.
     let Some(version) = context.environment().vue_version else {
       return;
     };
@@ -53,11 +54,18 @@ impl Rule for PreferUseTemplateRef {
       .map(|binding| (binding.span.clone(), binding.name.clone()))
       .collect();
     for (span, name) in findings {
-      context.report(
+      context.report_with_recommendation(
         self.meta(),
         span,
         format!("`{name}` mirrors a static template ref with `ref(null)`"),
-        Some(format!("Use `useTemplateRef('{name}')`, available in Vue 3.5 and newer.")),
+        Some(format!("Prefer `useTemplateRef('{name}')`, available in Vue 3.5 and newer.")),
+        Recommendation {
+          kind: "ecosystem_api".into(),
+          package: "vue".into(),
+          export: "useTemplateRef".into(),
+          docs_url: "https://vuejs.org/api/composition-api-helpers.html#usetemplateref".into(),
+          import_example: "import { useTemplateRef } from 'vue'".into(),
+        },
       );
     }
   }

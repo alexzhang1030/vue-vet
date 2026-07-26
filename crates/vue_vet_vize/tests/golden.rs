@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use vue_vet_core::{Diagnostic, RuleEnvironment, Severity, VueVersion};
+use vue_vet_core::{Diagnostic, PRACTICE_CATEGORY, RuleEnvironment, Severity, VueVersion};
 use vue_vet_vize::{AnalyzeError, analyze_sfc, analyze_sfc_with_environment};
 
 fn normalize_path(path: &Path) -> String {
@@ -47,7 +47,10 @@ fn analyze_versioned(path: &str, source: &str, minor: u64) -> Vec<Diagnostic> {
   match analyze_sfc_with_environment(
     Path::new(path),
     source,
-    RuleEnvironment { vue_version: Some(VueVersion { major: 3, minor, patch: 0 }) },
+    RuleEnvironment {
+      vue_version: Some(VueVersion { major: 3, minor, patch: 0 }),
+      packages: Vec::new(),
+    },
   ) {
     Ok(analysis) => analysis.diagnostics,
     Err(error) => panic!("versioned rule fixture unexpectedly failed: {error}"),
@@ -98,8 +101,18 @@ fn recommended_rule_pack_covers_all_rules_with_valid_spans() {
       .iter()
       .flat_map(|(_, diagnostics)| diagnostics)
       .filter(|diagnostic| diagnostic.rule_id == "vue-vet/reactivity/prefer-use-template-ref")
-      .all(|diagnostic| diagnostic.severity == Severity::Info),
-    "prefer-use-template-ref is a migration preference, not a warning"
+      .all(|diagnostic| {
+        diagnostic.severity == Severity::Info && diagnostic.category == PRACTICE_CATEGORY
+      }),
+    "prefer-use-template-ref is a practice suggestion with recommendation payload"
+  );
+  assert!(
+    groups
+      .iter()
+      .flat_map(|(_, diagnostics)| diagnostics)
+      .filter(|diagnostic| diagnostic.rule_id == "vue-vet/reactivity/prefer-use-template-ref")
+      .all(|diagnostic| diagnostic.recommendation.is_some()),
+    "prefer-use-template-ref must attach a useTemplateRef recommendation"
   );
   for (source, diagnostics) in groups {
     for diagnostic in diagnostics {
