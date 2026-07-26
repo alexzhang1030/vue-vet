@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "ok": true,
+  "reactivity": {
+    "modules": 1,
+    "bindings": 1,
+    "scopes": 0,
+    "edges": 1,
+    "template_reads": 1,
+    "hotspots": [],
+    "modules_detail": [
+      {
+        "id": "App.vue",
+        "bindings": ["error:ref"],
+        "scopes": [],
+        "edges": ["template:if@40 -> error"],
+        "template_reads": ["error@if"],
+        "binding_details": [
+          {
+            "name": "error",
+            "kind": "ref",
+            "span": { "offset": 10, "length": 5 },
+            "label": "error  (ref)"
+          }
+        ],
+        "edge_details": [
+          {
+            "from": "template:if@40",
+            "to": "error",
+            "to_id": "error@10",
+            "kind": "template",
+            "span": { "offset": 40, "length": 5 },
+            "to_span": { "offset": 10, "length": 5 },
+            "label": "v-if  →  error"
+          }
+        ],
+        "template_details": [
+          {
+            "binding": "error",
+            "surface": "if",
+            "span": { "offset": 40, "length": 5 },
+            "label": "v-if  reads  error"
+          }
+        ]
+      }
+    ]
+  }
+}

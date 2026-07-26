@@ -1,0 +1,129 @@
+{
+  "name": "vue-vet",
+  "displayName": "Vue Vet Reactivity",
+  "description": "Thin VS Code host that visualizes Vue Vet static reactivity traces in the editor.",
+  "version": "0.1.10",
+  "publisher": "vue-vet",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "keywords": [
+    "vue",
+    "nuxt",
+    "reactivity",
+    "vue-vet"
+  ],
+  "activationEvents": [
+    "onView:vueVet.reactivity",
+    "onCommand:vue-vet.showReactivity",
+    "onCommand:vue-vet.refreshReactivity",
+    "onLanguage:vue",
+    "onLanguage:typescript",
+    "onLanguage:javascript"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "vue-vet.showReactivity",
+        "title": "Vue Vet: Show Reactivity",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "vue-vet.refreshReactivity",
+        "title": "Vue Vet: Refresh Reactivity",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "vue-vet.clearReactivity",
+        "title": "Vue Vet: Clear Reactivity Highlights"
+      }
+    ],
+    "configuration": {
+      "title": "Vue Vet",
+      "properties": {
+        "vue-vet.path": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the vue-vet binary. Empty uses PATH, then npx @vue-vet/cli."
+        },
+        "vue-vet.refreshOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Re-run reactivity tracing when a workspace Vue/JS/TS file is saved."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "vue-vet",
+          "title": "Vue Vet",
+          "icon": "media/vue-vet.svg"
+        }
+      ]
+    },
+    "views": {
+      "vue-vet": [
+        {
+          "id": "vueVet.reactivity",
+          "name": "Reactivity"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "vue-vet.showReactivity",
+          "when": "view == vueVet.reactivity",
+          "group": "navigation"
+        },
+        {
+          "command": "vue-vet.refreshReactivity",
+          "when": "view == vueVet.reactivity",
+          "group": "navigation"
+        }
+      ]
+    },
+    "colors": [
+      {
+        "id": "vueVet.bindingHighlight",
+        "description": "Background for reactive binding spans",
+        "defaults": {
+          "dark": "#e2b71433",
+          "light": "#c9a22733",
+          "highContrast": "#e2b71466"
+        }
+      },
+      {
+        "id": "vueVet.edgeHighlight",
+        "description": "Background for reactivity edge / reader spans",
+        "defaults": {
+          "dark": "#3b82f633",
+          "light": "#2563eb33",
+          "highContrast": "#3b82f666"
+        }
+      },
+      {
+        "id": "vueVet.selectionHighlight",
+        "description": "Background for the currently selected edge endpoints",
+        "defaults": {
+          "dark": "#22c55e55",
+          "light": "#16a34a44",
+          "highContrast": "#22c55e88"
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0"
+  }
+}

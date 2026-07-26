@@ -4,8 +4,66 @@ use std::cmp::Reverse;
 
 use serde::Serialize;
 
+use crate::humanize::{
+  humanize_binding_parts, humanize_edge_parts, humanize_scope, humanize_template_read_parts,
+  parse_name_offset,
+};
+
 const HOTSPOT_LIMIT: usize = 5;
 const DETAIL_LINE_LIMIT: usize = 12;
+
+/// Byte range inside a module source (editor consumers map via `positionAt`).
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct ReactivitySpanRef {
+  pub offset: usize,
+  pub length: usize,
+}
+
+impl ReactivitySpanRef {
+  #[must_use]
+  pub const fn new(offset: usize, length: usize) -> Self {
+    Self { offset, length }
+  }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ReactivityBindingDetail {
+  pub name: String,
+  pub kind: String,
+  pub span: ReactivitySpanRef,
+  pub label: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ReactivityScopeDetail {
+  pub kind: String,
+  pub callee: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub binding: Option<String>,
+  pub span: ReactivitySpanRef,
+  pub label: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ReactivityEdgeDetail {
+  pub from: String,
+  pub to: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub to_id: Option<String>,
+  pub kind: String,
+  pub span: ReactivitySpanRef,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub to_span: Option<ReactivitySpanRef>,
+  pub label: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ReactivityTemplateReadDetail {
+  pub binding: String,
+  pub surface: String,
+  pub span: ReactivitySpanRef,
+  pub label: String,
+}
 
 /// Aggregate tracer facts for the default text/JSON report footer.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
@@ -39,6 +97,14 @@ pub struct ReactivityModuleDetail {
   pub scopes: Vec<String>,
   pub edges: Vec<String>,
   pub template_reads: Vec<String>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub binding_details: Vec<ReactivityBindingDetail>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub scope_details: Vec<ReactivityScopeDetail>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub edge_details: Vec<ReactivityEdgeDetail>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub template_details: Vec<ReactivityTemplateReadDetail>,
 }
 
 /// Per-module counts and optional detail labels supplied by the CLI.
@@ -53,6 +119,31 @@ pub struct ReactivityModuleStats {
   pub scope_labels: Vec<String>,
   pub edge_labels: Vec<String>,
   pub template_labels: Vec<String>,
+  pub binding_details: Vec<ReactivityBindingDetail>,
+  pub scope_details: Vec<ReactivityScopeDetail>,
+  pub edge_details: Vec<ReactivityEdgeDetail>,
+  pub template_details: Vec<ReactivityTemplateReadDetail>,
+}
+
+impl ReactivityModuleStats {
+  #[must_use]
+  pub fn empty(id: impl Into<String>) -> Self {
+    Self {
+      id: id.into(),
+      bindings: 0,
+      scopes: 0,
+      edges: 0,
+      template_reads: 0,
+      binding_labels: Vec::new(),
+      scope_labels: Vec::new(),
+      edge_labels: Vec::new(),
+      template_labels: Vec::new(),
+      binding_details: Vec::new(),
+      scope_details: Vec::new(),
+      edge_details: Vec::new(),
+      template_details: Vec::new(),
+    }
+  }
 }
 
 impl ReactivityDigest {
@@ -110,12 +201,83 @@ impl ReactivityDigest {
         scopes: module.scope_labels.clone(),
         edges: module.edge_labels.clone(),
         template_reads: module.template_labels.clone(),
+        binding_details: module.binding_details.clone(),
+        scope_details: module.scope_details.clone(),
+        edge_details: module.edge_details.clone(),
+        template_details: module.template_details.clone(),
       })
       .collect::<Vec<_>>();
     details.sort_by(|left, right| left.id.cmp(&right.id));
     self.modules_detail = details;
     self
   }
+}
+
+/// Build a humanized edge detail from graph facts (shared by CLI fill path / tests).
+#[must_use]
+pub fn edge_detail(
+  from: impl Into<String>,
+  to: impl Into<String>,
+  to_id: Option<String>,
+  kind: impl Into<String>,
+  span: ReactivitySpanRef,
+  to_span: Option<ReactivitySpanRef>,
+) -> ReactivityEdgeDetail {
+  let from = from.into();
+  let to = to.into();
+  let label = humanize_edge_parts(&from, &to);
+  ReactivityEdgeDetail { from, to, to_id, kind: kind.into(), span, to_span, label }
+}
+
+#[must_use]
+pub fn binding_detail(
+  name: impl Into<String>,
+  kind: impl Into<String>,
+  span: ReactivitySpanRef,
+) -> ReactivityBindingDetail {
+  let name = name.into();
+  let kind = kind.into();
+  let label = humanize_binding_parts(&name, &kind);
+  ReactivityBindingDetail { name, kind, span, label }
+}
+
+#[must_use]
+pub fn scope_detail(
+  kind: impl Into<String>,
+  callee: impl Into<String>,
+  binding: Option<String>,
+  span: ReactivitySpanRef,
+) -> ReactivityScopeDetail {
+  let kind = kind.into();
+  let callee = callee.into();
+  let machine =
+    binding.as_ref().map_or_else(|| format!("{kind}({callee})"), |name| format!("{kind}({name})"));
+  let label = humanize_scope(&machine);
+  ReactivityScopeDetail { kind, callee, binding, span, label }
+}
+
+#[must_use]
+pub fn template_read_detail(
+  binding: impl Into<String>,
+  surface: impl Into<String>,
+  span: ReactivitySpanRef,
+) -> ReactivityTemplateReadDetail {
+  let binding = binding.into();
+  let surface = surface.into();
+  let label = humanize_template_read_parts(&binding, &surface);
+  ReactivityTemplateReadDetail { binding, surface, span, label }
+}
+
+/// Resolve `to_span` from a span-qualified `to_id` and optional binding length lookup.
+#[must_use]
+pub fn to_span_from_identity(
+  to_id: Option<&str>,
+  binding_length: impl FnOnce(&str) -> Option<usize>,
+) -> Option<ReactivitySpanRef> {
+  let identity = to_id?;
+  let (name, offset) = parse_name_offset(identity)?;
+  let length = binding_length(name).unwrap_or_else(|| name.len().max(1));
+  Some(ReactivitySpanRef::new(offset, length))
 }
 
 #[must_use]
@@ -217,17 +379,12 @@ mod tests {
     edges: usize,
     reads: usize,
   ) -> ReactivityModuleStats {
-    ReactivityModuleStats {
-      id: id.into(),
-      bindings,
-      scopes,
-      edges,
-      template_reads: reads,
-      binding_labels: Vec::new(),
-      scope_labels: Vec::new(),
-      edge_labels: Vec::new(),
-      template_labels: Vec::new(),
-    }
+    let mut stats = ReactivityModuleStats::empty(id);
+    stats.bindings = bindings;
+    stats.scopes = scopes;
+    stats.edges = edges;
+    stats.template_reads = reads;
+    stats
   }
 
   #[test]
@@ -261,5 +418,42 @@ mod tests {
     let digest = ReactivityDigest::from_modules(&[], Some("boom".into()));
     let rendered = render_reactivity_footer(&digest);
     assert!(rendered.contains("unavailable: boom"));
+  }
+
+  #[test]
+  #[expect(clippy::expect_used, reason = "unit test asserts serialize succeeds")]
+  fn modules_detail_carries_structured_spans() {
+    let mut stats = ReactivityModuleStats::empty("App.vue");
+    stats.bindings = 1;
+    stats.edges = 1;
+    stats.binding_labels = vec!["error:ref".into()];
+    stats.edge_labels = vec!["template:if@10 -> error".into()];
+    stats.binding_details = vec![binding_detail("error", "ref", ReactivitySpanRef::new(4, 5))];
+    stats.edge_details = vec![edge_detail(
+      "template:if@10",
+      "error",
+      Some("error@4".into()),
+      "template",
+      ReactivitySpanRef::new(10, 2),
+      Some(ReactivitySpanRef::new(4, 5)),
+    )];
+    let modules = [stats];
+    let digest = ReactivityDigest::from_modules(&modules, None).with_modules_detail(&modules);
+    let detail = digest.modules_detail.first();
+    assert_eq!(
+      detail.and_then(|module| module.edge_details.first()).map(|edge| edge.label.as_str()),
+      Some("v-if  →  error")
+    );
+    assert_eq!(
+      detail.and_then(|module| module.edge_details.first()).map(|edge| edge.span.offset),
+      Some(10)
+    );
+    assert_eq!(
+      detail.and_then(|module| module.binding_details.first()).map(|binding| binding.span.offset),
+      Some(4)
+    );
+    let json = serde_json::to_string(&digest).expect("digest must serialize");
+    assert!(json.contains("\"edge_details\""));
+    assert!(json.contains("\"binding_details\""));
   }
 }
