@@ -32,6 +32,8 @@ Vue Vet does **not** execute `vite.config.*` / `nuxt.config.*`. Alias and path
 mapping enter through tsconfig and the Vite defaults above. Resolver-affecting
 inputs (root lockfiles, `package.json`, `tsconfig*.json`, `.nuxt/tsconfig.json`)
 are part of the graph invalidation set and the content-addressed cache key.
+Project roots are absolutized and, on Windows, normalized out of `\\?\` verbatim
+form so alias joins and resolve results share one path representation.
 
 ## Nuxt conventions
 

@@ -92,12 +92,15 @@ vertical slice exercises them; there is no separate pattern-engine boundary in
 the roadmap.
 
 `vue_vet_session` owns the long-lived project analysis handle: config load,
-cached/fresh scans, rule and finding explain, and workspace path containment.
-The CLI and `vue_vet_lsp` consume it so diagnostic identity stays shared across
-surfaces. The thin LSP (`vue-vet --lsp`) publishes on-disk diagnostics on
-`textDocument/didOpen` and `didSave` with the opaque finding id in LSP `data`.
-Document overlays, cancellation, code actions, and MCP remain later issue #12
-work.
+cached/fresh scans, unsaved buffer overlays (`analyze_with_overlays`), rule and
+finding explain, and workspace path containment. Overlay analysis always bypasses
+the content-addressed cache. The CLI and `vue_vet_lsp` consume the session so
+diagnostic identity stays shared across surfaces. The thin LSP (`vue-vet --lsp`)
+publishes diagnostics on `didOpen` / `didChange` / `didSave` from open-buffer
+overlays (FULL sync) with the opaque finding id in LSP `data` and the document
+version on `publishDiagnostics`. Overlapping overlay analyses are dropped via
+per-document generation tokens. Safe code actions, request-level cancellation,
+and MCP remain later issue #12 work.
 
 ### Published library crates
 
@@ -166,10 +169,10 @@ spawns the Rust CLI (`--format json --print-reactivity`), maps structured
 a parallel tracer.
 
 `vue-vet --lsp` is the first diagnostics LSP surface (`vue_vet_lsp`). It uses
-`vue_vet_session` for on-disk analysis and publishes `textDocument/publishDiagnostics`
-with the same opaque finding ids as JSON `diagnostics[].id` (stored in LSP
-`data`). Unsaved overlays, cancellation, and safe code actions remain later
-issue #12 work.
+`vue_vet_session` with open-buffer overlays and publishes
+`textDocument/publishDiagnostics` with the same opaque finding ids as JSON
+`diagnostics[].id` (stored in LSP `data`) plus the document version. Request-level
+cancellation and safe code actions remain later issue #12 work.
 
 ## Project intelligence
 

@@ -1,13 +1,17 @@
-//! Long-lived project analysis session for CLI, future LSP, and agent surfaces.
+//! Long-lived project analysis session for CLI, LSP, and agent surfaces.
 //!
-//! Owns configuration loading, cached/fresh scans, rule and finding explain, and
-//! workspace path containment. Protocol adapters (clap, LSP, MCP) stay outside.
+//! Owns configuration loading, cached/fresh scans, unsaved buffer overlays, rule
+//! and finding explain, and workspace path containment. Protocol adapters
+//! (clap, LSP, MCP) stay outside.
 
 mod explain;
 mod path;
 mod scan;
 
-use std::path::{Path, PathBuf};
+use std::{
+  collections::BTreeMap,
+  path::{Path, PathBuf},
+};
 
 use thiserror::Error;
 use vue_vet_cache::default_cache_dir;
@@ -152,6 +156,25 @@ impl ProjectSession {
   /// Returns analysis or I/O failures.
   pub fn analyze_fresh(&self) -> Result<AnalysisSnapshot, SessionError> {
     scan::analyze(&self.root, &self.config, &self.cache_dir, true, self.threads)
+  }
+
+  /// Scan with unsaved buffer overlays (LSP `didChange` text).
+  ///
+  /// Overlay keys should be absolute paths matching the project walk. Analysis
+  /// always bypasses the content-addressed cache. An empty map is equivalent to
+  /// [`Self::analyze_fresh`].
+  ///
+  /// # Errors
+  ///
+  /// Returns analysis or I/O failures.
+  pub fn analyze_with_overlays(
+    &self,
+    overlays: &BTreeMap<PathBuf, String>,
+  ) -> Result<AnalysisSnapshot, SessionError> {
+    if overlays.is_empty() {
+      return self.analyze_fresh();
+    }
+    scan::analyze_with_overlays(&self.root, &self.config, self.threads, overlays)
   }
 
   /// Explain a rule id or opaque finding id.

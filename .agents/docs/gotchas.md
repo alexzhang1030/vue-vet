@@ -79,7 +79,10 @@ Never silently reinterpret an unresolved edge as an external package.
 `oxc_resolver` is pinned to `11.21.0` because `11.22+` requires `dashmap 6.2.1`
 while Vize pins `dashmap =6.1.0`. Always absolutize/canonicalize the scan root
 before building the resolver: `vue-vet .` must not leave alias targets as `"."`,
-or Nuxt `~/…` imports fail even when the files exist.
+or Nuxt `~/…` imports fail even when the files exist. On Windows, also strip
+compatible `\\?\` verbatim prefixes after canonicalize — otherwise alias targets
+and `Path::strip_prefix` disagree with `oxc_resolver`'s ordinary `C:\…` paths and
+`@/` / `~/` imports look unresolved in CI.
 
 Nuxt component auto-imports do not use the raw file stem. `HeroDemo.client.vue`
 is registered as `HeroDemo` (and `LazyHeroDemo`); nesting and `index.vue` also

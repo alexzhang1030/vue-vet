@@ -829,7 +829,8 @@ fn project_graph_reports_nuxt_edges_cycles_and_cross_file_findings() {
         .iter()
         .all(|kind| edges.iter().any(|edge| edge.get("kind").and_then(Value::as_str) == Some(kind)))
     }),
-    "Nuxt and explicit project relationships must be serialized"
+    "Nuxt and explicit project relationships must be serialized: {}",
+    String::from_utf8_lossy(&output.stdout)
   );
   let diagnostics = graph.and_then(|value| value.get("diagnostics")).and_then(Value::as_array);
   assert!(
@@ -970,8 +971,9 @@ fn relative_dot_scan_resolves_nuxt_tilde_imports() {
   };
   assert!(
     output.status.success(),
-    "relative `.` scan roots must resolve Nuxt ~/ imports: {}",
-    String::from_utf8_lossy(&output.stderr)
+    "relative `.` scan roots must resolve Nuxt ~/ imports: stderr={} stdout={}",
+    String::from_utf8_lossy(&output.stderr),
+    String::from_utf8_lossy(&output.stdout)
   );
   let report: Result<Value, _> = serde_json::from_slice(&output.stdout);
   let unresolved = report

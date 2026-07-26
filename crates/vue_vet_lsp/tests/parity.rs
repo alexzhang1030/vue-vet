@@ -1,6 +1,6 @@
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 
-use vue_vet_lsp::to_lsp_diagnostic;
+use vue_vet_lsp::{is_current_generation, to_lsp_diagnostic};
 use vue_vet_reporters::report_diagnostic_id;
 use vue_vet_session::{ProjectSession, SessionOptions};
 
@@ -34,4 +34,33 @@ fn lsp_diagnostics_carry_cli_finding_ids() {
     assert_eq!(lsp.data, Some(serde_json::Value::String(expected)));
     assert_eq!(lsp.source.as_deref(), Some("vue-vet"));
   }
+}
+
+#[test]
+#[expect(clippy::panic, reason = "parity setup failures must fail the integration test")]
+fn overlay_snapshot_finding_ids_match_cli_identity() {
+  let root = fixture("rules/no-v-html/invalid/basic.vue");
+  let Ok(session) = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+  }) else {
+    panic!("session must open");
+  };
+  let dirty = "<template>\n  <div v-html=\"x\"></div>\n</template>\n";
+  let mut overlays = BTreeMap::new();
+  overlays.insert(root, dirty.into());
+  let Ok(snapshot) = session.analyze_with_overlays(&overlays) else {
+    panic!("overlay analyze must succeed");
+  };
+  assert!(!snapshot.summary.diagnostics.is_empty(), "overlay must emit findings");
+  for diagnostic in &snapshot.summary.diagnostics {
+    let expected = report_diagnostic_id(diagnostic, &snapshot.analyzed_files);
+    let lsp = to_lsp_diagnostic(diagnostic, &snapshot.analyzed_files, Some(dirty));
+    assert_eq!(lsp.data, Some(serde_json::Value::String(expected)));
+  }
+  assert!(is_current_generation(Some(1), 1));
+  assert!(!is_current_generation(Some(2), 1));
 }

@@ -5,7 +5,7 @@ use std::{
   path::{Component, Path},
 };
 
-use crate::resolve::normalized_path;
+use crate::resolve::{normalize_project_root, normalized_path};
 
 /// Strip Nuxt mode / visibility suffixes from a component file stem.
 ///
@@ -85,8 +85,8 @@ pub fn parse_nuxt_components_dts(
   known: &BTreeSet<String>,
 ) -> BTreeMap<String, String> {
   let mut names = BTreeMap::new();
-  let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-  let dts_dir = dts_path.parent().unwrap_or(&root);
+  let root = normalize_project_root(root);
+  let dts_dir = dts_path.parent().map_or_else(|| root.clone(), Path::to_path_buf);
   for (name, import_path) in extract_typeof_imports(source) {
     if name.starts_with("Lazy") && name.chars().nth(4).is_some_and(|ch| ch.is_ascii_uppercase()) {
       continue;
@@ -96,7 +96,7 @@ pub fn parse_nuxt_components_dts(
     } else {
       dts_dir.join(&import_path)
     };
-    let absolute = absolute.canonicalize().unwrap_or(absolute);
+    let absolute = normalize_project_root(&absolute);
     let Some(relative) = absolute.strip_prefix(&root).ok().map(normalized_path) else {
       continue;
     };

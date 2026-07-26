@@ -1,13 +1,14 @@
 //! Thin LSP adapter over [`vue_vet_session`].
 //!
-//! Publishes on-disk diagnostics with the same opaque finding ids as CLI JSON.
-//! Document overlays, code actions, and cancellation are deferred.
+//! Publishes diagnostics for on-disk files and unsaved buffer overlays with the
+//! same opaque finding ids as CLI JSON. Safe code actions and request-level
+//! cancellation remain later issue #12 work.
 
 mod convert;
 mod server;
 
 pub use convert::{span_to_range, to_lsp_diagnostic};
-pub use server::Backend;
+pub use server::{Backend, is_current_generation};
 
 use tower_lsp::{LspService, Server};
 
