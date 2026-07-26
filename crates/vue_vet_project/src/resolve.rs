@@ -26,7 +26,8 @@ pub struct ProjectResolver {
 impl ProjectResolver {
   pub fn new(root: &Path) -> Self {
     // Relative roots like `.` break alias targets (`~` → ".") and tsconfig paths.
-    let root = absolutize_root(root);
+    // On Windows, also strip `\\?\` so aliases match oxc_resolver's non-verbatim paths.
+    let root = normalize_project_root(root);
     let options = bundler_resolve_options(&root);
     Self { root, resolver: Resolver::new(options) }
   }
@@ -103,23 +104,57 @@ fn classify_resolved(
   }
 }
 
-fn absolutize_root(root: &Path) -> PathBuf {
+/// Absolutize + canonicalize a project root for resolver aliases and path joins.
+///
+/// Windows `fs::canonicalize` yields `\\?\C:\…` verbatim paths. `oxc_resolver`
+/// and many walk results use ordinary `C:\…` forms; `Path::strip_prefix` then
+/// fails and Nuxt `~/…` / `@/…` imports become unresolved. Strip compatible
+/// verbatim prefixes after canonicalize so both sides share one representation.
+#[must_use]
+pub fn normalize_project_root(root: &Path) -> PathBuf {
   let absolute = if root.is_absolute() {
     root.to_path_buf()
   } else {
     std::env::current_dir().map_or_else(|_| root.to_path_buf(), |cwd| cwd.join(root))
   };
-  absolute.canonicalize().unwrap_or(absolute)
+  let canonical = absolute.canonicalize().unwrap_or(absolute);
+  strip_verbatim_prefix(canonical)
 }
 
 fn absolute_under_root(root: &Path, logical: &str) -> PathBuf {
   let path = Path::new(logical);
-  if path.is_absolute() { path.to_path_buf() } else { root.join(path) }
+  if path.is_absolute() { strip_verbatim_prefix(path.to_path_buf()) } else { root.join(path) }
 }
 
 fn relativize(root: &Path, absolute: &Path) -> Option<String> {
-  let absolute = absolute.canonicalize().unwrap_or_else(|_| absolute.to_path_buf());
+  let root = strip_verbatim_prefix(root.canonicalize().unwrap_or_else(|_| root.to_path_buf()));
+  let absolute =
+    strip_verbatim_prefix(absolute.canonicalize().unwrap_or_else(|_| absolute.to_path_buf()));
   absolute.strip_prefix(root).ok().map(normalized_path)
+}
+
+#[cfg_attr(
+  not(windows),
+  expect(clippy::missing_const_for_fn, reason = "Windows branch is not const")
+)]
+fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
+  #[cfg(windows)]
+  {
+    // `\\?\C:\foo` → `C:\foo`. Leave `\\?\UNC\…` alone — those need the prefix.
+    const VERBATIM: &str = r"\\?\";
+    let lossy = path.to_string_lossy();
+    if let Some(rest) = lossy.strip_prefix(VERBATIM) {
+      let bytes = rest.as_bytes();
+      if bytes.len() >= 2 && bytes[1] == b':' {
+        return PathBuf::from(rest);
+      }
+    }
+    path
+  }
+  #[cfg(not(windows))]
+  {
+    path
+  }
 }
 
 fn path_string(path: &Path) -> String {
@@ -181,4 +216,63 @@ pub fn resolver_config_inputs(root: &Path) -> Vec<String> {
     inputs.extend(extras);
   }
   inputs
+}
+
+#[cfg(test)]
+mod tests {
+  use super::normalize_project_root;
+  use std::path::Path;
+
+  #[test]
+  fn normalize_project_root_absolutizes_dot() {
+    let root = normalize_project_root(Path::new("."));
+    assert!(root.is_absolute(), "dot roots must become absolute: {}", root.display());
+    #[cfg(windows)]
+    {
+      let display = root.to_string_lossy();
+      assert!(
+        !display.starts_with(r"\\?\"),
+        "Windows roots must not keep verbatim prefixes for aliases: {display}"
+      );
+    }
+  }
+
+  #[cfg(windows)]
+  mod windows {
+    use super::super::{normalize_project_root, relativize, strip_verbatim_prefix};
+    use std::path::PathBuf;
+
+    #[test]
+    fn strip_verbatim_disk_prefix_keeps_unc() {
+      assert_eq!(
+        strip_verbatim_prefix(PathBuf::from(r"\\?\C:\project\app")),
+        PathBuf::from(r"C:\project\app")
+      );
+      assert_eq!(
+        strip_verbatim_prefix(PathBuf::from(r"\\?\UNC\server\share\app")),
+        PathBuf::from(r"\\?\UNC\server\share\app")
+      );
+    }
+
+    #[test]
+    #[expect(clippy::expect_used, reason = "unit test asserts temp fixture setup succeeds")]
+    fn relativize_accepts_mixed_verbatim_and_disk_paths() {
+      let dir = std::env::temp_dir().join(format!("vue-vet-verbatim-{}", std::process::id()));
+      std::fs::create_dir_all(dir.join("utils")).expect("temp dir");
+      let file = dir.join("utils").join("contract.ts");
+      std::fs::write(&file, "export {}\n").expect("write");
+      let root = normalize_project_root(&dir);
+      let disk_file = strip_verbatim_prefix(file);
+      let verbatim = PathBuf::from(format!(r"\\?\{}", disk_file.display()));
+      let relative = relativize(&root, &verbatim);
+      assert_eq!(
+        relative.as_deref(),
+        Some("utils/contract.ts"),
+        "verbatim resolved paths must relativize against simplified roots: root={} file={}",
+        root.display(),
+        verbatim.display()
+      );
+      let _ignored = std::fs::remove_dir_all(dir);
+    }
+  }
 }
