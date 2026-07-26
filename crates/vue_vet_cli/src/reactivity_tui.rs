@@ -28,12 +28,16 @@ enum Focus {
 enum PanelMode {
   Detail,
   Graph,
+  /// Navigable list of bindings to inspect.
+  Pick,
+  /// Inbound readers + outbound dependencies for one binding.
+  Inspect,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum MouseHit {
   Modules { visible_index: usize },
-  Panel,
+  Panel { content_row: Option<usize> },
   Help,
   Outside,
 }
@@ -75,6 +79,10 @@ struct BrowseApp {
   focus: Focus,
   panel_mode: PanelMode,
   panel_scroll: u16,
+  /// Cursor into [`Self::pick_bindings`] while picking / inspecting navigation.
+  binding_cursor: usize,
+  /// Bare binding name under inspect (`error`, not `error:ref`).
+  selected_binding: Option<String>,
   show_help: bool,
   error: Option<String>,
   should_quit: bool,
@@ -92,6 +100,8 @@ impl BrowseApp {
       focus: Focus::Modules,
       panel_mode: PanelMode::Detail,
       panel_scroll: 0,
+      binding_cursor: 0,
+      selected_binding: None,
       show_help: false,
       error,
       should_quit: false,
@@ -100,6 +110,82 @@ impl BrowseApp {
     };
     app.rebuild_visible();
     app
+  }
+
+  fn pick_bindings(&self) -> Vec<(String, String)> {
+    let Some(module) = self.selected_module() else {
+      return Vec::new();
+    };
+    module
+      .bindings
+      .iter()
+      .map(|label| {
+        let name = bare_binding_name(label).to_owned();
+        let kind = binding_kind_label(label).to_owned();
+        (name, kind)
+      })
+      .collect()
+  }
+
+  fn clear_inspect(&mut self) {
+    self.selected_binding = None;
+    if self.panel_mode == PanelMode::Inspect {
+      self.panel_mode = PanelMode::Pick;
+    }
+    self.panel_scroll = 0;
+  }
+
+  fn select_binding(&mut self, name: impl Into<String>) {
+    self.selected_binding = Some(name.into());
+    self.panel_mode = PanelMode::Inspect;
+    self.panel_scroll = 0;
+    self.focus = Focus::Panel;
+  }
+
+  fn open_binding_picker(&mut self) {
+    let picks = self.pick_bindings();
+    if picks.is_empty() {
+      return;
+    }
+    if let Some(selected) = &self.selected_binding {
+      self.binding_cursor = picks.iter().position(|(name, _)| name == selected).unwrap_or(0);
+    } else {
+      self.binding_cursor = self.binding_cursor.min(picks.len().saturating_sub(1));
+    }
+    self.selected_binding = None;
+    self.panel_mode = PanelMode::Pick;
+    self.panel_scroll = 0;
+    self.focus = Focus::Panel;
+  }
+
+  fn confirm_picked_binding(&mut self) {
+    let picks = self.pick_bindings();
+    let Some((name, _)) = picks.get(self.binding_cursor) else {
+      return;
+    };
+    self.select_binding(name.clone());
+  }
+
+  fn move_binding_cursor(&mut self, forward: bool) {
+    let len = self.pick_bindings().len();
+    if len == 0 {
+      self.binding_cursor = 0;
+      return;
+    }
+    self.binding_cursor = if forward {
+      self.binding_cursor.saturating_add(1) % len
+    } else if self.binding_cursor == 0 {
+      len.saturating_sub(1)
+    } else {
+      self.binding_cursor.saturating_sub(1)
+    };
+    // Keep the highlighted pick roughly in view.
+    let cursor = u16::try_from(self.binding_cursor).unwrap_or(u16::MAX);
+    if cursor < self.panel_scroll {
+      self.panel_scroll = cursor;
+    } else if cursor >= self.panel_scroll.saturating_add(8) {
+      self.panel_scroll = cursor.saturating_sub(7);
+    }
   }
 
   fn rebuild_visible(&mut self) {
@@ -121,6 +207,11 @@ impl BrowseApp {
       .or_else(|| (!self.visible.is_empty()).then_some(0));
     self.list_state.select(selected);
     self.panel_scroll = 0;
+    self.binding_cursor = 0;
+    self.selected_binding = None;
+    if matches!(self.panel_mode, PanelMode::Inspect | PanelMode::Pick) {
+      self.panel_mode = PanelMode::Graph;
+    }
   }
 
   fn selected_module(&self) -> Option<&BrowseModule> {
@@ -145,6 +236,11 @@ impl BrowseApp {
     };
     self.list_state.select(Some(next));
     self.panel_scroll = 0;
+    self.binding_cursor = 0;
+    self.selected_binding = None;
+    if matches!(self.panel_mode, PanelMode::Inspect | PanelMode::Pick) {
+      self.panel_mode = PanelMode::Graph;
+    }
   }
 
   fn toggle_empty(&mut self) {
@@ -173,7 +269,8 @@ impl BrowseApp {
       Event::Mouse(mouse) => match mouse.kind {
         MouseEventKind::ScrollDown => self.on_scroll(1),
         MouseEventKind::ScrollUp => self.on_scroll(-1),
-        MouseEventKind::Down(MouseButton::Left) => self.on_click(mouse.column, mouse.row),
+        MouseEventKind::Down(MouseButton::Left) => self.on_click(mouse.column, mouse.row, false),
+        MouseEventKind::Down(MouseButton::Right) => self.on_click(mouse.column, mouse.row, true),
         _ => {}
       },
       _ => {}
@@ -181,7 +278,7 @@ impl BrowseApp {
     Ok(())
   }
 
-  fn on_click(&mut self, column: u16, row: u16) {
+  fn on_click(&mut self, column: u16, row: u16, right: bool) {
     let list_offset = self.list_state.offset();
     match hit_test(
       column,
@@ -191,16 +288,91 @@ impl BrowseApp {
       self.show_help,
       list_offset,
       self.visible.len(),
+      self.panel_scroll,
     ) {
       MouseHit::Help => self.show_help = false,
       MouseHit::Modules { visible_index } => {
         self.focus = Focus::Modules;
         self.list_state.select(Some(visible_index));
         self.panel_scroll = 0;
+        self.binding_cursor = 0;
+        self.selected_binding = None;
+        if matches!(self.panel_mode, PanelMode::Inspect | PanelMode::Pick) {
+          self.panel_mode = PanelMode::Graph;
+        }
       }
-      MouseHit::Panel => self.focus = Focus::Panel,
+      MouseHit::Panel { content_row } => {
+        self.focus = Focus::Panel;
+        if right {
+          self.on_panel_right_click(content_row);
+        } else {
+          self.on_panel_left_click(content_row);
+        }
+      }
       MouseHit::Outside => {}
     }
+  }
+
+  fn on_panel_left_click(&mut self, content_row: Option<usize>) {
+    let Some(row) = content_row else {
+      return;
+    };
+    match self.panel_mode {
+      PanelMode::Pick => {
+        if let Some(index) = self.pick_index_at_content_row(row) {
+          self.binding_cursor = index;
+        }
+      }
+      PanelMode::Graph => {
+        if let Some(name) = self.graph_binding_at_content_row(row) {
+          let picks = self.pick_bindings();
+          if let Some(index) = picks.iter().position(|(binding, _)| binding == &name) {
+            self.binding_cursor = index;
+          }
+        }
+      }
+      PanelMode::Detail | PanelMode::Inspect => {}
+    }
+  }
+
+  fn on_panel_right_click(&mut self, content_row: Option<usize>) {
+    if self.panel_mode == PanelMode::Inspect {
+      self.clear_inspect();
+      return;
+    }
+    let Some(row) = content_row else {
+      self.open_binding_picker();
+      return;
+    };
+    if let Some(name) = self.binding_name_at_content_row(row) {
+      self.select_binding(name);
+      return;
+    }
+    self.open_binding_picker();
+  }
+
+  fn binding_name_at_content_row(&self, row: usize) -> Option<String> {
+    match self.panel_mode {
+      PanelMode::Pick => self
+        .pick_index_at_content_row(row)
+        .and_then(|index| self.pick_bindings().get(index).map(|(name, _)| name.clone())),
+      PanelMode::Graph => self.graph_binding_at_content_row(row),
+      PanelMode::Detail | PanelMode::Inspect => None,
+    }
+  }
+
+  fn pick_index_at_content_row(&self, row: usize) -> Option<usize> {
+    // pick_lines: title, blank, hint, blank, then one row per binding.
+    let first = 4;
+    row.checked_sub(first).filter(|index| *index < self.pick_bindings().len())
+  }
+
+  fn graph_binding_at_content_row(&self, row: usize) -> Option<String> {
+    let module = self.selected_module()?;
+    let lines = graph_lines(module);
+    let line = lines.get(row)?;
+    let text = line_text(line);
+    text.strip_prefix("● ").map(str::to_owned)
   }
 
   fn on_scroll(&mut self, delta: i32) {
@@ -232,7 +404,17 @@ impl BrowseApp {
       return;
     }
     match code {
-      KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
+      KeyCode::Char('q') => self.should_quit = true,
+      KeyCode::Esc => {
+        if self.selected_binding.is_some() {
+          self.clear_inspect();
+        } else if self.panel_mode == PanelMode::Pick {
+          self.panel_mode = PanelMode::Graph;
+          self.panel_scroll = 0;
+        } else {
+          self.should_quit = true;
+        }
+      }
       KeyCode::Char('?') => self.show_help = true,
       KeyCode::Tab | KeyCode::BackTab => {
         self.focus = match self.focus {
@@ -241,13 +423,30 @@ impl BrowseApp {
         };
       }
       KeyCode::Char('g') => {
+        self.selected_binding = None;
         self.panel_mode = match self.panel_mode {
           PanelMode::Detail => PanelMode::Graph,
-          PanelMode::Graph => PanelMode::Detail,
+          PanelMode::Graph | PanelMode::Pick | PanelMode::Inspect => PanelMode::Detail,
         };
         self.panel_scroll = 0;
         self.focus = Focus::Panel;
       }
+      KeyCode::Char('b') => self.open_binding_picker(),
+      KeyCode::Char('x') if self.selected_binding.is_some() => self.clear_inspect(),
+      KeyCode::Enter | KeyCode::Char(' ') if self.focus == Focus::Panel => match self.panel_mode {
+        PanelMode::Pick => self.confirm_picked_binding(),
+        PanelMode::Graph => {
+          // Enter on graph: inspect binding under cursor if we have picks.
+          let picks = self.pick_bindings();
+          if let Some((name, _)) = picks.get(self.binding_cursor) {
+            self.select_binding(name.clone());
+          } else {
+            self.open_binding_picker();
+          }
+        }
+        PanelMode::Detail => self.open_binding_picker(),
+        PanelMode::Inspect => {}
+      },
       KeyCode::Char('e') => self.toggle_empty(),
       KeyCode::Home if self.focus == Focus::Modules => {
         self.list_state.select((!self.visible.is_empty()).then_some(0));
@@ -261,10 +460,12 @@ impl BrowseApp {
       }
       KeyCode::Down | KeyCode::Char('j') => match self.focus {
         Focus::Modules => self.move_selection(true),
+        Focus::Panel if self.panel_mode == PanelMode::Pick => self.move_binding_cursor(true),
         Focus::Panel => self.panel_scroll = self.panel_scroll.saturating_add(1),
       },
       KeyCode::Up | KeyCode::Char('k') => match self.focus {
         Focus::Modules => self.move_selection(false),
+        Focus::Panel if self.panel_mode == PanelMode::Pick => self.move_binding_cursor(false),
         Focus::Panel => self.panel_scroll = self.panel_scroll.saturating_sub(1),
       },
       KeyCode::PageDown | KeyCode::Char('d') if self.focus == Focus::Panel => {
@@ -287,7 +488,7 @@ impl BrowseApp {
     self.draw_header(frame, header);
     let panel_viewport = self.draw_body(frame, body);
     self.clamp_panel_scroll(panel_viewport);
-    Self::draw_footer(frame, footer, self.focus, self.panel_mode);
+    Self::draw_footer(frame, footer, self.focus, self.panel_mode, self.selected_binding.as_deref());
     if self.show_help {
       draw_help(frame);
     }
@@ -358,11 +559,16 @@ impl BrowseApp {
     frame.render_stateful_widget(list, list_area, &mut self.list_state);
 
     let lines = self.panel_lines();
-    let panel_title = match (self.panel_mode, self.focus) {
-      (PanelMode::Detail, Focus::Panel) => "detail (focused · j/k / wheel)",
-      (PanelMode::Detail, Focus::Modules) => "detail (click/Tab · g graph)",
-      (PanelMode::Graph, Focus::Panel) => "graph (focused · j/k / wheel)",
-      (PanelMode::Graph, Focus::Modules) => "graph (click/Tab · g detail)",
+    let panel_title = match (self.panel_mode, self.focus, self.selected_binding.as_deref()) {
+      (PanelMode::Detail, Focus::Panel, _) => "detail (focused · b pick · Enter)".into(),
+      (PanelMode::Detail, Focus::Modules, _) => "detail (click/Tab · b pick · g graph)".into(),
+      (PanelMode::Graph, Focus::Panel, _) => "graph (focused · b/Enter inspect)".into(),
+      (PanelMode::Graph, Focus::Modules, _) => "graph (click/Tab · right-click inspect)".into(),
+      (PanelMode::Pick, _, _) => "pick binding (j/k · Enter · right-click)".into(),
+      (PanelMode::Inspect, _, Some(name)) => {
+        return_panel_title_inspect(name, self.focus == Focus::Panel)
+      }
+      (PanelMode::Inspect, _, None) => "inspect".into(),
     };
     let border =
       if self.focus == Focus::Panel { Style::default().fg(Color::Cyan) } else { Style::default() };
@@ -384,13 +590,27 @@ impl BrowseApp {
     match self.panel_mode {
       PanelMode::Detail => detail_lines(module),
       PanelMode::Graph => graph_lines(module),
+      PanelMode::Pick => pick_lines(module, self.binding_cursor),
+      PanelMode::Inspect => {
+        let name = self.selected_binding.as_deref().unwrap_or("?");
+        inspect_lines(module, name)
+      }
     }
   }
 
-  fn draw_footer(frame: &mut Frame<'_>, area: Rect, focus: Focus, mode: PanelMode) {
-    let mode = match mode {
-      PanelMode::Detail => "detail",
-      PanelMode::Graph => "graph",
+  fn draw_footer(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    focus: Focus,
+    mode: PanelMode,
+    selected: Option<&str>,
+  ) {
+    let mode = match (mode, selected) {
+      (PanelMode::Detail, _) => "detail",
+      (PanelMode::Graph, _) => "graph",
+      (PanelMode::Pick, _) => "pick",
+      (PanelMode::Inspect, Some(name)) => name,
+      (PanelMode::Inspect, None) => "inspect",
     };
     let focus = match focus {
       Focus::Modules => "modules",
@@ -398,15 +618,24 @@ impl BrowseApp {
     };
     frame.render_widget(
       Paragraph::new(format!(
-        "click/Tab focus ({focus}) · j/k move/scroll · g {mode} · e empty · ? help · q quit"
+        "focus:{focus} · {mode} · b pick · Enter/right-click inspect · Esc/x clear · g · ? · q"
       )),
       area,
     );
   }
 }
 
+fn return_panel_title_inspect(name: &str, focused: bool) -> String {
+  if focused {
+    format!("inspect ● {name} (Esc/x clear · right-click clear)")
+  } else {
+    format!("inspect ● {name}")
+  }
+}
+
 /// Resolve a mouse click against the last drawn pane rects.
 #[must_use]
+#[expect(clippy::too_many_arguments, reason = "hit-test takes explicit layout geometry")]
 fn hit_test(
   column: u16,
   row: u16,
@@ -415,6 +644,7 @@ fn hit_test(
   show_help: bool,
   list_offset: usize,
   visible_len: usize,
+  panel_scroll: u16,
 ) -> MouseHit {
   if show_help {
     return MouseHit::Help;
@@ -436,7 +666,17 @@ fn hit_test(
     return MouseHit::Modules { visible_index: index.min(last) };
   }
   if rect_contains(panel_area, column, row) {
-    return MouseHit::Panel;
+    let inner_y = row.saturating_sub(panel_area.y).saturating_sub(1);
+    let inner_height = panel_area.height.saturating_sub(2);
+    let content_row = if inner_height == 0
+      || row <= panel_area.y
+      || row >= panel_area.y.saturating_add(panel_area.height).saturating_sub(1)
+    {
+      None
+    } else {
+      Some(usize::from(panel_scroll.saturating_add(inner_y)))
+    };
+    return MouseHit::Panel { content_row };
   }
   MouseHit::Outside
 }
@@ -463,6 +703,140 @@ fn detail_lines(module: &BrowseModule) -> Vec<Line<'static>> {
   push_section(&mut lines, "edges", &module.edges, humanize_edge);
   push_section(&mut lines, "template reads", &module.template_reads, humanize_template_read);
   lines
+}
+
+fn pick_lines(module: &BrowseModule, cursor: usize) -> Vec<Line<'static>> {
+  let mut lines = vec![
+    Line::from(Span::styled(module.id.clone(), Style::default().add_modifier(Modifier::BOLD))),
+    Line::from(""),
+    Line::from(Span::styled(
+      "Select a binding — Enter/right-click inspects readers + dependencies.",
+      Style::default().fg(Color::DarkGray),
+    )),
+    Line::from(""),
+  ];
+  if module.bindings.is_empty() {
+    lines.push(Line::from("  (no bindings)"));
+    return lines;
+  }
+  for (index, label) in module.bindings.iter().enumerate() {
+    let name = bare_binding_name(label);
+    let kind = binding_kind_label(label).replace('_', " ");
+    let marker = if index == cursor { ">" } else { " " };
+    let style = if index == cursor {
+      Style::default().add_modifier(Modifier::REVERSED)
+    } else {
+      Style::default()
+    };
+    lines.push(Line::from(Span::styled(format!("{marker} {name}  ({kind})"), style)));
+  }
+  lines.push(Line::from(""));
+  lines.push(Line::from(Span::styled(
+    "Tip: ref → who reads it · computed → what it depends on",
+    Style::default().fg(Color::DarkGray),
+  )));
+  lines
+}
+
+fn inspect_lines(module: &BrowseModule, binding: &str) -> Vec<Line<'static>> {
+  let kind = module
+    .bindings
+    .iter()
+    .find(|label| bare_binding_name(label) == binding)
+    .map_or_else(|| "?".into(), |label| binding_kind_label(label).replace('_', " "));
+  let mut lines = vec![
+    Line::from(Span::styled(
+      format!("● {binding}  ({kind})"),
+      Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+    )),
+    Line::from(""),
+    Line::from(Span::styled(
+      "readers (inbound) — who tracks / reads this",
+      Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+    )),
+  ];
+  let inbound = inbound_readers(module, binding);
+  if inbound.is_empty() {
+    lines.push(Line::from("  (none)"));
+  } else {
+    for (reader, count) in inbound {
+      let suffix = if count > 1 { format!(" ×{count}") } else { String::new() };
+      lines.push(Line::from(format!("  ← {reader}{suffix}")));
+    }
+  }
+  lines.push(Line::from(""));
+  lines.push(Line::from(Span::styled(
+    "dependencies (outbound) — what this binding's scope reads",
+    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+  )));
+  let outbound = outbound_dependencies(module, binding);
+  if outbound.is_empty() {
+    lines.push(Line::from("  (none — typical for plain ref / reactive)"));
+  } else {
+    for (dep, count) in outbound {
+      let suffix = if count > 1 { format!(" ×{count}") } else { String::new() };
+      lines.push(Line::from(format!("  → {dep}{suffix}")));
+    }
+  }
+  lines.push(Line::from(""));
+  lines.push(Line::from(Span::styled(
+    "Esc / x / right-click clears selection · b returns to picker",
+    Style::default().fg(Color::DarkGray),
+  )));
+  lines
+}
+
+fn inbound_readers(module: &BrowseModule, binding: &str) -> BTreeMap<String, usize> {
+  let mut readers = BTreeMap::new();
+  for edge in &module.edges {
+    if let Some((from, to)) = split_edge(edge)
+      && to == binding
+    {
+      *readers.entry(humanize_source(from)).or_default() += 1;
+    }
+  }
+  for read in &module.template_reads {
+    if let Some((name, surface)) = split_template_read(read)
+      && name == binding
+    {
+      *readers.entry(humanize_template_surface(surface)).or_default() += 1;
+    }
+  }
+  readers
+}
+
+fn outbound_dependencies(module: &BrowseModule, binding: &str) -> BTreeMap<String, usize> {
+  let mut deps = BTreeMap::new();
+  for edge in &module.edges {
+    if let Some((from, to)) = split_edge(edge)
+      && edge_from_is_binding(from, binding)
+    {
+      *deps.entry(to.to_owned()).or_default() += 1;
+    }
+  }
+  deps
+}
+
+fn edge_from_is_binding(from: &str, binding: &str) -> bool {
+  if from == binding {
+    return true;
+  }
+  // Span-qualified synthetic labels rarely use bare binding as from; computed
+  // scopes emit the bare binding name when known (see scope_edge_from).
+  let head = from.split_once('@').map_or(from, |(head, _)| head);
+  head == binding || head.ends_with(&format!(":{binding}"))
+}
+
+fn bare_binding_name(label: &str) -> &str {
+  label.split_once(':').map_or(label, |(name, _)| name)
+}
+
+fn binding_kind_label(label: &str) -> &str {
+  label.split_once(':').map_or("?", |(_, kind)| kind)
+}
+
+fn line_text(line: &Line<'_>) -> String {
+  line.spans.iter().map(|span| span.content.as_ref()).collect::<Vec<_>>().join("")
 }
 
 fn graph_lines(module: &BrowseModule) -> Vec<Line<'static>> {
@@ -557,8 +931,16 @@ fn draw_help(frame: &mut Frame<'_>) {
     Line::from("  wheel         same as j/k for focused pane"),
     Line::from("  PgUp PgDn     scroll panel faster"),
     Line::from("  g             toggle detail ↔ graph"),
+    Line::from("  b             pick a binding to inspect"),
+    Line::from("  Enter/Space   inspect highlighted binding"),
+    Line::from("  right-click   inspect binding under cursor / clear"),
+    Line::from("  Esc / x       clear inspect (Esc again quits)"),
     Line::from("  e             show/hide empty modules"),
     Line::from("  ? / click     close this help"),
+    Line::from(""),
+    Line::from("Inspect a binding"),
+    Line::from("  readers (←)       who tracks / reads this ref"),
+    Line::from("  dependencies (→)  what a computed/effect binding reads"),
     Line::from(""),
     Line::from("What the labels mean"),
     Line::from("  binding → reactive local (ref / computed / …)"),
@@ -707,10 +1089,19 @@ mod tests {
   fn hit_test_selects_module_row_and_panel() {
     let modules = Rect { x: 0, y: 3, width: 20, height: 10 };
     let panel = Rect { x: 20, y: 3, width: 40, height: 10 };
-    assert_eq!(hit_test(2, 5, modules, panel, false, 0, 5), MouseHit::Modules { visible_index: 1 });
-    assert_eq!(hit_test(2, 5, modules, panel, false, 2, 5), MouseHit::Modules { visible_index: 3 });
-    assert_eq!(hit_test(25, 6, modules, panel, false, 0, 5), MouseHit::Panel);
-    assert_eq!(hit_test(25, 6, modules, panel, true, 0, 5), MouseHit::Help);
+    assert_eq!(
+      hit_test(2, 5, modules, panel, false, 0, 5, 0),
+      MouseHit::Modules { visible_index: 1 }
+    );
+    assert_eq!(
+      hit_test(2, 5, modules, panel, false, 2, 5, 0),
+      MouseHit::Modules { visible_index: 3 }
+    );
+    assert_eq!(
+      hit_test(25, 6, modules, panel, false, 0, 5, 0),
+      MouseHit::Panel { content_row: Some(2) }
+    );
+    assert_eq!(hit_test(25, 6, modules, panel, true, 0, 5, 0), MouseHit::Help);
   }
 
   #[test]
@@ -723,11 +1114,58 @@ mod tests {
     let mut app = BrowseApp::new(ranked, None);
     app.modules_area = Rect { x: 0, y: 3, width: 20, height: 10 };
     app.panel_area = Rect { x: 20, y: 3, width: 40, height: 10 };
-    app.on_click(25, 6);
+    app.on_click(25, 6, false);
     assert_eq!(app.focus, Focus::Panel);
-    app.on_click(2, 5);
+    app.on_click(2, 5, false);
     assert_eq!(app.focus, Focus::Modules);
     assert_eq!(app.selected_module().map(|module| module.id.as_str()), Some("b.vue"));
+  }
+
+  #[test]
+  fn inspect_shows_inbound_readers_and_outbound_deps() {
+    let module = BrowseModule {
+      id: "App.vue".into(),
+      weight: 4,
+      bindings: vec!["count:ref".into(), "double:computed".into()],
+      scopes: Vec::new(),
+      edges: vec![
+        "double -> count".into(),
+        "template:if@1 -> count".into(),
+        "watch_sources:watch@2 -> double".into(),
+      ],
+      template_reads: vec!["count@interpolation".into()],
+    };
+    let count = line_text_join(&inspect_lines(&module, "count"));
+    assert!(count.contains("readers (inbound)"));
+    assert!(count.contains("← v-if"));
+    assert!(count.contains("← {{ }}"));
+    assert!(count.contains("← computed(double)") || count.contains("← double"));
+    assert!(count.contains("(none — typical for plain ref") || count.contains("dependencies"));
+
+    let double = line_text_join(&inspect_lines(&module, "double"));
+    assert!(double.contains("→ count"));
+    assert!(double.contains("← watch()"));
+  }
+
+  #[test]
+  fn pick_enter_and_esc_toggle_inspect() {
+    let ranked = ranked_modules(&[stats("a.vue", 2, 0, 1, 0)]);
+    let mut app = BrowseApp::new(ranked, None);
+    app.focus = Focus::Panel;
+    app.handle_key(KeyCode::Char('b'));
+    assert_eq!(app.panel_mode, PanelMode::Pick);
+    app.handle_key(KeyCode::Enter);
+    assert_eq!(app.panel_mode, PanelMode::Inspect);
+    assert_eq!(app.selected_binding.as_deref(), Some("b0"));
+    app.handle_key(KeyCode::Esc);
+    assert!(app.selected_binding.is_none());
+    assert_eq!(app.panel_mode, PanelMode::Pick);
+    app.handle_key(KeyCode::Esc);
+    assert_eq!(app.panel_mode, PanelMode::Graph);
+  }
+
+  fn line_text_join(lines: &[Line<'static>]) -> String {
+    lines.iter().map(line_text).collect::<Vec<_>>().join("\n")
   }
 
   #[test]

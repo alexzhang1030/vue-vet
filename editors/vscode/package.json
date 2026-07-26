@@ -42,6 +42,14 @@
       {
         "command": "vue-vet.clearReactivity",
         "title": "Vue Vet: Clear Reactivity Highlights"
+      },
+      {
+        "command": "vue-vet.showReaders",
+        "title": "Vue Vet: Show Who Reads This"
+      },
+      {
+        "command": "vue-vet.showDependencies",
+        "title": "Vue Vet: Show Dependencies"
       }
     ],
     "configuration": {
@@ -87,6 +95,30 @@
           "command": "vue-vet.refreshReactivity",
           "when": "view == vueVet.reactivity",
           "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "vue-vet.showReaders",
+          "when": "view == vueVet.reactivity && viewItem == binding",
+          "group": "inline"
+        },
+        {
+          "command": "vue-vet.showDependencies",
+          "when": "view == vueVet.reactivity && viewItem == binding",
+          "group": "inline"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "vue-vet.showReaders",
+          "when": "resourceExtname == .vue || resourceLangId == typescript || resourceLangId == javascript",
+          "group": "vue-vet@1"
+        },
+        {
+          "command": "vue-vet.showDependencies",
+          "when": "resourceExtname == .vue || resourceLangId == typescript || resourceLangId == javascript",
+          "group": "vue-vet@2"
         }
       ]
     },
