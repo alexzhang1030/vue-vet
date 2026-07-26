@@ -78,7 +78,19 @@ plus structured span details for editor consumers:
       "kind": "template",
       "span": { "offset": 11768, "length": 5 },
       "to_span": { "offset": 420, "length": 5 },
+      "to_path": "error",
       "label": "v-if  →  error"
+    },
+    {
+      "from": "label",
+      "to": "props",
+      "to_id": "props@420",
+      "property": "count",
+      "to_path": "props.count",
+      "kind": "computed",
+      "span": { "offset": 80, "length": 5 },
+      "to_span": { "offset": 420, "length": 5 },
+      "label": "label  →  props.count"
     }
   ],
   "scope_details": [],
@@ -96,7 +108,33 @@ plus structured span details for editor consumers:
 `span` / `to_span` are source **byte** ranges (`offset` + `length`). Editors should
 map them with UTF-8-aware `positionAt`. String label arrays remain for text
 reports and older consumers; prefer `*_details` when present. Humanized `label`
-fields match the reactivity TUI wording.
+fields match the reactivity TUI wording. When a dependency is a member read
+(`props.count`), `property` and `to_path` are set; bare `to` stays the binding
+name for rule matching.
+
+JSON reports also include additive `component_nav` — a per-file `uses` /
+`used_by` index of project-graph `component_usage` and `auto_component` edges
+(template tag evidence spans). This is **structural component navigation**, not
+parent `:prop` → child `defineProps` dataflow:
+
+```json
+{
+  "modules": [
+    {
+      "id": "pages/index.vue",
+      "uses": [
+        {
+          "peer": "components/Demo.vue",
+          "kind": "auto_component",
+          "specifier": "Demo",
+          "span": { "offset": 40, "length": 4 }
+        }
+      ],
+      "used_by": []
+    }
+  ]
+}
+```
 
 Default `--format text` prints the same digest under a `Reactivity` footer after
 the score line. The thin VS Code host under `editors/vscode/` consumes

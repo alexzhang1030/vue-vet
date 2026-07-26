@@ -1350,6 +1350,30 @@ fn dependency_edges_include_span_qualified_to_id() {
 }
 
 #[test]
+fn dependency_edges_carry_member_property_for_props_bag() {
+  let graph = graph(
+    "import { computed } from 'vue'; const props = defineProps<{ count: number; mode: string }>(); const label = computed(() => props.count + props.mode);",
+  );
+  assert_eq!(graph.version, vue_vet_core::REACTIVITY_GRAPH_VERSION);
+  let count = graph.edges.iter().find(|edge| {
+    edge.from == "label" && edge.to == "props" && edge.property.as_deref() == Some("count")
+  });
+  let mode = graph.edges.iter().find(|edge| {
+    edge.from == "label" && edge.to == "props" && edge.property.as_deref() == Some("mode")
+  });
+  assert!(
+    count.is_some_and(|edge| edge.to_path() == "props.count"),
+    "v7 edges must carry property for props.count; got {:?}",
+    graph.edges
+  );
+  assert!(
+    mode.is_some_and(|edge| edge.to_path() == "props.mode"),
+    "v7 edges must carry property for props.mode; got {:?}",
+    graph.edges
+  );
+}
+
+#[test]
 fn local_composable_instance_member_access() {
   for source in [
     "import { ref, watchEffect } from 'vue'; function useSignal() { const signal = ref(0); return { signal }; } const bag = useSignal(); watchEffect(() => bag.signal.value);",

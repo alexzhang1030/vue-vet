@@ -5,6 +5,7 @@ const vscode = require('vscode');
 const { runReactivityScan } = require('./lib/cli');
 const {
   modulesFromReport,
+  componentNavFromReport,
   moduleForFile,
   decorationPlan,
   hoverAtOffset,
@@ -14,6 +15,7 @@ const {
   inboundFor,
   outboundFor,
   bindingAtOffset,
+  componentLinksFor,
 } = require('./lib/model');
 const { ReactivityTreeProvider } = require('./lib/tree');
 
@@ -26,7 +28,9 @@ let selectionDecoration;
 
 /** @type {import('./lib/model').ModuleDetail[]} */
 let modules = [];
-/** @type {{ kind: 'binding' | 'edge' | 'template', key: string, moduleId: string } | null} */
+/** @type {import('./lib/model').ComponentNavModule[]} */
+let componentNav = [];
+/** @type {{ kind: 'binding' | 'edge' | 'template' | 'component', key: string, moduleId: string } | null} */
 let selection = null;
 /** @type {ReactivityTreeProvider} */
 let treeProvider;
@@ -76,6 +80,12 @@ function activate(context) {
     vscode.commands.registerCommand('vue-vet.showDependencies', (element) =>
       inspectBinding(element, 'dependencies'),
     ),
+    vscode.commands.registerCommand('vue-vet.showComponentsUsed', (element) =>
+      inspectComponents(element, 'uses'),
+    ),
+    vscode.commands.registerCommand('vue-vet.showComponentUsers', (element) =>
+      inspectComponents(element, 'used_by'),
+    ),
     vscode.languages.registerHoverProvider(
       [
         { language: 'vue' },
@@ -123,8 +133,9 @@ async function refreshReactivity(revealSidebar) {
     );
 
     modules = modulesFromReport(report);
+    componentNav = componentNavFromReport(report);
     selection = null;
-    treeProvider.setModules(modules);
+    treeProvider.setModules(modules, componentNav);
     applyDecorations();
 
     const count = modules.length;
@@ -136,8 +147,12 @@ async function refreshReactivity(revealSidebar) {
         (module.template_details?.length || 0),
       0,
     );
+    const componentEdges = componentNav.reduce(
+      (sum, module) => sum + (module.uses?.length || 0),
+      0,
+    );
     status.text = `$(graph) Vue Vet ${count}m / ${facts}f`;
-    status.tooltip = `Traced ${count} module(s), ${facts} structured facts`;
+    status.tooltip = `Traced ${count} module(s), ${facts} structured facts, ${componentEdges} component use(s)`;
 
     if (revealSidebar) {
       await vscode.commands.executeCommand('vueVet.reactivity.focus');
@@ -152,9 +167,65 @@ async function refreshReactivity(revealSidebar) {
 function clearHighlights() {
   selection = null;
   modules = [];
+  componentNav = [];
   treeProvider.clear();
   applyDecorations();
   status.text = '$(graph) Vue Vet';
+}
+
+/**
+ * @param {any} element
+ * @param {'uses' | 'used_by'} direction
+ */
+async function inspectComponents(element, direction) {
+  if (modules.length === 0 && componentNav.length === 0) {
+    await refreshReactivity(false);
+  }
+  let moduleId = element?.moduleId;
+  if (!moduleId) {
+    const editor = vscode.window.activeTextEditor;
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    if (!editor || !folder) {
+      void vscode.window.showWarningMessage('Vue Vet: open a Vue file to inspect component usage.');
+      return;
+    }
+    moduleId = normalizePath(path.relative(folder.uri.fsPath, editor.document.uri.fsPath));
+  }
+  const links = componentLinksFor(componentNav, moduleId, direction);
+  if (links.length === 0) {
+    void vscode.window.showInformationMessage(
+      direction === 'uses'
+        ? `Vue Vet: “${moduleId}” does not use other components (structural graph).`
+        : `Vue Vet: no files template “${moduleId}” (structural graph · not prop dataflow).`,
+    );
+    return;
+  }
+  const picked = await vscode.window.showQuickPick(
+    links.map((link) => ({
+      label: direction === 'uses' ? `<${link.specifier}> → ${link.peer}` : `${link.peer} → <${link.specifier}>`,
+      description: link.kind,
+      detail: 'structural component edge · not prop dataflow',
+      link,
+    })),
+    {
+      title:
+        direction === 'uses'
+          ? `Components used by ${moduleId}`
+          : `Who uses ${moduleId}`,
+      matchOnDescription: true,
+    },
+  );
+  if (!picked) {
+    return;
+  }
+  // Evidence spans sit on the parent template tag.
+  const evidenceModule = direction === 'uses' ? moduleId : picked.link.peer;
+  await revealTreeNode({
+    kind: 'component',
+    key: `component:${direction}:${evidenceModule}@${picked.link.span?.offset ?? 0}`,
+    moduleId: evidenceModule,
+    span: picked.link.span,
+  });
 }
 
 /**
@@ -288,6 +359,7 @@ async function inspectBinding(element, direction) {
     return;
   }
   const { module, bindingName } = resolved;
+  const bareBinding = bindingName.includes('.') ? bindingName.split('.')[0] : bindingName;
   const items =
     direction === 'readers' ? inboundFor(module, bindingName) : outboundFor(module, bindingName);
   if (items.length === 0) {
@@ -302,9 +374,11 @@ async function inspectBinding(element, direction) {
       moduleId: module.id,
     };
     // Prefer highlighting the binding declaration if present.
-    const binding = (module.binding_details || []).find((item) => item.name === bindingName);
+    const binding = (module.binding_details || []).find((item) => item.name === bareBinding);
     if (binding) {
-      selection.key = `binding:${binding.name}@${binding.span.offset}`;
+      selection.key = bindingName.includes('.')
+        ? `binding:${bindingName}@${binding.span.offset}`
+        : `binding:${binding.name}@${binding.span.offset}`;
     }
     applyDecorations();
     return;
@@ -375,6 +449,7 @@ function resolveInspectTarget(element) {
 
 function deactivate() {
   modules = [];
+  componentNav = [];
   selection = null;
 }
 

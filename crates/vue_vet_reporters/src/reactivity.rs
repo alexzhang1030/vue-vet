@@ -5,8 +5,8 @@ use std::cmp::Reverse;
 use serde::Serialize;
 
 use crate::humanize::{
-  humanize_binding_parts, humanize_edge_parts, humanize_scope, humanize_template_read_parts,
-  parse_name_offset,
+  humanize_binding_parts, humanize_edge_parts_with_property, humanize_scope,
+  humanize_template_read_parts, parse_name_offset, to_path,
 };
 
 const HOTSPOT_LIMIT: usize = 5;
@@ -50,6 +50,11 @@ pub struct ReactivityEdgeDetail {
   pub to: String,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub to_id: Option<String>,
+  /// Member on `to` when the read was `bag.field` (e.g. `count` for `props.count`).
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub property: Option<String>,
+  /// Display path `to` or `to.property`.
+  pub to_path: String,
   pub kind: String,
   pub span: ReactivitySpanRef,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -219,14 +224,26 @@ pub fn edge_detail(
   from: impl Into<String>,
   to: impl Into<String>,
   to_id: Option<String>,
+  property: Option<String>,
   kind: impl Into<String>,
   span: ReactivitySpanRef,
   to_span: Option<ReactivitySpanRef>,
 ) -> ReactivityEdgeDetail {
   let from = from.into();
   let to = to.into();
-  let label = humanize_edge_parts(&from, &to);
-  ReactivityEdgeDetail { from, to, to_id, kind: kind.into(), span, to_span, label }
+  let to_path = to_path(&to, property.as_deref());
+  let label = humanize_edge_parts_with_property(&from, &to, property.as_deref());
+  ReactivityEdgeDetail {
+    from,
+    to,
+    to_id,
+    property,
+    to_path,
+    kind: kind.into(),
+    span,
+    to_span,
+    label,
+  }
 }
 
 #[must_use]
@@ -433,6 +450,7 @@ mod tests {
       "template:if@10",
       "error",
       Some("error@4".into()),
+      None,
       "template",
       ReactivitySpanRef::new(10, 2),
       Some(ReactivitySpanRef::new(4, 5)),
@@ -443,6 +461,10 @@ mod tests {
     assert_eq!(
       detail.and_then(|module| module.edge_details.first()).map(|edge| edge.label.as_str()),
       Some("v-if  →  error")
+    );
+    assert_eq!(
+      detail.and_then(|module| module.edge_details.first()).map(|edge| edge.to_path.as_str()),
+      Some("error")
     );
     assert_eq!(
       detail.and_then(|module| module.edge_details.first()).map(|edge| edge.span.offset),

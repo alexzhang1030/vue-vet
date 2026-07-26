@@ -17,6 +17,8 @@
  *   from: string,
  *   to: string,
  *   to_id?: string,
+ *   property?: string,
+ *   to_path?: string,
  *   kind: string,
  *   span: SpanRef,
  *   to_span?: SpanRef,
@@ -49,6 +51,20 @@
  */
 
 /**
+ * @typedef {{
+ *   peer: string,
+ *   kind: string,
+ *   specifier: string,
+ *   span: SpanRef
+ * }} ComponentNavLink
+ * @typedef {{
+ *   id: string,
+ *   uses: ComponentNavLink[],
+ *   used_by: ComponentNavLink[]
+ * }} ComponentNavModule
+ */
+
+/**
  * @param {unknown} report
  * @returns {ModuleDetail[]}
  */
@@ -61,6 +77,22 @@ function modulesFromReport(report) {
     return [];
   }
   return detail.filter((module) => module && typeof module.id === 'string');
+}
+
+/**
+ * Structural component uses / used_by from the project graph (not prop dataflow).
+ * @param {unknown} report
+ * @returns {ComponentNavModule[]}
+ */
+function componentNavFromReport(report) {
+  if (!report || typeof report !== 'object') {
+    return [];
+  }
+  const modules = report.component_nav?.modules;
+  if (!Array.isArray(modules)) {
+    return [];
+  }
+  return modules.filter((module) => module && typeof module.id === 'string');
 }
 
 /**
@@ -243,15 +275,42 @@ function hoverAtOffset(module, offset) {
 /**
  * Tree nodes shaped for the VS Code TreeDataProvider.
  * @param {ModuleDetail[]} modules
+ * @param {ComponentNavModule[]} [componentNav]
  */
-function buildTree(modules) {
-  const sorted = [...modules].sort((left, right) => left.id.localeCompare(right.id));
+function buildTree(modules, componentNav = []) {
+  /** @type {Map<string, ModuleDetail & { component_uses?: ComponentNavLink[], component_used_by?: ComponentNavLink[] }>} */
+  const byId = new Map();
+  for (const module of modules) {
+    byId.set(normalizePath(module.id), { ...module });
+  }
+  for (const nav of componentNav) {
+    const id = normalizePath(nav.id);
+    const existing = byId.get(id);
+    if (existing) {
+      existing.component_uses = nav.uses || [];
+      existing.component_used_by = nav.used_by || [];
+    } else {
+      byId.set(id, {
+        id,
+        bindings: [],
+        scopes: [],
+        edges: [],
+        template_reads: [],
+        component_uses: nav.uses || [],
+        component_used_by: nav.used_by || [],
+      });
+    }
+  }
+
+  const sorted = [...byId.values()].sort((left, right) => left.id.localeCompare(right.id));
   return sorted.map((module) => {
     const weight =
       (module.binding_details?.length || module.bindings?.length || 0) +
       (module.scope_details?.length || module.scopes?.length || 0) +
       (module.edge_details?.length || module.edges?.length || 0) +
-      (module.template_details?.length || module.template_reads?.length || 0);
+      (module.template_details?.length || module.template_reads?.length || 0) +
+      (module.component_uses?.length || 0) +
+      (module.component_used_by?.length || 0);
 
     /** @type {object[]} */
     const children = [];
@@ -261,23 +320,79 @@ function buildTree(modules) {
       children.push({
         kind: 'group',
         label: `bindings (${bindings.length})`,
-        children: bindings.map((binding) => ({
-          kind: 'binding',
+        children: bindings.flatMap((binding) => {
+          const nodes = [
+            {
+              kind: 'binding',
+              moduleId: module.id,
+              bindingName: binding.name,
+              label: binding.label || binding.name,
+              key: `binding:${binding.name}@${binding.span.offset}`,
+              span: binding.span,
+              description: binding.kind,
+            },
+          ];
+          if (!isReactiveBagKind(binding.kind)) {
+            return nodes;
+          }
+          for (const property of propertiesForBag(module, binding.name)) {
+            nodes.push({
+              kind: 'binding',
+              moduleId: module.id,
+              bindingName: `${binding.name}.${property}`,
+              label: `${binding.name}.${property}`,
+              key: `binding:${binding.name}.${property}@${binding.span.offset}`,
+              span: binding.span,
+              description: `${binding.kind} · .${property}`,
+            });
+          }
+          return nodes;
+        }),
+      });
+    }
+
+    const uses = module.component_uses || [];
+    if (uses.length) {
+      children.push({
+        kind: 'group',
+        label: `components uses (${uses.length})`,
+        description: 'structural · not prop dataflow',
+        children: uses.map((link) => ({
+          kind: 'component',
           moduleId: module.id,
-          bindingName: binding.name,
-          label: binding.label || binding.name,
-          key: `binding:${binding.name}@${binding.span.offset}`,
-          span: binding.span,
-          description: binding.kind,
+          peer: link.peer,
+          label: `<${link.specifier}> → ${link.peer}`,
+          key: `component:uses:${module.id}->${link.peer}@${link.span?.offset ?? 0}`,
+          span: link.span,
+          description: link.kind,
+        })),
+      });
+    }
+    const usedBy = module.component_used_by || [];
+    if (usedBy.length) {
+      children.push({
+        kind: 'group',
+        label: `components used by (${usedBy.length})`,
+        description: 'structural · not prop dataflow',
+        children: usedBy.map((link) => ({
+          kind: 'component',
+          // Evidence span lives on the parent template tag (peer file).
+          moduleId: link.peer,
+          peer: link.peer,
+          label: `${link.peer} → <${link.specifier}>`,
+          key: `component:used_by:${link.peer}->${module.id}@${link.span?.offset ?? 0}`,
+          span: link.span,
+          description: link.kind,
         })),
       });
     }
 
     const edgesByTarget = new Map();
     for (const edge of module.edge_details || []) {
-      const list = edgesByTarget.get(edge.to) || [];
+      const target = edge.to_path || toPath(edge.to, edge.property);
+      const list = edgesByTarget.get(target) || [];
       list.push(edge);
-      edgesByTarget.set(edge.to, list);
+      edgesByTarget.set(target, list);
     }
     if (edgesByTarget.size) {
       children.push({
@@ -328,32 +443,97 @@ function buildTree(modules) {
 }
 
 /**
+ * @param {string | undefined} kind
+ */
+function isReactiveBagKind(kind) {
+  return kind === 'reactive' || kind === 'shallow_reactive';
+}
+
+/**
+ * @param {string} to
+ * @param {string | undefined} property
+ */
+function toPath(to, property) {
+  if (property) return `${to}.${property}`;
+  return to;
+}
+
+/**
+ * @param {ModuleDetail | undefined} module
+ * @param {string} bag
+ * @returns {string[]}
+ */
+function propertiesForBag(module, bag) {
+  /** @type {Set<string>} */
+  const properties = new Set();
+  const prefix = `${bag}.`;
+  for (const edge of module?.edge_details || []) {
+    const path = edge.to_path || toPath(edge.to, edge.property);
+    if (!path.startsWith(prefix)) continue;
+    const rest = path.slice(prefix.length);
+    const property = rest.split('.')[0];
+    if (property) properties.add(property);
+  }
+  return [...properties].sort((left, right) => left.localeCompare(right));
+}
+
+/**
+ * @param {string} target `props` or `props.count`
+ * @returns {{ binding: string, property: string | null }}
+ */
+function splitInspectTarget(target) {
+  const dot = target.indexOf('.');
+  if (dot === -1) {
+    return { binding: target, property: null };
+  }
+  return { binding: target.slice(0, dot), property: target.slice(dot + 1) || null };
+}
+
+/**
+ * @param {import('./model').EdgeDetail | { to: string, property?: string, to_path?: string }} edge
+ * @param {string} binding
+ * @param {string | null} property
+ */
+function edgeToMatches(edge, binding, property) {
+  const path = edge.to_path || toPath(edge.to, edge.property);
+  if (property) {
+    return path === `${binding}.${property}`;
+  }
+  return path === binding || path.startsWith(`${binding}.`);
+}
+
+/**
  * Who reads / tracks a binding (inbound).
  * @param {ModuleDetail | undefined} module
- * @param {string} bindingName
+ * @param {string} bindingName bare binding or `props.count`
  */
 function inboundFor(module, bindingName) {
   /** @type {{ label: string, kind: string, span?: SpanRef, toSpan?: SpanRef, key: string }[]} */
   const items = [];
   if (!module || !bindingName) return items;
+  const { binding, property } = splitInspectTarget(bindingName);
   for (const edge of module.edge_details || []) {
-    if (edge.to !== bindingName) continue;
+    if (!edgeToMatches(edge, binding, property)) continue;
+    const path = edge.to_path || toPath(edge.to, edge.property);
     items.push({
-      label: edge.label || `${edge.from} → ${edge.to}`,
+      label: edge.label || `${edge.from} → ${path}`,
       kind: `reader · ${edge.kind}`,
       span: edge.span,
       toSpan: edge.to_span,
-      key: `edge:${edge.from}->${edge.to}@${edge.span?.offset ?? 0}`,
+      key: `edge:${edge.from}->${path}@${edge.span?.offset ?? 0}`,
     });
   }
-  for (const read of module.template_details || []) {
-    if (read.binding !== bindingName) continue;
-    items.push({
-      label: read.label || `${read.surface} reads ${read.binding}`,
-      kind: `template · ${read.surface}`,
-      span: read.span,
-      key: `template:${read.binding}@${read.surface}@${read.span?.offset ?? 0}`,
-    });
+  // Template joins name the bare binding; include only for bag-level inspect.
+  if (!property) {
+    for (const read of module.template_details || []) {
+      if (read.binding !== binding) continue;
+      items.push({
+        label: read.label || `${read.surface} reads ${read.binding}`,
+        kind: `template · ${read.surface}`,
+        span: read.span,
+        key: `template:${read.binding}@${read.surface}@${read.span?.offset ?? 0}`,
+      });
+    }
   }
   items.sort((left, right) => left.label.localeCompare(right.label));
   return items;
@@ -368,15 +548,19 @@ function outboundFor(module, bindingName) {
   /** @type {{ label: string, kind: string, span?: SpanRef, toSpan?: SpanRef, key: string, to: string }[]} */
   const items = [];
   if (!module || !bindingName) return items;
+  const { binding, property } = splitInspectTarget(bindingName);
+  // Member picks are inbound-only.
+  if (property) return items;
   for (const edge of module.edge_details || []) {
-    if (!edgeFromIsBinding(edge.from, bindingName)) continue;
+    if (!edgeFromIsBinding(edge.from, binding)) continue;
+    const path = edge.to_path || toPath(edge.to, edge.property);
     items.push({
-      label: edge.label || `${edge.from} → ${edge.to}`,
+      label: edge.label || `${edge.from} → ${path}`,
       kind: `dependency · ${edge.kind}`,
       span: edge.span,
       toSpan: edge.to_span,
-      key: `edge:${edge.from}->${edge.to}@${edge.span?.offset ?? 0}`,
-      to: edge.to,
+      key: `edge:${edge.from}->${path}@${edge.span?.offset ?? 0}`,
+      to: path,
     });
   }
   items.sort((left, right) => left.label.localeCompare(right.label));
@@ -414,8 +598,27 @@ function bindingAtOffset(module, byteOffset) {
   return null;
 }
 
+/**
+ * @param {ComponentNavModule[] | undefined} componentNav
+ * @param {string} moduleId
+ * @param {'uses' | 'used_by'} direction
+ */
+function componentLinksFor(componentNav, moduleId, direction) {
+  if (!Array.isArray(componentNav) || !moduleId) return [];
+  const id = normalizePath(moduleId);
+  const module = componentNav.find((item) => normalizePath(item.id) === id);
+  if (!module) return [];
+  const links = direction === 'uses' ? module.uses || [] : module.used_by || [];
+  return [...links].sort((left, right) => {
+    const peer = left.peer.localeCompare(right.peer);
+    if (peer !== 0) return peer;
+    return (left.span?.offset ?? 0) - (right.span?.offset ?? 0);
+  });
+}
+
 module.exports = {
   modulesFromReport,
+  componentNavFromReport,
   normalizePath,
   moduleForFile,
   decorationPlan,
@@ -428,4 +631,9 @@ module.exports = {
   outboundFor,
   edgeFromIsBinding,
   bindingAtOffset,
+  isReactiveBagKind,
+  propertiesForBag,
+  splitInspectTarget,
+  toPath,
+  componentLinksFor,
 };

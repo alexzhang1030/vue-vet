@@ -656,6 +656,10 @@ fn json_print_reactivity_includes_structured_span_details() {
       .any(|item| item.pointer("/span/offset").and_then(Value::as_u64).is_some())
   });
   assert!(span_ok, "structured details must carry span.offset: {stdout}");
+  assert!(
+    parsed.pointer("/component_nav/modules").and_then(Value::as_array).is_some(),
+    "JSON reports must include structural component_nav: {stdout}"
+  );
 }
 
 #[test]

@@ -55,6 +55,17 @@ generated name→path maps enrich (and can override) the convention names so
 `pathPrefix: false` and custom `components` dirs stay accurate. Those dts files
 are part of the graph invalidation set.
 
+## Component navigation (not prop dataflow)
+
+JSON reports expose a compact `component_nav` digest (and the reactivity TUI /
+VS Code host surface the same facts) built only from `ComponentUsage` and
+`AutoComponent` edges: per file `uses` / `used_by` with template-tag evidence
+spans. This is **structural** parent→child component reference navigation.
+
+It does **not** model parent `:foo="bar"` → child `props.foo` reactivity edges,
+runtime component trees, `keep-alive`, or dynamic `:is`. Those remain deferred
+cross-file dataflow work.
+
 ## Initial cross-file rules
 
 - `vue-vet/project/unresolved-import` reports imports that fail bundler

@@ -10,21 +10,30 @@ class ReactivityTreeProvider {
     /** @type {import('./model').ModuleDetail[] | ReturnType<typeof buildTree>} */
     this._roots = [];
     this._modules = [];
+    /** @type {import('./model').ComponentNavModule[]} */
+    this._componentNav = [];
   }
 
   /**
    * @param {import('./model').ModuleDetail[]} modules
+   * @param {import('./model').ComponentNavModule[]} [componentNav]
    */
-  setModules(modules) {
+  setModules(modules, componentNav = []) {
     this._modules = modules;
-    this._roots = buildTree(modules);
+    this._componentNav = componentNav;
+    this._roots = buildTree(modules, componentNav);
     this._onDidChangeTreeData.fire();
   }
 
   clear() {
     this._modules = [];
+    this._componentNav = [];
     this._roots = [];
     this._onDidChangeTreeData.fire();
+  }
+
+  getComponentNav() {
+    return this._componentNav || [];
   }
 
   getModules() {
@@ -49,10 +58,17 @@ class ReactivityTreeProvider {
       item.iconPath = new vscode.ThemeIcon('arrow-right');
     } else if (element.kind === 'template') {
       item.iconPath = new vscode.ThemeIcon('code');
+    } else if (element.kind === 'component') {
+      item.iconPath = new vscode.ThemeIcon('symbol-class');
     } else {
       item.iconPath = new vscode.ThemeIcon('folder');
     }
-    if (element.kind === 'binding' || element.kind === 'edge' || element.kind === 'template') {
+    if (
+      element.kind === 'binding' ||
+      element.kind === 'edge' ||
+      element.kind === 'template' ||
+      element.kind === 'component'
+    ) {
       item.command = {
         command: 'vue-vet.revealTreeNode',
         title: 'Reveal',

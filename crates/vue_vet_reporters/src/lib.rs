@@ -9,14 +9,19 @@ use vue_vet_core::{
   diagnostic_id,
 };
 
+mod component_nav;
 mod github;
 mod humanize;
 mod reactivity;
 mod sarif;
 
+pub use component_nav::{
+  ComponentNavDigest, ComponentNavEdgeInput, ComponentNavLink, ComponentNavModule,
+  component_nav_from_edges,
+};
 pub use humanize::{
-  humanize_binding, humanize_edge, humanize_scope, humanize_source, humanize_template_read,
-  humanize_template_surface, parse_name_offset,
+  humanize_binding, humanize_edge, humanize_edge_parts_with_property, humanize_scope,
+  humanize_source, humanize_template_read, humanize_template_surface, parse_name_offset, to_path,
 };
 pub use reactivity::{
   ReactivityBindingDetail, ReactivityDigest, ReactivityEdgeDetail, ReactivityHotspot,
@@ -51,6 +56,8 @@ pub struct ReportContext {
   pub complete: bool,
   pub skipped_check_reasons: BTreeMap<String, String>,
   pub reactivity: Option<ReactivityDigest>,
+  /// Structural component `uses` / `used_by` (not prop dataflow).
+  pub component_nav: Option<ComponentNavDigest>,
 }
 
 impl Default for ReportContext {
@@ -63,6 +70,7 @@ impl Default for ReportContext {
       complete: true,
       skipped_check_reasons: BTreeMap::new(),
       reactivity: None,
+      component_nav: None,
     }
   }
 }
@@ -104,6 +112,8 @@ struct JsonReport<'a> {
   summary: JsonSummary,
   #[serde(skip_serializing_if = "Option::is_none")]
   reactivity: Option<&'a ReactivityDigest>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  component_nav: Option<&'a ComponentNavDigest>,
   error: Option<JsonError<'a>>,
 }
 
@@ -209,6 +219,7 @@ fn render_json(
       by_severity,
     },
     reactivity: context.reactivity.as_ref(),
+    component_nav: context.component_nav.as_ref(),
     error: None,
   };
   serde_json::to_string_pretty(&report)
@@ -239,6 +250,7 @@ pub fn render_error(message: &str, context: &ReportContext) -> Result<String, se
       by_severity: SeverityCounts::default(),
     },
     reactivity: context.reactivity.as_ref(),
+    component_nav: context.component_nav.as_ref(),
     error: Some(JsonError { message }),
   };
   serde_json::to_string_pretty(&report)
@@ -390,6 +402,7 @@ mod tests {
       project_root: "fixtures/reporters".into(),
       analyzed_files: vec!["no-v-html.vue".into()],
       reactivity: Some(ReactivityDigest::default()),
+      component_nav: Some(ComponentNavDigest::default()),
       ..ReportContext::default()
     }
   }
