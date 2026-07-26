@@ -139,6 +139,14 @@ fn explain_supports_project_rules() {
 }
 
 #[test]
+fn lsp_flag_is_advertised_in_help() {
+  let output = run(&["--help"]);
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  assert!(output.status.success(), "help must succeed: {stdout}");
+  assert!(stdout.contains("--lsp"), "help must advertise the language server flag: {stdout}");
+}
+
+#[test]
 fn explain_rejects_unknown_rule_ids() {
   let output = run_from_workspace(&["--explain", "vue-vet/missing/rule"]);
   let stderr = String::from_utf8_lossy(&output.stderr);

@@ -51,6 +51,7 @@ vue_vet_rules      built-in rules and presets
 vue_vet_project    project graph, cache, baseline, diff
 vue_vet_reporters  text, JSON, SARIF, GitHub annotations
 vue_vet_session    long-lived project session (scan, explain, workspace paths)
+vue_vet_lsp        thin stdio LSP adapter (disk diagnostics)
 vue-vet            CLI binary
 ```
 

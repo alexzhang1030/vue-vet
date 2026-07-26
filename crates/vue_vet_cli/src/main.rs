@@ -46,6 +46,9 @@ struct Cli {
   #[arg(long, help = "Print the effective configuration as JSON and exit")]
   print_config: bool,
 
+  #[arg(long, help = "Run the language server on stdio and exit when the client shuts down")]
+  lsp: bool,
+
   #[arg(
     long,
     value_name = "RULE_OR_FINDING",
@@ -111,6 +114,7 @@ struct FixArgs {
       "write_baseline",
       "diff",
       "print_config",
+      "lsp",
       "explain",
       "print_graph",
       "print_reactivity",
@@ -128,6 +132,7 @@ struct FixArgs {
       "write_baseline",
       "diff",
       "print_config",
+      "lsp",
       "explain",
       "print_graph",
       "print_reactivity",
@@ -176,6 +181,15 @@ impl From<OutputFormat> for ReportFormat {
 )]
 fn main() -> ExitCode {
   let cli = Cli::parse();
+  if cli.lsp {
+    return match vue_vet_lsp::run_stdio() {
+      Ok(()) => ExitCode::SUCCESS,
+      Err(error) => {
+        eprintln!("vue-vet: failed to start language server: {error}");
+        ExitCode::from(2)
+      }
+    };
+  }
   if let Some(target) = cli.explain.as_deref() {
     return run_explain(&cli, target);
   }

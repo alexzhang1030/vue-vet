@@ -93,9 +93,11 @@ the roadmap.
 
 `vue_vet_session` owns the long-lived project analysis handle: config load,
 cached/fresh scans, rule and finding explain, and workspace path containment.
-The CLI (and future LSP/MCP adapters) consume it so diagnostic identity stays
-shared across surfaces. Document overlays, cancellation, and protocol mapping
-remain later issue #12 work.
+The CLI and `vue_vet_lsp` consume it so diagnostic identity stays shared across
+surfaces. The thin LSP (`vue-vet --lsp`) publishes on-disk diagnostics on
+`textDocument/didOpen` and `didSave` with the opaque finding id in LSP `data`.
+Document overlays, cancellation, code actions, and MCP remain later issue #12
+work.
 
 ### Published library crates
 
@@ -156,13 +158,18 @@ rollback, and more edit producers remain later issue #9 work.
 
 Rule IDs and diagnostic fingerprints must remain stable enough for baselines, diff mode, SARIF, LSP, and agent consumers. Results are sorted independently of traversal or hash-map order. Paths in persisted or machine-readable output are repository-relative and normalized.
 
-## Thin editor host (pre-LSP)
+## Thin editor host and diagnostics LSP
 
 `editors/vscode` is a **thin** VS Code host for reactivity visualization. It
 spawns the Rust CLI (`--format json --print-reactivity`), maps structured
 `*_details` byte spans onto decorations / hover / a TreeView, and must not grow
-a parallel tracer. Full diagnostics LSP, code actions, and incremental document
-sync remain issue #12 work.
+a parallel tracer.
+
+`vue-vet --lsp` is the first diagnostics LSP surface (`vue_vet_lsp`). It uses
+`vue_vet_session` for on-disk analysis and publishes `textDocument/publishDiagnostics`
+with the same opaque finding ids as JSON `diagnostics[].id` (stored in LSP
+`data`). Unsaved overlays, cancellation, and safe code actions remain later
+issue #12 work.
 
 ## Project intelligence
 
