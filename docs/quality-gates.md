@@ -21,8 +21,9 @@ Canonical inventory: [`fixtures/quality/manifest.json`](../fixtures/quality/mani
 | --- | --- | --- |
 | `fixtures/projects/basic` | vue, smoke, precision | Smallest default finding (`no-v-html`). |
 | `fixtures/projects/nuxt-graph` | nuxt, performance, precision | Cross-file graph, unresolved import, unused component. |
-| `fixtures/projects/configured` | vue, config | Config discovery and severity overrides. |
-| `fixtures/projects/vue-3.5` | vue, compatibility | Version-aware rule surface. |
+| `fixtures/projects/configured` | vue, config, precision | Config discovery with an active finding. |
+| `fixtures/projects/vue-3.4` | vue, compatibility, precision | Version-gated props destructure diagnostic. |
+| `fixtures/projects/vue-3.5` | vue, compatibility, precision | `prefer-use-template-ref` + unresolved import. |
 
 Selection rules:
 
@@ -108,14 +109,18 @@ in `quality_gates` tests).
 
 ## Compatibility evidence
 
+Machine-checked pin table:
+[`fixtures/quality/compat-matrix.json`](../fixtures/quality/compat-matrix.json)
+(`just compat-matrix`, CI job **Compatibility matrix**).
+
 | Dependency | Required evidence on upgrade |
 | --- | --- |
-| Rust toolchain | `rust-toolchain.toml` bump + `just roll-rust` on CI matrix |
-| Vize | [vize-compatibility](./vize-compatibility.md) procedure |
-| Oxc | Pin note in workspace Cargo.toml + fixture/snapshot review |
-| Vue / Nuxt surface | `vue-3.4` / `vue-3.5` project fixtures + quality corpus |
+| Rust toolchain | Bump `rust-toolchain.toml` + matrix `rust_channel` / MSRV together |
+| Vize | [vize-compatibility](./vize-compatibility.md) + matrix pin + `just quality-gates` |
+| Oxc | Workspace/`Cargo.lock` pin + matrix + fixture/snapshot review |
+| Vue surface | `vue-3.4` / `vue-3.5` fixture ranges in the matrix |
 
-`ast-grep` is not part of the analysis stack; ignore historical mentions.
+Published measurement inventory: [quality-baselines.md](./quality-baselines.md).
 
 ## Executable release checklists
 
@@ -131,13 +136,14 @@ in `quality_gates` tests).
 Run and keep green:
 
 1. `just roll-rust`
-2. `just quality-gates`
-3. `just oracle`
-4. CodSpeed suite (SFC + scan modes) without unexplained regressions
-5. Codecov thresholds (project ≤1pp drop; patch ≥80%)
-6. Cross-platform CI (`ubuntu`, `macos`, `windows`)
-7. Published methodology: this file + `fixtures/quality/manifest.json`
-8. Native release matrix builds (`release.yml`) for supported targets
+2. `just compat-matrix`
+3. `just quality-gates`
+4. `just oracle`
+5. CodSpeed suite (SFC + scan modes) without unexplained regressions
+6. Codecov thresholds (project ≤1pp drop; patch ≥80%)
+7. Cross-platform CI (`ubuntu`, `macos`, `windows`)
+8. Published methodology: this file + [quality-baselines.md](./quality-baselines.md)
+9. Native release matrix builds (`release.yml`) for supported targets
 
 A Beta tag must not ship while `just quality-gates` fails or while an unexplained
 CodSpeed / precision expectation change lands without PR rationale.
@@ -155,6 +161,7 @@ CodSpeed / precision expectation change lands without PR rationale.
 ```bash
 just quality-digest    # print tree digests for corpus projects
 just quality-gates     # integrity + precision + cold/warm identity
+just compat-matrix     # Rust / Vize / Oxc / Vue pin table
 just bench             # local Divan benches (SFC + scan modes)
 just bench-codspeed-build
 just bench-codspeed-run

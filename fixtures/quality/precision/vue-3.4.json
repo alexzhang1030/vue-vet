@@ -1,0 +1,11 @@
+{
+  "project": "vue-3.4",
+  "findings": [
+    {
+      "rule_id": "vue-vet/reactivity/no-nonreactive-props-destructure",
+      "file": "App.vue",
+      "classification": "true_positive",
+      "rationale": "Vue 3.4 fixture exercises version-gated props destructure diagnostic"
+    }
+  ]
+}

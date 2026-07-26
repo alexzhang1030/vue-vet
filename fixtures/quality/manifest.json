@@ -17,13 +17,19 @@
     {
       "id": "configured",
       "path": "fixtures/projects/configured",
-      "roles": ["vue", "config"],
+      "roles": ["vue", "config", "precision"],
       "tree_digest": "98da177754cdf32b1774aa7249ccf160b7f8e908514d020d755afd4f3a2ca17e"
+    },
+    {
+      "id": "vue-3.4",
+      "path": "fixtures/projects/vue-3.4",
+      "roles": ["vue", "compatibility", "precision"],
+      "tree_digest": "ab2343c8303764f9b3165f33ba5840b8c1f0801e65bb2a9f327e2f95460b805b"
     },
     {
       "id": "vue-3.5",
       "path": "fixtures/projects/vue-3.5",
-      "roles": ["vue", "compatibility"],
+      "roles": ["vue", "compatibility", "precision"],
       "tree_digest": "052dea6cfd02ba586b68a4c101b477305557c0878c466fea7384217eeedcbbb2"
     }
   ]

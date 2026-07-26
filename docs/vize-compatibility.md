@@ -31,14 +31,15 @@ the commands and environment when comparing future Vize or toolchain upgrades.
 
 1. Keep the new Vize version exact-pinned while evaluating it.
 2. Confirm its MSRV and Oxc dependency versions against `rust-toolchain.toml`.
-3. Run `just roll-rust`, `just quality-gates`, and `just smoke` on Linux, macOS,
-   and Windows.
-4. Run the parser and rule golden fixtures, including malformed, Unicode, CRLF,
+3. Update `fixtures/quality/compat-matrix.json` pins with the new versions.
+4. Run `just roll-rust`, `just compat-matrix`, `just quality-gates`, and
+   `just smoke` on Linux, macOS, and Windows.
+5. Run the parser and rule golden fixtures, including malformed, Unicode, CRLF,
    comment, and safe-pattern cases.
-5. Review every diagnostic snapshot change for rule identity, message, help,
+6. Review every diagnostic snapshot change for rule identity, message, help,
    severity, and exact byte/line/column spans.
-6. Record API or behavioral differences here and in the relevant PCR record.
-7. Merge the upgrade only with a committed lockfile and green CI evidence.
+7. Record API or behavioral differences here and in the relevant PCR record.
+8. Merge the upgrade only with a committed lockfile and green CI evidence.
 
 Do not loosen the dependency range or replace snapshots solely to unblock an
 upgrade. A changed snapshot is evidence to review, not proof of correctness.

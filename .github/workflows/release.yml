@@ -57,6 +57,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.97.0
       - uses: extractions/setup-just@v3
+      - name: Compatibility matrix
+        run: just compat-matrix
       - name: Corpus integrity, precision, cold/warm identity
         run: just quality-gates
       - name: Reactivity oracle

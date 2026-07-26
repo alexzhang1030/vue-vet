@@ -226,18 +226,20 @@ Implemented (#12):
 - safe quick-fix code actions from explicitly safe diagnostic edits (client-applied)
 - thin `vue-vet --mcp` agent tools (scan / explain / safe-fix preview; no silent apply)
 
-Implemented (#13, first slice):
+Implemented (#13):
 
 - quality corpus manifest + tree digests (`fixtures/quality`)
-- precision labels for `basic` / `nuxt-graph` (`just quality-gates`)
+- precision labels for corpus projects (`just quality-gates`)
 - cold/warm diagnostic identity tests; CodSpeed scan-mode benches
-- release workflow runs `just quality-gates` + `just oracle` before builds
-- methodology: [docs/quality-gates.md](./docs/quality-gates.md)
+- compatibility matrix (`just compat-matrix`, CI + release job)
+- release workflow runs compat + quality-gates + oracle before builds
+- methodology + published baselines: [quality-gates.md](./docs/quality-gates.md),
+  [quality-baselines.md](./docs/quality-baselines.md)
 
-Work (#13, remaining):
+Work (post-#13 hygiene):
 
 - expand corpus / precision labels as product surface grows
-- publish measured Beta numbers with release notes
+- cite CodSpeed + baselines in Beta release notes
 - document a stable API for third-party integrations beyond JSON v1
 
 Exit criteria:

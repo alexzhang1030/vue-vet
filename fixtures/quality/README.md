@@ -5,9 +5,11 @@ Committed reference inputs for issue
 
 - [`manifest.json`](./manifest.json) — corpus members and `tree_digest` values
 - [`precision/`](./precision/) — labeled project finding expectations
+- [`compat-matrix.json`](./compat-matrix.json) — Rust / Vize / Oxc / Vue pins
 
 Methodology and release checklists:
-[docs/quality-gates.md](../../docs/quality-gates.md).
+[docs/quality-gates.md](../../docs/quality-gates.md),
+[docs/quality-baselines.md](../../docs/quality-baselines.md).
 
 After editing a corpus project, run `just quality-digest` and update the digest
 in `manifest.json` in the same change.

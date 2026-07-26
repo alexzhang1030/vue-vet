@@ -85,6 +85,10 @@ quality-digest:
 quality-gates:
   cargo test -p vue-vet --test quality_gates --locked
 
+# Verify pinned Rust / Vize / Oxc / Vue fixture versions against fixtures/quality/compat-matrix.json.
+compat-matrix:
+  cargo test -p vue-vet --test compat_matrix --locked
+
 # Generate an LCOV report for Codecov and local coverage tools.
 coverage-lcov:
   cargo llvm-cov --workspace --all-features --locked --lcov --output-path lcov.info
