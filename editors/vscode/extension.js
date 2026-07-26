@@ -9,6 +9,8 @@ const {
   decorationPlan,
   hoverAtOffset,
   normalizePath,
+  utf8OffsetToUtf16,
+  utf16OffsetToUtf8,
 } = require('./lib/model');
 const { ReactivityTreeProvider } = require('./lib/tree');
 
@@ -170,10 +172,9 @@ async function revealTreeNode(element) {
     const document = await vscode.workspace.openTextDocument(vscode.Uri.file(targetPath));
     const editor = await vscode.window.showTextDocument(document, { preview: true });
     if (element.span && typeof element.span.offset === 'number') {
-      const start = document.positionAt(element.span.offset);
-      const end = document.positionAt(element.span.offset + (element.span.length || 1));
-      editor.selection = new vscode.Selection(start, end);
-      editor.revealRange(new vscode.Range(start, end), vscode.TextEditorRevealType.InCenter);
+      const range = rangeFromByteSpan(document, element.span);
+      editor.selection = new vscode.Selection(range.start, range.end);
+      editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
     }
   } catch {
     // Module id may not map 1:1 onto disk (dual-script `#script`); still update highlights.
@@ -208,10 +209,8 @@ function applyDecorations() {
   const selected = [];
 
   for (const item of plan) {
-    const start = editor.document.positionAt(item.span.offset);
-    const end = editor.document.positionAt(item.span.offset + item.span.length);
     const option = {
-      range: new vscode.Range(start, end),
+      range: rangeFromByteSpan(editor.document, item.span),
       hoverMessage: item.label,
     };
     if (item.role === 'selection') {
@@ -239,7 +238,8 @@ function provideHover(document, position) {
   }
   const relative = normalizePath(path.relative(folder.uri.fsPath, document.uri.fsPath));
   const module = moduleForFile(modules, relative);
-  const offset = document.offsetAt(position);
+  const utf16 = document.offsetAt(position);
+  const offset = utf16OffsetToUtf8(document.getText(), utf16);
   const hit = hoverAtOffset(module, offset);
   if (!hit) {
     return null;
@@ -249,6 +249,18 @@ function provideHover(document, position) {
   markdown.appendMarkdown(`_${hit.kind}_\n\n`);
   markdown.appendMarkdown('Static reactivity fact from `vue-vet --print-reactivity`.');
   return new vscode.Hover(markdown);
+}
+
+/**
+ * Map a Vue Vet UTF-8 byte span onto a VS Code Range (UTF-16 positions).
+ * @param {vscode.TextDocument} document
+ * @param {{ offset: number, length: number }} span
+ */
+function rangeFromByteSpan(document, span) {
+  const text = document.getText();
+  const startUtf16 = utf8OffsetToUtf16(text, span.offset);
+  const endUtf16 = utf8OffsetToUtf16(text, span.offset + (span.length || 1));
+  return new vscode.Range(document.positionAt(startUtf16), document.positionAt(endUtf16));
 }
 
 function deactivate() {

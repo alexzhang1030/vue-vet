@@ -62,3 +62,10 @@ cd editors/vscode && npm test
 
 Pure Node tests cover JSON → tree / decoration / hover planning. No VS Code
 API is required for those checks.
+
+## Span mapping
+
+Vue Vet reports **UTF-8 byte** offsets. VS Code `positionAt` / `offsetAt` use
+**UTF-16** code units. The extension converts before decorating or resolving
+hovers — never pass byte offsets straight into `positionAt` (Unicode prefixes
+would shift highlights to the right).

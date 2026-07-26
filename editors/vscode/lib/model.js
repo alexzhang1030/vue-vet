@@ -72,6 +72,50 @@ function normalizePath(value) {
 }
 
 /**
+ * Vue Vet spans are UTF-8 byte offsets into the original file. VS Code
+ * `positionAt` / `offsetAt` use UTF-16 code units — never treat them as equal.
+ *
+ * @param {string} text
+ * @param {number} byteOffset
+ * @returns {number} UTF-16 offset
+ */
+function utf8OffsetToUtf16(text, byteOffset) {
+  if (!Number.isFinite(byteOffset) || byteOffset <= 0) {
+    return 0;
+  }
+  const encoder = new TextEncoder();
+  let bytes = 0;
+  let utf16 = 0;
+  while (utf16 < text.length && bytes < byteOffset) {
+    const codePoint = text.codePointAt(utf16);
+    if (codePoint === undefined) {
+      break;
+    }
+    const width = codePoint > 0xffff ? 2 : 1;
+    const encoded = encoder.encode(String.fromCodePoint(codePoint));
+    if (bytes + encoded.length > byteOffset) {
+      break;
+    }
+    bytes += encoded.length;
+    utf16 += width;
+  }
+  return utf16;
+}
+
+/**
+ * @param {string} text
+ * @param {number} utf16Offset
+ * @returns {number} UTF-8 byte offset
+ */
+function utf16OffsetToUtf8(text, utf16Offset) {
+  if (!Number.isFinite(utf16Offset) || utf16Offset <= 0) {
+    return 0;
+  }
+  const clamped = Math.min(Math.max(0, Math.floor(utf16Offset)), text.length);
+  return new TextEncoder().encode(text.slice(0, clamped)).length;
+}
+
+/**
  * @param {ModuleDetail[]} modules
  * @param {string} relativePath workspace-relative path of the open document
  * @returns {ModuleDetail | undefined}
@@ -290,4 +334,6 @@ module.exports = {
   hoverAtOffset,
   buildTree,
   isSpan,
+  utf8OffsetToUtf16,
+  utf16OffsetToUtf8,
 };

@@ -10,6 +10,8 @@ const {
   decorationPlan,
   hoverAtOffset,
   buildTree,
+  utf8OffsetToUtf16,
+  utf16OffsetToUtf8,
 } = require('../lib/model');
 
 const sample = JSON.parse(
@@ -54,5 +56,16 @@ describe('reactivity model', () => {
     assert.ok(inbound);
     assert.equal(inbound.children[0].label, '● error');
     assert.equal(inbound.children[0].children[0].kind, 'edge');
+  });
+
+  it('maps UTF-8 byte offsets through multi-byte prefixes for VS Code', () => {
+    // "测" is 3 UTF-8 bytes / 1 UTF-16 unit; without conversion highlights shift right.
+    const text = '测backend';
+    const byteOffset = new TextEncoder().encode('测').length; // start of "backend"
+    assert.equal(utf8OffsetToUtf16(text, byteOffset), 1);
+    assert.equal(text.slice(utf8OffsetToUtf16(text, byteOffset)), 'backend');
+    assert.equal(utf16OffsetToUtf8(text, 1), byteOffset);
+    // ASCII stays identity.
+    assert.equal(utf8OffsetToUtf16('backend', 3), 3);
   });
 });
