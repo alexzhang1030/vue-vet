@@ -191,11 +191,16 @@ coverage empty when the scan never completed, set `summary.score` to `null`, and
 provide the actionable failure in `error.message`. Text mode continues to write
 operational failures to stderr.
 
-## `--explain` (rule documentation)
+## `--explain` (rule or finding documentation)
 
-`--explain <RULE>` is an early-exit surface (no scan report). With
+`--explain <RULE_OR_FINDING>` exits after printing documentation. With
 `--format json` it prints a standalone object — not wrapped in
-`schema_version` / `diagnostics`:
+`schema_version` / `diagnostics`.
+
+### Rule id
+
+A full rule id (for example `vue-vet/security/no-v-html`) is an early-exit lookup
+with no scan:
 
 ```json
 {
@@ -213,8 +218,36 @@ operational failures to stderr.
 file cannot be found (for example a binary-only install without the docs tree),
 `body` is omitted and `body_error` explains why. Unknown rule ids use the normal
 operational-failure contract (exit 2). Text mode prints the same fields as a
-short header plus the Markdown body. Explaining by opaque diagnostic finding id
-is not implemented yet (issue #12 follow-up).
+short header plus the Markdown body.
+
+### Finding id
+
+An opaque diagnostic id from a prior JSON report (values containing `::`) triggers
+a scan of the CLI path, exact id match, then evidence plus nested rule docs:
+
+```json
+{
+  "id": "basic.vue::2:9::vue-vet/security/no-v-html::…",
+  "file": "basic.vue",
+  "span": { "offset": 19, "length": 6, "line": 2, "column": 9 },
+  "severity": "warning",
+  "confidence": "high",
+  "message": "`v-html` can render untrusted HTML into the page",
+  "help": "Prefer normal template interpolation. …",
+  "rule": {
+    "rule_id": "vue-vet/security/no-v-html",
+    "category": "security",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "docs/rules/security/no-v-html.md",
+    "body": "# `vue-vet/security/no-v-html`\n…"
+  }
+}
+```
+
+Re-run with the same scan path that produced the id. A missing match is an
+operational failure (exit 2). Consumers still treat `id` as opaque; the CLI only
+matches the full string.
 
 ## Agent consumption
 

@@ -1,8 +1,9 @@
-//! Rule documentation lookup for `--explain` and future LSP / agent surfaces.
+//! Rule and finding documentation lookup for `--explain` and future LSP / agent surfaces.
 //!
 //! Resolves Vue Vet-owned [`RuleMeta`] documentation keys to repository-local
 //! Markdown paths and optional file bodies. Callers supply the metadata table
 //! (built-ins + project rules); this module does not depend on `vue_vet_rules`.
+//! Finding explain attaches scan evidence to the same rule docs payload.
 
 use std::{
   fs,
@@ -10,9 +11,9 @@ use std::{
 };
 
 use serde::Serialize;
-use vue_vet_core::{Confidence, RuleMeta, Severity};
+use vue_vet_core::{Confidence, Diagnostic, RuleMeta, Severity, SourceSpan};
 
-/// Machine-readable `--explain` payload (early-exit; not the scan report).
+/// Machine-readable `--explain` payload for a rule id (early-exit; not the scan report).
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct RuleExplain {
   pub rule_id: String,
@@ -30,6 +31,24 @@ pub struct RuleExplain {
   /// Why `body` is missing when the rule is known but docs are unavailable.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub body_error: Option<String>,
+}
+
+/// Machine-readable `--explain` payload for an opaque diagnostic finding id.
+///
+/// Requires a scan of the same path that produced the id. Nested `rule` reuses
+/// the rule-docs shape so agents can read remediation without a second lookup.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct FindingExplain {
+  pub id: String,
+  pub file: String,
+  pub span: SourceSpan,
+  pub severity: Severity,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub confidence: Option<Confidence>,
+  pub message: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub help: Option<String>,
+  pub rule: RuleExplain,
 }
 
 /// Map a [`RuleMeta::documentation`] key to the JSON/report path form.
@@ -63,6 +82,35 @@ pub fn explain_rule(meta: &RuleMeta, search_roots: &[PathBuf]) -> RuleExplain {
 #[must_use]
 pub fn find_rule_meta<'a>(rule_id: &str, metas: &[&'a RuleMeta]) -> Option<&'a RuleMeta> {
   metas.iter().copied().find(|meta| meta.id == rule_id)
+}
+
+/// Heuristic for CLI routing: finding ids always contain `::`; rule ids do not.
+///
+/// Consumers must still treat diagnostic ids as opaque strings and never parse
+/// fields out of them; this only decides whether `--explain` should scan.
+#[must_use]
+pub fn looks_like_finding_id(target: &str) -> bool {
+  target.contains("::")
+}
+
+/// Attach scan evidence to rule documentation for a matched finding.
+#[must_use]
+pub fn explain_finding(
+  id: impl Into<String>,
+  diagnostic: &Diagnostic,
+  file: impl Into<String>,
+  rule: RuleExplain,
+) -> FindingExplain {
+  FindingExplain {
+    id: id.into(),
+    file: file.into(),
+    span: diagnostic.span.clone(),
+    severity: diagnostic.severity,
+    confidence: diagnostic.confidence,
+    message: diagnostic.message.clone(),
+    help: diagnostic.help.clone(),
+    rule,
+  }
 }
 
 /// Render a human-readable explain report.
@@ -104,6 +152,55 @@ pub fn render_rule_explain_text(explain: &RuleExplain) -> String {
 ///
 /// Returns a serialization error when the payload cannot be encoded.
 pub fn render_rule_explain_json(explain: &RuleExplain) -> Result<String, serde_json::Error> {
+  serde_json::to_string_pretty(explain)
+}
+
+/// Render a human-readable finding explain report (evidence + rule docs).
+#[must_use]
+pub fn render_finding_explain_text(explain: &FindingExplain) -> String {
+  let mut output = String::new();
+  output.push_str("finding: ");
+  output.push_str(&explain.id);
+  output.push('\n');
+  output.push_str("file: ");
+  output.push_str(&explain.file);
+  output.push('\n');
+  output.push_str("span: ");
+  output.push_str(&explain.span.line.to_string());
+  output.push(':');
+  output.push_str(&explain.span.column.to_string());
+  output.push_str(" (offset ");
+  output.push_str(&explain.span.offset.to_string());
+  output.push_str(", length ");
+  output.push_str(&explain.span.length.to_string());
+  output.push_str(")\n");
+  output.push_str("severity: ");
+  output.push_str(severity_label(explain.severity));
+  output.push('\n');
+  if let Some(confidence) = explain.confidence {
+    output.push_str("confidence: ");
+    output.push_str(confidence_label(confidence));
+    output.push('\n');
+  }
+  output.push_str("message: ");
+  output.push_str(&explain.message);
+  output.push('\n');
+  if let Some(help) = &explain.help {
+    output.push_str("help: ");
+    output.push_str(help);
+    output.push('\n');
+  }
+  output.push('\n');
+  output.push_str(&render_rule_explain_text(&explain.rule));
+  output
+}
+
+/// Serialize finding explain JSON (pretty).
+///
+/// # Errors
+///
+/// Returns a serialization error when the payload cannot be encoded.
+pub fn render_finding_explain_json(explain: &FindingExplain) -> Result<String, serde_json::Error> {
   serde_json::to_string_pretty(explain)
 }
 
@@ -206,5 +303,47 @@ mod tests {
   fn find_rule_meta_matches_exact_id() {
     assert!(find_rule_meta(SAMPLE.id, &[&SAMPLE]).is_some());
     assert!(find_rule_meta("vue-vet/missing", &[&SAMPLE]).is_none());
+  }
+
+  #[test]
+  fn finding_id_heuristic_requires_double_colon() {
+    assert!(looks_like_finding_id("basic.vue::2:9::vue-vet/security/no-v-html::deadbeef"));
+    assert!(!looks_like_finding_id("vue-vet/security/no-v-html"));
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "malformed finding explain JSON must fail the unit test")]
+  fn finding_explain_nests_rule_docs() {
+    use vue_vet_core::{Diagnostic, SourceSpan};
+
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let rule = explain_rule(&SAMPLE, &[root]);
+    let diagnostic = Diagnostic {
+      rule_id: SAMPLE.id.into(),
+      category: SAMPLE.category.into(),
+      severity: Severity::Warning,
+      confidence: Some(Confidence::High),
+      documentation: Some(SAMPLE.documentation.into()),
+      message: "`v-html` can render untrusted HTML into the page".into(),
+      help: Some("Prefer normal template interpolation.".into()),
+      file: PathBuf::from("basic.vue"),
+      span: SourceSpan { offset: 19, length: 6, line: 2, column: 9 },
+      edits: Vec::new(),
+    };
+    let explain = explain_finding(
+      "basic.vue::2:9::vue-vet/security/no-v-html::abc",
+      &diagnostic,
+      "basic.vue",
+      rule,
+    );
+    let text = render_finding_explain_text(&explain);
+    assert!(text.contains("finding: basic.vue::"));
+    assert!(text.contains("message: `v-html`"));
+    assert!(text.contains("## Bad"));
+    let Ok(json) = render_finding_explain_json(&explain) else {
+      panic!("finding explain JSON must serialize");
+    };
+    assert!(json.contains("\"id\""));
+    assert!(json.contains("\"rule\""));
   }
 }

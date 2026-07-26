@@ -26,9 +26,11 @@ use vue_vet_reactivity::{ModuleReactivity, ModuleSource};
 use vue_vet_reporters::{
   ComponentNavDigest, ComponentNavEdgeInput, ReactivityDigest, ReactivityModuleStats,
   ReactivitySpanRef, ReportContext, ReportFormat, ReportFramework, ReportMode, binding_detail,
-  component_nav_from_edges, edge_detail, explain_rule, find_rule_meta, render, render_error,
-  render_reactivity_detail, render_rule_explain_json, render_rule_explain_text, scope_detail,
-  template_read_detail, to_span_from_identity,
+  component_nav_from_edges, edge_detail, explain_finding, explain_rule, find_rule_meta,
+  looks_like_finding_id, render, render_error, render_finding_explain_json,
+  render_finding_explain_text, render_reactivity_detail, render_rule_explain_json,
+  render_rule_explain_text, report_diagnostic_id, scope_detail, template_read_detail,
+  to_span_from_identity,
 };
 use vue_vet_rules::builtin_registry;
 use vue_vet_vize::analyze_sfc_facts_with_environment;
@@ -60,8 +62,8 @@ struct Cli {
 
   #[arg(
     long,
-    value_name = "RULE",
-    help = "Print rule metadata and local documentation, then exit"
+    value_name = "RULE_OR_FINDING",
+    help = "Print rule docs, or scan and explain a finding id, then exit"
   )]
   explain: Option<String>,
 
@@ -188,8 +190,8 @@ impl From<OutputFormat> for ReportFormat {
 )]
 fn main() -> ExitCode {
   let cli = Cli::parse();
-  if let Some(rule_id) = cli.explain.as_deref() {
-    return run_explain(&cli, rule_id);
+  if let Some(target) = cli.explain.as_deref() {
+    return run_explain(&cli, target);
   }
   let config = match load_config(&cli.path, cli.config.as_deref()) {
     Ok(config) => config,
@@ -928,25 +930,95 @@ static PROJECT_RULE_META: [RuleMeta; 2] = [
   },
 ];
 
-#[expect(clippy::print_stdout, reason = "explain is an early-exit CLI surface")]
-fn run_explain(cli: &Cli, rule_id: &str) -> ExitCode {
-  let Some(meta) = resolve_explain_meta(rule_id) else {
+fn run_explain(cli: &Cli, target: &str) -> ExitCode {
+  if let Some(meta) = resolve_explain_meta(target) {
+    let explain = explain_rule(meta, &explain_search_roots(&cli.path));
+    let output = match cli.format {
+      OutputFormat::Text => Ok(render_rule_explain_text(&explain)),
+      OutputFormat::Json => render_rule_explain_json(&explain),
+      OutputFormat::Sarif | OutputFormat::Github => {
+        return operational_failure(cli, "--explain supports --format text or json only");
+      }
+    };
+    return print_explain(cli, output);
+  }
+  if looks_like_finding_id(target) {
+    return run_explain_finding(cli, target);
+  }
+  operational_failure(
+    cli,
+    &format!(
+      "unknown rule `{target}`; pass a full rule id such as `vue-vet/security/no-v-html`, or a finding id from `--format json`"
+    ),
+  )
+}
+
+#[expect(clippy::print_stderr, reason = "cache stats for finding explain belong on stderr")]
+fn run_explain_finding(cli: &Cli, finding_id: &str) -> ExitCode {
+  let config = match load_config(&cli.path, cli.config.as_deref()) {
+    Ok(config) => config,
+    Err(error) => return operational_failure(cli, &error),
+  };
+  let (result, cache_status) = match cached_scan(cli, &config) {
+    Ok(result) => result,
+    Err(error) => return operational_failure(cli, &error),
+  };
+  if cli.cache.cache_stats {
+    eprintln!("vue-vet cache: {cache_status}");
+  }
+  let analyzed_files = analyzed_report_files(&result);
+  let Some(diagnostic) = result
+    .summary
+    .diagnostics
+    .iter()
+    .find(|diagnostic| report_diagnostic_id(diagnostic, &analyzed_files) == finding_id)
+  else {
     return operational_failure(
       cli,
       &format!(
-        "unknown rule `{rule_id}`; pass a full rule id such as `vue-vet/security/no-v-html`"
+        "no finding with id `{finding_id}` in the current scan; re-run with the same path that produced the id"
       ),
     );
   };
+  let file = {
+    let normalized = diagnostic.file.to_string_lossy().replace('\\', "/");
+    analyzed_files
+      .iter()
+      .find(|candidate| {
+        normalized == candidate.as_str()
+          || normalized.strip_suffix(candidate.as_str()).is_some_and(|prefix| prefix.ends_with('/'))
+      })
+      .cloned()
+      .unwrap_or(normalized)
+  };
   let search_roots = explain_search_roots(&cli.path);
-  let explain = explain_rule(meta, &search_roots);
+  let Some(meta) = resolve_explain_meta(&diagnostic.rule_id) else {
+    return operational_failure(
+      cli,
+      &format!("finding `{finding_id}` references unknown rule `{}`", diagnostic.rule_id),
+    );
+  };
+  let explain = explain_finding(finding_id, diagnostic, file, explain_rule(meta, &search_roots));
   let output = match cli.format {
-    OutputFormat::Text => Ok(render_rule_explain_text(&explain)),
-    OutputFormat::Json => render_rule_explain_json(&explain),
+    OutputFormat::Text => Ok(render_finding_explain_text(&explain)),
+    OutputFormat::Json => render_finding_explain_json(&explain),
     OutputFormat::Sarif | OutputFormat::Github => {
       return operational_failure(cli, "--explain supports --format text or json only");
     }
   };
+  print_explain(cli, output)
+}
+
+fn analyzed_report_files(result: &ScanResult) -> Vec<String> {
+  let mut analyzed_files =
+    result.graph.invalidation_inputs.iter().map(|path| path.replace('\\', "/")).collect::<Vec<_>>();
+  analyzed_files.sort();
+  analyzed_files.dedup();
+  analyzed_files
+}
+
+#[expect(clippy::print_stdout, reason = "explain is an early-exit CLI surface")]
+fn print_explain(cli: &Cli, output: Result<String, serde_json::Error>) -> ExitCode {
   match output {
     Ok(rendered) => {
       print!("{rendered}");

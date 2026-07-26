@@ -21,8 +21,9 @@ pub use component_nav::{
   component_nav_from_edges,
 };
 pub use explain::{
-  RuleExplain, documentation_path, explain_rule, find_rule_meta, render_rule_explain_json,
-  render_rule_explain_text,
+  FindingExplain, RuleExplain, documentation_path, explain_finding, explain_rule, find_rule_meta,
+  looks_like_finding_id, render_finding_explain_json, render_finding_explain_text,
+  render_rule_explain_json, render_rule_explain_text,
 };
 pub use humanize::{
   humanize_binding, humanize_edge, humanize_edge_parts_with_property, humanize_scope,
@@ -285,7 +286,7 @@ fn json_diagnostic<'a>(
 ) -> JsonDiagnostic<'a> {
   let file = report_path(&diagnostic.file, analyzed_files);
   JsonDiagnostic {
-    id: diagnostic_id(diagnostic, &file),
+    id: report_diagnostic_id(diagnostic, analyzed_files),
     rule_id: &diagnostic.rule_id,
     category: &diagnostic.category,
     severity: diagnostic.severity,
@@ -307,6 +308,17 @@ fn json_diagnostic<'a>(
       })
       .collect(),
   }
+}
+
+/// Opaque diagnostic identity matching JSON report `diagnostics[].id`.
+///
+/// `analyzed_files` should use `/` separators (same normalization as the JSON
+/// report). Consumers treat the result as opaque; CLI `--explain` matches it
+/// exactly after a scan of the same path.
+#[must_use]
+pub fn report_diagnostic_id(diagnostic: &Diagnostic, analyzed_files: &[String]) -> String {
+  let file = report_path(&diagnostic.file, analyzed_files);
+  diagnostic_id(diagnostic, &file)
 }
 
 fn report_path(path: &Path, analyzed_files: &[String]) -> String {
