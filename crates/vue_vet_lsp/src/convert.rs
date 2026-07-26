@@ -14,8 +14,8 @@ use vue_vet_reporters::report_diagnostic_id;
 
 /// Convert a Vue Vet finding into an LSP diagnostic.
 ///
-/// The opaque finding id is stored in `data` as a JSON string so clients and
-/// agents can call `--explain <id>` without re-deriving identity. `code` is the
+/// `data` is a JSON object with opaque finding `id` (for `--explain`) and an
+/// optional `recommendation` payload for practice suggestions. `code` is the
 /// stable rule id. Positions use the same 1-based line/byte-column convention as
 /// Vue Vet user-facing spans, converted to 0-based LSP positions (UTF-8 / byte
 /// columns for this thin slice; ASCII fixtures stay UTF-16 compatible).
@@ -35,8 +35,19 @@ pub fn to_lsp_diagnostic(
     message: diagnostic.message.clone(),
     related_information: None,
     tags: None,
-    data: Some(serde_json::Value::String(id)),
+    data: Some(lsp_diagnostic_data(&id, diagnostic)),
   }
+}
+
+fn lsp_diagnostic_data(id: &str, diagnostic: &Diagnostic) -> serde_json::Value {
+  let mut map = serde_json::Map::new();
+  map.insert("id".into(), serde_json::Value::String(id.into()));
+  if let Some(recommendation) = &diagnostic.recommendation
+    && let Ok(value) = serde_json::to_value(recommendation)
+  {
+    map.insert("recommendation".into(), value);
+  }
+  serde_json::Value::Object(map)
 }
 
 #[must_use]
@@ -253,6 +264,7 @@ mod tests {
       file: PathBuf::from("basic.vue"),
       span: SourceSpan { offset: 19, length: 6, line: 2, column: 9 },
       edits: Vec::new(),
+      recommendation: None,
     };
     let analyzed = vec!["basic.vue".into()];
     let lsp = to_lsp_diagnostic(
@@ -267,7 +279,10 @@ mod tests {
     assert_eq!(lsp.range.start.character, 8);
     assert_eq!(lsp.range.end.character, 14);
     let id = report_diagnostic_id(&diagnostic, &analyzed);
-    assert_eq!(lsp.data, Some(serde_json::Value::String(id)));
+    assert_eq!(
+      lsp.data.as_ref().and_then(|value| value.get("id")).and_then(serde_json::Value::as_str),
+      Some(id.as_str())
+    );
   }
 
   #[test]
@@ -304,6 +319,7 @@ mod tests {
           rule_id: "vue-vet/accessibility/no-autofocus".into(),
         },
       ],
+      recommendation: None,
     };
     let analyzed = vec!["App.vue".into()];
     let actions = safe_code_actions(
@@ -326,8 +342,8 @@ mod tests {
     assert_eq!(action.kind.as_ref(), Some(&CodeActionKind::QUICKFIX));
     assert_eq!(action.is_preferred, Some(true));
     assert_eq!(
-      action.data,
-      Some(serde_json::Value::String(report_diagnostic_id(&diagnostic, &analyzed)))
+      action.data.as_ref().and_then(|value| value.as_str()),
+      Some(report_diagnostic_id(&diagnostic, &analyzed).as_str())
     );
     let Some(WorkspaceEdit { document_changes: Some(DocumentChanges::Edits(edits)), .. }) =
       &action.edit
@@ -366,6 +382,7 @@ mod tests {
         applicability: EditApplicability::Safe,
         rule_id: "vue-vet/accessibility/no-autofocus".into(),
       }],
+      recommendation: None,
     };
     let analyzed = vec!["App.vue".into()];
     let only = [CodeActionKind::REFACTOR];

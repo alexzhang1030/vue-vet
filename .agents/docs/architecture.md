@@ -10,9 +10,10 @@ vue-vet CLI
        -> vue_vet_project edges + vue_vet_reactivity module seed linking
           (module first-pass + seeded re-trace also parallel)
        -> apply module graphs onto setup and dual ordinary (#script) blocks
-       -> parallel seed-aware vue_vet_rules
+       -> parallel seed-aware vue_vet_rules + vue_vet_practice
        -> severity overrides and scoped suppressions
-       -> vue_vet_core diagnostics, spans, scoring (sorted for determinism)
+       -> vue_vet_core diagnostics, spans, scoring (sorted for determinism;
+          category `practice` excluded from score / default CI exit)
   -> vue_vet_reporters text or JSON rendering
   -> CLI output and CI exit policy
 ```
@@ -43,10 +44,14 @@ vue-vet CLI
 
 `no-v-html` remains the reference AST-backed built-in rule. Phase 2 adds the Oxc
 adapter while keeping both dependency ASTs behind Vue Vet-owned facts.
-Every built-in rule is a self-contained module under `vue_vet_rules/src/rules`:
+Every built-in lint rule is a self-contained module under `vue_vet_rules/src/rules`:
 the module owns its metadata, rule type, and detection/reporting logic. The
 parent module only declares modules and assembles the built-in registry; it does
 not dispatch rule behavior through a shared enum or central match.
+Ecosystem practice suggestions live in `vue_vet_practice`: recipe metadata plus
+thin `Rule` implementations that consume the same Vue Vet facts (no parallel
+pattern engine). Practice findings use `category: "practice"`, attach an optional
+`recommendation` payload, and stay off the score / default CI exit path.
 The CLI derives per-file Vue capabilities from the nearest package.json and passes
 them into per-file rules without exposing package-manager state to parser adapters.
 The Oxc adapter delegates reactivity construction to `vue_vet_reactivity`.
@@ -85,11 +90,11 @@ project discovery and configuration
 ## Crate evolution
 
 Existing crates are `vue_vet_core`, `vue_vet_config`, `vue_vet_vize`,
-`vue_vet_oxc`, `vue_vet_reactivity`, `vue_vet_rules`, `vue_vet_project`,
-`vue_vet_reporters`, `vue_vet_session`, and the `vue-vet` CLI. New rule
-capabilities extend these semantic and product boundaries only when a working
-vertical slice exercises them; there is no separate pattern-engine boundary in
-the roadmap.
+`vue_vet_oxc`, `vue_vet_reactivity`, `vue_vet_rules`, `vue_vet_practice`,
+`vue_vet_project`, `vue_vet_reporters`, `vue_vet_session`, and the `vue-vet` CLI.
+New rule capabilities extend these semantic and product boundaries only when a
+working vertical slice exercises them; there is no separate pattern-engine
+boundary in the roadmap.
 
 `vue_vet_session` owns the long-lived project analysis handle: config load,
 cached/fresh scans, unsaved buffer overlays (`analyze_with_overlays`), rule and

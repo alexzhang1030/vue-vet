@@ -8,9 +8,12 @@
   recommends a newer Vue API — for example `prefer-use-template-ref`. Reserve Warning for
   real risk, unused waste, or likely bugs. Severity weights still feed the density score
   (Info 1 / Warning 3 / Error 10) and finding-ID digests; absolute count alone does not.
-- Every built-in rule keeps its metadata and `Rule` implementation in one
+- Every built-in lint rule keeps its metadata and `Rule` implementation in one
   dedicated file under `vue_vet_rules/src/rules`; the registry module only
-  assembles rules and must not become a behavior dispatcher.
+  assembles rules and must not become a behavior dispatcher. Practice
+  suggestions live in `vue_vet_practice` with the same per-rule module shape,
+  `category: "practice"`, and an optional `recommendation` payload; they must
+  not affect score or default CI exit.
 - Rules use the pass API: declare `fact_kinds`, implement `run_on` for per-fact
   checks, and use `run_once` only for true multi-fact aggregation. Prefer
   immediate `report` inside the visitor. Do not filter the whole fact set into a

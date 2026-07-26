@@ -1,10 +1,16 @@
-use vue_vet_core::RuleRegistry;
+use vue_vet_core::{Rule, RuleRegistry};
 
 mod rules;
 
+/// Built-in lint / gate rules (excludes practice suggestions).
+#[must_use]
+pub fn builtin_rules() -> Vec<&'static dyn Rule> {
+  rules::builtins()
+}
+
 #[must_use]
 pub fn builtin_registry() -> RuleRegistry {
-  RuleRegistry::new(rules::builtins())
+  RuleRegistry::new(builtin_rules())
 }
 
 #[cfg(test)]

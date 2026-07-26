@@ -5,6 +5,7 @@ use std::{
   path::{Path, PathBuf},
 };
 
+use crate::file_analysis_registry;
 use ignore::{DirEntry, WalkBuilder};
 use vue_vet_cache::{CacheLookup, CachePayload, CacheStore, content_key};
 use vue_vet_config::{Config, apply_suppressions};
@@ -14,7 +15,6 @@ use vue_vet_core::{
 use vue_vet_oxc::analyze_module;
 use vue_vet_project::{ProjectFile, ProjectGraph, build_project_graph, resolver_config_inputs};
 use vue_vet_reactivity::ModuleSource;
-use vue_vet_rules::builtin_registry;
 use vue_vet_vize::analyze_sfc_facts_with_environment;
 
 use crate::{AnalysisSnapshot, SessionError};
@@ -278,7 +278,7 @@ fn scan_parallel(
       if let Some(graph) = modules.get(ordinary_id.as_str()) {
         facts.apply_module_reactivity_for(vue_vet_core::ScriptKind::Script, graph.clone());
       }
-      let diagnostics = builtin_registry().run_with_environment(
+      let diagnostics = file_analysis_registry().run_with_environment(
         &pending.path,
         &pending.source,
         &facts.template,

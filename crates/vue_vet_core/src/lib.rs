@@ -49,6 +49,20 @@ pub struct SourceSpan {
   pub column: usize,
 }
 
+/// Category for ecosystem / best-practice suggestions (excluded from score and CI exit).
+pub const PRACTICE_CATEGORY: &str = "practice";
+
+/// Optional ecosystem API recommendation attached to a finding (JSON v1 additive).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct Recommendation {
+  /// Recommendation shape; currently always `ecosystem_api`.
+  pub kind: String,
+  pub package: String,
+  pub export: String,
+  pub docs_url: String,
+  pub import_example: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Diagnostic {
   pub rule_id: String,
@@ -62,6 +76,23 @@ pub struct Diagnostic {
   pub span: SourceSpan,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub edits: Vec<TextEdit>,
+  /// Ecosystem or official-API suggestion payload (practice findings).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub recommendation: Option<Recommendation>,
+}
+
+impl Diagnostic {
+  /// Practice suggestions do not affect score or default CI failure.
+  #[must_use]
+  pub fn affects_score(&self) -> bool {
+    self.category != PRACTICE_CATEGORY
+  }
+
+  /// Practice suggestions never fail the scan unless later opt-in policy says so.
+  #[must_use]
+  pub fn affects_exit(&self) -> bool {
+    self.category != PRACTICE_CATEGORY
+  }
 }
 
 /// Builds the stable, opaque identity used by machine-readable report consumers.
@@ -988,6 +1019,11 @@ impl<'a> RuleContext<'a> {
   }
 
   #[must_use]
+  pub const fn file(&self) -> &Path {
+    self.file
+  }
+
+  #[must_use]
   pub const fn source(&self) -> &str {
     self.source
   }
@@ -1014,7 +1050,18 @@ impl<'a> RuleContext<'a> {
     message: String,
     help: Option<String>,
   ) {
-    self.push_diagnostic(meta, span, message, help, Vec::new());
+    self.push_diagnostic(meta, span, message, help, Vec::new(), None);
+  }
+
+  pub fn report_with_recommendation(
+    &mut self,
+    meta: &RuleMeta,
+    span: SourceSpan,
+    message: String,
+    help: Option<String>,
+    recommendation: Recommendation,
+  ) {
+    self.push_diagnostic(meta, span, message, help, Vec::new(), Some(recommendation));
   }
 
   pub fn report_with_safe_edit(
@@ -1033,7 +1080,7 @@ impl<'a> RuleContext<'a> {
       applicability: EditApplicability::Safe,
       rule_id: meta.id.into(),
     };
-    self.push_diagnostic(meta, span, message, help, vec![edit]);
+    self.push_diagnostic(meta, span, message, help, vec![edit], None);
   }
 
   fn push_diagnostic(
@@ -1043,6 +1090,7 @@ impl<'a> RuleContext<'a> {
     message: String,
     help: Option<String>,
     edits: Vec<TextEdit>,
+    recommendation: Option<Recommendation>,
   ) {
     self.diagnostics.push(Diagnostic {
       rule_id: meta.id.into(),
@@ -1055,6 +1103,7 @@ impl<'a> RuleContext<'a> {
       file: self.file.to_path_buf(),
       span,
       edits,
+      recommendation,
     });
   }
 }
@@ -1261,20 +1310,23 @@ impl ScanSummary {
       ))
     });
 
-    let raw_weight = self.diagnostics.iter().fold(0_u32, |total, diagnostic| {
-      total.saturating_add(match diagnostic.severity {
-        Severity::Error => 10,
-        Severity::Warning => 3,
-        Severity::Info => 1,
-      })
-    });
+    let raw_weight = self.diagnostics.iter().filter(|diagnostic| diagnostic.affects_score()).fold(
+      0_u32,
+      |total, diagnostic| {
+        total.saturating_add(match diagnostic.severity {
+          Severity::Error => 10,
+          Severity::Warning => 3,
+          Severity::Info => 1,
+        })
+      },
+    );
     self.score = density_score(raw_weight, self.files_scanned);
     self
   }
 
   #[must_use]
   pub fn fails(&self, deny_warnings: bool) -> bool {
-    self.diagnostics.iter().any(|diagnostic| {
+    self.diagnostics.iter().filter(|diagnostic| diagnostic.affects_exit()).any(|diagnostic| {
       diagnostic.severity == Severity::Error
         || (deny_warnings && diagnostic.severity == Severity::Warning)
     })
@@ -1343,6 +1395,7 @@ mod tests {
       file: "Component.vue".into(),
       span: SourceSpan { offset: 0, length: 1, line: 1, column: 1 },
       edits: Vec::new(),
+      recommendation: None,
     };
     let concentrated =
       ScanSummary { files_scanned: 1, diagnostics: vec![diagnostic.clone(); 40], score: 100 }
@@ -1362,6 +1415,32 @@ mod tests {
   }
 
   #[test]
+  fn practice_findings_do_not_affect_score_or_exit() {
+    let practice = Diagnostic {
+      rule_id: "vue-vet/practice/example".into(),
+      category: PRACTICE_CATEGORY.into(),
+      severity: Severity::Error,
+      confidence: Some(Confidence::Medium),
+      documentation: Some("rules/practice/example".into()),
+      message: "prefer a library helper".into(),
+      help: None,
+      file: "App.vue".into(),
+      span: SourceSpan { offset: 0, length: 1, line: 1, column: 1 },
+      edits: Vec::new(),
+      recommendation: Some(Recommendation {
+        kind: "ecosystem_api".into(),
+        package: "@vueuse/core".into(),
+        export: "useDebounceFn".into(),
+        docs_url: "https://vueuse.org/core/useDebounceFn/".into(),
+        import_example: "import { useDebounceFn } from '@vueuse/core'".into(),
+      }),
+    };
+    let summary = ScanSummary { files_scanned: 1, diagnostics: vec![practice], score: 0 }.finish();
+    assert_eq!(summary.score, 100);
+    assert!(!summary.fails(true));
+  }
+
+  #[test]
   fn diagnostic_identity_is_stable_and_tracks_user_visible_content() {
     let diagnostic = Diagnostic {
       rule_id: "vue-vet/test/rule".into(),
@@ -1374,6 +1453,7 @@ mod tests {
       file: "ignored-absolute-path/App.vue".into(),
       span: SourceSpan { offset: 8, length: 3, line: 2, column: 4 },
       edits: Vec::new(),
+      recommendation: None,
     };
     let first = diagnostic_id(&diagnostic, "src/App.vue");
     let second = diagnostic_id(&diagnostic, "src/App.vue");

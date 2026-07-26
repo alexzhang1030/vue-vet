@@ -40,7 +40,10 @@ fn lsp_diagnostics_carry_cli_finding_ids() {
   for diagnostic in &snapshot.summary.diagnostics {
     let expected = report_diagnostic_id(diagnostic, &snapshot.analyzed_files);
     let lsp = to_lsp_diagnostic(diagnostic, &snapshot.analyzed_files, Some(&source));
-    assert_eq!(lsp.data, Some(serde_json::Value::String(expected)));
+    assert_eq!(
+      lsp.data.as_ref().and_then(|value| value.get("id")).and_then(serde_json::Value::as_str),
+      Some(expected.as_str())
+    );
     assert_eq!(lsp.source.as_deref(), Some("vue-vet"));
   }
 }
@@ -68,7 +71,10 @@ fn overlay_snapshot_finding_ids_match_cli_identity() {
   for diagnostic in &snapshot.summary.diagnostics {
     let expected = report_diagnostic_id(diagnostic, &snapshot.analyzed_files);
     let lsp = to_lsp_diagnostic(diagnostic, &snapshot.analyzed_files, Some(dirty));
-    assert_eq!(lsp.data, Some(serde_json::Value::String(expected)));
+    assert_eq!(
+      lsp.data.as_ref().and_then(|value| value.get("id")).and_then(serde_json::Value::as_str),
+      Some(expected.as_str())
+    );
   }
   assert!(is_current_generation(Some(1), 1));
   assert!(!is_current_generation(Some(2), 1));

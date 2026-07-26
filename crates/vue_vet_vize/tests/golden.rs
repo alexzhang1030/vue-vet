@@ -184,6 +184,49 @@ fn recommended_rule_pack_safe_patterns_are_quiet() {
 }
 
 #[test]
+fn practice_vueuse_fixtures_match_exact_diagnostics() {
+  assert_diagnostics(
+    "fixtures/rules/vueuse-use-debounce-fn/invalid/hand-rolled.vue",
+    include_str!("../../../fixtures/rules/vueuse-use-debounce-fn/invalid/hand-rolled.vue"),
+    include_str!("../../../fixtures/snapshots/vueuse-use-debounce-fn/hand-rolled.json"),
+  );
+  assert_diagnostics(
+    "fixtures/rules/vueuse-use-event-listener/invalid/add-without-remove.vue",
+    include_str!(
+      "../../../fixtures/rules/vueuse-use-event-listener/invalid/add-without-remove.vue"
+    ),
+    include_str!("../../../fixtures/snapshots/vueuse-use-event-listener/add-without-remove.json"),
+  );
+}
+
+#[test]
+fn practice_vueuse_safe_fixtures_produce_no_diagnostics() {
+  let empty = "[]";
+  for (path, source) in [
+    (
+      "fixtures/rules/vueuse-use-debounce-fn/valid/use-debounce-fn.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-debounce-fn/valid/use-debounce-fn.vue"),
+    ),
+    (
+      "fixtures/rules/vueuse-use-debounce-fn/valid/plain-timeout.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-debounce-fn/valid/plain-timeout.vue"),
+    ),
+    (
+      "fixtures/rules/vueuse-use-event-listener/valid/use-event-listener.vue",
+      include_str!(
+        "../../../fixtures/rules/vueuse-use-event-listener/valid/use-event-listener.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/vueuse-use-event-listener/valid/with-remove.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-event-listener/valid/with-remove.vue"),
+    ),
+  ] {
+    assert_diagnostics(path, source, empty);
+  }
+}
+
+#[test]
 fn no_v_html_invalid_fixtures_match_exact_diagnostics() {
   assert_diagnostics(
     "fixtures/rules/no-v-html/invalid/basic.vue",

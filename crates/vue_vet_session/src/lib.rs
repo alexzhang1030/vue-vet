@@ -16,10 +16,11 @@ use std::{
 use thiserror::Error;
 use vue_vet_cache::default_cache_dir;
 use vue_vet_config::{CONFIG_FILE, Config};
-use vue_vet_core::{Confidence, RuleMeta, ScanSummary, Severity};
+use vue_vet_core::{Confidence, RuleMeta, RuleRegistry, ScanSummary, Severity};
+use vue_vet_practice::practice_rules;
 use vue_vet_project::{PROJECT_RULE_IDS, ProjectGraph};
 use vue_vet_reporters::{FindingExplain, RuleExplain, find_rule_meta};
-use vue_vet_rules::builtin_registry;
+use vue_vet_rules::builtin_rules;
 
 pub use explain::Explained;
 pub use path::resolve_under_root;
@@ -205,13 +206,24 @@ impl ProjectSession {
   }
 }
 
-/// Look up built-in or project rule metadata by exact id.
+/// Per-file lint + practice registry shared by session scans.
+#[must_use]
+pub fn file_analysis_registry() -> RuleRegistry {
+  let mut rules = builtin_rules();
+  rules.extend(practice_rules());
+  RuleRegistry::new(rules)
+}
+
+/// Look up built-in, practice, or project rule metadata by exact id.
 #[must_use]
 pub fn resolve_rule_meta(rule_id: &str) -> Option<&'static RuleMeta> {
-  let builtins = builtin_registry().metadata();
-  let mut metas = builtins;
+  let mut metas = file_analysis_registry().metadata();
   metas.extend(PROJECT_RULE_META.iter());
   find_rule_meta(rule_id, &metas)
+}
+
+fn known_rule_ids() -> impl Iterator<Item = &'static str> {
+  file_analysis_registry().metadata().into_iter().map(|meta| meta.id).chain(PROJECT_RULE_IDS)
 }
 
 fn load_config(root: &Path, explicit: Option<&Path>) -> Result<Config, SessionError> {
@@ -233,9 +245,7 @@ fn load_config(root: &Path, explicit: Option<&Path>) -> Result<Config, SessionEr
     Config::default()
   };
   config
-    .validate_rules(
-      builtin_registry().metadata().into_iter().map(|meta| meta.id).chain(PROJECT_RULE_IDS),
-    )
+    .validate_rules(known_rule_ids())
     .map_err(|error| SessionError::message(error.to_string()))?;
   Ok(config)
 }
