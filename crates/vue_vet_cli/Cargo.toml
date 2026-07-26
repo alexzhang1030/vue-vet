@@ -30,6 +30,7 @@ vue_vet_reporters = { path = "../vue_vet_reporters" }
 vue_vet_config = { path = "../vue_vet_config" }
 vue_vet_rules = { path = "../vue_vet_rules" }
 vue_vet_session = { path = "../vue_vet_session" }
+vue_vet_lsp = { path = "../vue_vet_lsp" }
 vue_vet_vize = { path = "../vue_vet_vize" }
 ratatui.workspace = true
 

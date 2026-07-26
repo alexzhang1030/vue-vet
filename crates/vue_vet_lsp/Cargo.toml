@@ -1,0 +1,23 @@
+[package]
+publish = false
+name = "vue_vet_lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Thin LSP adapter over vue_vet_session for editor diagnostics"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json.workspace = true
+tokio.workspace = true
+tower-lsp.workspace = true
+vue_vet_core = { path = "../vue_vet_core" }
+vue_vet_reporters = { path = "../vue_vet_reporters" }
+vue_vet_session = { path = "../vue_vet_session" }
