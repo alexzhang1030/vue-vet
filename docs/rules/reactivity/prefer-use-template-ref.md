@@ -1,5 +1,8 @@
 # Prefer useTemplateRef on Vue 3.5 and newer
 
+Default severity: **info**. The older `ref(null)` mirror remains correct; this is a Vue 3.5+
+migration preference, not a correctness warning.
+
 Vue 3.5 provides `useTemplateRef()` to connect a script binding to a static template ref without
 manually mirroring the key with `ref(null)`.
 

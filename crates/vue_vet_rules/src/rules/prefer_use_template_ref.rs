@@ -7,7 +7,7 @@ use vue_vet_core::{
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/prefer-use-template-ref",
   category: "reactivity",
-  default_severity: Severity::Warning,
+  default_severity: Severity::Info,
   confidence: Confidence::High,
   documentation: "rules/reactivity/prefer-use-template-ref",
 };
