@@ -10,12 +10,19 @@ use vue_vet_core::{
 };
 
 mod github;
+mod humanize;
 mod reactivity;
 mod sarif;
 
+pub use humanize::{
+  humanize_binding, humanize_edge, humanize_scope, humanize_source, humanize_template_read,
+  humanize_template_surface, parse_name_offset,
+};
 pub use reactivity::{
-  ReactivityDigest, ReactivityHotspot, ReactivityModuleDetail, ReactivityModuleStats,
-  render_reactivity_detail, render_reactivity_footer,
+  ReactivityBindingDetail, ReactivityDigest, ReactivityEdgeDetail, ReactivityHotspot,
+  ReactivityModuleDetail, ReactivityModuleStats, ReactivityScopeDetail, ReactivitySpanRef,
+  ReactivityTemplateReadDetail, binding_detail, edge_detail, render_reactivity_detail,
+  render_reactivity_footer, scope_detail, template_read_detail, to_span_from_identity,
 };
 
 pub const JSON_SCHEMA_VERSION: u8 = 1;
@@ -507,20 +514,12 @@ mod tests {
 
   #[test]
   fn text_report_appends_reactivity_digest() {
-    let digest = ReactivityDigest::from_modules(
-      &[ReactivityModuleStats {
-        id: "App.vue".into(),
-        bindings: 2,
-        scopes: 1,
-        edges: 1,
-        template_reads: 1,
-        binding_labels: Vec::new(),
-        scope_labels: Vec::new(),
-        edge_labels: Vec::new(),
-        template_labels: Vec::new(),
-      }],
-      None,
-    );
+    let mut module = ReactivityModuleStats::empty("App.vue");
+    module.bindings = 2;
+    module.scopes = 1;
+    module.edges = 1;
+    module.template_reads = 1;
+    let digest = ReactivityDigest::from_modules(&[module], None);
     let context = ReportContext { reactivity: Some(digest), ..ReportContext::default() };
     let rendered = render(&ScanSummary::default(), ReportFormat::Text, &context);
     let rendered = rendered.as_deref().ok().unwrap_or("");

@@ -7,13 +7,16 @@ use std::{cmp::Reverse, collections::BTreeMap, io::IsTerminal};
 
 use ratatui::{
   DefaultTerminal, Frame,
-  crossterm::event::{self, Event, KeyCode, KeyEventKind, MouseEventKind},
+  crossterm::event::{self, Event, KeyCode, KeyEventKind, MouseButton, MouseEventKind},
   layout::{Constraint, Direction, Layout, Rect},
   style::{Color, Modifier, Style},
   text::{Line, Span},
   widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
-use vue_vet_reporters::ReactivityModuleStats;
+use vue_vet_reporters::{
+  ReactivityModuleStats, humanize_binding, humanize_edge, humanize_scope, humanize_source,
+  humanize_template_read, humanize_template_surface,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Focus {
@@ -25,6 +28,14 @@ enum Focus {
 enum PanelMode {
   Detail,
   Graph,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum MouseHit {
+  Modules { visible_index: usize },
+  Panel,
+  Help,
+  Outside,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -67,6 +78,8 @@ struct BrowseApp {
   show_help: bool,
   error: Option<String>,
   should_quit: bool,
+  modules_area: Rect,
+  panel_area: Rect,
 }
 
 impl BrowseApp {
@@ -82,6 +95,8 @@ impl BrowseApp {
       show_help: false,
       error,
       should_quit: false,
+      modules_area: Rect::default(),
+      panel_area: Rect::default(),
     };
     app.rebuild_visible();
     app
@@ -158,11 +173,34 @@ impl BrowseApp {
       Event::Mouse(mouse) => match mouse.kind {
         MouseEventKind::ScrollDown => self.on_scroll(1),
         MouseEventKind::ScrollUp => self.on_scroll(-1),
+        MouseEventKind::Down(MouseButton::Left) => self.on_click(mouse.column, mouse.row),
         _ => {}
       },
       _ => {}
     }
     Ok(())
+  }
+
+  fn on_click(&mut self, column: u16, row: u16) {
+    let list_offset = self.list_state.offset();
+    match hit_test(
+      column,
+      row,
+      self.modules_area,
+      self.panel_area,
+      self.show_help,
+      list_offset,
+      self.visible.len(),
+    ) {
+      MouseHit::Help => self.show_help = false,
+      MouseHit::Modules { visible_index } => {
+        self.focus = Focus::Modules;
+        self.list_state.select(Some(visible_index));
+        self.panel_scroll = 0;
+      }
+      MouseHit::Panel => self.focus = Focus::Panel,
+      MouseHit::Outside => {}
+    }
   }
 
   fn on_scroll(&mut self, delta: i32) {
@@ -293,6 +331,8 @@ impl BrowseApp {
       .direction(Direction::Horizontal)
       .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
       .areas(area);
+    self.modules_area = list_area;
+    self.panel_area = panel_area;
     let items = self
       .visible
       .iter()
@@ -309,7 +349,8 @@ impl BrowseApp {
         ))
       })
       .collect::<Vec<_>>();
-    let list_title = if self.focus == Focus::Modules { "modules (focused)" } else { "modules" };
+    let list_title =
+      if self.focus == Focus::Modules { "modules (focused · click)" } else { "modules (click)" };
     let list = List::new(items)
       .block(Block::default().borders(Borders::ALL).title(list_title))
       .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
@@ -318,10 +359,10 @@ impl BrowseApp {
 
     let lines = self.panel_lines();
     let panel_title = match (self.panel_mode, self.focus) {
-      (PanelMode::Detail, Focus::Panel) => "detail (focused · j/k scroll)",
-      (PanelMode::Detail, Focus::Modules) => "detail (Tab to focus · g graph)",
-      (PanelMode::Graph, Focus::Panel) => "graph (focused · j/k scroll)",
-      (PanelMode::Graph, Focus::Modules) => "graph (Tab to focus · g detail)",
+      (PanelMode::Detail, Focus::Panel) => "detail (focused · j/k / wheel)",
+      (PanelMode::Detail, Focus::Modules) => "detail (click/Tab · g graph)",
+      (PanelMode::Graph, Focus::Panel) => "graph (focused · j/k / wheel)",
+      (PanelMode::Graph, Focus::Modules) => "graph (click/Tab · g detail)",
     };
     let border =
       if self.focus == Focus::Panel { Style::default().fg(Color::Cyan) } else { Style::default() };
@@ -357,11 +398,54 @@ impl BrowseApp {
     };
     frame.render_widget(
       Paragraph::new(format!(
-        "Tab focus ({focus}) · j/k move/scroll · g {mode} · e empty · ? help · q quit"
+        "click/Tab focus ({focus}) · j/k move/scroll · g {mode} · e empty · ? help · q quit"
       )),
       area,
     );
   }
+}
+
+/// Resolve a mouse click against the last drawn pane rects.
+#[must_use]
+fn hit_test(
+  column: u16,
+  row: u16,
+  modules_area: Rect,
+  panel_area: Rect,
+  show_help: bool,
+  list_offset: usize,
+  visible_len: usize,
+) -> MouseHit {
+  if show_help {
+    return MouseHit::Help;
+  }
+  if rect_contains(modules_area, column, row) {
+    if visible_len == 0 {
+      return MouseHit::Modules { visible_index: 0 };
+    }
+    let last = visible_len.saturating_sub(1);
+    let inner_y = row.saturating_sub(modules_area.y).saturating_sub(1);
+    let inner_height = modules_area.height.saturating_sub(2);
+    if inner_height == 0
+      || row <= modules_area.y
+      || row >= modules_area.y.saturating_add(modules_area.height).saturating_sub(1)
+    {
+      return MouseHit::Modules { visible_index: list_offset.min(last) };
+    }
+    let index = list_offset.saturating_add(usize::from(inner_y));
+    return MouseHit::Modules { visible_index: index.min(last) };
+  }
+  if rect_contains(panel_area, column, row) {
+    return MouseHit::Panel;
+  }
+  MouseHit::Outside
+}
+
+const fn rect_contains(area: Rect, column: u16, row: u16) -> bool {
+  column >= area.x
+    && row >= area.y
+    && column < area.x.saturating_add(area.width)
+    && row < area.y.saturating_add(area.height)
 }
 
 fn detail_lines(module: &BrowseModule) -> Vec<Line<'static>> {
@@ -461,122 +545,20 @@ fn split_template_read(label: &str) -> Option<(&str, &str)> {
   label.split_once('@')
 }
 
-fn strip_offset(source: &str) -> &str {
-  source.split_once('@').map_or(source, |(head, _)| head)
-}
-
-/// Turn tracer machine labels into short Vue-facing phrases.
-#[must_use]
-pub fn humanize_source(source: &str) -> String {
-  let source = strip_offset(source);
-  if let Some(surface) = source.strip_prefix("template:") {
-    return humanize_template_surface(surface);
-  }
-  if let Some((kind, rest)) = source.split_once(':') {
-    return match kind {
-      "watch_sources" => format!("watch({})", rest.trim_start_matches("watch")),
-      "watch_callback" => "watch callback".into(),
-      "watch_effect" => "watchEffect()".into(),
-      "watch_post_effect" => "watchPostEffect()".into(),
-      "watch_sync_effect" => "watchSyncEffect()".into(),
-      "computed" => {
-        if rest.is_empty() {
-          "computed()".into()
-        } else {
-          format!("computed({rest})")
-        }
-      }
-      "effect_scope" => "effectScope()".into(),
-      "on_scope_dispose" => "onScopeDispose()".into(),
-      _ => format!("{kind}({rest})"),
-    };
-  }
-  match source {
-    "watchEffect" => "watchEffect()".into(),
-    "watchPostEffect" => "watchPostEffect()".into(),
-    "watchSyncEffect" => "watchSyncEffect()".into(),
-    "computed" => "computed()".into(),
-    "watch" => "watch()".into(),
-    other => other.into(),
-  }
-}
-
-#[must_use]
-pub fn humanize_template_surface(surface: &str) -> String {
-  match surface {
-    "if" => "v-if".into(),
-    "else-if" => "v-else-if".into(),
-    "show" => "v-show".into(),
-    "for" => "v-for".into(),
-    "on" => "v-on / @".into(),
-    "bind" => "v-bind / :".into(),
-    "model" => "v-model".into(),
-    "slot" => "v-slot".into(),
-    "text" | "interpolation" => "{{ }}".into(),
-    "html" => "v-html".into(),
-    "class" => ":class".into(),
-    "style" => ":style".into(),
-    "ref" => "ref=".into(),
-    other => format!("template:{other}"),
-  }
-}
-
-#[must_use]
-pub fn humanize_edge(edge: &str) -> String {
-  split_edge(edge)
-    .map_or_else(|| edge.to_owned(), |(from, to)| format!("{}  →  {to}", humanize_source(from)))
-}
-
-#[must_use]
-pub fn humanize_binding(binding: &str) -> String {
-  binding.split_once(':').map_or_else(
-    || binding.to_owned(),
-    |(name, kind)| format!("{name}  ({})", kind.replace('_', " ")),
-  )
-}
-
-#[must_use]
-pub fn humanize_scope(scope: &str) -> String {
-  // watch_effect(count) / computed(double)
-  if let Some((kind, rest)) = scope.split_once('(') {
-    let inner = rest.trim_end_matches(')');
-    let label = match kind {
-      "watch_effect" => "watchEffect",
-      "watch_post_effect" => "watchPostEffect",
-      "watch_sync_effect" => "watchSyncEffect",
-      "watch_sources" => "watch",
-      "watch_callback" => "watch callback",
-      "computed" => "computed",
-      "effect_scope" => "effectScope",
-      "on_scope_dispose" => "onScopeDispose",
-      other => other,
-    };
-    if inner.is_empty() { format!("{label}()") } else { format!("{label}({inner})") }
-  } else {
-    humanize_source(scope)
-  }
-}
-
-#[must_use]
-pub fn humanize_template_read(label: &str) -> String {
-  split_template_read(label).map_or_else(
-    || label.to_owned(),
-    |(binding, surface)| format!("{}  reads  {binding}", humanize_template_surface(surface)),
-  )
-}
-
 fn draw_help(frame: &mut Frame<'_>) {
   let area = centered_rect(70, 70, frame.area());
   let help = Paragraph::new(vec![
     Line::from(Span::styled("Help", Style::default().add_modifier(Modifier::BOLD))),
     Line::from(""),
     Line::from("Navigation"),
+    Line::from("  click         select module / focus panel"),
     Line::from("  Tab / h l     focus modules ↔ panel"),
     Line::from("  j k / ↑ ↓     move list or scroll panel"),
+    Line::from("  wheel         same as j/k for focused pane"),
     Line::from("  PgUp PgDn     scroll panel faster"),
     Line::from("  g             toggle detail ↔ graph"),
     Line::from("  e             show/hide empty modules"),
-    Line::from("  ?             close this help"),
+    Line::from("  ? / click     close this help"),
     Line::from(""),
     Line::from("What the labels mean"),
     Line::from("  binding → reactive local (ref / computed / …)"),
@@ -671,19 +653,17 @@ mod tests {
     edges: usize,
     reads: usize,
   ) -> ReactivityModuleStats {
-    ReactivityModuleStats {
-      id: id.into(),
-      bindings,
-      scopes,
-      edges,
-      template_reads: reads,
-      binding_labels: (0..bindings).map(|index| format!("b{index}:ref")).collect(),
-      scope_labels: (0..scopes).map(|index| format!("watch_effect(s{index})")).collect(),
-      edge_labels: (0..edges)
-        .map(|index| format!("template:if@{index} -> target{index}"))
-        .collect(),
-      template_labels: (0..reads).map(|index| format!("name{index}@interpolation")).collect(),
-    }
+    let mut stats = ReactivityModuleStats::empty(id);
+    stats.bindings = bindings;
+    stats.scopes = scopes;
+    stats.edges = edges;
+    stats.template_reads = reads;
+    stats.binding_labels = (0..bindings).map(|index| format!("b{index}:ref")).collect();
+    stats.scope_labels = (0..scopes).map(|index| format!("watch_effect(s{index})")).collect();
+    stats.edge_labels =
+      (0..edges).map(|index| format!("template:if@{index} -> target{index}")).collect();
+    stats.template_labels = (0..reads).map(|index| format!("name{index}@interpolation")).collect();
+    stats
   }
 
   #[test]
@@ -724,11 +704,30 @@ mod tests {
   }
 
   #[test]
-  fn humanizes_template_and_watch_edges() {
-    assert_eq!(humanize_edge("template:if@11768 -> error"), "v-if  →  error");
-    assert_eq!(humanize_edge("template:interpolation@12154 -> hint"), "{{ }}  →  hint");
-    assert_eq!(humanize_edge("template:class@14082 -> backend"), ":class  →  backend");
-    assert_eq!(humanize_edge("watch_sources:watch@11110 -> backend"), "watch()  →  backend");
+  fn hit_test_selects_module_row_and_panel() {
+    let modules = Rect { x: 0, y: 3, width: 20, height: 10 };
+    let panel = Rect { x: 20, y: 3, width: 40, height: 10 };
+    assert_eq!(hit_test(2, 5, modules, panel, false, 0, 5), MouseHit::Modules { visible_index: 1 });
+    assert_eq!(hit_test(2, 5, modules, panel, false, 2, 5), MouseHit::Modules { visible_index: 3 });
+    assert_eq!(hit_test(25, 6, modules, panel, false, 0, 5), MouseHit::Panel);
+    assert_eq!(hit_test(25, 6, modules, panel, true, 0, 5), MouseHit::Help);
+  }
+
+  #[test]
+  fn click_focuses_panel_and_selects_module() {
+    let ranked = ranked_modules(&[
+      stats("a.vue", 3, 0, 0, 0),
+      stats("b.vue", 2, 0, 0, 0),
+      stats("c.vue", 1, 0, 0, 0),
+    ]);
+    let mut app = BrowseApp::new(ranked, None);
+    app.modules_area = Rect { x: 0, y: 3, width: 20, height: 10 };
+    app.panel_area = Rect { x: 20, y: 3, width: 40, height: 10 };
+    app.on_click(25, 6);
+    assert_eq!(app.focus, Focus::Panel);
+    app.on_click(2, 5);
+    assert_eq!(app.focus, Focus::Modules);
+    assert_eq!(app.selected_module().map(|module| module.id.as_str()), Some("b.vue"));
   }
 
   #[test]

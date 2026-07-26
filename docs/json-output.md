@@ -52,10 +52,55 @@ nothing.” Totals cover traced modules, bindings, tracking scopes, dependency
 edges, and template joins. `hotspots` lists up to five busiest modules. When
 tracing fails, `error` is set on this object (and `project.skipped_checks`
 includes `module_reactivity`). `--print-reactivity` also fills
-`modules_detail` with per-module binding/scope/edge/template labels.
+`modules_detail` with per-module binding/scope/edge/template **string labels**
+plus structured span details for editor consumers:
+
+```json
+{
+  "id": "App.vue",
+  "bindings": ["error:ref"],
+  "scopes": [],
+  "edges": ["template:if@11768 -> error"],
+  "template_reads": ["error@if"],
+  "binding_details": [
+    {
+      "name": "error",
+      "kind": "ref",
+      "span": { "offset": 420, "length": 5 },
+      "label": "error  (ref)"
+    }
+  ],
+  "edge_details": [
+    {
+      "from": "template:if@11768",
+      "to": "error",
+      "to_id": "error@420",
+      "kind": "template",
+      "span": { "offset": 11768, "length": 5 },
+      "to_span": { "offset": 420, "length": 5 },
+      "label": "v-if  →  error"
+    }
+  ],
+  "scope_details": [],
+  "template_details": [
+    {
+      "binding": "error",
+      "surface": "if",
+      "span": { "offset": 11768, "length": 5 },
+      "label": "v-if  reads  error"
+    }
+  ]
+}
+```
+
+`span` / `to_span` are source **byte** ranges (`offset` + `length`). Editors should
+map them with UTF-8-aware `positionAt`. String label arrays remain for text
+reports and older consumers; prefer `*_details` when present. Humanized `label`
+fields match the reactivity TUI wording.
 
 Default `--format text` prints the same digest under a `Reactivity` footer after
-the score line.
+the score line. The thin VS Code host under `editors/vscode/` consumes
+`--format json --print-reactivity` and does not re-implement the tracer.
 
 ## Diagnostic identity
 

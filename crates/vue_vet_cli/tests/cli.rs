@@ -618,6 +618,47 @@ fn print_reactivity_lists_module_detail() {
 }
 
 #[test]
+#[expect(clippy::panic, reason = "malformed JSON reports must fail the integration test")]
+fn json_print_reactivity_includes_structured_span_details() {
+  let project = fixture("projects/module-seeds");
+  let output = run(&[
+    project.to_string_lossy().as_ref(),
+    "--format",
+    "json",
+    "--print-reactivity",
+    "--no-cache",
+  ]);
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  assert!(output.status.success(), "json print-reactivity must succeed: {stdout}");
+  let Ok(parsed) = serde_json::from_str::<Value>(&stdout) else {
+    panic!("JSON report must parse: {stdout}");
+  };
+  let Some(details) = parsed.pointer("/reactivity/modules_detail").and_then(Value::as_array) else {
+    panic!("modules_detail array missing: {stdout}");
+  };
+  assert!(!details.is_empty(), "expected at least one module detail");
+  let has_structured = details.iter().any(|module| {
+    module.get("binding_details").and_then(Value::as_array).is_some_and(|items| !items.is_empty())
+      || module.get("edge_details").and_then(Value::as_array).is_some_and(|items| !items.is_empty())
+      || module
+        .get("template_details")
+        .and_then(Value::as_array)
+        .is_some_and(|items| !items.is_empty())
+  });
+  assert!(has_structured, "modules_detail should include structured *_details: {stdout}");
+  let span_ok = details.iter().any(|module| {
+    module
+      .get("edge_details")
+      .and_then(Value::as_array)
+      .into_iter()
+      .flatten()
+      .chain(module.get("binding_details").and_then(Value::as_array).into_iter().flatten())
+      .any(|item| item.pointer("/span/offset").and_then(Value::as_u64).is_some())
+  });
+  assert!(span_ok, "structured details must carry span.offset: {stdout}");
+}
+
+#[test]
 fn reactivity_tui_requires_an_interactive_terminal() {
   let project = fixture("projects/module-seeds");
   let output = run(&[project.to_string_lossy().as_ref(), "--reactivity-tui", "--no-cache"]);

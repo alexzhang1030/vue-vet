@@ -14,8 +14,8 @@ use vue_vet_cache::{
 };
 use vue_vet_config::{CONFIG_FILE, Config, apply_suppressions};
 use vue_vet_core::{
-  ReactiveBindingKind, RuleEnvironment, ScanSummary, ScriptFacts, SfcFacts, TemplateFacts,
-  TrackingScopeKind, VueVersion,
+  ReactiveBindingKind, ReactiveDependencyKind, RuleEnvironment, ScanSummary, ScriptFacts, SfcFacts,
+  TemplateFacts, TrackingScopeKind, VueVersion,
 };
 use vue_vet_oxc::analyze_module;
 use vue_vet_project::{
@@ -23,8 +23,9 @@ use vue_vet_project::{
 };
 use vue_vet_reactivity::{ModuleReactivity, ModuleSource};
 use vue_vet_reporters::{
-  ReactivityDigest, ReactivityModuleStats, ReportContext, ReportFormat, ReportFramework,
-  ReportMode, render, render_error, render_reactivity_detail,
+  ReactivityDigest, ReactivityModuleStats, ReactivitySpanRef, ReportContext, ReportFormat,
+  ReportFramework, ReportMode, binding_detail, edge_detail, render, render_error,
+  render_reactivity_detail, scope_detail, template_read_detail, to_span_from_identity,
 };
 use vue_vet_rules::builtin_registry;
 use vue_vet_vize::analyze_sfc_facts_with_environment;
@@ -640,40 +641,112 @@ fn reactivity_module_stats(modules: &[ModuleReactivity]) -> Vec<ReactivityModule
   let mut stats = modules
     .iter()
     .map(|module| {
-      let mut binding_labels = module
+      let binding_len_by_name = module
         .graph
         .bindings
         .iter()
-        .map(|binding| format!("{}:{}", binding.name, binding_kind_label(binding.kind)))
+        .map(|binding| (binding.name.as_str(), binding.span.length.max(binding.name.len())))
+        .collect::<BTreeMap<_, _>>();
+      let mut binding_details = module
+        .graph
+        .bindings
+        .iter()
+        .map(|binding| {
+          binding_detail(
+            binding.name.clone(),
+            binding_kind_label(binding.kind),
+            ReactivitySpanRef::new(binding.span.offset, binding.span.length.max(1)),
+          )
+        })
         .collect::<Vec<_>>();
-      binding_labels.sort();
-      let mut scope_labels = module
+      binding_details.sort_by(|left, right| {
+        (left.name.as_str(), left.kind.as_str()).cmp(&(right.name.as_str(), right.kind.as_str()))
+      });
+      let binding_labels =
+        binding_details.iter().map(|detail| format!("{}:{}", detail.name, detail.kind)).collect();
+
+      let mut scope_details = module
         .graph
         .scopes
         .iter()
         .map(|scope| {
-          let kind = scope_kind_label(scope.kind);
-          scope.binding.as_ref().map_or_else(
-            || format!("{kind}({})", scope.callee),
-            |binding| format!("{kind}({binding})"),
+          scope_detail(
+            scope_kind_label(scope.kind),
+            scope.callee.clone(),
+            scope.binding.clone(),
+            ReactivitySpanRef::new(scope.span.offset, scope.span.length.max(1)),
           )
         })
         .collect::<Vec<_>>();
-      scope_labels.sort();
-      let mut edge_labels = module
+      scope_details.sort_by(|left, right| {
+        (left.kind.as_str(), left.callee.as_str(), left.binding.as_deref()).cmp(&(
+          right.kind.as_str(),
+          right.callee.as_str(),
+          right.binding.as_deref(),
+        ))
+      });
+      let scope_labels = scope_details
+        .iter()
+        .map(|detail| {
+          detail.binding.as_ref().map_or_else(
+            || format!("{}({})", detail.kind, detail.callee),
+            |binding| format!("{}({binding})", detail.kind),
+          )
+        })
+        .collect();
+
+      let mut edge_details = module
         .graph
         .edges
         .iter()
-        .map(|edge| format!("{} -> {}", edge.from, edge.to))
+        .map(|edge| {
+          let to_span = to_span_from_identity(edge.to_id.as_deref(), |name| {
+            binding_len_by_name.get(name).copied()
+          });
+          edge_detail(
+            edge.from.clone(),
+            edge.to.clone(),
+            edge.to_id.clone(),
+            dependency_kind_label(edge.kind),
+            ReactivitySpanRef::new(edge.span.offset, edge.span.length.max(1)),
+            to_span,
+          )
+        })
         .collect::<Vec<_>>();
-      edge_labels.sort();
-      let mut template_labels = module
+      edge_details.sort_by(|left, right| {
+        (left.from.as_str(), left.to.as_str(), left.span.offset).cmp(&(
+          right.from.as_str(),
+          right.to.as_str(),
+          right.span.offset,
+        ))
+      });
+      let edge_labels =
+        edge_details.iter().map(|detail| format!("{} -> {}", detail.from, detail.to)).collect();
+
+      let mut template_details = module
         .graph
         .template_reads
         .iter()
-        .map(|read| format!("{}@{}", read.binding, read.surface))
+        .map(|read| {
+          template_read_detail(
+            read.binding.clone(),
+            read.surface.clone(),
+            ReactivitySpanRef::new(read.span.offset, read.span.length.max(1)),
+          )
+        })
         .collect::<Vec<_>>();
-      template_labels.sort();
+      template_details.sort_by(|left, right| {
+        (left.binding.as_str(), left.surface.as_str(), left.span.offset).cmp(&(
+          right.binding.as_str(),
+          right.surface.as_str(),
+          right.span.offset,
+        ))
+      });
+      let template_labels = template_details
+        .iter()
+        .map(|detail| format!("{}@{}", detail.binding, detail.surface))
+        .collect();
+
       ReactivityModuleStats {
         id: module.id.clone(),
         bindings: module.graph.bindings.len(),
@@ -684,11 +757,23 @@ fn reactivity_module_stats(modules: &[ModuleReactivity]) -> Vec<ReactivityModule
         scope_labels,
         edge_labels,
         template_labels,
+        binding_details,
+        scope_details,
+        edge_details,
+        template_details,
       }
     })
     .collect::<Vec<_>>();
   stats.sort_by(|left, right| left.id.cmp(&right.id));
   stats
+}
+
+const fn dependency_kind_label(kind: ReactiveDependencyKind) -> &'static str {
+  match kind {
+    ReactiveDependencyKind::Computed => "computed",
+    ReactiveDependencyKind::Effect => "effect",
+    ReactiveDependencyKind::Template => "template",
+  }
 }
 
 const fn binding_kind_label(kind: ReactiveBindingKind) -> &'static str {

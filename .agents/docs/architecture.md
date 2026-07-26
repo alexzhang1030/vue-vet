@@ -149,6 +149,14 @@ rollback, and more edit producers remain later issue #9 work.
 
 Rule IDs and diagnostic fingerprints must remain stable enough for baselines, diff mode, SARIF, LSP, and agent consumers. Results are sorted independently of traversal or hash-map order. Paths in persisted or machine-readable output are repository-relative and normalized.
 
+## Thin editor host (pre-LSP)
+
+`editors/vscode` is a **thin** VS Code host for reactivity visualization. It
+spawns the Rust CLI (`--format json --print-reactivity`), maps structured
+`*_details` byte spans onto decorations / hover / a TreeView, and must not grow
+a parallel tracer. Full diagnostics LSP, code actions, and incremental document
+sync remain issue #12 work.
+
 ## Project intelligence
 
 Cross-file findings are derived from a Vue Vet-owned graph of imports, components, composables, routes, stores, and Nuxt conventions. Diff mode must invalidate and re-run affected graph consumers; it cannot scan only changed files and silently lose a newly caused project-level failure.

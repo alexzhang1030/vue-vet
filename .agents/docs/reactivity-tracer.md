@@ -20,8 +20,11 @@ Related: [architecture](./architecture.md), [gotchas](./gotchas.md),
 - The CLI surfaces a **Reactivity** digest after the score line (optional
   `--print-reactivity` text detail, or `--reactivity-tui` interactive browser)
   so a clean score is distinguishable from a no-op tracer. Machine consumers get
-  the same totals via JSON `reactivity`. The TUI ranks modules busiest-first,
-  hides empty modules by default, and requires an interactive TTY.
+  the same totals via JSON `reactivity`; `--print-reactivity` also emits
+  structured `*_details` spans for editor hosts. The TUI ranks modules
+  busiest-first, hides empty modules by default, supports click/wheel mouse
+  input, and requires an interactive TTY. `editors/vscode` is a thin CLI
+  consumer (not LSP).
 
 ## What “complete” means
 
@@ -181,3 +184,7 @@ growing prose ledger.
 | 2026-07-26 | Bare Nuxt/auto-import Vue APIs | Unresolved allowlist names (`ref`, `watchEffect`, …) resolve without `import`; local lookalikes still quiet |
 | 2026-07-26 | `--reactivity-tui` | Interactive busiest-first browser for module facts; TTY-only; empty modules hidden until toggled |
 | 2026-07-26 | TUI UX | Tab-focus panel scroll; humanized edge labels (`v-if → x`); `g` graph groups inbound reads by binding; `?` explains `@offset` |
+| 2026-07-26 | TUI mouse | Click modules/panel to focus/select; help dismiss on click; wheel unchanged |
+| 2026-07-26 | Digest structured spans | `--print-reactivity` JSON adds `binding_details` / `edge_details` / `scope_details` / `template_details` with byte spans + shared humanize labels |
+| 2026-07-26 | Thin VS Code host | `editors/vscode` consumes CLI JSON only (TreeView / decorations / hover); not the #12 LSP surface |
+| 2026-07-26 | Editor UTF-8→UTF-16 | VS Code decorations must convert byte spans; raw `positionAt(byteOffset)` shifts highlights after multi-byte prefixes |
