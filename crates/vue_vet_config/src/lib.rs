@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, path::Path};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use vue_vet_core::{Confidence, Diagnostic, Severity, SourceSpan};
+use vue_vet_core::{Confidence, Diagnostic, PRACTICE_CATEGORY, Severity, SourceSpan};
 
 pub const CONFIG_FILE: &str = "vue-vet.toml";
 pub const CONFIG_VERSION: u32 = 1;
@@ -36,11 +36,21 @@ impl RuleLevel {
   }
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PracticeMode {
+  #[default]
+  On,
+  Off,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
   pub version: u32,
   pub preset: Preset,
+  /// Ecosystem practice suggestions (`category: practice`). Default `on`.
+  pub practice: PracticeMode,
   pub include: Vec<String>,
   pub exclude: Vec<String>,
   pub rules: BTreeMap<String, RuleLevel>,
@@ -51,6 +61,7 @@ impl Default for Config {
     Self {
       version: CONFIG_VERSION,
       preset: Preset::Recommended,
+      practice: PracticeMode::On,
       include: vec!["**/*.vue".into()],
       exclude: Vec::new(),
       rules: BTreeMap::new(),
@@ -121,6 +132,13 @@ impl Config {
             _ => return invalid(line_number, "preset must be `recommended` or `none`".into()),
           };
         }
+        "practice" => {
+          config.practice = match unquote(value).as_deref() {
+            Ok("on") => PracticeMode::On,
+            Ok("off") => PracticeMode::Off,
+            _ => return invalid(line_number, "practice must be `on` or `off`".into()),
+          };
+        }
         "include" => config.include = parse_string_array(value, line_number)?,
         "exclude" => config.exclude = parse_string_array(value, line_number)?,
         _ => return invalid(line_number, format!("unknown key `{key}`")),
@@ -153,6 +171,9 @@ impl Config {
     diagnostics
       .into_iter()
       .filter_map(|mut diagnostic| {
+        if self.practice == PracticeMode::Off && diagnostic.category == PRACTICE_CATEGORY {
+          return None;
+        }
         let configured = self.rules.get(&diagnostic.rule_id).copied();
         if self.preset == Preset::None && configured.is_none() {
           return None;
@@ -436,6 +457,21 @@ exclude = ["src/generated/**"]
       applied.first().map(|diagnostic| diagnostic.severity),
       Some(Severity::Error),
       "configured severity must override the preset"
+    );
+  }
+
+  #[test]
+  fn practice_off_drops_practice_category_findings() {
+    let config = Config::parse("version = 1\npractice = \"off\"\n").unwrap_or_default();
+    assert_eq!(config.practice, PracticeMode::Off);
+    let mut practice = diagnostic("vue-vet/practice/vueuse-use-debounce-fn", 1);
+    practice.category = PRACTICE_CATEGORY.into();
+    let lint = diagnostic("vue-vet/security/no-v-html", 2);
+    let applied = config.apply(vec![practice, lint]);
+    assert_eq!(applied.len(), 1);
+    assert_eq!(
+      applied.first().map(|diagnostic| diagnostic.rule_id.as_str()),
+      Some("vue-vet/security/no-v-html")
     );
   }
 

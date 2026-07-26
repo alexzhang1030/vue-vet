@@ -168,7 +168,8 @@ way to validate and inspect the current safe plan without writing files.
 Practice suggestions (`category: "practice"`) may also include an additive
 `recommendation` object (still `schema_version` 1). They appear in
 `diagnostics` and text `Suggestions` sections, but do **not** reduce
-`summary.score` or fail the default CI exit. Example:
+`summary.score` or fail the default CI exit. Set `practice = "off"` in
+`vue-vet.toml` to drop the channel before reporting. Example:
 
 ```json
 {

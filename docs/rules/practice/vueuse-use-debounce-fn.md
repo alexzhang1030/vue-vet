@@ -2,7 +2,7 @@
 
 Default severity: **info**. Category: **practice** (excluded from score and default CI exit).
 
-When a script both assigns `setTimeout` and calls `clearTimeout`, the pattern usually implements a hand-rolled debounce. VueUse provides `useDebounceFn` with the same intent and less lifecycle bookkeeping.
+When a script assigns `setTimeout` to a binding and later `clearTimeout`s **that same binding**, the pattern usually implements a hand-rolled debounce. VueUse provides `useDebounceFn` with the same intent and less lifecycle bookkeeping.
 
 ## Bad
 
@@ -30,7 +30,7 @@ const search = useDebounceFn((query) => {
 
 ## Limitations
 
-Requires both an assigned `setTimeout` and a `clearTimeout` call in the same script block. Plain one-shot timers stay quiet. Already importing or calling `useDebounceFn` is a safe pattern. Test files (`.test.` / `.spec.` / `__tests__`) are skipped.
+Requires an assigned `setTimeout` whose binding appears as an identifier argument to `clearTimeout` in the same script block. Unrelated timers, plain one-shot `setTimeout`, and already importing/calling `useDebounceFn` stay quiet. Test files (`.test.` / `.spec.` / `__tests__`) are skipped.
 
 ## Remediation
 

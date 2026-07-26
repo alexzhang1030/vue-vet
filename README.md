@@ -60,6 +60,7 @@ configuration.
 ```toml
 version = 1
 preset = "recommended"
+practice = "on"
 include = ["src/**/*.vue"]
 exclude = ["src/generated/**"]
 
@@ -68,6 +69,9 @@ exclude = ["src/generated/**"]
 "vue-vet/accessibility/no-autofocus" = "off"
 ```
 
+`practice` is `on` (default) or `off`. When `off`, ecosystem practice suggestions
+(`category: practice`) are dropped before scoring and reporting; individual
+practice rule IDs can still be toggled under `[rules]` when practice is on.
 Levels are `off`, `info`, `warning`, and `error`. Unknown fields, rule IDs,
 values, and future versions fail before scanning. Scoped exceptions work in
 Vue template and script comments:

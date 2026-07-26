@@ -469,6 +469,7 @@ mod tests {
             callee: (*callee).into(),
             assigned_to: None,
             resolved_import: None,
+            argument_identifiers: Vec::new(),
             span: span(index.saturating_add(10)),
           })
           .collect(),

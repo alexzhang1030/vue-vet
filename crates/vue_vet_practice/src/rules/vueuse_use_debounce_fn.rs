@@ -1,10 +1,9 @@
-use std::path::Path;
+use vue_vet_core::{Confidence, PRACTICE_CATEGORY, Rule, RuleContext, RuleMeta, Severity};
 
-use vue_vet_core::{
-  Confidence, PRACTICE_CATEGORY, Recommendation, Rule, RuleContext, RuleMeta, Severity,
+use crate::{
+  recipe::{EcosystemApi, PracticeRecipe},
+  util::{already_uses_target, is_test_path, optional_dependency_help, recommendation_from},
 };
-
-use crate::recipe::{EcosystemApi, PracticeRecipe};
 
 const RECIPE: PracticeRecipe = PracticeRecipe {
   rule_id: "vue-vet/practice/vueuse-use-debounce-fn",
@@ -38,59 +37,35 @@ impl Rule for VueuseUseDebounceFn {
     if is_test_path(context.file()) {
       return;
     }
-    let spans = context
+    let findings = context
       .script()
       .blocks
       .iter()
       .filter(|block| !already_uses_target(block, RECIPE.recommend.export))
-      .filter(|block| block.calls.iter().any(|call| call.callee == "clearTimeout"))
       .filter_map(|block| {
-        block
+        let set_timeout = block
           .calls
           .iter()
-          .find(|call| call.callee == "setTimeout" && call.assigned_to.is_some())
-          .map(|call| call.span.clone())
+          .find(|call| call.callee == "setTimeout" && call.assigned_to.is_some())?;
+        let timer = set_timeout.assigned_to.as_deref()?;
+        let linked_clear = block.calls.iter().any(|call| {
+          call.callee == "clearTimeout"
+            && call.argument_identifiers.iter().any(|name| name == timer)
+        });
+        linked_clear.then(|| {
+          (set_timeout.span.clone(), optional_dependency_help(block, RECIPE.recommend.export))
+        })
       })
       .collect::<Vec<_>>();
-    for span in spans {
+    for (span, help) in findings {
       context.report_with_recommendation(
         self.meta(),
         span,
-        "This looks like a hand-rolled debounce with `setTimeout` / `clearTimeout`; consider VueUse `useDebounceFn`.".into(),
-        Some(
-          "Optional dependency: install `@vueuse/core` when you want the helper, then replace the timer wrapper."
-            .into(),
-        ),
+        "This looks like a hand-rolled debounce that clears and reassigns the same timer; consider VueUse `useDebounceFn`.".into(),
+        Some(help),
         recommendation_from(RECIPE.recommend),
       );
     }
-  }
-}
-
-fn already_uses_target(block: &vue_vet_core::ScriptBlockFacts, export: &str) -> bool {
-  block.imports.iter().any(|import| {
-    is_vueuse_source(&import.source) && (import.imported == export || import.local == export)
-  }) || block.calls.iter().any(|call| call.callee == export)
-}
-
-fn is_vueuse_source(source: &str) -> bool {
-  source == "@vueuse/core" || source.starts_with("@vueuse/")
-}
-
-fn is_test_path(path: &Path) -> bool {
-  let normalized = path.to_string_lossy().replace('\\', "/");
-  normalized.contains("/__tests__/")
-    || normalized.contains(".test.")
-    || normalized.contains(".spec.")
-}
-
-fn recommendation_from(api: EcosystemApi) -> Recommendation {
-  Recommendation {
-    kind: "ecosystem_api".into(),
-    package: api.package.into(),
-    export: api.export.into(),
-    docs_url: api.docs_url.into(),
-    import_example: api.import_example.into(),
   }
 }
 
@@ -110,6 +85,21 @@ mod tests {
     SourceSpan { offset, length: 10, line: 1, column: offset.saturating_add(1) }
   }
 
+  fn call(
+    callee: &str,
+    assigned_to: Option<&str>,
+    argument_identifiers: &[&str],
+    offset: usize,
+  ) -> ScriptCallFact {
+    ScriptCallFact {
+      callee: callee.into(),
+      assigned_to: assigned_to.map(str::to_owned),
+      resolved_import: None,
+      argument_identifiers: argument_identifiers.iter().map(|name| (*name).into()).collect(),
+      span: span(offset),
+    }
+  }
+
   fn run(calls: Vec<ScriptCallFact>) -> Vec<vue_vet_core::Diagnostic> {
     let script = ScriptFacts {
       blocks: vec![ScriptBlockFacts {
@@ -127,20 +117,10 @@ mod tests {
   }
 
   #[test]
-  fn reports_assigned_set_timeout_with_clear() {
+  fn reports_when_clear_and_set_share_the_same_timer() {
     let diagnostics = run(vec![
-      ScriptCallFact {
-        callee: "clearTimeout".into(),
-        assigned_to: None,
-        resolved_import: None,
-        span: span(0),
-      },
-      ScriptCallFact {
-        callee: "setTimeout".into(),
-        assigned_to: Some("timer".into()),
-        resolved_import: None,
-        span: span(20),
-      },
+      call("clearTimeout", None, &["timer"], 0),
+      call("setTimeout", Some("timer"), &[], 20),
     ]);
     assert_eq!(diagnostics.len(), 1);
     let Some(diagnostic) = diagnostics.first() else {
@@ -152,13 +132,17 @@ mod tests {
   }
 
   #[test]
+  fn stays_quiet_when_clear_targets_a_different_binding() {
+    let diagnostics = run(vec![
+      call("clearTimeout", None, &["other"], 0),
+      call("setTimeout", Some("timer"), &[], 20),
+    ]);
+    assert!(diagnostics.is_empty());
+  }
+
+  #[test]
   fn stays_quiet_without_clear_timeout() {
-    let diagnostics = run(vec![ScriptCallFact {
-      callee: "setTimeout".into(),
-      assigned_to: Some("timer".into()),
-      resolved_import: None,
-      span: span(0),
-    }]);
+    let diagnostics = run(vec![call("setTimeout", Some("timer"), &[], 0)]);
     assert!(diagnostics.is_empty());
   }
 }

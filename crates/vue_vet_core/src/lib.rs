@@ -246,6 +246,9 @@ pub struct ScriptCallFact {
   pub callee: String,
   pub assigned_to: Option<String>,
   pub resolved_import: Option<(String, String)>,
+  /// Identifier argument names in source order (non-identifier args omitted).
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub argument_identifiers: Vec<String>,
   pub span: SourceSpan,
 }
 

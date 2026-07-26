@@ -143,6 +143,7 @@ pub fn analyze_script(
         calls.push(ScriptCallFact {
           assigned_to,
           resolved_import,
+          argument_identifiers: call_argument_identifiers(call),
           callee,
           span: source_span(sfc_source, script_offset, call.span),
         });
@@ -509,6 +510,16 @@ fn call_assigned_to(parent: AstKind<'_>) -> Option<String> {
   }
 }
 
+fn call_argument_identifiers(call: &oxc_ast::ast::CallExpression<'_>) -> Vec<String> {
+  call
+    .arguments
+    .iter()
+    .filter_map(|argument| {
+      argument.as_expression()?.get_identifier_reference().map(|id| id.name.to_string())
+    })
+    .collect()
+}
+
 fn source_span(source: &str, base: usize, span: Span) -> SourceSpan {
   let offset = base.saturating_add(usize::try_from(span.start).unwrap_or(usize::MAX));
   let end = base.saturating_add(usize::try_from(span.end).unwrap_or(usize::MAX));
@@ -541,9 +552,10 @@ mod tests {
   }
 
   #[test]
-  fn records_member_callees_and_assignment_targets() {
+  fn records_member_callees_assignment_targets_and_identifier_args() {
     let facts = analyze(
-      "let timer; timer = setTimeout(() => {}, 0); window.addEventListener('resize', () => {});",
+      "let timer; clearTimeout(timer); timer = setTimeout(() => {}, 0);\
+       window.addEventListener('resize', () => {});",
       "ts",
     );
     assert!(
@@ -551,6 +563,13 @@ mod tests {
         call.callee == "setTimeout" && call.assigned_to.as_deref() == Some("timer")
       }),
       "assignment targets must populate ScriptCallFact.assigned_to"
+    );
+    assert!(
+      facts.calls.iter().any(|call| {
+        call.callee == "clearTimeout"
+          && call.argument_identifiers.iter().any(|name| name == "timer")
+      }),
+      "identifier call arguments must remain queryable without exposing Oxc nodes"
     );
     assert!(
       facts.calls.iter().any(|call| call.callee == "window.addEventListener"),
