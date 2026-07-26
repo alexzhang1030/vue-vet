@@ -11,7 +11,7 @@ use std::{
 };
 
 use serde::Serialize;
-use vue_vet_core::{Confidence, Diagnostic, RuleMeta, Severity, SourceSpan};
+use vue_vet_core::{Confidence, Diagnostic, Recommendation, RuleMeta, Severity, SourceSpan};
 
 /// Machine-readable `--explain` payload for a rule id (early-exit; not the scan report).
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -48,6 +48,8 @@ pub struct FindingExplain {
   pub message: String,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub help: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub recommendation: Option<Recommendation>,
   pub rule: RuleExplain,
 }
 
@@ -109,6 +111,7 @@ pub fn explain_finding(
     confidence: diagnostic.confidence,
     message: diagnostic.message.clone(),
     help: diagnostic.help.clone(),
+    recommendation: diagnostic.recommendation.clone(),
     rule,
   }
 }
@@ -188,6 +191,19 @@ pub fn render_finding_explain_text(explain: &FindingExplain) -> String {
   if let Some(help) = &explain.help {
     output.push_str("help: ");
     output.push_str(help);
+    output.push('\n');
+  }
+  if let Some(recommendation) = &explain.recommendation {
+    output.push_str("recommendation: ");
+    output.push_str(&recommendation.package);
+    output.push(' ');
+    output.push_str(&recommendation.export);
+    output.push('\n');
+    output.push_str("docs: ");
+    output.push_str(&recommendation.docs_url);
+    output.push('\n');
+    output.push_str("import: ");
+    output.push_str(&recommendation.import_example);
     output.push('\n');
   }
   output.push('\n');
@@ -329,6 +345,7 @@ mod tests {
       file: PathBuf::from("basic.vue"),
       span: SourceSpan { offset: 19, length: 6, line: 2, column: 9 },
       edits: Vec::new(),
+      recommendation: None,
     };
     let explain = explain_finding(
       "basic.vue::2:9::vue-vet/security/no-v-html::abc",

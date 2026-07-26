@@ -4064,6 +4064,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "vue_vet_practice"
+version = "0.1.11"
+dependencies = [
+ "vue_vet_core",
+]
+
+[[package]]
 name = "vue_vet_project"
 version = "0.1.11"
 dependencies = [
@@ -4118,6 +4125,7 @@ dependencies = [
  "vue_vet_config",
  "vue_vet_core",
  "vue_vet_oxc",
+ "vue_vet_practice",
  "vue_vet_project",
  "vue_vet_reactivity",
  "vue_vet_reporters",
@@ -4136,6 +4144,7 @@ dependencies = [
  "vize_atelier_sfc",
  "vue_vet_core",
  "vue_vet_oxc",
+ "vue_vet_practice",
  "vue_vet_project",
  "vue_vet_reactivity",
  "vue_vet_rules",

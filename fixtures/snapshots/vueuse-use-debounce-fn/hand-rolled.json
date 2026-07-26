@@ -1,0 +1,25 @@
+[
+  {
+    "rule_id": "vue-vet/practice/vueuse-use-debounce-fn",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "medium",
+    "documentation": "rules/practice/vueuse-use-debounce-fn",
+    "message": "This looks like a hand-rolled debounce with `setTimeout` / `clearTimeout`; consider VueUse `useDebounceFn`.",
+    "help": "Optional dependency: install `@vueuse/core` when you want the helper, then replace the timer wrapper.",
+    "file": "fixtures/rules/vueuse-use-debounce-fn/invalid/hand-rolled.vue",
+    "span": {
+      "offset": 143,
+      "length": 51,
+      "line": 5,
+      "column": 11
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "@vueuse/core",
+      "export": "useDebounceFn",
+      "docs_url": "https://vueuse.org/core/useDebounceFn/",
+      "import_example": "import { useDebounceFn } from '@vueuse/core'"
+    }
+  }
+]

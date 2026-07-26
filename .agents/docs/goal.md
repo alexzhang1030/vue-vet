@@ -8,7 +8,7 @@ The primary audience is Vue and Nuxt developers running a fast local command or 
 
 ## Product shape
 
-The target product combines Vue-aware semantic diagnostics, deterministic scoring, baselines and diff-aware CI, cross-file project intelligence, and conservative fixes. CLI, CI, LSP, and agent surfaces must consume the same underlying analysis instead of growing independent implementations.
+The target product combines Vue-aware semantic diagnostics, deterministic scoring, baselines and diff-aware CI, cross-file project intelligence, and conservative fixes. It also carries a weaker **practice suggestion** channel (for example VueUse API recommendations): same diagnostic identity and surfaces, default Info, excluded from score and default CI exit. CLI, CI, LSP, and agent surfaces must consume the same underlying analysis instead of growing independent implementations.
 
 ## Priorities
 

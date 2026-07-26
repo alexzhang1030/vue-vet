@@ -11,7 +11,7 @@ use crate::{ProjectSession, SessionError, resolve_rule_meta};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Explained {
   Rule(RuleExplain),
-  Finding { explain: FindingExplain, cache_status: &'static str },
+  Finding { explain: Box<FindingExplain>, cache_status: &'static str },
 }
 
 pub fn explain(session: &ProjectSession, target: &str) -> Result<Explained, SessionError> {
@@ -20,7 +20,7 @@ pub fn explain(session: &ProjectSession, target: &str) -> Result<Explained, Sess
   }
   if looks_like_finding_id(target) {
     let (explain, cache_status) = explain_finding_with_status(session, target)?;
-    return Ok(Explained::Finding { explain, cache_status });
+    return Ok(Explained::Finding { explain: Box::new(explain), cache_status });
   }
   Err(SessionError::message(format!(
     "unknown rule `{target}`; pass a full rule id such as `vue-vet/security/no-v-html`, or a finding id from `--format json`"

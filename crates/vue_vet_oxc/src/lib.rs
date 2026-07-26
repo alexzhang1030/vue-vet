@@ -124,31 +124,28 @@ pub fn analyze_script(
   for (node_id, node) in semantic.nodes().iter_enumerated() {
     match node.kind() {
       AstKind::CallExpression(call) => {
-        if let Some(identifier) = call.callee.get_identifier_reference() {
-          let callee = identifier.name.to_string();
-          let assigned_to = match semantic.nodes().parent_kind(node_id) {
-            AstKind::VariableDeclarator(declarator) => match &declarator.id {
-              BindingPattern::BindingIdentifier(binding) => Some(binding.name.to_string()),
-              BindingPattern::ObjectPattern(pattern) => {
-                if callee == "defineProps" {
-                  destructures.push(ScriptDestructureFact {
-                    source_call: callee.clone(),
-                    span: source_span(sfc_source, script_offset, pattern.span),
-                  });
-                }
-                None
-              }
-              _ => None,
-            },
-            _ => None,
-          };
-          calls.push(ScriptCallFact {
-            assigned_to,
-            resolved_import: imported_bindings.get(&callee).cloned(),
-            callee,
-            span: source_span(sfc_source, script_offset, call.span),
+        let Some(callee) = call_callee_name(&call.callee) else {
+          continue;
+        };
+        let parent = semantic.nodes().parent_kind(node_id);
+        let assigned_to = call_assigned_to(parent);
+        if callee == "defineProps"
+          && let AstKind::VariableDeclarator(declarator) = parent
+          && let BindingPattern::ObjectPattern(pattern) = &declarator.id
+        {
+          destructures.push(ScriptDestructureFact {
+            source_call: callee.clone(),
+            span: source_span(sfc_source, script_offset, pattern.span),
           });
         }
+        let resolved_import =
+          if callee.contains('.') { None } else { imported_bindings.get(&callee).cloned() };
+        calls.push(ScriptCallFact {
+          assigned_to,
+          resolved_import,
+          callee,
+          span: source_span(sfc_source, script_offset, call.span),
+        });
       }
       AstKind::AssignmentExpression(assignment) => {
         if let Some(write) = assignment_member(&assignment.left, sfc_source, script_offset) {
@@ -485,6 +482,33 @@ fn member_write(
   })
 }
 
+fn call_callee_name(callee: &Expression<'_>) -> Option<String> {
+  if let Some(identifier) = callee.get_identifier_reference() {
+    return Some(identifier.name.to_string());
+  }
+  match callee {
+    Expression::StaticMemberExpression(member) => {
+      let object = member.object.get_identifier_reference()?;
+      Some(format!("{}.{}", object.name, member.property.name))
+    }
+    _ => None,
+  }
+}
+
+fn call_assigned_to(parent: AstKind<'_>) -> Option<String> {
+  match parent {
+    AstKind::VariableDeclarator(declarator) => match &declarator.id {
+      BindingPattern::BindingIdentifier(binding) => Some(binding.name.to_string()),
+      _ => None,
+    },
+    AstKind::AssignmentExpression(assignment) => match &assignment.left {
+      AssignmentTarget::AssignmentTargetIdentifier(binding) => Some(binding.name.to_string()),
+      _ => None,
+    },
+    _ => None,
+  }
+}
+
 fn source_span(source: &str, base: usize, span: Span) -> SourceSpan {
   let offset = base.saturating_add(usize::try_from(span.start).unwrap_or(usize::MAX));
   let end = base.saturating_add(usize::try_from(span.end).unwrap_or(usize::MAX));
@@ -514,6 +538,24 @@ mod tests {
       Ok(facts) => facts,
       Err(error) => panic!("script analysis unexpectedly failed: {error}"),
     }
+  }
+
+  #[test]
+  fn records_member_callees_and_assignment_targets() {
+    let facts = analyze(
+      "let timer; timer = setTimeout(() => {}, 0); window.addEventListener('resize', () => {});",
+      "ts",
+    );
+    assert!(
+      facts.calls.iter().any(|call| {
+        call.callee == "setTimeout" && call.assigned_to.as_deref() == Some("timer")
+      }),
+      "assignment targets must populate ScriptCallFact.assigned_to"
+    );
+    assert!(
+      facts.calls.iter().any(|call| call.callee == "window.addEventListener"),
+      "static member callees must remain queryable without exposing Oxc nodes"
+    );
   }
 
   #[test]

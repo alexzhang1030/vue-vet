@@ -165,6 +165,30 @@ means Vue Vet has no machine-authorized change for that finding; consumers must
 not synthesize one from the diagnostic span. `--fix-dry-run` is the supported
 way to validate and inspect the current safe plan without writing files.
 
+Practice suggestions (`category: "practice"`) may also include an additive
+`recommendation` object (still `schema_version` 1). They appear in
+`diagnostics` and text `Suggestions` sections, but do **not** reduce
+`summary.score` or fail the default CI exit. Example:
+
+```json
+{
+  "rule_id": "vue-vet/practice/vueuse-use-debounce-fn",
+  "category": "practice",
+  "severity": "info",
+  "recommendation": {
+    "kind": "ecosystem_api",
+    "package": "@vueuse/core",
+    "export": "useDebounceFn",
+    "docs_url": "https://vueuse.org/core/useDebounceFn/",
+    "import_example": "import { useDebounceFn } from '@vueuse/core'"
+  }
+}
+```
+
+LSP diagnostic `data` is a JSON object with opaque finding `id` and the same
+optional `recommendation` when present. Finding `--explain` JSON nests
+`recommendation` beside the rule docs payload.
+
 ```json
 {
   "file": "src/App.vue",

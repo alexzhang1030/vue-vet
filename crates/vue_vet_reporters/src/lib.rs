@@ -5,8 +5,8 @@ use std::{
 
 use serde::Serialize;
 use vue_vet_core::{
-  ByteRange, Confidence, Diagnostic, EditApplicability, ScanSummary, Severity, SourceSpan,
-  diagnostic_id,
+  ByteRange, Confidence, Diagnostic, EditApplicability, PRACTICE_CATEGORY, Recommendation,
+  ScanSummary, Severity, SourceSpan, diagnostic_id,
 };
 
 mod component_nav;
@@ -155,6 +155,8 @@ struct JsonDiagnostic<'a> {
   span: &'a SourceSpan,
   #[serde(skip_serializing_if = "Vec::is_empty")]
   edits: Vec<JsonTextEdit<'a>>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  recommendation: Option<&'a Recommendation>,
 }
 
 #[derive(Serialize)]
@@ -307,6 +309,7 @@ fn json_diagnostic<'a>(
         rule_id: &edit.rule_id,
       })
       .collect(),
+    recommendation: diagnostic.recommendation.as_ref(),
   }
 }
 
@@ -339,23 +342,18 @@ fn normalize_path(path: &str) -> String {
 
 fn render_text(summary: &ScanSummary, context: &ReportContext) -> String {
   let mut output = String::new();
-  for diagnostic in &summary.diagnostics {
-    output.push_str(&diagnostic.file.display().to_string());
-    output.push(':');
-    output.push_str(&diagnostic.span.line.to_string());
-    output.push(':');
-    output.push_str(&diagnostic.span.column.to_string());
-    output.push_str("  ");
-    output.push_str(severity_name(diagnostic.severity));
-    output.push_str("  ");
-    output.push_str(&diagnostic.rule_id);
-    output.push_str("  ");
-    output.push_str(&diagnostic.message);
-    output.push('\n');
-    if let Some(help) = &diagnostic.help {
-      output.push_str("  help: ");
-      output.push_str(help);
+  let (lint, practice): (Vec<_>, Vec<_>) =
+    summary.diagnostics.iter().partition(|diagnostic| diagnostic.category != PRACTICE_CATEGORY);
+  for diagnostic in &lint {
+    append_text_diagnostic(&mut output, diagnostic);
+  }
+  if !practice.is_empty() {
+    if !lint.is_empty() {
       output.push('\n');
+    }
+    output.push_str("Suggestions\n");
+    for diagnostic in &practice {
+      append_text_diagnostic(&mut output, diagnostic);
     }
   }
   output.push('\n');
@@ -370,6 +368,35 @@ fn render_text(summary: &ScanSummary, context: &ReportContext) -> String {
     output.push_str(&render_reactivity_footer(digest));
   }
   output
+}
+
+fn append_text_diagnostic(output: &mut String, diagnostic: &Diagnostic) {
+  output.push_str(&diagnostic.file.display().to_string());
+  output.push(':');
+  output.push_str(&diagnostic.span.line.to_string());
+  output.push(':');
+  output.push_str(&diagnostic.span.column.to_string());
+  output.push_str("  ");
+  output.push_str(severity_name(diagnostic.severity));
+  output.push_str("  ");
+  output.push_str(&diagnostic.rule_id);
+  output.push_str("  ");
+  output.push_str(&diagnostic.message);
+  output.push('\n');
+  if let Some(help) = &diagnostic.help {
+    output.push_str("  help: ");
+    output.push_str(help);
+    output.push('\n');
+  }
+  if let Some(recommendation) = &diagnostic.recommendation {
+    output.push_str("  recommend: ");
+    output.push_str(&recommendation.package);
+    output.push(' ');
+    output.push_str(&recommendation.export);
+    output.push_str(" — ");
+    output.push_str(&recommendation.docs_url);
+    output.push('\n');
+  }
 }
 
 const fn severity_name(severity: Severity) -> &'static str {
@@ -405,6 +432,7 @@ mod tests {
         file: PathBuf::from("fixtures/reporters/no-v-html.vue"),
         span: SourceSpan { offset: 19, length: 6, line: 2, column: 9 },
         edits: Vec::new(),
+        recommendation: None,
       }],
       score: 94,
     }

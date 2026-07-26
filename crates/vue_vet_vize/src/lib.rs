@@ -7,7 +7,7 @@ use vize_atelier_core::{
 };
 use vize_atelier_sfc::{SfcDescriptor, SfcParseOptions, parse_sfc};
 use vue_vet_core::{
-  Diagnostic, RuleEnvironment, ScriptFacts, ScriptKind, SfcFacts, SourceSpan,
+  Diagnostic, RuleEnvironment, RuleRegistry, ScriptFacts, ScriptKind, SfcFacts, SourceSpan,
   TemplateAttributeFact, TemplateDirectiveFact, TemplateElementFact, TemplateExpressionFact,
   TemplateFacts,
 };
@@ -15,8 +15,9 @@ use vue_vet_oxc::{
   AnalyzeScriptError, analyze_script, slot_prop_alias_identifiers,
   template_expression_identifiers_with_shadow, v_for_alias_identifiers,
 };
+use vue_vet_practice::practice_rules;
 use vue_vet_reactivity::ModuleSource;
-use vue_vet_rules::builtin_registry;
+use vue_vet_rules::builtin_rules;
 
 #[derive(Debug, Error)]
 pub enum AnalyzeError {
@@ -70,7 +71,7 @@ pub fn analyze_sfc_with_environment(
   environment: RuleEnvironment,
 ) -> Result<AnalyzedSfc, AnalyzeError> {
   let mut analysis = analyze_sfc_facts_with_environment(path, source)?;
-  analysis.diagnostics = builtin_registry().run_with_environment(
+  analysis.diagnostics = file_analysis_registry().run_with_environment(
     path,
     source,
     &analysis.facts.template,
@@ -78,6 +79,12 @@ pub fn analyze_sfc_with_environment(
     environment,
   );
   Ok(analysis)
+}
+
+fn file_analysis_registry() -> RuleRegistry {
+  let mut rules = builtin_rules();
+  rules.extend(practice_rules());
+  RuleRegistry::new(rules)
 }
 
 /// Extract SFC facts and module identity without running built-in rules.
