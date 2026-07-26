@@ -6,8 +6,8 @@
 - Every rule declares category, default severity, confidence, and a documentation key.
 - Prefer Info (not Warning) when the diagnosed pattern remains correct and the rule only
   recommends a newer Vue API — for example `prefer-use-template-ref`. Reserve Warning for
-  real risk, unused waste, or likely bugs. Severity still affects score (Info −1, Warning −3)
-  and finding-ID digests.
+  real risk, unused waste, or likely bugs. Severity weights still feed the density score
+  (Info 1 / Warning 3 / Error 10) and finding-ID digests; absolute count alone does not.
 - Every built-in rule keeps its metadata and `Rule` implementation in one
   dedicated file under `vue_vet_rules/src/rules`; the registry module only
   assembles rules and must not become a behavior dispatcher.
@@ -71,11 +71,11 @@ Vize and Oxc types remain inside their adapters. Stable downstream code consumes
 
 Use `just` as the canonical task interface and inspect recipes with `just --list`; keep local and CI commands behind the same recipes. Rust work is not complete until `just roll-rust` passes, including format, the workspace's Rolldown-derived and Vue Vet-tightened Clippy policy with warnings denied, workspace tests with the lockfile, and relevant fixture/integration tests. Do not add a lint exception without a narrow reason tied to code or an upstream dependency constraint. Use `prek` to manage hooks from `.pre-commit-config.yaml`. When local execution is unavailable, state that limitation and use CI as the evidence. Never claim a check passed when it was not run.
 
-CodeRabbit review is advisory and never replaces repository CI or human
-ownership. autofix.ci may run only deterministic repository-owned fix recipes
-from a `pull_request` workflow with read-only GitHub Actions permissions; the
+autofix.ci may run only deterministic repository-owned fix recipes from a
+`pull_request` workflow with read-only GitHub Actions permissions; the
 autofix.ci GitHub App is the sole writer. Never expose a write token to
 pull-request code or use `pull_request_target` to execute untrusted changes.
+Do not reintroduce CodeRabbit or other slow third-party review bots.
 
 ## Performance regression checks
 

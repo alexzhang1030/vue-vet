@@ -95,7 +95,15 @@ create a finding on a file that has no remaining path back to the changed file.
 
 ## The current score is provisional
 
-The initial score is a deterministic vertical-slice implementation, not yet a stable measure of repository health. Before external release, scoring needs documented weights, stable diagnostic fingerprints, baselines, and reference-corpus evidence. Do not optimize rules around the current arithmetic.
+Scoring is deterministic but still a product experiment, not a stable health
+certificate. Severity weights remain Error 10 / Warning 3 / Info 1. The public
+score is **density-normalized by scanned files** (Sonar/CodeClimate debt-ratio
+and StackHealth lint-density style), not absolute finding count:
+`score = floor(100 × capacity / (capacity + raw))` with
+`capacity = max(files_scanned, 1) × 50`. Sparse warnings in a large Nuxt app
+stay high; the same absolute count concentrated in a tiny project drops harder.
+Before external release, keep documenting weights, fingerprints, baselines, and
+corpus evidence. Do not tune rules merely to chase the current number.
 
 ## Vue behavior must be capability-gated
 

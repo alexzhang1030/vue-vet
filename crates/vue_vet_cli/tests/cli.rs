@@ -481,7 +481,7 @@ fn safe_fix_modes_are_mutually_exclusive() {
 
 #[test]
 fn reporter_text_snapshot_is_stable() {
-  let output = run_from_workspace(&["fixtures/reporters/no-v-html.vue"]);
+  let output = run_from_workspace(&["fixtures/reporters/no-v-html.vue", "--no-cache"]);
   let stdout = String::from_utf8_lossy(&output.stdout).replace('\\', "/");
 
   assert!(output.status.success(), "text reporter fixture must scan successfully");
@@ -494,7 +494,8 @@ fn reporter_text_snapshot_is_stable() {
 
 #[test]
 fn reporter_json_snapshot_is_stable() {
-  let output = run_from_workspace(&["fixtures/reporters/no-v-html.vue", "--format", "json"]);
+  let output =
+    run_from_workspace(&["fixtures/reporters/no-v-html.vue", "--format", "json", "--no-cache"]);
   let stdout = String::from_utf8_lossy(&output.stdout).replace('\\', "/");
 
   assert!(output.status.success(), "JSON reporter fixture must scan successfully");
