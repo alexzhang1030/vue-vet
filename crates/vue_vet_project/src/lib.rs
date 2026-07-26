@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use vue_vet_core::{Confidence, Diagnostic, ScriptFacts, Severity, SfcFacts, SourceSpan};
 use vue_vet_reactivity::{ModuleLink, ModuleReactivity, ModuleSource, trace_modules};
 
-pub use resolve::{OXC_RESOLVER_VERSION, resolver_config_inputs};
+pub use resolve::{OXC_RESOLVER_VERSION, normalize_project_root, resolver_config_inputs};
 
 use conventions::{
   convention_component_name, load_nuxt_component_dts_names, strip_lazy_component_prefix,
@@ -88,14 +88,15 @@ pub struct ProjectGraph {
 
 #[must_use]
 pub fn build_project_graph(root: &Path, files: &[ProjectFile]) -> ProjectGraph {
+  let root = normalize_project_root(root);
   let mut ordered = files.iter().collect::<Vec<_>>();
   ordered.sort_by_key(|file| normalized_path(&file.path));
   let known = ordered.iter().map(|file| normalized_path(&file.path)).collect::<BTreeSet<_>>();
-  let resolver = ProjectResolver::new(root);
+  let resolver = ProjectResolver::new(&root);
   let mut nodes = ordered.iter().map(|file| file_node(file)).collect::<Vec<_>>();
   let node_by_path =
     nodes.iter().map(|node| (node.path.clone(), node.id.clone())).collect::<BTreeMap<_, _>>();
-  let dts_names = load_nuxt_component_dts_names(root, &known);
+  let dts_names = load_nuxt_component_dts_names(&root, &known);
   for node in &mut nodes {
     if node.kind != NodeKind::Component {
       continue;
@@ -238,7 +239,7 @@ pub fn build_project_graph(root: &Path, files: &[ProjectFile]) -> ProjectGraph {
     }
   }
   let mut invalidation_inputs = known.into_iter().collect::<Vec<_>>();
-  invalidation_inputs.extend(resolver_config_inputs(root));
+  invalidation_inputs.extend(resolver_config_inputs(&root));
   invalidation_inputs.sort();
   invalidation_inputs.dedup();
   ProjectGraph {
