@@ -14,8 +14,8 @@ use vue_vet_cache::{
 };
 use vue_vet_config::{CONFIG_FILE, Config, apply_suppressions};
 use vue_vet_core::{
-  ReactiveBindingKind, ReactiveDependencyKind, RuleEnvironment, ScanSummary, ScriptFacts, SfcFacts,
-  TemplateFacts, TrackingScopeKind, VueVersion,
+  Confidence, ReactiveBindingKind, ReactiveDependencyKind, RuleEnvironment, RuleMeta, ScanSummary,
+  ScriptFacts, Severity, SfcFacts, TemplateFacts, TrackingScopeKind, VueVersion,
 };
 use vue_vet_oxc::analyze_module;
 use vue_vet_project::{
@@ -26,8 +26,9 @@ use vue_vet_reactivity::{ModuleReactivity, ModuleSource};
 use vue_vet_reporters::{
   ComponentNavDigest, ComponentNavEdgeInput, ReactivityDigest, ReactivityModuleStats,
   ReactivitySpanRef, ReportContext, ReportFormat, ReportFramework, ReportMode, binding_detail,
-  component_nav_from_edges, edge_detail, render, render_error, render_reactivity_detail,
-  scope_detail, template_read_detail, to_span_from_identity,
+  component_nav_from_edges, edge_detail, explain_rule, find_rule_meta, render, render_error,
+  render_reactivity_detail, render_rule_explain_json, render_rule_explain_text, scope_detail,
+  template_read_detail, to_span_from_identity,
 };
 use vue_vet_rules::builtin_registry;
 use vue_vet_vize::analyze_sfc_facts_with_environment;
@@ -56,6 +57,13 @@ struct Cli {
 
   #[arg(long, help = "Print the effective configuration as JSON and exit")]
   print_config: bool,
+
+  #[arg(
+    long,
+    value_name = "RULE",
+    help = "Print rule metadata and local documentation, then exit"
+  )]
+  explain: Option<String>,
 
   #[arg(long, help = "Print the deterministic project graph as JSON and exit")]
   print_graph: bool,
@@ -115,6 +123,7 @@ struct FixArgs {
       "write_baseline",
       "diff",
       "print_config",
+      "explain",
       "print_graph",
       "print_reactivity",
       "reactivity_tui"
@@ -131,6 +140,7 @@ struct FixArgs {
       "write_baseline",
       "diff",
       "print_config",
+      "explain",
       "print_graph",
       "print_reactivity",
       "reactivity_tui"
@@ -178,6 +188,9 @@ impl From<OutputFormat> for ReportFormat {
 )]
 fn main() -> ExitCode {
   let cli = Cli::parse();
+  if let Some(rule_id) = cli.explain.as_deref() {
+    return run_explain(&cli, rule_id);
+  }
   let config = match load_config(&cli.path, cli.config.as_deref()) {
     Ok(config) => config,
     Err(error) => return operational_failure(&cli, &error),
@@ -895,6 +908,75 @@ fn logical_path<'a>(root: &'a Path, path: &'a Path) -> &'a Path {
   } else {
     path.strip_prefix(root).unwrap_or(path)
   }
+}
+
+/// Project-graph rules live outside `builtin_registry` but share the same docs key.
+static PROJECT_RULE_META: [RuleMeta; 2] = [
+  RuleMeta {
+    id: PROJECT_RULE_IDS[0],
+    category: "project",
+    default_severity: Severity::Error,
+    confidence: Confidence::High,
+    documentation: "project-graph",
+  },
+  RuleMeta {
+    id: PROJECT_RULE_IDS[1],
+    category: "project",
+    default_severity: Severity::Warning,
+    confidence: Confidence::Medium,
+    documentation: "project-graph",
+  },
+];
+
+#[expect(clippy::print_stdout, reason = "explain is an early-exit CLI surface")]
+fn run_explain(cli: &Cli, rule_id: &str) -> ExitCode {
+  let Some(meta) = resolve_explain_meta(rule_id) else {
+    return operational_failure(
+      cli,
+      &format!(
+        "unknown rule `{rule_id}`; pass a full rule id such as `vue-vet/security/no-v-html`"
+      ),
+    );
+  };
+  let search_roots = explain_search_roots(&cli.path);
+  let explain = explain_rule(meta, &search_roots);
+  let output = match cli.format {
+    OutputFormat::Text => Ok(render_rule_explain_text(&explain)),
+    OutputFormat::Json => render_rule_explain_json(&explain),
+    OutputFormat::Sarif | OutputFormat::Github => {
+      return operational_failure(cli, "--explain supports --format text or json only");
+    }
+  };
+  match output {
+    Ok(rendered) => {
+      print!("{rendered}");
+      ExitCode::SUCCESS
+    }
+    Err(error) => operational_failure(cli, &format!("failed to serialize explain output: {error}")),
+  }
+}
+
+fn resolve_explain_meta(rule_id: &str) -> Option<&'static RuleMeta> {
+  let builtins = builtin_registry().metadata();
+  let mut metas = builtins;
+  metas.extend(PROJECT_RULE_META.iter());
+  find_rule_meta(rule_id, &metas)
+}
+
+fn explain_search_roots(scan_path: &Path) -> Vec<PathBuf> {
+  let mut roots = Vec::new();
+  let scan = if scan_path.is_file() {
+    scan_path.parent().unwrap_or(scan_path).to_path_buf()
+  } else {
+    scan_path.to_path_buf()
+  };
+  roots.push(scan);
+  if let Ok(cwd) = std::env::current_dir()
+    && !roots.iter().any(|root| root == &cwd)
+  {
+    roots.push(cwd);
+  }
+  roots
 }
 
 fn load_config(root: &Path, explicit: Option<&Path>) -> Result<Config, String> {

@@ -101,6 +101,55 @@ fn run_from_workspace(arguments: &[&str]) -> Output {
 }
 
 #[test]
+fn explain_prints_builtin_rule_metadata_and_documentation() {
+  let output = run_from_workspace(&["--explain", "vue-vet/security/no-v-html"]);
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  assert!(output.status.success(), "explain known rules must succeed: {stdout}");
+  assert!(stdout.contains("vue-vet/security/no-v-html"));
+  assert!(stdout.contains("category: security"));
+  assert!(stdout.contains("documentation: docs/rules/security/no-v-html.md"));
+  assert!(stdout.contains("v-html"), "body must include rule markdown: {stdout}");
+}
+
+#[test]
+#[expect(clippy::panic, reason = "malformed explain JSON must fail the integration test")]
+fn explain_json_is_structured_and_early_exit() {
+  let output = run_from_workspace(&["--explain", "vue-vet/security/no-v-html", "--format", "json"]);
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  assert!(output.status.success(), "json explain must succeed: {stdout}");
+  let Ok(parsed) = serde_json::from_str::<Value>(&stdout) else {
+    panic!("explain JSON must parse: {stdout}");
+  };
+  assert_eq!(parsed.get("rule_id").and_then(Value::as_str), Some("vue-vet/security/no-v-html"));
+  assert_eq!(
+    parsed.get("documentation").and_then(Value::as_str),
+    Some("docs/rules/security/no-v-html.md")
+  );
+  assert!(parsed.get("body").and_then(Value::as_str).is_some_and(|body| body.contains("v-html")));
+  assert!(parsed.get("diagnostics").is_none(), "explain must not emit a scan report");
+}
+
+#[test]
+fn explain_supports_project_rules() {
+  let output = run_from_workspace(&["--explain", "vue-vet/project/unresolved-import"]);
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  assert!(output.status.success(), "project rule explain must succeed: {stdout}");
+  assert!(stdout.contains("documentation: docs/project-graph.md"));
+  assert!(stdout.contains("Project graph") || stdout.contains("project graph"));
+}
+
+#[test]
+fn explain_rejects_unknown_rule_ids() {
+  let output = run_from_workspace(&["--explain", "vue-vet/missing/rule"]);
+  let stderr = String::from_utf8_lossy(&output.stderr);
+  assert_eq!(output.status.code(), Some(2), "unknown explain targets are operational failures");
+  assert!(
+    stderr.contains("unknown rule") && stderr.contains("vue-vet/missing/rule"),
+    "stderr must name the unknown id: {stderr}"
+  );
+}
+
+#[test]
 fn unsafe_fixture_has_stable_text_output_and_exit_code() {
   let path = fixture("rules/no-v-html/invalid/basic.vue");
   let output = run(&[path.to_string_lossy().as_ref(), "--deny-warnings"]);
