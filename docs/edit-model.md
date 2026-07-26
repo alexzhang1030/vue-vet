@@ -45,6 +45,14 @@ one file. Every validation completes before the destination is opened. Valid
 edits apply from the end of the original source so earlier byte ranges remain
 stable.
 
+## LSP quick fixes
+
+`vue-vet --lsp` exposes the same explicitly `safe` edits as quick-fix code
+actions. Each action carries a versioned `WorkspaceEdit` for the open buffer;
+the client applies it. Unsafe edits are never offered. The server does not write
+files through code actions — CLI `--fix-safe` remains the transactional apply
+path.
+
 ## CLI modes
 
 `--fix-dry-run` validates the safe plan without writing. Text output retains the
