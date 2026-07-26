@@ -1243,15 +1243,14 @@ impl ScanSummary {
       ))
     });
 
-    let penalty = self.diagnostics.iter().fold(0_u16, |total, diagnostic| {
-      total
-        + match diagnostic.severity {
-          Severity::Error => 10,
-          Severity::Warning => 3,
-          Severity::Info => 1,
-        }
+    let raw_weight = self.diagnostics.iter().fold(0_u32, |total, diagnostic| {
+      total.saturating_add(match diagnostic.severity {
+        Severity::Error => 10,
+        Severity::Warning => 3,
+        Severity::Info => 1,
+      })
     });
-    self.score = 100_u16.saturating_sub(penalty).try_into().unwrap_or(0);
+    self.score = progressive_score(raw_weight);
     self
   }
 
@@ -1262,6 +1261,23 @@ impl ScanSummary {
         || (deny_warnings && diagnostic.severity == Severity::Warning)
     })
   }
+}
+
+/// Maps summed severity weights to a 0–100 score with diminishing returns.
+///
+/// Linear `100 - weight` floors at zero after ~34 warnings. Large Vue/Nuxt
+/// repos routinely exceed that, so the public score uses an asymptotic curve:
+/// `penalty = floor(100 * raw / (raw + 100))`, then `score = 100 - penalty`.
+/// Small totals stay close to the old linear feel; large totals compress toward
+/// zero without saturating after a few dozen findings.
+#[must_use]
+pub(crate) fn progressive_score(raw_weight: u32) -> u8 {
+  const SOFTNESS: u32 = 100;
+  if raw_weight == 0 {
+    return 100;
+  }
+  let penalty = (100_u32.saturating_mul(raw_weight)) / raw_weight.saturating_add(SOFTNESS);
+  u8::try_from(100_u32.saturating_sub(penalty.min(100))).unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -1294,7 +1310,7 @@ mod tests {
   static Z_RULE: TestRule = TestRule(&Z_META);
 
   #[test]
-  fn score_is_deterministic_and_saturating() {
+  fn score_is_deterministic_and_progressive() {
     let diagnostic = Diagnostic {
       rule_id: "test/rule".into(),
       category: "test".into(),
@@ -1310,7 +1326,11 @@ mod tests {
     let summary =
       ScanSummary { files_scanned: 1, diagnostics: vec![diagnostic; 40], score: 100 }.finish();
 
-    assert_eq!(summary.score, 0);
+    // 40 warnings → raw 120 → penalty floor(100*120/220)=54 → score 46
+    assert_eq!(summary.score, 46);
+    assert_eq!(progressive_score(0), 100);
+    assert_eq!(progressive_score(3), 98); // one warning stays near the old linear result
+    assert_eq!(progressive_score(300), 25); // 100 warnings no longer floor at 0
     assert!(summary.fails(true));
     assert!(!summary.fails(false));
   }

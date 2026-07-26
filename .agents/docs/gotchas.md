@@ -95,7 +95,13 @@ create a finding on a file that has no remaining path back to the changed file.
 
 ## The current score is provisional
 
-The initial score is a deterministic vertical-slice implementation, not yet a stable measure of repository health. Before external release, scoring needs documented weights, stable diagnostic fingerprints, baselines, and reference-corpus evidence. Do not optimize rules around the current arithmetic.
+Scoring is deterministic but still a product experiment, not a stable health
+certificate. Severity weights remain Error 10 / Warning 3 / Info 1. The mapped
+score uses diminishing returns —
+`penalty = floor(100 × raw / (raw + 100))`, then `score = 100 − penalty` —
+so large Vue/Nuxt corpora do not linear-floor at ~34 warnings. Before external
+release, keep documenting weights, fingerprints, baselines, and corpus evidence.
+Do not tune rules merely to chase the current number.
 
 ## Vue behavior must be capability-gated
 
