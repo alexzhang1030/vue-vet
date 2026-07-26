@@ -216,9 +216,9 @@ Exit criteria:
 
 ## M4 — editor and agent surface
 
-Status: in progress (#12, #13)
+Status: in progress (#13; #12 closed)
 
-Implemented:
+Implemented (#12):
 
 - CLI `--explain` for rule ids and opaque finding ids
 - `vue_vet_session` shared scan / explain / workspace bounds / buffer overlays
@@ -226,11 +226,11 @@ Implemented:
 - safe quick-fix code actions from explicitly safe diagnostic edits (client-applied)
 - thin `vue-vet --mcp` agent tools (scan / explain / safe-fix preview; no silent apply)
 
-Work:
+Work (#13):
 
-- request-level cancellation across interactive surfaces
 - add benchmark, precision, and regression suites over representative Vue and
   Nuxt repositories
+- turn agreed thresholds into blocking release checks
 - document a stable API for third-party integrations
 
 Exit criteria:
