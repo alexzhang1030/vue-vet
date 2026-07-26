@@ -55,5 +55,8 @@
     "template_reads": 0,
     "hotspots": []
   },
+  "component_nav": {
+    "modules": []
+  },
   "error": null
 }

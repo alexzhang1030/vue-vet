@@ -19,13 +19,15 @@ use vue_vet_core::{
 };
 use vue_vet_oxc::analyze_module;
 use vue_vet_project::{
-  PROJECT_RULE_IDS, ProjectFile, ProjectGraph, build_project_graph, resolver_config_inputs,
+  EdgeKind, PROJECT_RULE_IDS, ProjectFile, ProjectGraph, build_project_graph,
+  resolver_config_inputs,
 };
 use vue_vet_reactivity::{ModuleReactivity, ModuleSource};
 use vue_vet_reporters::{
-  ReactivityDigest, ReactivityModuleStats, ReactivitySpanRef, ReportContext, ReportFormat,
-  ReportFramework, ReportMode, binding_detail, edge_detail, render, render_error,
-  render_reactivity_detail, scope_detail, template_read_detail, to_span_from_identity,
+  ComponentNavDigest, ComponentNavEdgeInput, ReactivityDigest, ReactivityModuleStats,
+  ReactivitySpanRef, ReportContext, ReportFormat, ReportFramework, ReportMode, binding_detail,
+  component_nav_from_edges, edge_detail, render, render_error, render_reactivity_detail,
+  scope_detail, template_read_detail, to_span_from_identity,
 };
 use vue_vet_rules::builtin_registry;
 use vue_vet_vize::analyze_sfc_facts_with_environment;
@@ -246,7 +248,9 @@ fn main() -> ExitCode {
       }
       if cli.reactivity_tui {
         let module_stats = reactivity_module_stats(&result.graph.module_reactivity);
-        if let Err(error) = run_reactivity_tui(&module_stats, result.graph.reactivity_error.clone())
+        let component_nav = component_nav_digest(&result.graph);
+        if let Err(error) =
+          run_reactivity_tui(&module_stats, result.graph.reactivity_error.clone(), &component_nav)
         {
           return operational_failure(&cli, &error);
         }
@@ -626,6 +630,8 @@ fn report_context(cli: &Cli, result: &ScanResult) -> ReportContext {
   if cli.print_reactivity || cli.reactivity_tui {
     digest = digest.with_modules_detail(&module_stats);
   }
+  // Always expose structural component nav in JSON; cheap and editor-facing.
+  let component_nav = Some(component_nav_digest(&result.graph));
   ReportContext {
     mode: report_mode(cli),
     framework: report_framework(&cli.path),
@@ -634,7 +640,26 @@ fn report_context(cli: &Cli, result: &ScanResult) -> ReportContext {
     complete: skipped_check_reasons.is_empty(),
     skipped_check_reasons,
     reactivity: Some(digest),
+    component_nav,
   }
+}
+
+fn component_nav_digest(graph: &ProjectGraph) -> ComponentNavDigest {
+  let edges = graph.edges.iter().filter_map(|edge| {
+    let kind = match edge.kind {
+      EdgeKind::ComponentUsage => "component_usage",
+      EdgeKind::AutoComponent => "auto_component",
+      _ => return None,
+    };
+    Some(ComponentNavEdgeInput {
+      from: edge.from.clone(),
+      to: edge.to.clone(),
+      kind: kind.into(),
+      specifier: edge.specifier.clone(),
+      span: ReactivitySpanRef::new(edge.evidence.offset, edge.evidence.length.max(1)),
+    })
+  });
+  component_nav_from_edges(edges)
 }
 
 fn reactivity_module_stats(modules: &[ModuleReactivity]) -> Vec<ReactivityModuleStats> {
@@ -707,6 +732,7 @@ fn reactivity_module_stats(modules: &[ModuleReactivity]) -> Vec<ReactivityModule
             edge.from.clone(),
             edge.to.clone(),
             edge.to_id.clone(),
+            edge.property.clone(),
             dependency_kind_label(edge.kind),
             ReactivitySpanRef::new(edge.span.offset, edge.span.length.max(1)),
             to_span,
@@ -714,14 +740,17 @@ fn reactivity_module_stats(modules: &[ModuleReactivity]) -> Vec<ReactivityModule
         })
         .collect::<Vec<_>>();
       edge_details.sort_by(|left, right| {
-        (left.from.as_str(), left.to.as_str(), left.span.offset).cmp(&(
+        (left.from.as_str(), left.to.as_str(), left.property.as_deref(), left.span.offset).cmp(&(
           right.from.as_str(),
           right.to.as_str(),
+          right.property.as_deref(),
           right.span.offset,
         ))
       });
-      let edge_labels =
-        edge_details.iter().map(|detail| format!("{} -> {}", detail.from, detail.to)).collect();
+      let edge_labels = edge_details
+        .iter()
+        .map(|detail| format!("{} -> {}", detail.from, detail.to_path))
+        .collect();
 
       let mut template_details = module
         .graph
@@ -907,6 +936,7 @@ fn operational_failure(cli: &Cli, message: &str) -> ExitCode {
       complete: false,
       skipped_check_reasons: BTreeMap::from([("scan".into(), message.into())]),
       reactivity: None,
+      component_nav: None,
     };
     match render_error(message, &context) {
       Ok(output) => println!("{output}"),

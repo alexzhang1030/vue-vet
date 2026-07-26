@@ -50,6 +50,14 @@
       {
         "command": "vue-vet.showDependencies",
         "title": "Vue Vet: Show Dependencies"
+      },
+      {
+        "command": "vue-vet.showComponentsUsed",
+        "title": "Vue Vet: Show Components Used"
+      },
+      {
+        "command": "vue-vet.showComponentUsers",
+        "title": "Vue Vet: Show Component Users"
       }
     ],
     "configuration": {
@@ -107,6 +115,16 @@
           "command": "vue-vet.showDependencies",
           "when": "view == vueVet.reactivity && viewItem == binding",
           "group": "inline"
+        },
+        {
+          "command": "vue-vet.showComponentsUsed",
+          "when": "view == vueVet.reactivity && viewItem == module",
+          "group": "inline"
+        },
+        {
+          "command": "vue-vet.showComponentUsers",
+          "when": "view == vueVet.reactivity && viewItem == module",
+          "group": "inline"
         }
       ],
       "editor/context": [
@@ -119,6 +137,16 @@
           "command": "vue-vet.showDependencies",
           "when": "resourceExtname == .vue || resourceLangId == typescript || resourceLangId == javascript",
           "group": "vue-vet@2"
+        },
+        {
+          "command": "vue-vet.showComponentsUsed",
+          "when": "resourceExtname == .vue",
+          "group": "vue-vet@3"
+        },
+        {
+          "command": "vue-vet.showComponentUsers",
+          "when": "resourceExtname == .vue",
+          "group": "vue-vet@4"
         }
       ]
     },

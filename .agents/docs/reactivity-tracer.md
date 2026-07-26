@@ -44,8 +44,9 @@ JavaScript soundness.
 
 ## Current baseline (honest)
 
-Contract version: **`REACTIVITY_GRAPH_VERSION = 6`** (v5 + **`edge.to_id`** span-qualified
-identities; bare `to` retained for rule matching).
+Contract version: **`REACTIVITY_GRAPH_VERSION = 7`** (v6 + **`edge.property`** for
+member reads such as `props.count`; bare `to` retained for rule matching; digest
+adds `to_path`).
 
 | Axis | Status | Gap |
 | --- | --- | --- |
@@ -55,7 +56,7 @@ identities; bare `to` retained for rule matching).
 | A4 Conditions | deep | if / early-exit / ternary / short-circuit / switch roles — do not deepen further yet |
 | A5 Boundaries | partial | await, pauseTracking, deferred callbacks, watch jobs |
 | A6 Modules | partial | composable shapes; instance bags; same-file + export const/default; **dual script: setup + `path#script` ordinary re-trace**; **provide/inject unique-key index (no App Tree)** |
-| A7 Contract | improving | **v6**: `to_id = name@offset`; bare `to` still for consumers |
+| A7 Contract | improving | **v7**: `property` + `to_path` for member deps; `to_id` still span-local |
 | Evidence | improving | Runtime oracle; exhaustive local fixtures; SFC E2E defineProps/instance/dual module sources |
 
 ### Deferred (honest — not “done”)
@@ -64,6 +65,7 @@ identities; bare `to` retained for rule matching).
 | --- | --- |
 | Bare `watch(reactiveObj)` deep keys | Runtime tracks iterate + many property keys; property-less static dep invents identity |
 | Full module-qualified `to` (module:name) | `to_id` is span-local; cross-module symbol IDs still optional |
+| Parent `:foo` → child `props.foo` edges | Cross-file prop dataflow is L4/L5; component nav is structural only |
 | Further A4 control-flow depth | Already deep; wrong axis for recall |
 | Whole-program JS soundness | Charter: under-approx Vue tracking, not full alias analysis |
 
@@ -189,3 +191,5 @@ growing prose ledger.
 | 2026-07-26 | Thin VS Code host | `editors/vscode` consumes CLI JSON only (TreeView / decorations / hover); not the #12 LSP surface |
 | 2026-07-26 | Editor UTF-8→UTF-16 | VS Code decorations must convert byte spans; raw `positionAt(byteOffset)` shifts highlights after multi-byte prefixes |
 | 2026-07-26 | Binding inspect | TUI `b`/Enter/right-click selects a binding: inbound readers + outbound deps; Esc/x clears. VS Code context menus mirror this |
+| 2026-07-26 | Graph v7 `property` | Dependency edges carry member path (`props.count`); digest `to_path` + humanize; TUI/VS Code pick `props.*` with inbound filter |
+| 2026-07-26 | Component nav (structural) | JSON `component_nav` + TUI `c` + VS Code tree from `ComponentUsage`/`AutoComponent` only — **not** prop dataflow |

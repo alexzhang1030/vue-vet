@@ -82,6 +82,25 @@ pub fn humanize_edge_parts(from: &str, to: &str) -> String {
   format!("{}  →  {to}", humanize_source(from))
 }
 
+/// Humanize an edge whose dependency may be a member path (`props.count`).
+#[must_use]
+pub fn humanize_edge_parts_with_property(from: &str, to: &str, property: Option<&str>) -> String {
+  let target = match property {
+    Some(property) if !property.is_empty() => format!("{to}.{property}"),
+    _ => to.to_owned(),
+  };
+  humanize_edge_parts(from, &target)
+}
+
+/// Display path for a dependency target.
+#[must_use]
+pub fn to_path(to: &str, property: Option<&str>) -> String {
+  match property {
+    Some(property) if !property.is_empty() => format!("{to}.{property}"),
+    _ => to.to_owned(),
+  }
+}
+
 #[must_use]
 pub fn humanize_binding(binding: &str) -> String {
   binding.split_once(':').map_or_else(
@@ -147,6 +166,16 @@ mod tests {
     assert_eq!(humanize_edge("template:interpolation@12154 -> hint"), "{{ }}  →  hint");
     assert_eq!(humanize_edge("template:class@14082 -> backend"), ":class  →  backend");
     assert_eq!(humanize_edge("watch_sources:watch@11110 -> backend"), "watch()  →  backend");
+  }
+
+  #[test]
+  fn humanizes_props_member_paths() {
+    assert_eq!(
+      humanize_edge_parts_with_property("label", "props", Some("count")),
+      "label  →  props.count"
+    );
+    assert_eq!(to_path("props", Some("count")), "props.count");
+    assert_eq!(to_path("props", None), "props");
   }
 
   #[test]

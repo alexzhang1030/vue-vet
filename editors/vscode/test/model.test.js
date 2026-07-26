@@ -6,6 +6,7 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   modulesFromReport,
+  componentNavFromReport,
   moduleForFile,
   decorationPlan,
   hoverAtOffset,
@@ -96,6 +97,7 @@ describe('reactivity model', () => {
           span: { offset: 30, length: 5 },
           to_span: { offset: 10, length: 5 },
           label: 'double  →  count',
+          to_path: 'count',
         },
         {
           from: 'template:if@40',
@@ -103,6 +105,7 @@ describe('reactivity model', () => {
           kind: 'template',
           span: { offset: 40, length: 2 },
           label: 'v-if  →  count',
+          to_path: 'count',
         },
       ],
       template_details: [],
@@ -114,5 +117,138 @@ describe('reactivity model', () => {
     assert.equal(deps[0].to, 'count');
     assert.equal(bindingAtOffset(module, 12), 'count');
     assert.equal(bindingAtOffset(module, 22), 'double');
+  });
+
+  it('expands reactive bags into props.* tree nodes and filters inbound by property', () => {
+    const module = {
+      id: 'Child.vue',
+      bindings: [],
+      scopes: [],
+      edges: [],
+      template_reads: [],
+      binding_details: [
+        {
+          name: 'props',
+          kind: 'reactive',
+          span: { offset: 4, length: 5 },
+          label: 'props  (reactive)',
+        },
+        {
+          name: 'label',
+          kind: 'computed',
+          span: { offset: 20, length: 5 },
+          label: 'label  (computed)',
+        },
+      ],
+      edge_details: [
+        {
+          from: 'label',
+          to: 'props',
+          property: 'count',
+          to_path: 'props.count',
+          kind: 'computed',
+          span: { offset: 30, length: 5 },
+          label: 'label  →  props.count',
+        },
+        {
+          from: 'watch_sources:watch@40',
+          to: 'props',
+          property: 'mode',
+          to_path: 'props.mode',
+          kind: 'effect',
+          span: { offset: 40, length: 4 },
+          label: 'watch()  →  props.mode',
+        },
+      ],
+      template_details: [
+        {
+          binding: 'props',
+          surface: 'if',
+          span: { offset: 50, length: 2 },
+          label: 'v-if  reads  props',
+        },
+      ],
+    };
+
+    const tree = buildTree([module]);
+    const bindingGroup = tree[0].children.find((child) => child.label.startsWith('bindings'));
+    const names = bindingGroup.children.map((child) => child.bindingName);
+    assert.deepEqual(names, ['props', 'props.count', 'props.mode', 'label']);
+
+    const bagReaders = inboundFor(module, 'props');
+    assert.equal(bagReaders.length, 3);
+    const countReaders = inboundFor(module, 'props.count');
+    assert.equal(countReaders.length, 1);
+    assert.match(countReaders[0].label, /props\.count/);
+    assert.equal(inboundFor(module, 'props.mode').length, 1);
+
+    const deps = outboundFor(module, 'label');
+    assert.equal(deps.length, 1);
+    assert.equal(deps[0].to, 'props.count');
+    assert.equal(outboundFor(module, 'props.count').length, 0);
+
+    const inbound = tree[0].children.find((child) => child.label.startsWith('inbound graph'));
+    const targets = inbound.children.map((child) => child.label);
+    assert.ok(targets.includes('● props.count'));
+    assert.ok(targets.includes('● props.mode'));
+  });
+
+  it('attaches structural component uses / used_by without inventing prop dataflow', () => {
+    const report = {
+      reactivity: {
+        modules_detail: [
+          {
+            id: 'pages/index.vue',
+            bindings: [],
+            scopes: [],
+            edges: [],
+            template_reads: [],
+          },
+        ],
+      },
+      component_nav: {
+        modules: [
+          {
+            id: 'pages/index.vue',
+            uses: [
+              {
+                peer: 'components/Demo.vue',
+                kind: 'auto_component',
+                specifier: 'Demo',
+                span: { offset: 12, length: 4 },
+              },
+            ],
+            used_by: [],
+          },
+          {
+            id: 'components/Demo.vue',
+            uses: [],
+            used_by: [
+              {
+                peer: 'pages/index.vue',
+                kind: 'auto_component',
+                specifier: 'Demo',
+                span: { offset: 12, length: 4 },
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const nav = componentNavFromReport(report);
+    assert.equal(nav.length, 2);
+    const tree = buildTree(modulesFromReport(report), nav);
+    const page = tree.find((node) => node.label === 'pages/index.vue');
+    const demo = tree.find((node) => node.label === 'components/Demo.vue');
+    assert.ok(page);
+    assert.ok(demo);
+    const uses = page.children.find((child) => child.label.startsWith('components uses'));
+    assert.ok(uses);
+    assert.equal(uses.children[0].kind, 'component');
+    assert.match(uses.description, /not prop dataflow/);
+    const usedBy = demo.children.find((child) => child.label.startsWith('components used by'));
+    assert.ok(usedBy);
+    // Evidence reveal opens the parent template file.
+    assert.equal(usedBy.children[0].moduleId, 'pages/index.vue');
   });
 });

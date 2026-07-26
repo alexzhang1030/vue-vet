@@ -3,7 +3,11 @@
 //! Pure browse-state helpers are unit-tested without a TTY. The ratatui loop
 //! requires an interactive terminal and is wired from the CLI flag.
 
-use std::{cmp::Reverse, collections::BTreeMap, io::IsTerminal};
+use std::{
+  cmp::Reverse,
+  collections::{BTreeMap, BTreeSet},
+  io::IsTerminal,
+};
 
 use ratatui::{
   DefaultTerminal, Frame,
@@ -14,8 +18,9 @@ use ratatui::{
   widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
 use vue_vet_reporters::{
-  ReactivityModuleStats, humanize_binding, humanize_edge, humanize_scope, humanize_source,
-  humanize_template_read, humanize_template_surface,
+  ComponentNavDigest, ComponentNavLink, ComponentNavModule, ReactivityModuleStats,
+  humanize_binding, humanize_edge, humanize_scope, humanize_source, humanize_template_read,
+  humanize_template_surface,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -32,6 +37,8 @@ enum PanelMode {
   Pick,
   /// Inbound readers + outbound dependencies for one binding.
   Inspect,
+  /// Structural component `uses` / `used_by` (project graph; not prop dataflow).
+  Components,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -73,6 +80,8 @@ impl BrowseModule {
 #[derive(Debug)]
 struct BrowseApp {
   modules: Vec<BrowseModule>,
+  /// Path → component `uses` / `used_by` (structural project-graph edges).
+  component_nav: BTreeMap<String, ComponentNavModule>,
   visible: Vec<usize>,
   list_state: ListState,
   show_empty: bool,
@@ -83,6 +92,8 @@ struct BrowseApp {
   binding_cursor: usize,
   /// Bare binding name under inspect (`error`, not `error:ref`).
   selected_binding: Option<String>,
+  /// Cursor into `uses` / `used_by` rows in Components mode.
+  component_cursor: usize,
   show_help: bool,
   error: Option<String>,
   should_quit: bool,
@@ -91,9 +102,16 @@ struct BrowseApp {
 }
 
 impl BrowseApp {
-  fn new(modules: Vec<BrowseModule>, error: Option<String>) -> Self {
+  fn new(
+    modules: Vec<BrowseModule>,
+    error: Option<String>,
+    component_nav: ComponentNavDigest,
+  ) -> Self {
+    let component_nav =
+      component_nav.modules.into_iter().map(|module| (module.id.clone(), module)).collect();
     let mut app = Self {
       modules,
+      component_nav,
       visible: Vec::new(),
       list_state: ListState::default(),
       show_empty: false,
@@ -102,6 +120,7 @@ impl BrowseApp {
       panel_scroll: 0,
       binding_cursor: 0,
       selected_binding: None,
+      component_cursor: 0,
       show_help: false,
       error,
       should_quit: false,
@@ -116,15 +135,7 @@ impl BrowseApp {
     let Some(module) = self.selected_module() else {
       return Vec::new();
     };
-    module
-      .bindings
-      .iter()
-      .map(|label| {
-        let name = bare_binding_name(label).to_owned();
-        let kind = binding_kind_label(label).to_owned();
-        (name, kind)
-      })
-      .collect()
+    expand_binding_picks(module)
   }
 
   fn clear_inspect(&mut self) {
@@ -331,6 +342,11 @@ impl BrowseApp {
           }
         }
       }
+      PanelMode::Components => {
+        if let Some(index) = self.component_index_at_content_row(row) {
+          self.component_cursor = index;
+        }
+      }
       PanelMode::Detail | PanelMode::Inspect => {}
     }
   }
@@ -357,8 +373,82 @@ impl BrowseApp {
         .pick_index_at_content_row(row)
         .and_then(|index| self.pick_bindings().get(index).map(|(name, _)| name.clone())),
       PanelMode::Graph => self.graph_binding_at_content_row(row),
-      PanelMode::Detail | PanelMode::Inspect => None,
+      PanelMode::Detail | PanelMode::Inspect | PanelMode::Components => None,
     }
+  }
+
+  fn component_rows(&self) -> Vec<(String, ComponentNavLink)> {
+    let Some(module) = self.selected_module() else {
+      return Vec::new();
+    };
+    let Some(nav) = self.component_nav.get(&module.id) else {
+      return Vec::new();
+    };
+    let mut rows = Vec::new();
+    for link in &nav.uses {
+      rows.push(("uses".into(), link.clone()));
+    }
+    for link in &nav.used_by {
+      rows.push(("used_by".into(), link.clone()));
+    }
+    rows
+  }
+
+  fn component_index_at_content_row(&self, row: usize) -> Option<usize> {
+    // components_lines: title, blank, disclaimer, blank, then labeled rows with
+    // section headers — map via rendered "  > " / "    " peer lines only.
+    let module = self.selected_module()?;
+    let lines = components_lines(module, self.component_nav.get(&module.id), self.component_cursor);
+    let text = line_text(lines.get(row)?);
+    let trimmed = text.trim_start();
+    let marker = trimmed.strip_prefix("> ").or_else(|| trimmed.strip_prefix("  "))?;
+    let peer = marker.split_whitespace().next()?;
+    self.component_rows().iter().position(|(_, link)| link.peer == peer)
+  }
+
+  fn open_components_panel(&mut self) {
+    self.selected_binding = None;
+    self.panel_mode = PanelMode::Components;
+    self.component_cursor = 0;
+    self.panel_scroll = 0;
+    self.focus = Focus::Panel;
+  }
+
+  fn confirm_component_jump(&mut self) {
+    let rows = self.component_rows();
+    let Some((_, link)) = rows.get(self.component_cursor) else {
+      return;
+    };
+    let peer = link.peer.clone();
+    if let Some(index) = self.modules.iter().position(|module| module.id == peer) {
+      if let Some(visible_index) = self.visible.iter().position(|item| *item == index) {
+        self.list_state.select(Some(visible_index));
+      } else {
+        // Peer is empty-weight; reveal it.
+        self.show_empty = true;
+        self.rebuild_visible();
+        if let Some(visible_index) = self.visible.iter().position(|item| *item == index) {
+          self.list_state.select(Some(visible_index));
+        }
+      }
+      self.component_cursor = 0;
+      self.panel_scroll = 0;
+    }
+  }
+
+  fn move_component_cursor(&mut self, forward: bool) {
+    let len = self.component_rows().len();
+    if len == 0 {
+      self.component_cursor = 0;
+      return;
+    }
+    self.component_cursor = if forward {
+      self.component_cursor.saturating_add(1) % len
+    } else if self.component_cursor == 0 {
+      len.saturating_sub(1)
+    } else {
+      self.component_cursor.saturating_sub(1)
+    };
   }
 
   fn pick_index_at_content_row(&self, row: usize) -> Option<usize> {
@@ -411,6 +501,9 @@ impl BrowseApp {
         } else if self.panel_mode == PanelMode::Pick {
           self.panel_mode = PanelMode::Graph;
           self.panel_scroll = 0;
+        } else if self.panel_mode == PanelMode::Components {
+          self.panel_mode = PanelMode::Detail;
+          self.panel_scroll = 0;
         } else {
           self.should_quit = true;
         }
@@ -426,12 +519,15 @@ impl BrowseApp {
         self.selected_binding = None;
         self.panel_mode = match self.panel_mode {
           PanelMode::Detail => PanelMode::Graph,
-          PanelMode::Graph | PanelMode::Pick | PanelMode::Inspect => PanelMode::Detail,
+          PanelMode::Graph | PanelMode::Pick | PanelMode::Inspect | PanelMode::Components => {
+            PanelMode::Detail
+          }
         };
         self.panel_scroll = 0;
         self.focus = Focus::Panel;
       }
       KeyCode::Char('b') => self.open_binding_picker(),
+      KeyCode::Char('c') => self.open_components_panel(),
       KeyCode::Char('x') if self.selected_binding.is_some() => self.clear_inspect(),
       KeyCode::Enter | KeyCode::Char(' ') if self.focus == Focus::Panel => match self.panel_mode {
         PanelMode::Pick => self.confirm_picked_binding(),
@@ -446,6 +542,7 @@ impl BrowseApp {
         }
         PanelMode::Detail => self.open_binding_picker(),
         PanelMode::Inspect => {}
+        PanelMode::Components => self.confirm_component_jump(),
       },
       KeyCode::Char('e') => self.toggle_empty(),
       KeyCode::Home if self.focus == Focus::Modules => {
@@ -461,11 +558,17 @@ impl BrowseApp {
       KeyCode::Down | KeyCode::Char('j') => match self.focus {
         Focus::Modules => self.move_selection(true),
         Focus::Panel if self.panel_mode == PanelMode::Pick => self.move_binding_cursor(true),
+        Focus::Panel if self.panel_mode == PanelMode::Components => {
+          self.move_component_cursor(true);
+        }
         Focus::Panel => self.panel_scroll = self.panel_scroll.saturating_add(1),
       },
       KeyCode::Up | KeyCode::Char('k') => match self.focus {
         Focus::Modules => self.move_selection(false),
         Focus::Panel if self.panel_mode == PanelMode::Pick => self.move_binding_cursor(false),
+        Focus::Panel if self.panel_mode == PanelMode::Components => {
+          self.move_component_cursor(false);
+        }
         Focus::Panel => self.panel_scroll = self.panel_scroll.saturating_sub(1),
       },
       KeyCode::PageDown | KeyCode::Char('d') if self.focus == Focus::Panel => {
@@ -560,8 +663,8 @@ impl BrowseApp {
 
     let lines = self.panel_lines();
     let panel_title = match (self.panel_mode, self.focus, self.selected_binding.as_deref()) {
-      (PanelMode::Detail, Focus::Panel, _) => "detail (focused · b pick · Enter)".into(),
-      (PanelMode::Detail, Focus::Modules, _) => "detail (click/Tab · b pick · g graph)".into(),
+      (PanelMode::Detail, Focus::Panel, _) => "detail (focused · b pick · c components)".into(),
+      (PanelMode::Detail, Focus::Modules, _) => "detail (click/Tab · b pick · c · g)".into(),
       (PanelMode::Graph, Focus::Panel, _) => "graph (focused · b/Enter inspect)".into(),
       (PanelMode::Graph, Focus::Modules, _) => "graph (click/Tab · right-click inspect)".into(),
       (PanelMode::Pick, _, _) => "pick binding (j/k · Enter · right-click)".into(),
@@ -569,6 +672,9 @@ impl BrowseApp {
         return_panel_title_inspect(name, self.focus == Focus::Panel)
       }
       (PanelMode::Inspect, _, None) => "inspect".into(),
+      (PanelMode::Components, _, _) => {
+        "components (structural · Enter jumps · not prop dataflow)".into()
+      }
     };
     let border =
       if self.focus == Focus::Panel { Style::default().fg(Color::Cyan) } else { Style::default() };
@@ -595,6 +701,9 @@ impl BrowseApp {
         let name = self.selected_binding.as_deref().unwrap_or("?");
         inspect_lines(module, name)
       }
+      PanelMode::Components => {
+        components_lines(module, self.component_nav.get(&module.id), self.component_cursor)
+      }
     }
   }
 
@@ -611,6 +720,7 @@ impl BrowseApp {
       (PanelMode::Pick, _) => "pick",
       (PanelMode::Inspect, Some(name)) => name,
       (PanelMode::Inspect, None) => "inspect",
+      (PanelMode::Components, _) => "components",
     };
     let focus = match focus {
       Focus::Modules => "modules",
@@ -618,7 +728,7 @@ impl BrowseApp {
     };
     frame.render_widget(
       Paragraph::new(format!(
-        "focus:{focus} · {mode} · b pick · Enter/right-click inspect · Esc/x clear · g · ? · q"
+        "focus:{focus} · {mode} · b pick · c components · Enter/right-click · Esc/x · g · ? · q"
       )),
       area,
     );
@@ -715,13 +825,13 @@ fn pick_lines(module: &BrowseModule, cursor: usize) -> Vec<Line<'static>> {
     )),
     Line::from(""),
   ];
-  if module.bindings.is_empty() {
+  let picks = expand_binding_picks(module);
+  if picks.is_empty() {
     lines.push(Line::from("  (no bindings)"));
     return lines;
   }
-  for (index, label) in module.bindings.iter().enumerate() {
-    let name = bare_binding_name(label);
-    let kind = binding_kind_label(label).replace('_', " ");
+  for (index, (name, kind)) in picks.iter().enumerate() {
+    let kind = kind.replace('_', " ");
     let marker = if index == cursor { ">" } else { " " };
     let style = if index == cursor {
       Style::default().add_modifier(Modifier::REVERSED)
@@ -732,21 +842,26 @@ fn pick_lines(module: &BrowseModule, cursor: usize) -> Vec<Line<'static>> {
   }
   lines.push(Line::from(""));
   lines.push(Line::from(Span::styled(
-    "Tip: ref → who reads it · computed → what it depends on",
+    "Tip: props → all readers · props.count → that member · computed → dependencies",
     Style::default().fg(Color::DarkGray),
   )));
   lines
 }
 
-fn inspect_lines(module: &BrowseModule, binding: &str) -> Vec<Line<'static>> {
+fn inspect_lines(module: &BrowseModule, target: &str) -> Vec<Line<'static>> {
+  let (binding, property) = split_inspect_target(target);
   let kind = module
     .bindings
     .iter()
     .find(|label| bare_binding_name(label) == binding)
     .map_or_else(|| "?".into(), |label| binding_kind_label(label).replace('_', " "));
+  let kind = match property {
+    Some(property) => format!("{kind} · .{property}"),
+    None => kind,
+  };
   let mut lines = vec![
     Line::from(Span::styled(
-      format!("● {binding}  ({kind})"),
+      format!("● {target}  ({kind})"),
       Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
     )),
     Line::from(""),
@@ -755,7 +870,7 @@ fn inspect_lines(module: &BrowseModule, binding: &str) -> Vec<Line<'static>> {
       Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
     )),
   ];
-  let inbound = inbound_readers(module, binding);
+  let inbound = inbound_readers(module, binding, property);
   if inbound.is_empty() {
     lines.push(Line::from("  (none)"));
   } else {
@@ -769,7 +884,7 @@ fn inspect_lines(module: &BrowseModule, binding: &str) -> Vec<Line<'static>> {
     "dependencies (outbound) — what this binding's scope reads",
     Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
   )));
-  let outbound = outbound_dependencies(module, binding);
+  let outbound = outbound_dependencies(module, binding, property);
   if outbound.is_empty() {
     lines.push(Line::from("  (none — typical for plain ref / reactive)"));
   } else {
@@ -786,27 +901,93 @@ fn inspect_lines(module: &BrowseModule, binding: &str) -> Vec<Line<'static>> {
   lines
 }
 
-fn inbound_readers(module: &BrowseModule, binding: &str) -> BTreeMap<String, usize> {
+/// Expand reactive / shallowReactive bags into bag + bag.property pick rows.
+fn expand_binding_picks(module: &BrowseModule) -> Vec<(String, String)> {
+  let mut picks = Vec::new();
+  for label in &module.bindings {
+    let name = bare_binding_name(label).to_owned();
+    let kind = binding_kind_label(label).to_owned();
+    picks.push((name.clone(), kind.clone()));
+    if !is_reactive_bag_kind(&kind) {
+      continue;
+    }
+    for property in properties_for_bag(module, &name) {
+      picks.push((format!("{name}.{property}"), kind.clone()));
+    }
+  }
+  picks
+}
+
+fn is_reactive_bag_kind(kind: &str) -> bool {
+  matches!(kind, "reactive" | "shallow_reactive")
+}
+
+fn properties_for_bag(module: &BrowseModule, bag: &str) -> BTreeSet<String> {
+  let mut properties = BTreeSet::new();
+  let prefix = format!("{bag}.");
+  for edge in &module.edges {
+    if let Some((_, to)) = split_edge(edge)
+      && let Some(rest) = to.strip_prefix(&prefix)
+    {
+      let property = rest.split('.').next().unwrap_or(rest);
+      if !property.is_empty() {
+        properties.insert(property.to_owned());
+      }
+    }
+  }
+  properties
+}
+
+fn split_inspect_target(target: &str) -> (&str, Option<&str>) {
+  match target.split_once('.') {
+    Some((binding, property)) if !property.is_empty() => (binding, Some(property)),
+    _ => (target, None),
+  }
+}
+
+fn edge_to_matches(to_path: &str, binding: &str, property: Option<&str>) -> bool {
+  property.map_or_else(
+    || to_path == binding || to_path.starts_with(&format!("{binding}.")),
+    |property| to_path == format!("{binding}.{property}"),
+  )
+}
+
+fn inbound_readers(
+  module: &BrowseModule,
+  binding: &str,
+  property: Option<&str>,
+) -> BTreeMap<String, usize> {
   let mut readers = BTreeMap::new();
   for edge in &module.edges {
     if let Some((from, to)) = split_edge(edge)
-      && to == binding
+      && edge_to_matches(to, binding, property)
     {
       *readers.entry(humanize_source(from)).or_default() += 1;
     }
   }
-  for read in &module.template_reads {
-    if let Some((name, surface)) = split_template_read(read)
-      && name == binding
-    {
-      *readers.entry(humanize_template_surface(surface)).or_default() += 1;
+  // Template joins name the bare binding only; include them for bag-level inspect.
+  if property.is_none() {
+    for read in &module.template_reads {
+      if let Some((name, surface)) = split_template_read(read)
+        && name == binding
+      {
+        *readers.entry(humanize_template_surface(surface)).or_default() += 1;
+      }
     }
   }
   readers
 }
 
-fn outbound_dependencies(module: &BrowseModule, binding: &str) -> BTreeMap<String, usize> {
+fn outbound_dependencies(
+  module: &BrowseModule,
+  binding: &str,
+  property: Option<&str>,
+) -> BTreeMap<String, usize> {
   let mut deps = BTreeMap::new();
+  // Member picks (`props.count`) are inbound-only; outbound uses the bare binding.
+  if property.is_some() {
+    return deps;
+  }
   for edge in &module.edges {
     if let Some((from, to)) = split_edge(edge)
       && edge_from_is_binding(from, binding)
@@ -890,6 +1071,66 @@ fn graph_lines(module: &BrowseModule) -> Vec<Line<'static>> {
   lines
 }
 
+fn components_lines(
+  module: &BrowseModule,
+  nav: Option<&ComponentNavModule>,
+  cursor: usize,
+) -> Vec<Line<'static>> {
+  let mut lines = vec![
+    Line::from(Span::styled(module.id.clone(), Style::default().add_modifier(Modifier::BOLD))),
+    Line::from(""),
+    Line::from(Span::styled(
+      "Component reference graph (uses / used by) — not props dataflow.",
+      Style::default().fg(Color::DarkGray),
+    )),
+    Line::from(""),
+  ];
+  let Some(nav) = nav else {
+    lines.push(Line::from("  (no ComponentUsage / AutoComponent edges for this file)"));
+    return lines;
+  };
+
+  let mut row_index = 0usize;
+  let mut push_section =
+    |title: &str, links: &[ComponentNavLink], lines: &mut Vec<Line<'static>>| {
+      lines.push(Line::from(Span::styled(
+        title.to_owned(),
+        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+      )));
+      if links.is_empty() {
+        lines.push(Line::from("  (none)"));
+      } else {
+        for link in links {
+          let marker = if row_index == cursor { ">" } else { " " };
+          let style = if row_index == cursor {
+            Style::default().add_modifier(Modifier::REVERSED)
+          } else {
+            Style::default()
+          };
+          lines.push(Line::from(Span::styled(
+            format!(
+              "{marker} {peer}  ({kind} · <{specifier}>)",
+              peer = link.peer,
+              kind = link.kind,
+              specifier = link.specifier
+            ),
+            style,
+          )));
+          row_index += 1;
+        }
+      }
+      lines.push(Line::from(""));
+    };
+
+  push_section("uses (this file templates)", &nav.uses, &mut lines);
+  push_section("used by (who templates this)", &nav.used_by, &mut lines);
+  lines.push(Line::from(Span::styled(
+    "Enter jumps to peer module when it is in the loaded list",
+    Style::default().fg(Color::DarkGray),
+  )));
+  lines
+}
+
 fn push_section(
   lines: &mut Vec<Line<'static>>,
   label: &str,
@@ -932,7 +1173,8 @@ fn draw_help(frame: &mut Frame<'_>) {
     Line::from("  PgUp PgDn     scroll panel faster"),
     Line::from("  g             toggle detail ↔ graph"),
     Line::from("  b             pick a binding to inspect"),
-    Line::from("  Enter/Space   inspect highlighted binding"),
+    Line::from("  c             component uses / used by (structural)"),
+    Line::from("  Enter/Space   inspect highlighted binding / jump peer"),
     Line::from("  right-click   inspect binding under cursor / clear"),
     Line::from("  Esc / x       clear inspect (Esc again quits)"),
     Line::from("  e             show/hide empty modules"),
@@ -941,6 +1183,11 @@ fn draw_help(frame: &mut Frame<'_>) {
     Line::from("Inspect a binding"),
     Line::from("  readers (←)       who tracks / reads this ref"),
     Line::from("  dependencies (→)  what a computed/effect binding reads"),
+    Line::from("  props.count       member pick filters inbound readers"),
+    Line::from(""),
+    Line::from("Components panel"),
+    Line::from("  Project-graph ComponentUsage / AutoComponent only."),
+    Line::from("  Not parent :prop → child props dataflow."),
     Line::from(""),
     Line::from("What the labels mean"),
     Line::from("  binding → reactive local (ref / computed / …)"),
@@ -993,6 +1240,7 @@ pub fn ranked_modules(stats: &[ReactivityModuleStats]) -> Vec<BrowseModule> {
 pub fn run_reactivity_tui(
   stats: &[ReactivityModuleStats],
   error: Option<String>,
+  component_nav: &ComponentNavDigest,
 ) -> Result<(), String> {
   if !(std::io::stdin().is_terminal() && std::io::stdout().is_terminal()) {
     return Err(
@@ -1001,7 +1249,7 @@ pub fn run_reactivity_tui(
     );
   }
   let modules = ranked_modules(stats);
-  let mut app = BrowseApp::new(modules, error);
+  let mut app = BrowseApp::new(modules, error, component_nav.clone());
   let mut terminal =
     ratatui::try_init().map_err(|error| format!("failed to initialize reactivity TUI: {error}"))?;
   // Best-effort mouse wheel support; ignore failures on hosts without mouse.
@@ -1063,7 +1311,7 @@ mod tests {
   #[test]
   fn hides_empty_modules_until_toggled() {
     let ranked = ranked_modules(&[stats("hot.vue", 2, 0, 0, 0), stats("empty.ts", 0, 0, 0, 0)]);
-    let mut app = BrowseApp::new(ranked, None);
+    let mut app = BrowseApp::new(ranked, None, ComponentNavDigest::default());
     assert_eq!(app.visible.len(), 1);
     assert_eq!(app.selected_module().map(|module| module.id.as_str()), Some("hot.vue"));
     app.toggle_empty();
@@ -1077,7 +1325,7 @@ mod tests {
       stats("b.vue", 2, 0, 0, 0),
       stats("c.vue", 1, 0, 0, 0),
     ]);
-    let mut app = BrowseApp::new(ranked, None);
+    let mut app = BrowseApp::new(ranked, None, ComponentNavDigest::default());
     assert_eq!(app.list_state.selected(), Some(0));
     app.move_selection(false);
     assert_eq!(app.list_state.selected(), Some(2));
@@ -1111,7 +1359,7 @@ mod tests {
       stats("b.vue", 2, 0, 0, 0),
       stats("c.vue", 1, 0, 0, 0),
     ]);
-    let mut app = BrowseApp::new(ranked, None);
+    let mut app = BrowseApp::new(ranked, None, ComponentNavDigest::default());
     app.modules_area = Rect { x: 0, y: 3, width: 20, height: 10 };
     app.panel_area = Rect { x: 20, y: 3, width: 40, height: 10 };
     app.on_click(25, 6, false);
@@ -1148,9 +1396,90 @@ mod tests {
   }
 
   #[test]
+  fn components_panel_lists_uses_and_used_by() {
+    let ranked = ranked_modules(&[
+      stats("pages/index.vue", 1, 0, 0, 0),
+      stats("components/Demo.vue", 1, 0, 0, 0),
+    ]);
+    let nav = ComponentNavDigest {
+      modules: vec![
+        ComponentNavModule {
+          id: "pages/index.vue".into(),
+          uses: vec![ComponentNavLink {
+            peer: "components/Demo.vue".into(),
+            kind: "auto_component".into(),
+            specifier: "Demo".into(),
+            span: vue_vet_reporters::ReactivitySpanRef::new(10, 4),
+          }],
+          used_by: Vec::new(),
+        },
+        ComponentNavModule {
+          id: "components/Demo.vue".into(),
+          uses: Vec::new(),
+          used_by: vec![ComponentNavLink {
+            peer: "pages/index.vue".into(),
+            kind: "auto_component".into(),
+            specifier: "Demo".into(),
+            span: vue_vet_reporters::ReactivitySpanRef::new(10, 4),
+          }],
+        },
+      ],
+    };
+    let mut app = BrowseApp::new(ranked, None, nav);
+    // Rank puts Demo first by id; select the page that *uses* Demo.
+    let page_index = app.visible.iter().position(|index| {
+      app.modules.get(*index).is_some_and(|module| module.id == "pages/index.vue")
+    });
+    assert_eq!(page_index, Some(1));
+    app.list_state.select(page_index);
+    app.focus = Focus::Panel;
+    app.handle_key(KeyCode::Char('c'));
+    assert_eq!(app.panel_mode, PanelMode::Components);
+    let rendered = line_text_join(&app.panel_lines());
+    assert!(rendered.contains("Component reference graph"));
+    assert!(rendered.contains("components/Demo.vue"));
+    assert!(rendered.contains("not props dataflow"));
+    app.handle_key(KeyCode::Enter);
+    assert_eq!(app.selected_module().map(|module| module.id.as_str()), Some("components/Demo.vue"));
+  }
+
+  #[test]
+  fn reactive_bag_picks_expand_properties_and_filter_inbound() {
+    let module = BrowseModule {
+      id: "Child.vue".into(),
+      weight: 3,
+      bindings: vec!["props:reactive".into(), "label:computed".into()],
+      scopes: Vec::new(),
+      edges: vec![
+        "label -> props.count".into(),
+        "watch_sources:watch@1 -> props.mode".into(),
+        "template:if@2 -> props".into(),
+      ],
+      template_reads: vec!["props@if".into()],
+    };
+    let picks = expand_binding_picks(&module);
+    assert!(picks.iter().any(|(name, _)| name == "props"));
+    assert!(picks.iter().any(|(name, _)| name == "props.count"));
+    assert!(picks.iter().any(|(name, _)| name == "props.mode"));
+
+    let bag = line_text_join(&inspect_lines(&module, "props"));
+    assert!(bag.contains("← computed(label)") || bag.contains("← label"));
+    assert!(bag.contains("← watch()"));
+    assert!(bag.contains("← v-if"));
+
+    let count = line_text_join(&inspect_lines(&module, "props.count"));
+    assert!(count.contains("← computed(label)") || count.contains("← label"));
+    assert!(!count.contains("← watch()"));
+    assert!(!count.contains("← v-if"));
+
+    let label = line_text_join(&inspect_lines(&module, "label"));
+    assert!(label.contains("→ props.count"));
+  }
+
+  #[test]
   fn pick_enter_and_esc_toggle_inspect() {
     let ranked = ranked_modules(&[stats("a.vue", 2, 0, 1, 0)]);
-    let mut app = BrowseApp::new(ranked, None);
+    let mut app = BrowseApp::new(ranked, None, ComponentNavDigest::default());
     app.focus = Focus::Panel;
     app.handle_key(KeyCode::Char('b'));
     assert_eq!(app.panel_mode, PanelMode::Pick);
@@ -1197,7 +1526,7 @@ mod tests {
   #[test]
   fn panel_focus_scrolls_instead_of_changing_module() {
     let ranked = ranked_modules(&[stats("a.vue", 3, 0, 0, 0), stats("b.vue", 2, 0, 0, 0)]);
-    let mut app = BrowseApp::new(ranked, None);
+    let mut app = BrowseApp::new(ranked, None, ComponentNavDigest::default());
     app.focus = Focus::Panel;
     app.panel_scroll = 0;
     app.handle_key(KeyCode::Char('j'));

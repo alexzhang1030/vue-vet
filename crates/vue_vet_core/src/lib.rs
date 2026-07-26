@@ -408,6 +408,10 @@ pub struct ReactiveDependencyEdge {
   /// Absent on legacy payloads; equals bare `to` when offset is unknown.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub to_id: Option<String>,
+  /// Member path on `to` when the read was `bag.field` (e.g. `props.count`).
+  /// Absent for bare binding reads and template joins that only name the binding.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub property: Option<String>,
   pub kind: ReactiveDependencyKind,
   pub span: SourceSpan,
 }
@@ -417,6 +421,15 @@ impl ReactiveDependencyEdge {
   #[must_use]
   pub fn to_identity(&self) -> &str {
     self.to_id.as_deref().unwrap_or(self.to.as_str())
+  }
+
+  /// Display path `to` or `to.property` for inspector / humanize surfaces.
+  #[must_use]
+  pub fn to_path(&self) -> String {
+    match &self.property {
+      Some(property) if !property.is_empty() => format!("{}.{property}", self.to),
+      _ => self.to.clone(),
+    }
   }
 }
 
@@ -438,7 +451,7 @@ pub struct ReactivityEffectFact {
 
 /// Wire format version for [`ReactivityGraph`]. Bump when consumers must
 /// distinguish shape or semantic changes in serialized facts.
-pub const REACTIVITY_GRAPH_VERSION: u32 = 6;
+pub const REACTIVITY_GRAPH_VERSION: u32 = 7;
 
 const fn default_reactivity_graph_version() -> u32 {
   1
@@ -630,6 +643,7 @@ impl ReactivityGraph {
           to: read.binding.clone(),
           // Span-qualified for multi-consumer identity (graph v6).
           to_id: Some(format!("{}@{}", read.binding, read.span.offset)),
+          property: read.property.clone(),
           kind,
           span: read.span.clone(),
         });
@@ -641,21 +655,25 @@ impl ReactivityGraph {
         from: format!("template:{}@{}", template_read.surface, template_read.span.offset),
         to: template_read.binding.clone(),
         to_id: Some(format!("{}@{}", template_read.binding, template_read.span.offset)),
+        property: None,
         kind: ReactiveDependencyKind::Template,
         span: template_read.span.clone(),
       });
     }
     edges.sort_by(|left, right| {
-      (left.kind, left.from.as_str(), left.to.as_str(), left.span.offset).cmp(&(
-        right.kind,
-        right.from.as_str(),
-        right.to.as_str(),
-        right.span.offset,
-      ))
+      (left.kind, left.from.as_str(), left.to.as_str(), left.property.as_deref(), left.span.offset)
+        .cmp(&(
+          right.kind,
+          right.from.as_str(),
+          right.to.as_str(),
+          right.property.as_deref(),
+          right.span.offset,
+        ))
     });
     edges.dedup_by(|left, right| {
       left.from == right.from
         && left.to == right.to
+        && left.property == right.property
         && left.kind == right.kind
         && left.span.offset == right.span.offset
     });
