@@ -4,15 +4,15 @@
 
 ```text
 vue-vet CLI
-  -> versioned configuration and path filters
-  -> ignore-aware .vue / JS / TS discovery (sequential walk)
-  -> parallel per-file facts (Vize SFC / Oxc modules)   // oxlint-style
-  -> vue_vet_project edges + vue_vet_reactivity module seed linking
-       (module first-pass + seeded re-trace also parallel)
-  -> apply module graphs onto setup and dual ordinary (#script) blocks
-  -> parallel seed-aware vue_vet_rules
-  -> severity overrides and scoped suppressions
-  -> vue_vet_core diagnostics, spans, scoring (sorted for determinism)
+  -> vue_vet_session (config, cache, scan, explain, workspace paths)
+       -> ignore-aware .vue / JS / TS discovery (sequential walk)
+       -> parallel per-file facts (Vize SFC / Oxc modules)   // oxlint-style
+       -> vue_vet_project edges + vue_vet_reactivity module seed linking
+          (module first-pass + seeded re-trace also parallel)
+       -> apply module graphs onto setup and dual ordinary (#script) blocks
+       -> parallel seed-aware vue_vet_rules
+       -> severity overrides and scoped suppressions
+       -> vue_vet_core diagnostics, spans, scoring (sorted for determinism)
   -> vue_vet_reporters text or JSON rendering
   -> CLI output and CI exit policy
 ```
@@ -86,9 +86,16 @@ project discovery and configuration
 
 Existing crates are `vue_vet_core`, `vue_vet_config`, `vue_vet_vize`,
 `vue_vet_oxc`, `vue_vet_reactivity`, `vue_vet_rules`, `vue_vet_project`,
-`vue_vet_reporters`, and the `vue-vet` CLI. New rule capabilities extend these
-semantic and product boundaries only when a working vertical slice exercises
-them; there is no separate pattern-engine boundary in the roadmap.
+`vue_vet_reporters`, `vue_vet_session`, and the `vue-vet` CLI. New rule
+capabilities extend these semantic and product boundaries only when a working
+vertical slice exercises them; there is no separate pattern-engine boundary in
+the roadmap.
+
+`vue_vet_session` owns the long-lived project analysis handle: config load,
+cached/fresh scans, rule and finding explain, and workspace path containment.
+The CLI (and future LSP/MCP adapters) consume it so diagnostic identity stays
+shared across surfaces. Document overlays, cancellation, and protocol mapping
+remain later issue #12 work.
 
 ### Published library crates
 

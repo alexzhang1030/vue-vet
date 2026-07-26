@@ -1,6 +1,6 @@
 [package]
 publish = false
-name = "vue-vet"
+name = "vue_vet_session"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,30 +9,22 @@ rust-version.workspace = true
 readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "A Rust-native health check for Vue and Nuxt codebases"
+description = "Long-lived project analysis session shared by CLI, LSP, and agent surfaces"
 
 [lints]
 workspace = true
 
 [dependencies]
-atomic-write-file.workspace = true
-clap.workspace = true
 ignore.workspace = true
 rayon.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 vue_vet_cache = { path = "../vue_vet_cache" }
+vue_vet_config = { path = "../vue_vet_config" }
 vue_vet_core = { path = "../vue_vet_core" }
 vue_vet_oxc = { path = "../vue_vet_oxc" }
 vue_vet_project = { path = "../vue_vet_project" }
 vue_vet_reactivity = { path = "../vue_vet_reactivity" }
 vue_vet_reporters = { path = "../vue_vet_reporters" }
-vue_vet_config = { path = "../vue_vet_config" }
 vue_vet_rules = { path = "../vue_vet_rules" }
-vue_vet_session = { path = "../vue_vet_session" }
 vue_vet_vize = { path = "../vue_vet_vize" }
-ratatui.workspace = true
-
-[[bin]]
-name = "vue-vet"
-path = "src/main.rs"

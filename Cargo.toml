@@ -9,6 +9,7 @@ members = [
   "crates/vue_vet_reactivity",
   "crates/vue_vet_reporters",
   "crates/vue_vet_rules",
+  "crates/vue_vet_session",
   "crates/vue_vet_vize",
 ]
 resolver = "3"
