@@ -101,8 +101,10 @@ overlays (FULL sync) with the opaque finding id in LSP `data` and the document
 version on `publishDiagnostics`. Overlapping overlay analyses are dropped via
 per-document generation tokens. Safe quick-fix code actions return versioned
 workspace edits from explicitly safe diagnostic edits only (client applies;
-server never writes). Request-level cancellation and MCP remain later issue #12
-work.
+server never writes). The thin MCP adapter (`vue-vet --mcp`, `vue_vet_mcp`)
+exposes scan / explain / safe-fix preview tools over stdio JSON-RPC with the
+same session path bounds; MCP never applies edits. Request-level cancellation
+remains later issue #12 work.
 
 ### Published library crates
 
@@ -170,12 +172,14 @@ spawns the Rust CLI (`--format json --print-reactivity`), maps structured
 `*_details` byte spans onto decorations / hover / a TreeView, and must not grow
 a parallel tracer.
 
-`vue-vet --lsp` is the first diagnostics LSP surface (`vue_vet_lsp`). It uses
+`vue-vet --lsp` is the diagnostics LSP surface (`vue_vet_lsp`). It uses
 `vue_vet_session` with open-buffer overlays and publishes
 `textDocument/publishDiagnostics` with the same opaque finding ids as JSON
 `diagnostics[].id` (stored in LSP `data`) plus the document version. Safe
 quick-fix code actions map active safe edits to versioned `WorkspaceEdit`s.
-Request-level cancellation and MCP remain later issue #12 work.
+`vue-vet --mcp` (`vue_vet_mcp`) exposes stdio JSON-RPC tools for scan, explain,
+and safe-fix preview with the same workspace path bounds; it never applies
+edits. Request-level cancellation remains later issue #12 work.
 
 ## Project intelligence
 

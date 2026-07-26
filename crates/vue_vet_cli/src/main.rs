@@ -46,8 +46,19 @@ struct Cli {
   #[arg(long, help = "Print the effective configuration as JSON and exit")]
   print_config: bool,
 
-  #[arg(long, help = "Run the language server on stdio and exit when the client shuts down")]
+  #[arg(
+    long,
+    conflicts_with = "mcp",
+    help = "Run the language server on stdio and exit when the client shuts down"
+  )]
   lsp: bool,
+
+  #[arg(
+    long,
+    conflicts_with = "lsp",
+    help = "Run the MCP server on stdio (scan / explain / safe-fix preview) and exit when the client closes"
+  )]
+  mcp: bool,
 
   #[arg(
     long,
@@ -115,6 +126,7 @@ struct FixArgs {
       "diff",
       "print_config",
       "lsp",
+      "mcp",
       "explain",
       "print_graph",
       "print_reactivity",
@@ -133,6 +145,7 @@ struct FixArgs {
       "diff",
       "print_config",
       "lsp",
+      "mcp",
       "explain",
       "print_graph",
       "print_reactivity",
@@ -186,6 +199,15 @@ fn main() -> ExitCode {
       Ok(()) => ExitCode::SUCCESS,
       Err(error) => {
         eprintln!("vue-vet: failed to start language server: {error}");
+        ExitCode::from(2)
+      }
+    };
+  }
+  if cli.mcp {
+    return match vue_vet_mcp::run_stdio(cli.path) {
+      Ok(()) => ExitCode::SUCCESS,
+      Err(error) => {
+        eprintln!("vue-vet: failed to start MCP server: {error}");
         ExitCode::from(2)
       }
     };
