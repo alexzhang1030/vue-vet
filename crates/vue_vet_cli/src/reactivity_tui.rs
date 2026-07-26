@@ -3,17 +3,29 @@
 //! Pure browse-state helpers are unit-tested without a TTY. The ratatui loop
 //! requires an interactive terminal and is wired from the CLI flag.
 
-use std::{cmp::Reverse, io::IsTerminal};
+use std::{cmp::Reverse, collections::BTreeMap, io::IsTerminal};
 
 use ratatui::{
   DefaultTerminal, Frame,
-  crossterm::event::{self, Event, KeyCode, KeyEventKind},
+  crossterm::event::{self, Event, KeyCode, KeyEventKind, MouseEventKind},
   layout::{Constraint, Direction, Layout, Rect},
-  style::{Modifier, Style},
+  style::{Color, Modifier, Style},
   text::{Line, Span},
-  widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
+  widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
 use vue_vet_reporters::ReactivityModuleStats;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Focus {
+  Modules,
+  Panel,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PanelMode {
+  Detail,
+  Graph,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BrowseModule {
@@ -49,6 +61,10 @@ struct BrowseApp {
   visible: Vec<usize>,
   list_state: ListState,
   show_empty: bool,
+  focus: Focus,
+  panel_mode: PanelMode,
+  panel_scroll: u16,
+  show_help: bool,
   error: Option<String>,
   should_quit: bool,
 }
@@ -60,6 +76,10 @@ impl BrowseApp {
       visible: Vec::new(),
       list_state: ListState::default(),
       show_empty: false,
+      focus: Focus::Modules,
+      panel_mode: PanelMode::Detail,
+      panel_scroll: 0,
+      show_help: false,
       error,
       should_quit: false,
     };
@@ -85,6 +105,7 @@ impl BrowseApp {
       })
       .or_else(|| (!self.visible.is_empty()).then_some(0));
     self.list_state.select(selected);
+    self.panel_scroll = 0;
   }
 
   fn selected_module(&self) -> Option<&BrowseModule> {
@@ -108,6 +129,7 @@ impl BrowseApp {
       current.saturating_sub(1)
     };
     self.list_state.select(Some(next));
+    self.panel_scroll = 0;
   }
 
   fn toggle_empty(&mut self) {
@@ -126,28 +148,97 @@ impl BrowseApp {
   }
 
   fn handle_events(&mut self) -> Result<(), String> {
-    let Event::Key(key) =
-      event::read().map_err(|error| format!("reactivity TUI input failed: {error}"))?
-    else {
-      return Ok(());
-    };
-    if key.kind != KeyEventKind::Press {
-      return Ok(());
-    }
-    match key.code {
-      KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
-      KeyCode::Down | KeyCode::Char('j') => self.move_selection(true),
-      KeyCode::Up | KeyCode::Char('k') => self.move_selection(false),
-      KeyCode::Char('e') => self.toggle_empty(),
-      KeyCode::Home => self.list_state.select((!self.visible.is_empty()).then_some(0)),
-      KeyCode::End => {
-        if let Some(last) = self.visible.len().checked_sub(1) {
-          self.list_state.select(Some(last));
+    match event::read().map_err(|error| format!("reactivity TUI input failed: {error}"))? {
+      Event::Key(key) => {
+        if key.kind != KeyEventKind::Press {
+          return Ok(());
         }
+        self.handle_key(key.code);
       }
+      Event::Mouse(mouse) => match mouse.kind {
+        MouseEventKind::ScrollDown => self.on_scroll(1),
+        MouseEventKind::ScrollUp => self.on_scroll(-1),
+        _ => {}
+      },
       _ => {}
     }
     Ok(())
+  }
+
+  fn on_scroll(&mut self, delta: i32) {
+    match self.focus {
+      Focus::Modules => {
+        if delta > 0 {
+          self.move_selection(true);
+        } else {
+          self.move_selection(false);
+        }
+      }
+      Focus::Panel => {
+        // Viewport height is refreshed on draw; approximate a page with 3 lines.
+        self.panel_scroll = if delta > 0 {
+          self.panel_scroll.saturating_add(3)
+        } else {
+          self.panel_scroll.saturating_sub(3)
+        };
+      }
+    }
+  }
+
+  fn handle_key(&mut self, code: KeyCode) {
+    if self.show_help {
+      match code {
+        KeyCode::Char('?' | 'q') | KeyCode::Esc => self.show_help = false,
+        _ => {}
+      }
+      return;
+    }
+    match code {
+      KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
+      KeyCode::Char('?') => self.show_help = true,
+      KeyCode::Tab | KeyCode::BackTab => {
+        self.focus = match self.focus {
+          Focus::Modules => Focus::Panel,
+          Focus::Panel => Focus::Modules,
+        };
+      }
+      KeyCode::Char('g') => {
+        self.panel_mode = match self.panel_mode {
+          PanelMode::Detail => PanelMode::Graph,
+          PanelMode::Graph => PanelMode::Detail,
+        };
+        self.panel_scroll = 0;
+        self.focus = Focus::Panel;
+      }
+      KeyCode::Char('e') => self.toggle_empty(),
+      KeyCode::Home if self.focus == Focus::Modules => {
+        self.list_state.select((!self.visible.is_empty()).then_some(0));
+        self.panel_scroll = 0;
+      }
+      KeyCode::End if self.focus == Focus::Modules => {
+        if let Some(last) = self.visible.len().checked_sub(1) {
+          self.list_state.select(Some(last));
+          self.panel_scroll = 0;
+        }
+      }
+      KeyCode::Down | KeyCode::Char('j') => match self.focus {
+        Focus::Modules => self.move_selection(true),
+        Focus::Panel => self.panel_scroll = self.panel_scroll.saturating_add(1),
+      },
+      KeyCode::Up | KeyCode::Char('k') => match self.focus {
+        Focus::Modules => self.move_selection(false),
+        Focus::Panel => self.panel_scroll = self.panel_scroll.saturating_sub(1),
+      },
+      KeyCode::PageDown | KeyCode::Char('d') if self.focus == Focus::Panel => {
+        self.panel_scroll = self.panel_scroll.saturating_add(10);
+      }
+      KeyCode::PageUp | KeyCode::Char('u') if self.focus == Focus::Panel => {
+        self.panel_scroll = self.panel_scroll.saturating_sub(10);
+      }
+      KeyCode::Char('l') | KeyCode::Right => self.focus = Focus::Panel,
+      KeyCode::Char('h') | KeyCode::Left => self.focus = Focus::Modules,
+      _ => {}
+    }
   }
 
   fn draw(&mut self, frame: &mut Frame<'_>) {
@@ -156,8 +247,19 @@ impl BrowseApp {
       .constraints([Constraint::Length(3), Constraint::Min(5), Constraint::Length(2)])
       .areas(frame.area());
     self.draw_header(frame, header);
-    self.draw_body(frame, body);
-    Self::draw_footer(frame, footer);
+    let panel_viewport = self.draw_body(frame, body);
+    self.clamp_panel_scroll(panel_viewport);
+    Self::draw_footer(frame, footer, self.focus, self.panel_mode);
+    if self.show_help {
+      draw_help(frame);
+    }
+  }
+
+  fn clamp_panel_scroll(&mut self, viewport_rows: u16) {
+    let content_rows = self.panel_lines().len();
+    let max_scroll = content_rows.saturating_sub(usize::from(viewport_rows.max(1)));
+    let max_scroll = u16::try_from(max_scroll).unwrap_or(u16::MAX);
+    self.panel_scroll = self.panel_scroll.min(max_scroll);
   }
 
   fn draw_header(&self, frame: &mut Frame<'_>, area: Rect) {
@@ -169,14 +271,13 @@ impl BrowseApp {
     let title = self.error.as_ref().map_or_else(
       || {
         format!(
-          "Reactivity TUI — {} module(s) · {}b · {}s · {}e · {}t · showing {}{}",
+          "Reactivity — {} modules · {} bindings · {} scopes · {} edges · {} template reads · showing {}",
           self.modules.len(),
           bindings,
           scopes,
           edges,
           template_reads,
           self.visible.len(),
-          if self.show_empty { " (including empty)" } else { " (non-empty)" }
         )
       },
       |error| format!("Reactivity TUI — unavailable: {error}"),
@@ -187,10 +288,10 @@ impl BrowseApp {
     );
   }
 
-  fn draw_body(&mut self, frame: &mut Frame<'_>, area: Rect) {
-    let [list_area, detail_area] = Layout::default()
+  fn draw_body(&mut self, frame: &mut Frame<'_>, area: Rect) -> u16 {
+    let [list_area, panel_area] = Layout::default()
       .direction(Direction::Horizontal)
-      .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
+      .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
       .areas(area);
     let items = self
       .visible
@@ -208,49 +309,310 @@ impl BrowseApp {
         ))
       })
       .collect::<Vec<_>>();
+    let list_title = if self.focus == Focus::Modules { "modules (focused)" } else { "modules" };
     let list = List::new(items)
-      .block(Block::default().borders(Borders::ALL).title("modules (busiest first)"))
+      .block(Block::default().borders(Borders::ALL).title(list_title))
       .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
       .highlight_symbol("> ");
     frame.render_stateful_widget(list, list_area, &mut self.list_state);
 
-    let detail = self.selected_module().map_or_else(
-      || Paragraph::new("No modules to show. Press e to include empty modules."),
-      |module| {
-        let mut lines = vec![Line::from(Span::styled(
-          module.id.clone(),
-          Style::default().add_modifier(Modifier::BOLD),
-        ))];
-        push_section(&mut lines, "bindings", &module.bindings);
-        push_section(&mut lines, "scopes", &module.scopes);
-        push_section(&mut lines, "edges", &module.edges);
-        push_section(&mut lines, "template", &module.template_reads);
-        Paragraph::new(lines).wrap(Wrap { trim: false })
-      },
-    );
+    let lines = self.panel_lines();
+    let panel_title = match (self.panel_mode, self.focus) {
+      (PanelMode::Detail, Focus::Panel) => "detail (focused · j/k scroll)",
+      (PanelMode::Detail, Focus::Modules) => "detail (Tab to focus · g graph)",
+      (PanelMode::Graph, Focus::Panel) => "graph (focused · j/k scroll)",
+      (PanelMode::Graph, Focus::Modules) => "graph (Tab to focus · g detail)",
+    };
+    let border =
+      if self.focus == Focus::Panel { Style::default().fg(Color::Cyan) } else { Style::default() };
+    let viewport = panel_area.height.saturating_sub(2);
     frame.render_widget(
-      detail.block(Block::default().borders(Borders::ALL).title("detail")),
-      detail_area,
+      Paragraph::new(lines)
+        .wrap(Wrap { trim: false })
+        .scroll((self.panel_scroll, 0))
+        .block(Block::default().borders(Borders::ALL).border_style(border).title(panel_title)),
+      panel_area,
     );
+    viewport
   }
 
-  fn draw_footer(frame: &mut Frame<'_>, area: Rect) {
+  fn panel_lines(&self) -> Vec<Line<'static>> {
+    let Some(module) = self.selected_module() else {
+      return vec![Line::from("No modules to show. Press e to include empty modules.")];
+    };
+    match self.panel_mode {
+      PanelMode::Detail => detail_lines(module),
+      PanelMode::Graph => graph_lines(module),
+    }
+  }
+
+  fn draw_footer(frame: &mut Frame<'_>, area: Rect, focus: Focus, mode: PanelMode) {
+    let mode = match mode {
+      PanelMode::Detail => "detail",
+      PanelMode::Graph => "graph",
+    };
+    let focus = match focus {
+      Focus::Modules => "modules",
+      Focus::Panel => "panel",
+    };
     frame.render_widget(
-      Paragraph::new("↑/↓ or j/k move · e toggle empty · Home/End · q/Esc quit"),
+      Paragraph::new(format!(
+        "Tab focus ({focus}) · j/k move/scroll · g {mode} · e empty · ? help · q quit"
+      )),
       area,
     );
   }
 }
 
-fn push_section(lines: &mut Vec<Line<'static>>, label: &str, values: &[String]) {
-  lines.push(Line::from(format!("{label}:")));
+fn detail_lines(module: &BrowseModule) -> Vec<Line<'static>> {
+  let mut lines = vec![
+    Line::from(Span::styled(module.id.clone(), Style::default().add_modifier(Modifier::BOLD))),
+    Line::from(""),
+    Line::from(Span::styled(
+      "Readable labels — @N is a source byte offset (not a Vue id).",
+      Style::default().fg(Color::DarkGray),
+    )),
+    Line::from(""),
+  ];
+  push_section(&mut lines, "bindings", &module.bindings, humanize_binding);
+  push_section(&mut lines, "scopes", &module.scopes, humanize_scope);
+  push_section(&mut lines, "edges", &module.edges, humanize_edge);
+  push_section(&mut lines, "template reads", &module.template_reads, humanize_template_read);
+  lines
+}
+
+fn graph_lines(module: &BrowseModule) -> Vec<Line<'static>> {
+  let mut lines = vec![
+    Line::from(Span::styled(module.id.clone(), Style::default().add_modifier(Modifier::BOLD))),
+    Line::from(""),
+    Line::from(Span::styled(
+      "Who tracks which binding (edge → target)",
+      Style::default().fg(Color::DarkGray),
+    )),
+    Line::from(""),
+  ];
+
+  let mut by_target: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
+  for edge in &module.edges {
+    if let Some((from, to)) = split_edge(edge) {
+      let reader = humanize_source(from);
+      *by_target.entry(to.to_owned()).or_default().entry(reader).or_default() += 1;
+    }
+  }
+  for read in &module.template_reads {
+    if let Some((binding, surface)) = split_template_read(read) {
+      let reader = humanize_template_surface(surface);
+      *by_target.entry(binding.to_owned()).or_default().entry(reader).or_default() += 1;
+    }
+  }
+
+  if by_target.is_empty() {
+    lines.push(Line::from("  (no edges or template reads)"));
+    if !module.bindings.is_empty() {
+      lines.push(Line::from(""));
+      lines.push(Line::from("bindings without inbound edges yet:"));
+      for binding in &module.bindings {
+        lines.push(Line::from(format!("  · {}", humanize_binding(binding))));
+      }
+    }
+    return lines;
+  }
+
+  for (target, readers) in by_target {
+    lines.push(Line::from(Span::styled(
+      format!("● {target}"),
+      Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+    )));
+    for (reader, count) in readers {
+      let suffix = if count > 1 { format!(" ×{count}") } else { String::new() };
+      lines.push(Line::from(format!("    ← {reader}{suffix}")));
+    }
+    lines.push(Line::from(""));
+  }
+  lines
+}
+
+fn push_section(
+  lines: &mut Vec<Line<'static>>,
+  label: &str,
+  values: &[String],
+  humanize: fn(&str) -> String,
+) {
+  lines.push(Line::from(Span::styled(
+    label.to_owned(),
+    Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
+  )));
   if values.is_empty() {
     lines.push(Line::from("  (none)"));
+    lines.push(Line::from(""));
     return;
   }
   for value in values {
-    lines.push(Line::from(format!("  {value}")));
+    lines.push(Line::from(format!("  {}", humanize(value))));
   }
+  lines.push(Line::from(""));
+}
+
+fn split_edge(edge: &str) -> Option<(&str, &str)> {
+  edge.split_once(" -> ")
+}
+
+fn split_template_read(label: &str) -> Option<(&str, &str)> {
+  label.split_once('@')
+}
+
+fn strip_offset(source: &str) -> &str {
+  source.split_once('@').map_or(source, |(head, _)| head)
+}
+
+/// Turn tracer machine labels into short Vue-facing phrases.
+#[must_use]
+pub fn humanize_source(source: &str) -> String {
+  let source = strip_offset(source);
+  if let Some(surface) = source.strip_prefix("template:") {
+    return humanize_template_surface(surface);
+  }
+  if let Some((kind, rest)) = source.split_once(':') {
+    return match kind {
+      "watch_sources" => format!("watch({})", rest.trim_start_matches("watch")),
+      "watch_callback" => "watch callback".into(),
+      "watch_effect" => "watchEffect()".into(),
+      "watch_post_effect" => "watchPostEffect()".into(),
+      "watch_sync_effect" => "watchSyncEffect()".into(),
+      "computed" => {
+        if rest.is_empty() {
+          "computed()".into()
+        } else {
+          format!("computed({rest})")
+        }
+      }
+      "effect_scope" => "effectScope()".into(),
+      "on_scope_dispose" => "onScopeDispose()".into(),
+      _ => format!("{kind}({rest})"),
+    };
+  }
+  match source {
+    "watchEffect" => "watchEffect()".into(),
+    "watchPostEffect" => "watchPostEffect()".into(),
+    "watchSyncEffect" => "watchSyncEffect()".into(),
+    "computed" => "computed()".into(),
+    "watch" => "watch()".into(),
+    other => other.into(),
+  }
+}
+
+#[must_use]
+pub fn humanize_template_surface(surface: &str) -> String {
+  match surface {
+    "if" => "v-if".into(),
+    "else-if" => "v-else-if".into(),
+    "show" => "v-show".into(),
+    "for" => "v-for".into(),
+    "on" => "v-on / @".into(),
+    "bind" => "v-bind / :".into(),
+    "model" => "v-model".into(),
+    "slot" => "v-slot".into(),
+    "text" | "interpolation" => "{{ }}".into(),
+    "html" => "v-html".into(),
+    "class" => ":class".into(),
+    "style" => ":style".into(),
+    "ref" => "ref=".into(),
+    other => format!("template:{other}"),
+  }
+}
+
+#[must_use]
+pub fn humanize_edge(edge: &str) -> String {
+  split_edge(edge)
+    .map_or_else(|| edge.to_owned(), |(from, to)| format!("{}  →  {to}", humanize_source(from)))
+}
+
+#[must_use]
+pub fn humanize_binding(binding: &str) -> String {
+  binding.split_once(':').map_or_else(
+    || binding.to_owned(),
+    |(name, kind)| format!("{name}  ({})", kind.replace('_', " ")),
+  )
+}
+
+#[must_use]
+pub fn humanize_scope(scope: &str) -> String {
+  // watch_effect(count) / computed(double)
+  if let Some((kind, rest)) = scope.split_once('(') {
+    let inner = rest.trim_end_matches(')');
+    let label = match kind {
+      "watch_effect" => "watchEffect",
+      "watch_post_effect" => "watchPostEffect",
+      "watch_sync_effect" => "watchSyncEffect",
+      "watch_sources" => "watch",
+      "watch_callback" => "watch callback",
+      "computed" => "computed",
+      "effect_scope" => "effectScope",
+      "on_scope_dispose" => "onScopeDispose",
+      other => other,
+    };
+    if inner.is_empty() { format!("{label}()") } else { format!("{label}({inner})") }
+  } else {
+    humanize_source(scope)
+  }
+}
+
+#[must_use]
+pub fn humanize_template_read(label: &str) -> String {
+  split_template_read(label).map_or_else(
+    || label.to_owned(),
+    |(binding, surface)| format!("{}  reads  {binding}", humanize_template_surface(surface)),
+  )
+}
+
+fn draw_help(frame: &mut Frame<'_>) {
+  let area = centered_rect(70, 70, frame.area());
+  let help = Paragraph::new(vec![
+    Line::from(Span::styled("Help", Style::default().add_modifier(Modifier::BOLD))),
+    Line::from(""),
+    Line::from("Navigation"),
+    Line::from("  Tab / h l     focus modules ↔ panel"),
+    Line::from("  j k / ↑ ↓     move list or scroll panel"),
+    Line::from("  PgUp PgDn     scroll panel faster"),
+    Line::from("  g             toggle detail ↔ graph"),
+    Line::from("  e             show/hide empty modules"),
+    Line::from("  ?             close this help"),
+    Line::from(""),
+    Line::from("What the labels mean"),
+    Line::from("  binding → reactive local (ref / computed / …)"),
+    Line::from("  scope   → tracking region (watchEffect, watch, …)"),
+    Line::from("  edge    → scope/template read that depends on a binding"),
+    Line::from("  @12345  → byte offset in the .vue/.ts source (not a Vue id)"),
+    Line::from(""),
+    Line::from("Graph view groups inbound reads by binding target."),
+    Line::from("Example:  ● error   ← v-if   ← {{ }}"),
+  ])
+  .block(Block::default().borders(Borders::ALL).title("reactivity TUI"));
+  frame.render_widget(Clear, area);
+  frame.render_widget(help, area);
+}
+
+fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+  let vertical = Layout::default()
+    .direction(Direction::Vertical)
+    .constraints([
+      Constraint::Percentage((100_u16.saturating_sub(percent_y)) / 2),
+      Constraint::Percentage(percent_y),
+      Constraint::Percentage((100_u16.saturating_sub(percent_y)) / 2),
+    ])
+    .split(area);
+  let Some(middle) = vertical.get(1).copied() else {
+    return area;
+  };
+  let horizontal = Layout::default()
+    .direction(Direction::Horizontal)
+    .constraints([
+      Constraint::Percentage((100_u16.saturating_sub(percent_x)) / 2),
+      Constraint::Percentage(percent_x),
+      Constraint::Percentage((100_u16.saturating_sub(percent_x)) / 2),
+    ])
+    .split(middle);
+  horizontal.get(1).copied().unwrap_or(area)
 }
 
 /// Rank modules busiest-first for the TUI list.
@@ -278,11 +640,24 @@ pub fn run_reactivity_tui(
   let mut app = BrowseApp::new(modules, error);
   let mut terminal =
     ratatui::try_init().map_err(|error| format!("failed to initialize reactivity TUI: {error}"))?;
+  // Best-effort mouse wheel support; ignore failures on hosts without mouse.
+  if let Err(_error) = crossterm_enable_mouse() {}
   let run_result = app.run(&mut terminal);
+  if let Err(_error) = crossterm_disable_mouse() {}
   if let Err(error) = ratatui::try_restore() {
     return Err(format!("failed to restore terminal after reactivity TUI: {error}"));
   }
   run_result
+}
+
+fn crossterm_enable_mouse() -> std::io::Result<()> {
+  use ratatui::crossterm::execute;
+  execute!(std::io::stdout(), event::EnableMouseCapture)
+}
+
+fn crossterm_disable_mouse() -> std::io::Result<()> {
+  use ratatui::crossterm::execute;
+  execute!(std::io::stdout(), event::DisableMouseCapture)
 }
 
 #[cfg(test)]
@@ -302,10 +677,12 @@ mod tests {
       scopes,
       edges,
       template_reads: reads,
-      binding_labels: (0..bindings).map(|index| format!("b{index}")).collect(),
-      scope_labels: (0..scopes).map(|index| format!("s{index}")).collect(),
-      edge_labels: (0..edges).map(|index| format!("e{index}")).collect(),
-      template_labels: (0..reads).map(|index| format!("t{index}")).collect(),
+      binding_labels: (0..bindings).map(|index| format!("b{index}:ref")).collect(),
+      scope_labels: (0..scopes).map(|index| format!("watch_effect(s{index})")).collect(),
+      edge_labels: (0..edges)
+        .map(|index| format!("template:if@{index} -> target{index}"))
+        .collect(),
+      template_labels: (0..reads).map(|index| format!("name{index}@interpolation")).collect(),
     }
   }
 
@@ -344,5 +721,50 @@ mod tests {
     assert_eq!(app.list_state.selected(), Some(2));
     app.move_selection(true);
     assert_eq!(app.list_state.selected(), Some(0));
+  }
+
+  #[test]
+  fn humanizes_template_and_watch_edges() {
+    assert_eq!(humanize_edge("template:if@11768 -> error"), "v-if  →  error");
+    assert_eq!(humanize_edge("template:interpolation@12154 -> hint"), "{{ }}  →  hint");
+    assert_eq!(humanize_edge("template:class@14082 -> backend"), ":class  →  backend");
+    assert_eq!(humanize_edge("watch_sources:watch@11110 -> backend"), "watch()  →  backend");
+  }
+
+  #[test]
+  fn graph_groups_inbound_readers_by_binding() {
+    let module = BrowseModule {
+      id: "App.vue".into(),
+      weight: 3,
+      bindings: vec!["error:ref".into()],
+      scopes: Vec::new(),
+      edges: vec![
+        "template:if@1 -> error".into(),
+        "template:interpolation@2 -> error".into(),
+        "watch_sources:watch@3 -> backend".into(),
+      ],
+      template_reads: Vec::new(),
+    };
+    let rendered = graph_lines(&module)
+      .into_iter()
+      .map(|line| line.spans.iter().map(|span| span.content.as_ref()).collect::<Vec<_>>().join(""))
+      .collect::<Vec<_>>()
+      .join("\n");
+    assert!(rendered.contains("● error"));
+    assert!(rendered.contains("← v-if"));
+    assert!(rendered.contains("← {{ }}"));
+    assert!(rendered.contains("● backend"));
+    assert!(rendered.contains("← watch()"));
+  }
+
+  #[test]
+  fn panel_focus_scrolls_instead_of_changing_module() {
+    let ranked = ranked_modules(&[stats("a.vue", 3, 0, 0, 0), stats("b.vue", 2, 0, 0, 0)]);
+    let mut app = BrowseApp::new(ranked, None);
+    app.focus = Focus::Panel;
+    app.panel_scroll = 0;
+    app.handle_key(KeyCode::Char('j'));
+    assert_eq!(app.list_state.selected(), Some(0));
+    assert_eq!(app.panel_scroll, 1);
   }
 }
