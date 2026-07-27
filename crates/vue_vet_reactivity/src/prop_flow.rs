@@ -18,8 +18,10 @@ pub struct PropFlowSite<'a> {
 /// Append static prop-flow edges onto each child graph.
 ///
 /// Links `:foo="bar"` / `v-bind:foo="bar"` / `v-model` when the parent expression
-/// is a bare identifier, `ident.value`, or a single static `ident.member`, and the
-/// child has a `props` reactive bag. Whole-object `v-bind="obj"` stays quiet.
+/// is a bare identifier or a static member chain rooted at a parent binding
+/// (`ident`, `ident.value`, `ident.member`, `ident.a.b`), and the child has a
+/// `props` reactive bag. Whole-object `v-bind="obj"`, calls, and computed
+/// brackets stay quiet.
 pub fn join_prop_flows(children: &mut [ModuleReactivity], sites: &[PropFlowSite<'_>]) {
   for site in sites {
     let Some(element) = site
@@ -112,22 +114,26 @@ fn collect_prop_edges(
   edges
 }
 
-/// Bare `foo`, `foo.value`, or a single static `foo.bar` → parent binding root `foo`.
+/// Bare `foo` or a static member chain `foo.bar.baz` → parent binding root `foo`.
+///
+/// Under-approx: only the root binding is joined; nested keys are not invented on
+/// the child. Rejects empty segments, non-idents, and non-dot expressions.
 fn parse_parent_binding_root(expression: &str) -> Option<&str> {
   let trimmed = expression.trim();
   if trimmed.is_empty() {
     return None;
   }
-  let root = match trimmed.split_once('.') {
-    Some((head, rest)) => {
-      if rest.is_empty() || rest.contains('.') || !is_ident_segment(rest) {
-        return None;
-      }
-      head
+  let mut parts = trimmed.split('.');
+  let root = parts.next()?;
+  if !is_ident_segment(root) {
+    return None;
+  }
+  for part in parts {
+    if part.is_empty() || !is_ident_segment(part) {
+      return None;
     }
-    None => trimmed,
-  };
-  if is_ident_segment(root) { Some(root) } else { None }
+  }
+  Some(root)
 }
 
 fn is_ident_segment(value: &str) -> bool {
@@ -312,6 +318,82 @@ mod tests {
         "expected v-model/member/.value prop edges; got {props:?}"
       );
     }
+  }
+
+  #[test]
+  fn joins_multi_hop_static_member_chain_onto_child_props() {
+    let parent_template = TemplateFacts {
+      elements: vec![TemplateElementFact {
+        tag: "Child".into(),
+        span: span(10),
+        attributes: Vec::new(),
+        directives: vec![TemplateDirectiveFact {
+          name: "bind".into(),
+          raw_name: ":subtitle".into(),
+          argument: Some("subtitle".into()),
+          expression: Some("bag.nested.name".into()),
+          modifiers: Vec::new(),
+          span: span(12),
+        }],
+        has_children: false,
+        has_accessible_content: false,
+        has_labelable_descendant: false,
+        has_label_ancestor: false,
+      }],
+      expressions: Vec::new(),
+    };
+    let mut parent_graph = ReactivityGraph {
+      bindings: vec![ReactiveBindingFact {
+        name: "bag".into(),
+        kind: ReactiveBindingKind::Reactive,
+        initialized_with_null: false,
+        span: span(1),
+      }],
+      ..ReactivityGraph::default()
+    };
+    parent_graph.set_module_id("Parent.vue");
+    let child_graph = ReactivityGraph {
+      bindings: vec![ReactiveBindingFact {
+        name: "props".into(),
+        kind: ReactiveBindingKind::Reactive,
+        initialized_with_null: false,
+        span: span(2),
+      }],
+      ..ReactivityGraph::default()
+    };
+    let mut children = vec![ModuleReactivity { id: "Child.vue".into(), graph: child_graph }];
+    join_prop_flows(
+      &mut children,
+      &[PropFlowSite {
+        element_span: span(10),
+        parent_template: &parent_template,
+        parent_graph: &parent_graph,
+        child_module: "Child.vue",
+      }],
+    );
+    assert_eq!(children.len(), 1);
+    if let Some(child) = children.first() {
+      let edge = child.graph.edges.iter().find(|edge| edge.kind == ReactiveDependencyKind::Prop);
+      assert!(
+        edge.is_some_and(|edge| {
+          edge.from == "props"
+            && edge.to == "bag"
+            && edge.property.as_deref() == Some("subtitle")
+            && edge.to_id.as_deref().is_some_and(|id| id.starts_with("Parent.vue:bag@"))
+        }),
+        "expected multi-hop prop flow to root binding; got {:?}",
+        child.graph.edges
+      );
+    }
+  }
+
+  #[test]
+  fn stays_quiet_for_non_ident_member_chains() {
+    assert_eq!(parse_parent_binding_root("bag.nested.name"), Some("bag"));
+    assert_eq!(parse_parent_binding_root("bag?.name"), None);
+    assert_eq!(parse_parent_binding_root("bag[name]"), None);
+    assert_eq!(parse_parent_binding_root("foo().bar"), None);
+    assert_eq!(parse_parent_binding_root("bag..name"), None);
   }
 
   #[test]
