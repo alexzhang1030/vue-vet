@@ -14,11 +14,12 @@
   assembles rules and must not become a behavior dispatcher. Practice
   suggestions live in `vue_vet_practice` with the same per-rule module shape,
   `category: "practice"`, and an optional `recommendation` payload; they must
-  not affect score or default CI exit.   Prefer high-precision fact links (shared
-  timer bindings, lifecycle + missing cleanup, resolved Vue `unref` imports)
-  over broad call presence. Recipe metadata may declare `min_vue` /
-  `confidence`; matching stays in thin `Rule` code. `practice = "off"` in
-  `vue-vet.toml` drops the whole channel.
+  not affect score or default CI exit. Prefer high-precision fact links (shared
+  timer bindings, lifecycle + missing cleanup, resolved Vue/`#imports` `unref`,
+  and bare auto-import `unref` without a local binding) over broad call
+  presence. Recipe metadata may declare `min_vue` / `confidence`; matching
+  stays in thin `Rule` code. `practice = "off"` in `vue-vet.toml` drops the
+  whole channel.
 - Rules use the pass API: declare `fact_kinds`, implement `run_on` for per-fact
   checks, and use `run_once` only for true multi-fact aggregation. Prefer
   immediate `report` inside the visitor. Do not filter the whole fact set into a

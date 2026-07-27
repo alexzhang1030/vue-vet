@@ -217,6 +217,18 @@ fn practice_prefer_to_value_fixtures_match_exact_diagnostics() {
     3,
     include_str!("../../../fixtures/snapshots/prefer-to-value/unref.json"),
   );
+  assert_versioned_diagnostics(
+    "fixtures/rules/prefer-to-value/invalid/bare-unref.vue",
+    include_str!("../../../fixtures/rules/prefer-to-value/invalid/bare-unref.vue"),
+    3,
+    include_str!("../../../fixtures/snapshots/prefer-to-value/bare-unref.json"),
+  );
+  assert_versioned_diagnostics(
+    "fixtures/rules/prefer-to-value/invalid/imports-unref.vue",
+    include_str!("../../../fixtures/rules/prefer-to-value/invalid/imports-unref.vue"),
+    3,
+    include_str!("../../../fixtures/snapshots/prefer-to-value/imports-unref.json"),
+  );
   assert!(
     analyze_versioned(
       "fixtures/rules/prefer-to-value/invalid/unref.vue",
@@ -257,6 +269,11 @@ fn practice_vueuse_fixtures_match_exact_diagnostics() {
     ),
     include_str!("../../../fixtures/snapshots/vueuse-use-event-listener/add-without-remove.json"),
   );
+  assert_diagnostics(
+    "fixtures/rules/vueuse-use-interval-fn/invalid/set-without-clear.vue",
+    include_str!("../../../fixtures/rules/vueuse-use-interval-fn/invalid/set-without-clear.vue"),
+    include_str!("../../../fixtures/snapshots/vueuse-use-interval-fn/set-without-clear.json"),
+  );
 }
 
 #[test]
@@ -288,6 +305,18 @@ fn practice_vueuse_safe_fixtures_produce_no_diagnostics() {
     (
       "fixtures/rules/vueuse-use-event-listener/valid/bare-add.vue",
       include_str!("../../../fixtures/rules/vueuse-use-event-listener/valid/bare-add.vue"),
+    ),
+    (
+      "fixtures/rules/vueuse-use-interval-fn/valid/use-interval-fn.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-interval-fn/valid/use-interval-fn.vue"),
+    ),
+    (
+      "fixtures/rules/vueuse-use-interval-fn/valid/with-clear.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-interval-fn/valid/with-clear.vue"),
+    ),
+    (
+      "fixtures/rules/vueuse-use-interval-fn/valid/bare-interval.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-interval-fn/valid/bare-interval.vue"),
     ),
   ] {
     assert_diagnostics(path, source, empty);

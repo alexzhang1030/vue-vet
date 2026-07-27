@@ -1,5 +1,6 @@
 use vue_vet_core::{
-  Confidence, FactKinds, FactRef, PRACTICE_CATEGORY, Rule, RuleContext, RuleMeta, Severity,
+  Confidence, PRACTICE_CATEGORY, Rule, RuleContext, RuleMeta, ScriptBlockFacts, ScriptCallFact,
+  Severity,
 };
 
 use crate::{
@@ -37,11 +38,7 @@ impl Rule for PreferToValue {
     &META
   }
 
-  fn fact_kinds(&self) -> FactKinds {
-    FactKinds::SCRIPT_CALL
-  }
-
-  fn run_on(&self, fact: FactRef<'_>, context: &mut RuleContext<'_>) {
+  fn run_once(&self, context: &mut RuleContext<'_>) {
     if is_test_path(context.file()) {
       return;
     }
@@ -51,29 +48,40 @@ impl Rule for PreferToValue {
     if !RECIPE.meets_vue(version.major, version.minor) {
       return;
     }
-    let FactRef::ScriptCall { call, .. } = fact else {
-      return;
-    };
-    if !is_vue_unref_call(call) {
-      return;
+    let findings = context
+      .script()
+      .blocks
+      .iter()
+      .flat_map(|block| {
+        block
+          .calls
+          .iter()
+          .filter(move |call| is_vue_unref_call(call, block))
+          .map(|call| call.span.clone())
+      })
+      .collect::<Vec<_>>();
+    for span in findings {
+      context.report_with_recommendation(
+        self.meta(),
+        span,
+        "`unref` can be replaced with Vue 3.3+ `toValue`, which also accepts getters.".into(),
+        Some(
+          "Prefer `toValue(...)` for values that may be a ref, a plain value, or a getter.".into(),
+        ),
+        recommendation_from(RECIPE.recommend),
+      );
     }
-    context.report_with_recommendation(
-      self.meta(),
-      call.span.clone(),
-      "`unref` can be replaced with Vue 3.3+ `toValue`, which also accepts getters.".into(),
-      Some(
-        "Prefer `toValue(...)` for values that may be a ref, a plain value, or a getter.".into(),
-      ),
-      recommendation_from(RECIPE.recommend),
-    );
   }
 }
 
-fn is_vue_unref_call(call: &vue_vet_core::ScriptCallFact) -> bool {
-  call
-    .resolved_import
-    .as_ref()
-    .is_some_and(|(source, imported)| is_vue_runtime_source(source) && imported == "unref")
+fn is_vue_unref_call(call: &ScriptCallFact, block: &ScriptBlockFacts) -> bool {
+  if let Some((source, imported)) = call.resolved_import.as_ref() {
+    return is_vue_runtime_source(source) && imported == "unref";
+  }
+  // Nuxt / unplugin-auto-import: bare `unref(...)` with no local binding.
+  call.callee == "unref"
+    && !block.bindings.iter().any(|binding| binding.name == "unref")
+    && !block.imports.iter().any(|import| import.local == "unref")
 }
 
 #[cfg(test)]
@@ -81,8 +89,8 @@ mod tests {
   use std::path::Path;
 
   use vue_vet_core::{
-    ReactivityGraph, RuleEnvironment, ScriptBlockFacts, ScriptCallFact, ScriptFacts, ScriptKind,
-    SourceSpan, TemplateFacts, VueVersion,
+    ReactivityGraph, RuleEnvironment, ScriptBindingFact, ScriptBlockFacts, ScriptCallFact,
+    ScriptFacts, ScriptKind, SourceSpan, TemplateFacts, VueVersion,
   };
 
   use super::*;
@@ -92,13 +100,17 @@ mod tests {
     SourceSpan { offset: 0, length: 5, line: 1, column: 1 }
   }
 
-  fn run(call: ScriptCallFact, minor: u64) -> Vec<vue_vet_core::Diagnostic> {
+  fn run(
+    call: ScriptCallFact,
+    bindings: Vec<ScriptBindingFact>,
+    minor: u64,
+  ) -> Vec<vue_vet_core::Diagnostic> {
     let script = ScriptFacts {
       blocks: vec![ScriptBlockFacts {
         kind: ScriptKind::Setup,
         language: "ts".into(),
         imports: Vec::new(),
-        bindings: Vec::new(),
+        bindings,
         calls: vec![call],
         member_writes: Vec::new(),
         destructures: Vec::new(),
@@ -127,6 +139,7 @@ mod tests {
         argument_identifiers: vec!["count".into()],
         span: span(),
       },
+      Vec::new(),
       3,
     );
     assert_eq!(diagnostics.len(), 1);
@@ -135,6 +148,54 @@ mod tests {
     };
     assert_eq!(diagnostic.rule_id, RECIPE.rule_id);
     assert!(diagnostic.recommendation.is_some());
+  }
+
+  #[test]
+  fn reports_bare_auto_import_unref_without_local_binding() {
+    let diagnostics = run(
+      ScriptCallFact {
+        callee: "unref".into(),
+        assigned_to: None,
+        resolved_import: None,
+        argument_identifiers: vec!["count".into()],
+        span: span(),
+      },
+      Vec::new(),
+      3,
+    );
+    assert_eq!(diagnostics.len(), 1);
+  }
+
+  #[test]
+  fn stays_quiet_for_local_unref_binding() {
+    let diagnostics = run(
+      ScriptCallFact {
+        callee: "unref".into(),
+        assigned_to: None,
+        resolved_import: None,
+        argument_identifiers: Vec::new(),
+        span: span(),
+      },
+      vec![ScriptBindingFact { name: "unref".into(), reads: 1, writes: 0, span: span() }],
+      3,
+    );
+    assert!(diagnostics.is_empty());
+  }
+
+  #[test]
+  fn reports_nuxt_imports_unref() {
+    let diagnostics = run(
+      ScriptCallFact {
+        callee: "unref".into(),
+        assigned_to: None,
+        resolved_import: Some(("#imports".into(), "unref".into())),
+        argument_identifiers: Vec::new(),
+        span: span(),
+      },
+      Vec::new(),
+      3,
+    );
+    assert_eq!(diagnostics.len(), 1);
   }
 
   #[test]
@@ -147,6 +208,7 @@ mod tests {
         argument_identifiers: Vec::new(),
         span: span(),
       },
+      Vec::new(),
       2,
     );
     assert!(diagnostics.is_empty());
@@ -162,6 +224,7 @@ mod tests {
         argument_identifiers: Vec::new(),
         span: span(),
       },
+      Vec::new(),
       3,
     );
     assert!(diagnostics.is_empty());

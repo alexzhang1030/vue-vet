@@ -1,0 +1,25 @@
+[
+  {
+    "rule_id": "vue-vet/practice/vueuse-use-interval-fn",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "medium",
+    "documentation": "rules/practice/vueuse-use-interval-fn",
+    "message": "This starts a timer interval inside a setup lifecycle hook without `clearInterval`; consider VueUse `useIntervalFn` for pause/resume and automatic cleanup.",
+    "help": "Optional dependency: install `@vueuse/core` when you want `useIntervalFn`, then replace the hand-rolled pattern.",
+    "file": "fixtures/rules/vueuse-use-interval-fn/invalid/set-without-clear.vue",
+    "span": {
+      "offset": 78,
+      "length": 54,
+      "line": 5,
+      "column": 3
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "@vueuse/core",
+      "export": "useIntervalFn",
+      "docs_url": "https://vueuse.org/core/useIntervalFn/",
+      "import_example": "import { useIntervalFn } from '@vueuse/core'"
+    }
+  }
+]
