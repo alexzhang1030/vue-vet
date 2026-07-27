@@ -72,10 +72,14 @@ A changed file can introduce a diagnostic whose best source location is in anoth
 Project import resolution uses `oxc_resolver` (Rolldown / enhanced-resolve), not
 a hand-rolled path matcher. Successful resolves into `node_modules` or outside
 the scanned file set are external graph nodes; only true resolve failures raise
-`unresolved-import`. Vue Vet still does **not** execute `vite.config.*` /
-`nuxt.config.*` — aliases come from Vite defaults (`@` → `src`, `~` → root),
-tsconfig paths (including `.nuxt/tsconfig.json`), and package `exports`.
-Never silently reinterpret an unresolved edge as an external package.
+`unresolved-import`. A small allowlist is classified as external **before**
+resolve (`node:` / `nodejs:`, stylesheets, `virtual:…`, `uno.css`,
+`*/auto-routes`, `#imports`) so Vite/Nuxt virtual and non-JS imports do not
+flood real apps — see [project graph](../../docs/project-graph.md). Do **not**
+reinterpret arbitrary failed resolves as external packages. Vue Vet still does
+**not** execute `vite.config.*` / `nuxt.config.*` — aliases come from Vite
+defaults (`@` → `src`, `~` → root), tsconfig paths (including
+`.nuxt/tsconfig.json`), and package `exports`.
 `oxc_resolver` is pinned to `11.21.0` because `11.22+` requires `dashmap 6.2.1`
 while Vize pins `dashmap =6.1.0`. Always absolutize/canonicalize the scan root
 before building the resolver: `vue-vet .` must not leave alias targets as `"."`,

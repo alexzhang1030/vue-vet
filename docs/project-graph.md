@@ -24,8 +24,15 @@ Classification after a successful resolve:
 - Path outside the scanned set (including `node_modules`) → `ExternalImport`
 - Resolve failure → `vue-vet/project/unresolved-import` at the import span
 
-`#imports` stays an external node (Nuxt virtual module) even when `.nuxt` is
-absent. Other `#*` specifiers go through the resolver (typically via Nuxt
+The following are classified as `ExternalImport` **without** attempting resolve
+(quiet — not `unresolved-import`):
+
+- `#imports` (Nuxt virtual module)
+- Node builtins (`node:` / `nodejs:`)
+- Stylesheets (`.css`, `.scss`, `.sass`, `.less`, `.styl`/`.stylus`, `.pcss`, `.sss`, query stripped)
+- Common virtual entries: `virtual:…`, `uno.css`, `*/auto-routes` (e.g. `vue-router/auto-routes`)
+
+Other `#*` specifiers still go through the resolver (typically via Nuxt
 tsconfig paths).
 
 Vue Vet does **not** execute `vite.config.*` / `nuxt.config.*`. Alias and path
@@ -40,7 +47,7 @@ form so alias joins and resolve results share one path representation.
 Convention recognition covers files under `components`, `composables`,
 `pages`, `layouts`, `plugins`, `middleware`, and `stores`. Component tags and
 composable calls create auto-import edges. Explicit imports shadow convention
-matches. `CONVENTIONS_VERSION` (currently 3) invalidates cached graphs when
+matches. `CONVENTIONS_VERSION` (currently 4) invalidates cached graphs when
 convention or resolver semantics change.
 
 Component auto-import names follow Nuxt defaults without executing
@@ -71,6 +78,6 @@ cross-file dataflow work.
 ## Initial cross-file rules
 
 - `vue-vet/project/unresolved-import` reports imports that fail bundler
-  resolution at the import span.
+  resolution at the import span (after quiet-external classification above).
 - `vue-vet/project/unused-component` reports files under a component directory
   that have no import or template usage edge (after Nuxt auto-import naming).
