@@ -6,6 +6,6 @@ const bag = reactive({ nested: { name: 'deep' } })
 </script>
 
 <template>
-  <!-- multi-hop member access stays under-approx quiet -->
-  <Child :subtitle="bag.nested.name" />
+  <!-- static multi-hop / optional chain join to root binding `bag` -->
+  <Child :subtitle="bag.nested.name" :title="bag?.nested?.name" />
 </template>

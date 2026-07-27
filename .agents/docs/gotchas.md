@@ -232,10 +232,11 @@ Structural `component_nav` already normalizes; do not copy raw `edge.from` /
 `edge.to` into module-id APIs.
 
 Quiet gaps still expected after fixture sweeps: whole-object `v-bind="obj"`,
-multi-hop / computed prop expressions, and App Tree provide/inject remain
+computed / bracket / call prop expressions, and App Tree provide/inject remain
 under-approx stops (see [reactivity tracer](./reactivity-tracer.md)). Static
-prop flow joins bare identifiers, `ident.value`, single-segment `ident.member`,
-and `v-model` → `modelValue`.
+prop flow joins bare identifiers, `ident.value`, static member chains
+(`ident.member`, `ident.a.b`, `ident?.a?.b`), and `v-model` → `modelValue`
+(root binding only; no nested key invention).
 
 ## Runtime oracle is the precision ruler
 

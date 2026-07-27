@@ -1213,7 +1213,7 @@ const count = ref(0)
 
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/projects/prop-flow");
     let mut files = Vec::new();
-    for name in ["Parent.vue", "Child.vue"] {
+    for name in ["Parent.vue", "Child.vue", "MultiHop.vue"] {
       let source = std::fs::read_to_string(root.join(name)).expect("fixture");
       let analysis = analysis_for_test(Path::new(name), &source);
       let Some(module) = analysis.module_source.clone() else {
@@ -1250,6 +1250,28 @@ const count = ref(0)
           && props.contains(&(Some("count"), "msg"))
       }),
       "prop-flow fixture must emit title/v-model/member/.value Prop edges; got {props:?}"
+    );
+    assert!(
+      child.is_some_and(|module| {
+        module.graph.edges.iter().any(|edge| {
+          edge.kind == ReactiveDependencyKind::Prop
+            && edge.property.as_deref() == Some("subtitle")
+            && edge.to == "bag"
+            && edge.to_id.as_deref().is_some_and(|id| id.starts_with("MultiHop.vue:bag@"))
+        })
+      }),
+      "MultiHop.vue multi-hop chain must join root binding onto Child props"
+    );
+    assert!(
+      child.is_some_and(|module| {
+        module.graph.edges.iter().any(|edge| {
+          edge.kind == ReactiveDependencyKind::Prop
+            && edge.property.as_deref() == Some("title")
+            && edge.to == "bag"
+            && edge.to_id.as_deref().is_some_and(|id| id.starts_with("MultiHop.vue:bag@"))
+        })
+      }),
+      "MultiHop.vue optional chain must join root binding onto Child props"
     );
   }
 }

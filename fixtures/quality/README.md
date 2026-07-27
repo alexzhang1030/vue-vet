@@ -23,7 +23,7 @@ in `manifest.json` in the same change.
 | `nuxt-graph` | [`../projects/nuxt-graph`](../projects/nuxt-graph) | nuxt, performance, precision | Graph / unused component / unresolved import |
 | `vue-3.4` | [`../projects/vue-3.4`](../projects/vue-3.4) | vue, compatibility, precision | Version-gated props destructure |
 | `vue-3.5` | [`../projects/vue-3.5`](../projects/vue-3.5) | vue, compatibility, precision | `prefer-use-template-ref` + unresolved import |
-| `prop-flow` | [`../projects/prop-flow`](../projects/prop-flow) | vue, precision | Prop edges; whole-object / multi-hop stay quiet |
+| `prop-flow` | [`../projects/prop-flow`](../projects/prop-flow) | vue, precision | Prop edges incl. multi-hop / optional roots; whole-object `v-bind` stays quiet |
 | `practice-vueuse` | [`../projects/practice-vueuse`](../projects/practice-vueuse) | vue, precision | Full VueUse practice set + `prefer-to-value` |
 | `a11y-forms` | [`../projects/a11y-forms`](../projects/a11y-forms) | vue, precision | Full a11y pack TPs + named safe-pattern FPs |
 | `suppressed` | [`../projects/suppressed`](../projects/suppressed) | vue, config, precision | Inline disable; `no-v-html` FP pin |
