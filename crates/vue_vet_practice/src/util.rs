@@ -19,6 +19,11 @@ pub fn is_vueuse_source(source: &str) -> bool {
 }
 
 #[must_use]
+pub fn is_vue_runtime_source(source: &str) -> bool {
+  source == "vue" || source == "vue-demi" || source.starts_with("@vue/")
+}
+
+#[must_use]
 pub fn is_test_path(path: &Path) -> bool {
   let normalized = path.to_string_lossy().replace('\\', "/");
   normalized.contains("/__tests__/")
@@ -78,8 +83,7 @@ mod tests {
 
   #[test]
   fn help_mentions_installed_vueuse_from_package_json() {
-    let environment =
-      RuleEnvironment { vue_version: None, packages: vec!["@vueuse/core".into()] };
+    let environment = RuleEnvironment { vue_version: None, packages: vec!["@vueuse/core".into()] };
     let help = vueuse_help(&environment, &empty_block(), "useDebounceFn");
     assert!(help.contains("already available"));
   }

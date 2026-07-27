@@ -33,7 +33,11 @@ mod tests {
   #[test]
   fn practice_rules_have_stable_metadata() {
     let metadata = practice_registry().metadata();
-    assert_eq!(metadata.len(), 3, "practice ships VueUse recipes plus prefer-use-template-ref");
+    assert_eq!(
+      metadata.len(),
+      4,
+      "practice ships VueUse recipes, prefer-to-value, and prefer-use-template-ref"
+    );
     assert!(
       metadata.windows(2).all(|pair| matches!(pair, [first, second] if first.id < second.id)),
       "practice metadata must be sorted by stable rule ID"
