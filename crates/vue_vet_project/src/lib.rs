@@ -513,6 +513,7 @@ mod tests {
           attributes: Vec::new(),
           directives: Vec::new(),
           has_children: false,
+          has_accessible_content: false,
         })
         .collect(),
       expressions: Vec::new(),

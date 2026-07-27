@@ -151,6 +151,7 @@ mod tests {
           span: span(12),
         }],
         has_children: false,
+        has_accessible_content: false,
       }],
       expressions: Vec::new(),
     };
@@ -215,6 +216,7 @@ mod tests {
           span: span(12),
         }],
         has_children: false,
+        has_accessible_content: false,
       }],
       expressions: Vec::new(),
     };

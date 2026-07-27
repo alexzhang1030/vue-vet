@@ -76,11 +76,10 @@ Captured 2026-07-27 with `vue-vet` at `CONVENTIONS_VERSION` 4:
 | --- | --- | --- | --- |
 | [antfu/vitesse-lite](https://github.com/antfu/vitesse-lite) @ tip | MIT | `pnpm install` | No crash; after quiet-external policy: **1** finding — `accessibility/anchor-has-content` on icon-only GitHub `<a title="…">` without `aria-label` (**true positive** under rule contract). Pre-fix noise was `node:path`, `uno.css`, `vue-router/auto-routes` as unresolved. |
 | [nuxt/starter](https://github.com/nuxt/starter) `v4` | MIT | `pnpm install` | No crash; **0** findings on the minimal app. |
-| [antfu/vitesse](https://github.com/antfu/vitesse) @ tip | MIT | `pnpm install` | No crash; **0** findings. Footer GitHub `<a>` wraps an icon `<div>` so `anchor-has-content` stays quiet (`has_children`); accessible-name quality of icon-only children remains out of scope. |
+| [antfu/vitesse](https://github.com/antfu/vitesse) @ tip | MIT | `pnpm install` | No crash; after accessible-content tightening: **3** findings on `TheFooter.vue` — icon-only toggle `<button>` and two icon-only `<a>`s without accessible names (`button-has-content` / `anchor-has-content`, **true positives**). |
 
 Quiet gaps still expected: Vite-only aliases not in tsconfig, dynamic imports,
-whole-object `v-bind`, App Tree provide/inject; icon-only child nodes without
-`aria-label` are not treated as empty anchors.
+whole-object `v-bind`, App Tree provide/inject.
 
 ## Publishing with a Beta tag
 

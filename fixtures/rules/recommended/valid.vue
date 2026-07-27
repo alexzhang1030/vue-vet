@@ -27,7 +27,9 @@ void slots
   <img alt="">
   <iframe title="Preview" />
   <a href="/docs">Documentation</a>
+  <a href="https://github.com" aria-label="GitHub"><div class="i-carbon-logo-github" /></a>
   <button type="button">Save</button>
+  <button type="button" aria-label="Close"><div class="i-carbon-close" /></button>
   <button type="button" @click="activate">Activate</button>
   <input>
   <MyButton @click="activate" />

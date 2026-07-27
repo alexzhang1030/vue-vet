@@ -353,9 +353,119 @@ fn collect_element(
     attributes,
     directives,
     has_children: !element.children.is_empty(),
+    has_accessible_content: element_has_accessible_content(element),
   });
   collect_children(source, template_offset, &element.children, facts, scopes);
   scopes.pop_if(&local_aliases);
+}
+
+/// Screen-reader content for a11y rules (`anchor-has-content`, `button-has-content`).
+/// Element-only trees (icon wrappers) do not count; `aria-hidden` subtrees are skipped.
+fn element_has_accessible_content(element: &ElementNode<'_>) -> bool {
+  if element_has_content_directive(element) {
+    return true;
+  }
+  children_have_accessible_content(&element.children)
+}
+
+fn children_have_accessible_content(children: &[TemplateChildNode<'_>]) -> bool {
+  for child in children {
+    match child {
+      TemplateChildNode::Text(text) if !text.content.trim().is_empty() => return true,
+      TemplateChildNode::Interpolation(_)
+      | TemplateChildNode::CompoundExpression(_)
+      | TemplateChildNode::TextCall(_) => return true,
+      TemplateChildNode::Element(child_element) => {
+        if element_is_aria_hidden(child_element) {
+          continue;
+        }
+        if element_provides_alt_name(child_element) || element_has_content_directive(child_element)
+        {
+          return true;
+        }
+        if children_have_accessible_content(&child_element.children) {
+          return true;
+        }
+      }
+      TemplateChildNode::If(if_node) => {
+        for branch in &if_node.branches {
+          if children_have_accessible_content(&branch.children) {
+            return true;
+          }
+        }
+      }
+      TemplateChildNode::For(for_node) => {
+        if children_have_accessible_content(&for_node.children) {
+          return true;
+        }
+      }
+      TemplateChildNode::IfBranch(branch) => {
+        if children_have_accessible_content(&branch.children) {
+          return true;
+        }
+      }
+      TemplateChildNode::Text(_)
+      | TemplateChildNode::Comment(_)
+      | TemplateChildNode::Hoisted(_) => {}
+    }
+  }
+  false
+}
+
+fn element_has_content_directive(element: &ElementNode<'_>) -> bool {
+  element.props.iter().any(|prop| {
+    matches!(prop, PropNode::Directive(directive) if matches!(directive.name.as_str(), "text" | "html"))
+  })
+}
+
+fn element_is_aria_hidden(element: &ElementNode<'_>) -> bool {
+  for prop in &element.props {
+    match prop {
+      PropNode::Attribute(attribute) if attribute.name.eq_ignore_ascii_case("aria-hidden") => {
+        return attribute.value.as_ref().is_none_or(|value| {
+          let content = value.content.trim();
+          content.is_empty() || content.eq_ignore_ascii_case("true")
+        });
+      }
+      PropNode::Directive(directive)
+        if directive.name == "bind"
+          && directive.arg.as_ref().is_some_and(|argument| {
+            expression_text(argument).eq_ignore_ascii_case("aria-hidden")
+          }) =>
+      {
+        // Bound visibility is unknown statically; treat as hidden so we do not
+        // accept decorative icon trees that toggle aria-hidden at runtime.
+        return true;
+      }
+      _ => {}
+    }
+  }
+  false
+}
+
+fn element_provides_alt_name(element: &ElementNode<'_>) -> bool {
+  if !element.tag.eq_ignore_ascii_case("img") && !element.tag.eq_ignore_ascii_case("area") {
+    return false;
+  }
+  for prop in &element.props {
+    match prop {
+      PropNode::Attribute(attribute) if attribute.name.eq_ignore_ascii_case("alt") => {
+        return attribute.value.as_ref().is_some_and(|value| !value.content.trim().is_empty());
+      }
+      PropNode::Directive(directive)
+        if directive.name == "bind"
+          && directive
+            .arg
+            .as_ref()
+            .is_some_and(|argument| expression_text(argument).eq_ignore_ascii_case("alt"))
+          && directive.exp.is_some() =>
+      {
+        return true;
+      }
+      _ => {}
+    }
+  }
+  false
 }
 
 fn element_local_aliases(element: &ElementNode<'_>) -> BTreeSet<String> {

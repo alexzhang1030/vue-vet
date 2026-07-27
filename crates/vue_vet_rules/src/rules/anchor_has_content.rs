@@ -26,7 +26,7 @@ impl Rule for AnchorHasContent {
       return;
     };
     if !element.tag.eq_ignore_ascii_case("a")
-      || element.has_children
+      || element.has_accessible_content
       || element.attribute("aria-label").is_some()
       || element.bound_attribute("aria-label").is_some()
       || element.attribute("aria-labelledby").is_some()
@@ -38,7 +38,9 @@ impl Rule for AnchorHasContent {
       self.meta(),
       element.span.clone(),
       "link has no accessible content".into(),
-      Some("Add visible content or an aria-label/aria-labelledby binding.".into()),
+      Some(
+        "Add text content, an img/area with alt, or an aria-label/aria-labelledby binding.".into(),
+      ),
     );
   }
 }
