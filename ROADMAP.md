@@ -216,7 +216,7 @@ Exit criteria:
 
 ## M4 — editor and agent surface
 
-Status: in progress (#13; #12 closed)
+Status: complete (#12, #13 closed)
 
 Implemented (#12):
 

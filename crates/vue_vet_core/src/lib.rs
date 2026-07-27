@@ -613,7 +613,8 @@ impl ReactivityGraph {
   ///
   /// High-confidence under-approximation:
   /// - free identifiers that exactly match binding names
-  /// - pure member chains `bag.field` / `bag.field.value` when `bag` is a known
+  /// - pure member chains `bag.field` / `bag.field.value` (and static optional
+  ///   forms `bag?.field` / `bag?.field?.value`) when `bag` is a known
   ///   [`Self::composable_instances`] entry and `field` is in that shape
   ///
   /// Prefer flattened [`TemplateFacts::expressions`] (Vize interpolations +
@@ -782,7 +783,8 @@ fn push_template_reads(
   }
 }
 
-/// Join pure `bag.field` / `bag.field.value` template chains onto composable shape fields.
+/// Join pure `bag.field` / `bag.field.value` (incl. `?.`) template chains onto
+/// composable shape fields.
 fn push_instance_template_reads(
   template_reads: &mut Vec<TemplateReactiveReadFact>,
   composable_instances: &std::collections::BTreeMap<
@@ -796,7 +798,7 @@ fn push_instance_template_reads(
   let Some(chain) = simple_member_chain(expression) else {
     return;
   };
-  // bag.field  |  bag.field.value
+  // bag.field | bag.field.value | bag?.field | bag?.field?.value
   let (Some(bag), Some(field)) = (chain.first(), chain.get(1)) else {
     return;
   };
@@ -821,14 +823,16 @@ fn push_instance_template_reads(
   });
 }
 
-/// `a.b.c` with only simple identifiers and dots — rejects operators / calls.
+/// `a.b.c` / `a?.b?.c` with only simple identifiers — rejects operators / calls.
 fn simple_member_chain(expression: &str) -> Option<Vec<String>> {
   let trimmed = expression.trim();
   if trimmed.is_empty() {
     return None;
   }
+  // Normalize optional chaining so `bag?.field` matches `bag.field`.
+  let normalized = trimmed.replace("?.", ".");
   let mut parts = Vec::new();
-  for part in trimmed.split('.') {
+  for part in normalized.split('.') {
     let part = part.trim();
     if !is_simple_js_identifier(part) {
       return None;
@@ -1546,6 +1550,52 @@ mod tests {
     assert!(VueVersion::parse_requirement("latest").is_none());
     assert!(
       VueVersion::parse_requirement("~3.4").is_some_and(|version| !version.is_at_least(3, 5))
+    );
+  }
+
+  #[test]
+  fn join_template_reads_accepts_optional_member_chains_on_instances() {
+    let mut graph = ReactivityGraph::default();
+    let mut shape = std::collections::BTreeMap::new();
+    shape.insert("signal".into(), ReactiveBindingKind::Ref);
+    graph.composable_instances.insert("bag".into(), shape);
+    graph.join_template_reads(&TemplateFacts {
+      elements: Vec::new(),
+      expressions: vec![
+        TemplateExpressionFact {
+          surface: "interpolation".into(),
+          expression: "bag?.signal".into(),
+          span: SourceSpan { offset: 10, length: 12, line: 1, column: 11 },
+          identifiers: None,
+        },
+        TemplateExpressionFact {
+          surface: "interpolation".into(),
+          expression: "bag?.signal?.value".into(),
+          span: SourceSpan { offset: 30, length: 18, line: 2, column: 1 },
+          identifiers: None,
+        },
+        TemplateExpressionFact {
+          surface: "interpolation".into(),
+          expression: "bag?.[signal]".into(),
+          span: SourceSpan { offset: 60, length: 13, line: 3, column: 1 },
+          identifiers: None,
+        },
+      ],
+    });
+    assert!(
+      graph.template_reads.iter().any(|read| read.binding == "signal" && read.span.offset == 10),
+      "bag?.signal must join instance field; got {:?}",
+      graph.template_reads
+    );
+    assert!(
+      graph.template_reads.iter().any(|read| read.binding == "signal" && read.span.offset == 30),
+      "bag?.signal?.value must join instance field; got {:?}",
+      graph.template_reads
+    );
+    assert!(
+      !graph.template_reads.iter().any(|read| read.span.offset == 60),
+      "computed optional brackets must stay quiet; got {:?}",
+      graph.template_reads
     );
   }
 

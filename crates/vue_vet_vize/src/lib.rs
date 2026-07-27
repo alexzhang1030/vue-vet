@@ -1034,6 +1034,7 @@ watchEffect(() => { void bag.signal.value })
 </script>
 <template>
   <p>{{ bag.signal }}</p>
+  <p>{{ bag?.signal }}</p>
 </template>
 "#;
     let temp = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
