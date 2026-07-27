@@ -40,6 +40,16 @@ symlink rather than a directory, so naive walks try to `fs::read` them and
 fail with EISDIR. Project walks must skip `node_modules` entirely and only
 accept paths where `Path::is_file()` is true after symlink resolution.
 
+## crates.io API calls need a User-Agent
+
+The crates.io HTTP API returns **403** for clients that omit a descriptive
+`User-Agent` (including bare `curl -fsS`). Release waits that poll
+`/api/v1/crates/<name>/<version>` after `cargo publish` must send one (see
+`.github/workflows/release.yml`). A 403 is not “not indexed yet”; treating it
+as missing visibility aborts after `vue_vet_core` uploaded and skips
+`vue_vet_reactivity`, GitHub Release, and npm. Re-runs must skip versions
+already on the registry (`cargo publish` refuses duplicates).
+
 ## `has_children` is not accessible content
 
 Template facts keep `has_children` for structural rules (`valid-v-html`,

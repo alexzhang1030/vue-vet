@@ -180,6 +180,8 @@ jobs:
           set -euo pipefail
           version="${{ needs.version.outputs.version }}"
           dry_run="${{ needs.version.outputs.dry_run }}"
+          # crates.io rejects API clients without a descriptive User-Agent (HTTP 403).
+          crates_ua='vue-vet-release (https://github.com/alexzhang1030/vue-vet)'
           publish_flags=(--locked)
           if [[ "$dry_run" == "true" ]]; then
             publish_flags+=(--dry-run)
@@ -190,10 +192,25 @@ jobs:
             fi
           fi
 
-          cargo publish -p vue_vet_core "${publish_flags[@]}"
+          crate_version_visible() {
+            local crate="$1" ver="$2"
+            curl -fsS -A "$crates_ua" \
+              "https://crates.io/api/v1/crates/${crate}/${ver}" >/dev/null
+          }
+
+          publish_crate() {
+            local crate="$1"
+            if [[ "$dry_run" != "true" ]] && crate_version_visible "$crate" "$version"; then
+              echo "$crate@$version already on crates.io; skipping publish"
+              return 0
+            fi
+            cargo publish -p "$crate" "${publish_flags[@]}"
+          }
+
+          publish_crate vue_vet_core
 
           if [[ "$dry_run" == "true" ]]; then
-            cargo publish -p vue_vet_reactivity "${publish_flags[@]}"
+            publish_crate vue_vet_reactivity
             exit 0
           fi
 
@@ -201,18 +218,18 @@ jobs:
           # dependency in vue_vet_reactivity can resolve from the registry.
           echo "Waiting for vue_vet_core@$version on crates.io…"
           for _ in $(seq 1 36); do
-            if curl -fsS "https://crates.io/api/v1/crates/vue_vet_core/$version" >/dev/null; then
+            if crate_version_visible vue_vet_core "$version"; then
               echo "vue_vet_core@$version is visible"
               break
             fi
             sleep 5
           done
-          if ! curl -fsS "https://crates.io/api/v1/crates/vue_vet_core/$version" >/dev/null; then
+          if ! crate_version_visible vue_vet_core "$version"; then
             echo "vue_vet_core@$version did not appear on crates.io in time" >&2
             exit 1
           fi
 
-          cargo publish -p vue_vet_reactivity "${publish_flags[@]}"
+          publish_crate vue_vet_reactivity
 
   publish:
     name: Publish release
