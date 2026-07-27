@@ -3,22 +3,70 @@
 const { spawn } = require('node:child_process');
 const { access } = require('node:fs/promises');
 const { constants } = require('node:fs');
+const path = require('node:path');
+
+/**
+ * Prefer a Cargo-built binary under the workspace (debug, then release).
+ * @param {string} workspaceRoot
+ * @param {{ accessImpl?: typeof access }} [options]
+ * @returns {Promise<string | null>}
+ */
+async function findWorkspaceBinary(workspaceRoot, options = {}) {
+  const accessImpl = options.accessImpl || access;
+  if (!workspaceRoot) {
+    return null;
+  }
+  const candidates = [
+    path.join(workspaceRoot, 'target', 'debug', 'vue-vet'),
+    path.join(workspaceRoot, 'target', 'release', 'vue-vet'),
+  ];
+  if (process.platform === 'win32') {
+    candidates.push(
+      path.join(workspaceRoot, 'target', 'debug', 'vue-vet.exe'),
+      path.join(workspaceRoot, 'target', 'release', 'vue-vet.exe'),
+    );
+  }
+  for (const candidate of candidates) {
+    try {
+      await accessImpl(candidate, constants.X_OK).catch(async () => {
+        await accessImpl(candidate, constants.F_OK);
+      });
+      return candidate;
+    } catch {
+      // try next
+    }
+  }
+  return null;
+}
 
 /**
  * Resolve how to invoke vue-vet.
+ * Order: configured path → workspace target/{debug,release}/vue-vet → PATH → npx.
  * @param {string} configuredPath
+ * @param {string} [workspaceRoot]
+ * @param {{
+ *   accessImpl?: typeof access,
+ *   commandExistsImpl?: (name: string) => Promise<boolean>,
+ * }} [options]
  * @returns {Promise<{ command: string, argsPrefix: string[] }>}
  */
-async function resolveLauncher(configuredPath) {
+async function resolveLauncher(configuredPath, workspaceRoot = '', options = {}) {
+  const accessImpl = options.accessImpl || access;
+  const commandExistsImpl = options.commandExistsImpl || commandExists;
   const trimmed = (configuredPath || '').trim();
   if (trimmed) {
-    await access(trimmed, constants.X_OK).catch(async () => {
-      await access(trimmed, constants.F_OK);
+    await accessImpl(trimmed, constants.X_OK).catch(async () => {
+      await accessImpl(trimmed, constants.F_OK);
     });
     return { command: trimmed, argsPrefix: [] };
   }
 
-  if (await commandExists('vue-vet')) {
+  const workspaceBinary = await findWorkspaceBinary(workspaceRoot, { accessImpl });
+  if (workspaceBinary) {
+    return { command: workspaceBinary, argsPrefix: [] };
+  }
+
+  if (await commandExistsImpl('vue-vet')) {
     return { command: 'vue-vet', argsPrefix: [] };
   }
 
@@ -42,12 +90,14 @@ function commandExists(name) {
  *   workspaceRoot: string,
  *   configuredPath?: string,
  *   extraArgs?: string[],
- *   spawnImpl?: typeof spawn
+ *   spawnImpl?: typeof spawn,
+ *   resolveLauncherImpl?: typeof resolveLauncher,
  * }} options
  */
 async function runReactivityScan(options) {
   const spawnImpl = options.spawnImpl || spawn;
-  const launcher = await resolveLauncher(options.configuredPath || '');
+  const resolve = options.resolveLauncherImpl || resolveLauncher;
+  const launcher = await resolve(options.configuredPath || '', options.workspaceRoot || '');
   const args = [
     ...launcher.argsPrefix,
     options.workspaceRoot,
@@ -111,6 +161,7 @@ function runProcess(spawnImpl, command, args, options) {
 }
 
 module.exports = {
+  findWorkspaceBinary,
   resolveLauncher,
   runReactivityScan,
   commandExists,

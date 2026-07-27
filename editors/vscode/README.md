@@ -7,7 +7,7 @@ the native CLI and paints the returned spans.
 ```text
 Command Palette → Vue Vet: Show Reactivity
   → vue-vet <workspace> --format json --print-reactivity
-  → TreeView + decorations + hover
+    → TreeView + decorations + hover
 ```
 
 This is **not** the M4 LSP surface tracked in issue #12. Diagnostics, code
@@ -16,12 +16,17 @@ actions, and incremental document sync stay out of scope here.
 ## Prerequisites
 
 - VS Code 1.85+
-- A Vue Vet binary available as:
+- A Vue Vet binary resolved in this order:
   1. `vue-vet.path` setting (absolute path), or
-  2. `vue-vet` on `PATH`, or
-  3. fallback `npx --yes @vue-vet/cli`
+  2. workspace `target/debug/vue-vet` or `target/release/vue-vet` (Cargo builds), or
+  3. `vue-vet` on `PATH`, or
+  4. fallback `npx --yes @vue-vet/cli`
 
-For local development against this repo, point the setting at the cargo binary:
+When the CLI cannot start, the error toast offers **Open Settings** (jump to
+`vue-vet.path`) and **Retry**.
+
+For local development against this repo, either build the CLI (`cargo build -p vue-vet`)
+so auto-detect finds `target/debug/vue-vet`, or set the path explicitly:
 
 ```json
 {
@@ -29,15 +34,20 @@ For local development against this repo, point the setting at the cargo binary:
 }
 ```
 
-## Install (local)
+## Install (from source)
 
 ```bash
 cd editors/vscode
-code --install-extension .   # or: vsce package && code --install-extension vue-vet-*.vsix
+npm install
+npm test
+npm run package          # writes vue-vet-*.vsix
+code --install-extension vue-vet-*.vsix
+# or, without packaging: code --install-extension .
 ```
 
 From a development host, open this folder in VS Code and use **Run Extension**
-(`F5`) if you prefer an Extension Development Host.
+(`F5`) if you prefer an Extension Development Host. With the monorepo root as
+the workspace and a built `target/debug/vue-vet`, no `vue-vet.path` is required.
 
 ## Commands
 
@@ -55,7 +65,7 @@ From a development host, open this folder in VS Code and use **Run Extension**
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `vue-vet.path` | `""` | Absolute CLI path |
+| `vue-vet.path` | `""` | Absolute CLI path; empty uses workspace Cargo binary, then PATH, then npx |
 | `vue-vet.refreshOnSave` | `false` | Re-trace on Vue/JS/TS save (off by default for large repos) |
 
 ## Tests
@@ -64,8 +74,8 @@ From a development host, open this folder in VS Code and use **Run Extension**
 cd editors/vscode && npm test
 ```
 
-Pure Node tests cover JSON → tree / decoration / hover planning. No VS Code
-API is required for those checks.
+Pure Node tests cover JSON → tree / decoration / hover planning and CLI
+launcher resolution. No VS Code API is required for those checks.
 
 ## Span mapping
 
