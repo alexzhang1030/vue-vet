@@ -8,7 +8,9 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use vue_vet_core::{Confidence, Diagnostic, ScriptFacts, Severity, SfcFacts, SourceSpan};
-use vue_vet_reactivity::{ModuleLink, ModuleReactivity, ModuleSource, trace_modules};
+use vue_vet_reactivity::{
+  ModuleLink, ModuleReactivity, ModuleSource, PropFlowSite, join_prop_flows, trace_modules,
+};
 
 pub use resolve::{OXC_RESOLVER_VERSION, normalize_project_root, resolver_config_inputs};
 
@@ -238,6 +240,26 @@ pub fn build_project_graph(root: &Path, files: &[ProjectFile]) -> ProjectGraph {
       module.graph.join_template_reads(template);
     }
   }
+  // Static parent `:prop="binding"` → child `props.prop` edges (under-approx).
+  let graph_snapshots = module_reactivity
+    .iter()
+    .map(|module| (module.id.clone(), module.graph.clone()))
+    .collect::<BTreeMap<_, _>>();
+  let prop_sites = edges
+    .iter()
+    .filter(|edge| matches!(edge.kind, EdgeKind::ComponentUsage | EdgeKind::AutoComponent))
+    .filter_map(|edge| {
+      let parent_template = *templates.get(&edge.from)?;
+      let parent_graph = graph_snapshots.get(&edge.from)?;
+      Some(PropFlowSite {
+        element_span: edge.evidence.clone(),
+        parent_template,
+        parent_graph,
+        child_module: edge.to.as_str(),
+      })
+    })
+    .collect::<Vec<_>>();
+  join_prop_flows(&mut module_reactivity, &prop_sites);
   let mut invalidation_inputs = known.into_iter().collect::<Vec<_>>();
   invalidation_inputs.extend(resolver_config_inputs(&root));
   invalidation_inputs.sort();

@@ -585,7 +585,7 @@ fn traces_watch_source_getters() {
 }
 
 #[test]
-fn bare_reactive_watch_source_stays_quiet() {
+fn bare_reactive_watch_source_records_deep_root() {
   let graph = graph(
     "import { reactive, watch } from 'vue';\n\
      const state = reactive({ n: 1 });\n\
@@ -593,8 +593,22 @@ fn bare_reactive_watch_source_stays_quiet() {
   );
   let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchSources);
   assert!(
-    scope.is_some_and(|scope| scope.reads.is_empty()),
-    "bare reactive watch sources deep-track many keys; do not invent a property-less dep"
+    scope.is_some_and(|scope| {
+      scope.reads.len() == 1
+        && scope.reads.iter().any(|read| {
+          read.binding == "state"
+            && read.property.as_deref() == Some(crate::DEEP_WATCH_PROPERTY)
+            && read.kind == ReactiveReadKind::Unconditional
+        })
+    }),
+    "bare reactive watch sources must record a deep-root sentinel, not nested keys; got {:?}",
+    scope.map(|scope| &scope.reads)
+  );
+  assert!(
+    !graph.edges.iter().any(|edge| {
+      edge.to == "state" && edge.property.as_deref().is_some_and(|property| property != "*")
+    }),
+    "must not invent concrete nested keys for deep watch(reactive)"
   );
 }
 
@@ -696,6 +710,74 @@ fn classifies_pause_tracking_regions() {
         .any(|read| read.binding == "value" && read.kind == ReactiveReadKind::OutsideTracking)
     }),
     "reads after pauseTracking must not collect dependencies"
+  );
+}
+
+#[test]
+fn enable_tracking_resumes_dependency_collection() {
+  let graph = graph(
+    "import { ref, watchEffect, pauseTracking, enableTracking } from 'vue';\n\
+     const paused = ref(0); const resumed = ref(1);\n\
+     watchEffect(() => { pauseTracking(); paused.value; enableTracking(); resumed.value; });",
+  );
+  let effect = graph.effects.first();
+  assert!(
+    effect.is_some_and(|effect| {
+      effect
+        .reads
+        .iter()
+        .any(|read| read.binding == "paused" && read.kind == ReactiveReadKind::OutsideTracking)
+        && effect
+          .reads
+          .iter()
+          .any(|read| read.binding == "resumed" && read.kind == ReactiveReadKind::Unconditional)
+    }),
+    "enableTracking must resume collection; got {:?}",
+    effect.map(|effect| &effect.reads)
+  );
+}
+
+#[test]
+fn reset_tracking_resumes_dependency_collection() {
+  let graph = graph(
+    "import { ref, watchEffect, pauseTracking, resetTracking } from 'vue';\n\
+     const paused = ref(0); const resumed = ref(1);\n\
+     watchEffect(() => { pauseTracking(); paused.value; resetTracking(); resumed.value; });",
+  );
+  let effect = graph.effects.first();
+  assert!(
+    effect.is_some_and(|effect| {
+      effect
+        .reads
+        .iter()
+        .any(|read| read.binding == "paused" && read.kind == ReactiveReadKind::OutsideTracking)
+        && effect
+          .reads
+          .iter()
+          .any(|read| read.binding == "resumed" && read.kind == ReactiveReadKind::Unconditional)
+    }),
+    "resetTracking must resume collection; got {:?}",
+    effect.map(|effect| &effect.reads)
+  );
+}
+
+#[test]
+fn next_tick_callback_is_outside_tracking() {
+  let graph = graph(
+    "import { ref, watchEffect, nextTick } from 'vue';\n\
+     const value = ref(0);\n\
+     watchEffect(() => { nextTick(() => { value.value; }); });",
+  );
+  let effect = graph.effects.first();
+  assert!(
+    effect.is_some_and(|effect| {
+      effect
+        .reads
+        .iter()
+        .any(|read| read.binding == "value" && read.kind == ReactiveReadKind::OutsideTracking)
+    }),
+    "nextTick callbacks are outside synchronous tracking; got {:?}",
+    effect.map(|effect| &effect.reads)
   );
 }
 
@@ -1344,7 +1426,31 @@ fn dependency_edges_include_span_qualified_to_id() {
       edge.to_id.as_deref().is_some_and(|id| id.starts_with("source@"))
         && edge.to_identity().split('@').next() == Some("source")
     }),
-    "v6 edges must carry span-qualified to_id; got {:?}",
+    "anonymous traces keep name@offset to_id; got {:?}",
+    edge.map(|edge| &edge.to_id)
+  );
+}
+
+#[test]
+fn module_traces_qualify_to_id_with_module_prefix() {
+  let modules = [ModuleSource::standalone(
+    "producer.ts",
+    "import { ref, computed } from 'vue'; export const source = ref(1); export const doubled = computed(() => source.value * 2);",
+    "ts",
+    ScriptKind::Script,
+  )];
+  let traced = traced_modules(&modules, &[]);
+  let producer = traced.iter().find(|module| module.id == "producer.ts");
+  let edge = producer.and_then(|module| {
+    module.graph.edges.iter().find(|edge| {
+      edge.kind == ReactiveDependencyKind::Computed && edge.from == "doubled" && edge.to == "source"
+    })
+  });
+  assert!(
+    edge.is_some_and(|edge| {
+      edge.to_id.as_deref().is_some_and(|id| id.starts_with("producer.ts:source@"))
+    }),
+    "v8 module traces must prefix to_id with module id; got {:?}",
     edge.map(|edge| &edge.to_id)
   );
 }

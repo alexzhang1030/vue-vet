@@ -41,11 +41,12 @@ completeness number — not a 280-case syntax matrix.
 | `watch-source-array-getters` | `watch([() => a.value, () => b.value])` each getter body |
 | `watch-source-getter` | `watch(() => value.value)` source getter |
 | `watch-source-ref` | `watch(ref)` tracks `.value` (not property-less) |
+| `watch-source-reactive-deep` | `watch(reactive)` → static deep-root `*`; runtime has many keys |
 | `runner-run-no-track` | arbitrary `.run` invents nothing at runtime |
 
-Bare `watch(reactiveObj)` is **static-only quiet**: runtime deep-tracks many keys
-(`Object iterate`, each property). Emitting a property-less static dep would
-fail under-approx identity.
+Bare `watch(reactiveObj)` emits static `property: "*"` (deep/iterate root). The
+oracle treats `*` as under-approx when the binding appears in any runtime dep —
+never invent concrete nested keys.
 
 Static-only (no oracle JSON): `storeToRefs` from `pinia` — unit-tested; runtime
 `toRefs` tracks the **underlying store object**, so key identity differs from
@@ -66,7 +67,15 @@ pnpm oracle:write
 Committed `expected/*.json` are the CI source of truth so Rust tests do not
 require Node at test time.
 
-## Rust comparison
+## Gate (Evidence complete)
 
-`cargo test -p vue_vet_reactivity --lib oracle` loads each expected file, runs
-`trace_reactivity` on `source`, and asserts under-approx + prints recall.
+`just oracle` (or `cargo test -p vue_vet_reactivity --lib oracle`) loads each
+committed expected file, runs `trace_reactivity` on `source`, and asserts:
+
+- **under-approx:** `tracer ⊆ runtime` (no invented concrete keys; deep root
+  `*` is allowed when the binding appears in any runtime dep)
+- **recall:** ≥99% on this **representative** case set
+
+This is a recall gate on committed cases — not a claim that every SFC in the
+universe is covered. Static-only joins (e.g. parent `:foo` → child props) stay
+in Rust unit/project tests.

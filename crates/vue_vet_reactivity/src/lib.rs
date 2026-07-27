@@ -154,6 +154,7 @@ fn trace_reactivity_seeded(
   scopes.sort_by_key(|fact| fact.span.offset);
   let mut graph = ReactivityGraph {
     version: vue_vet_core::REACTIVITY_GRAPH_VERSION,
+    module_id: String::new(),
     bindings,
     scopes,
     effects: Vec::new(),
@@ -888,6 +889,9 @@ struct RawGuard {
   role: ReactiveGuardRole,
 }
 
+/// Sentinel property for bare `watch(reactiveObj)` deep/iterate roots (graph contract).
+pub const DEEP_WATCH_PROPERTY: &str = "*";
+
 const fn is_ref_like(kind: ReactiveBindingKind) -> bool {
   matches!(
     kind,
@@ -899,6 +903,10 @@ const fn is_ref_like(kind: ReactiveBindingKind) -> bool {
       | ReactiveBindingKind::TemplateRef
       | ReactiveBindingKind::ModelRef
   )
+}
+
+const fn is_deep_watch_source(kind: ReactiveBindingKind) -> bool {
+  matches!(kind, ReactiveBindingKind::Reactive | ReactiveBindingKind::ShallowReactive)
 }
 
 const fn span_contains(outer: Span, inner: Span) -> bool {
@@ -2125,12 +2133,21 @@ fn collect_expression_source_reads(
           && reference_resolves_to_binding(semantic, identifier, binding, script_offset)
       }) {
         // Vue's `watch(ref)` / `watch([ref])` tracks the ref's `.value` dep key.
-        // Bare reactive objects deep-track many keys — stay quiet rather than invent
-        // a property-less edge that is not a runtime onTrack identity.
+        // Bare `watch(reactiveObj)` deep-tracks many keys at runtime; emit a single
+        // deep-root sentinel `property: "*"` rather than inventing nested fields.
         if is_ref_like(binding.kind) {
           reads.push(ReactiveReadFact {
             binding: binding.name.clone(),
             property: Some("value".into()),
+            kind: ReactiveReadKind::Unconditional,
+            guards: Vec::new(),
+            guarded_by: None,
+            span: source_span(sfc_source, script_offset, identifier.span),
+          });
+        } else if is_deep_watch_source(binding.kind) {
+          reads.push(ReactiveReadFact {
+            binding: binding.name.clone(),
+            property: Some(DEEP_WATCH_PROPERTY.into()),
             kind: ReactiveReadKind::Unconditional,
             guards: Vec::new(),
             guarded_by: None,
@@ -2209,8 +2226,10 @@ fn source_span(source: &str, base: usize, span: Span) -> SourceSpan {
 }
 
 mod modules;
+mod prop_flow;
 
 pub use modules::{ModuleLink, ModuleReactivity, ModuleSource, TraceModulesError, trace_modules};
+pub use prop_flow::{PropFlowSite, join_prop_flows};
 
 #[cfg(test)]
 mod oracle;

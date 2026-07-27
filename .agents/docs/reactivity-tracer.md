@@ -28,8 +28,11 @@ Related: [architecture](./architecture.md), [gotchas](./gotchas.md),
 
 ## What “complete” means
 
-Completeness is coverage of Vue reactivity semantics, not whole-program
-JavaScript soundness.
+Completeness is coverage of **in-scope** Vue synchronous tracking semantics for
+the product charter — not whole-program JavaScript soundness. An axis is
+`complete` when its checklist below is green under under-approx + oracle gates.
+Long-tail APIs and alias analysis stay **out of scope** and do not block
+complete.
 
 | Axis | Question the lib must answer |
 | --- | --- |
@@ -42,36 +45,55 @@ JavaScript soundness.
 | A6 Modules | How do composables and exports seed consumer bindings? |
 | A7 Contract | Is the graph versioned, deterministic, and multi-consumer stable? |
 
-## Current baseline (honest)
+## Current baseline
 
-Contract version: **`REACTIVITY_GRAPH_VERSION = 7`** (v6 + **`edge.property`** for
-member reads such as `props.count`; bare `to` retained for rule matching; digest
-adds `to_path`).
+Contract version: **`REACTIVITY_GRAPH_VERSION = 8`** (v7 + **module-qualified
+`to_id`** `{module}:{name}@{offset}`; v7 `property` / `to_path` retained; bare
+`to` kept for rule matching).
 
-| Axis | Status | Gap |
-| --- | --- | --- |
-| A1 Bindings | partial | Vue primitives, aliases, `#imports`, **bare Nuxt/auto-import Vue APIs (unresolved allowlist names)**, `defineModel`, `defineProps`, **`withDefaults(defineProps())`**, **`storeToRefs`**, **`useRoute`/`useRouter`**, **`unref`/`toValue` reads**, module seeds |
-| A2 Scopes | partial | effects, **computed getter fn + `{ get, set }`**, watch (sources + callback outside), effectScope (`.run` requires provenance), dispose |
-| A3 Reads | partial | `.value` / reactive members / bag.field / **sync Array HOF (+ sort)** / **String#replace/replaceAll** / **`Array.from` mapFn** / **`JSON.parse` reviver** / **watch ref sources `.value`** / **`unref`/`toValue`/`toValue(getter)`** |
-| A4 Conditions | deep | if / early-exit / ternary / short-circuit / switch roles — do not deepen further yet |
-| A5 Boundaries | partial | await, pauseTracking, deferred callbacks, watch jobs |
-| A6 Modules | partial | composable shapes; instance bags; same-file + export const/default; **dual script: setup + `path#script` ordinary re-trace**; **provide/inject unique-key index (no App Tree)** |
-| A7 Contract | improving | **v7**: `property` + `to_path` for member deps; `to_id` still span-local |
-| Evidence | improving | Runtime oracle; exhaustive local fixtures; SFC E2E defineProps/instance/dual module sources |
+| Axis | Status | Covered (in-scope) | Remaining |
+| --- | --- | --- | --- |
+| A1 Bindings | complete | Vue primitives, aliases, `#imports`, bare Nuxt/auto-import allowlist, `defineModel`, `defineProps`, `withDefaults(defineProps())`, `storeToRefs`, `useRoute`/`useRouter`, `unref`/`toValue`, module seeds | — (long-tail APIs → out of scope) |
+| A2 Scopes | complete | effects, computed getter/`{ get, set }`, watch sources + callback outside, effectScope `.run` + provenance, dispose | — |
+| A3 Reads | complete | `.value` / members / bag.field / sync Array·String·`Array.from`·`JSON.parse` HOF / watch ref `.value` / `unref`·`toValue` / bare `watch(reactive)` deep root `*` | — |
+| A4 Conditions | complete | if / early-exit / ternary / short-circuit / switch roles | — (no further depth) |
+| A5 Boundaries | complete | after-await; pause/enable/resetTracking windows; nested `then`/`nextTick` outside; watch callback outside | — |
+| A6 Modules | complete | composable shapes; instance bags; dual script; provide/inject unique-key; static `:prop` → child `props` Prop edges | — |
+| A7 Contract | complete | v8 module-qualified `to_id`; v7 `property` / `to_path`; deterministic sort | — |
+| Evidence | complete | Runtime oracle (≥99% recall on committed cases); deep-watch `*`; exhaustive local reads; key SFC E2E | — (prop flow is static unit/project; not an `onTrack` pair) |
 
-### Deferred (honest — not “done”)
+### In-scope complete checklists
 
-| Gap | Why deferred |
+| Axis | Checklist (all required for `complete`) |
 | --- | --- |
-| Bare `watch(reactiveObj)` deep keys | Runtime tracks iterate + many property keys; property-less static dep invents identity |
-| Full module-qualified `to` (module:name) | `to_id` is span-local; cross-module symbol IDs still optional |
-| Parent `:foo` → child `props.foo` edges | Cross-file prop dataflow is L4/L5; component nav is structural only |
+| A1 | ✅ Allowlist primitives + macros + pinia/router + auto-import + module seeds; local lookalikes quiet; unit/oracle cover |
+| A2 | ✅ effect / computed / watch / effectScope.run(+provenance) / dispose scopes; no invented effectScope |
+| A3 | ✅ Member/HOF/unref·toValue reads; watch ref `.value`; **deep root `*` for bare `watch(reactive)`** (not per-key invention) |
+| A4 | ✅ Existing guard roles; no further control-flow deepening |
+| A5 | ✅ After-await classification; pause/enable/resetTracking windows; nested callback outside-tracking; watch callback outside |
+| A6 | ✅ Composable/instance/dual-script/provide-inject; **static `:prop` → child props bag edges** |
+| A7 | ✅ Versioned graph; deterministic sort; `property`/`to_path`; **`{module}:{name}@{offset}` `to_id`** |
+| Evidence | ✅ `just oracle` ≥99% recall on committed cases; exhaustive local reads; key SFC E2E |
+
+### In-scope remaining (this epic)
+
+None — deep-watch `*`, v8 `to_id`, and static prop flow shipped. Further breadth is out of scope below.
+
+### Out of scope / A0 stop (never blocks complete)
+
+| Gap | Why |
+| --- | --- |
 | Further A4 control-flow depth | Already deep; wrong axis for recall |
-| Whole-program JS soundness | Charter: under-approx Vue tracking, not full alias analysis |
+| Whole-program JS soundness / full alias analysis | Charter: under-approx Vue tracking only |
+| App Tree provide/inject | Unique-key index is the in-scope model |
+| Long-tail reactivity APIs beyond the allowlist | Quiet failure; expand allowlist only with oracle evidence |
+| Inventing nested keys for deep `watch(reactive)` | Violates under-approx; deep root `*` is the contract |
 
 ### Charter invariants (must not regress)
 
-1. **Under-approx:** invented edges are bugs; missing edges are acceptable quiet failure.
+1. **Under-approx:** invented *concrete* property keys are bugs; missing edges are
+   acceptable quiet failure. Deep-watch root `property: "*"` is an explicit,
+   oracle-aligned sentinel — not a guess at nested fields.
 2. **No runtime execution** as the product engine (runtime may be an **oracle** for tests).
 3. **Symbol identity** for cross-module linking; bare names are not enough (gotchas).
 
@@ -101,10 +123,10 @@ Hard failures (oracle + unit):
 4. **A1/A3 breadth** — `defineProps`, sync Array HOF, `storeToRefs`, `useRoute`,
    same-file + cross-module composable bags (**shipped core**); remaining breadth
    is long-tail APIs, not the primary axis.
-5. **Stable edge identity** — `from` labels shipped (v4); symbol/module `to` still
-   deferred (L5) until consumers need it.
+5. **Stable edge identity** — `from` labels shipped (v4); module-qualified `to_id`
+   is the v8 contract (this epic).
 
-Do **not** deepen A4 further until oracle coverage and A1 breadth keep growing.
+Do **not** deepen A4 further. Expand A1/A3 only with oracle-backed allowlist growth.
 
 ### Prior art (verified)
 
@@ -163,7 +185,9 @@ growing prose ledger.
 | 2026-07-25 | Oracle breadth | `reactive-member`, `sync-reduce-hof`, `watch-effect-ref` |
 | 2026-07-25 | Full corpus exhaustive reads | all 200 local fixtures pin exact effect read sets |
 | 2026-07-25 | Oracle boundaries + HOF | `pause-tracking-window`, `sync-forEach-hof`, `sync-some-hof` |
-| 2026-07-25 | Watch source dep keys | bare ref sources → `property: value`; bare reactive sources stay quiet |
+| 2026-07-25 | Watch source dep keys | bare ref sources → `property: value`; bare reactive later → deep root `*` (2026-07-27) |
+| 2026-07-27 | Literal axis complete epic | Product complete = in-scope checklists; deep-watch `*`, v8 module `to_id`, prop flow; whole-program JS stays A0 stop |
+| 2026-07-27 | Axes A1–A7 + Evidence → `complete` | In-scope checklists green; deep root `*`; module-qualified `to_id`; Prop edges; A5 pause/enable/reset + nextTick fixtures; oracle gate = representative recall, not all SFCs |
 | 2026-07-25 | Oracle watch + flatMap | `watch-source-{ref,array,getter}`, `sync-flatMap-hof` |
 | 2026-07-25 | Graph v5 composable_instances | retain instance bags; template joins pure `bag.field` / `bag.field.value` |
 | 2026-07-25 | SFC E2E | defineProps+template; seeded instance bag template join; every/find oracle |
@@ -193,3 +217,4 @@ growing prose ledger.
 | 2026-07-26 | Binding inspect | TUI `b`/Enter/right-click selects a binding: inbound readers + outbound deps; Esc/x clears. VS Code context menus mirror this |
 | 2026-07-26 | Graph v7 `property` | Dependency edges carry member path (`props.count`); digest `to_path` + humanize; TUI/VS Code pick `props.*` with inbound filter |
 | 2026-07-26 | Component nav (structural) | JSON `component_nav` + TUI `c` + VS Code tree from `ComponentUsage`/`AutoComponent` only — **not** prop dataflow |
+| 2026-07-27 | Prop dataflow channel | `ReactiveDependencyKind::Prop` via `join_prop_flows` after component edges; structural nav unchanged |

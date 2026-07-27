@@ -128,9 +128,12 @@ pub fn analyze_sfc_facts_with_environment(
       ScriptKind::Setup,
     )?);
   }
-  // Join Vize template expressions onto Oxc script reactive bindings.
+  // Join Vize template expressions onto Oxc script reactive bindings, then
+  // qualify edge `to_id` with the logical file path (graph v8).
+  let module_id = path.to_string_lossy().replace('\\', "/");
   for block in &mut script.blocks {
     block.reactivity_graph.join_template_reads(&template);
+    block.reactivity_graph.set_module_id(module_id.clone());
   }
   Ok(AnalyzedSfc {
     diagnostics: Vec::new(),
