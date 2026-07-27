@@ -16,6 +16,15 @@ const n = unref(count)
 </script>
 ```
 
+Nuxt / auto-import projects may call bare `unref` without an import; that is also suggested:
+
+```vue
+<script setup>
+const count = ref(0)
+const n = unref(count)
+</script>
+```
+
 ## Good
 
 ```vue
@@ -29,10 +38,13 @@ const n = toValue(count)
 
 ## Limitations
 
-Requires Vue 3.3+ from the nearest `package.json` and a call that resolves to Vue's `unref`
-(including aliases). Local lookalike functions named `unref` stay quiet. Bare auto-imported
-`unref` without a resolvable import binding is not reported yet.
+Requires Vue 3.3+ from the nearest `package.json`. Matches:
+
+- `unref` resolved from `vue`, `vue-demi`, `#imports`, or `@vue/*`
+- bare `unref(...)` with no local binding or import named `unref` (Nuxt / unplugin-auto-import)
+
+Local lookalike functions named `unref` stay quiet.
 
 ## Remediation
 
-Import `toValue` from `vue` and replace `unref(...)` call sites.
+Import `toValue` from `vue` (or the project's auto-import equivalent) and replace `unref(...)` call sites.

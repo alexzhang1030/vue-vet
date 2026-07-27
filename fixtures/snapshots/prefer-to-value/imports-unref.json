@@ -1,0 +1,25 @@
+[
+  {
+    "rule_id": "vue-vet/practice/prefer-to-value",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/practice/prefer-to-value",
+    "message": "`unref` can be replaced with Vue 3.3+ `toValue`, which also accepts getters.",
+    "help": "Prefer `toValue(...)` for values that may be a ref, a plain value, or a getter.",
+    "file": "fixtures/rules/prefer-to-value/invalid/imports-unref.vue",
+    "span": {
+      "offset": 95,
+      "length": 12,
+      "line": 5,
+      "column": 11
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "vue",
+      "export": "toValue",
+      "docs_url": "https://vuejs.org/api/reactivity-utilities.html#tovalue",
+      "import_example": "import { toValue } from 'vue'"
+    }
+  }
+]

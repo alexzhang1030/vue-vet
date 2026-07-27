@@ -20,7 +20,7 @@ pub fn is_vueuse_source(source: &str) -> bool {
 
 #[must_use]
 pub fn is_vue_runtime_source(source: &str) -> bool {
-  source == "vue" || source == "vue-demi" || source.starts_with("@vue/")
+  source == "vue" || source == "vue-demi" || source == "#imports" || source.starts_with("@vue/")
 }
 
 #[must_use]
