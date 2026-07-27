@@ -1,4 +1,11 @@
 {
   "project": "suppressed",
-  "findings": []
+  "findings": [
+    {
+      "rule_id": "vue-vet/security/no-v-html",
+      "file": "App.vue",
+      "classification": "false_positive",
+      "rationale": "vue-vet-disable-next-line must keep no-v-html quiet on the reviewed v-html"
+    }
+  ]
 }

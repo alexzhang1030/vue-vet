@@ -10,23 +10,24 @@ Exact `(rule_id, file)` sets for the quality corpus are committed under
 [`fixtures/quality/precision/`](../fixtures/quality/precision/). CI fails on drift
 via `just quality-gates`.
 
-| Project | Expected findings |
-| --- | ---: |
-| `basic` | 1 |
-| `configured` | 1 |
-| `nuxt-graph` | 2 |
-| `vue-3.4` | 1 |
-| `vue-3.5` | 2 |
-| `prop-flow` | 0 |
-| `practice-vueuse` | 9 |
-| `a11y-forms` | 14 |
-| `suppressed` | 0 |
-| `module-seeds` | 1 |
-| `provide-inject` | 0 |
-| `reactivity-rules` | 3 |
+| Project | Expected findings (TP / known_limitation) | FP pins |
+| --- | ---: | ---: |
+| `basic` | 1 | 0 |
+| `configured` | 1 | 0 |
+| `nuxt-graph` | 2 | 0 |
+| `vue-3.4` | 1 | 0 |
+| `vue-3.5` | 2 | 0 |
+| `prop-flow` | 0 | 2 |
+| `practice-vueuse` | 9 | 0 |
+| `a11y-forms` | 14 | 4 |
+| `suppressed` | 0 | 1 |
+| `module-seeds` | 1 | 0 |
+| `provide-inject` | 0 | 2 |
+| `reactivity-rules` | 3 | 3 |
 
-Changing a count requires updating the precision JSON and explaining the behavior
-change in the PR.
+Expected findings count only `true_positive` / `known_limitation` pairs. FP pins
+must remain absent. Changing either set requires updating the precision JSON and
+explaining the behavior change in the PR.
 
 ## Performance baselines (CodSpeed suite names)
 

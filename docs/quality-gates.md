@@ -84,12 +84,14 @@ Gate behavior (`just quality-gates` / `quality_gates` tests):
 
 - The scan of a project must emit exactly the `(rule_id, file)` pairs listed as
   `true_positive` or `known_limitation`.
-- Entries classified `false_positive` document bugs that must not appear; if they
-  appear, the gate fails.
+- Entries classified `false_positive` pin safe patterns that must stay absent; if
+  that `(rule_id, file)` appears, the gate fails (project-level FP regression).
 - Adding or removing an expected finding requires an explicit PR rationale.
 
 Rule-level `valid/` fixtures remain the primary false-positive regressions; the
-quality corpus pins multi-file project expectations.
+quality corpus additionally pins multi-file safe files (for example
+`a11y-forms/SafeNamedControls.vue`, `reactivity-rules/SafePatterns.vue`,
+`suppressed/App.vue`).
 
 ## Performance baselines
 

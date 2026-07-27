@@ -285,9 +285,9 @@ M0–M4 delivery issues are complete on `main`. `v0.1.12` published crates.io
 archives. Tracker [#14](https://github.com/alexzhang1030/vue-vet/issues/14)
 stays open for release coordination.
 
-Near-term product work: keep `#13` quality gates green and keep expanding the
-checksummed corpus / precision labels (`a11y-forms`, `practice-vueuse`,
-`reactivity-rules`, `provide-inject`, `prop-flow`). Deepen high-confidence
+Near-term product work: keep `#13` quality gates green. The checksummed corpus
+now indexes twelve projects with TP labels plus project-level `false_positive`
+pins for safe patterns (see `fixtures/quality/README.md`). Deepen high-confidence
 reactivity coverage without racing Beta. Beta still requires publishing measured
 precision/performance evidence in the release notes
 ([quality-baselines.md](./docs/quality-baselines.md), CodSpeed, precision delta).

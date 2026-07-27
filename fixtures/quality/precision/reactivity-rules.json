@@ -18,6 +18,24 @@
       "file": "ConditionalWatch.vue",
       "classification": "true_positive",
       "rationale": "result.value is read only after an early-return guard in watchEffect"
+    },
+    {
+      "rule_id": "vue-vet/reactivity/no-unused-reactive-binding",
+      "file": "SafePatterns.vue",
+      "classification": "false_positive",
+      "rationale": "Bindings used via computed / deferred callback must stay quiet"
+    },
+    {
+      "rule_id": "vue-vet/reactivity/prefer-computed",
+      "file": "SafePatterns.vue",
+      "classification": "false_positive",
+      "rationale": "Derived fullName already uses computed"
+    },
+    {
+      "rule_id": "vue-vet/reactivity/no-conditional-watch-effect-dependency",
+      "file": "SafePatterns.vue",
+      "classification": "false_positive",
+      "rationale": "Nested callback after guard is an intentional quiet pattern"
     }
   ]
 }
