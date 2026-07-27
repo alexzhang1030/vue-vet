@@ -45,6 +45,22 @@ pub fn callee_is(callee: &str, name: &str) -> bool {
   callee == name || callee.rsplit_once('.').is_some_and(|(_, property)| property == name)
 }
 
+/// First `new Ctor(...)` / bare ctor call in a block that also has a setup lifecycle
+/// hook and no `disconnect` (including `observer.disconnect`).
+#[must_use]
+pub fn observer_ctor_without_disconnect<'a>(
+  block: &'a ScriptBlockFacts,
+  ctor: &str,
+) -> Option<&'a vue_vet_core::ScriptCallFact> {
+  if !block.calls.iter().any(|call| is_setup_lifecycle_hook(&call.callee)) {
+    return None;
+  }
+  if block.calls.iter().any(|call| callee_is(&call.callee, "disconnect")) {
+    return None;
+  }
+  block.calls.iter().find(|call| call.callee == ctor)
+}
+
 #[must_use]
 pub fn recommendation_from(api: EcosystemApi) -> Recommendation {
   Recommendation {

@@ -1,0 +1,25 @@
+[
+  {
+    "rule_id": "vue-vet/practice/vueuse-use-intersection-observer",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "medium",
+    "documentation": "rules/practice/vueuse-use-intersection-observer",
+    "message": "This constructs an `IntersectionObserver` inside a setup lifecycle hook without `disconnect`; consider VueUse `useIntersectionObserver` for automatic cleanup.",
+    "help": "Optional dependency: install `@vueuse/core` when you want `useIntersectionObserver`, then replace the hand-rolled pattern.",
+    "file": "fixtures/rules/vueuse-use-intersection-observer/invalid/new-without-disconnect.vue",
+    "span": {
+      "offset": 142,
+      "length": 52,
+      "line": 7,
+      "column": 20
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "@vueuse/core",
+      "export": "useIntersectionObserver",
+      "docs_url": "https://vueuse.org/core/useIntersectionObserver/",
+      "import_example": "import { useIntersectionObserver } from '@vueuse/core'"
+    }
+  }
+]

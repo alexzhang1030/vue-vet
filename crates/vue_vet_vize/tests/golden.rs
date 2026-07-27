@@ -284,6 +284,24 @@ fn practice_vueuse_fixtures_match_exact_diagnostics() {
     include_str!("../../../fixtures/rules/vueuse-use-raf-fn/invalid/raf-without-cancel.vue"),
     include_str!("../../../fixtures/snapshots/vueuse-use-raf-fn/raf-without-cancel.json"),
   );
+  assert_diagnostics(
+    "fixtures/rules/vueuse-use-intersection-observer/invalid/new-without-disconnect.vue",
+    include_str!(
+      "../../../fixtures/rules/vueuse-use-intersection-observer/invalid/new-without-disconnect.vue"
+    ),
+    include_str!(
+      "../../../fixtures/snapshots/vueuse-use-intersection-observer/new-without-disconnect.json"
+    ),
+  );
+  assert_diagnostics(
+    "fixtures/rules/vueuse-use-resize-observer/invalid/new-without-disconnect.vue",
+    include_str!(
+      "../../../fixtures/rules/vueuse-use-resize-observer/invalid/new-without-disconnect.vue"
+    ),
+    include_str!(
+      "../../../fixtures/snapshots/vueuse-use-resize-observer/new-without-disconnect.json"
+    ),
+  );
 }
 
 #[test]
@@ -351,6 +369,38 @@ fn practice_vueuse_safe_fixtures_produce_no_diagnostics() {
     (
       "fixtures/rules/vueuse-use-raf-fn/valid/bare-raf.vue",
       include_str!("../../../fixtures/rules/vueuse-use-raf-fn/valid/bare-raf.vue"),
+    ),
+    (
+      "fixtures/rules/vueuse-use-intersection-observer/valid/use-intersection-observer.vue",
+      include_str!(
+        "../../../fixtures/rules/vueuse-use-intersection-observer/valid/use-intersection-observer.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/vueuse-use-intersection-observer/valid/with-disconnect.vue",
+      include_str!(
+        "../../../fixtures/rules/vueuse-use-intersection-observer/valid/with-disconnect.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/vueuse-use-intersection-observer/valid/bare-observer.vue",
+      include_str!(
+        "../../../fixtures/rules/vueuse-use-intersection-observer/valid/bare-observer.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/vueuse-use-resize-observer/valid/use-resize-observer.vue",
+      include_str!(
+        "../../../fixtures/rules/vueuse-use-resize-observer/valid/use-resize-observer.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/vueuse-use-resize-observer/valid/with-disconnect.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-resize-observer/valid/with-disconnect.vue"),
+    ),
+    (
+      "fixtures/rules/vueuse-use-resize-observer/valid/bare-observer.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-resize-observer/valid/bare-observer.vue"),
     ),
   ] {
     assert_diagnostics(path, source, empty);

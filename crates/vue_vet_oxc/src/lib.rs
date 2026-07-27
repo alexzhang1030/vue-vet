@@ -143,9 +143,25 @@ pub fn analyze_script(
         calls.push(ScriptCallFact {
           assigned_to,
           resolved_import,
-          argument_identifiers: call_argument_identifiers(call),
+          argument_identifiers: expression_argument_identifiers(call.arguments.iter()),
           callee,
           span: source_span(sfc_source, script_offset, call.span),
+        });
+      }
+      AstKind::NewExpression(expression) => {
+        let Some(callee) = call_callee_name(&expression.callee) else {
+          continue;
+        };
+        let parent = semantic.nodes().parent_kind(node_id);
+        let assigned_to = call_assigned_to(parent);
+        let resolved_import =
+          if callee.contains('.') { None } else { imported_bindings.get(&callee).cloned() };
+        calls.push(ScriptCallFact {
+          assigned_to,
+          resolved_import,
+          argument_identifiers: expression_argument_identifiers(expression.arguments.iter()),
+          callee,
+          span: source_span(sfc_source, script_offset, expression.span),
         });
       }
       AstKind::AssignmentExpression(assignment) => {
@@ -510,10 +526,11 @@ fn call_assigned_to(parent: AstKind<'_>) -> Option<String> {
   }
 }
 
-fn call_argument_identifiers(call: &oxc_ast::ast::CallExpression<'_>) -> Vec<String> {
-  call
-    .arguments
-    .iter()
+fn expression_argument_identifiers<'a, I>(arguments: I) -> Vec<String>
+where
+  I: Iterator<Item = &'a oxc_ast::ast::Argument<'a>>,
+{
+  arguments
     .filter_map(|argument| {
       argument.as_expression()?.get_identifier_reference().map(|id| id.name.to_string())
     })
@@ -549,6 +566,37 @@ mod tests {
       Ok(facts) => facts,
       Err(error) => panic!("script analysis unexpectedly failed: {error}"),
     }
+  }
+
+  #[test]
+  fn records_new_expressions_as_call_facts() {
+    let facts = analyze(
+      "const io = new IntersectionObserver(() => {});\
+       const ro = new ResizeObserver(() => {}); io.disconnect();",
+      "ts",
+    );
+    assert!(
+      facts.calls.iter().any(|call| {
+        call.callee == "IntersectionObserver" && call.assigned_to.as_deref() == Some("io")
+      }),
+      "new IntersectionObserver must become a ScriptCallFact; got {:?}",
+      facts.calls
+    );
+    assert!(
+      facts.calls.iter().any(|call| {
+        call.callee == "ResizeObserver" && call.assigned_to.as_deref() == Some("ro")
+      }),
+      "new ResizeObserver must become a ScriptCallFact; got {:?}",
+      facts.calls
+    );
+    assert!(
+      facts.calls.iter().any(callee_is_disconnect),
+      "member disconnect calls must remain queryable"
+    );
+  }
+
+  fn callee_is_disconnect(call: &ScriptCallFact) -> bool {
+    call.callee == "disconnect" || call.callee.ends_with(".disconnect")
   }
 
   #[test]
