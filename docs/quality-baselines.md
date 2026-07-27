@@ -18,7 +18,7 @@ via `just quality-gates`.
 | `vue-3.4` | 1 |
 | `vue-3.5` | 2 |
 | `prop-flow` | 0 |
-| `practice-vueuse` | 3 |
+| `practice-vueuse` | 9 |
 | `a11y-forms` | 14 |
 | `suppressed` | 0 |
 | `module-seeds` | 1 |

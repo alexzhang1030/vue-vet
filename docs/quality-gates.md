@@ -25,7 +25,7 @@ Canonical inventory: [`fixtures/quality/manifest.json`](../fixtures/quality/mani
 | `fixtures/projects/vue-3.4` | vue, compatibility, precision | Version-gated props destructure diagnostic. |
 | `fixtures/projects/vue-3.5` | vue, compatibility, precision | `prefer-use-template-ref` + unresolved import. |
 | `fixtures/projects/prop-flow` | vue, precision | Parent `:title` / `v-model` / member / `.value` → child `props` Prop edges; whole-object `v-bind` and multi-hop members stay quiet (0 findings). |
-| `fixtures/projects/practice-vueuse` | vue, precision | Practice channel: lifecycle `setTimeout` / `addEventListener` / `setInterval` without cleanup. |
+| `fixtures/projects/practice-vueuse` | vue, precision | Practice channel: VueUse cleanup recipes (timeout/interval/raf/listeners/observers/debounce) + `prefer-to-value`. |
 | `fixtures/projects/a11y-forms` | vue, precision | Full recommended a11y pack true positives (13 rules) plus `no-redundant-role` and named safe patterns. |
 | `fixtures/projects/suppressed` | vue, config, precision | Inline disable keeps `no-v-html` quiet (empty expected set). |
 | `fixtures/projects/module-seeds` | vue, reactivity, precision | Cross-file composable `toRef` seed + after-await `watchEffect` dependency. |
