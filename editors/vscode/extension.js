@@ -160,7 +160,20 @@ async function refreshReactivity(revealSidebar) {
   } catch (error) {
     status.text = '$(error) Vue Vet';
     const message = error instanceof Error ? error.message : String(error);
-    void vscode.window.showErrorMessage(`Vue Vet: ${message}`);
+    status.tooltip = `Vue Vet failed: ${message}`;
+    const choice = await vscode.window.showErrorMessage(
+      `Vue Vet: ${message}`,
+      'Open Settings',
+      'Retry',
+    );
+    if (choice === 'Open Settings') {
+      await vscode.commands.executeCommand(
+        'workbench.action.openSettings',
+        'vue-vet.path',
+      );
+    } else if (choice === 'Retry') {
+      await refreshReactivity(revealSidebar);
+    }
   }
 }
 
