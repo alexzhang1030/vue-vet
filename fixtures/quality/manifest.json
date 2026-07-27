@@ -36,13 +36,25 @@
       "id": "prop-flow",
       "path": "fixtures/projects/prop-flow",
       "roles": ["vue", "precision"],
-      "tree_digest": "c98ba5a2bac0aca999642f19dd10d9bad4ef477344467d87122a5200acb70a18"
+      "tree_digest": "1aed480f204b05fb3b483a88b4c62a91c3024fe765220862c30ccff085ba9c9f"
     },
     {
       "id": "practice-vueuse",
       "path": "fixtures/projects/practice-vueuse",
       "roles": ["vue", "precision"],
       "tree_digest": "737fd356e70d3ac75b4880b5292d74c314df1411ef563f0a90baf45781a77764"
+    },
+    {
+      "id": "a11y-forms",
+      "path": "fixtures/projects/a11y-forms",
+      "roles": ["vue", "precision"],
+      "tree_digest": "2f77016b248fd535139b933fb2440a62449d5ed6ffe13e996535ef056e225e1e"
+    },
+    {
+      "id": "suppressed",
+      "path": "fixtures/projects/suppressed",
+      "roles": ["vue", "config", "precision"],
+      "tree_digest": "690b3e5297ce64b489778cfaa76e3f3e210eb40059c7cbfa53eab438e44ddbbe"
     }
   ]
 }
