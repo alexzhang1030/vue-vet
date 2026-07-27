@@ -8,6 +8,8 @@ use crate::{
 const RECIPE: PracticeRecipe = PracticeRecipe {
   rule_id: "vue-vet/practice/vueuse-use-debounce-fn",
   documentation: "rules/practice/vueuse-use-debounce-fn",
+  confidence: Confidence::Medium,
+  min_vue: None,
   recommend: EcosystemApi {
     package: "@vueuse/core",
     export: "useDebounceFn",
@@ -20,7 +22,7 @@ const META: RuleMeta = RuleMeta {
   id: RECIPE.rule_id,
   category: PRACTICE_CATEGORY,
   default_severity: Severity::Info,
-  confidence: Confidence::Medium,
+  confidence: RECIPE.confidence,
   documentation: RECIPE.documentation,
 };
 

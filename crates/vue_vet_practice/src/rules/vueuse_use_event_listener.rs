@@ -8,6 +8,8 @@ use crate::{
 const RECIPE: PracticeRecipe = PracticeRecipe {
   rule_id: "vue-vet/practice/vueuse-use-event-listener",
   documentation: "rules/practice/vueuse-use-event-listener",
+  confidence: Confidence::Medium,
+  min_vue: None,
   recommend: EcosystemApi {
     package: "@vueuse/core",
     export: "useEventListener",
@@ -23,7 +25,7 @@ const META: RuleMeta = RuleMeta {
   id: RECIPE.rule_id,
   category: PRACTICE_CATEGORY,
   default_severity: Severity::Info,
-  confidence: Confidence::Medium,
+  confidence: RECIPE.confidence,
   documentation: RECIPE.documentation,
 };
 

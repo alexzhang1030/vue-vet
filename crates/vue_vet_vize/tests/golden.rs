@@ -30,6 +30,19 @@ fn assert_diagnostics(logical_path: &str, source: &str, expected: &str) {
   );
 }
 
+#[expect(clippy::panic, reason = "fixture serialization errors must fail golden tests")]
+fn assert_versioned_diagnostics(logical_path: &str, source: &str, minor: u64, expected: &str) {
+  let mut diagnostics = analyze_versioned(logical_path, source, minor);
+  for diagnostic in &mut diagnostics {
+    diagnostic.file = PathBuf::from(normalize_path(Path::new(logical_path)));
+  }
+  let actual = match serde_json::to_string_pretty(&diagnostics) {
+    Ok(snapshot) => snapshot,
+    Err(error) => panic!("failed to serialize diagnostic snapshot: {error}"),
+  };
+  assert_eq!(actual, expected.trim_end(), "diagnostic snapshot changed for {logical_path}");
+}
+
 #[expect(clippy::panic, reason = "a missing parser error must fail the golden test")]
 fn parser_error_snapshot(logical_path: &str, source: &str) -> String {
   match analyze_sfc(Path::new(logical_path), source) {
@@ -194,6 +207,40 @@ fn recommended_rule_pack_safe_patterns_are_quiet() {
     nested_diagnostics.is_empty(),
     "reactive reads inside a nested callback are not watchEffect dependencies"
   );
+}
+
+#[test]
+fn practice_prefer_to_value_fixtures_match_exact_diagnostics() {
+  assert_versioned_diagnostics(
+    "fixtures/rules/prefer-to-value/invalid/unref.vue",
+    include_str!("../../../fixtures/rules/prefer-to-value/invalid/unref.vue"),
+    3,
+    include_str!("../../../fixtures/snapshots/prefer-to-value/unref.json"),
+  );
+  assert!(
+    analyze_versioned(
+      "fixtures/rules/prefer-to-value/invalid/unref.vue",
+      include_str!("../../../fixtures/rules/prefer-to-value/invalid/unref.vue"),
+      2,
+    )
+    .is_empty(),
+    "toValue must not be recommended before Vue 3.3"
+  );
+  for (path, source) in [
+    (
+      "fixtures/rules/prefer-to-value/valid/to-value.vue",
+      include_str!("../../../fixtures/rules/prefer-to-value/valid/to-value.vue"),
+    ),
+    (
+      "fixtures/rules/prefer-to-value/valid/local-unref.vue",
+      include_str!("../../../fixtures/rules/prefer-to-value/valid/local-unref.vue"),
+    ),
+  ] {
+    assert!(
+      analyze_versioned(path, source, 3).is_empty(),
+      "safe toValue patterns must stay quiet on Vue 3.3+"
+    );
+  }
 }
 
 #[test]
