@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/accessibility/form-control-has-label",
+    "category": "accessibility",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/accessibility/form-control-has-label",
+    "message": "form control has no associated label",
+    "help": "Nest the control in a label, set a matching `for`/`id` pair, or add aria-label/aria-labelledby.",
+    "file": "fixtures/rules/form-control-has-label/invalid/orphan-input.vue",
+    "span": {
+      "offset": 13,
+      "length": 32,
+      "line": 2,
+      "column": 3
+    }
+  }
+]

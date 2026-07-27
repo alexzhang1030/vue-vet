@@ -154,6 +154,10 @@ pub struct TemplateAttributeFact {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[expect(
+  clippy::struct_excessive_bools,
+  reason = "independent template fact flags collected while the Vize tree is available"
+)]
 pub struct TemplateElementFact {
   pub tag: String,
   pub span: SourceSpan,
@@ -171,6 +175,10 @@ pub struct TemplateElementFact {
   /// only the start tag, not nested children.
   #[serde(default)]
   pub has_labelable_descendant: bool,
+  /// True when this element is nested under a `<label>` ancestor. Used by
+  /// `form-control-has-label` (start-tag spans cannot prove nesting by containment).
+  #[serde(default)]
+  pub has_label_ancestor: bool,
 }
 
 impl TemplateElementFact {

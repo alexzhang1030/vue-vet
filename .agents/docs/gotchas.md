@@ -67,7 +67,8 @@ presence alone as an accessible name; `title` is also insufficient (a static
 Vize `ElementNode` locations used for `TemplateElementFact.span` cover the
 opening tag, not the full element including children. Nested-structure rules
 must not use span containment — compute descendant facts while the tree is
-still available (for example `has_labelable_descendant` for `label-has-for`).
+still available (`has_labelable_descendant` for `label-has-for`,
+`has_label_ancestor` for `form-control-has-label`).
 
 ## Safe fixes need complete source coverage
 

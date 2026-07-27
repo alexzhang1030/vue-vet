@@ -49,6 +49,7 @@ componentProps.title = 'changed'
   <button />
   <h1 />
   <label>Email</label>
+  <input type="text" name="orphan">
   <div @click="activate" />
   <input autofocus>
   <MyButton @click.native="activate" />

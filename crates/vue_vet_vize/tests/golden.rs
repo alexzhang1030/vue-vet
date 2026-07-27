@@ -108,7 +108,7 @@ fn recommended_rule_pack_covers_all_rules_with_valid_spans() {
     .flat_map(|(_, diagnostics)| diagnostics)
     .map(|diagnostic| diagnostic.rule_id.as_str())
     .collect::<std::collections::BTreeSet<_>>();
-  assert_eq!(ids.len(), 33, "every recommended rule needs a positive fixture");
+  assert_eq!(ids.len(), 34, "every recommended rule needs a positive fixture");
   assert!(
     groups
       .iter()
@@ -518,6 +518,45 @@ fn heading_and_label_a11y_fixtures_match_exact_diagnostics() {
     include_str!("../../../fixtures/rules/label-has-for/valid/nested.vue"),
     "[]",
   );
+}
+
+#[test]
+fn form_control_has_label_fixtures_match_exact_diagnostics() {
+  assert_diagnostics(
+    "fixtures/rules/form-control-has-label/invalid/orphan-input.vue",
+    include_str!("../../../fixtures/rules/form-control-has-label/invalid/orphan-input.vue"),
+    include_str!("../../../fixtures/snapshots/form-control-has-label/orphan-input.json"),
+  );
+  assert_diagnostics(
+    "fixtures/rules/form-control-has-label/invalid/orphan-textarea.vue",
+    include_str!("../../../fixtures/rules/form-control-has-label/invalid/orphan-textarea.vue"),
+    include_str!("../../../fixtures/snapshots/form-control-has-label/orphan-textarea.json"),
+  );
+  let empty = "[]";
+  for (path, source) in [
+    (
+      "fixtures/rules/form-control-has-label/valid/for-id.vue",
+      include_str!("../../../fixtures/rules/form-control-has-label/valid/for-id.vue"),
+    ),
+    (
+      "fixtures/rules/form-control-has-label/valid/bound-for-id.vue",
+      include_str!("../../../fixtures/rules/form-control-has-label/valid/bound-for-id.vue"),
+    ),
+    (
+      "fixtures/rules/form-control-has-label/valid/nested.vue",
+      include_str!("../../../fixtures/rules/form-control-has-label/valid/nested.vue"),
+    ),
+    (
+      "fixtures/rules/form-control-has-label/valid/aria-label.vue",
+      include_str!("../../../fixtures/rules/form-control-has-label/valid/aria-label.vue"),
+    ),
+    (
+      "fixtures/rules/form-control-has-label/valid/hidden.vue",
+      include_str!("../../../fixtures/rules/form-control-has-label/valid/hidden.vue"),
+    ),
+  ] {
+    assert_diagnostics(path, source, empty);
+  }
 }
 
 #[test]

@@ -4,6 +4,7 @@ mod a11y_content;
 mod anchor_has_content;
 mod button_has_content;
 mod click_events_have_key_events;
+mod form_control_has_label;
 mod heading_has_content;
 mod iframe_has_title;
 mod img_has_alt;
@@ -39,6 +40,7 @@ pub fn builtins() -> Vec<&'static dyn Rule> {
     &anchor_has_content::RULE,
     &button_has_content::RULE,
     &click_events_have_key_events::RULE,
+    &form_control_has_label::RULE,
     &heading_has_content::RULE,
     &iframe_has_title::RULE,
     &img_has_alt::RULE,
