@@ -1,0 +1,25 @@
+[
+  {
+    "rule_id": "vue-vet/practice/vueuse-use-raf-fn",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "medium",
+    "documentation": "rules/practice/vueuse-use-raf-fn",
+    "message": "This schedules `requestAnimationFrame` inside a setup lifecycle hook without `cancelAnimationFrame`; consider VueUse `useRafFn` for pause/resume and automatic cleanup.",
+    "help": "Optional dependency: install `@vueuse/core` when you want `useRafFn`, then replace the hand-rolled pattern.",
+    "file": "fixtures/rules/vueuse-use-raf-fn/invalid/raf-without-cancel.vue",
+    "span": {
+      "offset": 103,
+      "length": 27,
+      "line": 6,
+      "column": 5
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "@vueuse/core",
+      "export": "useRafFn",
+      "docs_url": "https://vueuse.org/core/useRafFn/",
+      "import_example": "import { useRafFn } from '@vueuse/core'"
+    }
+  }
+]

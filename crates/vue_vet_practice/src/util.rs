@@ -31,6 +31,20 @@ pub fn is_test_path(path: &Path) -> bool {
     || normalized.contains(".spec.")
 }
 
+/// Setup lifecycle hooks that commonly wrap side effects without cleanup.
+const SETUP_LIFECYCLE_HOOKS: &[&str] = &["onMounted", "onBeforeMount", "onActivated"];
+
+#[must_use]
+pub fn is_setup_lifecycle_hook(callee: &str) -> bool {
+  SETUP_LIFECYCLE_HOOKS.contains(&callee)
+}
+
+/// Bare name or static member like `window.setTimeout`.
+#[must_use]
+pub fn callee_is(callee: &str, name: &str) -> bool {
+  callee == name || callee.rsplit_once('.').is_some_and(|(_, property)| property == name)
+}
+
 #[must_use]
 pub fn recommendation_from(api: EcosystemApi) -> Recommendation {
   Recommendation {
@@ -92,5 +106,21 @@ mod tests {
   fn help_mentions_optional_install_when_missing() {
     let help = vueuse_help(&RuleEnvironment::default(), &empty_block(), "useDebounceFn");
     assert!(help.contains("Optional dependency"));
+  }
+
+  #[test]
+  fn callee_is_matches_bare_and_static_members() {
+    assert!(callee_is("setTimeout", "setTimeout"));
+    assert!(callee_is("window.setTimeout", "setTimeout"));
+    assert!(!callee_is("setInterval", "setTimeout"));
+    assert!(!callee_is("mysetTimeout", "setTimeout"));
+  }
+
+  #[test]
+  fn setup_lifecycle_hooks_are_stable() {
+    assert!(is_setup_lifecycle_hook("onMounted"));
+    assert!(is_setup_lifecycle_hook("onBeforeMount"));
+    assert!(is_setup_lifecycle_hook("onActivated"));
+    assert!(!is_setup_lifecycle_hook("onBeforeUnmount"));
   }
 }

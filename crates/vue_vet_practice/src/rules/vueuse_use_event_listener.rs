@@ -2,7 +2,10 @@ use vue_vet_core::{Confidence, PRACTICE_CATEGORY, Rule, RuleContext, RuleMeta, S
 
 use crate::{
   recipe::{EcosystemApi, PracticeRecipe},
-  util::{already_uses_target, is_test_path, recommendation_from, vueuse_help},
+  util::{
+    already_uses_target, callee_is, is_setup_lifecycle_hook, is_test_path, recommendation_from,
+    vueuse_help,
+  },
 };
 
 const RECIPE: PracticeRecipe = PracticeRecipe {
@@ -17,9 +20,6 @@ const RECIPE: PracticeRecipe = PracticeRecipe {
     import_example: "import { useEventListener } from '@vueuse/core'",
   },
 };
-
-/// Setup lifecycle hooks that commonly wrap listeners without cleanup.
-const LIFECYCLE_HOOKS: &[&str] = &["onMounted", "onBeforeMount", "onActivated"];
 
 const META: RuleMeta = RuleMeta {
   id: RECIPE.rule_id,
@@ -48,10 +48,12 @@ impl Rule for VueuseUseEventListener {
       .blocks
       .iter()
       .filter(|block| !already_uses_target(block, RECIPE.recommend.export))
-      .filter(|block| block.calls.iter().any(|call| is_lifecycle_hook(&call.callee)))
-      .filter(|block| !block.calls.iter().any(|call| is_remove_listener(&call.callee)))
+      .filter(|block| block.calls.iter().any(|call| is_setup_lifecycle_hook(&call.callee)))
+      .filter(|block| {
+        !block.calls.iter().any(|call| callee_is(&call.callee, "removeEventListener"))
+      })
       .filter_map(|block| {
-        block.calls.iter().find(|call| is_add_listener(&call.callee)).map(|call| {
+        block.calls.iter().find(|call| callee_is(&call.callee, "addEventListener")).map(|call| {
           (call.span.clone(), vueuse_help(&environment, block, RECIPE.recommend.export))
         })
       })
@@ -66,18 +68,6 @@ impl Rule for VueuseUseEventListener {
       );
     }
   }
-}
-
-fn is_lifecycle_hook(callee: &str) -> bool {
-  LIFECYCLE_HOOKS.contains(&callee)
-}
-
-fn is_add_listener(callee: &str) -> bool {
-  callee == "addEventListener" || callee.ends_with(".addEventListener")
-}
-
-fn is_remove_listener(callee: &str) -> bool {
-  callee == "removeEventListener" || callee.ends_with(".removeEventListener")
 }
 
 #[cfg(test)]

@@ -279,6 +279,11 @@ fn practice_vueuse_fixtures_match_exact_diagnostics() {
     include_str!("../../../fixtures/rules/vueuse-use-timeout-fn/invalid/set-without-clear.vue"),
     include_str!("../../../fixtures/snapshots/vueuse-use-timeout-fn/set-without-clear.json"),
   );
+  assert_diagnostics(
+    "fixtures/rules/vueuse-use-raf-fn/invalid/raf-without-cancel.vue",
+    include_str!("../../../fixtures/rules/vueuse-use-raf-fn/invalid/raf-without-cancel.vue"),
+    include_str!("../../../fixtures/snapshots/vueuse-use-raf-fn/raf-without-cancel.json"),
+  );
 }
 
 #[test]
@@ -334,6 +339,18 @@ fn practice_vueuse_safe_fixtures_produce_no_diagnostics() {
     (
       "fixtures/rules/vueuse-use-timeout-fn/valid/bare-timeout.vue",
       include_str!("../../../fixtures/rules/vueuse-use-timeout-fn/valid/bare-timeout.vue"),
+    ),
+    (
+      "fixtures/rules/vueuse-use-raf-fn/valid/use-raf-fn.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-raf-fn/valid/use-raf-fn.vue"),
+    ),
+    (
+      "fixtures/rules/vueuse-use-raf-fn/valid/with-cancel.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-raf-fn/valid/with-cancel.vue"),
+    ),
+    (
+      "fixtures/rules/vueuse-use-raf-fn/valid/bare-raf.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-raf-fn/valid/bare-raf.vue"),
     ),
   ] {
     assert_diagnostics(path, source, empty);

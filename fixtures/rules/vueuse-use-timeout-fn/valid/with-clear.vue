@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount } from 'vue'
 
-let timer: ReturnType<typeof setTimeout> | undefined
+// Unassigned timeout + a clearTimeout elsewhere: quiets useTimeoutFn without
+// matching the assigned clear+set debounce recipe.
+let unrelated: ReturnType<typeof setTimeout> | undefined
 onMounted(() => {
-  timer = setTimeout(() => {
+  setTimeout(() => {
     console.log('ready')
   }, 1000)
 })
 onBeforeUnmount(() => {
-  if (timer !== undefined) {
-    window.clearTimeout(timer)
+  if (unrelated !== undefined) {
+    clearTimeout(unrelated)
   }
 })
 </script>

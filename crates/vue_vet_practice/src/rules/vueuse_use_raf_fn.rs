@@ -9,15 +9,15 @@ use crate::{
 };
 
 const RECIPE: PracticeRecipe = PracticeRecipe {
-  rule_id: "vue-vet/practice/vueuse-use-interval-fn",
-  documentation: "rules/practice/vueuse-use-interval-fn",
+  rule_id: "vue-vet/practice/vueuse-use-raf-fn",
+  documentation: "rules/practice/vueuse-use-raf-fn",
   confidence: Confidence::Medium,
   min_vue: None,
   recommend: EcosystemApi {
     package: "@vueuse/core",
-    export: "useIntervalFn",
-    docs_url: "https://vueuse.org/core/useIntervalFn/",
-    import_example: "import { useIntervalFn } from '@vueuse/core'",
+    export: "useRafFn",
+    docs_url: "https://vueuse.org/core/useRafFn/",
+    import_example: "import { useRafFn } from '@vueuse/core'",
   },
 };
 
@@ -29,11 +29,11 @@ const META: RuleMeta = RuleMeta {
   documentation: RECIPE.documentation,
 };
 
-pub(super) struct VueuseUseIntervalFn;
+pub(super) struct VueuseUseRafFn;
 
-pub(super) static RULE: VueuseUseIntervalFn = VueuseUseIntervalFn;
+pub(super) static RULE: VueuseUseRafFn = VueuseUseRafFn;
 
-impl Rule for VueuseUseIntervalFn {
+impl Rule for VueuseUseRafFn {
   fn meta(&self) -> &'static RuleMeta {
     &META
   }
@@ -49,18 +49,20 @@ impl Rule for VueuseUseIntervalFn {
       .iter()
       .filter(|block| !already_uses_target(block, RECIPE.recommend.export))
       .filter(|block| block.calls.iter().any(|call| is_setup_lifecycle_hook(&call.callee)))
-      .filter(|block| !block.calls.iter().any(|call| callee_is(&call.callee, "clearInterval")))
+      .filter(|block| {
+        !block.calls.iter().any(|call| callee_is(&call.callee, "cancelAnimationFrame"))
+      })
       .filter_map(|block| {
-        block.calls.iter().find(|call| callee_is(&call.callee, "setInterval")).map(|call| {
-          (call.span.clone(), vueuse_help(&environment, block, RECIPE.recommend.export))
-        })
+        block.calls.iter().find(|call| callee_is(&call.callee, "requestAnimationFrame")).map(
+          |call| (call.span.clone(), vueuse_help(&environment, block, RECIPE.recommend.export)),
+        )
       })
       .collect::<Vec<_>>();
     for (span, help) in findings {
       context.report_with_recommendation(
         self.meta(),
         span,
-        "This starts a timer interval inside a setup lifecycle hook without `clearInterval`; consider VueUse `useIntervalFn` for pause/resume and automatic cleanup.".into(),
+        "This schedules `requestAnimationFrame` inside a setup lifecycle hook without `cancelAnimationFrame`; consider VueUse `useRafFn` for pause/resume and automatic cleanup.".into(),
         Some(help),
         recommendation_from(RECIPE.recommend),
       );
@@ -81,7 +83,7 @@ mod tests {
   use crate::practice_registry;
 
   fn span(offset: usize) -> SourceSpan {
-    SourceSpan { offset, length: 18, line: 1, column: offset.saturating_add(1) }
+    SourceSpan { offset, length: 20, line: 1, column: offset.saturating_add(1) }
   }
 
   fn call(callee: &str, offset: usize) -> ScriptCallFact {
@@ -107,12 +109,12 @@ mod tests {
         reactivity_graph: ReactivityGraph::default(),
       }],
     };
-    practice_registry().run(Path::new("src/Interval.vue"), "", &TemplateFacts::default(), &script)
+    practice_registry().run(Path::new("src/Raf.vue"), "", &TemplateFacts::default(), &script)
   }
 
   #[test]
-  fn reports_lifecycle_set_interval_without_clear() {
-    let diagnostics = run(vec![call("onMounted", 0), call("setInterval", 20)]);
+  fn reports_lifecycle_raf_without_cancel() {
+    let diagnostics = run(vec![call("onMounted", 0), call("requestAnimationFrame", 20)]);
     assert_eq!(diagnostics.len(), 1);
     let Some(diagnostic) = diagnostics.first() else {
       return;
@@ -122,15 +124,18 @@ mod tests {
   }
 
   #[test]
-  fn stays_quiet_when_clear_interval_present() {
-    let diagnostics =
-      run(vec![call("onMounted", 0), call("setInterval", 20), call("clearInterval", 40)]);
+  fn stays_quiet_when_cancel_present() {
+    let diagnostics = run(vec![
+      call("onMounted", 0),
+      call("requestAnimationFrame", 20),
+      call("cancelAnimationFrame", 40),
+    ]);
     assert!(diagnostics.is_empty());
   }
 
   #[test]
   fn stays_quiet_without_lifecycle_hook() {
-    let diagnostics = run(vec![call("setInterval", 0)]);
+    let diagnostics = run(vec![call("requestAnimationFrame", 0)]);
     assert!(diagnostics.is_empty());
   }
 }
