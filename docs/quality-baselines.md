@@ -23,6 +23,7 @@ via `just quality-gates`.
 | `suppressed` | 0 |
 | `module-seeds` | 1 |
 | `provide-inject` | 0 |
+| `reactivity-rules` | 3 |
 
 Changing a count requires updating the precision JSON and explaining the behavior
 change in the PR.
@@ -74,18 +75,25 @@ External showcase apps are reviewed offline only (licenses + mutable trees). Do
 not add them to `fixtures/quality/manifest.json` unless they become checksummed,
 project-owned fixtures.
 
-Captured 2026-07-27 with `vue-vet` at `CONVENTIONS_VERSION` 4:
+Captured 2026-07-27 with `vue-vet` at `CONVENTIONS_VERSION` 4 (post a11y /
+RouterLink work). Re-run offline after major a11y or project-graph changes.
 
-| Repo | License | Setup | Result |
+| Repo | License | Setup | Observed findings (informational) |
 | --- | --- | --- | --- |
-| [antfu/vitesse-lite](https://github.com/antfu/vitesse-lite) @ tip | MIT | `pnpm install` | No crash; icon-only footer controls report under `anchor-has-content` / `button-has-content` (static `title` may carry a safe `aria-label` insert). |
+| [antfu/vitesse-lite](https://github.com/antfu/vitesse-lite) @ tip | MIT | `pnpm install` | No crash. Icon-only footer controls: `anchor-has-content` / `button-has-content` (static `title` may carry safe `aria-label` insert). |
 | [nuxt/starter](https://github.com/nuxt/starter) `v4` | MIT | `pnpm install` | No crash; **0** findings on the minimal app. |
-| [antfu/vitesse](https://github.com/antfu/vitesse) @ tip | MIT | `pnpm install` | No crash; **5** findings on `TheFooter.vue` — icon-only `RouterLink`×2, `<button>`, `<a>`×2 (`anchor-has-content` / `button-has-content`; static `title` GitHub link carries safe `aria-label` insert). |
+| [antfu/vitesse](https://github.com/antfu/vitesse) @ tip | MIT | `pnpm install` | No crash; **5** on `TheFooter.vue` — icon-only `RouterLink`×2, `<button>`, `<a>`×2 (`anchor-has-content` / `button-has-content`; GitHub static `title` has safe `aria-label` insert). |
 
-Quiet gaps still expected: Vite-only aliases not in tsconfig, dynamic imports,
-whole-object `v-bind` / multi-hop members (quiet cases in `prop-flow`).
-Unique-key provide/inject is exercised quietly in `provide-inject`; App Tree
-resolution beyond the unique-key index remains out of scope.
+Corpus coverage that pins the same classes of issue in CI:
+
+- Icon-only / named controls → `a11y-forms` (`IconLink`, `EmptyButton`, `SafeNamedControls`)
+- RouterLink accessible name → rule fixtures under `fixtures/rules/anchor-has-content`
+- Prop under-approx quiet gaps → `prop-flow` (`SpreadChild`, `MultiHop`)
+- Unique-key provide/inject → `provide-inject`
+- Core reactivity lint TPs → `reactivity-rules` (+ after-await in `module-seeds`)
+
+Still expected quiet outside CI corpus: Vite-only aliases not in tsconfig,
+dynamic imports, App Tree provide/inject beyond the unique-key index.
 
 ## Publishing with a Beta tag
 
