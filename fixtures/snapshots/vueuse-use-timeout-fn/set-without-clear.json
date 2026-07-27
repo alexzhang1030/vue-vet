@@ -1,0 +1,25 @@
+[
+  {
+    "rule_id": "vue-vet/practice/vueuse-use-timeout-fn",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "medium",
+    "documentation": "rules/practice/vueuse-use-timeout-fn",
+    "message": "This starts a timeout inside a setup lifecycle hook without `clearTimeout`; consider VueUse `useTimeoutFn` for cancellable delays and automatic cleanup.",
+    "help": "Optional dependency: install `@vueuse/core` when you want `useTimeoutFn`, then replace the hand-rolled pattern.",
+    "file": "fixtures/rules/vueuse-use-timeout-fn/invalid/set-without-clear.vue",
+    "span": {
+      "offset": 78,
+      "length": 54,
+      "line": 5,
+      "column": 3
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "@vueuse/core",
+      "export": "useTimeoutFn",
+      "docs_url": "https://vueuse.org/core/useTimeoutFn/",
+      "import_example": "import { useTimeoutFn } from '@vueuse/core'"
+    }
+  }
+]
