@@ -30,7 +30,7 @@ const search = useDebounceFn((query) => {
 
 ## Limitations
 
-Requires an assigned `setTimeout` whose binding appears as an identifier argument to `clearTimeout` in the same script block. Unrelated timers, plain one-shot `setTimeout`, and already importing/calling `useDebounceFn` stay quiet. Test files (`.test.` / `.spec.` / `__tests__`) are skipped.
+Requires an assigned `setTimeout` (including `window.setTimeout`) whose binding appears as an identifier argument to `clearTimeout` / `window.clearTimeout` in the same script block. Unrelated timers, plain one-shot `setTimeout`, and already importing/calling `useDebounceFn` stay quiet. Test files (`.test.` / `.spec.` / `__tests__`) are skipped.
 
 ## Remediation
 
