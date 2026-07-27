@@ -214,14 +214,18 @@ Never restore one scoped native thread per module: Oxc semantics are not `Send`,
 and parking thousands of sticky workers exhausts stacks and defeats
 `--threads`. `TraceModulesOptions::max_workers` bounds both phases. The Oxc
 adapter supplies prepared Vue Vet-owned phase-one facts from its file parse;
-unseeded modules reuse that graph and only seeded consumers reparse. The
-1k/5k synthetic module benchmark guards this scaling model.
+unseeded modules reuse that graph. Seeded consumers reparse only when source or
+seed plans change; unchanged final graphs are retained by `ModuleTraceState`.
+Module failures are collected independently so healthy links still resolve.
+The multi-sample 1k/5k synthetic module benchmark guards this scaling model.
 
 Cache lookup and cache-miss analysis must share `WorkspaceInputSnapshot`; do not
 add a pre-hash walk that rereads the same files. Per-file package capabilities
 come from `PackageIndex`, not repeated ancestor I/O. Long-lived sessions retain
-unchanged facts and raw file diagnostics; project linking may rebuild from those
-facts, but an edit must not trigger a fresh workspace/session open.
+source bytes, Nuxt declaration mappings, facts, raw file diagnostics, per-file
+structural graph partitions, module plans/graphs, and reverse dependencies.
+`apply_changes` updates exact paths in that snapshot; an edit must not trigger a
+fresh workspace walk or rebuild unrelated structural partitions.
 
 ## Paths are identities, not suffixes
 

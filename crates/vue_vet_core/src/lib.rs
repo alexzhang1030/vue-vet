@@ -13,7 +13,7 @@ mod edits;
 mod identity;
 
 pub use edits::{ByteRange, EditApplicability, EditPlan, EditPlanError, TextEdit};
-pub use identity::{FileId, PhysicalPath, WorkspaceRoot};
+pub use identity::{FileId, ModuleId, PhysicalPath, WorkspaceRoot};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "lowercase")]

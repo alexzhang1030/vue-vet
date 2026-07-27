@@ -506,7 +506,7 @@ fn reactivity_module_stats(modules: &[ModuleReactivity]) -> Vec<ReactivityModule
         .collect();
 
       ReactivityModuleStats {
-        id: module.id.clone(),
+        id: module.id.to_string(),
         bindings: module.graph.bindings.len(),
         scopes: module.graph.scopes.len(),
         edges: module.graph.edges.len(),

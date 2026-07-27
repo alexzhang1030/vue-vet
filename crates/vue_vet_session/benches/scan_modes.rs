@@ -21,6 +21,26 @@ fn temp_cache(label: &str) -> PathBuf {
   std::env::temp_dir().join(format!("vue-vet-bench-{label}-{}-{sequence}", std::process::id()))
 }
 
+fn synthetic_workspace(count: usize) -> PathBuf {
+  let root = temp_cache("synthetic-workspace");
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(root.join("src")).expect("synthetic src directory");
+  for index in 0..count {
+    let source = if index == 0 {
+      "export const value0 = 0;\n".to_owned()
+    } else {
+      format!(
+        "import {{ value{} }} from './module-{}'; export const value{index} = value{};\n",
+        index - 1,
+        index - 1,
+        index - 1
+      )
+    };
+    std::fs::write(root.join(format!("src/module-{index}.ts")), source).expect("synthetic module");
+  }
+  root
+}
+
 fn open(root: &Path, cache_dir: PathBuf, no_cache: bool) -> ProjectSession {
   ProjectSession::open(SessionOptions {
     root: root.to_path_buf(),
@@ -109,6 +129,29 @@ fn scan_incremental_edits_nuxt_graph(bencher: divan::Bencher) {
     let snapshot = session.analyze_affected().expect("incremental analyze");
     divan::black_box(snapshot.summary.diagnostics.len())
   });
+  let _ignored = std::fs::remove_dir_all(&cache);
+}
+
+#[divan::bench(sample_count = 20, sample_size = 1)]
+fn scan_incremental_root_edit_1k_modules(bencher: divan::Bencher) {
+  let root = synthetic_workspace(1_000);
+  let module = root.join("src/module-0.ts");
+  let cache = temp_cache("incremental-1k");
+  let session = open(&root, cache.clone(), true);
+  let _initial = session.analyze().expect("initial synthetic analysis");
+  let sources = ["export const value0 = 1;\n", "export const value0 = 2;\n"];
+  let edit = AtomicUsize::new(0);
+  bencher.bench(|| {
+    let sequence = edit.fetch_add(1, Ordering::Relaxed);
+    let source =
+      sources.get(sequence % sources.len()).copied().unwrap_or("export const value0 = 1;\n");
+    session
+      .apply_changes(ChangeSet::upsert(module.clone(), source.into()))
+      .expect("apply synthetic incremental overlay");
+    let snapshot = session.analyze_affected().expect("large incremental analysis");
+    divan::black_box((snapshot.graph.edges.len(), session.stats()))
+  });
+  let _ignored = std::fs::remove_dir_all(&root);
   let _ignored = std::fs::remove_dir_all(&cache);
 }
 

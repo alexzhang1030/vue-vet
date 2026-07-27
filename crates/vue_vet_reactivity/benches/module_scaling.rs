@@ -18,22 +18,19 @@ fn synthetic_modules(count: usize) -> Vec<ModuleSource> {
     .collect()
 }
 
-fn trace_synthetic(count: usize) -> usize {
-  let modules = synthetic_modules(count);
-  trace_modules_with_options(
-    divan::black_box(&modules),
-    &[],
-    TraceModulesOptions { max_workers: 8 },
-  )
-  .map_or(0, |traced| traced.len())
+fn trace_synthetic(modules: &[ModuleSource]) -> usize {
+  trace_modules_with_options(divan::black_box(modules), &[], TraceModulesOptions { max_workers: 8 })
+    .map_or(0, |traced| traced.len())
 }
 
-#[divan::bench(sample_count = 1, sample_size = 1)]
-fn trace_1k_modules() -> usize {
-  trace_synthetic(1_000)
+#[divan::bench(sample_count = 5, sample_size = 1)]
+fn trace_1k_modules(bencher: divan::Bencher) {
+  let modules = synthetic_modules(1_000);
+  bencher.bench_local(|| trace_synthetic(&modules));
 }
 
-#[divan::bench(sample_count = 1, sample_size = 1)]
-fn trace_5k_modules() -> usize {
-  trace_synthetic(5_000)
+#[divan::bench(sample_count = 5, sample_size = 1)]
+fn trace_5k_modules(bencher: divan::Bencher) {
+  let modules = synthetic_modules(5_000);
+  bencher.bench_local(|| trace_synthetic(&modules));
 }

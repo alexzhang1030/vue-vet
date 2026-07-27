@@ -2,19 +2,23 @@
 //!
 //! Publishes diagnostics from on-disk files plus unsaved buffer overlays
 //! (`textDocument/didOpen` / `didChange` / `didSave`) and exposes explicitly
-//! safe quick-fix code actions. Request-level cancellation remains later
-//! issue #12 work; overlapping overlay analyses are dropped via per-document
-//! generation tokens. CPU analysis runs on Tokio's blocking pool and the
-//! initialized [`ProjectSession`] retains unchanged file facts across edits.
+//! safe quick-fix code actions. Overlay changes advance the session revision,
+//! stale CPU work cooperatively cancels between phases, and a debounced
+//! latest-wins gate admits only one blocking analysis at a time. The initialized
+//! [`ProjectSession`] retains sources, facts, graph partitions, and reverse
+//! dependencies across edits.
 
 use std::{
-  collections::{BTreeMap, HashMap},
+  collections::HashMap,
   path::{Path, PathBuf},
-  sync::Arc,
+  sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+  },
   time::Duration,
 };
 
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
   CodeActionParams, CodeActionProviderCapability, CodeActionResponse, DidChangeTextDocumentParams,
@@ -23,14 +27,16 @@ use tower_lsp::lsp_types::{
   ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
 };
 use tower_lsp::{Client, LanguageServer};
-use vue_vet_session::{AnalysisSnapshot, ProjectSession, SessionOptions};
+use vue_vet_session::{AnalysisSnapshot, ChangeSet, ProjectSession, SessionOptions};
 
 use crate::convert::{SafeCodeActionRequest, safe_code_actions, to_lsp_diagnostic};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Backend {
   client: Client,
   state: Arc<RwLock<ServerState>>,
+  analysis_gate: Arc<Mutex<()>>,
+  publish_revision: Arc<AtomicU64>,
 }
 
 #[derive(Debug, Default)]
@@ -52,77 +58,91 @@ struct OpenDocument {
 impl Backend {
   #[must_use]
   pub fn new(client: Client) -> Self {
-    Self { client, state: Arc::new(RwLock::new(ServerState::default())) }
+    Self {
+      client,
+      state: Arc::new(RwLock::new(ServerState::default())),
+      analysis_gate: Arc::new(Mutex::new(())),
+      publish_revision: Arc::new(AtomicU64::new(0)),
+    }
   }
 
-  async fn publish_uri(&self, uri: Url) {
-    let snapshot_state = {
-      let state = self.state.read().await;
-      let Some(doc) = state.open.get(&uri) else {
-        return;
-      };
-      let Some(session) = state.session.clone() else {
-        return;
-      };
-      let root = state.root.clone().unwrap_or_else(|| parent_or_cwd(&doc.path));
-      let overlays = collect_overlays(&state.open);
-      let request = PublishRequest {
-        uri: uri.clone(),
-        path: doc.path.clone(),
-        text: doc.text.clone(),
-        version: doc.version,
-        generation: doc.generation,
-        root,
-        overlays,
-        session,
-      };
-      drop(state);
-      request
-    };
+  fn schedule_publish(&self) {
+    let revision = self.publish_revision.fetch_add(1, Ordering::AcqRel).saturating_add(1);
+    let backend = self.clone();
+    tokio::spawn(async move {
+      backend.publish_workspace(revision).await;
+    });
+  }
 
+  async fn publish_workspace(&self, revision: u64) {
     tokio::time::sleep(Duration::from_millis(50)).await;
-    if !self.generation_current(&snapshot_state.uri, snapshot_state.generation).await {
+    if !self.publish_current(revision) {
       return;
     }
-    let Some(analysis) = self.analyze_open(snapshot_state.session, snapshot_state.overlays).await
-    else {
+    let _gate = self.analysis_gate.lock().await;
+    if !self.publish_current(revision) {
+      return;
+    }
+    let session = {
+      let state = self.state.read().await;
+      state.session.clone()
+    };
+    let Some(session) = session else {
       return;
     };
-    if !self.generation_current(&snapshot_state.uri, snapshot_state.generation).await {
+    let Some(analysis) = self.analyze_open(session).await else {
+      return;
+    };
+    if !self.publish_current(revision) {
       return;
     }
 
-    let normalized_path = normalize_report_path(&snapshot_state.path, &snapshot_state.root);
-    let diagnostics = analysis
-      .summary
-      .diagnostics
-      .iter()
-      .filter(|diagnostic| diagnostic.file.as_str() == normalized_path)
-      .map(|diagnostic| {
-        to_lsp_diagnostic(diagnostic, &analysis.analyzed_files, Some(snapshot_state.text.as_str()))
-      })
-      .collect::<Vec<_>>();
+    let documents = {
+      let state = self.state.read().await;
+      let Some(root) = state.root.clone() else {
+        return;
+      };
+      state
+        .open
+        .iter()
+        .map(|(uri, document)| (uri.clone(), document.clone(), root.clone()))
+        .collect::<Vec<_>>()
+    };
+    for (uri, document, root) in documents {
+      if !self.publish_current(revision) {
+        return;
+      }
+      let normalized_path = normalize_report_path(&document.path, &root);
+      let diagnostics = analysis
+        .summary
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.file.as_str() == normalized_path)
+        .map(|diagnostic| {
+          to_lsp_diagnostic(diagnostic, &analysis.analyzed_files, Some(document.text.as_str()))
+        })
+        .collect::<Vec<_>>();
 
-    self
-      .client
-      .publish_diagnostics(snapshot_state.uri, diagnostics, Some(snapshot_state.version))
-      .await;
+      self.client.publish_diagnostics(uri, diagnostics, Some(document.version)).await;
+    }
   }
 
-  async fn generation_current(&self, uri: &Url, expected: u64) -> bool {
-    let state = self.state.read().await;
-    is_current_generation(state.open.get(uri).map(|doc| doc.generation), expected)
+  fn publish_current(&self, expected: u64) -> bool {
+    self.publish_revision.load(Ordering::Acquire) == expected
   }
 
-  async fn analyze_open(
-    &self,
-    session: Arc<ProjectSession>,
-    overlays: BTreeMap<PathBuf, String>,
-  ) -> Option<AnalysisSnapshot> {
-    let result =
-      tokio::task::spawn_blocking(move || session.analyze_with_overlays(&overlays)).await;
+  async fn analyze_open(&self, session: Arc<ProjectSession>) -> Option<AnalysisSnapshot> {
+    let result = tokio::task::spawn_blocking(move || session.analyze_affected()).await;
     let analysis = match result {
-      Ok(analysis) => analysis,
+      Ok(Ok(analysis)) => analysis,
+      Ok(Err(error)) if error.is_cancelled() => return None,
+      Ok(Err(error)) => {
+        self
+          .client
+          .log_message(MessageType::ERROR, format!("vue-vet analyze failed: {error}"))
+          .await;
+        return None;
+      }
       Err(error) => {
         self
           .client
@@ -131,38 +151,14 @@ impl Backend {
         return None;
       }
     };
-    match analysis {
-      Ok(analysis) => Some(analysis),
-      Err(error) => {
-        self
-          .client
-          .log_message(MessageType::ERROR, format!("vue-vet analyze failed: {error}"))
-          .await;
-        None
-      }
-    }
+    Some(analysis)
   }
-}
-
-struct PublishRequest {
-  uri: Url,
-  path: PathBuf,
-  text: String,
-  version: i32,
-  generation: u64,
-  root: PathBuf,
-  overlays: BTreeMap<PathBuf, String>,
-  session: Arc<ProjectSession>,
 }
 
 /// Returns true when `current` still matches the generation captured before analyze.
 #[must_use]
 pub const fn is_current_generation(current: Option<u64>, expected: u64) -> bool {
   matches!(current, Some(value) if value == expected)
-}
-
-fn collect_overlays(open: &HashMap<Url, OpenDocument>) -> BTreeMap<PathBuf, String> {
-  open.values().map(|doc| (doc.path.clone(), doc.text.clone())).collect()
 }
 
 fn full_change_text(params: &DidChangeTextDocumentParams) -> Option<String> {
@@ -236,7 +232,18 @@ impl LanguageServer for Backend {
         },
       );
     }
-    self.publish_uri(uri).await;
+    let session = self.state.read().await.session.clone();
+    if let Some(session) = session
+      && let Some(document) = self.state.read().await.open.get(&uri).cloned()
+      && let Err(error) = session.apply_changes(ChangeSet::upsert(document.path, document.text))
+    {
+      self
+        .client
+        .log_message(MessageType::ERROR, format!("vue-vet overlay update failed: {error}"))
+        .await;
+      return;
+    }
+    self.schedule_publish();
   }
 
   async fn did_change(&self, params: DidChangeTextDocumentParams) {
@@ -244,42 +251,79 @@ impl LanguageServer for Backend {
     let Some(text) = full_change_text(&params) else {
       return;
     };
-    let mut state = self.state.write().await;
-    let Some(doc) = state.open.get_mut(&uri) else {
-      return;
+    let (session, path, text) = {
+      let mut state = self.state.write().await;
+      let session = state.session.clone();
+      let Some(doc) = state.open.get_mut(&uri) else {
+        return;
+      };
+      doc.text = text;
+      doc.version = params.text_document.version;
+      doc.generation = doc.generation.saturating_add(1);
+      let path = doc.path.clone();
+      let text = doc.text.clone();
+      drop(state);
+      (session, path, text)
     };
-    doc.text = text;
-    doc.version = params.text_document.version;
-    doc.generation = doc.generation.saturating_add(1);
-    drop(state);
-    self.publish_uri(uri).await;
+    if let Some(session) = session
+      && let Err(error) = session.apply_changes(ChangeSet::upsert(path, text))
+    {
+      self
+        .client
+        .log_message(MessageType::ERROR, format!("vue-vet overlay update failed: {error}"))
+        .await;
+      return;
+    }
+    self.schedule_publish();
   }
 
   async fn did_save(&self, params: DidSaveTextDocumentParams) {
     let uri = params.text_document.uri;
-    let mut state = self.state.write().await;
-    let Some(doc) = state.open.get_mut(&uri) else {
-      return;
+    let (session, path, text) = {
+      let mut state = self.state.write().await;
+      let session = state.session.clone();
+      let Some(doc) = state.open.get_mut(&uri) else {
+        return;
+      };
+      if let Some(text) = params.text {
+        doc.text = text;
+      } else if let Ok(disk) = std::fs::read_to_string(&doc.path) {
+        doc.text = disk;
+      }
+      doc.generation = doc.generation.saturating_add(1);
+      let path = doc.path.clone();
+      let text = doc.text.clone();
+      drop(state);
+      (session, path, text)
     };
-    if let Some(text) = params.text {
-      doc.text = text;
-    } else if let Ok(disk) = std::fs::read_to_string(&doc.path) {
-      doc.text = disk;
+    if let Some(session) = session
+      && let Err(error) = session.apply_changes(ChangeSet::upsert(path, text))
+    {
+      self
+        .client
+        .log_message(MessageType::ERROR, format!("vue-vet overlay update failed: {error}"))
+        .await;
+      return;
     }
-    doc.generation = doc.generation.saturating_add(1);
-    drop(state);
-    self.publish_uri(uri).await;
+    self.schedule_publish();
   }
 
   async fn did_close(&self, params: DidCloseTextDocumentParams) {
     let uri = params.text_document.uri;
-    self.state.write().await.open.remove(&uri);
+    let (session, document) = {
+      let mut state = self.state.write().await;
+      (state.session.clone(), state.open.remove(&uri))
+    };
+    if let (Some(session), Some(document)) = (session, document) {
+      let _ignored = session.apply_changes(ChangeSet::remove(document.path));
+    }
     self.client.publish_diagnostics(uri, Vec::new(), None).await;
+    self.schedule_publish();
   }
 
   async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
     let uri = params.text_document.uri;
-    let (root, path, text, version, overlays, session) = {
+    let (root, path, text, version, session) = {
       let state = self.state.read().await;
       let Some(doc) = state.open.get(&uri) else {
         return Ok(None);
@@ -288,12 +332,12 @@ impl LanguageServer for Backend {
         return Ok(None);
       };
       let root = state.root.clone().unwrap_or_else(|| parent_or_cwd(&doc.path));
-      let overlays = collect_overlays(&state.open);
-      let snapshot = (root, doc.path.clone(), doc.text.clone(), doc.version, overlays, session);
+      let snapshot = (root, doc.path.clone(), doc.text.clone(), doc.version, session);
       drop(state);
       snapshot
     };
-    let Some(analysis) = self.analyze_open(session, overlays).await else {
+    let _gate = self.analysis_gate.lock().await;
+    let Some(analysis) = self.analyze_open(session).await else {
       return Ok(None);
     };
     let only = params.context.only.as_deref();
@@ -327,31 +371,12 @@ fn normalize_report_path(path: &Path, root: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-  use super::{OpenDocument, collect_overlays, is_current_generation};
-  use std::{collections::HashMap, path::PathBuf};
-  use tower_lsp::lsp_types::Url;
+  use super::is_current_generation;
 
   #[test]
   fn drops_stale_generations() {
     assert!(is_current_generation(Some(3), 3));
     assert!(!is_current_generation(Some(4), 3));
     assert!(!is_current_generation(None, 3));
-  }
-
-  #[test]
-  #[expect(clippy::expect_used, reason = "unit test asserts Url::parse succeeds")]
-  fn collects_all_open_overlays() {
-    let mut open = HashMap::new();
-    open.insert(
-      Url::parse("file:///a.vue").expect("url"),
-      OpenDocument { path: PathBuf::from("/a.vue"), text: "a".into(), version: 1, generation: 1 },
-    );
-    open.insert(
-      Url::parse("file:///b.vue").expect("url"),
-      OpenDocument { path: PathBuf::from("/b.vue"), text: "b".into(), version: 2, generation: 2 },
-    );
-    let overlays = collect_overlays(&open);
-    assert_eq!(overlays.get(PathBuf::from("/a.vue").as_path()).map(String::as_str), Some("a"));
-    assert_eq!(overlays.get(PathBuf::from("/b.vue").as_path()).map(String::as_str), Some("b"));
   }
 }

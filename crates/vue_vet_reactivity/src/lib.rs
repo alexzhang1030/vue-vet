@@ -468,7 +468,7 @@ pub(crate) enum InjectionKey {
 }
 
 /// One `provide` site's offered value shape (scalar kind and/or composable bag).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ProvideOffer {
   pub kind: Option<ReactiveBindingKind>,
   pub instance_shape: Option<ComposableShape>,
@@ -480,13 +480,13 @@ impl ProvideOffer {
   }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ProvideSite {
   pub key: InjectionKey,
   pub offer: ProvideOffer,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct InjectSite {
   pub local: String,
   pub key: InjectionKey,
@@ -2230,8 +2230,10 @@ mod modules;
 mod prop_flow;
 
 pub use modules::{
-  ModuleLink, ModuleReactivity, ModuleSource, PreparedModuleTrace, TraceModulesError,
-  TraceModulesOptions, prepare_module_trace, trace_modules, trace_modules_with_options,
+  ModuleLink, ModuleReactivity, ModuleSource, ModuleTraceState, PreparedModuleTrace,
+  TraceModulesError, TraceModulesOptions, TraceModulesReport, TraceModulesStats,
+  prepare_module_trace, trace_modules, trace_modules_incremental_with_options,
+  trace_modules_with_options,
 };
 pub use prop_flow::{PropFlowSite, join_prop_flows};
 

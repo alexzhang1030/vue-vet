@@ -132,9 +132,11 @@ Vize is the semantic source of truth for Vue SFCs and templates. Oxc owns
 JavaScript and TypeScript semantics. Vue Vet keeps one semantic analysis stack
 instead of embedding a parallel structural-pattern engine.
 Module tracing is worker-bounded, internal paths are exact workspace-relative
-`FileId` values, and the long-lived session reuses unchanged file facts across
-LSP edits. A single-file parse error produces a partial result instead of
-aborting the rest of the workspace.
+`FileId` / `ModuleId` values, and the long-lived session retains its source
+snapshot, facts, structural graph partitions, module plans/graphs, diagnostics,
+and reverse dependencies across LSP edits. The LSP uses a debounced latest-wins
+worker; file/module failures produce scoped partial results without discarding
+healthy cross-module links.
 
 See [the architecture decision](docs/adr/0001-analysis-stack.md) and
 [the roadmap](ROADMAP.md). Project resolution and Nuxt convention limitations

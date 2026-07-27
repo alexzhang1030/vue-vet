@@ -1,4 +1,5 @@
 use std::{
+  borrow::Borrow,
   fmt,
   path::{Path, PathBuf},
 };
@@ -97,7 +98,7 @@ impl FileId {
 
   #[must_use]
   pub fn is_absolute(&self) -> bool {
-    self.as_path().is_absolute() || has_windows_drive_prefix(&self.0)
+    self.0.starts_with('/') || has_windows_absolute_prefix(&self.0)
   }
 }
 
@@ -137,6 +138,100 @@ impl From<String> for FileId {
   }
 }
 
+/// Stable identity for one JavaScript/TypeScript module surface.
+///
+/// A Vue SFC can expose two independent module surfaces: the primary
+/// (`<script setup>` when present) and the ordinary `<script>` companion.
+/// Keeping that distinction in a type prevents graph node ids, physical paths,
+/// and the historical `#script` string suffix from being mixed accidentally.
+#[derive(Clone, Debug, Default, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
+pub struct ModuleId(String);
+
+impl ModuleId {
+  #[must_use]
+  pub fn primary(file: &FileId) -> Self {
+    Self(file.as_str().to_owned())
+  }
+
+  #[must_use]
+  pub fn ordinary(file: &FileId) -> Self {
+    Self(format!("{}#script", file.as_str()))
+  }
+
+  #[must_use]
+  pub fn as_str(&self) -> &str {
+    &self.0
+  }
+
+  #[must_use]
+  pub fn file_id(&self) -> FileId {
+    FileId::from(self.0.strip_suffix("#script").unwrap_or(self.0.as_str()))
+  }
+
+  #[must_use]
+  pub fn is_ordinary(&self) -> bool {
+    self.0.ends_with("#script")
+  }
+}
+
+impl fmt::Display for ModuleId {
+  fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    formatter.write_str(&self.0)
+  }
+}
+
+impl From<&str> for ModuleId {
+  fn from(value: &str) -> Self {
+    let (path, ordinary) =
+      value.strip_suffix("#script").map_or((value, false), |path| (path, true));
+    let file = FileId::from(path);
+    if ordinary { Self::ordinary(&file) } else { Self::primary(&file) }
+  }
+}
+
+impl From<String> for ModuleId {
+  fn from(value: String) -> Self {
+    Self::from(value.as_str())
+  }
+}
+
+impl From<FileId> for ModuleId {
+  fn from(file: FileId) -> Self {
+    Self::primary(&file)
+  }
+}
+
+impl From<ModuleId> for String {
+  fn from(module: ModuleId) -> Self {
+    module.0
+  }
+}
+
+impl Borrow<str> for ModuleId {
+  fn borrow(&self) -> &str {
+    self.as_str()
+  }
+}
+
+impl PartialEq<str> for ModuleId {
+  fn eq(&self, other: &str) -> bool {
+    self.as_str() == other
+  }
+}
+
+impl PartialEq<&str> for ModuleId {
+  fn eq(&self, other: &&str) -> bool {
+    self.as_str() == *other
+  }
+}
+
+impl PartialEq<String> for ModuleId {
+  fn eq(&self, other: &String) -> bool {
+    self.as_str() == other
+  }
+}
+
 fn normalize_file_id(path: &str) -> String {
   let replaced = path.replace('\\', "/");
   let mut prefix = "";
@@ -167,14 +262,16 @@ fn normalize_file_id(path: &str) -> String {
   }
 }
 
-fn has_windows_drive_prefix(path: &str) -> bool {
+fn has_windows_absolute_prefix(path: &str) -> bool {
   let bytes = path.as_bytes();
-  bytes.get(1) == Some(&b':') && bytes.first().is_some_and(u8::is_ascii_alphabetic)
+  bytes.get(1) == Some(&b':')
+    && bytes.get(2) == Some(&b'/')
+    && bytes.first().is_some_and(u8::is_ascii_alphabetic)
 }
 
 #[cfg(test)]
 mod tests {
-  use super::FileId;
+  use super::{FileId, ModuleId};
 
   #[test]
   fn normalizes_separator_and_dot_segments() {
@@ -186,6 +283,18 @@ mod tests {
   fn retains_absolute_marker_only_for_boundary_detection() {
     assert!(FileId::from("/repo/src/App.vue").is_absolute());
     assert!(FileId::from(r"C:\repo\src\App.vue").is_absolute());
+    assert!(!FileId::from(r"C:repo\src\App.vue").is_absolute());
     assert!(!FileId::from("src/App.vue").is_absolute());
+  }
+
+  #[test]
+  fn module_ids_preserve_the_script_surface_and_normalize_the_file() {
+    let primary = ModuleId::from(r"apps\admin\src\App.vue");
+    let ordinary = ModuleId::from(r"apps\admin\src\App.vue#script");
+    assert_eq!(primary.as_str(), "apps/admin/src/App.vue");
+    assert_eq!(ordinary.as_str(), "apps/admin/src/App.vue#script");
+    assert_eq!(ordinary.file_id(), FileId::from("apps/admin/src/App.vue"));
+    assert!(!primary.is_ordinary());
+    assert!(ordinary.is_ordinary());
   }
 }

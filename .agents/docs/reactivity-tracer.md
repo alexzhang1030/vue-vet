@@ -199,6 +199,7 @@ growing prose ledger.
 | 2026-07-25 | Dual script modules | setup id + ordinary `path#script`; CLI applies both seeded graphs |
 | 2026-07-25 | Oxlint-style parallelism | Rayon file facts + module phases + seed-aware rules; `--threads N` |
 | 2026-07-28 | Bounded module lifecycle | `max_workers` caps both phases; Oxc supplies prepared phase-one facts; only seeded consumers reparse |
+| 2026-07-28 | Incremental partial module lifecycle | `ModuleTraceState` reuses unchanged seed plans/final graphs; per-module issues preserve healthy cross-module links |
 | 2026-07-25 | A1/A3: computed object get, sort HOF, withDefaults | `{ get, set }` getter body; Array#sort comparator; peel `withDefaults(defineProps())` |
 | 2026-07-25 | A3: watch source array of getters | `watch([() => a.value, () => b.value])` and mixed `[ref, getter]` |
 | 2026-07-25 | provide/inject unique-key seeds | project-wide provide index; exactly one known shape seeds inject; multi-provide quiet; defaults allowed |

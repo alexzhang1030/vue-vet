@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::sync::Arc;
 
 use thiserror::Error;
 use vize_atelier_core::{
@@ -111,6 +112,7 @@ fn dual_module_sources(
   descriptor: &SfcDescriptor<'_>,
 ) -> (Option<ModuleSource>, Option<ModuleSource>) {
   let id = path.to_string_lossy().replace('\\', "/");
+  let sfc_source = Arc::<str>::from(sfc_source);
   let setup = descriptor.script_setup.as_ref().map(|block| {
     ModuleSource::sfc_script(
       id.clone(),
@@ -118,7 +120,7 @@ fn dual_module_sources(
       block.lang.as_deref().unwrap_or("js"),
       ScriptKind::Setup,
       block.loc.start,
-      sfc_source,
+      Arc::clone(&sfc_source),
     )
   });
   let ordinary = descriptor.script.as_ref().map(|block| {
@@ -129,7 +131,7 @@ fn dual_module_sources(
       block.lang.as_deref().unwrap_or("js"),
       ScriptKind::Script,
       block.loc.start,
-      sfc_source,
+      Arc::clone(&sfc_source),
     )
   });
   match (setup, ordinary) {
@@ -963,7 +965,7 @@ watchEffect(() => { void bag.signal.value })
       let files = [ProjectFile {
         path: PathBuf::from("LocalBag.vue").into(),
         source_len: sfc.len(),
-        facts: analysis.facts,
+        facts: analysis.facts.into(),
         module_source: Some(module),
         ordinary_module_source: None,
       }];
@@ -1029,7 +1031,7 @@ watchEffect(() => { void bag.signal.value })
       ProjectFile {
         path: PathBuf::from("useSignal.ts").into(),
         source_len: producer.len(),
-        facts: SfcFacts::default(),
+        facts: SfcFacts::default().into(),
         module_source: Some(ModuleSource::standalone(
           "useSignal.ts",
           producer,
@@ -1041,7 +1043,7 @@ watchEffect(() => { void bag.signal.value })
       ProjectFile {
         path: PathBuf::from("App.vue").into(),
         source_len: sfc.len(),
-        facts: analysis.facts,
+        facts: analysis.facts.into(),
         module_source: analysis.module_source,
         ordinary_module_source: None,
       },
@@ -1106,13 +1108,13 @@ const count = ref(0)
     assert_eq!(module.language, "ts");
     assert!(module.source.contains("const count = ref(0)"));
     assert!(module.source_offset > 0, "script body offset must be absolute in the SFC");
-    assert_eq!(module.span_source, source);
+    assert_eq!(module.span_source.as_ref(), source);
     let body = module
       .span_source
       .get(module.source_offset..module.source_offset.saturating_add(module.source.len()));
     assert_eq!(
       body,
-      Some(module.source.as_str()),
+      Some(module.source.as_ref()),
       "extracted script body must be an exact slice of the original SFC at source_offset"
     );
   }
@@ -1140,7 +1142,7 @@ const count = ref(0)
       ProjectFile {
         path: PathBuf::from("App.vue").into(),
         source_len: app.len(),
-        facts: analysis.facts,
+        facts: analysis.facts.into(),
         module_source: Some({
           let mut module = module;
           module.id = "App.vue".into();
@@ -1151,7 +1153,7 @@ const count = ref(0)
       ProjectFile {
         path: PathBuf::from("composables/useField.ts").into(),
         source_len: producer.len(),
-        facts: SfcFacts::default(),
+        facts: SfcFacts::default().into(),
         module_source: Some(ModuleSource::standalone(
           "composables/useField.ts",
           producer,
@@ -1197,7 +1199,7 @@ const count = ref(0)
       files.push(ProjectFile {
         path: PathBuf::from(name).into(),
         source_len: source.len(),
-        facts: analysis.facts,
+        facts: analysis.facts.into(),
         module_source: Some({
           let mut module = module;
           module.id = name.into();

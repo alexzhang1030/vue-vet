@@ -101,8 +101,10 @@ profile because its instrumentation does not link Oxc reliably under thin LTO;
 the release profile remains the source of truth for shipped artifacts.
 
 Project-level cold / warm / overlay / diff-filter benches live in
-`vue_vet_session` (`scan_modes`) on the quality corpus. SFC micro-benchmarks
-remain in `vue_vet_vize`. Methodology and release checklists:
+`vue_vet_session` (`scan_modes`) on the quality corpus, with an additional
+1k-module repeated-edit case. Bounded module tracing has multi-sample 1k/5k
+cases in `vue_vet_reactivity`; SFC micro-benchmarks remain in `vue_vet_vize`.
+Methodology and release checklists:
 [quality gates](../../docs/quality-gates.md).
 
 Codecov is the canonical coverage comparison. Project coverage may fall by at

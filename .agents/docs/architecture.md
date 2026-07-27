@@ -9,7 +9,7 @@ vue-vet CLI
        -> PackageIndex + normalized FileId identities
        -> parallel per-file facts (Vize SFC / one Oxc module parse)
        -> vue_vet_project edges + vue_vet_reactivity module seed linking
-          (bounded first pass + seeded consumers only)
+          (per-file structural cache + bounded incremental module state)
        -> apply module graphs onto setup and dual ordinary (#script) blocks
        -> parallel seed-aware vue_vet_rules + vue_vet_practice
        -> one DiagnosticFinalizer (severity, suppressions, dedup, sort)
@@ -21,10 +21,12 @@ vue-vet CLI
 
 ### Performance model (oxlint-inspired)
 
-- **One input snapshot per analysis** — discovery walks and reads each source,
-  manifest, and resolver input once. Cache lookup and a cache-miss analysis share
-  that snapshot. Sources are retained as `Arc<str>` and package environments are
-  parsed once into `PackageIndex`.
+- **One retained input snapshot per session revision** — initial discovery walks
+  and reads each source, manifest, and resolver input once. Cache lookup and a
+  cache-miss analysis share that snapshot; `apply_changes` updates only named
+  paths. Sources are retained as `Arc<str>`, Nuxt declaration mappings are built
+  from the same bytes, and package environments are parsed once into
+  `PackageIndex`.
 - **Files parallel, pipeline per file sequential** — parse / facts / seed-aware
   rules use Rayon (`--threads N` optional). The same bound is passed to module
   tracing, so `--threads` constrains the complete scan rather than only the
@@ -41,9 +43,17 @@ vue-vet CLI
   caps both Rayon phases; there is never one native thread per module. Oxc's
   adapter extracts script facts, the local graph, and opaque Vue Vet-owned module
   summaries from one semantic. The coordinator resolves seeds from those
-  summaries. Modules without seeds reuse their local graph; only seeded consumers
-  reparse to materialize symbol-resolved seeds. Oxc arena values never cross a
-  thread or adapter boundary and the workspace still forbids `unsafe_code`.
+  summaries. Modules without seeds reuse their local graph; a seeded consumer
+  reparses only when its source or resolved seed plan changed, while unchanged
+  final graphs are reused from `ModuleTraceState`. Oxc arena values never cross
+  a thread or adapter boundary and the workspace still forbids `unsafe_code`.
+- **Incremental project stages** — `ProjectSession` retains the source snapshot,
+  per-file Vize/Oxc facts, raw file diagnostics, structural edge partitions,
+  module seed plans/final graphs, and the reverse dependency index. A normal
+  edit does not walk the workspace or rebuild unrelated structural files.
+- **Partial module outcomes** — parse/link failures are scoped
+  `AnalysisIssue`s. Healthy modules still reach the cross-module fixed point;
+  one bad module never forces every other module back to an isolated local graph.
 - **Determinism after concurrency** — diagnostics are sorted in `ScanSummary::finish`;
   module results are sorted by module id after parallel re-trace.
 - **Still single-process Rust** — no JS rule host; adapters stay behind Vue Vet facts.
@@ -110,22 +120,24 @@ boundary in the roadmap.
 `vue_vet_session` owns the long-lived project analysis handle: config load,
 cached/fresh scans, unsaved overlays, per-file fact state, reverse dependencies,
 rule/finding explain, and workspace path containment. `apply_changes` plus
-`analyze_affected` reparses changed files, reuses unchanged facts and file-rule
-results, and invalidates graph consumers through the reverse index. Overlay
-analysis bypasses the content-addressed cache. A file parse failure becomes an
-`AnalysisIssue` plus parser diagnostic while other files continue; fatal root or
+`analyze_affected` reparses changed files, reuses unchanged facts, structural
+partitions, module graphs, and file-rule results, then invalidates graph
+consumers through the reverse index. Overlay analysis bypasses the
+content-addressed cache. A file or module failure becomes a scoped
+`AnalysisIssue` while healthy files and module links continue; fatal root or
 configuration errors still fail the request. The CLI and `vue_vet_lsp` consume the session so
 diagnostic identity stays shared across surfaces. The thin LSP (`vue-vet --lsp`)
 publishes diagnostics on `didOpen` / `didChange` / `didSave` from open-buffer
 overlays (FULL sync) with the opaque finding id in LSP `data` and the document
-version on `publishDiagnostics`. LSP CPU work runs in a blocking worker after a
-short debounce; overlapping results are dropped via per-document generation
-tokens. Safe quick-fix code actions return versioned
+version on `publishDiagnostics`. Overlay changes advance a workspace revision
+before scheduling analysis. A 50 ms debounce and single latest-wins gate admit
+only the newest blocking task; stale work cancels between pipeline phases and
+cannot commit over newer state. The resulting snapshot refreshes every open
+document. Safe quick-fix code actions return versioned
 workspace edits from explicitly safe diagnostic edits only (client applies;
 server never writes). The thin MCP adapter (`vue-vet --mcp`, `vue_vet_mcp`)
 exposes scan / explain / safe-fix preview tools over stdio JSON-RPC with the
-same session path bounds; MCP never applies edits. Request-level cancellation
-remains later issue #12 work.
+same session path bounds; MCP never applies edits.
 
 ### Published library crates
 

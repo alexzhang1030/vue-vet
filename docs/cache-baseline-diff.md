@@ -46,8 +46,11 @@ incremental results must remain equivalent to a clean scan.
 
 The long-lived session now retains per-file facts and a reverse-dependency
 index. `apply_changes` / `analyze_affected` reparses changed files, reuses
-unaffected file-rule results, and invalidates dependent consumers. The
-structural graph is still rebuilt deterministically from cached facts.
+unaffected file-rule results, and invalidates dependent consumers. It also
+retains the workspace source snapshot, per-file structural edge partitions, and
+module seed/final-graph state. Normal edits neither walk/read the whole
+workspace nor rebuild unrelated project partitions; the merged graph remains
+deterministic and equivalent to a clean scan.
 
 ## Initial measurement
 

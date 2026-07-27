@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
+use std::{
+  collections::{BTreeMap, BTreeSet, btree_map::Entry},
+  sync::Arc,
+};
 
 use oxc_allocator::Allocator;
 use oxc_ast::{
@@ -14,7 +17,9 @@ use oxc_span::{SourceType, Span};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use vue_vet_core::{ReactiveBindingFact, ReactiveBindingKind, ReactivityGraph, ScriptKind};
+use vue_vet_core::{
+  ModuleId, ReactiveBindingFact, ReactiveBindingKind, ReactivityGraph, ScriptKind,
+};
 
 use super::{
   ProvideOffer, TraceSeeds, collect_binding_identifiers, collect_imported_bindings,
@@ -28,9 +33,9 @@ use oxc_ast::ast::Argument;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ModuleSource {
   /// Stable module identity used in [`ModuleLink`] and result ordering.
-  pub id: String,
+  pub id: ModuleId,
   /// Text parsed by Oxc (extracted `<script>` body for SFCs).
-  pub source: String,
+  pub source: Arc<str>,
   /// Language hint (`js`, `ts`, `jsx`, `tsx`, …).
   pub language: String,
   pub kind: ScriptKind,
@@ -40,7 +45,7 @@ pub struct ModuleSource {
   /// Full original file used for absolute line/column (SFC source). When empty,
   /// spans are computed against [`Self::source`] (standalone modules).
   #[serde(default)]
-  pub span_source: String,
+  pub span_source: Arc<str>,
   /// Opaque phase-one facts extracted by the Oxc adapter during its first parse.
   #[serde(skip)]
   prepared_trace: Option<PreparedModuleTrace>,
@@ -63,8 +68,8 @@ impl ModuleSource {
   /// Standalone JS/TS module (offset 0, spans against `source`).
   #[must_use]
   pub fn standalone(
-    id: impl Into<String>,
-    source: impl Into<String>,
+    id: impl Into<ModuleId>,
+    source: impl Into<Arc<str>>,
     language: impl Into<String>,
     kind: ScriptKind,
   ) -> Self {
@@ -74,7 +79,7 @@ impl ModuleSource {
       language: language.into(),
       kind,
       source_offset: 0,
-      span_source: String::new(),
+      span_source: Arc::from(""),
       prepared_trace: None,
     }
   }
@@ -82,12 +87,12 @@ impl ModuleSource {
   /// Extracted SFC script block with absolute span mapping into the original file.
   #[must_use]
   pub fn sfc_script(
-    id: impl Into<String>,
-    script_source: impl Into<String>,
+    id: impl Into<ModuleId>,
+    script_source: impl Into<Arc<str>>,
     language: impl Into<String>,
     kind: ScriptKind,
     source_offset: usize,
-    sfc_source: impl Into<String>,
+    sfc_source: impl Into<Arc<str>>,
   ) -> Self {
     Self {
       id: id.into(),
@@ -107,8 +112,8 @@ impl ModuleSource {
     self
   }
 
-  const fn span_origin(&self) -> &str {
-    if self.span_source.is_empty() { self.source.as_str() } else { self.span_source.as_str() }
+  fn span_origin(&self) -> &str {
+    if self.span_source.is_empty() { self.source.as_ref() } else { self.span_source.as_ref() }
   }
 }
 
@@ -118,35 +123,50 @@ impl ModuleSource {
 /// caller (for example Vue Vet's project graph) must supply concrete targets.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ModuleLink {
-  pub from: String,
+  pub from: ModuleId,
   pub specifier: String,
-  pub to: String,
+  pub to: ModuleId,
 }
 
 /// Per-module reactivity graph produced by [`trace_modules`].
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ModuleReactivity {
-  pub id: String,
+  pub id: ModuleId,
   pub graph: ReactivityGraph,
 }
 
 /// Failures while parsing, linking, or tracing a module set.
-#[derive(Debug, Error)]
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum TraceModulesError {
   #[error("duplicate reactivity module id `{0}`")]
-  DuplicateModule(String),
+  DuplicateModule(ModuleId),
   #[error("module `{module}` uses unsupported language `{language}`")]
-  UnsupportedLanguage { module: String, language: String },
+  UnsupportedLanguage { module: ModuleId, language: String },
   #[error("could not parse reactivity module `{module}`: {message}")]
-  Parse { module: String, message: String },
+  Parse { module: ModuleId, message: String },
   #[error("could not build semantics for reactivity module `{module}`: {message}")]
-  Semantic { module: String, message: String },
+  Semantic { module: ModuleId, message: String },
   #[error("reactivity module link {from} -> {to} references an unknown module")]
-  UnknownLink { from: String, to: String },
+  UnknownLink { from: ModuleId, to: ModuleId },
   #[error("reactivity module `{from}` resolves `{specifier}` to multiple targets")]
-  AmbiguousLink { from: String, specifier: String },
+  AmbiguousLink { from: ModuleId, specifier: String },
   #[error("reactivity module worker pool could not complete tracing")]
   WorkerDisconnected,
+}
+
+impl TraceModulesError {
+  /// Module most directly responsible for this issue, when one exists.
+  #[must_use]
+  pub const fn module_id(&self) -> Option<&ModuleId> {
+    match self {
+      Self::DuplicateModule(module)
+      | Self::UnsupportedLanguage { module, .. }
+      | Self::Parse { module, .. }
+      | Self::Semantic { module, .. } => Some(module),
+      Self::UnknownLink { from, .. } | Self::AmbiguousLink { from, .. } => Some(from),
+      Self::WorkerDisconnected => None,
+    }
+  }
 }
 
 /// Concurrency limit for cross-module tracing.
@@ -162,7 +182,7 @@ impl Default for TraceModulesOptions {
   }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct ImportSummary {
   local: String,
   imported: String,
@@ -170,14 +190,14 @@ struct ImportSummary {
   span: Span,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum ExportSummary {
   Local { local: String, exported: String },
   Reexport { source: String, imported: String, exported: String },
   Star { source: String },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct DestructuredCallBinding {
   imported_local: String,
   property: String,
@@ -186,7 +206,7 @@ struct DestructuredCallBinding {
 }
 
 /// `const bag = useFoo()` — whole-object composable call used via member access.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct InstanceCallBinding {
   imported_local: String,
   local: String,
@@ -202,9 +222,9 @@ enum ExportState {
 
 /// Export-resolution payload only — no source body, no reactivity graph.
 /// Moved (not cloned) from workers to the coordinator across the seed barrier.
-#[derive(Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct ModuleExportFacts {
-  id: String,
+  id: ModuleId,
   imports: Vec<ImportSummary>,
   exports: Vec<ExportSummary>,
   locals: BTreeMap<String, ExportState>,
@@ -218,7 +238,7 @@ struct ModuleExportFacts {
 ///
 /// This is intentionally not serializable: callers store it only for the
 /// current analysis lifecycle, and Oxc nodes never cross the adapter boundary.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PreparedModuleTrace {
   imports: Vec<ImportSummary>,
   exports: Vec<ExportSummary>,
@@ -233,11 +253,44 @@ pub struct PreparedModuleTrace {
 type ImportSeedPlan = BTreeMap<String, ExportState>;
 
 /// Cross-module seeds delivered after the barrier (imports + unique inject keys).
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct ModuleSeedPlan {
   imports: ImportSeedPlan,
   /// inject local → offer (scalar kind and/or composable bag shape).
   injects: BTreeMap<String, ProvideOffer>,
+}
+
+/// Reusable state for cross-module linking in a long-lived project session.
+///
+/// Entries contain only Vue Vet-owned sources, seed plans, and final graphs.
+/// No Oxc allocator, AST, or semantic object crosses this boundary.
+#[derive(Clone, Debug, Default)]
+pub struct ModuleTraceState {
+  entries: BTreeMap<ModuleId, CachedModuleTrace>,
+}
+
+#[derive(Clone, Debug)]
+struct CachedModuleTrace {
+  source: ModuleSource,
+  plan: ModuleSeedPlan,
+  reactivity: ModuleReactivity,
+}
+
+/// Work counters used by incremental tests and performance instrumentation.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TraceModulesStats {
+  pub phase_one_succeeded: usize,
+  pub phase_one_failed: usize,
+  pub seeded_reparses: usize,
+  pub reused_graphs: usize,
+}
+
+/// Partial, deterministic result from a module-linking pass.
+#[derive(Debug, Default)]
+pub struct TraceModulesReport {
+  pub modules: Vec<ModuleReactivity>,
+  pub issues: Vec<TraceModulesError>,
+  pub stats: TraceModulesStats,
 }
 
 impl ModuleSeedPlan {
@@ -315,62 +368,171 @@ pub fn trace_modules_with_options(
   links: &[ModuleLink],
   options: TraceModulesOptions,
 ) -> Result<Vec<ModuleReactivity>, TraceModulesError> {
-  // Duplicate check is sequential and deterministic.
+  let mut state = ModuleTraceState::default();
+  let report = trace_modules_incremental_with_options(modules, links, options, &mut state);
+  if let Some(error) = report.issues.into_iter().next() { Err(error) } else { Ok(report.modules) }
+}
+
+/// Trace a module set while retaining healthy cross-module results and reusing
+/// unchanged seeded graphs from `state`.
+#[must_use]
+pub fn trace_modules_incremental_with_options(
+  modules: &[ModuleSource],
+  links: &[ModuleLink],
+  options: TraceModulesOptions,
+  state: &mut ModuleTraceState,
+) -> TraceModulesReport {
+  let mut report = TraceModulesReport::default();
   let mut seen = BTreeSet::new();
-  for module in modules {
-    if !seen.insert(module.id.as_str()) {
-      return Err(TraceModulesError::DuplicateModule(module.id.clone()));
+  let unique = modules
+    .iter()
+    .filter(|module| {
+      if seen.insert(module.id.clone()) {
+        true
+      } else {
+        report.issues.push(TraceModulesError::DuplicateModule(module.id.clone()));
+        false
+      }
+    })
+    .collect::<Vec<_>>();
+  if unique.is_empty() {
+    state.entries.clear();
+    return report;
+  }
+
+  let Ok(pool) = rayon::ThreadPoolBuilder::new()
+    .num_threads(options.max_workers.max(1).min(unique.len()))
+    .build()
+  else {
+    report.issues.push(TraceModulesError::WorkerDisconnected);
+    return report;
+  };
+
+  let phase_one = pool.install(|| {
+    unique
+      .par_iter()
+      .map(|module| analyze_module_phase_one(module))
+      .collect::<Vec<Result<ModulePhaseOne, TraceModulesError>>>()
+  });
+  let mut facts_by_id = BTreeMap::new();
+  let mut local_graphs = BTreeMap::new();
+  for (module, outcome) in unique.iter().zip(phase_one) {
+    match outcome {
+      Ok(analysis) => {
+        report.stats.phase_one_succeeded += 1;
+        facts_by_id.insert(module.id.clone(), analysis.facts);
+        local_graphs.insert(module.id.clone(), analysis.local_graph);
+      }
+      Err(error) => {
+        report.stats.phase_one_failed += 1;
+        report.issues.push(error);
+      }
     }
   }
 
-  if modules.is_empty() {
-    return Ok(Vec::new());
-  }
-
-  let pool = rayon::ThreadPoolBuilder::new()
-    .num_threads(options.max_workers.max(1).min(modules.len()))
-    .build()
-    .map_err(|_| TraceModulesError::WorkerDisconnected)?;
-
-  let mut phase_one = pool.install(|| {
-    modules.par_iter().map(analyze_module_phase_one).collect::<Result<Vec<_>, TraceModulesError>>()
-  })?;
-  let mut facts_by_id = BTreeMap::new();
-  for analysis in &mut phase_one {
-    let facts = analysis.facts.take().ok_or(TraceModulesError::WorkerDisconnected)?;
-    facts_by_id.insert(facts.id.clone(), facts);
-  }
-
-  let resolved_links = resolved_links(&facts_by_id, links)?;
+  let (resolved_links, mut link_issues) = resolved_links_partial(&facts_by_id, links);
+  report.issues.append(&mut link_issues);
   let link_index = link_index(&resolved_links);
   let exports = resolve_exports(&facts_by_id, &link_index);
   let provide_index = global_provide_index(&facts_by_id);
-  let work = modules
+  let work = unique
     .iter()
-    .zip(phase_one)
-    .map(|(module, analysis)| {
-      let facts =
-        facts_by_id.get(module.id.as_str()).ok_or(TraceModulesError::WorkerDisconnected)?;
+    .filter_map(|module| {
+      let facts = facts_by_id.get(&module.id)?;
+      let local_graph = local_graphs.remove(&module.id)?;
       let plan = ModuleSeedPlan {
         imports: seed_plan_for(facts, &exports, &link_index),
         injects: inject_seed_plan(facts, &provide_index),
       };
-      Ok((module, analysis.local_graph, plan))
+      Some((*module, local_graph, plan))
     })
-    .collect::<Result<Vec<_>, TraceModulesError>>()?;
+    .collect::<Vec<_>>();
 
-  let mut traced = pool.install(|| {
+  let outcomes = pool.install(|| {
     work
       .into_par_iter()
-      .map(|(module, local_graph, plan)| trace_module_phase_two(module, local_graph, &plan))
-      .collect::<Result<Vec<_>, TraceModulesError>>()
-  })?;
-  traced.sort_by(|left, right| left.id.cmp(&right.id));
-  Ok(traced)
+      .map(|(module, mut local_graph, plan)| {
+        if let Some(cached) = state.entries.get(&module.id)
+          && cached.source == *module
+          && cached.plan == plan
+        {
+          return PhaseTwoOutcome::Reused {
+            source: module.clone(),
+            plan,
+            reactivity: cached.reactivity.clone(),
+          };
+        }
+        let seeded = !plan.is_empty();
+        match trace_module_phase_two(module, local_graph.clone(), &plan) {
+          Ok(reactivity) => {
+            PhaseTwoOutcome::Traced { source: module.clone(), plan, reactivity, seeded }
+          }
+          Err(error) => {
+            local_graph.set_module_id(module.id.clone());
+            PhaseTwoOutcome::Partial {
+              source: module.clone(),
+              plan,
+              reactivity: ModuleReactivity { id: module.id.clone(), graph: local_graph },
+              error,
+            }
+          }
+        }
+      })
+      .collect::<Vec<_>>()
+  });
+
+  let mut next_entries = BTreeMap::new();
+  for outcome in outcomes {
+    let (source, plan, reactivity) = match outcome {
+      PhaseTwoOutcome::Reused { source, plan, reactivity } => {
+        report.stats.reused_graphs += 1;
+        (source, plan, reactivity)
+      }
+      PhaseTwoOutcome::Traced { source, plan, reactivity, seeded } => {
+        report.stats.seeded_reparses += usize::from(seeded);
+        (source, plan, reactivity)
+      }
+      PhaseTwoOutcome::Partial { source, plan, reactivity, error } => {
+        report.issues.push(error);
+        (source, plan, reactivity)
+      }
+    };
+    next_entries.insert(
+      reactivity.id.clone(),
+      CachedModuleTrace { source, plan, reactivity: reactivity.clone() },
+    );
+    report.modules.push(reactivity);
+  }
+  state.entries = next_entries;
+  report.modules.sort_by(|left, right| left.id.cmp(&right.id));
+  report.issues.sort_by(|left, right| {
+    (left.module_id(), left.to_string()).cmp(&(right.module_id(), right.to_string()))
+  });
+  report
+}
+
+enum PhaseTwoOutcome {
+  Reused {
+    source: ModuleSource,
+    plan: ModuleSeedPlan,
+    reactivity: ModuleReactivity,
+  },
+  Traced {
+    source: ModuleSource,
+    plan: ModuleSeedPlan,
+    reactivity: ModuleReactivity,
+    seeded: bool,
+  },
+  Partial {
+    source: ModuleSource,
+    plan: ModuleSeedPlan,
+    reactivity: ModuleReactivity,
+    error: TraceModulesError,
+  },
 }
 
 struct ModulePhaseOne {
-  facts: Option<ModuleExportFacts>,
+  facts: ModuleExportFacts,
   local_graph: ReactivityGraph,
 }
 
@@ -381,7 +543,7 @@ fn analyze_module_phase_one(module: &ModuleSource) -> Result<ModulePhaseOne, Tra
 
   let allocator = Allocator::default();
   let source_type = source_type(module)?;
-  let parsed = Parser::new(&allocator, module.source.as_str(), source_type).parse();
+  let parsed = Parser::new(&allocator, module.source.as_ref(), source_type).parse();
   if !parsed.errors.is_empty() {
     return Err(TraceModulesError::Parse {
       module: module.id.clone(),
@@ -417,14 +579,14 @@ fn analyze_module_phase_one(module: &ModuleSource) -> Result<ModulePhaseOne, Tra
 
 fn phase_one_from_prepared(module: &ModuleSource, prepared: PreparedModuleTrace) -> ModulePhaseOne {
   ModulePhaseOne {
-    facts: Some(ModuleExportFacts {
+    facts: ModuleExportFacts {
       id: module.id.clone(),
       imports: prepared.imports,
       exports: prepared.exports,
       locals: prepared.locals,
       provides: prepared.provides,
       injects: prepared.injects,
-    }),
+    },
     local_graph: prepared.local_graph,
   }
 }
@@ -441,7 +603,7 @@ fn trace_module_phase_two(
 
   let allocator = Allocator::default();
   let source_type = source_type(module)?;
-  let parsed = Parser::new(&allocator, module.source.as_str(), source_type).parse();
+  let parsed = Parser::new(&allocator, module.source.as_ref(), source_type).parse();
   if !parsed.errors.is_empty() {
     return Err(TraceModulesError::Parse {
       module: module.id.clone(),
@@ -917,36 +1079,45 @@ fn collect_exports(semantic: &oxc_semantic::Semantic<'_>) -> Vec<ExportSummary> 
   exports
 }
 
-fn resolved_links(
-  facts: &BTreeMap<String, ModuleExportFacts>,
+fn resolved_links_partial(
+  facts: &BTreeMap<ModuleId, ModuleExportFacts>,
   links: &[ModuleLink],
-) -> Result<BTreeMap<(String, String), String>, TraceModulesError> {
+) -> (BTreeMap<(ModuleId, String), ModuleId>, Vec<TraceModulesError>) {
   let mut resolved = BTreeMap::new();
+  let mut ambiguous = BTreeSet::new();
+  let mut issues = Vec::new();
   for link in links {
     if !facts.contains_key(&link.from) || !facts.contains_key(&link.to) {
-      return Err(TraceModulesError::UnknownLink { from: link.from.clone(), to: link.to.clone() });
+      issues.push(TraceModulesError::UnknownLink { from: link.from.clone(), to: link.to.clone() });
+      continue;
     }
     let key = (link.from.clone(), link.specifier.clone());
+    if ambiguous.contains(&key) {
+      continue;
+    }
     match resolved.entry(key) {
       Entry::Vacant(entry) => {
         entry.insert(link.to.clone());
       }
       Entry::Occupied(entry) if entry.get() == &link.to => {}
-      Entry::Occupied(_) => {
-        return Err(TraceModulesError::AmbiguousLink {
+      Entry::Occupied(entry) => {
+        let key = entry.key().clone();
+        entry.remove();
+        ambiguous.insert(key);
+        issues.push(TraceModulesError::AmbiguousLink {
           from: link.from.clone(),
           specifier: link.specifier.clone(),
         });
       }
     }
   }
-  Ok(resolved)
+  (resolved, issues)
 }
 
 fn resolve_exports(
-  facts: &BTreeMap<String, ModuleExportFacts>,
-  links: &BTreeMap<(&str, &str), &str>,
-) -> BTreeMap<String, BTreeMap<String, ExportState>> {
+  facts: &BTreeMap<ModuleId, ModuleExportFacts>,
+  links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
+) -> BTreeMap<ModuleId, BTreeMap<String, ExportState>> {
   let mut resolved =
     facts.keys().map(|id| (id.clone(), BTreeMap::new())).collect::<BTreeMap<_, _>>();
 
@@ -969,7 +1140,7 @@ fn resolve_exports(
         match export {
           ExportSummary::Local { .. } => {}
           ExportSummary::Reexport { source, imported, exported } => {
-            let Some(target) = links.get(&(id.as_str(), source.as_str())).copied() else {
+            let Some(target) = links.get(&(id, source.as_str())).copied() else {
               continue;
             };
             let Some(state) = snapshot.get(target).and_then(|exports| exports.get(imported)) else {
@@ -978,7 +1149,7 @@ fn resolve_exports(
             changed |= insert_export(&mut resolved, id, exported, state.clone());
           }
           ExportSummary::Star { source } => {
-            let Some(target) = links.get(&(id.as_str(), source.as_str())).copied() else {
+            let Some(target) = links.get(&(id, source.as_str())).copied() else {
               continue;
             };
             let Some(target_exports) = snapshot.get(target) else {
@@ -1002,16 +1173,15 @@ fn resolve_exports(
 }
 
 /// Borrowed index over owned resolved links — avoids re-allocating key pairs on lookup.
-fn link_index(links: &BTreeMap<(String, String), String>) -> BTreeMap<(&str, &str), &str> {
-  links
-    .iter()
-    .map(|((from, specifier), to)| ((from.as_str(), specifier.as_str()), to.as_str()))
-    .collect()
+fn link_index(
+  links: &BTreeMap<(ModuleId, String), ModuleId>,
+) -> BTreeMap<(&ModuleId, &str), &ModuleId> {
+  links.iter().map(|((from, specifier), to)| ((from, specifier.as_str()), to)).collect()
 }
 
 fn insert_export(
-  resolved: &mut BTreeMap<String, BTreeMap<String, ExportState>>,
-  module: &str,
+  resolved: &mut BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
+  module: &ModuleId,
   exported: &str,
   state: ExportState,
 ) -> bool {
@@ -1036,15 +1206,15 @@ fn insert_export(
 /// Coordinator-side: which of this module's import locals resolve to reactive exports.
 fn seed_plan_for(
   facts: &ModuleExportFacts,
-  exports: &BTreeMap<String, BTreeMap<String, ExportState>>,
-  links: &BTreeMap<(&str, &str), &str>,
+  exports: &BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
+  links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
 ) -> ImportSeedPlan {
   let mut plan = ImportSeedPlan::new();
   for import in &facts.imports {
     if import.imported == "*" {
       continue;
     }
-    let Some(target) = links.get(&(facts.id.as_str(), import.source.as_str())).copied() else {
+    let Some(target) = links.get(&(&facts.id, import.source.as_str())).copied() else {
       continue;
     };
     let Some(state) =
@@ -1060,7 +1230,7 @@ fn seed_plan_for(
 
 /// Project-wide provide index (no App Tree): key → offers from every known site.
 fn global_provide_index(
-  facts: &BTreeMap<String, ModuleExportFacts>,
+  facts: &BTreeMap<ModuleId, ModuleExportFacts>,
 ) -> BTreeMap<super::InjectionKey, Vec<ProvideOffer>> {
   let mut all = Vec::new();
   for module in facts.values() {

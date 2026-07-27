@@ -105,7 +105,10 @@ Use `trace_modules_with_options` and `TraceModulesOptions { max_workers }` when
 the caller needs an explicit concurrency bound. Vue Vet's Oxc adapter attaches
 prepared phase-one facts from its file parse, so unseeded modules are not parsed
 again; only consumers that receive cross-module seeds reparse for symbol
-materialization.
+materialization. Long-lived callers should retain `ModuleTraceState` and call
+`trace_modules_incremental_with_options`: unchanged source + seed-plan pairs
+reuse their final graph, and the returned report scopes errors per module while
+preserving healthy cross-module results.
 
 ## What the graph contains
 

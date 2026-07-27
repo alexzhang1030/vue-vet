@@ -4,19 +4,23 @@ mod resolve;
 use std::{
   collections::{BTreeMap, BTreeSet},
   path::Path,
+  sync::Arc,
 };
 
 use serde::{Deserialize, Serialize};
-use vue_vet_core::{Confidence, Diagnostic, FileId, ScriptFacts, Severity, SfcFacts, SourceSpan};
+use vue_vet_core::{
+  Confidence, Diagnostic, FileId, ModuleId, ScriptFacts, Severity, SfcFacts, SourceSpan,
+};
 use vue_vet_reactivity::{
-  ModuleLink, ModuleReactivity, ModuleSource, PropFlowSite, TraceModulesOptions, join_prop_flows,
-  trace_modules_with_options,
+  ModuleLink, ModuleReactivity, ModuleSource, ModuleTraceState, PropFlowSite, TraceModulesOptions,
+  join_prop_flows, trace_modules_incremental_with_options,
 };
 
 pub use resolve::{OXC_RESOLVER_VERSION, normalize_project_root, resolver_config_inputs};
 
 use conventions::{
-  convention_component_name, load_nuxt_component_dts_names, strip_lazy_component_prefix,
+  NUXT_COMPONENT_DTS_CANDIDATES, convention_component_name, load_nuxt_component_dts_names,
+  parse_nuxt_components_dts, strip_lazy_component_prefix,
 };
 use resolve::{ProjectResolver, Resolution, normalized_path};
 
@@ -28,7 +32,7 @@ pub const PROJECT_RULE_IDS: [&str; 2] =
 pub struct ProjectFile {
   pub path: FileId,
   pub source_len: usize,
-  pub facts: SfcFacts,
+  pub facts: Arc<SfcFacts>,
   pub module_source: Option<ModuleSource>,
   /// Ordinary `<script>` companion when dual-script SFCs also have setup
   /// (`id` ends with `#script`).
@@ -86,7 +90,120 @@ pub struct ProjectGraph {
   pub diagnostics: Vec<Diagnostic>,
   pub invalidation_inputs: Vec<String>,
   pub module_reactivity: Vec<ModuleReactivity>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub reactivity_issues: Vec<ReactivityIssue>,
+  /// Compatibility summary for reporters that have not adopted structured issues.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub reactivity_error: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReactivityIssue {
+  pub module: Option<ModuleId>,
+  pub message: String,
+}
+
+/// Reusable project-linking state retained by a long-lived session.
+#[derive(Clone, Debug, Default)]
+pub struct ProjectGraphState {
+  module_trace: ModuleTraceState,
+  structural: StructuralProjectState,
+  last_stats: ProjectGraphStats,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ProjectGraphStats {
+  pub structural_files_rebuilt: usize,
+  pub structural_files_reused: usize,
+  pub module_graphs_reused: usize,
+  pub seeded_module_reparses: usize,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ProjectContext {
+  pub revision: u64,
+  pub nuxt_component_names: BTreeMap<String, String>,
+  pub invalidation_inputs: Vec<String>,
+}
+
+impl ProjectContext {
+  #[must_use]
+  pub fn from_filesystem(root: &Path, known: &BTreeSet<String>) -> Self {
+    let root = normalize_project_root(root);
+    Self {
+      revision: 0,
+      nuxt_component_names: load_nuxt_component_dts_names(&root, known),
+      invalidation_inputs: resolver_config_inputs(&root),
+    }
+  }
+}
+
+/// Build project context from the already-read workspace input snapshot.
+#[must_use]
+pub fn project_context_from_inputs<'a>(
+  root: &Path,
+  known_files: impl IntoIterator<Item = &'a FileId>,
+  inputs: impl IntoIterator<Item = (&'a str, &'a [u8])>,
+  revision: u64,
+) -> ProjectContext {
+  let root = normalize_project_root(root);
+  let known =
+    known_files.into_iter().map(|file| normalized_path(file.as_path())).collect::<BTreeSet<_>>();
+  let mut nuxt_component_names = BTreeMap::new();
+  let mut invalidation_inputs = Vec::new();
+  for (relative, bytes) in inputs {
+    if is_project_invalidation_input(relative) {
+      invalidation_inputs.push(relative.to_owned());
+    }
+    if !NUXT_COMPONENT_DTS_CANDIDATES.contains(&relative) {
+      continue;
+    }
+    let Ok(source) = std::str::from_utf8(bytes) else {
+      continue;
+    };
+    let path = root.join(relative);
+    for (name, target) in parse_nuxt_components_dts(&path, source, &root, &known) {
+      nuxt_component_names.insert(name, target);
+    }
+  }
+  invalidation_inputs.sort();
+  invalidation_inputs.dedup();
+  ProjectContext { revision, nuxt_component_names, invalidation_inputs }
+}
+
+impl ProjectGraphState {
+  #[must_use]
+  pub const fn last_stats(&self) -> ProjectGraphStats {
+    self.last_stats
+  }
+}
+
+#[derive(Clone, Debug, Default)]
+struct StructuralProjectState {
+  context: Option<StructuralContextKey>,
+  files: BTreeMap<FileId, StructuralFileCache>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct StructuralContextKey {
+  root: std::path::PathBuf,
+  revision: u64,
+  nodes: Vec<GraphNode>,
+  module_ids: BTreeSet<ModuleId>,
+}
+
+#[derive(Clone, Debug)]
+struct StructuralFileCache {
+  facts: Arc<SfcFacts>,
+  output: StructuralFileOutput,
+}
+
+#[derive(Clone, Debug, Default)]
+struct StructuralFileOutput {
+  external_nodes: Vec<GraphNode>,
+  edges: Vec<GraphEdge>,
+  diagnostics: Vec<Diagnostic>,
+  module_links: Vec<ModuleLink>,
 }
 
 #[must_use]
@@ -101,6 +218,28 @@ pub fn build_project_graph_with_options(
   trace_options: TraceModulesOptions,
 ) -> ProjectGraph {
   let root = normalize_project_root(root);
+  let known =
+    files.iter().map(|file| normalized_path(file.path.as_path())).collect::<BTreeSet<_>>();
+  let context = ProjectContext::from_filesystem(&root, &known);
+  build_project_graph_incremental_with_options(
+    &root,
+    files,
+    trace_options,
+    &context,
+    &mut ProjectGraphState::default(),
+  )
+}
+
+#[must_use]
+pub fn build_project_graph_incremental_with_options(
+  root: &Path,
+  files: &[ProjectFile],
+  trace_options: TraceModulesOptions,
+  project_context: &ProjectContext,
+  state: &mut ProjectGraphState,
+) -> ProjectGraph {
+  state.last_stats = ProjectGraphStats::default();
+  let root = normalize_project_root(root);
   let mut ordered = files.iter().collect::<Vec<_>>();
   ordered.sort_by_key(|file| normalized_path(file.path.as_path()));
   let known =
@@ -109,7 +248,7 @@ pub fn build_project_graph_with_options(
   let mut nodes = ordered.iter().map(|file| file_node(file)).collect::<Vec<_>>();
   let node_by_path =
     nodes.iter().map(|node| (node.path.clone(), node.id.clone())).collect::<BTreeMap<_, _>>();
-  let dts_names = load_nuxt_component_dts_names(&root, &known);
+  let dts_names = &project_context.nuxt_component_names;
   for node in &mut nodes {
     if node.kind != NodeKind::Component {
       continue;
@@ -126,7 +265,7 @@ pub fn build_project_graph_with_options(
   for node in nodes.iter().filter(|node| node.kind == NodeKind::Component) {
     insert_component_name(&mut component_by_name, &node.name, &node.id);
   }
-  for (name, path) in &dts_names {
+  for (name, path) in dts_names {
     if let Some(id) = node_by_path.get(path) {
       insert_component_name(&mut component_by_name, name, id);
     }
@@ -139,93 +278,61 @@ pub fn build_project_graph_with_options(
   let module_sources = ordered
     .iter()
     .flat_map(|file| {
-      [file.module_source.clone(), file.ordinary_module_source.clone()].into_iter().flatten()
-    })
-    .map(|mut module| {
-      // Preserve `#script` dual suffix while normalizing the path prefix.
-      if let Some((base, suffix)) = module.id.rsplit_once('#') {
-        module.id = format!("{}#{suffix}", normalized_path(Path::new(base)));
-      } else {
-        module.id = normalized_path(Path::new(&module.id));
-      }
-      module
+      let primary = file.module_source.clone().map(|mut module| {
+        module.id = ModuleId::primary(&file.path);
+        module
+      });
+      let ordinary = file.ordinary_module_source.clone().map(|mut module| {
+        module.id = ModuleId::ordinary(&file.path);
+        module
+      });
+      [primary, ordinary].into_iter().flatten()
     })
     .collect::<Vec<_>>();
   let module_ids = module_sources.iter().map(|module| module.id.clone()).collect::<BTreeSet<_>>();
+  let context = StructuralContextKey {
+    root,
+    revision: project_context.revision,
+    nodes: nodes.clone(),
+    module_ids: module_ids.clone(),
+  };
+  if state.structural.context.as_ref() != Some(&context) {
+    state.structural.files.clear();
+    state.structural.context = Some(context);
+  }
+  let mut next_file_cache = BTreeMap::new();
   let mut module_links = Vec::new();
   let mut external_nodes = BTreeMap::new();
   let mut edges = Vec::new();
   let mut diagnostics = Vec::new();
-
   for file in &ordered {
-    let path = normalized_path(file.path.as_path());
-    let from = file_id(&path);
-    let imports = all_imports(&file.facts.script);
-    for import in &imports {
-      match resolver.resolve(&path, &import.source, &known) {
-        Resolution::File(target) => {
-          if let Some(to) = node_by_path.get(&target) {
-            edges.push(edge(&from, to, EdgeKind::Import, &import.source, import.span.clone()));
-          }
-          // Link primary module id and dual `#script` companion when both re-trace.
-          for module_from in [&path, &format!("{path}#script")] {
-            if module_ids.contains(module_from.as_str()) && module_ids.contains(&target) {
-              module_links.push(ModuleLink {
-                from: module_from.clone(),
-                specifier: import.source.clone(),
-                to: target.clone(),
-              });
-            }
-          }
-        }
-        Resolution::External(package) => {
-          let id = format!("external:{package}");
-          external_nodes.entry(id.clone()).or_insert_with(|| GraphNode {
-            id: id.clone(),
-            kind: NodeKind::External,
-            path: package.clone(),
-            name: package.clone(),
-          });
-          edges.push(edge(
-            &from,
-            &id,
-            EdgeKind::ExternalImport,
-            &import.source,
-            import.span.clone(),
-          ));
-        }
-        Resolution::Unresolved => {
-          diagnostics.push(unresolved_diagnostic(
-            file.path.as_path(),
-            &import.source,
-            import.span.clone(),
-          ));
-        }
-      }
+    let output = if let Some(cached) =
+      state.structural.files.get(&file.path).filter(|cached| cached.facts == file.facts)
+    {
+      state.last_stats.structural_files_reused += 1;
+      cached.output.clone()
+    } else {
+      state.last_stats.structural_files_rebuilt += 1;
+      analyze_structural_file(
+        file,
+        &resolver,
+        &known,
+        &node_by_path,
+        &component_by_name,
+        &composable_by_name,
+        &module_ids,
+      )
+    };
+    for node in &output.external_nodes {
+      external_nodes.entry(node.id.clone()).or_insert_with(|| node.clone());
     }
-
-    for element in &file.facts.template.elements {
-      let tag = comparable_name(&element.tag);
-      if let Some(import) = imports.iter().find(|import| comparable_name(&import.local) == tag) {
-        if let Resolution::File(target) = resolver.resolve(&path, &import.source, &known)
-          && let Some(to) = node_by_path.get(&target)
-        {
-          edges.push(edge(&from, to, EdgeKind::ComponentUsage, &element.tag, element.span.clone()));
-        }
-      } else {
-        for to in auto_component_targets(&element.tag, &component_by_name) {
-          edges.push(edge(&from, &to, EdgeKind::AutoComponent, &element.tag, element.span.clone()));
-        }
-      }
-    }
-
-    for call in file.facts.script.blocks.iter().flat_map(|block| &block.calls) {
-      if let Some(to) = composable_by_name.get(&call.callee) {
-        edges.push(edge(&from, to, EdgeKind::AutoComposable, &call.callee, call.span.clone()));
-      }
-    }
+    edges.extend(output.edges.iter().cloned());
+    diagnostics.extend(output.diagnostics.iter().cloned());
+    module_links.extend(output.module_links.iter().cloned());
+    next_file_cache
+      .insert(file.path.clone(), StructuralFileCache { facts: Arc::clone(&file.facts), output });
   }
-
+  state.structural.files = next_file_cache;
   nodes.extend(external_nodes.into_values());
   nodes.sort();
   edges.sort();
@@ -238,28 +345,23 @@ pub fn build_project_graph_with_options(
       &right.rule_id,
     ))
   });
-  let (mut module_reactivity, reactivity_error) =
-    match trace_modules_with_options(&module_sources, &module_links, trace_options) {
-      Ok(reactivity) => (reactivity, None),
-      Err(error) => {
-        // Keep every independently traceable local graph. One bad link/module
-        // must not erase useful reactivity facts for the rest of the project.
-        let mut partial = module_sources
-          .iter()
-          .filter_map(|module| {
-            trace_modules_with_options(
-              std::slice::from_ref(module),
-              &[],
-              TraceModulesOptions { max_workers: 1 },
-            )
-            .ok()
-          })
-          .flatten()
-          .collect::<Vec<_>>();
-        partial.sort_by(|left, right| left.id.cmp(&right.id));
-        (partial, Some(error.to_string()))
-      }
-    };
+  let trace_report = trace_modules_incremental_with_options(
+    &module_sources,
+    &module_links,
+    trace_options,
+    &mut state.module_trace,
+  );
+  state.last_stats.module_graphs_reused = trace_report.stats.reused_graphs;
+  state.last_stats.seeded_module_reparses = trace_report.stats.seeded_reparses;
+  let mut module_reactivity = trace_report.modules;
+  let reactivity_issues = trace_report
+    .issues
+    .into_iter()
+    .map(|error| ReactivityIssue { module: error.module_id().cloned(), message: error.to_string() })
+    .collect::<Vec<_>>();
+  let reactivity_error = (!reactivity_issues.is_empty()).then(|| {
+    reactivity_issues.iter().map(|issue| issue.message.as_str()).collect::<Vec<_>>().join("; ")
+  });
   // Re-apply SFC template joins onto module graphs so cross-file seeds and
   // template reads share one fact surface. Spans stay SFC-absolute when the
   // module carried `source_offset` + `span_source`.
@@ -268,7 +370,7 @@ pub fn build_project_graph_with_options(
     .map(|file| (normalized_path(file.path.as_path()), &file.facts.template))
     .collect::<BTreeMap<_, _>>();
   for module in &mut module_reactivity {
-    if let Some(template) = templates.get(&module.id) {
+    if let Some(template) = templates.get(module.id.as_str()) {
       module.graph.join_template_reads(template);
     }
   }
@@ -296,7 +398,7 @@ pub fn build_project_graph_with_options(
     .collect::<Vec<_>>();
   join_prop_flows(&mut module_reactivity, &prop_sites);
   let mut invalidation_inputs = known.into_iter().collect::<Vec<_>>();
-  invalidation_inputs.extend(resolver_config_inputs(&root));
+  invalidation_inputs.extend(project_context.invalidation_inputs.iter().cloned());
   invalidation_inputs.sort();
   invalidation_inputs.dedup();
   ProjectGraph {
@@ -306,8 +408,123 @@ pub fn build_project_graph_with_options(
     diagnostics,
     invalidation_inputs,
     module_reactivity,
+    reactivity_issues,
     reactivity_error,
   }
+}
+
+fn is_project_invalidation_input(path: &str) -> bool {
+  let name = Path::new(path).file_name().and_then(|name| name.to_str()).unwrap_or(path);
+  name == "package.json"
+    || matches!(
+      path,
+      "package-lock.json"
+        | "pnpm-lock.yaml"
+        | "yarn.lock"
+        | "bun.lock"
+        | "bun.lockb"
+        | "tsconfig.json"
+        | "tsconfig.app.json"
+        | "tsconfig.node.json"
+        | ".nuxt/tsconfig.json"
+        | ".nuxt/components.d.ts"
+        | ".nuxt/types/components.d.ts"
+    )
+    || (name.starts_with("tsconfig")
+      && Path::new(name)
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("json")))
+}
+
+fn analyze_structural_file(
+  file: &ProjectFile,
+  resolver: &ProjectResolver,
+  known: &BTreeSet<String>,
+  node_by_path: &BTreeMap<String, String>,
+  component_by_name: &BTreeMap<String, Vec<String>>,
+  composable_by_name: &BTreeMap<String, String>,
+  module_ids: &BTreeSet<ModuleId>,
+) -> StructuralFileOutput {
+  let path = normalized_path(file.path.as_path());
+  let from = file_id(&path);
+  let imports = all_imports(&file.facts.script);
+  let mut output = StructuralFileOutput::default();
+  for import in &imports {
+    match resolver.resolve(&path, &import.source, known) {
+      Resolution::File(target) => {
+        if let Some(to) = node_by_path.get(&target) {
+          output.edges.push(edge(&from, to, EdgeKind::Import, &import.source, import.span.clone()));
+        }
+        let target_id = ModuleId::primary(&FileId::from(target.as_str()));
+        for module_from in [ModuleId::primary(&file.path), ModuleId::ordinary(&file.path)] {
+          if module_ids.contains(&module_from) && module_ids.contains(&target_id) {
+            output.module_links.push(ModuleLink {
+              from: module_from,
+              specifier: import.source.clone(),
+              to: target_id.clone(),
+            });
+          }
+        }
+      }
+      Resolution::External(package) => {
+        let id = format!("external:{package}");
+        output.external_nodes.push(GraphNode {
+          id: id.clone(),
+          kind: NodeKind::External,
+          path: package.clone(),
+          name: package,
+        });
+        output.edges.push(edge(
+          &from,
+          &id,
+          EdgeKind::ExternalImport,
+          &import.source,
+          import.span.clone(),
+        ));
+      }
+      Resolution::Unresolved => {
+        output.diagnostics.push(unresolved_diagnostic(
+          file.path.as_path(),
+          &import.source,
+          import.span.clone(),
+        ));
+      }
+    }
+  }
+
+  for element in &file.facts.template.elements {
+    let tag = comparable_name(&element.tag);
+    if let Some(import) = imports.iter().find(|import| comparable_name(&import.local) == tag) {
+      if let Resolution::File(target) = resolver.resolve(&path, &import.source, known)
+        && let Some(to) = node_by_path.get(&target)
+      {
+        output.edges.push(edge(
+          &from,
+          to,
+          EdgeKind::ComponentUsage,
+          &element.tag,
+          element.span.clone(),
+        ));
+      }
+    } else {
+      for to in auto_component_targets(&element.tag, component_by_name) {
+        output.edges.push(edge(
+          &from,
+          &to,
+          EdgeKind::AutoComponent,
+          &element.tag,
+          element.span.clone(),
+        ));
+      }
+    }
+  }
+
+  for call in file.facts.script.blocks.iter().flat_map(|block| &block.calls) {
+    if let Some(to) = composable_by_name.get(&call.callee) {
+      output.edges.push(edge(&from, to, EdgeKind::AutoComposable, &call.callee, call.span.clone()));
+    }
+  }
+  output
 }
 
 fn all_imports(script: &ScriptFacts) -> Vec<&vue_vet_core::ScriptImportFact> {
@@ -556,7 +773,7 @@ mod tests {
     ProjectFile {
       path: path.into(),
       source_len: 100,
-      facts: SfcFacts { template, script },
+      facts: SfcFacts { template, script }.into(),
       module_source: None,
       ordinary_module_source: None,
     }
@@ -587,6 +804,45 @@ mod tests {
     let reverse = build_project_graph(project.root(), &[second, first]);
     assert_eq!(forward, reverse, "input traversal order must not affect the graph");
     assert_eq!(forward.edges.len(), 2, "both sides of an import cycle must be represented");
+  }
+
+  #[test]
+  fn incremental_structure_rebuilds_only_changed_file_facts() {
+    let project = TempProject::new("incremental-structure");
+    let first = file("src/a.vue", &[], &["main"], &[]);
+    let second = file("src/b.vue", &[], &["aside"], &[]);
+    materialize(&project, &[first.clone(), second.clone()]);
+    let mut state = ProjectGraphState::default();
+    let context = ProjectContext { revision: 1, ..ProjectContext::default() };
+    let _initial = build_project_graph_incremental_with_options(
+      project.root(),
+      &[first.clone(), second.clone()],
+      TraceModulesOptions { max_workers: 1 },
+      &context,
+      &mut state,
+    );
+    assert_eq!(state.last_stats().structural_files_rebuilt, 2);
+
+    let _unchanged = build_project_graph_incremental_with_options(
+      project.root(),
+      &[first.clone(), second],
+      TraceModulesOptions { max_workers: 1 },
+      &context,
+      &mut state,
+    );
+    assert_eq!(state.last_stats().structural_files_reused, 2);
+    assert_eq!(state.last_stats().structural_files_rebuilt, 0);
+
+    let changed = file("src/b.vue", &[], &["section"], &[]);
+    let _changed = build_project_graph_incremental_with_options(
+      project.root(),
+      &[first, changed],
+      TraceModulesOptions { max_workers: 1 },
+      &context,
+      &mut state,
+    );
+    assert_eq!(state.last_stats().structural_files_reused, 1);
+    assert_eq!(state.last_stats().structural_files_rebuilt, 1);
   }
 
   #[test]
@@ -844,6 +1100,30 @@ export const LazyButton: LazyComponent<typeof import("../components/base/Button.
   }
 
   #[test]
+  fn project_context_uses_already_read_nuxt_declarations() {
+    let project = TempProject::new("snapshot-context");
+    let known = [FileId::from("components/Panel.vue")];
+    let declaration =
+      b"export const CustomPanel: typeof import('../components/Panel.vue')['default']";
+    let package = br#"{"name":"fixture"}"#;
+    let context = project_context_from_inputs(
+      project.root(),
+      &known,
+      [
+        (".nuxt/components.d.ts", declaration.as_slice()),
+        ("apps/admin/package.json", package.as_slice()),
+      ],
+      7,
+    );
+    assert_eq!(
+      context.nuxt_component_names.get("CustomPanel").map(String::as_str),
+      Some("components/Panel.vue")
+    );
+    assert_eq!(context.revision, 7);
+    assert_eq!(context.invalidation_inputs, [".nuxt/components.d.ts", "apps/admin/package.json"]);
+  }
+
+  #[test]
   fn vue_modules_receive_composable_seeds_and_template_joins() {
     let project = TempProject::new("module-seeds");
     let producer_source = "import { toRef } from 'vue'; export function useField(props) { return { title: toRef(props, 'title') }; }";
@@ -857,7 +1137,7 @@ export const LazyButton: LazyComponent<typeof import("../components/base/Button.
     let producer = ProjectFile {
       path: "composables/useField.ts".into(),
       source_len: producer_source.len(),
-      facts: SfcFacts { template: TemplateFacts::default(), script: ScriptFacts::default() },
+      facts: SfcFacts { template: TemplateFacts::default(), script: ScriptFacts::default() }.into(),
       module_source: Some(ModuleSource::standalone(
         "composables/useField.ts",
         producer_source,
@@ -896,7 +1176,8 @@ export const LazyButton: LazyComponent<typeof import("../components/base/Button.
             reactivity_graph: vue_vet_core::ReactivityGraph::default(),
           }],
         },
-      },
+      }
+      .into(),
       module_source: Some(ModuleSource::sfc_script(
         "pages/index.vue",
         consumer_script,
