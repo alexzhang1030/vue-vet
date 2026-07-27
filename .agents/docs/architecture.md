@@ -128,8 +128,10 @@ names use snake_case (see [conventions](./conventions.md)).
 
 Tagged releases publish those two crates automatically from
 `.github/workflows/release.yml` (after quality gates; `vue_vet_core` then
-`vue_vet_reactivity`) using the `CARGO_REGISTRY_TOKEN` repository secret. See
-[install docs](../../docs/install.md).
+`vue_vet_reactivity`) using the `CARGO_REGISTRY_TOKEN` repository secret.
+Index polls use a descriptive User-Agent and skip versions already on the
+registry so a partial publish can resume. See [install docs](../../docs/install.md)
+and [gotchas](./gotchas.md) (`crates.io API calls need a User-Agent`).
 
 ### Native binary and npm distribution
 
