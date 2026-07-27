@@ -1,7 +1,8 @@
-//! Structural component reference navigation (not prop dataflow).
+//! Structural component reference navigation.
 //!
-//! Built from project-graph `ComponentUsage` / `AutoComponent` edges. Parents
-//! passing `:foo` into a child `defineProps` is intentionally out of scope.
+//! Built from project-graph `ComponentUsage` / `AutoComponent` edges. Static
+//! parent `:foo` → child `props.foo` dataflow lives on reactivity
+//! [`vue_vet_core::ReactiveDependencyKind::Prop`] edges, not this digest.
 
 use std::collections::BTreeMap;
 

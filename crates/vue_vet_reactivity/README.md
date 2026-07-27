@@ -13,9 +13,14 @@ library surface (project graph, cache, future LSP / codemod tools).
 ## Status
 
 Early `0.x`. The fact schema is versioned
-(`REACTIVITY_GRAPH_VERSION` in `vue_vet_core`); treat the Rust API as evolving
-until Vue Vet hits a stable release. Prefer **under-approximation**: missing
-edges are quiet failure; invented edges are bugs.
+(`REACTIVITY_GRAPH_VERSION = 8` in `vue_vet_core`: module-qualified
+`to_id`, `property` / `to_path`). In-scope design axes A1–A7 and Evidence are
+**complete** per the repository PCR
+([reactivity tracer](https://github.com/alexzhang1030/vue-vet/blob/main/.agents/docs/reactivity-tracer.md))
+— complete means the in-scope checklists, not whole-program JS soundness.
+Treat the Rust API as evolving until Vue Vet hits a stable release. Prefer
+**under-approximation**: missing edges are quiet failure; invented edges are
+bugs.
 
 ## Install
 
@@ -120,8 +125,12 @@ Design axes and honesty bounds live in the repository PCR:
 ## Evidence
 
 In-tree tests include exhaustive local fixtures and a Vue `onTrack` runtime
-oracle (`oracle/`, refreshed with `just oracle-refresh`). Published crates omit
-those fixtures; clone the repository to run them.
+oracle (`oracle/`, refreshed with `just oracle-refresh`). Gate: `just oracle`
+asserts `tracer ⊆ runtime` and ≥99% recall on the **committed representative
+cases** (not every SFC in the wild). Deep `watch(reactive)` uses static
+`property: "*"`. Cross-file prop flow is covered by unit/project fixtures
+(static join; not an `onTrack` pair). Published crates omit those fixtures;
+clone the repository to run them.
 
 ## License
 

@@ -385,6 +385,8 @@ pub enum ReactiveDependencyKind {
   Effect,
   /// Template expression mentions a script reactive binding.
   Template,
+  /// Cross-file parent `:prop` → child `props.prop` (static identifier binds only).
+  Prop,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -458,9 +460,11 @@ impl ReactiveDependencyEdge {
   }
 
   /// Display path `to` or `to.property` for inspector / humanize surfaces.
+  /// Deep-watch sentinel `*` renders as `{to} (deep)`.
   #[must_use]
   pub fn to_path(&self) -> String {
     match &self.property {
+      Some(property) if property == "*" => format!("{} (deep)", self.to),
       Some(property) if !property.is_empty() => format!("{}.{property}", self.to),
       _ => self.to.clone(),
     }
@@ -485,7 +489,7 @@ pub struct ReactivityEffectFact {
 
 /// Wire format version for [`ReactivityGraph`]. Bump when consumers must
 /// distinguish shape or semantic changes in serialized facts.
-pub const REACTIVITY_GRAPH_VERSION: u32 = 7;
+pub const REACTIVITY_GRAPH_VERSION: u32 = 8;
 
 const fn default_reactivity_graph_version() -> u32 {
   1
@@ -496,6 +500,10 @@ pub struct ReactivityGraph {
   /// Fact-schema version. Absent/legacy payloads deserialize as `1`.
   #[serde(default = "default_reactivity_graph_version")]
   pub version: u32,
+  /// Logical module path used to qualify edge `to_id` (`{module}:{name}@{offset}`).
+  /// Empty for anonymous single-script traces (falls back to `{name}@{offset}`).
+  #[serde(default, skip_serializing_if = "String::is_empty")]
+  pub module_id: String,
   pub bindings: Vec<ReactiveBindingFact>,
   /// All tracking scopes (effects, computed, watch sources/callbacks, …).
   #[serde(default)]
@@ -519,6 +527,7 @@ impl Default for ReactivityGraph {
   fn default() -> Self {
     Self {
       version: REACTIVITY_GRAPH_VERSION,
+      module_id: String::new(),
       bindings: Vec::new(),
       scopes: Vec::new(),
       effects: Vec::new(),
@@ -526,6 +535,16 @@ impl Default for ReactivityGraph {
       template_reads: Vec::new(),
       composable_instances: std::collections::BTreeMap::new(),
     }
+  }
+}
+
+/// Build a span-qualified dependency identity, optionally module-prefixed (graph v8).
+#[must_use]
+pub fn qualify_dependency_to_id(module_id: &str, name: &str, offset: usize) -> String {
+  if module_id.is_empty() {
+    format!("{name}@{offset}")
+  } else {
+    format!("{module_id}:{name}@{offset}")
   }
 }
 
@@ -548,6 +567,13 @@ fn scope_edge_from(scope: &TrackingScopeFact) -> String {
 }
 
 impl ReactivityGraph {
+  /// Set the logical module path and rebuild edge `to_id` values (graph v8).
+  pub fn set_module_id(&mut self, module_id: impl Into<String>) {
+    self.module_id = module_id.into();
+    self.version = REACTIVITY_GRAPH_VERSION;
+    self.rebuild_dependency_edges();
+  }
+
   /// Rebuild the legacy `effects` projection and dependency edges from `scopes`.
   pub fn project_effects_from_scopes(&mut self) {
     self.version = REACTIVITY_GRAPH_VERSION;
@@ -675,8 +701,8 @@ impl ReactivityGraph {
           from: from.clone(),
           // Bare name for rule matching (e.g. unused-binding).
           to: read.binding.clone(),
-          // Span-qualified for multi-consumer identity (graph v6).
-          to_id: Some(format!("{}@{}", read.binding, read.span.offset)),
+          // Module + span-qualified for multi-consumer identity (graph v8).
+          to_id: Some(qualify_dependency_to_id(&self.module_id, &read.binding, read.span.offset)),
           property: read.property.clone(),
           kind,
           span: read.span.clone(),
@@ -688,7 +714,11 @@ impl ReactivityGraph {
         // Span-qualified so multiple interpolations are distinct nodes.
         from: format!("template:{}@{}", template_read.surface, template_read.span.offset),
         to: template_read.binding.clone(),
-        to_id: Some(format!("{}@{}", template_read.binding, template_read.span.offset)),
+        to_id: Some(qualify_dependency_to_id(
+          &self.module_id,
+          &template_read.binding,
+          template_read.span.offset,
+        )),
         property: None,
         kind: ReactiveDependencyKind::Template,
         span: template_read.span.clone(),

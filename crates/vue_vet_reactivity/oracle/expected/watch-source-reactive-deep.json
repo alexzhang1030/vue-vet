@@ -1,0 +1,14 @@
+{
+  "id": "watch-source-reactive-deep",
+  "source": "import { reactive, watch } from 'vue'\nconst state = reactive({ n: 1 })\nwatch(state, () => {})\n",
+  "runtime_deps": [
+    {
+      "binding": "state",
+      "key": "n"
+    },
+    {
+      "binding": "state",
+      "key": "Symbol(Object iterate)"
+    }
+  ]
+}

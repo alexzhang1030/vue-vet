@@ -357,14 +357,18 @@ fn worker_trace_module(
     injects,
   };
   if facts_tx.send(Ok(facts)).is_err() {
-    return Ok(ModuleReactivity { id: module.id.clone(), graph: local_graph });
+    let mut graph = local_graph;
+    graph.set_module_id(module.id.clone());
+    return Ok(ModuleReactivity { id: module.id.clone(), graph });
   }
 
   let Ok(plan) = seed_rx.recv() else {
-    return Ok(ModuleReactivity { id: module.id.clone(), graph: local_graph });
+    let mut graph = local_graph;
+    graph.set_module_id(module.id.clone());
+    return Ok(ModuleReactivity { id: module.id.clone(), graph });
   };
 
-  let graph = if plan.is_empty() {
+  let mut graph = if plan.is_empty() {
     local_graph
   } else {
     drop(local_graph);
@@ -377,6 +381,7 @@ fn worker_trace_module(
       &seeds,
     )
   };
+  graph.set_module_id(module.id.clone());
   Ok(ModuleReactivity { id: module.id.clone(), graph })
 }
 

@@ -526,6 +526,7 @@ const fn dependency_kind_label(kind: ReactiveDependencyKind) -> &'static str {
     ReactiveDependencyKind::Computed => "computed",
     ReactiveDependencyKind::Effect => "effect",
     ReactiveDependencyKind::Template => "template",
+    ReactiveDependencyKind::Prop => "prop",
   }
 }
 

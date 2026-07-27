@@ -17,7 +17,7 @@ use oxc_span::SourceType;
 use serde::Deserialize;
 use vue_vet_core::{ReactiveReadKind, ReactivityGraph, ScriptKind};
 
-use crate::trace_reactivity;
+use crate::{DEEP_WATCH_PROPERTY, trace_reactivity};
 
 #[derive(Debug, Deserialize)]
 struct OracleCase {
@@ -102,14 +102,33 @@ fn oracle_tracer_is_under_approximation_of_runtime() {
     let tracer = tracking_dep_keys(&graph);
     let runtime = runtime_keys(&case.runtime_deps);
 
-    let invented = tracer.difference(&runtime).cloned().collect::<Vec<_>>();
+    let invented = tracer
+      .iter()
+      .filter(|dep| {
+        // Deep-root sentinel `*` under-approximates runtime deep watches when the
+        // binding appears in any runtime dep; it must not invent a concrete key.
+        if dep.1.as_deref() == Some(DEEP_WATCH_PROPERTY) {
+          return !runtime.iter().any(|(binding, _)| binding == &dep.0);
+        }
+        !runtime.contains(dep)
+      })
+      .cloned()
+      .collect::<Vec<_>>();
     assert!(
       invented.is_empty(),
       "oracle {} invented deps not in runtime: {invented:?}\ntracer={tracer:?}\nruntime={runtime:?}",
       case.id
     );
 
-    let hits = tracer.intersection(&runtime).count();
+    let concrete_hits = tracer.intersection(&runtime).count();
+    // A deep-root sentinel covers every runtime dep key on that binding (iterate +
+    // nested fields) without claiming those concrete keys in the tracer set.
+    let deep_covered = tracer
+      .iter()
+      .filter(|dep| dep.1.as_deref() == Some(DEEP_WATCH_PROPERTY))
+      .map(|dep| runtime.iter().filter(|(binding, _)| binding == &dep.0).count())
+      .sum::<usize>();
+    let hits = concrete_hits.saturating_add(deep_covered);
     total_runtime = total_runtime.saturating_add(runtime.len());
     total_hit = total_hit.saturating_add(hits);
     let recall = if runtime.is_empty() {

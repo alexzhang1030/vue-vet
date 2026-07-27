@@ -85,17 +85,16 @@ pub fn humanize_edge_parts(from: &str, to: &str) -> String {
 /// Humanize an edge whose dependency may be a member path (`props.count`).
 #[must_use]
 pub fn humanize_edge_parts_with_property(from: &str, to: &str, property: Option<&str>) -> String {
-  let target = match property {
-    Some(property) if !property.is_empty() => format!("{to}.{property}"),
-    _ => to.to_owned(),
-  };
-  humanize_edge_parts(from, &target)
+  humanize_edge_parts(from, &to_path(to, property))
 }
 
 /// Display path for a dependency target.
+///
+/// Deep-watch sentinel `*` renders as `binding (deep)`.
 #[must_use]
 pub fn to_path(to: &str, property: Option<&str>) -> String {
   match property {
+    Some("*") => format!("{to} (deep)"),
     Some(property) if !property.is_empty() => format!("{to}.{property}"),
     _ => to.to_owned(),
   }
@@ -148,11 +147,14 @@ pub fn humanize_template_read_parts(binding: &str, surface: &str) -> String {
   format!("{}  reads  {binding}", humanize_template_surface(surface))
 }
 
-/// Parse `{name}@{offset}` identities used by graph v6 `to_id` / template labels.
+/// Parse `{name}@{offset}` or `{module}:{name}@{offset}` identities (graph v6/v8).
+///
+/// Returns the **local binding name** (module prefix stripped) and byte offset.
 #[must_use]
 pub fn parse_name_offset(identity: &str) -> Option<(&str, usize)> {
-  let (name, offset) = identity.rsplit_once('@')?;
+  let (name_part, offset) = identity.rsplit_once('@')?;
   let offset = offset.parse().ok()?;
+  let name = name_part.rsplit_once(':').map_or(name_part, |(_, name)| name);
   Some((name, offset))
 }
 
@@ -181,6 +183,8 @@ mod tests {
   #[test]
   fn parses_span_qualified_identities() {
     assert_eq!(parse_name_offset("error@420"), Some(("error", 420)));
+    assert_eq!(parse_name_offset("src/App.vue:error@420"), Some(("error", 420)));
     assert_eq!(parse_name_offset("no-at"), None);
+    assert_eq!(to_path("state", Some("*")), "state (deep)");
   }
 }
