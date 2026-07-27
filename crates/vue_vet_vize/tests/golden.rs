@@ -433,6 +433,60 @@ fn practice_vueuse_safe_fixtures_produce_no_diagnostics() {
 }
 
 #[test]
+fn anchor_has_content_fixtures_match_exact_diagnostics() {
+  assert_diagnostics(
+    "fixtures/rules/anchor-has-content/invalid/icon-only.vue",
+    include_str!("../../../fixtures/rules/anchor-has-content/invalid/icon-only.vue"),
+    include_str!("../../../fixtures/snapshots/anchor-has-content/icon-only.json"),
+  );
+  assert_diagnostics(
+    "fixtures/rules/anchor-has-content/invalid/empty.vue",
+    include_str!("../../../fixtures/rules/anchor-has-content/invalid/empty.vue"),
+    include_str!("../../../fixtures/snapshots/anchor-has-content/empty.json"),
+  );
+  assert_diagnostics(
+    "fixtures/rules/anchor-has-content/invalid/aria-hidden-child.vue",
+    include_str!("../../../fixtures/rules/anchor-has-content/invalid/aria-hidden-child.vue"),
+    include_str!("../../../fixtures/snapshots/anchor-has-content/aria-hidden-child.json"),
+  );
+  let empty = "[]";
+  for (path, source) in [
+    (
+      "fixtures/rules/anchor-has-content/valid/text.vue",
+      include_str!("../../../fixtures/rules/anchor-has-content/valid/text.vue"),
+    ),
+    (
+      "fixtures/rules/anchor-has-content/valid/aria-label.vue",
+      include_str!("../../../fixtures/rules/anchor-has-content/valid/aria-label.vue"),
+    ),
+    (
+      "fixtures/rules/anchor-has-content/valid/img-alt.vue",
+      include_str!("../../../fixtures/rules/anchor-has-content/valid/img-alt.vue"),
+    ),
+    (
+      "fixtures/rules/anchor-has-content/valid/interpolation.vue",
+      include_str!("../../../fixtures/rules/anchor-has-content/valid/interpolation.vue"),
+    ),
+  ] {
+    assert_diagnostics(path, source, empty);
+  }
+}
+
+#[test]
+fn button_has_content_fixtures_match_exact_diagnostics() {
+  assert_diagnostics(
+    "fixtures/rules/button-has-content/invalid/icon-only.vue",
+    include_str!("../../../fixtures/rules/button-has-content/invalid/icon-only.vue"),
+    include_str!("../../../fixtures/snapshots/button-has-content/icon-only.json"),
+  );
+  assert_diagnostics(
+    "fixtures/rules/button-has-content/valid/aria-label.vue",
+    include_str!("../../../fixtures/rules/button-has-content/valid/aria-label.vue"),
+    "[]",
+  );
+}
+
+#[test]
 fn no_v_html_invalid_fixtures_match_exact_diagnostics() {
   assert_diagnostics(
     "fixtures/rules/no-v-html/invalid/basic.vue",

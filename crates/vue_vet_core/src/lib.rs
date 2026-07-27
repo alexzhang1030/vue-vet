@@ -159,7 +159,13 @@ pub struct TemplateElementFact {
   pub span: SourceSpan,
   pub attributes: Vec<TemplateAttributeFact>,
   pub directives: Vec<TemplateDirectiveFact>,
+  /// True when the element node lists any child AST nodes (including whitespace/comments).
   pub has_children: bool,
+  /// True when the subtree exposes screen-reader content: non-whitespace text,
+  /// interpolation, `v-text`/`v-html`, or `img`/`area` with a non-empty `alt`.
+  /// Element-only trees (icon `<div>`s) are false even when `has_children` is true.
+  #[serde(default)]
+  pub has_accessible_content: bool,
 }
 
 impl TemplateElementFact {

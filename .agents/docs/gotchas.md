@@ -40,6 +40,17 @@ symlink rather than a directory, so naive walks try to `fs::read` them and
 fail with EISDIR. Project walks must skip `node_modules` entirely and only
 accept paths where `Path::is_file()` is true after symlink resolution.
 
+## `has_children` is not accessible content
+
+Template facts keep `has_children` for structural rules (`valid-v-html`,
+`valid-v-text`). Accessibility rules that need a discernable name
+(`anchor-has-content`, `button-has-content`) must use
+`has_accessible_content`: non-whitespace text, interpolation, `v-text` /
+`v-html`, or a descendant `img`/`area` with non-empty `alt`. Icon-only
+element trees (for example `<a><div class="i-carbon-logo-github" /></a>`)
+set `has_children` and clear `has_accessible_content`. Do not treat child
+presence alone as an accessible name; `title` is also insufficient.
+
 ## Safe fixes need complete source coverage
 
 A diagnostic span is not automatically a safe replacement span. For example,

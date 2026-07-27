@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/accessibility/button-has-content",
+    "category": "accessibility",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/accessibility/button-has-content",
+    "message": "button has no accessible content",
+    "help": "Add text content, an img/area with alt, or an aria-label/aria-labelledby binding.",
+    "file": "fixtures/rules/button-has-content/invalid/icon-only.vue",
+    "span": {
+      "offset": 13,
+      "length": 22,
+      "line": 2,
+      "column": 3
+    }
+  }
+]
