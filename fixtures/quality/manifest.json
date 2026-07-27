@@ -31,6 +31,18 @@
       "path": "fixtures/projects/vue-3.5",
       "roles": ["vue", "compatibility", "precision"],
       "tree_digest": "052dea6cfd02ba586b68a4c101b477305557c0878c466fea7384217eeedcbbb2"
+    },
+    {
+      "id": "prop-flow",
+      "path": "fixtures/projects/prop-flow",
+      "roles": ["vue", "precision"],
+      "tree_digest": "30d22aa2b377c946b672c185d8c73ee51bed38c4468d697c342f37b49519fb75"
+    },
+    {
+      "id": "practice-vueuse",
+      "path": "fixtures/projects/practice-vueuse",
+      "roles": ["vue", "precision"],
+      "tree_digest": "737fd356e70d3ac75b4880b5292d74c314df1411ef563f0a90baf45781a77764"
     }
   ]
 }

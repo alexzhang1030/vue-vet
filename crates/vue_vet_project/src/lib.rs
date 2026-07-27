@@ -249,13 +249,16 @@ pub fn build_project_graph(root: &Path, files: &[ProjectFile]) -> ProjectGraph {
     .iter()
     .filter(|edge| matches!(edge.kind, EdgeKind::ComponentUsage | EdgeKind::AutoComponent))
     .filter_map(|edge| {
-      let parent_template = *templates.get(&edge.from)?;
-      let parent_graph = graph_snapshots.get(&edge.from)?;
+      // Graph edges use `file:{path}` node ids; module graphs / templates use bare paths.
+      let parent_path = edge.from.strip_prefix("file:").unwrap_or(edge.from.as_str());
+      let child_path = edge.to.strip_prefix("file:").unwrap_or(edge.to.as_str());
+      let parent_template = *templates.get(parent_path)?;
+      let parent_graph = graph_snapshots.get(parent_path)?;
       Some(PropFlowSite {
         element_span: edge.evidence.clone(),
         parent_template,
         parent_graph,
-        child_module: edge.to.as_str(),
+        child_module: child_path,
       })
     })
     .collect::<Vec<_>>();

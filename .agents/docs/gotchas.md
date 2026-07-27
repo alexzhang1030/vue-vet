@@ -188,6 +188,19 @@ Arbitrary objects with a `.run` method must stay quiet — inventing
 `effectScope.run` edges violates under-approx. See the reorientation in
 [reactivity tracer](./reactivity-tracer.md).
 
+## Project graph node ids are not module ids
+
+`ProjectGraph` edges use `file:{path}` node ids. Reactivity module graphs and
+template maps use bare logical paths (`Parent.vue`). Prop-flow joins (and any
+future edge→module joins) must strip the `file:` prefix before looking up
+templates or `module_reactivity` entries — otherwise sites silently vanish.
+Structural `component_nav` already normalizes; do not copy raw `edge.from` /
+`edge.to` into module-id APIs.
+
+Quiet gaps still expected after fixture sweeps: whole-object `v-bind="obj"`,
+complex prop expressions, and App Tree provide/inject remain under-approx
+stops (see [reactivity tracer](./reactivity-tracer.md)).
+
 ## Runtime oracle is the precision ruler
 
 Committed `crates/vue_vet_reactivity/oracle/expected/*.json` capture Vue
