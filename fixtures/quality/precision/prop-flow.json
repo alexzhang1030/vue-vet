@@ -1,4 +1,17 @@
 {
   "project": "prop-flow",
-  "findings": []
+  "findings": [
+    {
+      "rule_id": "vue-vet/project/unresolved-import",
+      "file": "Parent.vue",
+      "classification": "false_positive",
+      "rationale": "Stub vue install must resolve; prop-flow is not an unresolved-import case"
+    },
+    {
+      "rule_id": "vue-vet/reactivity/no-unused-reactive-binding",
+      "file": "Parent.vue",
+      "classification": "false_positive",
+      "rationale": "Parent refs are consumed by child prop edges / template"
+    }
+  ]
 }

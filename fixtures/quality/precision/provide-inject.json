@@ -1,4 +1,17 @@
 {
   "project": "provide-inject",
-  "findings": []
+  "findings": [
+    {
+      "rule_id": "vue-vet/reactivity/no-unused-reactive-binding",
+      "file": "Consumer.vue",
+      "classification": "false_positive",
+      "rationale": "Injected count is read via doubled computed / template"
+    },
+    {
+      "rule_id": "vue-vet/project/unresolved-import",
+      "file": "Provider.vue",
+      "classification": "false_positive",
+      "rationale": "Stub vue install must resolve for provide/inject seeds"
+    }
+  ]
 }

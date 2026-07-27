@@ -84,6 +84,30 @@
       "file": "BadRole.vue",
       "classification": "true_positive",
       "rationale": "Native button with redundant role=button"
+    },
+    {
+      "rule_id": "vue-vet/accessibility/form-control-has-label",
+      "file": "LabeledControls.vue",
+      "classification": "false_positive",
+      "rationale": "Labeled / aria-named / hidden controls must stay quiet"
+    },
+    {
+      "rule_id": "vue-vet/accessibility/anchor-has-content",
+      "file": "SafeNamedControls.vue",
+      "classification": "false_positive",
+      "rationale": "Icon link with aria-label must stay quiet"
+    },
+    {
+      "rule_id": "vue-vet/accessibility/button-has-content",
+      "file": "SafeNamedControls.vue",
+      "classification": "false_positive",
+      "rationale": "Icon button with aria-label must stay quiet"
+    },
+    {
+      "rule_id": "vue-vet/accessibility/heading-has-content",
+      "file": "SafeNamedControls.vue",
+      "classification": "false_positive",
+      "rationale": "Heading with interpolated text must stay quiet"
     }
   ]
 }
