@@ -1017,4 +1017,51 @@ const count = ref(0)
       "Vize module_source through project graph must seed after-await title reads"
     );
   }
+
+  #[test]
+  #[expect(
+    clippy::expect_used,
+    clippy::panic,
+    reason = "fixture IO and analysis failures must fail the integration test"
+  )]
+  fn prop_flow_fixture_joins_parent_binding_onto_child_props() {
+    use std::path::PathBuf;
+    use vue_vet_core::ReactiveDependencyKind;
+    use vue_vet_project::{ProjectFile, build_project_graph};
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/projects/prop-flow");
+    let mut files = Vec::new();
+    for name in ["Parent.vue", "Child.vue"] {
+      let source = std::fs::read_to_string(root.join(name)).expect("fixture");
+      let analysis = analysis_for_test(Path::new(name), &source);
+      let Some(module) = analysis.module_source.clone() else {
+        panic!("module source missing for {name}");
+      };
+      files.push(ProjectFile {
+        path: PathBuf::from(name),
+        source_len: source.len(),
+        facts: analysis.facts,
+        module_source: Some({
+          let mut module = module;
+          module.id = name.into();
+          module
+        }),
+        ordinary_module_source: None,
+      });
+    }
+    let graph = build_project_graph(&root, &files);
+    let child = graph.module_reactivity.iter().find(|module| module.id == "Child.vue");
+    assert!(
+      child.is_some_and(|module| {
+        module.graph.edges.iter().any(|edge| {
+          edge.kind == ReactiveDependencyKind::Prop
+            && edge.from == "props"
+            && edge.to == "label"
+            && edge.property.as_deref() == Some("title")
+        })
+      }),
+      "prop-flow fixture must emit Child props←Parent label Prop edge; got {:?}",
+      child.map(|module| &module.graph.edges)
+    );
+  }
 }

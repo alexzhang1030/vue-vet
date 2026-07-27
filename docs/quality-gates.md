@@ -24,6 +24,8 @@ Canonical inventory: [`fixtures/quality/manifest.json`](../fixtures/quality/mani
 | `fixtures/projects/configured` | vue, config, precision | Config discovery with an active finding. |
 | `fixtures/projects/vue-3.4` | vue, compatibility, precision | Version-gated props destructure diagnostic. |
 | `fixtures/projects/vue-3.5` | vue, compatibility, precision | `prefer-use-template-ref` + unresolved import. |
+| `fixtures/projects/prop-flow` | vue, precision | Parent `:title` → child `props` Prop edge (no diagnostic findings). |
+| `fixtures/projects/practice-vueuse` | vue, precision | Practice channel `useTimeoutFn` suggestion on lifecycle `setTimeout`. |
 
 Selection rules:
 

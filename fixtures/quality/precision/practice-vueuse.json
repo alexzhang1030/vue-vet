@@ -1,0 +1,11 @@
+{
+  "project": "practice-vueuse",
+  "findings": [
+    {
+      "rule_id": "vue-vet/practice/vueuse-use-timeout-fn",
+      "file": "App.vue",
+      "classification": "true_positive",
+      "rationale": "setup lifecycle setTimeout without clearTimeout is the practice recipe positive case"
+    }
+  ]
+}
