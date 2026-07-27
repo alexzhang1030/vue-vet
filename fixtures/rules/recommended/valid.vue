@@ -28,9 +28,14 @@ void slots
   <iframe title="Preview" />
   <a href="/docs">Documentation</a>
   <a href="https://github.com" aria-label="GitHub"><div class="i-carbon-logo-github" /></a>
+  <RouterLink to="/">Home</RouterLink>
   <button type="button">Save</button>
   <button type="button" aria-label="Close"><div class="i-carbon-close" /></button>
   <button type="button" @click="activate">Activate</button>
+  <h1>Settings</h1>
+  <label for="email">Email</label>
+  <input id="email">
+  <label><input type="checkbox"> Remember me</label>
   <input>
   <MyButton @click="activate" />
   <div tabindex="0">Focusable in document order</div>

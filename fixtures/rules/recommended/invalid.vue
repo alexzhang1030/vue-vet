@@ -45,7 +45,10 @@ componentProps.title = 'changed'
   <img>
   <iframe />
   <a />
+  <RouterLink to="/" />
   <button />
+  <h1 />
+  <label>Email</label>
   <div @click="activate" />
   <input autofocus>
   <MyButton @click.native="activate" />

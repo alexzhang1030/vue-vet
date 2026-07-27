@@ -7,21 +7,21 @@
     "documentation": "rules/accessibility/anchor-has-content",
     "message": "link has no accessible content",
     "help": "Add text content, an img/area with alt, or an aria-label/aria-labelledby binding.",
-    "file": "fixtures/rules/anchor-has-content/invalid/icon-only.vue",
+    "file": "fixtures/rules/anchor-has-content/invalid/router-link.vue",
     "span": {
       "offset": 13,
-      "length": 44,
+      "length": 32,
       "line": 2,
       "column": 3
     },
     "edits": [
       {
-        "file": "fixtures/rules/anchor-has-content/invalid/icon-only.vue",
+        "file": "fixtures/rules/anchor-has-content/invalid/router-link.vue",
         "range": {
-          "offset": 56,
+          "offset": 44,
           "length": 0
         },
-        "replacement": " aria-label=\"GitHub\"",
+        "replacement": " aria-label=\"Home\"",
         "applicability": "safe",
         "rule_id": "vue-vet/accessibility/anchor-has-content"
       }

@@ -58,7 +58,7 @@ Contract version: **`REACTIVITY_GRAPH_VERSION = 8`** (v7 + **module-qualified
 | A3 Reads | complete | `.value` / members / bag.field / sync Array·String·`Array.from`·`JSON.parse` HOF / watch ref `.value` / `unref`·`toValue` / bare `watch(reactive)` deep root `*` | — |
 | A4 Conditions | complete | if / early-exit / ternary / short-circuit / switch roles | — (no further depth) |
 | A5 Boundaries | complete | after-await; pause/enable/resetTracking windows; nested `then`/`nextTick` outside; watch callback outside | — |
-| A6 Modules | complete | composable shapes; instance bags; dual script; provide/inject unique-key; static `:prop` → child `props` Prop edges | — |
+| A6 Modules | complete | composable shapes; instance bags; dual script; provide/inject unique-key; static `:prop` / `v-model` / `ident.member` / `ident.value` → child `props` Prop edges | whole-object `v-bind` stays quiet |
 | A7 Contract | complete | v8 module-qualified `to_id`; v7 `property` / `to_path`; deterministic sort | — |
 | Evidence | complete | Runtime oracle (≥99% recall on committed cases); deep-watch `*`; exhaustive local reads; key SFC E2E | — (prop flow is static unit/project; not an `onTrack` pair) |
 
@@ -218,3 +218,4 @@ growing prose ledger.
 | 2026-07-26 | Graph v7 `property` | Dependency edges carry member path (`props.count`); digest `to_path` + humanize; TUI/VS Code pick `props.*` with inbound filter |
 | 2026-07-26 | Component nav (structural) | JSON `component_nav` + TUI `c` + VS Code tree from `ComponentUsage`/`AutoComponent` only — **not** prop dataflow |
 | 2026-07-27 | Prop dataflow channel | `ReactiveDependencyKind::Prop` via `join_prop_flows` after component edges; structural nav unchanged |
+| 2026-07-27 | Prop flow expression roots | `v-model` → `modelValue`; parent expr roots for bare / `.value` / single `ident.member` |

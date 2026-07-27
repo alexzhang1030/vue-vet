@@ -354,6 +354,7 @@ fn collect_element(
     directives,
     has_children: !element.children.is_empty(),
     has_accessible_content: element_has_accessible_content(element),
+    has_labelable_descendant: children_have_labelable_control(&element.children),
   });
   collect_children(source, template_offset, &element.children, facts, scopes);
   scopes.pop_if(&local_aliases);
@@ -441,6 +442,52 @@ fn element_is_aria_hidden(element: &ElementNode<'_>) -> bool {
     }
   }
   false
+}
+
+fn children_have_labelable_control(children: &[TemplateChildNode<'_>]) -> bool {
+  for child in children {
+    match child {
+      TemplateChildNode::Element(child_element) => {
+        if is_labelable_control_tag(child_element.tag.as_str()) {
+          return true;
+        }
+        if children_have_labelable_control(&child_element.children) {
+          return true;
+        }
+      }
+      TemplateChildNode::If(if_node) => {
+        for branch in &if_node.branches {
+          if children_have_labelable_control(&branch.children) {
+            return true;
+          }
+        }
+      }
+      TemplateChildNode::For(for_node) => {
+        if children_have_labelable_control(&for_node.children) {
+          return true;
+        }
+      }
+      TemplateChildNode::IfBranch(branch) => {
+        if children_have_labelable_control(&branch.children) {
+          return true;
+        }
+      }
+      TemplateChildNode::Text(_)
+      | TemplateChildNode::Comment(_)
+      | TemplateChildNode::Interpolation(_)
+      | TemplateChildNode::TextCall(_)
+      | TemplateChildNode::CompoundExpression(_)
+      | TemplateChildNode::Hoisted(_) => {}
+    }
+  }
+  false
+}
+
+fn is_labelable_control_tag(tag: &str) -> bool {
+  matches!(
+    tag.to_ascii_lowercase().as_str(),
+    "input" | "textarea" | "select" | "button" | "meter" | "output" | "progress"
+  )
 }
 
 fn element_provides_alt_name(element: &ElementNode<'_>) -> bool {
@@ -593,6 +640,19 @@ mod tests {
     match analyze_sfc_with_facts(path, source) {
       Ok(analysis) => analysis,
       Err(error) => panic!("analysis unexpectedly failed: {error}"),
+    }
+  }
+
+  #[test]
+  fn label_facts_mark_nested_labelable_controls() {
+    let source = "<template>\n  <label>\n    <input type=\"text\">\n  </label>\n  <label>Name</label>\n</template>";
+    let facts = facts_for_test(Path::new("Label.vue"), source);
+    let labels =
+      facts.template.elements.iter().filter(|el| el.tag == "label").collect::<Vec<_>>();
+    assert_eq!(labels.len(), 2, "expected two label elements");
+    if let [nested, text_only] = labels.as_slice() {
+      assert!(nested.has_labelable_descendant, "nested input must set has_labelable_descendant");
+      assert!(!text_only.has_labelable_descendant, "text-only label must stay clear");
     }
   }
 
@@ -1161,17 +1221,23 @@ const count = ref(0)
     }
     let graph = build_project_graph(&root, &files);
     let child = graph.module_reactivity.iter().find(|module| module.id == "Child.vue");
+    let props = child.map(|module| {
+      module
+        .graph
+        .edges
+        .iter()
+        .filter(|edge| edge.kind == ReactiveDependencyKind::Prop)
+        .map(|edge| (edge.property.as_deref(), edge.to.as_str()))
+        .collect::<Vec<_>>()
+    });
     assert!(
-      child.is_some_and(|module| {
-        module.graph.edges.iter().any(|edge| {
-          edge.kind == ReactiveDependencyKind::Prop
-            && edge.from == "props"
-            && edge.to == "label"
-            && edge.property.as_deref() == Some("title")
-        })
+      props.as_ref().is_some_and(|props| {
+        props.contains(&(Some("title"), "label"))
+          && props.contains(&(Some("modelValue"), "msg"))
+          && props.contains(&(Some("subtitle"), "bag"))
+          && props.contains(&(Some("count"), "msg"))
       }),
-      "prop-flow fixture must emit Child props←Parent label Prop edge; got {:?}",
-      child.map(|module| &module.graph.edges)
+      "prop-flow fixture must emit title/v-model/member/.value Prop edges; got {props:?}"
     );
   }
 }

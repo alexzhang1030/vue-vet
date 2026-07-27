@@ -1,20 +1,20 @@
 use vue_vet_core::{Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity};
 
-use super::a11y_content::{has_accessible_name_attrs, is_anchor_like, title_to_aria_label_edit};
+use super::a11y_content::{has_accessible_name_attrs, is_heading, title_to_aria_label_edit};
 
 const META: RuleMeta = RuleMeta {
-  id: "vue-vet/accessibility/anchor-has-content",
+  id: "vue-vet/accessibility/heading-has-content",
   category: "accessibility",
   default_severity: Severity::Warning,
   confidence: Confidence::High,
-  documentation: "rules/accessibility/anchor-has-content",
+  documentation: "rules/accessibility/heading-has-content",
 };
 
-pub(super) struct AnchorHasContent;
+pub(super) struct HeadingHasContent;
 
-pub(super) static RULE: AnchorHasContent = AnchorHasContent;
+pub(super) static RULE: HeadingHasContent = HeadingHasContent;
 
-impl Rule for AnchorHasContent {
+impl Rule for HeadingHasContent {
   fn meta(&self) -> &'static RuleMeta {
     &META
   }
@@ -27,13 +27,13 @@ impl Rule for AnchorHasContent {
     let FactRef::TemplateElement(element) = fact else {
       return;
     };
-    if !is_anchor_like(&element.tag)
+    if !is_heading(&element.tag)
       || element.has_accessible_content
       || has_accessible_name_attrs(element)
     {
       return;
     }
-    let message = "link has no accessible content".into();
+    let message = "heading has no accessible content".into();
     let help = Some(
       "Add text content, an img/area with alt, or an aria-label/aria-labelledby binding.".into(),
     );

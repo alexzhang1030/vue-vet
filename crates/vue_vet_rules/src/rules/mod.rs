@@ -1,10 +1,13 @@
 use vue_vet_core::Rule;
 
+mod a11y_content;
 mod anchor_has_content;
 mod button_has_content;
 mod click_events_have_key_events;
+mod heading_has_content;
 mod iframe_has_title;
 mod img_has_alt;
+mod label_has_for;
 mod no_after_await_watch_effect_dependency;
 mod no_aria_hidden_on_focusable;
 mod no_autofocus;
@@ -36,8 +39,10 @@ pub fn builtins() -> Vec<&'static dyn Rule> {
     &anchor_has_content::RULE,
     &button_has_content::RULE,
     &click_events_have_key_events::RULE,
+    &heading_has_content::RULE,
     &iframe_has_title::RULE,
     &img_has_alt::RULE,
+    &label_has_for::RULE,
     &no_after_await_watch_effect_dependency::RULE,
     &no_aria_hidden_on_focusable::RULE,
     &no_autofocus::RULE,

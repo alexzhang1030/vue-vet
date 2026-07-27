@@ -36,7 +36,7 @@
       "id": "prop-flow",
       "path": "fixtures/projects/prop-flow",
       "roles": ["vue", "precision"],
-      "tree_digest": "30d22aa2b377c946b672c185d8c73ee51bed38c4468d697c342f37b49519fb75"
+      "tree_digest": "c98ba5a2bac0aca999642f19dd10d9bad4ef477344467d87122a5200acb70a18"
     },
     {
       "id": "practice-vueuse",

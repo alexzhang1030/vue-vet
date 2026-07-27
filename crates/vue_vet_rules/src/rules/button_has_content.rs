@@ -1,5 +1,7 @@
 use vue_vet_core::{Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity};
 
+use super::a11y_content::{has_accessible_name_attrs, title_to_aria_label_edit};
+
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/accessibility/button-has-content",
   category: "accessibility",
@@ -27,20 +29,25 @@ impl Rule for ButtonHasContent {
     };
     if !element.tag.eq_ignore_ascii_case("button")
       || element.has_accessible_content
-      || element.attribute("aria-label").is_some()
-      || element.bound_attribute("aria-label").is_some()
-      || element.attribute("aria-labelledby").is_some()
-      || element.bound_attribute("aria-labelledby").is_some()
+      || has_accessible_name_attrs(element)
     {
       return;
     }
-    context.report(
-      self.meta(),
-      element.span.clone(),
-      "button has no accessible content".into(),
-      Some(
-        "Add text content, an img/area with alt, or an aria-label/aria-labelledby binding.".into(),
-      ),
+    let message = "button has no accessible content".into();
+    let help = Some(
+      "Add text content, an img/area with alt, or an aria-label/aria-labelledby binding.".into(),
     );
+    if let Some((range, replacement)) = title_to_aria_label_edit(context.source(), element) {
+      context.report_with_safe_edit(
+        self.meta(),
+        element.span.clone(),
+        message,
+        help,
+        range,
+        replacement,
+      );
+    } else {
+      context.report(self.meta(), element.span.clone(), message, help);
+    }
   }
 }
