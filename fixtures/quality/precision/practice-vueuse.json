@@ -6,6 +6,18 @@
       "file": "App.vue",
       "classification": "true_positive",
       "rationale": "setup lifecycle setTimeout without clearTimeout is the practice recipe positive case"
+    },
+    {
+      "rule_id": "vue-vet/practice/vueuse-use-event-listener",
+      "file": "EventLeak.vue",
+      "classification": "true_positive",
+      "rationale": "addEventListener in onMounted without removeEventListener"
+    },
+    {
+      "rule_id": "vue-vet/practice/vueuse-use-interval-fn",
+      "file": "IntervalLeak.vue",
+      "classification": "true_positive",
+      "rationale": "setInterval in onMounted without clearInterval"
     }
   ]
 }

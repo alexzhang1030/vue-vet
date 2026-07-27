@@ -54,6 +54,36 @@
       "file": "Marquee.vue",
       "classification": "true_positive",
       "rationale": "marquee is a distracting element"
+    },
+    {
+      "rule_id": "vue-vet/accessibility/img-has-alt",
+      "file": "BareImg.vue",
+      "classification": "true_positive",
+      "rationale": "img missing alt"
+    },
+    {
+      "rule_id": "vue-vet/accessibility/no-aria-hidden-on-focusable",
+      "file": "HiddenButton.vue",
+      "classification": "true_positive",
+      "rationale": "Focusable button marked aria-hidden"
+    },
+    {
+      "rule_id": "vue-vet/accessibility/no-positive-tabindex",
+      "file": "PositiveTab.vue",
+      "classification": "true_positive",
+      "rationale": "Positive tabindex disrupts focus order"
+    },
+    {
+      "rule_id": "vue-vet/accessibility/valid-aria-role",
+      "file": "BadRole.vue",
+      "classification": "true_positive",
+      "rationale": "Invalid ARIA role token"
+    },
+    {
+      "rule_id": "vue-vet/maintainability/no-redundant-role",
+      "file": "BadRole.vue",
+      "classification": "true_positive",
+      "rationale": "Native button with redundant role=button"
     }
   ]
 }
