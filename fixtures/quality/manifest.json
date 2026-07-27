@@ -36,19 +36,19 @@
       "id": "prop-flow",
       "path": "fixtures/projects/prop-flow",
       "roles": ["vue", "precision"],
-      "tree_digest": "1aed480f204b05fb3b483a88b4c62a91c3024fe765220862c30ccff085ba9c9f"
+      "tree_digest": "802fe235470036d179cef91c438b7cf20067d2cb39b74a892d0d628af380420a"
     },
     {
       "id": "practice-vueuse",
       "path": "fixtures/projects/practice-vueuse",
       "roles": ["vue", "precision"],
-      "tree_digest": "737fd356e70d3ac75b4880b5292d74c314df1411ef563f0a90baf45781a77764"
+      "tree_digest": "bac1e8e1ce749e56c54a78643833cf4bd56d2fdc92bfe4503ba8734000eeca22"
     },
     {
       "id": "a11y-forms",
       "path": "fixtures/projects/a11y-forms",
       "roles": ["vue", "precision"],
-      "tree_digest": "e95b222120c2c09abab6377367812e98f96171a2e442378589f5bbd3133350dd"
+      "tree_digest": "4fbab13f3f995592e7dad2f37bd21f2ba2a12bf70d5f480eb96444ad3a2c62df"
     },
     {
       "id": "suppressed",

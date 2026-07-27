@@ -18,8 +18,8 @@ via `just quality-gates`.
 | `vue-3.4` | 1 |
 | `vue-3.5` | 2 |
 | `prop-flow` | 0 |
-| `practice-vueuse` | 1 |
-| `a11y-forms` | 9 |
+| `practice-vueuse` | 3 |
+| `a11y-forms` | 14 |
 | `suppressed` | 0 |
 | `module-seeds` | 1 |
 | `provide-inject` | 0 |
@@ -83,7 +83,7 @@ Captured 2026-07-27 with `vue-vet` at `CONVENTIONS_VERSION` 4:
 | [antfu/vitesse](https://github.com/antfu/vitesse) @ tip | MIT | `pnpm install` | No crash; **5** findings on `TheFooter.vue` — icon-only `RouterLink`×2, `<button>`, `<a>`×2 (`anchor-has-content` / `button-has-content`; static `title` GitHub link carries safe `aria-label` insert). |
 
 Quiet gaps still expected: Vite-only aliases not in tsconfig, dynamic imports,
-whole-object `v-bind` (also exercised quietly in `prop-flow` via `SpreadChild`).
+whole-object `v-bind` / multi-hop members (quiet cases in `prop-flow`).
 Unique-key provide/inject is exercised quietly in `provide-inject`; App Tree
 resolution beyond the unique-key index remains out of scope.
 
