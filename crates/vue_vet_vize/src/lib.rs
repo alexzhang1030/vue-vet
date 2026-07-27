@@ -1262,5 +1262,16 @@ const count = ref(0)
       }),
       "MultiHop.vue multi-hop chain must join root binding onto Child props"
     );
+    assert!(
+      child.is_some_and(|module| {
+        module.graph.edges.iter().any(|edge| {
+          edge.kind == ReactiveDependencyKind::Prop
+            && edge.property.as_deref() == Some("title")
+            && edge.to == "bag"
+            && edge.to_id.as_deref().is_some_and(|id| id.starts_with("MultiHop.vue:bag@"))
+        })
+      }),
+      "MultiHop.vue optional chain must join root binding onto Child props"
+    );
   }
 }

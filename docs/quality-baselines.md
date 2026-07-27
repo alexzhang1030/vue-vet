@@ -89,7 +89,7 @@ Corpus coverage that pins the same classes of issue in CI:
 
 - Icon-only / named controls → `a11y-forms` (`IconLink`, `EmptyButton`, `SafeNamedControls`)
 - RouterLink accessible name → rule fixtures under `fixtures/rules/anchor-has-content`
-- Prop under-approx quiet gaps → `prop-flow` (`SpreadChild` whole-object `v-bind`; computed/optional-chain expressions)
+- Prop under-approx quiet gaps → `prop-flow` (`SpreadChild` whole-object `v-bind`; computed/bracket/call expressions)
 - Unique-key provide/inject → `provide-inject`
 - Core reactivity lint TPs → `reactivity-rules` (+ after-await in `module-seeds`)
 
