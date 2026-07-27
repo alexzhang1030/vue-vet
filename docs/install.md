@@ -96,9 +96,10 @@ Do not publish mismatched versions across these surfaces.
 1. Ensure CI is green on `main`.
 2. Bump workspace + npm versions together when cutting a release.
 3. Push tag `vX.Y.Z` (or run the Release workflow via `workflow_dispatch`).
-4. The workflow builds every matrix target, writes `SHA256SUMS`, creates the
-   GitHub Release, publishes `@vue-vet/*` platform packages, then publishes
-   `@vue-vet/cli`.
+4. The workflow runs quality gates, publishes library crates to crates.io
+   (`vue_vet_core` then `vue_vet_reactivity`), builds every matrix target,
+   writes `SHA256SUMS`, creates the GitHub Release, publishes `@vue-vet/*`
+   platform packages, then publishes `@vue-vet/cli`.
 5. Smoke-install with `npx --package=@vue-vet/cli@X.Y.Z vue-vet --version` on
    at least one Linux, macOS, and Windows host.
 
@@ -109,7 +110,8 @@ in the release notes. Prefer forward fixes over deleting artifacts consumers
 may have cached.
 
 **Failed mid-publish:** platform packages may exist without the launcher (or
-the reverse). Re-run the Release workflow after fixing the failure; npm rejects
+the reverse), and crates.io may already have `vue_vet_core` / `vue_vet_reactivity`
+at that version. Re-run after fixing the failure; npm and crates.io both reject
 re-uploads of the same version, so bump the patch version if a partial publish
 already succeeded.
 
@@ -122,7 +124,12 @@ already succeeded.
    Publishing (OIDC) over long-lived write tokens for CI.
 3. Add repository secret `NPM_TOKEN` for the Release workflow (until Trusted
    Publishing is configured for every package).
-4. Local host-only claim (optional before the full matrix release):
+4. Create a crates.io API token at
+   [crates.io/settings/tokens](https://crates.io/settings/tokens) with
+   publish rights for `vue_vet_core` and `vue_vet_reactivity` (new + update).
+   Add it as repository secret **`CARGO_REGISTRY_TOKEN`**. The Release workflow
+   uses it only for non-dry-run tag / `workflow_dispatch` publishes.
+5. Local host-only claim (optional before the full matrix release):
 
    ```bash
    just pack-platform
@@ -130,8 +137,8 @@ already succeeded.
    just npm-smoke                 # file: install without registry
    ```
 
-5. Full matrix: push tag `v0.1.0` (or run Release via `workflow_dispatch` with
-   `dry_run=false`).
+6. Full matrix: push tag `v0.1.0` (or run Release via `workflow_dispatch` with
+   `dry_run=false`). The tag version must equal `[workspace.package].version`.
 
 GitHub Releases use `GITHUB_TOKEN`. npm provenance uses OIDC (`id-token: write`).
 

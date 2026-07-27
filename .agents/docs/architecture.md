@@ -126,14 +126,19 @@ Path dependencies between publishable crates carry an explicit `version` so
 `cargo publish` can resolve them from the registry. Crate directories and package
 names use snake_case (see [conventions](./conventions.md)).
 
+Tagged releases publish those two crates automatically from
+`.github/workflows/release.yml` (after quality gates; `vue_vet_core` then
+`vue_vet_reactivity`) using the `CARGO_REGISTRY_TOKEN` repository secret. See
+[install docs](../../docs/install.md).
+
 ### Native binary and npm distribution
 
 End-user installs go through npm (`@vue-vet/cli` + `@vue-vet/*` platform
 packages) or GitHub Release archives, not crates.io for the CLI
 (`publish = false`). The Release workflow (`.github/workflows/release.yml`)
-builds the matrix targets, writes `SHA256SUMS`, publishes platform packages,
-then the launcher. Version numbers stay aligned across Cargo workspace, npm,
-and `v*` tags. Details: [install docs](../../docs/install.md).
+publishes library crates, builds the matrix targets, writes `SHA256SUMS`,
+publishes platform packages, then the launcher. Version numbers stay aligned
+across Cargo workspace, npm, and `v*` tags. Details: [install docs](../../docs/install.md).
 
 ## Reporting and edit planning
 

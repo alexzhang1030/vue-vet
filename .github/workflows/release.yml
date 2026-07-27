@@ -148,9 +148,75 @@ jobs:
           path: dist/npm/@vue-vet/${{ matrix.npm_pkg }}
           if-no-files-found: error
 
+  crates:
+    name: Publish crates.io libraries
+    needs: [version, quality-gates]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.97.0
+
+      - name: Verify workspace version matches release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="${{ needs.version.outputs.version }}"
+          actual="$(
+            cargo metadata --no-deps --format-version 1 \
+              | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="vue_vet_core"))'
+          )"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "workspace vue_vet_core version ($actual) must equal tag/release version ($expected)" >&2
+            echo "Bump [workspace.package].version (and npm) before tagging." >&2
+            exit 1
+          fi
+
+      - name: Publish vue_vet_core then vue_vet_reactivity
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ needs.version.outputs.version }}"
+          dry_run="${{ needs.version.outputs.dry_run }}"
+          publish_flags=(--locked)
+          if [[ "$dry_run" == "true" ]]; then
+            publish_flags+=(--dry-run)
+          else
+            if [[ -z "${CARGO_REGISTRY_TOKEN:-}" ]]; then
+              echo "CARGO_REGISTRY_TOKEN secret is required for non-dry-run crate publishes" >&2
+              exit 1
+            fi
+          fi
+
+          cargo publish -p vue_vet_core "${publish_flags[@]}"
+
+          if [[ "$dry_run" == "true" ]]; then
+            cargo publish -p vue_vet_reactivity "${publish_flags[@]}"
+            exit 0
+          fi
+
+          # crates.io may take a short time to index before the path+version
+          # dependency in vue_vet_reactivity can resolve from the registry.
+          echo "Waiting for vue_vet_core@$version on crates.io…"
+          for _ in $(seq 1 36); do
+            if curl -fsS "https://crates.io/api/v1/crates/vue_vet_core/$version" >/dev/null; then
+              echo "vue_vet_core@$version is visible"
+              break
+            fi
+            sleep 5
+          done
+          if ! curl -fsS "https://crates.io/api/v1/crates/vue_vet_core/$version" >/dev/null; then
+            echo "vue_vet_core@$version did not appear on crates.io in time" >&2
+            exit 1
+          fi
+
+          cargo publish -p vue_vet_reactivity "${publish_flags[@]}"
+
   publish:
     name: Publish release
-    needs: [version, build]
+    needs: [version, build, crates]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

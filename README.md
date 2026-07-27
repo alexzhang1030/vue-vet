@@ -120,8 +120,10 @@ vue_vet_reporters    deterministic text, JSON, SARIF, and GitHub rendering
 ```
 
 `vue_vet_core` and `vue_vet_reactivity` are the first crates prepared for
-crates.io (name reservation + library consumers). See
-[vue_vet_reactivity](crates/vue_vet_reactivity/README.md).
+crates.io (name reservation + library consumers). Tagged releases publish them
+via `.github/workflows/release.yml` (`CARGO_REGISTRY_TOKEN`). See
+[vue_vet_reactivity](crates/vue_vet_reactivity/README.md) and
+[install docs](docs/install.md).
 
 
 Vize is the semantic source of truth for Vue SFCs and templates. Oxc owns
