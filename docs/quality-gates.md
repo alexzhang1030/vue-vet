@@ -26,8 +26,9 @@ Canonical inventory: [`fixtures/quality/manifest.json`](../fixtures/quality/mani
 | `fixtures/projects/vue-3.5` | vue, compatibility, precision | `prefer-use-template-ref` + unresolved import. |
 | `fixtures/projects/prop-flow` | vue, precision | Parent `:title` / `v-model` / member / `.value` → child `props` Prop edges; whole-object `v-bind` stays quiet (no diagnostic findings). |
 | `fixtures/projects/practice-vueuse` | vue, precision | Practice channel `useTimeoutFn` suggestion on lifecycle `setTimeout`. |
-| `fixtures/projects/a11y-forms` | vue, precision | Form-control / label / heading / icon-link a11y true positives plus labeled safe patterns. |
+| `fixtures/projects/a11y-forms` | vue, precision | Form-control / label / heading / icon-link / icon-button a11y true positives plus labeled safe patterns. |
 | `fixtures/projects/suppressed` | vue, config, precision | Inline disable keeps `no-v-html` quiet (empty expected set). |
+| `fixtures/projects/module-seeds` | vue, reactivity, precision | Cross-file composable `toRef` seed + after-await `watchEffect` dependency. |
 
 Selection rules:
 

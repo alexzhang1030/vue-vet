@@ -24,6 +24,12 @@
       "file": "IconLink.vue",
       "classification": "true_positive",
       "rationale": "Icon-only anchor has children but no accessible name"
+    },
+    {
+      "rule_id": "vue-vet/accessibility/button-has-content",
+      "file": "EmptyButton.vue",
+      "classification": "true_positive",
+      "rationale": "Icon-only button has children but no accessible name"
     }
   ]
 }
