@@ -48,7 +48,7 @@
       "id": "a11y-forms",
       "path": "fixtures/projects/a11y-forms",
       "roles": ["vue", "precision"],
-      "tree_digest": "3cb8fa891404756aee1c848e5aee0649691180de77006aa2d8e34973ea70fd9f"
+      "tree_digest": "e95b222120c2c09abab6377367812e98f96171a2e442378589f5bbd3133350dd"
     },
     {
       "id": "suppressed",
@@ -61,6 +61,12 @@
       "path": "fixtures/projects/module-seeds",
       "roles": ["vue", "reactivity", "precision"],
       "tree_digest": "aee25243f5cbb906a68e337bb99fef002b3817fb576f0459e121cfd58c641807"
+    },
+    {
+      "id": "provide-inject",
+      "path": "fixtures/projects/provide-inject",
+      "roles": ["vue", "reactivity", "precision"],
+      "tree_digest": "ee79f32ce87b01e451160c050a657720159552222eb27b00d5c67eeeaf046a77"
     }
   ]
 }
