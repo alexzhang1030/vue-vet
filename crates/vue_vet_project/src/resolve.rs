@@ -33,7 +33,7 @@ impl ProjectResolver {
   }
 
   pub fn resolve(&self, importer: &str, specifier: &str, known: &BTreeSet<String>) -> Resolution {
-    if specifier == "#imports" {
+    if specifier == "#imports" || is_quiet_external_specifier(specifier) {
       return Resolution::External(specifier.into());
     }
     let importer_path = absolute_under_root(&self.root, importer);
@@ -44,6 +44,27 @@ impl ProjectResolver {
         classify_resolved(&self.root, resolved.full_path().as_path(), specifier, known)
       })
   }
+}
+
+/// Specifiers Vue Vet does not treat as project JS/TS modules.
+///
+/// They become `ExternalImport` (quiet) instead of `unresolved-import`, matching
+/// Vite/Nuxt reality: Node builtins, stylesheets, and common virtual modules are
+/// not meant to resolve to scanned source files.
+fn is_quiet_external_specifier(specifier: &str) -> bool {
+  const STYLE_EXTS: &[&str] =
+    &[".css", ".scss", ".sass", ".less", ".styl", ".stylus", ".pcss", ".sss"];
+  if specifier.starts_with("node:")
+    || specifier.starts_with("nodejs:")
+    || specifier.starts_with("virtual:")
+    || specifier.starts_with('\0')
+  {
+    return true;
+  }
+  let bare = specifier.split_once('?').map_or(specifier, |(path, _)| path);
+  bare == "uno.css"
+    || bare.ends_with("/auto-routes")
+    || STYLE_EXTS.iter().any(|ext| bare.ends_with(ext))
 }
 
 fn bundler_resolve_options(root: &Path) -> ResolveOptions {
@@ -220,8 +241,23 @@ pub fn resolver_config_inputs(root: &Path) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-  use super::normalize_project_root;
+  use super::{is_quiet_external_specifier, normalize_project_root};
   use std::path::Path;
+
+  #[test]
+  fn quiets_node_builtins_styles_and_common_virtuals() {
+    assert!(is_quiet_external_specifier("node:path"));
+    assert!(is_quiet_external_specifier("nodejs:fs"));
+    assert!(is_quiet_external_specifier("virtual:vue-router/auto-routes"));
+    assert!(is_quiet_external_specifier("uno.css"));
+    assert!(is_quiet_external_specifier("uno.css?v=1"));
+    assert!(is_quiet_external_specifier("vue-router/auto-routes"));
+    assert!(is_quiet_external_specifier("./theme.css"));
+    assert!(is_quiet_external_specifier("~/assets/main.scss"));
+    assert!(!is_quiet_external_specifier("vue"));
+    assert!(!is_quiet_external_specifier("./Child.vue"));
+    assert!(!is_quiet_external_specifier("#imports"));
+  }
 
   #[test]
   fn normalize_project_root_absolutizes_dot() {

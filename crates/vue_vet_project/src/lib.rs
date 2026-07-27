@@ -19,7 +19,7 @@ use conventions::{
 };
 use resolve::{ProjectResolver, Resolution, normalized_path};
 
-pub const CONVENTIONS_VERSION: u32 = 3;
+pub const CONVENTIONS_VERSION: u32 = 4;
 pub const PROJECT_RULE_IDS: [&str; 2] =
   ["vue-vet/project/unresolved-import", "vue-vet/project/unused-component"];
 

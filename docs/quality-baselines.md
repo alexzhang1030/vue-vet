@@ -17,6 +17,8 @@ via `just quality-gates`.
 | `nuxt-graph` | 2 |
 | `vue-3.4` | 1 |
 | `vue-3.5` | 2 |
+| `prop-flow` | 0 |
+| `practice-vueuse` | 1 |
 
 Changing a count requires updating the precision JSON and explaining the behavior
 change in the PR.
@@ -61,6 +63,22 @@ via `just compat-matrix`. Upgrade procedure:
 `reference_fixture_corpus_never_crashes` in the CLI test suite walks the full
 `fixtures/` source corpus. Releases also run `just quality-gates` and
 `just oracle` before building binaries.
+
+## Offline real-repo spot checks (not CI inputs)
+
+External showcase apps are reviewed offline only (licenses + mutable trees). Do
+not add them to `fixtures/quality/manifest.json` unless they become checksummed,
+project-owned fixtures.
+
+Captured 2026-07-27 with `vue-vet` at `CONVENTIONS_VERSION` 4:
+
+| Repo | License | Setup | Result |
+| --- | --- | --- | --- |
+| [antfu/vitesse-lite](https://github.com/antfu/vitesse-lite) @ tip | MIT | `pnpm install` | No crash; after quiet-external policy: **1** finding — `accessibility/anchor-has-content` on icon-only GitHub `<a title="…">` without `aria-label` (**true positive** under rule contract). Pre-fix noise was `node:path`, `uno.css`, `vue-router/auto-routes` as unresolved. |
+| [nuxt/starter](https://github.com/nuxt/starter) `v4` | MIT | `pnpm install` | No crash; **0** findings on the minimal app. |
+
+Quiet gaps still expected: Vite-only aliases not in tsconfig, dynamic imports,
+whole-object `v-bind`, App Tree provide/inject.
 
 ## Publishing with a Beta tag
 
