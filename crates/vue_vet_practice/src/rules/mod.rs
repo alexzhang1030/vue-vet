@@ -5,6 +5,7 @@ mod prefer_use_template_ref;
 mod vueuse_use_debounce_fn;
 mod vueuse_use_event_listener;
 mod vueuse_use_interval_fn;
+mod vueuse_use_timeout_fn;
 
 pub fn all() -> Vec<&'static dyn Rule> {
   vec![
@@ -13,5 +14,6 @@ pub fn all() -> Vec<&'static dyn Rule> {
     &vueuse_use_debounce_fn::RULE,
     &vueuse_use_event_listener::RULE,
     &vueuse_use_interval_fn::RULE,
+    &vueuse_use_timeout_fn::RULE,
   ]
 }

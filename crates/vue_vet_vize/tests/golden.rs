@@ -274,6 +274,11 @@ fn practice_vueuse_fixtures_match_exact_diagnostics() {
     include_str!("../../../fixtures/rules/vueuse-use-interval-fn/invalid/set-without-clear.vue"),
     include_str!("../../../fixtures/snapshots/vueuse-use-interval-fn/set-without-clear.json"),
   );
+  assert_diagnostics(
+    "fixtures/rules/vueuse-use-timeout-fn/invalid/set-without-clear.vue",
+    include_str!("../../../fixtures/rules/vueuse-use-timeout-fn/invalid/set-without-clear.vue"),
+    include_str!("../../../fixtures/snapshots/vueuse-use-timeout-fn/set-without-clear.json"),
+  );
 }
 
 #[test]
@@ -317,6 +322,18 @@ fn practice_vueuse_safe_fixtures_produce_no_diagnostics() {
     (
       "fixtures/rules/vueuse-use-interval-fn/valid/bare-interval.vue",
       include_str!("../../../fixtures/rules/vueuse-use-interval-fn/valid/bare-interval.vue"),
+    ),
+    (
+      "fixtures/rules/vueuse-use-timeout-fn/valid/use-timeout-fn.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-timeout-fn/valid/use-timeout-fn.vue"),
+    ),
+    (
+      "fixtures/rules/vueuse-use-timeout-fn/valid/with-clear.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-timeout-fn/valid/with-clear.vue"),
+    ),
+    (
+      "fixtures/rules/vueuse-use-timeout-fn/valid/bare-timeout.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-timeout-fn/valid/bare-timeout.vue"),
     ),
   ] {
     assert_diagnostics(path, source, empty);
