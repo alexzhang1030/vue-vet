@@ -2,7 +2,7 @@ use vue_vet_core::{Confidence, PRACTICE_CATEGORY, Rule, RuleContext, RuleMeta, S
 
 use crate::{
   recipe::{EcosystemApi, PracticeRecipe},
-  util::{already_uses_target, is_test_path, recommendation_from, vueuse_help},
+  util::{already_uses_target, callee_is, is_test_path, recommendation_from, vueuse_help},
 };
 
 const RECIPE: PracticeRecipe = PracticeRecipe {
@@ -49,10 +49,10 @@ impl Rule for VueuseUseDebounceFn {
         let set_timeout = block
           .calls
           .iter()
-          .find(|call| call.callee == "setTimeout" && call.assigned_to.is_some())?;
+          .find(|call| callee_is(&call.callee, "setTimeout") && call.assigned_to.is_some())?;
         let timer = set_timeout.assigned_to.as_deref()?;
         let linked_clear = block.calls.iter().any(|call| {
-          call.callee == "clearTimeout"
+          callee_is(&call.callee, "clearTimeout")
             && call.argument_identifiers.iter().any(|name| name == timer)
         });
         linked_clear.then(|| {
@@ -147,5 +147,14 @@ mod tests {
   fn stays_quiet_without_clear_timeout() {
     let diagnostics = run(vec![call("setTimeout", Some("timer"), &[], 0)]);
     assert!(diagnostics.is_empty());
+  }
+
+  #[test]
+  fn reports_window_member_timer_apis() {
+    let diagnostics = run(vec![
+      call("window.clearTimeout", None, &["timer"], 0),
+      call("window.setTimeout", Some("timer"), &[], 20),
+    ]);
+    assert_eq!(diagnostics.len(), 1);
   }
 }

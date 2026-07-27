@@ -2,7 +2,10 @@ use vue_vet_core::{Confidence, PRACTICE_CATEGORY, Rule, RuleContext, RuleMeta, S
 
 use crate::{
   recipe::{EcosystemApi, PracticeRecipe},
-  util::{already_uses_target, is_test_path, recommendation_from, vueuse_help},
+  util::{
+    already_uses_target, callee_is, is_setup_lifecycle_hook, is_test_path, recommendation_from,
+    vueuse_help,
+  },
 };
 
 const RECIPE: PracticeRecipe = PracticeRecipe {
@@ -17,9 +20,6 @@ const RECIPE: PracticeRecipe = PracticeRecipe {
     import_example: "import { useTimeoutFn } from '@vueuse/core'",
   },
 };
-
-/// Setup lifecycle hooks that commonly start timeouts without cleanup.
-const LIFECYCLE_HOOKS: &[&str] = &["onMounted", "onBeforeMount", "onActivated"];
 
 const META: RuleMeta = RuleMeta {
   id: RECIPE.rule_id,
@@ -48,10 +48,10 @@ impl Rule for VueuseUseTimeoutFn {
       .blocks
       .iter()
       .filter(|block| !already_uses_target(block, RECIPE.recommend.export))
-      .filter(|block| block.calls.iter().any(|call| is_lifecycle_hook(&call.callee)))
-      .filter(|block| !block.calls.iter().any(|call| is_clear_timeout(&call.callee)))
+      .filter(|block| block.calls.iter().any(|call| is_setup_lifecycle_hook(&call.callee)))
+      .filter(|block| !block.calls.iter().any(|call| callee_is(&call.callee, "clearTimeout")))
       .filter_map(|block| {
-        block.calls.iter().find(|call| is_set_timeout(&call.callee)).map(|call| {
+        block.calls.iter().find(|call| callee_is(&call.callee, "setTimeout")).map(|call| {
           (call.span.clone(), vueuse_help(&environment, block, RECIPE.recommend.export))
         })
       })
@@ -66,18 +66,6 @@ impl Rule for VueuseUseTimeoutFn {
       );
     }
   }
-}
-
-fn is_lifecycle_hook(callee: &str) -> bool {
-  LIFECYCLE_HOOKS.contains(&callee)
-}
-
-fn is_set_timeout(callee: &str) -> bool {
-  callee == "setTimeout" || callee.ends_with(".setTimeout")
-}
-
-fn is_clear_timeout(callee: &str) -> bool {
-  callee == "clearTimeout" || callee.ends_with(".clearTimeout")
 }
 
 #[cfg(test)]
@@ -148,7 +136,6 @@ mod tests {
 
   #[test]
   fn stays_quiet_for_hand_rolled_debounce_inside_lifecycle() {
-    // Debounce pattern has clearTimeout; timeout recipe must not compete with useDebounceFn.
     let diagnostics =
       run(vec![call("onMounted", 0), call("clearTimeout", 10), call("setTimeout", 20)]);
     assert!(
