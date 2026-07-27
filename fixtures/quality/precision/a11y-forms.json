@@ -30,6 +30,30 @@
       "file": "EmptyButton.vue",
       "classification": "true_positive",
       "rationale": "Icon-only button has children but no accessible name"
+    },
+    {
+      "rule_id": "vue-vet/accessibility/click-events-have-key-events",
+      "file": "ClickOnly.vue",
+      "classification": "true_positive",
+      "rationale": "Clickable div without keyboard handler"
+    },
+    {
+      "rule_id": "vue-vet/accessibility/no-autofocus",
+      "file": "AutofocusField.vue",
+      "classification": "true_positive",
+      "rationale": "Boolean autofocus on an otherwise named input"
+    },
+    {
+      "rule_id": "vue-vet/accessibility/iframe-has-title",
+      "file": "BareIframe.vue",
+      "classification": "true_positive",
+      "rationale": "iframe missing title"
+    },
+    {
+      "rule_id": "vue-vet/accessibility/no-distracting-elements",
+      "file": "Marquee.vue",
+      "classification": "true_positive",
+      "rationale": "marquee is a distracting element"
     }
   ]
 }

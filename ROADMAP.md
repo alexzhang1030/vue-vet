@@ -286,7 +286,8 @@ archives. Tracker [#14](https://github.com/alexzhang1030/vue-vet/issues/14)
 stays open for release coordination.
 
 Near-term product work: keep `#13` quality gates green, expand the checksummed
-corpus / precision labels (includes `a11y-forms`, `suppressed`, `module-seeds`), and
-deepen high-confidence a11y / prop-flow coverage without racing Beta. Beta still
-requires publishing measured precision/performance evidence in the release notes
-([quality-baselines.md](./docs/quality-baselines.md), CodSpeed, precision delta).
+corpus / precision labels (includes `a11y-forms`, `suppressed`, `module-seeds`,
+`provide-inject`), and deepen high-confidence a11y / prop-flow coverage without
+racing Beta. Beta still requires publishing measured precision/performance
+evidence in the release notes ([quality-baselines.md](./docs/quality-baselines.md),
+CodSpeed, precision delta).
