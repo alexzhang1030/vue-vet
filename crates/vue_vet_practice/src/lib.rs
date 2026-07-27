@@ -35,7 +35,7 @@ mod tests {
     let metadata = practice_registry().metadata();
     assert_eq!(
       metadata.len(),
-      9,
+      10,
       "practice ships VueUse recipes, prefer-to-value, and prefer-use-template-ref"
     );
     assert!(
