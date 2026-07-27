@@ -1,0 +1,25 @@
+[
+  {
+    "rule_id": "vue-vet/practice/vueuse-use-resize-observer",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "medium",
+    "documentation": "rules/practice/vueuse-use-resize-observer",
+    "message": "This constructs a `ResizeObserver` inside a setup lifecycle hook without `disconnect`; consider VueUse `useResizeObserver` for automatic cleanup.",
+    "help": "Optional dependency: install `@vueuse/core` when you want `useResizeObserver`, then replace the hand-rolled pattern.",
+    "file": "fixtures/rules/vueuse-use-resize-observer/invalid/new-without-disconnect.vue",
+    "span": {
+      "offset": 142,
+      "length": 43,
+      "line": 7,
+      "column": 20
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "@vueuse/core",
+      "export": "useResizeObserver",
+      "docs_url": "https://vueuse.org/core/useResizeObserver/",
+      "import_example": "import { useResizeObserver } from '@vueuse/core'"
+    }
+  }
+]
