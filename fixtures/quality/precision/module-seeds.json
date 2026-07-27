@@ -1,0 +1,11 @@
+{
+  "project": "module-seeds",
+  "findings": [
+    {
+      "rule_id": "vue-vet/reactivity/no-after-await-watch-effect-dependency",
+      "file": "App.vue",
+      "classification": "true_positive",
+      "rationale": "Composable toRef title is read in watchEffect after await; module seeds still join the binding for the rule"
+    }
+  ]
+}

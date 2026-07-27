@@ -19,8 +19,9 @@ via `just quality-gates`.
 | `vue-3.5` | 2 |
 | `prop-flow` | 0 |
 | `practice-vueuse` | 1 |
-| `a11y-forms` | 4 |
+| `a11y-forms` | 5 |
 | `suppressed` | 0 |
+| `module-seeds` | 1 |
 
 Changing a count requires updating the precision JSON and explaining the behavior
 change in the PR.
