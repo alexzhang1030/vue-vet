@@ -647,8 +647,7 @@ mod tests {
   fn label_facts_mark_nested_labelable_controls() {
     let source = "<template>\n  <label>\n    <input type=\"text\">\n  </label>\n  <label>Name</label>\n</template>";
     let facts = facts_for_test(Path::new("Label.vue"), source);
-    let labels =
-      facts.template.elements.iter().filter(|el| el.tag == "label").collect::<Vec<_>>();
+    let labels = facts.template.elements.iter().filter(|el| el.tag == "label").collect::<Vec<_>>();
     assert_eq!(labels.len(), 2, "expected two label elements");
     if let [nested, text_only] = labels.as_slice() {
       assert!(nested.has_labelable_descendant, "nested input must set has_labelable_descendant");
