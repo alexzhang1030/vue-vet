@@ -126,21 +126,11 @@ fn finding_keys(session: &ProjectSession) -> BTreeSet<(String, String)> {
     Ok(snapshot) => snapshot,
     Err(error) => panic!("analyze: {error}"),
   };
-  let root = session.workspace_root();
-  let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
   snapshot
     .summary
     .diagnostics
     .iter()
-    .map(|diagnostic| {
-      let absolute = diagnostic.file.canonicalize().unwrap_or_else(|_| diagnostic.file.clone());
-      let file = absolute
-        .strip_prefix(&root)
-        .unwrap_or(absolute.as_path())
-        .to_string_lossy()
-        .replace('\\', "/");
-      (diagnostic.rule_id.clone(), file)
-    })
+    .map(|diagnostic| (diagnostic.rule_id.clone(), diagnostic.file.as_str().to_owned()))
     .collect()
 }
 

@@ -33,11 +33,11 @@ unstructured text.
 
 ```text
 vue-vet CLI
-  -> project discovery and configuration
+  -> long-lived session + immutable workspace input snapshot
   -> Vize SFC/template analysis
-  -> Oxc script analysis
+  -> one-pass Oxc script/module facts
   -> project graph and cross-file rules
-  -> normalize, rank, score, report, fix
+  -> unified diagnostic finalization, score, report, fix
 ```
 
 Current and planned crate boundaries:
@@ -50,8 +50,8 @@ vue_vet_reactivity local effect tracing and cross-module summaries/linking
 vue_vet_rules      built-in rules and presets
 vue_vet_project    project graph, cache, baseline, diff
 vue_vet_reporters  text, JSON, SARIF, GitHub annotations
-vue_vet_session    long-lived project session (scan, explain, workspace paths)
-vue_vet_lsp        thin stdio LSP adapter (disk diagnostics)
+vue_vet_session    stateful project session (incremental facts, graph, explain)
+vue_vet_lsp        thin stdio LSP adapter (overlays, latest-wins worker)
 vue-vet            CLI binary
 ```
 
@@ -291,3 +291,9 @@ pins for safe patterns (see `fixtures/quality/README.md`). Deepen high-confidenc
 reactivity coverage without racing Beta. Beta still requires publishing measured
 precision/performance evidence in the release notes
 ([quality-baselines.md](./docs/quality-baselines.md), CodSpeed, precision delta).
+
+The engine lifecycle now uses exact `FileId` identities, a single discovery
+snapshot for cache lookup and analysis, bounded module workers, prepared Oxc
+module facts, partial file outcomes, and reverse-dependency invalidation. The
+1k/5k module and continuous-edit benchmarks are the regression evidence for
+large-workspace scaling.

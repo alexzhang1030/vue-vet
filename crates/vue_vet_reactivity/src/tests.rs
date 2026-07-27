@@ -10,7 +10,9 @@ use vue_vet_core::{
   TemplateExpressionFact, TemplateFacts, TrackingScopeKind,
 };
 
-use super::{ModuleLink, ModuleReactivity, ModuleSource, trace_modules, trace_reactivity};
+use super::{
+  ModuleLink, ModuleReactivity, ModuleSource, prepare_module_trace, trace_modules, trace_reactivity,
+};
 
 fn trace(
   sfc_source: &str,
@@ -2111,6 +2113,26 @@ fn covers_eighty_real_cross_module_scenarios() {
 
 fn module_source(id: &str, source: &str) -> ModuleSource {
   ModuleSource::standalone(id, source, "ts", ScriptKind::Script)
+}
+
+#[test]
+fn prepared_phase_one_facts_avoid_an_unseeded_second_parse() {
+  let source = "import { ref } from 'vue'; export const count = ref(0);";
+  let allocator = Allocator::default();
+  let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
+  assert!(parsed.errors.is_empty());
+  let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
+  assert!(built.errors.is_empty());
+  let local_graph = trace_reactivity(&built.semantic, source, 0, ScriptKind::Script);
+  let prepared = prepare_module_trace(&built.semantic, source, 0, ScriptKind::Script, local_graph);
+  let mut module = ModuleSource::standalone("count.ts", source, "ts", ScriptKind::Script)
+    .with_prepared_trace(prepared);
+
+  // If phase one parsed again this deliberate mutation would fail. No seeds
+  // means the retained local graph is sufficient.
+  module.source = "const = ;".into();
+  let traced = trace_modules(&[module], &[]);
+  assert!(traced.is_ok(), "prepared phase-one facts should bypass a second parse");
 }
 
 #[expect(clippy::panic, reason = "missing committed source files must fail corpus tests")]

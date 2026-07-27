@@ -19,7 +19,7 @@ use vue_vet_core::{
   ScriptBindingFact, ScriptBlockFacts, ScriptCallFact, ScriptDestructureFact, ScriptImportFact,
   ScriptKind, ScriptMemberWriteFact, SourceSpan,
 };
-use vue_vet_reactivity::trace_reactivity;
+use vue_vet_reactivity::{PreparedModuleTrace, prepare_module_trace, trace_reactivity};
 
 #[derive(Debug, Error)]
 pub enum AnalyzeScriptError {
@@ -29,6 +29,13 @@ pub enum AnalyzeScriptError {
   Semantic(String),
   #[error("unsupported script language `{0}`")]
   UnsupportedLanguage(String),
+}
+
+/// Facts produced from one Oxc parse for both file rules and module linking.
+#[derive(Clone, Debug)]
+pub struct ModuleAnalysis {
+  pub script_facts: ScriptBlockFacts,
+  pub module_trace: PreparedModuleTrace,
 }
 
 /// Analyze one extracted Vue SFC script block and map all facts to original
@@ -45,6 +52,23 @@ pub fn analyze_script(
   language: &str,
   kind: ScriptKind,
 ) -> Result<ScriptBlockFacts, AnalyzeScriptError> {
+  analyze_module_source(sfc_source, script_source, script_offset, language, kind)
+    .map(|analysis| analysis.script_facts)
+}
+
+/// Analyze one script surface once for file facts and cross-module linking.
+///
+/// # Errors
+///
+/// Returns a deterministic parser or semantic error for invalid scripts, and
+/// rejects script languages outside JavaScript, TypeScript, JSX, and TSX.
+pub fn analyze_module_source(
+  sfc_source: &str,
+  script_source: &str,
+  script_offset: usize,
+  language: &str,
+  kind: ScriptKind,
+) -> Result<ModuleAnalysis, AnalyzeScriptError> {
   let source_type = source_type(language)?;
   let allocator = Allocator::default();
   let parsed = Parser::new(&allocator, script_source, source_type).parse();
@@ -179,20 +203,25 @@ pub fn analyze_script(
   }
 
   let reactivity_graph = trace_reactivity(&semantic, sfc_source, script_offset, kind);
+  let module_trace =
+    prepare_module_trace(&semantic, sfc_source, script_offset, kind, reactivity_graph.clone());
 
   imports.sort_by_key(|fact| fact.span.offset);
   calls.sort_by_key(|fact| fact.span.offset);
   member_writes.sort_by_key(|fact| fact.span.offset);
   destructures.sort_by_key(|fact| fact.span.offset);
-  Ok(ScriptBlockFacts {
-    kind,
-    language: language.into(),
-    imports,
-    bindings,
-    calls,
-    member_writes,
-    destructures,
-    reactivity_graph,
+  Ok(ModuleAnalysis {
+    script_facts: ScriptBlockFacts {
+      kind,
+      language: language.into(),
+      imports,
+      bindings,
+      calls,
+      member_writes,
+      destructures,
+      reactivity_graph,
+    },
+    module_trace,
   })
 }
 

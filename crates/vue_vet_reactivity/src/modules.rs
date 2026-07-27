@@ -1,8 +1,4 @@
-use std::{
-  collections::{BTreeMap, BTreeSet, btree_map::Entry},
-  sync::mpsc,
-  thread,
-};
+use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
 use oxc_allocator::Allocator;
 use oxc_ast::{
@@ -15,6 +11,7 @@ use oxc_ast::{
 use oxc_parser::Parser;
 use oxc_semantic::{NodeId, Semantic, SemanticBuilder};
 use oxc_span::{SourceType, Span};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use vue_vet_core::{ReactiveBindingFact, ReactiveBindingKind, ReactivityGraph, ScriptKind};
@@ -28,7 +25,7 @@ use super::{
 use oxc_ast::ast::Argument;
 
 /// One script surface to analyze — standalone JS/TS or an extracted SFC block.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ModuleSource {
   /// Stable module identity used in [`ModuleLink`] and result ordering.
   pub id: String,
@@ -44,7 +41,23 @@ pub struct ModuleSource {
   /// spans are computed against [`Self::source`] (standalone modules).
   #[serde(default)]
   pub span_source: String,
+  /// Opaque phase-one facts extracted by the Oxc adapter during its first parse.
+  #[serde(skip)]
+  prepared_trace: Option<PreparedModuleTrace>,
 }
+
+impl PartialEq for ModuleSource {
+  fn eq(&self, other: &Self) -> bool {
+    self.id == other.id
+      && self.source == other.source
+      && self.language == other.language
+      && self.kind == other.kind
+      && self.source_offset == other.source_offset
+      && self.span_source == other.span_source
+  }
+}
+
+impl Eq for ModuleSource {}
 
 impl ModuleSource {
   /// Standalone JS/TS module (offset 0, spans against `source`).
@@ -62,6 +75,7 @@ impl ModuleSource {
       kind,
       source_offset: 0,
       span_source: String::new(),
+      prepared_trace: None,
     }
   }
 
@@ -82,7 +96,15 @@ impl ModuleSource {
       kind,
       source_offset,
       span_source: sfc_source.into(),
+      prepared_trace: None,
     }
+  }
+
+  /// Attach phase-one facts produced from the same Oxc parse as script facts.
+  #[must_use]
+  pub fn with_prepared_trace(mut self, prepared_trace: PreparedModuleTrace) -> Self {
+    self.prepared_trace = Some(prepared_trace);
+    self
   }
 
   const fn span_origin(&self) -> &str {
@@ -123,8 +145,21 @@ pub enum TraceModulesError {
   UnknownLink { from: String, to: String },
   #[error("reactivity module `{from}` resolves `{specifier}` to multiple targets")]
   AmbiguousLink { from: String, specifier: String },
-  #[error("reactivity module worker disconnected before completing the seed barrier")]
+  #[error("reactivity module worker pool could not complete tracing")]
   WorkerDisconnected,
+}
+
+/// Concurrency limit for cross-module tracing.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TraceModulesOptions {
+  /// Maximum native workers used by either tracing phase.
+  pub max_workers: usize,
+}
+
+impl Default for TraceModulesOptions {
+  fn default() -> Self {
+    Self { max_workers: std::thread::available_parallelism().map_or(1, std::num::NonZero::get) }
+  }
 }
 
 #[derive(Clone, Debug)]
@@ -179,6 +214,20 @@ struct ModuleExportFacts {
   injects: Vec<super::InjectSite>,
 }
 
+/// Opaque cross-module facts extracted from an existing Oxc semantic.
+///
+/// This is intentionally not serializable: callers store it only for the
+/// current analysis lifecycle, and Oxc nodes never cross the adapter boundary.
+#[derive(Clone, Debug)]
+pub struct PreparedModuleTrace {
+  imports: Vec<ImportSummary>,
+  exports: Vec<ExportSummary>,
+  locals: BTreeMap<String, ExportState>,
+  provides: Vec<super::ProvideSite>,
+  injects: Vec<super::InjectSite>,
+  local_graph: ReactivityGraph,
+}
+
 /// Per-import resolution for one consumer module (`import.local` → export state).
 /// Spans are applied on the worker that still holds the parse.
 type ImportSeedPlan = BTreeMap<String, ExportState>;
@@ -197,13 +246,52 @@ impl ModuleSeedPlan {
   }
 }
 
+/// Extract cross-module phase-one facts from a semantic already built by Oxc.
+///
+/// The returned value contains only Vue Vet-owned facts and spans. It can be
+/// attached to [`ModuleSource::with_prepared_trace`] so project tracing does not
+/// parse the module again unless cross-module seeds require materialization.
+#[must_use]
+pub fn prepare_module_trace(
+  semantic: &Semantic<'_>,
+  span_source: &str,
+  source_offset: usize,
+  kind: ScriptKind,
+  local_graph: ReactivityGraph,
+) -> PreparedModuleTrace {
+  let imports = collect_imports(semantic);
+  let exports = collect_exports(semantic);
+  let shape_graph = ReactivityGraph {
+    bindings: super::collect_reactive_bindings(
+      semantic,
+      &super::collect_imported_bindings(semantic),
+      span_source,
+      source_offset,
+      kind,
+      true,
+    ),
+    ..ReactivityGraph::default()
+  };
+  let locals = collect_local_values(semantic, &local_graph, &shape_graph, source_offset);
+  let imported_bindings = super::collect_imported_bindings(semantic);
+  let provides = collect_provide_sites(
+    semantic,
+    &imported_bindings,
+    &local_graph.bindings,
+    &local_graph.composable_instances,
+    &BTreeMap::new(),
+    kind,
+  );
+  let injects = collect_inject_sites(semantic, &imported_bindings, &local_graph.bindings, kind);
+  PreparedModuleTrace { imports, exports, locals, provides, injects, local_graph }
+}
+
 /// Traces local and linked reactivity across a resolved module graph.
 ///
-/// Each module is **parsed once**. Workers keep the Oxc allocator/semantic on
-/// their stack across the seed barrier (no second parse, no `unsafe` session).
-/// Phase 1 moves lightweight export facts to the coordinator; phase 2 re-traces
-/// on the same semantic when cross-file seeds exist. Module source is borrowed
-/// via `thread::scope` — never cloned.
+/// Work is bounded by [`TraceModulesOptions::max_workers`]. Phase 1 parses every
+/// module and retains only serializable export facts plus the local graph. The
+/// coordinator resolves cross-module seeds. Phase 2 reuses local graphs for
+/// modules without seeds and reparses only modules that need seed materialization.
 ///
 /// # Errors
 ///
@@ -212,6 +300,20 @@ impl ModuleSeedPlan {
 pub fn trace_modules(
   modules: &[ModuleSource],
   links: &[ModuleLink],
+) -> Result<Vec<ModuleReactivity>, TraceModulesError> {
+  trace_modules_with_options(modules, links, TraceModulesOptions::default())
+}
+
+/// Traces local and linked reactivity with an explicit worker bound.
+///
+/// # Errors
+///
+/// Returns an error when a module cannot be parsed or analyzed, module identifiers
+/// are duplicated, a supplied resolved link is invalid, or the worker pool fails.
+pub fn trace_modules_with_options(
+  modules: &[ModuleSource],
+  links: &[ModuleLink],
+  options: TraceModulesOptions,
 ) -> Result<Vec<ModuleReactivity>, TraceModulesError> {
   // Duplicate check is sequential and deterministic.
   let mut seen = BTreeSet::new();
@@ -225,88 +327,73 @@ pub fn trace_modules(
     return Ok(Vec::new());
   }
 
-  // Sticky workers: parse stays on the worker stack (Semantic is not Send).
-  // One channel triple per module avoids cloning mpsc::Sender.
-  thread::scope(|scope| {
-    let mut seed_txs = Vec::with_capacity(modules.len());
-    let mut facts_rxs = Vec::with_capacity(modules.len());
-    let mut result_rxs = Vec::with_capacity(modules.len());
+  let pool = rayon::ThreadPoolBuilder::new()
+    .num_threads(options.max_workers.max(1).min(modules.len()))
+    .build()
+    .map_err(|_| TraceModulesError::WorkerDisconnected)?;
 
-    for module in modules {
-      let (facts_tx, facts_rx) = mpsc::channel::<Result<ModuleExportFacts, TraceModulesError>>();
-      let (seed_tx, seed_rx) = mpsc::channel::<ModuleSeedPlan>();
-      let (result_tx, result_rx) = mpsc::channel::<Result<ModuleReactivity, TraceModulesError>>();
-      facts_rxs.push(facts_rx);
-      seed_txs.push(seed_tx);
-      result_rxs.push(result_rx);
+  let mut phase_one = pool.install(|| {
+    modules.par_iter().map(analyze_module_phase_one).collect::<Result<Vec<_>, TraceModulesError>>()
+  })?;
+  let mut facts_by_id = BTreeMap::new();
+  for analysis in &mut phase_one {
+    let facts = analysis.facts.take().ok_or(TraceModulesError::WorkerDisconnected)?;
+    facts_by_id.insert(facts.id.clone(), facts);
+  }
 
-      scope.spawn(move || {
-        let outcome = worker_trace_module(module, &facts_tx, &seed_rx);
-        drop(result_tx.send(outcome));
-      });
-    }
-
-    // Phase 1: receive moved export facts (index-aligned with `modules`).
-    let mut facts_by_id = BTreeMap::new();
-    for facts_rx in facts_rxs {
-      let facts = facts_rx.recv().map_err(|_| TraceModulesError::WorkerDisconnected)??;
-      facts_by_id.insert(facts.id.clone(), facts);
-    }
-    if facts_by_id.len() != modules.len() {
-      return Err(TraceModulesError::WorkerDisconnected);
-    }
-
-    let resolved_links = resolved_links(&facts_by_id, links)?;
-    let link_index = link_index(&resolved_links);
-    let exports = resolve_exports(&facts_by_id, &link_index);
-    let provide_index = global_provide_index(&facts_by_id);
-
-    // Phase 2: deliver seed plans (import shapes + unique inject keys).
-    for (module, seed_tx) in modules.iter().zip(seed_txs) {
-      let Some(facts) = facts_by_id.get(module.id.as_str()) else {
-        return Err(TraceModulesError::WorkerDisconnected);
-      };
+  let resolved_links = resolved_links(&facts_by_id, links)?;
+  let link_index = link_index(&resolved_links);
+  let exports = resolve_exports(&facts_by_id, &link_index);
+  let provide_index = global_provide_index(&facts_by_id);
+  let work = modules
+    .iter()
+    .zip(phase_one)
+    .map(|(module, analysis)| {
+      let facts =
+        facts_by_id.get(module.id.as_str()).ok_or(TraceModulesError::WorkerDisconnected)?;
       let plan = ModuleSeedPlan {
         imports: seed_plan_for(facts, &exports, &link_index),
         injects: inject_seed_plan(facts, &provide_index),
       };
-      if seed_tx.send(plan).is_err() {
-        return Err(TraceModulesError::WorkerDisconnected);
-      }
-    }
+      Ok((module, analysis.local_graph, plan))
+    })
+    .collect::<Result<Vec<_>, TraceModulesError>>()?;
 
-    let mut traced = Vec::with_capacity(modules.len());
-    for result_rx in result_rxs {
-      traced.push(result_rx.recv().map_err(|_| TraceModulesError::WorkerDisconnected)??);
-    }
-    traced.sort_by(|left, right| left.id.cmp(&right.id));
-    Ok(traced)
-  })
+  let mut traced = pool.install(|| {
+    work
+      .into_par_iter()
+      .map(|(module, local_graph, plan)| trace_module_phase_two(module, local_graph, &plan))
+      .collect::<Result<Vec<_>, TraceModulesError>>()
+  })?;
+  traced.sort_by(|left, right| left.id.cmp(&right.id));
+  Ok(traced)
 }
 
-/// Worker body: one parse, hand off export facts, re-trace with seeds if needed.
-fn worker_trace_module(
-  module: &ModuleSource,
-  facts_tx: &mpsc::Sender<Result<ModuleExportFacts, TraceModulesError>>,
-  seed_rx: &mpsc::Receiver<ModuleSeedPlan>,
-) -> Result<ModuleReactivity, TraceModulesError> {
+struct ModulePhaseOne {
+  facts: Option<ModuleExportFacts>,
+  local_graph: ReactivityGraph,
+}
+
+fn analyze_module_phase_one(module: &ModuleSource) -> Result<ModulePhaseOne, TraceModulesError> {
+  if let Some(prepared) = &module.prepared_trace {
+    return Ok(phase_one_from_prepared(module, prepared.clone()));
+  }
+
   let allocator = Allocator::default();
   let source_type = source_type(module)?;
   let parsed = Parser::new(&allocator, module.source.as_str(), source_type).parse();
   if !parsed.errors.is_empty() {
-    let error =
-      TraceModulesError::Parse { module: module.id.clone(), message: join_errors(&parsed.errors) };
-    drop(facts_tx.send(Err(error_from(&error))));
-    return Err(error);
+    return Err(TraceModulesError::Parse {
+      module: module.id.clone(),
+      message: join_errors(&parsed.errors),
+    });
   }
   let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
   if !built.errors.is_empty() {
-    let error = TraceModulesError::Semantic {
+    return Err(TraceModulesError::Semantic {
       module: module.id.clone(),
       message: join_errors(&built.errors),
-    };
-    drop(facts_tx.send(Err(error_from(&error))));
-    return Err(error);
+    });
   }
   let semantic = built.semantic;
 
@@ -318,69 +405,65 @@ fn worker_trace_module(
     module.kind,
     &empty,
   );
-  let imports = collect_imports(&semantic);
-  let export_decls = collect_exports(&semantic);
-  let shape_graph = ReactivityGraph {
-    bindings: super::collect_reactive_bindings(
-      &semantic,
-      &super::collect_imported_bindings(&semantic),
-      module.span_origin(),
-      module.source_offset,
-      module.kind,
-      true,
-    ),
-    ..ReactivityGraph::default()
-  };
-  let locals = collect_local_values(&semantic, &local_graph, &shape_graph, module.source_offset);
-  let imported_bindings = super::collect_imported_bindings(&semantic);
-  // Phase-1 provide shapes only need instance bags already on the local graph;
-  // same-file `provide(useX())` shapes are resolved again on seeded re-trace.
-  let provides = collect_provide_sites(
+  let prepared = prepare_module_trace(
     &semantic,
-    &imported_bindings,
-    &local_graph.bindings,
-    &local_graph.composable_instances,
-    &BTreeMap::new(),
+    module.span_origin(),
+    module.source_offset,
     module.kind,
+    local_graph,
   );
-  let injects =
-    collect_inject_sites(&semantic, &imported_bindings, &local_graph.bindings, module.kind);
+  Ok(phase_one_from_prepared(module, prepared))
+}
 
-  // Move export facts out; keep `local_graph` for the empty-seed fast path.
-  // Destructure/instance call sites are re-read on the worker when materializing seeds.
-  let facts = ModuleExportFacts {
-    id: module.id.clone(),
-    imports,
-    exports: export_decls,
-    locals,
-    provides,
-    injects,
-  };
-  if facts_tx.send(Ok(facts)).is_err() {
-    let mut graph = local_graph;
-    graph.set_module_id(module.id.clone());
-    return Ok(ModuleReactivity { id: module.id.clone(), graph });
+fn phase_one_from_prepared(module: &ModuleSource, prepared: PreparedModuleTrace) -> ModulePhaseOne {
+  ModulePhaseOne {
+    facts: Some(ModuleExportFacts {
+      id: module.id.clone(),
+      imports: prepared.imports,
+      exports: prepared.exports,
+      locals: prepared.locals,
+      provides: prepared.provides,
+      injects: prepared.injects,
+    }),
+    local_graph: prepared.local_graph,
+  }
+}
+
+fn trace_module_phase_two(
+  module: &ModuleSource,
+  mut local_graph: ReactivityGraph,
+  plan: &ModuleSeedPlan,
+) -> Result<ModuleReactivity, TraceModulesError> {
+  if plan.is_empty() {
+    local_graph.set_module_id(module.id.clone());
+    return Ok(ModuleReactivity { id: module.id.clone(), graph: local_graph });
   }
 
-  let Ok(plan) = seed_rx.recv() else {
-    let mut graph = local_graph;
-    graph.set_module_id(module.id.clone());
-    return Ok(ModuleReactivity { id: module.id.clone(), graph });
-  };
-
-  let mut graph = if plan.is_empty() {
-    local_graph
-  } else {
-    drop(local_graph);
-    let seeds = materialize_seeds(module, &semantic, &plan);
-    trace_reactivity_seeded(
-      &semantic,
-      module.span_origin(),
-      module.source_offset,
-      module.kind,
-      &seeds,
-    )
-  };
+  let allocator = Allocator::default();
+  let source_type = source_type(module)?;
+  let parsed = Parser::new(&allocator, module.source.as_str(), source_type).parse();
+  if !parsed.errors.is_empty() {
+    return Err(TraceModulesError::Parse {
+      module: module.id.clone(),
+      message: join_errors(&parsed.errors),
+    });
+  }
+  let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
+  if !built.errors.is_empty() {
+    return Err(TraceModulesError::Semantic {
+      module: module.id.clone(),
+      message: join_errors(&built.errors),
+    });
+  }
+  let semantic = built.semantic;
+  let seeds = materialize_seeds(module, &semantic, plan);
+  let mut graph = trace_reactivity_seeded(
+    &semantic,
+    module.span_origin(),
+    module.source_offset,
+    module.kind,
+    &seeds,
+  );
   graph.set_module_id(module.id.clone());
   Ok(ModuleReactivity { id: module.id.clone(), graph })
 }
@@ -395,29 +478,6 @@ fn source_type(module: &ModuleSource) -> Result<SourceType, TraceModulesError> {
       module: module.id.clone(),
       language: language.into(),
     }),
-  }
-}
-
-/// Clone only the error strings needed to unblock the coordinator channel.
-fn error_from(error: &TraceModulesError) -> TraceModulesError {
-  match error {
-    TraceModulesError::DuplicateModule(id) => TraceModulesError::DuplicateModule(id.clone()),
-    TraceModulesError::UnsupportedLanguage { module, language } => {
-      TraceModulesError::UnsupportedLanguage { module: module.clone(), language: language.clone() }
-    }
-    TraceModulesError::Parse { module, message } => {
-      TraceModulesError::Parse { module: module.clone(), message: message.clone() }
-    }
-    TraceModulesError::Semantic { module, message } => {
-      TraceModulesError::Semantic { module: module.clone(), message: message.clone() }
-    }
-    TraceModulesError::UnknownLink { from, to } => {
-      TraceModulesError::UnknownLink { from: from.clone(), to: to.clone() }
-    }
-    TraceModulesError::AmbiguousLink { from, specifier } => {
-      TraceModulesError::AmbiguousLink { from: from.clone(), specifier: specifier.clone() }
-    }
-    TraceModulesError::WorkerDisconnected => TraceModulesError::WorkerDisconnected,
   }
 }
 

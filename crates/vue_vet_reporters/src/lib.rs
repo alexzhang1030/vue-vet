@@ -1,11 +1,8 @@
-use std::{
-  collections::{BTreeMap, BTreeSet},
-  path::Path,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 use vue_vet_core::{
-  ByteRange, Confidence, Diagnostic, EditApplicability, PRACTICE_CATEGORY, Recommendation,
+  ByteRange, Confidence, Diagnostic, EditApplicability, FileId, PRACTICE_CATEGORY, Recommendation,
   ScanSummary, Severity, SourceSpan, diagnostic_id,
 };
 
@@ -21,9 +18,9 @@ pub use component_nav::{
   component_nav_from_edges,
 };
 pub use explain::{
-  FindingExplain, RuleExplain, documentation_path, explain_finding, explain_rule, find_rule_meta,
-  looks_like_finding_id, render_finding_explain_json, render_finding_explain_text,
-  render_rule_explain_json, render_rule_explain_text,
+  documentation_path, explain_finding, explain_rule, find_rule_meta, looks_like_finding_id,
+  render_finding_explain_json, render_finding_explain_text, render_rule_explain_json,
+  render_rule_explain_text,
 };
 pub use humanize::{
   humanize_binding, humanize_edge, humanize_edge_parts_with_property, humanize_scope,
@@ -35,6 +32,7 @@ pub use reactivity::{
   ReactivityTemplateReadDetail, binding_detail, edge_detail, render_reactivity_detail,
   render_reactivity_footer, scope_detail, template_read_detail, to_span_from_identity,
 };
+pub use vue_vet_core::{FindingExplain, RuleExplain};
 
 pub const JSON_SCHEMA_VERSION: u8 = 1;
 
@@ -324,16 +322,8 @@ pub fn report_diagnostic_id(diagnostic: &Diagnostic, analyzed_files: &[String]) 
   diagnostic_id(diagnostic, &file)
 }
 
-fn report_path(path: &Path, analyzed_files: &[String]) -> String {
-  let normalized = normalize_path(&path.to_string_lossy());
-  analyzed_files
-    .iter()
-    .find(|candidate| {
-      normalized == candidate.as_str()
-        || normalized.strip_suffix(candidate.as_str()).is_some_and(|prefix| prefix.ends_with('/'))
-    })
-    .cloned()
-    .unwrap_or(normalized)
+fn report_path(path: &FileId, _analyzed_files: &[String]) -> String {
+  path.as_str().to_owned()
 }
 
 fn normalize_path(path: &str) -> String {
@@ -409,8 +399,6 @@ const fn severity_name(severity: Severity) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-  use std::path::PathBuf;
-
   use serde_json::Value;
 
   use super::*;
@@ -429,7 +417,7 @@ mod tests {
           "Prefer normal template interpolation. If raw HTML is required, sanitize it at the trust boundary."
             .into(),
         ),
-        file: PathBuf::from("fixtures/reporters/no-v-html.vue"),
+        file: FileId::from("no-v-html.vue"),
         span: SourceSpan { offset: 19, length: 6, line: 2, column: 9 },
         edits: Vec::new(),
         recommendation: None,
@@ -469,10 +457,10 @@ mod tests {
   }
 
   #[test]
-  fn json_report_normalizes_absolute_windows_paths_against_coverage() {
+  fn json_report_uses_the_pre_normalized_file_id() {
     let mut summary = fixture_summary();
     if let Some(diagnostic) = summary.diagnostics.first_mut() {
-      diagnostic.file = PathBuf::from(r"C:\repo\src\App.vue");
+      diagnostic.file = FileId::from(r"src\App.vue");
     }
     let context =
       ReportContext { analyzed_files: vec!["src/App.vue".into()], ..ReportContext::default() };
@@ -488,7 +476,7 @@ mod tests {
         .and_then(|diagnostic| diagnostic.get("file"))
         .and_then(Value::as_str),
       Some("src/App.vue"),
-      "JSON paths must be normalized against analyzed coverage"
+      "JSON paths must use the discovery-normalized FileId"
     );
   }
 

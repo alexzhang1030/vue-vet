@@ -104,9 +104,11 @@ and security details.
 ## Architecture
 
 ```text
-vue-vet CLI          discovery, configuration, orchestration, exit policy
+vue-vet CLI          configuration, output, exit policy
       |
-vue_vet_vize/oxc     Vize SFC/template facts + Oxc script facts
+vue_vet_session      input snapshots, incremental state, orchestration
+      |
+vue_vet_vize/oxc     Vize template facts + one-pass Oxc module facts
       |
 vue_vet_reactivity  local and cross-module reactive dependency graphs
       |
@@ -129,6 +131,10 @@ via `.github/workflows/release.yml` (`CARGO_REGISTRY_TOKEN`). See
 Vize is the semantic source of truth for Vue SFCs and templates. Oxc owns
 JavaScript and TypeScript semantics. Vue Vet keeps one semantic analysis stack
 instead of embedding a parallel structural-pattern engine.
+Module tracing is worker-bounded, internal paths are exact workspace-relative
+`FileId` values, and the long-lived session reuses unchanged file facts across
+LSP edits. A single-file parse error produces a partial result instead of
+aborting the rest of the workspace.
 
 See [the architecture decision](docs/adr/0001-analysis-stack.md) and
 [the roadmap](ROADMAP.md). Project resolution and Nuxt convention limitations

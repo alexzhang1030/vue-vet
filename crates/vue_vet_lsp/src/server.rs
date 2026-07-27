@@ -4,12 +4,14 @@
 //! (`textDocument/didOpen` / `didChange` / `didSave`) and exposes explicitly
 //! safe quick-fix code actions. Request-level cancellation remains later
 //! issue #12 work; overlapping overlay analyses are dropped via per-document
-//! generation tokens.
+//! generation tokens. CPU analysis runs on Tokio's blocking pool and the
+//! initialized [`ProjectSession`] retains unchanged file facts across edits.
 
 use std::{
   collections::{BTreeMap, HashMap},
   path::{Path, PathBuf},
   sync::Arc,
+  time::Duration,
 };
 
 use tokio::sync::RwLock;
@@ -34,6 +36,7 @@ pub struct Backend {
 #[derive(Debug, Default)]
 struct ServerState {
   root: Option<PathBuf>,
+  session: Option<Arc<ProjectSession>>,
   open: HashMap<Url, OpenDocument>,
 }
 
@@ -58,6 +61,9 @@ impl Backend {
       let Some(doc) = state.open.get(&uri) else {
         return;
       };
+      let Some(session) = state.session.clone() else {
+        return;
+      };
       let root = state.root.clone().unwrap_or_else(|| parent_or_cwd(&doc.path));
       let overlays = collect_overlays(&state.open);
       let request = PublishRequest {
@@ -68,16 +74,17 @@ impl Backend {
         generation: doc.generation,
         root,
         overlays,
+        session,
       };
       drop(state);
       request
     };
 
+    tokio::time::sleep(Duration::from_millis(50)).await;
     if !self.generation_current(&snapshot_state.uri, snapshot_state.generation).await {
       return;
     }
-    let Some(analysis) =
-      self.analyze_open(snapshot_state.root.clone(), &snapshot_state.overlays).await
+    let Some(analysis) = self.analyze_open(snapshot_state.session, snapshot_state.overlays).await
     else {
       return;
     };
@@ -90,12 +97,7 @@ impl Backend {
       .summary
       .diagnostics
       .iter()
-      .filter(|diagnostic| {
-        let file = diagnostic.file.to_string_lossy().replace('\\', "/");
-        file == normalized_path
-          || file.ends_with(&normalized_path)
-          || normalized_path.ends_with(&file)
-      })
+      .filter(|diagnostic| diagnostic.file.as_str() == normalized_path)
       .map(|diagnostic| {
         to_lsp_diagnostic(diagnostic, &analysis.analyzed_files, Some(snapshot_state.text.as_str()))
       })
@@ -114,22 +116,22 @@ impl Backend {
 
   async fn analyze_open(
     &self,
-    root: PathBuf,
-    overlays: &BTreeMap<PathBuf, String>,
+    session: Arc<ProjectSession>,
+    overlays: BTreeMap<PathBuf, String>,
   ) -> Option<AnalysisSnapshot> {
-    let options =
-      SessionOptions { root, config_path: None, cache_dir: None, no_cache: true, threads: None };
-    let session = match ProjectSession::open(options) {
-      Ok(session) => session,
+    let result =
+      tokio::task::spawn_blocking(move || session.analyze_with_overlays(&overlays)).await;
+    let analysis = match result {
+      Ok(analysis) => analysis,
       Err(error) => {
         self
           .client
-          .log_message(MessageType::ERROR, format!("vue-vet session failed: {error}"))
+          .log_message(MessageType::ERROR, format!("vue-vet analysis worker failed: {error}"))
           .await;
         return None;
       }
     };
-    match session.analyze_with_overlays(overlays) {
+    match analysis {
       Ok(analysis) => Some(analysis),
       Err(error) => {
         self
@@ -150,6 +152,7 @@ struct PublishRequest {
   generation: u64,
   root: PathBuf,
   overlays: BTreeMap<PathBuf, String>,
+  session: Arc<ProjectSession>,
 }
 
 /// Returns true when `current` still matches the generation captured before analyze.
@@ -177,7 +180,18 @@ impl LanguageServer for Backend {
       .or_else(|| params.root_uri.as_ref().and_then(|uri| uri.to_file_path().ok()))
       .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
-    self.state.write().await.root = Some(root);
+    let session = ProjectSession::open(SessionOptions {
+      root: root.clone(),
+      config_path: None,
+      cache_dir: None,
+      no_cache: true,
+      threads: None,
+    })
+    .map_err(|error| tower_lsp::jsonrpc::Error::invalid_params(error.to_string()))?;
+    let mut state = self.state.write().await;
+    state.root = Some(root);
+    state.session = Some(Arc::new(session));
+    drop(state);
 
     Ok(InitializeResult {
       capabilities: ServerCapabilities {
@@ -265,18 +279,21 @@ impl LanguageServer for Backend {
 
   async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
     let uri = params.text_document.uri;
-    let (root, path, text, version, overlays) = {
+    let (root, path, text, version, overlays, session) = {
       let state = self.state.read().await;
       let Some(doc) = state.open.get(&uri) else {
         return Ok(None);
       };
+      let Some(session) = state.session.clone() else {
+        return Ok(None);
+      };
       let root = state.root.clone().unwrap_or_else(|| parent_or_cwd(&doc.path));
       let overlays = collect_overlays(&state.open);
-      let snapshot = (root, doc.path.clone(), doc.text.clone(), doc.version, overlays);
+      let snapshot = (root, doc.path.clone(), doc.text.clone(), doc.version, overlays, session);
       drop(state);
       snapshot
     };
-    let Some(analysis) = self.analyze_open(root.clone(), &overlays).await else {
+    let Some(analysis) = self.analyze_open(session, overlays).await else {
       return Ok(None);
     };
     let only = params.context.only.as_deref();

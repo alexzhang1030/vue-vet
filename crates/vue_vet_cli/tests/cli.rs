@@ -285,27 +285,27 @@ fn unsafe_fixture_has_machine_readable_json_output() {
 }
 
 #[test]
-fn malformed_fixture_returns_an_operational_error_without_panicking() {
+fn malformed_fixture_returns_a_partial_result_without_panicking() {
   let path = fixture("parser/malformed/unclosed-template.vue");
   let output = run(&[path.to_string_lossy().as_ref()]);
-  let stderr = String::from_utf8_lossy(&output.stderr);
+  let stdout = String::from_utf8_lossy(&output.stdout);
 
-  assert_eq!(output.status.code(), Some(2), "a parser failure must return exit code 2");
-  assert!(stderr.contains("failed to analyze"), "stderr must explain the parser failure: {stderr}");
-  assert!(!stderr.contains("panicked"), "malformed input must never panic: {stderr}");
+  assert_eq!(output.status.code(), Some(1), "a parser diagnostic must use the finding exit code");
+  assert!(stdout.contains("failed to analyze"), "the finding must explain the parser failure");
+  assert!(!stdout.contains("panicked"), "malformed input must never panic");
 }
 
 #[test]
-fn malformed_fixture_returns_a_structured_json_error() {
+fn malformed_fixture_returns_structured_partial_json() {
   let path = fixture("parser/malformed/unclosed-template.vue");
   let output = run(&[path.to_string_lossy().as_ref(), "--format", "json"]);
   let parsed: Result<Value, _> = serde_json::from_slice(&output.stdout);
 
-  assert_eq!(output.status.code(), Some(2), "a parser failure must return exit code 2");
+  assert_eq!(output.status.code(), Some(1), "a parser diagnostic must use the finding exit code");
   assert_eq!(
     parsed.as_ref().ok().and_then(|report| report.get("ok")).and_then(Value::as_bool),
-    Some(false),
-    "JSON mode must keep operational failures machine readable"
+    Some(true),
+    "analysis completed with an explicit partial result"
   );
   assert_eq!(
     parsed
@@ -315,17 +315,19 @@ fn malformed_fixture_returns_a_structured_json_error() {
       .and_then(|project| project.get("complete"))
       .and_then(Value::as_bool),
     Some(false),
-    "failed scans must never claim complete coverage"
+    "partial scans must never claim complete coverage"
   );
-  assert!(
+  assert_eq!(
     parsed
       .as_ref()
       .ok()
-      .and_then(|report| report.get("error"))
-      .and_then(|error| error.get("message"))
-      .and_then(Value::as_str)
-      .is_some_and(|message| message.contains("failed to analyze")),
-    "the structured error must retain the actionable parser failure"
+      .and_then(|report| report.get("diagnostics"))
+      .and_then(Value::as_array)
+      .and_then(|diagnostics| diagnostics.first())
+      .and_then(|diagnostic| diagnostic.get("rule_id"))
+      .and_then(Value::as_str),
+    Some("vue-vet/analysis/parse-error"),
+    "the parser failure must be represented as a file diagnostic"
   );
 }
 

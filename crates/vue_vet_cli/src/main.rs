@@ -348,6 +348,11 @@ fn report_context(cli: &Cli, snapshot: &AnalysisSnapshot) -> ReportContext {
   if let Some(error) = &snapshot.graph.reactivity_error {
     skipped_check_reasons.insert("module_reactivity".into(), error.clone());
   }
+  for (index, issue) in snapshot.issues.iter().enumerate() {
+    skipped_check_reasons
+      .entry(format!("analysis_{index}"))
+      .or_insert_with(|| issue.message.clone());
+  }
   let module_stats = reactivity_module_stats(&snapshot.graph.module_reactivity);
   let mut digest =
     ReactivityDigest::from_modules(&module_stats, snapshot.graph.reactivity_error.clone());
@@ -361,7 +366,7 @@ fn report_context(cli: &Cli, snapshot: &AnalysisSnapshot) -> ReportContext {
     framework: report_framework(&cli.path),
     project_root: report_root(&cli.path),
     analyzed_files: snapshot.analyzed_files.clone(),
-    complete: skipped_check_reasons.is_empty(),
+    complete: snapshot.complete(),
     skipped_check_reasons,
     reactivity: Some(digest),
     component_nav,

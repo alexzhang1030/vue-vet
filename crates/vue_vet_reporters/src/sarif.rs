@@ -1,7 +1,7 @@
-use std::{collections::BTreeMap, path::Path};
+use std::collections::BTreeMap;
 
 use serde::Serialize;
-use vue_vet_core::{Confidence, Diagnostic, ScanSummary, Severity, diagnostic_id};
+use vue_vet_core::{Confidence, Diagnostic, FileId, ScanSummary, Severity, diagnostic_id};
 
 use crate::ReportContext;
 
@@ -187,16 +187,8 @@ fn analyzed_files(context: &ReportContext) -> Vec<String> {
   files
 }
 
-fn report_path(path: &Path, analyzed_files: &[String]) -> String {
-  let normalized = normalize_path(&path.to_string_lossy());
-  analyzed_files
-    .iter()
-    .find(|candidate| {
-      normalized == candidate.as_str()
-        || normalized.strip_suffix(candidate.as_str()).is_some_and(|prefix| prefix.ends_with('/'))
-    })
-    .cloned()
-    .unwrap_or(normalized)
+fn report_path(path: &FileId, _analyzed_files: &[String]) -> String {
+  path.as_str().to_owned()
 }
 
 fn normalize_path(path: &str) -> String {
@@ -233,8 +225,6 @@ const fn confidence_name(confidence: Confidence) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-  use std::path::PathBuf;
-
   use serde_json::Value;
   use vue_vet_core::{SourceSpan, diagnostic_id};
 
@@ -254,7 +244,7 @@ mod tests {
           "Prefer normal template interpolation. If raw HTML is required, sanitize it at the trust boundary."
             .into(),
         ),
-        file: PathBuf::from("fixtures/reporters/no-v-html.vue"),
+        file: FileId::from("no-v-html.vue"),
         span: SourceSpan { offset: 19, length: 6, line: 2, column: 9 },
         edits: Vec::new(),
         recommendation: None,
@@ -282,10 +272,10 @@ mod tests {
   }
 
   #[test]
-  fn sarif_normalizes_windows_paths_and_keeps_stable_fingerprint() {
+  fn sarif_uses_normalized_file_id_and_keeps_stable_fingerprint() {
     let mut summary = fixture_summary();
     if let Some(diagnostic) = summary.diagnostics.first_mut() {
-      diagnostic.file = PathBuf::from(r"C:\repo\src\App.vue");
+      diagnostic.file = FileId::from(r"src\App.vue");
     }
     let context =
       ReportContext { analyzed_files: vec!["src/App.vue".into()], ..ReportContext::default() };

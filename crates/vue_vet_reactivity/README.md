@@ -101,6 +101,11 @@ assert_eq!(graphs.len(), 2);
 
 Link resolution is the caller's job (Vue Vet's project graph supplies it). This
 crate does not open the filesystem or resolve bare specifiers.
+Use `trace_modules_with_options` and `TraceModulesOptions { max_workers }` when
+the caller needs an explicit concurrency bound. Vue Vet's Oxc adapter attaches
+prepared phase-one facts from its file parse, so unseeded modules are not parsed
+again; only consumers that receive cross-module seeds reparse for symbol
+materialization.
 
 ## What the graph contains
 

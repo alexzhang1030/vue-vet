@@ -20,14 +20,14 @@ vize_atelier_core.workspace = true
 vize_atelier_sfc.workspace = true
 vue_vet_core = { path = "../vue_vet_core" }
 vue_vet_oxc = { path = "../vue_vet_oxc" }
-vue_vet_practice = { path = "../vue_vet_practice" }
 vue_vet_reactivity = { path = "../vue_vet_reactivity" }
-vue_vet_rules = { path = "../vue_vet_rules" }
 
 [dev-dependencies]
 divan.workspace = true
 serde_json.workspace = true
+vue_vet_practice = { path = "../vue_vet_practice" }
 vue_vet_project = { path = "../vue_vet_project" }
+vue_vet_rules = { path = "../vue_vet_rules" }
 
 [[bench]]
 name = "analyze_sfc"

@@ -19,9 +19,10 @@
 //!
 //! # Cross-module entry
 //!
-//! [`trace_modules`] parses each [`ModuleSource`] once, links composable /
-//! export seeds across [`ModuleLink`] edges, and re-traces consumers with those
-//! seeds. Callers supply already-resolved links.
+//! [`trace_modules`] consumes prepared phase-one summaries when the Oxc adapter
+//! supplies them, links composable/export seeds across [`ModuleLink`] edges,
+//! and reparses only seeded consumers. Both phases use a bounded worker pool.
+//! Callers supply already-resolved links.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -2228,7 +2229,10 @@ fn source_span(source: &str, base: usize, span: Span) -> SourceSpan {
 mod modules;
 mod prop_flow;
 
-pub use modules::{ModuleLink, ModuleReactivity, ModuleSource, TraceModulesError, trace_modules};
+pub use modules::{
+  ModuleLink, ModuleReactivity, ModuleSource, PreparedModuleTrace, TraceModulesError,
+  TraceModulesOptions, prepare_module_trace, trace_modules, trace_modules_with_options,
+};
 pub use prop_flow::{PropFlowSite, join_prop_flows};
 
 #[cfg(test)]

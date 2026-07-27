@@ -4,22 +4,28 @@
 //! and finding explain, and workspace path containment. Protocol adapters
 //! (clap, LSP, MCP) stay outside.
 
+mod diagnostics;
+mod discovery;
 mod explain;
+mod package_index;
 mod path;
 mod scan;
 
 use std::{
   collections::BTreeMap,
   path::{Path, PathBuf},
+  sync::{LazyLock, Mutex, MutexGuard},
 };
 
 use thiserror::Error;
 use vue_vet_cache::default_cache_dir;
 use vue_vet_config::{CONFIG_FILE, Config};
-use vue_vet_core::{Confidence, RuleMeta, RuleRegistry, ScanSummary, Severity};
+use vue_vet_core::{
+  Confidence, FileId, FindingExplain, RuleExplain, RuleMeta, RuleRegistry, ScanSummary, Severity,
+  WorkspaceRoot,
+};
 use vue_vet_practice::practice_rules;
 use vue_vet_project::{PROJECT_RULE_IDS, ProjectGraph};
-use vue_vet_reporters::{FindingExplain, RuleExplain, find_rule_meta};
 use vue_vet_rules::builtin_rules;
 
 pub use explain::Explained;
@@ -47,8 +53,64 @@ pub struct AnalysisSnapshot {
   pub summary: ScanSummary,
   pub graph: ProjectGraph,
   pub cache_status: &'static str,
+  pub coverage: AnalysisCoverage,
+  pub issues: Vec<AnalysisIssue>,
   /// Normalized `/`-separated paths matching JSON `project.analyzed_files`.
   pub analyzed_files: Vec<String>,
+}
+
+impl AnalysisSnapshot {
+  #[must_use]
+  pub const fn complete(&self) -> bool {
+    self.issues.is_empty()
+  }
+}
+
+/// Source coverage is distinct from non-source inputs that invalidate a graph.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AnalysisCoverage {
+  pub analyzed_source_files: Vec<FileId>,
+  pub invalidation_inputs: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AnalysisStage {
+  SfcParse,
+  ScriptParse,
+  ModuleTracing,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Recoverability {
+  File,
+  Module,
+  Fatal,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AnalysisIssue {
+  pub stage: AnalysisStage,
+  pub file: Option<FileId>,
+  pub message: String,
+  pub recoverability: Recoverability,
+}
+
+/// Overlay mutations applied to a long-lived session before affected analysis.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ChangeSet {
+  pub files: BTreeMap<PathBuf, Option<String>>,
+}
+
+impl ChangeSet {
+  #[must_use]
+  pub fn upsert(path: PathBuf, source: String) -> Self {
+    Self { files: BTreeMap::from([(path, Some(source))]) }
+  }
+
+  #[must_use]
+  pub fn remove(path: PathBuf) -> Self {
+    Self { files: BTreeMap::from([(path, None)]) }
+  }
 }
 
 /// Errors from session open, analyze, explain, or path resolution.
@@ -92,11 +154,18 @@ pub static PROJECT_RULE_META: [RuleMeta; 2] = [
 /// Long-lived analysis handle for one workspace root and effective config.
 #[derive(Debug)]
 pub struct ProjectSession {
-  root: PathBuf,
+  root: WorkspaceRoot,
   config: Config,
   cache_dir: PathBuf,
   no_cache: bool,
   threads: Option<usize>,
+  state: Mutex<SessionState>,
+}
+
+#[derive(Debug, Default)]
+struct SessionState {
+  overlays: BTreeMap<PathBuf, String>,
+  analysis: scan::AnalysisState,
 }
 
 impl ProjectSession {
@@ -108,11 +177,12 @@ impl ProjectSession {
   pub fn open(options: SessionOptions) -> Result<Self, SessionError> {
     let config = load_config(&options.root, options.config_path.as_deref())?;
     Ok(Self {
-      root: options.root,
+      root: WorkspaceRoot::new(options.root),
       config,
       cache_dir: options.cache_dir.unwrap_or_else(default_cache_dir),
       no_cache: options.no_cache,
       threads: options.threads,
+      state: Mutex::new(SessionState::default()),
     })
   }
 
@@ -123,13 +193,13 @@ impl ProjectSession {
 
   #[must_use]
   pub fn root(&self) -> &Path {
-    &self.root
+    self.root.as_path()
   }
 
   /// Directory boundary used for project graph and git diff (file parents collapse here).
   #[must_use]
   pub fn workspace_root(&self) -> &Path {
-    scan_directory(&self.root)
+    scan_directory(self.root.as_path())
   }
 
   /// Resolve `path` inside the workspace; reject traversal outside the root.
@@ -147,7 +217,15 @@ impl ProjectSession {
   ///
   /// Returns analysis, cache, or I/O failures.
   pub fn analyze(&self) -> Result<AnalysisSnapshot, SessionError> {
-    scan::analyze(&self.root, &self.config, &self.cache_dir, self.no_cache, self.threads)
+    let mut state = self.lock_state()?;
+    scan::analyze(
+      self.root.as_path(),
+      &self.config,
+      &self.cache_dir,
+      self.no_cache,
+      self.threads,
+      &mut state.analysis,
+    )
   }
 
   /// Always bypass the content-addressed cache (fix apply rescan).
@@ -156,7 +234,15 @@ impl ProjectSession {
   ///
   /// Returns analysis or I/O failures.
   pub fn analyze_fresh(&self) -> Result<AnalysisSnapshot, SessionError> {
-    scan::analyze(&self.root, &self.config, &self.cache_dir, true, self.threads)
+    let mut state = self.lock_state()?;
+    scan::analyze(
+      self.root.as_path(),
+      &self.config,
+      &self.cache_dir,
+      true,
+      self.threads,
+      &mut state.analysis,
+    )
   }
 
   /// Scan with unsaved buffer overlays (LSP `didChange` text).
@@ -175,7 +261,70 @@ impl ProjectSession {
     if overlays.is_empty() {
       return self.analyze_fresh();
     }
-    scan::analyze_with_overlays(&self.root, &self.config, self.threads, overlays)
+    let mut state = self.lock_state()?;
+    state.overlays.clone_from(overlays);
+    scan::analyze_with_overlays(
+      self.root.as_path(),
+      &self.config,
+      self.threads,
+      overlays,
+      &mut state.analysis,
+    )
+  }
+
+  /// Update unsaved source overlays without reopening configuration or the workspace.
+  ///
+  /// # Errors
+  ///
+  /// Returns when the session state lock was poisoned.
+  pub fn apply_changes(&self, changes: ChangeSet) -> Result<(), SessionError> {
+    let mut state = self.lock_state()?;
+    for (path, source) in changes.files {
+      if let Some(source) = source {
+        state.overlays.insert(path, source);
+      } else {
+        state.overlays.remove(&path);
+      }
+    }
+    drop(state);
+    Ok(())
+  }
+
+  /// Analyze the current overlay set, reusing unchanged per-file facts.
+  ///
+  /// # Errors
+  ///
+  /// Returns analysis or I/O failures.
+  pub fn analyze_affected(&self) -> Result<AnalysisSnapshot, SessionError> {
+    let mut state = self.lock_state()?;
+    let overlays = state.overlays.clone();
+    if overlays.is_empty() {
+      return scan::analyze(
+        self.root.as_path(),
+        &self.config,
+        &self.cache_dir,
+        true,
+        self.threads,
+        &mut state.analysis,
+      );
+    }
+    scan::analyze_with_overlays(
+      self.root.as_path(),
+      &self.config,
+      self.threads,
+      &overlays,
+      &mut state.analysis,
+    )
+  }
+
+  /// Files invalidated by the most recent in-memory analysis.
+  ///
+  /// # Errors
+  ///
+  /// Returns when the session state lock was poisoned.
+  pub fn affected_files(&self) -> Result<Vec<FileId>, SessionError> {
+    let state = self.lock_state()?;
+    Ok(state.analysis.last_affected.iter().cloned().collect())
   }
 
   /// Explain a rule id or opaque finding id.
@@ -204,14 +353,22 @@ impl ProjectSession {
   pub fn explain_finding(&self, finding_id: &str) -> Result<FindingExplain, SessionError> {
     explain::explain_finding(self, finding_id)
   }
+
+  fn lock_state(&self) -> Result<MutexGuard<'_, SessionState>, SessionError> {
+    self.state.lock().map_err(|_| SessionError::message("project session state lock was poisoned"))
+  }
 }
 
 /// Per-file lint + practice registry shared by session scans.
-#[must_use]
-pub fn file_analysis_registry() -> RuleRegistry {
+static FILE_RULES: LazyLock<RuleRegistry> = LazyLock::new(|| {
   let mut rules = builtin_rules();
   rules.extend(practice_rules());
   RuleRegistry::new(rules)
+});
+
+#[must_use]
+pub fn file_analysis_registry() -> &'static RuleRegistry {
+  &FILE_RULES
 }
 
 /// Look up built-in, practice, or project rule metadata by exact id.
@@ -219,7 +376,7 @@ pub fn file_analysis_registry() -> RuleRegistry {
 pub fn resolve_rule_meta(rule_id: &str) -> Option<&'static RuleMeta> {
   let mut metas = file_analysis_registry().metadata();
   metas.extend(PROJECT_RULE_META.iter());
-  find_rule_meta(rule_id, &metas)
+  metas.into_iter().find(|meta| meta.id == rule_id)
 }
 
 fn known_rule_ids() -> impl Iterator<Item = &'static str> {

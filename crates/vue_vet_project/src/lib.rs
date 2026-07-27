@@ -3,13 +3,14 @@ mod resolve;
 
 use std::{
   collections::{BTreeMap, BTreeSet},
-  path::{Path, PathBuf},
+  path::Path,
 };
 
 use serde::{Deserialize, Serialize};
-use vue_vet_core::{Confidence, Diagnostic, ScriptFacts, Severity, SfcFacts, SourceSpan};
+use vue_vet_core::{Confidence, Diagnostic, FileId, ScriptFacts, Severity, SfcFacts, SourceSpan};
 use vue_vet_reactivity::{
-  ModuleLink, ModuleReactivity, ModuleSource, PropFlowSite, join_prop_flows, trace_modules,
+  ModuleLink, ModuleReactivity, ModuleSource, PropFlowSite, TraceModulesOptions, join_prop_flows,
+  trace_modules_with_options,
 };
 
 pub use resolve::{OXC_RESOLVER_VERSION, normalize_project_root, resolver_config_inputs};
@@ -25,7 +26,7 @@ pub const PROJECT_RULE_IDS: [&str; 2] =
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProjectFile {
-  pub path: PathBuf,
+  pub path: FileId,
   pub source_len: usize,
   pub facts: SfcFacts,
   pub module_source: Option<ModuleSource>,
@@ -90,10 +91,20 @@ pub struct ProjectGraph {
 
 #[must_use]
 pub fn build_project_graph(root: &Path, files: &[ProjectFile]) -> ProjectGraph {
+  build_project_graph_with_options(root, files, TraceModulesOptions::default())
+}
+
+#[must_use]
+pub fn build_project_graph_with_options(
+  root: &Path,
+  files: &[ProjectFile],
+  trace_options: TraceModulesOptions,
+) -> ProjectGraph {
   let root = normalize_project_root(root);
   let mut ordered = files.iter().collect::<Vec<_>>();
-  ordered.sort_by_key(|file| normalized_path(&file.path));
-  let known = ordered.iter().map(|file| normalized_path(&file.path)).collect::<BTreeSet<_>>();
+  ordered.sort_by_key(|file| normalized_path(file.path.as_path()));
+  let known =
+    ordered.iter().map(|file| normalized_path(file.path.as_path())).collect::<BTreeSet<_>>();
   let resolver = ProjectResolver::new(&root);
   let mut nodes = ordered.iter().map(|file| file_node(file)).collect::<Vec<_>>();
   let node_by_path =
@@ -147,7 +158,7 @@ pub fn build_project_graph(root: &Path, files: &[ProjectFile]) -> ProjectGraph {
   let mut diagnostics = Vec::new();
 
   for file in &ordered {
-    let path = normalized_path(&file.path);
+    let path = normalized_path(file.path.as_path());
     let from = file_id(&path);
     let imports = all_imports(&file.facts.script);
     for import in &imports {
@@ -184,7 +195,11 @@ pub fn build_project_graph(root: &Path, files: &[ProjectFile]) -> ProjectGraph {
           ));
         }
         Resolution::Unresolved => {
-          diagnostics.push(unresolved_diagnostic(&file.path, &import.source, import.span.clone()));
+          diagnostics.push(unresolved_diagnostic(
+            file.path.as_path(),
+            &import.source,
+            import.span.clone(),
+          ));
         }
       }
     }
@@ -224,16 +239,33 @@ pub fn build_project_graph(root: &Path, files: &[ProjectFile]) -> ProjectGraph {
     ))
   });
   let (mut module_reactivity, reactivity_error) =
-    match trace_modules(&module_sources, &module_links) {
+    match trace_modules_with_options(&module_sources, &module_links, trace_options) {
       Ok(reactivity) => (reactivity, None),
-      Err(error) => (Vec::new(), Some(error.to_string())),
+      Err(error) => {
+        // Keep every independently traceable local graph. One bad link/module
+        // must not erase useful reactivity facts for the rest of the project.
+        let mut partial = module_sources
+          .iter()
+          .filter_map(|module| {
+            trace_modules_with_options(
+              std::slice::from_ref(module),
+              &[],
+              TraceModulesOptions { max_workers: 1 },
+            )
+            .ok()
+          })
+          .flatten()
+          .collect::<Vec<_>>();
+        partial.sort_by(|left, right| left.id.cmp(&right.id));
+        (partial, Some(error.to_string()))
+      }
     };
   // Re-apply SFC template joins onto module graphs so cross-file seeds and
   // template reads share one fact surface. Spans stay SFC-absolute when the
   // module carried `source_offset` + `span_source`.
   let templates = ordered
     .iter()
-    .map(|file| (normalized_path(&file.path), &file.facts.template))
+    .map(|file| (normalized_path(file.path.as_path()), &file.facts.template))
     .collect::<BTreeMap<_, _>>();
   for module in &mut module_reactivity {
     if let Some(template) = templates.get(&module.id) {
@@ -283,7 +315,7 @@ fn all_imports(script: &ScriptFacts) -> Vec<&vue_vet_core::ScriptImportFact> {
 }
 
 fn file_node(file: &ProjectFile) -> GraphNode {
-  let path = normalized_path(&file.path);
+  let path = normalized_path(file.path.as_path());
   let kind = node_kind(&path);
   let name = if kind == NodeKind::Component {
     convention_component_name(&path).unwrap_or_else(|| file_stem(&path))
@@ -367,7 +399,7 @@ fn unresolved_diagnostic(file: &Path, specifier: &str, span: SourceSpan) -> Diag
       "Check that the import resolves under Node/Vite rules: a relative path, tsconfig paths / @ or ~ aliases, or an installed package."
         .into(),
     ),
-    file: file.to_path_buf(),
+    file: file.into(),
     span,
     edits: Vec::new(),
   recommendation: None,
@@ -392,7 +424,7 @@ fn unused_component_diagnostics(
       })
     })
     .filter_map(|node| {
-      let file = files.iter().find(|file| normalized_path(&file.path) == node.path)?;
+      let file = files.iter().find(|file| normalized_path(file.path.as_path()) == node.path)?;
       Some(Diagnostic {
         rule_id: PROJECT_RULE_IDS[1].into(),
         category: "project".into(),
@@ -415,6 +447,7 @@ mod tests {
   use super::*;
   use std::{
     fs,
+    path::PathBuf,
     sync::atomic::{AtomicUsize, Ordering},
   };
 
@@ -531,7 +564,7 @@ mod tests {
 
   fn materialize(project: &TempProject, files: &[ProjectFile]) {
     for file in files {
-      let relative = normalized_path(&file.path);
+      let relative = normalized_path(file.path.as_path());
       let stub = if Path::new(&relative)
         .extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("vue"))

@@ -9,10 +9,10 @@ use std::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use vue_vet_core::{Diagnostic, REACTIVITY_GRAPH_VERSION, ScanSummary};
+use vue_vet_core::{Diagnostic, FileId, REACTIVITY_GRAPH_VERSION, ScanSummary};
 use vue_vet_project::{CONVENTIONS_VERSION, OXC_RESOLVER_VERSION, ProjectGraph};
 
-pub const CACHE_FORMAT_VERSION: u32 = 3;
+pub const CACHE_FORMAT_VERSION: u32 = 4;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// Bump when built-in rule set or seed-aware analysis behavior changes.
 pub const RULESET_VERSION: u32 = 3;
@@ -218,7 +218,7 @@ pub fn diagnostic_fingerprint(diagnostic: &Diagnostic) -> String {
   let mut hasher = Sha256::new();
   hash_field(&mut hasher, b"fingerprint-version", &BASELINE_FORMAT_VERSION.to_le_bytes());
   hash_field(&mut hasher, b"rule", diagnostic.rule_id.as_bytes());
-  hash_field(&mut hasher, b"file", diagnostic.file.to_string_lossy().replace('\\', "/").as_bytes());
+  hash_field(&mut hasher, b"file", diagnostic.file.as_str().as_bytes());
   hash_field(&mut hasher, b"offset", &diagnostic.span.offset.to_le_bytes());
   hash_field(&mut hasher, b"message", diagnostic.message.as_bytes());
   hex_digest(&hasher.finalize())
@@ -241,14 +241,8 @@ pub struct ChangedLines {
 
 impl ChangedLines {
   #[must_use]
-  pub fn contains(&self, file: &Path, line: usize) -> bool {
-    let path = file.to_string_lossy().replace('\\', "/");
-    self.files.iter().any(|(changed, lines)| {
-      (path == *changed
-        || path.ends_with(&format!("/{changed}"))
-        || changed.ends_with(&format!("/{path}")))
-        && (lines.is_empty() || lines.contains(&line))
-    })
+  pub fn contains(&self, file: &FileId, line: usize) -> bool {
+    self.files.get(file.as_str()).is_some_and(|lines| lines.is_empty() || lines.contains(&line))
   }
 }
 

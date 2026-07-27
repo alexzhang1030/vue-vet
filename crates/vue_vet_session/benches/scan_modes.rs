@@ -9,7 +9,7 @@ use std::{
 };
 
 use vue_vet_cache::{ChangedLines, filter_diff};
-use vue_vet_session::{ProjectSession, SessionOptions};
+use vue_vet_session::{ChangeSet, ProjectSession, SessionOptions};
 
 fn nuxt_graph() -> PathBuf {
   PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/projects/nuxt-graph")
@@ -87,6 +87,29 @@ fn scan_overlay_nuxt_graph(bencher: divan::Bencher) {
     let _ignored = std::fs::remove_dir_all(&cache);
     divan::black_box(snapshot.summary.diagnostics.len())
   });
+}
+
+#[divan::bench]
+fn scan_incremental_edits_nuxt_graph(bencher: divan::Bencher) {
+  let root = nuxt_graph();
+  let index = root.join("pages/index.vue");
+  let source = std::fs::read_to_string(&index).expect("index.vue");
+  let cache = temp_cache("incremental");
+  let session = open(&root, cache.clone(), true);
+  let _initial = session.analyze().expect("initial analyze");
+  let edit = AtomicUsize::new(0);
+  bencher.bench(|| {
+    let sequence = edit.fetch_add(1, Ordering::Relaxed);
+    session
+      .apply_changes(ChangeSet::upsert(
+        index.clone(),
+        format!("{source}\n<!-- edit {sequence} -->"),
+      ))
+      .expect("apply incremental overlay");
+    let snapshot = session.analyze_affected().expect("incremental analyze");
+    divan::black_box(snapshot.summary.diagnostics.len())
+  });
+  let _ignored = std::fs::remove_dir_all(&cache);
 }
 
 #[divan::bench]

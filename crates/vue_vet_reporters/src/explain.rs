@@ -10,48 +10,7 @@ use std::{
   path::{Path, PathBuf},
 };
 
-use serde::Serialize;
-use vue_vet_core::{Confidence, Diagnostic, Recommendation, RuleMeta, Severity, SourceSpan};
-
-/// Machine-readable `--explain` payload for a rule id (early-exit; not the scan report).
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct RuleExplain {
-  pub rule_id: String,
-  pub category: String,
-  pub severity: Severity,
-  pub confidence: Confidence,
-  /// Repository-relative documentation path (`docs/rules/...md`).
-  pub documentation: String,
-  /// Markdown body when the file was found and readable.
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub body: Option<String>,
-  /// Absolute or relative path that supplied `body`, when known.
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub body_path: Option<String>,
-  /// Why `body` is missing when the rule is known but docs are unavailable.
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub body_error: Option<String>,
-}
-
-/// Machine-readable `--explain` payload for an opaque diagnostic finding id.
-///
-/// Requires a scan of the same path that produced the id. Nested `rule` reuses
-/// the rule-docs shape so agents can read remediation without a second lookup.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct FindingExplain {
-  pub id: String,
-  pub file: String,
-  pub span: SourceSpan,
-  pub severity: Severity,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub confidence: Option<Confidence>,
-  pub message: String,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub help: Option<String>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub recommendation: Option<Recommendation>,
-  pub rule: RuleExplain,
-}
+use vue_vet_core::{Confidence, Diagnostic, FindingExplain, RuleExplain, RuleMeta, Severity};
 
 /// Map a [`RuleMeta::documentation`] key to the JSON/report path form.
 #[must_use]
@@ -342,7 +301,7 @@ mod tests {
       documentation: Some(SAMPLE.documentation.into()),
       message: "`v-html` can render untrusted HTML into the page".into(),
       help: Some("Prefer normal template interpolation.".into()),
-      file: PathBuf::from("basic.vue"),
+      file: PathBuf::from("basic.vue").into(),
       span: SourceSpan { offset: 19, length: 6, line: 2, column: 9 },
       edits: Vec::new(),
       recommendation: None,

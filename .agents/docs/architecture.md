@@ -5,13 +5,14 @@
 ```text
 vue-vet CLI
   -> vue_vet_session (config, cache, scan, explain, workspace paths)
-       -> ignore-aware .vue / JS / TS discovery (sequential walk)
-       -> parallel per-file facts (Vize SFC / Oxc modules)   // oxlint-style
+       -> immutable WorkspaceInputSnapshot (one walk/read; SourceStore Arc<str>)
+       -> PackageIndex + normalized FileId identities
+       -> parallel per-file facts (Vize SFC / one Oxc module parse)
        -> vue_vet_project edges + vue_vet_reactivity module seed linking
-          (module first-pass + seeded re-trace also parallel)
+          (bounded first pass + seeded consumers only)
        -> apply module graphs onto setup and dual ordinary (#script) blocks
        -> parallel seed-aware vue_vet_rules + vue_vet_practice
-       -> severity overrides and scoped suppressions
+       -> one DiagnosticFinalizer (severity, suppressions, dedup, sort)
        -> vue_vet_core diagnostics, spans, scoring (sorted for determinism;
           category `practice` excluded from score / default CI exit)
   -> vue_vet_reporters text or JSON rendering
@@ -20,8 +21,14 @@ vue-vet CLI
 
 ### Performance model (oxlint-inspired)
 
-- **Files parallel, pipeline per file sequential** — discovery is sequential; parse /
-  facts / seed-aware rules use Rayon (`--threads N` optional).
+- **One input snapshot per analysis** — discovery walks and reads each source,
+  manifest, and resolver input once. Cache lookup and a cache-miss analysis share
+  that snapshot. Sources are retained as `Arc<str>` and package environments are
+  parsed once into `PackageIndex`.
+- **Files parallel, pipeline per file sequential** — parse / facts / seed-aware
+  rules use Rayon (`--threads N` optional). The same bound is passed to module
+  tracing, so `--threads` constrains the complete scan rather than only the
+  outer file pass.
 - **Rules are pass-based, not “each rule re-scans everything”** — `Rule` exposes
   oxlint-style hooks over Vue Vet facts (not dependency AST):
   - `run_once` — whole-file / cross-fact aggregation
@@ -30,13 +37,13 @@ vue-vet CLI
     fact surface (template elements, script calls, reactivity scopes, …) dispatching
     only bucketed interested rules. Rules must report immediately; they must not
     `collect` intermediate vectors and re-scan them.
-- **Two-phase module reactivity, one parse** — sticky workers (`std::thread::scope`)
-  keep each module's Oxc allocator/semantic on the worker stack. Phase 1 builds
-  export shapes and an empty-seed local graph; after the coordinator resolves
-  seeds, phase 2 re-traces on the **same** semantic when cross-file seeds exist
-  (no second parse). Sessions never leave their thread (arena types are not
-  `Send`; the workspace forbids `unsafe_code`). Results stay deterministic after
-  sort-by-module-id.
+- **Two-phase bounded module reactivity** — `TraceModulesOptions::max_workers`
+  caps both Rayon phases; there is never one native thread per module. Oxc's
+  adapter extracts script facts, the local graph, and opaque Vue Vet-owned module
+  summaries from one semantic. The coordinator resolves seeds from those
+  summaries. Modules without seeds reuse their local graph; only seeded consumers
+  reparse to materialize symbol-resolved seeds. Oxc arena values never cross a
+  thread or adapter boundary and the workspace still forbids `unsafe_code`.
 - **Determinism after concurrency** — diagnostics are sorted in `ScanSummary::finish`;
   module results are sorted by module id after parallel re-trace.
 - **Still single-process Rust** — no JS rule host; adapters stay behind Vue Vet facts.
@@ -54,8 +61,8 @@ metadata plus thin `Rule` implementations that consume the same Vue Vet facts
 attach an optional `recommendation` payload, and stay off the score / default CI
 exit path. Some practice rules keep a historical rule id segment (for example
 `vue-vet/reactivity/prefer-use-template-ref`) for configuration stability.
-The CLI/session derives per-file Vue capabilities from the nearest package.json
-(`vue` version plus dependency package names) and passes them in
+The session derives per-file Vue capabilities from a single discovery-time
+`PackageIndex` (nearest `package.json`: `vue` version plus dependency names) and passes them in
 `RuleEnvironment` without exposing package-manager state to parser adapters.
 Practice recipes may adjust help text when `@vueuse/core` is already declared.
 The Oxc adapter delegates reactivity construction to `vue_vet_reactivity`.
@@ -101,14 +108,19 @@ working vertical slice exercises them; there is no separate pattern-engine
 boundary in the roadmap.
 
 `vue_vet_session` owns the long-lived project analysis handle: config load,
-cached/fresh scans, unsaved buffer overlays (`analyze_with_overlays`), rule and
-finding explain, and workspace path containment. Overlay analysis always bypasses
-the content-addressed cache. The CLI and `vue_vet_lsp` consume the session so
+cached/fresh scans, unsaved overlays, per-file fact state, reverse dependencies,
+rule/finding explain, and workspace path containment. `apply_changes` plus
+`analyze_affected` reparses changed files, reuses unchanged facts and file-rule
+results, and invalidates graph consumers through the reverse index. Overlay
+analysis bypasses the content-addressed cache. A file parse failure becomes an
+`AnalysisIssue` plus parser diagnostic while other files continue; fatal root or
+configuration errors still fail the request. The CLI and `vue_vet_lsp` consume the session so
 diagnostic identity stays shared across surfaces. The thin LSP (`vue-vet --lsp`)
 publishes diagnostics on `didOpen` / `didChange` / `didSave` from open-buffer
 overlays (FULL sync) with the opaque finding id in LSP `data` and the document
-version on `publishDiagnostics`. Overlapping overlay analyses are dropped via
-per-document generation tokens. Safe quick-fix code actions return versioned
+version on `publishDiagnostics`. LSP CPU work runs in a blocking worker after a
+short debounce; overlapping results are dropped via per-document generation
+tokens. Safe quick-fix code actions return versioned
 workspace edits from explicitly safe diagnostic edits only (client applies;
 server never writes). The thin MCP adapter (`vue-vet --mcp`, `vue_vet_mcp`)
 exposes scan / explain / safe-fix preview tools over stdio JSON-RPC with the
@@ -144,7 +156,9 @@ across Cargo workspace, npm, and `v*` tags. Details: [install docs](../../docs/i
 
 ## Reporting and edit planning
 
-`vue_vet_reporters` consumes Vue Vet-owned `ScanSummary` values plus an explicit
+Explain domain models live in `vue_vet_core`/`vue_vet_session`; reporters do not
+own session state or domain construction. `vue_vet_reporters` consumes Vue
+Vet-owned `ScanSummary` values plus an explicit
 report context for scan mode, framework, exact analyzed files, completeness, and
 skipped-check reasons. It owns deterministic text and versioned JSON rendering,
 while the CLI retains stdout, operational-error messages, and exit policy.
@@ -179,7 +193,14 @@ rollback, and more edit producers remain later issue #9 work.
 
 ## Identity and determinism
 
-Rule IDs and diagnostic fingerprints must remain stable enough for baselines, diff mode, SARIF, LSP, and agent consumers. Results are sorted independently of traversal or hash-map order. Paths in persisted or machine-readable output are repository-relative and normalized.
+Rule IDs and diagnostic fingerprints must remain stable enough for baselines,
+diff mode, SARIF, LSP, and agent consumers. Results are sorted independently of
+traversal or hash-map order. Discovery converts physical paths exactly once to
+workspace-relative normalized `FileId`; diagnostics, edits, graphs, caches,
+baselines, LSP, and reporters compare that identity exactly. Suffix matching is
+forbidden. Physical paths stay in the source/I/O adapter. Coverage reports
+analyzed source files separately from manifests, lockfiles, and resolver inputs
+that invalidate the graph.
 
 ## Thin editor host and diagnostics LSP
 

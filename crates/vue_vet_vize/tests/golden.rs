@@ -1,21 +1,39 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use vue_vet_core::{Diagnostic, PRACTICE_CATEGORY, RuleEnvironment, Severity, VueVersion};
-use vue_vet_vize::{AnalyzeError, analyze_sfc, analyze_sfc_with_environment};
+use vue_vet_core::{
+  Diagnostic, FileId, PRACTICE_CATEGORY, RuleEnvironment, RuleRegistry, Severity, VueVersion,
+};
+use vue_vet_practice::practice_rules;
+use vue_vet_rules::builtin_rules;
+use vue_vet_vize::{AnalyzeError, analyze_sfc_with_facts};
 
-fn normalize_path(path: &Path) -> String {
-  path.to_string_lossy().replace('\\', "/")
+fn analyze_sfc(path: &Path, source: &str) -> Result<Vec<Diagnostic>, AnalyzeError> {
+  analyze_sfc_with_environment(path, source, RuleEnvironment::default())
+}
+
+fn analyze_sfc_with_environment(
+  path: &Path,
+  source: &str,
+  environment: RuleEnvironment,
+) -> Result<Vec<Diagnostic>, AnalyzeError> {
+  let analysis = analyze_sfc_with_facts(path, source)?;
+  let mut rules = builtin_rules();
+  rules.extend(practice_rules());
+  Ok(RuleRegistry::new(rules).run_with_environment(
+    path,
+    source,
+    &analysis.facts.template,
+    &analysis.facts.script,
+    environment,
+  ))
 }
 
 #[expect(clippy::panic, reason = "fixture read or serialization errors must fail golden tests")]
 fn diagnostics_snapshot(logical_path: &str, source: &str) -> String {
-  let mut diagnostics = match analyze_sfc(Path::new(logical_path), source) {
+  let diagnostics = match analyze_sfc(Path::new(logical_path), source) {
     Ok(diagnostics) => diagnostics,
     Err(error) => panic!("fixture unexpectedly failed to parse: {error}"),
   };
-  for diagnostic in &mut diagnostics {
-    diagnostic.file = PathBuf::from(normalize_path(&diagnostic.file));
-  }
   match serde_json::to_string_pretty(&diagnostics) {
     Ok(snapshot) => snapshot,
     Err(error) => panic!("failed to serialize diagnostic snapshot: {error}"),
@@ -32,10 +50,7 @@ fn assert_diagnostics(logical_path: &str, source: &str, expected: &str) {
 
 #[expect(clippy::panic, reason = "fixture serialization errors must fail golden tests")]
 fn assert_versioned_diagnostics(logical_path: &str, source: &str, minor: u64, expected: &str) {
-  let mut diagnostics = analyze_versioned(logical_path, source, minor);
-  for diagnostic in &mut diagnostics {
-    diagnostic.file = PathBuf::from(normalize_path(Path::new(logical_path)));
-  }
+  let diagnostics = analyze_versioned(logical_path, source, minor);
   let actual = match serde_json::to_string_pretty(&diagnostics) {
     Ok(snapshot) => snapshot,
     Err(error) => panic!("failed to serialize diagnostic snapshot: {error}"),
@@ -65,7 +80,7 @@ fn analyze_versioned(path: &str, source: &str, minor: u64) -> Vec<Diagnostic> {
       packages: Vec::new(),
     },
   ) {
-    Ok(analysis) => analysis.diagnostics,
+    Ok(diagnostics) => diagnostics,
     Err(error) => panic!("versioned rule fixture unexpectedly failed: {error}"),
   }
 }
@@ -614,7 +629,7 @@ fn malformed_parser_fixture_matches_the_error_snapshot() {
 #[test]
 fn path_normalization_is_platform_independent() {
   assert_eq!(
-    normalize_path(Path::new(r"fixtures\rules\no-v-html\invalid\basic.vue")),
+    FileId::from(r"fixtures\rules\no-v-html\invalid\basic.vue").as_str(),
     "fixtures/rules/no-v-html/invalid/basic.vue",
     "Windows separators must normalize to the persisted form"
   );

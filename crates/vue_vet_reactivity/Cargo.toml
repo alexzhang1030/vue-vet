@@ -28,4 +28,9 @@ thiserror.workspace = true
 vue_vet_core = { version = "0.1.0", path = "../vue_vet_core" }
 
 [dev-dependencies]
+divan.workspace = true
 serde_json.workspace = true
+
+[[bench]]
+name = "module_scaling"
+harness = false
