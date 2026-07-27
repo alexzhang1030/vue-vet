@@ -286,8 +286,8 @@ archives. Tracker [#14](https://github.com/alexzhang1030/vue-vet/issues/14)
 stays open for release coordination.
 
 Near-term product work: keep `#13` quality gates green and keep expanding the
-checksummed corpus / precision labels (`a11y-forms` covers the full a11y pack;
-`practice-vueuse` covers the VueUse / `prefer-to-value` practice set). Deepen
-high-confidence reactivity coverage without racing Beta. Beta still requires
-publishing measured precision/performance evidence in the release notes
+checksummed corpus / precision labels (`a11y-forms`, `practice-vueuse`,
+`reactivity-rules`, `provide-inject`, `prop-flow`). Deepen high-confidence
+reactivity coverage without racing Beta. Beta still requires publishing measured
+precision/performance evidence in the release notes
 ([quality-baselines.md](./docs/quality-baselines.md), CodSpeed, precision delta).

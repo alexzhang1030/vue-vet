@@ -67,6 +67,12 @@
       "path": "fixtures/projects/provide-inject",
       "roles": ["vue", "reactivity", "precision"],
       "tree_digest": "ee79f32ce87b01e451160c050a657720159552222eb27b00d5c67eeeaf046a77"
+    },
+    {
+      "id": "reactivity-rules",
+      "path": "fixtures/projects/reactivity-rules",
+      "roles": ["vue", "reactivity", "precision"],
+      "tree_digest": "7e66f105b128d0b93c7f62ab1de6b8ae1611f39ec25d770b7d901b2331aabd60"
     }
   ]
 }

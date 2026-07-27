@@ -1,0 +1,23 @@
+{
+  "project": "reactivity-rules",
+  "findings": [
+    {
+      "rule_id": "vue-vet/reactivity/no-unused-reactive-binding",
+      "file": "UnusedBinding.vue",
+      "classification": "true_positive",
+      "rationale": "orphan ref is never read in script or template"
+    },
+    {
+      "rule_id": "vue-vet/reactivity/prefer-computed",
+      "file": "PreferComputed.vue",
+      "classification": "true_positive",
+      "rationale": "watchEffect only syncs derived fullName from other refs"
+    },
+    {
+      "rule_id": "vue-vet/reactivity/no-conditional-watch-effect-dependency",
+      "file": "ConditionalWatch.vue",
+      "classification": "true_positive",
+      "rationale": "result.value is read only after an early-return guard in watchEffect"
+    }
+  ]
+}
