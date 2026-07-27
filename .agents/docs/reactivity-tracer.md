@@ -221,3 +221,4 @@ growing prose ledger.
 | 2026-07-27 | Prop flow expression roots | `v-model` → `modelValue`; parent expr roots for bare / `.value` / single `ident.member` |
 | 2026-07-27 | Prop flow multi-hop roots | Static `ident.a.b` chains join to root binding only; calls/optional/brackets stay quiet |
 | 2026-07-27 | Prop flow optional chains | `ident?.a?.b` normalizes to the same root join; `?.()` / `?.[…]` stay quiet |
+| 2026-07-27 | Template instance optional chains | `bag?.field` / `bag?.field?.value` join composable instance fields like dotted forms |
