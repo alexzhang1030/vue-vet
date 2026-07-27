@@ -911,6 +911,7 @@ fn joins_template_reads_onto_script_bindings() {
       }],
       has_children: false,
       has_accessible_content: false,
+      has_labelable_descendant: false,
     }],
     expressions: vec![vue_vet_core::TemplateExpressionFact {
       surface: "if".into(),

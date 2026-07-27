@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/accessibility/label-has-for",
+    "category": "accessibility",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/accessibility/label-has-for",
+    "message": "label has no associated control",
+    "help": "Add a `for`/`:for` binding that matches a control `id`, or nest an input/select/textarea/button inside the label.",
+    "file": "fixtures/rules/label-has-for/invalid/missing.vue",
+    "span": {
+      "offset": 13,
+      "length": 7,
+      "line": 2,
+      "column": 3
+    }
+  }
+]

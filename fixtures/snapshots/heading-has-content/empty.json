@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/accessibility/heading-has-content",
+    "category": "accessibility",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/accessibility/heading-has-content",
+    "message": "heading has no accessible content",
+    "help": "Add text content, an img/area with alt, or an aria-label/aria-labelledby binding.",
+    "file": "fixtures/rules/heading-has-content/invalid/empty.vue",
+    "span": {
+      "offset": 13,
+      "length": 6,
+      "line": 2,
+      "column": 3
+    }
+  }
+]

@@ -17,8 +17,9 @@ pub struct PropFlowSite<'a> {
 
 /// Append static prop-flow edges onto each child graph.
 ///
-/// Links `:foo="bar"` / `v-bind:foo="bar"` when `bar` is a parent reactive binding
-/// and the child has a `props` reactive bag. Whole-object `v-bind="obj"` stays quiet.
+/// Links `:foo="bar"` / `v-bind:foo="bar"` / `v-model` when the parent expression
+/// is a bare identifier, `ident.value`, or a single static `ident.member`, and the
+/// child has a `props` reactive bag. Whole-object `v-bind="obj"` stays quiet.
 pub fn join_prop_flows(children: &mut [ModuleReactivity], sites: &[PropFlowSite<'_>]) {
   for site in sites {
     let Some(element) = site
@@ -73,17 +74,23 @@ fn collect_prop_edges(
 ) -> Vec<ReactiveDependencyEdge> {
   let mut edges = Vec::new();
   for directive in &element.directives {
-    if directive.name != "bind" {
-      continue;
-    }
-    let Some(prop_name) = directive.argument.as_deref().filter(|name| !name.is_empty()) else {
-      // `v-bind="obj"` — quiet (would invent many props).
-      continue;
+    let prop_name = match directive.name.as_str() {
+      "bind" => {
+        let Some(name) = directive.argument.as_deref().filter(|name| !name.is_empty()) else {
+          // `v-bind="obj"` — quiet (would invent many props).
+          continue;
+        };
+        name
+      }
+      "model" => {
+        directive.argument.as_deref().filter(|name| !name.is_empty()).unwrap_or("modelValue")
+      }
+      _ => continue,
     };
     let Some(expression) = directive.expression.as_deref() else {
       continue;
     };
-    let Some(binding) = parse_bare_identifier(expression) else {
+    let Some(binding) = parse_parent_binding_root(expression) else {
       continue;
     };
     let Some(parent_binding) = parent.bindings.iter().find(|item| item.name == binding) else {
@@ -105,21 +112,31 @@ fn collect_prop_edges(
   edges
 }
 
-fn parse_bare_identifier(expression: &str) -> Option<&str> {
+/// Bare `foo`, `foo.value`, or a single static `foo.bar` → parent binding root `foo`.
+fn parse_parent_binding_root(expression: &str) -> Option<&str> {
   let trimmed = expression.trim();
   if trimmed.is_empty() {
     return None;
   }
-  let mut chars = trimmed.chars();
-  let first = chars.next()?;
-  if !(first.is_ascii_alphabetic() || first == '_' || first == '$') {
-    return None;
-  }
-  if chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '$') {
-    Some(trimmed)
-  } else {
-    None
-  }
+  let root = match trimmed.split_once('.') {
+    Some((head, rest)) => {
+      if rest.is_empty() || rest.contains('.') || !is_ident_segment(rest) {
+        return None;
+      }
+      head
+    }
+    None => trimmed,
+  };
+  if is_ident_segment(root) { Some(root) } else { None }
+}
+
+fn is_ident_segment(value: &str) -> bool {
+  let mut chars = value.chars();
+  let Some(first) = chars.next() else {
+    return false;
+  };
+  (first.is_ascii_alphabetic() || first == '_' || first == '$')
+    && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '$')
 }
 
 #[cfg(test)]
@@ -152,6 +169,7 @@ mod tests {
         }],
         has_children: false,
         has_accessible_content: false,
+        has_labelable_descendant: false,
       }],
       expressions: Vec::new(),
     };
@@ -201,6 +219,100 @@ mod tests {
   }
 
   #[test]
+  fn joins_v_model_and_member_access_onto_child_props() {
+    let parent_template = TemplateFacts {
+      elements: vec![TemplateElementFact {
+        tag: "Child".into(),
+        span: span(10),
+        attributes: Vec::new(),
+        directives: vec![
+          TemplateDirectiveFact {
+            name: "model".into(),
+            raw_name: "v-model".into(),
+            argument: None,
+            expression: Some("msg".into()),
+            modifiers: Vec::new(),
+            span: span(12),
+          },
+          TemplateDirectiveFact {
+            name: "bind".into(),
+            raw_name: ":title".into(),
+            argument: Some("title".into()),
+            expression: Some("bag.name".into()),
+            modifiers: Vec::new(),
+            span: span(14),
+          },
+          TemplateDirectiveFact {
+            name: "bind".into(),
+            raw_name: ":count".into(),
+            argument: Some("count".into()),
+            expression: Some("msg.value".into()),
+            modifiers: Vec::new(),
+            span: span(16),
+          },
+        ],
+        has_children: false,
+        has_accessible_content: false,
+        has_labelable_descendant: false,
+      }],
+      expressions: Vec::new(),
+    };
+    let mut parent_graph = ReactivityGraph {
+      bindings: vec![
+        ReactiveBindingFact {
+          name: "msg".into(),
+          kind: ReactiveBindingKind::Ref,
+          initialized_with_null: false,
+          span: span(1),
+        },
+        ReactiveBindingFact {
+          name: "bag".into(),
+          kind: ReactiveBindingKind::Reactive,
+          initialized_with_null: false,
+          span: span(2),
+        },
+      ],
+      ..ReactivityGraph::default()
+    };
+    parent_graph.set_module_id("Parent.vue");
+    let child_graph = ReactivityGraph {
+      bindings: vec![ReactiveBindingFact {
+        name: "props".into(),
+        kind: ReactiveBindingKind::Reactive,
+        initialized_with_null: false,
+        span: span(3),
+      }],
+      ..ReactivityGraph::default()
+    };
+    let mut children = vec![ModuleReactivity { id: "Child.vue".into(), graph: child_graph }];
+    join_prop_flows(
+      &mut children,
+      &[PropFlowSite {
+        element_span: span(10),
+        parent_template: &parent_template,
+        parent_graph: &parent_graph,
+        child_module: "Child.vue",
+      }],
+    );
+    assert_eq!(children.len(), 1);
+    if let Some(child) = children.first() {
+      let props: Vec<_> = child
+        .graph
+        .edges
+        .iter()
+        .filter(|edge| edge.kind == ReactiveDependencyKind::Prop)
+        .map(|edge| (edge.property.as_deref(), edge.to.as_str()))
+        .collect();
+      assert!(
+        props.contains(&(Some("modelValue"), "msg"))
+          && props.contains(&(Some("title"), "bag"))
+          && props.contains(&(Some("count"), "msg")),
+        "expected v-model/member/.value prop edges; got {props:?}"
+      );
+    }
+  }
+
+  #[test]
   fn stays_quiet_for_object_v_bind() {
     let parent_template = TemplateFacts {
       elements: vec![TemplateElementFact {
@@ -217,6 +329,7 @@ mod tests {
         }],
         has_children: false,
         has_accessible_content: false,
+        has_labelable_descendant: false,
       }],
       expressions: Vec::new(),
     };

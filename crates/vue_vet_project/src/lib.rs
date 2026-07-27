@@ -514,6 +514,7 @@ mod tests {
           directives: Vec::new(),
           has_children: false,
           has_accessible_content: false,
+          has_labelable_descendant: false,
         })
         .collect(),
       expressions: Vec::new(),

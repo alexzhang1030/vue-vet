@@ -108,7 +108,7 @@ fn recommended_rule_pack_covers_all_rules_with_valid_spans() {
     .flat_map(|(_, diagnostics)| diagnostics)
     .map(|diagnostic| diagnostic.rule_id.as_str())
     .collect::<std::collections::BTreeSet<_>>();
-  assert_eq!(ids.len(), 31, "every recommended rule needs a positive fixture");
+  assert_eq!(ids.len(), 33, "every recommended rule needs a positive fixture");
   assert!(
     groups
       .iter()
@@ -449,6 +449,11 @@ fn anchor_has_content_fixtures_match_exact_diagnostics() {
     include_str!("../../../fixtures/rules/anchor-has-content/invalid/aria-hidden-child.vue"),
     include_str!("../../../fixtures/snapshots/anchor-has-content/aria-hidden-child.json"),
   );
+  assert_diagnostics(
+    "fixtures/rules/anchor-has-content/invalid/router-link.vue",
+    include_str!("../../../fixtures/rules/anchor-has-content/invalid/router-link.vue"),
+    include_str!("../../../fixtures/snapshots/anchor-has-content/router-link.json"),
+  );
   let empty = "[]";
   for (path, source) in [
     (
@@ -482,6 +487,35 @@ fn button_has_content_fixtures_match_exact_diagnostics() {
   assert_diagnostics(
     "fixtures/rules/button-has-content/valid/aria-label.vue",
     include_str!("../../../fixtures/rules/button-has-content/valid/aria-label.vue"),
+    "[]",
+  );
+}
+
+#[test]
+fn heading_and_label_a11y_fixtures_match_exact_diagnostics() {
+  assert_diagnostics(
+    "fixtures/rules/heading-has-content/invalid/empty.vue",
+    include_str!("../../../fixtures/rules/heading-has-content/invalid/empty.vue"),
+    include_str!("../../../fixtures/snapshots/heading-has-content/empty.json"),
+  );
+  assert_diagnostics(
+    "fixtures/rules/heading-has-content/valid/text.vue",
+    include_str!("../../../fixtures/rules/heading-has-content/valid/text.vue"),
+    "[]",
+  );
+  assert_diagnostics(
+    "fixtures/rules/label-has-for/invalid/missing.vue",
+    include_str!("../../../fixtures/rules/label-has-for/invalid/missing.vue"),
+    include_str!("../../../fixtures/snapshots/label-has-for/missing.json"),
+  );
+  assert_diagnostics(
+    "fixtures/rules/label-has-for/valid/for-attr.vue",
+    include_str!("../../../fixtures/rules/label-has-for/valid/for-attr.vue"),
+    "[]",
+  );
+  assert_diagnostics(
+    "fixtures/rules/label-has-for/valid/nested.vue",
+    include_str!("../../../fixtures/rules/label-has-for/valid/nested.vue"),
     "[]",
   );
 }

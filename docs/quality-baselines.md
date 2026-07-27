@@ -74,9 +74,9 @@ Captured 2026-07-27 with `vue-vet` at `CONVENTIONS_VERSION` 4:
 
 | Repo | License | Setup | Result |
 | --- | --- | --- | --- |
-| [antfu/vitesse-lite](https://github.com/antfu/vitesse-lite) @ tip | MIT | `pnpm install` | No crash; after quiet-external policy: **1** finding — `accessibility/anchor-has-content` on icon-only GitHub `<a title="…">` without `aria-label` (**true positive** under rule contract). Pre-fix noise was `node:path`, `uno.css`, `vue-router/auto-routes` as unresolved. |
+| [antfu/vitesse-lite](https://github.com/antfu/vitesse-lite) @ tip | MIT | `pnpm install` | No crash; icon-only footer controls report under `anchor-has-content` / `button-has-content` (static `title` may carry a safe `aria-label` insert). |
 | [nuxt/starter](https://github.com/nuxt/starter) `v4` | MIT | `pnpm install` | No crash; **0** findings on the minimal app. |
-| [antfu/vitesse](https://github.com/antfu/vitesse) @ tip | MIT | `pnpm install` | No crash; after accessible-content tightening: **3** findings on `TheFooter.vue` — icon-only toggle `<button>` and two icon-only `<a>`s without accessible names (`button-has-content` / `anchor-has-content`, **true positives**). |
+| [antfu/vitesse](https://github.com/antfu/vitesse) @ tip | MIT | `pnpm install` | No crash; **5** findings on `TheFooter.vue` — icon-only `RouterLink`×2, `<button>`, `<a>`×2 (`anchor-has-content` / `button-has-content`; static `title` GitHub link carries safe `aria-label` insert). |
 
 Quiet gaps still expected: Vite-only aliases not in tsconfig, dynamic imports,
 whole-object `v-bind`, App Tree provide/inject.

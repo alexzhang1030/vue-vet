@@ -166,6 +166,11 @@ pub struct TemplateElementFact {
   /// Element-only trees (icon `<div>`s) are false even when `has_children` is true.
   #[serde(default)]
   pub has_accessible_content: bool,
+  /// True when a labelable control (`input` / `textarea` / `select` / …) appears
+  /// in the descendant tree. Used by `label-has-for` because element spans cover
+  /// only the start tag, not nested children.
+  #[serde(default)]
+  pub has_labelable_descendant: bool,
 }
 
 impl TemplateElementFact {

@@ -44,12 +44,20 @@ accept paths where `Path::is_file()` is true after symlink resolution.
 
 Template facts keep `has_children` for structural rules (`valid-v-html`,
 `valid-v-text`). Accessibility rules that need a discernable name
-(`anchor-has-content`, `button-has-content`) must use
+(`anchor-has-content`, `button-has-content`, `heading-has-content`) must use
 `has_accessible_content`: non-whitespace text, interpolation, `v-text` /
 `v-html`, or a descendant `img`/`area` with non-empty `alt`. Icon-only
 element trees (for example `<a><div class="i-carbon-logo-github" /></a>`)
 set `has_children` and clear `has_accessible_content`. Do not treat child
-presence alone as an accessible name; `title` is also insufficient.
+presence alone as an accessible name; `title` is also insufficient (a static
+`title` may only contribute a safe `aria-label` insert preview).
+
+## Template element spans are start-tag only
+
+Vize `ElementNode` locations used for `TemplateElementFact.span` cover the
+opening tag, not the full element including children. Nested-structure rules
+must not use span containment — compute descendant facts while the tree is
+still available (for example `has_labelable_descendant` for `label-has-for`).
 
 ## Safe fixes need complete source coverage
 
@@ -213,8 +221,10 @@ Structural `component_nav` already normalizes; do not copy raw `edge.from` /
 `edge.to` into module-id APIs.
 
 Quiet gaps still expected after fixture sweeps: whole-object `v-bind="obj"`,
-complex prop expressions, and App Tree provide/inject remain under-approx
-stops (see [reactivity tracer](./reactivity-tracer.md)).
+multi-hop / computed prop expressions, and App Tree provide/inject remain
+under-approx stops (see [reactivity tracer](./reactivity-tracer.md)). Static
+prop flow joins bare identifiers, `ident.value`, single-segment `ident.member`,
+and `v-model` → `modelValue`.
 
 ## Runtime oracle is the precision ruler
 
