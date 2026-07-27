@@ -1,0 +1,29 @@
+{
+  "project": "a11y-forms",
+  "findings": [
+    {
+      "rule_id": "vue-vet/accessibility/form-control-has-label",
+      "file": "OrphanControls.vue",
+      "classification": "true_positive",
+      "rationale": "Orphan text input and textarea lack nesting, for/id, or aria name"
+    },
+    {
+      "rule_id": "vue-vet/accessibility/label-has-for",
+      "file": "BareLabel.vue",
+      "classification": "true_positive",
+      "rationale": "Bare label has neither for nor a nested labelable control"
+    },
+    {
+      "rule_id": "vue-vet/accessibility/heading-has-content",
+      "file": "EmptyHeading.vue",
+      "classification": "true_positive",
+      "rationale": "Empty h2 has no accessible content"
+    },
+    {
+      "rule_id": "vue-vet/accessibility/anchor-has-content",
+      "file": "IconLink.vue",
+      "classification": "true_positive",
+      "rationale": "Icon-only anchor has children but no accessible name"
+    }
+  ]
+}

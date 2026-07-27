@@ -24,8 +24,10 @@ Canonical inventory: [`fixtures/quality/manifest.json`](../fixtures/quality/mani
 | `fixtures/projects/configured` | vue, config, precision | Config discovery with an active finding. |
 | `fixtures/projects/vue-3.4` | vue, compatibility, precision | Version-gated props destructure diagnostic. |
 | `fixtures/projects/vue-3.5` | vue, compatibility, precision | `prefer-use-template-ref` + unresolved import. |
-| `fixtures/projects/prop-flow` | vue, precision | Parent `:title` / `v-model` / member / `.value` → child `props` Prop edges (no diagnostic findings). |
+| `fixtures/projects/prop-flow` | vue, precision | Parent `:title` / `v-model` / member / `.value` → child `props` Prop edges; whole-object `v-bind` stays quiet (no diagnostic findings). |
 | `fixtures/projects/practice-vueuse` | vue, precision | Practice channel `useTimeoutFn` suggestion on lifecycle `setTimeout`. |
+| `fixtures/projects/a11y-forms` | vue, precision | Form-control / label / heading / icon-link a11y true positives plus labeled safe patterns. |
+| `fixtures/projects/suppressed` | vue, config, precision | Inline disable keeps `no-v-html` quiet (empty expected set). |
 
 Selection rules:
 
