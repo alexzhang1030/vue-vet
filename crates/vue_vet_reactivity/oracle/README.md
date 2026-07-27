@@ -26,6 +26,8 @@ completeness number — not a 280-case syntax matrix.
 | `sync-filter-hof` | sync Array#filter callback must track `query` |
 | `sync-find-hof` | sync Array#find callback must track `target` |
 | `sync-findIndex-hof` | sync Array#findIndex callback must track `target` |
+| `sync-findLast-hof` | sync Array#findLast callback must track `target` |
+| `sync-findLastIndex-hof` | sync Array#findLastIndex callback must track `target` |
 | `sync-flatMap-hof` | sync Array#flatMap callback must track nested reads |
 | `sync-forEach-hof` | sync Array#forEach callback must track `factor` |
 | `sync-map-hof` | sync Array#map callback must track `factor` |
@@ -36,6 +38,8 @@ completeness number — not a 280-case syntax matrix.
 | `json-parse-reviver` | `JSON.parse(text, reviver)` tracks reviver body |
 | `sort-hof` | Array#sort comparator tracks nested reactive reads |
 | `string-replace-hof` | String#replace replacer tracks nested reactive reads |
+| `string-replaceAll-hof` | String#replaceAll replacer tracks nested reactive reads |
+| `toSorted-hof` | Array#toSorted comparator tracks nested reactive reads |
 | `to-value-getter` | `toValue(() => count.value)` tracks getter body |
 | `use-route-like` | reactive route object member (`route.path`) |
 | `watch-effect-ref` | `watchEffect` tracks `ref.value` |

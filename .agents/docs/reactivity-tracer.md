@@ -223,3 +223,4 @@ growing prose ledger.
 | 2026-07-27 | Prop flow optional chains | `ident?.a?.b` normalizes to the same root join; `?.()` / `?.[…]` stay quiet |
 | 2026-07-27 | Template instance optional chains | `bag?.field` / `bag?.field?.value` join composable instance fields like dotted forms |
 | 2026-07-27 | Oracle findIndex / reduceRight / reset | Evidence cases for already-supported sync HOFs + `resetTracking` window |
+| 2026-07-27 | Oracle findLast / replaceAll / toSorted | Evidence for remaining allowlisted sync Array/String callback HOFs |
