@@ -192,7 +192,7 @@ fn extract_template_facts(
 
   let mut facts = TemplateFacts::default();
   let mut scopes = TemplateAliasScopes::default();
-  collect_children(source, template_offset, &root.children, &mut facts, &mut scopes);
+  collect_children(source, template_offset, &root.children, &mut facts, &mut scopes, 0);
   facts.expressions.sort_by_key(|expression| expression.span.offset);
   Ok(facts)
 }
@@ -231,11 +231,12 @@ fn collect_children(
   children: &[TemplateChildNode<'_>],
   facts: &mut TemplateFacts,
   scopes: &mut TemplateAliasScopes,
+  label_depth: usize,
 ) {
   for child in children {
     match child {
       TemplateChildNode::Element(element) => {
-        collect_element(source, template_offset, element, facts, scopes);
+        collect_element(source, template_offset, element, facts, scopes, label_depth);
       }
       TemplateChildNode::Interpolation(interpolation) => {
         push_expression_fact(
@@ -252,7 +253,7 @@ fn collect_children(
           if let Some(condition) = &branch.condition {
             push_expression_fact(source, template_offset, "if", condition, facts, scopes);
           }
-          collect_children(source, template_offset, &branch.children, facts, scopes);
+          collect_children(source, template_offset, &branch.children, facts, scopes, label_depth);
         }
       }
       TemplateChildNode::For(for_node) => {
@@ -260,14 +261,14 @@ fn collect_children(
         let aliases = structural_for_aliases(for_node);
         push_expression_fact(source, template_offset, "for", &for_node.source, facts, scopes);
         scopes.push(aliases.clone());
-        collect_children(source, template_offset, &for_node.children, facts, scopes);
+        collect_children(source, template_offset, &for_node.children, facts, scopes, label_depth);
         scopes.pop_if(&aliases);
       }
       TemplateChildNode::IfBranch(branch) => {
         if let Some(condition) = &branch.condition {
           push_expression_fact(source, template_offset, "if", condition, facts, scopes);
         }
-        collect_children(source, template_offset, &branch.children, facts, scopes);
+        collect_children(source, template_offset, &branch.children, facts, scopes, label_depth);
       }
       TemplateChildNode::Text(_)
       | TemplateChildNode::Comment(_)
@@ -284,6 +285,7 @@ fn collect_element(
   element: &ElementNode<'_>,
   facts: &mut TemplateFacts,
   scopes: &mut TemplateAliasScopes,
+  label_depth: usize,
 ) {
   let offset = template_offset.saturating_add(position_offset(element.loc.start.offset));
   let end = template_offset.saturating_add(position_offset(element.loc.end.offset));
@@ -355,8 +357,14 @@ fn collect_element(
     has_children: !element.children.is_empty(),
     has_accessible_content: element_has_accessible_content(element),
     has_labelable_descendant: children_have_labelable_control(&element.children),
+    has_label_ancestor: label_depth > 0,
   });
-  collect_children(source, template_offset, &element.children, facts, scopes);
+  let child_label_depth = if element.tag.as_str().eq_ignore_ascii_case("label") {
+    label_depth.saturating_add(1)
+  } else {
+    label_depth
+  };
+  collect_children(source, template_offset, &element.children, facts, scopes, child_label_depth);
   scopes.pop_if(&local_aliases);
 }
 
@@ -653,6 +661,11 @@ mod tests {
       assert!(nested.has_labelable_descendant, "nested input must set has_labelable_descendant");
       assert!(!text_only.has_labelable_descendant, "text-only label must stay clear");
     }
+    let input = facts.template.elements.iter().find(|el| el.tag == "input");
+    assert!(
+      input.is_some_and(|el| el.has_label_ancestor),
+      "nested input must set has_label_ancestor"
+    );
   }
 
   #[test]

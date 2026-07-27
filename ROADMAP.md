@@ -92,7 +92,7 @@ Completion evidence:
 
 ## M1 — useful local doctor
 
-Current: 30 high-confidence built-in rules.
+Current: 33 high-confidence built-in lint rules (plus practice suggestions).
 
 Status: complete
 
@@ -280,6 +280,13 @@ Exit criteria:
 
 ## Current next step
 
-Keep `#13` quality gates green while expanding the checksummed corpus and
-precision labels. Beta still requires publishing measured precision/performance
-evidence with the release notes.
+M0–M4 delivery issues are complete on `main`. `v0.1.12` published crates.io
+(`vue_vet_core`, `vue_vet_reactivity`), npm (`@vue-vet/cli`), and GitHub Release
+archives. Tracker [#14](https://github.com/alexzhang1030/vue-vet/issues/14)
+stays open for release coordination.
+
+Near-term product work: keep `#13` quality gates green, expand the checksummed
+corpus / precision labels, and deepen high-confidence a11y / prop-flow coverage
+without racing Beta. Beta still requires publishing measured
+precision/performance evidence in the release notes
+([quality-baselines.md](./docs/quality-baselines.md), CodSpeed, precision delta).

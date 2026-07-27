@@ -6,5 +6,5 @@ console.log(input.value)
 </script>
 
 <template>
-  <input ref="input">
+  <input ref="input" aria-label="Input">
 </template>

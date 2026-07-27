@@ -170,6 +170,7 @@ mod tests {
         has_children: false,
         has_accessible_content: false,
         has_labelable_descendant: false,
+        has_label_ancestor: false,
       }],
       expressions: Vec::new(),
     };
@@ -254,6 +255,7 @@ mod tests {
         has_children: false,
         has_accessible_content: false,
         has_labelable_descendant: false,
+        has_label_ancestor: false,
       }],
       expressions: Vec::new(),
     };
@@ -330,6 +332,7 @@ mod tests {
         has_children: false,
         has_accessible_content: false,
         has_labelable_descendant: false,
+        has_label_ancestor: false,
       }],
       expressions: Vec::new(),
     };

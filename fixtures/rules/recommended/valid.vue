@@ -36,7 +36,8 @@ void slots
   <label for="email">Email</label>
   <input id="email">
   <label><input type="checkbox"> Remember me</label>
-  <input>
+  <input type="hidden" name="csrf" value="token">
+  <input aria-label="Search" type="search">
   <MyButton @click="activate" />
   <div tabindex="0">Focusable in document order</div>
   <div aria-hidden="true">Decorative duplicate</div>

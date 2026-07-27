@@ -331,8 +331,9 @@ fn malformed_fixture_returns_a_structured_json_error() {
 
 #[test]
 fn safe_fix_preserves_unicode_and_crlf_then_reports_the_rescan() {
-  let source = "<template>\r\n  <p>你好</p>\r\n  <input autofocus>\r\n</template>\r\n";
-  let expected = "<template>\r\n  <p>你好</p>\r\n  <input>\r\n</template>\r\n";
+  let source =
+    "<template>\r\n  <p>你好</p>\r\n  <input autofocus aria-label=\"Field\">\r\n</template>\r\n";
+  let expected = "<template>\r\n  <p>你好</p>\r\n  <input aria-label=\"Field\">\r\n</template>\r\n";
   let project = TempProject::new("safe-fix-unicode-crlf", source);
   let source_path = project.source_path();
   let output = run(&[
@@ -401,7 +402,7 @@ fn safe_fix_rescan_reports_residual_diagnostics() {
 
 #[test]
 fn safe_fix_dry_run_validates_without_writing() {
-  let source = "<template>\n  <input autofocus>\n</template>\n";
+  let source = "<template>\n  <input autofocus aria-label=\"Field\">\n</template>\n";
   let project = TempProject::new("safe-fix-dry-run", source);
   let source_path = project.source_path();
   let output = run(&[
@@ -464,7 +465,7 @@ fn safe_fix_does_not_apply_a_suppressed_finding() {
   let source = concat!(
     "<template>\n",
     "  <!-- vue-vet-disable-next-line vue-vet/accessibility/no-autofocus -->\n",
-    "  <input autofocus>\n",
+    "  <input autofocus aria-label=\"Field\">\n",
     "</template>\n",
   );
   let project = TempProject::new("safe-fix-suppressed", source);
@@ -497,7 +498,7 @@ fn safe_fix_does_not_apply_a_suppressed_finding() {
 #[test]
 #[expect(clippy::panic, reason = "test setup failures must fail the integration test")]
 fn safe_fix_does_not_apply_a_disabled_rule() {
-  let source = "<template>\n  <input autofocus>\n</template>\n";
+  let source = "<template>\n  <input autofocus aria-label=\"Field\">\n</template>\n";
   let project = TempProject::new("safe-fix-disabled", source);
   let config = concat!(
     "version = 1\n",
@@ -536,7 +537,7 @@ fn safe_fix_does_not_apply_a_disabled_rule() {
 
 #[test]
 fn safe_fix_leaves_valued_autofocus_for_manual_review() {
-  let source = "<template>\n  <input autofocus=\"true\">\n</template>\n";
+  let source = "<template>\n  <input autofocus=\"true\" aria-label=\"Field\">\n</template>\n";
   let project = TempProject::new("safe-fix-valued-autofocus", source);
   let source_path = project.source_path();
   let output =
@@ -568,7 +569,7 @@ fn safe_fix_leaves_valued_autofocus_for_manual_review() {
 
 #[test]
 fn safe_fix_rejects_a_multi_file_plan_without_partial_writes() {
-  let source = "<template>\n  <input autofocus>\n</template>\n";
+  let source = "<template>\n  <input autofocus aria-label=\"Field\">\n</template>\n";
   let project = TempProject::new("safe-fix-multi-file", source);
   let second_path = project.write_source("Second.vue", source);
   let output = run(&[project.root().to_string_lossy().as_ref(), "--fix-safe", "--no-cache"]);
@@ -1050,7 +1051,7 @@ fn scoped_package_import_in_config_is_not_unresolved() {
 
 #[test]
 fn cached_diagnostics_preserve_safe_edit_previews() {
-  let source = "<template>\n  <input autofocus>\n</template>\n";
+  let source = "<template>\n  <input autofocus aria-label=\"Field\">\n</template>\n";
   let project = TempProject::new("safe-fix-cache", source);
   let cache = project.root().join("cache");
   let arguments = [

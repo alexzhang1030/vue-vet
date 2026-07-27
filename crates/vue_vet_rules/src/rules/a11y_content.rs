@@ -24,6 +24,57 @@ pub(super) fn has_accessible_name_attrs(element: &TemplateElementFact) -> bool {
     || element.bound_attribute("aria-labelledby").is_some()
 }
 
+#[must_use]
+pub(super) fn is_form_control(element: &TemplateElementFact) -> bool {
+  match element.tag.to_ascii_lowercase().as_str() {
+    "textarea" | "select" | "meter" | "output" | "progress" => true,
+    "input" => !input_type_skips_label(element),
+    _ => false,
+  }
+}
+
+fn input_type_skips_label(element: &TemplateElementFact) -> bool {
+  let Some(type_name) = element
+    .attribute("type")
+    .and_then(|attribute| attribute.value.as_deref())
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+  else {
+    // Missing type defaults to text — needs a label.
+    return false;
+  };
+  matches!(
+    type_name.to_ascii_lowercase().as_str(),
+    "hidden" | "button" | "submit" | "reset" | "image"
+  )
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) enum AssocToken<'a> {
+  Static(&'a str),
+  Expr(&'a str),
+}
+
+#[must_use]
+pub(super) fn association_token<'a>(
+  element: &'a TemplateElementFact,
+  name: &str,
+) -> Option<AssocToken<'a>> {
+  if let Some(attribute) = element.attribute(name) {
+    let value = attribute.value.as_deref()?.trim();
+    if value.is_empty() {
+      return None;
+    }
+    return Some(AssocToken::Static(value));
+  }
+  let directive = element.bound_attribute(name)?;
+  let expression = directive.expression.as_deref()?.trim();
+  if expression.is_empty() {
+    return None;
+  }
+  Some(AssocToken::Expr(expression))
+}
+
 /// Static `title="…"` → insert matching `aria-label` after the attribute.
 /// Bound `:title` and values containing quotes are left for manual review.
 #[must_use]

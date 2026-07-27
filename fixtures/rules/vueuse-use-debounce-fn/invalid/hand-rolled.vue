@@ -10,5 +10,5 @@ void search
 </script>
 
 <template>
-  <input>
+  <input aria-label="Search">
 </template>
