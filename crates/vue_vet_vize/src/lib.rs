@@ -205,6 +205,22 @@ impl TemplateAliasScopes {
   }
 }
 
+/// Bottom-up subtree flags — each template node is visited once.
+#[derive(Clone, Copy, Debug, Default)]
+struct SubtreeSummary {
+  accessible_content: bool,
+  labelable_control: bool,
+}
+
+impl SubtreeSummary {
+  const fn or(self, other: Self) -> Self {
+    Self {
+      accessible_content: self.accessible_content || other.accessible_content,
+      labelable_control: self.labelable_control || other.labelable_control,
+    }
+  }
+}
+
 fn collect_children(
   source: &str,
   template_offset: usize,
@@ -212,11 +228,13 @@ fn collect_children(
   facts: &mut TemplateFacts,
   scopes: &mut TemplateAliasScopes,
   label_depth: usize,
-) {
+) -> SubtreeSummary {
+  let mut summary = SubtreeSummary::default();
   for child in children {
     match child {
       TemplateChildNode::Element(element) => {
-        collect_element(source, template_offset, element, facts, scopes, label_depth);
+        summary =
+          summary.or(collect_element(source, template_offset, element, facts, scopes, label_depth));
       }
       TemplateChildNode::Interpolation(interpolation) => {
         push_expression_fact(
@@ -227,13 +245,27 @@ fn collect_children(
           facts,
           scopes,
         );
+        summary.accessible_content = true;
+      }
+      TemplateChildNode::Text(text) if !text.content.trim().is_empty() => {
+        summary.accessible_content = true;
+      }
+      TemplateChildNode::TextCall(_) | TemplateChildNode::CompoundExpression(_) => {
+        summary.accessible_content = true;
       }
       TemplateChildNode::If(if_node) => {
         for branch in &if_node.branches {
           if let Some(condition) = &branch.condition {
             push_expression_fact(source, template_offset, "if", condition, facts, scopes);
           }
-          collect_children(source, template_offset, &branch.children, facts, scopes, label_depth);
+          summary = summary.or(collect_children(
+            source,
+            template_offset,
+            &branch.children,
+            facts,
+            scopes,
+            label_depth,
+          ));
         }
       }
       TemplateChildNode::For(for_node) => {
@@ -241,22 +273,35 @@ fn collect_children(
         let aliases = structural_for_aliases(for_node);
         push_expression_fact(source, template_offset, "for", &for_node.source, facts, scopes);
         scopes.push(aliases.clone());
-        collect_children(source, template_offset, &for_node.children, facts, scopes, label_depth);
+        summary = summary.or(collect_children(
+          source,
+          template_offset,
+          &for_node.children,
+          facts,
+          scopes,
+          label_depth,
+        ));
         scopes.pop_if(&aliases);
       }
       TemplateChildNode::IfBranch(branch) => {
         if let Some(condition) = &branch.condition {
           push_expression_fact(source, template_offset, "if", condition, facts, scopes);
         }
-        collect_children(source, template_offset, &branch.children, facts, scopes, label_depth);
+        summary = summary.or(collect_children(
+          source,
+          template_offset,
+          &branch.children,
+          facts,
+          scopes,
+          label_depth,
+        ));
       }
       TemplateChildNode::Text(_)
       | TemplateChildNode::Comment(_)
-      | TemplateChildNode::TextCall(_)
-      | TemplateChildNode::CompoundExpression(_)
       | TemplateChildNode::Hoisted(_) => {}
     }
   }
+  summary
 }
 
 fn collect_element(
@@ -266,7 +311,7 @@ fn collect_element(
   facts: &mut TemplateFacts,
   scopes: &mut TemplateAliasScopes,
   label_depth: usize,
-) {
+) -> SubtreeSummary {
   let offset = template_offset.saturating_add(position_offset(element.loc.start.offset));
   let end = template_offset.saturating_add(position_offset(element.loc.end.offset));
   let mut attributes = Vec::new();
@@ -329,76 +374,44 @@ fn collect_element(
     }
   }
 
+  let child_label_depth = if element.tag.as_str().eq_ignore_ascii_case("label") {
+    label_depth.saturating_add(1)
+  } else {
+    label_depth
+  };
+  // Preserve parent-before-child element order for deterministic fixtures.
+  let element_index = facts.elements.len();
   facts.elements.push(TemplateElementFact {
     tag: element.tag.to_string(),
     span: source_span(source, offset, end.saturating_sub(offset)),
     attributes,
     directives,
     has_children: !element.children.is_empty(),
-    has_accessible_content: element_has_accessible_content(element),
-    has_labelable_descendant: children_have_labelable_control(&element.children),
+    has_accessible_content: false,
+    has_labelable_descendant: false,
     has_label_ancestor: label_depth > 0,
   });
-  let child_label_depth = if element.tag.as_str().eq_ignore_ascii_case("label") {
-    label_depth.saturating_add(1)
-  } else {
-    label_depth
-  };
-  collect_children(source, template_offset, &element.children, facts, scopes, child_label_depth);
+  let child_summary =
+    collect_children(source, template_offset, &element.children, facts, scopes, child_label_depth);
+  let content_directive = element_has_content_directive(element);
+  let has_accessible_content = content_directive || child_summary.accessible_content;
+  if let Some(fact) = facts.elements.get_mut(element_index) {
+    fact.has_accessible_content = has_accessible_content;
+    fact.has_labelable_descendant = child_summary.labelable_control;
+  }
   scopes.pop_if(&local_aliases);
-}
 
-/// Screen-reader content for a11y rules (`anchor-has-content`, `button-has-content`).
-/// Element-only trees (icon wrappers) do not count; `aria-hidden` subtrees are skipped.
-fn element_has_accessible_content(element: &ElementNode<'_>) -> bool {
-  if element_has_content_directive(element) {
-    return true;
+  // Parents skip aria-hidden subtrees for accessible-content propagation.
+  let propagate_accessible = if element_is_aria_hidden(element) {
+    false
+  } else {
+    element_provides_alt_name(element) || content_directive || child_summary.accessible_content
+  };
+  SubtreeSummary {
+    accessible_content: propagate_accessible,
+    labelable_control: is_labelable_control_tag(element.tag.as_str())
+      || child_summary.labelable_control,
   }
-  children_have_accessible_content(&element.children)
-}
-
-fn children_have_accessible_content(children: &[TemplateChildNode<'_>]) -> bool {
-  for child in children {
-    match child {
-      TemplateChildNode::Text(text) if !text.content.trim().is_empty() => return true,
-      TemplateChildNode::Interpolation(_)
-      | TemplateChildNode::CompoundExpression(_)
-      | TemplateChildNode::TextCall(_) => return true,
-      TemplateChildNode::Element(child_element) => {
-        if element_is_aria_hidden(child_element) {
-          continue;
-        }
-        if element_provides_alt_name(child_element) || element_has_content_directive(child_element)
-        {
-          return true;
-        }
-        if children_have_accessible_content(&child_element.children) {
-          return true;
-        }
-      }
-      TemplateChildNode::If(if_node) => {
-        for branch in &if_node.branches {
-          if children_have_accessible_content(&branch.children) {
-            return true;
-          }
-        }
-      }
-      TemplateChildNode::For(for_node) => {
-        if children_have_accessible_content(&for_node.children) {
-          return true;
-        }
-      }
-      TemplateChildNode::IfBranch(branch) => {
-        if children_have_accessible_content(&branch.children) {
-          return true;
-        }
-      }
-      TemplateChildNode::Text(_)
-      | TemplateChildNode::Comment(_)
-      | TemplateChildNode::Hoisted(_) => {}
-    }
-  }
-  false
 }
 
 fn element_has_content_directive(element: &ElementNode<'_>) -> bool {
@@ -427,45 +440,6 @@ fn element_is_aria_hidden(element: &ElementNode<'_>) -> bool {
         return true;
       }
       _ => {}
-    }
-  }
-  false
-}
-
-fn children_have_labelable_control(children: &[TemplateChildNode<'_>]) -> bool {
-  for child in children {
-    match child {
-      TemplateChildNode::Element(child_element) => {
-        if is_labelable_control_tag(child_element.tag.as_str()) {
-          return true;
-        }
-        if children_have_labelable_control(&child_element.children) {
-          return true;
-        }
-      }
-      TemplateChildNode::If(if_node) => {
-        for branch in &if_node.branches {
-          if children_have_labelable_control(&branch.children) {
-            return true;
-          }
-        }
-      }
-      TemplateChildNode::For(for_node) => {
-        if children_have_labelable_control(&for_node.children) {
-          return true;
-        }
-      }
-      TemplateChildNode::IfBranch(branch) => {
-        if children_have_labelable_control(&branch.children) {
-          return true;
-        }
-      }
-      TemplateChildNode::Text(_)
-      | TemplateChildNode::Comment(_)
-      | TemplateChildNode::Interpolation(_)
-      | TemplateChildNode::TextCall(_)
-      | TemplateChildNode::CompoundExpression(_)
-      | TemplateChildNode::Hoisted(_) => {}
     }
   }
   false
