@@ -68,7 +68,8 @@ pub fn analyze_sfc_with_facts(path: &Path, source: &str) -> Result<AnalyzedSfc, 
 }
 
 thread_local! {
-  static SFC_LINE_INDEX: RefCell<Option<vue_vet_core::LineIndex>> = const { RefCell::new(None) };
+  /// Installed for one SFC analysis from a shared [`vue_vet_core::SourceContext`].
+  static SFC_LINE_INDEX: RefCell<Option<Arc<vue_vet_core::LineIndex>>> = const { RefCell::new(None) };
 }
 
 /// Extract SFC facts and module identity without running built-in rules.
@@ -96,10 +97,11 @@ pub fn analyze_sfc_facts_reusing(
   source: &str,
   previous: Option<&AnalyzedSfc>,
 ) -> Result<AnalyzedSfc, AnalyzeError> {
+  let context = vue_vet_core::SourceContext::new(source);
   SFC_LINE_INDEX.with(|slot| {
-    *slot.borrow_mut() = Some(vue_vet_core::LineIndex::new(source));
+    *slot.borrow_mut() = Some(context.line_index_arc());
   });
-  let result = analyze_sfc_facts_inner(path, source, previous);
+  let result = analyze_sfc_facts_inner(path, context.text(), previous);
   SFC_LINE_INDEX.with(|slot| {
     *slot.borrow_mut() = None;
   });
@@ -707,7 +709,7 @@ fn line_column(source: &str, offset: usize) -> (usize, usize) {
   SFC_LINE_INDEX.with(|slot| {
     slot.borrow().as_ref().map_or_else(
       || vue_vet_core::LineIndex::new(source).byte_to_line_column(offset),
-      |index| index.byte_to_line_column(offset),
+      |index| index.as_ref().byte_to_line_column(offset),
     )
   })
 }

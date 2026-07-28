@@ -921,6 +921,8 @@ fn collect_local_values(
     .map(|binding| (binding.name.clone(), ExportState::Known(binding.kind)))
     .collect::<BTreeMap<_, _>>();
 
+  let returns_by_function = build_returns_by_function(semantic);
+
   // `function useX() { return { field } }` (incl. `export default function useX`)
   for node in semantic.nodes() {
     let AstKind::Function(function) = node.kind() else {
@@ -929,8 +931,13 @@ fn collect_local_values(
     let Some(identifier) = &function.id else {
       continue;
     };
-    let shape =
-      composable_return_shape(semantic, function.node_id.get(), shape_graph, script_offset);
+    let shape = composable_return_shape_with_index(
+      semantic,
+      function.node_id.get(),
+      shape_graph,
+      script_offset,
+      &returns_by_function,
+    );
     if !shape.is_empty() {
       locals.insert(identifier.name.to_string(), ExportState::Composable(shape));
     }
@@ -952,7 +959,13 @@ fn collect_local_values(
       Expression::FunctionExpression(function) => function.node_id.get(),
       _ => continue,
     };
-    let shape = composable_return_shape(semantic, function_id, shape_graph, script_offset);
+    let shape = composable_return_shape_with_index(
+      semantic,
+      function_id,
+      shape_graph,
+      script_offset,
+      &returns_by_function,
+    );
     if shape.is_empty() {
       continue;
     }
@@ -961,15 +974,62 @@ fn collect_local_values(
   locals
 }
 
+/// One-pass index: owning function/arrow → return statement node ids.
+///
+/// Built once per semantic so composable shape extraction is O(returns) total
+/// instead of O(functions × nodes).
+#[must_use]
+pub fn build_returns_by_function(
+  semantic: &oxc_semantic::Semantic<'_>,
+) -> BTreeMap<NodeId, Vec<NodeId>> {
+  let mut returns_by_function: BTreeMap<NodeId, Vec<NodeId>> = BTreeMap::new();
+  for (return_id, node) in semantic.nodes().iter_enumerated() {
+    let AstKind::ReturnStatement(_) = node.kind() else {
+      continue;
+    };
+    let Some(owner) = semantic.nodes().ancestor_ids(return_id).find(|ancestor_id| {
+      matches!(
+        semantic.nodes().kind(*ancestor_id),
+        AstKind::Function(_) | AstKind::ArrowFunctionExpression(_)
+      )
+    }) else {
+      continue;
+    };
+    returns_by_function.entry(owner).or_default().push(return_id);
+  }
+  returns_by_function
+}
+
 /// Object shape returned by a composable function / arrow (under-approx).
 ///
 /// `script_offset` must match the offset used when materializing `graph.bindings`
 /// spans (0 for standalone modules, Vize `loc.start` for SFC script bodies).
+/// Prefer [`composable_return_shape_with_index`] when indexing many functions.
+#[must_use]
 pub fn composable_return_shape(
   semantic: &oxc_semantic::Semantic<'_>,
   function_id: NodeId,
   graph: &ReactivityGraph,
   script_offset: usize,
+) -> BTreeMap<String, ReactiveBindingKind> {
+  let returns_by_function = build_returns_by_function(semantic);
+  composable_return_shape_with_index(
+    semantic,
+    function_id,
+    graph,
+    script_offset,
+    &returns_by_function,
+  )
+}
+
+/// [`composable_return_shape`] using a prebuilt [`build_returns_by_function`] index.
+#[must_use]
+pub fn composable_return_shape_with_index(
+  semantic: &oxc_semantic::Semantic<'_>,
+  function_id: NodeId,
+  graph: &ReactivityGraph,
+  script_offset: usize,
+  returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
 ) -> BTreeMap<String, ReactiveBindingKind> {
   let imported_bindings = collect_imported_bindings(semantic);
   let param_names = function_param_names(semantic, function_id);
@@ -994,19 +1054,13 @@ pub fn composable_return_shape(
     );
   }
 
-  for (return_id, node) in semantic.nodes().iter_enumerated() {
-    let AstKind::ReturnStatement(statement) = node.kind() else {
+  let Some(return_ids) = returns_by_function.get(&function_id) else {
+    return shape;
+  };
+  for &return_id in return_ids {
+    let AstKind::ReturnStatement(statement) = semantic.nodes().kind(return_id) else {
       continue;
     };
-    let owner = semantic.nodes().ancestor_ids(return_id).find(|ancestor_id| {
-      matches!(
-        semantic.nodes().kind(*ancestor_id),
-        AstKind::Function(_) | AstKind::ArrowFunctionExpression(_)
-      )
-    });
-    if owner != Some(function_id) {
-      continue;
-    }
     let Some(argument) = &statement.argument else {
       continue;
     };

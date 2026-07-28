@@ -27,11 +27,12 @@ use tower_lsp::lsp_types::{
   ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
 };
 use tower_lsp::{Client, LanguageServer};
+use vue_vet_core::SourceContext;
 use vue_vet_session::{
   AnalysisProduct, AnalysisSnapshot, ChangeSet, ProjectSession, SessionOptions,
 };
 
-use crate::convert::{SafeCodeActionRequest, safe_code_actions, to_lsp_diagnostic};
+use crate::convert::{SafeCodeActionRequest, safe_code_actions, to_lsp_diagnostic_with_index};
 
 #[derive(Clone, Debug)]
 pub struct Backend {
@@ -51,10 +52,17 @@ struct ServerState {
 #[derive(Clone, Debug)]
 struct OpenDocument {
   path: PathBuf,
-  text: String,
+  /// Shared text + line index; rebuilt on each buffer update.
+  context: SourceContext,
   version: i32,
   /// Bumped on every open/change/save publish request; stale analyses drop results.
   generation: u64,
+}
+
+impl OpenDocument {
+  fn set_text(&mut self, text: impl Into<std::sync::Arc<str>>) {
+    self.context = SourceContext::new(text);
+  }
 }
 
 impl Backend {
@@ -116,10 +124,11 @@ impl Backend {
       let diagnostics = file_diagnostics
         .iter()
         .map(|diagnostic| {
-          to_lsp_diagnostic(
+          to_lsp_diagnostic_with_index(
             diagnostic,
             analysis.analyzed_files.as_ref(),
-            Some(document.text.as_str()),
+            Some(document.context.text()),
+            Some(document.context.line_index()),
           )
         })
         .collect::<Vec<_>>();
@@ -231,7 +240,7 @@ impl LanguageServer for Backend {
         uri.clone(),
         OpenDocument {
           path,
-          text: params.text_document.text,
+          context: SourceContext::new(params.text_document.text),
           version: params.text_document.version,
           generation: 1,
         },
@@ -240,7 +249,8 @@ impl LanguageServer for Backend {
     let session = self.state.read().await.session.clone();
     if let Some(session) = session
       && let Some(document) = self.state.read().await.open.get(&uri).cloned()
-      && let Err(error) = session.apply_changes(ChangeSet::upsert(document.path, document.text))
+      && let Err(error) =
+        session.apply_changes(ChangeSet::upsert(document.path, document.context.text().to_owned()))
     {
       self
         .client
@@ -262,11 +272,11 @@ impl LanguageServer for Backend {
       let Some(doc) = state.open.get_mut(&uri) else {
         return;
       };
-      doc.text = text;
+      doc.set_text(text);
       doc.version = params.text_document.version;
       doc.generation = doc.generation.saturating_add(1);
       let path = doc.path.clone();
-      let text = doc.text.clone();
+      let text = doc.context.text().to_owned();
       drop(state);
       (session, path, text)
     };
@@ -291,13 +301,13 @@ impl LanguageServer for Backend {
         return;
       };
       if let Some(text) = params.text {
-        doc.text = text;
+        doc.set_text(text);
       } else if let Ok(disk) = std::fs::read_to_string(&doc.path) {
-        doc.text = disk;
+        doc.set_text(disk);
       }
       doc.generation = doc.generation.saturating_add(1);
       let path = doc.path.clone();
-      let text = doc.text.clone();
+      let text = doc.context.text().to_owned();
       drop(state);
       (session, path, text)
     };
@@ -336,7 +346,7 @@ impl LanguageServer for Backend {
       let Some(session) = state.session.clone() else {
         return Ok(None);
       };
-      let snapshot = (doc.path.clone(), doc.text.clone(), doc.version, session);
+      let snapshot = (doc.path.clone(), doc.context.text().to_owned(), doc.version, session);
       drop(state);
       snapshot
     };

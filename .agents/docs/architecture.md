@@ -107,13 +107,12 @@ warm linking surface → skip export/seed FP     (shipped)
 warm base+facts → reuse template/prop layers   (shipped)
 TrackingScopeIR / Vize bottom-up               (shipped)
 export-closure seed recompute + SFC blocks     (shipped)
-warm-cache IR hydrate / returns_by_function    (next)
+warm-cache IR hydrate                          (shipped)
+returns_by_function + SourceContext            (shipped)
 ```
 
-Do **not** pursue a generalized unified AST IR. Highest-value remaining work:
-
-1. Warm-cache IR hydrate so disk-cache hits seed file/module facts for edits
-2. `returns_by_function` + shared `SourceContext`
+Do **not** pursue a generalized unified AST IR. Further locality work belongs in
+narrower dirty linking / diagnostics plans, not a new AST layer.
 
 Execution plan shape (session-owned):
 
@@ -135,11 +134,13 @@ Batch intent (execution lives in tracker issues, not temporary numbers here):
    exports, locals, provides, injects — not `local_graph`) and links are
    unchanged; when only some surfaces change, seed plans recompute for the
    export/inject closure. Layered cache reuses post-template/prop graphs when
-   base graph Arcs and `SfcFacts` Arcs are unchanged.
+   base graph Arcs and `SfcFacts` Arcs are unchanged. Fresh disk-cache hits with
+   empty session IR hydrate file/module facts via a real scan while still
+   publishing the cached summary/graph as `"hit"`.
 3. **Single-file algorithms** — `TrackingScopeIR`; Vize bottom-up
-   `SubtreeSummary`; SFC `SfcBlockRevisions` (style/template/script reuse).
-   Still ahead: `returns_by_function`, shared `SourceContext`, warm-cache IR
-   hydrate.
+   `SubtreeSummary`; SFC `SfcBlockRevisions` (style/template/script reuse);
+   `returns_by_function` for composable shapes; shared `SourceContext`
+   (`Arc<str>` + `Arc<LineIndex>`) at analysis / open-document boundaries.
 
 ### Semantic IR layers
 

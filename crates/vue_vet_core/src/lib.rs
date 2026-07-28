@@ -13,11 +13,13 @@ mod digest;
 mod edits;
 mod identity;
 mod line_index;
+mod source_context;
 
 pub use digest::{content_digest, serde_digest};
 pub use edits::{ByteRange, EditApplicability, EditPlan, EditPlanError, TextEdit};
 pub use identity::{FileId, ModuleId, PhysicalPath, WorkspaceRoot};
 pub use line_index::LineIndex;
+pub use source_context::SourceContext;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "lowercase")]

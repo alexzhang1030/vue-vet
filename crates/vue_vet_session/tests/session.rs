@@ -1042,3 +1042,61 @@ fn package_json_change_parses_zero_source_files() {
   assert_analysis_parity(&incremental, &clean);
   let _ignored = std::fs::remove_dir_all(root);
 }
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn warm_disk_cache_hit_hydrates_ir_for_incremental_edits() {
+  let root =
+    std::env::temp_dir().join(format!("vue-vet-warm-cache-hydrate-{}", std::process::id()));
+  let cache_dir = root.join(".vue-vet-cache");
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(root.join("src")).unwrap_or_else(|error| panic!("workspace: {error}"));
+  for index in 0..12 {
+    std::fs::write(
+      root.join(format!("src/module-{index}.ts")),
+      format!("export const value{index} = {index};\n"),
+    )
+    .unwrap_or_else(|error| panic!("module: {error}"));
+  }
+  let cold = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: Some(cache_dir.clone()),
+    no_cache: false,
+    threads: Some(2),
+  })
+  .unwrap_or_else(|error| panic!("cold session: {error}"));
+  let cold_snap = cold.analyze().unwrap_or_else(|error| panic!("cold analyze: {error}"));
+  assert_eq!(cold_snap.cache_status, "miss");
+
+  let warm = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: Some(cache_dir),
+    no_cache: false,
+    threads: Some(2),
+  })
+  .unwrap_or_else(|error| panic!("warm session: {error}"));
+  let warm_snap = warm.analyze().unwrap_or_else(|error| panic!("warm analyze: {error}"));
+  assert_eq!(warm_snap.cache_status, "hit");
+  assert_eq!(warm_snap.summary, cold_snap.summary);
+  assert!(
+    warm.last_work_counters().unwrap_or_else(|error| panic!("work: {error}")).files_parsed >= 12,
+    "disk hit with empty IR must hydrate by scanning sources"
+  );
+
+  warm
+    .apply_changes(ChangeSet::upsert(
+      root.join("src/module-11.ts"),
+      "export const value11 = 1100;\n".into(),
+    ))
+    .unwrap_or_else(|error| panic!("edit: {error}"));
+  let after = warm.analyze_affected().unwrap_or_else(|error| panic!("affected: {error}"));
+  assert_eq!(
+    after.work.files_parsed, 1,
+    "post-hydrate leaf edit must parse only the edited file, got {:?}",
+    after.work
+  );
+  assert!(after.work.files_reused >= 11, "unchanged modules must be reused, got {:?}", after.work);
+  let _ignored = std::fs::remove_dir_all(root);
+}

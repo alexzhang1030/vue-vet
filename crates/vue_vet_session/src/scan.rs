@@ -56,8 +56,24 @@ pub fn analyze_snapshot(
     let store = CacheStore::new(cache_dir.to_path_buf());
     match store.load(&key) {
       // Preserve committed incremental state on hit — do not clear file/module IR.
+      // When the session has no in-memory facts yet (fresh open + disk hit), hydrate
+      // IR via a real scan so the next edit is incremental, but still publish the
+      // cached summary/graph for cold/warm diagnostic identity.
       CacheLookup::Hit(payload) => {
-        *state = AnalysisState::share_from(previous);
+        if previous.has_file_facts() {
+          *state = AnalysisState::share_from(previous);
+        } else {
+          let _hydrated = scan_with_threads(
+            input,
+            config,
+            pool()?,
+            previous,
+            state,
+            cancelled,
+            dirty_files,
+            true,
+          )?;
+        }
         (payload.summary, payload.graph, "hit", Vec::new(), state.last_work)
       }
       CacheLookup::Miss => fill_cache(

@@ -79,7 +79,9 @@ struct TraceSeeds {
 }
 
 thread_local! {
-  static TRACE_LINE_INDEX: RefCell<Option<vue_vet_core::LineIndex>> = const { RefCell::new(None) };
+  /// Installed for one trace from a shared [`vue_vet_core::SourceContext`] line index.
+  static TRACE_LINE_INDEX: RefCell<Option<std::sync::Arc<vue_vet_core::LineIndex>>> =
+    const { RefCell::new(None) };
 }
 
 fn trace_reactivity_seeded(
@@ -89,11 +91,12 @@ fn trace_reactivity_seeded(
   script_kind: ScriptKind,
   seeds: &TraceSeeds,
 ) -> ReactivityGraph {
+  let context = vue_vet_core::SourceContext::new(sfc_source);
   TRACE_LINE_INDEX.with(|slot| {
-    *slot.borrow_mut() = Some(vue_vet_core::LineIndex::new(sfc_source));
+    *slot.borrow_mut() = Some(context.line_index_arc());
   });
   let graph =
-    trace_reactivity_seeded_inner(semantic, sfc_source, script_offset, script_kind, seeds);
+    trace_reactivity_seeded_inner(semantic, context.text(), script_offset, script_kind, seeds);
   TRACE_LINE_INDEX.with(|slot| {
     *slot.borrow_mut() = None;
   });
@@ -203,6 +206,7 @@ fn collect_local_composable_usage(
   script_offset: usize,
 ) -> (ComposableShapeMap, Vec<ReactiveBindingFact>, LocalComposableDefs) {
   let mut composables = LocalComposableDefs::new();
+  let returns_by_function = modules::build_returns_by_function(semantic);
 
   // `function useX() { return { field: ref(0) } }`
   for node in semantic.nodes() {
@@ -212,11 +216,12 @@ fn collect_local_composable_usage(
     let Some(identifier) = &function.id else {
       continue;
     };
-    let shape = modules::composable_return_shape(
+    let shape = modules::composable_return_shape_with_index(
       semantic,
       function.node_id.get(),
       shape_graph,
       script_offset,
+      &returns_by_function,
     );
     if shape.is_empty() {
       continue;
@@ -240,7 +245,13 @@ fn collect_local_composable_usage(
       Expression::FunctionExpression(function) => function.node_id.get(),
       _ => continue,
     };
-    let shape = modules::composable_return_shape(semantic, function_id, shape_graph, script_offset);
+    let shape = modules::composable_return_shape_with_index(
+      semantic,
+      function_id,
+      shape_graph,
+      script_offset,
+      &returns_by_function,
+    );
     if shape.is_empty() {
       continue;
     }
@@ -2264,7 +2275,7 @@ fn source_span(source: &str, base: usize, span: Span) -> SourceSpan {
   let (line, column) = TRACE_LINE_INDEX.with(|slot| {
     slot.borrow().as_ref().map_or_else(
       || vue_vet_core::LineIndex::new(source).byte_to_line_column(offset),
-      |index| index.byte_to_line_column(offset),
+      |index| index.as_ref().byte_to_line_column(offset),
     )
   });
   SourceSpan { offset, length: end.saturating_sub(offset), line, column }
@@ -2276,6 +2287,7 @@ mod prop_flow;
 pub use modules::{
   ModuleLink, ModuleReactivity, ModuleSource, ModuleSummary, ModuleTraceState, PreparedModuleTrace,
   TraceModulesError, TraceModulesOptions, TraceModulesReport, TraceModulesStats,
+  build_returns_by_function, composable_return_shape, composable_return_shape_with_index,
   prepare_module_summary, prepare_module_trace, trace_modules,
   trace_modules_incremental_with_options, trace_modules_with_options,
 };

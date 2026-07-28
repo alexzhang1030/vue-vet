@@ -22,9 +22,20 @@ pub fn to_lsp_diagnostic(
   analyzed_files: &[String],
   source: Option<&str>,
 ) -> LspDiagnostic {
+  to_lsp_diagnostic_with_index(diagnostic, analyzed_files, source, None)
+}
+
+/// Like [`to_lsp_diagnostic`], reusing a precomputed [`LineIndex`] when available.
+#[must_use]
+pub fn to_lsp_diagnostic_with_index(
+  diagnostic: &Diagnostic,
+  analyzed_files: &[String],
+  source: Option<&str>,
+  line_index: Option<&LineIndex>,
+) -> LspDiagnostic {
   let id = report_diagnostic_id(diagnostic, analyzed_files);
   LspDiagnostic {
-    range: span_to_range(&diagnostic.span, source),
+    range: span_to_range_with_index(&diagnostic.span, source, line_index),
     severity: Some(severity_to_lsp(diagnostic.severity)),
     code: Some(NumberOrString::String(diagnostic.rule_id.clone())),
     code_description: None,
@@ -49,6 +60,15 @@ fn lsp_diagnostic_data(id: &str, diagnostic: &Diagnostic) -> serde_json::Value {
 
 #[must_use]
 pub fn span_to_range(span: &SourceSpan, source: Option<&str>) -> Range {
+  span_to_range_with_index(span, source, None)
+}
+
+#[must_use]
+pub fn span_to_range_with_index(
+  span: &SourceSpan,
+  source: Option<&str>,
+  line_index: Option<&LineIndex>,
+) -> Range {
   source.map_or_else(
     || {
       // Without source text, fall back to Vue Vet's 1-based line/byte-column
@@ -63,16 +83,25 @@ pub fn span_to_range(span: &SourceSpan, source: Option<&str>) -> Range {
       }
     },
     |source| {
-      let index = LineIndex::new(source);
-      let (start_line, start_character) = index.byte_to_utf16(source, span.offset);
-      let end_offset = span.offset.saturating_add(span.length);
-      let (end_line, end_character) = index.byte_to_utf16(source, end_offset);
-      Range {
-        start: Position { line: start_line, character: start_character },
-        end: Position { line: end_line, character: end_character },
-      }
+      line_index.map_or_else(
+        || {
+          let index = LineIndex::new(source);
+          range_from_line_index(span, source, &index)
+        },
+        |index| range_from_line_index(span, source, index),
+      )
     },
   )
+}
+
+fn range_from_line_index(span: &SourceSpan, source: &str, index: &LineIndex) -> Range {
+  let (start_line, start_character) = index.byte_to_utf16(source, span.offset);
+  let end_offset = span.offset.saturating_add(span.length);
+  let (end_line, end_character) = index.byte_to_utf16(source, end_offset);
+  Range {
+    start: Position { line: start_line, character: start_character },
+    end: Position { line: end_line, character: end_character },
+  }
 }
 
 /// Inputs for building safe quick-fix code actions for one open document.
