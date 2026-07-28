@@ -40,6 +40,7 @@ pub struct AnalysisState {
   file_diagnostics: BTreeMap<FileId, Vec<Diagnostic>>,
   pub reverse_dependencies: BTreeMap<FileId, BTreeSet<FileId>>,
   pub last_affected: BTreeSet<FileId>,
+  last_project_context_revision: Option<u64>,
   project: ProjectGraphState,
 }
 
@@ -76,6 +77,9 @@ fn scan_parallel(
   state: &mut AnalysisState,
   cancelled: &(dyn Fn() -> bool + Sync),
 ) -> Result<ScanResult, SessionError> {
+  let project_context_changed = state
+    .last_project_context_revision
+    .is_some_and(|revision| revision != input.project_context.revision);
   let outcomes = input
     .sources
     .par_iter()
@@ -122,6 +126,10 @@ fn scan_parallel(
       }
     }
   }
+  if project_context_changed {
+    state.last_affected.extend(input.sources.iter().map(|source| source.file_id.clone()));
+  }
+  state.last_project_context_revision = Some(input.project_context.revision);
   expand_reverse_dependencies(&mut state.last_affected, &state.reverse_dependencies);
   state.files = next_files;
 
