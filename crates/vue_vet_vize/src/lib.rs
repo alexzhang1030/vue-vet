@@ -78,7 +78,7 @@ pub fn analyze_sfc_facts(path: &Path, source: &str) -> Result<AnalyzedSfc, Analy
     )?;
     let target = if has_script_setup { &mut ordinary_module_source } else { &mut module_source };
     if let Some(module) = target.take() {
-      *target = Some(module.with_prepared_trace(analysis.module_trace));
+      *target = Some(module.with_module_summary(analysis.module_trace));
     }
     script.blocks.push(analysis.script_facts);
   }
@@ -91,7 +91,7 @@ pub fn analyze_sfc_facts(path: &Path, source: &str) -> Result<AnalyzedSfc, Analy
       ScriptKind::Setup,
     )?;
     if let Some(module) = module_source.take() {
-      module_source = Some(module.with_prepared_trace(analysis.module_trace));
+      module_source = Some(module.with_module_summary(analysis.module_trace));
     }
     script.blocks.push(analysis.script_facts);
   }

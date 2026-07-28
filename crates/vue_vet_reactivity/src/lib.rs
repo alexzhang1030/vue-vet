@@ -2230,10 +2230,10 @@ mod modules;
 mod prop_flow;
 
 pub use modules::{
-  ModuleLink, ModuleReactivity, ModuleSource, ModuleTraceState, PreparedModuleTrace,
+  ModuleLink, ModuleReactivity, ModuleSource, ModuleSummary, ModuleTraceState, PreparedModuleTrace,
   TraceModulesError, TraceModulesOptions, TraceModulesReport, TraceModulesStats,
-  prepare_module_trace, trace_modules, trace_modules_incremental_with_options,
-  trace_modules_with_options,
+  prepare_module_summary, prepare_module_trace, trace_modules,
+  trace_modules_incremental_with_options, trace_modules_with_options,
 };
 pub use prop_flow::{PropFlowSite, join_prop_flows};
 
