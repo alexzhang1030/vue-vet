@@ -98,11 +98,11 @@ Diagnostics IR (Diagnostic / EditPlan)
 
 `ModuleSummary` (formerly the opaque `PreparedModuleTrace`) is the formal
 cross-module boundary: imports, exports, provides/injects, local reactivity, and
-no Oxc/Vize nodes. Session file-rule reuse is keyed by
-`FileRuleInputKey` digests over source, `RuleEnvironment`, and final primary /
-ordinary module graphs (`content_digest` / `serde_digest` in `vue_vet_core`).
-Rule-level semantic views (`EffectModel`, …) are deferred until multiple rules
-repeat the same derivation.
+no Oxc/Vize nodes. Session file-rule reuse is keyed by `FileRuleInputKey`:
+source and `RuleEnvironment` via `content_digest` / `serde_digest`, and final
+primary/ordinary module graphs via in-memory `Arc` content equality (avoid
+re-serializing full graphs on every file). Rule-level semantic views
+(`EffectModel`, …) are deferred until multiple rules repeat the same derivation.
 
 `no-v-html` remains the reference AST-backed built-in rule. Phase 2 adds the Oxc
 adapter while keeping both dependency ASTs behind Vue Vet-owned facts.

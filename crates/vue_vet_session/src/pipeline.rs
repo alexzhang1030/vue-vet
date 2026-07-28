@@ -36,33 +36,31 @@ struct CachedCandidate {
 
 /// IR dependency key for reusing per-file rule diagnostics.
 ///
-/// Fields hold digests of source, environment, and final primary/ordinary graphs.
+/// Source and environment use stable digests. Final module graphs stay as
+/// `Arc` values and compare by content (`PartialEq`): serializing full graphs
+/// into digests on every file was a measurable session regress.
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct FileRuleInputKey {
   source: String,
   environment: String,
-  primary_graph: String,
-  ordinary_graph: String,
+  primary_graph: Option<Arc<ReactivityGraph>>,
+  ordinary_graph: Option<Arc<ReactivityGraph>>,
 }
 
 impl FileRuleInputKey {
   fn new(
     source: &str,
     environment: &RuleEnvironment,
-    primary_graph: Option<&ReactivityGraph>,
-    ordinary_graph: Option<&ReactivityGraph>,
+    primary_graph: Option<Arc<ReactivityGraph>>,
+    ordinary_graph: Option<Arc<ReactivityGraph>>,
   ) -> Self {
     Self {
       source: content_digest(source.as_bytes()),
       environment: serde_digest(environment),
-      primary_graph: graph_digest(primary_graph),
-      ordinary_graph: graph_digest(ordinary_graph),
+      primary_graph,
+      ordinary_graph,
     }
   }
-}
-
-fn graph_digest(graph: Option<&ReactivityGraph>) -> String {
-  graph.map_or_else(|| content_digest(b"<missing-module-graph>"), serde_digest)
 }
 
 #[derive(Clone, Debug)]
@@ -241,8 +239,8 @@ fn scan_parallel(
       let key = FileRuleInputKey::new(
         &pending.source,
         &pending.environment,
-        primary_graph.as_deref(),
-        ordinary_graph.as_deref(),
+        primary_graph.clone(),
+        ordinary_graph.clone(),
       );
       if !state.last_affected.contains(&pending.file_id)
         && let Some(cached) = previous.file_diagnostics.get(&pending.file_id)
@@ -295,29 +293,30 @@ mod file_rule_key_tests {
 
   #[test]
   fn file_rule_input_key_is_stable_for_identical_ir_inputs() {
-    let graph = ReactivityGraph::default();
+    let graph = Arc::new(ReactivityGraph::default());
     let environment = RuleEnvironment::default();
-    let left = FileRuleInputKey::new("source", &environment, Some(&graph), None);
-    let right = FileRuleInputKey::new("source", &environment, Some(&graph), None);
+    let left = FileRuleInputKey::new("source", &environment, Some(Arc::clone(&graph)), None);
+    let right = FileRuleInputKey::new("source", &environment, Some(graph), None);
     assert_eq!(left, right);
   }
 
   #[test]
   fn file_rule_input_key_changes_when_final_graph_changes() {
     let environment = RuleEnvironment::default();
-    let empty = ReactivityGraph::default();
-    let changed = ReactivityGraph { module_id: "App.vue".into(), ..ReactivityGraph::default() };
-    let left = FileRuleInputKey::new("source", &environment, Some(&empty), None);
-    let right = FileRuleInputKey::new("source", &environment, Some(&changed), None);
+    let empty = Arc::new(ReactivityGraph::default());
+    let changed =
+      Arc::new(ReactivityGraph { module_id: "App.vue".into(), ..ReactivityGraph::default() });
+    let left = FileRuleInputKey::new("source", &environment, Some(empty), None);
+    let right = FileRuleInputKey::new("source", &environment, Some(changed), None);
     assert_ne!(left, right);
   }
 
   #[test]
   fn file_rule_input_key_changes_when_source_changes() {
     let environment = RuleEnvironment::default();
-    let graph = ReactivityGraph::default();
-    let left = FileRuleInputKey::new("a", &environment, Some(&graph), None);
-    let right = FileRuleInputKey::new("b", &environment, Some(&graph), None);
+    let graph = Arc::new(ReactivityGraph::default());
+    let left = FileRuleInputKey::new("a", &environment, Some(Arc::clone(&graph)), None);
+    let right = FileRuleInputKey::new("b", &environment, Some(graph), None);
     assert_ne!(left, right);
   }
 }
