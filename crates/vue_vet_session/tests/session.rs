@@ -522,6 +522,99 @@ fn generated_nuxt_declarations_invalidate_resolution_without_becoming_sources() 
 
 #[test]
 #[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn failed_apply_changes_preserves_revision_and_analysis() {
+  let root = std::env::temp_dir().join(format!("vue-vet-tx-{}", std::process::id()));
+  std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("temp workspace: {error}"));
+  let good = root.join("Good.vue");
+  let bad = root.join("bad.ts");
+  std::fs::write(&good, "<template><main v-html=\"html\" /></template>")
+    .unwrap_or_else(|error| panic!("good: {error}"));
+  std::fs::write(&bad, "export const ok = 1;\n").unwrap_or_else(|error| panic!("bad: {error}"));
+  let session = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+  })
+  .unwrap_or_else(|error| panic!("session: {error}"));
+  let initial = session.analyze().unwrap_or_else(|error| panic!("initial: {error}"));
+  let stats = session.stats();
+  std::fs::write(&bad, [0xff, 0xfe, 0xfd]).unwrap_or_else(|error| panic!("invalid: {error}"));
+  let Err(error) = session.apply_changes(ChangeSet {
+    files: BTreeMap::from([
+      (good, Some("<template><main>{{ html }}</main></template>".into())),
+      (bad, None),
+    ]),
+  }) else {
+    panic!("invalid UTF-8 refresh must fail");
+  };
+  assert!(error.to_string().contains("UTF-8"), "{error}");
+  assert_eq!(session.stats().committed_analyses, stats.committed_analyses);
+  assert_eq!(session.stats().incremental_file_updates, stats.incremental_file_updates);
+  let after =
+    session.analyze_affected().unwrap_or_else(|error| panic!("analyze after failure: {error}"));
+  assert_analysis_parity(&after, &initial);
+  assert!(
+    after.summary.diagnostics.iter().any(|diagnostic| diagnostic.rule_id.contains("no-v-html")),
+    "failed mutation must not install the successful overlay from the same batch"
+  );
+  let _ignored = std::fs::remove_dir_all(root);
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn first_discover_includes_overlay_only_unsaved_vue() {
+  let root = std::env::temp_dir().join(format!("vue-vet-overlay-first-{}", std::process::id()));
+  std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("temp workspace: {error}"));
+  std::fs::write(root.join("Existing.vue"), "<template><main /></template>")
+    .unwrap_or_else(|error| panic!("existing: {error}"));
+  let session = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+  })
+  .unwrap_or_else(|error| panic!("session: {error}"));
+  session
+    .apply_changes(ChangeSet::upsert(
+      root.join("NewComponent.vue"),
+      "<template><main v-html=\"html\" /></template>".into(),
+    ))
+    .unwrap_or_else(|error| panic!("overlay: {error}"));
+  let snapshot = session.analyze().unwrap_or_else(|error| panic!("first analyze: {error}"));
+  assert!(
+    snapshot.summary.diagnostics.iter().any(|diagnostic| {
+      diagnostic.file == FileId::from("NewComponent.vue")
+        && diagnostic.rule_id.contains("no-v-html")
+    }),
+    "unsaved overlay-only files must be analyzed on first discovery"
+  );
+  assert_eq!(session.stats().workspace_discoveries, 1);
+  let _ignored = std::fs::remove_dir_all(root);
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn file_id_for_path_matches_diagnostic_identity() {
+  let root = fixture("rules/no-v-html/invalid");
+  let session = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+  })
+  .unwrap_or_else(|error| panic!("session: {error}"));
+  let file_id = session
+    .file_id_for_path(&root.join("basic.vue"))
+    .unwrap_or_else(|error| panic!("file id: {error}"));
+  assert_eq!(file_id, FileId::from("basic.vue"));
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
 fn duplicate_suffix_paths_keep_distinct_file_ids() {
   let root = std::env::temp_dir().join(format!("vue-vet-file-id-{}", std::process::id()));
   for directory in ["apps/admin/src", "apps/customer/src"] {

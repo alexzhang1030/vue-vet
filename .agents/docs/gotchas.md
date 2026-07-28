@@ -225,7 +225,11 @@ come from `PackageIndex`, not repeated ancestor I/O. Long-lived sessions retain
 source bytes, Nuxt declaration mappings, facts, raw file diagnostics, per-file
 structural graph partitions, module plans/graphs, and reverse dependencies.
 `apply_changes` updates exact paths in that snapshot; an edit must not trigger a
-fresh workspace walk or rebuild unrelated structural partitions.
+fresh workspace walk or rebuild unrelated structural partitions. First discovery
+must also merge overlay-only paths that the filesystem walk never saw (unsaved
+new buffers). `WorkspaceInputSnapshot::apply_changes` is strongly exception-safe:
+on `Err`, the retained snapshot is unchanged. Session `apply_changes` is
+transactional over overlays + snapshot + revision.
 
 The session revision cannot live in a separate atomic publication step from
 input mutation. Otherwise an analysis may observe the old revision after the
@@ -235,11 +239,14 @@ snapshots outside the lock and publishes only if the captured revision still
 matches. Keep the barrier regression test when changing this lifecycle.
 
 Resolver inputs are semantic invalidation, not only structural-cache inputs.
-When `ProjectContext.revision` changes, cached file-rule diagnostics may contain
-reactivity graphs produced under the previous resolution plan. Conservatively
-invalidate all source consumers until a typed `ChangeImpact` narrows tsconfig,
-package, lockfile, and Nuxt declaration effects. Incremental-vs-clean tests
-cover all four input classes.
+`ProjectContext.last_change` carries a typed `ContextChangeKind`: tsconfig and
+lockfile still invalidate all source consumers; package-manifest changes rely on
+`RuleEnvironment` cache mismatch; Nuxt declarations invalidate Vue sources.
+Incremental-vs-clean tests cover all four input classes.
+
+LSP positions are UTF-16 code units via `vue_vet_core::LineIndex`. Never publish
+byte columns to the editor. Document identity must go through
+`ProjectSession::file_id_for_path` rather than ad-hoc `strip_prefix`.
 
 ## Paths are identities, not suffixes
 

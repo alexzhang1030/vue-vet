@@ -1,14 +1,12 @@
 //! Map Vue Vet diagnostics onto LSP types without changing identity semantics.
 
-use std::path::Path;
-
 use tower_lsp::lsp_types::{
   CodeAction, CodeActionKind, CodeActionOrCommand, Diagnostic as LspDiagnostic, DiagnosticSeverity,
   DocumentChanges, NumberOrString, OneOf, OptionalVersionedTextDocumentIdentifier, Position, Range,
   TextDocumentEdit, TextEdit as LspTextEdit, Url, WorkspaceEdit,
 };
 use vue_vet_core::{
-  ByteRange, Diagnostic, EditApplicability, EditPlan, Severity, SourceSpan, TextEdit,
+  ByteRange, Diagnostic, EditApplicability, EditPlan, FileId, LineIndex, Severity, SourceSpan,
 };
 use vue_vet_reporters::report_diagnostic_id;
 
@@ -16,9 +14,8 @@ use vue_vet_reporters::report_diagnostic_id;
 ///
 /// `data` is a JSON object with opaque finding `id` (for `--explain`) and an
 /// optional `recommendation` payload for practice suggestions. `code` is the
-/// stable rule id. Positions use the same 1-based line/byte-column convention as
-/// Vue Vet user-facing spans, converted to 0-based LSP positions (UTF-8 / byte
-/// columns for this thin slice; ASCII fixtures stay UTF-16 compatible).
+/// stable rule id. Positions are 0-based LSP UTF-16 columns derived from source
+/// byte offsets via [`LineIndex`].
 #[must_use]
 pub fn to_lsp_diagnostic(
   diagnostic: &Diagnostic,
@@ -52,19 +49,30 @@ fn lsp_diagnostic_data(id: &str, diagnostic: &Diagnostic) -> serde_json::Value {
 
 #[must_use]
 pub fn span_to_range(span: &SourceSpan, source: Option<&str>) -> Range {
-  let start = Position { line: u32_line(span.line), character: u32_column(span.column) };
-  let end = source.map_or_else(
-    || Position {
-      line: start.line,
-      character: start.character.saturating_add(u32::try_from(span.length).unwrap_or(u32::MAX)),
+  source.map_or_else(
+    || {
+      // Without source text, fall back to Vue Vet's 1-based line/byte-column
+      // fields (ASCII-compatible only).
+      let start = Position { line: u32_line(span.line), character: u32_column(span.column) };
+      Range {
+        start,
+        end: Position {
+          line: start.line,
+          character: start.character.saturating_add(u32::try_from(span.length).unwrap_or(u32::MAX)),
+        },
+      }
     },
     |source| {
+      let index = LineIndex::new(source);
+      let (start_line, start_character) = index.byte_to_utf16(source, span.offset);
       let end_offset = span.offset.saturating_add(span.length);
-      let (line, column) = line_column(source, end_offset);
-      Position { line: u32_line(line), character: u32_column(column) }
+      let (end_line, end_character) = index.byte_to_utf16(source, end_offset);
+      Range {
+        start: Position { line: start_line, character: start_character },
+        end: Position { line: end_line, character: end_character },
+      }
     },
-  );
-  Range { start, end }
+  )
 }
 
 /// Inputs for building safe quick-fix code actions for one open document.
@@ -72,8 +80,7 @@ pub struct SafeCodeActionRequest<'a> {
   pub uri: Url,
   pub version: i32,
   pub source: &'a str,
-  pub root: &'a Path,
-  pub document_path: &'a Path,
+  pub document_file_id: &'a FileId,
   pub analyzed_files: &'a [String],
   pub range: Range,
   pub only: Option<&'a [CodeActionKind]>,
@@ -92,10 +99,9 @@ pub fn safe_code_actions(
   if !allows_quickfix(request.only) {
     return Vec::new();
   }
-  let normalized_document = normalize_report_path(request.document_path, request.root);
   let mut actions = Vec::new();
   for diagnostic in diagnostics {
-    if !diagnostic_matches_document(diagnostic, &normalized_document) {
+    if diagnostic.file != *request.document_file_id {
       continue;
     }
     let diagnostic_range = span_to_range(&diagnostic.span, Some(request.source));
@@ -106,7 +112,7 @@ pub fn safe_code_actions(
       .edits
       .iter()
       .filter(|edit| edit.applicability == EditApplicability::Safe)
-      .filter(|edit| edit_targets_document(edit, request.root, request.document_path))
+      .filter(|edit| edit.file == *request.document_file_id)
       .cloned()
       .collect::<Vec<_>>();
     if safe_edits.is_empty() {
@@ -125,12 +131,13 @@ pub fn safe_code_actions(
 
 #[must_use]
 pub fn byte_range_to_range(range: ByteRange, source: &str) -> Range {
-  let (start_line, start_column) = line_column(source, range.offset);
+  let index = LineIndex::new(source);
+  let (start_line, start_character) = index.byte_to_utf16(source, range.offset);
   let end_offset = range.end().unwrap_or(range.offset);
-  let (end_line, end_column) = line_column(source, end_offset);
+  let (end_line, end_character) = index.byte_to_utf16(source, end_offset);
   Range {
-    start: Position { line: u32_line(start_line), character: u32_column(start_column) },
-    end: Position { line: u32_line(end_line), character: u32_column(end_column) },
+    start: Position { line: start_line, character: start_character },
+    end: Position { line: end_line, character: end_character },
   }
 }
 
@@ -186,26 +193,6 @@ fn allows_quickfix(only: Option<&[CodeActionKind]>) -> bool {
     })
 }
 
-fn diagnostic_matches_document(diagnostic: &Diagnostic, normalized_document: &str) -> bool {
-  diagnostic.file.as_str() == normalized_document
-}
-
-fn edit_targets_document(edit: &TextEdit, root: &Path, document_path: &Path) -> bool {
-  let edit_path =
-    if edit.file.is_absolute() { edit.file.to_path_buf() } else { root.join(edit.file.as_path()) };
-  paths_equal_lossy(&edit_path, document_path)
-    || paths_equal_lossy(edit.file.as_path(), document_path)
-    || normalize_report_path(document_path, root) == edit.file.as_str()
-}
-
-fn paths_equal_lossy(left: &Path, right: &Path) -> bool {
-  left.to_string_lossy().replace('\\', "/") == right.to_string_lossy().replace('\\', "/")
-}
-
-fn normalize_report_path(path: &Path, root: &Path) -> String {
-  path.strip_prefix(root).unwrap_or(path).to_string_lossy().replace('\\', "/")
-}
-
 const fn ranges_intersect(left: Range, right: Range) -> bool {
   position_le(left.start, right.end) && position_le(right.start, left.end)
 }
@@ -230,24 +217,12 @@ fn u32_column(column: usize) -> u32 {
   u32::try_from(column.saturating_sub(1)).unwrap_or(u32::MAX)
 }
 
-/// 1-based line and byte column for a UTF-8 byte offset (matches Vize adapter).
-fn line_column(source: &str, offset: usize) -> (usize, usize) {
-  let bytes = source.as_bytes();
-  let prefix = bytes.get(..offset.min(bytes.len())).unwrap_or(bytes);
-  let line =
-    prefix.iter().fold(1_usize, |line, byte| line.saturating_add(usize::from(*byte == b'\n')));
-  let column = prefix
-    .iter()
-    .rposition(|byte| *byte == b'\n')
-    .map_or_else(|| prefix.len().saturating_add(1), |newline| prefix.len().saturating_sub(newline));
-  (line, column)
-}
-
 #[cfg(test)]
 mod tests {
   use super::*;
   use std::path::PathBuf;
-  use vue_vet_core::{Confidence, SourceSpan};
+
+  use vue_vet_core::{Confidence, SourceSpan, TextEdit};
 
   #[test]
   fn maps_rule_id_message_and_opaque_finding_id() {
@@ -285,12 +260,57 @@ mod tests {
 
   #[test]
   #[expect(clippy::expect_used, reason = "unit test asserts Url::parse succeeds")]
+  #[expect(clippy::panic, reason = "unit test asserts unicode fixture layout")]
+  fn unicode_prefix_uses_utf16_columns() {
+    let source = "<template>\n  <div>中文😀</div>\n  <main v-html=\"html\" />\n</template>\n";
+    let Some(offset) = source.find("v-html") else {
+      panic!("fixture must contain v-html");
+    };
+    let diagnostic = Diagnostic {
+      rule_id: "vue-vet/security/no-v-html".into(),
+      category: "security".into(),
+      severity: Severity::Warning,
+      confidence: Some(Confidence::High),
+      documentation: None,
+      message: "v-html".into(),
+      help: None,
+      file: PathBuf::from("App.vue").into(),
+      span: SourceSpan { offset, length: 6, line: 3, column: offset },
+      edits: vec![TextEdit {
+        file: PathBuf::from("App.vue").into(),
+        range: ByteRange { offset, length: 6 },
+        replacement: "text-content".into(),
+        applicability: EditApplicability::Safe,
+        rule_id: "vue-vet/security/no-v-html".into(),
+      }],
+      recommendation: None,
+    };
+    let range = span_to_range(&diagnostic.span, Some(source));
+    assert_eq!(range.start.line, 2);
+    assert_eq!(range.start.character, 8);
+    let analyzed = vec!["App.vue".into()];
+    let file_id = FileId::from("App.vue");
+    let actions = safe_code_actions(
+      std::slice::from_ref(&diagnostic),
+      &SafeCodeActionRequest {
+        uri: Url::parse("file:///project/App.vue").expect("url"),
+        version: 1,
+        source,
+        document_file_id: &file_id,
+        analyzed_files: &analyzed,
+        range,
+        only: None,
+      },
+    );
+    assert_eq!(actions.len(), 1);
+  }
+
+  #[test]
+  #[expect(clippy::expect_used, reason = "unit test asserts Url::parse succeeds")]
   #[expect(clippy::indexing_slicing, reason = "unit test indexes known action shape")]
   #[expect(clippy::panic, reason = "unit test asserts code-action shape")]
   fn safe_code_actions_expose_only_safe_edits() {
     let source = "<template>\n  <input autofocus>\n</template>\n";
-    let root = PathBuf::from("/project");
-    let document = root.join("App.vue");
     let diagnostic = Diagnostic {
       rule_id: "vue-vet/accessibility/no-autofocus".into(),
       category: "accessibility".into(),
@@ -320,14 +340,14 @@ mod tests {
       recommendation: None,
     };
     let analyzed = vec!["App.vue".into()];
+    let file_id = FileId::from("App.vue");
     let actions = safe_code_actions(
       std::slice::from_ref(&diagnostic),
       &SafeCodeActionRequest {
         uri: Url::parse("file:///project/App.vue").expect("url"),
         version: 3,
         source,
-        root: &root,
-        document_path: &document,
+        document_file_id: &file_id,
         analyzed_files: &analyzed,
         range: span_to_range(&diagnostic.span, Some(source)),
         only: None,
@@ -361,8 +381,6 @@ mod tests {
   #[expect(clippy::expect_used, reason = "unit test asserts Url::parse succeeds")]
   fn safe_code_actions_respect_only_filter() {
     let source = "<template>\n  <input autofocus>\n</template>\n";
-    let root = PathBuf::from("/project");
-    let document = root.join("App.vue");
     let diagnostic = Diagnostic {
       rule_id: "vue-vet/accessibility/no-autofocus".into(),
       category: "accessibility".into(),
@@ -383,6 +401,7 @@ mod tests {
       recommendation: None,
     };
     let analyzed = vec!["App.vue".into()];
+    let file_id = FileId::from("App.vue");
     let only = [CodeActionKind::REFACTOR];
     let actions = safe_code_actions(
       &[diagnostic],
@@ -390,8 +409,7 @@ mod tests {
         uri: Url::parse("file:///project/App.vue").expect("url"),
         version: 1,
         source,
-        root: &root,
-        document_path: &document,
+        document_file_id: &file_id,
         analyzed_files: &analyzed,
         range: Range {
           start: Position { line: 0, character: 0 },

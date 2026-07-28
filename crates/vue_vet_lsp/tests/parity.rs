@@ -118,14 +118,16 @@ fn safe_code_actions_match_autofocus_producer() {
   );
 
   let uri = path_to_file_url(&path);
+  let Ok(file_id) = session.file_id_for_path(&path) else {
+    panic!("file id");
+  };
   let actions = safe_code_actions(
     &snapshot.summary.diagnostics,
     &SafeCodeActionRequest {
       uri,
       version: 1,
       source,
-      root: path.parent().unwrap_or_else(|| Path::new(".")),
-      document_path: &path,
+      document_file_id: &file_id,
       analyzed_files: &snapshot.analyzed_files,
       range: Range {
         start: Position { line: 0, character: 0 },

@@ -12,7 +12,8 @@ use vue_vet_core::{
 };
 use vue_vet_oxc::analyze_module_source;
 use vue_vet_project::{
-  ProjectFile, ProjectGraph, ProjectGraphState, build_project_graph_incremental_with_options,
+  ContextChangeKind, ProjectFile, ProjectGraph, ProjectGraphState,
+  build_project_graph_incremental_with_options,
 };
 use vue_vet_reactivity::{ModuleSource, TraceModulesOptions};
 use vue_vet_vize::{AnalyzeError, analyze_sfc_facts};
@@ -44,6 +45,22 @@ pub struct AnalysisState {
   project: ProjectGraphState,
 }
 
+impl AnalysisState {
+  /// Seed a mutable candidate from the previous committed state without cloning
+  /// the full file/diagnostic maps (they are rebuilt from lookups into `previous`).
+  #[must_use]
+  pub fn prepare_from(previous: &Self) -> Self {
+    Self {
+      files: BTreeMap::new(),
+      file_diagnostics: BTreeMap::new(),
+      reverse_dependencies: BTreeMap::new(),
+      last_affected: BTreeSet::new(),
+      last_project_context_revision: previous.last_project_context_revision,
+      project: previous.project.clone(),
+    }
+  }
+}
+
 pub struct ScanResult {
   pub summary: ScanSummary,
   pub graph: ProjectGraph,
@@ -54,10 +71,12 @@ pub fn scan_with_threads(
   input: &WorkspaceInputSnapshot,
   config: &Config,
   threads: Option<usize>,
+  previous: &AnalysisState,
   state: &mut AnalysisState,
   cancelled: &(dyn Fn() -> bool + Sync),
 ) -> Result<ScanResult, SessionError> {
-  let mut run = || scan_parallel(input, config, rayon::current_num_threads(), state, cancelled);
+  let mut run =
+    || scan_parallel(input, config, rayon::current_num_threads(), previous, state, cancelled);
   match threads {
     Some(threads) => {
       let pool =
@@ -74,10 +93,11 @@ fn scan_parallel(
   input: &WorkspaceInputSnapshot,
   config: &Config,
   max_workers: usize,
+  previous: &AnalysisState,
   state: &mut AnalysisState,
   cancelled: &(dyn Fn() -> bool + Sync),
 ) -> Result<ScanResult, SessionError> {
-  let project_context_changed = state
+  let project_context_changed = previous
     .last_project_context_revision
     .is_some_and(|revision| revision != input.project_context.revision);
   let outcomes = input
@@ -85,7 +105,7 @@ fn scan_parallel(
     .par_iter()
     .map(|source| {
       let environment = source_environment(source, &input.boundary, &input.package_index);
-      if let Some(cached) = state.files.get(&source.file_id)
+      if let Some(cached) = previous.files.get(&source.file_id)
         && cached.source.as_ref() == source.source.as_ref()
         && cached.environment == environment
       {
@@ -103,7 +123,7 @@ fn scan_parallel(
   let mut next_files = BTreeMap::new();
   let mut issues = Vec::new();
   state.last_affected =
-    state.files.keys().filter(|file| !discovered.contains(file)).cloned().collect();
+    previous.files.keys().filter(|file| !discovered.contains(file)).cloned().collect();
   for (source, outcome) in input.sources.iter().zip(outcomes) {
     match outcome {
       Ok((item, changed, environment)) => {
@@ -127,10 +147,10 @@ fn scan_parallel(
     }
   }
   if project_context_changed {
-    state.last_affected.extend(input.sources.iter().map(|source| source.file_id.clone()));
+    apply_context_invalidation(&mut state.last_affected, input, input.project_context.last_change);
   }
   state.last_project_context_revision = Some(input.project_context.revision);
-  expand_reverse_dependencies(&mut state.last_affected, &state.reverse_dependencies);
+  expand_reverse_dependencies(&mut state.last_affected, &previous.reverse_dependencies);
   state.files = next_files;
 
   let files_scanned =
@@ -178,7 +198,7 @@ fn scan_parallel(
     .into_par_iter()
     .map(|pending| {
       if !state.last_affected.contains(&pending.file_id)
-        && let Some(diagnostics) = state.file_diagnostics.get(&pending.file_id)
+        && let Some(diagnostics) = previous.file_diagnostics.get(&pending.file_id)
       {
         return (pending.file_id, diagnostics.clone());
       }
@@ -220,6 +240,37 @@ fn scan_parallel(
     .map(|source| (source.file_id.clone(), Arc::clone(&source.source)));
   let summary = DiagnosticFinalizer::new(config, sources).finalize(files_scanned, raw_diagnostics);
   Ok(ScanResult { summary, graph, issues })
+}
+
+fn apply_context_invalidation(
+  last_affected: &mut BTreeSet<FileId>,
+  input: &WorkspaceInputSnapshot,
+  kind: Option<ContextChangeKind>,
+) {
+  match kind {
+    // Package capabilities are keyed in the per-file environment cache; only
+    // files whose nearest package.json actually changed re-analyze.
+    Some(ContextChangeKind::PackageManifest) => {}
+    // Nuxt declaration renames affect Vue component consumers, not script modules.
+    Some(ContextChangeKind::NuxtDeclarations) => {
+      last_affected.extend(
+        input
+          .sources
+          .iter()
+          .filter(|source| matches!(source.kind, SourceKind::Vue))
+          .map(|source| source.file_id.clone()),
+      );
+    }
+    // Tsconfig / lockfile / membership / unknown: keep the conservative sweep.
+    Some(
+      ContextChangeKind::TsConfig
+      | ContextChangeKind::Lockfile
+      | ContextChangeKind::SourceMembership,
+    )
+    | None => {
+      last_affected.extend(input.sources.iter().map(|source| source.file_id.clone()));
+    }
+  }
 }
 
 #[derive(Clone, Debug)]

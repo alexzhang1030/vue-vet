@@ -140,11 +140,7 @@ fn tool_preview_safe_fixes(workspace_root: &Path, arguments: &Value) -> Result<S
     }
   }
   let plan = EditPlan::new(safe_edits).map_err(|error| error.to_string())?;
-  let mut files = plan
-    .edits()
-    .iter()
-    .map(|edit| normalize_display_path(boundary, edit.file.as_path()))
-    .collect::<Vec<_>>();
+  let mut files = plan.edits().iter().map(|edit| edit.file.as_str().to_owned()).collect::<Vec<_>>();
   files.sort();
   files.dedup();
   let edits = plan
@@ -152,7 +148,7 @@ fn tool_preview_safe_fixes(workspace_root: &Path, arguments: &Value) -> Result<S
     .iter()
     .map(|edit| {
       json!({
-        "file": normalize_display_path(boundary, edit.file.as_path()),
+        "file": edit.file.as_str(),
         "rule_id": edit.rule_id,
         "offset": edit.range.offset,
         "length": edit.range.length,
@@ -236,10 +232,6 @@ fn detect_framework(root: &Path) -> ReportFramework {
     .filter_map(|section| package.get(*section))
     .any(|section| section.get("nuxt").is_some());
   if is_nuxt { ReportFramework::Nuxt } else { ReportFramework::Vue }
-}
-
-fn normalize_display_path(root: &Path, path: &Path) -> String {
-  path.strip_prefix(root).unwrap_or(path).to_string_lossy().replace('\\', "/")
 }
 
 fn tool_descriptor(name: &str, description: &str, input_schema: &Value) -> Value {

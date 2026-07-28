@@ -400,20 +400,13 @@ pub fn trace_modules_incremental_with_options(
     return report;
   }
 
-  let Ok(pool) = rayon::ThreadPoolBuilder::new()
-    .num_threads(options.max_workers.max(1).min(unique.len()))
-    .build()
-  else {
-    report.issues.push(TraceModulesError::WorkerDisconnected);
-    return report;
-  };
-
-  let phase_one = pool.install(|| {
-    unique
-      .par_iter()
-      .map(|module| analyze_module_phase_one(module))
-      .collect::<Vec<Result<ModulePhaseOne, TraceModulesError>>>()
-  });
+  // Reuse the caller's Rayon pool (session `pool.install` or the global pool)
+  // instead of building a nested pool between pipeline phases.
+  let _ = options.max_workers;
+  let phase_one = unique
+    .par_iter()
+    .map(|module| analyze_module_phase_one(module))
+    .collect::<Vec<Result<ModulePhaseOne, TraceModulesError>>>();
   let mut facts_by_id = BTreeMap::new();
   let mut local_graphs = BTreeMap::new();
   for (module, outcome) in unique.iter().zip(phase_one) {
@@ -448,38 +441,36 @@ pub fn trace_modules_incremental_with_options(
     })
     .collect::<Vec<_>>();
 
-  let outcomes = pool.install(|| {
-    work
-      .into_par_iter()
-      .map(|(module, mut local_graph, plan)| {
-        if let Some(cached) = state.entries.get(&module.id)
-          && cached.source == *module
-          && cached.plan == plan
-        {
-          return PhaseTwoOutcome::Reused {
+  let outcomes = work
+    .into_par_iter()
+    .map(|(module, mut local_graph, plan)| {
+      if let Some(cached) = state.entries.get(&module.id)
+        && cached.source == *module
+        && cached.plan == plan
+      {
+        return PhaseTwoOutcome::Reused {
+          source: module.clone(),
+          plan,
+          reactivity: cached.reactivity.clone(),
+        };
+      }
+      let seeded = !plan.is_empty();
+      match trace_module_phase_two(module, local_graph.clone(), &plan) {
+        Ok(reactivity) => {
+          PhaseTwoOutcome::Traced { source: module.clone(), plan, reactivity, seeded }
+        }
+        Err(error) => {
+          local_graph.set_module_id(module.id.clone());
+          PhaseTwoOutcome::Partial {
             source: module.clone(),
             plan,
-            reactivity: cached.reactivity.clone(),
-          };
-        }
-        let seeded = !plan.is_empty();
-        match trace_module_phase_two(module, local_graph.clone(), &plan) {
-          Ok(reactivity) => {
-            PhaseTwoOutcome::Traced { source: module.clone(), plan, reactivity, seeded }
-          }
-          Err(error) => {
-            local_graph.set_module_id(module.id.clone());
-            PhaseTwoOutcome::Partial {
-              source: module.clone(),
-              plan,
-              reactivity: ModuleReactivity { id: module.id.clone(), graph: local_graph },
-              error,
-            }
+            reactivity: ModuleReactivity { id: module.id.clone(), graph: local_graph },
+            error,
           }
         }
-      })
-      .collect::<Vec<_>>()
-  });
+      }
+    })
+    .collect::<Vec<_>>();
 
   let mut next_entries = BTreeMap::new();
   for outcome in outcomes {

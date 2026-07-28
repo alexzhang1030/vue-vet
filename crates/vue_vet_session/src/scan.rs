@@ -12,12 +12,17 @@ use crate::{
 
 pub use crate::pipeline::AnalysisState;
 
+#[expect(
+  clippy::too_many_arguments,
+  reason = "analyze_snapshot forwards the explicit analysis lifecycle inputs"
+)]
 pub fn analyze_snapshot(
   input: &WorkspaceInputSnapshot,
   config: &Config,
   cache_dir: &Path,
   no_cache: bool,
   threads: Option<usize>,
+  previous: &AnalysisState,
   state: &mut AnalysisState,
   cancelled: &(dyn Fn() -> bool + Sync),
 ) -> Result<AnalysisSnapshot, SessionError> {
@@ -27,7 +32,7 @@ pub fn analyze_snapshot(
   let analyzed_files =
     input.analyzed_source_files.iter().map(|file| file.as_str().to_owned()).collect();
   let (summary, graph, cache_status, issues) = if no_cache {
-    let result = scan_with_threads(input, config, threads, state, cancelled)?;
+    let result = scan_with_threads(input, config, threads, previous, state, cancelled)?;
     (result.summary, result.graph, "disabled", result.issues)
   } else {
     let serialized_config = serde_json::to_vec(config)
@@ -37,11 +42,19 @@ pub fn analyze_snapshot(
     match store.load(&key) {
       CacheLookup::Hit(payload) => (payload.summary, payload.graph, "hit", Vec::new()),
       CacheLookup::Miss => {
-        fill_cache(&store, &key, input, config, "miss", threads, state, cancelled)?
+        fill_cache(&store, &key, input, config, "miss", threads, previous, state, cancelled)?
       }
-      CacheLookup::RecoveredCorruption => {
-        fill_cache(&store, &key, input, config, "recovered-corruption", threads, state, cancelled)?
-      }
+      CacheLookup::RecoveredCorruption => fill_cache(
+        &store,
+        &key,
+        input,
+        config,
+        "recovered-corruption",
+        threads,
+        previous,
+        state,
+        cancelled,
+      )?,
     }
   };
   let coverage = AnalysisCoverage {
@@ -62,10 +75,11 @@ fn fill_cache(
   config: &Config,
   status: &'static str,
   threads: Option<usize>,
+  previous: &AnalysisState,
   state: &mut AnalysisState,
   cancelled: &(dyn Fn() -> bool + Sync),
 ) -> Result<(ScanSummary, ProjectGraph, &'static str, Vec<AnalysisIssue>), SessionError> {
-  let result = scan_with_threads(input, config, threads, state, cancelled)?;
+  let result = scan_with_threads(input, config, threads, previous, state, cancelled)?;
   if result.issues.is_empty() {
     store
       .store(key, &CachePayload { summary: result.summary.clone(), graph: result.graph.clone() })
