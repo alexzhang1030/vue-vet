@@ -261,9 +261,31 @@ boundary.
 
 Never discard the dirty `FileId` set returned by
 `WorkspaceInputSnapshot::apply_changes`. Session analysis must schedule from
-`PendingChanges` (plus context-epoch invalidation). Cancellation must not clear
+`PendingChanges` via `ChangeImpact` / `DirtyPlan`. Cancellation must not clear
 pending dirty state. A no-op `analyze_affected` when the revision is unchanged
 must return the last snapshot without re-entering the pipeline.
+
+**Dirty `FileId` ≠ dirty work.** A small `affected_files()` set only proves parse
+scheduling was narrow. Real scans may still rebuild full project files, module
+phase-one/seed plans, and diagnostic summaries. Prove locality with work
+counters (`files_parsed`, partitions rebuilt, COW clones, rules rerun), not with
+set size alone.
+
+**Context invalidation ≠ re-parse.** Epoch bumps for tsconfig, lockfile,
+package resolution, Nuxt declarations, or source membership must refresh
+resolution / environment / indexes / rules as needed. They must not force
+`analyze_candidate()` on unchanged source bytes. Prefer `ChangeImpact` domains
+over a boolean `invalidate_all_sources`.
+
+**Top-level `Arc<ProjectGraphState>` does not remove real-scan clones.** When the
+committed state still holds the same Arc, `Arc::make_mut(&mut state.project)`
+deep-clones the whole graph state. Prefer internal Arc partitions (Batch 2);
+until then count `graph_cow_clones`.
+
+**No-op is not strict O(1).** Shared `summary`/`graph` are Arc, but
+`AnalysisSnapshot` still clones `coverage` / `issues` / `analyzed_files`. Small
+fixtures hide this; large workspaces amplify it. Prefer
+`Arc<AnalysisSnapshot>` (or equivalent) for true O(1) publication.
 
 Export resolution must not clone the entire resolved-export map each fixed-point
 round — use a worklist over reverse re-export users.
@@ -277,7 +299,7 @@ overlay updates must not double-clone `WorkspaceInputSnapshot` (fork once via
 Never build the session Rayon pool in `ProjectSession::open` — warm disk-cache
 hits must not pay thread-pool construction. Lazily init on the first real scan.
 `AnalysisSnapshot` keeps `summary`/`graph` behind `Arc` so commit/`last_snapshot`
-is refcount-only.
+is refcount-only for those fields.
 
 LSP positions are UTF-16 code units via `vue_vet_core::LineIndex`. Never publish
 byte columns to the editor. Document identity must go through

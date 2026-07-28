@@ -26,14 +26,14 @@ pub fn analyze_snapshot(
   state: &mut AnalysisState,
   cancelled: &(dyn Fn() -> bool + Sync),
   dirty_files: &BTreeSet<FileId>,
-  invalidate_all_sources: bool,
+  force_full_parse: bool,
 ) -> Result<AnalysisSnapshot, SessionError> {
   if cancelled() {
     return Err(SessionError::Cancelled);
   }
   let analyzed_files =
     input.analyzed_source_files.iter().map(|file| file.as_str().to_owned()).collect();
-  let (summary, graph, cache_status, issues) = if no_cache {
+  let (summary, graph, cache_status, issues, work) = if no_cache {
     let result = scan_with_threads(
       input,
       config,
@@ -42,9 +42,9 @@ pub fn analyze_snapshot(
       state,
       cancelled,
       dirty_files,
-      invalidate_all_sources,
+      force_full_parse,
     )?;
-    (result.summary, result.graph, "disabled", result.issues)
+    (result.summary, result.graph, "disabled", result.issues, result.work)
   } else {
     let serialized_config = serde_json::to_vec(config)
       .map_err(|error| SessionError::message(format!("failed to hash config: {error}")))?;
@@ -54,7 +54,7 @@ pub fn analyze_snapshot(
       // Preserve committed incremental state on hit — do not clear file/module IR.
       CacheLookup::Hit(payload) => {
         *state = AnalysisState::share_from(previous);
-        (payload.summary, payload.graph, "hit", Vec::new())
+        (payload.summary, payload.graph, "hit", Vec::new(), state.last_work)
       }
       CacheLookup::Miss => fill_cache(
         &store,
@@ -67,7 +67,7 @@ pub fn analyze_snapshot(
         state,
         cancelled,
         dirty_files,
-        invalidate_all_sources,
+        force_full_parse,
       )?,
       CacheLookup::RecoveredCorruption => fill_cache(
         &store,
@@ -80,7 +80,7 @@ pub fn analyze_snapshot(
         state,
         cancelled,
         dirty_files,
-        invalidate_all_sources,
+        force_full_parse,
       )?,
     }
   };
@@ -95,6 +95,7 @@ pub fn analyze_snapshot(
     coverage,
     issues,
     analyzed_files,
+    work,
   })
 }
 
@@ -113,8 +114,11 @@ fn fill_cache(
   state: &mut AnalysisState,
   cancelled: &(dyn Fn() -> bool + Sync),
   dirty_files: &BTreeSet<FileId>,
-  invalidate_all_sources: bool,
-) -> Result<(ScanSummary, ProjectGraph, &'static str, Vec<AnalysisIssue>), SessionError> {
+  force_full_parse: bool,
+) -> Result<
+  (ScanSummary, ProjectGraph, &'static str, Vec<AnalysisIssue>, crate::ScanWorkCounters),
+  SessionError,
+> {
   let result = scan_with_threads(
     input,
     config,
@@ -123,14 +127,14 @@ fn fill_cache(
     state,
     cancelled,
     dirty_files,
-    invalidate_all_sources,
+    force_full_parse,
   )?;
   if result.issues.is_empty() {
     store
       .store(key, &CachePayload { summary: result.summary.clone(), graph: result.graph.clone() })
       .map_err(|error| SessionError::message(error.to_string()))?;
   }
-  Ok((result.summary, result.graph, status, result.issues))
+  Ok((result.summary, result.graph, status, result.issues, result.work))
 }
 
 /// Directory used as the project boundary for a file or directory scan path.

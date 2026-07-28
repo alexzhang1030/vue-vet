@@ -859,7 +859,7 @@ fn independent_leaf_edit_keeps_affected_set_local() {
       "export const value39 = 3900;\n".into(),
     ))
     .unwrap_or_else(|error| panic!("edit: {error}"));
-  let _after = session.analyze_affected().unwrap_or_else(|error| panic!("affected: {error}"));
+  let after = session.analyze_affected().unwrap_or_else(|error| panic!("affected: {error}"));
   let affected = session.affected_files().unwrap_or_else(|error| panic!("affected files: {error}"));
   assert!(
     affected.len() <= 4,
@@ -870,5 +870,138 @@ fn independent_leaf_edit_keeps_affected_set_local() {
     affected.iter().any(|file| file.as_str().contains("module-39")),
     "edited leaf must be among affected files"
   );
+  assert_eq!(
+    after.work.files_parsed, 1,
+    "independent leaf edit must parse only the edited file, got {:?}",
+    after.work
+  );
+  assert!(after.work.files_reused >= 39, "unchanged modules must be reused, got {:?}", after.work);
+  let plan = session.last_dirty_plan().unwrap_or_else(|error| panic!("dirty plan: {error}"));
+  assert_eq!(plan.parse_files.len(), 1);
+  let _ignored = std::fs::remove_dir_all(root);
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn tsconfig_only_change_parses_zero_source_files() {
+  let root =
+    std::env::temp_dir().join(format!("vue-vet-tsconfig-parse-zero-{}", std::process::id()));
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(root.join("src")).unwrap_or_else(|error| panic!("workspace: {error}"));
+  std::fs::write(
+    root.join("src/state.ts"),
+    "import { ref } from 'vue'; export const gate = ref(false); export const payload = ref(0);",
+  )
+  .unwrap_or_else(|error| panic!("state: {error}"));
+  std::fs::write(
+    root.join("App.vue"),
+    "<script setup lang=\"ts\">
+import { watchEffect } from 'vue'
+import { gate, payload } from '@state'
+watchEffect(() => {
+  if (!gate.value) return
+  console.log(payload.value)
+})
+</script>",
+  )
+  .unwrap_or_else(|error| panic!("app: {error}"));
+  let tsconfig = root.join("tsconfig.json");
+  std::fs::write(
+    &tsconfig,
+    r#"{"compilerOptions":{"baseUrl":".","paths":{"@state":["src/missing.ts"]}}}"#,
+  )
+  .unwrap_or_else(|error| panic!("tsconfig: {error}"));
+  let session = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(2),
+  })
+  .unwrap_or_else(|error| panic!("session: {error}"));
+  session.analyze().unwrap_or_else(|error| panic!("baseline: {error}"));
+
+  std::fs::write(
+    &tsconfig,
+    r#"{"compilerOptions":{"baseUrl":".","paths":{"@state":["src/state.ts"]}}}"#,
+  )
+  .unwrap_or_else(|error| panic!("updated tsconfig: {error}"));
+  session
+    .apply_changes(ChangeSet::remove(tsconfig))
+    .unwrap_or_else(|error| panic!("tsconfig change: {error}"));
+  let incremental =
+    session.analyze_affected().unwrap_or_else(|error| panic!("incremental: {error}"));
+  assert_eq!(
+    incremental.work.files_parsed, 0,
+    "tsconfig-only invalidation must not re-parse unchanged sources: {:?}",
+    incremental.work
+  );
+  assert!(
+    incremental.work.files_reused >= 2,
+    "sources must be reused after tsconfig change: {:?}",
+    incremental.work
+  );
+
+  let clean_session = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(2),
+  })
+  .unwrap_or_else(|error| panic!("clean session: {error}"));
+  let clean = clean_session.analyze().unwrap_or_else(|error| panic!("clean: {error}"));
+  assert_analysis_parity(&incremental, &clean);
+  let _ignored = std::fs::remove_dir_all(root);
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn package_json_change_parses_zero_source_files() {
+  let root =
+    std::env::temp_dir().join(format!("vue-vet-package-parse-zero-{}", std::process::id()));
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+  std::fs::write(
+    root.join("App.vue"),
+    "<script setup>\nimport { ref } from 'vue'\nconst n = ref(0)\n</script><template>{{ n }}</template>",
+  )
+  .unwrap_or_else(|error| panic!("app: {error}"));
+  let package = root.join("package.json");
+  std::fs::write(&package, r#"{"dependencies":{"vue":"^3.4.0","lodash":"^4.17.21"}}"#)
+    .unwrap_or_else(|error| panic!("package: {error}"));
+  let session = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+  })
+  .unwrap_or_else(|error| panic!("session: {error}"));
+  session.analyze().unwrap_or_else(|error| panic!("baseline: {error}"));
+
+  std::fs::write(&package, r#"{"dependencies":{"vue":"^3.4.0","lodash-es":"^4.17.21"}}"#)
+    .unwrap_or_else(|error| panic!("updated package: {error}"));
+  session
+    .apply_changes(ChangeSet::remove(package))
+    .unwrap_or_else(|error| panic!("package change: {error}"));
+  let incremental =
+    session.analyze_affected().unwrap_or_else(|error| panic!("incremental: {error}"));
+  assert_eq!(
+    incremental.work.files_parsed, 0,
+    "package.json change must refresh environment/resolution without re-parse: {:?}",
+    incremental.work
+  );
+
+  let clean_session = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+  })
+  .unwrap_or_else(|error| panic!("clean session: {error}"));
+  let clean = clean_session.analyze().unwrap_or_else(|error| panic!("clean: {error}"));
+  assert_analysis_parity(&incremental, &clean);
   let _ignored = std::fs::remove_dir_all(root);
 }

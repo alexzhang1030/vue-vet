@@ -8,6 +8,7 @@ mod diagnostics;
 mod discovery;
 mod explain;
 mod invalidation;
+mod locality;
 mod package_index;
 mod path;
 mod pipeline;
@@ -32,13 +33,13 @@ use vue_vet_core::{
   WorkspaceRoot,
 };
 use vue_vet_practice::practice_rules;
-use vue_vet_project::ContextEpochs;
 use vue_vet_project::{PROJECT_RULE_IDS, ProjectGraph};
 use vue_vet_rules::builtin_rules;
 
 use self::discovery::{WorkspaceInputSnapshot, file_id_for_physical};
 
 pub use explain::Explained;
+pub use locality::{ChangeImpact, DirtyPlan, ResolutionScope, ScanWorkCounters};
 pub use path::resolve_under_root;
 pub use scan::scan_directory;
 
@@ -73,6 +74,8 @@ pub struct AnalysisSnapshot {
   pub issues: Vec<AnalysisIssue>,
   /// Normalized `/`-separated paths matching JSON `project.analyzed_files`.
   pub analyzed_files: Vec<String>,
+  /// Real work performed by the scan that produced this snapshot.
+  pub work: ScanWorkCounters,
 }
 
 impl AnalysisSnapshot {
@@ -204,14 +207,14 @@ struct SessionInputs {
 #[derive(Clone, Debug, Default)]
 struct PendingChanges {
   files: BTreeSet<FileId>,
-  /// Package/lockfile/tsconfig/membership epochs require all sources to reparse.
-  invalidate_all_sources: bool,
+  /// Cold start / rediscover: every source must enter `analyze_candidate`.
+  force_full_parse: bool,
 }
 
 impl PendingChanges {
   fn clear(&mut self) {
     self.files.clear();
-    self.invalidate_all_sources = false;
+    self.force_full_parse = false;
   }
 
   fn merge_files(&mut self, files: impl IntoIterator<Item = FileId>) {
@@ -236,14 +239,7 @@ struct PreparedAnalysis {
   committed: Arc<scan::AnalysisState>,
   has_overlays: bool,
   dirty_files: BTreeSet<FileId>,
-  invalidate_all_sources: bool,
-}
-
-const fn epochs_invalidate_all_sources(previous: &ContextEpochs, current: &ContextEpochs) -> bool {
-  previous.package_manifest != current.package_manifest
-    || previous.lockfile != current.lockfile
-    || previous.tsconfig != current.tsconfig
-    || previous.source_membership != current.source_membership
+  force_full_parse: bool,
 }
 
 #[cfg(test)]
@@ -289,7 +285,7 @@ impl ProjectSession {
         committed_revision: 0,
         inputs: SessionInputs::default(),
         committed: Arc::new(scan::AnalysisState::default()),
-        pending: PendingChanges { invalidate_all_sources: true, ..PendingChanges::default() },
+        pending: PendingChanges { force_full_parse: true, ..PendingChanges::default() },
         last_snapshot: None,
       }),
       workspace_discoveries: AtomicU64::new(0),
@@ -428,19 +424,17 @@ impl ProjectSession {
     };
     apply_overlay_map(&mut next_inputs.overlays, &changes);
     if let Some(snapshot) = &mut next_inputs.snapshot {
-      let previous_epochs = snapshot.project_context.epochs;
       // `make_mut` clones once when `core.inputs` still shares the Arc.
       let affected = Arc::make_mut(snapshot).apply_changes_in_place(
         self.root.as_path(),
         &self.config,
         &changes,
       )?;
-      if epochs_invalidate_all_sources(&previous_epochs, &snapshot.project_context.epochs) {
-        core.pending.invalidate_all_sources = true;
-      }
+      // Context epochs are compared at scan time via ChangeImpact; do not force
+      // a full re-parse of unchanged source bytes.
       core.pending.merge_files(affected);
     } else {
-      core.pending.invalidate_all_sources = true;
+      core.pending.force_full_parse = true;
     }
     core.inputs = next_inputs;
     core.revision = core.revision.wrapping_add(1);
@@ -474,7 +468,7 @@ impl ProjectSession {
     let core = self.lock_core()?;
     let snapshot = if core.revision == core.committed_revision
       && core.pending.files.is_empty()
-      && !core.pending.invalidate_all_sources
+      && !core.pending.force_full_parse
     {
       core.last_snapshot.as_ref().map(|snapshot| AnalysisSnapshot::clone(snapshot))
     } else {
@@ -492,6 +486,26 @@ impl ProjectSession {
   pub fn affected_files(&self) -> Result<Vec<FileId>, SessionError> {
     let core = self.lock_core()?;
     Ok(core.committed.last_affected.iter().cloned().collect())
+  }
+
+  /// Real work counters from the most recent committed analysis.
+  ///
+  /// # Errors
+  ///
+  /// Returns when the session state lock was poisoned.
+  pub fn last_work_counters(&self) -> Result<ScanWorkCounters, SessionError> {
+    let core = self.lock_core()?;
+    Ok(core.committed.last_work())
+  }
+
+  /// Dirty-plan partitions from the most recent committed analysis.
+  ///
+  /// # Errors
+  ///
+  /// Returns when the session state lock was poisoned.
+  pub fn last_dirty_plan(&self) -> Result<DirtyPlan, SessionError> {
+    let core = self.lock_core()?;
+    Ok(core.committed.last_plan.clone())
   }
 
   /// Explain a rule id or opaque finding id.
@@ -546,18 +560,14 @@ impl ProjectSession {
       snapshot: core.inputs.snapshot.as_ref().map(Arc::clone),
     };
     if let Some(snapshot) = &mut next_inputs.snapshot {
-      let previous_epochs = snapshot.project_context.epochs;
       let affected = Arc::make_mut(snapshot).apply_changes_in_place(
         self.root.as_path(),
         &self.config,
         &changes,
       )?;
-      if epochs_invalidate_all_sources(&previous_epochs, &snapshot.project_context.epochs) {
-        core.pending.invalidate_all_sources = true;
-      }
       core.pending.merge_files(affected);
     } else {
-      core.pending.invalidate_all_sources = true;
+      core.pending.force_full_parse = true;
     }
     core.inputs = next_inputs;
     core.revision = core.revision.wrapping_add(1);
@@ -574,7 +584,7 @@ impl ProjectSession {
       let snapshot =
         WorkspaceInputSnapshot::discover(self.root.as_path(), &self.config, &core.inputs.overlays)?;
       core.inputs.snapshot = Some(Arc::new(snapshot));
-      core.pending.invalidate_all_sources = true;
+      core.pending.force_full_parse = true;
       self.workspace_discoveries.fetch_add(1, Ordering::Relaxed);
       if rediscover {
         core.revision = core.revision.wrapping_add(1);
@@ -586,15 +596,14 @@ impl ProjectSession {
       .as_ref()
       .map(Arc::clone)
       .ok_or_else(|| SessionError::message("workspace input snapshot was not initialized"))?;
-    let invalidate_all_sources =
-      core.pending.invalidate_all_sources || !core.committed.has_file_facts();
+    let force_full_parse = core.pending.force_full_parse || !core.committed.has_file_facts();
     Ok(PreparedAnalysis {
       revision: core.revision,
       input,
       committed: Arc::clone(&core.committed),
       has_overlays: !core.inputs.overlays.is_empty(),
       dirty_files: core.pending.files.clone(),
-      invalidate_all_sources,
+      force_full_parse,
     })
   }
 
@@ -615,7 +624,7 @@ impl ProjectSession {
       &mut candidate,
       &cancelled,
       &prepared.dirty_files,
-      prepared.invalidate_all_sources,
+      prepared.force_full_parse,
     ) {
       Ok(snapshot) => snapshot,
       Err(SessionError::Cancelled) => {
