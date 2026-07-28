@@ -53,12 +53,13 @@ pub struct ModuleSource {
 
 impl PartialEq for ModuleSource {
   fn eq(&self, other: &Self) -> bool {
+    // `span_source` is excluded: style-only SFC edits change the wrapper file
+    // without invalidating script body IR when `source` + `source_offset` match.
     self.id == other.id
       && self.source == other.source
       && self.language == other.language
       && self.kind == other.kind
       && self.source_offset == other.source_offset
-      && self.span_source == other.span_source
   }
 }
 
@@ -110,6 +111,12 @@ impl ModuleSource {
   pub fn with_module_summary(mut self, module_summary: impl Into<Arc<ModuleSummary>>) -> Self {
     self.module_summary = Some(module_summary.into());
     self
+  }
+
+  /// Borrow the attached module semantic IR, when present.
+  #[must_use]
+  pub fn module_summary(&self) -> Option<Arc<ModuleSummary>> {
+    self.module_summary.as_ref().map(Arc::clone)
   }
 
   /// Compatibility alias for [`Self::with_module_summary`].
@@ -288,6 +295,7 @@ pub struct ModuleTraceState {
 #[derive(Clone, Debug)]
 struct CachedModuleTrace {
   source: ModuleSource,
+  summary: Arc<ModuleSummary>,
   plan: ModuleSeedPlan,
   reactivity: ModuleReactivity,
 }
@@ -296,11 +304,15 @@ struct CachedModuleTrace {
 ///
 /// Linking surface excludes [`ModuleSummary::local_graph`]: a leaf body edit that
 /// does not change imports/exports/provides/injects reuses the prior fixed point.
+/// When only a subset of surfaces change, seed plans are recomputed for the
+/// export/inject closure — not every module.
 #[derive(Clone, Debug)]
 struct CachedLinkingSnapshot {
   links: Vec<ModuleLink>,
   /// Per-module linking surface (imports/exports/locals/provides/injects).
   surfaces: BTreeMap<ModuleId, LinkingSurface>,
+  exports: Arc<BTreeMap<ModuleId, BTreeMap<String, ExportState>>>,
+  provide_index: Arc<BTreeMap<super::InjectionKey, Vec<super::ProvideOffer>>>,
   plans: Arc<BTreeMap<ModuleId, ModuleSeedPlan>>,
 }
 
@@ -492,9 +504,14 @@ fn trace_modules_incremental_in_current_pool(
   state: &mut ModuleTraceState,
   mut report: TraceModulesReport,
 ) -> TraceModulesReport {
+  let cached_summaries = state
+    .entries
+    .iter()
+    .map(|(id, entry)| (id.clone(), (entry.source.clone(), Arc::clone(&entry.summary))))
+    .collect::<BTreeMap<_, _>>();
   let phase_one = unique
     .par_iter()
-    .map(|module| analyze_module_phase_one(module))
+    .map(|module| analyze_module_phase_one_cached(module, cached_summaries.get(&module.id)))
     .collect::<Vec<Result<ModulePhaseOne, TraceModulesError>>>();
   let mut facts_by_id = BTreeMap::new();
   let mut local_graphs = BTreeMap::new();
@@ -535,10 +552,38 @@ fn trace_modules_incremental_in_current_pool(
   } else {
     report.stats.export_resolve_ran = true;
     let link_index = link_index(&resolved_links);
-    let exports = resolve_exports(&facts_by_id, &link_index);
-    let provide_index = global_provide_index(&facts_by_id);
-    let mut next_plans = BTreeMap::new();
+    let exports = Arc::new(resolve_exports(&facts_by_id, &link_index));
+    let provide_index = Arc::new(global_provide_index(&facts_by_id));
+    let dirty_seed = modules_needing_seed_recompute(
+      &surfaces,
+      state.linking.as_ref(),
+      &exports,
+      &provide_index,
+      &owned_links,
+      &facts_by_id,
+    );
+    let mut next_plans =
+      state.linking.as_ref().map(|cached| (*cached.plans).clone()).unwrap_or_default();
+    next_plans.retain(|id, _| facts_by_id.contains_key(id));
+    let mut recomputed = 0_usize;
+    for id in &dirty_seed {
+      let Some(facts) = facts_by_id.get(id) else {
+        continue;
+      };
+      next_plans.insert(
+        id.clone(),
+        ModuleSeedPlan {
+          imports: seed_plan_for(facts, &exports, &link_index),
+          injects: inject_seed_plan(facts, &provide_index),
+        },
+      );
+      recomputed += 1;
+    }
+    // New modules not covered by dirty_seed (should not happen) still need plans.
     for module in unique {
+      if next_plans.contains_key(&module.id) {
+        continue;
+      }
       let Some(facts) = facts_by_id.get(&module.id) else {
         continue;
       };
@@ -549,30 +594,33 @@ fn trace_modules_incremental_in_current_pool(
           injects: inject_seed_plan(facts, &provide_index),
         },
       );
+      recomputed += 1;
     }
-    let previous_plans = state.linking.as_ref().map(|cached| Arc::clone(&cached.plans));
-    report.stats.seed_plans_recomputed = next_plans
-      .iter()
-      .filter(|(id, plan)| previous_plans.as_ref().is_none_or(|prev| prev.get(*id) != Some(plan)))
-      .count();
+    report.stats.seed_plans_recomputed = recomputed;
     let plans = Arc::new(next_plans);
-    state.linking =
-      Some(CachedLinkingSnapshot { links: owned_links, surfaces, plans: Arc::clone(&plans) });
+    state.linking = Some(CachedLinkingSnapshot {
+      links: owned_links,
+      surfaces,
+      exports,
+      provide_index,
+      plans: Arc::clone(&plans),
+    });
     plans
   };
 
   let work = unique
     .iter()
     .filter_map(|module| {
+      let facts = facts_by_id.get(&module.id)?;
       let local_graph = local_graphs.remove(&module.id)?;
       let plan = plans.get(&module.id)?.clone();
-      Some((*module, local_graph, plan))
+      Some((*module, local_graph, plan, Arc::clone(&facts.summary)))
     })
     .collect::<Vec<_>>();
 
   let outcomes = work
     .into_par_iter()
-    .map(|(module, mut local_graph, plan)| {
+    .map(|(module, mut local_graph, plan, summary)| {
       if let Some(cached) = state.entries.get(&module.id)
         && cached.source == *module
         && cached.plan == plan
@@ -582,12 +630,13 @@ fn trace_modules_incremental_in_current_pool(
       let seeded = !plan.is_empty();
       match trace_module_phase_two(module, Arc::clone(&local_graph), &plan) {
         Ok(reactivity) => {
-          PhaseTwoOutcome::Traced { source: module.clone(), plan, reactivity, seeded }
+          PhaseTwoOutcome::Traced { source: module.clone(), summary, plan, reactivity, seeded }
         }
         Err(error) => {
           Arc::make_mut(&mut local_graph).set_module_id(module.id.clone());
           PhaseTwoOutcome::Partial {
             source: module.clone(),
+            summary,
             plan,
             reactivity: ModuleReactivity { id: module.id.clone(), graph: local_graph },
             error,
@@ -605,21 +654,21 @@ fn trace_modules_incremental_in_current_pool(
         keep.insert(reactivity.id.clone());
         report.modules.push(reactivity);
       }
-      PhaseTwoOutcome::Traced { source, plan, reactivity, seeded } => {
+      PhaseTwoOutcome::Traced { source, summary, plan, reactivity, seeded } => {
         report.stats.seeded_reparses += usize::from(seeded);
         keep.insert(reactivity.id.clone());
         state.entries.insert(
           reactivity.id.clone(),
-          CachedModuleTrace { source, plan, reactivity: reactivity.clone() },
+          CachedModuleTrace { source, summary, plan, reactivity: reactivity.clone() },
         );
         report.modules.push(reactivity);
       }
-      PhaseTwoOutcome::Partial { source, plan, reactivity, error } => {
+      PhaseTwoOutcome::Partial { source, summary, plan, reactivity, error } => {
         report.issues.push(error);
         keep.insert(reactivity.id.clone());
         state.entries.insert(
           reactivity.id.clone(),
-          CachedModuleTrace { source, plan, reactivity: reactivity.clone() },
+          CachedModuleTrace { source, summary, plan, reactivity: reactivity.clone() },
         );
         report.modules.push(reactivity);
       }
@@ -633,18 +682,76 @@ fn trace_modules_incremental_in_current_pool(
   report
 }
 
+/// Modules whose seed plans must be refreshed after a linking-surface change.
+fn modules_needing_seed_recompute(
+  surfaces: &BTreeMap<ModuleId, LinkingSurface>,
+  previous: Option<&CachedLinkingSnapshot>,
+  exports: &BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
+  provide_index: &BTreeMap<super::InjectionKey, Vec<super::ProvideOffer>>,
+  links: &[ModuleLink],
+  facts: &BTreeMap<ModuleId, ModuleExportFacts>,
+) -> BTreeSet<ModuleId> {
+  let Some(prev) = previous else {
+    return surfaces.keys().cloned().collect();
+  };
+  if prev.links != links {
+    return surfaces.keys().cloned().collect();
+  }
+
+  let mut dirty = BTreeSet::new();
+  for (id, surface) in surfaces {
+    if prev.surfaces.get(id) != Some(surface) {
+      dirty.insert(id.clone());
+    }
+  }
+
+  let mut changed_exports = BTreeSet::new();
+  for (id, map) in exports {
+    if prev.exports.get(id) != Some(map) {
+      changed_exports.insert(id.clone());
+    }
+  }
+  for id in prev.exports.keys() {
+    if !exports.contains_key(id) {
+      changed_exports.insert(id.clone());
+    }
+  }
+  for link in links {
+    if changed_exports.contains(&link.to) {
+      dirty.insert(link.from.clone());
+    }
+  }
+
+  if prev.provide_index.as_ref() != provide_index {
+    for (id, module_facts) in facts {
+      if module_facts.summary.injects.is_empty() {
+        continue;
+      }
+      let old = inject_seed_plan(module_facts, prev.provide_index.as_ref());
+      let new = inject_seed_plan(module_facts, provide_index);
+      if old != new {
+        dirty.insert(id.clone());
+      }
+    }
+  }
+
+  dirty
+}
+
 enum PhaseTwoOutcome {
   Reused {
     reactivity: ModuleReactivity,
   },
   Traced {
     source: ModuleSource,
+    summary: Arc<ModuleSummary>,
     plan: ModuleSeedPlan,
     reactivity: ModuleReactivity,
     seeded: bool,
   },
   Partial {
     source: ModuleSource,
+    summary: Arc<ModuleSummary>,
     plan: ModuleSeedPlan,
     reactivity: ModuleReactivity,
     error: TraceModulesError,
@@ -654,6 +761,21 @@ enum PhaseTwoOutcome {
 struct ModulePhaseOne {
   facts: ModuleExportFacts,
   local_graph: Arc<ReactivityGraph>,
+}
+
+fn analyze_module_phase_one_cached(
+  module: &ModuleSource,
+  cached: Option<&(ModuleSource, Arc<ModuleSummary>)>,
+) -> Result<ModulePhaseOne, TraceModulesError> {
+  if let Some(summary) = &module.module_summary {
+    return Ok(phase_one_from_summary(module, summary));
+  }
+  if let Some((source, summary)) = cached
+    && source == module
+  {
+    return Ok(phase_one_from_summary(module, summary));
+  }
+  analyze_module_phase_one(module)
 }
 
 fn analyze_module_phase_one(module: &ModuleSource) -> Result<ModulePhaseOne, TraceModulesError> {

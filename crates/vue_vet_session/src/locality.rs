@@ -167,7 +167,8 @@ pub fn dirty_plan_from(
     parse_files,
     diagnostic_files: rule_files.clone(),
     rule_files,
-    // Export fixed point is still global; expose the planned module set honestly.
+    // Planned export/seed closure mirrors structural/module dirtiness. Linking
+    // further narrows real seed recomputation to changed surfaces + importers.
     export_closure: module_summaries.clone(),
     module_summaries,
     structural_files,

@@ -1079,6 +1079,68 @@ fn incremental_module_trace_reuses_unchanged_seeded_graphs() {
 }
 
 #[test]
+fn seed_plans_recompute_only_export_closure() {
+  let modules_v1 = [
+    ModuleSource::standalone(
+      "producer.ts",
+      "import { ref } from 'vue'; export const count = ref(0);",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { watchEffect } from 'vue'; import { count } from './producer'; watchEffect(() => count.value);",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "unrelated.ts",
+      "import { ref } from 'vue'; export const other = ref(1);",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./producer".into(),
+    to: "producer.ts".into(),
+  }];
+  let mut state = ModuleTraceState::default();
+  let first = trace_modules_incremental_with_options(
+    &modules_v1,
+    &links,
+    TraceModulesOptions { max_workers: 2, ..Default::default() },
+    &mut state,
+  );
+  assert!(first.issues.is_empty());
+  assert_eq!(first.stats.seed_plans_recomputed, 3);
+
+  // New named export changes producer linking surface + consumer import closure.
+  let modules_v2 = [
+    ModuleSource::standalone(
+      "producer.ts",
+      "import { ref } from 'vue'; export const count = ref(0); export const flag = ref(true);",
+      "ts",
+      ScriptKind::Script,
+    ),
+    modules_v1[1].clone(),
+    modules_v1[2].clone(),
+  ];
+  let second = trace_modules_incremental_with_options(
+    &modules_v2,
+    &links,
+    TraceModulesOptions { max_workers: 2, ..Default::default() },
+    &mut state,
+  );
+  assert!(second.issues.is_empty());
+  assert!(second.stats.export_resolve_ran);
+  assert_eq!(
+    second.stats.seed_plans_recomputed, 2,
+    "producer surface + consumer importer; unrelated must keep prior seed plan"
+  );
+}
+
+#[test]
 fn incremental_linking_skips_export_resolve_when_only_local_graph_changes() {
   use std::sync::Arc;
 
