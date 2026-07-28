@@ -251,6 +251,12 @@ tsconfig, lockfile, Nuxt declarations, and consecutive mixed context mutations.
 callers. Only session analysis sets `reuse_current_pool: true` after installing
 its outer `--threads` pool; never ignore `max_workers` for the standalone API.
 
+File-rule diagnostic reuse must compare a `FileRuleInputKey` that digests
+source, `RuleEnvironment`, and the final primary/ordinary `ReactivityGraph`s.
+Never reuse diagnostics from source+environment equality alone when the linked
+module graph may have changed. Do not invent a unified template/script AST IR;
+keep `ModuleSummary` as the cross-file semantic boundary.
+
 LSP positions are UTF-16 code units via `vue_vet_core::LineIndex`. Never publish
 byte columns to the editor. Document identity must go through
 `ProjectSession::file_id_for_path` rather than ad-hoc `strip_prefix`.

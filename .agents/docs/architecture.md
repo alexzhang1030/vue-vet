@@ -80,6 +80,30 @@ vue-vet CLI
 - **Still single-process Rust** — no JS rule host; adapters stay behind Vue Vet facts.
   Facts remain the stable rule surface; the pass walks those facts, not Oxc/Vize nodes.
 
+### Semantic IR layers
+
+Vue Vet keeps small domain IRs rather than a unified AST:
+
+```text
+Parser IR (Vize AST / Oxc Semantic)     — short-lived, never cached across adapters
+        ↓
+File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
+        ↓
+Module Semantic IR (ModuleSummary)     — cross-file seeds; lifecycle-scoped
+        ↓
+Project Relation IR (ProjectGraph / ReactivityGraph / PropFlow)
+        ↓
+Diagnostics IR (Diagnostic / EditPlan)
+```
+
+`ModuleSummary` (formerly the opaque `PreparedModuleTrace`) is the formal
+cross-module boundary: imports, exports, provides/injects, local reactivity, and
+no Oxc/Vize nodes. Session file-rule reuse is keyed by
+`FileRuleInputKey` digests over source, `RuleEnvironment`, and final primary /
+ordinary module graphs (`content_digest` / `serde_digest` in `vue_vet_core`).
+Rule-level semantic views (`EffectModel`, …) are deferred until multiple rules
+repeat the same derivation.
+
 `no-v-html` remains the reference AST-backed built-in rule. Phase 2 adds the Oxc
 adapter while keeping both dependency ASTs behind Vue Vet-owned facts.
 Every built-in lint rule is a self-contained module under `vue_vet_rules/src/rules`:

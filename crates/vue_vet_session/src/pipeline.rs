@@ -8,7 +8,7 @@ use rayon::prelude::*;
 use vue_vet_config::Config;
 use vue_vet_core::{
   Diagnostic, FileId, ModuleId, ReactivityGraph, RuleEnvironment, ScanSummary, ScriptFacts,
-  Severity, SfcFacts, SourceSpan, TemplateFacts,
+  Severity, SfcFacts, SourceSpan, TemplateFacts, content_digest, serde_digest,
 };
 use vue_vet_oxc::analyze_module_source;
 use vue_vet_project::{
@@ -34,11 +34,41 @@ struct CachedCandidate {
   analyzed: AnalyzedCandidate,
 }
 
+/// IR dependency key for reusing per-file rule diagnostics.
+///
+/// Fields hold digests of source, environment, and final primary/ordinary graphs.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct FileRuleInputKey {
+  source: String,
+  environment: String,
+  primary_graph: String,
+  ordinary_graph: String,
+}
+
+impl FileRuleInputKey {
+  fn new(
+    source: &str,
+    environment: &RuleEnvironment,
+    primary_graph: Option<&ReactivityGraph>,
+    ordinary_graph: Option<&ReactivityGraph>,
+  ) -> Self {
+    Self {
+      source: content_digest(source.as_bytes()),
+      environment: serde_digest(environment),
+      primary_graph: graph_digest(primary_graph),
+      ordinary_graph: graph_digest(ordinary_graph),
+    }
+  }
+}
+
+fn graph_digest(graph: Option<&ReactivityGraph>) -> String {
+  graph.map_or_else(|| content_digest(b"<missing-module-graph>"), serde_digest)
+}
+
 #[derive(Clone, Debug)]
 struct CachedFileDiagnostics {
+  key: FileRuleInputKey,
   diagnostics: Vec<Diagnostic>,
-  primary_graph: Option<Arc<ReactivityGraph>>,
-  ordinary_graph: Option<Arc<ReactivityGraph>>,
 }
 
 /// In-memory facts and dependency state retained by a long-lived session.
@@ -208,18 +238,19 @@ fn scan_parallel(
       let ordinary_id = ModuleId::ordinary(&pending.file_id);
       let primary_graph = modules.get(&module_id).map(Arc::clone);
       let ordinary_graph = modules.get(&ordinary_id).map(Arc::clone);
+      let key = FileRuleInputKey::new(
+        &pending.source,
+        &pending.environment,
+        primary_graph.as_deref(),
+        ordinary_graph.as_deref(),
+      );
       if !state.last_affected.contains(&pending.file_id)
         && let Some(cached) = previous.file_diagnostics.get(&pending.file_id)
-        && graphs_equal(cached.primary_graph.as_deref(), primary_graph.as_deref())
-        && graphs_equal(cached.ordinary_graph.as_deref(), ordinary_graph.as_deref())
+        && cached.key == key
       {
         return (
           pending.file_id,
-          CachedFileDiagnostics {
-            diagnostics: cached.diagnostics.clone(),
-            primary_graph,
-            ordinary_graph,
-          },
+          CachedFileDiagnostics { key, diagnostics: cached.diagnostics.clone() },
         );
       }
       let mut facts = (*pending.facts).clone();
@@ -236,7 +267,7 @@ fn scan_parallel(
         &facts.script,
         pending.environment,
       );
-      (pending.file_id, CachedFileDiagnostics { diagnostics, primary_graph, ordinary_graph })
+      (pending.file_id, CachedFileDiagnostics { key, diagnostics })
     })
     .collect::<Vec<_>>();
   if cancelled() {
@@ -258,8 +289,37 @@ fn scan_parallel(
   Ok(ScanResult { summary, graph, issues })
 }
 
-fn graphs_equal(left: Option<&ReactivityGraph>, right: Option<&ReactivityGraph>) -> bool {
-  left == right
+#[cfg(test)]
+mod file_rule_key_tests {
+  use super::*;
+
+  #[test]
+  fn file_rule_input_key_is_stable_for_identical_ir_inputs() {
+    let graph = ReactivityGraph::default();
+    let environment = RuleEnvironment::default();
+    let left = FileRuleInputKey::new("source", &environment, Some(&graph), None);
+    let right = FileRuleInputKey::new("source", &environment, Some(&graph), None);
+    assert_eq!(left, right);
+  }
+
+  #[test]
+  fn file_rule_input_key_changes_when_final_graph_changes() {
+    let environment = RuleEnvironment::default();
+    let empty = ReactivityGraph::default();
+    let changed = ReactivityGraph { module_id: "App.vue".into(), ..ReactivityGraph::default() };
+    let left = FileRuleInputKey::new("source", &environment, Some(&empty), None);
+    let right = FileRuleInputKey::new("source", &environment, Some(&changed), None);
+    assert_ne!(left, right);
+  }
+
+  #[test]
+  fn file_rule_input_key_changes_when_source_changes() {
+    let environment = RuleEnvironment::default();
+    let graph = ReactivityGraph::default();
+    let left = FileRuleInputKey::new("a", &environment, Some(&graph), None);
+    let right = FileRuleInputKey::new("b", &environment, Some(&graph), None);
+    assert_ne!(left, right);
+  }
 }
 
 fn apply_context_invalidation(
@@ -367,7 +427,7 @@ fn analyze_candidate(
               language.clone(),
               vue_vet_core::ScriptKind::Script,
             )
-            .with_prepared_trace(analysis.module_trace),
+            .with_module_summary(analysis.module_trace),
           ),
           ordinary_module_source: None,
         },

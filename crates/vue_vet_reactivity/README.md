@@ -106,12 +106,13 @@ Use `trace_modules_with_options` and
 needs an explicit concurrency bound (a dedicated Rayon pool is installed).
 Long-lived session analysis sets `reuse_current_pool: true` so it shares the
 outer `--threads` pool instead of nesting another. Vue Vet's Oxc adapter attaches
-prepared phase-one facts from its file parse, so unseeded modules are not parsed
-again; only consumers that receive cross-module seeds reparse for symbol
-materialization. Long-lived callers should retain `ModuleTraceState` and call
-`trace_modules_incremental_with_options`: unchanged source + seed-plan pairs
-reuse their final graph, and the returned report scopes errors per module while
-preserving healthy cross-module results.
+a `ModuleSummary` (module semantic IR) from its file parse, so unseeded modules
+are not parsed again; only consumers that receive cross-module seeds reparse for
+symbol materialization. Attach summaries with
+`ModuleSource::with_module_summary`. Long-lived callers should retain
+`ModuleTraceState` and call `trace_modules_incremental_with_options`: unchanged
+source + seed-plan pairs reuse their final graph, and the returned report scopes
+errors per module while preserving healthy cross-module results.
 
 ## What the graph contains
 
