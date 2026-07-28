@@ -78,10 +78,10 @@ pub struct AnalysisState {
   pub reverse_dependencies: Arc<BTreeMap<FileId, BTreeSet<FileId>>>,
   pub last_affected: BTreeSet<FileId>,
   pub last_work: ScanWorkCounters,
-  pub last_plan: DirtyPlan,
+  pub last_plan: Arc<DirtyPlan>,
   last_context_epochs: ContextEpochs,
-  /// Shared until a mutation needs copy-on-write (`Arc::make_mut`).
-  project: Arc<ProjectGraphState>,
+  /// Internal Arc partitions; [`ProjectGraphState::share`] only bumps refcounts.
+  project: ProjectGraphState,
 }
 
 impl AnalysisState {
@@ -95,9 +95,9 @@ impl AnalysisState {
       reverse_dependencies: Arc::new(BTreeMap::new()),
       last_affected: BTreeSet::new(),
       last_work: ScanWorkCounters::default(),
-      last_plan: DirtyPlan::default(),
+      last_plan: Arc::new(DirtyPlan::default()),
       last_context_epochs: previous.last_context_epochs,
-      project: Arc::clone(&previous.project),
+      project: previous.project.share(),
     }
   }
 
@@ -110,9 +110,9 @@ impl AnalysisState {
       reverse_dependencies: Arc::clone(&previous.reverse_dependencies),
       last_affected: previous.last_affected.clone(),
       last_work: previous.last_work,
-      last_plan: previous.last_plan.clone(),
+      last_plan: Arc::clone(&previous.last_plan),
       last_context_epochs: previous.last_context_epochs,
-      project: Arc::clone(&previous.project),
+      project: previous.project.share(),
     }
   }
 
@@ -304,18 +304,18 @@ fn scan_parallel(
     }
   }
 
-  let graph_cow_clones = u64::from(Arc::strong_count(&state.project) > 1);
   let graph = build_project_graph_incremental_with_options(
     &input.boundary,
     project_files.iter().map(AsRef::as_ref),
     TraceModulesOptions { max_workers, reuse_current_pool: true },
     &input.project_context,
-    Arc::make_mut(&mut state.project),
+    &mut state.project,
   );
   if cancelled() {
     return Err(SessionError::Cancelled);
   }
   let project_stats = state.project.last_stats();
+  let graph_cow_clones = u64::try_from(project_stats.partition_cow_clones).unwrap_or(u64::MAX);
   issues.extend(graph.reactivity_issues.iter().map(|issue| AnalysisIssue {
     stage: AnalysisStage::ModuleTracing,
     file: issue.module.as_ref().map(ModuleId::file_id),
@@ -325,8 +325,9 @@ fn scan_parallel(
   let reverse_dependencies = reverse_dependency_index(&graph);
   expand_reverse_dependencies(&mut state.last_affected, &reverse_dependencies);
   state.reverse_dependencies = Arc::new(reverse_dependencies);
-  state.last_plan = dirty_plan_from(&impact, parse_files, &state.last_affected, &input.sources);
-  let rule_files = state.last_plan.rule_files.clone();
+  state.last_plan =
+    Arc::new(dirty_plan_from(&impact, parse_files, &state.last_affected, &input.sources));
+  let plan = Arc::clone(&state.last_plan);
   let modules = graph
     .module_reactivity
     .iter()
@@ -344,12 +345,12 @@ fn scan_parallel(
       let key = FileRuleInputKey::new(
         &pending.source,
         &pending.environment,
-        primary_graph.clone(),
-        ordinary_graph.clone(),
+        primary_graph.as_ref().map(Arc::clone),
+        ordinary_graph.as_ref().map(Arc::clone),
       );
       // Outside DirtyPlan.rule_files: keep the previous finalized diagnostics.
       // Inside the plan: FileRuleInputKey still allows reuse when IR is unchanged.
-      if !rule_files.contains(&file_id) {
+      if !plan.rule_files.contains(&file_id) {
         if let Some(cached) = previous.file_diagnostics.get(&file_id) {
           return (
             file_id,

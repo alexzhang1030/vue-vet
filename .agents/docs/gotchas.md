@@ -277,24 +277,27 @@ resolution / environment / indexes / rules as needed. They must not force
 `analyze_candidate()` on unchanged source bytes. Prefer `ChangeImpact` domains
 over a boolean `invalidate_all_sources`.
 
-**Top-level `Arc<ProjectGraphState>` does not remove real-scan clones.** When the
-committed state still holds the same Arc, `Arc::make_mut(&mut state.project)`
-deep-clones the whole graph state. Prefer internal Arc partitions (Batch 2);
-until then count `graph_cow_clones`.
+**Prefer internal Arc partitions over a top-level `Arc<ProjectGraphState>`.**
+Session state holds `ProjectGraphState` by value; `structural` and
+`module_trace` are independently `Arc`-shared and copy-on-write. Count
+`partition_cow_clones` / `graph_cow_clones`. Do not reintroduce a single outer
+Arc that `make_mut`s the entire linking state.
 
-**No-op is not strict O(1).** Shared `summary`/`graph` are Arc, but
-`AnalysisSnapshot` still clones `coverage` / `issues` / `analyzed_files`. Small
-fixtures hide this; large workspaces amplify it. Prefer
-`Arc<AnalysisSnapshot>` (or equivalent) for true O(1) publication.
+**No-op / product publish must stay refcount-only.** `AnalysisSnapshot` keeps
+`summary` / `graph` / `coverage` / `issues` / `analyzed_files` behind `Arc`.
+Never reintroduce owned `Vec` fields that `Clone` deep-copies on noop.
 
 Export resolution must not clone the entire resolved-export map each fixed-point
 round — use a worklist over reverse re-export users.
 
 Deep `.clone()` of reactivity graphs, analyzed candidates, or workspace snapshots
-is a regress on the incremental path. Share with `Arc`, mutate with
-`Arc::make_mut`, and restore cache hits with `AnalysisState::share_from`. Session
-overlay updates must not double-clone `WorkspaceInputSnapshot` (fork once via
-`Arc::make_mut`, then `apply_changes_in_place`).
+is a regress on the incremental path. Share with `Arc` / `ProjectGraphState::share`,
+mutate with `Arc::make_mut` on the smallest partition, and restore cache hits with
+`AnalysisState::share_from`. Prefer `Arc::clone` (refcount) over `T::clone` of
+owned maps/vecs. Session overlay updates must not double-clone
+`WorkspaceInputSnapshot` (fork once via `Arc::make_mut`, then
+`apply_changes_in_place`). Reporter/CLI boundaries may `to_vec()` once when
+leaving the session.
 
 Never build the session Rayon pool in `ProjectSession::open` — warm disk-cache
 hits must not pay thread-pool construction. Lazily init on the first real scan.

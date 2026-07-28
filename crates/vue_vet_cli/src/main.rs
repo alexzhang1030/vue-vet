@@ -366,7 +366,7 @@ fn report_context(cli: &Cli, snapshot: &AnalysisSnapshot) -> ReportContext {
     mode: report_mode(cli),
     framework: report_framework(&cli.path),
     project_root: report_root(&cli.path),
-    analyzed_files: snapshot.analyzed_files.clone(),
+    analyzed_files: snapshot.analyzed_files.as_ref().to_vec(),
     complete: snapshot.complete(),
     skipped_check_reasons,
     reactivity: Some(digest),

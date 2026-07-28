@@ -23,6 +23,12 @@ pub struct ProjectResolver {
   resolver: Resolver,
 }
 
+impl std::fmt::Debug for ProjectResolver {
+  fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    formatter.debug_struct("ProjectResolver").field("root", &self.root).finish_non_exhaustive()
+  }
+}
+
 impl ProjectResolver {
   pub fn new(root: &Path) -> Self {
     // Relative roots like `.` break alias targets (`~` → ".") and tsconfig paths.

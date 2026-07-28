@@ -31,8 +31,12 @@ pub fn analyze_snapshot(
   if cancelled() {
     return Err(SessionError::Cancelled);
   }
-  let analyzed_files =
-    input.analyzed_source_files.iter().map(|file| file.as_str().to_owned()).collect();
+  let analyzed_files: Arc<[String]> = input
+    .analyzed_source_files
+    .iter()
+    .map(|file| file.as_str().to_owned())
+    .collect::<Vec<_>>()
+    .into();
   let (summary, graph, cache_status, issues, work) = if no_cache {
     let result = scan_with_threads(
       input,
@@ -84,16 +88,16 @@ pub fn analyze_snapshot(
       )?,
     }
   };
-  let coverage = AnalysisCoverage {
+  let coverage = Arc::new(AnalysisCoverage {
     analyzed_source_files: input.analyzed_source_files.clone(),
     invalidation_inputs: graph.invalidation_inputs.clone(),
-  };
+  });
   Ok(AnalysisSnapshot {
     summary: Arc::new(summary),
     graph: Arc::new(graph),
     cache_status,
     coverage,
-    issues,
+    issues: issues.into(),
     analyzed_files,
     work,
   })

@@ -496,11 +496,7 @@ fn trace_modules_incremental_in_current_pool(
         && cached.source == *module
         && cached.plan == plan
       {
-        return PhaseTwoOutcome::Reused {
-          source: module.clone(),
-          plan,
-          reactivity: cached.reactivity.clone(),
-        };
+        return PhaseTwoOutcome::Reused { reactivity: cached.reactivity.clone() };
       }
       let seeded = !plan.is_empty();
       match trace_module_phase_two(module, Arc::clone(&local_graph), &plan) {
@@ -520,29 +516,35 @@ fn trace_modules_incremental_in_current_pool(
     })
     .collect::<Vec<_>>();
 
-  let mut next_entries = BTreeMap::new();
+  let mut keep = BTreeSet::new();
   for outcome in outcomes {
-    let (source, plan, reactivity) = match outcome {
-      PhaseTwoOutcome::Reused { source, plan, reactivity } => {
+    match outcome {
+      PhaseTwoOutcome::Reused { reactivity } => {
         report.stats.reused_graphs += 1;
-        (source, plan, reactivity)
+        keep.insert(reactivity.id.clone());
+        report.modules.push(reactivity);
       }
       PhaseTwoOutcome::Traced { source, plan, reactivity, seeded } => {
         report.stats.seeded_reparses += usize::from(seeded);
-        (source, plan, reactivity)
+        keep.insert(reactivity.id.clone());
+        state.entries.insert(
+          reactivity.id.clone(),
+          CachedModuleTrace { source, plan, reactivity: reactivity.clone() },
+        );
+        report.modules.push(reactivity);
       }
       PhaseTwoOutcome::Partial { source, plan, reactivity, error } => {
         report.issues.push(error);
-        (source, plan, reactivity)
+        keep.insert(reactivity.id.clone());
+        state.entries.insert(
+          reactivity.id.clone(),
+          CachedModuleTrace { source, plan, reactivity: reactivity.clone() },
+        );
+        report.modules.push(reactivity);
       }
-    };
-    next_entries.insert(
-      reactivity.id.clone(),
-      CachedModuleTrace { source, plan, reactivity: reactivity.clone() },
-    );
-    report.modules.push(reactivity);
+    }
   }
-  state.entries = next_entries;
+  state.entries.retain(|module_id, _| keep.contains(module_id));
   report.modules.sort_by(|left, right| left.id.cmp(&right.id));
   report.issues.sort_by(|left, right| {
     (left.module_id(), left.to_string()).cmp(&(right.module_id(), right.to_string()))
@@ -552,8 +554,6 @@ fn trace_modules_incremental_in_current_pool(
 
 enum PhaseTwoOutcome {
   Reused {
-    source: ModuleSource,
-    plan: ModuleSeedPlan,
     reactivity: ModuleReactivity,
   },
   Traced {

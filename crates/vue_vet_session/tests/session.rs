@@ -1,7 +1,9 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
 use vue_vet_core::{FileId, finding_id};
-use vue_vet_session::{AnalysisSnapshot, ChangeSet, ProjectSession, SessionOptions};
+use vue_vet_session::{
+  AnalysisProduct, AnalysisSnapshot, ChangeSet, ProjectSession, SessionOptions,
+};
 
 fn fixture(name: &str) -> PathBuf {
   PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures").join(name)
@@ -810,6 +812,41 @@ fn duplicate_suffix_paths_keep_distinct_file_ids() {
       .collect::<std::collections::BTreeSet<_>>()
   );
   let _ignored = std::fs::remove_dir_all(root);
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn diagnostics_only_product_omits_graph_dto() {
+  let root = fixture("rules/no-v-html/invalid");
+  let session = ProjectSession::open(SessionOptions {
+    root,
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+  })
+  .unwrap_or_else(|error| panic!("session: {error}"));
+  let full = session.analyze().unwrap_or_else(|error| panic!("full: {error}"));
+  assert!(!full.graph.nodes.is_empty() || !full.graph.module_reactivity.is_empty());
+  let lean = session
+    .analyze_affected_product(AnalysisProduct::DiagnosticsOnly)
+    .unwrap_or_else(|error| panic!("diagnostics-only: {error}"));
+  assert!(lean.graph.nodes.is_empty(), "DiagnosticsOnly must not publish nodes");
+  assert!(lean.graph.edges.is_empty(), "DiagnosticsOnly must not publish edges");
+  assert!(
+    lean.graph.module_reactivity.is_empty(),
+    "DiagnosticsOnly must not publish module reactivity DTO"
+  );
+  assert_eq!(lean.summary.diagnostics, full.summary.diagnostics);
+  let file = full
+    .summary
+    .diagnostics
+    .first()
+    .map_or_else(|| panic!("fixture must emit diagnostics"), |diagnostic| diagnostic.file.clone());
+  let by_file =
+    session.diagnostics_for(&file).unwrap_or_else(|error| panic!("diagnostics_for: {error}"));
+  assert!(!by_file.is_empty());
+  assert!(by_file.iter().all(|diagnostic| diagnostic.file == file));
 }
 
 #[test]

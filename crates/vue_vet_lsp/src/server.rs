@@ -27,7 +27,9 @@ use tower_lsp::lsp_types::{
   ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
 };
 use tower_lsp::{Client, LanguageServer};
-use vue_vet_session::{AnalysisSnapshot, ChangeSet, ProjectSession, SessionOptions};
+use vue_vet_session::{
+  AnalysisProduct, AnalysisSnapshot, ChangeSet, ProjectSession, SessionOptions,
+};
 
 use crate::convert::{SafeCodeActionRequest, safe_code_actions, to_lsp_diagnostic};
 
@@ -108,13 +110,17 @@ impl Backend {
       let Ok(file_id) = session.file_id_for_path(&document.path) else {
         continue;
       };
-      let diagnostics = analysis
-        .summary
-        .diagnostics
+      let Ok(file_diagnostics) = session.diagnostics_for(&file_id) else {
+        continue;
+      };
+      let diagnostics = file_diagnostics
         .iter()
-        .filter(|diagnostic| diagnostic.file == file_id)
         .map(|diagnostic| {
-          to_lsp_diagnostic(diagnostic, &analysis.analyzed_files, Some(document.text.as_str()))
+          to_lsp_diagnostic(
+            diagnostic,
+            analysis.analyzed_files.as_ref(),
+            Some(document.text.as_str()),
+          )
         })
         .collect::<Vec<_>>();
 
@@ -127,7 +133,11 @@ impl Backend {
   }
 
   async fn analyze_open(&self, session: Arc<ProjectSession>) -> Option<AnalysisSnapshot> {
-    let result = tokio::task::spawn_blocking(move || session.analyze_affected()).await;
+    // LSP only publishes diagnostics; skip materializing the full graph DTO.
+    let result = tokio::task::spawn_blocking(move || {
+      session.analyze_affected_product(AnalysisProduct::DiagnosticsOnly)
+    })
+    .await;
     let analysis = match result {
       Ok(Ok(analysis)) => analysis,
       Ok(Err(error)) if error.is_cancelled() => return None,
@@ -345,7 +355,7 @@ impl LanguageServer for Backend {
         version,
         source: &text,
         document_file_id: &file_id,
-        analyzed_files: &analysis.analyzed_files,
+        analyzed_files: analysis.analyzed_files.as_ref(),
         range: params.range,
         only,
       },

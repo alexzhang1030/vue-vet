@@ -124,10 +124,12 @@ ChangeImpact { parse, environment, resolution, component_index, membership }
 Batch intent (execution lives in tracker issues, not temporary numbers here):
 
 1. **Execution locality** — domain dirty plans; context changes without re-parse;
-   work counters; later `AnalysisProduct` so LSP skips full graph DTO materialization.
-2. **Project/module state** — internal Arc partitions (not a top-level
-   `ProjectGraphState` Arc that `make_mut` deep-clones); persistent resolver and
-   indexes; incremental export/provide/seed; base/template/prop graph layers.
+   work counters; `AnalysisProduct` so LSP publishes diagnostics without the full
+   graph DTO (`analyze_affected_product` / `diagnostics_for`).
+2. **Project/module state** — `ProjectGraphState` keeps internal Arc partitions
+   (structural / module-trace) plus a retained resolver; structural and module
+   entries update in place (remove + insert). Still ahead: incremental
+   export/provide/seed fixed points and base/template/prop graph layers.
 3. **Single-file algorithms** — `TrackingScopeIR`, `returns_by_function`, Vize
    bottom-up subtree facts, SFC block revisions, shared `SourceContext`.
 

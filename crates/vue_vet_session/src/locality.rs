@@ -11,6 +11,21 @@ use vue_vet_project::ContextEpochs;
 
 use crate::discovery::{SourceInput, SourceKind};
 
+/// Which analysis artifacts a consumer needs published.
+///
+/// Internal linking still runs so rules stay correct; only the published
+/// [`vue_vet_project::ProjectGraph`] DTO is trimmed for lighter products.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum AnalysisProduct {
+  /// Diagnostics + coverage only. LSP / incremental editor path.
+  DiagnosticsOnly,
+  /// Diagnostics plus structural nodes/edges for navigation.
+  DiagnosticsAndNavigation,
+  /// Full report including module reactivity graphs.
+  #[default]
+  FullReport,
+}
+
 /// How broadly import / package resolution must be refreshed.
 #[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
 pub enum ResolutionScope {

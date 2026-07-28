@@ -104,10 +104,17 @@ pub struct ReactivityIssue {
 }
 
 /// Reusable project-linking state retained by a long-lived session.
+///
+/// Partitions are independently `Arc`-shared so a real scan can copy-on-write
+/// structural caches without cloning module-trace entries (and vice versa).
 #[derive(Clone, Debug, Default)]
 pub struct ProjectGraphState {
-  module_trace: ModuleTraceState,
-  structural: StructuralProjectState,
+  module_trace: Arc<ModuleTraceState>,
+  structural: Arc<StructuralProjectState>,
+  /// Retained while `root` + context revision are unchanged.
+  resolver: Option<Arc<ProjectResolver>>,
+  resolver_root: Option<std::path::PathBuf>,
+  resolver_revision: Option<u64>,
   last_stats: ProjectGraphStats,
 }
 
@@ -117,6 +124,8 @@ pub struct ProjectGraphStats {
   pub structural_files_reused: usize,
   pub module_graphs_reused: usize,
   pub seeded_module_reparses: usize,
+  /// How many internal partition Arcs were cloned via `Arc::make_mut` this scan.
+  pub partition_cow_clones: usize,
 }
 
 /// Why a resolver-context epoch advanced — drives typed incremental invalidation.
@@ -227,6 +236,37 @@ impl ProjectGraphState {
   pub const fn last_stats(&self) -> ProjectGraphStats {
     self.last_stats
   }
+
+  /// Share partition Arcs with another state (refcount only — no map deep copy).
+  #[must_use]
+  pub fn share(&self) -> Self {
+    Self {
+      module_trace: Arc::clone(&self.module_trace),
+      structural: Arc::clone(&self.structural),
+      resolver: self.resolver.as_ref().map(Arc::clone),
+      resolver_root: self.resolver_root.clone(),
+      resolver_revision: self.resolver_revision,
+      last_stats: self.last_stats,
+    }
+  }
+}
+
+fn retain_project_resolver(
+  state: &mut ProjectGraphState,
+  root: &std::path::PathBuf,
+  revision: u64,
+) -> Arc<ProjectResolver> {
+  let reusable = state.resolver.as_ref().is_some_and(|_| {
+    state.resolver_root.as_ref() == Some(root) && state.resolver_revision == Some(revision)
+  });
+  if !reusable {
+    let resolver = Arc::new(ProjectResolver::new(root));
+    state.resolver = Some(Arc::clone(&resolver));
+    state.resolver_root = Some(root.clone());
+    state.resolver_revision = Some(revision);
+    return resolver;
+  }
+  state.resolver.as_ref().map_or_else(|| Arc::new(ProjectResolver::new(root)), Arc::clone)
 }
 
 #[derive(Clone, Debug, Default)]
@@ -246,7 +286,7 @@ struct StructuralContextKey {
 #[derive(Clone, Debug)]
 struct StructuralFileCache {
   facts: Arc<SfcFacts>,
-  output: StructuralFileOutput,
+  output: Arc<StructuralFileOutput>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -295,7 +335,7 @@ pub fn build_project_graph_incremental_with_options<'a>(
   ordered.sort_by_key(|file| normalized_path(file.path.as_path()));
   let known =
     ordered.iter().map(|file| normalized_path(file.path.as_path())).collect::<BTreeSet<_>>();
-  let resolver = ProjectResolver::new(&root);
+  let resolver = retain_project_resolver(state, &root, project_context.revision);
   let mut nodes = ordered.iter().map(|file| file_node(file)).collect::<Vec<_>>();
   let node_by_path =
     nodes.iter().map(|node| (node.path.clone(), node.id.clone())).collect::<BTreeMap<_, _>>();
@@ -342,48 +382,57 @@ pub fn build_project_graph_incremental_with_options<'a>(
     .collect::<Vec<_>>();
   let module_ids = module_sources.iter().map(|module| module.id.clone()).collect::<BTreeSet<_>>();
   let context = StructuralContextKey {
-    root,
+    root: root.clone(),
     revision: project_context.revision,
     nodes: nodes.clone(),
     module_ids: module_ids.clone(),
   };
-  if state.structural.context.as_ref() != Some(&context) {
-    state.structural.files.clear();
-    state.structural.context = Some(context);
+  if Arc::strong_count(&state.structural) > 1 {
+    state.last_stats.partition_cow_clones += 1;
   }
-  let mut next_file_cache = BTreeMap::new();
+  let structural = Arc::make_mut(&mut state.structural);
+  if structural.context.as_ref() != Some(&context) {
+    structural.files.clear();
+    structural.context = Some(context);
+  }
+  let present = ordered.iter().map(|file| file.path.clone()).collect::<BTreeSet<_>>();
+  structural.files.retain(|file_id, _| present.contains(file_id));
+  for file in &ordered {
+    let reuse = structural.files.get(&file.path).is_some_and(|cached| cached.facts == file.facts);
+    if reuse {
+      state.last_stats.structural_files_reused += 1;
+      continue;
+    }
+    state.last_stats.structural_files_rebuilt += 1;
+    let output = Arc::new(analyze_structural_file(
+      file,
+      resolver.as_ref(),
+      &known,
+      &node_by_path,
+      &component_by_name,
+      &composable_by_name,
+      &module_ids,
+    ));
+    structural
+      .files
+      .insert(file.path.clone(), StructuralFileCache { facts: Arc::clone(&file.facts), output });
+  }
   let mut module_links = Vec::new();
   let mut external_nodes = BTreeMap::new();
   let mut edges = Vec::new();
   let mut diagnostics = Vec::new();
   for file in &ordered {
-    let output = if let Some(cached) =
-      state.structural.files.get(&file.path).filter(|cached| cached.facts == file.facts)
-    {
-      state.last_stats.structural_files_reused += 1;
-      cached.output.clone()
-    } else {
-      state.last_stats.structural_files_rebuilt += 1;
-      analyze_structural_file(
-        file,
-        &resolver,
-        &known,
-        &node_by_path,
-        &component_by_name,
-        &composable_by_name,
-        &module_ids,
-      )
+    let Some(cached) = structural.files.get(&file.path) else {
+      continue;
     };
+    let output = cached.output.as_ref();
     for node in &output.external_nodes {
       external_nodes.entry(node.id.clone()).or_insert_with(|| node.clone());
     }
     edges.extend(output.edges.iter().cloned());
     diagnostics.extend(output.diagnostics.iter().cloned());
     module_links.extend(output.module_links.iter().cloned());
-    next_file_cache
-      .insert(file.path.clone(), StructuralFileCache { facts: Arc::clone(&file.facts), output });
   }
-  state.structural.files = next_file_cache;
   nodes.extend(external_nodes.into_values());
   nodes.sort();
   edges.sort();
@@ -396,11 +445,15 @@ pub fn build_project_graph_incremental_with_options<'a>(
       &right.rule_id,
     ))
   });
+  if Arc::strong_count(&state.module_trace) > 1 {
+    state.last_stats.partition_cow_clones += 1;
+  }
+  let module_trace = Arc::make_mut(&mut state.module_trace);
   let trace_report = trace_modules_incremental_with_options(
     &module_sources,
     &module_links,
     trace_options,
-    &mut state.module_trace,
+    module_trace,
   );
   state.last_stats.module_graphs_reused = trace_report.stats.reused_graphs;
   state.last_stats.seeded_module_reparses = trace_report.stats.seeded_reparses;
