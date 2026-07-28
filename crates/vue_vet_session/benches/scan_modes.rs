@@ -41,6 +41,20 @@ fn synthetic_workspace(count: usize) -> PathBuf {
   root
 }
 
+fn independent_workspace(count: usize) -> PathBuf {
+  let root = temp_cache("independent-workspace");
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(root.join("src")).expect("independent src directory");
+  for index in 0..count {
+    std::fs::write(
+      root.join(format!("src/module-{index}.ts")),
+      format!("export const value{index} = {index};\n"),
+    )
+    .expect("independent module");
+  }
+  root
+}
+
 fn open(root: &Path, cache_dir: PathBuf, no_cache: bool) -> ProjectSession {
   ProjectSession::open(SessionOptions {
     root: root.to_path_buf(),
@@ -129,6 +143,42 @@ fn scan_incremental_edits_nuxt_graph(bencher: divan::Bencher) {
     let snapshot = session.analyze_affected().expect("incremental analyze");
     divan::black_box(snapshot.summary.diagnostics.len())
   });
+  let _ignored = std::fs::remove_dir_all(&cache);
+}
+
+#[divan::bench]
+fn scan_noop_analyze_affected(bencher: divan::Bencher) {
+  let root = nuxt_graph();
+  let cache = temp_cache("noop");
+  let session = open(&root, cache.clone(), true);
+  let _initial = session.analyze().expect("initial analyze");
+  bencher.bench(|| {
+    let snapshot = session.analyze_affected().expect("noop analyze_affected");
+    divan::black_box(snapshot.summary.diagnostics.len())
+  });
+  let _ignored = std::fs::remove_dir_all(&cache);
+}
+
+#[divan::bench(sample_count = 10, sample_size = 1)]
+fn scan_independent_leaf_edit_1k_modules(bencher: divan::Bencher) {
+  let root = independent_workspace(1_000);
+  let module = root.join("src/module-999.ts");
+  let cache = temp_cache("independent-1k");
+  let session = open(&root, cache.clone(), true);
+  let _initial = session.analyze().expect("initial independent analysis");
+  let sources = ["export const value999 = 1;\n", "export const value999 = 2;\n"];
+  let edit = AtomicUsize::new(0);
+  bencher.bench(|| {
+    let sequence = edit.fetch_add(1, Ordering::Relaxed);
+    let source =
+      sources.get(sequence % sources.len()).copied().unwrap_or("export const value999 = 1;\n");
+    session
+      .apply_changes(ChangeSet::upsert(module.clone(), source.into()))
+      .expect("apply independent leaf overlay");
+    let snapshot = session.analyze_affected().expect("independent leaf analysis");
+    divan::black_box((snapshot.graph.nodes.len(), session.stats()))
+  });
+  let _ignored = std::fs::remove_dir_all(&root);
   let _ignored = std::fs::remove_dir_all(&cache);
 }
 

@@ -685,20 +685,23 @@ fn unused_component_diagnostics(
   nodes: &[GraphNode],
   edges: &[GraphEdge],
 ) -> Vec<Diagnostic> {
+  let referenced = edges
+    .iter()
+    .filter(|edge| {
+      matches!(edge.kind, EdgeKind::Import | EdgeKind::ComponentUsage | EdgeKind::AutoComponent)
+    })
+    .map(|edge| edge.to.as_str())
+    .collect::<std::collections::HashSet<_>>();
+  let file_by_path = files
+    .iter()
+    .map(|file| (normalized_path(file.path.as_path()), *file))
+    .collect::<BTreeMap<_, _>>();
   nodes
     .iter()
     .filter(|node| node.kind == NodeKind::Component)
-    .filter(|node| {
-      !edges.iter().any(|edge| {
-        edge.to == node.id
-          && matches!(
-            edge.kind,
-            EdgeKind::Import | EdgeKind::ComponentUsage | EdgeKind::AutoComponent
-          )
-      })
-    })
+    .filter(|node| !referenced.contains(node.id.as_str()))
     .filter_map(|node| {
-      let file = files.iter().find(|file| normalized_path(file.path.as_path()) == node.path)?;
+      let file = file_by_path.get(&node.path)?;
       Some(Diagnostic {
         rule_id: PROJECT_RULE_IDS[1].into(),
         category: "project".into(),

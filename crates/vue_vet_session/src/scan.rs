@@ -1,8 +1,8 @@
-use std::path::Path;
+use std::{collections::BTreeSet, path::Path, sync::Arc};
 
 use vue_vet_cache::{CacheLookup, CachePayload, CacheStore, content_key};
 use vue_vet_config::Config;
-use vue_vet_core::ScanSummary;
+use vue_vet_core::{FileId, ScanSummary};
 use vue_vet_project::ProjectGraph;
 
 use crate::{
@@ -21,10 +21,12 @@ pub fn analyze_snapshot(
   config: &Config,
   cache_dir: &Path,
   no_cache: bool,
-  threads: Option<usize>,
+  pool: Option<Arc<rayon::ThreadPool>>,
   previous: &AnalysisState,
   state: &mut AnalysisState,
   cancelled: &(dyn Fn() -> bool + Sync),
+  dirty_files: &BTreeSet<FileId>,
+  invalidate_all_sources: bool,
 ) -> Result<AnalysisSnapshot, SessionError> {
   if cancelled() {
     return Err(SessionError::Cancelled);
@@ -32,7 +34,16 @@ pub fn analyze_snapshot(
   let analyzed_files =
     input.analyzed_source_files.iter().map(|file| file.as_str().to_owned()).collect();
   let (summary, graph, cache_status, issues) = if no_cache {
-    let result = scan_with_threads(input, config, threads, previous, state, cancelled)?;
+    let result = scan_with_threads(
+      input,
+      config,
+      pool,
+      previous,
+      state,
+      cancelled,
+      dirty_files,
+      invalidate_all_sources,
+    )?;
     (result.summary, result.graph, "disabled", result.issues)
   } else {
     let serialized_config = serde_json::to_vec(config)
@@ -40,20 +51,36 @@ pub fn analyze_snapshot(
     let key = content_key(&input.cache_inputs, &serialized_config);
     let store = CacheStore::new(cache_dir.to_path_buf());
     match store.load(&key) {
-      CacheLookup::Hit(payload) => (payload.summary, payload.graph, "hit", Vec::new()),
-      CacheLookup::Miss => {
-        fill_cache(&store, &key, input, config, "miss", threads, previous, state, cancelled)?
+      // Preserve committed incremental state on hit — do not clear file/module IR.
+      CacheLookup::Hit(payload) => {
+        *state = previous.clone();
+        (payload.summary, payload.graph, "hit", Vec::new())
       }
+      CacheLookup::Miss => fill_cache(
+        &store,
+        &key,
+        input,
+        config,
+        "miss",
+        pool,
+        previous,
+        state,
+        cancelled,
+        dirty_files,
+        invalidate_all_sources,
+      )?,
       CacheLookup::RecoveredCorruption => fill_cache(
         &store,
         &key,
         input,
         config,
         "recovered-corruption",
-        threads,
+        pool,
         previous,
         state,
         cancelled,
+        dirty_files,
+        invalidate_all_sources,
       )?,
     }
   };
@@ -74,12 +101,23 @@ fn fill_cache(
   input: &WorkspaceInputSnapshot,
   config: &Config,
   status: &'static str,
-  threads: Option<usize>,
+  pool: Option<Arc<rayon::ThreadPool>>,
   previous: &AnalysisState,
   state: &mut AnalysisState,
   cancelled: &(dyn Fn() -> bool + Sync),
+  dirty_files: &BTreeSet<FileId>,
+  invalidate_all_sources: bool,
 ) -> Result<(ScanSummary, ProjectGraph, &'static str, Vec<AnalysisIssue>), SessionError> {
-  let result = scan_with_threads(input, config, threads, previous, state, cancelled)?;
+  let result = scan_with_threads(
+    input,
+    config,
+    pool,
+    previous,
+    state,
+    cancelled,
+    dirty_files,
+    invalidate_all_sources,
+  )?;
   if result.issues.is_empty() {
     store
       .store(key, &CachePayload { summary: result.summary.clone(), graph: result.graph.clone() })

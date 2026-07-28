@@ -48,7 +48,7 @@ pub struct ModuleSource {
   pub span_source: Arc<str>,
   /// Module semantic IR extracted by the Oxc adapter during its first parse.
   #[serde(skip)]
-  module_summary: Option<ModuleSummary>,
+  module_summary: Option<std::sync::Arc<ModuleSummary>>,
 }
 
 impl PartialEq for ModuleSource {
@@ -108,7 +108,7 @@ impl ModuleSource {
   /// Attach module semantic IR produced from the same Oxc parse as script facts.
   #[must_use]
   pub fn with_module_summary(mut self, module_summary: ModuleSummary) -> Self {
-    self.module_summary = Some(module_summary);
+    self.module_summary = Some(std::sync::Arc::new(module_summary));
     self
   }
 
@@ -262,7 +262,7 @@ pub struct ModuleSummary {
   locals: BTreeMap<String, ExportState>,
   provides: Vec<super::ProvideSite>,
   injects: Vec<super::InjectSite>,
-  local_graph: ReactivityGraph,
+  local_graph: std::sync::Arc<ReactivityGraph>,
 }
 
 /// Compatibility alias for [`ModuleSummary`].
@@ -356,7 +356,14 @@ pub fn prepare_module_summary(
     kind,
   );
   let injects = collect_inject_sites(semantic, &imported_bindings, &local_graph.bindings, kind);
-  ModuleSummary { imports, exports, locals, provides, injects, local_graph }
+  ModuleSummary {
+    imports,
+    exports,
+    locals,
+    provides,
+    injects,
+    local_graph: std::sync::Arc::new(local_graph),
+  }
 }
 
 /// Compatibility alias for [`prepare_module_summary`].
@@ -582,7 +589,7 @@ struct ModulePhaseOne {
 
 fn analyze_module_phase_one(module: &ModuleSource) -> Result<ModulePhaseOne, TraceModulesError> {
   if let Some(summary) = &module.module_summary {
-    return Ok(phase_one_from_summary(module, summary.clone()));
+    return Ok(phase_one_from_summary(module, summary));
   }
 
   let allocator = Allocator::default();
@@ -618,20 +625,20 @@ fn analyze_module_phase_one(module: &ModuleSource) -> Result<ModulePhaseOne, Tra
     module.kind,
     local_graph,
   );
-  Ok(phase_one_from_summary(module, summary))
+  Ok(phase_one_from_summary(module, &summary))
 }
 
-fn phase_one_from_summary(module: &ModuleSource, summary: ModuleSummary) -> ModulePhaseOne {
+fn phase_one_from_summary(module: &ModuleSource, summary: &ModuleSummary) -> ModulePhaseOne {
   ModulePhaseOne {
     facts: ModuleExportFacts {
       id: module.id.clone(),
-      imports: summary.imports,
-      exports: summary.exports,
-      locals: summary.locals,
-      provides: summary.provides,
-      injects: summary.injects,
+      imports: summary.imports.clone(),
+      exports: summary.exports.clone(),
+      locals: summary.locals.clone(),
+      provides: summary.provides.clone(),
+      injects: summary.injects.clone(),
     },
-    local_graph: summary.local_graph,
+    local_graph: std::sync::Arc::unwrap_or_clone(std::sync::Arc::clone(&summary.local_graph)),
   }
 }
 
@@ -1162,6 +1169,8 @@ fn resolve_exports(
   facts: &BTreeMap<ModuleId, ModuleExportFacts>,
   links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
 ) -> BTreeMap<ModuleId, BTreeMap<String, ExportState>> {
+  use std::collections::VecDeque;
+
   let mut resolved =
     facts.keys().map(|id| (id.clone(), BTreeMap::new())).collect::<BTreeMap<_, _>>();
 
@@ -1176,40 +1185,69 @@ fn resolve_exports(
     }
   }
 
-  loop {
-    let snapshot = resolved.clone();
+  // target module → consumers that import/re-export from it
+  let mut reverse_users: BTreeMap<&ModuleId, Vec<&ModuleId>> = BTreeMap::new();
+  for ((from, _), to) in links {
+    reverse_users.entry(*to).or_default().push(*from);
+  }
+
+  let mut queue = VecDeque::new();
+  let mut queued = BTreeSet::new();
+  for (id, module_facts) in facts {
+    if module_facts
+      .exports
+      .iter()
+      .any(|export| matches!(export, ExportSummary::Reexport { .. } | ExportSummary::Star { .. }))
+    {
+      queue.push_back(id);
+      queued.insert(id);
+    }
+  }
+
+  while let Some(id) = queue.pop_front() {
+    queued.remove(id);
+    let Some(module_facts) = facts.get(id) else {
+      continue;
+    };
     let mut changed = false;
-    for (id, module_facts) in facts {
-      for export in &module_facts.exports {
-        match export {
-          ExportSummary::Local { .. } => {}
-          ExportSummary::Reexport { source, imported, exported } => {
-            let Some(target) = links.get(&(id, source.as_str())).copied() else {
-              continue;
-            };
-            let Some(state) = snapshot.get(target).and_then(|exports| exports.get(imported)) else {
-              continue;
-            };
-            changed |= insert_export(&mut resolved, id, exported, state.clone());
-          }
-          ExportSummary::Star { source } => {
-            let Some(target) = links.get(&(id, source.as_str())).copied() else {
-              continue;
-            };
-            let Some(target_exports) = snapshot.get(target) else {
-              continue;
-            };
-            for (exported, state) in target_exports {
-              if exported != "default" {
-                changed |= insert_export(&mut resolved, id, exported, state.clone());
-              }
+    for export in &module_facts.exports {
+      match export {
+        ExportSummary::Local { .. } => {}
+        ExportSummary::Reexport { source, imported, exported } => {
+          let Some(target) = links.get(&(id, source.as_str())).copied() else {
+            continue;
+          };
+          let Some(state) = resolved.get(target).and_then(|exports| exports.get(imported)).cloned()
+          else {
+            continue;
+          };
+          changed |= insert_export(&mut resolved, id, exported, state);
+        }
+        ExportSummary::Star { source } => {
+          let Some(target) = links.get(&(id, source.as_str())).copied() else {
+            continue;
+          };
+          let Some(target_exports) = resolved.get(target).cloned() else {
+            continue;
+          };
+          for (exported, state) in target_exports {
+            if exported != "default" {
+              changed |= insert_export(&mut resolved, id, &exported, state);
             }
           }
         }
       }
     }
     if !changed {
-      break;
+      continue;
+    }
+    let Some(users) = reverse_users.get(id) else {
+      continue;
+    };
+    for consumer in users {
+      if queued.insert(consumer) {
+        queue.push_back(consumer);
+      }
     }
   }
 

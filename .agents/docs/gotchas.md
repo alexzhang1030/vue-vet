@@ -259,6 +259,15 @@ prefer Arc content equality (or a future trace-time digest). Do not invent a
 unified template/script AST IR; keep `ModuleSummary` as the cross-file semantic
 boundary.
 
+Never discard the dirty `FileId` set returned by
+`WorkspaceInputSnapshot::apply_changes`. Session analysis must schedule from
+`PendingChanges` (plus context-epoch invalidation). Cancellation must not clear
+pending dirty state. A no-op `analyze_affected` when the revision is unchanged
+must return the last snapshot without re-entering the pipeline.
+
+Export resolution must not clone the entire resolved-export map each fixed-point
+round — use a worklist over reverse re-export users.
+
 LSP positions are UTF-16 code units via `vue_vet_core::LineIndex`. Never publish
 byte columns to the editor. Document identity must go through
 `ProjectSession::file_id_for_path` rather than ad-hoc `strip_prefix`.

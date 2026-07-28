@@ -66,7 +66,7 @@ impl FileRuleInputKey {
 #[derive(Clone, Debug)]
 struct CachedFileDiagnostics {
   key: FileRuleInputKey,
-  diagnostics: Vec<Diagnostic>,
+  diagnostics: Arc<[Diagnostic]>,
 }
 
 /// In-memory facts and dependency state retained by a long-lived session.
@@ -77,7 +77,8 @@ pub struct AnalysisState {
   pub reverse_dependencies: BTreeMap<FileId, BTreeSet<FileId>>,
   pub last_affected: BTreeSet<FileId>,
   last_context_epochs: ContextEpochs,
-  project: ProjectGraphState,
+  /// Shared until a mutation needs copy-on-write (`Arc::make_mut`).
+  project: Arc<ProjectGraphState>,
 }
 
 impl AnalysisState {
@@ -91,8 +92,14 @@ impl AnalysisState {
       reverse_dependencies: BTreeMap::new(),
       last_affected: BTreeSet::new(),
       last_context_epochs: previous.last_context_epochs,
-      project: previous.project.clone(),
+      project: Arc::clone(&previous.project),
     }
+  }
+
+  /// Whether any per-file facts have been committed yet.
+  #[must_use]
+  pub fn has_file_facts(&self) -> bool {
+    !self.files.is_empty()
   }
 }
 
@@ -102,28 +109,42 @@ pub struct ScanResult {
   pub issues: Vec<AnalysisIssue>,
 }
 
+#[expect(
+  clippy::too_many_arguments,
+  reason = "scan forwards pool, prior state, cancellation, and dirty-set schedule"
+)]
 pub fn scan_with_threads(
   input: &WorkspaceInputSnapshot,
   config: &Config,
-  threads: Option<usize>,
+  pool: Option<Arc<rayon::ThreadPool>>,
   previous: &AnalysisState,
   state: &mut AnalysisState,
   cancelled: &(dyn Fn() -> bool + Sync),
+  dirty_files: &BTreeSet<FileId>,
+  invalidate_all_sources: bool,
 ) -> Result<ScanResult, SessionError> {
-  let mut run =
-    || scan_parallel(input, config, rayon::current_num_threads(), previous, state, cancelled);
-  match threads {
-    Some(threads) => {
-      let pool =
-        rayon::ThreadPoolBuilder::new().num_threads(threads.max(1)).build().map_err(|error| {
-          SessionError::message(format!("failed to configure analysis threads: {error}"))
-        })?;
-      pool.install(run)
-    }
+  let mut run = || {
+    scan_parallel(
+      input,
+      config,
+      rayon::current_num_threads(),
+      previous,
+      state,
+      cancelled,
+      dirty_files,
+      invalidate_all_sources,
+    )
+  };
+  match pool {
+    Some(pool) => pool.install(run),
     None => run(),
   }
 }
 
+#[expect(
+  clippy::too_many_arguments,
+  reason = "parallel scan keeps dirty-set schedule explicit beside prior state"
+)]
 fn scan_parallel(
   input: &WorkspaceInputSnapshot,
   config: &Config,
@@ -131,19 +152,39 @@ fn scan_parallel(
   previous: &AnalysisState,
   state: &mut AnalysisState,
   cancelled: &(dyn Fn() -> bool + Sync),
+  dirty_files: &BTreeSet<FileId>,
+  invalidate_all_sources: bool,
 ) -> Result<ScanResult, SessionError> {
-  let outcomes = input
-    .sources
+  let context_invalidate_all =
+    epochs_invalidate_all_sources(&previous.last_context_epochs, &input.project_context.epochs)
+      || invalidate_all_sources;
+  let nuxt_vue_only = !context_invalidate_all
+    && previous.last_context_epochs.nuxt_declarations
+      != input.project_context.epochs.nuxt_declarations;
+
+  let mut reuse = Vec::new();
+  let mut need_parse = Vec::new();
+  for source in &input.sources {
+    let environment = source_environment(source, &input.boundary, &input.package_index);
+    let force = context_invalidate_all
+      || dirty_files.contains(&source.file_id)
+      || (nuxt_vue_only && matches!(source.kind, SourceKind::Vue));
+    if !force
+      && let Some(cached) = previous.files.get(&source.file_id)
+      && cached.source.as_ref() == source.source.as_ref()
+      && cached.environment == environment
+    {
+      reuse.push((source, cached.analyzed.clone(), environment));
+      continue;
+    }
+    need_parse.push((source, environment));
+  }
+
+  let parsed = need_parse
     .par_iter()
-    .map(|source| {
-      let environment = source_environment(source, &input.boundary, &input.package_index);
-      if let Some(cached) = previous.files.get(&source.file_id)
-        && cached.source.as_ref() == source.source.as_ref()
-        && cached.environment == environment
-      {
-        return Ok((cached.analyzed.clone(), false, environment));
-      }
-      analyze_candidate(source, environment.clone()).map(|analyzed| (analyzed, true, environment))
+    .map(|(source, environment)| {
+      analyze_candidate(source, environment.clone())
+        .map(|analyzed| (*source, analyzed, environment.clone()))
     })
     .collect::<Vec<_>>();
   if cancelled() {
@@ -156,12 +197,18 @@ fn scan_parallel(
   let mut issues = Vec::new();
   state.last_affected =
     previous.files.keys().filter(|file| !discovered.contains(file)).cloned().collect();
-  for (source, outcome) in input.sources.iter().zip(outcomes) {
+
+  for (source, item, environment) in reuse {
+    next_files.insert(
+      source.file_id.clone(),
+      CachedCandidate { source: Arc::clone(&source.source), environment, analyzed: item.clone() },
+    );
+    analyzed.push(item);
+  }
+  for outcome in parsed {
     match outcome {
-      Ok((item, changed, environment)) => {
-        if changed {
-          state.last_affected.insert(source.file_id.clone());
-        }
+      Ok((source, item, environment)) => {
+        state.last_affected.insert(source.file_id.clone());
         next_files.insert(
           source.file_id.clone(),
           CachedCandidate {
@@ -173,7 +220,9 @@ fn scan_parallel(
         analyzed.push(item);
       }
       Err(error) => {
-        state.last_affected.insert(source.file_id.clone());
+        if let Some(file) = &error.file {
+          state.last_affected.insert(file.clone());
+        }
         issues.push(error);
       }
     }
@@ -209,7 +258,7 @@ fn scan_parallel(
     &project_files,
     TraceModulesOptions { max_workers, reuse_current_pool: true },
     &input.project_context,
-    &mut state.project,
+    Arc::make_mut(&mut state.project),
   );
   if cancelled() {
     return Err(SessionError::Cancelled);
@@ -248,7 +297,7 @@ fn scan_parallel(
       {
         return (
           pending.file_id,
-          CachedFileDiagnostics { key, diagnostics: cached.diagnostics.clone() },
+          CachedFileDiagnostics { key, diagnostics: Arc::clone(&cached.diagnostics) },
         );
       }
       let mut facts = (*pending.facts).clone();
@@ -265,7 +314,7 @@ fn scan_parallel(
         &facts.script,
         pending.environment,
       );
-      (pending.file_id, CachedFileDiagnostics { key, diagnostics })
+      (pending.file_id, CachedFileDiagnostics { key, diagnostics: diagnostics.into() })
     })
     .collect::<Vec<_>>();
   if cancelled() {
@@ -274,8 +323,10 @@ fn scan_parallel(
 
   state.file_diagnostics =
     file_diagnostics.iter().map(|(file, cached)| (file.clone(), cached.clone())).collect();
-  let mut raw_diagnostics =
-    file_diagnostics.into_iter().flat_map(|(_, cached)| cached.diagnostics).collect::<Vec<_>>();
+  let mut raw_diagnostics = file_diagnostics
+    .into_iter()
+    .flat_map(|(_, cached)| cached.diagnostics.iter().cloned().collect::<Vec<_>>())
+    .collect::<Vec<_>>();
   raw_diagnostics.extend(graph.diagnostics.clone());
   raw_diagnostics.extend(issues.iter().filter_map(issue_diagnostic));
   let sources = input
@@ -321,16 +372,20 @@ mod file_rule_key_tests {
   }
 }
 
+const fn epochs_invalidate_all_sources(previous: &ContextEpochs, current: &ContextEpochs) -> bool {
+  previous.package_manifest != current.package_manifest
+    || previous.lockfile != current.lockfile
+    || previous.tsconfig != current.tsconfig
+    || previous.source_membership != current.source_membership
+}
+
 fn apply_context_invalidation(
   last_affected: &mut BTreeSet<FileId>,
   input: &WorkspaceInputSnapshot,
   previous: &ContextEpochs,
   current: &ContextEpochs,
 ) {
-  let invalidate_all = previous.package_manifest != current.package_manifest
-    || previous.lockfile != current.lockfile
-    || previous.tsconfig != current.tsconfig
-    || previous.source_membership != current.source_membership;
+  let invalidate_all = epochs_invalidate_all_sources(previous, current);
   if invalidate_all {
     // package.json participates in module resolution (imports/exports/main), not
     // only RuleEnvironment capabilities — force all source consumers.

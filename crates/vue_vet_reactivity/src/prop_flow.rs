@@ -1,5 +1,7 @@
 //! Cross-file parent `:prop` → child `props.prop` edges (under-approx).
 
+use std::collections::BTreeMap;
+
 use vue_vet_core::{
   ReactiveBindingKind, ReactiveDependencyEdge, ReactiveDependencyKind, ReactivityGraph, SourceSpan,
   TemplateElementFact, TemplateFacts, qualify_dependency_to_id,
@@ -23,6 +25,12 @@ pub struct PropFlowSite<'a> {
 /// child has a `props` reactive bag. Whole-object `v-bind="obj"`, calls, and
 /// computed brackets stay quiet.
 pub fn join_prop_flows(children: &mut [ModuleReactivity], sites: &[PropFlowSite<'_>]) {
+  let child_index = children
+    .iter()
+    .enumerate()
+    .map(|(index, child)| (child.id.as_str(), index))
+    .collect::<BTreeMap<_, _>>();
+  let mut pending: BTreeMap<usize, Vec<ReactiveDependencyEdge>> = BTreeMap::new();
   for site in sites {
     let Some(element) = site
       .parent_template
@@ -32,16 +40,25 @@ pub fn join_prop_flows(children: &mut [ModuleReactivity], sites: &[PropFlowSite<
     else {
       continue;
     };
-    let Some(child) = children.iter_mut().find(|module| module.id == site.child_module) else {
+    let Some(&child_idx) = child_index.get(site.child_module) else {
+      continue;
+    };
+    let Some(child) = children.get(child_idx) else {
       continue;
     };
     if !child_has_props_bag(&child.graph) {
       continue;
     }
-    let mut new_edges = collect_prop_edges(element, site.parent_graph);
+    let new_edges = collect_prop_edges(element, site.parent_graph);
     if new_edges.is_empty() {
       continue;
     }
+    pending.entry(child_idx).or_default().extend(new_edges);
+  }
+  for (child_idx, mut new_edges) in pending {
+    let Some(child) = children.get_mut(child_idx) else {
+      continue;
+    };
     child.graph.edges.append(&mut new_edges);
     child.graph.edges.sort_by(|left, right| {
       (left.kind, left.from.as_str(), left.to.as_str(), left.property.as_deref(), left.span.offset)
@@ -75,6 +92,11 @@ fn collect_prop_edges(
   parent: &ReactivityGraph,
 ) -> Vec<ReactiveDependencyEdge> {
   let mut edges = Vec::new();
+  let parent_bindings = parent
+    .bindings
+    .iter()
+    .map(|binding| (binding.name.as_str(), binding))
+    .collect::<BTreeMap<_, _>>();
   for directive in &element.directives {
     let prop_name = match directive.name.as_str() {
       "bind" => {
@@ -95,7 +117,7 @@ fn collect_prop_edges(
     let Some(binding) = parse_parent_binding_root(expression) else {
       continue;
     };
-    let Some(parent_binding) = parent.bindings.iter().find(|item| item.name == binding) else {
+    let Some(parent_binding) = parent_bindings.get(binding) else {
       continue;
     };
     edges.push(ReactiveDependencyEdge {

@@ -1,7 +1,9 @@
 #![expect(clippy::expect_used, reason = "benchmark harness aborts on setup failure")]
 
 use vue_vet_core::ScriptKind;
-use vue_vet_reactivity::{ModuleSource, TraceModulesOptions, trace_modules_with_options};
+use vue_vet_reactivity::{
+  ModuleLink, ModuleSource, TraceModulesOptions, trace_modules_with_options,
+};
 
 fn main() {
   divan::main();
@@ -47,4 +49,41 @@ fn trace_5k_modules(bencher: divan::Bencher) {
   let modules = synthetic_modules(5_000);
   let pool = worker_pool();
   bencher.bench_local(|| pool.install(|| trace_synthetic(&modules)));
+}
+
+fn reexport_chain(count: usize) -> (Vec<ModuleSource>, Vec<ModuleLink>) {
+  let modules = (0..count)
+    .map(|index| {
+      let source = if index + 1 == count {
+        "import { ref } from 'vue'; export const value = ref(1);".to_owned()
+      } else {
+        format!("export {{ value }} from './module-{}.ts';", index + 1)
+      };
+      ModuleSource::standalone(format!("src/module-{index}.ts"), source, "ts", ScriptKind::Script)
+    })
+    .collect::<Vec<_>>();
+  let links = (0..count.saturating_sub(1))
+    .map(|index| ModuleLink {
+      from: format!("src/module-{index}.ts").into(),
+      specifier: format!("./module-{}.ts", index + 1),
+      to: format!("src/module-{}.ts", index + 1).into(),
+    })
+    .collect();
+  (modules, links)
+}
+
+#[divan::bench(sample_count = 5, sample_size = 1)]
+fn trace_1k_reexport_chain(bencher: divan::Bencher) {
+  let (modules, links) = reexport_chain(1_000);
+  let pool = worker_pool();
+  bencher.bench_local(|| {
+    pool.install(|| {
+      trace_modules_with_options(
+        divan::black_box(&modules),
+        divan::black_box(&links),
+        TraceModulesOptions { max_workers: 8, reuse_current_pool: true },
+      )
+      .map_or(0, |traced| traced.len())
+    })
+  });
 }
