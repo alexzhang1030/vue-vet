@@ -1,3 +1,5 @@
+#![expect(clippy::expect_used, reason = "benchmark harness aborts on setup failure")]
+
 use vue_vet_core::ScriptKind;
 use vue_vet_reactivity::{ModuleSource, TraceModulesOptions, trace_modules_with_options};
 
