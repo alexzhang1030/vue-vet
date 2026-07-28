@@ -1011,7 +1011,7 @@ fn partial_module_failure_preserves_healthy_cross_module_links() {
   let report = trace_modules_incremental_with_options(
     &modules,
     &links,
-    TraceModulesOptions { max_workers: 2 },
+    TraceModulesOptions { max_workers: 2, ..Default::default() },
     &mut state,
   );
   assert!(
@@ -1057,7 +1057,7 @@ fn incremental_module_trace_reuses_unchanged_seeded_graphs() {
   let first = trace_modules_incremental_with_options(
     &modules,
     &links,
-    TraceModulesOptions { max_workers: 2 },
+    TraceModulesOptions { max_workers: 2, ..Default::default() },
     &mut state,
   );
   assert!(first.issues.is_empty());
@@ -1065,7 +1065,7 @@ fn incremental_module_trace_reuses_unchanged_seeded_graphs() {
   let second = trace_modules_incremental_with_options(
     &modules,
     &links,
-    TraceModulesOptions { max_workers: 2 },
+    TraceModulesOptions { max_workers: 2, ..Default::default() },
     &mut state,
   );
   assert!(second.issues.is_empty());

@@ -184,7 +184,8 @@ impl WorkspaceInputSnapshot {
   ) -> Result<BTreeSet<FileId>, SessionError> {
     let filter = config.path_filter().map_err(|error| SessionError::message(error.to_string()))?;
     let mut affected_files = BTreeSet::new();
-    let mut context_change = None::<ContextChangeKind>;
+    let mut epochs = self.project_context.epochs;
+    let mut context_dirty = false;
     for (requested_path, overlay) in changes {
       let path = absolute_change_path(requested_path, &self.boundary);
       if !path.starts_with(&self.boundary) {
@@ -202,7 +203,8 @@ impl WorkspaceInputSnapshot {
       };
 
       if let Some(kind) = context_change_kind_for(file_id.as_str()) {
-        context_change = Some(merge_context_change(context_change, kind));
+        epochs.bump(kind);
+        context_dirty = true;
       }
 
       if path.file_name().and_then(|name| name.to_str()) == Some("package.json") {
@@ -244,15 +246,15 @@ impl WorkspaceInputSnapshot {
       }
       let is_source = self.sources.iter().any(|source| source.file_id == file_id);
       if was_source != is_source {
-        context_change =
-          Some(merge_context_change(context_change, ContextChangeKind::SourceMembership));
+        epochs.bump(ContextChangeKind::SourceMembership);
+        context_dirty = true;
       }
       affected_files.insert(file_id);
     }
     self.sources.sort_by(|left, right| left.file_id.cmp(&right.file_id));
     self.analyzed_source_files = self.sources.iter().map(|source| source.file_id.clone()).collect();
     self.cache_inputs.sort_by(|left, right| left.0.cmp(&right.0));
-    if let Some(kind) = context_change {
+    if context_dirty {
       let revision = self.project_context.revision.saturating_add(1);
       self.project_context = project_context_from_inputs(
         &self.boundary,
@@ -260,7 +262,7 @@ impl WorkspaceInputSnapshot {
         self.cache_inputs.iter().map(|(path, bytes)| (path.as_str(), bytes.as_ref())),
         revision,
       );
-      self.project_context.last_change = Some(kind);
+      self.project_context.epochs = epochs;
     }
     Ok(affected_files)
   }
@@ -342,30 +344,6 @@ fn merge_overlay_only_sources(
       });
     }
     state.seen_file_ids.insert(file_id);
-  }
-}
-
-const fn merge_context_change(
-  current: Option<ContextChangeKind>,
-  next: ContextChangeKind,
-) -> ContextChangeKind {
-  match (current, next) {
-    (None, kind) => kind,
-    (Some(ContextChangeKind::TsConfig), _) | (_, ContextChangeKind::TsConfig) => {
-      ContextChangeKind::TsConfig
-    }
-    (Some(ContextChangeKind::Lockfile), _) | (_, ContextChangeKind::Lockfile) => {
-      ContextChangeKind::Lockfile
-    }
-    (Some(ContextChangeKind::PackageManifest), _) | (_, ContextChangeKind::PackageManifest) => {
-      ContextChangeKind::PackageManifest
-    }
-    (Some(ContextChangeKind::NuxtDeclarations), _) | (_, ContextChangeKind::NuxtDeclarations) => {
-      ContextChangeKind::NuxtDeclarations
-    }
-    (Some(ContextChangeKind::SourceMembership), ContextChangeKind::SourceMembership) => {
-      ContextChangeKind::SourceMembership
-    }
   }
 }
 

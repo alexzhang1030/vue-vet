@@ -327,6 +327,167 @@ watchEffect(() => {
 
 #[test]
 #[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn package_imports_changes_match_a_clean_analysis() {
+  let root = std::env::temp_dir().join(format!("vue-vet-package-imports-{}", std::process::id()));
+  std::fs::create_dir_all(root.join("src"))
+    .unwrap_or_else(|error| panic!("temp workspace: {error}"));
+  std::fs::write(
+    root.join("src/state.ts"),
+    "import { ref } from 'vue'; export const gate = ref(false); export const payload = ref(0);",
+  )
+  .unwrap_or_else(|error| panic!("state fixture: {error}"));
+  std::fs::write(
+    root.join("App.vue"),
+    "<script setup lang=\"ts\">
+import { watchEffect } from 'vue'
+import { gate, payload } from '#state'
+watchEffect(() => {
+  if (!gate.value) return
+  console.log(payload.value)
+})
+</script>",
+  )
+  .unwrap_or_else(|error| panic!("app fixture: {error}"));
+  let package = root.join("package.json");
+  std::fs::write(
+    &package,
+    r##"{"imports":{"#state":"./src/missing.ts"},"dependencies":{"vue":"3.5.0"}}"##,
+  )
+  .unwrap_or_else(|error| panic!("initial package: {error}"));
+  let session = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(2),
+  })
+  .unwrap_or_else(|error| panic!("session: {error}"));
+  session.analyze().unwrap_or_else(|error| panic!("initial analyze: {error}"));
+
+  std::fs::write(
+    &package,
+    r##"{"imports":{"#state":"./src/state.ts"},"dependencies":{"vue":"3.5.0"}}"##,
+  )
+  .unwrap_or_else(|error| panic!("updated package: {error}"));
+  session
+    .apply_changes(ChangeSet::remove(package))
+    .unwrap_or_else(|error| panic!("package imports change: {error}"));
+  let incremental =
+    session.analyze_affected().unwrap_or_else(|error| panic!("incremental analyze: {error}"));
+  let clean_session = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(2),
+  })
+  .unwrap_or_else(|error| panic!("clean session: {error}"));
+  let clean = clean_session.analyze().unwrap_or_else(|error| panic!("clean analyze: {error}"));
+  assert!(
+    clean.summary.diagnostics.iter().any(|diagnostic| {
+      diagnostic.rule_id == "vue-vet/reactivity/no-conditional-watch-effect-dependency"
+    }),
+    "package imports must seed the cross-module reactivity diagnostic"
+  );
+  assert_analysis_parity(&incremental, &clean);
+  let _ignored = std::fs::remove_dir_all(root);
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn consecutive_context_mutations_do_not_drop_prior_epochs() {
+  let root = std::env::temp_dir().join(format!("vue-vet-context-epochs-{}", std::process::id()));
+  std::fs::create_dir_all(root.join("src"))
+    .unwrap_or_else(|error| panic!("temp workspace: {error}"));
+  std::fs::create_dir_all(root.join("components/base"))
+    .unwrap_or_else(|error| panic!("component workspace: {error}"));
+  std::fs::create_dir_all(root.join(".nuxt"))
+    .unwrap_or_else(|error| panic!("Nuxt workspace: {error}"));
+  std::fs::write(
+    root.join("src/state.ts"),
+    "import { ref } from 'vue'; export const gate = ref(false); export const payload = ref(0);",
+  )
+  .unwrap_or_else(|error| panic!("state fixture: {error}"));
+  std::fs::write(
+    root.join("components/base/Button.vue"),
+    "<template><button>ok</button></template>",
+  )
+  .unwrap_or_else(|error| panic!("component fixture: {error}"));
+  std::fs::write(
+    root.join("App.vue"),
+    "<script setup lang=\"ts\">
+import { watchEffect } from 'vue'
+import { gate, payload } from '@state'
+watchEffect(() => {
+  if (!gate.value) return
+  console.log(payload.value)
+})
+</script>
+<template><CustomButton /></template>",
+  )
+  .unwrap_or_else(|error| panic!("app fixture: {error}"));
+  let tsconfig = root.join("tsconfig.json");
+  std::fs::write(
+    &tsconfig,
+    r#"{"compilerOptions":{"baseUrl":".","paths":{"@state":["src/missing.ts"]}}}"#,
+  )
+  .unwrap_or_else(|error| panic!("initial tsconfig: {error}"));
+  let declarations = root.join(".nuxt/components.d.ts");
+  std::fs::write(
+    &declarations,
+    r"export const OtherButton: typeof import('../components/base/Button.vue')['default']",
+  )
+  .unwrap_or_else(|error| panic!("initial declarations: {error}"));
+  let session = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(2),
+  })
+  .unwrap_or_else(|error| panic!("session: {error}"));
+  session.analyze().unwrap_or_else(|error| panic!("initial analyze: {error}"));
+
+  std::fs::write(
+    &tsconfig,
+    r#"{"compilerOptions":{"baseUrl":".","paths":{"@state":["src/state.ts"]}}}"#,
+  )
+  .unwrap_or_else(|error| panic!("updated tsconfig: {error}"));
+  session
+    .apply_changes(ChangeSet::remove(tsconfig))
+    .unwrap_or_else(|error| panic!("tsconfig change: {error}"));
+  std::fs::write(
+    &declarations,
+    r"export const CustomButton: typeof import('../components/base/Button.vue')['default']",
+  )
+  .unwrap_or_else(|error| panic!("updated declarations: {error}"));
+  session
+    .apply_changes(ChangeSet::remove(declarations))
+    .unwrap_or_else(|error| panic!("declaration change: {error}"));
+
+  let incremental =
+    session.analyze_affected().unwrap_or_else(|error| panic!("incremental analyze: {error}"));
+  let clean_session = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(2),
+  })
+  .unwrap_or_else(|error| panic!("clean session: {error}"));
+  let clean = clean_session.analyze().unwrap_or_else(|error| panic!("clean analyze: {error}"));
+  assert!(
+    clean.summary.diagnostics.iter().any(|diagnostic| {
+      diagnostic.rule_id == "vue-vet/reactivity/no-conditional-watch-effect-dependency"
+    }),
+    "tsconfig epoch must still be consumed after a later Nuxt mutation"
+  );
+  assert_analysis_parity(&incremental, &clean);
+  let _ignored = std::fs::remove_dir_all(root);
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
 fn package_environment_changes_match_a_clean_analysis() {
   let root = std::env::temp_dir().join(format!("vue-vet-package-context-{}", std::process::id()));
   std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("temp workspace: {error}"));

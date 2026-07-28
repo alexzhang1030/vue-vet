@@ -7,12 +7,12 @@ use std::{
 use rayon::prelude::*;
 use vue_vet_config::Config;
 use vue_vet_core::{
-  Diagnostic, FileId, ModuleId, RuleEnvironment, ScanSummary, ScriptFacts, Severity, SfcFacts,
-  SourceSpan, TemplateFacts,
+  Diagnostic, FileId, ModuleId, ReactivityGraph, RuleEnvironment, ScanSummary, ScriptFacts,
+  Severity, SfcFacts, SourceSpan, TemplateFacts,
 };
 use vue_vet_oxc::analyze_module_source;
 use vue_vet_project::{
-  ContextChangeKind, ProjectFile, ProjectGraph, ProjectGraphState,
+  ContextEpochs, ProjectFile, ProjectGraph, ProjectGraphState,
   build_project_graph_incremental_with_options,
 };
 use vue_vet_reactivity::{ModuleSource, TraceModulesOptions};
@@ -34,14 +34,21 @@ struct CachedCandidate {
   analyzed: AnalyzedCandidate,
 }
 
+#[derive(Clone, Debug)]
+struct CachedFileDiagnostics {
+  diagnostics: Vec<Diagnostic>,
+  primary_graph: Option<Arc<ReactivityGraph>>,
+  ordinary_graph: Option<Arc<ReactivityGraph>>,
+}
+
 /// In-memory facts and dependency state retained by a long-lived session.
 #[derive(Clone, Debug, Default)]
 pub struct AnalysisState {
   files: BTreeMap<FileId, CachedCandidate>,
-  file_diagnostics: BTreeMap<FileId, Vec<Diagnostic>>,
+  file_diagnostics: BTreeMap<FileId, CachedFileDiagnostics>,
   pub reverse_dependencies: BTreeMap<FileId, BTreeSet<FileId>>,
   pub last_affected: BTreeSet<FileId>,
-  last_project_context_revision: Option<u64>,
+  last_context_epochs: ContextEpochs,
   project: ProjectGraphState,
 }
 
@@ -55,7 +62,7 @@ impl AnalysisState {
       file_diagnostics: BTreeMap::new(),
       reverse_dependencies: BTreeMap::new(),
       last_affected: BTreeSet::new(),
-      last_project_context_revision: previous.last_project_context_revision,
+      last_context_epochs: previous.last_context_epochs,
       project: previous.project.clone(),
     }
   }
@@ -97,9 +104,6 @@ fn scan_parallel(
   state: &mut AnalysisState,
   cancelled: &(dyn Fn() -> bool + Sync),
 ) -> Result<ScanResult, SessionError> {
-  let project_context_changed = previous
-    .last_project_context_revision
-    .is_some_and(|revision| revision != input.project_context.revision);
   let outcomes = input
     .sources
     .par_iter()
@@ -146,10 +150,13 @@ fn scan_parallel(
       }
     }
   }
-  if project_context_changed {
-    apply_context_invalidation(&mut state.last_affected, input, input.project_context.last_change);
-  }
-  state.last_project_context_revision = Some(input.project_context.revision);
+  apply_context_invalidation(
+    &mut state.last_affected,
+    input,
+    &previous.last_context_epochs,
+    &input.project_context.epochs,
+  );
+  state.last_context_epochs = input.project_context.epochs;
   expand_reverse_dependencies(&mut state.last_affected, &previous.reverse_dependencies);
   state.files = next_files;
 
@@ -172,7 +179,7 @@ fn scan_parallel(
   let graph = build_project_graph_incremental_with_options(
     &input.boundary,
     &project_files,
-    TraceModulesOptions { max_workers },
+    TraceModulesOptions { max_workers, reuse_current_pool: true },
     &input.project_context,
     &mut state.project,
   );
@@ -191,25 +198,36 @@ fn scan_parallel(
   let modules = graph
     .module_reactivity
     .iter()
-    .map(|module| (module.id.clone(), module.graph.clone()))
+    .map(|module| (module.id.clone(), Arc::new(module.graph.clone())))
     .collect::<BTreeMap<_, _>>();
 
   let file_diagnostics = pending_vue
     .into_par_iter()
     .map(|pending| {
+      let module_id = ModuleId::primary(&pending.file_id);
+      let ordinary_id = ModuleId::ordinary(&pending.file_id);
+      let primary_graph = modules.get(&module_id).map(Arc::clone);
+      let ordinary_graph = modules.get(&ordinary_id).map(Arc::clone);
       if !state.last_affected.contains(&pending.file_id)
-        && let Some(diagnostics) = previous.file_diagnostics.get(&pending.file_id)
+        && let Some(cached) = previous.file_diagnostics.get(&pending.file_id)
+        && graphs_equal(cached.primary_graph.as_deref(), primary_graph.as_deref())
+        && graphs_equal(cached.ordinary_graph.as_deref(), ordinary_graph.as_deref())
       {
-        return (pending.file_id, diagnostics.clone());
+        return (
+          pending.file_id,
+          CachedFileDiagnostics {
+            diagnostics: cached.diagnostics.clone(),
+            primary_graph,
+            ordinary_graph,
+          },
+        );
       }
       let mut facts = (*pending.facts).clone();
-      let module_id = ModuleId::primary(&pending.file_id);
-      if let Some(graph) = modules.get(&module_id) {
-        facts.apply_module_reactivity(graph.clone());
+      if let Some(graph) = primary_graph.as_ref() {
+        facts.apply_module_reactivity((**graph).clone());
       }
-      let ordinary_id = ModuleId::ordinary(&pending.file_id);
-      if let Some(graph) = modules.get(&ordinary_id) {
-        facts.apply_module_reactivity_for(vue_vet_core::ScriptKind::Script, graph.clone());
+      if let Some(graph) = ordinary_graph.as_ref() {
+        facts.apply_module_reactivity_for(vue_vet_core::ScriptKind::Script, (**graph).clone());
       }
       let diagnostics = file_analysis_registry().run_with_environment(
         pending.file_id.as_path(),
@@ -218,19 +236,17 @@ fn scan_parallel(
         &facts.script,
         pending.environment,
       );
-      (pending.file_id, diagnostics)
+      (pending.file_id, CachedFileDiagnostics { diagnostics, primary_graph, ordinary_graph })
     })
     .collect::<Vec<_>>();
   if cancelled() {
     return Err(SessionError::Cancelled);
   }
 
-  state.file_diagnostics = file_diagnostics
-    .iter()
-    .map(|(file, diagnostics)| (file.clone(), diagnostics.clone()))
-    .collect();
+  state.file_diagnostics =
+    file_diagnostics.iter().map(|(file, cached)| (file.clone(), cached.clone())).collect();
   let mut raw_diagnostics =
-    file_diagnostics.into_iter().flat_map(|(_, diagnostics)| diagnostics).collect::<Vec<_>>();
+    file_diagnostics.into_iter().flat_map(|(_, cached)| cached.diagnostics).collect::<Vec<_>>();
   raw_diagnostics.extend(graph.diagnostics.clone());
   raw_diagnostics.extend(issues.iter().filter_map(issue_diagnostic));
   let sources = input
@@ -242,34 +258,34 @@ fn scan_parallel(
   Ok(ScanResult { summary, graph, issues })
 }
 
+fn graphs_equal(left: Option<&ReactivityGraph>, right: Option<&ReactivityGraph>) -> bool {
+  left == right
+}
+
 fn apply_context_invalidation(
   last_affected: &mut BTreeSet<FileId>,
   input: &WorkspaceInputSnapshot,
-  kind: Option<ContextChangeKind>,
+  previous: &ContextEpochs,
+  current: &ContextEpochs,
 ) {
-  match kind {
-    // Package capabilities are keyed in the per-file environment cache; only
-    // files whose nearest package.json actually changed re-analyze.
-    Some(ContextChangeKind::PackageManifest) => {}
-    // Nuxt declaration renames affect Vue component consumers, not script modules.
-    Some(ContextChangeKind::NuxtDeclarations) => {
-      last_affected.extend(
-        input
-          .sources
-          .iter()
-          .filter(|source| matches!(source.kind, SourceKind::Vue))
-          .map(|source| source.file_id.clone()),
-      );
-    }
-    // Tsconfig / lockfile / membership / unknown: keep the conservative sweep.
-    Some(
-      ContextChangeKind::TsConfig
-      | ContextChangeKind::Lockfile
-      | ContextChangeKind::SourceMembership,
-    )
-    | None => {
-      last_affected.extend(input.sources.iter().map(|source| source.file_id.clone()));
-    }
+  let invalidate_all = previous.package_manifest != current.package_manifest
+    || previous.lockfile != current.lockfile
+    || previous.tsconfig != current.tsconfig
+    || previous.source_membership != current.source_membership;
+  if invalidate_all {
+    // package.json participates in module resolution (imports/exports/main), not
+    // only RuleEnvironment capabilities — force all source consumers.
+    last_affected.extend(input.sources.iter().map(|source| source.file_id.clone()));
+    return;
+  }
+  if previous.nuxt_declarations != current.nuxt_declarations {
+    last_affected.extend(
+      input
+        .sources
+        .iter()
+        .filter(|source| matches!(source.kind, SourceKind::Vue))
+        .map(|source| source.file_id.clone()),
+    );
   }
 }
 

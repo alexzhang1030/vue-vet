@@ -57,14 +57,18 @@ vue-vet CLI
   and commits only when the same revision is still current. Input mutations are
   transactional (copy-then-commit) and advance the revision in the same critical
   section before releasing that lock.
-- **Resolver-context parity** — `AnalysisState` records the consumed
-  `ProjectContext` revision and `ContextChangeKind`. Tsconfig/lockfile changes
-  still invalidate all source consumers; package-manifest changes rely on
-  per-file `RuleEnvironment` cache keys; Nuxt declaration changes invalidate Vue
-  sources only. Incremental diagnostics remain equal to a clean scan for all four
-  input classes.
-- **Shared Rayon pool** — session `--threads N` installs one pool for file-level
-  analysis and module tracing; tracing does not build a nested pool between phases.
+- **Resolver-context parity** — `ProjectContext.epochs` tracks independent
+  counters for package / lockfile / tsconfig / Nuxt / source-membership so
+  debounced mutations cannot drop a prior kind. Package, lockfile, tsconfig, and
+  source-membership changes invalidate all source consumers (package.json also
+  drives module resolution via `imports`/`exports`). Nuxt declarations invalidate
+  Vue sources. File-rule diagnostic reuse additionally requires matching primary
+  and ordinary final module graphs, so resolution-driven graph changes cannot
+  keep stale diagnostics. Incremental results remain equal to a clean scan.
+- **Shared Rayon pool** — session `--threads N` installs one pool and passes
+  `TraceModulesOptions { reuse_current_pool: true }`. Standalone
+  `trace_modules_with_options` still installs a dedicated pool sized to
+  `max_workers`.
 - **Analysis state preparation** — each run seeds a candidate from the previous
   committed `ProjectGraphState` and looks up file facts/diagnostics by reference
   instead of cloning the full file maps up front.

@@ -19,8 +19,12 @@ fn synthetic_modules(count: usize) -> Vec<ModuleSource> {
 }
 
 fn trace_synthetic(modules: &[ModuleSource]) -> usize {
-  trace_modules_with_options(divan::black_box(modules), &[], TraceModulesOptions { max_workers: 8 })
-    .map_or(0, |traced| traced.len())
+  trace_modules_with_options(
+    divan::black_box(modules),
+    &[],
+    TraceModulesOptions { max_workers: 8, ..Default::default() },
+  )
+  .map_or(0, |traced| traced.len())
 }
 
 #[divan::bench(sample_count = 5, sample_size = 1)]

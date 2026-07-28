@@ -173,12 +173,22 @@ impl TraceModulesError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TraceModulesOptions {
   /// Maximum native workers used by either tracing phase.
+  ///
+  /// Honored when [`Self::reuse_current_pool`] is `false` by installing a
+  /// dedicated Rayon pool. Session analysis sets `reuse_current_pool` so the
+  /// outer `--threads N` pool is shared instead of nesting a second pool.
   pub max_workers: usize,
+  /// Use the already-installed Rayon pool (or the global pool) without creating
+  /// a nested worker pool. Public callers should leave this `false`.
+  pub reuse_current_pool: bool,
 }
 
 impl Default for TraceModulesOptions {
   fn default() -> Self {
-    Self { max_workers: std::thread::available_parallelism().map_or(1, std::num::NonZero::get) }
+    Self {
+      max_workers: std::thread::available_parallelism().map_or(1, std::num::NonZero::get),
+      reuse_current_pool: false,
+    }
   }
 }
 
@@ -375,6 +385,10 @@ pub fn trace_modules_with_options(
 
 /// Trace a module set while retaining healthy cross-module results and reusing
 /// unchanged seeded graphs from `state`.
+///
+/// When [`TraceModulesOptions::reuse_current_pool`] is `false`, installs a
+/// dedicated Rayon pool sized to [`TraceModulesOptions::max_workers`]. Session
+/// analysis should set `reuse_current_pool: true` after installing its own pool.
 #[must_use]
 pub fn trace_modules_incremental_with_options(
   modules: &[ModuleSource],
@@ -400,9 +414,26 @@ pub fn trace_modules_incremental_with_options(
     return report;
   }
 
-  // Reuse the caller's Rayon pool (session `pool.install` or the global pool)
-  // instead of building a nested pool between pipeline phases.
-  let _ = options.max_workers;
+  if options.reuse_current_pool {
+    return trace_modules_incremental_in_current_pool(&unique, links, state, report);
+  }
+
+  let Ok(pool) = rayon::ThreadPoolBuilder::new()
+    .num_threads(options.max_workers.max(1).min(unique.len()))
+    .build()
+  else {
+    report.issues.push(TraceModulesError::WorkerDisconnected);
+    return report;
+  };
+  pool.install(|| trace_modules_incremental_in_current_pool(&unique, links, state, report))
+}
+
+fn trace_modules_incremental_in_current_pool(
+  unique: &[&ModuleSource],
+  links: &[ModuleLink],
+  state: &mut ModuleTraceState,
+  mut report: TraceModulesReport,
+) -> TraceModulesReport {
   let phase_one = unique
     .par_iter()
     .map(|module| analyze_module_phase_one(module))
