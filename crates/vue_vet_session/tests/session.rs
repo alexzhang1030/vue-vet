@@ -1045,9 +1045,9 @@ fn package_json_change_parses_zero_source_files() {
 
 #[test]
 #[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
-fn warm_disk_cache_hit_hydrates_ir_for_incremental_edits() {
+fn warm_disk_cache_hit_stays_cheap_and_first_edit_seeds_ir() {
   let root =
-    std::env::temp_dir().join(format!("vue-vet-warm-cache-hydrate-{}", std::process::id()));
+    std::env::temp_dir().join(format!("vue-vet-warm-cache-lazy-ir-{}", std::process::id()));
   let cache_dir = root.join(".vue-vet-cache");
   let _ignored = std::fs::remove_dir_all(&root);
   std::fs::create_dir_all(root.join("src")).unwrap_or_else(|error| panic!("workspace: {error}"));
@@ -1080,23 +1080,43 @@ fn warm_disk_cache_hit_hydrates_ir_for_incremental_edits() {
   let warm_snap = warm.analyze().unwrap_or_else(|error| panic!("warm analyze: {error}"));
   assert_eq!(warm_snap.cache_status, "hit");
   assert_eq!(warm_snap.summary, cold_snap.summary);
-  assert!(
-    warm.last_work_counters().unwrap_or_else(|error| panic!("work: {error}")).files_parsed >= 12,
-    "disk hit with empty IR must hydrate by scanning sources"
+  assert_eq!(
+    warm_snap.work.files_parsed, 0,
+    "warm disk hit must not re-scan sources: {:?}",
+    warm_snap.work
   );
 
+  // First dirty analyze after a cache-only open has no file facts, so it pays
+  // one full parse to seed IR (overlays also disable disk cache).
   warm
     .apply_changes(ChangeSet::upsert(
       root.join("src/module-11.ts"),
       "export const value11 = 1100;\n".into(),
     ))
     .unwrap_or_else(|error| panic!("edit: {error}"));
-  let after = warm.analyze_affected().unwrap_or_else(|error| panic!("affected: {error}"));
-  assert_eq!(
-    after.work.files_parsed, 1,
-    "post-hydrate leaf edit must parse only the edited file, got {:?}",
-    after.work
+  let first_edit = warm.analyze_affected().unwrap_or_else(|error| panic!("first edit: {error}"));
+  assert!(
+    first_edit.work.files_parsed >= 12,
+    "empty IR after warm hit must seed facts on first dirty analyze: {:?}",
+    first_edit.work
   );
-  assert!(after.work.files_reused >= 11, "unchanged modules must be reused, got {:?}", after.work);
+
+  warm
+    .apply_changes(ChangeSet::upsert(
+      root.join("src/module-11.ts"),
+      "export const value11 = 1101;\n".into(),
+    ))
+    .unwrap_or_else(|error| panic!("second edit: {error}"));
+  let second_edit = warm.analyze_affected().unwrap_or_else(|error| panic!("second edit: {error}"));
+  assert_eq!(
+    second_edit.work.files_parsed, 1,
+    "after IR is seeded, leaf edits must parse only the edited file: {:?}",
+    second_edit.work
+  );
+  assert!(
+    second_edit.work.files_reused >= 11,
+    "unchanged modules must be reused: {:?}",
+    second_edit.work
+  );
   let _ignored = std::fs::remove_dir_all(root);
 }

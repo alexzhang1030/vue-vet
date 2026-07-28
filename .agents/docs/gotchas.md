@@ -319,10 +319,11 @@ owned maps/vecs. Session overlay updates must not double-clone
 leaving the session.
 
 Never build the session Rayon pool in `ProjectSession::open` — warm disk-cache
-hits that already have in-memory facts must not pay thread-pool construction.
-Lazily init on the first real scan. A disk hit with empty session IR must still
-hydrate file/module facts (real scan) so the next edit is incremental; keep
-publishing the cached summary/graph as `"hit"`.
+hits must not pay thread-pool construction. Lazily init on the first real scan.
+Never eagerly re-scan on a disk-cache hit to hydrate IR: that turns
+`scan_warm_*` / CLI warm re-scans into full analyzes. Keep publishing the
+cached summary/graph as `"hit"`. Empty IR is seeded on the first dirty analyze
+via `force_full_parse` when `!has_file_facts()`.
 `AnalysisSnapshot` keeps `summary`/`graph` behind `Arc` so commit/`last_snapshot`
 is refcount-only for those fields.
 

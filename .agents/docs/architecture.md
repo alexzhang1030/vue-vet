@@ -107,7 +107,7 @@ warm linking surface → skip export/seed FP     (shipped)
 warm base+facts → reuse template/prop layers   (shipped)
 TrackingScopeIR / Vize bottom-up               (shipped)
 export-closure seed recompute + SFC blocks     (shipped)
-warm-cache IR hydrate                          (shipped)
+warm disk hit stays cache-load cheap           (shipped; no eager IR hydrate)
 returns_by_function + SourceContext            (shipped)
 ```
 
@@ -134,9 +134,9 @@ Batch intent (execution lives in tracker issues, not temporary numbers here):
    exports, locals, provides, injects — not `local_graph`) and links are
    unchanged; when only some surfaces change, seed plans recompute for the
    export/inject closure. Layered cache reuses post-template/prop graphs when
-   base graph Arcs and `SfcFacts` Arcs are unchanged. Fresh disk-cache hits with
-   empty session IR hydrate file/module facts via a real scan while still
-   publishing the cached summary/graph as `"hit"`.
+   base graph Arcs and `SfcFacts` Arcs are unchanged. Disk-cache hits stay
+   cache-load cheap and must not eagerly re-scan; empty session IR is seeded
+   on the first dirty analyze via `force_full_parse` (`!has_file_facts()`).
 3. **Single-file algorithms** — `TrackingScopeIR`; Vize bottom-up
    `SubtreeSummary`; SFC `SfcBlockRevisions` (style/template/script reuse);
    `returns_by_function` for composable shapes; shared `SourceContext`
