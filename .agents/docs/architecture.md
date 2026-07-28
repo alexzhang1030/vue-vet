@@ -133,10 +133,12 @@ Batch intent (execution lives in tracker issues, not temporary numbers here):
    skips export/provide/seed fixed points when the linking surface (imports,
    exports, locals, provides, injects — not `local_graph`) and links are
    unchanged; when only some surfaces change, seed plans recompute for the
-   export/inject closure. Layered cache reuses post-template/prop graphs when
-   base graph Arcs and `SfcFacts` Arcs are unchanged. Disk-cache hits stay
-   cache-load cheap and must not eagerly re-scan; empty session IR is seeded
-   on the first dirty analyze via `force_full_parse` (`!has_file_facts()`).
+   export/inject closure. Linking reuse retains `Arc<ModuleSummary>` and prefers
+   `Arc::ptr_eq` — never clone a per-module linking-surface map on every scan.
+   Layered cache reuses post-template/prop graphs when base graph Arcs and
+   `SfcFacts` Arcs are unchanged. Disk-cache hits stay cache-load cheap and must
+   not eagerly re-scan; empty session IR is seeded on the first dirty analyze
+   via `force_full_parse` (`!has_file_facts()`).
 3. **Single-file algorithms** — `TrackingScopeIR`; Vize bottom-up
    `SubtreeSummary`; SFC `SfcBlockRevisions` (style/template/script reuse);
    `returns_by_function` for composable shapes; shared `SourceContext`

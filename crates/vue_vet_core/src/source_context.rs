@@ -16,6 +16,11 @@ pub struct SourceContext {
 
 impl SourceContext {
   /// Index `text` once and retain both handles.
+  ///
+  /// Prefer this at long-lived boundaries that already own the buffer (LSP open
+  /// documents). For short-lived `&str` analysis entry points, install
+  /// `Arc<LineIndex>` alone — `SourceContext::new(&str)` copies the whole
+  /// buffer into a new `Arc<str>`.
   #[must_use]
   pub fn new(text: impl Into<Arc<str>>) -> Self {
     let text = text.into();

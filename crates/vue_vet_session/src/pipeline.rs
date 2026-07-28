@@ -312,7 +312,7 @@ fn scan_parallel(
   let graph = build_project_graph_incremental_with_options(
     &input.boundary,
     project_files.iter().map(AsRef::as_ref),
-    TraceModulesOptions { max_workers, reuse_current_pool: true },
+    TraceModulesOptions { max_workers, reuse_current_pool: true, ..Default::default() },
     &input.project_context,
     &mut state.project,
   );

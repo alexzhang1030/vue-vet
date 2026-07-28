@@ -91,12 +91,14 @@ fn trace_reactivity_seeded(
   script_kind: ScriptKind,
   seeds: &TraceSeeds,
 ) -> ReactivityGraph {
-  let context = vue_vet_core::SourceContext::new(sfc_source);
+  // Index only — do not `SourceContext::new(&str)` here; that copies the whole
+  // buffer into `Arc<str>` on every module and regresses cold `trace_*` benches.
+  let line_index = std::sync::Arc::new(vue_vet_core::LineIndex::new(sfc_source));
   TRACE_LINE_INDEX.with(|slot| {
-    *slot.borrow_mut() = Some(context.line_index_arc());
+    *slot.borrow_mut() = Some(line_index);
   });
   let graph =
-    trace_reactivity_seeded_inner(semantic, context.text(), script_offset, script_kind, seeds);
+    trace_reactivity_seeded_inner(semantic, sfc_source, script_offset, script_kind, seeds);
   TRACE_LINE_INDEX.with(|slot| {
     *slot.borrow_mut() = None;
   });
@@ -206,7 +208,8 @@ fn collect_local_composable_usage(
   script_offset: usize,
 ) -> (ComposableShapeMap, Vec<ReactiveBindingFact>, LocalComposableDefs) {
   let mut composables = LocalComposableDefs::new();
-  let returns_by_function = modules::build_returns_by_function(semantic);
+  // Lazy index — skip full return walks when the file has no function candidates.
+  let mut returns_by_function = None;
 
   // `function useX() { return { field: ref(0) } }`
   for node in semantic.nodes() {
@@ -216,12 +219,14 @@ fn collect_local_composable_usage(
     let Some(identifier) = &function.id else {
       continue;
     };
+    let index =
+      returns_by_function.get_or_insert_with(|| modules::build_returns_by_function(semantic));
     let shape = modules::composable_return_shape_with_index(
       semantic,
       function.node_id.get(),
       shape_graph,
       script_offset,
-      &returns_by_function,
+      index,
     );
     if shape.is_empty() {
       continue;
@@ -245,12 +250,14 @@ fn collect_local_composable_usage(
       Expression::FunctionExpression(function) => function.node_id.get(),
       _ => continue,
     };
+    let index =
+      returns_by_function.get_or_insert_with(|| modules::build_returns_by_function(semantic));
     let shape = modules::composable_return_shape_with_index(
       semantic,
       function_id,
       shape_graph,
       script_offset,
-      &returns_by_function,
+      index,
     );
     if shape.is_empty() {
       continue;
@@ -1574,6 +1581,9 @@ fn classify_scope_reads(
   script_offset: usize,
   imported_bindings: &BTreeMap<String, (String, String)>,
 ) -> Vec<ReactiveReadFact> {
+  if raw_reads.is_empty() {
+    return Vec::new();
+  }
   let ir = build_tracking_scope_ir(semantic, scope_id, imported_bindings);
   raw_reads
     .iter()

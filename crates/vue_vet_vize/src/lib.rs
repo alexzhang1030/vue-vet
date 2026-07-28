@@ -97,11 +97,12 @@ pub fn analyze_sfc_facts_reusing(
   source: &str,
   previous: Option<&AnalyzedSfc>,
 ) -> Result<AnalyzedSfc, AnalyzeError> {
-  let context = vue_vet_core::SourceContext::new(source);
+  // Index only — avoid `SourceContext::new(&str)` copying the SFC into `Arc<str>`.
+  let line_index = Arc::new(vue_vet_core::LineIndex::new(source));
   SFC_LINE_INDEX.with(|slot| {
-    *slot.borrow_mut() = Some(context.line_index_arc());
+    *slot.borrow_mut() = Some(line_index);
   });
-  let result = analyze_sfc_facts_inner(path, context.text(), previous);
+  let result = analyze_sfc_facts_inner(path, source, previous);
   SFC_LINE_INDEX.with(|slot| {
     *slot.borrow_mut() = None;
   });

@@ -274,7 +274,11 @@ rules rerun), not with set size alone.
 **Linking surface ≠ `ModuleSummary` equality.** Export/seed reuse keys on
 imports/exports/locals/provides/injects + links. A leaf body edit that only
 changes `local_graph` must not force `resolve_exports`. Do not key linking
-cache on full `ModuleSummary` (it includes the local graph).
+cache on full `ModuleSummary` (it includes the local graph). Never rebuild a
+cloned `LinkingSurface` map for every module on each scan — retain
+`Arc<ModuleSummary>` and prefer `Arc::ptr_eq`, then compare linking fields in
+place. O(N) deep clones on cold `trace_modules` / independent leaf edits are a
+known CodSpeed regression.
 
 **Template/prop layers must not `make_mut` reused base graphs on warm scans.**
 Keep base reactivity from module-trace separate from the layered final graphs;
@@ -324,6 +328,17 @@ Never eagerly re-scan on a disk-cache hit to hydrate IR: that turns
 `scan_warm_*` / CLI warm re-scans into full analyzes. Keep publishing the
 cached summary/graph as `"hit"`. Empty IR is seeded on the first dirty analyze
 via `force_full_parse` when `!has_file_facts()`.
+
+**`SourceContext::new(&str)` copies the buffer.** Use it when the caller already
+owns / wants to own the text (LSP documents). Hot analysis entry points that
+only need positions should install `Arc<LineIndex>` without re-allocating the
+source string — otherwise cold `trace_1k_*` / SFC benches regress.
+
+**One-shot `trace_modules_with_options` must not archive linking state.** Set
+`persist_linking_cache = false` (forced by that API). Archiving sorted links +
+seed-plan maps that are immediately dropped regresses CodSpeed `trace_*`.
+Build `returns_by_function` lazily — only after a real function/composable
+candidate is found.
 `AnalysisSnapshot` keeps `summary`/`graph` behind `Arc` so commit/`last_snapshot`
 is refcount-only for those fields.
 

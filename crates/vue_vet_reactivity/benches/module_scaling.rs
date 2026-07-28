@@ -32,7 +32,7 @@ fn trace_synthetic(modules: &[ModuleSource]) -> usize {
   trace_modules_with_options(
     divan::black_box(modules),
     &[],
-    TraceModulesOptions { max_workers: 8, reuse_current_pool: true },
+    TraceModulesOptions { max_workers: 8, reuse_current_pool: true, ..Default::default() },
   )
   .map_or(0, |traced| traced.len())
 }
@@ -81,7 +81,7 @@ fn trace_1k_reexport_chain(bencher: divan::Bencher) {
       trace_modules_with_options(
         divan::black_box(&modules),
         divan::black_box(&links),
-        TraceModulesOptions { max_workers: 8, reuse_current_pool: true },
+        TraceModulesOptions { max_workers: 8, reuse_current_pool: true, ..Default::default() },
       )
       .map_or(0, |traced| traced.len())
     })
