@@ -129,9 +129,9 @@ fn tool_preview_safe_fixes(workspace_root: &Path, arguments: &Value) -> Result<S
       if edit.applicability != EditApplicability::Safe {
         continue;
       }
-      let resolved_file = resolve_edit_file(boundary, &edit.file)?;
+      let _validated_file = resolve_edit_file(boundary, edit.file.as_path())?;
       safe_edits.push(TextEdit {
-        file: resolved_file,
+        file: edit.file.clone(),
         range: edit.range,
         replacement: edit.replacement.clone(),
         applicability: EditApplicability::Safe,
@@ -143,7 +143,7 @@ fn tool_preview_safe_fixes(workspace_root: &Path, arguments: &Value) -> Result<S
   let mut files = plan
     .edits()
     .iter()
-    .map(|edit| normalize_display_path(boundary, &edit.file))
+    .map(|edit| normalize_display_path(boundary, edit.file.as_path()))
     .collect::<Vec<_>>();
   files.sort();
   files.dedup();
@@ -152,7 +152,7 @@ fn tool_preview_safe_fixes(workspace_root: &Path, arguments: &Value) -> Result<S
     .iter()
     .map(|edit| {
       json!({
-        "file": normalize_display_path(boundary, &edit.file),
+        "file": normalize_display_path(boundary, edit.file.as_path()),
         "rule_id": edit.rule_id,
         "offset": edit.range.offset,
         "length": edit.range.length,
@@ -198,6 +198,11 @@ fn report_context(path: &Path, snapshot: &AnalysisSnapshot) -> ReportContext {
   if let Some(error) = &snapshot.graph.reactivity_error {
     skipped_check_reasons.insert("module_reactivity".into(), error.clone());
   }
+  for (index, issue) in snapshot.issues.iter().enumerate() {
+    skipped_check_reasons
+      .entry(format!("analysis_{index}"))
+      .or_insert_with(|| issue.message.clone());
+  }
   let project_root = {
     let root = scan_directory(path).to_string_lossy().replace('\\', "/");
     if root.is_empty() { ".".into() } else { root }
@@ -207,7 +212,7 @@ fn report_context(path: &Path, snapshot: &AnalysisSnapshot) -> ReportContext {
     framework: detect_framework(path),
     project_root,
     analyzed_files: snapshot.analyzed_files.clone(),
-    complete: skipped_check_reasons.is_empty(),
+    complete: snapshot.complete(),
     skipped_check_reasons,
     reactivity: None,
     component_nav: None,

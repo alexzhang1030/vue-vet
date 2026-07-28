@@ -101,13 +101,15 @@ Modes measured on the quality corpus:
 | --- | --- |
 | Cold | Fresh cache directory, full analyze. |
 | Warm | Second analyze against a primed content-addressed cache. |
-| Incremental | `analyze_with_overlays` with one open buffer (session API). |
+| Incremental | Repeated `apply_changes` + `analyze_affected`, both on the Nuxt fixture and a synthetic 1k-module reverse-dependency chain. |
 | Diff | Full analyze then `filter_diff` with a fixed changed-file set (no git). |
 
 Canonical PR comparison uses CodSpeed (`just bench` / `just bench-codspeed-*`):
 
 - SFC micro-benchmarks: `vue_vet_vize` `analyze_sfc`
 - Project scan modes: `vue_vet_session` `scan_modes`
+- Module scaling: multi-sample 1k/5k bounded tracing in
+  `vue_vet_reactivity` `module_scaling`
 
 Local timing notes (developer machines) may be recorded in PRs but are not
 release budgets. CodSpeed simulated-CPU results are the comparable signal

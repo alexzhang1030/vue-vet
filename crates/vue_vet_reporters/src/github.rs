@@ -1,6 +1,4 @@
-use std::path::Path;
-
-use vue_vet_core::{Diagnostic, ScanSummary, Severity};
+use vue_vet_core::{Diagnostic, FileId, ScanSummary, Severity};
 
 use crate::ReportContext;
 
@@ -38,16 +36,8 @@ fn analyzed_files(context: &ReportContext) -> Vec<String> {
   files
 }
 
-fn report_path(path: &Path, analyzed_files: &[String]) -> String {
-  let normalized = normalize_path(&path.to_string_lossy());
-  analyzed_files
-    .iter()
-    .find(|candidate| {
-      normalized == candidate.as_str()
-        || normalized.strip_suffix(candidate.as_str()).is_some_and(|prefix| prefix.ends_with('/'))
-    })
-    .cloned()
-    .unwrap_or(normalized)
+fn report_path(path: &FileId, _analyzed_files: &[String]) -> String {
+  path.as_str().to_owned()
 }
 
 fn normalize_path(path: &str) -> String {
@@ -72,8 +62,6 @@ const fn annotation_level(severity: Severity) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-  use std::path::PathBuf;
-
   use vue_vet_core::{Confidence, SourceSpan};
 
   use super::*;
@@ -92,7 +80,7 @@ mod tests {
           "Prefer normal template interpolation. If raw HTML is required, sanitize it at the trust boundary."
             .into(),
         ),
-        file: PathBuf::from("fixtures/reporters/no-v-html.vue"),
+        file: FileId::from("no-v-html.vue"),
         span: SourceSpan { offset: 19, length: 6, line: 2, column: 9 },
         edits: Vec::new(),
         recommendation: None,
@@ -131,7 +119,7 @@ mod tests {
         documentation: None,
         message: "first%line\r\nsecond".into(),
         help: None,
-        file: PathBuf::from(r"C:\repo\src\Odd:Name,One.vue"),
+        file: FileId::from(r"src\Odd:Name,One.vue"),
         span: SourceSpan { offset: 0, length: 1, line: 3, column: 7 },
         edits: Vec::new(),
         recommendation: None,

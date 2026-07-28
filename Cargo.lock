@@ -4084,6 +4084,7 @@ dependencies = [
 name = "vue_vet_reactivity"
 version = "0.1.12"
 dependencies = [
+ "codspeed-divan-compat",
  "oxc_allocator",
  "oxc_ast",
  "oxc_parser",
@@ -4128,7 +4129,6 @@ dependencies = [
  "vue_vet_practice",
  "vue_vet_project",
  "vue_vet_reactivity",
- "vue_vet_reporters",
  "vue_vet_rules",
  "vue_vet_vize",
 ]

@@ -187,17 +187,15 @@ fn allows_quickfix(only: Option<&[CodeActionKind]>) -> bool {
 }
 
 fn diagnostic_matches_document(diagnostic: &Diagnostic, normalized_document: &str) -> bool {
-  let file = diagnostic.file.to_string_lossy().replace('\\', "/");
-  file == normalized_document
-    || file.ends_with(normalized_document)
-    || normalized_document.ends_with(&file)
+  diagnostic.file.as_str() == normalized_document
 }
 
 fn edit_targets_document(edit: &TextEdit, root: &Path, document_path: &Path) -> bool {
-  let edit_path = if edit.file.is_absolute() { edit.file.clone() } else { root.join(&edit.file) };
+  let edit_path =
+    if edit.file.is_absolute() { edit.file.to_path_buf() } else { root.join(edit.file.as_path()) };
   paths_equal_lossy(&edit_path, document_path)
     || paths_equal_lossy(edit.file.as_path(), document_path)
-    || normalize_report_path(document_path, root) == edit.file.to_string_lossy().replace('\\', "/")
+    || normalize_report_path(document_path, root) == edit.file.as_str()
 }
 
 fn paths_equal_lossy(left: &Path, right: &Path) -> bool {
@@ -261,7 +259,7 @@ mod tests {
       documentation: Some("rules/security/no-v-html".into()),
       message: "`v-html` can render untrusted HTML into the page".into(),
       help: None,
-      file: PathBuf::from("basic.vue"),
+      file: PathBuf::from("basic.vue").into(),
       span: SourceSpan { offset: 19, length: 6, line: 2, column: 9 },
       edits: Vec::new(),
       recommendation: None,
@@ -301,18 +299,18 @@ mod tests {
       documentation: Some("rules/accessibility/no-autofocus".into()),
       message: "autofocus can disorient keyboard and screen-reader users".into(),
       help: None,
-      file: PathBuf::from("App.vue"),
+      file: PathBuf::from("App.vue").into(),
       span: SourceSpan { offset: 22, length: 9, line: 2, column: 10 },
       edits: vec![
         TextEdit {
-          file: PathBuf::from("App.vue"),
+          file: PathBuf::from("App.vue").into(),
           range: ByteRange { offset: 21, length: 10 },
           replacement: String::new(),
           applicability: EditApplicability::Safe,
           rule_id: "vue-vet/accessibility/no-autofocus".into(),
         },
         TextEdit {
-          file: PathBuf::from("App.vue"),
+          file: PathBuf::from("App.vue").into(),
           range: ByteRange { offset: 0, length: 0 },
           replacement: "// unsafe".into(),
           applicability: EditApplicability::Unsafe,
@@ -373,10 +371,10 @@ mod tests {
       documentation: None,
       message: "autofocus".into(),
       help: None,
-      file: PathBuf::from("App.vue"),
+      file: PathBuf::from("App.vue").into(),
       span: SourceSpan { offset: 22, length: 9, line: 2, column: 10 },
       edits: vec![TextEdit {
-        file: PathBuf::from("App.vue"),
+        file: PathBuf::from("App.vue").into(),
         range: ByteRange { offset: 21, length: 10 },
         replacement: String::new(),
         applicability: EditApplicability::Safe,

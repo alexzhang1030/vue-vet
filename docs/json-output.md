@@ -210,11 +210,20 @@ verify exact coverage instead of inferring it from a count.
 `mode` is one of `full`, `baseline`, or `diff`. Filtering changes the reported
 findings, not the analyzed-file coverage.
 
+Recoverable analysis failures produce a partial result rather than an
+operational failure. For example, an unfinished Vue file keeps `ok: true`, sets
+`project.complete` to `false`, records the skipped project checks, and emits a
+`vue-vet/analysis/parse-error` diagnostic for that file while continuing to
+analyze the rest of the workspace. A partial result follows the normal finding
+exit-code policy (typically exit code 1 when the parser diagnostic is active).
+
 With `--format json`, operational failures also use version 1 and retain exit
 code 2. They set `ok` and `project.complete` to `false`, leave diagnostics and
 coverage empty when the scan never completed, set `summary.score` to `null`, and
 provide the actionable failure in `error.message`. Text mode continues to write
-operational failures to stderr.
+operational failures to stderr. Invalid configuration, an unreadable root, and
+other failures that prevent workspace analysis from starting remain operational
+failures.
 
 ## `--explain` (rule or finding documentation)
 

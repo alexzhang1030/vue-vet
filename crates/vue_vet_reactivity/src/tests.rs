@@ -10,7 +10,10 @@ use vue_vet_core::{
   TemplateExpressionFact, TemplateFacts, TrackingScopeKind,
 };
 
-use super::{ModuleLink, ModuleReactivity, ModuleSource, trace_modules, trace_reactivity};
+use super::{
+  ModuleLink, ModuleReactivity, ModuleSource, ModuleTraceState, TraceModulesOptions,
+  prepare_module_trace, trace_modules, trace_modules_incremental_with_options, trace_reactivity,
+};
 
 fn trace(
   sfc_source: &str,
@@ -973,6 +976,102 @@ fn seeds_parametric_composable_to_ref_fields() {
     }),
     "toRef(param, key) composable fields must seed consumers"
   );
+}
+
+#[test]
+fn partial_module_failure_preserves_healthy_cross_module_links() {
+  let modules = [
+    ModuleSource::standalone(
+      "producer.ts",
+      "import { ref } from 'vue'; export const count = ref(0);",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { watchEffect } from 'vue'; import { count } from './producer'; watchEffect(() => count.value);",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone("broken.ts", "const = ;", "ts", ScriptKind::Script),
+  ];
+  let links = [
+    ModuleLink {
+      from: "consumer.ts".into(),
+      specifier: "./producer".into(),
+      to: "producer.ts".into(),
+    },
+    ModuleLink {
+      from: "broken.ts".into(),
+      specifier: "./producer".into(),
+      to: "producer.ts".into(),
+    },
+  ];
+  let mut state = ModuleTraceState::default();
+  let report = trace_modules_incremental_with_options(
+    &modules,
+    &links,
+    TraceModulesOptions { max_workers: 2 },
+    &mut state,
+  );
+  assert!(
+    report.issues.iter().any(|issue| issue.module_id().is_some_and(|id| id == "broken.ts")),
+    "the malformed module must produce a scoped issue: {:?}",
+    report.issues
+  );
+  let consumer = report.modules.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .effects
+        .iter()
+        .any(|effect| effect.reads.iter().any(|read| read.binding == "count"))
+    }),
+    "an unrelated parse failure must not discard the healthy producer → consumer seed"
+  );
+}
+
+#[test]
+fn incremental_module_trace_reuses_unchanged_seeded_graphs() {
+  let modules = [
+    ModuleSource::standalone(
+      "producer.ts",
+      "import { ref } from 'vue'; export const count = ref(0);",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { watchEffect } from 'vue'; import { count } from './producer'; watchEffect(() => count.value);",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./producer".into(),
+    to: "producer.ts".into(),
+  }];
+  let mut state = ModuleTraceState::default();
+  let first = trace_modules_incremental_with_options(
+    &modules,
+    &links,
+    TraceModulesOptions { max_workers: 2 },
+    &mut state,
+  );
+  assert!(first.issues.is_empty());
+  assert_eq!(first.stats.seeded_reparses, 1);
+  let second = trace_modules_incremental_with_options(
+    &modules,
+    &links,
+    TraceModulesOptions { max_workers: 2 },
+    &mut state,
+  );
+  assert!(second.issues.is_empty());
+  assert_eq!(second.stats.seeded_reparses, 0);
+  assert_eq!(second.stats.reused_graphs, 2);
+  assert_eq!(first.modules, second.modules);
 }
 
 #[test]
@@ -2111,6 +2210,26 @@ fn covers_eighty_real_cross_module_scenarios() {
 
 fn module_source(id: &str, source: &str) -> ModuleSource {
   ModuleSource::standalone(id, source, "ts", ScriptKind::Script)
+}
+
+#[test]
+fn prepared_phase_one_facts_avoid_an_unseeded_second_parse() {
+  let source = "import { ref } from 'vue'; export const count = ref(0);";
+  let allocator = Allocator::default();
+  let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
+  assert!(parsed.errors.is_empty());
+  let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
+  assert!(built.errors.is_empty());
+  let local_graph = trace_reactivity(&built.semantic, source, 0, ScriptKind::Script);
+  let prepared = prepare_module_trace(&built.semantic, source, 0, ScriptKind::Script, local_graph);
+  let mut module = ModuleSource::standalone("count.ts", source, "ts", ScriptKind::Script)
+    .with_prepared_trace(prepared);
+
+  // If phase one parsed again this deliberate mutation would fail. No seeds
+  // means the retained local graph is sufficient.
+  module.source = "const = ;".into();
+  let traced = trace_modules(&[module], &[]);
+  assert!(traced.is_ok(), "prepared phase-one facts should bypass a second parse");
 }
 
 #[expect(clippy::panic, reason = "missing committed source files must fail corpus tests")]

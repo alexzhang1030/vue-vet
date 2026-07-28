@@ -4,17 +4,16 @@
 //! reporters, cache, and the CLI consume them. Vize and Oxc AST types never
 //! appear in this crate.
 
-use std::{
-  fmt::Write,
-  path::{Path, PathBuf},
-};
+use std::{fmt::Write, path::Path};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 mod edits;
+mod identity;
 
 pub use edits::{ByteRange, EditApplicability, EditPlan, EditPlanError, TextEdit};
+pub use identity::{FileId, ModuleId, PhysicalPath, WorkspaceRoot};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -72,7 +71,7 @@ pub struct Diagnostic {
   pub documentation: Option<String>,
   pub message: String,
   pub help: Option<String>,
-  pub file: PathBuf,
+  pub file: FileId,
   pub span: SourceSpan,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub edits: Vec<TextEdit>,
@@ -95,6 +94,39 @@ impl Diagnostic {
   }
 }
 
+/// Domain payload for explaining one rule. Reporters only render this model.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct RuleExplain {
+  pub rule_id: String,
+  pub category: String,
+  pub severity: Severity,
+  pub confidence: Confidence,
+  pub documentation: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub body: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub body_path: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub body_error: Option<String>,
+}
+
+/// Domain payload for explaining one concrete finding.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct FindingExplain {
+  pub id: String,
+  pub file: String,
+  pub span: SourceSpan,
+  pub severity: Severity,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub confidence: Option<Confidence>,
+  pub message: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub help: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub recommendation: Option<Recommendation>,
+  pub rule: RuleExplain,
+}
+
 /// Builds the stable, opaque identity used by machine-readable report consumers.
 ///
 /// The caller supplies a repository-relative path because only the orchestration
@@ -115,6 +147,12 @@ pub fn diagnostic_id(diagnostic: &Diagnostic, normalized_file_path: &str) -> Str
     "{normalized_file_path}::{}:{}::{}::{digest}",
     diagnostic.span.line, diagnostic.span.column, diagnostic.rule_id
   )
+}
+
+/// Stable finding identity using the diagnostic's normalized [`FileId`].
+#[must_use]
+pub fn finding_id(diagnostic: &Diagnostic) -> String {
+  diagnostic_id(diagnostic, diagnostic.file.as_str())
 }
 
 fn hash_identity_field(hasher: &mut Sha256, name: &[u8], value: &[u8]) {
@@ -1143,7 +1181,7 @@ impl<'a> RuleContext<'a> {
     replacement: String,
   ) {
     let edit = TextEdit {
-      file: self.file.to_path_buf(),
+      file: FileId::from(self.file),
       range,
       replacement,
       applicability: EditApplicability::Safe,
@@ -1169,7 +1207,7 @@ impl<'a> RuleContext<'a> {
       documentation: Some(meta.documentation.into()),
       message,
       help,
-      file: self.file.to_path_buf(),
+      file: FileId::from(self.file),
       span,
       edits,
       recommendation,

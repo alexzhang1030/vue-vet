@@ -19,9 +19,10 @@
 //!
 //! # Cross-module entry
 //!
-//! [`trace_modules`] parses each [`ModuleSource`] once, links composable /
-//! export seeds across [`ModuleLink`] edges, and re-traces consumers with those
-//! seeds. Callers supply already-resolved links.
+//! [`trace_modules`] consumes prepared phase-one summaries when the Oxc adapter
+//! supplies them, links composable/export seeds across [`ModuleLink`] edges,
+//! and reparses only seeded consumers. Both phases use a bounded worker pool.
+//! Callers supply already-resolved links.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -467,7 +468,7 @@ pub(crate) enum InjectionKey {
 }
 
 /// One `provide` site's offered value shape (scalar kind and/or composable bag).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ProvideOffer {
   pub kind: Option<ReactiveBindingKind>,
   pub instance_shape: Option<ComposableShape>,
@@ -479,13 +480,13 @@ impl ProvideOffer {
   }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ProvideSite {
   pub key: InjectionKey,
   pub offer: ProvideOffer,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct InjectSite {
   pub local: String,
   pub key: InjectionKey,
@@ -2228,7 +2229,12 @@ fn source_span(source: &str, base: usize, span: Span) -> SourceSpan {
 mod modules;
 mod prop_flow;
 
-pub use modules::{ModuleLink, ModuleReactivity, ModuleSource, TraceModulesError, trace_modules};
+pub use modules::{
+  ModuleLink, ModuleReactivity, ModuleSource, ModuleTraceState, PreparedModuleTrace,
+  TraceModulesError, TraceModulesOptions, TraceModulesReport, TraceModulesStats,
+  prepare_module_trace, trace_modules, trace_modules_incremental_with_options,
+  trace_modules_with_options,
+};
 pub use prop_flow::{PropFlowSite, join_prop_flows};
 
 #[cfg(test)]

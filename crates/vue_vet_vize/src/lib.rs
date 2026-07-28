@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::sync::Arc;
 
 use thiserror::Error;
 use vize_atelier_core::{
@@ -7,17 +8,14 @@ use vize_atelier_core::{
 };
 use vize_atelier_sfc::{SfcDescriptor, SfcParseOptions, parse_sfc};
 use vue_vet_core::{
-  Diagnostic, RuleEnvironment, RuleRegistry, ScriptFacts, ScriptKind, SfcFacts, SourceSpan,
-  TemplateAttributeFact, TemplateDirectiveFact, TemplateElementFact, TemplateExpressionFact,
-  TemplateFacts,
+  ScriptFacts, ScriptKind, SfcFacts, SourceSpan, TemplateAttributeFact, TemplateDirectiveFact,
+  TemplateElementFact, TemplateExpressionFact, TemplateFacts,
 };
 use vue_vet_oxc::{
-  AnalyzeScriptError, analyze_script, slot_prop_alias_identifiers,
+  AnalyzeScriptError, analyze_module_source, slot_prop_alias_identifiers,
   template_expression_identifiers_with_shadow, v_for_alias_identifiers,
 };
-use vue_vet_practice::practice_rules;
 use vue_vet_reactivity::ModuleSource;
-use vue_vet_rules::builtin_rules;
 
 #[derive(Debug, Error)]
 pub enum AnalyzeError {
@@ -30,7 +28,6 @@ pub enum AnalyzeError {
 }
 
 pub struct AnalyzedSfc {
-  pub diagnostics: Vec<Diagnostic>,
   pub facts: SfcFacts,
   /// Preferred script block for cross-module reactivity (`script setup` > `script`).
   pub module_source: Option<ModuleSource>,
@@ -39,52 +36,14 @@ pub struct AnalyzedSfc {
   pub ordinary_module_source: Option<ModuleSource>,
 }
 
-/// Analyze one Vue single-file component.
-///
-/// # Errors
-///
-/// Returns [`AnalyzeError::Parse`] when Vize cannot parse the component or
-/// [`AnalyzeError::Template`] when its template contains a fatal parse error,
-/// or [`AnalyzeError::Script`] when an embedded JavaScript or TypeScript block
-/// cannot be analyzed.
-pub fn analyze_sfc(path: &Path, source: &str) -> Result<Vec<Diagnostic>, AnalyzeError> {
-  analyze_sfc_with_facts(path, source).map(|analysis| analysis.diagnostics)
-}
-
 /// Analyze one Vue SFC and retain its dependency-neutral project facts.
 ///
 /// # Errors
 ///
-/// Returns the same deterministic parse and semantic errors as [`analyze_sfc`].
+/// Returns the same deterministic parse and semantic errors as
+/// [`analyze_sfc_facts`].
 pub fn analyze_sfc_with_facts(path: &Path, source: &str) -> Result<AnalyzedSfc, AnalyzeError> {
-  analyze_sfc_with_environment(path, source, RuleEnvironment::default())
-}
-
-/// Analyze one Vue SFC with project capability information.
-///
-/// # Errors
-///
-/// Returns the same deterministic parse and semantic errors as [`analyze_sfc`].
-pub fn analyze_sfc_with_environment(
-  path: &Path,
-  source: &str,
-  environment: RuleEnvironment,
-) -> Result<AnalyzedSfc, AnalyzeError> {
-  let mut analysis = analyze_sfc_facts_with_environment(path, source)?;
-  analysis.diagnostics = file_analysis_registry().run_with_environment(
-    path,
-    source,
-    &analysis.facts.template,
-    &analysis.facts.script,
-    environment,
-  );
-  Ok(analysis)
-}
-
-fn file_analysis_registry() -> RuleRegistry {
-  let mut rules = builtin_rules();
-  rules.extend(practice_rules());
-  RuleRegistry::new(rules)
+  analyze_sfc_facts(path, source)
 }
 
 /// Extract SFC facts and module identity without running built-in rules.
@@ -94,14 +53,13 @@ fn file_analysis_registry() -> RuleRegistry {
 ///
 /// # Errors
 ///
-/// Returns the same parse / template / script errors as [`analyze_sfc`].
-pub fn analyze_sfc_facts_with_environment(
-  path: &Path,
-  source: &str,
-) -> Result<AnalyzedSfc, AnalyzeError> {
+/// Returns the same parse / template / script errors as [`analyze_sfc_with_facts`].
+pub fn analyze_sfc_facts(path: &Path, source: &str) -> Result<AnalyzedSfc, AnalyzeError> {
   let descriptor = parse_sfc(source, SfcParseOptions::default())
     .map_err(|error| AnalyzeError::Parse(error.message.into()))?;
-  let (module_source, ordinary_module_source) = dual_module_sources(path, source, &descriptor);
+  let (mut module_source, mut ordinary_module_source) =
+    dual_module_sources(path, source, &descriptor);
+  let has_script_setup = descriptor.script_setup.is_some();
   let template = if let Some(template) = descriptor.template {
     // Vize already supplies template content + absolute SFC content offsets.
     extract_template_facts(source, &template.content, template.loc.start)?
@@ -111,22 +69,31 @@ pub fn analyze_sfc_facts_with_environment(
   let mut script = ScriptFacts::default();
   if let Some(block) = descriptor.script {
     // `block.loc.start/end` are absolute offsets into the original SFC source.
-    script.blocks.push(analyze_script(
+    let analysis = analyze_module_source(
       source,
       &block.content,
       block.loc.start,
       block.lang.as_deref().unwrap_or("js"),
       ScriptKind::Script,
-    )?);
+    )?;
+    let target = if has_script_setup { &mut ordinary_module_source } else { &mut module_source };
+    if let Some(module) = target.take() {
+      *target = Some(module.with_prepared_trace(analysis.module_trace));
+    }
+    script.blocks.push(analysis.script_facts);
   }
   if let Some(block) = descriptor.script_setup {
-    script.blocks.push(analyze_script(
+    let analysis = analyze_module_source(
       source,
       &block.content,
       block.loc.start,
       block.lang.as_deref().unwrap_or("js"),
       ScriptKind::Setup,
-    )?);
+    )?;
+    if let Some(module) = module_source.take() {
+      module_source = Some(module.with_prepared_trace(analysis.module_trace));
+    }
+    script.blocks.push(analysis.script_facts);
   }
   // Join Vize template expressions onto Oxc script reactive bindings, then
   // qualify edge `to_id` with the logical file path (graph v8).
@@ -135,12 +102,7 @@ pub fn analyze_sfc_facts_with_environment(
     block.reactivity_graph.join_template_reads(&template);
     block.reactivity_graph.set_module_id(module_id.clone());
   }
-  Ok(AnalyzedSfc {
-    diagnostics: Vec::new(),
-    facts: SfcFacts { template, script },
-    module_source,
-    ordinary_module_source,
-  })
+  Ok(AnalyzedSfc { facts: SfcFacts { template, script }, module_source, ordinary_module_source })
 }
 
 /// Primary (`script setup` preferred) and optional ordinary dual companion.
@@ -150,6 +112,7 @@ fn dual_module_sources(
   descriptor: &SfcDescriptor<'_>,
 ) -> (Option<ModuleSource>, Option<ModuleSource>) {
   let id = path.to_string_lossy().replace('\\', "/");
+  let sfc_source = Arc::<str>::from(sfc_source);
   let setup = descriptor.script_setup.as_ref().map(|block| {
     ModuleSource::sfc_script(
       id.clone(),
@@ -157,7 +120,7 @@ fn dual_module_sources(
       block.lang.as_deref().unwrap_or("js"),
       ScriptKind::Setup,
       block.loc.start,
-      sfc_source,
+      Arc::clone(&sfc_source),
     )
   });
   let ordinary = descriptor.script.as_ref().map(|block| {
@@ -168,7 +131,7 @@ fn dual_module_sources(
       block.lang.as_deref().unwrap_or("js"),
       ScriptKind::Script,
       block.loc.start,
-      sfc_source,
+      Arc::clone(&sfc_source),
     )
   });
   match (setup, ordinary) {
@@ -626,11 +589,24 @@ fn line_column(source: &str, offset: usize) -> (usize, usize) {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use vue_vet_core::{Diagnostic, RuleEnvironment, RuleRegistry};
+  use vue_vet_practice::practice_rules;
+  use vue_vet_rules::builtin_rules;
 
   #[expect(clippy::panic, reason = "an unexpected parser error must fail the test")]
   fn analyze_for_test(path: &Path, source: &str) -> Vec<Diagnostic> {
-    match analyze_sfc(path, source) {
-      Ok(diagnostics) => diagnostics,
+    match analyze_sfc_with_facts(path, source) {
+      Ok(analysis) => {
+        let mut rules = builtin_rules();
+        rules.extend(practice_rules());
+        RuleRegistry::new(rules).run_with_environment(
+          path,
+          source,
+          &analysis.facts.template,
+          &analysis.facts.script,
+          RuleEnvironment::default(),
+        )
+      }
       Err(error) => panic!("analysis unexpectedly failed: {error}"),
     }
   }
@@ -987,9 +963,9 @@ watchEffect(() => { void bag.signal.value })
     if let Some(mut module) = analysis.module_source {
       module.id = "LocalBag.vue".into();
       let files = [ProjectFile {
-        path: PathBuf::from("LocalBag.vue"),
+        path: PathBuf::from("LocalBag.vue").into(),
         source_len: sfc.len(),
-        facts: analysis.facts,
+        facts: analysis.facts.into(),
         module_source: Some(module),
         ordinary_module_source: None,
       }];
@@ -1053,9 +1029,9 @@ watchEffect(() => { void bag.signal.value })
     let analysis = analysis_for_test(Path::new("App.vue"), sfc);
     let files = [
       ProjectFile {
-        path: PathBuf::from("useSignal.ts"),
+        path: PathBuf::from("useSignal.ts").into(),
         source_len: producer.len(),
-        facts: SfcFacts::default(),
+        facts: SfcFacts::default().into(),
         module_source: Some(ModuleSource::standalone(
           "useSignal.ts",
           producer,
@@ -1065,9 +1041,9 @@ watchEffect(() => { void bag.signal.value })
         ordinary_module_source: None,
       },
       ProjectFile {
-        path: PathBuf::from("App.vue"),
+        path: PathBuf::from("App.vue").into(),
         source_len: sfc.len(),
-        facts: analysis.facts,
+        facts: analysis.facts.into(),
         module_source: analysis.module_source,
         ordinary_module_source: None,
       },
@@ -1132,13 +1108,13 @@ const count = ref(0)
     assert_eq!(module.language, "ts");
     assert!(module.source.contains("const count = ref(0)"));
     assert!(module.source_offset > 0, "script body offset must be absolute in the SFC");
-    assert_eq!(module.span_source, source);
+    assert_eq!(module.span_source.as_ref(), source);
     let body = module
       .span_source
       .get(module.source_offset..module.source_offset.saturating_add(module.source.len()));
     assert_eq!(
       body,
-      Some(module.source.as_str()),
+      Some(module.source.as_ref()),
       "extracted script body must be an exact slice of the original SFC at source_offset"
     );
   }
@@ -1164,9 +1140,9 @@ const count = ref(0)
     };
     let files = [
       ProjectFile {
-        path: PathBuf::from("App.vue"),
+        path: PathBuf::from("App.vue").into(),
         source_len: app.len(),
-        facts: analysis.facts,
+        facts: analysis.facts.into(),
         module_source: Some({
           let mut module = module;
           module.id = "App.vue".into();
@@ -1175,9 +1151,9 @@ const count = ref(0)
         ordinary_module_source: None,
       },
       ProjectFile {
-        path: PathBuf::from("composables/useField.ts"),
+        path: PathBuf::from("composables/useField.ts").into(),
         source_len: producer.len(),
-        facts: SfcFacts::default(),
+        facts: SfcFacts::default().into(),
         module_source: Some(ModuleSource::standalone(
           "composables/useField.ts",
           producer,
@@ -1221,9 +1197,9 @@ const count = ref(0)
         panic!("module source missing for {name}");
       };
       files.push(ProjectFile {
-        path: PathBuf::from(name),
+        path: PathBuf::from(name).into(),
         source_len: source.len(),
-        facts: analysis.facts,
+        facts: analysis.facts.into(),
         module_source: Some({
           let mut module = module;
           module.id = name.into();

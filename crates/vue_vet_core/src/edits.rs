@@ -1,10 +1,8 @@
-use std::{
-  error::Error,
-  fmt,
-  path::{Path, PathBuf},
-};
+use std::{error::Error, fmt};
 
 use serde::{Deserialize, Serialize};
+
+use crate::FileId;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -28,7 +26,7 @@ impl ByteRange {
 
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct TextEdit {
-  pub file: PathBuf,
+  pub file: FileId,
   pub range: ByteRange,
   pub replacement: String,
   pub applicability: EditApplicability,
@@ -56,29 +54,20 @@ impl EditPlan {
     }
 
     edits.sort_by(|left, right| {
-      (
-        normalized_path(&left.file),
-        left.range,
-        &left.rule_id,
-        left.applicability,
-        &left.replacement,
-      )
-        .cmp(&(
-          normalized_path(&right.file),
-          right.range,
-          &right.rule_id,
-          right.applicability,
-          &right.replacement,
-        ))
+      (left.file.as_str(), left.range, &left.rule_id, left.applicability, &left.replacement).cmp(&(
+        right.file.as_str(),
+        right.range,
+        &right.rule_id,
+        right.applicability,
+        &right.replacement,
+      ))
     });
 
     for pair in edits.windows(2) {
       let [first, second] = pair else {
         continue;
       };
-      if normalized_path(&first.file) == normalized_path(&second.file)
-        && ranges_conflict(first.range, second.range)
-      {
+      if first.file == second.file && ranges_conflict(first.range, second.range) {
         return Err(EditPlanError::Conflict {
           first: Box::new(first.clone()),
           second: Box::new(second.clone()),
@@ -128,10 +117,6 @@ impl fmt::Display for EditPlanError {
 }
 
 impl Error for EditPlanError {}
-
-fn normalized_path(path: &Path) -> String {
-  path.to_string_lossy().replace('\\', "/")
-}
 
 const fn ranges_conflict(left: ByteRange, right: ByteRange) -> bool {
   let left_end = left.offset.saturating_add(left.length);

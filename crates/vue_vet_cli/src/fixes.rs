@@ -1,5 +1,5 @@
 use std::{
-  collections::BTreeSet,
+  collections::{BTreeMap, BTreeSet},
   fs,
   io::Write,
   path::{Path, PathBuf},
@@ -79,20 +79,21 @@ pub fn execute_safe_edits(
 
   let scope = canonical_scope(root)?;
   let mut resolved_edits = Vec::with_capacity(safe_edits.len());
-  for mut edit in safe_edits {
+  let mut resolved_targets = BTreeMap::new();
+  for edit in safe_edits {
     let target = if edit.file.is_absolute() {
-      canonicalize(&edit.file)?
+      canonicalize(edit.file.as_path())?
     } else if let Some(exact_file) = &scope.exact_file {
       exact_file.clone()
     } else {
-      canonicalize(&scope.boundary.join(&edit.file))?
+      canonicalize(&scope.boundary.join(edit.file.as_path()))?
     };
     if !target.starts_with(&scope.boundary)
       || scope.exact_file.as_ref().is_some_and(|file| file != &target)
     {
       return Err(FixError::OutsideRoot { path: target });
     }
-    edit.file = target;
+    resolved_targets.insert(edit.file.clone(), target);
     resolved_edits.push(edit);
   }
 
@@ -101,8 +102,14 @@ pub fn execute_safe_edits(
   if files.len() > 1 {
     return Err(FixError::MultipleFiles { count: files.len() });
   }
-  let Some(path) = files.first() else {
+  let Some(file) = files.first() else {
     return Ok(FixOutcome::default());
+  };
+  let Some(path) = resolved_targets.get(file) else {
+    return Err(FixError::Io {
+      path: file.to_path_buf(),
+      message: "validated edit target was not retained".into(),
+    });
   };
   let source = fs::read_to_string(path)
     .map_err(|error| FixError::Io { path: path.clone(), message: error.to_string() })?;
@@ -220,7 +227,7 @@ mod tests {
 
   fn safe_edit(file: PathBuf, offset: usize, length: usize) -> TextEdit {
     TextEdit {
-      file,
+      file: file.into(),
       range: ByteRange { offset, length },
       replacement: String::new(),
       applicability: EditApplicability::Safe,

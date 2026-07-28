@@ -209,11 +209,33 @@ plus `{path}#script` (not a single concatenated module).
 
 ## Performance: do not re-serialize the hot path
 
-CLI scan follows oxlint's model (parallel files, sequential seed barrier). Do
-not force single-threaded analysis without a determinism bug, and do not clone
-whole project graphs into every rule when a reference or scoped apply suffices.
-Module re-parse for seed re-trace is accepted cost until a shared semantic arena
-exists; optimize by parallelism first, not by inventing a second IR.
+CLI scan follows oxlint's model (parallel files, coordinated seed resolution).
+Never restore one scoped native thread per module: Oxc semantics are not `Send`,
+and parking thousands of sticky workers exhausts stacks and defeats
+`--threads`. `TraceModulesOptions::max_workers` bounds both phases. The Oxc
+adapter supplies prepared Vue Vet-owned phase-one facts from its file parse;
+unseeded modules reuse that graph. Seeded consumers reparse only when source or
+seed plans change; unchanged final graphs are retained by `ModuleTraceState`.
+Module failures are collected independently so healthy links still resolve.
+The multi-sample 1k/5k synthetic module benchmark guards this scaling model.
+
+Cache lookup and cache-miss analysis must share `WorkspaceInputSnapshot`; do not
+add a pre-hash walk that rereads the same files. Per-file package capabilities
+come from `PackageIndex`, not repeated ancestor I/O. Long-lived sessions retain
+source bytes, Nuxt declaration mappings, facts, raw file diagnostics, per-file
+structural graph partitions, module plans/graphs, and reverse dependencies.
+`apply_changes` updates exact paths in that snapshot; an edit must not trigger a
+fresh workspace walk or rebuild unrelated structural partitions.
+
+## Paths are identities, not suffixes
+
+Discovery is the only boundary that converts `PhysicalPath` to normalized,
+workspace-relative `FileId`. Diagnostics, edits, graph nodes, fingerprints,
+cache/diff inputs, LSP, and reporters compare `FileId` exactly. Never use
+`ends_with` to reconcile paths: `apps/admin/src/App.vue` and
+`apps/customer/src/App.vue` are both valid and suffix matching can select the
+wrong file. Reports keep analyzed source coverage separate from package,
+lockfile, and tsconfig invalidation inputs.
 
 ## EffectScope `.run` requires provenance
 
