@@ -46,9 +46,9 @@ pub struct ModuleSource {
   /// spans are computed against [`Self::source`] (standalone modules).
   #[serde(default)]
   pub span_source: Arc<str>,
-  /// Opaque phase-one facts extracted by the Oxc adapter during its first parse.
+  /// Module semantic IR extracted by the Oxc adapter during its first parse.
   #[serde(skip)]
-  prepared_trace: Option<PreparedModuleTrace>,
+  module_summary: Option<ModuleSummary>,
 }
 
 impl PartialEq for ModuleSource {
@@ -80,7 +80,7 @@ impl ModuleSource {
       kind,
       source_offset: 0,
       span_source: Arc::from(""),
-      prepared_trace: None,
+      module_summary: None,
     }
   }
 
@@ -101,15 +101,21 @@ impl ModuleSource {
       kind,
       source_offset,
       span_source: sfc_source.into(),
-      prepared_trace: None,
+      module_summary: None,
     }
   }
 
-  /// Attach phase-one facts produced from the same Oxc parse as script facts.
+  /// Attach module semantic IR produced from the same Oxc parse as script facts.
   #[must_use]
-  pub fn with_prepared_trace(mut self, prepared_trace: PreparedModuleTrace) -> Self {
-    self.prepared_trace = Some(prepared_trace);
+  pub fn with_module_summary(mut self, module_summary: ModuleSummary) -> Self {
+    self.module_summary = Some(module_summary);
     self
+  }
+
+  /// Compatibility alias for [`Self::with_module_summary`].
+  #[must_use]
+  pub fn with_prepared_trace(self, prepared_trace: PreparedModuleTrace) -> Self {
+    self.with_module_summary(prepared_trace)
   }
 
   fn span_origin(&self) -> &str {
@@ -173,12 +179,22 @@ impl TraceModulesError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TraceModulesOptions {
   /// Maximum native workers used by either tracing phase.
+  ///
+  /// Honored when [`Self::reuse_current_pool`] is `false` by installing a
+  /// dedicated Rayon pool. Session analysis sets `reuse_current_pool` so the
+  /// outer `--threads N` pool is shared instead of nesting a second pool.
   pub max_workers: usize,
+  /// Use the already-installed Rayon pool (or the global pool) without creating
+  /// a nested worker pool. Public callers should leave this `false`.
+  pub reuse_current_pool: bool,
 }
 
 impl Default for TraceModulesOptions {
   fn default() -> Self {
-    Self { max_workers: std::thread::available_parallelism().map_or(1, std::num::NonZero::get) }
+    Self {
+      max_workers: std::thread::available_parallelism().map_or(1, std::num::NonZero::get),
+      reuse_current_pool: false,
+    }
   }
 }
 
@@ -234,12 +250,13 @@ struct ModuleExportFacts {
   injects: Vec<super::InjectSite>,
 }
 
-/// Opaque cross-module facts extracted from an existing Oxc semantic.
+/// Stable module semantic IR extracted from an existing Oxc semantic.
 ///
-/// This is intentionally not serializable: callers store it only for the
-/// current analysis lifecycle, and Oxc nodes never cross the adapter boundary.
+/// Cross-file linking consumes this summary instead of parser ASTs. It is
+/// intentionally not disk-serializable: callers retain it only for the current
+/// analysis lifecycle, and Oxc nodes never cross the adapter boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PreparedModuleTrace {
+pub struct ModuleSummary {
   imports: Vec<ImportSummary>,
   exports: Vec<ExportSummary>,
   locals: BTreeMap<String, ExportState>,
@@ -247,6 +264,9 @@ pub struct PreparedModuleTrace {
   injects: Vec<super::InjectSite>,
   local_graph: ReactivityGraph,
 }
+
+/// Compatibility alias for [`ModuleSummary`].
+pub type PreparedModuleTrace = ModuleSummary;
 
 /// Per-import resolution for one consumer module (`import.local` → export state).
 /// Spans are applied on the worker that still holds the parse.
@@ -299,19 +319,19 @@ impl ModuleSeedPlan {
   }
 }
 
-/// Extract cross-module phase-one facts from a semantic already built by Oxc.
+/// Extract module semantic IR from a semantic already built by Oxc.
 ///
 /// The returned value contains only Vue Vet-owned facts and spans. It can be
-/// attached to [`ModuleSource::with_prepared_trace`] so project tracing does not
+/// attached to [`ModuleSource::with_module_summary`] so project tracing does not
 /// parse the module again unless cross-module seeds require materialization.
 #[must_use]
-pub fn prepare_module_trace(
+pub fn prepare_module_summary(
   semantic: &Semantic<'_>,
   span_source: &str,
   source_offset: usize,
   kind: ScriptKind,
   local_graph: ReactivityGraph,
-) -> PreparedModuleTrace {
+) -> ModuleSummary {
   let imports = collect_imports(semantic);
   let exports = collect_exports(semantic);
   let shape_graph = ReactivityGraph {
@@ -336,7 +356,19 @@ pub fn prepare_module_trace(
     kind,
   );
   let injects = collect_inject_sites(semantic, &imported_bindings, &local_graph.bindings, kind);
-  PreparedModuleTrace { imports, exports, locals, provides, injects, local_graph }
+  ModuleSummary { imports, exports, locals, provides, injects, local_graph }
+}
+
+/// Compatibility alias for [`prepare_module_summary`].
+#[must_use]
+pub fn prepare_module_trace(
+  semantic: &Semantic<'_>,
+  span_source: &str,
+  source_offset: usize,
+  kind: ScriptKind,
+  local_graph: ReactivityGraph,
+) -> PreparedModuleTrace {
+  prepare_module_summary(semantic, span_source, source_offset, kind, local_graph)
 }
 
 /// Traces local and linked reactivity across a resolved module graph.
@@ -375,6 +407,10 @@ pub fn trace_modules_with_options(
 
 /// Trace a module set while retaining healthy cross-module results and reusing
 /// unchanged seeded graphs from `state`.
+///
+/// When [`TraceModulesOptions::reuse_current_pool`] is `false`, installs a
+/// dedicated Rayon pool sized to [`TraceModulesOptions::max_workers`]. Session
+/// analysis should set `reuse_current_pool: true` after installing its own pool.
 #[must_use]
 pub fn trace_modules_incremental_with_options(
   modules: &[ModuleSource],
@@ -400,9 +436,26 @@ pub fn trace_modules_incremental_with_options(
     return report;
   }
 
-  // Reuse the caller's Rayon pool (session `pool.install` or the global pool)
-  // instead of building a nested pool between pipeline phases.
-  let _ = options.max_workers;
+  if options.reuse_current_pool {
+    return trace_modules_incremental_in_current_pool(&unique, links, state, report);
+  }
+
+  let Ok(pool) = rayon::ThreadPoolBuilder::new()
+    .num_threads(options.max_workers.max(1).min(unique.len()))
+    .build()
+  else {
+    report.issues.push(TraceModulesError::WorkerDisconnected);
+    return report;
+  };
+  pool.install(|| trace_modules_incremental_in_current_pool(&unique, links, state, report))
+}
+
+fn trace_modules_incremental_in_current_pool(
+  unique: &[&ModuleSource],
+  links: &[ModuleLink],
+  state: &mut ModuleTraceState,
+  mut report: TraceModulesReport,
+) -> TraceModulesReport {
   let phase_one = unique
     .par_iter()
     .map(|module| analyze_module_phase_one(module))
@@ -528,8 +581,8 @@ struct ModulePhaseOne {
 }
 
 fn analyze_module_phase_one(module: &ModuleSource) -> Result<ModulePhaseOne, TraceModulesError> {
-  if let Some(prepared) = &module.prepared_trace {
-    return Ok(phase_one_from_prepared(module, prepared.clone()));
+  if let Some(summary) = &module.module_summary {
+    return Ok(phase_one_from_summary(module, summary.clone()));
   }
 
   let allocator = Allocator::default();
@@ -558,27 +611,27 @@ fn analyze_module_phase_one(module: &ModuleSource) -> Result<ModulePhaseOne, Tra
     module.kind,
     &empty,
   );
-  let prepared = prepare_module_trace(
+  let summary = prepare_module_summary(
     &semantic,
     module.span_origin(),
     module.source_offset,
     module.kind,
     local_graph,
   );
-  Ok(phase_one_from_prepared(module, prepared))
+  Ok(phase_one_from_summary(module, summary))
 }
 
-fn phase_one_from_prepared(module: &ModuleSource, prepared: PreparedModuleTrace) -> ModulePhaseOne {
+fn phase_one_from_summary(module: &ModuleSource, summary: ModuleSummary) -> ModulePhaseOne {
   ModulePhaseOne {
     facts: ModuleExportFacts {
       id: module.id.clone(),
-      imports: prepared.imports,
-      exports: prepared.exports,
-      locals: prepared.locals,
-      provides: prepared.provides,
-      injects: prepared.injects,
+      imports: summary.imports,
+      exports: summary.exports,
+      locals: summary.locals,
+      provides: summary.provides,
+      injects: summary.injects,
     },
-    local_graph: prepared.local_graph,
+    local_graph: summary.local_graph,
   }
 }
 

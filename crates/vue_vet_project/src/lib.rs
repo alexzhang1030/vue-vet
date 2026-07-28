@@ -119,7 +119,7 @@ pub struct ProjectGraphStats {
   pub seeded_module_reparses: usize,
 }
 
-/// Why `ProjectContext.revision` advanced — drives typed incremental invalidation.
+/// Why a resolver-context epoch advanced — drives typed incremental invalidation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ContextChangeKind {
   PackageManifest,
@@ -129,13 +129,46 @@ pub enum ContextChangeKind {
   SourceMembership,
 }
 
+/// Independent epochs so debounced / batched mutations cannot drop a prior kind.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ContextEpochs {
+  pub package_manifest: u64,
+  pub lockfile: u64,
+  pub tsconfig: u64,
+  pub nuxt_declarations: u64,
+  pub source_membership: u64,
+}
+
+impl ContextEpochs {
+  /// Advance the epoch for `kind`.
+  pub const fn bump(&mut self, kind: ContextChangeKind) {
+    match kind {
+      ContextChangeKind::PackageManifest => {
+        self.package_manifest = self.package_manifest.wrapping_add(1);
+      }
+      ContextChangeKind::Lockfile => {
+        self.lockfile = self.lockfile.wrapping_add(1);
+      }
+      ContextChangeKind::TsConfig => {
+        self.tsconfig = self.tsconfig.wrapping_add(1);
+      }
+      ContextChangeKind::NuxtDeclarations => {
+        self.nuxt_declarations = self.nuxt_declarations.wrapping_add(1);
+      }
+      ContextChangeKind::SourceMembership => {
+        self.source_membership = self.source_membership.wrapping_add(1);
+      }
+    }
+  }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ProjectContext {
   pub revision: u64,
   pub nuxt_component_names: BTreeMap<String, String>,
   pub invalidation_inputs: Vec<String>,
-  /// Most recent typed context change for this revision; `None` for cold discovery.
-  pub last_change: Option<ContextChangeKind>,
+  /// Per-kind epochs consumed by long-lived incremental analysis.
+  pub epochs: ContextEpochs,
 }
 
 impl ProjectContext {
@@ -146,7 +179,7 @@ impl ProjectContext {
       revision: 0,
       nuxt_component_names: load_nuxt_component_dts_names(&root, known),
       invalidation_inputs: resolver_config_inputs(&root),
-      last_change: None,
+      epochs: ContextEpochs::default(),
     }
   }
 }
@@ -181,7 +214,12 @@ pub fn project_context_from_inputs<'a>(
   }
   invalidation_inputs.sort();
   invalidation_inputs.dedup();
-  ProjectContext { revision, nuxt_component_names, invalidation_inputs, last_change: None }
+  ProjectContext {
+    revision,
+    nuxt_component_names,
+    invalidation_inputs,
+    epochs: ContextEpochs::default(),
+  }
 }
 
 impl ProjectGraphState {
@@ -836,7 +874,7 @@ mod tests {
     let _initial = build_project_graph_incremental_with_options(
       project.root(),
       &[first.clone(), second.clone()],
-      TraceModulesOptions { max_workers: 1 },
+      TraceModulesOptions { max_workers: 1, ..Default::default() },
       &context,
       &mut state,
     );
@@ -845,7 +883,7 @@ mod tests {
     let _unchanged = build_project_graph_incremental_with_options(
       project.root(),
       &[first.clone(), second],
-      TraceModulesOptions { max_workers: 1 },
+      TraceModulesOptions { max_workers: 1, ..Default::default() },
       &context,
       &mut state,
     );
@@ -856,7 +894,7 @@ mod tests {
     let _changed = build_project_graph_incremental_with_options(
       project.root(),
       &[first, changed],
-      TraceModulesOptions { max_workers: 1 },
+      TraceModulesOptions { max_workers: 1, ..Default::default() },
       &context,
       &mut state,
     );

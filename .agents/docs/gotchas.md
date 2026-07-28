@@ -239,10 +239,25 @@ snapshots outside the lock and publishes only if the captured revision still
 matches. Keep the barrier regression test when changing this lifecycle.
 
 Resolver inputs are semantic invalidation, not only structural-cache inputs.
-`ProjectContext.last_change` carries a typed `ContextChangeKind`: tsconfig and
-lockfile still invalidate all source consumers; package-manifest changes rely on
-`RuleEnvironment` cache mismatch; Nuxt declarations invalidate Vue sources.
-Incremental-vs-clean tests cover all four input classes.
+`ProjectContext.epochs` stores independent counters per `ContextChangeKind` so
+consecutive mutations before `analyze_affected` cannot drop an earlier kind.
+Package manifests participate in module resolution (`imports`/`exports`/…), so
+they invalidate all source consumers — not only `RuleEnvironment` capability
+keys. File-rule caches also compare the consumed final module graphs before
+reuse. Incremental-vs-clean tests cover package capability, package imports,
+tsconfig, lockfile, Nuxt declarations, and consecutive mixed context mutations.
+
+`TraceModulesOptions::max_workers` must install a dedicated pool for public
+callers. Only session analysis sets `reuse_current_pool: true` after installing
+its outer `--threads` pool; never ignore `max_workers` for the standalone API.
+
+File-rule diagnostic reuse must compare a `FileRuleInputKey` covering source,
+`RuleEnvironment`, and the final primary/ordinary `ReactivityGraph`s. Never
+reuse diagnostics from source+environment equality alone when the linked module
+graph may have changed. Do not `serde_digest` full graphs on the hot path —
+prefer Arc content equality (or a future trace-time digest). Do not invent a
+unified template/script AST IR; keep `ModuleSummary` as the cross-file semantic
+boundary.
 
 LSP positions are UTF-16 code units via `vue_vet_core::LineIndex`. Never publish
 byte columns to the editor. Document identity must go through

@@ -12,7 +12,7 @@ use vue_vet_core::{
 
 use super::{
   ModuleLink, ModuleReactivity, ModuleSource, ModuleTraceState, TraceModulesOptions,
-  prepare_module_trace, trace_modules, trace_modules_incremental_with_options, trace_reactivity,
+  prepare_module_summary, trace_modules, trace_modules_incremental_with_options, trace_reactivity,
 };
 
 fn trace(
@@ -1011,7 +1011,7 @@ fn partial_module_failure_preserves_healthy_cross_module_links() {
   let report = trace_modules_incremental_with_options(
     &modules,
     &links,
-    TraceModulesOptions { max_workers: 2 },
+    TraceModulesOptions { max_workers: 2, ..Default::default() },
     &mut state,
   );
   assert!(
@@ -1057,7 +1057,7 @@ fn incremental_module_trace_reuses_unchanged_seeded_graphs() {
   let first = trace_modules_incremental_with_options(
     &modules,
     &links,
-    TraceModulesOptions { max_workers: 2 },
+    TraceModulesOptions { max_workers: 2, ..Default::default() },
     &mut state,
   );
   assert!(first.issues.is_empty());
@@ -1065,7 +1065,7 @@ fn incremental_module_trace_reuses_unchanged_seeded_graphs() {
   let second = trace_modules_incremental_with_options(
     &modules,
     &links,
-    TraceModulesOptions { max_workers: 2 },
+    TraceModulesOptions { max_workers: 2, ..Default::default() },
     &mut state,
   );
   assert!(second.issues.is_empty());
@@ -2221,9 +2221,9 @@ fn prepared_phase_one_facts_avoid_an_unseeded_second_parse() {
   let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
   assert!(built.errors.is_empty());
   let local_graph = trace_reactivity(&built.semantic, source, 0, ScriptKind::Script);
-  let prepared = prepare_module_trace(&built.semantic, source, 0, ScriptKind::Script, local_graph);
+  let summary = prepare_module_summary(&built.semantic, source, 0, ScriptKind::Script, local_graph);
   let mut module = ModuleSource::standalone("count.ts", source, "ts", ScriptKind::Script)
-    .with_prepared_trace(prepared);
+    .with_module_summary(summary);
 
   // If phase one parsed again this deliberate mutation would fail. No seeds
   // means the retained local graph is sufficient.

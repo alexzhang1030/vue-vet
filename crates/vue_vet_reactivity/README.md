@@ -101,14 +101,18 @@ assert_eq!(graphs.len(), 2);
 
 Link resolution is the caller's job (Vue Vet's project graph supplies it). This
 crate does not open the filesystem or resolve bare specifiers.
-Use `trace_modules_with_options` and `TraceModulesOptions { max_workers }` when
-the caller needs an explicit concurrency bound. Vue Vet's Oxc adapter attaches
-prepared phase-one facts from its file parse, so unseeded modules are not parsed
-again; only consumers that receive cross-module seeds reparse for symbol
-materialization. Long-lived callers should retain `ModuleTraceState` and call
-`trace_modules_incremental_with_options`: unchanged source + seed-plan pairs
-reuse their final graph, and the returned report scopes errors per module while
-preserving healthy cross-module results.
+Use `trace_modules_with_options` and
+`TraceModulesOptions { max_workers, ..Default::default() }` when the caller
+needs an explicit concurrency bound (a dedicated Rayon pool is installed).
+Long-lived session analysis sets `reuse_current_pool: true` so it shares the
+outer `--threads` pool instead of nesting another. Vue Vet's Oxc adapter attaches
+a `ModuleSummary` (module semantic IR) from its file parse, so unseeded modules
+are not parsed again; only consumers that receive cross-module seeds reparse for
+symbol materialization. Attach summaries with
+`ModuleSource::with_module_summary`. Long-lived callers should retain
+`ModuleTraceState` and call `trace_modules_incremental_with_options`: unchanged
+source + seed-plan pairs reuse their final graph, and the returned report scopes
+errors per module while preserving healthy cross-module results.
 
 ## What the graph contains
 

@@ -57,14 +57,18 @@ vue-vet CLI
   and commits only when the same revision is still current. Input mutations are
   transactional (copy-then-commit) and advance the revision in the same critical
   section before releasing that lock.
-- **Resolver-context parity** — `AnalysisState` records the consumed
-  `ProjectContext` revision and `ContextChangeKind`. Tsconfig/lockfile changes
-  still invalidate all source consumers; package-manifest changes rely on
-  per-file `RuleEnvironment` cache keys; Nuxt declaration changes invalidate Vue
-  sources only. Incremental diagnostics remain equal to a clean scan for all four
-  input classes.
-- **Shared Rayon pool** — session `--threads N` installs one pool for file-level
-  analysis and module tracing; tracing does not build a nested pool between phases.
+- **Resolver-context parity** — `ProjectContext.epochs` tracks independent
+  counters for package / lockfile / tsconfig / Nuxt / source-membership so
+  debounced mutations cannot drop a prior kind. Package, lockfile, tsconfig, and
+  source-membership changes invalidate all source consumers (package.json also
+  drives module resolution via `imports`/`exports`). Nuxt declarations invalidate
+  Vue sources. File-rule diagnostic reuse additionally requires matching primary
+  and ordinary final module graphs, so resolution-driven graph changes cannot
+  keep stale diagnostics. Incremental results remain equal to a clean scan.
+- **Shared Rayon pool** — session `--threads N` installs one pool and passes
+  `TraceModulesOptions { reuse_current_pool: true }`. Standalone
+  `trace_modules_with_options` still installs a dedicated pool sized to
+  `max_workers`.
 - **Analysis state preparation** — each run seeds a candidate from the previous
   committed `ProjectGraphState` and looks up file facts/diagnostics by reference
   instead of cloning the full file maps up front.
@@ -75,6 +79,30 @@ vue-vet CLI
   module results are sorted by module id after parallel re-trace.
 - **Still single-process Rust** — no JS rule host; adapters stay behind Vue Vet facts.
   Facts remain the stable rule surface; the pass walks those facts, not Oxc/Vize nodes.
+
+### Semantic IR layers
+
+Vue Vet keeps small domain IRs rather than a unified AST:
+
+```text
+Parser IR (Vize AST / Oxc Semantic)     — short-lived, never cached across adapters
+        ↓
+File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
+        ↓
+Module Semantic IR (ModuleSummary)     — cross-file seeds; lifecycle-scoped
+        ↓
+Project Relation IR (ProjectGraph / ReactivityGraph / PropFlow)
+        ↓
+Diagnostics IR (Diagnostic / EditPlan)
+```
+
+`ModuleSummary` (formerly the opaque `PreparedModuleTrace`) is the formal
+cross-module boundary: imports, exports, provides/injects, local reactivity, and
+no Oxc/Vize nodes. Session file-rule reuse is keyed by `FileRuleInputKey`:
+source and `RuleEnvironment` via `content_digest` / `serde_digest`, and final
+primary/ordinary module graphs via in-memory `Arc` content equality (avoid
+re-serializing full graphs on every file). Rule-level semantic views
+(`EffectModel`, …) are deferred until multiple rules repeat the same derivation.
 
 `no-v-html` remains the reference AST-backed built-in rule. Phase 2 adds the Oxc
 adapter while keeping both dependency ASTs behind Vue Vet-owned facts.

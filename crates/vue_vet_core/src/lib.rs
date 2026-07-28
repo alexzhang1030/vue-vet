@@ -9,10 +9,12 @@ use std::{fmt::Write, path::Path};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+mod digest;
 mod edits;
 mod identity;
 mod line_index;
 
+pub use digest::{content_digest, serde_digest};
 pub use edits::{ByteRange, EditApplicability, EditPlan, EditPlanError, TextEdit};
 pub use identity::{FileId, ModuleId, PhysicalPath, WorkspaceRoot};
 pub use line_index::LineIndex;
@@ -1022,7 +1024,7 @@ impl VueVersion {
 ///
 /// Stable Vue Vet-owned surface: rules see version/package names only, never
 /// package-manager state or raw manifests.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct RuleEnvironment {
   pub vue_version: Option<VueVersion>,
   /// Sorted unique dependency names from nearest package.json dependency fields.

@@ -19,7 +19,7 @@ use vue_vet_core::{
   ScriptBindingFact, ScriptBlockFacts, ScriptCallFact, ScriptDestructureFact, ScriptImportFact,
   ScriptKind, ScriptMemberWriteFact, SourceSpan,
 };
-use vue_vet_reactivity::{PreparedModuleTrace, prepare_module_trace, trace_reactivity};
+use vue_vet_reactivity::{ModuleSummary, prepare_module_summary, trace_reactivity};
 
 #[derive(Debug, Error)]
 pub enum AnalyzeScriptError {
@@ -35,7 +35,7 @@ pub enum AnalyzeScriptError {
 #[derive(Clone, Debug)]
 pub struct ModuleAnalysis {
   pub script_facts: ScriptBlockFacts,
-  pub module_trace: PreparedModuleTrace,
+  pub module_trace: ModuleSummary,
 }
 
 /// Analyze one extracted Vue SFC script block and map all facts to original
@@ -204,7 +204,7 @@ pub fn analyze_module_source(
 
   let reactivity_graph = trace_reactivity(&semantic, sfc_source, script_offset, kind);
   let module_trace =
-    prepare_module_trace(&semantic, sfc_source, script_offset, kind, reactivity_graph.clone());
+    prepare_module_summary(&semantic, sfc_source, script_offset, kind, reactivity_graph.clone());
 
   imports.sort_by_key(|fact| fact.span.offset);
   calls.sort_by_key(|fact| fact.span.offset);
