@@ -75,10 +75,13 @@ vue-vet CLI
   Standalone `trace_modules_with_options` still installs a dedicated pool sized to
   `max_workers`.
 - **Analysis state preparation** — each run seeds a candidate from the previous
-  committed state, shares `ProjectGraphState` via `Arc` (copy-on-write on mutate),
-  and looks up file facts/diagnostics by reference instead of cloning maps up front.
-  `ModuleSummary` holds `Arc` local graphs; export resolution uses a worklist rather
-  than cloning the full resolved map each fixed-point round.
+  committed state, shares `ProjectGraphState` and file/diagnostic maps via `Arc`
+  (copy-on-write / `share_from` on cache hit), and reuses `Arc<AnalyzedCandidate>`
+  instead of deep-cloning per-file IR. `ModuleSummary` / `ModuleReactivity.graph` /
+  `ScriptBlockFacts.reactivity_graph` share graphs by `Arc`; mutations use
+  `Arc::make_mut`. Export resolution uses a worklist rather than cloning the full
+  resolved map each fixed-point round. Session input updates fork the snapshot Arc
+  once (`Arc::make_mut` + in-place apply), never clone-then-clone.
 - **Partial module outcomes** — parse/link failures are scoped
   `AnalysisIssue`s. Healthy modules still reach the cross-module fixed point;
   one bad module never forces every other module back to an isolated local graph.

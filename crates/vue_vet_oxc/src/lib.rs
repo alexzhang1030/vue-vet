@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+  collections::{BTreeMap, BTreeSet},
+  sync::Arc,
+};
 
 use oxc_allocator::Allocator;
 use oxc_ast::{
@@ -206,9 +209,14 @@ pub fn analyze_module_source(
     }
   }
 
-  let reactivity_graph = trace_reactivity(&semantic, sfc_source, script_offset, kind);
-  let module_trace =
-    prepare_module_summary(&semantic, sfc_source, script_offset, kind, reactivity_graph.clone());
+  let reactivity_graph = Arc::new(trace_reactivity(&semantic, sfc_source, script_offset, kind));
+  let module_trace = prepare_module_summary(
+    &semantic,
+    sfc_source,
+    script_offset,
+    kind,
+    Arc::clone(&reactivity_graph),
+  );
 
   imports.sort_by_key(|fact| fact.span.offset);
   calls.sort_by_key(|fact| fact.span.offset);

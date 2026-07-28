@@ -958,7 +958,7 @@ pub struct ScriptBlockFacts {
   pub calls: Vec<ScriptCallFact>,
   pub member_writes: Vec<ScriptMemberWriteFact>,
   pub destructures: Vec<ScriptDestructureFact>,
-  pub reactivity_graph: ReactivityGraph,
+  pub reactivity_graph: std::sync::Arc<ReactivityGraph>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -975,13 +975,17 @@ pub struct SfcFacts {
 impl SfcFacts {
   /// Replace the preferred script block's reactivity graph with a project-linked
   /// module graph (usually after cross-file seed linking). Prefers `script setup`.
-  pub fn apply_module_reactivity(&mut self, graph: ReactivityGraph) {
+  pub fn apply_module_reactivity(&mut self, graph: std::sync::Arc<ReactivityGraph>) {
     self.apply_module_reactivity_for(ScriptKind::Setup, graph);
   }
 
   /// Apply a project-linked graph onto the script block of the given kind.
   /// Falls back to the first block when the preferred kind is absent.
-  pub fn apply_module_reactivity_for(&mut self, kind: ScriptKind, graph: ReactivityGraph) {
+  pub fn apply_module_reactivity_for(
+    &mut self,
+    kind: ScriptKind,
+    graph: std::sync::Arc<ReactivityGraph>,
+  ) {
     if let Some(block) = self.script.blocks.iter_mut().find(|block| block.kind == kind) {
       block.reactivity_graph = graph;
       return;

@@ -413,13 +413,16 @@ impl ProjectSession {
     apply_overlay_map(&mut next_inputs.overlays, &changes);
     if let Some(snapshot) = &mut next_inputs.snapshot {
       let previous_epochs = snapshot.project_context.epochs;
-      let mut next_snapshot = (**snapshot).clone();
-      let affected = next_snapshot.apply_changes(self.root.as_path(), &self.config, &changes)?;
-      if epochs_invalidate_all_sources(&previous_epochs, &next_snapshot.project_context.epochs) {
+      // `make_mut` clones once when `core.inputs` still shares the Arc.
+      let affected = Arc::make_mut(snapshot).apply_changes_in_place(
+        self.root.as_path(),
+        &self.config,
+        &changes,
+      )?;
+      if epochs_invalidate_all_sources(&previous_epochs, &snapshot.project_context.epochs) {
         core.pending.invalidate_all_sources = true;
       }
       core.pending.merge_files(affected);
-      *snapshot = Arc::new(next_snapshot);
     } else {
       core.pending.invalidate_all_sources = true;
     }
@@ -528,13 +531,15 @@ impl ProjectSession {
     };
     if let Some(snapshot) = &mut next_inputs.snapshot {
       let previous_epochs = snapshot.project_context.epochs;
-      let mut next_snapshot = (**snapshot).clone();
-      let affected = next_snapshot.apply_changes(self.root.as_path(), &self.config, &changes)?;
-      if epochs_invalidate_all_sources(&previous_epochs, &next_snapshot.project_context.epochs) {
+      let affected = Arc::make_mut(snapshot).apply_changes_in_place(
+        self.root.as_path(),
+        &self.config,
+        &changes,
+      )?;
+      if epochs_invalidate_all_sources(&previous_epochs, &snapshot.project_context.epochs) {
         core.pending.invalidate_all_sources = true;
       }
       core.pending.merge_files(affected);
-      *snapshot = Arc::new(next_snapshot);
     } else {
       core.pending.invalidate_all_sources = true;
     }

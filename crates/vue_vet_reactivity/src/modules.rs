@@ -107,8 +107,8 @@ impl ModuleSource {
 
   /// Attach module semantic IR produced from the same Oxc parse as script facts.
   #[must_use]
-  pub fn with_module_summary(mut self, module_summary: ModuleSummary) -> Self {
-    self.module_summary = Some(std::sync::Arc::new(module_summary));
+  pub fn with_module_summary(mut self, module_summary: impl Into<Arc<ModuleSummary>>) -> Self {
+    self.module_summary = Some(module_summary.into());
     self
   }
 
@@ -138,7 +138,7 @@ pub struct ModuleLink {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ModuleReactivity {
   pub id: ModuleId,
-  pub graph: ReactivityGraph,
+  pub graph: std::sync::Arc<ReactivityGraph>,
 }
 
 /// Failures while parsing, linking, or tracing a module set.
@@ -236,18 +236,12 @@ enum ExportState {
   Ambiguous,
 }
 
-/// Export-resolution payload only — no source body, no reactivity graph.
-/// Moved (not cloned) from workers to the coordinator across the seed barrier.
+/// Export-resolution payload only — no source body, no owned reactivity graph.
+/// Shares [`ModuleSummary`] across the seed barrier instead of cloning its vectors.
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ModuleExportFacts {
   id: ModuleId,
-  imports: Vec<ImportSummary>,
-  exports: Vec<ExportSummary>,
-  locals: BTreeMap<String, ExportState>,
-  /// `provide(key, value)` sites with optional known value shapes.
-  provides: Vec<super::ProvideSite>,
-  /// `const local = inject(key)` sites for unique-key seed resolution.
-  injects: Vec<super::InjectSite>,
+  summary: Arc<ModuleSummary>,
 }
 
 /// Stable module semantic IR extracted from an existing Oxc semantic.
@@ -330,8 +324,9 @@ pub fn prepare_module_summary(
   span_source: &str,
   source_offset: usize,
   kind: ScriptKind,
-  local_graph: ReactivityGraph,
+  local_graph: impl Into<Arc<ReactivityGraph>>,
 ) -> ModuleSummary {
+  let local_graph = local_graph.into();
   let imports = collect_imports(semantic);
   let exports = collect_exports(semantic);
   let shape_graph = ReactivityGraph {
@@ -356,14 +351,7 @@ pub fn prepare_module_summary(
     kind,
   );
   let injects = collect_inject_sites(semantic, &imported_bindings, &local_graph.bindings, kind);
-  ModuleSummary {
-    imports,
-    exports,
-    locals,
-    provides,
-    injects,
-    local_graph: std::sync::Arc::new(local_graph),
-  }
+  ModuleSummary { imports, exports, locals, provides, injects, local_graph }
 }
 
 /// Compatibility alias for [`prepare_module_summary`].
@@ -373,7 +361,7 @@ pub fn prepare_module_trace(
   span_source: &str,
   source_offset: usize,
   kind: ScriptKind,
-  local_graph: ReactivityGraph,
+  local_graph: impl Into<Arc<ReactivityGraph>>,
 ) -> PreparedModuleTrace {
   prepare_module_summary(semantic, span_source, source_offset, kind, local_graph)
 }
@@ -515,12 +503,12 @@ fn trace_modules_incremental_in_current_pool(
         };
       }
       let seeded = !plan.is_empty();
-      match trace_module_phase_two(module, local_graph.clone(), &plan) {
+      match trace_module_phase_two(module, Arc::clone(&local_graph), &plan) {
         Ok(reactivity) => {
           PhaseTwoOutcome::Traced { source: module.clone(), plan, reactivity, seeded }
         }
         Err(error) => {
-          local_graph.set_module_id(module.id.clone());
+          Arc::make_mut(&mut local_graph).set_module_id(module.id.clone());
           PhaseTwoOutcome::Partial {
             source: module.clone(),
             plan,
@@ -584,7 +572,7 @@ enum PhaseTwoOutcome {
 
 struct ModulePhaseOne {
   facts: ModuleExportFacts,
-  local_graph: ReactivityGraph,
+  local_graph: Arc<ReactivityGraph>,
 }
 
 fn analyze_module_phase_one(module: &ModuleSource) -> Result<ModulePhaseOne, TraceModulesError> {
@@ -611,44 +599,37 @@ fn analyze_module_phase_one(module: &ModuleSource) -> Result<ModulePhaseOne, Tra
   let semantic = built.semantic;
 
   let empty = TraceSeeds::default();
-  let local_graph = trace_reactivity_seeded(
+  let local_graph = Arc::new(trace_reactivity_seeded(
     &semantic,
     module.span_origin(),
     module.source_offset,
     module.kind,
     &empty,
-  );
-  let summary = prepare_module_summary(
+  ));
+  let summary = Arc::new(prepare_module_summary(
     &semantic,
     module.span_origin(),
     module.source_offset,
     module.kind,
-    local_graph,
-  );
+    Arc::clone(&local_graph),
+  ));
   Ok(phase_one_from_summary(module, &summary))
 }
 
-fn phase_one_from_summary(module: &ModuleSource, summary: &ModuleSummary) -> ModulePhaseOne {
+fn phase_one_from_summary(module: &ModuleSource, summary: &Arc<ModuleSummary>) -> ModulePhaseOne {
   ModulePhaseOne {
-    facts: ModuleExportFacts {
-      id: module.id.clone(),
-      imports: summary.imports.clone(),
-      exports: summary.exports.clone(),
-      locals: summary.locals.clone(),
-      provides: summary.provides.clone(),
-      injects: summary.injects.clone(),
-    },
-    local_graph: std::sync::Arc::unwrap_or_clone(std::sync::Arc::clone(&summary.local_graph)),
+    facts: ModuleExportFacts { id: module.id.clone(), summary: Arc::clone(summary) },
+    local_graph: Arc::clone(&summary.local_graph),
   }
 }
 
 fn trace_module_phase_two(
   module: &ModuleSource,
-  mut local_graph: ReactivityGraph,
+  mut local_graph: Arc<ReactivityGraph>,
   plan: &ModuleSeedPlan,
 ) -> Result<ModuleReactivity, TraceModulesError> {
   if plan.is_empty() {
-    local_graph.set_module_id(module.id.clone());
+    Arc::make_mut(&mut local_graph).set_module_id(module.id.clone());
     return Ok(ModuleReactivity { id: module.id.clone(), graph: local_graph });
   }
 
@@ -678,7 +659,7 @@ fn trace_module_phase_two(
     &seeds,
   );
   graph.set_module_id(module.id.clone());
-  Ok(ModuleReactivity { id: module.id.clone(), graph })
+  Ok(ModuleReactivity { id: module.id.clone(), graph: Arc::new(graph) })
 }
 
 fn source_type(module: &ModuleSource) -> Result<SourceType, TraceModulesError> {
@@ -1175,11 +1156,11 @@ fn resolve_exports(
     facts.keys().map(|id| (id.clone(), BTreeMap::new())).collect::<BTreeMap<_, _>>();
 
   for (id, module_facts) in facts {
-    for export in &module_facts.exports {
+    for export in &module_facts.summary.exports {
       let ExportSummary::Local { local, exported } = export else {
         continue;
       };
-      if let Some(state) = module_facts.locals.get(local) {
+      if let Some(state) = module_facts.summary.locals.get(local) {
         insert_export(&mut resolved, id, exported, state.clone());
       }
     }
@@ -1195,6 +1176,7 @@ fn resolve_exports(
   let mut queued = BTreeSet::new();
   for (id, module_facts) in facts {
     if module_facts
+      .summary
       .exports
       .iter()
       .any(|export| matches!(export, ExportSummary::Reexport { .. } | ExportSummary::Star { .. }))
@@ -1210,7 +1192,7 @@ fn resolve_exports(
       continue;
     };
     let mut changed = false;
-    for export in &module_facts.exports {
+    for export in &module_facts.summary.exports {
       match export {
         ExportSummary::Local { .. } => {}
         ExportSummary::Reexport { source, imported, exported } => {
@@ -1292,7 +1274,7 @@ fn seed_plan_for(
   links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
 ) -> ImportSeedPlan {
   let mut plan = ImportSeedPlan::new();
-  for import in &facts.imports {
+  for import in &facts.summary.imports {
     if import.imported == "*" {
       continue;
     }
@@ -1316,7 +1298,7 @@ fn global_provide_index(
 ) -> BTreeMap<super::InjectionKey, Vec<ProvideOffer>> {
   let mut all = Vec::new();
   for module in facts.values() {
-    all.extend(module.provides.iter().cloned());
+    all.extend(module.summary.provides.iter().cloned());
   }
   provide_offer_index(&all)
 }
@@ -1327,7 +1309,7 @@ fn inject_seed_plan(
   provide_index: &BTreeMap<super::InjectionKey, Vec<ProvideOffer>>,
 ) -> BTreeMap<String, ProvideOffer> {
   let mut plan = BTreeMap::new();
-  for inject in &facts.injects {
+  for inject in &facts.summary.injects {
     let Some(offer) = resolve_inject_offer(provide_index, inject) else {
       continue;
     };

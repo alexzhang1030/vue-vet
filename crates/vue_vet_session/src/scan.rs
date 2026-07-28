@@ -53,7 +53,7 @@ pub fn analyze_snapshot(
     match store.load(&key) {
       // Preserve committed incremental state on hit — do not clear file/module IR.
       CacheLookup::Hit(payload) => {
-        *state = previous.clone();
+        *state = AnalysisState::share_from(previous);
         (payload.summary, payload.graph, "hit", Vec::new())
       }
       CacheLookup::Miss => fill_cache(

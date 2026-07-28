@@ -115,8 +115,9 @@ fn analyze_sfc_facts_inner(path: &Path, source: &str) -> Result<AnalyzedSfc, Ana
   // qualify edge `to_id` with the logical file path (graph v8).
   let module_id = path.to_string_lossy().replace('\\', "/");
   for block in &mut script.blocks {
-    block.reactivity_graph.join_template_reads(&template);
-    block.reactivity_graph.set_module_id(module_id.clone());
+    let graph = Arc::make_mut(&mut block.reactivity_graph);
+    graph.join_template_reads(&template);
+    graph.set_module_id(module_id.clone());
   }
   Ok(AnalyzedSfc { facts: SfcFacts { template, script }, module_source, ordinary_module_source })
 }

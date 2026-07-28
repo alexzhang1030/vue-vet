@@ -268,6 +268,12 @@ must return the last snapshot without re-entering the pipeline.
 Export resolution must not clone the entire resolved-export map each fixed-point
 round — use a worklist over reverse re-export users.
 
+Deep `.clone()` of reactivity graphs, analyzed candidates, or workspace snapshots
+is a regress on the incremental path. Share with `Arc`, mutate with
+`Arc::make_mut`, and restore cache hits with `AnalysisState::share_from`. Session
+overlay updates must not double-clone `WorkspaceInputSnapshot` (fork once via
+`Arc::make_mut`, then `apply_changes_in_place`).
+
 LSP positions are UTF-16 code units via `vue_vet_core::LineIndex`. Never publish
 byte columns to the editor. Document identity must go through
 `ProjectSession::file_id_for_path` rather than ad-hoc `strip_prefix`.

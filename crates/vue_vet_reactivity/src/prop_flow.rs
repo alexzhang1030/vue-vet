@@ -1,6 +1,6 @@
 //! Cross-file parent `:prop` → child `props.prop` edges (under-approx).
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use vue_vet_core::{
   ReactiveBindingKind, ReactiveDependencyEdge, ReactiveDependencyKind, ReactivityGraph, SourceSpan,
@@ -59,8 +59,9 @@ pub fn join_prop_flows(children: &mut [ModuleReactivity], sites: &[PropFlowSite<
     let Some(child) = children.get_mut(child_idx) else {
       continue;
     };
-    child.graph.edges.append(&mut new_edges);
-    child.graph.edges.sort_by(|left, right| {
+    let graph = Arc::make_mut(&mut child.graph);
+    graph.edges.append(&mut new_edges);
+    graph.edges.sort_by(|left, right| {
       (left.kind, left.from.as_str(), left.to.as_str(), left.property.as_deref(), left.span.offset)
         .cmp(&(
           right.kind,
@@ -70,7 +71,7 @@ pub fn join_prop_flows(children: &mut [ModuleReactivity], sites: &[PropFlowSite<
           right.span.offset,
         ))
     });
-    child.graph.edges.dedup_by(|left, right| {
+    graph.edges.dedup_by(|left, right| {
       left.from == right.from
         && left.to == right.to
         && left.property == right.property
@@ -225,7 +226,8 @@ mod tests {
       }],
       ..ReactivityGraph::default()
     };
-    let mut children = vec![ModuleReactivity { id: "Child.vue".into(), graph: child_graph }];
+    let mut children =
+      vec![ModuleReactivity { id: "Child.vue".into(), graph: Arc::new(child_graph) }];
     join_prop_flows(
       &mut children,
       &[PropFlowSite {
@@ -318,7 +320,8 @@ mod tests {
       }],
       ..ReactivityGraph::default()
     };
-    let mut children = vec![ModuleReactivity { id: "Child.vue".into(), graph: child_graph }];
+    let mut children =
+      vec![ModuleReactivity { id: "Child.vue".into(), graph: Arc::new(child_graph) }];
     join_prop_flows(
       &mut children,
       &[PropFlowSite {
@@ -387,7 +390,8 @@ mod tests {
       }],
       ..ReactivityGraph::default()
     };
-    let mut children = vec![ModuleReactivity { id: "Child.vue".into(), graph: child_graph }];
+    let mut children =
+      vec![ModuleReactivity { id: "Child.vue".into(), graph: Arc::new(child_graph) }];
     join_prop_flows(
       &mut children,
       &[PropFlowSite {
@@ -454,7 +458,8 @@ mod tests {
       }],
       ..ReactivityGraph::default()
     };
-    let mut children = vec![ModuleReactivity { id: "Child.vue".into(), graph: child_graph }];
+    let mut children =
+      vec![ModuleReactivity { id: "Child.vue".into(), graph: Arc::new(child_graph) }];
     join_prop_flows(
       &mut children,
       &[PropFlowSite {
@@ -528,7 +533,8 @@ mod tests {
       }],
       ..ReactivityGraph::default()
     };
-    let mut children = vec![ModuleReactivity { id: "Child.vue".into(), graph: child_graph }];
+    let mut children =
+      vec![ModuleReactivity { id: "Child.vue".into(), graph: Arc::new(child_graph) }];
     join_prop_flows(
       &mut children,
       &[PropFlowSite {

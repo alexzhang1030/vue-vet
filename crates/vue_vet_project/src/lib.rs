@@ -282,16 +282,16 @@ pub fn build_project_graph_with_options(
 }
 
 #[must_use]
-pub fn build_project_graph_incremental_with_options(
+pub fn build_project_graph_incremental_with_options<'a>(
   root: &Path,
-  files: &[ProjectFile],
+  files: impl IntoIterator<Item = &'a ProjectFile>,
   trace_options: TraceModulesOptions,
   project_context: &ProjectContext,
   state: &mut ProjectGraphState,
 ) -> ProjectGraph {
   state.last_stats = ProjectGraphStats::default();
   let root = normalize_project_root(root);
-  let mut ordered = files.iter().collect::<Vec<_>>();
+  let mut ordered = files.into_iter().collect::<Vec<_>>();
   ordered.sort_by_key(|file| normalized_path(file.path.as_path()));
   let known =
     ordered.iter().map(|file| normalized_path(file.path.as_path())).collect::<BTreeSet<_>>();
@@ -422,13 +422,13 @@ pub fn build_project_graph_incremental_with_options(
     .collect::<BTreeMap<_, _>>();
   for module in &mut module_reactivity {
     if let Some(template) = templates.get(module.id.as_str()) {
-      module.graph.join_template_reads(template);
+      std::sync::Arc::make_mut(&mut module.graph).join_template_reads(template);
     }
   }
   // Static parent `:prop="binding"` → child `props.prop` edges (under-approx).
   let graph_snapshots = module_reactivity
     .iter()
-    .map(|module| (module.id.clone(), module.graph.clone()))
+    .map(|module| (module.id.clone(), std::sync::Arc::clone(&module.graph)))
     .collect::<BTreeMap<_, _>>();
   let prop_sites = edges
     .iter()
@@ -810,7 +810,7 @@ mod tests {
           .collect(),
         member_writes: Vec::new(),
         destructures: Vec::new(),
-        reactivity_graph: vue_vet_core::ReactivityGraph::default(),
+        reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
       }],
     };
     let template = TemplateFacts {
@@ -1233,7 +1233,7 @@ export const LazyButton: LazyComponent<typeof import("../components/base/Button.
             calls: Vec::new(),
             member_writes: Vec::new(),
             destructures: Vec::new(),
-            reactivity_graph: vue_vet_core::ReactivityGraph::default(),
+            reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
           }],
         },
       }
