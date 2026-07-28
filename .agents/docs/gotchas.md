@@ -274,6 +274,11 @@ is a regress on the incremental path. Share with `Arc`, mutate with
 overlay updates must not double-clone `WorkspaceInputSnapshot` (fork once via
 `Arc::make_mut`, then `apply_changes_in_place`).
 
+Never build the session Rayon pool in `ProjectSession::open` — warm disk-cache
+hits must not pay thread-pool construction. Lazily init on the first real scan.
+`AnalysisSnapshot` keeps `summary`/`graph` behind `Arc` so commit/`last_snapshot`
+is refcount-only.
+
 LSP positions are UTF-16 code units via `vue_vet_core::LineIndex`. Never publish
 byte columns to the editor. Document identity must go through
 `ProjectSession::file_id_for_path` rather than ad-hoc `strip_prefix`.

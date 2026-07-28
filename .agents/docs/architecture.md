@@ -70,10 +70,11 @@ vue-vet CLI
   Vue sources. File-rule diagnostic reuse additionally requires matching primary
   and ordinary final module graphs, so resolution-driven graph changes cannot
   keep stale diagnostics. Incremental results remain equal to a clean scan.
-- **Shared Rayon pool** — session `--threads N` installs one persistent pool on
-  `ProjectSession::open` and passes `TraceModulesOptions { reuse_current_pool: true }`.
-  Standalone `trace_modules_with_options` still installs a dedicated pool sized to
-  `max_workers`.
+- **Shared Rayon pool** — session `--threads N` lazily builds one persistent pool
+  on the first real scan (never on warm cache hits) and passes
+  `TraceModulesOptions { reuse_current_pool: true }`. Standalone
+  `trace_modules_with_options` still installs a dedicated pool sized to
+  `max_workers`. `AnalysisSnapshot` shares `summary`/`graph` via `Arc`.
 - **Analysis state preparation** — each run seeds a candidate from the previous
   committed state, shares `ProjectGraphState` and file/diagnostic maps via `Arc`
   (copy-on-write / `share_from` on cache hit), and reuses `Arc<AnalyzedCandidate>`

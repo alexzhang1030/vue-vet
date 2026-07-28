@@ -5,7 +5,10 @@
 use std::{
   collections::{BTreeMap, BTreeSet},
   path::{Path, PathBuf},
-  sync::atomic::{AtomicUsize, Ordering},
+  sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+  },
 };
 
 use vue_vet_cache::{ChangedLines, filter_diff};
@@ -219,7 +222,7 @@ fn scan_diff_filter_nuxt_graph(bencher: divan::Bencher) {
     .bench_values(|(cache, summary)| {
       let mut changed = ChangedLines::default();
       changed.files.insert("pages/index.vue".into(), BTreeSet::from([1]));
-      let filtered = filter_diff(summary, &changed);
+      let filtered = filter_diff(Arc::unwrap_or_clone(summary), &changed);
       let _ignored = std::fs::remove_dir_all(&cache);
       divan::black_box(filtered.diagnostics.len())
     });

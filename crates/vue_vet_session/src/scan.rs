@@ -21,7 +21,7 @@ pub fn analyze_snapshot(
   config: &Config,
   cache_dir: &Path,
   no_cache: bool,
-  pool: Option<Arc<rayon::ThreadPool>>,
+  pool: impl FnOnce() -> Result<Option<Arc<rayon::ThreadPool>>, SessionError>,
   previous: &AnalysisState,
   state: &mut AnalysisState,
   cancelled: &(dyn Fn() -> bool + Sync),
@@ -37,7 +37,7 @@ pub fn analyze_snapshot(
     let result = scan_with_threads(
       input,
       config,
-      pool,
+      pool()?,
       previous,
       state,
       cancelled,
@@ -62,7 +62,7 @@ pub fn analyze_snapshot(
         input,
         config,
         "miss",
-        pool,
+        pool()?,
         previous,
         state,
         cancelled,
@@ -75,7 +75,7 @@ pub fn analyze_snapshot(
         input,
         config,
         "recovered-corruption",
-        pool,
+        pool()?,
         previous,
         state,
         cancelled,
@@ -88,7 +88,14 @@ pub fn analyze_snapshot(
     analyzed_source_files: input.analyzed_source_files.clone(),
     invalidation_inputs: graph.invalidation_inputs.clone(),
   };
-  Ok(AnalysisSnapshot { summary, graph, cache_status, coverage, issues, analyzed_files })
+  Ok(AnalysisSnapshot {
+    summary: Arc::new(summary),
+    graph: Arc::new(graph),
+    cache_status,
+    coverage,
+    issues,
+    analyzed_files,
+  })
 }
 
 #[expect(

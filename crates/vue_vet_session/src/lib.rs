@@ -17,7 +17,7 @@ use std::{
   collections::{BTreeMap, BTreeSet},
   path::{Path, PathBuf},
   sync::{
-    Arc, LazyLock, Mutex, MutexGuard,
+    Arc, LazyLock, Mutex, MutexGuard, OnceLock,
     atomic::{AtomicU64, Ordering},
   },
 };
@@ -61,10 +61,13 @@ pub struct SessionOptions {
 }
 
 /// Deterministic analysis result shared across surfaces.
+///
+/// Heavy payloads are `Arc` so commit/`last_snapshot`/noop reuse only bumps
+/// refcounts instead of cloning the project graph.
 #[derive(Clone, Debug)]
 pub struct AnalysisSnapshot {
-  pub summary: ScanSummary,
-  pub graph: ProjectGraph,
+  pub summary: Arc<ScanSummary>,
+  pub graph: Arc<ProjectGraph>,
   pub cache_status: &'static str,
   pub coverage: AnalysisCoverage,
   pub issues: Vec<AnalysisIssue>,
@@ -178,8 +181,10 @@ pub struct ProjectSession {
   config: Config,
   cache_dir: PathBuf,
   no_cache: bool,
-  /// Persistent Rayon pool sized to [`SessionOptions::threads`].
-  pool: Option<Arc<ThreadPool>>,
+  /// Analysis worker threads; `None` uses Rayon defaults.
+  threads: Option<usize>,
+  /// Built on first real scan — cache hits never pay pool construction.
+  pool: OnceLock<Arc<ThreadPool>>,
   core: Mutex<SessionCore>,
   workspace_discoveries: AtomicU64,
   incremental_file_updates: AtomicU64,
@@ -272,20 +277,13 @@ impl ProjectSession {
   pub fn open(options: SessionOptions) -> Result<Self, SessionError> {
     let root = options.root.canonicalize().unwrap_or(options.root);
     let config = load_config(&root, options.config_path.as_deref())?;
-    let pool = match options.threads {
-      Some(threads) => Some(Arc::new(
-        rayon::ThreadPoolBuilder::new().num_threads(threads.max(1)).build().map_err(|error| {
-          SessionError::message(format!("failed to configure analysis threads: {error}"))
-        })?,
-      )),
-      None => None,
-    };
     Ok(Self {
       root: WorkspaceRoot::new(root),
       config,
       cache_dir: options.cache_dir.unwrap_or_else(default_cache_dir),
       no_cache: options.no_cache,
-      pool,
+      threads: options.threads,
+      pool: OnceLock::new(),
       core: Mutex::new(SessionCore {
         revision: 1,
         committed_revision: 0,
@@ -301,6 +299,24 @@ impl ProjectSession {
       #[cfg(test)]
       test_hooks: SessionTestHooks::default(),
     })
+  }
+
+  /// Lazy session Rayon pool. Cache-hit analyzes never call this.
+  fn analysis_pool(&self) -> Result<Option<Arc<ThreadPool>>, SessionError> {
+    let Some(threads) = self.threads else {
+      return Ok(None);
+    };
+    if let Some(pool) = self.pool.get() {
+      return Ok(Some(Arc::clone(pool)));
+    }
+    let pool =
+      Arc::new(rayon::ThreadPoolBuilder::new().num_threads(threads.max(1)).build().map_err(
+        |error| SessionError::message(format!("failed to configure analysis threads: {error}")),
+      )?);
+    match self.pool.set(Arc::clone(&pool)) {
+      Ok(()) => Ok(Some(pool)),
+      Err(_) => Ok(self.pool.get().map(Arc::clone).or(Some(pool))),
+    }
   }
 
   #[must_use]
@@ -594,7 +610,7 @@ impl ProjectSession {
       &self.config,
       &self.cache_dir,
       no_cache,
-      self.pool.as_ref().map(Arc::clone),
+      || self.analysis_pool(),
       &prepared.committed,
       &mut candidate,
       &cancelled,
@@ -615,6 +631,7 @@ impl ProjectSession {
     }
     #[cfg(test)]
     Self::pause_at(&self.test_hooks.before_commit);
+    let shared = Arc::new(snapshot);
     let mut core = self.lock_core()?;
     if core.revision != prepared.revision {
       self.cancelled_analyses.fetch_add(1, Ordering::Relaxed);
@@ -622,11 +639,11 @@ impl ProjectSession {
     }
     core.committed = Arc::new(candidate);
     core.committed_revision = prepared.revision;
-    core.last_snapshot = Some(Arc::new(snapshot.clone()));
+    core.last_snapshot = Some(Arc::clone(&shared));
     core.pending.clear();
     drop(core);
     self.committed_analyses.fetch_add(1, Ordering::Relaxed);
-    Ok(snapshot)
+    Ok(AnalysisSnapshot::clone(&shared))
   }
 
   fn is_current_revision(&self, revision: u64) -> bool {
