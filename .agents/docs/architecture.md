@@ -54,12 +54,20 @@ vue-vet CLI
 - **Atomic session publication** — the workspace revision, retained input
   snapshot, and committed analysis state share one `SessionCore` synchronization
   domain. Analysis captures `Arc` snapshots under the lock, computes outside it,
-  and commits only when the same revision is still current. Input mutations
-  advance the revision before releasing that lock.
+  and commits only when the same revision is still current. Input mutations are
+  transactional (copy-then-commit) and advance the revision in the same critical
+  section before releasing that lock.
 - **Resolver-context parity** — `AnalysisState` records the consumed
-  `ProjectContext` revision. Changes to tsconfig, package metadata, lockfiles, or
-  Nuxt generated declarations conservatively invalidate source consumers so
-  incremental diagnostics remain equal to a clean scan.
+  `ProjectContext` revision and `ContextChangeKind`. Tsconfig/lockfile changes
+  still invalidate all source consumers; package-manifest changes rely on
+  per-file `RuleEnvironment` cache keys; Nuxt declaration changes invalidate Vue
+  sources only. Incremental diagnostics remain equal to a clean scan for all four
+  input classes.
+- **Shared Rayon pool** — session `--threads N` installs one pool for file-level
+  analysis and module tracing; tracing does not build a nested pool between phases.
+- **Analysis state preparation** — each run seeds a candidate from the previous
+  committed `ProjectGraphState` and looks up file facts/diagnostics by reference
+  instead of cloning the full file maps up front.
 - **Partial module outcomes** — parse/link failures are scoped
   `AnalysisIssue`s. Healthy modules still reach the cross-module fixed point;
   one bad module never forces every other module back to an isolated local graph.

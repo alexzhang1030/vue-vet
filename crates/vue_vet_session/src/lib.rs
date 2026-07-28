@@ -33,7 +33,7 @@ use vue_vet_practice::practice_rules;
 use vue_vet_project::{PROJECT_RULE_IDS, ProjectGraph};
 use vue_vet_rules::builtin_rules;
 
-use self::discovery::WorkspaceInputSnapshot;
+use self::discovery::{WorkspaceInputSnapshot, file_id_for_physical};
 
 pub use explain::Explained;
 pub use path::resolve_under_root;
@@ -185,7 +185,7 @@ pub struct ProjectSession {
   test_hooks: SessionTestHooks,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 struct SessionInputs {
   overlays: BTreeMap<PathBuf, String>,
   snapshot: Option<Arc<WorkspaceInputSnapshot>>,
@@ -291,6 +291,16 @@ impl ProjectSession {
     resolve_under_root(self.workspace_root(), path)
   }
 
+  /// Stable workspace-relative [`FileId`] for a physical path under this session.
+  ///
+  /// # Errors
+  ///
+  /// Returns [`SessionError`] when the path escapes the session root.
+  pub fn file_id_for_path(&self, path: &Path) -> Result<FileId, SessionError> {
+    let resolved = self.resolve_workspace_path(path)?;
+    Ok(file_id_for_physical(self.root.as_path(), &resolved))
+  }
+
   /// Scan with the session cache policy.
   ///
   /// # Errors
@@ -333,9 +343,12 @@ impl ProjectSession {
 
   /// Update unsaved source overlays without reopening configuration or the workspace.
   ///
+  /// Mutations are transactional: overlays, the retained snapshot, and the
+  /// revision advance together, or not at all when any step fails.
+  ///
   /// # Errors
   ///
-  /// Returns when the session state lock was poisoned.
+  /// Returns when the session state lock was poisoned or a change cannot be applied.
   pub fn apply_changes(&self, changes: ChangeSet) -> Result<(), SessionError> {
     if changes.files.is_empty() {
       return Ok(());
@@ -346,19 +359,20 @@ impl ProjectSession {
       .map(|(path, source)| self.resolve_workspace_path(&path).map(|path| (path, source)))
       .collect::<Result<BTreeMap<_, _>, _>>()?;
     let mut core = self.lock_core()?;
-    for (path, source) in &changes {
-      if let Some(source) = source {
-        core.inputs.overlays.insert(path.clone(), source.clone());
-      } else {
-        core.inputs.overlays.remove(path);
-      }
+    let mut next_inputs = SessionInputs {
+      overlays: core.inputs.overlays.clone(),
+      snapshot: core.inputs.snapshot.as_ref().map(Arc::clone),
+    };
+    apply_overlay_map(&mut next_inputs.overlays, &changes);
+    if let Some(snapshot) = &mut next_inputs.snapshot {
+      let mut next_snapshot = (**snapshot).clone();
+      next_snapshot.apply_changes(self.root.as_path(), &self.config, &changes)?;
+      *snapshot = Arc::new(next_snapshot);
     }
-    if let Some(snapshot) = &mut core.inputs.snapshot {
-      Arc::make_mut(snapshot).apply_changes(self.root.as_path(), &self.config, &changes)?;
-    }
+    core.inputs = next_inputs;
+    core.revision = core.revision.wrapping_add(1);
     #[cfg(test)]
     Self::pause_at(&self.test_hooks.after_input_mutation);
-    core.revision = core.revision.wrapping_add(1);
     drop(core);
     self
       .incremental_file_updates
@@ -433,10 +447,16 @@ impl ProjectSession {
     if changes.is_empty() {
       return Ok(());
     }
-    if let Some(snapshot) = &mut core.inputs.snapshot {
-      Arc::make_mut(snapshot).apply_changes(self.root.as_path(), &self.config, &changes)?;
+    let mut next_inputs = SessionInputs {
+      overlays: normalized,
+      snapshot: core.inputs.snapshot.as_ref().map(Arc::clone),
+    };
+    if let Some(snapshot) = &mut next_inputs.snapshot {
+      let mut next_snapshot = (**snapshot).clone();
+      next_snapshot.apply_changes(self.root.as_path(), &self.config, &changes)?;
+      *snapshot = Arc::new(next_snapshot);
     }
-    core.inputs.overlays = normalized;
+    core.inputs = next_inputs;
     core.revision = core.revision.wrapping_add(1);
     drop(core);
     self
@@ -475,7 +495,7 @@ impl ProjectSession {
     prepared: &PreparedAnalysis,
     no_cache: bool,
   ) -> Result<AnalysisSnapshot, SessionError> {
-    let mut candidate = (*prepared.committed).clone();
+    let mut candidate = scan::AnalysisState::prepare_from(&prepared.committed);
     let cancelled = || !self.is_current_revision(prepared.revision);
     let snapshot = match scan::analyze_snapshot(
       &prepared.input,
@@ -483,6 +503,7 @@ impl ProjectSession {
       &self.cache_dir,
       no_cache,
       self.threads,
+      &prepared.committed,
       &mut candidate,
       &cancelled,
     ) {
@@ -562,6 +583,19 @@ pub fn resolve_rule_meta(rule_id: &str) -> Option<&'static RuleMeta> {
 
 fn known_rule_ids() -> impl Iterator<Item = &'static str> {
   file_analysis_registry().metadata().into_iter().map(|meta| meta.id).chain(PROJECT_RULE_IDS)
+}
+
+fn apply_overlay_map(
+  overlays: &mut BTreeMap<PathBuf, String>,
+  changes: &BTreeMap<PathBuf, Option<String>>,
+) {
+  for (path, source) in changes {
+    if let Some(source) = source {
+      overlays.insert(path.clone(), source.clone());
+    } else {
+      overlays.remove(path);
+    }
+  }
 }
 
 fn load_config(root: &Path, explicit: Option<&Path>) -> Result<Config, SessionError> {

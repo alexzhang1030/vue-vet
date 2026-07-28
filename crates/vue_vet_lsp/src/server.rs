@@ -90,7 +90,7 @@ impl Backend {
     let Some(session) = session else {
       return;
     };
-    let Some(analysis) = self.analyze_open(session).await else {
+    let Some(analysis) = self.analyze_open(Arc::clone(&session)).await else {
       return;
     };
     if !self.publish_current(revision) {
@@ -99,25 +99,20 @@ impl Backend {
 
     let documents = {
       let state = self.state.read().await;
-      let Some(root) = state.root.clone() else {
-        return;
-      };
-      state
-        .open
-        .iter()
-        .map(|(uri, document)| (uri.clone(), document.clone(), root.clone()))
-        .collect::<Vec<_>>()
+      state.open.iter().map(|(uri, document)| (uri.clone(), document.clone())).collect::<Vec<_>>()
     };
-    for (uri, document, root) in documents {
+    for (uri, document) in documents {
       if !self.publish_current(revision) {
         return;
       }
-      let normalized_path = normalize_report_path(&document.path, &root);
+      let Ok(file_id) = session.file_id_for_path(&document.path) else {
+        continue;
+      };
       let diagnostics = analysis
         .summary
         .diagnostics
         .iter()
-        .filter(|diagnostic| diagnostic.file.as_str() == normalized_path)
+        .filter(|diagnostic| diagnostic.file == file_id)
         .map(|diagnostic| {
           to_lsp_diagnostic(diagnostic, &analysis.analyzed_files, Some(document.text.as_str()))
         })
@@ -323,7 +318,7 @@ impl LanguageServer for Backend {
 
   async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
     let uri = params.text_document.uri;
-    let (root, path, text, version, session) = {
+    let (path, text, version, session) = {
       let state = self.state.read().await;
       let Some(doc) = state.open.get(&uri) else {
         return Ok(None);
@@ -331,13 +326,15 @@ impl LanguageServer for Backend {
       let Some(session) = state.session.clone() else {
         return Ok(None);
       };
-      let root = state.root.clone().unwrap_or_else(|| parent_or_cwd(&doc.path));
-      let snapshot = (root, doc.path.clone(), doc.text.clone(), doc.version, session);
+      let snapshot = (doc.path.clone(), doc.text.clone(), doc.version, session);
       drop(state);
       snapshot
     };
+    let Ok(file_id) = session.file_id_for_path(&path) else {
+      return Ok(None);
+    };
     let _gate = self.analysis_gate.lock().await;
-    let Some(analysis) = self.analyze_open(session).await else {
+    let Some(analysis) = self.analyze_open(Arc::clone(&session)).await else {
       return Ok(None);
     };
     let only = params.context.only.as_deref();
@@ -347,8 +344,7 @@ impl LanguageServer for Backend {
         uri,
         version,
         source: &text,
-        root: &root,
-        document_path: &path,
+        document_file_id: &file_id,
         analyzed_files: &analysis.analyzed_files,
         range: params.range,
         only,
@@ -363,10 +359,6 @@ fn parent_or_cwd(path: &Path) -> PathBuf {
     || std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
     Path::to_path_buf,
   )
-}
-
-fn normalize_report_path(path: &Path, root: &Path) -> String {
-  path.strip_prefix(root).unwrap_or(path).to_string_lossy().replace('\\', "/")
 }
 
 #[cfg(test)]

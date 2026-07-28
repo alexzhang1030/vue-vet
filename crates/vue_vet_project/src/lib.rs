@@ -119,11 +119,23 @@ pub struct ProjectGraphStats {
   pub seeded_module_reparses: usize,
 }
 
+/// Why `ProjectContext.revision` advanced — drives typed incremental invalidation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ContextChangeKind {
+  PackageManifest,
+  Lockfile,
+  TsConfig,
+  NuxtDeclarations,
+  SourceMembership,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ProjectContext {
   pub revision: u64,
   pub nuxt_component_names: BTreeMap<String, String>,
   pub invalidation_inputs: Vec<String>,
+  /// Most recent typed context change for this revision; `None` for cold discovery.
+  pub last_change: Option<ContextChangeKind>,
 }
 
 impl ProjectContext {
@@ -134,6 +146,7 @@ impl ProjectContext {
       revision: 0,
       nuxt_component_names: load_nuxt_component_dts_names(&root, known),
       invalidation_inputs: resolver_config_inputs(&root),
+      last_change: None,
     }
   }
 }
@@ -168,7 +181,7 @@ pub fn project_context_from_inputs<'a>(
   }
   invalidation_inputs.sort();
   invalidation_inputs.dedup();
-  ProjectContext { revision, nuxt_component_names, invalidation_inputs }
+  ProjectContext { revision, nuxt_component_names, invalidation_inputs, last_change: None }
 }
 
 impl ProjectGraphState {
@@ -414,26 +427,32 @@ pub fn build_project_graph_incremental_with_options(
 }
 
 fn is_project_invalidation_input(path: &str) -> bool {
+  context_change_kind_for(path).is_some()
+}
+
+/// Classify a workspace-relative path as a typed resolver-context change.
+#[must_use]
+pub fn context_change_kind_for(path: &str) -> Option<ContextChangeKind> {
   let name = Path::new(path).file_name().and_then(|name| name.to_str()).unwrap_or(path);
-  name == "package.json"
-    || matches!(
-      path,
-      "package-lock.json"
-        | "pnpm-lock.yaml"
-        | "yarn.lock"
-        | "bun.lock"
-        | "bun.lockb"
-        | "tsconfig.json"
-        | "tsconfig.app.json"
-        | "tsconfig.node.json"
-        | ".nuxt/tsconfig.json"
-        | ".nuxt/components.d.ts"
-        | ".nuxt/types/components.d.ts"
-    )
-    || (name.starts_with("tsconfig")
-      && Path::new(name)
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("json")))
+  if name == "package.json" {
+    return Some(ContextChangeKind::PackageManifest);
+  }
+  if matches!(path, "package-lock.json" | "pnpm-lock.yaml" | "yarn.lock" | "bun.lock" | "bun.lockb")
+  {
+    return Some(ContextChangeKind::Lockfile);
+  }
+  if matches!(path, ".nuxt/components.d.ts" | ".nuxt/types/components.d.ts") {
+    return Some(ContextChangeKind::NuxtDeclarations);
+  }
+  if matches!(
+    path,
+    "tsconfig.json" | "tsconfig.app.json" | "tsconfig.node.json" | ".nuxt/tsconfig.json"
+  ) || (name.starts_with("tsconfig")
+    && Path::new(name).extension().is_some_and(|extension| extension.eq_ignore_ascii_case("json")))
+  {
+    return Some(ContextChangeKind::TsConfig);
+  }
+  None
 }
 
 fn analyze_structural_file(

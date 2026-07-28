@@ -9,7 +9,10 @@ use std::{
 use ignore::{DirEntry, WalkBuilder};
 use vue_vet_config::Config;
 use vue_vet_core::{FileId, PhysicalPath};
-use vue_vet_project::{ProjectContext, project_context_from_inputs, resolver_config_inputs};
+use vue_vet_project::{
+  ContextChangeKind, ProjectContext, context_change_kind_for, project_context_from_inputs,
+  resolver_config_inputs,
+};
 
 use crate::{SessionError, package_index::PackageIndex, scan_directory};
 
@@ -54,6 +57,7 @@ impl WorkspaceInputSnapshot {
     let mut package_index = PackageIndex::default();
     let mut package_sources = BTreeMap::new();
     let mut cache_inputs = Vec::new();
+    let mut seen_file_ids = BTreeSet::new();
 
     for entry in project_walk(root) {
       let entry = entry.map_err(|error| SessionError::message(error.to_string()))?;
@@ -61,7 +65,7 @@ impl WorkspaceInputSnapshot {
       if !path.is_file() {
         continue;
       }
-      let file_id = FileId::from(logical_path(root, path));
+      let file_id = file_id_for_physical(root, path);
       if path.file_name().and_then(|name| name.to_str()) == Some("package.json") {
         let bytes = overlay_source(path, overlays)
           .map_or_else(|| read_bytes(path), |source| Ok(Arc::from(source.as_bytes())))?;
@@ -70,6 +74,7 @@ impl WorkspaceInputSnapshot {
           package_sources.insert(path.to_path_buf(), Arc::from(source));
         }
         cache_inputs.push((file_id.as_str().to_owned(), bytes));
+        seen_file_ids.insert(file_id);
         continue;
       }
 
@@ -88,11 +93,12 @@ impl WorkspaceInputSnapshot {
         })?;
         sources.push(SourceInput {
           physical_path: PhysicalPath::new(path),
-          file_id,
+          file_id: file_id.clone(),
           source: Arc::from(source),
           kind,
         });
       }
+      seen_file_ids.insert(file_id);
     }
 
     if root.is_file() {
@@ -104,15 +110,31 @@ impl WorkspaceInputSnapshot {
           package_sources.insert(package_path.clone(), Arc::from(source));
         }
         cache_inputs.push(("package.json".into(), bytes));
+        seen_file_ids.insert(FileId::from("package.json"));
       }
     }
 
     for relative in resolver_config_inputs(&boundary) {
       let path = boundary.join(&relative);
       if path.is_file() && !cache_inputs.iter().any(|(existing, _)| existing == &relative) {
-        cache_inputs.push((relative, read_bytes(&path)?));
+        cache_inputs.push((relative.clone(), read_bytes(&path)?));
+        seen_file_ids.insert(FileId::from(relative.as_str()));
       }
     }
+
+    merge_overlay_only_sources(
+      root,
+      &boundary,
+      overlays,
+      &filter,
+      &mut OverlayMergeState {
+        sources: &mut sources,
+        package_index: &mut package_index,
+        package_sources: &mut package_sources,
+        cache_inputs: &mut cache_inputs,
+        seen_file_ids: &mut seen_file_ids,
+      },
+    );
 
     sources.sort_by(|left, right| left.file_id.cmp(&right.file_id));
     cache_inputs.sort_by(|left, right| left.0.cmp(&right.0));
@@ -137,9 +159,24 @@ impl WorkspaceInputSnapshot {
 
   /// Apply only changed overlay/disk paths to an existing snapshot.
   ///
+  /// Strong exception safety: on `Err`, `self` is left unchanged.
+  ///
   /// `Some(source)` installs an in-memory overlay. `None` removes the overlay
   /// and refreshes that exact path from disk (or removes it when deleted).
-  pub fn apply_changes(
+  /// Strong exception safety: on `Err`, `self` is left unchanged.
+  pub(crate) fn apply_changes(
+    &mut self,
+    root: &Path,
+    config: &Config,
+    changes: &BTreeMap<PathBuf, Option<String>>,
+  ) -> Result<BTreeSet<FileId>, SessionError> {
+    let mut next = self.clone();
+    let affected = next.apply_changes_in_place(root, config, changes)?;
+    *self = next;
+    Ok(affected)
+  }
+
+  fn apply_changes_in_place(
     &mut self,
     root: &Path,
     config: &Config,
@@ -147,7 +184,7 @@ impl WorkspaceInputSnapshot {
   ) -> Result<BTreeSet<FileId>, SessionError> {
     let filter = config.path_filter().map_err(|error| SessionError::message(error.to_string()))?;
     let mut affected_files = BTreeSet::new();
-    let mut context_dirty = false;
+    let mut context_change = None::<ContextChangeKind>;
     for (requested_path, overlay) in changes {
       let path = absolute_change_path(requested_path, &self.boundary);
       if !path.starts_with(&self.boundary) {
@@ -156,13 +193,17 @@ impl WorkspaceInputSnapshot {
           requested_path.display()
         )));
       }
-      let file_id = FileId::from(logical_path(root, &path));
+      let file_id = file_id_for_physical(root, &path);
       let was_source = self.sources.iter().any(|source| source.file_id == file_id);
       let bytes = match overlay {
         Some(source) => Some(Arc::<[u8]>::from(source.as_bytes())),
         None if path.is_file() => Some(read_bytes(&path)?),
         None => None,
       };
+
+      if let Some(kind) = context_change_kind_for(file_id.as_str()) {
+        context_change = Some(merge_context_change(context_change, kind));
+      }
 
       if path.file_name().and_then(|name| name.to_str()) == Some("package.json") {
         match bytes.as_ref().and_then(|bytes| std::str::from_utf8(bytes).ok()) {
@@ -175,8 +216,7 @@ impl WorkspaceInputSnapshot {
         }
         self.rebuild_package_index();
         self.update_cache_input(file_id.as_str(), bytes);
-        affected_files.extend(self.sources.iter().map(|source| source.file_id.clone()));
-        context_dirty = true;
+        affected_files.insert(file_id);
         continue;
       }
 
@@ -188,7 +228,6 @@ impl WorkspaceInputSnapshot {
         self.update_cache_input(file_id.as_str(), bytes.clone());
       }
 
-      let resolver_input = is_project_context_input(&file_id);
       let kind = source_kind(&file_id, extension, filter.matches(file_id.as_path()));
       if let (Some(kind), Some(bytes)) = (kind, bytes) {
         let source = String::from_utf8(bytes.as_ref().to_vec()).map_err(|error| {
@@ -204,15 +243,16 @@ impl WorkspaceInputSnapshot {
         self.sources.retain(|source| source.file_id != file_id);
       }
       let is_source = self.sources.iter().any(|source| source.file_id == file_id);
-      if was_source != is_source || resolver_input {
-        context_dirty = true;
+      if was_source != is_source {
+        context_change =
+          Some(merge_context_change(context_change, ContextChangeKind::SourceMembership));
       }
       affected_files.insert(file_id);
     }
     self.sources.sort_by(|left, right| left.file_id.cmp(&right.file_id));
     self.analyzed_source_files = self.sources.iter().map(|source| source.file_id.clone()).collect();
     self.cache_inputs.sort_by(|left, right| left.0.cmp(&right.0));
-    if context_dirty {
+    if let Some(kind) = context_change {
       let revision = self.project_context.revision.saturating_add(1);
       self.project_context = project_context_from_inputs(
         &self.boundary,
@@ -220,6 +260,7 @@ impl WorkspaceInputSnapshot {
         self.cache_inputs.iter().map(|(path, bytes)| (path.as_str(), bytes.as_ref())),
         revision,
       );
+      self.project_context.last_change = Some(kind);
     }
     Ok(affected_files)
   }
@@ -243,6 +284,87 @@ impl WorkspaceInputSnapshot {
     self.package_index = PackageIndex::default();
     for (path, source) in &self.package_sources {
       self.package_index.insert(path, source);
+    }
+  }
+}
+
+/// Workspace-relative [`FileId`] for a physical path under `root`.
+#[must_use]
+pub fn file_id_for_physical(root: &Path, path: &Path) -> FileId {
+  FileId::from(logical_path(root, path))
+}
+
+struct OverlayMergeState<'a> {
+  sources: &'a mut Vec<SourceInput>,
+  package_index: &'a mut PackageIndex,
+  package_sources: &'a mut BTreeMap<PathBuf, Arc<str>>,
+  cache_inputs: &'a mut Vec<(String, Arc<[u8]>)>,
+  seen_file_ids: &'a mut BTreeSet<FileId>,
+}
+
+fn merge_overlay_only_sources(
+  root: &Path,
+  boundary: &Path,
+  overlays: &BTreeMap<PathBuf, String>,
+  filter: &vue_vet_config::PathFilter,
+  state: &mut OverlayMergeState<'_>,
+) {
+  for (overlay_path, source) in overlays {
+    let path = absolute_change_path(overlay_path, boundary);
+    if !path.starts_with(boundary) {
+      continue;
+    }
+    let file_id = file_id_for_physical(root, &path);
+    if state.seen_file_ids.contains(&file_id) {
+      continue;
+    }
+    if path.file_name().and_then(|name| name.to_str()) == Some("package.json") {
+      state.package_index.insert(&path, source);
+      state.package_sources.insert(path.clone(), Arc::from(source.as_str()));
+      state.cache_inputs.push((file_id.as_str().to_owned(), Arc::from(source.as_bytes())));
+      state.seen_file_ids.insert(file_id);
+      continue;
+    }
+    let extension = path.extension().and_then(|extension| extension.to_str());
+    let cache_source = matches!(extension, Some("vue" | "js" | "jsx" | "ts" | "tsx"))
+      || context_change_kind_for(file_id.as_str()).is_some();
+    if !cache_source {
+      continue;
+    }
+    let bytes: Arc<[u8]> = Arc::from(source.as_bytes());
+    state.cache_inputs.push((file_id.as_str().to_owned(), Arc::clone(&bytes)));
+    if let Some(kind) = source_kind(&file_id, extension, filter.matches(file_id.as_path())) {
+      state.sources.push(SourceInput {
+        physical_path: PhysicalPath::new(&path),
+        file_id: file_id.clone(),
+        source: Arc::from(source.as_str()),
+        kind,
+      });
+    }
+    state.seen_file_ids.insert(file_id);
+  }
+}
+
+const fn merge_context_change(
+  current: Option<ContextChangeKind>,
+  next: ContextChangeKind,
+) -> ContextChangeKind {
+  match (current, next) {
+    (None, kind) => kind,
+    (Some(ContextChangeKind::TsConfig), _) | (_, ContextChangeKind::TsConfig) => {
+      ContextChangeKind::TsConfig
+    }
+    (Some(ContextChangeKind::Lockfile), _) | (_, ContextChangeKind::Lockfile) => {
+      ContextChangeKind::Lockfile
+    }
+    (Some(ContextChangeKind::PackageManifest), _) | (_, ContextChangeKind::PackageManifest) => {
+      ContextChangeKind::PackageManifest
+    }
+    (Some(ContextChangeKind::NuxtDeclarations), _) | (_, ContextChangeKind::NuxtDeclarations) => {
+      ContextChangeKind::NuxtDeclarations
+    }
+    (Some(ContextChangeKind::SourceMembership), ContextChangeKind::SourceMembership) => {
+      ContextChangeKind::SourceMembership
     }
   }
 }
@@ -286,27 +408,6 @@ fn absolute_change_path(path: &Path, boundary: &Path) -> PathBuf {
   if path.is_absolute() { path.to_path_buf() } else { boundary.join(path) }
 }
 
-fn is_project_context_input(file: &FileId) -> bool {
-  let path = file.as_str();
-  let name = file.as_path().file_name().and_then(|name| name.to_str()).unwrap_or(path);
-  matches!(
-    path,
-    "package.json"
-      | "package-lock.json"
-      | "pnpm-lock.yaml"
-      | "yarn.lock"
-      | "bun.lock"
-      | "bun.lockb"
-      | "tsconfig.json"
-      | "tsconfig.app.json"
-      | "tsconfig.node.json"
-      | ".nuxt/tsconfig.json"
-      | ".nuxt/components.d.ts"
-      | ".nuxt/types/components.d.ts"
-  ) || (name.starts_with("tsconfig")
-    && Path::new(name).extension().is_some_and(|extension| extension.eq_ignore_ascii_case("json")))
-}
-
 fn is_generated_resolver_input(file: &FileId) -> bool {
   matches!(file.as_str(), ".nuxt/components.d.ts" | ".nuxt/types/components.d.ts")
 }
@@ -321,5 +422,71 @@ fn source_kind(file: &FileId, extension: Option<&str>, include_vue: bool) -> Opt
       Some(SourceKind::Script { language: language.to_owned() })
     }
     _ => None,
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use vue_vet_config::Config;
+
+  #[test]
+  #[expect(clippy::panic, reason = "discovery fixture failures must fail the unit test")]
+  fn failed_apply_changes_leaves_snapshot_unchanged() {
+    let root = std::env::temp_dir().join(format!("vue-vet-apply-atomic-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+    let good = root.join("Good.vue");
+    std::fs::write(&good, "<template><main /></template>")
+      .unwrap_or_else(|error| panic!("good: {error}"));
+    let bad = root.join("bad.ts");
+    std::fs::write(&bad, "export const ok = 1;\n").unwrap_or_else(|error| panic!("bad: {error}"));
+    let mut snapshot =
+      WorkspaceInputSnapshot::discover(&root, &Config::default(), &BTreeMap::new())
+        .unwrap_or_else(|error| panic!("discover: {error}"));
+    let before = snapshot.clone();
+    std::fs::write(&bad, [0xff, 0xfe, 0xfd])
+      .unwrap_or_else(|error| panic!("invalid bytes: {error}"));
+    let changes = BTreeMap::from([
+      (good, Some("<template><main v-html=\"html\" /></template>".into())),
+      (bad, None),
+    ]);
+    let Err(error) = snapshot.apply_changes(&root, &Config::default(), &changes) else {
+      panic!("invalid UTF-8 refresh must fail");
+    };
+    assert!(error.to_string().contains("UTF-8"), "{error}");
+    assert_eq!(snapshot.sources.len(), before.sources.len());
+    assert_eq!(
+      snapshot.sources.iter().map(|source| source.file_id.as_str()).collect::<Vec<_>>(),
+      before.sources.iter().map(|source| source.file_id.as_str()).collect::<Vec<_>>()
+    );
+    assert_eq!(snapshot.project_context.revision, before.project_context.revision);
+    assert!(
+      snapshot
+        .sources
+        .iter()
+        .any(|source| source.file_id.as_str() == "Good.vue" && !source.source.contains("v-html")),
+      "failed mutation must not install the earlier overlay in the batch"
+    );
+    let _ignored = std::fs::remove_dir_all(root);
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "discovery fixture failures must fail the unit test")]
+  fn discover_includes_overlay_only_unsaved_sources() {
+    let root = std::env::temp_dir().join(format!("vue-vet-overlay-only-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+    std::fs::write(root.join("Existing.vue"), "<template><main /></template>")
+      .unwrap_or_else(|error| panic!("existing: {error}"));
+    let overlays = BTreeMap::from([(
+      root.join("NewComponent.vue"),
+      "<template><main v-html=\"html\" /></template>".into(),
+    )]);
+    let snapshot = WorkspaceInputSnapshot::discover(&root, &Config::default(), &overlays)
+      .unwrap_or_else(|error| panic!("discover: {error}"));
+    assert!(
+      snapshot.sources.iter().any(|source| source.file_id.as_str() == "NewComponent.vue"),
+      "overlay-only unsaved files must enter the first discovery snapshot"
+    );
+    let _ignored = std::fs::remove_dir_all(root);
   }
 }
