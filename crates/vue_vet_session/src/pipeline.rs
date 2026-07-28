@@ -410,10 +410,11 @@ fn scan_parallel(
     .map(|source| (source.file_id.clone(), Arc::clone(&source.source)));
   let summary = DiagnosticFinalizer::new(config, sources).finalize(files_scanned, raw_diagnostics);
 
-  // Module tracing still visits every module for phase-one / seed planning.
+  // Phase-one still walks every module summary (cheap when already attached).
+  // Seed-plan / export-resolve counters come from ModuleTraceState linking cache.
   let module_summaries_visited = u64::try_from(graph.module_reactivity.len()).unwrap_or(u64::MAX);
-  let seed_plans_recomputed = module_summaries_visited
-    .saturating_sub(u64::try_from(project_stats.module_graphs_reused).unwrap_or(0));
+  let seed_plans_recomputed =
+    u64::try_from(project_stats.seed_plans_recomputed).unwrap_or(u64::MAX);
 
   let work = ScanWorkCounters {
     files_visited: u64::try_from(input.sources.len()).unwrap_or(u64::MAX),

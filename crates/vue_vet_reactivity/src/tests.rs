@@ -1062,6 +1062,8 @@ fn incremental_module_trace_reuses_unchanged_seeded_graphs() {
   );
   assert!(first.issues.is_empty());
   assert_eq!(first.stats.seeded_reparses, 1);
+  assert!(first.stats.export_resolve_ran);
+  assert_eq!(first.stats.seed_plans_recomputed, 2);
   let second = trace_modules_incremental_with_options(
     &modules,
     &links,
@@ -1071,7 +1073,73 @@ fn incremental_module_trace_reuses_unchanged_seeded_graphs() {
   assert!(second.issues.is_empty());
   assert_eq!(second.stats.seeded_reparses, 0);
   assert_eq!(second.stats.reused_graphs, 2);
+  assert!(!second.stats.export_resolve_ran);
+  assert_eq!(second.stats.seed_plans_recomputed, 0);
   assert_eq!(first.modules, second.modules);
+}
+
+#[test]
+fn incremental_linking_skips_export_resolve_when_only_local_graph_changes() {
+  use std::sync::Arc;
+
+  use crate::{TraceSeeds, prepare_module_summary, trace_reactivity_seeded};
+
+  fn summary_for(source: &str) -> Arc<crate::ModuleSummary> {
+    let allocator = oxc_allocator::Allocator::default();
+    let source_type = oxc_span::SourceType::default().with_module(true).with_typescript(true);
+    let parsed = oxc_parser::Parser::new(&allocator, source, source_type).parse();
+    assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
+    let semantic = oxc_semantic::SemanticBuilder::new().build(&parsed.program).semantic;
+    let graph = Arc::new(trace_reactivity_seeded(
+      &semantic,
+      source,
+      0,
+      ScriptKind::Script,
+      &TraceSeeds::default(),
+    ));
+    Arc::new(prepare_module_summary(&semantic, source, 0, ScriptKind::Script, graph))
+  }
+
+  let producer_src = "import { ref } from 'vue'; export const count = ref(0);";
+  let consumer_v1 = "import { watchEffect } from 'vue'; import { count } from './producer'; watchEffect(() => count.value);";
+  let consumer_v2 = "import { watchEffect } from 'vue'; import { count } from './producer'; watchEffect(() => { void count.value; });";
+
+  let producer = ModuleSource::standalone("producer.ts", producer_src, "ts", ScriptKind::Script);
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./producer".into(),
+    to: "producer.ts".into(),
+  }];
+  let mut state = ModuleTraceState::default();
+  let first_modules = [
+    producer.clone(),
+    ModuleSource::standalone("consumer.ts", consumer_v1, "ts", ScriptKind::Script)
+      .with_module_summary(summary_for(consumer_v1)),
+  ];
+  let first = trace_modules_incremental_with_options(
+    &first_modules,
+    &links,
+    TraceModulesOptions { max_workers: 2, ..Default::default() },
+    &mut state,
+  );
+  assert!(first.issues.is_empty());
+  assert!(first.stats.export_resolve_ran);
+
+  // Same import/export/provide surface; only local tracking body (local_graph) differs.
+  let second_modules = [
+    producer,
+    ModuleSource::standalone("consumer.ts", consumer_v2, "ts", ScriptKind::Script)
+      .with_module_summary(summary_for(consumer_v2)),
+  ];
+  let second = trace_modules_incremental_with_options(
+    &second_modules,
+    &links,
+    TraceModulesOptions { max_workers: 2, ..Default::default() },
+    &mut state,
+  );
+  assert!(second.issues.is_empty());
+  assert!(!second.stats.export_resolve_ran, "linking surface unchanged → skip export fixed point");
+  assert_eq!(second.stats.seed_plans_recomputed, 0);
 }
 
 #[test]

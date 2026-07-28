@@ -102,15 +102,17 @@ scheduling and shared IR are the right direction. Batch 1 execution locality is
 tracked in [#108](https://github.com/alexzhang1030/vue-vet/issues/108). Current state:
 
 ```text
-dirty source → fewer parses   (shipped)
-dirty semantic input → fewer links / graph clones / rules / diagnostics
-                      (next)
+dirty source → fewer parses                    (shipped)
+warm linking surface → skip export/seed FP     (shipped)
+warm base+facts → reuse template/prop layers   (shipped)
+TrackingScopeIR / Vize bottom-up               (shipped)
+dirty export closure / SFC block revisions     (next)
 ```
 
-Do **not** pursue a generalized unified AST IR. The highest-value next IRs are:
+Do **not** pursue a generalized unified AST IR. Highest-value remaining work:
 
-1. Cross-scan persistent project/module linking partitions
-2. Per-tracking-scope control-flow IR (`TrackingScopeIR`)
+1. Narrow `DirtyPlan.export_closure` so changed summaries do not visit every module
+2. SFC block revisions + warm-cache IR hydrate
 
 Execution plan shape (session-owned):
 
@@ -127,11 +129,14 @@ Batch intent (execution lives in tracker issues, not temporary numbers here):
    work counters; `AnalysisProduct` so LSP publishes diagnostics without the full
    graph DTO (`analyze_affected_product` / `diagnostics_for`).
 2. **Project/module state** — `ProjectGraphState` keeps internal Arc partitions
-   (structural / module-trace) plus a retained resolver; structural and module
-   entries update in place (remove + insert). Still ahead: incremental
-   export/provide/seed fixed points and base/template/prop graph layers.
-3. **Single-file algorithms** — `TrackingScopeIR`, `returns_by_function`, Vize
-   bottom-up subtree facts, SFC block revisions, shared `SourceContext`.
+   (structural / module-trace / layered) plus a retained resolver. Linking cache
+   skips export/provide/seed fixed points when the linking surface (imports,
+   exports, locals, provides, injects — not `local_graph`) and links are
+   unchanged. Layered cache reuses post-template/prop graphs when base graph
+   Arcs and `SfcFacts` Arcs are unchanged.
+3. **Single-file algorithms** — `TrackingScopeIR` (await/pause facts once per
+   scope); Vize bottom-up `SubtreeSummary`. Still ahead: `returns_by_function`,
+   SFC block revisions, shared `SourceContext`.
 
 ### Semantic IR layers
 

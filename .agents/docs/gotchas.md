@@ -266,10 +266,20 @@ pending dirty state. A no-op `analyze_affected` when the revision is unchanged
 must return the last snapshot without re-entering the pipeline.
 
 **Dirty `FileId` ≠ dirty work.** A small `affected_files()` set only proves parse
-scheduling was narrow. Real scans may still rebuild full project files, module
-phase-one/seed plans, and diagnostic summaries. Prove locality with work
-counters (`files_parsed`, partitions rebuilt, COW clones, rules rerun), not with
-set size alone.
+scheduling was narrow. Phase-one may still visit every module summary (cheap when
+already attached). Prove locality with work counters (`files_parsed`,
+`seed_plans_recomputed`, `export_resolve_ran`, layered rebuild, COW clones,
+rules rerun), not with set size alone.
+
+**Linking surface ≠ `ModuleSummary` equality.** Export/seed reuse keys on
+imports/exports/locals/provides/injects + links. A leaf body edit that only
+changes `local_graph` must not force `resolve_exports`. Do not key linking
+cache on full `ModuleSummary` (it includes the local graph).
+
+**Template/prop layers must not `make_mut` reused base graphs on warm scans.**
+Keep base reactivity from module-trace separate from the layered final graphs;
+reuse the layered `Arc<Vec<ModuleReactivity>>` when base graph pointers and
+`SfcFacts` pointers are unchanged.
 
 **Context invalidation ≠ re-parse.** Epoch bumps for tsconfig, lockfile,
 package resolution, Nuxt declarations, or source membership must refresh

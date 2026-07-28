@@ -281,6 +281,8 @@ struct ModuleSeedPlan {
 #[derive(Clone, Debug, Default)]
 pub struct ModuleTraceState {
   entries: BTreeMap<ModuleId, CachedModuleTrace>,
+  /// Last export/provide/seed fixed-point inputs and outputs.
+  linking: Option<CachedLinkingSnapshot>,
 }
 
 #[derive(Clone, Debug)]
@@ -290,6 +292,40 @@ struct CachedModuleTrace {
   reactivity: ModuleReactivity,
 }
 
+/// Cross-scan cache for export resolution and seed plans.
+///
+/// Linking surface excludes [`ModuleSummary::local_graph`]: a leaf body edit that
+/// does not change imports/exports/provides/injects reuses the prior fixed point.
+#[derive(Clone, Debug)]
+struct CachedLinkingSnapshot {
+  links: Vec<ModuleLink>,
+  /// Per-module linking surface (imports/exports/locals/provides/injects).
+  surfaces: BTreeMap<ModuleId, LinkingSurface>,
+  plans: Arc<BTreeMap<ModuleId, ModuleSeedPlan>>,
+}
+
+/// Export/seed inputs that participate in the cross-module fixed point.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct LinkingSurface {
+  imports: Vec<ImportSummary>,
+  exports: Vec<ExportSummary>,
+  locals: BTreeMap<String, ExportState>,
+  provides: Vec<super::ProvideSite>,
+  injects: Vec<super::InjectSite>,
+}
+
+impl LinkingSurface {
+  fn from_summary(summary: &ModuleSummary) -> Self {
+    Self {
+      imports: summary.imports.clone(),
+      exports: summary.exports.clone(),
+      locals: summary.locals.clone(),
+      provides: summary.provides.clone(),
+      injects: summary.injects.clone(),
+    }
+  }
+}
+
 /// Work counters used by incremental tests and performance instrumentation.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TraceModulesStats {
@@ -297,6 +333,10 @@ pub struct TraceModulesStats {
   pub phase_one_failed: usize,
   pub seeded_reparses: usize,
   pub reused_graphs: usize,
+  /// Modules whose seed plans were freshly computed (not taken from linking cache).
+  pub seed_plans_recomputed: usize,
+  /// Whether `resolve_exports` / provide indexing ran this pass.
+  pub export_resolve_ran: bool,
 }
 
 /// Partial, deterministic result from a module-linking pass.
@@ -428,6 +468,7 @@ pub fn trace_modules_incremental_with_options(
     .collect::<Vec<_>>();
   if unique.is_empty() {
     state.entries.clear();
+    state.linking = None;
     return report;
   }
 
@@ -473,18 +514,58 @@ fn trace_modules_incremental_in_current_pool(
 
   let (resolved_links, mut link_issues) = resolved_links_partial(&facts_by_id, links);
   report.issues.append(&mut link_issues);
-  let link_index = link_index(&resolved_links);
-  let exports = resolve_exports(&facts_by_id, &link_index);
-  let provide_index = global_provide_index(&facts_by_id);
+  let mut owned_links = links.to_vec();
+  owned_links.sort_by(|left, right| {
+    (&left.from, &left.specifier, &left.to).cmp(&(&right.from, &right.specifier, &right.to))
+  });
+  owned_links.dedup();
+
+  let surfaces = facts_by_id
+    .iter()
+    .map(|(id, facts)| (id.clone(), LinkingSurface::from_summary(&facts.summary)))
+    .collect::<BTreeMap<_, _>>();
+  let plans = if let Some(cached) = state
+    .linking
+    .as_ref()
+    .filter(|cached| cached.links == owned_links && cached.surfaces == surfaces)
+  {
+    report.stats.seed_plans_recomputed = 0;
+    report.stats.export_resolve_ran = false;
+    Arc::clone(&cached.plans)
+  } else {
+    report.stats.export_resolve_ran = true;
+    let link_index = link_index(&resolved_links);
+    let exports = resolve_exports(&facts_by_id, &link_index);
+    let provide_index = global_provide_index(&facts_by_id);
+    let mut next_plans = BTreeMap::new();
+    for module in unique {
+      let Some(facts) = facts_by_id.get(&module.id) else {
+        continue;
+      };
+      next_plans.insert(
+        module.id.clone(),
+        ModuleSeedPlan {
+          imports: seed_plan_for(facts, &exports, &link_index),
+          injects: inject_seed_plan(facts, &provide_index),
+        },
+      );
+    }
+    let previous_plans = state.linking.as_ref().map(|cached| Arc::clone(&cached.plans));
+    report.stats.seed_plans_recomputed = next_plans
+      .iter()
+      .filter(|(id, plan)| previous_plans.as_ref().is_none_or(|prev| prev.get(*id) != Some(plan)))
+      .count();
+    let plans = Arc::new(next_plans);
+    state.linking =
+      Some(CachedLinkingSnapshot { links: owned_links, surfaces, plans: Arc::clone(&plans) });
+    plans
+  };
+
   let work = unique
     .iter()
     .filter_map(|module| {
-      let facts = facts_by_id.get(&module.id)?;
       let local_graph = local_graphs.remove(&module.id)?;
-      let plan = ModuleSeedPlan {
-        imports: seed_plan_for(facts, &exports, &link_index),
-        injects: inject_seed_plan(facts, &provide_index),
-      };
+      let plan = plans.get(&module.id)?.clone();
       Some((*module, local_graph, plan))
     })
     .collect::<Vec<_>>();
