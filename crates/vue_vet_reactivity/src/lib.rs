@@ -24,7 +24,10 @@
 //! and reparses only seeded consumers. Both phases use a bounded worker pool.
 //! Callers supply already-resolved links.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+  cell::RefCell,
+  collections::{BTreeMap, BTreeSet},
+};
 
 use oxc_ast::{
   AstKind,
@@ -75,7 +78,29 @@ struct TraceSeeds {
   composable_instances: ComposableShapeMap,
 }
 
+thread_local! {
+  static TRACE_LINE_INDEX: RefCell<Option<vue_vet_core::LineIndex>> = const { RefCell::new(None) };
+}
+
 fn trace_reactivity_seeded(
+  semantic: &Semantic<'_>,
+  sfc_source: &str,
+  script_offset: usize,
+  script_kind: ScriptKind,
+  seeds: &TraceSeeds,
+) -> ReactivityGraph {
+  TRACE_LINE_INDEX.with(|slot| {
+    *slot.borrow_mut() = Some(vue_vet_core::LineIndex::new(sfc_source));
+  });
+  let graph =
+    trace_reactivity_seeded_inner(semantic, sfc_source, script_offset, script_kind, seeds);
+  TRACE_LINE_INDEX.with(|slot| {
+    *slot.borrow_mut() = None;
+  });
+  graph
+}
+
+fn trace_reactivity_seeded_inner(
   semantic: &Semantic<'_>,
   sfc_source: &str,
   script_offset: usize,
@@ -2215,14 +2240,12 @@ fn collect_expression_source_reads(
 fn source_span(source: &str, base: usize, span: Span) -> SourceSpan {
   let offset = base.saturating_add(usize::try_from(span.start).unwrap_or(usize::MAX));
   let end = base.saturating_add(usize::try_from(span.end).unwrap_or(usize::MAX));
-  let bytes = source.as_bytes();
-  let prefix = bytes.get(..offset.min(bytes.len())).unwrap_or(bytes);
-  let line =
-    prefix.iter().fold(1_usize, |line, byte| line.saturating_add(usize::from(*byte == b'\n')));
-  let column = prefix
-    .iter()
-    .rposition(|byte| *byte == b'\n')
-    .map_or_else(|| prefix.len().saturating_add(1), |newline| prefix.len().saturating_sub(newline));
+  let (line, column) = TRACE_LINE_INDEX.with(|slot| {
+    slot.borrow().as_ref().map_or_else(
+      || vue_vet_core::LineIndex::new(source).byte_to_line_column(offset),
+      |index| index.byte_to_line_column(offset),
+    )
+  });
   SourceSpan { offset, length: end.saturating_sub(offset), line, column }
 }
 

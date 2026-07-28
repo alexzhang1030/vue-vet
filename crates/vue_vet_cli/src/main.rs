@@ -3,6 +3,7 @@ use std::{
   fs,
   path::{Path, PathBuf},
   process::ExitCode,
+  sync::Arc,
 };
 
 use clap::{Args, Parser, ValueEnum};
@@ -243,7 +244,7 @@ fn main() -> ExitCode {
           Ok(baseline) => baseline,
           Err(error) => return operational_failure(&cli, &error.to_string()),
         };
-        snapshot.summary = baseline.filter(snapshot.summary);
+        snapshot.summary = Arc::new(baseline.filter(Arc::unwrap_or_clone(snapshot.summary)));
       }
       if let Some(reference) = &cli.diff {
         let directory = session.workspace_root();
@@ -251,7 +252,7 @@ fn main() -> ExitCode {
           Ok(changed) => changed,
           Err(error) => return operational_failure(&cli, &error.to_string()),
         };
-        snapshot.summary = filter_diff(snapshot.summary, &changed);
+        snapshot.summary = Arc::new(filter_diff(Arc::unwrap_or_clone(snapshot.summary), &changed));
       }
       if let Some(path) = &cli.write_baseline
         && let Err(error) = Baseline::from_summary(&snapshot.summary).write(path)

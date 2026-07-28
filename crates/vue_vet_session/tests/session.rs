@@ -811,3 +811,64 @@ fn duplicate_suffix_paths_keep_distinct_file_ids() {
   );
   let _ignored = std::fs::remove_dir_all(root);
 }
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn noop_analyze_affected_does_not_recommit() {
+  let root = fixture("rules/no-v-html/invalid");
+  let session = ProjectSession::open(SessionOptions {
+    root,
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+  })
+  .unwrap_or_else(|error| panic!("session: {error}"));
+  let first = session.analyze().unwrap_or_else(|error| panic!("analyze: {error}"));
+  let stats = session.stats();
+  let second = session.analyze_affected().unwrap_or_else(|error| panic!("noop: {error}"));
+  assert_eq!(session.stats().committed_analyses, stats.committed_analyses);
+  assert_eq!(first.summary.diagnostics.len(), second.summary.diagnostics.len());
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn independent_leaf_edit_keeps_affected_set_local() {
+  let root = std::env::temp_dir().join(format!("vue-vet-locality-{}", std::process::id()));
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(root.join("src")).unwrap_or_else(|error| panic!("workspace: {error}"));
+  for index in 0..40 {
+    std::fs::write(
+      root.join(format!("src/module-{index}.ts")),
+      format!("export const value{index} = {index};\n"),
+    )
+    .unwrap_or_else(|error| panic!("module: {error}"));
+  }
+  let session = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(2),
+  })
+  .unwrap_or_else(|error| panic!("session: {error}"));
+  let _baseline = session.analyze().unwrap_or_else(|error| panic!("baseline: {error}"));
+  session
+    .apply_changes(ChangeSet::upsert(
+      root.join("src/module-39.ts"),
+      "export const value39 = 3900;\n".into(),
+    ))
+    .unwrap_or_else(|error| panic!("edit: {error}"));
+  let _after = session.analyze_affected().unwrap_or_else(|error| panic!("affected: {error}"));
+  let affected = session.affected_files().unwrap_or_else(|error| panic!("affected files: {error}"));
+  assert!(
+    affected.len() <= 4,
+    "independent leaf edit must not mark the whole workspace dirty, got {}",
+    affected.len()
+  );
+  assert!(
+    affected.iter().any(|file| file.as_str().contains("module-39")),
+    "edited leaf must be among affected files"
+  );
+  let _ignored = std::fs::remove_dir_all(root);
+}

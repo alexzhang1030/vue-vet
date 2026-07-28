@@ -282,16 +282,16 @@ pub fn build_project_graph_with_options(
 }
 
 #[must_use]
-pub fn build_project_graph_incremental_with_options(
+pub fn build_project_graph_incremental_with_options<'a>(
   root: &Path,
-  files: &[ProjectFile],
+  files: impl IntoIterator<Item = &'a ProjectFile>,
   trace_options: TraceModulesOptions,
   project_context: &ProjectContext,
   state: &mut ProjectGraphState,
 ) -> ProjectGraph {
   state.last_stats = ProjectGraphStats::default();
   let root = normalize_project_root(root);
-  let mut ordered = files.iter().collect::<Vec<_>>();
+  let mut ordered = files.into_iter().collect::<Vec<_>>();
   ordered.sort_by_key(|file| normalized_path(file.path.as_path()));
   let known =
     ordered.iter().map(|file| normalized_path(file.path.as_path())).collect::<BTreeSet<_>>();
@@ -422,13 +422,13 @@ pub fn build_project_graph_incremental_with_options(
     .collect::<BTreeMap<_, _>>();
   for module in &mut module_reactivity {
     if let Some(template) = templates.get(module.id.as_str()) {
-      module.graph.join_template_reads(template);
+      std::sync::Arc::make_mut(&mut module.graph).join_template_reads(template);
     }
   }
   // Static parent `:prop="binding"` → child `props.prop` edges (under-approx).
   let graph_snapshots = module_reactivity
     .iter()
-    .map(|module| (module.id.clone(), module.graph.clone()))
+    .map(|module| (module.id.clone(), std::sync::Arc::clone(&module.graph)))
     .collect::<BTreeMap<_, _>>();
   let prop_sites = edges
     .iter()
@@ -685,20 +685,23 @@ fn unused_component_diagnostics(
   nodes: &[GraphNode],
   edges: &[GraphEdge],
 ) -> Vec<Diagnostic> {
+  let referenced = edges
+    .iter()
+    .filter(|edge| {
+      matches!(edge.kind, EdgeKind::Import | EdgeKind::ComponentUsage | EdgeKind::AutoComponent)
+    })
+    .map(|edge| edge.to.as_str())
+    .collect::<std::collections::HashSet<_>>();
+  let file_by_path = files
+    .iter()
+    .map(|file| (normalized_path(file.path.as_path()), *file))
+    .collect::<BTreeMap<_, _>>();
   nodes
     .iter()
     .filter(|node| node.kind == NodeKind::Component)
-    .filter(|node| {
-      !edges.iter().any(|edge| {
-        edge.to == node.id
-          && matches!(
-            edge.kind,
-            EdgeKind::Import | EdgeKind::ComponentUsage | EdgeKind::AutoComponent
-          )
-      })
-    })
+    .filter(|node| !referenced.contains(node.id.as_str()))
     .filter_map(|node| {
-      let file = files.iter().find(|file| normalized_path(file.path.as_path()) == node.path)?;
+      let file = file_by_path.get(&node.path)?;
       Some(Diagnostic {
         rule_id: PROJECT_RULE_IDS[1].into(),
         category: "project".into(),
@@ -807,7 +810,7 @@ mod tests {
           .collect(),
         member_writes: Vec::new(),
         destructures: Vec::new(),
-        reactivity_graph: vue_vet_core::ReactivityGraph::default(),
+        reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
       }],
     };
     let template = TemplateFacts {
@@ -1230,7 +1233,7 @@ export const LazyButton: LazyComponent<typeof import("../components/base/Button.
             calls: Vec::new(),
             member_writes: Vec::new(),
             destructures: Vec::new(),
-            reactivity_graph: vue_vet_core::ReactivityGraph::default(),
+            reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
           }],
         },
       }

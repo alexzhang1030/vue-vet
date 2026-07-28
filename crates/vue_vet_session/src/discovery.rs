@@ -164,19 +164,10 @@ impl WorkspaceInputSnapshot {
   /// `Some(source)` installs an in-memory overlay. `None` removes the overlay
   /// and refreshes that exact path from disk (or removes it when deleted).
   /// Strong exception safety: on `Err`, `self` is left unchanged.
-  pub(crate) fn apply_changes(
-    &mut self,
-    root: &Path,
-    config: &Config,
-    changes: &BTreeMap<PathBuf, Option<String>>,
-  ) -> Result<BTreeSet<FileId>, SessionError> {
-    let mut next = self.clone();
-    let affected = next.apply_changes_in_place(root, config, changes)?;
-    *self = next;
-    Ok(affected)
-  }
-
-  fn apply_changes_in_place(
+  /// Mutate this snapshot in place. On `Err`, contents may be partially updated;
+  /// callers that need strong exception safety must clone first (session does this
+  /// via `Arc::make_mut` on a forked inputs Arc, then drops the fork on failure).
+  pub(crate) fn apply_changes_in_place(
     &mut self,
     root: &Path,
     config: &Config,
@@ -418,9 +409,8 @@ mod tests {
       .unwrap_or_else(|error| panic!("good: {error}"));
     let bad = root.join("bad.ts");
     std::fs::write(&bad, "export const ok = 1;\n").unwrap_or_else(|error| panic!("bad: {error}"));
-    let mut snapshot =
-      WorkspaceInputSnapshot::discover(&root, &Config::default(), &BTreeMap::new())
-        .unwrap_or_else(|error| panic!("discover: {error}"));
+    let snapshot = WorkspaceInputSnapshot::discover(&root, &Config::default(), &BTreeMap::new())
+      .unwrap_or_else(|error| panic!("discover: {error}"));
     let before = snapshot.clone();
     std::fs::write(&bad, [0xff, 0xfe, 0xfd])
       .unwrap_or_else(|error| panic!("invalid bytes: {error}"));
@@ -428,10 +418,12 @@ mod tests {
       (good, Some("<template><main v-html=\"html\" /></template>".into())),
       (bad, None),
     ]);
-    let Err(error) = snapshot.apply_changes(&root, &Config::default(), &changes) else {
+    let mut next = snapshot.clone();
+    let Err(error) = next.apply_changes_in_place(&root, &Config::default(), &changes) else {
       panic!("invalid UTF-8 refresh must fail");
     };
     assert!(error.to_string().contains("UTF-8"), "{error}");
+    // Failed in-place mutation must not be committed onto the live snapshot.
     assert_eq!(snapshot.sources.len(), before.sources.len());
     assert_eq!(
       snapshot.sources.iter().map(|source| source.file_id.as_str()).collect::<Vec<_>>(),

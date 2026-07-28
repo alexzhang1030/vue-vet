@@ -14,13 +14,15 @@ mod pipeline;
 mod scan;
 
 use std::{
-  collections::BTreeMap,
+  collections::{BTreeMap, BTreeSet},
   path::{Path, PathBuf},
   sync::{
-    Arc, LazyLock, Mutex, MutexGuard,
+    Arc, LazyLock, Mutex, MutexGuard, OnceLock,
     atomic::{AtomicU64, Ordering},
   },
 };
+
+use rayon::ThreadPool;
 
 use thiserror::Error;
 use vue_vet_cache::default_cache_dir;
@@ -30,6 +32,7 @@ use vue_vet_core::{
   WorkspaceRoot,
 };
 use vue_vet_practice::practice_rules;
+use vue_vet_project::ContextEpochs;
 use vue_vet_project::{PROJECT_RULE_IDS, ProjectGraph};
 use vue_vet_rules::builtin_rules;
 
@@ -58,10 +61,13 @@ pub struct SessionOptions {
 }
 
 /// Deterministic analysis result shared across surfaces.
+///
+/// Heavy payloads are `Arc` so commit/`last_snapshot`/noop reuse only bumps
+/// refcounts instead of cloning the project graph.
 #[derive(Clone, Debug)]
 pub struct AnalysisSnapshot {
-  pub summary: ScanSummary,
-  pub graph: ProjectGraph,
+  pub summary: Arc<ScanSummary>,
+  pub graph: Arc<ProjectGraph>,
   pub cache_status: &'static str,
   pub coverage: AnalysisCoverage,
   pub issues: Vec<AnalysisIssue>,
@@ -175,7 +181,10 @@ pub struct ProjectSession {
   config: Config,
   cache_dir: PathBuf,
   no_cache: bool,
+  /// Analysis worker threads; `None` uses Rayon defaults.
   threads: Option<usize>,
+  /// Built on first real scan — cache hits never pay pool construction.
+  pool: OnceLock<Arc<ThreadPool>>,
   core: Mutex<SessionCore>,
   workspace_discoveries: AtomicU64,
   incremental_file_updates: AtomicU64,
@@ -191,11 +200,34 @@ struct SessionInputs {
   snapshot: Option<Arc<WorkspaceInputSnapshot>>,
 }
 
+/// Dirty files accumulated since the last committed analysis.
+#[derive(Clone, Debug, Default)]
+struct PendingChanges {
+  files: BTreeSet<FileId>,
+  /// Package/lockfile/tsconfig/membership epochs require all sources to reparse.
+  invalidate_all_sources: bool,
+}
+
+impl PendingChanges {
+  fn clear(&mut self) {
+    self.files.clear();
+    self.invalidate_all_sources = false;
+  }
+
+  fn merge_files(&mut self, files: impl IntoIterator<Item = FileId>) {
+    self.files.extend(files);
+  }
+}
+
 #[derive(Debug)]
 struct SessionCore {
   revision: u64,
+  /// Revision of the last successfully committed analysis.
+  committed_revision: u64,
   inputs: SessionInputs,
   committed: Arc<scan::AnalysisState>,
+  pending: PendingChanges,
+  last_snapshot: Option<Arc<AnalysisSnapshot>>,
 }
 
 struct PreparedAnalysis {
@@ -203,6 +235,15 @@ struct PreparedAnalysis {
   input: Arc<WorkspaceInputSnapshot>,
   committed: Arc<scan::AnalysisState>,
   has_overlays: bool,
+  dirty_files: BTreeSet<FileId>,
+  invalidate_all_sources: bool,
+}
+
+const fn epochs_invalidate_all_sources(previous: &ContextEpochs, current: &ContextEpochs) -> bool {
+  previous.package_manifest != current.package_manifest
+    || previous.lockfile != current.lockfile
+    || previous.tsconfig != current.tsconfig
+    || previous.source_membership != current.source_membership
 }
 
 #[cfg(test)]
@@ -242,10 +283,14 @@ impl ProjectSession {
       cache_dir: options.cache_dir.unwrap_or_else(default_cache_dir),
       no_cache: options.no_cache,
       threads: options.threads,
+      pool: OnceLock::new(),
       core: Mutex::new(SessionCore {
         revision: 1,
+        committed_revision: 0,
         inputs: SessionInputs::default(),
         committed: Arc::new(scan::AnalysisState::default()),
+        pending: PendingChanges { invalidate_all_sources: true, ..PendingChanges::default() },
+        last_snapshot: None,
       }),
       workspace_discoveries: AtomicU64::new(0),
       incremental_file_updates: AtomicU64::new(0),
@@ -254,6 +299,24 @@ impl ProjectSession {
       #[cfg(test)]
       test_hooks: SessionTestHooks::default(),
     })
+  }
+
+  /// Lazy session Rayon pool. Cache-hit analyzes never call this.
+  fn analysis_pool(&self) -> Result<Option<Arc<ThreadPool>>, SessionError> {
+    let Some(threads) = self.threads else {
+      return Ok(None);
+    };
+    if let Some(pool) = self.pool.get() {
+      return Ok(Some(Arc::clone(pool)));
+    }
+    let pool =
+      Arc::new(rayon::ThreadPoolBuilder::new().num_threads(threads.max(1)).build().map_err(
+        |error| SessionError::message(format!("failed to configure analysis threads: {error}")),
+      )?);
+    match self.pool.set(Arc::clone(&pool)) {
+      Ok(()) => Ok(Some(pool)),
+      Err(_) => Ok(self.pool.get().map(Arc::clone).or(Some(pool))),
+    }
   }
 
   #[must_use]
@@ -365,9 +428,19 @@ impl ProjectSession {
     };
     apply_overlay_map(&mut next_inputs.overlays, &changes);
     if let Some(snapshot) = &mut next_inputs.snapshot {
-      let mut next_snapshot = (**snapshot).clone();
-      next_snapshot.apply_changes(self.root.as_path(), &self.config, &changes)?;
-      *snapshot = Arc::new(next_snapshot);
+      let previous_epochs = snapshot.project_context.epochs;
+      // `make_mut` clones once when `core.inputs` still shares the Arc.
+      let affected = Arc::make_mut(snapshot).apply_changes_in_place(
+        self.root.as_path(),
+        &self.config,
+        &changes,
+      )?;
+      if epochs_invalidate_all_sources(&previous_epochs, &snapshot.project_context.epochs) {
+        core.pending.invalidate_all_sources = true;
+      }
+      core.pending.merge_files(affected);
+    } else {
+      core.pending.invalidate_all_sources = true;
     }
     core.inputs = next_inputs;
     core.revision = core.revision.wrapping_add(1);
@@ -382,12 +455,33 @@ impl ProjectSession {
 
   /// Analyze the current overlay set, reusing unchanged per-file facts.
   ///
+  /// When the workspace revision matches the last committed analysis, returns
+  /// the cached snapshot in O(1) without re-entering the pipeline.
+  ///
   /// # Errors
   ///
   /// Returns analysis or I/O failures.
   pub fn analyze_affected(&self) -> Result<AnalysisSnapshot, SessionError> {
+    if let Some(snapshot) = self.noop_snapshot()? {
+      return Ok(snapshot);
+    }
     let prepared = self.prepare_analysis(false)?;
     self.run_analysis(&prepared, true)
+  }
+
+  /// Return the last committed snapshot when no inputs changed since commit.
+  fn noop_snapshot(&self) -> Result<Option<AnalysisSnapshot>, SessionError> {
+    let core = self.lock_core()?;
+    let snapshot = if core.revision == core.committed_revision
+      && core.pending.files.is_empty()
+      && !core.pending.invalidate_all_sources
+    {
+      core.last_snapshot.as_ref().map(|snapshot| AnalysisSnapshot::clone(snapshot))
+    } else {
+      None
+    };
+    drop(core);
+    Ok(snapshot)
   }
 
   /// Files invalidated by the most recent in-memory analysis.
@@ -452,9 +546,18 @@ impl ProjectSession {
       snapshot: core.inputs.snapshot.as_ref().map(Arc::clone),
     };
     if let Some(snapshot) = &mut next_inputs.snapshot {
-      let mut next_snapshot = (**snapshot).clone();
-      next_snapshot.apply_changes(self.root.as_path(), &self.config, &changes)?;
-      *snapshot = Arc::new(next_snapshot);
+      let previous_epochs = snapshot.project_context.epochs;
+      let affected = Arc::make_mut(snapshot).apply_changes_in_place(
+        self.root.as_path(),
+        &self.config,
+        &changes,
+      )?;
+      if epochs_invalidate_all_sources(&previous_epochs, &snapshot.project_context.epochs) {
+        core.pending.invalidate_all_sources = true;
+      }
+      core.pending.merge_files(affected);
+    } else {
+      core.pending.invalidate_all_sources = true;
     }
     core.inputs = next_inputs;
     core.revision = core.revision.wrapping_add(1);
@@ -471,6 +574,7 @@ impl ProjectSession {
       let snapshot =
         WorkspaceInputSnapshot::discover(self.root.as_path(), &self.config, &core.inputs.overlays)?;
       core.inputs.snapshot = Some(Arc::new(snapshot));
+      core.pending.invalidate_all_sources = true;
       self.workspace_discoveries.fetch_add(1, Ordering::Relaxed);
       if rediscover {
         core.revision = core.revision.wrapping_add(1);
@@ -482,11 +586,15 @@ impl ProjectSession {
       .as_ref()
       .map(Arc::clone)
       .ok_or_else(|| SessionError::message("workspace input snapshot was not initialized"))?;
+    let invalidate_all_sources =
+      core.pending.invalidate_all_sources || !core.committed.has_file_facts();
     Ok(PreparedAnalysis {
       revision: core.revision,
       input,
       committed: Arc::clone(&core.committed),
       has_overlays: !core.inputs.overlays.is_empty(),
+      dirty_files: core.pending.files.clone(),
+      invalidate_all_sources,
     })
   }
 
@@ -502,13 +610,16 @@ impl ProjectSession {
       &self.config,
       &self.cache_dir,
       no_cache,
-      self.threads,
+      || self.analysis_pool(),
       &prepared.committed,
       &mut candidate,
       &cancelled,
+      &prepared.dirty_files,
+      prepared.invalidate_all_sources,
     ) {
       Ok(snapshot) => snapshot,
       Err(SessionError::Cancelled) => {
+        // Keep pending dirty set — cancellation must not drop work.
         self.cancelled_analyses.fetch_add(1, Ordering::Relaxed);
         return Err(SessionError::Cancelled);
       }
@@ -520,15 +631,19 @@ impl ProjectSession {
     }
     #[cfg(test)]
     Self::pause_at(&self.test_hooks.before_commit);
+    let shared = Arc::new(snapshot);
     let mut core = self.lock_core()?;
     if core.revision != prepared.revision {
       self.cancelled_analyses.fetch_add(1, Ordering::Relaxed);
       return Err(SessionError::Cancelled);
     }
     core.committed = Arc::new(candidate);
+    core.committed_revision = prepared.revision;
+    core.last_snapshot = Some(Arc::clone(&shared));
+    core.pending.clear();
     drop(core);
     self.committed_analyses.fetch_add(1, Ordering::Relaxed);
-    Ok(snapshot)
+    Ok(AnalysisSnapshot::clone(&shared))
   }
 
   fn is_current_revision(&self, revision: u64) -> bool {
@@ -649,6 +764,15 @@ mod tests {
     );
     session.analyze().unwrap_or_else(|error| panic!("initial analysis failed: {error}"));
     assert_eq!(session.stats().committed_analyses, 1);
+
+    // Queue dirty work so analyze_affected enters the pipeline instead of the
+    // revision-matched no-op path.
+    session
+      .apply_changes(ChangeSet::upsert(
+        component.clone(),
+        "<template><main v-html=\"html\" /></template>".into(),
+      ))
+      .unwrap_or_else(|error| panic!("failed to queue dirty analysis: {error}"));
 
     let analysis_entered = Arc::new(Barrier::new(2));
     let analysis_resume = Arc::new(Barrier::new(2));

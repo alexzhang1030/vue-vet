@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
@@ -46,6 +47,10 @@ pub fn analyze_sfc_with_facts(path: &Path, source: &str) -> Result<AnalyzedSfc, 
   analyze_sfc_facts(path, source)
 }
 
+thread_local! {
+  static SFC_LINE_INDEX: RefCell<Option<vue_vet_core::LineIndex>> = const { RefCell::new(None) };
+}
+
 /// Extract SFC facts and module identity without running built-in rules.
 ///
 /// Used by the CLI project pass so cross-file module graphs can seed bindings
@@ -55,6 +60,17 @@ pub fn analyze_sfc_with_facts(path: &Path, source: &str) -> Result<AnalyzedSfc, 
 ///
 /// Returns the same parse / template / script errors as [`analyze_sfc_with_facts`].
 pub fn analyze_sfc_facts(path: &Path, source: &str) -> Result<AnalyzedSfc, AnalyzeError> {
+  SFC_LINE_INDEX.with(|slot| {
+    *slot.borrow_mut() = Some(vue_vet_core::LineIndex::new(source));
+  });
+  let result = analyze_sfc_facts_inner(path, source);
+  SFC_LINE_INDEX.with(|slot| {
+    *slot.borrow_mut() = None;
+  });
+  result
+}
+
+fn analyze_sfc_facts_inner(path: &Path, source: &str) -> Result<AnalyzedSfc, AnalyzeError> {
   let descriptor = parse_sfc(source, SfcParseOptions::default())
     .map_err(|error| AnalyzeError::Parse(error.message.into()))?;
   let (mut module_source, mut ordinary_module_source) =
@@ -99,8 +115,9 @@ pub fn analyze_sfc_facts(path: &Path, source: &str) -> Result<AnalyzedSfc, Analy
   // qualify edge `to_id` with the logical file path (graph v8).
   let module_id = path.to_string_lossy().replace('\\', "/");
   for block in &mut script.blocks {
-    block.reactivity_graph.join_template_reads(&template);
-    block.reactivity_graph.set_module_id(module_id.clone());
+    let graph = Arc::make_mut(&mut block.reactivity_graph);
+    graph.join_template_reads(&template);
+    graph.set_module_id(module_id.clone());
   }
   Ok(AnalyzedSfc { facts: SfcFacts { template, script }, module_source, ordinary_module_source })
 }
@@ -575,15 +592,12 @@ fn source_span(source: &str, offset: usize, length: usize) -> SourceSpan {
 }
 
 fn line_column(source: &str, offset: usize) -> (usize, usize) {
-  let bytes = source.as_bytes();
-  let prefix = bytes.get(..offset.min(bytes.len())).unwrap_or(bytes);
-  let line =
-    prefix.iter().fold(1_usize, |line, byte| line.saturating_add(usize::from(*byte == b'\n')));
-  let column = prefix
-    .iter()
-    .rposition(|byte| *byte == b'\n')
-    .map_or_else(|| prefix.len().saturating_add(1), |newline| prefix.len().saturating_sub(newline));
-  (line, column)
+  SFC_LINE_INDEX.with(|slot| {
+    slot.borrow().as_ref().map_or_else(
+      || vue_vet_core::LineIndex::new(source).byte_to_line_column(offset),
+      |index| index.byte_to_line_column(offset),
+    )
+  })
 }
 
 #[cfg(test)]

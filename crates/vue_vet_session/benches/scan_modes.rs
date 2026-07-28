@@ -5,7 +5,10 @@
 use std::{
   collections::{BTreeMap, BTreeSet},
   path::{Path, PathBuf},
-  sync::atomic::{AtomicUsize, Ordering},
+  sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+  },
 };
 
 use vue_vet_cache::{ChangedLines, filter_diff};
@@ -37,6 +40,20 @@ fn synthetic_workspace(count: usize) -> PathBuf {
       )
     };
     std::fs::write(root.join(format!("src/module-{index}.ts")), source).expect("synthetic module");
+  }
+  root
+}
+
+fn independent_workspace(count: usize) -> PathBuf {
+  let root = temp_cache("independent-workspace");
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(root.join("src")).expect("independent src directory");
+  for index in 0..count {
+    std::fs::write(
+      root.join(format!("src/module-{index}.ts")),
+      format!("export const value{index} = {index};\n"),
+    )
+    .expect("independent module");
   }
   root
 }
@@ -132,6 +149,42 @@ fn scan_incremental_edits_nuxt_graph(bencher: divan::Bencher) {
   let _ignored = std::fs::remove_dir_all(&cache);
 }
 
+#[divan::bench]
+fn scan_noop_analyze_affected(bencher: divan::Bencher) {
+  let root = nuxt_graph();
+  let cache = temp_cache("noop");
+  let session = open(&root, cache.clone(), true);
+  let _initial = session.analyze().expect("initial analyze");
+  bencher.bench(|| {
+    let snapshot = session.analyze_affected().expect("noop analyze_affected");
+    divan::black_box(snapshot.summary.diagnostics.len())
+  });
+  let _ignored = std::fs::remove_dir_all(&cache);
+}
+
+#[divan::bench(sample_count = 10, sample_size = 1)]
+fn scan_independent_leaf_edit_1k_modules(bencher: divan::Bencher) {
+  let root = independent_workspace(1_000);
+  let module = root.join("src/module-999.ts");
+  let cache = temp_cache("independent-1k");
+  let session = open(&root, cache.clone(), true);
+  let _initial = session.analyze().expect("initial independent analysis");
+  let sources = ["export const value999 = 1;\n", "export const value999 = 2;\n"];
+  let edit = AtomicUsize::new(0);
+  bencher.bench(|| {
+    let sequence = edit.fetch_add(1, Ordering::Relaxed);
+    let source =
+      sources.get(sequence % sources.len()).copied().unwrap_or("export const value999 = 1;\n");
+    session
+      .apply_changes(ChangeSet::upsert(module.clone(), source.into()))
+      .expect("apply independent leaf overlay");
+    let snapshot = session.analyze_affected().expect("independent leaf analysis");
+    divan::black_box((snapshot.graph.nodes.len(), session.stats()))
+  });
+  let _ignored = std::fs::remove_dir_all(&root);
+  let _ignored = std::fs::remove_dir_all(&cache);
+}
+
 #[divan::bench(sample_count = 20, sample_size = 1)]
 fn scan_incremental_root_edit_1k_modules(bencher: divan::Bencher) {
   let root = synthetic_workspace(1_000);
@@ -169,7 +222,7 @@ fn scan_diff_filter_nuxt_graph(bencher: divan::Bencher) {
     .bench_values(|(cache, summary)| {
       let mut changed = ChangedLines::default();
       changed.files.insert("pages/index.vue".into(), BTreeSet::from([1]));
-      let filtered = filter_diff(summary, &changed);
+      let filtered = filter_diff(Arc::unwrap_or_clone(summary), &changed);
       let _ignored = std::fs::remove_dir_all(&cache);
       divan::black_box(filtered.diagnostics.len())
     });

@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+  collections::{BTreeMap, BTreeSet},
+  sync::Arc,
+};
 
 use oxc_allocator::Allocator;
 use oxc_ast::{
@@ -81,6 +84,7 @@ pub fn analyze_module_source(
     return Err(AnalyzeScriptError::Semantic(join_errors(&built.errors)));
   }
   let semantic = built.semantic;
+  let line_index = vue_vet_core::LineIndex::new(sfc_source);
   let mut imports = Vec::new();
   let mut imported_bindings = BTreeMap::new();
 
@@ -94,7 +98,7 @@ pub fn analyze_module_source(
         source,
         imported: String::new(),
         local: String::new(),
-        span: source_span(sfc_source, script_offset, declaration.span),
+        span: source_span(&line_index, sfc_source, script_offset, declaration.span),
       });
       continue;
     };
@@ -117,7 +121,7 @@ pub fn analyze_module_source(
         source: source.clone(),
         imported,
         local,
-        span: source_span(sfc_source, script_offset, span),
+        span: source_span(&line_index, sfc_source, script_offset, span),
       });
     }
   }
@@ -137,7 +141,7 @@ pub fn analyze_module_source(
         name: scoping.symbol_name(symbol_id).into(),
         reads,
         writes,
-        span: source_span(sfc_source, script_offset, scoping.symbol_span(symbol_id)),
+        span: source_span(&line_index, sfc_source, script_offset, scoping.symbol_span(symbol_id)),
       }
     })
     .collect();
@@ -159,7 +163,7 @@ pub fn analyze_module_source(
         {
           destructures.push(ScriptDestructureFact {
             source_call: callee.clone(),
-            span: source_span(sfc_source, script_offset, pattern.span),
+            span: source_span(&line_index, sfc_source, script_offset, pattern.span),
           });
         }
         let resolved_import =
@@ -169,7 +173,7 @@ pub fn analyze_module_source(
           resolved_import,
           argument_identifiers: expression_argument_identifiers(call.arguments.iter()),
           callee,
-          span: source_span(sfc_source, script_offset, call.span),
+          span: source_span(&line_index, sfc_source, script_offset, call.span),
         });
       }
       AstKind::NewExpression(expression) => {
@@ -185,16 +189,19 @@ pub fn analyze_module_source(
           resolved_import,
           argument_identifiers: expression_argument_identifiers(expression.arguments.iter()),
           callee,
-          span: source_span(sfc_source, script_offset, expression.span),
+          span: source_span(&line_index, sfc_source, script_offset, expression.span),
         });
       }
       AstKind::AssignmentExpression(assignment) => {
-        if let Some(write) = assignment_member(&assignment.left, sfc_source, script_offset) {
+        if let Some(write) =
+          assignment_member(&assignment.left, &line_index, sfc_source, script_offset)
+        {
           member_writes.push(write);
         }
       }
       AstKind::UpdateExpression(update) => {
-        if let Some(write) = update_member(&update.argument, sfc_source, script_offset) {
+        if let Some(write) = update_member(&update.argument, &line_index, sfc_source, script_offset)
+        {
           member_writes.push(write);
         }
       }
@@ -202,9 +209,14 @@ pub fn analyze_module_source(
     }
   }
 
-  let reactivity_graph = trace_reactivity(&semantic, sfc_source, script_offset, kind);
-  let module_trace =
-    prepare_module_summary(&semantic, sfc_source, script_offset, kind, reactivity_graph.clone());
+  let reactivity_graph = Arc::new(trace_reactivity(&semantic, sfc_source, script_offset, kind));
+  let module_trace = prepare_module_summary(
+    &semantic,
+    sfc_source,
+    script_offset,
+    kind,
+    Arc::clone(&reactivity_graph),
+  );
 
   imports.sort_by_key(|fact| fact.span.offset);
   calls.sort_by_key(|fact| fact.span.offset);
@@ -475,17 +487,24 @@ fn module_export_name(name: &ModuleExportName<'_>) -> String {
 
 fn assignment_member(
   target: &AssignmentTarget<'_>,
+  index: &vue_vet_core::LineIndex,
   source: &str,
   offset: usize,
 ) -> Option<ScriptMemberWriteFact> {
   match target {
-    AssignmentTarget::StaticMemberExpression(member) => {
-      member_write(&member.object, Some(member.property.name.as_str()), member.span, source, offset)
-    }
+    AssignmentTarget::StaticMemberExpression(member) => member_write(
+      &member.object,
+      Some(member.property.name.as_str()),
+      member.span,
+      index,
+      source,
+      offset,
+    ),
     AssignmentTarget::ComputedMemberExpression(member) => member_write(
       &member.object,
       member.static_property_name().as_deref(),
       member.span,
+      index,
       source,
       offset,
     ),
@@ -495,17 +514,24 @@ fn assignment_member(
 
 fn update_member(
   target: &SimpleAssignmentTarget<'_>,
+  index: &vue_vet_core::LineIndex,
   source: &str,
   offset: usize,
 ) -> Option<ScriptMemberWriteFact> {
   match target {
-    SimpleAssignmentTarget::StaticMemberExpression(member) => {
-      member_write(&member.object, Some(member.property.name.as_str()), member.span, source, offset)
-    }
+    SimpleAssignmentTarget::StaticMemberExpression(member) => member_write(
+      &member.object,
+      Some(member.property.name.as_str()),
+      member.span,
+      index,
+      source,
+      offset,
+    ),
     SimpleAssignmentTarget::ComputedMemberExpression(member) => member_write(
       &member.object,
       member.static_property_name().as_deref(),
       member.span,
+      index,
       source,
       offset,
     ),
@@ -517,6 +543,7 @@ fn member_write(
   object: &Expression<'_>,
   property: Option<&str>,
   span: Span,
+  index: &vue_vet_core::LineIndex,
   source: &str,
   offset: usize,
 ) -> Option<ScriptMemberWriteFact> {
@@ -524,7 +551,7 @@ fn member_write(
   Some(ScriptMemberWriteFact {
     object,
     property: property.map(str::to_owned),
-    span: source_span(source, offset, span),
+    span: source_span(index, source, offset, span),
   })
 }
 
@@ -566,17 +593,15 @@ where
     .collect()
 }
 
-fn source_span(source: &str, base: usize, span: Span) -> SourceSpan {
+fn source_span(
+  index: &vue_vet_core::LineIndex,
+  _source: &str,
+  base: usize,
+  span: Span,
+) -> SourceSpan {
   let offset = base.saturating_add(usize::try_from(span.start).unwrap_or(usize::MAX));
   let end = base.saturating_add(usize::try_from(span.end).unwrap_or(usize::MAX));
-  let bytes = source.as_bytes();
-  let prefix = bytes.get(..offset.min(bytes.len())).unwrap_or(bytes);
-  let line =
-    prefix.iter().fold(1_usize, |line, byte| line.saturating_add(usize::from(*byte == b'\n')));
-  let column = prefix
-    .iter()
-    .rposition(|byte| *byte == b'\n')
-    .map_or_else(|| prefix.len().saturating_add(1), |newline| prefix.len().saturating_sub(newline));
+  let (line, column) = index.byte_to_line_column(offset);
   SourceSpan { offset, length: end.saturating_sub(offset), line, column }
 }
 

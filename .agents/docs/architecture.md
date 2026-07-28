@@ -47,6 +47,11 @@ vue-vet CLI
   reparses only when its source or resolved seed plan changed, while unchanged
   final graphs are reused from `ModuleTraceState`. Oxc arena values never cross
   a thread or adapter boundary and the workspace still forbids `unsafe_code`.
+- **Dirty-set scheduling** — `apply_changes` retains the returned dirty
+  `FileId` set in `PendingChanges`. `analyze_affected` returns the last snapshot
+  in O(1) when the workspace revision is unchanged. Otherwise the pipeline parses
+  only dirty (or context-invalidated) sources, merges reused file facts, expands
+  reverse dependencies, then reruns rules for the affected closure.
 - **Incremental project stages** — `ProjectSession` retains the source snapshot,
   per-file Vize/Oxc facts, raw file diagnostics, structural edge partitions,
   module seed plans/final graphs, and the reverse dependency index. A normal
@@ -65,13 +70,19 @@ vue-vet CLI
   Vue sources. File-rule diagnostic reuse additionally requires matching primary
   and ordinary final module graphs, so resolution-driven graph changes cannot
   keep stale diagnostics. Incremental results remain equal to a clean scan.
-- **Shared Rayon pool** — session `--threads N` installs one pool and passes
+- **Shared Rayon pool** — session `--threads N` lazily builds one persistent pool
+  on the first real scan (never on warm cache hits) and passes
   `TraceModulesOptions { reuse_current_pool: true }`. Standalone
   `trace_modules_with_options` still installs a dedicated pool sized to
-  `max_workers`.
+  `max_workers`. `AnalysisSnapshot` shares `summary`/`graph` via `Arc`.
 - **Analysis state preparation** — each run seeds a candidate from the previous
-  committed `ProjectGraphState` and looks up file facts/diagnostics by reference
-  instead of cloning the full file maps up front.
+  committed state, shares `ProjectGraphState` and file/diagnostic maps via `Arc`
+  (copy-on-write / `share_from` on cache hit), and reuses `Arc<AnalyzedCandidate>`
+  instead of deep-cloning per-file IR. `ModuleSummary` / `ModuleReactivity.graph` /
+  `ScriptBlockFacts.reactivity_graph` share graphs by `Arc`; mutations use
+  `Arc::make_mut`. Export resolution uses a worklist rather than cloning the full
+  resolved map each fixed-point round. Session input updates fork the snapshot Arc
+  once (`Arc::make_mut` + in-place apply), never clone-then-clone.
 - **Partial module outcomes** — parse/link failures are scoped
   `AnalysisIssue`s. Healthy modules still reach the cross-module fixed point;
   one bad module never forces every other module back to an isolated local graph.

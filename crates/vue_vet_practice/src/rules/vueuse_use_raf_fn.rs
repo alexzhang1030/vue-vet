@@ -106,7 +106,7 @@ mod tests {
         calls,
         member_writes: Vec::new(),
         destructures: Vec::new(),
-        reactivity_graph: ReactivityGraph::default(),
+        reactivity_graph: std::sync::Arc::new(ReactivityGraph::default()),
       }],
     };
     practice_registry().run(Path::new("src/Raf.vue"), "", &TemplateFacts::default(), &script)
