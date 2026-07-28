@@ -278,8 +278,17 @@ cache on full `ModuleSummary` (it includes the local graph).
 
 **Template/prop layers must not `make_mut` reused base graphs on warm scans.**
 Keep base reactivity from module-trace separate from the layered final graphs;
-reuse the layered `Arc<Vec<ModuleReactivity>>` when base graph pointers and
+reuse the layered `Arc<[ModuleReactivity]>` when base graph pointers and
 `SfcFacts` pointers are unchanged.
+
+**`ModuleSource` equality ignores `span_source`.** Style-only SFC edits change
+the wrapper file bytes without invalidating script body IR when `source` +
+`source_offset` match. Do not reintroduce `span_source` into `PartialEq`.
+
+**SFC block reuse keys on content digest + absolute loc.** If a preceding block
+grows/shrinks, later blocks' `start`/`end` change and must rebuild even when
+their text is identical. Style-only edits after other blocks are the common
+full-reuse path.
 
 **Context invalidation ≠ re-parse.** Epoch bumps for tsconfig, lockfile,
 package resolution, Nuxt declarations, or source membership must refresh

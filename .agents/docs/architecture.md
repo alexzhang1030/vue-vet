@@ -106,13 +106,14 @@ dirty source → fewer parses                    (shipped)
 warm linking surface → skip export/seed FP     (shipped)
 warm base+facts → reuse template/prop layers   (shipped)
 TrackingScopeIR / Vize bottom-up               (shipped)
-dirty export closure / SFC block revisions     (next)
+export-closure seed recompute + SFC blocks     (shipped)
+warm-cache IR hydrate / returns_by_function    (next)
 ```
 
 Do **not** pursue a generalized unified AST IR. Highest-value remaining work:
 
-1. Narrow `DirtyPlan.export_closure` so changed summaries do not visit every module
-2. SFC block revisions + warm-cache IR hydrate
+1. Warm-cache IR hydrate so disk-cache hits seed file/module facts for edits
+2. `returns_by_function` + shared `SourceContext`
 
 Execution plan shape (session-owned):
 
@@ -132,11 +133,13 @@ Batch intent (execution lives in tracker issues, not temporary numbers here):
    (structural / module-trace / layered) plus a retained resolver. Linking cache
    skips export/provide/seed fixed points when the linking surface (imports,
    exports, locals, provides, injects — not `local_graph`) and links are
-   unchanged. Layered cache reuses post-template/prop graphs when base graph
-   Arcs and `SfcFacts` Arcs are unchanged.
-3. **Single-file algorithms** — `TrackingScopeIR` (await/pause facts once per
-   scope); Vize bottom-up `SubtreeSummary`. Still ahead: `returns_by_function`,
-   SFC block revisions, shared `SourceContext`.
+   unchanged; when only some surfaces change, seed plans recompute for the
+   export/inject closure. Layered cache reuses post-template/prop graphs when
+   base graph Arcs and `SfcFacts` Arcs are unchanged.
+3. **Single-file algorithms** — `TrackingScopeIR`; Vize bottom-up
+   `SubtreeSummary`; SFC `SfcBlockRevisions` (style/template/script reuse).
+   Still ahead: `returns_by_function`, shared `SourceContext`, warm-cache IR
+   hydrate.
 
 ### Semantic IR layers
 

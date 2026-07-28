@@ -16,7 +16,7 @@ use vue_vet_project::{
   build_project_graph_incremental_with_options,
 };
 use vue_vet_reactivity::{ModuleSource, TraceModulesOptions};
-use vue_vet_vize::{AnalyzeError, analyze_sfc_facts};
+use vue_vet_vize::{AnalyzeError, AnalyzedSfc, analyze_sfc_facts_reusing};
 
 use crate::{
   AnalysisIssue, AnalysisStage, Recoverability, SessionError,
@@ -221,7 +221,12 @@ fn scan_parallel(
   let parsed = need_parse
     .par_iter()
     .map(|(source, environment)| {
-      analyze_candidate(source, environment.clone())
+      let previous_sfc =
+        previous.files.get(&source.file_id).and_then(|cached| match cached.analyzed.as_ref() {
+          AnalyzedCandidate::Vue { sfc, .. } => Some(sfc.as_ref()),
+          AnalyzedCandidate::Script { .. } => None,
+        });
+      analyze_candidate(source, environment.clone(), previous_sfc)
         .map(|analyzed| (*source, Arc::new(analyzed), environment.clone()))
     })
     .collect::<Vec<_>>();
@@ -284,7 +289,7 @@ fn scan_parallel(
   // Prefer `state.files` so environment refreshes (no re-parse) reach rules.
   for cached in state.files.values() {
     match cached.analyzed.as_ref() {
-      AnalyzedCandidate::Vue { project_file, pending } => {
+      AnalyzedCandidate::Vue { project_file, pending, .. } => {
         project_files.push(Arc::clone(project_file));
         let environment = cached.environment.clone().unwrap_or_default();
         if pending.environment == environment {
@@ -493,20 +498,28 @@ fn apply_context_consumers(
 
 #[derive(Clone, Debug)]
 enum AnalyzedCandidate {
-  Vue { project_file: Arc<ProjectFile>, pending: Arc<PendingVueFile> },
-  Script { project_file: Arc<ProjectFile> },
+  Vue {
+    project_file: Arc<ProjectFile>,
+    pending: Arc<PendingVueFile>,
+    /// Retained for SFC block-level reuse on the next edit.
+    sfc: Arc<AnalyzedSfc>,
+  },
+  Script {
+    project_file: Arc<ProjectFile>,
+  },
 }
 
 fn analyze_candidate(
   input: &SourceInput,
   environment: Option<RuleEnvironment>,
+  previous_sfc: Option<&AnalyzedSfc>,
 ) -> Result<AnalyzedCandidate, AnalysisIssue> {
   match &input.kind {
     SourceKind::Vue => {
       let environment = environment.unwrap_or_default();
       let analysis =
-        analyze_sfc_facts(input.file_id.as_path(), &input.source).map_err(|error| {
-          AnalysisIssue {
+        analyze_sfc_facts_reusing(input.file_id.as_path(), &input.source, previous_sfc).map_err(
+          |error| AnalysisIssue {
             stage: match &error {
               AnalyzeError::Parse(_) | AnalyzeError::Template(_) => AnalysisStage::SfcParse,
               AnalyzeError::Script(_) => AnalysisStage::ScriptParse,
@@ -514,18 +527,19 @@ fn analyze_candidate(
             file: Some(input.file_id.clone()),
             message: format!("failed to analyze {}: {error}", input.physical_path.display()),
             recoverability: Recoverability::File,
-          }
-        })?;
-      let facts = Arc::new(analysis.facts);
+          },
+        )?;
+      let sfc = Arc::new(analysis);
+      let facts = Arc::new(sfc.facts.clone());
       let project_file = Arc::new(ProjectFile {
         path: input.file_id.clone(),
         source_len: input.source.len(),
         facts: Arc::clone(&facts),
-        module_source: analysis.module_source.map(|mut module| {
+        module_source: sfc.module_source.clone().map(|mut module| {
           module.id = ModuleId::primary(&input.file_id);
           module
         }),
-        ordinary_module_source: analysis.ordinary_module_source.map(|mut module| {
+        ordinary_module_source: sfc.ordinary_module_source.clone().map(|mut module| {
           module.id = ModuleId::ordinary(&input.file_id);
           module
         }),
@@ -538,6 +552,7 @@ fn analyze_candidate(
           environment,
           facts,
         }),
+        sfc,
       })
     }
     SourceKind::Script { language } => {

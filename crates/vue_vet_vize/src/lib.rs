@@ -9,8 +9,9 @@ use vize_atelier_core::{
 };
 use vize_atelier_sfc::{SfcDescriptor, SfcParseOptions, parse_sfc};
 use vue_vet_core::{
-  ScriptFacts, ScriptKind, SfcFacts, SourceSpan, TemplateAttributeFact, TemplateDirectiveFact,
-  TemplateElementFact, TemplateExpressionFact, TemplateFacts,
+  ScriptBlockFacts, ScriptFacts, ScriptKind, SfcFacts, SourceSpan, TemplateAttributeFact,
+  TemplateDirectiveFact, TemplateElementFact, TemplateExpressionFact, TemplateFacts,
+  content_digest,
 };
 use vue_vet_oxc::{
   AnalyzeScriptError, analyze_module_source, slot_prop_alias_identifiers,
@@ -28,6 +29,7 @@ pub enum AnalyzeError {
   Script(#[from] AnalyzeScriptError),
 }
 
+#[derive(Clone, Debug)]
 pub struct AnalyzedSfc {
   pub facts: SfcFacts,
   /// Preferred script block for cross-module reactivity (`script setup` > `script`).
@@ -35,6 +37,24 @@ pub struct AnalyzedSfc {
   /// Ordinary `<script>` block when dual-script SFCs also have `<script setup>`.
   /// Id is `{path}#script` so both blocks re-trace with module seeds independently.
   pub ordinary_module_source: Option<ModuleSource>,
+  /// Content + absolute span fingerprints for block-level reuse.
+  pub revisions: SfcBlockRevisions,
+}
+
+/// Fingerprints for SFC blocks that can be reused across edits.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SfcBlockRevisions {
+  pub template: Option<BlockFingerprint>,
+  pub script: Option<BlockFingerprint>,
+  pub script_setup: Option<BlockFingerprint>,
+}
+
+/// Content digest plus absolute location — location drift forces re-extract.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BlockFingerprint {
+  pub content_digest: String,
+  pub start: usize,
+  pub end: usize,
 }
 
 /// Analyze one Vue SFC and retain its dependency-neutral project facts.
@@ -60,66 +80,184 @@ thread_local! {
 ///
 /// Returns the same parse / template / script errors as [`analyze_sfc_with_facts`].
 pub fn analyze_sfc_facts(path: &Path, source: &str) -> Result<AnalyzedSfc, AnalyzeError> {
+  analyze_sfc_facts_reusing(path, source, None)
+}
+
+/// Analyze an SFC, reusing unchanged template/script blocks from `previous`.
+///
+/// Style-only edits that do not move other blocks reuse the prior analysis
+/// entirely. Template-only or script-only edits rebuild just the dirty blocks.
+///
+/// # Errors
+///
+/// Returns the same parse / template / script errors as [`analyze_sfc_facts`].
+pub fn analyze_sfc_facts_reusing(
+  path: &Path,
+  source: &str,
+  previous: Option<&AnalyzedSfc>,
+) -> Result<AnalyzedSfc, AnalyzeError> {
   SFC_LINE_INDEX.with(|slot| {
     *slot.borrow_mut() = Some(vue_vet_core::LineIndex::new(source));
   });
-  let result = analyze_sfc_facts_inner(path, source);
+  let result = analyze_sfc_facts_inner(path, source, previous);
   SFC_LINE_INDEX.with(|slot| {
     *slot.borrow_mut() = None;
   });
   result
 }
 
-fn analyze_sfc_facts_inner(path: &Path, source: &str) -> Result<AnalyzedSfc, AnalyzeError> {
+fn analyze_sfc_facts_inner(
+  path: &Path,
+  source: &str,
+  previous: Option<&AnalyzedSfc>,
+) -> Result<AnalyzedSfc, AnalyzeError> {
   let descriptor = parse_sfc(source, SfcParseOptions::default())
     .map_err(|error| AnalyzeError::Parse(error.message.into()))?;
+  let revisions = revisions_from_descriptor(&descriptor);
+  if let Some(previous) = previous
+    && previous.revisions == revisions
+  {
+    // Style-only (or identical) edit: every tracked block fingerprint matches.
+    let (module_source, ordinary_module_source) = dual_module_sources(path, source, &descriptor);
+    let module_source = attach_reused_summaries(module_source, previous.module_source.as_ref());
+    let ordinary_module_source =
+      attach_reused_summaries(ordinary_module_source, previous.ordinary_module_source.as_ref());
+    return Ok(AnalyzedSfc {
+      facts: previous.facts.clone(),
+      module_source,
+      ordinary_module_source,
+      revisions,
+    });
+  }
+
   let (mut module_source, mut ordinary_module_source) =
     dual_module_sources(path, source, &descriptor);
   let has_script_setup = descriptor.script_setup.is_some();
-  let template = if let Some(template) = descriptor.template {
+  let reuse_template = previous.is_some_and(|prev| prev.revisions.template == revisions.template);
+  let reuse_script = previous.is_some_and(|prev| prev.revisions.script == revisions.script);
+  let reuse_setup =
+    previous.is_some_and(|prev| prev.revisions.script_setup == revisions.script_setup);
+
+  let template = if reuse_template {
+    previous.map(|prev| prev.facts.template.clone()).unwrap_or_default()
+  } else if let Some(template) = descriptor.template {
     // Vize already supplies template content + absolute SFC content offsets.
     extract_template_facts(source, &template.content, template.loc.start)?
   } else {
     TemplateFacts::default()
   };
+
   let mut script = ScriptFacts::default();
+  let mut script_rebuilt = false;
   if let Some(block) = descriptor.script {
-    // `block.loc.start/end` are absolute offsets into the original SFC source.
-    let analysis = analyze_module_source(
-      source,
-      &block.content,
-      block.loc.start,
-      block.lang.as_deref().unwrap_or("js"),
-      ScriptKind::Script,
-    )?;
+    let (script_facts, summary) = if reuse_script
+      && let Some(previous) = previous
+      && let Some(facts) = previous_script_block(&previous.facts, ScriptKind::Script)
+    {
+      let summary = if has_script_setup {
+        previous.ordinary_module_source.as_ref().and_then(ModuleSource::module_summary)
+      } else {
+        previous.module_source.as_ref().and_then(ModuleSource::module_summary)
+      };
+      (facts.clone(), summary)
+    } else {
+      script_rebuilt = true;
+      // `block.loc.start/end` are absolute offsets into the original SFC source.
+      let analysis = analyze_module_source(
+        source,
+        &block.content,
+        block.loc.start,
+        block.lang.as_deref().unwrap_or("js"),
+        ScriptKind::Script,
+      )?;
+      (analysis.script_facts, Some(Arc::new(analysis.module_trace)))
+    };
     let target = if has_script_setup { &mut ordinary_module_source } else { &mut module_source };
     if let Some(module) = target.take() {
-      *target = Some(module.with_module_summary(analysis.module_trace));
+      *target = Some(match summary {
+        Some(summary) => module.with_module_summary(summary),
+        None => module,
+      });
     }
-    script.blocks.push(analysis.script_facts);
+    script.blocks.push(script_facts);
   }
   if let Some(block) = descriptor.script_setup {
-    let analysis = analyze_module_source(
-      source,
-      &block.content,
-      block.loc.start,
-      block.lang.as_deref().unwrap_or("js"),
-      ScriptKind::Setup,
-    )?;
+    let (script_facts, summary) = if reuse_setup
+      && let Some(previous) = previous
+      && let Some(facts) = previous_script_block(&previous.facts, ScriptKind::Setup)
+    {
+      (facts.clone(), previous.module_source.as_ref().and_then(ModuleSource::module_summary))
+    } else {
+      script_rebuilt = true;
+      let analysis = analyze_module_source(
+        source,
+        &block.content,
+        block.loc.start,
+        block.lang.as_deref().unwrap_or("js"),
+        ScriptKind::Setup,
+      )?;
+      (analysis.script_facts, Some(Arc::new(analysis.module_trace)))
+    };
     if let Some(module) = module_source.take() {
-      module_source = Some(module.with_module_summary(analysis.module_trace));
+      module_source = Some(match summary {
+        Some(summary) => module.with_module_summary(summary),
+        None => module,
+      });
     }
-    script.blocks.push(analysis.script_facts);
+    script.blocks.push(script_facts);
   }
-  // Join Vize template expressions onto Oxc script reactive bindings, then
-  // qualify edge `to_id` with the logical file path (graph v8).
-  let module_id = path.to_string_lossy().replace('\\', "/");
-  for block in &mut script.blocks {
-    let graph = Arc::make_mut(&mut block.reactivity_graph);
-    graph.join_template_reads(&template);
-    graph.set_module_id(module_id.clone());
+
+  // Join when template or any script block was rebuilt; full reuse already joined.
+  let needs_join = !reuse_template || script_rebuilt;
+  if needs_join {
+    let module_id = path.to_string_lossy().replace('\\', "/");
+    for block in &mut script.blocks {
+      let graph = Arc::make_mut(&mut block.reactivity_graph);
+      graph.join_template_reads(&template);
+      graph.set_module_id(module_id.clone());
+    }
   }
-  Ok(AnalyzedSfc { facts: SfcFacts { template, script }, module_source, ordinary_module_source })
+  Ok(AnalyzedSfc {
+    facts: SfcFacts { template, script },
+    module_source,
+    ordinary_module_source,
+    revisions,
+  })
+}
+
+fn revisions_from_descriptor(descriptor: &SfcDescriptor<'_>) -> SfcBlockRevisions {
+  SfcBlockRevisions {
+    template: descriptor
+      .template
+      .as_ref()
+      .map(|block| fingerprint(block.content.as_ref(), block.loc.start, block.loc.end)),
+    script: descriptor
+      .script
+      .as_ref()
+      .map(|block| fingerprint(block.content.as_ref(), block.loc.start, block.loc.end)),
+    script_setup: descriptor
+      .script_setup
+      .as_ref()
+      .map(|block| fingerprint(block.content.as_ref(), block.loc.start, block.loc.end)),
+  }
+}
+
+fn fingerprint(content: &str, start: usize, end: usize) -> BlockFingerprint {
+  BlockFingerprint { content_digest: content_digest(content.as_bytes()), start, end }
+}
+
+fn previous_script_block(facts: &SfcFacts, kind: ScriptKind) -> Option<&ScriptBlockFacts> {
+  facts.script.blocks.iter().find(|block| block.kind == kind)
+}
+
+fn attach_reused_summaries(
+  fresh: Option<ModuleSource>,
+  previous: Option<&ModuleSource>,
+) -> Option<ModuleSource> {
+  match (fresh, previous.and_then(ModuleSource::module_summary)) {
+    (Some(module), Some(summary)) => Some(module.with_module_summary(summary)),
+    (module, _) => module,
+  }
 }
 
 /// Primary (`script setup` preferred) and optional ordinary dual companion.
@@ -610,6 +748,55 @@ mod tests {
   #[expect(clippy::panic, reason = "an unexpected parser error must fail the test")]
   fn analysis_for_test(path: &Path, source: &str) -> AnalyzedSfc {
     match analyze_sfc_with_facts(path, source) {
+      Ok(analysis) => analysis,
+      Err(error) => panic!("analysis unexpectedly failed: {error}"),
+    }
+  }
+
+  #[test]
+  fn style_only_edit_reuses_template_and_script_blocks() {
+    let path = Path::new("Reuse.vue");
+    let base = concat!(
+      "<script setup lang=\"ts\">\nimport { ref } from 'vue'\nconst count = ref(0)\n</script>\n",
+      "<template><p>{{ count }}</p></template>\n",
+      "<style>.a { color: red; }</style>\n",
+    );
+    let first = analysis_for_test(path, base);
+    let style_only = concat!(
+      "<script setup lang=\"ts\">\nimport { ref } from 'vue'\nconst count = ref(0)\n</script>\n",
+      "<template><p>{{ count }}</p></template>\n",
+      "<style>.a { color: blue; }</style>\n",
+    );
+    let second = analysis_reusing_for_test(path, style_only, &first);
+    assert_eq!(first.revisions, second.revisions);
+    assert_eq!(first.facts, second.facts);
+    assert!(
+      second.module_source.as_ref().and_then(ModuleSource::module_summary).is_some(),
+      "reused analysis must keep module summary"
+    );
+  }
+
+  #[test]
+  fn template_only_edit_keeps_script_fingerprint() {
+    let path = Path::new("Tpl.vue");
+    let base = concat!(
+      "<script setup lang=\"ts\">\nimport { ref } from 'vue'\nconst count = ref(0)\n</script>\n",
+      "<template><p>{{ count }}</p></template>\n",
+    );
+    let first = analysis_for_test(path, base);
+    let template_only = concat!(
+      "<script setup lang=\"ts\">\nimport { ref } from 'vue'\nconst count = ref(0)\n</script>\n",
+      "<template><span>{{ count }}</span></template>\n",
+    );
+    let second = analysis_reusing_for_test(path, template_only, &first);
+    assert_eq!(first.revisions.script_setup, second.revisions.script_setup);
+    assert_ne!(first.revisions.template, second.revisions.template);
+    assert_ne!(first.facts.template, second.facts.template);
+  }
+
+  #[expect(clippy::panic, reason = "an unexpected parser error must fail the test")]
+  fn analysis_reusing_for_test(path: &Path, source: &str, previous: &AnalyzedSfc) -> AnalyzedSfc {
+    match analyze_sfc_facts_reusing(path, source, Some(previous)) {
       Ok(analysis) => analysis,
       Err(error) => panic!("analysis unexpectedly failed: {error}"),
     }
