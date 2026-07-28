@@ -17,7 +17,7 @@ use std::{
   collections::BTreeMap,
   path::{Path, PathBuf},
   sync::{
-    LazyLock, Mutex, MutexGuard,
+    Arc, LazyLock, Mutex, MutexGuard,
     atomic::{AtomicU64, Ordering},
   },
 };
@@ -38,6 +38,9 @@ use self::discovery::WorkspaceInputSnapshot;
 pub use explain::Explained;
 pub use path::resolve_under_root;
 pub use scan::scan_directory;
+
+#[cfg(test)]
+use std::sync::Barrier;
 
 /// Options for opening a [`ProjectSession`].
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -173,19 +176,47 @@ pub struct ProjectSession {
   cache_dir: PathBuf,
   no_cache: bool,
   threads: Option<usize>,
-  inputs: Mutex<SessionInputs>,
-  analysis: Mutex<scan::AnalysisState>,
-  revision: AtomicU64,
+  core: Mutex<SessionCore>,
   workspace_discoveries: AtomicU64,
   incremental_file_updates: AtomicU64,
   committed_analyses: AtomicU64,
   cancelled_analyses: AtomicU64,
+  #[cfg(test)]
+  test_hooks: SessionTestHooks,
 }
 
 #[derive(Debug, Default)]
 struct SessionInputs {
   overlays: BTreeMap<PathBuf, String>,
-  snapshot: Option<WorkspaceInputSnapshot>,
+  snapshot: Option<Arc<WorkspaceInputSnapshot>>,
+}
+
+#[derive(Debug)]
+struct SessionCore {
+  revision: u64,
+  inputs: SessionInputs,
+  committed: Arc<scan::AnalysisState>,
+}
+
+struct PreparedAnalysis {
+  revision: u64,
+  input: Arc<WorkspaceInputSnapshot>,
+  committed: Arc<scan::AnalysisState>,
+  has_overlays: bool,
+}
+
+#[cfg(test)]
+#[derive(Clone, Debug)]
+struct PausePoint {
+  entered: Arc<Barrier>,
+  resume: Arc<Barrier>,
+}
+
+#[cfg(test)]
+#[derive(Debug, Default)]
+struct SessionTestHooks {
+  after_input_mutation: Mutex<Option<PausePoint>>,
+  before_commit: Mutex<Option<PausePoint>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -211,13 +242,17 @@ impl ProjectSession {
       cache_dir: options.cache_dir.unwrap_or_else(default_cache_dir),
       no_cache: options.no_cache,
       threads: options.threads,
-      inputs: Mutex::new(SessionInputs::default()),
-      analysis: Mutex::new(scan::AnalysisState::default()),
-      revision: AtomicU64::new(1),
+      core: Mutex::new(SessionCore {
+        revision: 1,
+        inputs: SessionInputs::default(),
+        committed: Arc::new(scan::AnalysisState::default()),
+      }),
       workspace_discoveries: AtomicU64::new(0),
       incremental_file_updates: AtomicU64::new(0),
       committed_analyses: AtomicU64::new(0),
       cancelled_analyses: AtomicU64::new(0),
+      #[cfg(test)]
+      test_hooks: SessionTestHooks::default(),
     })
   }
 
@@ -262,8 +297,9 @@ impl ProjectSession {
   ///
   /// Returns analysis, cache, or I/O failures.
   pub fn analyze(&self) -> Result<AnalysisSnapshot, SessionError> {
-    let (input, revision, has_overlays) = self.prepare_snapshot(false)?;
-    self.run_analysis(&input, revision, self.no_cache || has_overlays)
+    let prepared = self.prepare_analysis(false)?;
+    let no_cache = self.no_cache || prepared.has_overlays;
+    self.run_analysis(&prepared, no_cache)
   }
 
   /// Always bypass the content-addressed cache (fix apply rescan).
@@ -272,8 +308,8 @@ impl ProjectSession {
   ///
   /// Returns analysis or I/O failures.
   pub fn analyze_fresh(&self) -> Result<AnalysisSnapshot, SessionError> {
-    let (input, revision, _) = self.prepare_snapshot(true)?;
-    self.run_analysis(&input, revision, true)
+    let prepared = self.prepare_analysis(true)?;
+    self.run_analysis(&prepared, true)
   }
 
   /// Scan with unsaved buffer overlays (LSP `didChange` text).
@@ -291,8 +327,8 @@ impl ProjectSession {
     overlays: &BTreeMap<PathBuf, String>,
   ) -> Result<AnalysisSnapshot, SessionError> {
     self.replace_overlays(overlays)?;
-    let (input, revision, _) = self.prepare_snapshot(false)?;
-    self.run_analysis(&input, revision, true)
+    let prepared = self.prepare_analysis(false)?;
+    self.run_analysis(&prepared, true)
   }
 
   /// Update unsaved source overlays without reopening configuration or the workspace.
@@ -309,22 +345,24 @@ impl ProjectSession {
       .into_iter()
       .map(|(path, source)| self.resolve_workspace_path(&path).map(|path| (path, source)))
       .collect::<Result<BTreeMap<_, _>, _>>()?;
-    let mut inputs = self.lock_inputs()?;
+    let mut core = self.lock_core()?;
     for (path, source) in &changes {
       if let Some(source) = source {
-        inputs.overlays.insert(path.clone(), source.clone());
+        core.inputs.overlays.insert(path.clone(), source.clone());
       } else {
-        inputs.overlays.remove(path);
+        core.inputs.overlays.remove(path);
       }
     }
-    if let Some(snapshot) = &mut inputs.snapshot {
-      snapshot.apply_changes(self.root.as_path(), &self.config, &changes)?;
+    if let Some(snapshot) = &mut core.inputs.snapshot {
+      Arc::make_mut(snapshot).apply_changes(self.root.as_path(), &self.config, &changes)?;
     }
-    drop(inputs);
+    #[cfg(test)]
+    Self::pause_at(&self.test_hooks.after_input_mutation);
+    core.revision = core.revision.wrapping_add(1);
+    drop(core);
     self
       .incremental_file_updates
       .fetch_add(u64::try_from(changes.len()).unwrap_or(u64::MAX), Ordering::Relaxed);
-    self.revision.fetch_add(1, Ordering::AcqRel);
     Ok(())
   }
 
@@ -334,8 +372,8 @@ impl ProjectSession {
   ///
   /// Returns analysis or I/O failures.
   pub fn analyze_affected(&self) -> Result<AnalysisSnapshot, SessionError> {
-    let (input, revision, _) = self.prepare_snapshot(false)?;
-    self.run_analysis(&input, revision, true)
+    let prepared = self.prepare_analysis(false)?;
+    self.run_analysis(&prepared, true)
   }
 
   /// Files invalidated by the most recent in-memory analysis.
@@ -344,8 +382,8 @@ impl ProjectSession {
   ///
   /// Returns when the session state lock was poisoned.
   pub fn affected_files(&self) -> Result<Vec<FileId>, SessionError> {
-    let state = self.lock_analysis()?;
-    Ok(state.last_affected.iter().cloned().collect())
+    let core = self.lock_core()?;
+    Ok(core.committed.last_affected.iter().cloned().collect())
   }
 
   /// Explain a rule id or opaque finding id.
@@ -380,67 +418,67 @@ impl ProjectSession {
       .iter()
       .map(|(path, source)| self.resolve_workspace_path(path).map(|path| (path, source.clone())))
       .collect::<Result<BTreeMap<_, _>, _>>()?;
-    let mut inputs = self.lock_inputs()?;
+    let mut core = self.lock_core()?;
     let mut changes = BTreeMap::new();
-    for path in inputs.overlays.keys() {
+    for path in core.inputs.overlays.keys() {
       if !normalized.contains_key(path) {
         changes.insert(path.clone(), None);
       }
     }
     for (path, source) in &normalized {
-      if inputs.overlays.get(path) != Some(source) {
+      if core.inputs.overlays.get(path) != Some(source) {
         changes.insert(path.clone(), Some(source.clone()));
       }
     }
     if changes.is_empty() {
       return Ok(());
     }
-    if let Some(snapshot) = &mut inputs.snapshot {
-      snapshot.apply_changes(self.root.as_path(), &self.config, &changes)?;
+    if let Some(snapshot) = &mut core.inputs.snapshot {
+      Arc::make_mut(snapshot).apply_changes(self.root.as_path(), &self.config, &changes)?;
     }
-    inputs.overlays = normalized;
-    drop(inputs);
+    core.inputs.overlays = normalized;
+    core.revision = core.revision.wrapping_add(1);
+    drop(core);
     self
       .incremental_file_updates
       .fetch_add(u64::try_from(changes.len()).unwrap_or(u64::MAX), Ordering::Relaxed);
-    self.revision.fetch_add(1, Ordering::AcqRel);
     Ok(())
   }
 
-  fn prepare_snapshot(
-    &self,
-    rediscover: bool,
-  ) -> Result<(WorkspaceInputSnapshot, u64, bool), SessionError> {
-    let mut inputs = self.lock_inputs()?;
-    if rediscover || inputs.snapshot.is_none() {
+  fn prepare_analysis(&self, rediscover: bool) -> Result<PreparedAnalysis, SessionError> {
+    let mut core = self.lock_core()?;
+    if rediscover || core.inputs.snapshot.is_none() {
       let snapshot =
-        WorkspaceInputSnapshot::discover(self.root.as_path(), &self.config, &inputs.overlays)?;
-      inputs.snapshot = Some(snapshot);
+        WorkspaceInputSnapshot::discover(self.root.as_path(), &self.config, &core.inputs.overlays)?;
+      core.inputs.snapshot = Some(Arc::new(snapshot));
       self.workspace_discoveries.fetch_add(1, Ordering::Relaxed);
       if rediscover {
-        self.revision.fetch_add(1, Ordering::AcqRel);
+        core.revision = core.revision.wrapping_add(1);
       }
     }
-    let revision = self.revision.load(Ordering::Acquire);
-    let has_overlays = !inputs.overlays.is_empty();
-    let snapshot = inputs
+    let input = core
+      .inputs
       .snapshot
-      .clone()
+      .as_ref()
+      .map(Arc::clone)
       .ok_or_else(|| SessionError::message("workspace input snapshot was not initialized"))?;
-    drop(inputs);
-    Ok((snapshot, revision, has_overlays))
+    Ok(PreparedAnalysis {
+      revision: core.revision,
+      input,
+      committed: Arc::clone(&core.committed),
+      has_overlays: !core.inputs.overlays.is_empty(),
+    })
   }
 
   fn run_analysis(
     &self,
-    input: &WorkspaceInputSnapshot,
-    revision: u64,
+    prepared: &PreparedAnalysis,
     no_cache: bool,
   ) -> Result<AnalysisSnapshot, SessionError> {
-    let mut candidate = self.lock_analysis()?.clone();
-    let cancelled = || self.revision.load(Ordering::Acquire) != revision;
+    let mut candidate = (*prepared.committed).clone();
+    let cancelled = || !self.is_current_revision(prepared.revision);
     let snapshot = match scan::analyze_snapshot(
-      input,
+      &prepared.input,
       &self.config,
       &self.cache_dir,
       no_cache,
@@ -459,25 +497,46 @@ impl ProjectSession {
       self.cancelled_analyses.fetch_add(1, Ordering::Relaxed);
       return Err(SessionError::Cancelled);
     }
-    // Hold the input lock while checking the revision and committing. Changes
-    // also take this lock before incrementing, so no newer input can slip
-    // between the final check and the state publication.
-    let _inputs = self.lock_inputs()?;
-    if cancelled() {
+    #[cfg(test)]
+    Self::pause_at(&self.test_hooks.before_commit);
+    let mut core = self.lock_core()?;
+    if core.revision != prepared.revision {
       self.cancelled_analyses.fetch_add(1, Ordering::Relaxed);
       return Err(SessionError::Cancelled);
     }
-    *self.lock_analysis()? = candidate;
+    core.committed = Arc::new(candidate);
+    drop(core);
     self.committed_analyses.fetch_add(1, Ordering::Relaxed);
     Ok(snapshot)
   }
 
-  fn lock_inputs(&self) -> Result<MutexGuard<'_, SessionInputs>, SessionError> {
-    self.inputs.lock().map_err(|_| SessionError::message("session input lock was poisoned"))
+  fn is_current_revision(&self, revision: u64) -> bool {
+    self.core.lock().is_ok_and(|core| core.revision == revision)
   }
 
-  fn lock_analysis(&self) -> Result<MutexGuard<'_, scan::AnalysisState>, SessionError> {
-    self.analysis.lock().map_err(|_| SessionError::message("session analysis lock was poisoned"))
+  fn lock_core(&self) -> Result<MutexGuard<'_, SessionCore>, SessionError> {
+    self.core.lock().map_err(|_| SessionError::message("session state lock was poisoned"))
+  }
+
+  #[cfg(test)]
+  fn install_pause(
+    target: &Mutex<Option<PausePoint>>,
+    pause: PausePoint,
+  ) -> Result<(), SessionError> {
+    let mut target =
+      target.lock().map_err(|_| SessionError::message("session test hook lock was poisoned"))?;
+    *target = Some(pause);
+    drop(target);
+    Ok(())
+  }
+
+  #[cfg(test)]
+  fn pause_at(target: &Mutex<Option<PausePoint>>) {
+    let pause = target.lock().ok().and_then(|mut target| target.take());
+    if let Some(pause) = pause {
+      let _entered = pause.entered.wait();
+      let _resumed = pause.resume.wait();
+    }
   }
 }
 
@@ -527,4 +586,87 @@ fn load_config(root: &Path, explicit: Option<&Path>) -> Result<Config, SessionEr
     .validate_rules(known_rule_ids())
     .map_err(|error| SessionError::message(error.to_string()))?;
   Ok(config)
+}
+
+#[cfg(test)]
+mod tests {
+  use std::thread;
+
+  use super::*;
+
+  #[test]
+  #[expect(clippy::panic, reason = "session concurrency failures must fail the unit test")]
+  fn concurrent_input_update_cannot_commit_stale_analysis() {
+    let root = std::env::temp_dir().join(format!("vue-vet-session-race-{}", std::process::id()));
+    std::fs::create_dir_all(&root)
+      .unwrap_or_else(|error| panic!("failed to create test workspace: {error}"));
+    let component = root.join("App.vue");
+    std::fs::write(&component, "<template><main v-html=\"html\" /></template>")
+      .unwrap_or_else(|error| panic!("failed to write test component: {error}"));
+    let session = Arc::new(
+      ProjectSession::open(SessionOptions {
+        root: root.clone(),
+        config_path: None,
+        cache_dir: None,
+        no_cache: true,
+        threads: Some(1),
+      })
+      .unwrap_or_else(|error| panic!("failed to open session: {error}")),
+    );
+    session.analyze().unwrap_or_else(|error| panic!("initial analysis failed: {error}"));
+    assert_eq!(session.stats().committed_analyses, 1);
+
+    let analysis_entered = Arc::new(Barrier::new(2));
+    let analysis_resume = Arc::new(Barrier::new(2));
+    ProjectSession::install_pause(
+      &session.test_hooks.before_commit,
+      PausePoint { entered: Arc::clone(&analysis_entered), resume: Arc::clone(&analysis_resume) },
+    )
+    .unwrap_or_else(|error| panic!("failed to install analysis pause: {error}"));
+    let analysis_session = Arc::clone(&session);
+    let analysis = thread::spawn(move || analysis_session.analyze_affected());
+    let _analysis_ready = analysis_entered.wait();
+
+    let update_entered = Arc::new(Barrier::new(2));
+    let update_resume = Arc::new(Barrier::new(2));
+    ProjectSession::install_pause(
+      &session.test_hooks.after_input_mutation,
+      PausePoint { entered: Arc::clone(&update_entered), resume: Arc::clone(&update_resume) },
+    )
+    .unwrap_or_else(|error| panic!("failed to install update pause: {error}"));
+    let update_session = Arc::clone(&session);
+    let update = thread::spawn(move || {
+      update_session.apply_changes(ChangeSet::upsert(
+        component,
+        "<template><main>{{ html }}</main></template>".into(),
+      ))
+    });
+    let _input_was_mutated = update_entered.wait();
+
+    let _analysis_may_commit = analysis_resume.wait();
+    let _revision_may_advance = update_resume.wait();
+    update
+      .join()
+      .unwrap_or_else(|_| panic!("input update thread panicked"))
+      .unwrap_or_else(|error| panic!("input update failed: {error}"));
+    let stale_result = analysis.join().unwrap_or_else(|_| panic!("analysis thread panicked"));
+    assert!(
+      stale_result.as_ref().is_err_and(SessionError::is_cancelled),
+      "analysis based on the old revision must not commit after inputs changed"
+    );
+    assert_eq!(session.stats().committed_analyses, 1);
+    assert_eq!(session.stats().cancelled_analyses, 1);
+
+    let current =
+      session.analyze_affected().unwrap_or_else(|error| panic!("current analysis failed: {error}"));
+    assert!(
+      !current
+        .summary
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.rule_id == "vue-vet/security/no-v-html"),
+      "the committed result must reflect the updated input"
+    );
+    let _ignored = std::fs::remove_dir_all(root);
+  }
 }

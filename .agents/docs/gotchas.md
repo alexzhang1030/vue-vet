@@ -227,6 +227,20 @@ structural graph partitions, module plans/graphs, and reverse dependencies.
 `apply_changes` updates exact paths in that snapshot; an edit must not trigger a
 fresh workspace walk or rebuild unrelated structural partitions.
 
+The session revision cannot live in a separate atomic publication step from
+input mutation. Otherwise an analysis may observe the old revision after the
+new bytes are installed and commit stale state. Revision, retained input, and
+committed analysis share one `SessionCore` lock; CPU work uses captured `Arc`
+snapshots outside the lock and publishes only if the captured revision still
+matches. Keep the barrier regression test when changing this lifecycle.
+
+Resolver inputs are semantic invalidation, not only structural-cache inputs.
+When `ProjectContext.revision` changes, cached file-rule diagnostics may contain
+reactivity graphs produced under the previous resolution plan. Conservatively
+invalidate all source consumers until a typed `ChangeImpact` narrows tsconfig,
+package, lockfile, and Nuxt declaration effects. Incremental-vs-clean tests
+cover all four input classes.
+
 ## Paths are identities, not suffixes
 
 Discovery is the only boundary that converts `PhysicalPath` to normalized,

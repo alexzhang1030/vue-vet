@@ -73,17 +73,9 @@ impl WorkspaceInputSnapshot {
         continue;
       }
 
-      let kind = match path.extension().and_then(|extension| extension.to_str()) {
-        Some("vue") if filter.matches(file_id.as_path()) => Some(SourceKind::Vue),
-        Some(language @ ("js" | "jsx" | "ts" | "tsx")) => {
-          Some(SourceKind::Script { language: language.to_owned() })
-        }
-        _ => None,
-      };
-      let cache_source = matches!(
-        path.extension().and_then(|extension| extension.to_str()),
-        Some("vue" | "js" | "jsx" | "ts" | "tsx")
-      );
+      let extension = path.extension().and_then(|extension| extension.to_str());
+      let kind = source_kind(&file_id, extension, filter.matches(file_id.as_path()));
+      let cache_source = matches!(extension, Some("vue" | "js" | "jsx" | "ts" | "tsx"));
       if !cache_source {
         continue;
       }
@@ -197,17 +189,7 @@ impl WorkspaceInputSnapshot {
       }
 
       let resolver_input = is_project_context_input(&file_id);
-      let kind = if is_generated_resolver_input(&file_id) {
-        None
-      } else {
-        match extension {
-          Some("vue") if filter.matches(file_id.as_path()) => Some(SourceKind::Vue),
-          Some(language @ ("js" | "jsx" | "ts" | "tsx")) => {
-            Some(SourceKind::Script { language: language.to_owned() })
-          }
-          _ => None,
-        }
-      };
+      let kind = source_kind(&file_id, extension, filter.matches(file_id.as_path()));
       if let (Some(kind), Some(bytes)) = (kind, bytes) {
         let source = String::from_utf8(bytes.as_ref().to_vec()).map_err(|error| {
           SessionError::message(format!("{} is not valid UTF-8: {error}", path.display()))
@@ -327,4 +309,17 @@ fn is_project_context_input(file: &FileId) -> bool {
 
 fn is_generated_resolver_input(file: &FileId) -> bool {
   matches!(file.as_str(), ".nuxt/components.d.ts" | ".nuxt/types/components.d.ts")
+}
+
+fn source_kind(file: &FileId, extension: Option<&str>, include_vue: bool) -> Option<SourceKind> {
+  if is_generated_resolver_input(file) {
+    return None;
+  }
+  match extension {
+    Some("vue") if include_vue => Some(SourceKind::Vue),
+    Some(language @ ("js" | "jsx" | "ts" | "tsx")) => {
+      Some(SourceKind::Script { language: language.to_owned() })
+    }
+    _ => None,
+  }
 }

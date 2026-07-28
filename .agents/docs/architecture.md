@@ -51,6 +51,15 @@ vue-vet CLI
   per-file Vize/Oxc facts, raw file diagnostics, structural edge partitions,
   module seed plans/final graphs, and the reverse dependency index. A normal
   edit does not walk the workspace or rebuild unrelated structural files.
+- **Atomic session publication** — the workspace revision, retained input
+  snapshot, and committed analysis state share one `SessionCore` synchronization
+  domain. Analysis captures `Arc` snapshots under the lock, computes outside it,
+  and commits only when the same revision is still current. Input mutations
+  advance the revision before releasing that lock.
+- **Resolver-context parity** — `AnalysisState` records the consumed
+  `ProjectContext` revision. Changes to tsconfig, package metadata, lockfiles, or
+  Nuxt generated declarations conservatively invalidate source consumers so
+  incremental diagnostics remain equal to a clean scan.
 - **Partial module outcomes** — parse/link failures are scoped
   `AnalysisIssue`s. Healthy modules still reach the cross-module fixed point;
   one bad module never forces every other module back to an isolated local graph.
@@ -130,10 +139,11 @@ diagnostic identity stays shared across surfaces. The thin LSP (`vue-vet --lsp`)
 publishes diagnostics on `didOpen` / `didChange` / `didSave` from open-buffer
 overlays (FULL sync) with the opaque finding id in LSP `data` and the document
 version on `publishDiagnostics`. Overlay changes advance a workspace revision
-before scheduling analysis. A 50 ms debounce and single latest-wins gate admit
-only the newest blocking task; stale work cancels between pipeline phases and
-cannot commit over newer state. The resulting snapshot refreshes every open
-document. Safe quick-fix code actions return versioned
+in the same critical section that updates the retained input snapshot. A 50 ms
+debounce and single latest-wins gate admit only the newest blocking task; stale
+work cancels between pipeline phases and its commit is rejected under the same
+session lock. The resulting snapshot refreshes every open document. Safe
+quick-fix code actions return versioned
 workspace edits from explicitly safe diagnostic edits only (client applies;
 server never writes). The thin MCP adapter (`vue-vet --mcp`, `vue_vet_mcp`)
 exposes scan / explain / safe-fix preview tools over stdio JSON-RPC with the
