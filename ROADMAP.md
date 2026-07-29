@@ -284,7 +284,7 @@ Exit criteria:
 
 ## Current next step
 
-M0–M4 delivery issues are complete on `main`. `v0.1.16` published crates.io
+M0–M4 delivery issues are complete on `main`. `v0.1.17` published crates.io
 (`vue_vet_core`, `vue_vet_reactivity`), npm (`@vue-vet/cli`), and GitHub Release
 archives. Tracker [#14](https://github.com/alexzhang1030/vue-vet/issues/14)
 stays open for release coordination.
