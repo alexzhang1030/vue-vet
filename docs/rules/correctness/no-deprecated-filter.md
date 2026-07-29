@@ -20,7 +20,12 @@ This high-confidence rule reports the legacy `expr | filterName` pipe-filter syn
 
 ## Limitations
 
-Detects a single spaced pipe (` | `, not `||`) in a template expression. Bitwise-or usage written without surrounding spaces (`a|b`) is not flagged; bitwise-or written with spaces (`a | b`) is a known false-positive risk, though rare in template expressions.
+Detects a spaced pipe (` | `, not `||`) whose right-hand side looks like a Vue 2
+filter name (`ident` or `ident(...)`). Member / type unions such as
+`Foo.Bar | Foo.Baz` and TypeScript assertions stay quiet. Standalone `.jsx` /
+`.tsx` modules are skipped — pipe filters are SFC template syntax only.
+Bitwise-or written with spaces between two bare identifiers (`a | b`) remains a
+known false-positive risk, though rare in templates.
 
 ## Remediation
 

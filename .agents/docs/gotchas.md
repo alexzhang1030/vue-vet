@@ -263,6 +263,13 @@ macros. Practice and correctness rules that recommend or enforce them must gate
 on `ScriptKind::Setup`. Standalone JSX/TSX modules use `ScriptKind::Script`;
 telling them to adopt `defineModel` is a false positive (#138).
 
+## `no-deprecated-filter` is template syntax, not any spaced `|`
+
+Vue 2 pipe filters lived in SFC templates. Do not treat every ` | ` in lowered
+JSX/`TemplateFacts` expressions as a filter — TypeScript unions
+(`Foo.Bar | Foo.Baz`, `x as A | B`) are common false positives. Require a
+filter-shaped RHS and skip standalone `.jsx`/`.tsx` (#142).
+
 ## Performance: do not re-serialize the hot path
 
 CLI scan follows oxlint's model (parallel files, coordinated seed resolution).
