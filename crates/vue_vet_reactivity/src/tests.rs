@@ -2039,6 +2039,38 @@ fn plain_object_declaration_plus_unwrapped_call_seeds_reactive_factory() {
 }
 
 #[test]
+fn needs_implementation_merge_only_for_provisional_halves() {
+  let plain = prepared_standalone(
+    "plain.d.ts",
+    "export interface Mode { value: string; forced: boolean }\n\
+     export declare const useColorMode: () => Mode;\n",
+    "d.ts",
+  );
+  assert!(
+    attached_summary(&plain).needs_implementation_merge(),
+    "DeclaredPlainObjectFactory must request companion merge"
+  );
+
+  let number_only =
+    prepared_standalone("number.d.ts", "export declare const useFlag: () => number;\n", "d.ts");
+  assert!(
+    !attached_summary(&number_only).needs_implementation_merge(),
+    "non-provisional .d.ts must not pull companion .js (e.g. typescript.js)"
+  );
+
+  let ref_factory = prepared_standalone(
+    "ref.d.ts",
+    "import type { Ref } from 'vue';\n\
+     export declare function useFlag(): Ref<boolean>;\n",
+    "d.ts",
+  );
+  assert!(
+    !attached_summary(&ref_factory).needs_implementation_merge(),
+    "finished Factory seed must not request companion merge"
+  );
+}
+
+#[test]
 fn unwrapped_call_without_plain_object_declaration_stays_quiet() {
   let implementation = prepared_standalone(
     "producer.js",

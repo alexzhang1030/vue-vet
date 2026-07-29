@@ -32,6 +32,10 @@ use resolve::{
 const EXTERNAL_REACTIVITY_MAX_FILES: usize = 64;
 /// Max re-export follow depth from an external entry.
 const EXTERNAL_REACTIVITY_MAX_DEPTH: usize = 8;
+/// Skip companion implementation bodies larger than this (bytes). Nuxt/VueUse
+/// runtime composables are tiny; multi‑MB bundles like `typescript.js` are not
+/// reactivity evidence and must not be parsed.
+const EXTERNAL_COMPANION_MAX_BYTES: u64 = 512 * 1024;
 
 pub const CONVENTIONS_VERSION: u32 = 5;
 pub const PROJECT_RULE_IDS: [&str; 2] =
@@ -453,6 +457,7 @@ pub fn build_project_graph_with_options(
     trace_options,
     &context,
     &mut ProjectGraphState::default(),
+    None,
   )
 }
 
@@ -463,6 +468,7 @@ pub fn build_project_graph_incremental_with_options<'a>(
   trace_options: TraceModulesOptions,
   project_context: &ProjectContext,
   state: &mut ProjectGraphState,
+  on_external_seeds: Option<&dyn Fn(usize)>,
 ) -> ProjectGraph {
   state.last_stats = ProjectGraphStats::default();
   let root = normalize_project_root(root);
@@ -585,7 +591,7 @@ pub fn build_project_graph_incremental_with_options<'a>(
     ))
   });
   let (external_sources, external_links) =
-    load_external_reactivity_modules(&root, resolver.as_ref(), &external_roots);
+    load_external_reactivity_modules(&root, resolver.as_ref(), &external_roots, on_external_seeds);
   module_sources.extend(external_sources);
   module_links.extend(external_links);
   if Arc::strong_count(&state.module_trace) > 1 {
@@ -857,11 +863,18 @@ fn load_external_reactivity_modules(
   root: &Path,
   resolver: &ProjectResolver,
   roots: &[ExternalReactivityRoot],
+  on_external_seeds: Option<&dyn Fn(usize)>,
 ) -> (Vec<ModuleSource>, Vec<ModuleLink>) {
   let mut sources = Vec::new();
   let mut links = Vec::new();
   let mut loaded: BTreeMap<PathBuf, ModuleId> = BTreeMap::new();
   let mut queue: VecDeque<(PathBuf, usize)> = VecDeque::new();
+
+  if !roots.is_empty()
+    && let Some(on_external_seeds) = on_external_seeds
+  {
+    on_external_seeds(roots.len());
+  }
 
   for root_link in roots {
     let path = prefer_types_declaration(&root_link.resolved_path);
@@ -934,8 +947,8 @@ fn load_external_reactivity_modules(
   (sources, links)
 }
 
-/// When a `.d.ts` summary still lacks finished Factory/Composable seeds, load companion
-/// `.js`/`.mjs`/`.ts` body evidence and merge (bounded; only if summary is incomplete).
+/// When a `.d.ts` summary has provisional Factory halves, load companion
+/// `.js`/`.mjs`/`.ts` body evidence and merge (size-bounded).
 fn merge_companion_implementation(
   types_path: &Path,
   module: &ModuleSource,
@@ -945,6 +958,10 @@ fn merge_companion_implementation(
     return None;
   }
   let impl_path = companion_implementation_path(types_path)?;
+  let metadata = std::fs::metadata(&impl_path).ok()?;
+  if !metadata.is_file() || metadata.len() > EXTERNAL_COMPANION_MAX_BYTES {
+    return None;
+  }
   let source_text = std::fs::read_to_string(&impl_path).ok()?;
   let language = language_for_path(&impl_path);
   let impl_module =
@@ -1286,6 +1303,7 @@ mod tests {
       TraceModulesOptions { max_workers: 1, ..Default::default() },
       &context,
       &mut state,
+      None,
     );
     assert_eq!(state.last_stats().structural_files_rebuilt, 2);
 
@@ -1295,6 +1313,7 @@ mod tests {
       TraceModulesOptions { max_workers: 1, ..Default::default() },
       &context,
       &mut state,
+      None,
     );
     assert_eq!(state.last_stats().structural_files_reused, 2);
     assert_eq!(state.last_stats().structural_files_rebuilt, 0);
@@ -1306,6 +1325,7 @@ mod tests {
       TraceModulesOptions { max_workers: 1, ..Default::default() },
       &context,
       &mut state,
+      None,
     );
     assert_eq!(state.last_stats().structural_files_reused, 1);
     assert_eq!(state.last_stats().structural_files_rebuilt, 1);
@@ -2001,6 +2021,67 @@ watch(() => colorMode.value, () => {})\n";
       }),
       "bare Nuxt useColorMode must seed Reactive watch without uncertain; got {:?}",
       demo.map(|module| (&module.graph.bindings, &module.graph.scopes))
+    );
+  }
+
+  #[test]
+  fn non_provisional_external_dts_skips_huge_companion_js() {
+    let project = TempProject::new("huge-companion");
+    project.write(
+      "node_modules/heavy-lib/package.json",
+      r#"{"name":"heavy-lib","version":"1.0.0","types":"index.d.ts","main":"index.js"}"#,
+    );
+    project
+      .write("node_modules/heavy-lib/index.d.ts", "export declare function heavy(): number;\n");
+    // ~3 MiB pad — parsing this as a companion would dominate scan time (0.1.16 regression
+    // on `import … from 'typescript'`). Non-provisional .d.ts must skip it.
+    let mut huge = String::from("export function heavy() { return 1 }\n");
+    huge.push_str(&"// pad\n".repeat(400_000));
+    project.write("node_modules/heavy-lib/index.js", &huge);
+    project.write("consumer.ts", "import { heavy } from 'heavy-lib';\nexport const n = heavy();\n");
+
+    let consumer = ProjectFile {
+      path: "consumer.ts".into(),
+      source_len: 64,
+      facts: SfcFacts {
+        template: TemplateFacts { elements: Vec::new(), expressions: Vec::new() },
+        script: ScriptFacts {
+          blocks: vec![ScriptBlockFacts {
+            kind: ScriptKind::Script,
+            language: "ts".into(),
+            imports: vec![ScriptImportFact {
+              source: "heavy-lib".into(),
+              imported: "heavy".into(),
+              local: "heavy".into(),
+              span: span(0),
+            }],
+            bindings: Vec::new(),
+            calls: Vec::new(),
+            member_writes: Vec::new(),
+            destructures: Vec::new(),
+            top_level_await_ends: Vec::new(),
+            operands: Vec::new(),
+            reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
+          }],
+        },
+      }
+      .into(),
+      module_source: Some(ModuleSource::standalone(
+        "consumer.ts",
+        "import { heavy } from 'heavy-lib';\nexport const n = heavy();\n",
+        "ts",
+        ScriptKind::Script,
+      )),
+      ordinary_module_source: None,
+    };
+
+    let started = std::time::Instant::now();
+    let graph = build_project_graph(project.root(), &[consumer]);
+    let elapsed = started.elapsed();
+    assert!(graph.reactivity_error.is_none(), "graph must succeed: {:?}", graph.reactivity_error);
+    assert!(
+      elapsed.as_secs_f64() < 2.0,
+      "non-provisional external .d.ts must not parse multi-MB companion .js; elapsed={elapsed:?}"
     );
   }
 }

@@ -8,6 +8,9 @@ Interactive reactivity browsing uses exact-pinned `ratatui` (crossterm backend o
 inside the CLI crate. Analysis logic stays out of the TUI; it only presents
 `ReactivityModuleStats` already produced by the scan.
 
+Local scans default to `--progress auto`: stage lines on stderr when stderr is a
+TTY and `CI` is unset. Force with `--progress always` / silence with `never`.
+
 The thin diagnostics LSP (`vue-vet --lsp`) uses `tower-lsp` + `tokio` in
 `vue_vet_lsp` as a protocol adapter only: it maps session diagnostics (including
 unsaved buffer overlays and safe quick-fix edits) to LSP types and must not

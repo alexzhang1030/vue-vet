@@ -19,7 +19,7 @@ use vue_vet_reactivity::{ModuleSource, TraceModulesOptions};
 use vue_vet_vize::{AnalyzeError, AnalyzedSfc, analyze_sfc_facts_reusing};
 
 use crate::{
-  AnalysisIssue, AnalysisStage, Recoverability, SessionError,
+  AnalysisIssue, AnalysisStage, ProgressEvent, ProgressReporter, Recoverability, SessionError,
   diagnostics::DiagnosticFinalizer,
   discovery::{SourceInput, SourceKind, WorkspaceInputSnapshot},
   file_analysis_registry,
@@ -149,6 +149,7 @@ pub fn scan_with_threads(
   cancelled: &(dyn Fn() -> bool + Sync),
   dirty_files: &BTreeSet<FileId>,
   force_full_parse: bool,
+  progress: Option<&ProgressReporter>,
 ) -> Result<ScanResult, SessionError> {
   let mut run = || {
     scan_parallel(
@@ -160,6 +161,7 @@ pub fn scan_with_threads(
       cancelled,
       dirty_files,
       force_full_parse,
+      progress,
     )
   };
   match pool {
@@ -185,6 +187,7 @@ fn scan_parallel(
   cancelled: &(dyn Fn() -> bool + Sync),
   dirty_files: &BTreeSet<FileId>,
   force_full_parse: bool,
+  progress: Option<&ProgressReporter>,
 ) -> Result<ScanResult, SessionError> {
   let previously_analyzed = previous.files.keys().cloned().collect::<BTreeSet<_>>();
   let impact = change_impact_from(
@@ -218,6 +221,12 @@ fn scan_parallel(
   }
 
   let files_parsed = u64::try_from(need_parse.len()).unwrap_or(u64::MAX);
+  if let Some(progress) = progress {
+    progress.emit(&ProgressEvent::Parsing {
+      pending: need_parse.len(),
+      reused: usize::try_from(files_reused).unwrap_or(usize::MAX),
+    });
+  }
   let parsed = need_parse
     .par_iter()
     .map(|(source, environment)| {
@@ -309,12 +318,22 @@ fn scan_parallel(
     }
   }
 
+  if let Some(progress) = progress {
+    progress.emit(&ProgressEvent::BuildingGraph);
+  }
+  let on_external = progress.map(|reporter| {
+    move |roots: usize| {
+      reporter.emit(&ProgressEvent::LoadingExternalSeeds { roots });
+    }
+  });
+  let on_external_ref = on_external.as_ref().map(|callback| callback as &dyn Fn(usize));
   let graph = build_project_graph_incremental_with_options(
     &input.boundary,
     project_files.iter().map(AsRef::as_ref),
     TraceModulesOptions { max_workers, reuse_current_pool: true, ..Default::default() },
     &input.project_context,
     &mut state.project,
+    on_external_ref,
   );
   if cancelled() {
     return Err(SessionError::Cancelled);
@@ -339,6 +358,9 @@ fn scan_parallel(
     .map(|module| (module.id.clone(), Arc::clone(&module.graph)))
     .collect::<BTreeMap<_, _>>();
 
+  if let Some(progress) = progress {
+    progress.emit(&ProgressEvent::RunningRules { files: pending_vue.len() });
+  }
   let file_diagnostics = pending_vue
     .into_par_iter()
     .map(|pending| {

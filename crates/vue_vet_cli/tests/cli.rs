@@ -875,6 +875,96 @@ fn project_graph_reports_nuxt_edges_cycles_and_cross_file_findings() {
 }
 
 #[test]
+#[expect(clippy::expect_used, reason = "integration test asserts JSON stdout shape")]
+fn progress_always_streams_stages_on_stderr() {
+  let project = TempProject::new(
+    "progress-always",
+    "<script setup>\nconst n = 1\n</script>\n<template><p>{{ n }}</p></template>\n",
+  );
+  let path = project.source_path();
+  let output = run(&[
+    path.to_string_lossy().as_ref(),
+    "--progress",
+    "always",
+    "--format",
+    "json",
+    "--no-cache",
+  ]);
+  assert!(
+    output.status.success(),
+    "scan must succeed: {}",
+    String::from_utf8_lossy(&output.stderr)
+  );
+  let stderr = String::from_utf8_lossy(&output.stderr);
+  for stage in [
+    "vue-vet: discovering workspace",
+    "vue-vet: parsing",
+    "vue-vet: building project graph",
+    "vue-vet: running rules",
+    "vue-vet: writing report",
+  ] {
+    assert!(stderr.contains(stage), "stderr must stream `{stage}`: {stderr}");
+  }
+  let parsed: Value = serde_json::from_slice(&output.stdout).expect("stdout must stay JSON");
+  assert!(parsed.get("ok").and_then(Value::as_bool).unwrap_or(false));
+}
+
+#[test]
+fn progress_never_keeps_stage_lines_off_stderr() {
+  let project = TempProject::new(
+    "progress-never",
+    "<script setup>\nconst n = 1\n</script>\n<template><p>{{ n }}</p></template>\n",
+  );
+  let path = project.source_path();
+  let output = run(&[
+    path.to_string_lossy().as_ref(),
+    "--progress",
+    "never",
+    "--format",
+    "json",
+    "--no-cache",
+  ]);
+  assert!(
+    output.status.success(),
+    "scan must succeed: {}",
+    String::from_utf8_lossy(&output.stderr)
+  );
+  let stderr = String::from_utf8_lossy(&output.stderr);
+  assert!(
+    !stderr.contains("discovering workspace"),
+    "--progress never must not stream stages: {stderr}"
+  );
+}
+
+#[test]
+#[expect(clippy::panic, reason = "an unexpected process error must fail the integration test")]
+fn progress_auto_stays_quiet_under_ci_env() {
+  let project = TempProject::new(
+    "progress-ci",
+    "<script setup>\nconst n = 1\n</script>\n<template><p>{{ n }}</p></template>\n",
+  );
+  let path = project.source_path();
+  let output = match Command::new(env!("CARGO_BIN_EXE_vue-vet"))
+    .args([path.to_string_lossy().as_ref(), "--progress", "auto", "--format", "json", "--no-cache"])
+    .env("CI", "1")
+    .output()
+  {
+    Ok(output) => output,
+    Err(error) => panic!("failed to run vue-vet: {error}"),
+  };
+  assert!(
+    output.status.success(),
+    "scan must succeed: {}",
+    String::from_utf8_lossy(&output.stderr)
+  );
+  let stderr = String::from_utf8_lossy(&output.stderr);
+  assert!(
+    !stderr.contains("discovering workspace"),
+    "CI=1 + --progress auto must stay quiet: {stderr}"
+  );
+}
+
+#[test]
 fn cold_and_warm_cache_results_are_byte_equivalent() {
   let project = fixture("projects/nuxt-graph");
   let cache = workspace_root().join("target").join(format!("test-cache-{}", std::process::id()));

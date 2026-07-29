@@ -20,7 +20,8 @@ use vue_vet_reporters::{
   render_rule_explain_text, scope_detail, template_read_detail, to_span_from_identity,
 };
 use vue_vet_session::{
-  AnalysisSnapshot, Explained, ProjectSession, SessionOptions, scan_directory,
+  AnalysisSnapshot, Explained, ProgressEvent, ProgressReporter, ProjectSession, SessionOptions,
+  scan_directory,
 };
 
 mod fixes;
@@ -47,6 +48,15 @@ struct Cli {
     help = "When to color text reports: auto (TTY; honors NO_COLOR / FORCE_COLOR), always, or never"
   )]
   color: ColorWhen,
+
+  #[arg(
+    long,
+    value_enum,
+    default_value = "auto",
+    value_name = "WHEN",
+    help = "Stream scan stages on stderr: auto (TTY stderr and not CI), always, or never"
+  )]
+  progress: ProgressWhen,
 
   #[arg(long, help = "Return exit code 1 for warnings as well as errors")]
   deny_warnings: bool,
@@ -194,6 +204,13 @@ enum ColorWhen {
   Never,
 }
 
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum ProgressWhen {
+  Auto,
+  Always,
+  Never,
+}
+
 fn color_enabled(when: ColorWhen) -> bool {
   match when {
     ColorWhen::Always => true,
@@ -210,6 +227,26 @@ fn color_enabled(when: ColorWhen) -> bool {
       std::io::stdout().is_terminal()
     }
   }
+}
+
+fn progress_enabled(when: ProgressWhen) -> bool {
+  match when {
+    ProgressWhen::Always => true,
+    ProgressWhen::Never => false,
+    ProgressWhen::Auto => {
+      if std::env::var_os("CI").is_some_and(|value| !value.is_empty()) {
+        return false;
+      }
+      std::io::stderr().is_terminal()
+    }
+  }
+}
+
+#[expect(clippy::print_stderr, reason = "scan progress streams on stderr by design")]
+fn progress_reporter() -> ProgressReporter {
+  ProgressReporter::new(|event: &ProgressEvent| {
+    eprintln!("vue-vet: {}", event.message());
+  })
 }
 
 impl From<OutputFormat> for ReportFormat {
@@ -309,6 +346,9 @@ fn main() -> ExitCode {
         return operational_failure(&cli, "--reactivity-tui requires --format text");
       }
       let report_context = report_context(&cli, &snapshot);
+      if progress_enabled(cli.progress) {
+        eprintln!("vue-vet: {}", ProgressEvent::WritingReport.message());
+      }
       if let Err(error) = print_summary(&snapshot.summary, cli.format, &report_context) {
         return operational_failure(&cli, &format!("failed to serialize report: {error}"));
       }
@@ -335,14 +375,19 @@ fn main() -> ExitCode {
 }
 
 fn open_session(cli: &Cli) -> Result<ProjectSession, String> {
-  ProjectSession::open(SessionOptions {
+  let session = ProjectSession::open(SessionOptions {
     root: cli.path.clone(),
     config_path: cli.config.clone(),
     cache_dir: cli.cache.cache_dir.clone(),
     no_cache: cli.cache.no_cache || cli.fix.mode().is_some(),
     threads: cli.threads,
   })
-  .map_err(|error| error.to_string())
+  .map_err(|error| error.to_string())?;
+  Ok(if progress_enabled(cli.progress) {
+    session.with_progress(progress_reporter())
+  } else {
+    session
+  })
 }
 
 fn run_requested_fixes(

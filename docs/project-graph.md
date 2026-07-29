@@ -25,7 +25,9 @@ Classification after a successful resolve:
   (graph edge only). When a concrete filesystem path is available, the
   reactivity linker may **on-demand** load that file (preferring companion
   `.d.ts` / `.d.mts` / `.d.cts`) plus a bounded relative re-export follow to
-  build `ModuleSummary` seeds (`Factory` / `Composable`). Those external
+  build `ModuleSummary` seeds (`Factory` / `Composable`). Companion `.js`
+  bodies are loaded only to complete provisional declaration halves, and are
+  size-capped so unrelated multi‑MB packages are not parsed. Those external
   modules are **not** lint targets and do not appear in scored
   `module_reactivity`.
 - Resolve failure → `vue-vet/project/unresolved-import` at the import span

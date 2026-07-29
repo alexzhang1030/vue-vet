@@ -12,6 +12,7 @@ mod locality;
 mod package_index;
 mod path;
 mod pipeline;
+mod progress;
 mod scan;
 
 use std::{
@@ -41,6 +42,7 @@ use self::discovery::{WorkspaceInputSnapshot, file_id_for_physical};
 pub use explain::Explained;
 pub use locality::{AnalysisProduct, ChangeImpact, DirtyPlan, ResolutionScope, ScanWorkCounters};
 pub use path::resolve_under_root;
+pub use progress::{ProgressEvent, ProgressReporter};
 pub use scan::scan_directory;
 
 #[cfg(test)]
@@ -189,6 +191,7 @@ pub struct ProjectSession {
   /// Built on first real scan — cache hits never pay pool construction.
   pool: OnceLock<Arc<ThreadPool>>,
   core: Mutex<SessionCore>,
+  progress: Option<ProgressReporter>,
   workspace_discoveries: AtomicU64,
   incremental_file_updates: AtomicU64,
   committed_analyses: AtomicU64,
@@ -288,6 +291,7 @@ impl ProjectSession {
         pending: PendingChanges { force_full_parse: true, ..PendingChanges::default() },
         last_snapshot: None,
       }),
+      progress: None,
       workspace_discoveries: AtomicU64::new(0),
       incremental_file_updates: AtomicU64::new(0),
       committed_analyses: AtomicU64::new(0),
@@ -295,6 +299,19 @@ impl ProjectSession {
       #[cfg(test)]
       test_hooks: SessionTestHooks::default(),
     })
+  }
+
+  /// Attach a coarse stage reporter (CLI `--progress`, tests).
+  #[must_use]
+  pub fn with_progress(mut self, progress: ProgressReporter) -> Self {
+    self.progress = Some(progress);
+    self
+  }
+
+  fn emit_progress(&self, event: &ProgressEvent) {
+    if let Some(progress) = &self.progress {
+      progress.emit(event);
+    }
   }
 
   /// Lazy session Rayon pool. Cache-hit analyzes never call this.
@@ -620,6 +637,7 @@ impl ProjectSession {
   fn prepare_analysis(&self, rediscover: bool) -> Result<PreparedAnalysis, SessionError> {
     let mut core = self.lock_core()?;
     if rediscover || core.inputs.snapshot.is_none() {
+      self.emit_progress(&ProgressEvent::Discovering);
       let snapshot =
         WorkspaceInputSnapshot::discover(self.root.as_path(), &self.config, &core.inputs.overlays)?;
       core.inputs.snapshot = Some(Arc::new(snapshot));
@@ -673,6 +691,7 @@ impl ProjectSession {
       &cancelled,
       &prepared.dirty_files,
       prepared.force_full_parse,
+      self.progress.as_ref(),
     ) {
       Ok(snapshot) => snapshot,
       Err(SessionError::Cancelled) => {
