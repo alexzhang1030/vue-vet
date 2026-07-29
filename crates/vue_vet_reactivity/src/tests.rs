@@ -1730,6 +1730,68 @@ fn uncertain_value_access_is_recorded_on_computed_scope() {
 }
 
 #[test]
+fn nested_uncertain_value_and_alias_binding_are_handled() {
+  let nested = graph(
+    "import { computed } from 'vue';\n\
+     declare const bag: { nested: { value: number } };\n\
+     const hint = computed(() => bag.nested.value);",
+  );
+  assert!(
+    nested.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.is_empty()
+        && scope.uncertain_accesses.iter().any(|name| name == "bag")
+    }),
+    "nested .value root must be uncertain when unclassified; scopes={:?}",
+    nested.scopes
+  );
+
+  let aliased = graph(
+    "import { ref, computed } from 'vue';\n\
+     const count = ref(0);\n\
+     const alias = count;\n\
+     const doubled = computed(() => alias.value * 2);",
+  );
+  assert!(
+    aliased
+      .bindings
+      .iter()
+      .any(|binding| { binding.name == "alias" && binding.kind == ReactiveBindingKind::Ref }),
+    "const alias = knownRef must seed; bindings={:?}",
+    aliased.bindings
+  );
+  assert!(
+    aliased.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "alias" && read.property.as_deref() == Some("value"))
+    }),
+    "alias.value must be a proven read; scopes={:?}",
+    aliased.scopes
+  );
+}
+
+#[test]
+fn watch_sources_record_uncertain_bare_identifier() {
+  let graph = graph(
+    "import { watch } from 'vue';\n\
+     declare const mystery: { value: number };\n\
+     watch(mystery, () => {});",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::WatchSources
+        && scope.reads.is_empty()
+        && scope.uncertain_accesses.iter().any(|name| name == "mystery")
+    }),
+    "bare unknown watch source must be uncertain evidence; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
 fn local_factory_ref_return_seeds_computed_dependency() {
   for source in [
     "import { ref, computed } from 'vue'; function useFlag() { const flag = ref(false); return flag; } const isCoarse = useFlag(); const hint = computed(() => isCoarse.value ? 'a' : 'b');",

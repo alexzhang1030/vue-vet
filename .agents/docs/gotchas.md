@@ -436,10 +436,13 @@ companion `.d.ts`). Prefer return-kind analysis over growing the name allowlist.
 Do not treat every `use*` auto-import as reactive without evidence. `#imports`
 virtual modules still have no file body and stay quiet.
 
-When a tracking scope still has `.value` / `unref` / `toValue` on unclassified
-names, scopes record `uncertain_accesses` and
-`no-computed-without-dependency` reports with `(maybe: …)` — analysis ran, but
-those accesses were not proven reactive (do not invent edges; do not hide the miss).
+**Absence rules** (`no-computed-without-dependency`, `no-effect-write-without-read`,
+`no-empty-watch-sources`, `no-watch-callback-as-tracking-scope`) must try hard
+evidence first (bindings, Factory returns, aliases, classified reads). Only when
+reads stay empty do they consult `uncertain_accesses` (reactivity-shaped
+`.value` / `unref` / `toValue` / bare watch sources that could not be classified)
+and report with `(maybe: …)`. Do not invent edges; do not treat empty reads as
+ironclad proof when soft evidence remains.
 
 Nuxt (and unplugin-auto-import) often call `ref` / `watchEffect` with **no**
 `import` statement. The tracer treats bare identifiers as Vue APIs only when

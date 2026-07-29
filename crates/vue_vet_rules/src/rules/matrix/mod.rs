@@ -458,38 +458,27 @@ impl Rule for PathologyRule {
         if scope.writes.is_empty() || !scope.reads.is_empty() {
           return;
         }
-        context.report(
-          self.meta(),
-          scope.span.clone(),
-          format!("`{}` writes reactive state but reads no reactive dependency", scope.callee),
-          Some("Effects without reactive reads never re-run; use a plain function or explicit trigger.".into()),
+        let (message, help) = absence_finding(
+          &format!("`{}` writes reactive state but reads no reactive dependency", scope.callee),
+          &format!(
+            "`{}` writes reactive state but reads no known reactive dependency",
+            scope.callee
+          ),
+          &scope.uncertain_accesses,
+          "Effects without reactive reads never re-run; use a plain function or explicit trigger.",
         );
+        context.report(self.meta(), scope.span.clone(), message, help);
       }
       PathologyKind::NoDependency => {
         if !scope.reads.is_empty() {
           return;
         }
-        let (message, help) = if scope.uncertain_accesses.is_empty() {
-          (
-            "`computed` does not read any reactive dependency".into(),
-            Some("Return a plain value, or read reactive state inside the getter.".into()),
-          )
-        } else {
-          let maybe = scope
-            .uncertain_accesses
-            .iter()
-            .map(|name| format!("`{name}`"))
-            .collect::<Vec<_>>()
-            .join(", ");
-          (
-            format!(
-              "`computed` does not read any known reactive dependency (maybe: {maybe})"
-            ),
-            Some(
-              "Analyzed `.value` / `unref` / `toValue` on names that could not be classified as reactive bindings. Return a plain value, or ensure the dependency is a known ref/reactive source.".into(),
-            ),
-          )
-        };
+        let (message, help) = absence_finding(
+          "`computed` does not read any reactive dependency",
+          "`computed` does not read any known reactive dependency",
+          &scope.uncertain_accesses,
+          "Return a plain value, or read reactive state inside the getter.",
+        );
         context.report(self.meta(), scope.span.clone(), message, help);
       }
       PathologyKind::PreferWatchSingle => {
@@ -556,15 +545,35 @@ impl Rule for PathologyRule {
         if !scope.reads.is_empty() {
           return;
         }
-        context.report(
-          self.meta(),
-          scope.span.clone(),
-          "`watch` sources do not read any reactive dependency".into(),
-          Some("Pass a ref, a getter, or an array of sources that read reactive state.".into()),
+        let (message, help) = absence_finding(
+          "`watch` sources do not read any reactive dependency",
+          "`watch` sources do not read any known reactive dependency",
+          &scope.uncertain_accesses,
+          "Pass a ref, a getter, or an array of sources that read reactive state.",
         );
+        context.report(self.meta(), scope.span.clone(), message, help);
       }
     }
   }
+}
+
+/// Absence-of-evidence findings: prefer hard edges; if only soft evidence remains, mark `(maybe)`.
+fn absence_finding(
+  confident: &str,
+  maybe_prefix: &str,
+  uncertain: &[String],
+  confident_help: &str,
+) -> (String, Option<String>) {
+  if uncertain.is_empty() {
+    return (confident.into(), Some(confident_help.into()));
+  }
+  let maybe = uncertain.iter().map(|name| format!("`{name}`")).collect::<Vec<_>>().join(", ");
+  (
+    format!("{maybe_prefix} (maybe: {maybe})"),
+    Some(
+      "Analyzed reactivity-shaped accesses (`.value` / `unref` / `toValue` / bare sources) that could not be classified as known bindings. Prefer proven reactive sources; treat this as under-approx uncertainty, not a proven absence.".into(),
+    ),
+  )
 }
 
 macro_rules! pathology_rule {
@@ -703,21 +712,19 @@ impl Rule for WatchCallbackTrackingRule {
           && sources.reads.is_empty()
           && !callback.reads.is_empty()
         {
-          findings.push(callback.span.clone());
+          findings.push((callback.span.clone(), sources.uncertain_accesses.clone()));
         }
         index += 1;
       }
     }
-    for span in findings {
-      context.report(
-        self.meta(),
-        span,
-        "reactive reads in a `watch` callback are not tracked for invalidation".into(),
-        Some(
-          "List dependencies in the `watch` source argument; the callback is a side-effect sink."
-            .into(),
-        ),
+    for (span, uncertain) in findings {
+      let (message, help) = absence_finding(
+        "reactive reads in a `watch` callback are not tracked for invalidation",
+        "reactive reads in a `watch` callback may not be tracked for invalidation",
+        &uncertain,
+        "List dependencies in the `watch` source argument; the callback is a side-effect sink.",
       );
+      context.report(self.meta(), span, message, help);
     }
   }
 }

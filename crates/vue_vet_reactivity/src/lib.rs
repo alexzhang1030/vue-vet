@@ -183,6 +183,9 @@ fn trace_reactivity_seeded_inner(
     composable_instances.entry(bag).or_insert(shape);
   }
 
+  // `const alias = knownRef` — same object identity; seed before scopes so `.value` tracks.
+  extend_with_reactive_aliases(semantic, &mut bindings, sfc_source, script_offset);
+
   let mut scopes = collect_tracking_scopes(
     semantic,
     &imported_bindings,
@@ -896,6 +899,57 @@ fn collect_binding_identifiers(
     }
     BindingPattern::AssignmentPattern(assignment) => {
       collect_binding_identifiers(&assignment.left, identifiers);
+    }
+  }
+}
+
+/// Propagate known reactive bindings through `const alias = known` (under-approx).
+///
+/// Only bare identifier initials; `alias = known.value` / calls stay quiet.
+fn extend_with_reactive_aliases(
+  semantic: &oxc_semantic::Semantic<'_>,
+  bindings: &mut Vec<ReactiveBindingFact>,
+  sfc_source: &str,
+  script_offset: usize,
+) {
+  loop {
+    let mut added = Vec::new();
+    for node in semantic.nodes() {
+      let AstKind::VariableDeclarator(declarator) = node.kind() else {
+        continue;
+      };
+      let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
+        continue;
+      };
+      if bindings.iter().any(|binding| binding.name == identifier.name.as_str()) {
+        continue;
+      }
+      let Some(init) = &declarator.init else {
+        continue;
+      };
+      let Some(reference) = init.get_identifier_reference() else {
+        continue;
+      };
+      let Some(source) = bindings.iter().find(|binding| {
+        binding.name == reference.name.as_str()
+          && reference_resolves_to_binding(semantic, reference, binding, script_offset)
+      }) else {
+        continue;
+      };
+      added.push(ReactiveBindingFact {
+        name: identifier.name.to_string(),
+        kind: source.kind,
+        initialized_with_null: source.initialized_with_null,
+        span: source_span(sfc_source, script_offset, identifier.span),
+      });
+    }
+    if added.is_empty() {
+      break;
+    }
+    for binding in added {
+      if !bindings.iter().any(|existing| existing.name == binding.name) {
+        bindings.push(binding);
+      }
     }
   }
 }
@@ -1851,6 +1905,7 @@ struct ScopeBuild<'a> {
   scope_id: NodeId,
   body: Option<&'a FunctionBody<'a>>,
   reactive_bindings: &'a [ReactiveBindingFact],
+  composable_instances: &'a ComposableShapeMap,
   imported_bindings: &'a BTreeMap<String, (String, String)>,
   sfc_source: &'a str,
   script_offset: usize,
@@ -1868,6 +1923,7 @@ fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
     build.semantic,
     build.scope_id,
     build.reactive_bindings,
+    build.composable_instances,
     build.imported_bindings,
     build.script_offset,
   );
@@ -1883,13 +1939,14 @@ fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
   }
 }
 
-/// `.value` / `unref` / `toValue` roots inside a scope that are not known reactive.
+/// Soft evidence inside a scope: reactivity-shaped accesses we could not classify.
 ///
-/// Surfaced so rules can say `(maybe: name)` instead of inventing edges or staying quiet.
+/// Surfaced so absence rules can say `(maybe: name)` after trying to find hard edges.
 fn collect_uncertain_scope_accesses(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
   reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
   script_offset: usize,
 ) -> Vec<String> {
@@ -1899,6 +1956,7 @@ fn collect_uncertain_scope_accesses(
       semantic,
       node.kind(),
       reactive_bindings,
+      composable_instances,
       imported_bindings,
       script_offset,
     ) else {
@@ -1916,18 +1974,20 @@ fn uncertain_access_at(
   semantic: &oxc_semantic::Semantic<'_>,
   kind: AstKind<'_>,
   reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
   script_offset: usize,
 ) -> Option<(String, Span)> {
   match kind {
     AstKind::StaticMemberExpression(member) if member.property.name.as_str() == "value" => {
-      let object = member.object.get_identifier_reference()?;
-      let known = reactive_bindings.iter().any(|binding| {
-        binding.name == object.name.as_str()
-          && reference_resolves_to_binding(semantic, object, binding, script_offset)
+      let root = member_expression_root_identifier(&member.object)?;
+      let known_ref = reactive_bindings.iter().any(|binding| {
+        binding.name == root.name.as_str()
+          && reference_resolves_to_binding(semantic, root, binding, script_offset)
           && is_ref_like(binding.kind)
       });
-      (!known).then(|| (object.name.to_string(), member.span))
+      let known_bag = composable_instances.contains_key(root.name.as_str());
+      (!known_ref && !known_bag).then(|| (root.name.to_string(), member.span))
     }
     AstKind::CallExpression(call) => {
       let callee =
@@ -1944,6 +2004,25 @@ fn uncertain_access_at(
       });
       (!known).then(|| (identifier.name.to_string(), call.span))
     }
+    _ => None,
+  }
+}
+
+fn member_expression_root_identifier<'a>(
+  expression: &'a Expression<'a>,
+) -> Option<&'a IdentifierReference<'a>> {
+  match expression {
+    Expression::Identifier(identifier) => Some(identifier),
+    Expression::ParenthesizedExpression(paren) => {
+      member_expression_root_identifier(&paren.expression)
+    }
+    Expression::StaticMemberExpression(member) => member_expression_root_identifier(&member.object),
+    Expression::ChainExpression(chain) => match &chain.expression {
+      oxc_ast::ast::ChainElement::StaticMemberExpression(member) => {
+        member_expression_root_identifier(&member.object)
+      }
+      _ => None,
+    },
     _ => None,
   }
 }
@@ -2003,6 +2082,7 @@ fn collect_tracking_scopes(
         scope_id,
         body,
         reactive_bindings,
+        composable_instances,
         imported_bindings,
         sfc_source,
         script_offset,
@@ -2075,6 +2155,7 @@ fn collect_tracking_scopes(
           scope_id,
           body,
           reactive_bindings,
+          composable_instances,
           imported_bindings,
           sfc_source,
           script_offset,
@@ -2112,6 +2193,7 @@ fn collect_tracking_scopes(
             scope_id,
             body,
             reactive_bindings,
+            composable_instances,
             imported_bindings,
             sfc_source,
             script_offset,
@@ -2133,6 +2215,14 @@ fn collect_tracking_scopes(
           sfc_source,
           script_offset,
         );
+        let uncertain_accesses = collect_uncertain_watch_sources(
+          semantic,
+          source_argument,
+          reactive_bindings,
+          composable_instances,
+          imported_bindings,
+          script_offset,
+        );
         scopes.push(TrackingScopeFact {
           kind: TrackingScopeKind::WatchSources,
           callee: callee.clone(),
@@ -2141,7 +2231,7 @@ fn collect_tracking_scopes(
           writes: Vec::new(),
           assignment_only: false,
           binding: None,
-          uncertain_accesses: Vec::new(),
+          uncertain_accesses,
         });
 
         if let Some(callback_argument) = call.arguments.get(1)
@@ -2182,6 +2272,7 @@ fn collect_tracking_scopes(
             scope_id,
             body,
             reactive_bindings,
+            composable_instances,
             imported_bindings,
             sfc_source,
             script_offset,
@@ -2201,6 +2292,182 @@ fn assigned_binding_name(semantic: &oxc_semantic::Semantic<'_>, call_id: NodeId)
   match &declarator.id {
     BindingPattern::BindingIdentifier(identifier) => Some(identifier.name.to_string()),
     _ => None,
+  }
+}
+
+/// Soft evidence in `watch` sources: unclassified `.value` / bare unknown idents.
+fn collect_uncertain_watch_sources(
+  semantic: &oxc_semantic::Semantic<'_>,
+  argument: &Argument<'_>,
+  reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  script_offset: usize,
+) -> Vec<String> {
+  let mut names = BTreeSet::new();
+  collect_uncertain_watch_argument(
+    semantic,
+    argument,
+    reactive_bindings,
+    composable_instances,
+    imported_bindings,
+    script_offset,
+    &mut names,
+  );
+  names.into_iter().collect()
+}
+
+fn collect_uncertain_watch_argument(
+  semantic: &oxc_semantic::Semantic<'_>,
+  argument: &Argument<'_>,
+  reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  script_offset: usize,
+  names: &mut BTreeSet<String>,
+) {
+  match argument {
+    Argument::ArrowFunctionExpression(callback) => {
+      names.extend(collect_uncertain_scope_accesses(
+        semantic,
+        callback.node_id.get(),
+        reactive_bindings,
+        composable_instances,
+        imported_bindings,
+        script_offset,
+      ));
+    }
+    Argument::FunctionExpression(callback) => {
+      names.extend(collect_uncertain_scope_accesses(
+        semantic,
+        callback.node_id.get(),
+        reactive_bindings,
+        composable_instances,
+        imported_bindings,
+        script_offset,
+      ));
+    }
+    Argument::ArrayExpression(array) => {
+      for element in &array.elements {
+        let Some(expression) = element.as_expression() else {
+          continue;
+        };
+        collect_uncertain_watch_expression(
+          semantic,
+          expression,
+          reactive_bindings,
+          composable_instances,
+          imported_bindings,
+          script_offset,
+          names,
+        );
+      }
+    }
+    other => {
+      if let Some(expression) = other.as_expression() {
+        collect_uncertain_watch_expression(
+          semantic,
+          expression,
+          reactive_bindings,
+          composable_instances,
+          imported_bindings,
+          script_offset,
+          names,
+        );
+      }
+    }
+  }
+}
+
+fn collect_uncertain_watch_expression(
+  semantic: &oxc_semantic::Semantic<'_>,
+  expression: &Expression<'_>,
+  reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  script_offset: usize,
+  names: &mut BTreeSet<String>,
+) {
+  match expression {
+    Expression::ArrowFunctionExpression(callback) => {
+      names.extend(collect_uncertain_scope_accesses(
+        semantic,
+        callback.node_id.get(),
+        reactive_bindings,
+        composable_instances,
+        imported_bindings,
+        script_offset,
+      ));
+    }
+    Expression::FunctionExpression(callback) => {
+      names.extend(collect_uncertain_scope_accesses(
+        semantic,
+        callback.node_id.get(),
+        reactive_bindings,
+        composable_instances,
+        imported_bindings,
+        script_offset,
+      ));
+    }
+    Expression::Identifier(identifier) => {
+      let known = reactive_bindings.iter().any(|binding| {
+        binding.name == identifier.name.as_str()
+          && reference_resolves_to_binding(semantic, identifier, binding, script_offset)
+      });
+      if !known {
+        names.insert(identifier.name.to_string());
+      }
+    }
+    Expression::ParenthesizedExpression(paren) => {
+      collect_uncertain_watch_expression(
+        semantic,
+        &paren.expression,
+        reactive_bindings,
+        composable_instances,
+        imported_bindings,
+        script_offset,
+        names,
+      );
+    }
+    Expression::StaticMemberExpression(member) if member.property.name.as_str() == "value" => {
+      let Some(root) = member_expression_root_identifier(&member.object) else {
+        return;
+      };
+      let known_ref = reactive_bindings.iter().any(|binding| {
+        binding.name == root.name.as_str()
+          && reference_resolves_to_binding(semantic, root, binding, script_offset)
+          && is_ref_like(binding.kind)
+      });
+      let known_bag = composable_instances.contains_key(root.name.as_str());
+      if !known_ref && !known_bag {
+        names.insert(root.name.to_string());
+      }
+    }
+    Expression::CallExpression(call) => {
+      let Some(callee) =
+        resolved_vue_callee(semantic, &call.callee, imported_bindings, ScriptKind::Setup)
+      else {
+        return;
+      };
+      if !matches!(callee.as_str(), "unref" | "toValue") {
+        return;
+      }
+      let Some(argument) = call.arguments.first().and_then(Argument::as_expression) else {
+        return;
+      };
+      let Some(identifier) = argument.get_identifier_reference() else {
+        return;
+      };
+      let known = reactive_bindings.iter().any(|binding| {
+        binding.name == identifier.name.as_str()
+          && reference_resolves_to_binding(semantic, identifier, binding, script_offset)
+          && is_ref_like(binding.kind)
+      });
+      if !known {
+        names.insert(identifier.name.to_string());
+      }
+    }
+    _ => {}
   }
 }
 
