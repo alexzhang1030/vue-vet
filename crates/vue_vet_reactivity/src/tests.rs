@@ -1908,6 +1908,51 @@ fn dts_factory_return_type_seeds_consumer() {
 }
 
 #[test]
+fn dts_composable_object_return_seeds_destructure() {
+  for producer in [
+    "import type { Ref } from 'vue'; export declare function useElementSize(): { width: Ref<number>; height: Ref<number>; stop: () => void };",
+    "import type { ShallowRef } from 'vue'; export interface UseElementSizeReturn { width: ShallowRef<number>; height: ShallowRef<number>; stop: () => void } export declare function useElementSize(): UseElementSizeReturn;",
+    "import type { Ref } from 'vue'; export type UseElementSizeReturn = { width: Ref<number>; height: Ref<number> }; export declare function useElementSize(): UseElementSizeReturn;",
+  ] {
+    let modules = [
+      ModuleSource::standalone("producer.d.ts", producer, "d.ts", ScriptKind::Script),
+      ModuleSource::standalone(
+        "consumer.ts",
+        "import { watch } from 'vue'; import { useElementSize } from './producer'; const { width: hostWidth, height: hostHeight } = useElementSize(); watch([hostWidth, hostHeight], () => {});",
+        "ts",
+        ScriptKind::Script,
+      ),
+    ];
+    let links = [ModuleLink {
+      from: "consumer.ts".into(),
+      specifier: "./producer".into(),
+      to: "producer.d.ts".into(),
+    }];
+    let traced = traced_modules(&modules, &links);
+    let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+    assert!(
+      consumer.is_some_and(|module| {
+        module.graph.bindings.iter().any(|binding| {
+          binding.name == "hostWidth"
+            && matches!(binding.kind, ReactiveBindingKind::Ref | ReactiveBindingKind::ShallowRef)
+        }) && module.graph.bindings.iter().any(|binding| {
+          binding.name == "hostHeight"
+            && matches!(binding.kind, ReactiveBindingKind::Ref | ReactiveBindingKind::ShallowRef)
+        }) && !module.graph.bindings.iter().any(|binding| binding.name == "stop")
+          && module.graph.scopes.iter().any(|scope| {
+            scope.kind == TrackingScopeKind::WatchSources
+              && scope.reads.iter().any(|read| read.binding == "hostWidth")
+              && scope.reads.iter().any(|read| read.binding == "hostHeight")
+              && scope.uncertain_accesses.is_empty()
+          })
+      }),
+      ".d.ts object-bag return must seed renamed destructure + watch; producer={producer}; got {:?}",
+      consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
+    );
+  }
+}
+
+#[test]
 fn local_composable_instance_member_access() {
   for source in [
     "import { ref, watchEffect } from 'vue'; function useSignal() { const signal = ref(0); return { signal }; } const bag = useSignal(); watchEffect(() => bag.signal.value);",
