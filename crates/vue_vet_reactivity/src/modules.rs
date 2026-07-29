@@ -243,9 +243,20 @@ struct InstanceCallBinding {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum ExportState {
+  /// Imported local is itself a reactive binding (`import { count } from './x'`).
   Known(ReactiveBindingKind),
+  /// Calling the export returns a statically keyed object bag.
   Composable(BTreeMap<String, ReactiveBindingKind>),
+  /// Calling the export returns a scalar reactive value (`return ref(0)` / `(): Ref<T>`).
+  Factory(ReactiveBindingKind),
   Ambiguous,
+}
+
+/// Under-approx classification of a composable/factory function return.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ComposableReturn {
+  Object(BTreeMap<String, ReactiveBindingKind>),
+  Factory(ReactiveBindingKind),
 }
 
 /// Export-resolution payload only — no source body, no owned reactivity graph.
@@ -269,6 +280,41 @@ pub struct ModuleSummary {
   provides: Vec<super::ProvideSite>,
   injects: Vec<super::InjectSite>,
   local_graph: std::sync::Arc<ReactivityGraph>,
+}
+
+impl ModuleSummary {
+  /// Specifiers this module imports or re-exports (for external follow).
+  #[must_use]
+  pub fn follow_specifiers(&self) -> Vec<String> {
+    let mut specifiers = BTreeSet::new();
+    for import in &self.imports {
+      specifiers.insert(import.source.clone());
+    }
+    for export in &self.exports {
+      match export {
+        ExportSummary::Reexport { source, .. } | ExportSummary::Star { source } => {
+          specifiers.insert(source.clone());
+        }
+        ExportSummary::Local { .. } => {}
+      }
+    }
+    specifiers.into_iter().collect()
+  }
+}
+
+/// Parse a standalone module and attach its [`ModuleSummary`] (external seed path).
+///
+/// # Errors
+///
+/// Returns parse/semantic errors for invalid sources or unsupported languages.
+pub fn prepare_standalone_module_source(
+  id: impl Into<ModuleId>,
+  source: impl Into<Arc<str>>,
+  language: impl Into<String>,
+) -> Result<ModuleSource, TraceModulesError> {
+  let module = ModuleSource::standalone(id, source, language, ScriptKind::Script);
+  let phase = analyze_module_phase_one(&module)?;
+  Ok(module.with_module_summary(phase.facts.summary))
 }
 
 /// Compatibility alias for [`ModuleSummary`].
@@ -1030,6 +1076,7 @@ fn source_type(module: &ModuleSource) -> Result<SourceType, TraceModulesError> {
     "jsx" => Ok(SourceType::jsx()),
     "ts" | "typescript" => Ok(SourceType::ts()),
     "tsx" => Ok(SourceType::tsx()),
+    "d.ts" | "dts" => Ok(SourceType::d_ts()),
     language => Err(TraceModulesError::UnsupportedLanguage {
       module: module.id.clone(),
       language: language.into(),
@@ -1084,7 +1131,7 @@ fn collect_local_values(
   // return-statement index walk (cold `trace_1k_*` synthetic modules).
   let mut returns_by_function = None;
 
-  // `function useX() { return { field } }` (incl. `export default function useX`)
+  // `function useX() { return { field } }` / `return ref(0)` / `(): Ref<T>`
   for node in semantic.nodes() {
     let AstKind::Function(function) = node.kind() else {
       continue;
@@ -1093,19 +1140,20 @@ fn collect_local_values(
       continue;
     };
     let index = returns_by_function.get_or_insert_with(|| build_returns_by_function(semantic));
-    let shape = composable_return_shape_with_index(
+    let function_id = function.node_id.get();
+    if let Some(state) = composable_export_state(
       semantic,
-      function.node_id.get(),
+      function_id,
       shape_graph,
       script_offset,
       index,
-    );
-    if !shape.is_empty() {
-      locals.insert(identifier.name.to_string(), ExportState::Composable(shape));
+      function_return_type_kind(function),
+    ) {
+      locals.insert(identifier.name.to_string(), state);
     }
   }
 
-  // `const useX = () => ({ … })` / `export const useX = function () { … }`
+  // `const useX = () => ({ … })` / `export const useX = function () { … }` / `(): Ref`
   for node in semantic.nodes() {
     let AstKind::VariableDeclarator(declarator) = node.kind() else {
       continue;
@@ -1116,20 +1164,49 @@ fn collect_local_values(
     let Some(init) = &declarator.init else {
       continue;
     };
-    let function_id = match init {
-      Expression::ArrowFunctionExpression(arrow) => arrow.node_id.get(),
-      Expression::FunctionExpression(function) => function.node_id.get(),
+    let (function_id, declared_kind) = match init {
+      Expression::ArrowFunctionExpression(arrow) => {
+        (arrow.node_id.get(), arrow_return_type_kind(arrow))
+      }
+      Expression::FunctionExpression(function) => {
+        (function.node_id.get(), function_return_type_kind(function))
+      }
       _ => continue,
     };
     let index = returns_by_function.get_or_insert_with(|| build_returns_by_function(semantic));
-    let shape =
-      composable_return_shape_with_index(semantic, function_id, shape_graph, script_offset, index);
-    if shape.is_empty() {
-      continue;
+    if let Some(state) = composable_export_state(
+      semantic,
+      function_id,
+      shape_graph,
+      script_offset,
+      index,
+      declared_kind,
+    ) {
+      locals.insert(identifier.name.to_string(), state);
     }
-    locals.insert(identifier.name.to_string(), ExportState::Composable(shape));
   }
   locals
+}
+
+fn composable_export_state(
+  semantic: &oxc_semantic::Semantic<'_>,
+  function_id: NodeId,
+  shape_graph: &ReactivityGraph,
+  script_offset: usize,
+  returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
+  declared_return_kind: Option<ReactiveBindingKind>,
+) -> Option<ExportState> {
+  match composable_return_with_index(
+    semantic,
+    function_id,
+    shape_graph,
+    script_offset,
+    returns_by_function,
+  ) {
+    Some(ComposableReturn::Object(shape)) => Some(ExportState::Composable(shape)),
+    Some(ComposableReturn::Factory(kind)) => Some(ExportState::Factory(kind)),
+    None => declared_return_kind.map(ExportState::Factory),
+  }
 }
 
 /// One-pass index: owning function/arrow → return statement node ids.
@@ -1189,51 +1266,214 @@ pub fn composable_return_shape_with_index(
   script_offset: usize,
   returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
 ) -> BTreeMap<String, ReactiveBindingKind> {
+  match composable_return_with_index(
+    semantic,
+    function_id,
+    graph,
+    script_offset,
+    returns_by_function,
+  ) {
+    Some(ComposableReturn::Object(shape)) => shape,
+    Some(ComposableReturn::Factory(_)) | None => BTreeMap::new(),
+  }
+}
+
+struct ReturnKindAccum {
+  shape: BTreeMap<String, ReactiveBindingKind>,
+  ambiguous: BTreeSet<String>,
+  factory_kind: Option<ReactiveBindingKind>,
+  factory_conflict: bool,
+  saw_object_return: bool,
+  saw_scalar_return: bool,
+}
+
+impl ReturnKindAccum {
+  fn consider(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    expression: &Expression<'_>,
+    graph: &ReactivityGraph,
+    imported_bindings: &BTreeMap<String, (String, String)>,
+    param_names: &BTreeSet<String>,
+    script_offset: usize,
+  ) {
+    let expression = match expression {
+      Expression::ParenthesizedExpression(paren) => &paren.expression,
+      other => other,
+    };
+    if matches!(expression, Expression::ObjectExpression(_)) {
+      self.saw_object_return = true;
+      merge_return_object_into_shape(
+        semantic,
+        expression,
+        graph,
+        imported_bindings,
+        param_names,
+        script_offset,
+        &mut self.shape,
+        &mut self.ambiguous,
+      );
+      return;
+    }
+    self.saw_scalar_return = true;
+    let Some(kind) = reactive_return_kind(
+      semantic,
+      expression,
+      graph,
+      imported_bindings,
+      param_names,
+      script_offset,
+    ) else {
+      self.factory_conflict = true;
+      return;
+    };
+    match self.factory_kind {
+      None => self.factory_kind = Some(kind),
+      Some(existing) if existing == kind => {}
+      Some(_) => self.factory_conflict = true,
+    }
+  }
+
+  fn finish(self) -> Option<ComposableReturn> {
+    if self.saw_object_return && self.saw_scalar_return {
+      return None;
+    }
+    if self.saw_object_return && !self.shape.is_empty() {
+      return Some(ComposableReturn::Object(self.shape));
+    }
+    if self.saw_scalar_return && !self.factory_conflict {
+      return self.factory_kind.map(ComposableReturn::Factory);
+    }
+    None
+  }
+}
+
+/// Object bag or scalar factory return for a function/arrow (under-approx).
+fn composable_return_with_index(
+  semantic: &oxc_semantic::Semantic<'_>,
+  function_id: NodeId,
+  graph: &ReactivityGraph,
+  script_offset: usize,
+  returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
+) -> Option<ComposableReturn> {
   let imported_bindings = collect_imported_bindings(semantic);
   let param_names = function_param_names(semantic, function_id);
-  let mut shape = BTreeMap::new();
-  let mut ambiguous = BTreeSet::new();
+  let mut accum = ReturnKindAccum {
+    shape: BTreeMap::new(),
+    ambiguous: BTreeSet::new(),
+    factory_kind: None,
+    factory_conflict: false,
+    saw_object_return: false,
+    saw_scalar_return: false,
+  };
 
-  // `() => ({ field: ref(0) })` expression body — no ReturnStatement node.
+  // `() => ({ field: ref(0) })` / `() => ref(0)` expression body — no ReturnStatement.
   if let AstKind::ArrowFunctionExpression(arrow) = semantic.nodes().kind(function_id)
     && arrow.expression
     && let Some(statement) = arrow.body.statements.first()
     && let oxc_ast::ast::Statement::ExpressionStatement(expression) = statement
   {
-    merge_return_object_into_shape(
+    accum.consider(
       semantic,
       &expression.expression,
       graph,
       &imported_bindings,
       &param_names,
       script_offset,
-      &mut shape,
-      &mut ambiguous,
     );
   }
 
-  let Some(return_ids) = returns_by_function.get(&function_id) else {
-    return shape;
-  };
-  for &return_id in return_ids {
-    let AstKind::ReturnStatement(statement) = semantic.nodes().kind(return_id) else {
-      continue;
-    };
-    let Some(argument) = &statement.argument else {
-      continue;
-    };
-    merge_return_object_into_shape(
-      semantic,
-      argument,
-      graph,
-      &imported_bindings,
-      &param_names,
-      script_offset,
-      &mut shape,
-      &mut ambiguous,
-    );
+  if let Some(return_ids) = returns_by_function.get(&function_id) {
+    for &return_id in return_ids {
+      let AstKind::ReturnStatement(statement) = semantic.nodes().kind(return_id) else {
+        continue;
+      };
+      let Some(argument) = &statement.argument else {
+        accum.factory_conflict = true;
+        continue;
+      };
+      accum.consider(semantic, argument, graph, &imported_bindings, &param_names, script_offset);
+    }
   }
-  shape
+
+  accum.finish()
+}
+
+/// Declared TypeScript return type on a function (`.d.ts` / annotated source).
+#[must_use]
+pub fn function_return_type_kind(
+  function: &oxc_ast::ast::Function<'_>,
+) -> Option<ReactiveBindingKind> {
+  function
+    .return_type
+    .as_ref()
+    .and_then(|annotation| ts_type_reactive_kind(&annotation.type_annotation))
+}
+
+/// Declared TypeScript return type on an arrow function.
+#[must_use]
+pub fn arrow_return_type_kind(
+  arrow: &oxc_ast::ast::ArrowFunctionExpression<'_>,
+) -> Option<ReactiveBindingKind> {
+  arrow
+    .return_type
+    .as_ref()
+    .and_then(|annotation| ts_type_reactive_kind(&annotation.type_annotation))
+}
+
+/// Scalar factory kind from return expressions (`return ref(0)`), when consistent.
+#[must_use]
+pub fn composable_factory_kind_with_index(
+  semantic: &oxc_semantic::Semantic<'_>,
+  function_id: NodeId,
+  graph: &ReactivityGraph,
+  script_offset: usize,
+  returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
+) -> Option<ReactiveBindingKind> {
+  match composable_return_with_index(
+    semantic,
+    function_id,
+    graph,
+    script_offset,
+    returns_by_function,
+  ) {
+    Some(ComposableReturn::Factory(kind)) => Some(kind),
+    Some(ComposableReturn::Object(_)) | None => None,
+  }
+}
+
+/// Map a TypeScript return type surface to a reactive binding kind (under-approx).
+///
+/// Only recognizes Vue ref-like type names (`Ref`, `ComputedRef`, …). Full checker
+/// inference and utility wrappers stay quiet.
+fn ts_type_reactive_kind(ts_type: &oxc_ast::ast::TSType<'_>) -> Option<ReactiveBindingKind> {
+  use oxc_ast::ast::{TSType, TSTypeName};
+  match ts_type {
+    TSType::TSTypeReference(reference) => {
+      let name = match &reference.type_name {
+        TSTypeName::IdentifierReference(identifier) => identifier.name.as_str(),
+        TSTypeName::QualifiedName(_) | TSTypeName::ThisExpression(_) => return None,
+      };
+      match name {
+        "Ref" => Some(ReactiveBindingKind::Ref),
+        "ShallowRef" => Some(ReactiveBindingKind::ShallowRef),
+        "ComputedRef" | "WritableComputedRef" => Some(ReactiveBindingKind::Computed),
+        "CustomRef" => Some(ReactiveBindingKind::CustomRef),
+        "ToRef" => Some(ReactiveBindingKind::ToRef),
+        "Readonly" => {
+          // `Readonly<Ref<T>>` — peel one type argument when present.
+          let arg = reference.type_arguments.as_ref()?.params.first()?;
+          ts_type_reactive_kind(arg).map(|kind| match kind {
+            ReactiveBindingKind::Ref => ReactiveBindingKind::Readonly,
+            ReactiveBindingKind::ShallowRef => ReactiveBindingKind::ShallowReadonly,
+            other => other,
+          })
+        }
+        _ => None,
+      }
+    }
+    _ => None,
+  }
 }
 
 #[expect(
@@ -1759,6 +1999,19 @@ fn materialize_seeds(
         initialized_with_null: false,
         span: source_span(span_source, span_base, import.span),
       }),
+      ExportState::Factory(kind) => {
+        for call in instance_calls.iter().filter(|call| call.imported_local == import.local) {
+          if seeds.bindings.iter().any(|binding| binding.name == call.local) {
+            continue;
+          }
+          seeds.bindings.push(ReactiveBindingFact {
+            name: call.local.clone(),
+            kind: *kind,
+            initialized_with_null: false,
+            span: source_span(span_source, span_base, call.span),
+          });
+        }
+      }
       ExportState::Composable(shape) => {
         for call in destructured_calls.iter().filter(|call| call.imported_local == import.local) {
           let Some(kind) = shape.get(&call.property) else {

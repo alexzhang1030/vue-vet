@@ -495,6 +495,11 @@ pub struct TrackingScopeFact {
   /// For `computed` scopes: the binding name assigned from that call, when known.
   #[serde(default)]
   pub binding: Option<String>,
+  /// Identifier roots of `.value` / `unref` / `toValue` that were analyzed but
+  /// could not be classified as known reactive bindings (under-approx miss).
+  /// Rules may surface these as `(maybe: …)` rather than inventing edges.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub uncertain_accesses: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

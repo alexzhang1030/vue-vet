@@ -1712,6 +1712,202 @@ fn dependency_edges_carry_member_property_for_props_bag() {
 }
 
 #[test]
+fn uncertain_value_access_is_recorded_on_computed_scope() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     declare function useMediaQuery(q: string): { value: boolean };\n\
+     const isCoarse = useMediaQuery('(pointer: coarse)');\n\
+     const hint = computed(() => (isCoarse.value ? 'a' : 'b'));",
+  );
+  let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::Computed);
+  assert!(
+    scope.is_some_and(|scope| {
+      scope.reads.is_empty() && scope.uncertain_accesses.iter().any(|name| name == "isCoarse")
+    }),
+    "unclassified .value must surface as uncertain_accesses (maybe); scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn nested_uncertain_value_and_alias_binding_are_handled() {
+  let nested = graph(
+    "import { computed } from 'vue';\n\
+     declare const bag: { nested: { value: number } };\n\
+     const hint = computed(() => bag.nested.value);",
+  );
+  assert!(
+    nested.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.is_empty()
+        && scope.uncertain_accesses.iter().any(|name| name == "bag")
+    }),
+    "nested .value root must be uncertain when unclassified; scopes={:?}",
+    nested.scopes
+  );
+
+  let aliased = graph(
+    "import { ref, computed } from 'vue';\n\
+     const count = ref(0);\n\
+     const alias = count;\n\
+     const doubled = computed(() => alias.value * 2);",
+  );
+  assert!(
+    aliased
+      .bindings
+      .iter()
+      .any(|binding| { binding.name == "alias" && binding.kind == ReactiveBindingKind::Ref }),
+    "const alias = knownRef must seed; bindings={:?}",
+    aliased.bindings
+  );
+  assert!(
+    aliased.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "alias" && read.property.as_deref() == Some("value"))
+    }),
+    "alias.value must be a proven read; scopes={:?}",
+    aliased.scopes
+  );
+}
+
+#[test]
+fn watch_sources_record_uncertain_bare_identifier() {
+  let graph = graph(
+    "import { watch } from 'vue';\n\
+     declare const mystery: { value: number };\n\
+     watch(mystery, () => {});",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::WatchSources
+        && scope.reads.is_empty()
+        && scope.uncertain_accesses.iter().any(|name| name == "mystery")
+    }),
+    "bare unknown watch source must be uncertain evidence; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn local_factory_ref_return_seeds_computed_dependency() {
+  for source in [
+    "import { ref, computed } from 'vue'; function useFlag() { const flag = ref(false); return flag; } const isCoarse = useFlag(); const hint = computed(() => isCoarse.value ? 'a' : 'b');",
+    "import { ref, computed } from 'vue'; const useFlag = () => ref(false); const isCoarse = useFlag(); const hint = computed(() => (isCoarse.value ? 'a' : 'b'));",
+    "import { computed } from 'vue'; function useFlag(): Ref<boolean> { return null as any; } const isCoarse = useFlag(); const hint = computed(() => isCoarse.value ? 'a' : 'b');",
+  ] {
+    let graph = graph(source);
+    assert!(
+      graph
+        .bindings
+        .iter()
+        .any(|binding| { binding.name == "isCoarse" && binding.kind == ReactiveBindingKind::Ref }),
+      "factory call must seed Ref binding; source={source}; bindings={:?}",
+      graph.bindings
+    );
+    assert!(
+      graph.scopes.iter().any(|scope| {
+        scope.kind == TrackingScopeKind::Computed
+          && scope
+            .reads
+            .iter()
+            .any(|read| read.binding == "isCoarse" && read.property.as_deref() == Some("value"))
+      }),
+      "computed must read factory ref; source={source}; scopes={:?}",
+      graph.scopes
+    );
+  }
+}
+
+#[test]
+fn cross_module_factory_ref_return_seeds_consumer() {
+  let modules = [
+    ModuleSource::standalone(
+      "producer.ts",
+      "import { ref } from 'vue'; export function useFlag() { const flag = ref(false); return flag; }",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue'; import { useFlag } from './producer'; const isCoarse = useFlag(); const hint = computed(() => isCoarse.value ? 'a' : 'b');",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./producer".into(),
+    to: "producer.ts".into(),
+  }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "isCoarse" && binding.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope
+              .reads
+              .iter()
+              .any(|read| read.binding == "isCoarse" && read.property.as_deref() == Some("value"))
+        })
+    }),
+    "cross-module factory Ref return must seed consumer computed; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
+  );
+}
+
+#[test]
+fn dts_factory_return_type_seeds_consumer() {
+  let modules = [
+    ModuleSource::standalone(
+      "producer.d.ts",
+      "import type { Ref } from 'vue'; export declare function useMediaQuery(query: string): Ref<boolean>;",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue'; import { useMediaQuery } from './producer'; const isCoarse = useMediaQuery('(pointer: coarse)'); const hint = computed(() => isCoarse.value ? 'a' : 'b');",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./producer".into(),
+    to: "producer.d.ts".into(),
+  }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "isCoarse" && binding.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope
+              .reads
+              .iter()
+              .any(|read| read.binding == "isCoarse" && read.property.as_deref() == Some("value"))
+        })
+    }),
+    ".d.ts Ref return must seed factory call; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
+  );
+}
+
+#[test]
 fn local_composable_instance_member_access() {
   for source in [
     "import { ref, watchEffect } from 'vue'; function useSignal() { const signal = ref(0); return { signal }; } const bag = useSignal(); watchEffect(() => bag.signal.value);",

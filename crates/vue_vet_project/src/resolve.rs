@@ -13,8 +13,16 @@ use oxc_resolver::{
 pub const OXC_RESOLVER_VERSION: &str = "11.21.0";
 
 pub enum Resolution {
+  /// Path relative to the project root and present in the scanned file set.
   File(String),
-  External(String),
+  /// Outside the scanned set (including `node_modules`).
+  ///
+  /// `resolved_path` is the absolute filesystem path when `oxc_resolver` succeeded.
+  /// Quiet virtuals (`#imports`, `node:…`, styles) leave it `None`.
+  External {
+    package: String,
+    resolved_path: Option<PathBuf>,
+  },
   Unresolved,
 }
 
@@ -40,7 +48,7 @@ impl ProjectResolver {
 
   pub fn resolve(&self, importer: &str, specifier: &str, known: &BTreeSet<String>) -> Resolution {
     if specifier == "#imports" || is_quiet_external_specifier(specifier) {
-      return Resolution::External(specifier.into());
+      return Resolution::External { package: specifier.into(), resolved_path: None };
     }
     let importer_path = absolute_under_root(&self.root, importer);
     self
@@ -49,6 +57,20 @@ impl ProjectResolver {
       .map_or(Resolution::Unresolved, |resolved| {
         classify_resolved(&self.root, resolved.full_path().as_path(), specifier, known)
       })
+  }
+
+  /// Resolve a specifier from an absolute importer path (external follow).
+  pub fn resolve_from_absolute(&self, importer_absolute: &Path, specifier: &str) -> Resolution {
+    if specifier == "#imports" || is_quiet_external_specifier(specifier) {
+      return Resolution::External { package: specifier.into(), resolved_path: None };
+    }
+    self.resolver.resolve_file(importer_absolute, specifier).map_or(
+      Resolution::Unresolved,
+      |resolved| {
+        let absolute = resolved.full_path();
+        Resolution::External { package: specifier.into(), resolved_path: Some(absolute) }
+      },
+    )
   }
 }
 
@@ -127,7 +149,47 @@ fn classify_resolved(
 ) -> Resolution {
   match relativize(root, absolute) {
     Some(relative) if known.contains(&relative) => Resolution::File(relative),
-    Some(_) | None => Resolution::External(specifier.into()),
+    Some(_) | None => Resolution::External {
+      package: specifier.into(),
+      resolved_path: Some(absolute.to_path_buf()),
+    },
+  }
+}
+
+/// Prefer a companion `.d.ts` / `.d.mts` / `.d.cts` next to a resolved JS module.
+#[must_use]
+pub fn prefer_types_declaration(path: &Path) -> PathBuf {
+  let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+    return path.to_path_buf();
+  };
+  let stem = file_name
+    .strip_suffix(".mjs")
+    .or_else(|| file_name.strip_suffix(".cjs"))
+    .or_else(|| file_name.strip_suffix(".js"));
+  let Some(stem) = stem else {
+    return path.to_path_buf();
+  };
+  for suffix in [".d.ts", ".d.mts", ".d.cts"] {
+    let candidate = path.with_file_name(format!("{stem}{suffix}"));
+    if candidate.is_file() {
+      return candidate;
+    }
+  }
+  path.to_path_buf()
+}
+
+/// Language hint for Oxc from a filesystem path.
+#[must_use]
+pub fn language_for_path(path: &Path) -> &'static str {
+  let name = path.file_name().and_then(|name| name.to_str()).unwrap_or("");
+  if name.ends_with(".d.ts") || name.ends_with(".d.mts") || name.ends_with(".d.cts") {
+    return "d.ts";
+  }
+  match path.extension().and_then(|ext| ext.to_str()) {
+    Some("tsx") => "tsx",
+    Some("jsx") => "jsx",
+    Some("ts" | "mts" | "cts") => "ts",
+    _ => "js",
   }
 }
 

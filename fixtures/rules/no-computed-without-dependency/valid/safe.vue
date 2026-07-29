@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+import { computed, ref } from 'vue'
+const count = ref(0)
+const label = computed(() => String(count.value))
 </script>
-<template>{{ x }}</template>
+
+<template>
+  <p>{{ label }}</p>
+</template>

@@ -169,10 +169,18 @@ targets remain outside parent-scope tracking. See
 Do not concatenate files and parse the result as one script. The reactivity
 linker analyzes each module separately, consumes only project-resolved edges,
 and propagates Vue Vet-owned summaries through named/default exports, barrels,
-multi-hop re-exports, and cycles. Exported composables are summarized only when
-a named function returns a statically keyed object whose values resolve to
-proven local reactive bindings; consumers are seeded only for direct object
-destructuring of a symbol-resolved imported call.
+multi-hop re-exports, and cycles. Exported composables are summarized when:
+
+- a named function returns a **statically keyed object** whose values resolve to
+  proven local reactive bindings (`ExportState::Composable`) — consumers seed
+  via destructuring or instance bags; or
+- every analyzable return is the **same scalar reactive kind** (`return ref(0)`,
+  `return flag`, or a declared `.d.ts` return type `Ref` / `ComputedRef` / …)
+  → `ExportState::Factory(kind)`, and `const x = useX()` seeds a local binding
+  of that kind (the imported function name itself is never a Ref).
+
+Mixed object/scalar returns, conflicting kinds, and unanalyzable returns stay
+quiet.
 
 Local variable names are never enough for module propagation. Export collection,
 composable returns, imported calls, and effect reads must agree on Oxc symbol
@@ -422,7 +430,19 @@ remain outside.
 
 `storeToRefs` (pinia / `#imports`) and `useRoute` / `useRouter` (vue-router /
 `#imports`) are allowlisted reactivity sources. Unknown package callees stay
-quiet. Do not treat every `use*` auto-import as reactive without evidence.
+quiet **unless** project resolution finds a concrete file and the reactivity
+linker can summarize a `Factory` / `Composable` export from that file (or a
+companion `.d.ts`). Prefer return-kind analysis over growing the name allowlist.
+Do not treat every `use*` auto-import as reactive without evidence. `#imports`
+virtual modules still have no file body and stay quiet.
+
+**Absence rules** (`no-computed-without-dependency`, `no-effect-write-without-read`,
+`no-empty-watch-sources`, `no-watch-callback-as-tracking-scope`) must try hard
+evidence first (bindings, Factory returns, aliases, classified reads). Only when
+reads stay empty do they consult `uncertain_accesses` (reactivity-shaped
+`.value` / `unref` / `toValue` / bare watch sources that could not be classified)
+and report with `(maybe: …)`. Do not invent edges; do not treat empty reads as
+ironclad proof when soft evidence remains.
 
 Nuxt (and unplugin-auto-import) often call `ref` / `watchEffect` with **no**
 `import` statement. The tracer treats bare identifiers as Vue APIs only when
@@ -450,11 +470,13 @@ seeded analysis.
 
 ## Instance seeds are bags, not field injections
 
-`const bag = useComposable()` records `bag` under `composable_instances` so
-`bag.field.value` can resolve. Do **not** also push each shape field as a
-top-level `ReactiveBindingFact` — that invents edges for bare `field.value`
-when the consumer never destructured. Destructured calls
-(`const { field } = useX()`) remain the only path that seeds a local `field`.
+`const bag = useComposable()` for an **object** composable records `bag` under
+`composable_instances` so `bag.field.value` can resolve. Do **not** also push
+each shape field as a top-level `ReactiveBindingFact` — that invents edges for
+bare `field.value` when the consumer never destructured. Destructured calls
+(`const { field } = useX()`) remain the only object-bag path that seeds a local
+`field`. Scalar **`Factory`** exports are different: `const x = useFlag()` seeds
+`x` as a top-level binding of the factory kind (no instance bag).
 
 The graph retains `composable_instances` (v5) so template joins can resolve pure
 member chains `bag.field` / `bag.field.value` (and static optional forms

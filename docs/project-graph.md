@@ -22,10 +22,16 @@ Classification after a successful resolve:
 
 - Path inside the scanned file set → project `Import` edge (and module seed link)
 - Path outside the scanned set (including `node_modules`) → `ExternalImport`
+  (graph edge only). When a concrete filesystem path is available, the
+  reactivity linker may **on-demand** load that file (preferring companion
+  `.d.ts` / `.d.mts` / `.d.cts`) plus a bounded relative re-export follow to
+  build `ModuleSummary` seeds (`Factory` / `Composable`). Those external
+  modules are **not** lint targets and do not appear in scored
+  `module_reactivity`.
 - Resolve failure → `vue-vet/project/unresolved-import` at the import span
 
 The following are classified as `ExternalImport` **without** attempting resolve
-(quiet — not `unresolved-import`):
+(quiet — not `unresolved-import`; no reactivity summary either):
 
 - `#imports` (Nuxt virtual module)
 - Node builtins (`node:` / `nodejs:`)

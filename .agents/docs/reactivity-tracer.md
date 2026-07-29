@@ -57,12 +57,12 @@ Contract version: **`REACTIVITY_GRAPH_VERSION = 8`** (v7 + **module-qualified
 
 | Axis | Status | Covered (in-scope) | Remaining |
 | --- | --- | --- | --- |
-| A1 Bindings | complete | Vue primitives, aliases, `#imports`, bare Nuxt/auto-import allowlist, `defineModel`, `defineProps`, `withDefaults(defineProps())`, `storeToRefs`, `useRoute`/`useRouter`, `unref`/`toValue`, module seeds | — (long-tail APIs → out of scope) |
+| A1 Bindings | complete | Vue primitives, aliases, `#imports`, bare Nuxt/auto-import allowlist, `defineModel`, `defineProps`, `withDefaults(defineProps())`, `storeToRefs`, `useRoute`/`useRouter`, `unref`/`toValue`, module seeds, **factory call returns** (`Factory(Ref)` from body / `.d.ts`) | — (unanalyzable long-tail → quiet) |
 | A2 Scopes | complete | effects, computed getter/`{ get, set }`, watch sources + callback outside, effectScope `.run` + provenance, dispose | — |
 | A3 Reads | complete | `.value` / members / bag.field / sync Array·String·`Array.from`·`JSON.parse` HOF / watch ref `.value` / `unref`·`toValue` / bare `watch(reactive)` deep root `*` | — |
 | A4 Conditions | complete | if / early-exit / ternary / short-circuit / switch roles | — (no further depth) |
 | A5 Boundaries | complete | after-await; pause/enable/resetTracking windows; nested `then`/`nextTick` outside; watch callback outside | — |
-| A6 Modules | complete | composable shapes; instance bags; dual script; provide/inject unique-key; static `:prop` / `v-model` / `ident` / `ident.value` / static member + optional chains → child `props` Prop edges (root binding) | whole-object `v-bind` stays quiet |
+| A6 Modules | complete | composable object bags + **scalar `Factory` returns**; instance bags; dual script; provide/inject unique-key; static `:prop` / `v-model` / `ident` / `ident.value` / static member + optional chains → child `props` Prop edges; **on-demand ExternalImport summaries** (`.d.ts` return types / body, re-export follow; not lint targets) | whole-object `v-bind` stays quiet; `#imports` virtuals stay quiet |
 | A7 Contract | complete | v8 module-qualified `to_id`; v7 `property` / `to_path`; deterministic sort | — |
 | Evidence | complete | Runtime oracle (≥99% recall on committed cases); deep-watch `*`; exhaustive local reads; key SFC E2E | — (prop flow is static unit/project; not an `onTrack` pair) |
 
@@ -70,12 +70,12 @@ Contract version: **`REACTIVITY_GRAPH_VERSION = 8`** (v7 + **module-qualified
 
 | Axis | Checklist (all required for `complete`) |
 | --- | --- |
-| A1 | ✅ Allowlist primitives + macros + pinia/router + auto-import + module seeds; local lookalikes quiet; unit/oracle cover |
+| A1 | ✅ Allowlist primitives + macros + pinia/router + auto-import + module seeds + factory call returns; local lookalikes quiet; unit/oracle cover |
 | A2 | ✅ effect / computed / watch / effectScope.run(+provenance) / dispose scopes; no invented effectScope |
 | A3 | ✅ Member/HOF/unref·toValue reads; watch ref `.value`; **deep root `*` for bare `watch(reactive)`** (not per-key invention) |
 | A4 | ✅ Existing guard roles; no further control-flow deepening |
 | A5 | ✅ After-await classification; pause/enable/resetTracking windows; nested callback outside-tracking; watch callback outside |
-| A6 | ✅ Composable/instance/dual-script/provide-inject; **static `:prop` → child props bag edges** |
+| A6 | ✅ Composable/instance/dual-script/provide-inject; **Factory scalar returns**; **external package summaries**; **static `:prop` → child props bag edges** |
 | A7 | ✅ Versioned graph; deterministic sort; `property`/`to_path`; **`{module}:{name}@{offset}` `to_id`** |
 | Evidence | ✅ `just oracle` ≥99% recall on committed cases; exhaustive local reads; key SFC E2E |
 
@@ -90,7 +90,7 @@ None — deep-watch `*`, v8 `to_id`, and static prop flow shipped. Further bread
 | Further A4 control-flow depth | Already deep; wrong axis for recall |
 | Whole-program JS soundness / full alias analysis | Charter: under-approx Vue tracking only |
 | App Tree provide/inject | Unique-key index is the in-scope model |
-| Long-tail reactivity APIs beyond the allowlist | Quiet failure; expand allowlist only with oracle evidence |
+| Long-tail reactivity APIs with no analyzable return | Quiet failure; prefer Factory return-kind analysis (body / `.d.ts`) over name allowlists; expand allowlist only with oracle evidence when analysis cannot see a return |
 | Inventing nested keys for deep `watch(reactive)` | Violates under-approx; deep root `*` is the contract |
 
 ### Charter invariants (must not regress)
@@ -230,3 +230,6 @@ growing prose ledger.
 | 2026-07-27 | Template instance optional chains | `bag?.field` / `bag?.field?.value` join composable instance fields like dotted forms |
 | 2026-07-27 | Oracle findIndex / reduceRight / reset | Evidence cases for already-supported sync HOFs + `resetTracking` window |
 | 2026-07-27 | Oracle findLast / replaceAll / toSorted | Evidence for remaining allowlisted sync Array/String callback HOFs |
+| 2026-07-29 | Factory return kinds (#115) | `ExportState::Factory`; body `return ref` + `.d.ts` `Ref`/`ComputedRef` return types; ExternalImport on-demand summaries (not lint targets); fixes VueUse `useMediaQuery` → `no-computed-without-dependency` FP |
+| 2026-07-29 | Uncertain accesses `(maybe)` | Scope `uncertain_accesses` for unclassified `.value`/`unref`/`toValue`; `no-computed-without-dependency` labels `(maybe: name)` instead of silence or invented edges |
+| 2026-07-29 | Absence-rule strategy | Prefer hard evidence (Factory, `const alias = ref`, nested `.value` roots, watch-source uncertain); absence pathologies share `(maybe)` when only soft evidence remains |

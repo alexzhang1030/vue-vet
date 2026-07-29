@@ -2,8 +2,8 @@ mod conventions;
 mod resolve;
 
 use std::{
-  collections::{BTreeMap, BTreeSet},
-  path::Path,
+  collections::{BTreeMap, BTreeSet, VecDeque},
+  path::{Path, PathBuf},
   sync::Arc,
 };
 
@@ -13,7 +13,7 @@ use vue_vet_core::{
 };
 use vue_vet_reactivity::{
   ModuleLink, ModuleReactivity, ModuleSource, ModuleTraceState, PropFlowSite, TraceModulesOptions,
-  join_prop_flows, trace_modules_incremental_with_options,
+  join_prop_flows, prepare_standalone_module_source, trace_modules_incremental_with_options,
 };
 
 pub use resolve::{OXC_RESOLVER_VERSION, normalize_project_root, resolver_config_inputs};
@@ -22,7 +22,14 @@ use conventions::{
   NUXT_COMPONENT_DTS_CANDIDATES, convention_component_name, load_nuxt_component_dts_names,
   parse_nuxt_components_dts, strip_lazy_component_prefix,
 };
-use resolve::{ProjectResolver, Resolution, normalized_path};
+use resolve::{
+  ProjectResolver, Resolution, language_for_path, normalized_path, prefer_types_declaration,
+};
+
+/// Max external package files loaded for reactivity seed follow (under-approx budget).
+const EXTERNAL_REACTIVITY_MAX_FILES: usize = 64;
+/// Max re-export follow depth from an external entry.
+const EXTERNAL_REACTIVITY_MAX_DEPTH: usize = 8;
 
 pub const CONVENTIONS_VERSION: u32 = 4;
 pub const PROJECT_RULE_IDS: [&str; 2] =
@@ -401,6 +408,16 @@ struct StructuralFileOutput {
   edges: Vec<GraphEdge>,
   diagnostics: Vec<Diagnostic>,
   module_links: Vec<ModuleLink>,
+  /// External package files that may contribute reactivity factory seeds.
+  external_reactivity_roots: Vec<ExternalReactivityRoot>,
+}
+
+/// One resolved external import that should be summarized for A6 factory seeds.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ExternalReactivityRoot {
+  from: ModuleId,
+  specifier: String,
+  resolved_path: PathBuf,
 }
 
 #[must_use]
@@ -472,7 +489,7 @@ pub fn build_project_graph_incremental_with_options<'a>(
     .filter(|node| node.kind == NodeKind::Composable)
     .map(|node| (node.name.clone(), node.id.clone()))
     .collect::<BTreeMap<_, _>>();
-  let module_sources = ordered
+  let mut module_sources = ordered
     .iter()
     .flat_map(|file| {
       let primary = file.module_source.clone().map(|mut module| {
@@ -527,6 +544,7 @@ pub fn build_project_graph_incremental_with_options<'a>(
   let mut external_nodes = BTreeMap::new();
   let mut edges = Vec::new();
   let mut diagnostics = Vec::new();
+  let mut external_roots = Vec::new();
   for file in &ordered {
     let Some(cached) = structural.files.get(&file.path) else {
       continue;
@@ -538,6 +556,7 @@ pub fn build_project_graph_incremental_with_options<'a>(
     edges.extend(output.edges.iter().cloned());
     diagnostics.extend(output.diagnostics.iter().cloned());
     module_links.extend(output.module_links.iter().cloned());
+    external_roots.extend(output.external_reactivity_roots.iter().cloned());
   }
   nodes.extend(external_nodes.into_values());
   nodes.sort();
@@ -551,16 +570,22 @@ pub fn build_project_graph_incremental_with_options<'a>(
       &right.rule_id,
     ))
   });
+  let (external_sources, external_links) =
+    load_external_reactivity_modules(&root, resolver.as_ref(), &external_roots);
+  module_sources.extend(external_sources);
+  module_links.extend(external_links);
   if Arc::strong_count(&state.module_trace) > 1 {
     state.last_stats.partition_cow_clones += 1;
   }
   let module_trace = Arc::make_mut(&mut state.module_trace);
-  let trace_report = trace_modules_incremental_with_options(
+  let mut trace_report = trace_modules_incremental_with_options(
     &module_sources,
     &module_links,
     trace_options,
     module_trace,
   );
+  // External package summaries seed consumers only — never lint surfaces.
+  trace_report.modules.retain(|module| module_ids.contains(&module.id));
   state.last_stats.module_graphs_reused = trace_report.stats.reused_graphs;
   state.last_stats.seeded_module_reparses = trace_report.stats.seeded_reparses;
   state.last_stats.seed_plans_recomputed = trace_report.stats.seed_plans_recomputed;
@@ -568,6 +593,7 @@ pub fn build_project_graph_incremental_with_options<'a>(
   let reactivity_issues = trace_report
     .issues
     .into_iter()
+    .filter(|error| error.module_id().is_none_or(|id| module_ids.contains(id)))
     .map(|error| ReactivityIssue { module: error.module_id().cloned(), message: error.to_string() })
     .collect::<Vec<_>>();
   let reactivity_error = (!reactivity_issues.is_empty()).then(|| {
@@ -649,7 +675,7 @@ fn analyze_structural_file(
           }
         }
       }
-      Resolution::External(package) => {
+      Resolution::External { package, resolved_path } => {
         let id = format!("external:{package}");
         output.external_nodes.push(GraphNode {
           id: id.clone(),
@@ -664,6 +690,17 @@ fn analyze_structural_file(
           &import.source,
           import.span.clone(),
         ));
+        if let Some(resolved_path) = resolved_path {
+          for module_from in [ModuleId::primary(&file.path), ModuleId::ordinary(&file.path)] {
+            if module_ids.contains(&module_from) {
+              output.external_reactivity_roots.push(ExternalReactivityRoot {
+                from: module_from,
+                specifier: import.source.clone(),
+                resolved_path: resolved_path.clone(),
+              });
+            }
+          }
+        }
       }
       Resolution::Unresolved => {
         output.diagnostics.push(unresolved_diagnostic(
@@ -745,6 +782,85 @@ fn auto_component_targets(tag: &str, map: &BTreeMap<String, Vec<String>>) -> Vec
     }
   }
   targets
+}
+
+fn load_external_reactivity_modules(
+  root: &Path,
+  resolver: &ProjectResolver,
+  roots: &[ExternalReactivityRoot],
+) -> (Vec<ModuleSource>, Vec<ModuleLink>) {
+  let mut sources = Vec::new();
+  let mut links = Vec::new();
+  let mut loaded: BTreeMap<PathBuf, ModuleId> = BTreeMap::new();
+  let mut queue: VecDeque<(PathBuf, usize)> = VecDeque::new();
+
+  for root_link in roots {
+    let path = prefer_types_declaration(&root_link.resolved_path);
+    queue.push_back((path.clone(), 0));
+    let module_id = external_module_id(root, &path);
+    links.push(ModuleLink {
+      from: root_link.from.clone(),
+      specifier: root_link.specifier.clone(),
+      to: module_id,
+    });
+  }
+
+  while let Some((path, depth)) = queue.pop_front() {
+    if loaded.contains_key(&path) || sources.len() >= EXTERNAL_REACTIVITY_MAX_FILES {
+      continue;
+    }
+    let Ok(source_text) = std::fs::read_to_string(&path) else {
+      continue;
+    };
+    let module_id = external_module_id(root, &path);
+    let language = language_for_path(&path);
+    let Ok(module) = prepare_standalone_module_source(module_id.clone(), source_text, language)
+    else {
+      continue;
+    };
+    let follow =
+      module.module_summary().map(|summary| summary.follow_specifiers()).unwrap_or_default();
+    loaded.insert(path.clone(), module_id.clone());
+    sources.push(module);
+
+    if depth >= EXTERNAL_REACTIVITY_MAX_DEPTH {
+      continue;
+    }
+    for specifier in follow {
+      // Only follow relative / same-package paths; bare packages stay quiet.
+      if !(specifier.starts_with("./") || specifier.starts_with("../")) {
+        continue;
+      }
+      let Resolution::External { resolved_path: Some(target_path), .. } =
+        resolver.resolve_from_absolute(&path, &specifier)
+      else {
+        continue;
+      };
+      let child = prefer_types_declaration(&target_path);
+      let child_id = external_module_id(root, &child);
+      links.push(ModuleLink { from: module_id.clone(), specifier, to: child_id.clone() });
+      if !loaded.contains_key(&child) {
+        queue.push_back((child, depth + 1));
+      }
+    }
+  }
+
+  // Drop links whose target failed to load (quiet under-approx).
+  let loaded_ids = sources.iter().map(|module| module.id.clone()).collect::<BTreeSet<_>>();
+  links.retain(|link| loaded_ids.contains(&link.to));
+  // Stable order for determinism.
+  sources.sort_by(|left, right| left.id.cmp(&right.id));
+  links.sort_by(|left, right| {
+    (&left.from, &left.specifier, &left.to).cmp(&(&right.from, &right.specifier, &right.to))
+  });
+  links.dedup();
+  (sources, links)
+}
+
+fn external_module_id(root: &Path, absolute: &Path) -> ModuleId {
+  let relative =
+    absolute.strip_prefix(root).map_or_else(|_| normalized_path(absolute), normalized_path);
+  ModuleId::primary(&FileId::from(relative.as_str()))
 }
 
 fn node_kind(path: &str) -> NodeKind {
@@ -1397,6 +1513,109 @@ export const LazyButton: LazyComponent<typeof import("../components/base/Button.
           && module.graph.bindings.iter().any(|binding| binding.span.offset >= script_offset)
       }),
       "SFC modules must seed composable fields with SFC-absolute spans and join template reads"
+    );
+  }
+
+  #[test]
+  fn external_package_factory_ref_return_seeds_computed() {
+    let project = TempProject::new("vueuse-factory");
+    project.write(
+      "node_modules/@vueuse/core/package.json",
+      r#"{"name":"@vueuse/core","version":"1.0.0","types":"./index.d.ts","exports":{".":{"types":"./index.d.ts","import":"./index.js","default":"./index.js"}}}"#,
+    );
+    project.write(
+      "node_modules/@vueuse/core/index.js",
+      "export { useMediaQuery } from './useMediaQuery.js'\n",
+    );
+    project.write(
+      "node_modules/@vueuse/core/index.d.ts",
+      "export { useMediaQuery } from './useMediaQuery'\n",
+    );
+    project.write(
+      "node_modules/@vueuse/core/useMediaQuery.js",
+      "export function useMediaQuery() { return { value: false } }\n",
+    );
+    project.write(
+      "node_modules/@vueuse/core/useMediaQuery.d.ts",
+      "import type { Ref } from 'vue'\nexport declare function useMediaQuery(query: string): Ref<boolean>\n",
+    );
+
+    let script = "import { computed } from 'vue'\n\
+import { useMediaQuery } from '@vueuse/core'\n\
+const isCoarsePointer = useMediaQuery('(pointer: coarse)')\n\
+const hint = computed(() => (isCoarsePointer.value ? 'a' : 'b'))\n";
+    let prefix = "<script setup lang=\"ts\">\n";
+    let sfc = format!("{prefix}{script}</script>\n<template><p>{{{{ hint }}}}</p></template>\n");
+    let script_offset = prefix.len();
+    project.write("components/ViewportDemo.vue", &sfc);
+
+    let consumer = ProjectFile {
+      path: "components/ViewportDemo.vue".into(),
+      source_len: sfc.len(),
+      facts: SfcFacts {
+        template: TemplateFacts { elements: Vec::new(), expressions: Vec::new() },
+        script: ScriptFacts {
+          blocks: vec![ScriptBlockFacts {
+            kind: ScriptKind::Setup,
+            language: "ts".into(),
+            imports: vec![
+              ScriptImportFact {
+                source: "vue".into(),
+                imported: "computed".into(),
+                local: "computed".into(),
+                span: span(0),
+              },
+              ScriptImportFact {
+                source: "@vueuse/core".into(),
+                imported: "useMediaQuery".into(),
+                local: "useMediaQuery".into(),
+                span: span(1),
+              },
+            ],
+            bindings: Vec::new(),
+            calls: Vec::new(),
+            member_writes: Vec::new(),
+            destructures: Vec::new(),
+            top_level_await_ends: Vec::new(),
+            operands: Vec::new(),
+            reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
+          }],
+        },
+      }
+      .into(),
+      module_source: Some(ModuleSource::sfc_script(
+        "components/ViewportDemo.vue",
+        script,
+        "ts",
+        ScriptKind::Setup,
+        script_offset,
+        sfc,
+      )),
+      ordinary_module_source: None,
+    };
+
+    let graph = build_project_graph(project.root(), &[consumer]);
+    assert!(
+      graph.reactivity_error.is_none(),
+      "external factory tracing must succeed: {:?}",
+      graph.reactivity_error
+    );
+    let demo =
+      graph.module_reactivity.iter().find(|module| module.id == "components/ViewportDemo.vue");
+    assert!(
+      demo.is_some_and(|module| {
+        module.graph.bindings.iter().any(|binding| {
+          binding.name == "isCoarsePointer"
+            && binding.kind == vue_vet_core::ReactiveBindingKind::Ref
+        }) && module.graph.scopes.iter().any(|scope| {
+          scope.kind == vue_vet_core::TrackingScopeKind::Computed
+            && scope.reads.iter().any(|read| {
+              read.binding == "isCoarsePointer" && read.property.as_deref() == Some("value")
+            })
+        })
+      }),
+      "external @vueuse-style Ref factory must seed computed dependency; got {:?}",
+      demo.map(|module| (&module.graph.bindings, &module.graph.scopes))
     );
   }
 }
