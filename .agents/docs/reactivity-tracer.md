@@ -238,4 +238,5 @@ growing prose ledger.
 | 2026-07-29 | Nuxt imports importer resolve | Bare `#nuxt-imports:` seeds resolve from the **declaring** dts (`imports.d.ts` vs `types/imports.d.ts`); prefer re-export map when both list the same name. Types-map overwrite + fixed importer was the real-app `colorMode` FP after #119 |
 | 2026-07-29 | Analysis enrichment passes | Nuxt bare seeds + provisional Factory companion merge extracted as compile-time IR passes (`vue_vet_project::passes`); diagnostic `Rule` stays separate; no user/AST plugin host |
 | 2026-07-29 | Enrichment Pass::run | Dropped empty metadata trait; `ENRICHMENT_STEPS` checklist + inherent `Pass::run`; `ExternalSummaryLoadPass` owns load; SummaryMerge at per-module completion |
+| 2026-07-29 | Project crate pipeline | Split `vue_vet_project` monolith into `model`/`context`/`structural`/`passes`/`pipeline`/`layers`/`rules`/`state`; thin `lib` façade |
 | 2026-07-29 | Companion `.js` over-merge | `needs_implementation_merge` must not treat “no finished seeds” as incomplete — that parsed `typescript.js` (~9 MB) for `import … from 'typescript'` and stalled `pixi-heatmap/docs` (~20 s) |

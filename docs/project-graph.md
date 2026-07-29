@@ -82,8 +82,10 @@ usually needs one more `../` than the re-export map. When both files list the
 same name, prefer `.nuxt/imports.d.ts`. Those imports maps are also invalidation
 inputs. External package summaries load through `ExternalSummaryLoadPass::run`;
 provisional `.d.ts` + companion `.js` Factory merge is
-`ProvisionalFactoryMergePass::run` at each loaded module (SummaryMerge). See
-architecture PCR `Analysis enrichment passes` and `ENRICHMENT_STEPS`.
+`ProvisionalFactoryMergePass::run` at each loaded module (SummaryMerge). The
+`vue_vet_project` crate is staged as `context` → `structural` → `passes` →
+trace → `layers` → `rules` (orchestrated by `pipeline`). See architecture PCR
+`vue_vet_project` pipeline and `ENRICHMENT_STEPS`.
 
 ## Component navigation (not prop dataflow)
 

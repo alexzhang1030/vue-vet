@@ -207,7 +207,24 @@ unused.
 
 Vue Vet's normalized facts and diagnostics are the architectural seam. Dependency AST objects must not cross into public rule, reporter, cache, LSP, or agent contracts. Adapters may change with dependency upgrades while downstream product behavior stays versioned and reviewable.
 
-## Analysis enrichment passes (not user plugins)
+## `vue_vet_project` pipeline (crate layout)
+
+The project crate is an **explicit stage pipeline**, not a monolith with
+side-pocket special cases. `lib.rs` is a thin façade; orchestration lives in
+`pipeline.rs`:
+
+```text
+context          ConventionsLoad → ProjectContext
+structural       StructuralLink (import/component edges)
+passes           enrichment (see below)
+pipeline         Trace handoff + ProjectGraph assembly
+layers           template joins + prop-flow
+rules            unresolved-import / unused-component
+model / state    DTOs + retained incremental partitions
+resolve / conventions   oxc_resolver + Nuxt maps
+```
+
+### Analysis enrichment passes (not user plugins)
 
 Nuxt / package-shape specialization lives in **compile-time Rust enrichment
 passes** over Vue Vet IR — not AST Traverse (Oxc/SWC), and not a dynamic JS
@@ -216,27 +233,27 @@ consume the enriched facts; enrichment passes must not `report` diagnostics.
 
 Each enrichment step is a named `struct` with an inherent `::run(...)`
 (see `ENRICHMENT_STEPS` in `vue_vet_project::passes`). There is no empty
-metadata trait and no dynamic plugin ABI — the project graph builder calls
-passes explicitly.
+metadata trait and no dynamic plugin ABI — `pipeline` / `structural` call
+passes by name.
 
 Enrichment stages (deterministic order):
 
 ```text
-ConventionsLoad           (conventions.rs → ProjectContext maps)
-  -> StructuralLink       (ordinary import/component edges in lib;
+ConventionsLoad           (context + conventions → ProjectContext maps)
+  -> StructuralLink       (structural.rs ordinary edges;
                            NuxtImportsSeedPass::run for bare auto-imports)
   -> ExternalSummaryLoad  (ExternalSummaryLoadPass::run)
        └─ SummaryMerge    (ProvisionalFactoryMergePass::run at each loaded
                            module — same traversal, not a hidden side effect)
 ```
 
-After enrichment: SeedPlan / Trace / RuleRegistry run in the product pipeline
-outside `passes` (they are not enrichment stages and have no pass runner here).
+After enrichment: SeedPlan / Trace (via `vue_vet_reactivity` from `pipeline`)
+and RuleRegistry (file rules outside this crate). Project-level diagnostics
+stay in `rules.rs`.
 
 Constraints: IR only (`ProjectContext`, `ModuleLink`, `ModuleSummary`,
 `ExportState`); sorted outputs; quiet under-approx; no `dlopen` / npm analysis
-plugins before a separate ADR. Code: `vue_vet_project::passes`. See
-[gotchas](./gotchas.md) (bare Nuxt seeds / companion merge) and
+plugins before a separate ADR. See [gotchas](./gotchas.md) and
 [reactivity tracer](./reactivity-tracer.md).
 
 ## Planned analysis flow

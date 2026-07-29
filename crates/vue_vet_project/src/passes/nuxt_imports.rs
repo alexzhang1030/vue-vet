@@ -6,10 +6,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use vue_vet_core::{FileId, ModuleId, ScriptCallFact, ScriptFacts, ScriptImportFact};
 
 use super::types::ExternalReactivityRoot;
-use crate::{
-  GraphNode, NodeKind, NuxtImportTarget, ProjectFile, ProjectResolver, Resolution,
-  conventions::nuxt_imports_link_specifier,
-};
+use crate::conventions::{NuxtImportTarget, nuxt_imports_link_specifier};
+use crate::model::{GraphNode, NodeKind, ProjectFile};
+use crate::resolve::{ProjectResolver, Resolution};
 
 /// Deterministic delta produced by [`NuxtImportsSeedPass::run`].
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -129,9 +128,9 @@ mod tests {
   use vue_vet_reactivity::ModuleSource;
 
   use super::NuxtImportsSeedPass;
-  use crate::{
-    NuxtImportTarget, ProjectFile, ProjectResolver, conventions::NUXT_IMPORTS_SPECIFIER_PREFIX,
-  };
+  use crate::conventions::{NUXT_IMPORTS_SPECIFIER_PREFIX, NuxtImportTarget};
+  use crate::model::ProjectFile;
+  use crate::resolve::ProjectResolver;
 
   fn span(offset: usize) -> SourceSpan {
     SourceSpan { offset, length: 1, line: 1, column: 1 }
@@ -229,7 +228,7 @@ mod tests {
       "bare useColorMode must seed external reactivity root: {delta:?}"
     );
     assert!(
-      delta.external_nodes.iter().any(|node| node.kind == crate::NodeKind::External),
+      delta.external_nodes.iter().any(|node| node.kind == crate::model::NodeKind::External),
       "external node expected: {delta:?}"
     );
   }
