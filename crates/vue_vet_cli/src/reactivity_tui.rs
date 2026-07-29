@@ -838,11 +838,17 @@ fn pick_lines(module: &BrowseModule, cursor: usize) -> Vec<Line<'static>> {
     } else {
       Style::default()
     };
-    lines.push(Line::from(Span::styled(format!("{marker} {name}  ({kind})"), style)));
+    // Member picks are indented so they read as bag fields, not a second binding.
+    let row = if name.contains('.') {
+      format!("{marker}   {name}  ({kind})")
+    } else {
+      format!("{marker} {name}  ({kind})")
+    };
+    lines.push(Line::from(Span::styled(row, style)));
   }
   lines.push(Line::from(""));
   lines.push(Line::from(Span::styled(
-    "Tip: props → all readers · props.count → that member · computed → dependencies",
+    "Tip: binding → all readers · indented bag.member → that field · computed → deps",
     Style::default().fg(Color::DarkGray),
   )));
   lines
@@ -902,6 +908,9 @@ fn inspect_lines(module: &BrowseModule, target: &str) -> Vec<Line<'static>> {
 }
 
 /// Expand reactive / shallowReactive bags into bag + bag.property pick rows.
+///
+/// Member rows keep target `bag.prop` for inspect, but use a distinct kind label
+/// (`reactive · .prop`) so the picker does not look like a duplicate binding.
 fn expand_binding_picks(module: &BrowseModule) -> Vec<(String, String)> {
   let mut picks = Vec::new();
   for label in &module.bindings {
@@ -912,7 +921,7 @@ fn expand_binding_picks(module: &BrowseModule) -> Vec<(String, String)> {
       continue;
     }
     for property in properties_for_bag(module, &name) {
-      picks.push((format!("{name}.{property}"), kind.clone()));
+      picks.push((format!("{name}.{property}"), format!("{kind} · .{property}")));
     }
   }
   picks
@@ -1458,9 +1467,19 @@ mod tests {
       template_reads: vec!["props@if".into()],
     };
     let picks = expand_binding_picks(&module);
-    assert!(picks.iter().any(|(name, _)| name == "props"));
-    assert!(picks.iter().any(|(name, _)| name == "props.count"));
-    assert!(picks.iter().any(|(name, _)| name == "props.mode"));
+    assert!(picks.iter().any(|(name, kind)| name == "props" && kind == "reactive"));
+    assert!(
+      picks.iter().any(|(name, kind)| name == "props.count" && kind == "reactive · .count"),
+      "member picks must not reuse bare bag kind: {picks:?}"
+    );
+    assert!(picks.iter().any(|(name, kind)| name == "props.mode" && kind == "reactive · .mode"));
+
+    let picker = line_text_join(&pick_lines(&module, 1));
+    assert!(picker.contains("props  (reactive)"));
+    assert!(
+      picker.contains("  props.count  (reactive · .count)"),
+      "member rows should indent and show member kind: {picker}"
+    );
 
     let bag = line_text_join(&inspect_lines(&module, "props"));
     assert!(bag.contains("← computed(label)") || bag.contains("← label"));
