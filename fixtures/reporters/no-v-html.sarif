@@ -6,7 +6,7 @@
       "tool": {
         "driver": {
           "name": "vue-vet",
-          "semanticVersion": "0.1.15",
+          "semanticVersion": "0.1.16",
           "informationUri": "https://github.com/alexzhang1030/vue-vet",
           "rules": [
             {
