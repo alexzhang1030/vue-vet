@@ -191,6 +191,17 @@ Project Relation IR (ProjectGraph / ReactivityGraph / PropFlow)
 Diagnostics IR (Diagnostic / EditPlan)
 ```
 
+**Vue JSX/TSX** is an Oxc-owned third surface (not Vize): JSX lowers into the
+same `TemplateFacts` so template rules and `ComponentUsage` edges reuse without
+a parallel pattern engine or Babel transform. Structural JSX facts are collected
+only when the script language is `jsx`/`tsx`; `TrackingScopeKind::Render` and
+JSX expression joins apply inside recognized render bodies (structure-first
+options/`setup`→render / exported functional components, plus same-file
+`defineComponent` alias and one-hop identity forwarders). Session runs the Vue
+file-rule registry on `.jsx`/`.tsx` (or scripts with non-empty lowered template
+facts), not on every plain `.js`/`.ts` module. See issue
+[#134](https://github.com/alexzhang1030/vue-vet/issues/134).
+
 `ModuleSummary` (formerly the opaque `PreparedModuleTrace`) is the formal
 cross-module boundary: imports, exports, provides/injects, local reactivity, and
 no Oxc/Vize nodes. Session file-rule reuse is keyed by `FileRuleInputKey`:

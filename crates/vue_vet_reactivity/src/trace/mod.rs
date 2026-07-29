@@ -197,6 +197,14 @@ fn trace_reactivity_seeded_inner(
     sfc_source,
     script_offset,
   );
+  scopes.extend(collect_render_scopes(
+    semantic,
+    &imported_bindings,
+    &bindings,
+    &composable_instances,
+    sfc_source,
+    script_offset,
+  ));
   // Seed/merge order is not source order; stabilize before publishing the graph.
   bindings.sort_by_key(|fact| fact.span.offset);
   scopes.sort_by_key(|fact| fact.span.offset);
@@ -2299,7 +2307,7 @@ fn collect_tracking_scopes(
           }));
         }
       }
-      TrackingScopeKind::WatchCallback => {}
+      TrackingScopeKind::WatchCallback | TrackingScopeKind::Render => {}
     }
   }
   scopes
@@ -2722,6 +2730,53 @@ fn source_span(source: &str, base: usize, span: Span) -> SourceSpan {
   SourceSpan { offset, length: end.saturating_sub(offset), line, column }
 }
 
+fn collect_render_scopes(
+  semantic: &oxc_semantic::Semantic<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
+  sfc_source: &str,
+  script_offset: usize,
+) -> Vec<TrackingScopeFact> {
+  let mut scopes = Vec::new();
+  for body in render::collect_render_bodies(semantic, imported_bindings) {
+    let raw_reads = collect_scope_reads(
+      semantic,
+      body.scope_id,
+      reactive_bindings,
+      composable_instances,
+      imported_bindings,
+      script_offset,
+    );
+    let reads = classify_scope_reads(
+      semantic,
+      body.scope_id,
+      body.body,
+      &raw_reads,
+      sfc_source,
+      script_offset,
+      imported_bindings,
+    );
+    scopes.push(finish_scope(ScopeBuild {
+      kind: TrackingScopeKind::Render,
+      callee: "render".into(),
+      span: source_span(sfc_source, script_offset, body.span),
+      reads,
+      binding: None,
+      semantic,
+      scope_id: body.scope_id,
+      body: body.body,
+      reactive_bindings,
+      composable_instances,
+      imported_bindings,
+      sfc_source,
+      script_offset,
+    }));
+  }
+  scopes
+}
+
+mod render;
 mod summary;
 
 pub use summary::{

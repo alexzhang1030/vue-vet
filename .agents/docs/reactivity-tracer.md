@@ -51,19 +51,20 @@ complete.
 
 ## Current baseline
 
-Contract version: **`REACTIVITY_GRAPH_VERSION = 8`** (v7 + **module-qualified
-`to_id`** `{module}:{name}@{offset}`; v7 `property` / `to_path` retained; bare
-`to` kept for rule matching).
+Contract version: **`REACTIVITY_GRAPH_VERSION = 9`** (v8 + **`TrackingScopeKind::Render`**
+for recognized component render bodies; v8 module-qualified `to_id`
+`{module}:{name}@{offset}`; v7 `property` / `to_path` retained; bare `to` kept
+for rule matching).
 
 | Axis | Status | Covered (in-scope) | Remaining |
 | --- | --- | --- | --- |
 | A1 Bindings | complete | Vue primitives, aliases, `#imports`, bare Nuxt/auto-import allowlist, `defineModel`, `defineProps`, `withDefaults(defineProps())`, `storeToRefs`, `useRoute`/`useRouter`, `unref`/`toValue`, module seeds, **factory call returns** (`Factory(Ref|Reactive)` from body / `.d.ts`), **`.d.ts` object-bag returns** (`{ field: Ref }` / same-file interface·type alias → destructure seeds) | — |
-| A2 Scopes | complete | effects, computed getter/`{ get, set }`, watch sources + callback outside, effectScope `.run` + provenance, dispose | — |
+| A2 Scopes | complete | effects, computed getter/`{ get, set }`, watch sources + callback outside, effectScope `.run` + provenance, dispose, **Render** (options `render` / `setup`→render / functional export / same-file `defineComponent` factory+alias+one-hop forwarder) | cross-file opaque factories stay quiet unless options structure is local |
 | A3 Reads | complete | `.value` / members / bag.field / sync Array·String·`Array.from`·`JSON.parse` HOF / watch ref `.value` / `unref`·`toValue` / bare `watch(reactive)` deep root `*` | — |
-| A4 Conditions | complete | if / early-exit / ternary / short-circuit / switch roles | — (no further depth) |
+| A4 Conditions | complete | if / early-exit / ternary / short-circuit / switch roles (fact metadata; diagnostics are scope-aware Conditional rules, not per-role ids — #136) | — (no further depth) |
 | A5 Boundaries | complete | after-await; pause/enable/resetTracking windows; nested `then`/`nextTick` outside; watch callback outside | — |
 | A6 Modules | complete | composable object bags + **scalar `Factory` returns** + **declared object-bag return types** + **plain-object + unwrapped-call → `Factory(Reactive)`**; instance bags; dual script; provide/inject unique-key; static `:prop` / `v-model` / `ident` / `ident.value` / static member + optional chains → child `props` Prop edges; **on-demand ExternalImport summaries** (`.d.ts` + companion `.js` for provisional halves, size-capped; re-export follow; not lint targets); **bare `.nuxt/imports.d.ts` → `#nuxt-imports:` seeds** | whole-object `v-bind` stays quiet; `#imports` virtuals stay quiet without a concrete file body |
-| A7 Contract | complete | v8 module-qualified `to_id`; v7 `property` / `to_path`; deterministic sort | — |
+| A7 Contract | complete | v9 Render scopes; v8 module-qualified `to_id`; v7 `property` / `to_path`; deterministic sort | — |
 | Evidence | complete | Runtime oracle (≥99% recall on committed cases); deep-watch `*`; exhaustive local reads; key SFC E2E | — (prop flow is static unit/project; not an `onTrack` pair) |
 
 ### In-scope complete checklists
@@ -71,12 +72,12 @@ Contract version: **`REACTIVITY_GRAPH_VERSION = 8`** (v7 + **module-qualified
 | Axis | Checklist (all required for `complete`) |
 | --- | --- |
 | A1 | ✅ Allowlist primitives + macros + pinia/router + auto-import + module seeds + factory call returns; local lookalikes quiet; unit/oracle cover |
-| A2 | ✅ effect / computed / watch / effectScope.run(+provenance) / dispose scopes; no invented effectScope |
+| A2 | ✅ effect / computed / watch / effectScope.run(+provenance) / dispose / Render scopes; no invented effectScope |
 | A3 | ✅ Member/HOF/unref·toValue reads; watch ref `.value`; **deep root `*` for bare `watch(reactive)`** (not per-key invention) |
 | A4 | ✅ Existing guard roles; no further control-flow deepening |
 | A5 | ✅ After-await classification; pause/enable/resetTracking windows; nested callback outside-tracking; watch callback outside |
 | A6 | ✅ Composable/instance/dual-script/provide-inject; **Factory scalar + Reactive**; **`.d.ts` / annotated object-bag returns**; **plain-object + `call().value` merge**; **external package summaries** (+ companion js); **bare Nuxt imports.d.ts seeds**; **static `:prop` → child props bag edges** |
-| A7 | ✅ Versioned graph; deterministic sort; `property`/`to_path`; **`{module}:{name}@{offset}` `to_id`** |
+| A7 | ✅ Versioned graph (v9 Render); deterministic sort; `property`/`to_path`; **`{module}:{name}@{offset}` `to_id`** |
 | Evidence | ✅ `just oracle` ≥99% recall on committed cases; exhaustive local reads; key SFC E2E |
 
 ### In-scope remaining (this epic)

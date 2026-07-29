@@ -20,9 +20,11 @@ use oxc_syntax::scope::ScopeFlags;
 use thiserror::Error;
 use vue_vet_core::{
   ScriptBindingFact, ScriptBlockFacts, ScriptCallFact, ScriptDestructureFact, ScriptImportFact,
-  ScriptKind, ScriptMemberWriteFact, ScriptOperandFact, SourceSpan,
+  ScriptKind, ScriptMemberWriteFact, ScriptOperandFact, SourceSpan, TemplateFacts,
 };
 use vue_vet_reactivity::{ModuleSummary, prepare_module_summary, trace_reactivity};
+
+mod jsx;
 
 #[derive(Debug, Error)]
 pub enum AnalyzeScriptError {
@@ -38,6 +40,8 @@ pub enum AnalyzeScriptError {
 #[derive(Debug)]
 pub struct ModuleAnalysis {
   pub script_facts: ScriptBlockFacts,
+  /// JSX/TSX lowered into template facts (empty when the script has no JSX).
+  pub template_facts: TemplateFacts,
   pub module_trace: Arc<ModuleSummary>,
 }
 
@@ -91,6 +95,12 @@ pub fn analyze_module_source(
   let node_facts =
     collect_node_facts(&semantic, &imported_bindings, &line_index, sfc_source, script_offset)
       .into_source_order();
+  // Plain JS/TS has no JSX nodes; skip the AST walk on the CodSpeed hot path.
+  let template_facts = if matches!(language, "jsx" | "tsx") {
+    jsx::collect_jsx_template_facts(&semantic, &line_index, sfc_source, script_offset)
+  } else {
+    TemplateFacts::default()
+  };
 
   let reactivity_graph = Arc::new(trace_reactivity(&semantic, sfc_source, script_offset, kind));
   let module_trace = Arc::new(prepare_module_summary(
@@ -114,6 +124,7 @@ pub fn analyze_module_source(
       operands: node_facts.operands,
       reactivity_graph,
     },
+    template_facts,
     module_trace,
   })
 }
@@ -729,7 +740,7 @@ where
     .collect()
 }
 
-fn source_span(
+pub(crate) fn source_span(
   index: &vue_vet_core::LineIndex,
   _source: &str,
   base: usize,
@@ -962,6 +973,25 @@ mod tests {
       let facts = analyze("const value = 1", language);
       assert_eq!(facts.language, language, "language selection must stay stable");
     }
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "unexpected Oxc errors must fail adapter tests")]
+  fn lowers_vue_jsx_v_html_and_inner_html_to_template_facts() {
+    let source = "export function Comp() { return <div v-html={html} innerHTML={raw} /> }";
+    let analysis = match analyze_module_source(source, source, 0, "tsx", ScriptKind::Script) {
+      Ok(analysis) => analysis,
+      Err(error) => panic!("tsx analysis failed: {error}"),
+    };
+    assert!(
+      analysis.template_facts.elements.iter().any(|element| {
+        element.tag == "div"
+          && element.directive("html").is_some()
+          && element.directives.iter().filter(|directive| directive.name == "html").count() >= 2
+      }),
+      "v-html and innerHTML must lower to html directives; got {:?}",
+      analysis.template_facts.elements
+    );
   }
 
   #[test]

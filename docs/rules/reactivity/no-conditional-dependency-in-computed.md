@@ -42,6 +42,8 @@ const label = computed(() => (enabled.value ? String(count.value) : 'off'))
 ## Detection
 
 Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
+`ReactiveGuardRole` (early-exit, short-circuit, switch, branch) is fact metadata only —
+it does not emit separate rule ids for the same Conditional read (#136).
 
 ## Remediation
 

@@ -214,6 +214,15 @@ extract time. `TemplateExpressionFact.identifiers` is `Some(…)` when resolved
 (including empty = no free reads); only `None` triggers the lexical join
 fallback—do not treat empty `Some` as unknown.
 
+Vue JSX is not React JSX and must not be Babel-transformed for analysis: Oxc
+parses source JSX/TSX and lowers Vue-JSX attributes (`v-html`, `innerHTML` /
+`domPropsInnerHTML`, `v-model*`, `v-show`, `onClick`, …) into `TemplateFacts`.
+Do not route JSX through Vize. Render-effect recognition is structure-first;
+unknown cross-file factories stay quiet unless a local options/`setup`/`render`
+object or exported functional component is visible. Same-file
+`const definePage = (o) => defineComponent(o)` forwarders are recognized; deeper
+or options-mutating wrappers are not.
+
 Cross-file module tracing for `.vue` uses the preferred script block
 (`script setup` first) as `ModuleSource::sfc_script` with Vize `loc.start` and
 the full SFC as `span_source`. Standalone JS/TS modules keep offset 0. Seed
@@ -227,6 +236,25 @@ Content cache keys include `CACHE_FORMAT_VERSION`, ruleset version, and
 `REACTIVITY_GRAPH_VERSION`; bump those when analysis behavior changes so local
 caches do not serve stale graphs. Dual ordinary+setup blocks re-trace as setup
 plus `{path}#script` (not a single concatenated module).
+
+## Do not stack per-guard-role Conditional rule ids
+
+`ReactiveGuardRole` (early-exit, short-circuit, switch, branch) is fact metadata
+on a Conditional read. Scope-aware rules already report that read once
+(`no-conditional-dependency-in-{computed,watch-sources,effect-scope,render}` and
+`no-conditional-watch-effect-dependency`). Do not revive separate rule ids per
+guard role: they duplicate findings on the same span, inflate score density, and
+add redundant TrackingScope visitor passes (#136).
+
+## JSX adaptation must not lint every Script module
+
+Standalone `.jsx`/`.tsx` (and scripts that already lowered non-empty
+`TemplateFacts`) join the Vue file-rule registry. Plain `.js`/`.ts` stay on the
+project-graph / seed path only. Enqueuing every Script into `pending_vue`
+regresses CodSpeed `scan_*` / synthetic 1k–5k module benches. Likewise: skip
+Oxc JSX template collection unless `language` is `jsx`/`tsx`, and skip
+`defineComponent` identity-forwarder fixed-point walks when no Vue factory
+import exists (#134 / #136).
 
 ## Performance: do not re-serialize the hot path
 
