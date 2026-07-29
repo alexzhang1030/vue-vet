@@ -167,7 +167,7 @@ fn hex_digest(bytes: &[u8]) -> String {
   output
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ScanSummary {
   pub files_scanned: usize,
   pub diagnostics: Vec<Diagnostic>,
