@@ -5,74 +5,119 @@
     {
       "id": "basic",
       "path": "fixtures/projects/basic",
-      "roles": ["vue", "smoke", "precision"],
+      "roles": [
+        "vue",
+        "smoke",
+        "precision"
+      ],
       "tree_digest": "f3cbb0029d7beea075c12884137fae816d6aefe7fd7c6a27280c62b07570c8d1"
     },
     {
       "id": "nuxt-graph",
       "path": "fixtures/projects/nuxt-graph",
-      "roles": ["nuxt", "performance", "precision"],
+      "roles": [
+        "nuxt",
+        "performance",
+        "precision"
+      ],
       "tree_digest": "8c731ee5ad628e69c023be556e90efc1e4c88108bca5c9e223ae81dbaf79028a"
     },
     {
       "id": "configured",
       "path": "fixtures/projects/configured",
-      "roles": ["vue", "config", "precision"],
+      "roles": [
+        "vue",
+        "config",
+        "precision"
+      ],
       "tree_digest": "98da177754cdf32b1774aa7249ccf160b7f8e908514d020d755afd4f3a2ca17e"
     },
     {
       "id": "vue-3.4",
       "path": "fixtures/projects/vue-3.4",
-      "roles": ["vue", "compatibility", "precision"],
+      "roles": [
+        "vue",
+        "compatibility",
+        "precision"
+      ],
       "tree_digest": "ab2343c8303764f9b3165f33ba5840b8c1f0801e65bb2a9f327e2f95460b805b"
     },
     {
       "id": "vue-3.5",
       "path": "fixtures/projects/vue-3.5",
-      "roles": ["vue", "compatibility", "precision"],
+      "roles": [
+        "vue",
+        "compatibility",
+        "precision"
+      ],
       "tree_digest": "052dea6cfd02ba586b68a4c101b477305557c0878c466fea7384217eeedcbbb2"
     },
     {
       "id": "prop-flow",
       "path": "fixtures/projects/prop-flow",
-      "roles": ["vue", "precision"],
+      "roles": [
+        "vue",
+        "precision"
+      ],
       "tree_digest": "5f0bf8be36fd67a2925ea2b73731572512999bfd0b2a68554a3da60c993ac694"
     },
     {
       "id": "practice-vueuse",
       "path": "fixtures/projects/practice-vueuse",
-      "roles": ["vue", "precision"],
+      "roles": [
+        "vue",
+        "precision"
+      ],
       "tree_digest": "908866cbe6cee6f3f0d7ebd0f4c57eb5e364353b057e8a6ed4b2efef6277a3d8"
     },
     {
       "id": "a11y-forms",
       "path": "fixtures/projects/a11y-forms",
-      "roles": ["vue", "precision"],
+      "roles": [
+        "vue",
+        "precision"
+      ],
       "tree_digest": "4fbab13f3f995592e7dad2f37bd21f2ba2a12bf70d5f480eb96444ad3a2c62df"
     },
     {
       "id": "suppressed",
       "path": "fixtures/projects/suppressed",
-      "roles": ["vue", "config", "precision"],
+      "roles": [
+        "vue",
+        "config",
+        "precision"
+      ],
       "tree_digest": "690b3e5297ce64b489778cfaa76e3f3e210eb40059c7cbfa53eab438e44ddbbe"
     },
     {
       "id": "module-seeds",
       "path": "fixtures/projects/module-seeds",
-      "roles": ["vue", "reactivity", "precision"],
+      "roles": [
+        "vue",
+        "reactivity",
+        "precision"
+      ],
       "tree_digest": "aee25243f5cbb906a68e337bb99fef002b3817fb576f0459e121cfd58c641807"
     },
     {
       "id": "provide-inject",
       "path": "fixtures/projects/provide-inject",
-      "roles": ["vue", "reactivity", "precision"],
-      "tree_digest": "ee79f32ce87b01e451160c050a657720159552222eb27b00d5c67eeeaf046a77"
+      "roles": [
+        "vue",
+        "reactivity",
+        "precision"
+      ],
+      "tree_digest": "f5bcc4511b23f8bfe74148326a3de52270d30638890f30341c47b5a2b020b4be"
     },
     {
       "id": "reactivity-rules",
       "path": "fixtures/projects/reactivity-rules",
-      "roles": ["vue", "reactivity", "precision"],
-      "tree_digest": "7e66f105b128d0b93c7f62ab1de6b8ae1611f39ec25d770b7d901b2331aabd60"
+      "roles": [
+        "vue",
+        "reactivity",
+        "precision"
+      ],
+      "tree_digest": "4b2a19b3d62eee7f6532e8e7dd9b535821a78c09cd20a0d44b1ef03ab69d62f1"
     }
   ]
 }

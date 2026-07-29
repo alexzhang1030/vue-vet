@@ -1,6 +1,8 @@
 use vue_vet_core::Rule;
 
+mod prefer_define_model;
 mod prefer_to_value;
+mod prefer_use_slots_attrs;
 mod prefer_use_template_ref;
 mod vueuse_use_debounce_fn;
 mod vueuse_use_event_listener;
@@ -10,10 +12,13 @@ mod vueuse_use_mutation_observer;
 mod vueuse_use_raf_fn;
 mod vueuse_use_resize_observer;
 mod vueuse_use_timeout_fn;
+mod vueuse_use_window_size;
 
 pub fn all() -> Vec<&'static dyn Rule> {
   vec![
+    &prefer_define_model::RULE,
     &prefer_to_value::RULE,
+    &prefer_use_slots_attrs::RULE,
     &prefer_use_template_ref::RULE,
     &vueuse_use_debounce_fn::RULE,
     &vueuse_use_event_listener::RULE,
@@ -23,5 +28,6 @@ pub fn all() -> Vec<&'static dyn Rule> {
     &vueuse_use_raf_fn::RULE,
     &vueuse_use_resize_observer::RULE,
     &vueuse_use_timeout_fn::RULE,
+    &vueuse_use_window_size::RULE,
   ]
 }

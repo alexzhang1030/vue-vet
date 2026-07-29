@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 
-const ready = computed(() => false)
+const ready = ref(false)
 const watchedValue = ref(0)
 const templateOnly = ref(1)
 watch([ready, watchedValue], () => {

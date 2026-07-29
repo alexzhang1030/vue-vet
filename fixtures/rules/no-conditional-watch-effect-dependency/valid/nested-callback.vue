@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watchEffect } from 'vue'
+import { ref, watchEffect } from 'vue'
 
-const enabled = computed(() => false)
+const enabled = ref(false)
 const result = ref(0)
 
 watchEffect(() => {

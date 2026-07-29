@@ -951,6 +951,14 @@ pub struct ScriptDestructureFact {
   pub span: SourceSpan,
 }
 
+/// Identifier used as an operand where a ref object's object-identity is almost
+/// certainly a mistake (arithmetic / comparison / unary), not a `.value` read.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ScriptOperandFact {
+  pub name: String,
+  pub span: SourceSpan,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ScriptBlockFacts {
   pub kind: ScriptKind,
@@ -960,6 +968,12 @@ pub struct ScriptBlockFacts {
   pub calls: Vec<ScriptCallFact>,
   pub member_writes: Vec<ScriptMemberWriteFact>,
   pub destructures: Vec<ScriptDestructureFact>,
+  /// SFC-absolute end offsets of top-level `await` expressions in this block.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub top_level_await_ends: Vec<usize>,
+  /// Identifiers used as binary/unary/logical operands (for ref-as-operand rules).
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub operands: Vec<ScriptOperandFact>,
   pub reactivity_graph: std::sync::Arc<ReactivityGraph>,
 }
 
@@ -1061,6 +1075,7 @@ impl FactKinds {
   pub const REACTIVE_BINDING: Self = Self(1 << 5);
   pub const TRACKING_SCOPE: Self = Self(1 << 6);
   pub const REACTIVITY_EFFECT: Self = Self(1 << 7);
+  pub const SCRIPT_OPERAND: Self = Self(1 << 8);
 
   #[must_use]
   pub const fn union(self, other: Self) -> Self {
@@ -1089,6 +1104,7 @@ pub enum FactRef<'a> {
   ReactiveBinding { block_kind: ScriptKind, binding: &'a ReactiveBindingFact },
   TrackingScope { block_kind: ScriptKind, scope: &'a TrackingScopeFact },
   ReactivityEffect { block_kind: ScriptKind, effect: &'a ReactivityEffectFact },
+  ScriptOperand { block_kind: ScriptKind, operand: &'a ScriptOperandFact },
 }
 
 /// Built-in rule contract (oxlint-style pass hooks over stable facts).
@@ -1236,6 +1252,7 @@ struct FactBuckets {
   reactive_binding: Vec<&'static dyn Rule>,
   tracking_scope: Vec<&'static dyn Rule>,
   reactivity_effect: Vec<&'static dyn Rule>,
+  script_operand: Vec<&'static dyn Rule>,
 }
 
 impl FactBuckets {
@@ -1264,6 +1281,9 @@ impl FactBuckets {
     if kinds.contains(FactKinds::REACTIVITY_EFFECT) {
       self.reactivity_effect.push(rule);
     }
+    if kinds.contains(FactKinds::SCRIPT_OPERAND) {
+      self.script_operand.push(rule);
+    }
   }
 
   fn needs_script_pass(&self) -> bool {
@@ -1274,6 +1294,7 @@ impl FactBuckets {
       || !self.reactive_binding.is_empty()
       || !self.tracking_scope.is_empty()
       || !self.reactivity_effect.is_empty()
+      || !self.script_operand.is_empty()
   }
 }
 
@@ -1393,6 +1414,14 @@ impl RuleRegistry {
           for effect in &block.reactivity_graph.effects {
             let fact = FactRef::ReactivityEffect { block_kind: block.kind, effect };
             for rule in &self.buckets.reactivity_effect {
+              rule.run_on(fact, &mut context);
+            }
+          }
+        }
+        if !self.buckets.script_operand.is_empty() {
+          for operand in &block.operands {
+            let fact = FactRef::ScriptOperand { block_kind: block.kind, operand };
+            for rule in &self.buckets.script_operand {
               rule.run_on(fact, &mut context);
             }
           }

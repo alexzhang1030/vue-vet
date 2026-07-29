@@ -20,6 +20,12 @@
       "rationale": "result.value is read only after an early-return guard in watchEffect"
     },
     {
+      "rule_id": "vue-vet/reactivity/prefer-explicit-sources-for-conditional-deps",
+      "file": "ConditionalWatch.vue",
+      "classification": "true_positive",
+      "rationale": "Same guarded watchEffect; recommend explicit watch sources"
+    },
+    {
       "rule_id": "vue-vet/reactivity/no-unused-reactive-binding",
       "file": "SafePatterns.vue",
       "classification": "false_positive",
@@ -36,6 +42,18 @@
       "file": "SafePatterns.vue",
       "classification": "false_positive",
       "rationale": "Nested callback after guard is an intentional quiet pattern"
+    },
+    {
+      "rule_id": "vue-vet/reactivity/prefer-explicit-sources-for-conditional-deps",
+      "file": "SafePatterns.vue",
+      "classification": "false_positive",
+      "rationale": "Nested callback after guard is an intentional quiet pattern"
+    },
+    {
+      "rule_id": "vue-vet/reactivity/no-computed-without-dependency",
+      "file": "SafePatterns.vue",
+      "classification": "false_positive",
+      "rationale": "fullName computed reads first/last refs"
     }
   ]
 }

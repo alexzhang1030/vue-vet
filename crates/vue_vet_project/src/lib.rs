@@ -936,6 +936,8 @@ mod tests {
           .collect(),
         member_writes: Vec::new(),
         destructures: Vec::new(),
+        top_level_await_ends: Vec::new(),
+        operands: Vec::new(),
         reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
       }],
     };
@@ -1359,6 +1361,8 @@ export const LazyButton: LazyComponent<typeof import("../components/base/Button.
             calls: Vec::new(),
             member_writes: Vec::new(),
             destructures: Vec::new(),
+            top_level_await_ends: Vec::new(),
+            operands: Vec::new(),
             reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
           }],
         },
