@@ -261,23 +261,97 @@ boundary.
 
 Never discard the dirty `FileId` set returned by
 `WorkspaceInputSnapshot::apply_changes`. Session analysis must schedule from
-`PendingChanges` (plus context-epoch invalidation). Cancellation must not clear
+`PendingChanges` via `ChangeImpact` / `DirtyPlan`. Cancellation must not clear
 pending dirty state. A no-op `analyze_affected` when the revision is unchanged
 must return the last snapshot without re-entering the pipeline.
+
+**Dirty `FileId` ≠ dirty work.** A small `affected_files()` set only proves parse
+scheduling was narrow. Phase-one may still visit every module summary (cheap when
+already attached). Prove locality with work counters (`files_parsed`,
+`seed_plans_recomputed`, `export_resolve_ran`, layered rebuild, COW clones,
+rules rerun), not with set size alone.
+
+**Linking surface ≠ `ModuleSummary` equality.** Export/seed reuse keys on
+imports/exports/locals/provides/injects + links. A leaf body edit that only
+changes `local_graph` must not force `resolve_exports`. Do not key linking
+cache on full `ModuleSummary` (it includes the local graph). Never rebuild a
+cloned `LinkingSurface` map for every module on each scan — retain
+`Arc<ModuleSummary>` and prefer `Arc::ptr_eq`, then compare linking fields in
+place. O(N) deep clones on cold `trace_modules` / independent leaf edits are a
+known CodSpeed regression.
+
+**Template/prop layers must not `make_mut` reused base graphs on warm scans.**
+Keep base reactivity from module-trace separate from the layered final graphs;
+reuse the layered `Arc<[ModuleReactivity]>` when base graph pointers and
+`SfcFacts` pointers are unchanged.
+
+**`ModuleSource` equality ignores `span_source`.** Style-only SFC edits change
+the wrapper file bytes without invalidating script body IR when `source` +
+`source_offset` match. Do not reintroduce `span_source` into `PartialEq`.
+
+**SFC block reuse keys on content digest + absolute loc.** If a preceding block
+grows/shrinks, later blocks' `start`/`end` change and must rebuild even when
+their text is identical. Style-only edits after other blocks are the common
+full-reuse path.
+
+**Context invalidation ≠ re-parse.** Epoch bumps for tsconfig, lockfile,
+package resolution, Nuxt declarations, or source membership must refresh
+resolution / environment / indexes / rules as needed. They must not force
+`analyze_candidate()` on unchanged source bytes. Prefer `ChangeImpact` domains
+over a boolean `invalidate_all_sources`.
+
+**Prefer internal Arc partitions over a top-level `Arc<ProjectGraphState>`.**
+Session state holds `ProjectGraphState` by value; `structural` and
+`module_trace` are independently `Arc`-shared and copy-on-write. Count
+`partition_cow_clones` / `graph_cow_clones`. Do not reintroduce a single outer
+Arc that `make_mut`s the entire linking state.
+
+**No-op / product publish must stay refcount-only.** `AnalysisSnapshot` keeps
+`summary` / `graph` / `coverage` / `issues` / `analyzed_files` behind `Arc`.
+Never reintroduce owned `Vec` fields that `Clone` deep-copies on noop.
 
 Export resolution must not clone the entire resolved-export map each fixed-point
 round — use a worklist over reverse re-export users.
 
 Deep `.clone()` of reactivity graphs, analyzed candidates, or workspace snapshots
-is a regress on the incremental path. Share with `Arc`, mutate with
-`Arc::make_mut`, and restore cache hits with `AnalysisState::share_from`. Session
-overlay updates must not double-clone `WorkspaceInputSnapshot` (fork once via
-`Arc::make_mut`, then `apply_changes_in_place`).
+is a regress on the incremental path. Share with `Arc` / `ProjectGraphState::share`,
+mutate with `Arc::make_mut` on the smallest partition, and restore cache hits with
+`AnalysisState::share_from`. Prefer `Arc::clone` (refcount) over `T::clone` of
+owned maps/vecs. Session overlay updates must not double-clone
+`WorkspaceInputSnapshot` (fork once via `Arc::make_mut`, then
+`apply_changes_in_place`). Reporter/CLI boundaries may `to_vec()` once when
+leaving the session.
 
 Never build the session Rayon pool in `ProjectSession::open` — warm disk-cache
 hits must not pay thread-pool construction. Lazily init on the first real scan.
+Never eagerly re-scan on a disk-cache hit to hydrate IR: that turns
+`scan_warm_*` / CLI warm re-scans into full analyzes. Keep publishing the
+cached summary/graph as `"hit"`. Empty IR is seeded on the first dirty analyze
+via `force_full_parse` when `!has_file_facts()`.
+
+**`SourceContext::new(&str)` copies the buffer.** Use it when the caller already
+owns / wants to own the text (LSP documents). Hot analysis entry points that
+only need positions should install `Arc<LineIndex>` without re-allocating the
+source string — otherwise cold `trace_1k_*` / SFC benches regress.
+
+**One-shot `trace_modules_with_options` must not archive linking state.** Set
+`persist_linking_cache = false` (forced by that API). Archiving sorted links +
+seed-plan maps that are immediately dropped regresses CodSpeed `trace_*`.
+Build `returns_by_function` lazily — only after a real function/composable
+candidate is found.
+
+**Phase-two must not Rayon-schedule immediate reuse.** On persistent scans,
+split reused vs dirty modules before `par_iter`. Independent leaf edits with
+many reusable graphs must not pay worker scheduling for no-op reuse. Never clone
+all `ModuleSource` values into a side cache map for phase-one — borrow
+`state.entries` instead.
+
+**First persistent scan must build seed plans once.** Cold session analyzes
+(`scan_overlay_*`, first `analyze`) should use oneshot-style plan construction
+and archive the linking snapshot after phase two — never build a plan map and
+then clone every plan into work.
 `AnalysisSnapshot` keeps `summary`/`graph` behind `Arc` so commit/`last_snapshot`
-is refcount-only.
+is refcount-only for those fields.
 
 LSP positions are UTF-16 code units via `vue_vet_core::LineIndex`. Never publish
 byte columns to the editor. Document identity must go through

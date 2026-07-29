@@ -47,15 +47,19 @@ vue-vet CLI
   reparses only when its source or resolved seed plan changed, while unchanged
   final graphs are reused from `ModuleTraceState`. Oxc arena values never cross
   a thread or adapter boundary and the workspace still forbids `unsafe_code`.
-- **Dirty-set scheduling** — `apply_changes` retains the returned dirty
-  `FileId` set in `PendingChanges`. `analyze_affected` returns the last snapshot
-  in O(1) when the workspace revision is unchanged. Otherwise the pipeline parses
-  only dirty (or context-invalidated) sources, merges reused file facts, expands
-  reverse dependencies, then reruns rules for the affected closure.
+- **Dirty-set scheduling (parse locality)** — `apply_changes` retains the returned
+  dirty `FileId` set in `PendingChanges`. `analyze_affected` returns the last
+  snapshot when the workspace revision is unchanged (refcount-cheap for shared
+  `summary`/`graph`; other snapshot fields may still clone). Otherwise a
+  `ChangeImpact` + `DirtyPlan` decide which files re-parse, which need
+  environment/rule refresh, and which diagnostics to finalize. Dirty parse is
+  real; dirty linking / graph materialization / diagnostic store updates are
+  still incomplete — see **Post-#107 locality gap**.
 - **Incremental project stages** — `ProjectSession` retains the source snapshot,
   per-file Vize/Oxc facts, raw file diagnostics, structural edge partitions,
-  module seed plans/final graphs, and the reverse dependency index. A normal
-  edit does not walk the workspace or rebuild unrelated structural files.
+  module seed plans/final graphs, and the reverse dependency index. Unrelated
+  sources are not re-parsed on a normal edit, but project linking and summary
+  rebuild may still walk the full retained set until partition updates land.
 - **Atomic session publication** — the workspace revision, retained input
   snapshot, and committed analysis state share one `SessionCore` synchronization
   domain. Analysis captures `Arc` snapshots under the lock, computes outside it,
@@ -64,12 +68,12 @@ vue-vet CLI
   section before releasing that lock.
 - **Resolver-context parity** — `ProjectContext.epochs` tracks independent
   counters for package / lockfile / tsconfig / Nuxt / source-membership so
-  debounced mutations cannot drop a prior kind. Package, lockfile, tsconfig, and
-  source-membership changes invalidate all source consumers (package.json also
-  drives module resolution via `imports`/`exports`). Nuxt declarations invalidate
-  Vue sources. File-rule diagnostic reuse additionally requires matching primary
-  and ordinary final module graphs, so resolution-driven graph changes cannot
-  keep stale diagnostics. Incremental results remain equal to a clean scan.
+  debounced mutations cannot drop a prior kind. Context changes must not be
+  equated with re-parse: tsconfig/lockfile/membership bump resolution and
+  indexes; package Vue-version / Nuxt declarations refresh environments, rules,
+  and component conventions. File-rule diagnostic reuse still requires matching
+  primary and ordinary final module graphs. Incremental results remain equal to
+  a clean scan.
 - **Shared Rayon pool** — session `--threads N` lazily builds one persistent pool
   on the first real scan (never on warm cache hits) and passes
   `TraceModulesOptions { reuse_current_pool: true }`. Standalone
@@ -90,6 +94,55 @@ vue-vet CLI
   module results are sorted by module id after parallel re-trace.
 - **Still single-process Rust** — no JS rule host; adapters stay behind Vue Vet facts.
   Facts remain the stable rule surface; the pass walks those facts, not Oxc/Vize nodes.
+
+### Post-#107 locality gap
+
+PR [#107](https://github.com/alexzhang1030/vue-vet/pull/107) proved dirty-set
+scheduling and shared IR are the right direction. Batch 1 execution locality is
+tracked in [#108](https://github.com/alexzhang1030/vue-vet/issues/108). Current state:
+
+```text
+dirty source → fewer parses                    (shipped)
+warm linking surface → skip export/seed FP     (shipped)
+warm base+facts → reuse template/prop layers   (shipped)
+TrackingScopeIR / Vize bottom-up               (shipped)
+export-closure seed recompute + SFC blocks     (shipped)
+warm disk hit stays cache-load cheap           (shipped; no eager IR hydrate)
+returns_by_function + SourceContext            (shipped)
+```
+
+Do **not** pursue a generalized unified AST IR. Further locality work belongs in
+narrower dirty linking / diagnostics plans, not a new AST layer.
+
+Execution plan shape (session-owned):
+
+```text
+ChangeImpact { parse, environment, resolution, component_index, membership }
+  → DirtyPlan { parse_files, structural_files, module_summaries,
+                export_closure, rule_files, diagnostic_files }
+  → stage work counters (files_parsed, partitions rebuilt, COW clones, …)
+```
+
+Batch intent (execution lives in tracker issues, not temporary numbers here):
+
+1. **Execution locality** — domain dirty plans; context changes without re-parse;
+   work counters; `AnalysisProduct` so LSP publishes diagnostics without the full
+   graph DTO (`analyze_affected_product` / `diagnostics_for`).
+2. **Project/module state** — `ProjectGraphState` keeps internal Arc partitions
+   (structural / module-trace / layered) plus a retained resolver. Linking cache
+   skips export/provide/seed fixed points when the linking surface (imports,
+   exports, locals, provides, injects — not `local_graph`) and links are
+   unchanged; when only some surfaces change, seed plans recompute for the
+   export/inject closure. Linking reuse retains `Arc<ModuleSummary>` and prefers
+   `Arc::ptr_eq` — never clone a per-module linking-surface map on every scan.
+   Layered cache reuses post-template/prop graphs when base graph Arcs and
+   `SfcFacts` Arcs are unchanged. Disk-cache hits stay cache-load cheap and must
+   not eagerly re-scan; empty session IR is seeded on the first dirty analyze
+   via `force_full_parse` (`!has_file_facts()`).
+3. **Single-file algorithms** — `TrackingScopeIR`; Vize bottom-up
+   `SubtreeSummary`; SFC `SfcBlockRevisions` (style/template/script reuse);
+   `returns_by_function` for composable shapes; shared `SourceContext`
+   (`Arc<str>` + `Arc<LineIndex>`) at analysis / open-document boundaries.
 
 ### Semantic IR layers
 
@@ -176,10 +229,12 @@ boundary in the roadmap.
 `vue_vet_session` owns the long-lived project analysis handle: config load,
 cached/fresh scans, unsaved overlays, per-file fact state, reverse dependencies,
 rule/finding explain, and workspace path containment. `apply_changes` plus
-`analyze_affected` reparses changed files, reuses unchanged facts, structural
-partitions, module graphs, and file-rule results, then invalidates graph
-consumers through the reverse index. Overlay analysis bypasses the
-content-addressed cache. A file or module failure becomes a scoped
+`analyze_affected` schedule from `ChangeImpact`/`DirtyPlan`: reparses only
+parse-dirty files, refreshes environments/rules when context demands it, reuses
+unchanged facts and file-rule results when keys match, and expands graph
+consumers through the reverse index. Structural/module partitions still often
+rebuild broadly until Batch 2; work counters expose that cost. Overlay analysis
+bypasses the content-addressed cache. A file or module failure becomes a scoped
 `AnalysisIssue` while healthy files and module links continue; fatal root or
 configuration errors still fail the request. The CLI and `vue_vet_lsp` consume the session so
 diagnostic identity stays shared across surfaces. The thin LSP (`vue-vet --lsp`)

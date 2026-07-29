@@ -104,10 +104,19 @@ pub struct ReactivityIssue {
 }
 
 /// Reusable project-linking state retained by a long-lived session.
+///
+/// Partitions are independently `Arc`-shared so a real scan can copy-on-write
+/// structural caches without cloning module-trace entries (and vice versa).
 #[derive(Clone, Debug, Default)]
 pub struct ProjectGraphState {
-  module_trace: ModuleTraceState,
-  structural: StructuralProjectState,
+  module_trace: Arc<ModuleTraceState>,
+  structural: Arc<StructuralProjectState>,
+  /// Final module graphs after template + prop layers (separate from base trace).
+  layered: Arc<LayeredGraphState>,
+  /// Retained while `root` + context revision are unchanged.
+  resolver: Option<Arc<ProjectResolver>>,
+  resolver_root: Option<std::path::PathBuf>,
+  resolver_revision: Option<u64>,
   last_stats: ProjectGraphStats,
 }
 
@@ -117,6 +126,14 @@ pub struct ProjectGraphStats {
   pub structural_files_reused: usize,
   pub module_graphs_reused: usize,
   pub seeded_module_reparses: usize,
+  /// How many internal partition Arcs were cloned via `Arc::make_mut` this scan.
+  pub partition_cow_clones: usize,
+  /// Modules whose seed plans were freshly computed this scan.
+  pub seed_plans_recomputed: usize,
+  /// Whether export/provide fixed-point resolution ran this scan.
+  pub export_resolve_ran: bool,
+  /// Whether template/prop layers were recomputed (false = Arc reuse).
+  pub layered_graphs_rebuilt: bool,
 }
 
 /// Why a resolver-context epoch advanced — drives typed incremental invalidation.
@@ -227,12 +244,141 @@ impl ProjectGraphState {
   pub const fn last_stats(&self) -> ProjectGraphStats {
     self.last_stats
   }
+
+  /// Share partition Arcs with another state (refcount only — no map deep copy).
+  #[must_use]
+  pub fn share(&self) -> Self {
+    Self {
+      module_trace: Arc::clone(&self.module_trace),
+      structural: Arc::clone(&self.structural),
+      layered: Arc::clone(&self.layered),
+      resolver: self.resolver.as_ref().map(Arc::clone),
+      resolver_root: self.resolver_root.clone(),
+      resolver_revision: self.resolver_revision,
+      last_stats: self.last_stats,
+    }
+  }
+}
+
+/// Join template reads and prop-flow edges onto base module graphs, with warm reuse.
+fn apply_template_prop_layers(
+  state: &mut ProjectGraphState,
+  ordered: &[&ProjectFile],
+  edges: &[GraphEdge],
+  base_reactivity: Vec<ModuleReactivity>,
+) -> Vec<ModuleReactivity> {
+  let facts_by_path = ordered
+    .iter()
+    .map(|file| (normalized_path(file.path.as_path()), Arc::clone(&file.facts)))
+    .collect::<BTreeMap<_, _>>();
+  let layered_key = LayeredInputKey {
+    modules: base_reactivity
+      .iter()
+      .map(|module| ModuleLayerKey {
+        id: module.id.clone(),
+        base_ptr: Arc::as_ptr(&module.graph) as usize,
+        facts_ptr: facts_by_path
+          .get(module.id.as_str())
+          .map_or(0, |facts| Arc::as_ptr(facts) as usize),
+      })
+      .collect(),
+    prop_edges: edges
+      .iter()
+      .filter(|edge| matches!(edge.kind, EdgeKind::ComponentUsage | EdgeKind::AutoComponent))
+      .map(|edge| (edge.from.clone(), edge.to.clone(), edge.evidence.offset))
+      .collect(),
+  };
+
+  if state.layered.key.as_ref() == Some(&layered_key) {
+    state.last_stats.layered_graphs_rebuilt = false;
+    return state.layered.modules.as_ref().to_vec();
+  }
+
+  state.last_stats.layered_graphs_rebuilt = true;
+  if Arc::strong_count(&state.layered) > 1 {
+    state.last_stats.partition_cow_clones += 1;
+  }
+  let layered = Arc::make_mut(&mut state.layered);
+  let mut module_reactivity = base_reactivity;
+  // Re-apply SFC template joins onto module graphs so cross-file seeds and
+  // template reads share one fact surface. Spans stay SFC-absolute when the
+  // module carried `source_offset` + `span_source`.
+  for module in &mut module_reactivity {
+    if let Some(facts) = facts_by_path.get(module.id.as_str()) {
+      Arc::make_mut(&mut module.graph).join_template_reads(&facts.template);
+    }
+  }
+  // Static parent `:prop="binding"` → child `props.prop` edges (under-approx).
+  let graph_snapshots = module_reactivity
+    .iter()
+    .map(|module| (module.id.clone(), Arc::clone(&module.graph)))
+    .collect::<BTreeMap<_, _>>();
+  let prop_sites = edges
+    .iter()
+    .filter(|edge| matches!(edge.kind, EdgeKind::ComponentUsage | EdgeKind::AutoComponent))
+    .filter_map(|edge| {
+      // Graph edges use `file:{path}` node ids; module graphs / templates use bare paths.
+      let parent_path = edge.from.strip_prefix("file:").unwrap_or(edge.from.as_str());
+      let child_path = edge.to.strip_prefix("file:").unwrap_or(edge.to.as_str());
+      let parent_facts = facts_by_path.get(parent_path)?;
+      let parent_graph = graph_snapshots.get(parent_path)?;
+      Some(PropFlowSite {
+        element_span: edge.evidence.clone(),
+        parent_template: &parent_facts.template,
+        parent_graph,
+        child_module: child_path,
+      })
+    })
+    .collect::<Vec<_>>();
+  join_prop_flows(&mut module_reactivity, &prop_sites);
+  layered.key = Some(layered_key);
+  layered.modules = Arc::from(module_reactivity.as_slice());
+  module_reactivity
+}
+
+fn retain_project_resolver(
+  state: &mut ProjectGraphState,
+  root: &std::path::PathBuf,
+  revision: u64,
+) -> Arc<ProjectResolver> {
+  let reusable = state.resolver.as_ref().is_some_and(|_| {
+    state.resolver_root.as_ref() == Some(root) && state.resolver_revision == Some(revision)
+  });
+  if !reusable {
+    let resolver = Arc::new(ProjectResolver::new(root));
+    state.resolver = Some(Arc::clone(&resolver));
+    state.resolver_root = Some(root.clone());
+    state.resolver_revision = Some(revision);
+    return resolver;
+  }
+  state.resolver.as_ref().map_or_else(|| Arc::new(ProjectResolver::new(root)), Arc::clone)
 }
 
 #[derive(Clone, Debug, Default)]
 struct StructuralProjectState {
   context: Option<StructuralContextKey>,
   files: BTreeMap<FileId, StructuralFileCache>,
+}
+
+/// Cached post-trace layers: template joins + prop-flow edges.
+#[derive(Clone, Debug, Default)]
+struct LayeredGraphState {
+  key: Option<LayeredInputKey>,
+  modules: Arc<[ModuleReactivity]>,
+}
+
+/// Identity of base graphs + SFC facts + prop-relevant edges that feed layers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct LayeredInputKey {
+  modules: Vec<ModuleLayerKey>,
+  prop_edges: Vec<(String, String, usize)>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ModuleLayerKey {
+  id: ModuleId,
+  base_ptr: usize,
+  facts_ptr: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -246,7 +392,7 @@ struct StructuralContextKey {
 #[derive(Clone, Debug)]
 struct StructuralFileCache {
   facts: Arc<SfcFacts>,
-  output: StructuralFileOutput,
+  output: Arc<StructuralFileOutput>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -295,7 +441,7 @@ pub fn build_project_graph_incremental_with_options<'a>(
   ordered.sort_by_key(|file| normalized_path(file.path.as_path()));
   let known =
     ordered.iter().map(|file| normalized_path(file.path.as_path())).collect::<BTreeSet<_>>();
-  let resolver = ProjectResolver::new(&root);
+  let resolver = retain_project_resolver(state, &root, project_context.revision);
   let mut nodes = ordered.iter().map(|file| file_node(file)).collect::<Vec<_>>();
   let node_by_path =
     nodes.iter().map(|node| (node.path.clone(), node.id.clone())).collect::<BTreeMap<_, _>>();
@@ -342,48 +488,57 @@ pub fn build_project_graph_incremental_with_options<'a>(
     .collect::<Vec<_>>();
   let module_ids = module_sources.iter().map(|module| module.id.clone()).collect::<BTreeSet<_>>();
   let context = StructuralContextKey {
-    root,
+    root: root.clone(),
     revision: project_context.revision,
     nodes: nodes.clone(),
     module_ids: module_ids.clone(),
   };
-  if state.structural.context.as_ref() != Some(&context) {
-    state.structural.files.clear();
-    state.structural.context = Some(context);
+  if Arc::strong_count(&state.structural) > 1 {
+    state.last_stats.partition_cow_clones += 1;
   }
-  let mut next_file_cache = BTreeMap::new();
+  let structural = Arc::make_mut(&mut state.structural);
+  if structural.context.as_ref() != Some(&context) {
+    structural.files.clear();
+    structural.context = Some(context);
+  }
+  let present = ordered.iter().map(|file| file.path.clone()).collect::<BTreeSet<_>>();
+  structural.files.retain(|file_id, _| present.contains(file_id));
+  for file in &ordered {
+    let reuse = structural.files.get(&file.path).is_some_and(|cached| cached.facts == file.facts);
+    if reuse {
+      state.last_stats.structural_files_reused += 1;
+      continue;
+    }
+    state.last_stats.structural_files_rebuilt += 1;
+    let output = Arc::new(analyze_structural_file(
+      file,
+      resolver.as_ref(),
+      &known,
+      &node_by_path,
+      &component_by_name,
+      &composable_by_name,
+      &module_ids,
+    ));
+    structural
+      .files
+      .insert(file.path.clone(), StructuralFileCache { facts: Arc::clone(&file.facts), output });
+  }
   let mut module_links = Vec::new();
   let mut external_nodes = BTreeMap::new();
   let mut edges = Vec::new();
   let mut diagnostics = Vec::new();
   for file in &ordered {
-    let output = if let Some(cached) =
-      state.structural.files.get(&file.path).filter(|cached| cached.facts == file.facts)
-    {
-      state.last_stats.structural_files_reused += 1;
-      cached.output.clone()
-    } else {
-      state.last_stats.structural_files_rebuilt += 1;
-      analyze_structural_file(
-        file,
-        &resolver,
-        &known,
-        &node_by_path,
-        &component_by_name,
-        &composable_by_name,
-        &module_ids,
-      )
+    let Some(cached) = structural.files.get(&file.path) else {
+      continue;
     };
+    let output = cached.output.as_ref();
     for node in &output.external_nodes {
       external_nodes.entry(node.id.clone()).or_insert_with(|| node.clone());
     }
     edges.extend(output.edges.iter().cloned());
     diagnostics.extend(output.diagnostics.iter().cloned());
     module_links.extend(output.module_links.iter().cloned());
-    next_file_cache
-      .insert(file.path.clone(), StructuralFileCache { facts: Arc::clone(&file.facts), output });
   }
-  state.structural.files = next_file_cache;
   nodes.extend(external_nodes.into_values());
   nodes.sort();
   edges.sort();
@@ -396,15 +551,20 @@ pub fn build_project_graph_incremental_with_options<'a>(
       &right.rule_id,
     ))
   });
+  if Arc::strong_count(&state.module_trace) > 1 {
+    state.last_stats.partition_cow_clones += 1;
+  }
+  let module_trace = Arc::make_mut(&mut state.module_trace);
   let trace_report = trace_modules_incremental_with_options(
     &module_sources,
     &module_links,
     trace_options,
-    &mut state.module_trace,
+    module_trace,
   );
   state.last_stats.module_graphs_reused = trace_report.stats.reused_graphs;
   state.last_stats.seeded_module_reparses = trace_report.stats.seeded_reparses;
-  let mut module_reactivity = trace_report.modules;
+  state.last_stats.seed_plans_recomputed = trace_report.stats.seed_plans_recomputed;
+  state.last_stats.export_resolve_ran = trace_report.stats.export_resolve_ran;
   let reactivity_issues = trace_report
     .issues
     .into_iter()
@@ -413,41 +573,7 @@ pub fn build_project_graph_incremental_with_options<'a>(
   let reactivity_error = (!reactivity_issues.is_empty()).then(|| {
     reactivity_issues.iter().map(|issue| issue.message.as_str()).collect::<Vec<_>>().join("; ")
   });
-  // Re-apply SFC template joins onto module graphs so cross-file seeds and
-  // template reads share one fact surface. Spans stay SFC-absolute when the
-  // module carried `source_offset` + `span_source`.
-  let templates = ordered
-    .iter()
-    .map(|file| (normalized_path(file.path.as_path()), &file.facts.template))
-    .collect::<BTreeMap<_, _>>();
-  for module in &mut module_reactivity {
-    if let Some(template) = templates.get(module.id.as_str()) {
-      std::sync::Arc::make_mut(&mut module.graph).join_template_reads(template);
-    }
-  }
-  // Static parent `:prop="binding"` → child `props.prop` edges (under-approx).
-  let graph_snapshots = module_reactivity
-    .iter()
-    .map(|module| (module.id.clone(), std::sync::Arc::clone(&module.graph)))
-    .collect::<BTreeMap<_, _>>();
-  let prop_sites = edges
-    .iter()
-    .filter(|edge| matches!(edge.kind, EdgeKind::ComponentUsage | EdgeKind::AutoComponent))
-    .filter_map(|edge| {
-      // Graph edges use `file:{path}` node ids; module graphs / templates use bare paths.
-      let parent_path = edge.from.strip_prefix("file:").unwrap_or(edge.from.as_str());
-      let child_path = edge.to.strip_prefix("file:").unwrap_or(edge.to.as_str());
-      let parent_template = *templates.get(parent_path)?;
-      let parent_graph = graph_snapshots.get(parent_path)?;
-      Some(PropFlowSite {
-        element_span: edge.evidence.clone(),
-        parent_template,
-        parent_graph,
-        child_module: child_path,
-      })
-    })
-    .collect::<Vec<_>>();
-  join_prop_flows(&mut module_reactivity, &prop_sites);
+  let module_reactivity = apply_template_prop_layers(state, &ordered, &edges, trace_report.modules);
   let mut invalidation_inputs = known.into_iter().collect::<Vec<_>>();
   invalidation_inputs.extend(project_context.invalidation_inputs.iter().cloned());
   invalidation_inputs.sort();

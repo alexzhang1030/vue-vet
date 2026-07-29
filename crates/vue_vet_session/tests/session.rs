@@ -1,7 +1,9 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
 use vue_vet_core::{FileId, finding_id};
-use vue_vet_session::{AnalysisSnapshot, ChangeSet, ProjectSession, SessionOptions};
+use vue_vet_session::{
+  AnalysisProduct, AnalysisSnapshot, ChangeSet, ProjectSession, SessionOptions,
+};
 
 fn fixture(name: &str) -> PathBuf {
   PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures").join(name)
@@ -814,6 +816,41 @@ fn duplicate_suffix_paths_keep_distinct_file_ids() {
 
 #[test]
 #[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn diagnostics_only_product_omits_graph_dto() {
+  let root = fixture("rules/no-v-html/invalid");
+  let session = ProjectSession::open(SessionOptions {
+    root,
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+  })
+  .unwrap_or_else(|error| panic!("session: {error}"));
+  let full = session.analyze().unwrap_or_else(|error| panic!("full: {error}"));
+  assert!(!full.graph.nodes.is_empty() || !full.graph.module_reactivity.is_empty());
+  let lean = session
+    .analyze_affected_product(AnalysisProduct::DiagnosticsOnly)
+    .unwrap_or_else(|error| panic!("diagnostics-only: {error}"));
+  assert!(lean.graph.nodes.is_empty(), "DiagnosticsOnly must not publish nodes");
+  assert!(lean.graph.edges.is_empty(), "DiagnosticsOnly must not publish edges");
+  assert!(
+    lean.graph.module_reactivity.is_empty(),
+    "DiagnosticsOnly must not publish module reactivity DTO"
+  );
+  assert_eq!(lean.summary.diagnostics, full.summary.diagnostics);
+  let file = full
+    .summary
+    .diagnostics
+    .first()
+    .map_or_else(|| panic!("fixture must emit diagnostics"), |diagnostic| diagnostic.file.clone());
+  let by_file =
+    session.diagnostics_for(&file).unwrap_or_else(|error| panic!("diagnostics_for: {error}"));
+  assert!(!by_file.is_empty());
+  assert!(by_file.iter().all(|diagnostic| diagnostic.file == file));
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
 fn noop_analyze_affected_does_not_recommit() {
   let root = fixture("rules/no-v-html/invalid");
   let session = ProjectSession::open(SessionOptions {
@@ -859,7 +896,7 @@ fn independent_leaf_edit_keeps_affected_set_local() {
       "export const value39 = 3900;\n".into(),
     ))
     .unwrap_or_else(|error| panic!("edit: {error}"));
-  let _after = session.analyze_affected().unwrap_or_else(|error| panic!("affected: {error}"));
+  let after = session.analyze_affected().unwrap_or_else(|error| panic!("affected: {error}"));
   let affected = session.affected_files().unwrap_or_else(|error| panic!("affected files: {error}"));
   assert!(
     affected.len() <= 4,
@@ -869,6 +906,217 @@ fn independent_leaf_edit_keeps_affected_set_local() {
   assert!(
     affected.iter().any(|file| file.as_str().contains("module-39")),
     "edited leaf must be among affected files"
+  );
+  assert_eq!(
+    after.work.files_parsed, 1,
+    "independent leaf edit must parse only the edited file, got {:?}",
+    after.work
+  );
+  assert!(after.work.files_reused >= 39, "unchanged modules must be reused, got {:?}", after.work);
+  let plan = session.last_dirty_plan().unwrap_or_else(|error| panic!("dirty plan: {error}"));
+  assert_eq!(plan.parse_files.len(), 1);
+  let _ignored = std::fs::remove_dir_all(root);
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn tsconfig_only_change_parses_zero_source_files() {
+  let root =
+    std::env::temp_dir().join(format!("vue-vet-tsconfig-parse-zero-{}", std::process::id()));
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(root.join("src")).unwrap_or_else(|error| panic!("workspace: {error}"));
+  std::fs::write(
+    root.join("src/state.ts"),
+    "import { ref } from 'vue'; export const gate = ref(false); export const payload = ref(0);",
+  )
+  .unwrap_or_else(|error| panic!("state: {error}"));
+  std::fs::write(
+    root.join("App.vue"),
+    "<script setup lang=\"ts\">
+import { watchEffect } from 'vue'
+import { gate, payload } from '@state'
+watchEffect(() => {
+  if (!gate.value) return
+  console.log(payload.value)
+})
+</script>",
+  )
+  .unwrap_or_else(|error| panic!("app: {error}"));
+  let tsconfig = root.join("tsconfig.json");
+  std::fs::write(
+    &tsconfig,
+    r#"{"compilerOptions":{"baseUrl":".","paths":{"@state":["src/missing.ts"]}}}"#,
+  )
+  .unwrap_or_else(|error| panic!("tsconfig: {error}"));
+  let session = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(2),
+  })
+  .unwrap_or_else(|error| panic!("session: {error}"));
+  session.analyze().unwrap_or_else(|error| panic!("baseline: {error}"));
+
+  std::fs::write(
+    &tsconfig,
+    r#"{"compilerOptions":{"baseUrl":".","paths":{"@state":["src/state.ts"]}}}"#,
+  )
+  .unwrap_or_else(|error| panic!("updated tsconfig: {error}"));
+  session
+    .apply_changes(ChangeSet::remove(tsconfig))
+    .unwrap_or_else(|error| panic!("tsconfig change: {error}"));
+  let incremental =
+    session.analyze_affected().unwrap_or_else(|error| panic!("incremental: {error}"));
+  assert_eq!(
+    incremental.work.files_parsed, 0,
+    "tsconfig-only invalidation must not re-parse unchanged sources: {:?}",
+    incremental.work
+  );
+  assert!(
+    incremental.work.files_reused >= 2,
+    "sources must be reused after tsconfig change: {:?}",
+    incremental.work
+  );
+
+  let clean_session = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(2),
+  })
+  .unwrap_or_else(|error| panic!("clean session: {error}"));
+  let clean = clean_session.analyze().unwrap_or_else(|error| panic!("clean: {error}"));
+  assert_analysis_parity(&incremental, &clean);
+  let _ignored = std::fs::remove_dir_all(root);
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn package_json_change_parses_zero_source_files() {
+  let root =
+    std::env::temp_dir().join(format!("vue-vet-package-parse-zero-{}", std::process::id()));
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+  std::fs::write(
+    root.join("App.vue"),
+    "<script setup>\nimport { ref } from 'vue'\nconst n = ref(0)\n</script><template>{{ n }}</template>",
+  )
+  .unwrap_or_else(|error| panic!("app: {error}"));
+  let package = root.join("package.json");
+  std::fs::write(&package, r#"{"dependencies":{"vue":"^3.4.0","lodash":"^4.17.21"}}"#)
+    .unwrap_or_else(|error| panic!("package: {error}"));
+  let session = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+  })
+  .unwrap_or_else(|error| panic!("session: {error}"));
+  session.analyze().unwrap_or_else(|error| panic!("baseline: {error}"));
+
+  std::fs::write(&package, r#"{"dependencies":{"vue":"^3.4.0","lodash-es":"^4.17.21"}}"#)
+    .unwrap_or_else(|error| panic!("updated package: {error}"));
+  session
+    .apply_changes(ChangeSet::remove(package))
+    .unwrap_or_else(|error| panic!("package change: {error}"));
+  let incremental =
+    session.analyze_affected().unwrap_or_else(|error| panic!("incremental: {error}"));
+  assert_eq!(
+    incremental.work.files_parsed, 0,
+    "package.json change must refresh environment/resolution without re-parse: {:?}",
+    incremental.work
+  );
+
+  let clean_session = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+  })
+  .unwrap_or_else(|error| panic!("clean session: {error}"));
+  let clean = clean_session.analyze().unwrap_or_else(|error| panic!("clean: {error}"));
+  assert_analysis_parity(&incremental, &clean);
+  let _ignored = std::fs::remove_dir_all(root);
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn warm_disk_cache_hit_stays_cheap_and_first_edit_seeds_ir() {
+  let root =
+    std::env::temp_dir().join(format!("vue-vet-warm-cache-lazy-ir-{}", std::process::id()));
+  let cache_dir = root.join(".vue-vet-cache");
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(root.join("src")).unwrap_or_else(|error| panic!("workspace: {error}"));
+  for index in 0..12 {
+    std::fs::write(
+      root.join(format!("src/module-{index}.ts")),
+      format!("export const value{index} = {index};\n"),
+    )
+    .unwrap_or_else(|error| panic!("module: {error}"));
+  }
+  let cold = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: Some(cache_dir.clone()),
+    no_cache: false,
+    threads: Some(2),
+  })
+  .unwrap_or_else(|error| panic!("cold session: {error}"));
+  let cold_snap = cold.analyze().unwrap_or_else(|error| panic!("cold analyze: {error}"));
+  assert_eq!(cold_snap.cache_status, "miss");
+
+  let warm = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: Some(cache_dir),
+    no_cache: false,
+    threads: Some(2),
+  })
+  .unwrap_or_else(|error| panic!("warm session: {error}"));
+  let warm_snap = warm.analyze().unwrap_or_else(|error| panic!("warm analyze: {error}"));
+  assert_eq!(warm_snap.cache_status, "hit");
+  assert_eq!(warm_snap.summary, cold_snap.summary);
+  assert_eq!(
+    warm_snap.work.files_parsed, 0,
+    "warm disk hit must not re-scan sources: {:?}",
+    warm_snap.work
+  );
+
+  // First dirty analyze after a cache-only open has no file facts, so it pays
+  // one full parse to seed IR (overlays also disable disk cache).
+  warm
+    .apply_changes(ChangeSet::upsert(
+      root.join("src/module-11.ts"),
+      "export const value11 = 1100;\n".into(),
+    ))
+    .unwrap_or_else(|error| panic!("edit: {error}"));
+  let first_edit = warm.analyze_affected().unwrap_or_else(|error| panic!("first edit: {error}"));
+  assert!(
+    first_edit.work.files_parsed >= 12,
+    "empty IR after warm hit must seed facts on first dirty analyze: {:?}",
+    first_edit.work
+  );
+
+  warm
+    .apply_changes(ChangeSet::upsert(
+      root.join("src/module-11.ts"),
+      "export const value11 = 1101;\n".into(),
+    ))
+    .unwrap_or_else(|error| panic!("second edit: {error}"));
+  let second_edit = warm.analyze_affected().unwrap_or_else(|error| panic!("second edit: {error}"));
+  assert_eq!(
+    second_edit.work.files_parsed, 1,
+    "after IR is seeded, leaf edits must parse only the edited file: {:?}",
+    second_edit.work
+  );
+  assert!(
+    second_edit.work.files_reused >= 11,
+    "unchanged modules must be reused: {:?}",
+    second_edit.work
   );
   let _ignored = std::fs::remove_dir_all(root);
 }

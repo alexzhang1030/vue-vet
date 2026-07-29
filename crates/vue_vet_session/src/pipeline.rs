@@ -16,7 +16,7 @@ use vue_vet_project::{
   build_project_graph_incremental_with_options,
 };
 use vue_vet_reactivity::{ModuleSource, TraceModulesOptions};
-use vue_vet_vize::{AnalyzeError, analyze_sfc_facts};
+use vue_vet_vize::{AnalyzeError, AnalyzedSfc, analyze_sfc_facts_reusing};
 
 use crate::{
   AnalysisIssue, AnalysisStage, Recoverability, SessionError,
@@ -24,6 +24,7 @@ use crate::{
   discovery::{SourceInput, SourceKind, WorkspaceInputSnapshot},
   file_analysis_registry,
   invalidation::{expand_reverse_dependencies, reverse_dependency_index},
+  locality::{ChangeImpact, DirtyPlan, ScanWorkCounters, change_impact_from, dirty_plan_from},
   package_index::PackageIndex,
 };
 
@@ -76,9 +77,11 @@ pub struct AnalysisState {
   file_diagnostics: Arc<BTreeMap<FileId, CachedFileDiagnostics>>,
   pub reverse_dependencies: Arc<BTreeMap<FileId, BTreeSet<FileId>>>,
   pub last_affected: BTreeSet<FileId>,
+  pub last_work: ScanWorkCounters,
+  pub last_plan: Arc<DirtyPlan>,
   last_context_epochs: ContextEpochs,
-  /// Shared until a mutation needs copy-on-write (`Arc::make_mut`).
-  project: Arc<ProjectGraphState>,
+  /// Internal Arc partitions; [`ProjectGraphState::share`] only bumps refcounts.
+  project: ProjectGraphState,
 }
 
 impl AnalysisState {
@@ -91,8 +94,10 @@ impl AnalysisState {
       file_diagnostics: Arc::new(BTreeMap::new()),
       reverse_dependencies: Arc::new(BTreeMap::new()),
       last_affected: BTreeSet::new(),
+      last_work: ScanWorkCounters::default(),
+      last_plan: Arc::new(DirtyPlan::default()),
       last_context_epochs: previous.last_context_epochs,
-      project: Arc::clone(&previous.project),
+      project: previous.project.share(),
     }
   }
 
@@ -104,8 +109,10 @@ impl AnalysisState {
       file_diagnostics: Arc::clone(&previous.file_diagnostics),
       reverse_dependencies: Arc::clone(&previous.reverse_dependencies),
       last_affected: previous.last_affected.clone(),
+      last_work: previous.last_work,
+      last_plan: Arc::clone(&previous.last_plan),
       last_context_epochs: previous.last_context_epochs,
-      project: Arc::clone(&previous.project),
+      project: previous.project.share(),
     }
   }
 
@@ -114,12 +121,19 @@ impl AnalysisState {
   pub fn has_file_facts(&self) -> bool {
     !self.files.is_empty()
   }
+
+  /// Work counters from the last committed (or in-progress) scan.
+  #[must_use]
+  pub const fn last_work(&self) -> ScanWorkCounters {
+    self.last_work
+  }
 }
 
 pub struct ScanResult {
   pub summary: ScanSummary,
   pub graph: ProjectGraph,
   pub issues: Vec<AnalysisIssue>,
+  pub work: ScanWorkCounters,
 }
 
 #[expect(
@@ -134,7 +148,7 @@ pub fn scan_with_threads(
   state: &mut AnalysisState,
   cancelled: &(dyn Fn() -> bool + Sync),
   dirty_files: &BTreeSet<FileId>,
-  invalidate_all_sources: bool,
+  force_full_parse: bool,
 ) -> Result<ScanResult, SessionError> {
   let mut run = || {
     scan_parallel(
@@ -145,7 +159,7 @@ pub fn scan_with_threads(
       state,
       cancelled,
       dirty_files,
-      invalidate_all_sources,
+      force_full_parse,
     )
   };
   match pool {
@@ -156,7 +170,11 @@ pub fn scan_with_threads(
 
 #[expect(
   clippy::too_many_arguments,
-  reason = "parallel scan keeps dirty-set schedule explicit beside prior state"
+  reason = "parallel scan keeps dirty plan + prior state explicit"
+)]
+#[expect(
+  clippy::too_many_lines,
+  reason = "scan orchestration stays in one function so dirty plan, counters, and cancellation order stay reviewable"
 )]
 fn scan_parallel(
   input: &WorkspaceInputSnapshot,
@@ -166,37 +184,49 @@ fn scan_parallel(
   state: &mut AnalysisState,
   cancelled: &(dyn Fn() -> bool + Sync),
   dirty_files: &BTreeSet<FileId>,
-  invalidate_all_sources: bool,
+  force_full_parse: bool,
 ) -> Result<ScanResult, SessionError> {
-  let context_invalidate_all =
-    epochs_invalidate_all_sources(&previous.last_context_epochs, &input.project_context.epochs)
-      || invalidate_all_sources;
-  let nuxt_vue_only = !context_invalidate_all
-    && previous.last_context_epochs.nuxt_declarations
-      != input.project_context.epochs.nuxt_declarations;
+  let previously_analyzed = previous.files.keys().cloned().collect::<BTreeSet<_>>();
+  let impact = change_impact_from(
+    dirty_files,
+    force_full_parse,
+    &previous.last_context_epochs,
+    &input.project_context.epochs,
+    &input.sources,
+    &previously_analyzed,
+  );
 
   let mut reuse = Vec::new();
   let mut need_parse = Vec::new();
+  let mut env_refreshed = BTreeSet::new();
+  let mut files_reused = 0_u64;
   for source in &input.sources {
     let environment = source_environment(source, &input.boundary, &input.package_index);
-    let force = context_invalidate_all
-      || dirty_files.contains(&source.file_id)
-      || (nuxt_vue_only && matches!(source.kind, SourceKind::Vue));
-    if !force
-      && let Some(cached) = previous.files.get(&source.file_id)
+    let must_parse = impact.parse.contains(&source.file_id);
+    if let Some(cached) = previous.files.get(&source.file_id)
       && cached.source.as_ref() == source.source.as_ref()
-      && cached.environment == environment
+      && !must_parse
     {
+      if cached.environment != environment {
+        env_refreshed.insert(source.file_id.clone());
+      }
+      files_reused += 1;
       reuse.push((source, Arc::clone(&cached.analyzed), environment));
       continue;
     }
     need_parse.push((source, environment));
   }
 
+  let files_parsed = u64::try_from(need_parse.len()).unwrap_or(u64::MAX);
   let parsed = need_parse
     .par_iter()
     .map(|(source, environment)| {
-      analyze_candidate(source, environment.clone())
+      let previous_sfc =
+        previous.files.get(&source.file_id).and_then(|cached| match cached.analyzed.as_ref() {
+          AnalyzedCandidate::Vue { sfc, .. } => Some(sfc.as_ref()),
+          AnalyzedCandidate::Script { .. } => None,
+        });
+      analyze_candidate(source, environment.clone(), previous_sfc)
         .map(|analyzed| (*source, Arc::new(analyzed), environment.clone()))
     })
     .collect::<Vec<_>>();
@@ -205,13 +235,16 @@ fn scan_parallel(
   }
 
   let discovered = input.sources.iter().map(|source| &source.file_id).collect::<BTreeSet<_>>();
-  let mut analyzed = Vec::new();
   let mut next_files = BTreeMap::new();
   let mut issues = Vec::new();
+  let mut parse_files = BTreeSet::new();
   state.last_affected =
     previous.files.keys().filter(|file| !discovered.contains(file)).cloned().collect();
 
   for (source, item, environment) in reuse {
+    if env_refreshed.contains(&source.file_id) || impact.environment.contains(&source.file_id) {
+      state.last_affected.insert(source.file_id.clone());
+    }
     next_files.insert(
       source.file_id.clone(),
       CachedCandidate {
@@ -220,11 +253,11 @@ fn scan_parallel(
         analyzed: Arc::clone(&item),
       },
     );
-    analyzed.push(item);
   }
   for outcome in parsed {
     match outcome {
       Ok((source, item, environment)) => {
+        parse_files.insert(source.file_id.clone());
         state.last_affected.insert(source.file_id.clone());
         next_files.insert(
           source.file_id.clone(),
@@ -234,22 +267,17 @@ fn scan_parallel(
             analyzed: Arc::clone(&item),
           },
         );
-        analyzed.push(item);
       }
       Err(error) => {
         if let Some(file) = &error.file {
+          parse_files.insert(file.clone());
           state.last_affected.insert(file.clone());
         }
         issues.push(error);
       }
     }
   }
-  apply_context_invalidation(
-    &mut state.last_affected,
-    input,
-    &previous.last_context_epochs,
-    &input.project_context.epochs,
-  );
+  apply_context_consumers(&mut state.last_affected, input, &impact);
   state.last_context_epochs = input.project_context.epochs;
   expand_reverse_dependencies(&mut state.last_affected, &previous.reverse_dependencies);
   state.files = Arc::new(next_files);
@@ -258,11 +286,22 @@ fn scan_parallel(
     input.sources.iter().filter(|source| matches!(&source.kind, SourceKind::Vue)).count();
   let mut project_files = Vec::new();
   let mut pending_vue = Vec::new();
-  for item in &analyzed {
-    match item.as_ref() {
-      AnalyzedCandidate::Vue { project_file, pending } => {
+  // Prefer `state.files` so environment refreshes (no re-parse) reach rules.
+  for cached in state.files.values() {
+    match cached.analyzed.as_ref() {
+      AnalyzedCandidate::Vue { project_file, pending, .. } => {
         project_files.push(Arc::clone(project_file));
-        pending_vue.push(Arc::clone(pending));
+        let environment = cached.environment.clone().unwrap_or_default();
+        if pending.environment == environment {
+          pending_vue.push(Arc::clone(pending));
+        } else {
+          pending_vue.push(Arc::new(PendingVueFile {
+            file_id: pending.file_id.clone(),
+            source: Arc::clone(&pending.source),
+            environment,
+            facts: Arc::clone(&pending.facts),
+          }));
+        }
       }
       AnalyzedCandidate::Script { project_file } => {
         project_files.push(Arc::clone(project_file));
@@ -273,13 +312,15 @@ fn scan_parallel(
   let graph = build_project_graph_incremental_with_options(
     &input.boundary,
     project_files.iter().map(AsRef::as_ref),
-    TraceModulesOptions { max_workers, reuse_current_pool: true },
+    TraceModulesOptions { max_workers, reuse_current_pool: true, ..Default::default() },
     &input.project_context,
-    Arc::make_mut(&mut state.project),
+    &mut state.project,
   );
   if cancelled() {
     return Err(SessionError::Cancelled);
   }
+  let project_stats = state.project.last_stats();
+  let graph_cow_clones = u64::try_from(project_stats.partition_cow_clones).unwrap_or(u64::MAX);
   issues.extend(graph.reactivity_issues.iter().map(|issue| AnalysisIssue {
     stage: AnalysisStage::ModuleTracing,
     file: issue.module.as_ref().map(ModuleId::file_id),
@@ -289,6 +330,9 @@ fn scan_parallel(
   let reverse_dependencies = reverse_dependency_index(&graph);
   expand_reverse_dependencies(&mut state.last_affected, &reverse_dependencies);
   state.reverse_dependencies = Arc::new(reverse_dependencies);
+  state.last_plan =
+    Arc::new(dirty_plan_from(&impact, parse_files, &state.last_affected, &input.sources));
+  let plan = Arc::clone(&state.last_plan);
   let modules = graph
     .module_reactivity
     .iter()
@@ -306,16 +350,29 @@ fn scan_parallel(
       let key = FileRuleInputKey::new(
         &pending.source,
         &pending.environment,
-        primary_graph.clone(),
-        ordinary_graph.clone(),
+        primary_graph.as_ref().map(Arc::clone),
+        ordinary_graph.as_ref().map(Arc::clone),
       );
-      if !state.last_affected.contains(&file_id)
-        && let Some(cached) = previous.file_diagnostics.get(&file_id)
+      // Outside DirtyPlan.rule_files: keep the previous finalized diagnostics.
+      // Inside the plan: FileRuleInputKey still allows reuse when IR is unchanged.
+      if !plan.rule_files.contains(&file_id) {
+        if let Some(cached) = previous.file_diagnostics.get(&file_id) {
+          return (
+            file_id,
+            CachedFileDiagnostics {
+              key: cached.key.clone(),
+              diagnostics: Arc::clone(&cached.diagnostics),
+            },
+            false,
+          );
+        }
+      } else if let Some(cached) = previous.file_diagnostics.get(&file_id)
         && cached.key == key
       {
         return (
           file_id,
           CachedFileDiagnostics { key, diagnostics: Arc::clone(&cached.diagnostics) },
+          false,
         );
       }
       let mut facts = (*pending.facts).clone();
@@ -332,29 +389,52 @@ fn scan_parallel(
         &facts.script,
         pending.environment.clone(),
       );
-      (file_id, CachedFileDiagnostics { key, diagnostics: diagnostics.into() })
+      (file_id, CachedFileDiagnostics { key, diagnostics: diagnostics.into() }, true)
     })
     .collect::<Vec<_>>();
   if cancelled() {
     return Err(SessionError::Cancelled);
   }
 
+  let rules_rerun = u64::try_from(file_diagnostics.iter().filter(|(_, _, reran)| *reran).count())
+    .unwrap_or(u64::MAX);
   state.file_diagnostics = Arc::new(
-    file_diagnostics.iter().map(|(file, cached)| (file.clone(), cached.clone())).collect(),
+    file_diagnostics.iter().map(|(file, cached, _)| (file.clone(), cached.clone())).collect(),
   );
   let mut raw_diagnostics = file_diagnostics
     .into_iter()
-    .flat_map(|(_, cached)| cached.diagnostics.iter().cloned().collect::<Vec<_>>())
+    .flat_map(|(_, cached, _)| cached.diagnostics.iter().cloned().collect::<Vec<_>>())
     .collect::<Vec<_>>();
   raw_diagnostics.extend(graph.diagnostics.clone());
   raw_diagnostics.extend(issues.iter().filter_map(issue_diagnostic));
+  let diagnostics_finalized = u64::try_from(raw_diagnostics.len()).unwrap_or(u64::MAX);
   let sources = input
     .sources
     .iter()
     .filter(|source| matches!(&source.kind, SourceKind::Vue))
     .map(|source| (source.file_id.clone(), Arc::clone(&source.source)));
   let summary = DiagnosticFinalizer::new(config, sources).finalize(files_scanned, raw_diagnostics);
-  Ok(ScanResult { summary, graph, issues })
+
+  // Phase-one still walks every module summary (cheap when already attached).
+  // Seed-plan / export-resolve counters come from ModuleTraceState linking cache.
+  let module_summaries_visited = u64::try_from(graph.module_reactivity.len()).unwrap_or(u64::MAX);
+  let seed_plans_recomputed =
+    u64::try_from(project_stats.seed_plans_recomputed).unwrap_or(u64::MAX);
+
+  let work = ScanWorkCounters {
+    files_visited: u64::try_from(input.sources.len()).unwrap_or(u64::MAX),
+    files_parsed,
+    files_reused,
+    structural_partitions_rebuilt: u64::try_from(project_stats.structural_files_rebuilt)
+      .unwrap_or(u64::MAX),
+    module_summaries_visited,
+    seed_plans_recomputed,
+    graph_cow_clones,
+    rules_rerun,
+    diagnostics_finalized,
+  };
+  state.last_work = work;
+  Ok(ScanResult { summary, graph, issues, work })
 }
 
 #[cfg(test)]
@@ -391,27 +471,20 @@ mod file_rule_key_tests {
   }
 }
 
-const fn epochs_invalidate_all_sources(previous: &ContextEpochs, current: &ContextEpochs) -> bool {
-  previous.package_manifest != current.package_manifest
-    || previous.lockfile != current.lockfile
-    || previous.tsconfig != current.tsconfig
-    || previous.source_membership != current.source_membership
-}
-
-fn apply_context_invalidation(
+/// Mark diagnostic / rule consumers when context changes without re-parsing.
+fn apply_context_consumers(
   last_affected: &mut BTreeSet<FileId>,
   input: &WorkspaceInputSnapshot,
-  previous: &ContextEpochs,
-  current: &ContextEpochs,
+  impact: &ChangeImpact,
 ) {
-  let invalidate_all = epochs_invalidate_all_sources(previous, current);
-  if invalidate_all {
-    // package.json participates in module resolution (imports/exports/main), not
-    // only RuleEnvironment capabilities — force all source consumers.
+  use crate::locality::ResolutionScope;
+  if impact.resolution != ResolutionScope::None || impact.membership {
+    // Resolution / membership still invalidates all graph consumers until
+    // partitioned linking lands; it must not re-parse unchanged bytes.
     last_affected.extend(input.sources.iter().map(|source| source.file_id.clone()));
     return;
   }
-  if previous.nuxt_declarations != current.nuxt_declarations {
+  if impact.component_index {
     last_affected.extend(
       input
         .sources
@@ -420,24 +493,33 @@ fn apply_context_invalidation(
         .map(|source| source.file_id.clone()),
     );
   }
+  last_affected.extend(impact.environment.iter().cloned());
 }
 
 #[derive(Clone, Debug)]
 enum AnalyzedCandidate {
-  Vue { project_file: Arc<ProjectFile>, pending: Arc<PendingVueFile> },
-  Script { project_file: Arc<ProjectFile> },
+  Vue {
+    project_file: Arc<ProjectFile>,
+    pending: Arc<PendingVueFile>,
+    /// Retained for SFC block-level reuse on the next edit.
+    sfc: Arc<AnalyzedSfc>,
+  },
+  Script {
+    project_file: Arc<ProjectFile>,
+  },
 }
 
 fn analyze_candidate(
   input: &SourceInput,
   environment: Option<RuleEnvironment>,
+  previous_sfc: Option<&AnalyzedSfc>,
 ) -> Result<AnalyzedCandidate, AnalysisIssue> {
   match &input.kind {
     SourceKind::Vue => {
       let environment = environment.unwrap_or_default();
       let analysis =
-        analyze_sfc_facts(input.file_id.as_path(), &input.source).map_err(|error| {
-          AnalysisIssue {
+        analyze_sfc_facts_reusing(input.file_id.as_path(), &input.source, previous_sfc).map_err(
+          |error| AnalysisIssue {
             stage: match &error {
               AnalyzeError::Parse(_) | AnalyzeError::Template(_) => AnalysisStage::SfcParse,
               AnalyzeError::Script(_) => AnalysisStage::ScriptParse,
@@ -445,18 +527,19 @@ fn analyze_candidate(
             file: Some(input.file_id.clone()),
             message: format!("failed to analyze {}: {error}", input.physical_path.display()),
             recoverability: Recoverability::File,
-          }
-        })?;
-      let facts = Arc::new(analysis.facts);
+          },
+        )?;
+      let sfc = Arc::new(analysis);
+      let facts = Arc::new(sfc.facts.clone());
       let project_file = Arc::new(ProjectFile {
         path: input.file_id.clone(),
         source_len: input.source.len(),
         facts: Arc::clone(&facts),
-        module_source: analysis.module_source.map(|mut module| {
+        module_source: sfc.module_source.clone().map(|mut module| {
           module.id = ModuleId::primary(&input.file_id);
           module
         }),
-        ordinary_module_source: analysis.ordinary_module_source.map(|mut module| {
+        ordinary_module_source: sfc.ordinary_module_source.clone().map(|mut module| {
           module.id = ModuleId::ordinary(&input.file_id);
           module
         }),
@@ -469,6 +552,7 @@ fn analyze_candidate(
           environment,
           facts,
         }),
+        sfc,
       })
     }
     SourceKind::Script { language } => {

@@ -207,7 +207,7 @@ fn report_context(path: &Path, snapshot: &AnalysisSnapshot) -> ReportContext {
     mode: ReportMode::Full,
     framework: detect_framework(path),
     project_root,
-    analyzed_files: snapshot.analyzed_files.clone(),
+    analyzed_files: snapshot.analyzed_files.as_ref().to_vec(),
     complete: snapshot.complete(),
     skipped_check_reasons,
     reactivity: None,

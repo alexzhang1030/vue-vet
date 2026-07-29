@@ -9,8 +9,9 @@ use vize_atelier_core::{
 };
 use vize_atelier_sfc::{SfcDescriptor, SfcParseOptions, parse_sfc};
 use vue_vet_core::{
-  ScriptFacts, ScriptKind, SfcFacts, SourceSpan, TemplateAttributeFact, TemplateDirectiveFact,
-  TemplateElementFact, TemplateExpressionFact, TemplateFacts,
+  ScriptBlockFacts, ScriptFacts, ScriptKind, SfcFacts, SourceSpan, TemplateAttributeFact,
+  TemplateDirectiveFact, TemplateElementFact, TemplateExpressionFact, TemplateFacts,
+  content_digest,
 };
 use vue_vet_oxc::{
   AnalyzeScriptError, analyze_module_source, slot_prop_alias_identifiers,
@@ -28,6 +29,7 @@ pub enum AnalyzeError {
   Script(#[from] AnalyzeScriptError),
 }
 
+#[derive(Clone, Debug)]
 pub struct AnalyzedSfc {
   pub facts: SfcFacts,
   /// Preferred script block for cross-module reactivity (`script setup` > `script`).
@@ -35,6 +37,24 @@ pub struct AnalyzedSfc {
   /// Ordinary `<script>` block when dual-script SFCs also have `<script setup>`.
   /// Id is `{path}#script` so both blocks re-trace with module seeds independently.
   pub ordinary_module_source: Option<ModuleSource>,
+  /// Content + absolute span fingerprints for block-level reuse.
+  pub revisions: SfcBlockRevisions,
+}
+
+/// Fingerprints for SFC blocks that can be reused across edits.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SfcBlockRevisions {
+  pub template: Option<BlockFingerprint>,
+  pub script: Option<BlockFingerprint>,
+  pub script_setup: Option<BlockFingerprint>,
+}
+
+/// Content digest plus absolute location — location drift forces re-extract.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BlockFingerprint {
+  pub content_digest: String,
+  pub start: usize,
+  pub end: usize,
 }
 
 /// Analyze one Vue SFC and retain its dependency-neutral project facts.
@@ -48,7 +68,8 @@ pub fn analyze_sfc_with_facts(path: &Path, source: &str) -> Result<AnalyzedSfc, 
 }
 
 thread_local! {
-  static SFC_LINE_INDEX: RefCell<Option<vue_vet_core::LineIndex>> = const { RefCell::new(None) };
+  /// Installed for one SFC analysis from a shared [`vue_vet_core::SourceContext`].
+  static SFC_LINE_INDEX: RefCell<Option<Arc<vue_vet_core::LineIndex>>> = const { RefCell::new(None) };
 }
 
 /// Extract SFC facts and module identity without running built-in rules.
@@ -60,66 +81,186 @@ thread_local! {
 ///
 /// Returns the same parse / template / script errors as [`analyze_sfc_with_facts`].
 pub fn analyze_sfc_facts(path: &Path, source: &str) -> Result<AnalyzedSfc, AnalyzeError> {
+  analyze_sfc_facts_reusing(path, source, None)
+}
+
+/// Analyze an SFC, reusing unchanged template/script blocks from `previous`.
+///
+/// Style-only edits that do not move other blocks reuse the prior analysis
+/// entirely. Template-only or script-only edits rebuild just the dirty blocks.
+///
+/// # Errors
+///
+/// Returns the same parse / template / script errors as [`analyze_sfc_facts`].
+pub fn analyze_sfc_facts_reusing(
+  path: &Path,
+  source: &str,
+  previous: Option<&AnalyzedSfc>,
+) -> Result<AnalyzedSfc, AnalyzeError> {
+  // Index only — avoid `SourceContext::new(&str)` copying the SFC into `Arc<str>`.
+  let line_index = Arc::new(vue_vet_core::LineIndex::new(source));
   SFC_LINE_INDEX.with(|slot| {
-    *slot.borrow_mut() = Some(vue_vet_core::LineIndex::new(source));
+    *slot.borrow_mut() = Some(line_index);
   });
-  let result = analyze_sfc_facts_inner(path, source);
+  let result = analyze_sfc_facts_inner(path, source, previous);
   SFC_LINE_INDEX.with(|slot| {
     *slot.borrow_mut() = None;
   });
   result
 }
 
-fn analyze_sfc_facts_inner(path: &Path, source: &str) -> Result<AnalyzedSfc, AnalyzeError> {
+fn analyze_sfc_facts_inner(
+  path: &Path,
+  source: &str,
+  previous: Option<&AnalyzedSfc>,
+) -> Result<AnalyzedSfc, AnalyzeError> {
   let descriptor = parse_sfc(source, SfcParseOptions::default())
     .map_err(|error| AnalyzeError::Parse(error.message.into()))?;
+  let revisions = revisions_from_descriptor(&descriptor);
+  if let Some(previous) = previous
+    && previous.revisions == revisions
+  {
+    // Style-only (or identical) edit: every tracked block fingerprint matches.
+    let (module_source, ordinary_module_source) = dual_module_sources(path, source, &descriptor);
+    let module_source = attach_reused_summaries(module_source, previous.module_source.as_ref());
+    let ordinary_module_source =
+      attach_reused_summaries(ordinary_module_source, previous.ordinary_module_source.as_ref());
+    return Ok(AnalyzedSfc {
+      facts: previous.facts.clone(),
+      module_source,
+      ordinary_module_source,
+      revisions,
+    });
+  }
+
   let (mut module_source, mut ordinary_module_source) =
     dual_module_sources(path, source, &descriptor);
   let has_script_setup = descriptor.script_setup.is_some();
-  let template = if let Some(template) = descriptor.template {
+  let reuse_template = previous.is_some_and(|prev| prev.revisions.template == revisions.template);
+  let reuse_script = previous.is_some_and(|prev| prev.revisions.script == revisions.script);
+  let reuse_setup =
+    previous.is_some_and(|prev| prev.revisions.script_setup == revisions.script_setup);
+
+  let template = if reuse_template {
+    previous.map(|prev| prev.facts.template.clone()).unwrap_or_default()
+  } else if let Some(template) = descriptor.template {
     // Vize already supplies template content + absolute SFC content offsets.
     extract_template_facts(source, &template.content, template.loc.start)?
   } else {
     TemplateFacts::default()
   };
+
   let mut script = ScriptFacts::default();
+  let mut script_rebuilt = false;
   if let Some(block) = descriptor.script {
-    // `block.loc.start/end` are absolute offsets into the original SFC source.
-    let analysis = analyze_module_source(
-      source,
-      &block.content,
-      block.loc.start,
-      block.lang.as_deref().unwrap_or("js"),
-      ScriptKind::Script,
-    )?;
+    let (script_facts, summary) = if reuse_script
+      && let Some(previous) = previous
+      && let Some(facts) = previous_script_block(&previous.facts, ScriptKind::Script)
+    {
+      let summary = if has_script_setup {
+        previous.ordinary_module_source.as_ref().and_then(ModuleSource::module_summary)
+      } else {
+        previous.module_source.as_ref().and_then(ModuleSource::module_summary)
+      };
+      (facts.clone(), summary)
+    } else {
+      script_rebuilt = true;
+      // `block.loc.start/end` are absolute offsets into the original SFC source.
+      let analysis = analyze_module_source(
+        source,
+        &block.content,
+        block.loc.start,
+        block.lang.as_deref().unwrap_or("js"),
+        ScriptKind::Script,
+      )?;
+      (analysis.script_facts, Some(Arc::new(analysis.module_trace)))
+    };
     let target = if has_script_setup { &mut ordinary_module_source } else { &mut module_source };
     if let Some(module) = target.take() {
-      *target = Some(module.with_module_summary(analysis.module_trace));
+      *target = Some(match summary {
+        Some(summary) => module.with_module_summary(summary),
+        None => module,
+      });
     }
-    script.blocks.push(analysis.script_facts);
+    script.blocks.push(script_facts);
   }
   if let Some(block) = descriptor.script_setup {
-    let analysis = analyze_module_source(
-      source,
-      &block.content,
-      block.loc.start,
-      block.lang.as_deref().unwrap_or("js"),
-      ScriptKind::Setup,
-    )?;
+    let (script_facts, summary) = if reuse_setup
+      && let Some(previous) = previous
+      && let Some(facts) = previous_script_block(&previous.facts, ScriptKind::Setup)
+    {
+      (facts.clone(), previous.module_source.as_ref().and_then(ModuleSource::module_summary))
+    } else {
+      script_rebuilt = true;
+      let analysis = analyze_module_source(
+        source,
+        &block.content,
+        block.loc.start,
+        block.lang.as_deref().unwrap_or("js"),
+        ScriptKind::Setup,
+      )?;
+      (analysis.script_facts, Some(Arc::new(analysis.module_trace)))
+    };
     if let Some(module) = module_source.take() {
-      module_source = Some(module.with_module_summary(analysis.module_trace));
+      module_source = Some(match summary {
+        Some(summary) => module.with_module_summary(summary),
+        None => module,
+      });
     }
-    script.blocks.push(analysis.script_facts);
+    script.blocks.push(script_facts);
   }
-  // Join Vize template expressions onto Oxc script reactive bindings, then
-  // qualify edge `to_id` with the logical file path (graph v8).
-  let module_id = path.to_string_lossy().replace('\\', "/");
-  for block in &mut script.blocks {
-    let graph = Arc::make_mut(&mut block.reactivity_graph);
-    graph.join_template_reads(&template);
-    graph.set_module_id(module_id.clone());
+
+  // Join when template or any script block was rebuilt; full reuse already joined.
+  let needs_join = !reuse_template || script_rebuilt;
+  if needs_join {
+    let module_id = path.to_string_lossy().replace('\\', "/");
+    for block in &mut script.blocks {
+      let graph = Arc::make_mut(&mut block.reactivity_graph);
+      graph.join_template_reads(&template);
+      graph.set_module_id(module_id.clone());
+    }
   }
-  Ok(AnalyzedSfc { facts: SfcFacts { template, script }, module_source, ordinary_module_source })
+  Ok(AnalyzedSfc {
+    facts: SfcFacts { template, script },
+    module_source,
+    ordinary_module_source,
+    revisions,
+  })
+}
+
+fn revisions_from_descriptor(descriptor: &SfcDescriptor<'_>) -> SfcBlockRevisions {
+  SfcBlockRevisions {
+    template: descriptor
+      .template
+      .as_ref()
+      .map(|block| fingerprint(block.content.as_ref(), block.loc.start, block.loc.end)),
+    script: descriptor
+      .script
+      .as_ref()
+      .map(|block| fingerprint(block.content.as_ref(), block.loc.start, block.loc.end)),
+    script_setup: descriptor
+      .script_setup
+      .as_ref()
+      .map(|block| fingerprint(block.content.as_ref(), block.loc.start, block.loc.end)),
+  }
+}
+
+fn fingerprint(content: &str, start: usize, end: usize) -> BlockFingerprint {
+  BlockFingerprint { content_digest: content_digest(content.as_bytes()), start, end }
+}
+
+fn previous_script_block(facts: &SfcFacts, kind: ScriptKind) -> Option<&ScriptBlockFacts> {
+  facts.script.blocks.iter().find(|block| block.kind == kind)
+}
+
+fn attach_reused_summaries(
+  fresh: Option<ModuleSource>,
+  previous: Option<&ModuleSource>,
+) -> Option<ModuleSource> {
+  match (fresh, previous.and_then(ModuleSource::module_summary)) {
+    (Some(module), Some(summary)) => Some(module.with_module_summary(summary)),
+    (module, _) => module,
+  }
 }
 
 /// Primary (`script setup` preferred) and optional ordinary dual companion.
@@ -205,6 +346,22 @@ impl TemplateAliasScopes {
   }
 }
 
+/// Bottom-up subtree flags — each template node is visited once.
+#[derive(Clone, Copy, Debug, Default)]
+struct SubtreeSummary {
+  accessible_content: bool,
+  labelable_control: bool,
+}
+
+impl SubtreeSummary {
+  const fn or(self, other: Self) -> Self {
+    Self {
+      accessible_content: self.accessible_content || other.accessible_content,
+      labelable_control: self.labelable_control || other.labelable_control,
+    }
+  }
+}
+
 fn collect_children(
   source: &str,
   template_offset: usize,
@@ -212,11 +369,13 @@ fn collect_children(
   facts: &mut TemplateFacts,
   scopes: &mut TemplateAliasScopes,
   label_depth: usize,
-) {
+) -> SubtreeSummary {
+  let mut summary = SubtreeSummary::default();
   for child in children {
     match child {
       TemplateChildNode::Element(element) => {
-        collect_element(source, template_offset, element, facts, scopes, label_depth);
+        summary =
+          summary.or(collect_element(source, template_offset, element, facts, scopes, label_depth));
       }
       TemplateChildNode::Interpolation(interpolation) => {
         push_expression_fact(
@@ -227,13 +386,27 @@ fn collect_children(
           facts,
           scopes,
         );
+        summary.accessible_content = true;
+      }
+      TemplateChildNode::Text(text) if !text.content.trim().is_empty() => {
+        summary.accessible_content = true;
+      }
+      TemplateChildNode::TextCall(_) | TemplateChildNode::CompoundExpression(_) => {
+        summary.accessible_content = true;
       }
       TemplateChildNode::If(if_node) => {
         for branch in &if_node.branches {
           if let Some(condition) = &branch.condition {
             push_expression_fact(source, template_offset, "if", condition, facts, scopes);
           }
-          collect_children(source, template_offset, &branch.children, facts, scopes, label_depth);
+          summary = summary.or(collect_children(
+            source,
+            template_offset,
+            &branch.children,
+            facts,
+            scopes,
+            label_depth,
+          ));
         }
       }
       TemplateChildNode::For(for_node) => {
@@ -241,22 +414,35 @@ fn collect_children(
         let aliases = structural_for_aliases(for_node);
         push_expression_fact(source, template_offset, "for", &for_node.source, facts, scopes);
         scopes.push(aliases.clone());
-        collect_children(source, template_offset, &for_node.children, facts, scopes, label_depth);
+        summary = summary.or(collect_children(
+          source,
+          template_offset,
+          &for_node.children,
+          facts,
+          scopes,
+          label_depth,
+        ));
         scopes.pop_if(&aliases);
       }
       TemplateChildNode::IfBranch(branch) => {
         if let Some(condition) = &branch.condition {
           push_expression_fact(source, template_offset, "if", condition, facts, scopes);
         }
-        collect_children(source, template_offset, &branch.children, facts, scopes, label_depth);
+        summary = summary.or(collect_children(
+          source,
+          template_offset,
+          &branch.children,
+          facts,
+          scopes,
+          label_depth,
+        ));
       }
       TemplateChildNode::Text(_)
       | TemplateChildNode::Comment(_)
-      | TemplateChildNode::TextCall(_)
-      | TemplateChildNode::CompoundExpression(_)
       | TemplateChildNode::Hoisted(_) => {}
     }
   }
+  summary
 }
 
 fn collect_element(
@@ -266,7 +452,7 @@ fn collect_element(
   facts: &mut TemplateFacts,
   scopes: &mut TemplateAliasScopes,
   label_depth: usize,
-) {
+) -> SubtreeSummary {
   let offset = template_offset.saturating_add(position_offset(element.loc.start.offset));
   let end = template_offset.saturating_add(position_offset(element.loc.end.offset));
   let mut attributes = Vec::new();
@@ -329,76 +515,44 @@ fn collect_element(
     }
   }
 
+  let child_label_depth = if element.tag.as_str().eq_ignore_ascii_case("label") {
+    label_depth.saturating_add(1)
+  } else {
+    label_depth
+  };
+  // Preserve parent-before-child element order for deterministic fixtures.
+  let element_index = facts.elements.len();
   facts.elements.push(TemplateElementFact {
     tag: element.tag.to_string(),
     span: source_span(source, offset, end.saturating_sub(offset)),
     attributes,
     directives,
     has_children: !element.children.is_empty(),
-    has_accessible_content: element_has_accessible_content(element),
-    has_labelable_descendant: children_have_labelable_control(&element.children),
+    has_accessible_content: false,
+    has_labelable_descendant: false,
     has_label_ancestor: label_depth > 0,
   });
-  let child_label_depth = if element.tag.as_str().eq_ignore_ascii_case("label") {
-    label_depth.saturating_add(1)
-  } else {
-    label_depth
-  };
-  collect_children(source, template_offset, &element.children, facts, scopes, child_label_depth);
+  let child_summary =
+    collect_children(source, template_offset, &element.children, facts, scopes, child_label_depth);
+  let content_directive = element_has_content_directive(element);
+  let has_accessible_content = content_directive || child_summary.accessible_content;
+  if let Some(fact) = facts.elements.get_mut(element_index) {
+    fact.has_accessible_content = has_accessible_content;
+    fact.has_labelable_descendant = child_summary.labelable_control;
+  }
   scopes.pop_if(&local_aliases);
-}
 
-/// Screen-reader content for a11y rules (`anchor-has-content`, `button-has-content`).
-/// Element-only trees (icon wrappers) do not count; `aria-hidden` subtrees are skipped.
-fn element_has_accessible_content(element: &ElementNode<'_>) -> bool {
-  if element_has_content_directive(element) {
-    return true;
+  // Parents skip aria-hidden subtrees for accessible-content propagation.
+  let propagate_accessible = if element_is_aria_hidden(element) {
+    false
+  } else {
+    element_provides_alt_name(element) || content_directive || child_summary.accessible_content
+  };
+  SubtreeSummary {
+    accessible_content: propagate_accessible,
+    labelable_control: is_labelable_control_tag(element.tag.as_str())
+      || child_summary.labelable_control,
   }
-  children_have_accessible_content(&element.children)
-}
-
-fn children_have_accessible_content(children: &[TemplateChildNode<'_>]) -> bool {
-  for child in children {
-    match child {
-      TemplateChildNode::Text(text) if !text.content.trim().is_empty() => return true,
-      TemplateChildNode::Interpolation(_)
-      | TemplateChildNode::CompoundExpression(_)
-      | TemplateChildNode::TextCall(_) => return true,
-      TemplateChildNode::Element(child_element) => {
-        if element_is_aria_hidden(child_element) {
-          continue;
-        }
-        if element_provides_alt_name(child_element) || element_has_content_directive(child_element)
-        {
-          return true;
-        }
-        if children_have_accessible_content(&child_element.children) {
-          return true;
-        }
-      }
-      TemplateChildNode::If(if_node) => {
-        for branch in &if_node.branches {
-          if children_have_accessible_content(&branch.children) {
-            return true;
-          }
-        }
-      }
-      TemplateChildNode::For(for_node) => {
-        if children_have_accessible_content(&for_node.children) {
-          return true;
-        }
-      }
-      TemplateChildNode::IfBranch(branch) => {
-        if children_have_accessible_content(&branch.children) {
-          return true;
-        }
-      }
-      TemplateChildNode::Text(_)
-      | TemplateChildNode::Comment(_)
-      | TemplateChildNode::Hoisted(_) => {}
-    }
-  }
-  false
 }
 
 fn element_has_content_directive(element: &ElementNode<'_>) -> bool {
@@ -427,45 +581,6 @@ fn element_is_aria_hidden(element: &ElementNode<'_>) -> bool {
         return true;
       }
       _ => {}
-    }
-  }
-  false
-}
-
-fn children_have_labelable_control(children: &[TemplateChildNode<'_>]) -> bool {
-  for child in children {
-    match child {
-      TemplateChildNode::Element(child_element) => {
-        if is_labelable_control_tag(child_element.tag.as_str()) {
-          return true;
-        }
-        if children_have_labelable_control(&child_element.children) {
-          return true;
-        }
-      }
-      TemplateChildNode::If(if_node) => {
-        for branch in &if_node.branches {
-          if children_have_labelable_control(&branch.children) {
-            return true;
-          }
-        }
-      }
-      TemplateChildNode::For(for_node) => {
-        if children_have_labelable_control(&for_node.children) {
-          return true;
-        }
-      }
-      TemplateChildNode::IfBranch(branch) => {
-        if children_have_labelable_control(&branch.children) {
-          return true;
-        }
-      }
-      TemplateChildNode::Text(_)
-      | TemplateChildNode::Comment(_)
-      | TemplateChildNode::Interpolation(_)
-      | TemplateChildNode::TextCall(_)
-      | TemplateChildNode::CompoundExpression(_)
-      | TemplateChildNode::Hoisted(_) => {}
     }
   }
   false
@@ -595,7 +710,7 @@ fn line_column(source: &str, offset: usize) -> (usize, usize) {
   SFC_LINE_INDEX.with(|slot| {
     slot.borrow().as_ref().map_or_else(
       || vue_vet_core::LineIndex::new(source).byte_to_line_column(offset),
-      |index| index.byte_to_line_column(offset),
+      |index| index.as_ref().byte_to_line_column(offset),
     )
   })
 }
@@ -636,6 +751,55 @@ mod tests {
   #[expect(clippy::panic, reason = "an unexpected parser error must fail the test")]
   fn analysis_for_test(path: &Path, source: &str) -> AnalyzedSfc {
     match analyze_sfc_with_facts(path, source) {
+      Ok(analysis) => analysis,
+      Err(error) => panic!("analysis unexpectedly failed: {error}"),
+    }
+  }
+
+  #[test]
+  fn style_only_edit_reuses_template_and_script_blocks() {
+    let path = Path::new("Reuse.vue");
+    let base = concat!(
+      "<script setup lang=\"ts\">\nimport { ref } from 'vue'\nconst count = ref(0)\n</script>\n",
+      "<template><p>{{ count }}</p></template>\n",
+      "<style>.a { color: red; }</style>\n",
+    );
+    let first = analysis_for_test(path, base);
+    let style_only = concat!(
+      "<script setup lang=\"ts\">\nimport { ref } from 'vue'\nconst count = ref(0)\n</script>\n",
+      "<template><p>{{ count }}</p></template>\n",
+      "<style>.a { color: blue; }</style>\n",
+    );
+    let second = analysis_reusing_for_test(path, style_only, &first);
+    assert_eq!(first.revisions, second.revisions);
+    assert_eq!(first.facts, second.facts);
+    assert!(
+      second.module_source.as_ref().and_then(ModuleSource::module_summary).is_some(),
+      "reused analysis must keep module summary"
+    );
+  }
+
+  #[test]
+  fn template_only_edit_keeps_script_fingerprint() {
+    let path = Path::new("Tpl.vue");
+    let base = concat!(
+      "<script setup lang=\"ts\">\nimport { ref } from 'vue'\nconst count = ref(0)\n</script>\n",
+      "<template><p>{{ count }}</p></template>\n",
+    );
+    let first = analysis_for_test(path, base);
+    let template_only = concat!(
+      "<script setup lang=\"ts\">\nimport { ref } from 'vue'\nconst count = ref(0)\n</script>\n",
+      "<template><span>{{ count }}</span></template>\n",
+    );
+    let second = analysis_reusing_for_test(path, template_only, &first);
+    assert_eq!(first.revisions.script_setup, second.revisions.script_setup);
+    assert_ne!(first.revisions.template, second.revisions.template);
+    assert_ne!(first.facts.template, second.facts.template);
+  }
+
+  #[expect(clippy::panic, reason = "an unexpected parser error must fail the test")]
+  fn analysis_reusing_for_test(path: &Path, source: &str, previous: &AnalyzedSfc) -> AnalyzedSfc {
+    match analyze_sfc_facts_reusing(path, source, Some(previous)) {
       Ok(analysis) => analysis,
       Err(error) => panic!("analysis unexpectedly failed: {error}"),
     }

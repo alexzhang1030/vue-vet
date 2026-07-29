@@ -79,7 +79,9 @@ struct TraceSeeds {
 }
 
 thread_local! {
-  static TRACE_LINE_INDEX: RefCell<Option<vue_vet_core::LineIndex>> = const { RefCell::new(None) };
+  /// Installed for one trace from a shared [`vue_vet_core::SourceContext`] line index.
+  static TRACE_LINE_INDEX: RefCell<Option<std::sync::Arc<vue_vet_core::LineIndex>>> =
+    const { RefCell::new(None) };
 }
 
 fn trace_reactivity_seeded(
@@ -89,8 +91,11 @@ fn trace_reactivity_seeded(
   script_kind: ScriptKind,
   seeds: &TraceSeeds,
 ) -> ReactivityGraph {
+  // Index only — do not `SourceContext::new(&str)` here; that copies the whole
+  // buffer into `Arc<str>` on every module and regresses cold `trace_*` benches.
+  let line_index = std::sync::Arc::new(vue_vet_core::LineIndex::new(sfc_source));
   TRACE_LINE_INDEX.with(|slot| {
-    *slot.borrow_mut() = Some(vue_vet_core::LineIndex::new(sfc_source));
+    *slot.borrow_mut() = Some(line_index);
   });
   let graph =
     trace_reactivity_seeded_inner(semantic, sfc_source, script_offset, script_kind, seeds);
@@ -203,6 +208,8 @@ fn collect_local_composable_usage(
   script_offset: usize,
 ) -> (ComposableShapeMap, Vec<ReactiveBindingFact>, LocalComposableDefs) {
   let mut composables = LocalComposableDefs::new();
+  // Lazy index — skip full return walks when the file has no function candidates.
+  let mut returns_by_function = None;
 
   // `function useX() { return { field: ref(0) } }`
   for node in semantic.nodes() {
@@ -212,11 +219,14 @@ fn collect_local_composable_usage(
     let Some(identifier) = &function.id else {
       continue;
     };
-    let shape = modules::composable_return_shape(
+    let index =
+      returns_by_function.get_or_insert_with(|| modules::build_returns_by_function(semantic));
+    let shape = modules::composable_return_shape_with_index(
       semantic,
       function.node_id.get(),
       shape_graph,
       script_offset,
+      index,
     );
     if shape.is_empty() {
       continue;
@@ -240,7 +250,15 @@ fn collect_local_composable_usage(
       Expression::FunctionExpression(function) => function.node_id.get(),
       _ => continue,
     };
-    let shape = modules::composable_return_shape(semantic, function_id, shape_graph, script_offset);
+    let index =
+      returns_by_function.get_or_insert_with(|| modules::build_returns_by_function(semantic));
+    let shape = modules::composable_return_shape_with_index(
+      semantic,
+      function_id,
+      shape_graph,
+      script_offset,
+      index,
+    );
     if shape.is_empty() {
       continue;
     }
@@ -1428,34 +1446,101 @@ fn path_guards(
   guards
 }
 
-fn is_after_top_level_await(
+/// Per-tracking-scope control-flow facts built once, then used to classify reads.
+struct TrackingScopeIR {
+  /// Ends of top-level `await` expressions owned by this scope (sorted ascending).
+  await_ends: Vec<u32>,
+  /// `(call_end, is_pause)` pause/resume events owned by this scope (sorted by end).
+  pause_events: Vec<(u32, bool)>,
+}
+
+fn build_tracking_scope_ir(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
-  read: &RawReactiveRead,
-) -> bool {
-  semantic.nodes().iter_enumerated().any(|(await_id, node)| {
-    let AstKind::AwaitExpression(await_expression) = node.kind() else {
-      return false;
-    };
-    if await_expression.span.end > read.span.start {
-      return false;
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> TrackingScopeIR {
+  let mut await_ends = Vec::new();
+  let mut pause_events = Vec::new();
+  for (node_id, node) in semantic.nodes().iter_enumerated() {
+    match node.kind() {
+      AstKind::AwaitExpression(await_expression) => {
+        if scope_owns_await(semantic, scope_id, node_id) {
+          await_ends.push(await_expression.span.end);
+        }
+      }
+      AstKind::CallExpression(call) => {
+        if !scope_owns_pause_call(semantic, scope_id, call.node_id.get()) {
+          continue;
+        }
+        if is_pause_tracking_call(semantic, call, imported_bindings) {
+          pause_events.push((call.span.end, true));
+        } else if is_resume_tracking_call(semantic, call, imported_bindings) {
+          pause_events.push((call.span.end, false));
+        }
+      }
+      _ => {}
     }
+  }
+  await_ends.sort_unstable();
+  pause_events.sort_by_key(|(end, _)| *end);
+  TrackingScopeIR { await_ends, pause_events }
+}
 
-    for ancestor_id in semantic.nodes().ancestor_ids(await_id) {
-      if ancestor_id == scope_id {
-        return true;
-      }
-      match semantic.nodes().kind(ancestor_id) {
-        AstKind::ArrowFunctionExpression(_)
-        | AstKind::Function(_)
-        | AstKind::IfStatement(_)
-        | AstKind::ConditionalExpression(_)
-        | AstKind::LogicalExpression(_) => return false,
-        _ => {}
-      }
+fn scope_owns_await(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
+  await_id: NodeId,
+) -> bool {
+  for ancestor_id in semantic.nodes().ancestor_ids(await_id) {
+    if ancestor_id == scope_id {
+      return true;
     }
-    false
-  })
+    match semantic.nodes().kind(ancestor_id) {
+      AstKind::ArrowFunctionExpression(_)
+      | AstKind::Function(_)
+      | AstKind::IfStatement(_)
+      | AstKind::ConditionalExpression(_)
+      | AstKind::LogicalExpression(_) => return false,
+      _ => {}
+    }
+  }
+  false
+}
+
+fn scope_owns_pause_call(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
+  call_id: NodeId,
+) -> bool {
+  for ancestor_id in semantic.nodes().ancestor_ids(call_id) {
+    if ancestor_id == scope_id {
+      return true;
+    }
+    if matches!(
+      semantic.nodes().kind(ancestor_id),
+      AstKind::ArrowFunctionExpression(_) | AstKind::Function(_)
+    ) {
+      return false;
+    }
+  }
+  false
+}
+
+fn is_after_top_level_await_ir(ir: &TrackingScopeIR, read: &RawReactiveRead) -> bool {
+  // Any await that fully precedes the read.
+  let index = ir.await_ends.partition_point(|&end| end <= read.span.start);
+  index > 0
+}
+
+fn is_after_pause_tracking_ir(ir: &TrackingScopeIR, read: &RawReactiveRead) -> bool {
+  let mut paused = false;
+  for (end, is_pause) in &ir.pause_events {
+    if *end > read.span.start {
+      break;
+    }
+    paused = *is_pause;
+  }
+  paused
 }
 
 fn is_pause_tracking_call(
@@ -1476,52 +1561,6 @@ fn is_resume_tracking_call(
     .is_some_and(|callee| matches!(callee.as_str(), "enableTracking" | "resetTracking"))
 }
 
-/// True when a top-level `pauseTracking()` in the scope precedes the read without a resume.
-fn is_after_pause_tracking(
-  semantic: &oxc_semantic::Semantic<'_>,
-  scope_id: NodeId,
-  read: &RawReactiveRead,
-  imported_bindings: &BTreeMap<String, (String, String)>,
-) -> bool {
-  let mut paused = false;
-  let mut events = Vec::new();
-  for node in semantic.nodes() {
-    let AstKind::CallExpression(call) = node.kind() else {
-      continue;
-    };
-    let call_id = call.node_id.get();
-    let mut owned = false;
-    for ancestor_id in semantic.nodes().ancestor_ids(call_id) {
-      if ancestor_id == scope_id {
-        owned = true;
-        break;
-      }
-      if matches!(
-        semantic.nodes().kind(ancestor_id),
-        AstKind::ArrowFunctionExpression(_) | AstKind::Function(_)
-      ) {
-        break;
-      }
-    }
-    if !owned {
-      continue;
-    }
-    if is_pause_tracking_call(semantic, call, imported_bindings) {
-      events.push((call.span.end, true));
-    } else if is_resume_tracking_call(semantic, call, imported_bindings) {
-      events.push((call.span.end, false));
-    }
-  }
-  events.sort_by_key(|(end, _)| *end);
-  for (end, is_pause) in events {
-    if end > read.span.start {
-      break;
-    }
-    paused = is_pause;
-  }
-  paused
-}
-
 struct ClassifyRead<'a> {
   semantic: &'a oxc_semantic::Semantic<'a>,
   scope_id: NodeId,
@@ -1530,12 +1569,41 @@ struct ClassifyRead<'a> {
   read: &'a RawReactiveRead,
   sfc_source: &'a str,
   script_offset: usize,
-  imported_bindings: &'a BTreeMap<String, (String, String)>,
+  ir: &'a TrackingScopeIR,
+}
+
+fn classify_scope_reads(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
+  body: Option<&FunctionBody<'_>>,
+  raw_reads: &[RawReactiveRead],
+  sfc_source: &str,
+  script_offset: usize,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> Vec<ReactiveReadFact> {
+  if raw_reads.is_empty() {
+    return Vec::new();
+  }
+  let ir = build_tracking_scope_ir(semantic, scope_id, imported_bindings);
+  raw_reads
+    .iter()
+    .map(|read| {
+      classify_read(&ClassifyRead {
+        semantic,
+        scope_id,
+        body,
+        raw_reads,
+        read,
+        sfc_source,
+        script_offset,
+        ir: &ir,
+      })
+    })
+    .collect()
 }
 
 fn classify_read(input: &ClassifyRead<'_>) -> ReactiveReadFact {
-  let outside = input.read.outside_tracking
-    || is_after_pause_tracking(input.semantic, input.scope_id, input.read, input.imported_bindings);
+  let outside = input.read.outside_tracking || is_after_pause_tracking_ir(input.ir, input.read);
   let guards = if outside {
     Vec::new()
   } else {
@@ -1543,7 +1611,7 @@ fn classify_read(input: &ClassifyRead<'_>) -> ReactiveReadFact {
   };
   let kind = if outside {
     ReactiveReadKind::OutsideTracking
-  } else if is_after_top_level_await(input.semantic, input.scope_id, input.read) {
+  } else if is_after_top_level_await_ir(input.ir, input.read) {
     ReactiveReadKind::AfterAwait
   } else if guards.is_empty() {
     ReactiveReadKind::Unconditional
@@ -1777,21 +1845,15 @@ fn collect_tracking_scopes(
         imported_bindings,
         script_offset,
       );
-      let reads = raw_reads
-        .iter()
-        .map(|read| {
-          classify_read(&ClassifyRead {
-            semantic,
-            scope_id,
-            body,
-            raw_reads: &raw_reads,
-            read,
-            sfc_source,
-            script_offset,
-            imported_bindings,
-          })
-        })
-        .collect();
+      let reads = classify_scope_reads(
+        semantic,
+        scope_id,
+        body,
+        &raw_reads,
+        sfc_source,
+        script_offset,
+        imported_bindings,
+      );
       scopes.push(finish_scope(ScopeBuild {
         kind: TrackingScopeKind::EffectScope,
         callee: "effectScope.run".into(),
@@ -1842,21 +1904,15 @@ fn collect_tracking_scopes(
           imported_bindings,
           script_offset,
         );
-        let mut reads = raw_reads
-          .iter()
-          .map(|read| {
-            classify_read(&ClassifyRead {
-              semantic,
-              scope_id,
-              body,
-              raw_reads: &raw_reads,
-              read,
-              sfc_source,
-              script_offset,
-              imported_bindings,
-            })
-          })
-          .collect::<Vec<_>>();
+        let mut reads = classify_scope_reads(
+          semantic,
+          scope_id,
+          body,
+          &raw_reads,
+          sfc_source,
+          script_offset,
+          imported_bindings,
+        );
         if scope_kind == TrackingScopeKind::OnScopeDispose {
           for read in &mut reads {
             read.kind = ReactiveReadKind::OutsideTracking;
@@ -1896,21 +1952,15 @@ fn collect_tracking_scopes(
             imported_bindings,
             script_offset,
           );
-          let reads = raw_reads
-            .iter()
-            .map(|read| {
-              classify_read(&ClassifyRead {
-                semantic,
-                scope_id,
-                body,
-                raw_reads: &raw_reads,
-                read,
-                sfc_source,
-                script_offset,
-                imported_bindings,
-              })
-            })
-            .collect();
+          let reads = classify_scope_reads(
+            semantic,
+            scope_id,
+            body,
+            &raw_reads,
+            sfc_source,
+            script_offset,
+            imported_bindings,
+          );
           scopes.push(finish_scope(ScopeBuild {
             kind: TrackingScopeKind::EffectScope,
             callee: callee.clone(),
@@ -1962,25 +2012,23 @@ fn collect_tracking_scopes(
             imported_bindings,
             script_offset,
           );
-          let reads = raw_reads
-            .iter()
-            .map(|read| {
-              let mut fact = classify_read(&ClassifyRead {
-                semantic,
-                scope_id,
-                body,
-                raw_reads: &raw_reads,
-                read,
-                sfc_source,
-                script_offset,
-                imported_bindings,
-              });
-              fact.kind = ReactiveReadKind::OutsideTracking;
-              fact.guards.clear();
-              fact.guarded_by = None;
-              fact
-            })
-            .collect();
+          let reads = classify_scope_reads(
+            semantic,
+            scope_id,
+            body,
+            &raw_reads,
+            sfc_source,
+            script_offset,
+            imported_bindings,
+          )
+          .into_iter()
+          .map(|mut fact| {
+            fact.kind = ReactiveReadKind::OutsideTracking;
+            fact.guards.clear();
+            fact.guarded_by = None;
+            fact
+          })
+          .collect();
           scopes.push(finish_scope(ScopeBuild {
             kind: TrackingScopeKind::WatchCallback,
             callee,
@@ -2127,21 +2175,15 @@ fn collect_watch_getter_reads(
     ctx.imported_bindings,
     ctx.script_offset,
   );
-  raw_reads
-    .iter()
-    .map(|read| {
-      classify_read(&ClassifyRead {
-        semantic: ctx.semantic,
-        scope_id,
-        body,
-        raw_reads: &raw_reads,
-        read,
-        sfc_source: ctx.sfc_source,
-        script_offset: ctx.script_offset,
-        imported_bindings: ctx.imported_bindings,
-      })
-    })
-    .collect()
+  classify_scope_reads(
+    ctx.semantic,
+    scope_id,
+    body,
+    &raw_reads,
+    ctx.sfc_source,
+    ctx.script_offset,
+    ctx.imported_bindings,
+  )
 }
 
 fn collect_expression_source_reads(
@@ -2243,7 +2285,7 @@ fn source_span(source: &str, base: usize, span: Span) -> SourceSpan {
   let (line, column) = TRACE_LINE_INDEX.with(|slot| {
     slot.borrow().as_ref().map_or_else(
       || vue_vet_core::LineIndex::new(source).byte_to_line_column(offset),
-      |index| index.byte_to_line_column(offset),
+      |index| index.as_ref().byte_to_line_column(offset),
     )
   });
   SourceSpan { offset, length: end.saturating_sub(offset), line, column }
@@ -2255,6 +2297,7 @@ mod prop_flow;
 pub use modules::{
   ModuleLink, ModuleReactivity, ModuleSource, ModuleSummary, ModuleTraceState, PreparedModuleTrace,
   TraceModulesError, TraceModulesOptions, TraceModulesReport, TraceModulesStats,
+  build_returns_by_function, composable_return_shape, composable_return_shape_with_index,
   prepare_module_summary, prepare_module_trace, trace_modules,
   trace_modules_incremental_with_options, trace_modules_with_options,
 };

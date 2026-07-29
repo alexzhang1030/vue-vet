@@ -8,6 +8,7 @@ mod diagnostics;
 mod discovery;
 mod explain;
 mod invalidation;
+mod locality;
 mod package_index;
 mod path;
 mod pipeline;
@@ -32,13 +33,13 @@ use vue_vet_core::{
   WorkspaceRoot,
 };
 use vue_vet_practice::practice_rules;
-use vue_vet_project::ContextEpochs;
 use vue_vet_project::{PROJECT_RULE_IDS, ProjectGraph};
 use vue_vet_rules::builtin_rules;
 
 use self::discovery::{WorkspaceInputSnapshot, file_id_for_physical};
 
 pub use explain::Explained;
+pub use locality::{AnalysisProduct, ChangeImpact, DirtyPlan, ResolutionScope, ScanWorkCounters};
 pub use path::resolve_under_root;
 pub use scan::scan_directory;
 
@@ -62,22 +63,24 @@ pub struct SessionOptions {
 
 /// Deterministic analysis result shared across surfaces.
 ///
-/// Heavy payloads are `Arc` so commit/`last_snapshot`/noop reuse only bumps
-/// refcounts instead of cloning the project graph.
+/// Every heavy field is `Arc`. `Clone` / noop / product publish only bumps
+/// refcounts — never deep-copies diagnostics, graphs, coverage, or path lists.
 #[derive(Clone, Debug)]
 pub struct AnalysisSnapshot {
   pub summary: Arc<ScanSummary>,
   pub graph: Arc<ProjectGraph>,
   pub cache_status: &'static str,
-  pub coverage: AnalysisCoverage,
-  pub issues: Vec<AnalysisIssue>,
+  pub coverage: Arc<AnalysisCoverage>,
+  pub issues: Arc<[AnalysisIssue]>,
   /// Normalized `/`-separated paths matching JSON `project.analyzed_files`.
-  pub analyzed_files: Vec<String>,
+  pub analyzed_files: Arc<[String]>,
+  /// Real work performed by the scan that produced this snapshot.
+  pub work: ScanWorkCounters,
 }
 
 impl AnalysisSnapshot {
   #[must_use]
-  pub const fn complete(&self) -> bool {
+  pub fn complete(&self) -> bool {
     self.issues.is_empty()
   }
 }
@@ -204,14 +207,14 @@ struct SessionInputs {
 #[derive(Clone, Debug, Default)]
 struct PendingChanges {
   files: BTreeSet<FileId>,
-  /// Package/lockfile/tsconfig/membership epochs require all sources to reparse.
-  invalidate_all_sources: bool,
+  /// Cold start / rediscover: every source must enter `analyze_candidate`.
+  force_full_parse: bool,
 }
 
 impl PendingChanges {
   fn clear(&mut self) {
     self.files.clear();
-    self.invalidate_all_sources = false;
+    self.force_full_parse = false;
   }
 
   fn merge_files(&mut self, files: impl IntoIterator<Item = FileId>) {
@@ -236,14 +239,7 @@ struct PreparedAnalysis {
   committed: Arc<scan::AnalysisState>,
   has_overlays: bool,
   dirty_files: BTreeSet<FileId>,
-  invalidate_all_sources: bool,
-}
-
-const fn epochs_invalidate_all_sources(previous: &ContextEpochs, current: &ContextEpochs) -> bool {
-  previous.package_manifest != current.package_manifest
-    || previous.lockfile != current.lockfile
-    || previous.tsconfig != current.tsconfig
-    || previous.source_membership != current.source_membership
+  force_full_parse: bool,
 }
 
 #[cfg(test)]
@@ -289,7 +285,7 @@ impl ProjectSession {
         committed_revision: 0,
         inputs: SessionInputs::default(),
         committed: Arc::new(scan::AnalysisState::default()),
-        pending: PendingChanges { invalidate_all_sources: true, ..PendingChanges::default() },
+        pending: PendingChanges { force_full_parse: true, ..PendingChanges::default() },
         last_snapshot: None,
       }),
       workspace_discoveries: AtomicU64::new(0),
@@ -428,19 +424,17 @@ impl ProjectSession {
     };
     apply_overlay_map(&mut next_inputs.overlays, &changes);
     if let Some(snapshot) = &mut next_inputs.snapshot {
-      let previous_epochs = snapshot.project_context.epochs;
       // `make_mut` clones once when `core.inputs` still shares the Arc.
       let affected = Arc::make_mut(snapshot).apply_changes_in_place(
         self.root.as_path(),
         &self.config,
         &changes,
       )?;
-      if epochs_invalidate_all_sources(&previous_epochs, &snapshot.project_context.epochs) {
-        core.pending.invalidate_all_sources = true;
-      }
+      // Context epochs are compared at scan time via ChangeImpact; do not force
+      // a full re-parse of unchanged source bytes.
       core.pending.merge_files(affected);
     } else {
-      core.pending.invalidate_all_sources = true;
+      core.pending.force_full_parse = true;
     }
     core.inputs = next_inputs;
     core.revision = core.revision.wrapping_add(1);
@@ -462,21 +456,34 @@ impl ProjectSession {
   ///
   /// Returns analysis or I/O failures.
   pub fn analyze_affected(&self) -> Result<AnalysisSnapshot, SessionError> {
+    self.analyze_affected_product(AnalysisProduct::FullReport)
+  }
+
+  /// Like [`Self::analyze_affected`], but controls which graph DTO fields are published.
+  ///
+  /// # Errors
+  ///
+  /// Returns analysis or I/O failures.
+  pub fn analyze_affected_product(
+    &self,
+    product: AnalysisProduct,
+  ) -> Result<AnalysisSnapshot, SessionError> {
     if let Some(snapshot) = self.noop_snapshot()? {
-      return Ok(snapshot);
+      return Ok(publish_product(&snapshot, product));
     }
     let prepared = self.prepare_analysis(false)?;
-    self.run_analysis(&prepared, true)
+    let snapshot = self.run_analysis_product(&prepared, true, product)?;
+    Ok(snapshot)
   }
 
   /// Return the last committed snapshot when no inputs changed since commit.
-  fn noop_snapshot(&self) -> Result<Option<AnalysisSnapshot>, SessionError> {
+  fn noop_snapshot(&self) -> Result<Option<Arc<AnalysisSnapshot>>, SessionError> {
     let core = self.lock_core()?;
     let snapshot = if core.revision == core.committed_revision
       && core.pending.files.is_empty()
-      && !core.pending.invalidate_all_sources
+      && !core.pending.force_full_parse
     {
-      core.last_snapshot.as_ref().map(|snapshot| AnalysisSnapshot::clone(snapshot))
+      core.last_snapshot.as_ref().map(Arc::clone)
     } else {
       None
     };
@@ -492,6 +499,52 @@ impl ProjectSession {
   pub fn affected_files(&self) -> Result<Vec<FileId>, SessionError> {
     let core = self.lock_core()?;
     Ok(core.committed.last_affected.iter().cloned().collect())
+  }
+
+  /// Real work counters from the most recent committed analysis.
+  ///
+  /// # Errors
+  ///
+  /// Returns when the session state lock was poisoned.
+  pub fn last_work_counters(&self) -> Result<ScanWorkCounters, SessionError> {
+    let core = self.lock_core()?;
+    Ok(core.committed.last_work())
+  }
+
+  /// Dirty-plan partitions from the most recent committed analysis.
+  ///
+  /// # Errors
+  ///
+  /// Returns when the session state lock was poisoned.
+  pub fn last_dirty_plan(&self) -> Result<Arc<DirtyPlan>, SessionError> {
+    let core = self.lock_core()?;
+    Ok(Arc::clone(&core.committed.last_plan))
+  }
+
+  /// Finalized diagnostics for one file from the last committed snapshot.
+  ///
+  /// # Errors
+  ///
+  /// Returns when the session state lock was poisoned.
+  pub fn diagnostics_for(
+    &self,
+    file_id: &FileId,
+  ) -> Result<Vec<vue_vet_core::Diagnostic>, SessionError> {
+    let summary = {
+      let core = self.lock_core()?;
+      core.last_snapshot.as_ref().map(|snapshot| Arc::clone(&snapshot.summary))
+    };
+    let Some(summary) = summary else {
+      return Ok(Vec::new());
+    };
+    Ok(
+      summary
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| &diagnostic.file == file_id)
+        .cloned()
+        .collect(),
+    )
   }
 
   /// Explain a rule id or opaque finding id.
@@ -546,18 +599,14 @@ impl ProjectSession {
       snapshot: core.inputs.snapshot.as_ref().map(Arc::clone),
     };
     if let Some(snapshot) = &mut next_inputs.snapshot {
-      let previous_epochs = snapshot.project_context.epochs;
       let affected = Arc::make_mut(snapshot).apply_changes_in_place(
         self.root.as_path(),
         &self.config,
         &changes,
       )?;
-      if epochs_invalidate_all_sources(&previous_epochs, &snapshot.project_context.epochs) {
-        core.pending.invalidate_all_sources = true;
-      }
       core.pending.merge_files(affected);
     } else {
-      core.pending.invalidate_all_sources = true;
+      core.pending.force_full_parse = true;
     }
     core.inputs = next_inputs;
     core.revision = core.revision.wrapping_add(1);
@@ -574,7 +623,7 @@ impl ProjectSession {
       let snapshot =
         WorkspaceInputSnapshot::discover(self.root.as_path(), &self.config, &core.inputs.overlays)?;
       core.inputs.snapshot = Some(Arc::new(snapshot));
-      core.pending.invalidate_all_sources = true;
+      core.pending.force_full_parse = true;
       self.workspace_discoveries.fetch_add(1, Ordering::Relaxed);
       if rediscover {
         core.revision = core.revision.wrapping_add(1);
@@ -586,15 +635,14 @@ impl ProjectSession {
       .as_ref()
       .map(Arc::clone)
       .ok_or_else(|| SessionError::message("workspace input snapshot was not initialized"))?;
-    let invalidate_all_sources =
-      core.pending.invalidate_all_sources || !core.committed.has_file_facts();
+    let force_full_parse = core.pending.force_full_parse || !core.committed.has_file_facts();
     Ok(PreparedAnalysis {
       revision: core.revision,
       input,
       committed: Arc::clone(&core.committed),
       has_overlays: !core.inputs.overlays.is_empty(),
       dirty_files: core.pending.files.clone(),
-      invalidate_all_sources,
+      force_full_parse,
     })
   }
 
@@ -602,6 +650,15 @@ impl ProjectSession {
     &self,
     prepared: &PreparedAnalysis,
     no_cache: bool,
+  ) -> Result<AnalysisSnapshot, SessionError> {
+    self.run_analysis_product(prepared, no_cache, AnalysisProduct::FullReport)
+  }
+
+  fn run_analysis_product(
+    &self,
+    prepared: &PreparedAnalysis,
+    no_cache: bool,
+    product: AnalysisProduct,
   ) -> Result<AnalysisSnapshot, SessionError> {
     let mut candidate = scan::AnalysisState::prepare_from(&prepared.committed);
     let cancelled = || !self.is_current_revision(prepared.revision);
@@ -615,7 +672,7 @@ impl ProjectSession {
       &mut candidate,
       &cancelled,
       &prepared.dirty_files,
-      prepared.invalidate_all_sources,
+      prepared.force_full_parse,
     ) {
       Ok(snapshot) => snapshot,
       Err(SessionError::Cancelled) => {
@@ -631,6 +688,7 @@ impl ProjectSession {
     }
     #[cfg(test)]
     Self::pause_at(&self.test_hooks.before_commit);
+    // Commit the full IR snapshot; trim only the caller-facing copy.
     let shared = Arc::new(snapshot);
     let mut core = self.lock_core()?;
     if core.revision != prepared.revision {
@@ -643,7 +701,7 @@ impl ProjectSession {
     core.pending.clear();
     drop(core);
     self.committed_analyses.fetch_add(1, Ordering::Relaxed);
-    Ok(AnalysisSnapshot::clone(&shared))
+    Ok(publish_product(&shared, product))
   }
 
   fn is_current_revision(&self, revision: u64) -> bool {
@@ -698,6 +756,46 @@ pub fn resolve_rule_meta(rule_id: &str) -> Option<&'static RuleMeta> {
 
 fn known_rule_ids() -> impl Iterator<Item = &'static str> {
   file_analysis_registry().metadata().into_iter().map(|meta| meta.id).chain(PROJECT_RULE_IDS)
+}
+
+fn publish_product(snapshot: &AnalysisSnapshot, product: AnalysisProduct) -> AnalysisSnapshot {
+  let graph = match product {
+    AnalysisProduct::FullReport => Arc::clone(&snapshot.graph),
+    // Trimmed DTOs are newly allocated shells; the committed snapshot keeps the
+    // full graph Arc untouched (no make_mut / clear of shared state).
+    AnalysisProduct::DiagnosticsAndNavigation => {
+      let full = snapshot.graph.as_ref();
+      Arc::new(ProjectGraph {
+        conventions_version: full.conventions_version,
+        nodes: full.nodes.clone(),
+        edges: full.edges.clone(),
+        diagnostics: Vec::new(),
+        invalidation_inputs: full.invalidation_inputs.clone(),
+        module_reactivity: Vec::new(),
+        reactivity_issues: full.reactivity_issues.clone(),
+        reactivity_error: full.reactivity_error.clone(),
+      })
+    }
+    AnalysisProduct::DiagnosticsOnly => Arc::new(ProjectGraph {
+      conventions_version: snapshot.graph.conventions_version,
+      nodes: Vec::new(),
+      edges: Vec::new(),
+      diagnostics: Vec::new(),
+      invalidation_inputs: Vec::new(),
+      module_reactivity: Vec::new(),
+      reactivity_issues: Vec::new(),
+      reactivity_error: None,
+    }),
+  };
+  AnalysisSnapshot {
+    summary: Arc::clone(&snapshot.summary),
+    graph,
+    cache_status: snapshot.cache_status,
+    coverage: Arc::clone(&snapshot.coverage),
+    issues: Arc::clone(&snapshot.issues),
+    analyzed_files: Arc::clone(&snapshot.analyzed_files),
+    work: snapshot.work,
+  }
 }
 
 fn apply_overlay_map(
