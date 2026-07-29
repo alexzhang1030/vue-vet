@@ -6,6 +6,7 @@ use vue_vet_core::{
   ScanSummary, Severity, SourceSpan, diagnostic_id,
 };
 
+mod color;
 mod component_nav;
 mod explain;
 mod github;
@@ -62,6 +63,8 @@ pub struct ReportContext {
   pub reactivity: Option<ReactivityDigest>,
   /// Structural component `uses` / `used_by` (not prop dataflow).
   pub component_nav: Option<ComponentNavDigest>,
+  /// When true, text reports wrap ANSI styles. Default false for snapshots / CI.
+  pub color: bool,
 }
 
 impl Default for ReportContext {
@@ -75,6 +78,7 @@ impl Default for ReportContext {
       skipped_check_reasons: BTreeMap::new(),
       reactivity: None,
       component_nav: None,
+      color: false,
     }
   }
 }
@@ -331,55 +335,64 @@ fn normalize_path(path: &str) -> String {
 }
 
 fn render_text(summary: &ScanSummary, context: &ReportContext) -> String {
+  let color = context.color;
   let mut output = String::new();
   let (lint, practice): (Vec<_>, Vec<_>) =
     summary.diagnostics.iter().partition(|diagnostic| diagnostic.category != PRACTICE_CATEGORY);
   for diagnostic in &lint {
-    append_text_diagnostic(&mut output, diagnostic);
+    append_text_diagnostic(&mut output, diagnostic, color);
   }
   if !practice.is_empty() {
     if !lint.is_empty() {
       output.push('\n');
     }
-    output.push_str("Suggestions\n");
+    output.push_str(&color::header("Suggestions", color));
+    output.push('\n');
     for diagnostic in &practice {
-      append_text_diagnostic(&mut output, diagnostic);
+      append_text_diagnostic(&mut output, diagnostic, color);
     }
   }
   output.push('\n');
-  output.push_str("Vue Vet score: ");
-  output.push_str(&summary.score.to_string());
+  output.push_str(&color::score_label(color));
+  output.push_str(": ");
+  output.push_str(&color::score_value(&summary.score.to_string(), color));
   output.push_str("/100 — ");
   output.push_str(&summary.files_scanned.to_string());
   output.push_str(" file(s), ");
   output.push_str(&summary.diagnostics.len().to_string());
   output.push_str(" finding(s)");
   if let Some(digest) = &context.reactivity {
-    output.push_str(&render_reactivity_footer(digest));
+    output.push_str(&render_reactivity_footer(digest, color));
   }
   output
 }
 
-fn append_text_diagnostic(output: &mut String, diagnostic: &Diagnostic) {
-  output.push_str(&diagnostic.file.display().to_string());
-  output.push(':');
-  output.push_str(&diagnostic.span.line.to_string());
-  output.push(':');
-  output.push_str(&diagnostic.span.column.to_string());
+fn append_text_diagnostic(output: &mut String, diagnostic: &Diagnostic, color: bool) {
+  let location =
+    format!("{}:{}:{}", diagnostic.file.display(), diagnostic.span.line, diagnostic.span.column);
+  output.push_str(&color::location(&location, color));
   output.push_str("  ");
-  output.push_str(severity_name(diagnostic.severity));
+  output.push_str(&color::severity_label(
+    diagnostic.severity,
+    severity_name(diagnostic.severity),
+    color,
+  ));
   output.push_str("  ");
-  output.push_str(&diagnostic.rule_id);
+  output.push_str(&color::rule_id(&diagnostic.rule_id, color));
   output.push_str("  ");
   output.push_str(&diagnostic.message);
   output.push('\n');
   if let Some(help) = &diagnostic.help {
-    output.push_str("  help: ");
+    output.push_str("  ");
+    output.push_str(&color::help_prefix(color));
+    output.push(' ');
     output.push_str(help);
     output.push('\n');
   }
   if let Some(recommendation) = &diagnostic.recommendation {
-    output.push_str("  recommend: ");
+    output.push_str("  ");
+    output.push_str(&color::recommend_prefix(color));
+    output.push(' ');
     output.push_str(&recommendation.package);
     output.push(' ');
     output.push_str(&recommendation.export);
@@ -443,6 +456,21 @@ mod tests {
       rendered.as_deref().ok().map(str::trim_end),
       Some(include_str!("../../../fixtures/reporters/no-v-html.txt").trim_end()),
       "text output must retain its stable snapshot"
+    );
+  }
+
+  #[test]
+  fn text_report_color_wraps_severity_and_location() {
+    let context = ReportContext { color: true, ..fixture_context() };
+    let rendered = render(&fixture_summary(), ReportFormat::Text, &context);
+    assert!(
+      rendered.as_ref().is_ok_and(|output| {
+        output.contains('\u{1b}')
+          && output.contains("warning")
+          && output.contains("no-v-html.vue")
+          && output.contains("Reactivity")
+      }),
+      "colored text must wrap ANSI while keeping readable labels: {rendered:?}"
     );
   }
 

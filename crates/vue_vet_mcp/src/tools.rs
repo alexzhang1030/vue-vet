@@ -212,6 +212,7 @@ fn report_context(path: &Path, snapshot: &AnalysisSnapshot) -> ReportContext {
     skipped_check_reasons,
     reactivity: None,
     component_nav: None,
+    color: false,
   }
 }
 

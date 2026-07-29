@@ -4101,6 +4101,7 @@ dependencies = [
 name = "vue_vet_reporters"
 version = "0.1.14"
 dependencies = [
+ "anstyle",
  "serde",
  "serde_json",
  "vue_vet_core",

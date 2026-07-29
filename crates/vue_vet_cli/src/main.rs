@@ -1,6 +1,7 @@
 use std::{
   collections::BTreeMap,
   fs,
+  io::IsTerminal,
   path::{Path, PathBuf},
   process::ExitCode,
   sync::Arc,
@@ -37,6 +38,15 @@ struct Cli {
 
   #[arg(long, value_enum, default_value = "text")]
   format: OutputFormat,
+
+  #[arg(
+    long,
+    value_enum,
+    default_value = "auto",
+    value_name = "WHEN",
+    help = "When to color text reports: auto (TTY; honors NO_COLOR / FORCE_COLOR), always, or never"
+  )]
+  color: ColorWhen,
 
   #[arg(long, help = "Return exit code 1 for warnings as well as errors")]
   deny_warnings: bool,
@@ -175,6 +185,31 @@ enum OutputFormat {
   Json,
   Sarif,
   Github,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum ColorWhen {
+  Auto,
+  Always,
+  Never,
+}
+
+fn color_enabled(when: ColorWhen) -> bool {
+  match when {
+    ColorWhen::Always => true,
+    ColorWhen::Never => false,
+    ColorWhen::Auto => {
+      if std::env::var_os("NO_COLOR").is_some_and(|value| !value.is_empty()) {
+        return false;
+      }
+      if std::env::var_os("FORCE_COLOR").is_some_and(|value| !value.is_empty())
+        || std::env::var_os("CLICOLOR_FORCE").is_some_and(|value| !value.is_empty())
+      {
+        return true;
+      }
+      std::io::stdout().is_terminal()
+    }
+  }
 }
 
 impl From<OutputFormat> for ReportFormat {
@@ -371,6 +406,7 @@ fn report_context(cli: &Cli, snapshot: &AnalysisSnapshot) -> ReportContext {
     skipped_check_reasons,
     reactivity: Some(digest),
     component_nav,
+    color: color_enabled(cli.color),
   }
 }
 
@@ -657,6 +693,7 @@ fn operational_failure(cli: &Cli, message: &str) -> ExitCode {
       skipped_check_reasons: BTreeMap::from([("scan".into(), message.into())]),
       reactivity: None,
       component_nav: None,
+      color: false,
     };
     match render_error(message, &context) {
       Ok(output) => println!("{output}"),
