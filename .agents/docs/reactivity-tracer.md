@@ -58,7 +58,7 @@ for rule matching).
 
 | Axis | Status | Covered (in-scope) | Remaining |
 | --- | --- | --- | --- |
-| A1 Bindings | complete | Vue primitives, aliases, `#imports`, bare Nuxt/auto-import allowlist, `defineModel`, `defineProps`, `withDefaults(defineProps())`, `storeToRefs`, `useRoute`/`useRouter`, `unref`/`toValue`, module seeds, **factory call returns** (`Factory(Ref|Reactive)` from body / `.d.ts`), **`.d.ts` object-bag returns** (`{ field: Ref }` / same-file interface·type alias → destructure seeds) | — |
+| A1 Bindings | complete | Vue primitives, aliases, `#imports`, bare Nuxt/auto-import allowlist, `defineModel`, `defineProps`, `withDefaults(defineProps())`, `storeToRefs`, `useRoute`/`useRouter`, `unref`/`toValue`, module seeds, **factory call returns** (`Factory(Ref|Reactive)` from body / `.d.ts`), **`.d.ts` object-bag returns** (`{ field: Ref }` / same-file interface·type alias → destructure seeds), **typed `Ref`/`ComputedRef` parameters & declarators** (scope classification; nested locals span-resolved) | — |
 | A2 Scopes | complete | effects, computed getter/`{ get, set }`, watch sources + callback outside, effectScope `.run` + provenance, dispose, **Render** (options `render` / `setup`→render / functional export / same-file `defineComponent` factory+alias+one-hop forwarder) | cross-file opaque factories stay quiet unless options structure is local |
 | A3 Reads | complete | `.value` / members / bag.field / sync Array·String·`Array.from`·`JSON.parse` HOF / watch ref `.value` / `unref`·`toValue` / bare `watch(reactive)` deep root `*` | — |
 | A4 Conditions | complete | if / early-exit / ternary / short-circuit / switch roles (fact metadata; diagnostics are scope-aware Conditional rules, not per-role ids — #136) | — (no further depth) |

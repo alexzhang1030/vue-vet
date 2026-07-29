@@ -126,10 +126,10 @@ fn trace_reactivity_seeded_inner(
   seeds: &TraceSeeds,
 ) -> ReactivityGraph {
   let imported_bindings = collect_imported_bindings(semantic);
-  // Include function-local refs when resolving `return { signal }` shapes, but do
-  // not publish them as top-level graph bindings (they would collide with
-  // `const { signal } = useX()` seeds and invent bare-name edges).
-  let shape_bindings = collect_reactive_bindings(
+  // Include function-local refs when resolving `return { signal }` shapes and when
+  // classifying nested tracking scopes. Do not publish them as top-level graph
+  // bindings (they would collide with `const { signal } = useX()` seeds by name).
+  let mut scope_bindings = collect_reactive_bindings(
     semantic,
     &imported_bindings,
     sfc_source,
@@ -145,19 +145,26 @@ fn trace_reactivity_seeded_inner(
     script_kind,
     false,
   );
+  // `type: ComputedRef<T>` / `const x: Ref<T> = …` — typed parameters & declarators.
+  for binding in collect_typed_reactive_bindings(semantic, sfc_source, script_offset) {
+    push_binding_by_span(&mut scope_bindings, binding);
+  }
   for binding in &seeds.bindings {
     if !bindings.iter().any(|local| local.name == binding.name) {
       bindings.push(binding.clone());
     }
+    push_binding_by_span(&mut scope_bindings, binding.clone());
   }
 
   // Same-file composables: `function useX()` / `const useX = () => …` shapes, then
   // `const bag = useX()` / `const { field } = useX()` seeds. Cross-module seeds win
   // on name conflict (already linked by the module graph).
-  let shape_graph = ReactivityGraph { bindings: shape_bindings, ..ReactivityGraph::default() };
+  let shape_graph =
+    ReactivityGraph { bindings: scope_bindings.clone(), ..ReactivityGraph::default() };
   let (local_instances, local_destructured, local_composable_shapes) =
     collect_local_composable_usage(semantic, &shape_graph, sfc_source, script_offset);
   for binding in local_destructured {
+    push_binding_by_span(&mut scope_bindings, binding.clone());
     if !bindings.iter().any(|local| local.name == binding.name) {
       bindings.push(binding);
     }
@@ -178,6 +185,7 @@ fn trace_reactivity_seeded_inner(
   let injects = collect_inject_sites(semantic, &imported_bindings, &bindings, script_kind);
   let resolved = resolve_inject_links(&provides, &injects, sfc_source, script_offset);
   for binding in resolved.bindings {
+    push_binding_by_span(&mut scope_bindings, binding.clone());
     if !bindings.iter().any(|local| local.name == binding.name) {
       bindings.push(binding);
     }
@@ -188,11 +196,13 @@ fn trace_reactivity_seeded_inner(
 
   // `const alias = knownRef` — same object identity; seed before scopes so `.value` tracks.
   extend_with_reactive_aliases(semantic, &mut bindings, sfc_source, script_offset);
+  extend_with_reactive_aliases(semantic, &mut scope_bindings, sfc_source, script_offset);
 
+  // Classify scopes with function-local + typed bindings; publish top-level bindings only.
   let mut scopes = collect_tracking_scopes(
     semantic,
     &imported_bindings,
-    &bindings,
+    &scope_bindings,
     &composable_instances,
     sfc_source,
     script_offset,
@@ -200,7 +210,7 @@ fn trace_reactivity_seeded_inner(
   scopes.extend(collect_render_scopes(
     semantic,
     &imported_bindings,
-    &bindings,
+    &scope_bindings,
     &composable_instances,
     sfc_source,
     script_offset,
@@ -930,6 +940,67 @@ fn collect_binding_identifiers(
       collect_binding_identifiers(&assignment.left, identifiers);
     }
   }
+}
+
+fn push_binding_by_span(bindings: &mut Vec<ReactiveBindingFact>, binding: ReactiveBindingFact) {
+  if !bindings
+    .iter()
+    .any(|local| local.name == binding.name && local.span.offset == binding.span.offset)
+  {
+    bindings.push(binding);
+  }
+}
+
+/// Seed bindings from TypeScript ref-like annotations on parameters / declarators.
+///
+/// Example: `function useDetail(type: ComputedRef<T>)` so `type.value` classifies
+/// instead of becoming `uncertain_accesses` / `(maybe: type)`.
+fn collect_typed_reactive_bindings(
+  semantic: &oxc_semantic::Semantic<'_>,
+  sfc_source: &str,
+  script_offset: usize,
+) -> Vec<ReactiveBindingFact> {
+  let mut bindings = Vec::new();
+  for node in semantic.nodes() {
+    match node.kind() {
+      AstKind::FormalParameter(parameter) => {
+        let Some(annotation) = parameter.type_annotation.as_ref() else {
+          continue;
+        };
+        let Some(kind) = summary::ts_type_reactive_kind(&annotation.type_annotation) else {
+          continue;
+        };
+        let BindingPattern::BindingIdentifier(identifier) = &parameter.pattern else {
+          continue;
+        };
+        bindings.push(ReactiveBindingFact {
+          name: identifier.name.to_string(),
+          kind,
+          initialized_with_null: false,
+          span: source_span(sfc_source, script_offset, identifier.span),
+        });
+      }
+      AstKind::VariableDeclarator(declarator) => {
+        let Some(annotation) = declarator.type_annotation.as_ref() else {
+          continue;
+        };
+        let Some(kind) = summary::ts_type_reactive_kind(&annotation.type_annotation) else {
+          continue;
+        };
+        let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
+          continue;
+        };
+        bindings.push(ReactiveBindingFact {
+          name: identifier.name.to_string(),
+          kind,
+          initialized_with_null: false,
+          span: source_span(sfc_source, script_offset, identifier.span),
+        });
+      }
+      _ => {}
+    }
+  }
+  bindings
 }
 
 /// Propagate known reactive bindings through `const alias = known` (under-approx).

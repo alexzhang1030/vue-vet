@@ -1179,11 +1179,14 @@ fn signatures_are_plain_object_shaped(members: &[oxc_ast::ast::TSSignature<'_>])
   property_count > 0
 }
 
-/// Map a TypeScript return type surface to a reactive binding kind (under-approx).
+/// Map a TypeScript type surface to a reactive binding kind (under-approx).
 ///
 /// Only recognizes Vue ref-like type names (`Ref`, `ComputedRef`, …). Full checker
-/// inference and utility wrappers stay quiet.
-fn ts_type_reactive_kind(ts_type: &oxc_ast::ast::TSType<'_>) -> Option<ReactiveBindingKind> {
+/// inference and utility wrappers stay quiet. Used for declared returns and for
+/// seeding typed parameters / declarators (`type: ComputedRef<T>`).
+pub(super) fn ts_type_reactive_kind(
+  ts_type: &oxc_ast::ast::TSType<'_>,
+) -> Option<ReactiveBindingKind> {
   use oxc_ast::ast::{TSType, TSTypeName, TSTypeOperatorOperator};
   match ts_type {
     TSType::TSParenthesizedType(paren) => ts_type_reactive_kind(&paren.type_annotation),

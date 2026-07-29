@@ -1741,6 +1741,55 @@ fn uncertain_value_access_is_recorded_on_computed_scope() {
 }
 
 #[test]
+fn typed_computed_ref_parameters_classify_value_reads_inside_composables() {
+  let graph = graph(
+    "import { computed, type ComputedRef } from 'vue';\n\
+     function useDetail(type: ComputedRef<string>, deviceKey: ComputedRef<string>) {\n\
+       const deviceType = computed(() => type.value);\n\
+       const detail = computed(() => (type.value === 'a' ? deviceKey.value : ''));\n\
+       return { deviceType, detail };\n\
+     }",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.iter().any(|read| read.binding == "type")
+        && scope.uncertain_accesses.is_empty()
+    }),
+    "ComputedRef parameters must classify .value reads; got {:?}",
+    graph.scopes
+  );
+  assert!(
+    graph.scopes.iter().all(|scope| {
+      scope.kind != TrackingScopeKind::Computed || scope.uncertain_accesses.is_empty()
+    }),
+    "typed Ref parameters must not remain uncertain; got {:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn nested_local_refs_classify_inside_composable_computed() {
+  let graph = graph(
+    "import { ref, computed } from 'vue';\n\
+     function useX() {\n\
+       const count = ref(0);\n\
+       const doubled = computed(() => count.value * 2);\n\
+       return { doubled };\n\
+     }",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.iter().any(|read| read.binding == "count")
+        && !scope.uncertain_accesses.iter().any(|name| name == "count")
+    }),
+    "function-local ref must classify nested computed reads; got {:?}",
+    graph.scopes
+  );
+}
+
+#[test]
 fn nested_uncertain_value_and_alias_binding_are_handled() {
   let nested = graph(
     "import { computed } from 'vue';\n\
