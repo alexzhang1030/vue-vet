@@ -189,14 +189,14 @@ pub struct ProjectSession {
   test_hooks: SessionTestHooks,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 struct SessionInputs {
   overlays: BTreeMap<PathBuf, String>,
   snapshot: Option<Arc<WorkspaceInputSnapshot>>,
 }
 
 /// Dirty files accumulated since the last committed analysis.
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 struct PendingChanges {
   files: BTreeSet<FileId>,
   /// Cold start / rediscover: every source must enter `analyze_candidate`.
@@ -235,7 +235,7 @@ struct PreparedAnalysis {
 }
 
 #[cfg(test)]
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct PausePoint {
   entered: Arc<Barrier>,
   resume: Arc<Barrier>,

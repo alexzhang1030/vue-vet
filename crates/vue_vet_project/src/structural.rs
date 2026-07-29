@@ -38,7 +38,7 @@ pub struct StructuralFileCache {
   pub output: Arc<StructuralFileOutput>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct StructuralFileOutput {
   pub external_nodes: Vec<GraphNode>,
   pub edges: Vec<GraphEdge>,

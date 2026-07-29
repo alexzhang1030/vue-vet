@@ -173,7 +173,7 @@ fn analyze_sfc_facts_inner(
         block.lang.as_deref().unwrap_or("js"),
         ScriptKind::Script,
       )?;
-      (analysis.script_facts, Some(Arc::new(analysis.module_trace)))
+      (analysis.script_facts, Some(analysis.module_trace))
     };
     let target = if has_script_setup { &mut ordinary_module_source } else { &mut module_source };
     if let Some(module) = target.take() {
@@ -199,7 +199,7 @@ fn analyze_sfc_facts_inner(
         block.lang.as_deref().unwrap_or("js"),
         ScriptKind::Setup,
       )?;
-      (analysis.script_facts, Some(Arc::new(analysis.module_trace)))
+      (analysis.script_facts, Some(analysis.module_trace))
     };
     if let Some(module) = module_source.take() {
       module_source = Some(match summary {

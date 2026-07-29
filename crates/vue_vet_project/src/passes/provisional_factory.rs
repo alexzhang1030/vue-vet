@@ -54,8 +54,7 @@ impl ProvisionalFactoryMergePass {
     let impl_module =
       prepare_standalone_module_source(module.id.clone(), source_text, language).ok()?;
     let impl_summary = impl_module.module_summary()?;
-    let merged =
-      merge_declaration_implementation_summary((*summary).clone(), impl_summary.as_ref());
+    let merged = merge_declaration_implementation_summary(summary.as_ref(), impl_summary.as_ref());
     Some(module.clone().with_module_summary(merged))
   }
 }

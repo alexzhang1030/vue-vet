@@ -146,7 +146,7 @@ pub struct ModuleReactivity {
 }
 
 /// Failures while parsing, linking, or tracing a module set.
-#[derive(Clone, Debug, Eq, Error, PartialEq)]
+#[derive(Debug, Eq, Error, PartialEq)]
 pub enum TraceModulesError {
   #[error("duplicate reactivity module id `{0}`")]
   DuplicateModule(ModuleId),
@@ -194,7 +194,7 @@ pub(super) enum ExportSummary {
   Star { source: String },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub(super) struct DestructuredCallBinding {
   imported_local: String,
   property: String,
@@ -203,7 +203,7 @@ pub(super) struct DestructuredCallBinding {
 }
 
 /// `const bag = useFoo()` — whole-object composable call used via member access.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub(super) struct InstanceCallBinding {
   imported_local: String,
   local: String,
@@ -233,7 +233,7 @@ pub(super) enum ExportState {
 }
 
 /// Under-approx classification of a composable/factory function return.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 enum ComposableReturn {
   Object(BTreeMap<String, ReactiveBindingKind>),
   Factory(ReactiveBindingKind),
@@ -242,7 +242,7 @@ enum ComposableReturn {
 }
 
 /// Declared TypeScript return surface for factory/composable exports.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 enum DeclaredReturn {
   Factory(ReactiveBindingKind),
   Composable(BTreeMap<String, ReactiveBindingKind>),
@@ -252,7 +252,7 @@ enum DeclaredReturn {
 
 /// Export-resolution payload only — no source body, no owned reactivity graph.
 /// Shares [`ModuleSummary`] across the seed barrier instead of cloning its vectors.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub(super) struct ModuleExportFacts {
   pub(super) id: ModuleId,
   pub(super) summary: Arc<ModuleSummary>,
@@ -263,7 +263,7 @@ pub(super) struct ModuleExportFacts {
 /// Cross-file linking consumes this summary instead of parser ASTs. It is
 /// intentionally not disk-serializable: callers retain it only for the current
 /// analysis lifecycle, and Oxc nodes never cross the adapter boundary.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct ModuleSummary {
   imports: Vec<ImportSummary>,
   exports: Vec<ExportSummary>,
@@ -311,21 +311,15 @@ impl ModuleSummary {
       matches!(state, ExportState::DeclaredPlainObjectFactory | ExportState::BodyUnwrappedState)
     })
   }
-
-  /// Replace locals after merging a declaration file with its implementation body.
-  #[must_use]
-  fn with_locals(mut self, locals: BTreeMap<String, ExportState>) -> Self {
-    self.locals = locals;
-    self
-  }
 }
 
 /// Merge `.d.ts` declaration locals with companion implementation locals.
 ///
 /// `DeclaredPlainObjectFactory` + `BodyUnwrappedState` → `Factory(Reactive)`.
+/// Shares [`ModuleSummary::local_graph`] by `Arc` — does not deep-clone the graph.
 #[must_use]
 pub fn merge_declaration_implementation_summary(
-  declaration: ModuleSummary,
+  declaration: &ModuleSummary,
   implementation: &ModuleSummary,
 ) -> ModuleSummary {
   let mut merged = declaration.locals.clone();
@@ -356,7 +350,14 @@ pub fn merge_declaration_implementation_summary(
       _ => {}
     }
   }
-  declaration.with_locals(merged)
+  ModuleSummary {
+    imports: declaration.imports.clone(),
+    exports: declaration.exports.clone(),
+    locals: merged,
+    provides: declaration.provides.clone(),
+    injects: declaration.injects.clone(),
+    local_graph: Arc::clone(&declaration.local_graph),
+  }
 }
 
 /// Parse a standalone module and attach its [`ModuleSummary`] (external seed path).

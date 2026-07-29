@@ -35,10 +35,10 @@ pub enum AnalyzeScriptError {
 }
 
 /// Facts produced from one Oxc parse for both file rules and module linking.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ModuleAnalysis {
   pub script_facts: ScriptBlockFacts,
-  pub module_trace: ModuleSummary,
+  pub module_trace: Arc<ModuleSummary>,
 }
 
 /// Analyze one extracted Vue SFC script block and map all facts to original
@@ -92,13 +92,13 @@ pub fn analyze_module_source(
     collect_node_facts(&semantic, &imported_bindings, &line_index, sfc_source, script_offset);
 
   let reactivity_graph = Arc::new(trace_reactivity(&semantic, sfc_source, script_offset, kind));
-  let module_trace = prepare_module_summary(
+  let module_trace = Arc::new(prepare_module_summary(
     &semantic,
     sfc_source,
     script_offset,
     kind,
     Arc::clone(&reactivity_graph),
-  );
+  ));
 
   imports.sort_by_key(|fact| fact.span.offset);
   node_facts.calls.sort_by_key(|fact| fact.span.offset);

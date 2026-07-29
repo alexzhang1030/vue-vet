@@ -37,7 +37,7 @@ use crate::{
   package_index::PackageIndex,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct CachedCandidate {
   source: Arc<str>,
   environment: Option<RuleEnvironment>,
@@ -531,7 +531,7 @@ fn apply_context_consumers(
   last_affected.extend(impact.environment.iter().cloned());
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 enum AnalyzedCandidate {
   Vue {
     project_file: Arc<ProjectFile>,
@@ -628,7 +628,7 @@ fn analyze_candidate(
   }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct PendingVueFile {
   file_id: FileId,
   source: Arc<str>,

@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, path::Path};
+use std::{collections::BTreeSet, path::Path, sync::Arc};
 
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
@@ -1961,12 +1961,8 @@ fn prepared_standalone(id: &str, source: &str, language: &str) -> ModuleSource {
 }
 
 #[expect(clippy::panic, reason = "fixture setup failures must fail the unit test")]
-fn attached_summary(module: &ModuleSource) -> super::ModuleSummary {
-  module
-    .module_summary()
-    .unwrap_or_else(|| panic!("missing summary for {}", module.id))
-    .as_ref()
-    .clone()
+fn attached_summary(module: &ModuleSource) -> Arc<super::ModuleSummary> {
+  module.module_summary().unwrap_or_else(|| panic!("missing summary for {}", module.id))
 }
 
 #[test]
@@ -1991,8 +1987,8 @@ fn plain_object_declaration_plus_unwrapped_call_seeds_reactive_factory() {
     "js",
   );
   let merged = merge_declaration_implementation_summary(
-    attached_summary(&declaration),
-    &attached_summary(&implementation),
+    attached_summary(&declaration).as_ref(),
+    attached_summary(&implementation).as_ref(),
   );
   let producer = ModuleSource::standalone(
     "producer.d.ts",
@@ -2081,8 +2077,8 @@ fn unwrapped_call_without_plain_object_declaration_stays_quiet() {
   let declaration =
     prepared_standalone("producer.d.ts", "export declare const useFlag: () => number;\n", "d.ts");
   let merged = merge_declaration_implementation_summary(
-    attached_summary(&declaration),
-    &attached_summary(&implementation),
+    attached_summary(&declaration).as_ref(),
+    attached_summary(&implementation).as_ref(),
   );
   assert!(
     !merged.has_reactivity_export_seeds(),
@@ -2105,8 +2101,8 @@ fn bare_nuxt_imports_link_seeds_reactive_factory_call() {
     "js",
   );
   let merged = merge_declaration_implementation_summary(
-    attached_summary(&declaration),
-    &attached_summary(&implementation),
+    attached_summary(&declaration).as_ref(),
+    attached_summary(&implementation).as_ref(),
   );
   let producer = ModuleSource::standalone(
     "producer.d.ts",

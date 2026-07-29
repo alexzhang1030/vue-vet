@@ -299,7 +299,9 @@ cache on full `ModuleSummary` (it includes the local graph). Never rebuild a
 cloned `LinkingSurface` map for every module on each scan — retain
 `Arc<ModuleSummary>` and prefer `Arc::ptr_eq`, then compare linking fields in
 place. O(N) deep clones on cold `trace_modules` / independent leaf edits are a
-known CodSpeed regression.
+known CodSpeed regression. `ModuleSummary` deliberately omits `Clone`: share
+with `Arc`, and let companion merge rebuild locals while `Arc::clone`-ing
+`local_graph`. Do not re-derive `Clone` to make `(*summary).clone()` compile.
 
 **Template/prop layers must not `make_mut` reused base graphs on warm scans.**
 Keep base reactivity from module-trace separate from the layered final graphs;

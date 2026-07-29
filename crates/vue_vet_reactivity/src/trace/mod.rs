@@ -72,7 +72,7 @@ type ComposableShape = BTreeMap<String, ReactiveBindingKind>;
 type ComposableShapeMap = BTreeMap<String, ComposableShape>;
 
 /// Same-file composable/factory export classification.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum LocalComposableExport {
   /// `return { field: ref(0) }` object bag.
   Bag(ComposableShape),
@@ -84,7 +84,7 @@ pub enum LocalComposableExport {
 /// Span is required so call sites resolve like instance-bag seeding (no name-only invent).
 type LocalComposableDefs = BTreeMap<String, (Span, LocalComposableExport)>;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct TraceSeeds {
   bindings: Vec<ReactiveBindingFact>,
   /// `const bag = useFoo()` locals mapped to composable return field kinds.
@@ -622,7 +622,7 @@ pub struct InjectSite {
 }
 
 /// Resolved inject seeds for one file/module.
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct ResolvedInjectLinks {
   pub bindings: Vec<ReactiveBindingFact>,
   pub instances: ComposableShapeMap,
@@ -1066,7 +1066,7 @@ struct RawReactiveRead {
   outside_tracking: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct RawGuard {
   read: RawReactiveRead,
   role: ReactiveGuardRole,

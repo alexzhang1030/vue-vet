@@ -11,7 +11,7 @@ use crate::model::{GraphNode, NodeKind, ProjectFile};
 use crate::resolve::{ProjectResolver, Resolution};
 
 /// Deterministic delta produced by [`NuxtImportsSeedPass::run`].
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Debug, Default, Eq, PartialEq)]
 pub struct NuxtImportsSeedDelta {
   pub module_links: Vec<vue_vet_reactivity::ModuleLink>,
   pub external_nodes: Vec<GraphNode>,
