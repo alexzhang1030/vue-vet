@@ -2,7 +2,7 @@ use vue_vet_core::{Confidence, PRACTICE_CATEGORY, Rule, RuleContext, RuleMeta, S
 
 use crate::{
   recipe::{EcosystemApi, PracticeRecipe},
-  util::{is_test_path, recommendation_from},
+  util::{is_script_setup_block, is_test_path, recommendation_from},
 };
 
 const RECIPE: PracticeRecipe = PracticeRecipe {
@@ -49,6 +49,9 @@ impl Rule for PreferDefineModel {
       .script()
       .blocks
       .iter()
+      // `defineModel` is a `<script setup>` compiler macro — never recommend it for
+      // ordinary script / standalone JSX modules (ScriptKind::Script).
+      .filter(|block| is_script_setup_block(block))
       .filter(|block| !block.calls.iter().any(|call| call.callee == "defineModel"))
       .filter(|block| block.calls.iter().any(|call| call.callee == "defineProps"))
       .filter(|block| block.calls.iter().any(|call| call.callee == "defineEmits"))
@@ -103,14 +106,16 @@ mod tests {
     }
   }
 
-  fn run(
+  fn run_on(
+    path: &str,
+    kind: ScriptKind,
     calls: Vec<ScriptCallFact>,
     bindings: Vec<ScriptBindingFact>,
     minor: u64,
   ) -> Vec<vue_vet_core::Diagnostic> {
     let script = ScriptFacts {
       blocks: vec![ScriptBlockFacts {
-        kind: ScriptKind::Setup,
+        kind,
         language: "ts".into(),
         imports: Vec::new(),
         bindings,
@@ -123,7 +128,7 @@ mod tests {
       }],
     };
     practice_registry().run_with_environment(
-      Path::new("src/Toggle.vue"),
+      Path::new(path),
       "",
       &TemplateFacts::default(),
       &script,
@@ -132,6 +137,14 @@ mod tests {
         packages: Vec::new(),
       },
     )
+  }
+
+  fn run(
+    calls: Vec<ScriptCallFact>,
+    bindings: Vec<ScriptBindingFact>,
+    minor: u64,
+  ) -> Vec<vue_vet_core::Diagnostic> {
+    run_on("src/Toggle.vue", ScriptKind::Setup, calls, bindings, minor)
   }
 
   #[test]
@@ -173,5 +186,20 @@ mod tests {
       3,
     );
     assert!(diagnostics.is_empty());
+  }
+
+  #[test]
+  fn stays_quiet_on_ordinary_script_and_jsx_modules() {
+    let calls = vec![call("defineProps", 0), call("defineEmits", 20)];
+    let bindings =
+      vec![ScriptBindingFact { name: "modelValue".into(), reads: 1, writes: 0, span: span(0) }];
+    assert!(
+      run_on("src/Toggle.tsx", ScriptKind::Script, calls.clone(), bindings.clone(), 4).is_empty(),
+      "standalone JSX must not be told to use defineModel"
+    );
+    assert!(
+      run_on("src/Toggle.vue", ScriptKind::Script, calls, bindings, 4).is_empty(),
+      "ordinary <script> must not be told to use defineModel"
+    );
   }
 }

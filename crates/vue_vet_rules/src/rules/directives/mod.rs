@@ -1,7 +1,8 @@
 //! Template / macro Essential gap rules (shared directive harness).
 
 use vue_vet_core::{
-  Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity, TemplateElementFact,
+  Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, ScriptKind, Severity,
+  TemplateElementFact,
 };
 
 struct MissingExprRule {
@@ -515,6 +516,11 @@ impl Rule for NoImportCompilerMacros {
     ];
     let mut findings = Vec::new();
     for block in &context.script().blocks {
+      // Importing these names from `vue` is only a compiler-macro mistake in
+      // `<script setup>`. Standalone JSX/TS modules do not get that surface.
+      if block.kind != ScriptKind::Setup {
+        continue;
+      }
       for import in &block.imports {
         if import.source != "vue" {
           continue;
@@ -556,6 +562,9 @@ impl Rule for NoDuplicateDefineModel {
   fn run_once(&self, context: &mut RuleContext<'_>) {
     let mut findings = Vec::new();
     for block in &context.script().blocks {
+      if block.kind != ScriptKind::Setup {
+        continue;
+      }
       let mut seen = std::collections::BTreeSet::new();
       for call in &block.calls {
         if call.callee != "defineModel" {

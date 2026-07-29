@@ -23,7 +23,7 @@ const model = defineModel<string>()
 
 ## Limitations
 
-Fires when a block calls both `defineProps` and `defineEmits`, has a script binding literally named `modelValue` (for example from destructuring `defineProps`), and does not already call `defineModel`. Requires Vue 3.4 or newer in the resolved environment.
+Fires when a `<script setup>` block calls both `defineProps` and `defineEmits`, has a script binding literally named `modelValue` (for example from destructuring `defineProps`), and does not already call `defineModel`. Requires Vue 3.4 or newer in the resolved environment. Ordinary `<script>` and standalone JSX/TSX modules stay quiet — `defineModel` is a compiler macro, not a runtime API.
 
 ## Remediation
 
