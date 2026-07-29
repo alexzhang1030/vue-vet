@@ -464,16 +464,20 @@ A local `function ref()` still wins and stays quiet. Empty module facts mean
 under-approx miss, not “100% reactive.”
 
 Bare **package** auto-imports (e.g. `useColorMode()` with no import) need
-`.nuxt/imports.d.ts` → a concrete file, then Factory/Composable evidence from
-that file (or companion `.js` when the preferred `.d.ts` has **provisional**
-halves: declared plain-object return and/or body unwrap — not merely “no
-finished seeds”). Parsing every seedless package’s companion `.js` pulls
-multi‑MB bundles such as `typescript.js` and stalls real Nuxt docs apps.
-Companion bodies are also size-capped. Do **not** invent `Factory(Reactive)`
-from a plain interface alone, or from `return <call>(...).value` alone without
-a declared plain-object return (≥1 property, no Ref-like fields).
-Name-agnostic: any unresolved/`#imports` callee unwrap counts, not a
-`useState` allowlist.
+`.nuxt/imports.d.ts` (or `.nuxt/types/imports.d.ts`) → a concrete file, then
+Factory/Composable evidence from that file (or companion `.js` when the
+preferred `.d.ts` has **provisional** halves: declared plain-object return
+and/or body unwrap — not merely “no finished seeds”). Specifiers must resolve
+from the **declaring** dts importer: Nuxt’s types map uses one more `../` than
+the re-export map; resolving a types specifier from `.nuxt/imports.d.ts` goes
+outside the package and quietly drops the seed (real-app `colorMode` FP). When
+both maps exist, keep the `.nuxt/imports.d.ts` entry. Parsing every seedless
+package’s companion `.js` pulls multi‑MB bundles such as `typescript.js` and
+stalls real Nuxt docs apps. Companion bodies are also size-capped. Do **not**
+invent `Factory(Reactive)` from a plain interface alone, or from
+`return <call>(...).value` alone without a declared plain-object return
+(≥1 property, no Ref-like fields). Name-agnostic: any unresolved/`#imports`
+callee unwrap counts, not a `useState` allowlist.
 
 ## Edge `from` / `to_id` labels (graph v4–v6)
 
