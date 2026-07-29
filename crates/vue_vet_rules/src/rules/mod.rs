@@ -1,5 +1,10 @@
 use vue_vet_core::Rule;
 
+mod directives;
+mod graph_extra;
+mod matrix;
+mod support;
+
 mod a11y_content;
 mod anchor_has_content;
 mod button_has_content;
@@ -36,7 +41,7 @@ mod valid_v_html;
 mod valid_v_text;
 
 pub fn builtins() -> Vec<&'static dyn Rule> {
-  vec![
+  let mut rules: Vec<&'static dyn Rule> = vec![
     &anchor_has_content::RULE,
     &button_has_content::RULE,
     &click_events_have_key_events::RULE,
@@ -70,5 +75,9 @@ pub fn builtins() -> Vec<&'static dyn Rule> {
     &valid_aria_role::RULE,
     &valid_v_html::RULE,
     &valid_v_text::RULE,
-  ]
+  ];
+  rules.extend(matrix::matrix_rules());
+  rules.extend(graph_extra::extra_rules());
+  rules.extend(directives::directive_rules());
+  rules
 }

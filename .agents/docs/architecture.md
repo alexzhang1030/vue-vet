@@ -180,6 +180,9 @@ metadata plus thin `Rule` implementations that consume the same Vue Vet facts
 attach an optional `recommendation` payload, and stay off the score / default CI
 exit path. Some practice rules keep a historical rule id segment (for example
 `vue-vet/reactivity/prefer-use-template-ref`) for configuration stability.
+Tracking-graph / after-await registrar packs may live as a **matrix family** under
+`vue_vet_rules/src/rules/matrix` (shared detection type + unique `RuleMeta` catalog);
+standalone rules remain one file each. Matrix ids still ship docs and fixtures.
 The session derives per-file Vue capabilities from a single discovery-time
 `PackageIndex` (nearest `package.json`: `vue` version plus dependency names) and passes them in
 `RuleEnvironment` without exposing package-manager state to parser adapters.

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watchEffect } from 'vue'
 
-const enabled = computed(() => false)
+const enabled = ref(false)
 const result = ref(0)
 const first = ref('Ada')
 const last = ref('Lovelace')

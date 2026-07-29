@@ -9,9 +9,12 @@
   and VueUse recipes. Reserve Warning for real risk, unused waste, or likely bugs. Lint
   severity weights still feed the density score (Info 1 / Warning 3 / Error 10); practice
   findings do not.
-- Every built-in lint rule keeps its metadata and `Rule` implementation in one
-  dedicated file under `vue_vet_rules/src/rules`; the registry module only
-  assembles rules and must not become a behavior dispatcher. Practice
+- Every built-in lint rule keeps stable `RuleMeta` and a `Rule` implementation
+  under `vue_vet_rules/src/rules`. Standalone rules use one dedicated file.
+  **Matrix families** (tracking-graph / after-await registrar packs) may share an
+  implementation type plus a catalog of unique ids in `rules/matrix/`; the parent
+  registry still only assembles `&'static dyn Rule` and must not become a
+  behavior dispatcher. Each matrix id still needs docs and fixtures. Practice
   suggestions live in `vue_vet_practice` with the same per-rule module shape,
   `category: "practice"`, and an optional `recommendation` payload; they must
   not affect score or default CI exit. Prefer high-precision fact links (shared

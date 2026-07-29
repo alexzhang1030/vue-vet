@@ -107,6 +107,8 @@ mod tests {
       calls: Vec::new(),
       member_writes: Vec::new(),
       destructures: Vec::new(),
+      top_level_await_ends: Vec::new(),
+      operands: Vec::new(),
       reactivity_graph: std::sync::Arc::new(ReactivityGraph::default()),
     }
   }

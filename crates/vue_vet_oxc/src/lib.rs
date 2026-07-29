@@ -20,7 +20,7 @@ use oxc_syntax::scope::ScopeFlags;
 use thiserror::Error;
 use vue_vet_core::{
   ScriptBindingFact, ScriptBlockFacts, ScriptCallFact, ScriptDestructureFact, ScriptImportFact,
-  ScriptKind, ScriptMemberWriteFact, SourceSpan,
+  ScriptKind, ScriptMemberWriteFact, ScriptOperandFact, SourceSpan,
 };
 use vue_vet_reactivity::{ModuleSummary, prepare_module_summary, trace_reactivity};
 
@@ -85,6 +85,59 @@ pub fn analyze_module_source(
   }
   let semantic = built.semantic;
   let line_index = vue_vet_core::LineIndex::new(sfc_source);
+  let (mut imports, imported_bindings) =
+    collect_import_facts(&semantic, &line_index, sfc_source, script_offset);
+  let bindings = collect_binding_facts(&semantic, &line_index, sfc_source, script_offset);
+  let mut node_facts =
+    collect_node_facts(&semantic, &imported_bindings, &line_index, sfc_source, script_offset);
+
+  let reactivity_graph = Arc::new(trace_reactivity(&semantic, sfc_source, script_offset, kind));
+  let module_trace = prepare_module_summary(
+    &semantic,
+    sfc_source,
+    script_offset,
+    kind,
+    Arc::clone(&reactivity_graph),
+  );
+
+  imports.sort_by_key(|fact| fact.span.offset);
+  node_facts.calls.sort_by_key(|fact| fact.span.offset);
+  node_facts.member_writes.sort_by_key(|fact| fact.span.offset);
+  node_facts.destructures.sort_by_key(|fact| fact.span.offset);
+  node_facts.top_level_await_ends.sort_unstable();
+  node_facts.top_level_await_ends.dedup();
+  node_facts.operands.sort_by_key(|fact| fact.span.offset);
+  Ok(ModuleAnalysis {
+    script_facts: ScriptBlockFacts {
+      kind,
+      language: language.into(),
+      imports,
+      bindings,
+      calls: node_facts.calls,
+      member_writes: node_facts.member_writes,
+      destructures: node_facts.destructures,
+      top_level_await_ends: node_facts.top_level_await_ends,
+      operands: node_facts.operands,
+      reactivity_graph,
+    },
+    module_trace,
+  })
+}
+
+struct CollectedNodeFacts {
+  calls: Vec<ScriptCallFact>,
+  member_writes: Vec<ScriptMemberWriteFact>,
+  destructures: Vec<ScriptDestructureFact>,
+  top_level_await_ends: Vec<usize>,
+  operands: Vec<ScriptOperandFact>,
+}
+
+fn collect_import_facts(
+  semantic: &oxc_semantic::Semantic<'_>,
+  line_index: &vue_vet_core::LineIndex,
+  sfc_source: &str,
+  script_offset: usize,
+) -> (Vec<ScriptImportFact>, BTreeMap<String, (String, String)>) {
   let mut imports = Vec::new();
   let mut imported_bindings = BTreeMap::new();
 
@@ -98,7 +151,7 @@ pub fn analyze_module_source(
         source,
         imported: String::new(),
         local: String::new(),
-        span: source_span(&line_index, sfc_source, script_offset, declaration.span),
+        span: source_span(line_index, sfc_source, script_offset, declaration.span),
       });
       continue;
     };
@@ -121,13 +174,22 @@ pub fn analyze_module_source(
         source: source.clone(),
         imported,
         local,
-        span: source_span(&line_index, sfc_source, script_offset, span),
+        span: source_span(line_index, sfc_source, script_offset, span),
       });
     }
   }
 
+  (imports, imported_bindings)
+}
+
+fn collect_binding_facts(
+  semantic: &oxc_semantic::Semantic<'_>,
+  line_index: &vue_vet_core::LineIndex,
+  sfc_source: &str,
+  script_offset: usize,
+) -> Vec<ScriptBindingFact> {
   let scoping = semantic.scoping();
-  let bindings = scoping
+  scoping
     .symbol_ids()
     .map(|symbol_id| {
       let references = scoping.get_resolved_references(symbol_id);
@@ -141,14 +203,24 @@ pub fn analyze_module_source(
         name: scoping.symbol_name(symbol_id).into(),
         reads,
         writes,
-        span: source_span(&line_index, sfc_source, script_offset, scoping.symbol_span(symbol_id)),
+        span: source_span(line_index, sfc_source, script_offset, scoping.symbol_span(symbol_id)),
       }
     })
-    .collect();
+    .collect()
+}
 
+fn collect_node_facts(
+  semantic: &oxc_semantic::Semantic<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  line_index: &vue_vet_core::LineIndex,
+  sfc_source: &str,
+  script_offset: usize,
+) -> CollectedNodeFacts {
   let mut calls = Vec::new();
   let mut member_writes = Vec::new();
   let mut destructures = Vec::new();
+  let mut top_level_await_ends = Vec::new();
+  let mut operands = Vec::new();
   for (node_id, node) in semantic.nodes().iter_enumerated() {
     match node.kind() {
       AstKind::CallExpression(call) => {
@@ -157,13 +229,21 @@ pub fn analyze_module_source(
         };
         let parent = semantic.nodes().parent_kind(node_id);
         let assigned_to = call_assigned_to(parent);
-        if callee == "defineProps"
-          && let AstKind::VariableDeclarator(declarator) = parent
+        if matches!(
+          callee.as_str(),
+          "defineProps"
+            | "reactive"
+            | "shallowReactive"
+            | "toRefs"
+            | "storeToRefs"
+            | "useRoute"
+            | "useRouter"
+        ) && let AstKind::VariableDeclarator(declarator) = parent
           && let BindingPattern::ObjectPattern(pattern) = &declarator.id
         {
           destructures.push(ScriptDestructureFact {
             source_call: callee.clone(),
-            span: source_span(&line_index, sfc_source, script_offset, pattern.span),
+            span: source_span(line_index, sfc_source, script_offset, pattern.span),
           });
         }
         let resolved_import =
@@ -173,7 +253,7 @@ pub fn analyze_module_source(
           resolved_import,
           argument_identifiers: expression_argument_identifiers(call.arguments.iter()),
           callee,
-          span: source_span(&line_index, sfc_source, script_offset, call.span),
+          span: source_span(line_index, sfc_source, script_offset, call.span),
         });
       }
       AstKind::NewExpression(expression) => {
@@ -189,52 +269,67 @@ pub fn analyze_module_source(
           resolved_import,
           argument_identifiers: expression_argument_identifiers(expression.arguments.iter()),
           callee,
-          span: source_span(&line_index, sfc_source, script_offset, expression.span),
+          span: source_span(line_index, sfc_source, script_offset, expression.span),
         });
       }
       AstKind::AssignmentExpression(assignment) => {
         if let Some(write) =
-          assignment_member(&assignment.left, &line_index, sfc_source, script_offset)
+          assignment_member(&assignment.left, line_index, sfc_source, script_offset)
         {
           member_writes.push(write);
         }
       }
       AstKind::UpdateExpression(update) => {
-        if let Some(write) = update_member(&update.argument, &line_index, sfc_source, script_offset)
+        if let Some(write) = update_member(&update.argument, line_index, sfc_source, script_offset)
         {
           member_writes.push(write);
         }
       }
+      AstKind::AwaitExpression(await_expression) => {
+        if is_module_top_level_await(semantic, node_id) {
+          let span = source_span(line_index, sfc_source, script_offset, await_expression.span);
+          top_level_await_ends.push(span.offset.saturating_add(span.length));
+        }
+      }
+      AstKind::BinaryExpression(binary) => {
+        push_operand_identifier(&mut operands, &binary.left, line_index, sfc_source, script_offset);
+        push_operand_identifier(
+          &mut operands,
+          &binary.right,
+          line_index,
+          sfc_source,
+          script_offset,
+        );
+      }
+      AstKind::LogicalExpression(logical) => {
+        push_operand_identifier(
+          &mut operands,
+          &logical.left,
+          line_index,
+          sfc_source,
+          script_offset,
+        );
+        push_operand_identifier(
+          &mut operands,
+          &logical.right,
+          line_index,
+          sfc_source,
+          script_offset,
+        );
+      }
+      AstKind::UnaryExpression(unary) => {
+        push_operand_identifier(
+          &mut operands,
+          &unary.argument,
+          line_index,
+          sfc_source,
+          script_offset,
+        );
+      }
       _ => {}
     }
   }
-
-  let reactivity_graph = Arc::new(trace_reactivity(&semantic, sfc_source, script_offset, kind));
-  let module_trace = prepare_module_summary(
-    &semantic,
-    sfc_source,
-    script_offset,
-    kind,
-    Arc::clone(&reactivity_graph),
-  );
-
-  imports.sort_by_key(|fact| fact.span.offset);
-  calls.sort_by_key(|fact| fact.span.offset);
-  member_writes.sort_by_key(|fact| fact.span.offset);
-  destructures.sort_by_key(|fact| fact.span.offset);
-  Ok(ModuleAnalysis {
-    script_facts: ScriptBlockFacts {
-      kind,
-      language: language.into(),
-      imports,
-      bindings,
-      calls,
-      member_writes,
-      destructures,
-      reactivity_graph,
-    },
-    module_trace,
-  })
+  CollectedNodeFacts { calls, member_writes, destructures, top_level_await_ends, operands }
 }
 
 /// Analyze a standalone JavaScript or TypeScript module.
@@ -553,6 +648,34 @@ fn member_write(
     property: property.map(str::to_owned),
     span: source_span(index, source, offset, span),
   })
+}
+
+fn is_module_top_level_await(
+  semantic: &oxc_semantic::Semantic<'_>,
+  await_id: oxc_semantic::NodeId,
+) -> bool {
+  !semantic.nodes().ancestor_ids(await_id).any(|ancestor_id| {
+    matches!(
+      semantic.nodes().kind(ancestor_id),
+      AstKind::Function(_) | AstKind::ArrowFunctionExpression(_) | AstKind::Class(_)
+    )
+  })
+}
+
+fn push_operand_identifier(
+  operands: &mut Vec<ScriptOperandFact>,
+  expression: &Expression<'_>,
+  line_index: &vue_vet_core::LineIndex,
+  sfc_source: &str,
+  script_offset: usize,
+) {
+  let Expression::Identifier(identifier) = expression else {
+    return;
+  };
+  operands.push(ScriptOperandFact {
+    name: identifier.name.to_string(),
+    span: source_span(line_index, sfc_source, script_offset, identifier.span),
+  });
 }
 
 fn call_callee_name(callee: &Expression<'_>) -> Option<String> {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watchEffect } from 'vue'
+import { ref, watchEffect } from 'vue'
 
-const ready = computed(() => false)
+const ready = ref(false)
 const guardedValue = ref(0)
 watchEffect(() => {
   if (!ready.value) return
