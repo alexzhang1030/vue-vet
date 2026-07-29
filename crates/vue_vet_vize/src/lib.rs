@@ -314,6 +314,8 @@ fn extract_template_facts(
   let mut facts = TemplateFacts::default();
   let mut scopes = TemplateAliasScopes::default();
   collect_children(source, template_offset, &root.children, &mut facts, &mut scopes, 0);
+  // Elements follow document-order DFS; expressions are gathered from mixed
+  // surfaces and need an explicit source-order pass.
   facts.expressions.sort_by_key(|expression| expression.span.offset);
   Ok(facts)
 }

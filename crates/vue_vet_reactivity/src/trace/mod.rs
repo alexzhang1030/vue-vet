@@ -197,6 +197,7 @@ fn trace_reactivity_seeded_inner(
     sfc_source,
     script_offset,
   );
+  // Seed/merge order is not source order; stabilize before publishing the graph.
   bindings.sort_by_key(|fact| fact.span.offset);
   scopes.sort_by_key(|fact| fact.span.offset);
   let mut graph = ReactivityGraph {
