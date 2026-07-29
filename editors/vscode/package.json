@@ -2,7 +2,7 @@
   "name": "vue-vet",
   "displayName": "Vue Vet Reactivity",
   "description": "Thin VS Code host that visualizes Vue Vet static reactivity traces in the editor.",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "publisher": "vue-vet",
   "license": "MIT",
   "engines": {
