@@ -245,6 +245,8 @@ struct InstanceCallBinding {
 ///
 /// Kept in sync with `vue_vet_project::conventions::NUXT_IMPORTS_SPECIFIER_PREFIX`.
 const NUXT_IMPORTS_SPECIFIER_PREFIX: &str = "#nuxt-imports:";
+/// Exclusive end for [`BTreeMap::range`] over `#nuxt-imports:…` keys (`';` follows `:`).
+const NUXT_IMPORTS_RANGE_END: &str = "#nuxt-imports;";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum ExportState {
@@ -1223,10 +1225,15 @@ fn collect_local_values(
     };
     let index = returns_by_function.get_or_insert_with(|| build_returns_by_function(semantic));
     let function_id = function.node_id.get();
-    let declared = declared_return_for_function(semantic, function);
-    if let Some(state) =
-      composable_export_state(semantic, function_id, shape_graph, script_offset, index, declared)
-    {
+    if let Some(state) = composable_export_state(
+      semantic,
+      function_id,
+      shape_graph,
+      script_offset,
+      index,
+      function_return_type_kind(function),
+      || declared_return_for_function(semantic, function),
+    ) {
       locals.insert(identifier.name.to_string(), state);
     }
   }
@@ -1239,33 +1246,44 @@ fn collect_local_values(
     let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
       continue;
     };
-    let annotated = declared_return_from_declarator_annotation(semantic, declarator);
     let state = match &declarator.init {
       Some(Expression::ArrowFunctionExpression(arrow)) => {
         let index = returns_by_function.get_or_insert_with(|| build_returns_by_function(semantic));
-        let declared = annotated.or_else(|| declared_return_for_arrow(semantic, arrow));
         composable_export_state(
           semantic,
           arrow.node_id.get(),
           shape_graph,
           script_offset,
           index,
-          declared,
+          arrow_return_type_kind(arrow),
+          || {
+            declared_return_for_arrow(semantic, arrow)
+              .or_else(|| declared_return_from_declarator_annotation(semantic, declarator))
+          },
         )
       }
       Some(Expression::FunctionExpression(function)) => {
         let index = returns_by_function.get_or_insert_with(|| build_returns_by_function(semantic));
-        let declared = annotated.or_else(|| declared_return_for_function(semantic, function));
         composable_export_state(
           semantic,
           function.node_id.get(),
           shape_graph,
           script_offset,
           index,
-          declared,
+          function_return_type_kind(function),
+          || {
+            declared_return_for_function(semantic, function)
+              .or_else(|| declared_return_from_declarator_annotation(semantic, declarator))
+          },
         )
       }
-      None => combine_composable_export(None, annotated),
+      // `export declare const useX: () => T` — no init; only then pay for annotations.
+      None => combine_composable_export(
+        None,
+        declared_return_from_declarator_annotation(semantic, declarator),
+      ),
+      // Keep the CallExpression/`ref()` cold path tiny: never build the return
+      // index or declared shapes until we see a real function init.
       Some(_) => continue,
     };
     if let Some(state) = state {
@@ -1281,18 +1299,31 @@ fn composable_export_state(
   shape_graph: &ReactivityGraph,
   script_offset: usize,
   returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
-  declared: Option<DeclaredReturn>,
+  declared_return_kind: Option<ReactiveBindingKind>,
+  declared_return: impl FnOnce() -> Option<DeclaredReturn>,
 ) -> Option<ExportState> {
-  combine_composable_export(
-    composable_return_with_index(
-      semantic,
-      function_id,
-      shape_graph,
-      script_offset,
-      returns_by_function,
-    ),
-    declared,
-  )
+  match composable_return_with_index(
+    semantic,
+    function_id,
+    shape_graph,
+    script_offset,
+    returns_by_function,
+  ) {
+    Some(ComposableReturn::Object(shape)) => Some(ExportState::Composable(shape)),
+    Some(ComposableReturn::Factory(kind)) => Some(ExportState::Factory(kind)),
+    Some(ComposableReturn::UnwrappedState) => match declared_return() {
+      Some(DeclaredReturn::PlainObject) => {
+        Some(ExportState::Factory(ReactiveBindingKind::Reactive))
+      }
+      _ => Some(ExportState::BodyUnwrappedState),
+    },
+    None => {
+      if let Some(kind) = declared_return_kind {
+        return Some(ExportState::Factory(kind));
+      }
+      combine_composable_export(None, declared_return())
+    }
+  }
 }
 
 fn combine_composable_export(
@@ -2356,6 +2387,8 @@ fn seed_plan_for(
   exports: &BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
   links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
 ) -> ImportSeedPlan {
+  use std::ops::Bound;
+
   let mut plan = ImportSeedPlan::new();
   for import in &facts.summary.imports {
     if import.imported == "*" {
@@ -2375,11 +2408,12 @@ fn seed_plan_for(
     // Only the resolved export state crosses the barrier (not source text / graphs).
     plan.insert(import.local.clone(), state.clone());
   }
-  // Bare Nuxt auto-imports: `#nuxt-imports:{name}` links without an import statement.
-  for ((from, specifier), target) in links {
-    if *from != &facts.id {
-      continue;
-    }
+  // Bare Nuxt auto-imports: `#nuxt-imports:{name}` — range-scan only this module's keys
+  // (full-map filter would be O(modules × links) on long re-export chains).
+  for ((_from, specifier), target) in links.range((
+    Bound::Included((&facts.id, NUXT_IMPORTS_SPECIFIER_PREFIX)),
+    Bound::Excluded((&facts.id, NUXT_IMPORTS_RANGE_END)),
+  )) {
     let Some(name) = specifier.strip_prefix(NUXT_IMPORTS_SPECIFIER_PREFIX) else {
       continue;
     };
