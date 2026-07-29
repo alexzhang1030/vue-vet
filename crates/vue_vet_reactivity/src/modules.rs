@@ -548,16 +548,31 @@ fn trace_modules_incremental_in_current_pool(
   let (resolved_links, mut link_issues) = resolved_links_partial(&facts_by_id, links);
   report.issues.append(&mut link_issues);
 
+  let mut pending_linking_archive = None;
   let work = if options.persist_linking_cache {
-    build_persistent_seed_work(
-      unique,
-      links,
-      &resolved_links,
-      &facts_by_id,
-      &mut local_graphs,
-      state,
-      &mut report,
-    )
+    if state.linking.is_none() {
+      // First persistent scan: build plans once (like oneshot), archive after phase two.
+      let (work, archive) = build_cold_persistent_seed_work(
+        unique,
+        links,
+        &resolved_links,
+        &facts_by_id,
+        &mut local_graphs,
+        &mut report,
+      );
+      pending_linking_archive = Some(archive);
+      work
+    } else {
+      build_persistent_seed_work(
+        unique,
+        links,
+        &resolved_links,
+        &facts_by_id,
+        &mut local_graphs,
+        state,
+        &mut report,
+      )
+    }
   } else {
     // One-shot cold path: no link sort / seed-plan archive.
     build_oneshot_seed_work(unique, &resolved_links, &facts_by_id, &mut local_graphs, &mut report)
@@ -639,6 +654,20 @@ fn trace_modules_incremental_in_current_pool(
   }
   if persist {
     state.entries.retain(|module_id, _| keep.contains(module_id));
+    if let Some(archive) = pending_linking_archive {
+      let plans = state
+        .entries
+        .iter()
+        .map(|(id, entry)| (id.clone(), entry.plan.clone()))
+        .collect::<BTreeMap<_, _>>();
+      state.linking = Some(CachedLinkingSnapshot {
+        links: archive.links,
+        summaries: archive.summaries,
+        exports: archive.exports,
+        provide_index: archive.provide_index,
+        plans: Arc::new(plans),
+      });
+    }
   }
   report.modules.sort_by(|left, right| left.id.cmp(&right.id));
   report.issues.sort_by(|left, right| {
@@ -649,6 +678,48 @@ fn trace_modules_incremental_in_current_pool(
 
 type SeedWorkItem<'a> =
   (&'a ModuleSource, Arc<ReactivityGraph>, ModuleSeedPlan, Option<Arc<ModuleSummary>>);
+
+struct PendingLinkingArchive {
+  links: Vec<ModuleLink>,
+  summaries: BTreeMap<ModuleId, Arc<ModuleSummary>>,
+  exports: Arc<BTreeMap<ModuleId, BTreeMap<String, ExportState>>>,
+  provide_index: Arc<BTreeMap<super::InjectionKey, Vec<super::ProvideOffer>>>,
+}
+
+fn build_cold_persistent_seed_work<'a>(
+  unique: &[&'a ModuleSource],
+  links: &[ModuleLink],
+  resolved_links: &BTreeMap<(ModuleId, String), ModuleId>,
+  facts_by_id: &BTreeMap<ModuleId, ModuleExportFacts>,
+  local_graphs: &mut BTreeMap<ModuleId, Arc<ReactivityGraph>>,
+  report: &mut TraceModulesReport,
+) -> (Vec<SeedWorkItem<'a>>, PendingLinkingArchive) {
+  let mut owned_links = links.to_vec();
+  owned_links.sort_by(|left, right| {
+    (&left.from, &left.specifier, &left.to).cmp(&(&right.from, &right.specifier, &right.to))
+  });
+  owned_links.dedup();
+  let link_index = link_index(resolved_links);
+  let exports = Arc::new(resolve_exports(facts_by_id, &link_index));
+  let provide_index = Arc::new(global_provide_index(facts_by_id));
+  report.stats.export_resolve_ran = true;
+  let work = unique
+    .iter()
+    .filter_map(|module| {
+      let facts = facts_by_id.get(&module.id)?;
+      let local_graph = local_graphs.remove(&module.id)?;
+      let plan = ModuleSeedPlan {
+        imports: seed_plan_for(facts, &exports, &link_index),
+        injects: inject_seed_plan(facts, &provide_index),
+      };
+      Some((*module, local_graph, plan, Some(Arc::clone(&facts.summary))))
+    })
+    .collect::<Vec<_>>();
+  report.stats.seed_plans_recomputed = work.len();
+  let summaries =
+    facts_by_id.iter().map(|(id, facts)| (id.clone(), Arc::clone(&facts.summary))).collect();
+  (work, PendingLinkingArchive { links: owned_links, summaries, exports, provide_index })
+}
 
 fn build_oneshot_seed_work<'a>(
   unique: &[&'a ModuleSource],
@@ -701,70 +772,52 @@ fn build_persistent_seed_work<'a>(
     report.stats.export_resolve_ran = false;
     Arc::clone(&cached.plans)
   } else {
+    // Caller guarantees `state.linking` is already populated (warm invalidate path).
     report.stats.export_resolve_ran = true;
     let link_index = link_index(resolved_links);
     let exports = Arc::new(resolve_exports(facts_by_id, &link_index));
     let provide_index = Arc::new(global_provide_index(facts_by_id));
-    let next_plans = if state.linking.is_none() {
-      let mut plans = BTreeMap::new();
-      for module in unique {
-        let Some(facts) = facts_by_id.get(&module.id) else {
-          continue;
-        };
-        plans.insert(
-          module.id.clone(),
-          ModuleSeedPlan {
-            imports: seed_plan_for(facts, &exports, &link_index),
-            injects: inject_seed_plan(facts, &provide_index),
-          },
-        );
-      }
-      report.stats.seed_plans_recomputed = plans.len();
-      plans
-    } else {
-      let dirty_seed = modules_needing_seed_recompute(
-        state.linking.as_ref(),
-        &exports,
-        &provide_index,
-        &owned_links,
-        facts_by_id,
+    let dirty_seed = modules_needing_seed_recompute(
+      state.linking.as_ref(),
+      &exports,
+      &provide_index,
+      &owned_links,
+      facts_by_id,
+    );
+    let mut next_plans =
+      state.linking.as_ref().map(|cached| (*cached.plans).clone()).unwrap_or_default();
+    next_plans.retain(|id, _| facts_by_id.contains_key(id));
+    let mut recomputed = 0_usize;
+    for id in &dirty_seed {
+      let Some(facts) = facts_by_id.get(id) else {
+        continue;
+      };
+      next_plans.insert(
+        id.clone(),
+        ModuleSeedPlan {
+          imports: seed_plan_for(facts, &exports, &link_index),
+          injects: inject_seed_plan(facts, &provide_index),
+        },
       );
-      let mut next_plans =
-        state.linking.as_ref().map(|cached| (*cached.plans).clone()).unwrap_or_default();
-      next_plans.retain(|id, _| facts_by_id.contains_key(id));
-      let mut recomputed = 0_usize;
-      for id in &dirty_seed {
-        let Some(facts) = facts_by_id.get(id) else {
-          continue;
-        };
-        next_plans.insert(
-          id.clone(),
-          ModuleSeedPlan {
-            imports: seed_plan_for(facts, &exports, &link_index),
-            injects: inject_seed_plan(facts, &provide_index),
-          },
-        );
-        recomputed += 1;
+      recomputed += 1;
+    }
+    for module in unique {
+      if next_plans.contains_key(&module.id) {
+        continue;
       }
-      for module in unique {
-        if next_plans.contains_key(&module.id) {
-          continue;
-        }
-        let Some(facts) = facts_by_id.get(&module.id) else {
-          continue;
-        };
-        next_plans.insert(
-          module.id.clone(),
-          ModuleSeedPlan {
-            imports: seed_plan_for(facts, &exports, &link_index),
-            injects: inject_seed_plan(facts, &provide_index),
-          },
-        );
-        recomputed += 1;
-      }
-      report.stats.seed_plans_recomputed = recomputed;
-      next_plans
-    };
+      let Some(facts) = facts_by_id.get(&module.id) else {
+        continue;
+      };
+      next_plans.insert(
+        module.id.clone(),
+        ModuleSeedPlan {
+          imports: seed_plan_for(facts, &exports, &link_index),
+          injects: inject_seed_plan(facts, &provide_index),
+        },
+      );
+      recomputed += 1;
+    }
+    report.stats.seed_plans_recomputed = recomputed;
     let plans = Arc::new(next_plans);
     let summaries =
       facts_by_id.iter().map(|(id, facts)| (id.clone(), Arc::clone(&facts.summary))).collect();

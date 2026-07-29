@@ -342,9 +342,14 @@ candidate is found.
 
 **Phase-two must not Rayon-schedule immediate reuse.** On persistent scans,
 split reused vs dirty modules before `par_iter`. Independent leaf edits with
-999 reusable graphs must not pay worker scheduling for no-op reuse. Never clone
+many reusable graphs must not pay worker scheduling for no-op reuse. Never clone
 all `ModuleSource` values into a side cache map for phase-one — borrow
 `state.entries` instead.
+
+**First persistent scan must build seed plans once.** Cold session analyzes
+(`scan_overlay_*`, first `analyze`) should use oneshot-style plan construction
+and archive the linking snapshot after phase two — never build a plan map and
+then clone every plan into work.
 `AnalysisSnapshot` keeps `summary`/`graph` behind `Arc` so commit/`last_snapshot`
 is refcount-only for those fields.
 
