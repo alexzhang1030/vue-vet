@@ -4,13 +4,24 @@ Category: reactivity
 Default severity: warning  
 Confidence: high
 
-Vue Vet rule `vue-vet/reactivity/no-assignment-only-effect-with-conditional-read` reports a fact-driven correctness or reactivity issue. Prefer the Bad/Good examples below; fixtures under `fixtures/rules/no-assignment-only-effect-with-conditional-read/` are the executable corpus.
+An assignment-only `watchEffect` that also has conditional reactive reads is
+hard to reason about: some dependencies are gated, yet the effect's job is just
+to sync a write. Prefer an explicit `watch` with listed sources.
 
 ## Bad
 
 ```vue
 <script setup lang="ts">
-// See fixtures/rules for the executable invalid corpus.
+import { ref, watchEffect } from 'vue'
+
+const enabled = ref(false)
+const source = ref(0)
+const out = ref(0)
+
+watchEffect(() => {
+  if (!enabled.value) return
+  out.value = source.value
+})
 </script>
 ```
 
@@ -18,19 +29,25 @@ Vue Vet rule `vue-vet/reactivity/no-assignment-only-effect-with-conditional-read
 
 ```vue
 <script setup lang="ts">
-// See fixtures/rules for the executable valid corpus.
+import { ref, watch } from 'vue'
+
+const enabled = ref(false)
+const source = ref(0)
+const out = ref(0)
+
+watch([enabled, source], () => {
+  if (!enabled.value) return
+  out.value = source.value
+})
 </script>
 ```
 
 ## Detection
 
-Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
+Fact-driven via tracking-scope facts (`assignment_only` + conditional reads on
+effect-family scopes).
 
 ## Remediation
 
-Follow the Good pattern, or suppress with a narrow inline disable when reviewed.
-
-## Fixtures
-
-- Invalid: `fixtures/rules/no-assignment-only-effect-with-conditional-read/invalid/`
-- Valid: `fixtures/rules/no-assignment-only-effect-with-conditional-read/valid/`
+Use `watch([...])` with every dependency listed, or keep the effect's reactive
+reads unconditional when an effect is truly the right tool.

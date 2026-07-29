@@ -1,36 +1,24 @@
-# `vue-vet/correctness/require-component-is`
+# Require a dynamic component target
 
-Category: correctness  
-Default severity: warning  
-Confidence: high
-
-Vue Vet rule `vue-vet/correctness/require-component-is` reports a fact-driven correctness or reactivity issue. Prefer the Bad/Good examples below; fixtures under `fixtures/rules/require-component-is/` are the executable corpus.
+This high-confidence recommended rule reports a concrete Vue correctness, reactivity, performance, or accessibility failure.
 
 ## Bad
 
 ```vue
-<script setup lang="ts">
-// See fixtures/rules for the executable invalid corpus.
-</script>
+<component />
 ```
 
 ## Good
 
 ```vue
-<script setup lang="ts">
-// See fixtures/rules for the executable valid corpus.
-</script>
+<component :is="currentComponent" />
 ```
 
-## Detection
+## Limitations
 
-Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
+Both static and bound `is` values are accepted.
 
 ## Remediation
 
-Follow the Good pattern, or suppress with a narrow inline disable when reviewed.
+Bind or provide the component definition/name.
 
-## Fixtures
-
-- Invalid: `fixtures/rules/require-component-is/invalid/`
-- Valid: `fixtures/rules/require-component-is/valid/`

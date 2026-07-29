@@ -1,36 +1,24 @@
-# `vue-vet/correctness/no-deprecated-v-on-native-modifier`
+# Remove Vue 2 native event modifiers
 
-Category: correctness  
-Default severity: warning  
-Confidence: high
-
-Vue Vet rule `vue-vet/correctness/no-deprecated-v-on-native-modifier` reports a fact-driven correctness or reactivity issue. Prefer the Bad/Good examples below; fixtures under `fixtures/rules/no-deprecated-v-on-native-modifier/` are the executable corpus.
+This high-confidence recommended rule reports a concrete Vue correctness, reactivity, performance, or accessibility failure.
 
 ## Bad
 
 ```vue
-<script setup lang="ts">
-// See fixtures/rules for the executable invalid corpus.
-</script>
+<Widget @click.native="activate" />
 ```
 
 ## Good
 
 ```vue
-<script setup lang="ts">
-// See fixtures/rules for the executable valid corpus.
-</script>
+<Widget @click="activate" />
 ```
 
-## Detection
+## Limitations
 
-Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
+Targets only the literal `.native` modifier.
 
 ## Remediation
 
-Follow the Good pattern, or suppress with a narrow inline disable when reviewed.
+Declare child emits correctly and rely on Vue 3 listener fallthrough.
 
-## Fixtures
-
-- Invalid: `fixtures/rules/no-deprecated-v-on-native-modifier/invalid/`
-- Valid: `fixtures/rules/no-deprecated-v-on-native-modifier/valid/`

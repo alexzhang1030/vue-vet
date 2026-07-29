@@ -1,36 +1,24 @@
-# `vue-vet/correctness/no-v-if-with-v-for`
+# Avoid v-if with v-for on one element
 
-Category: correctness  
-Default severity: warning  
-Confidence: high
-
-Vue Vet rule `vue-vet/correctness/no-v-if-with-v-for` reports a fact-driven correctness or reactivity issue. Prefer the Bad/Good examples below; fixtures under `fixtures/rules/no-v-if-with-v-for/` are the executable corpus.
+This high-confidence recommended rule reports a concrete Vue correctness, reactivity, performance, or accessibility failure.
 
 ## Bad
 
 ```vue
-<script setup lang="ts">
-// See fixtures/rules for the executable invalid corpus.
-</script>
+<li v-for="item in items" v-if="item.visible" :key="item.id" />
 ```
 
 ## Good
 
 ```vue
-<script setup lang="ts">
-// See fixtures/rules for the executable valid corpus.
-</script>
+<template v-for="item in items" :key="item.id"><li v-if="item.visible" /></template>
 ```
 
-## Detection
+## Limitations
 
-Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
+This rule checks directive co-location and does not evaluate conditions.
 
 ## Remediation
 
-Follow the Good pattern, or suppress with a narrow inline disable when reviewed.
+Move the condition to a wrapper or filter the collection.
 
-## Fixtures
-
-- Invalid: `fixtures/rules/no-v-if-with-v-for/invalid/`
-- Valid: `fixtures/rules/no-v-if-with-v-for/valid/`

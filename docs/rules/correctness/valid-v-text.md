@@ -1,36 +1,24 @@
-# `vue-vet/correctness/valid-v-text`
+# Require valid v-text syntax
 
-Category: correctness  
-Default severity: error  
-Confidence: high
-
-Vue Vet rule `vue-vet/correctness/valid-v-text` reports a fact-driven correctness or reactivity issue. Prefer the Bad/Good examples below; fixtures under `fixtures/rules/valid-v-text/` are the executable corpus.
+This high-confidence recommended rule reports a concrete Vue correctness, reactivity, performance, or accessibility failure.
 
 ## Bad
 
 ```vue
-<script setup lang="ts">
-// See fixtures/rules for the executable invalid corpus.
-</script>
+<div v-text.trim="label">fallback</div>
 ```
 
 ## Good
 
 ```vue
-<script setup lang="ts">
-// See fixtures/rules for the executable valid corpus.
-</script>
+<div v-text="label" />
 ```
 
-## Detection
+## Limitations
 
-Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
+This does not report normal interpolation.
 
 ## Remediation
 
-Follow the Good pattern, or suppress with a narrow inline disable when reviewed.
+Provide one expression, no argument/modifier, and no children.
 
-## Fixtures
-
-- Invalid: `fixtures/rules/valid-v-text/invalid/`
-- Valid: `fixtures/rules/valid-v-text/valid/`

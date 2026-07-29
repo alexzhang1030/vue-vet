@@ -1,36 +1,25 @@
-# `vue-vet/accessibility/heading-has-content`
+# Require accessible heading content
 
-Category: accessibility  
-Default severity: warning  
-Confidence: high
-
-Vue Vet rule `vue-vet/accessibility/heading-has-content` reports a fact-driven correctness or reactivity issue. Prefer the Bad/Good examples below; fixtures under `fixtures/rules/heading-has-content/` are the executable corpus.
+This high-confidence recommended rule reports a concrete Vue correctness, reactivity, performance, or accessibility failure.
 
 ## Bad
 
 ```vue
-<script setup lang="ts">
-// See fixtures/rules for the executable invalid corpus.
-</script>
+<h1 />
+<h2><div class="i-carbon-warning" /></h2>
 ```
 
 ## Good
 
 ```vue
-<script setup lang="ts">
-// See fixtures/rules for the executable valid corpus.
-</script>
+<h1>Settings</h1>
+<h2 aria-label="Warning"><div class="i-carbon-warning" /></h2>
 ```
 
-## Detection
+## Limitations
 
-Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
+Accessible content means non-whitespace text, interpolation, `v-text`/`v-html`, or a descendant `img`/`area` with a non-empty `alt`. Element-only children and `aria-hidden` subtrees do not count. `aria-label` and `aria-labelledby` on the heading are accepted. A static `title` can receive a safe `aria-label` insert preview.
 
 ## Remediation
 
-Follow the Good pattern, or suppress with a narrow inline disable when reviewed.
-
-## Fixtures
-
-- Invalid: `fixtures/rules/heading-has-content/invalid/`
-- Valid: `fixtures/rules/heading-has-content/valid/`
+Add text content, an image with `alt`, or an `aria-label` / `aria-labelledby` binding.

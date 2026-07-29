@@ -1,36 +1,24 @@
-# `vue-vet/accessibility/iframe-has-title`
+# Require iframe titles
 
-Category: accessibility  
-Default severity: warning  
-Confidence: high
-
-Vue Vet rule `vue-vet/accessibility/iframe-has-title` reports a fact-driven correctness or reactivity issue. Prefer the Bad/Good examples below; fixtures under `fixtures/rules/iframe-has-title/` are the executable corpus.
+This high-confidence recommended rule reports a concrete Vue correctness, reactivity, performance, or accessibility failure.
 
 ## Bad
 
 ```vue
-<script setup lang="ts">
-// See fixtures/rules for the executable invalid corpus.
-</script>
+<iframe src="/preview" />
 ```
 
 ## Good
 
 ```vue
-<script setup lang="ts">
-// See fixtures/rules for the executable valid corpus.
-</script>
+<iframe src="/preview" title="Document preview" />
 ```
 
-## Detection
+## Limitations
 
-Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
+Both static and bound titles are accepted.
 
 ## Remediation
 
-Follow the Good pattern, or suppress with a narrow inline disable when reviewed.
+Add a concise name for the embedded content.
 
-## Fixtures
-
-- Invalid: `fixtures/rules/iframe-has-title/invalid/`
-- Valid: `fixtures/rules/iframe-has-title/valid/`

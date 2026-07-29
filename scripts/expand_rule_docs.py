@@ -111,7 +111,9 @@ def is_stub(text: str) -> bool:
     return True
   if "See `fixtures/rules/" in stripped and "```vue" not in stripped:
     return True
-  # Prior expand pass embedded generic placeholder fixtures
+  # Prior expand pass embedded generic placeholder fixtures / corpus pointers
+  if "executable corpus" in stripped or "See fixtures/rules for the" in stripped:
+    return True
   if PLACEHOLDER_SNIPPET in stripped and stripped.count("```vue") >= 1:
     # Allow real rules that legitimately use `x`; require both Bad+Good trivial
     if stripped.count(PLACEHOLDER_SNIPPET) >= 2:
@@ -938,18 +940,10 @@ const label = computed(() => count.value)
       "Keep computed getters pure.",
     )
 
-  summary = (
-    f"Vue Vet rule `{rid}` reports a fact-driven correctness or reactivity issue. "
-    "Prefer the Bad/Good examples below; fixtures under "
-    f"`fixtures/rules/{name}/` are the executable corpus."
+  raise KeyError(
+    f"no Bad/Good template for `{rid}` — add a family handler or one_offs entry "
+    f"in scripts/expand_rule_docs.py (never emit fixture-only placeholders)"
   )
-  bad = load_fixture(name, "invalid") or """<script setup lang="ts">
-// See fixtures/rules for the executable invalid corpus.
-</script>"""
-  good = load_fixture(name, "valid") or """<script setup lang="ts">
-// See fixtures/rules for the executable valid corpus.
-</script>"""
-  return summary, bad, good, "Follow the Good pattern, or suppress with a narrow inline disable when reviewed."
 
 
 def render(rid: str, doc: str, extras: dict[str, str]) -> str:
@@ -1037,7 +1031,12 @@ def main() -> None:
         continue
     extras = extras_map.get(rid, {})
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render(rid, doc, extras))
+    try:
+      path.write_text(render(rid, doc, extras))
+    except KeyError as error:
+      print(f"SKIP {rid}: {error}")
+      skipped += 1
+      continue
     rewritten += 1
   print(f"rewrote {rewritten} docs; skipped {skipped}")
 

@@ -1,36 +1,24 @@
-# `vue-vet/correctness/valid-v-html`
+# Require valid v-html syntax
 
-Category: correctness  
-Default severity: error  
-Confidence: high
-
-Vue Vet rule `vue-vet/correctness/valid-v-html` reports a fact-driven correctness or reactivity issue. Prefer the Bad/Good examples below; fixtures under `fixtures/rules/valid-v-html/` are the executable corpus.
+This high-confidence recommended rule reports a concrete Vue correctness, reactivity, performance, or accessibility failure.
 
 ## Bad
 
 ```vue
-<script setup lang="ts">
-// See fixtures/rules for the executable invalid corpus.
-</script>
+<div v-html.foo>fallback</div>
 ```
 
 ## Good
 
 ```vue
-<script setup lang="ts">
-// See fixtures/rules for the executable valid corpus.
-</script>
+<div v-html="trustedHtml" />
 ```
 
-## Detection
+## Limitations
 
-Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
+This validates directive shape; `security/no-v-html` separately reports the trust risk.
 
 ## Remediation
 
-Follow the Good pattern, or suppress with a narrow inline disable when reviewed.
+Provide one expression, no argument/modifier, and no children.
 
-## Fixtures
-
-- Invalid: `fixtures/rules/valid-v-html/invalid/`
-- Valid: `fixtures/rules/valid-v-html/valid/`

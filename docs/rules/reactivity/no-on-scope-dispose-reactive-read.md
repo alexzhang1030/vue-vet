@@ -4,13 +4,23 @@ Category: reactivity
 Default severity: warning  
 Confidence: high
 
-Vue Vet rule `vue-vet/reactivity/no-on-scope-dispose-reactive-read` reports a fact-driven correctness or reactivity issue. Prefer the Bad/Good examples below; fixtures under `fixtures/rules/no-on-scope-dispose-reactive-read/` are the executable corpus.
+`onScopeDispose` runs when an effect scope is disposed. Reactive reads there do
+not establish ongoing tracking the way `computed` / `watchEffect` do, and they
+often indicate accidental dependency use during teardown.
 
 ## Bad
 
 ```vue
 <script setup lang="ts">
-// See fixtures/rules for the executable invalid corpus.
+import { effectScope, onScopeDispose, ref } from 'vue'
+
+const count = ref(0)
+const scope = effectScope()
+scope.run(() => {
+  onScopeDispose(() => {
+    console.log(count.value)
+  })
+})
 </script>
 ```
 
@@ -18,19 +28,25 @@ Vue Vet rule `vue-vet/reactivity/no-on-scope-dispose-reactive-read` reports a fa
 
 ```vue
 <script setup lang="ts">
-// See fixtures/rules for the executable valid corpus.
+import { effectScope, onScopeDispose, ref } from 'vue'
+
+const count = ref(0)
+const scope = effectScope()
+scope.run(() => {
+  onScopeDispose(() => {
+    // teardown only — no reactive reads
+    console.log('disposed')
+  })
+})
+void count
 </script>
 ```
 
 ## Detection
 
-Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
+Fact-driven via `vue_vet_reactivity` tracking scopes (`OnScopeDispose` reads).
 
 ## Remediation
 
-Follow the Good pattern, or suppress with a narrow inline disable when reviewed.
-
-## Fixtures
-
-- Invalid: `fixtures/rules/no-on-scope-dispose-reactive-read/invalid/`
-- Valid: `fixtures/rules/no-on-scope-dispose-reactive-read/valid/`
+Keep dispose callbacks free of reactive dependency reads. Capture plain values
+earlier if you need them for cleanup logging.
