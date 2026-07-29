@@ -6,7 +6,7 @@ use vue_vet_core::{FileId, ScanSummary};
 use vue_vet_project::ProjectGraph;
 
 use crate::{
-  AnalysisCoverage, AnalysisIssue, AnalysisSnapshot, SessionError,
+  AnalysisCoverage, AnalysisIssue, AnalysisSnapshot, ProgressReporter, SessionError,
   discovery::WorkspaceInputSnapshot, pipeline::scan_with_threads,
 };
 
@@ -27,6 +27,7 @@ pub fn analyze_snapshot(
   cancelled: &(dyn Fn() -> bool + Sync),
   dirty_files: &BTreeSet<FileId>,
   force_full_parse: bool,
+  progress: Option<&ProgressReporter>,
 ) -> Result<AnalysisSnapshot, SessionError> {
   if cancelled() {
     return Err(SessionError::Cancelled);
@@ -47,6 +48,7 @@ pub fn analyze_snapshot(
       cancelled,
       dirty_files,
       force_full_parse,
+      progress,
     )?;
     (result.summary, result.graph, "disabled", result.issues, result.work)
   } else {
@@ -76,6 +78,7 @@ pub fn analyze_snapshot(
         cancelled,
         dirty_files,
         force_full_parse,
+        progress,
       )?,
       CacheLookup::RecoveredCorruption => fill_cache(
         &store,
@@ -89,6 +92,7 @@ pub fn analyze_snapshot(
         cancelled,
         dirty_files,
         force_full_parse,
+        progress,
       )?,
     }
   };
@@ -123,6 +127,7 @@ fn fill_cache(
   cancelled: &(dyn Fn() -> bool + Sync),
   dirty_files: &BTreeSet<FileId>,
   force_full_parse: bool,
+  progress: Option<&ProgressReporter>,
 ) -> Result<
   (ScanSummary, ProjectGraph, &'static str, Vec<AnalysisIssue>, crate::ScanWorkCounters),
   SessionError,
@@ -136,6 +141,7 @@ fn fill_cache(
     cancelled,
     dirty_files,
     force_full_parse,
+    progress,
   )?;
   if result.issues.is_empty() {
     store

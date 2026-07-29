@@ -465,11 +465,15 @@ under-approx miss, not “100% reactive.”
 
 Bare **package** auto-imports (e.g. `useColorMode()` with no import) need
 `.nuxt/imports.d.ts` → a concrete file, then Factory/Composable evidence from
-that file (or companion `.js` when the preferred `.d.ts` summary is incomplete).
-Do **not** invent `Factory(Reactive)` from a plain interface alone, or from
-`return <call>(...).value` alone without a declared plain-object return
-(≥1 property, no Ref-like fields). Name-agnostic: any unresolved/`#imports`
-callee unwrap counts, not a `useState` allowlist.
+that file (or companion `.js` when the preferred `.d.ts` has **provisional**
+halves: declared plain-object return and/or body unwrap — not merely “no
+finished seeds”). Parsing every seedless package’s companion `.js` pulls
+multi‑MB bundles such as `typescript.js` and stalls real Nuxt docs apps.
+Companion bodies are also size-capped. Do **not** invent `Factory(Reactive)`
+from a plain interface alone, or from `return <call>(...).value` alone without
+a declared plain-object return (≥1 property, no Ref-like fields).
+Name-agnostic: any unresolved/`#imports` callee unwrap counts, not a
+`useState` allowlist.
 
 ## Edge `from` / `to_id` labels (graph v4–v6)
 
@@ -565,3 +569,12 @@ ANSI styles apply only when `ReportContext.color` is true (CLI `--color`).
 `FORCE_COLOR` / `CLICOLOR_FORCE` (non-empty) force on. Pipelines and reporter
 snapshots keep color off so byte-stable fixtures stay green. JSON / SARIF /
 GitHub never paint.
+
+## Scan progress streams on stderr only
+
+`--progress auto|always|never` (default `auto`) emits coarse stage lines
+(`discovering` → `parsing` → `building project graph` → optional
+`loading external seeds (…, prefer .d.ts)` → `running rules` →
+`writing report`) on **stderr**. `auto` enables only when stderr is a TTY and
+`CI` is unset/empty — so GitHub Actions and piped JSON/SARIF stay quiet.
+Never write progress to stdout.

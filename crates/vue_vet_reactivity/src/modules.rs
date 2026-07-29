@@ -332,11 +332,15 @@ impl ModuleSummary {
   }
 
   /// Whether a companion implementation file may still complete provisional seeds.
+  ///
+  /// Only provisional declaration/body halves need a merge. Do **not** treat "no
+  /// finished Factory/Composable seeds" as incomplete — that would parse every
+  /// unrelated package's companion `.js` (e.g. multi‑MB `typescript.js`).
   #[must_use]
   pub fn needs_implementation_merge(&self) -> bool {
     self.locals.values().any(|state| {
       matches!(state, ExportState::DeclaredPlainObjectFactory | ExportState::BodyUnwrappedState)
-    }) || !self.has_reactivity_export_seeds()
+    })
   }
 
   /// Replace locals after merging a declaration file with its implementation body.
