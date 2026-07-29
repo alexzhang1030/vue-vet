@@ -607,7 +607,8 @@ fn safe_fix_modes_are_mutually_exclusive() {
 
 #[test]
 fn reporter_text_snapshot_is_stable() {
-  let output = run_from_workspace(&["fixtures/reporters/no-v-html.vue", "--no-cache"]);
+  let output =
+    run_from_workspace(&["fixtures/reporters/no-v-html.vue", "--no-cache", "--color", "never"]);
   let stdout = String::from_utf8_lossy(&output.stdout).replace('\\', "/");
 
   assert!(output.status.success(), "text reporter fixture must scan successfully");
@@ -616,6 +617,17 @@ fn reporter_text_snapshot_is_stable() {
     include_str!("../../../fixtures/reporters/no-v-html.txt").trim_end(),
     "text reporter snapshot changed"
   );
+}
+
+#[test]
+fn reporter_text_color_always_emits_ansi() {
+  let output =
+    run_from_workspace(&["fixtures/reporters/no-v-html.vue", "--no-cache", "--color", "always"]);
+  let stdout = String::from_utf8_lossy(&output.stdout);
+
+  assert!(output.status.success(), "colored text reporter fixture must scan successfully");
+  assert!(stdout.contains('\u{1b}'), "--color always must emit ANSI escapes: {stdout:?}");
+  assert!(stdout.contains("warning"), "colored report must keep severity label: {stdout}");
 }
 
 #[test]

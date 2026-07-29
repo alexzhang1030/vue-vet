@@ -28,6 +28,7 @@ keywords = ["vue", "nuxt", "lint", "static-analysis"]
 categories = ["development-tools"]
 
 [workspace.dependencies]
+anstyle = "1.0"
 atomic-write-file = "=0.3.0"
 clap = { version = "4.5", features = ["derive"] }
 divan = { package = "codspeed-divan-compat", version = "=5.0.1" }

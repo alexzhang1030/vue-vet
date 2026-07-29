@@ -536,3 +536,11 @@ ancestor chain. Rules:
   stay outside tracking.
 - Factory defaults (`inject(key, () => ref(0))`) stay quiet; plain
   `inject(key, someRef)` may seed from the default.
+
+## Text report color is CLI-injected
+
+ANSI styles apply only when `ReportContext.color` is true (CLI `--color`).
+`auto` enables color for TTY stdout unless `NO_COLOR` is set (non-empty);
+`FORCE_COLOR` / `CLICOLOR_FORCE` (non-empty) force on. Pipelines and reporter
+snapshots keep color off so byte-stable fixtures stay green. JSON / SARIF /
+GitHub never paint.

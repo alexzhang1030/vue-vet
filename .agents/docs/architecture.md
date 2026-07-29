@@ -289,9 +289,12 @@ Vet-owned `ScanSummary` values plus an explicit
 report context for scan mode, framework, exact analyzed files, completeness, and
 skipped-check reasons. It owns deterministic text and versioned JSON rendering,
 while the CLI retains stdout, operational-error messages, and exit policy.
-Renderers return content without a terminal newline so each surface can choose
-its transport framing. Text snapshots remain byte-for-byte compatibility gates;
-JSON snapshots are versioned wire-contract gates.
+`ReportContext.color` is injected by the CLI (`--color auto|always|never`); only
+the interactive text report applies ANSI styles. JSON / SARIF / GitHub stay
+uncolored. Renderers return content without a terminal newline so each surface
+can choose its transport framing. Text snapshots remain byte-for-byte
+compatibility gates (color off); JSON snapshots are versioned wire-contract
+gates.
 
 JSON v1 is the shared fact layer for CI and future agent surfaces. Each finding
 has a deterministic opaque ID, normalized project-relative path, confidence,

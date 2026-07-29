@@ -299,8 +299,10 @@ pub fn to_span_from_identity(
 
 #[must_use]
 #[expect(clippy::format_push_string, reason = "report footer builds a small owned buffer")]
-pub fn render_reactivity_footer(digest: &ReactivityDigest) -> String {
-  let mut output = String::from("\n\nReactivity\n");
+pub fn render_reactivity_footer(digest: &ReactivityDigest, color: bool) -> String {
+  let mut output = String::from("\n\n");
+  output.push_str(&super::color::header("Reactivity", color));
+  output.push('\n');
   if let Some(error) = &digest.error {
     output.push_str("  unavailable: ");
     output.push_str(error);
@@ -414,7 +416,7 @@ mod tests {
       ],
       None,
     );
-    let rendered = render_reactivity_footer(&digest);
+    let rendered = render_reactivity_footer(&digest, false);
     assert!(
       rendered.contains("traced 3 module(s) · 5 bindings · 2 scopes · 3 edges · 1 template reads")
     );
@@ -426,14 +428,14 @@ mod tests {
   #[test]
   fn footer_explains_empty_facts() {
     let digest = ReactivityDigest::from_modules(&[module("a.ts", 0, 0, 0, 0)], None);
-    let rendered = render_reactivity_footer(&digest);
+    let rendered = render_reactivity_footer(&digest, false);
     assert!(rendered.contains("empty ≠ fully reactive"));
   }
 
   #[test]
   fn footer_surfaces_errors() {
     let digest = ReactivityDigest::from_modules(&[], Some("boom".into()));
-    let rendered = render_reactivity_footer(&digest);
+    let rendered = render_reactivity_footer(&digest, false);
     assert!(rendered.contains("unavailable: boom"));
   }
 
