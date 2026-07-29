@@ -95,8 +95,12 @@ pub fn analyze_module_source(
   let node_facts =
     collect_node_facts(&semantic, &imported_bindings, &line_index, sfc_source, script_offset)
       .into_source_order();
-  let template_facts =
-    jsx::collect_jsx_template_facts(&semantic, &line_index, sfc_source, script_offset);
+  // Plain JS/TS has no JSX nodes; skip the AST walk on the CodSpeed hot path.
+  let template_facts = if matches!(language, "jsx" | "tsx") {
+    jsx::collect_jsx_template_facts(&semantic, &line_index, sfc_source, script_offset)
+  } else {
+    TemplateFacts::default()
+  };
 
   let reactivity_graph = Arc::new(trace_reactivity(&semantic, sfc_source, script_offset, kind));
   let module_trace = Arc::new(prepare_module_summary(

@@ -246,6 +246,16 @@ on a Conditional read. Scope-aware rules already report that read once
 guard role: they duplicate findings on the same span, inflate score density, and
 add redundant TrackingScope visitor passes (#136).
 
+## JSX adaptation must not lint every Script module
+
+Standalone `.jsx`/`.tsx` (and scripts that already lowered non-empty
+`TemplateFacts`) join the Vue file-rule registry. Plain `.js`/`.ts` stay on the
+project-graph / seed path only. Enqueuing every Script into `pending_vue`
+regresses CodSpeed `scan_*` / synthetic 1k–5k module benches. Likewise: skip
+Oxc JSX template collection unless `language` is `jsx`/`tsx`, and skip
+`defineComponent` identity-forwarder fixed-point walks when no Vue factory
+import exists (#134 / #136).
+
 ## Performance: do not re-serialize the hot path
 
 CLI scan follows oxlint's model (parallel files, coordinated seed resolution).

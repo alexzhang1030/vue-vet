@@ -126,6 +126,11 @@ fn component_factories(
       factories.insert(local.clone());
     }
   }
+  // No Vue `defineComponent` import ⇒ no same-file identity forwarders to chase.
+  // Skip the fixed-point AST walk on plain modules (synthetic 1k/5k hot path).
+  if factories.is_empty() {
+    return factories;
+  }
 
   let mut grew = true;
   while grew {

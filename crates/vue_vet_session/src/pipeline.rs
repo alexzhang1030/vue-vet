@@ -17,7 +17,7 @@ use rayon::prelude::*;
 use vue_vet_config::Config;
 use vue_vet_core::{
   Diagnostic, FileId, ModuleId, ReactivityGraph, RuleEnvironment, ScanSummary, ScriptFacts,
-  Severity, SfcFacts, SourceSpan, content_digest, serde_digest,
+  Severity, SfcFacts, SourceSpan, TemplateFacts, content_digest, serde_digest,
 };
 use vue_vet_oxc::analyze_module_source;
 use vue_vet_project::{
@@ -323,14 +323,17 @@ fn scan_parallel(
       }
       AnalyzedCandidate::Script { project_file } => {
         project_files.push(Arc::clone(project_file));
-        // Standalone JS/TS/JSX modules carry TemplateFacts when JSX lowers; run
-        // the same file-rule registry as Vue SFCs.
-        pending_vue.push(Arc::new(PendingVueFile {
-          file_id: project_file.path.clone(),
-          source: Arc::clone(&cached.source),
-          environment: cached.environment.clone().unwrap_or_default(),
-          facts: Arc::clone(&project_file.facts),
-        }));
+        // JSX/TSX (or any script that already lowered TemplateFacts) needs the
+        // Vue file-rule registry. Plain `.js`/`.ts` stay graph/seed-only — do
+        // not pay the full rule pass on every synthetic module (CodSpeed).
+        if script_needs_file_rules(project_file.path.as_path(), &project_file.facts.template) {
+          pending_vue.push(Arc::new(PendingVueFile {
+            file_id: project_file.path.clone(),
+            source: Arc::clone(&cached.source),
+            environment: cached.environment.clone().unwrap_or_default(),
+            facts: Arc::clone(&project_file.facts),
+          }));
+        }
       }
     }
   }
@@ -638,6 +641,14 @@ struct PendingVueFile {
   source: Arc<str>,
   environment: RuleEnvironment,
   facts: Arc<SfcFacts>,
+}
+
+fn script_needs_file_rules(path: &Path, template: &TemplateFacts) -> bool {
+  let is_jsx = path
+    .extension()
+    .and_then(|extension| extension.to_str())
+    .is_some_and(|extension| matches!(extension, "jsx" | "tsx"));
+  is_jsx || !template.elements.is_empty() || !template.expressions.is_empty()
 }
 
 fn source_environment(
