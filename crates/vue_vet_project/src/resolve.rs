@@ -280,6 +280,8 @@ pub fn resolver_config_inputs(root: &Path) -> Vec<String> {
     ".nuxt/tsconfig.json",
     ".nuxt/components.d.ts",
     ".nuxt/types/components.d.ts",
+    ".nuxt/imports.d.ts",
+    ".nuxt/types/imports.d.ts",
   ];
   let mut inputs = Vec::new();
   for candidate in CANDIDATES {

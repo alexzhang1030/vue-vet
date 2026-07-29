@@ -111,6 +111,15 @@ pub fn parse_nuxt_components_dts(
 pub const NUXT_COMPONENT_DTS_CANDIDATES: &[&str] =
   &[".nuxt/components.d.ts", ".nuxt/types/components.d.ts"];
 
+/// Nuxt auto-import maps (`.nuxt/imports.d.ts` and the types variant).
+pub const NUXT_IMPORTS_DTS_CANDIDATES: &[&str] =
+  &[".nuxt/imports.d.ts", ".nuxt/types/imports.d.ts"];
+
+/// Synthetic `ModuleLink` specifier prefix for bare Nuxt auto-import calls.
+///
+/// Format: `#nuxt-imports:{exportName}` — reactivity seed only (never unresolved-import).
+pub const NUXT_IMPORTS_SPECIFIER_PREFIX: &str = "#nuxt-imports:";
+
 #[must_use]
 pub fn load_nuxt_component_dts_names(
   root: &Path,
@@ -127,6 +136,41 @@ pub fn load_nuxt_component_dts_names(
     }
   }
   names
+}
+
+/// Parse Nuxt-generated import re-exports into `name -> specifier`.
+///
+/// Accepts `export { useX } from '…'` and `typeof import('…').useX` shapes.
+#[must_use]
+pub fn parse_nuxt_imports_dts(source: &str) -> BTreeMap<String, String> {
+  let mut names = BTreeMap::new();
+  for (name, specifier) in extract_named_reexports(source) {
+    names.insert(name, specifier);
+  }
+  for (name, specifier) in extract_typeof_member_imports(source) {
+    names.entry(name).or_insert(specifier);
+  }
+  names
+}
+
+#[must_use]
+pub fn load_nuxt_imports_dts_names(root: &Path) -> BTreeMap<String, String> {
+  let mut names = BTreeMap::new();
+  for candidate in NUXT_IMPORTS_DTS_CANDIDATES {
+    let path = root.join(candidate);
+    let Ok(source) = std::fs::read_to_string(&path) else {
+      continue;
+    };
+    for (name, specifier) in parse_nuxt_imports_dts(&source) {
+      names.insert(name, specifier);
+    }
+  }
+  names
+}
+
+#[must_use]
+pub fn nuxt_imports_link_specifier(export_name: &str) -> String {
+  format!("{NUXT_IMPORTS_SPECIFIER_PREFIX}{export_name}")
 }
 
 fn path_under_components(path: &str) -> Option<&str> {
@@ -241,6 +285,93 @@ fn extract_typeof_imports(source: &str) -> Vec<(String, String)> {
   out
 }
 
+/// `export { useColorMode } from '…/composables'` / multi-name lists.
+fn extract_named_reexports(source: &str) -> Vec<(String, String)> {
+  let mut out = Vec::new();
+  for line in source.lines() {
+    let trimmed = line.trim().trim_end_matches(';').trim();
+    let Some(rest) = trimmed.strip_prefix("export {") else {
+      continue;
+    };
+    let Some((names_part, from_part)) = rest.split_once("} from ") else {
+      continue;
+    };
+    let from_part = from_part.trim();
+    let mut chars = from_part.chars();
+    let Some(quote) = chars.next().filter(|ch| *ch == '"' || *ch == '\'') else {
+      continue;
+    };
+    let rest: String = chars.collect();
+    let Some((import_path, _)) = rest.split_once(quote) else {
+      continue;
+    };
+    if import_path.is_empty() {
+      continue;
+    }
+    for piece in names_part.split(',') {
+      let piece = piece.trim();
+      if piece.is_empty() {
+        continue;
+      }
+      // `useX as Y` → local auto-import name is Y.
+      let name = if let Some((original, alias)) = piece.split_once(" as ") {
+        let alias = alias.trim();
+        if alias.is_empty() { original.trim() } else { alias }
+      } else {
+        piece
+      };
+      if name.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_') {
+        out.push((name.to_owned(), import_path.to_owned()));
+      }
+    }
+  }
+  out
+}
+
+/// `export const useX: typeof import('…').useX` (types/imports.d.ts style).
+fn extract_typeof_member_imports(source: &str) -> Vec<(String, String)> {
+  let mut out = Vec::new();
+  for line in source.lines() {
+    let trimmed = line.trim();
+    let Some((before, after_marker)) = trimmed.split_once("typeof import(") else {
+      continue;
+    };
+    let Some(name) = component_name_before_colon(before.trim_end()) else {
+      continue;
+    };
+    let mut chars = after_marker.chars();
+    let Some(quote) = chars.next().filter(|ch| *ch == '"' || *ch == '\'') else {
+      continue;
+    };
+    let rest: String = chars.collect();
+    let Some((import_path, after_path)) = rest.split_once(quote) else {
+      continue;
+    };
+    // Require `.member` so component maps (`typeof import('x')`) stay elsewhere.
+    let after_path = after_path.trim_start();
+    if !after_path.starts_with(')') {
+      continue;
+    }
+    let after_paren = after_path.trim_start_matches(')').trim_start();
+    if let Some(member) = after_paren.strip_prefix('.') {
+      let member = member
+        .trim_end_matches(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
+        .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
+        .next()
+        .unwrap_or("");
+      if !member.is_empty() && member != name.as_str() {
+        // Keep the declaration's local name (left of `:`) as the auto-import key.
+      }
+    } else if !after_paren.is_empty() && !after_paren.starts_with(';') {
+      continue;
+    }
+    if !name.is_empty() && !import_path.is_empty() {
+      out.push((name, import_path.to_owned()));
+    }
+  }
+  out
+}
+
 fn component_name_before_colon(before: &str) -> Option<String> {
   let before = before.strip_prefix("export const ").unwrap_or(before);
   let before = before.trim_end_matches(':').trim();
@@ -287,5 +418,19 @@ mod tests {
     assert_eq!(strip_lazy_component_prefix("LazyHeroDemo"), Some("HeroDemo"));
     assert_eq!(strip_lazy_component_prefix("Lazy"), None);
     assert_eq!(strip_lazy_component_prefix("HeroDemo"), None);
+  }
+
+  #[test]
+  fn parses_imports_dts_named_reexports() {
+    let source = "export { useState } from '#app/composables/state';\n\
+export { useColorMode } from '../../node_modules/@nuxtjs/color-mode/dist/runtime/composables';\n\
+export { useFoo as useBar } from './composables/foo';\n";
+    let names = parse_nuxt_imports_dts(source);
+    assert_eq!(
+      names.get("useColorMode").map(String::as_str),
+      Some("../../node_modules/@nuxtjs/color-mode/dist/runtime/composables")
+    );
+    assert_eq!(names.get("useBar").map(String::as_str), Some("./composables/foo"));
+    assert_eq!(names.get("useState").map(String::as_str), Some("#app/composables/state"));
   }
 }

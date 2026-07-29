@@ -57,12 +57,12 @@ Contract version: **`REACTIVITY_GRAPH_VERSION = 8`** (v7 + **module-qualified
 
 | Axis | Status | Covered (in-scope) | Remaining |
 | --- | --- | --- | --- |
-| A1 Bindings | complete | Vue primitives, aliases, `#imports`, bare Nuxt/auto-import allowlist, `defineModel`, `defineProps`, `withDefaults(defineProps())`, `storeToRefs`, `useRoute`/`useRouter`, `unref`/`toValue`, module seeds, **factory call returns** (`Factory(Ref)` from body / `.d.ts`), **`.d.ts` object-bag returns** (`{ field: Ref }` / same-file interface·type alias → destructure seeds) | — (plain `reactive()` returns typed without Ref fields → quiet) |
+| A1 Bindings | complete | Vue primitives, aliases, `#imports`, bare Nuxt/auto-import allowlist, `defineModel`, `defineProps`, `withDefaults(defineProps())`, `storeToRefs`, `useRoute`/`useRouter`, `unref`/`toValue`, module seeds, **factory call returns** (`Factory(Ref|Reactive)` from body / `.d.ts`), **`.d.ts` object-bag returns** (`{ field: Ref }` / same-file interface·type alias → destructure seeds) | — |
 | A2 Scopes | complete | effects, computed getter/`{ get, set }`, watch sources + callback outside, effectScope `.run` + provenance, dispose | — |
 | A3 Reads | complete | `.value` / members / bag.field / sync Array·String·`Array.from`·`JSON.parse` HOF / watch ref `.value` / `unref`·`toValue` / bare `watch(reactive)` deep root `*` | — |
 | A4 Conditions | complete | if / early-exit / ternary / short-circuit / switch roles | — (no further depth) |
 | A5 Boundaries | complete | after-await; pause/enable/resetTracking windows; nested `then`/`nextTick` outside; watch callback outside | — |
-| A6 Modules | complete | composable object bags + **scalar `Factory` returns** + **declared object-bag return types**; instance bags; dual script; provide/inject unique-key; static `:prop` / `v-model` / `ident` / `ident.value` / static member + optional chains → child `props` Prop edges; **on-demand ExternalImport summaries** (`.d.ts` return types / body, re-export follow; not lint targets) | whole-object `v-bind` stays quiet; `#imports` virtuals stay quiet; Nuxt `useColorMode()`-style `reactive()` bags without Ref field types stay quiet |
+| A6 Modules | complete | composable object bags + **scalar `Factory` returns** + **declared object-bag return types** + **plain-object + unwrapped-call → `Factory(Reactive)`**; instance bags; dual script; provide/inject unique-key; static `:prop` / `v-model` / `ident` / `ident.value` / static member + optional chains → child `props` Prop edges; **on-demand ExternalImport summaries** (`.d.ts` + companion `.js` when summary incomplete; re-export follow; not lint targets); **bare `.nuxt/imports.d.ts` → `#nuxt-imports:` seeds** | whole-object `v-bind` stays quiet; `#imports` virtuals stay quiet without a concrete file body |
 | A7 Contract | complete | v8 module-qualified `to_id`; v7 `property` / `to_path`; deterministic sort | — |
 | Evidence | complete | Runtime oracle (≥99% recall on committed cases); deep-watch `*`; exhaustive local reads; key SFC E2E | — (prop flow is static unit/project; not an `onTrack` pair) |
 
@@ -75,7 +75,7 @@ Contract version: **`REACTIVITY_GRAPH_VERSION = 8`** (v7 + **module-qualified
 | A3 | ✅ Member/HOF/unref·toValue reads; watch ref `.value`; **deep root `*` for bare `watch(reactive)`** (not per-key invention) |
 | A4 | ✅ Existing guard roles; no further control-flow deepening |
 | A5 | ✅ After-await classification; pause/enable/resetTracking windows; nested callback outside-tracking; watch callback outside |
-| A6 | ✅ Composable/instance/dual-script/provide-inject; **Factory scalar returns**; **`.d.ts` / annotated object-bag returns**; **external package summaries**; **static `:prop` → child props bag edges** |
+| A6 | ✅ Composable/instance/dual-script/provide-inject; **Factory scalar + Reactive**; **`.d.ts` / annotated object-bag returns**; **plain-object + `call().value` merge**; **external package summaries** (+ companion js); **bare Nuxt imports.d.ts seeds**; **static `:prop` → child props bag edges** |
 | A7 | ✅ Versioned graph; deterministic sort; `property`/`to_path`; **`{module}:{name}@{offset}` `to_id`** |
 | Evidence | ✅ `just oracle` ≥99% recall on committed cases; exhaustive local reads; key SFC E2E |
 
@@ -234,3 +234,4 @@ growing prose ledger.
 | 2026-07-29 | Uncertain accesses `(maybe)` | Scope `uncertain_accesses` for unclassified `.value`/`unref`/`toValue`; `no-computed-without-dependency` labels `(maybe: name)` instead of silence or invented edges |
 | 2026-07-29 | Absence-rule strategy | Prefer hard evidence (Factory, `const alias = ref`, nested `.value` roots, watch-source uncertain); absence pathologies share `(maybe)` when only soft evidence remains |
 | 2026-07-29 | `.d.ts` object-bag returns (#118) | Declared `{ width: Ref }` / same-file `interface`·`type` return shapes → `ExportState::Composable`; fixes VueUse `useElementSize` destructure → `no-empty-watch-sources` FP |
+| 2026-07-29 | Plain-object Reactive factory (#119) | Declared plain object (no Ref fields) + body `return <call>(...).value` (`#imports`/unresolved) or `return reactive(...)` → `Factory(Reactive)`; `.nuxt/imports.d.ts` bare calls → `#nuxt-imports:` ExternalReactivityRoot; companion `.js` merge when `.d.ts` summary incomplete; fixes Nuxt `useColorMode` → `no-empty-watch-sources` FP |
