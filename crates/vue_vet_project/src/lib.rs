@@ -1937,8 +1937,7 @@ watch([hostWidth, hostHeight], () => {})\n";
   fn bare_nuxt_types_imports_dts_does_not_break_color_mode_seed() {
     let project = TempProject::new("nuxt-color-mode-types");
     write_color_mode_package(&project);
-    let imports =
-      "export { useColorMode } from '../node_modules/@nuxtjs/color-mode/dist/runtime/composables';\n";
+    let imports = "export { useColorMode } from '../node_modules/@nuxtjs/color-mode/dist/runtime/composables';\n";
     let types = "export {}\n\
 declare global {\n\
   const useColorMode: typeof import('../../node_modules/@nuxtjs/color-mode/dist/runtime/composables').useColorMode\n\
