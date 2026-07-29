@@ -1,4 +1,9 @@
-# Disallow duplicate `defineProps` calls
+# `vue-vet/correctness/no-duplicate-define-props`
+
+Category: correctness  
+Default severity: warning  
+Confidence: high
+
 
 This high-confidence rule reports multiple `defineProps` compiler macro calls in one `<script setup>` block.
 
@@ -26,3 +31,4 @@ The rule applies only to the Vue `<script setup>` compiler macro, not similarly 
 ## Remediation
 
 Merge every prop declaration into one `defineProps` call.
+

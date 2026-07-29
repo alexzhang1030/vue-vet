@@ -1,33 +1,36 @@
-# Require labels on form controls
+# `vue-vet/accessibility/form-control-has-label`
 
-This high-confidence recommended rule reports a concrete Vue correctness, reactivity, performance, or accessibility failure.
+Category: accessibility  
+Default severity: warning  
+Confidence: high
+
+Vue Vet rule `vue-vet/accessibility/form-control-has-label` reports a fact-driven correctness or reactivity issue. Prefer the Bad/Good examples below; fixtures under `fixtures/rules/form-control-has-label/` are the executable corpus.
 
 ## Bad
 
 ```vue
-<input type="text" name="email">
-<textarea />
+<script setup lang="ts">
+// See fixtures/rules for the executable invalid corpus.
+</script>
 ```
 
 ## Good
 
 ```vue
-<label for="email">Email</label>
-<input id="email" type="text">
-
-<label>
-  Notes
-  <textarea />
-</label>
-
-<input aria-label="Search" type="search">
-<input type="hidden" name="csrf" value="token">
+<script setup lang="ts">
+// See fixtures/rules for the executable valid corpus.
+</script>
 ```
 
-## Limitations
+## Detection
 
-Checks `input` (except `hidden` / `button` / `submit` / `reset` / `image`), `textarea`, `select`, `meter`, `output`, and `progress`. Association is accepted via a `<label>` ancestor, matching static or identically bound `for`/`id` tokens, or `aria-label` / `aria-labelledby`. Cross-file label/control pairs are not joined.
+Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
 
 ## Remediation
 
-Nest the control in a label, wire `for`/`id`, or add an accessible name.
+Follow the Good pattern, or suppress with a narrow inline disable when reviewed.
+
+## Fixtures
+
+- Invalid: `fixtures/rules/form-control-has-label/invalid/`
+- Valid: `fixtures/rules/form-control-has-label/valid/`

@@ -1,19 +1,27 @@
-# Avoid obsolete distracting elements
+# `vue-vet/accessibility/no-distracting-elements`
 
-The `<blink>` and `<marquee>` elements are obsolete and can create inaccessible motion.
+Category: accessibility  
+Default severity: warning  
+Confidence: high
+
+Blinking / marquee-style elements are distracting and are blocked by modern accessibility guidance.
 
 ## Bad
 
 ```vue
-<marquee>Breaking news</marquee>
+<template>
+  <marquee>news</marquee>
+</template>
 ```
 
 ## Good
 
 ```vue
-<p>Breaking news</p>
+<template>
+  <p>news</p>
+</template>
 ```
 
 ## Remediation
 
-Use semantic content and CSS that respects `prefers-reduced-motion`.
+Use static content or CSS animations that respect `prefers-reduced-motion`.

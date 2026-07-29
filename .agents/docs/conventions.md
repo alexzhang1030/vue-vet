@@ -30,7 +30,8 @@
   temporary `Vec` and then iterate it again.
 - A rule lands with rationale, bad/good examples, limitations, positive fixtures, common safe patterns, false-positive regressions, exact-span assertions, and reporter snapshots.
 - After adding or renaming rule ids, regenerate the human catalog with
-  `just rules-catalog` (`docs/rules/README.md`).
+  `just rules-catalog` (`docs/rules/README.md`). Expand stub pages with
+  `just rules-docs` (`scripts/expand_rule_docs.py`) before polishing essays.
 - Low-confidence heuristics are opt-in and never enter the default preset merely to increase rule count.
 
 ## Source locations

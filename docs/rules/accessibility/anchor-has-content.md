@@ -1,34 +1,40 @@
-# Require accessible link content
+# `vue-vet/accessibility/anchor-has-content`
 
-This high-confidence recommended rule reports a concrete Vue correctness, reactivity, performance, or accessibility failure.
+Category: accessibility  
+Default severity: warning  
+Confidence: high
+
+Vue Vet rule `vue-vet/accessibility/anchor-has-content` reports a fact-driven correctness or reactivity issue. Prefer the Bad/Good examples below; fixtures under `fixtures/rules/anchor-has-content/` are the executable corpus.
 
 ## Bad
 
 ```vue
-<a href="/settings" />
-<a href="https://github.com" title="GitHub">
-  <div class="i-carbon-logo-github" />
-</a>
-<RouterLink to="/" title="Home">
-  <div class="i-carbon-campsite" />
-</RouterLink>
+<template>
+  <a href="/help">
+    <span aria-hidden="true">Help</span>
+  </a>
+</template>
 ```
 
 ## Good
 
 ```vue
-<a href="/settings">Settings</a>
-<a href="https://github.com" aria-label="GitHub">
-  <div class="i-carbon-logo-github" />
-</a>
-<a href="/docs"><img alt="Documentation" src="docs.png"></a>
-<RouterLink to="/">Home</RouterLink>
+<template>
+  <a href="https://github.com" aria-label="GitHub">
+    <div class="i-carbon-logo-github text-xl" />
+  </a>
+</template>
 ```
 
-## Limitations
+## Detection
 
-Checked tags: `a`, `RouterLink` / `router-link`, `NuxtLink` / `nuxt-link`. Accessible content means non-whitespace text, interpolation, `v-text`/`v-html`, or a descendant `img`/`area` with a non-empty `alt`. Element-only children (icon wrappers) and `aria-hidden` subtrees do not count. `title` alone is not an accessible name; when a static `title` is present, the diagnostic may include a safe edit that inserts a matching `aria-label`. Bound `:title` is left for manual review.
+Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
 
 ## Remediation
 
-Add text content, an image with `alt`, or an `aria-label` / `aria-labelledby` binding.
+Follow the Good pattern, or suppress with a narrow inline disable when reviewed.
+
+## Fixtures
+
+- Invalid: `fixtures/rules/anchor-has-content/invalid/`
+- Valid: `fixtures/rules/anchor-has-content/valid/`

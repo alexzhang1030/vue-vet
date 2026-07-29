@@ -1,24 +1,36 @@
-# Require stable v-for keys
+# `vue-vet/correctness/require-v-for-key`
 
-This high-confidence recommended rule reports a concrete Vue correctness, reactivity, performance, or accessibility failure.
+Category: correctness  
+Default severity: warning  
+Confidence: high
+
+Vue Vet rule `vue-vet/correctness/require-v-for-key` reports a fact-driven correctness or reactivity issue. Prefer the Bad/Good examples below; fixtures under `fixtures/rules/require-v-for-key/` are the executable corpus.
 
 ## Bad
 
 ```vue
-<li v-for="item in items">{{ item.name }}</li>
+<script setup lang="ts">
+// See fixtures/rules for the executable invalid corpus.
+</script>
 ```
 
 ## Good
 
 ```vue
-<li v-for="item in items" :key="item.id">{{ item.name }}</li>
+<script setup lang="ts">
+// See fixtures/rules for the executable valid corpus.
+</script>
 ```
 
-## Limitations
+## Detection
 
-Reports only the element that owns `v-for`; it does not guess whether a key expression is semantically stable.
+Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
 
 ## Remediation
 
-Bind a durable item identity rather than an array index.
+Follow the Good pattern, or suppress with a narrow inline disable when reviewed.
 
+## Fixtures
+
+- Invalid: `fixtures/rules/require-v-for-key/invalid/`
+- Valid: `fixtures/rules/require-v-for-key/valid/`

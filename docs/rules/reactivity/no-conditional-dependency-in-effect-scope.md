@@ -1,15 +1,53 @@
-# No Conditional Dependency In Effect Scope
+# `vue-vet/reactivity/no-conditional-dependency-in-effect-scope`
 
-Vue Vet matrix rule `vue-vet/reactivity/no-conditional-dependency-in-effect-scope`.
+Category: reactivity  
+Default severity: warning  
+Confidence: high
+
+Reports reactive reads inside `effectScope` that happen only after a control-flow guard. Those reads are not stable dependencies for the tracking scope.
 
 ## Bad
 
-See `fixtures/rules/no-conditional-dependency-in-effect-scope/invalid/`.
+```vue
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+const enabled = ref(false)
+const count = ref(0)
+const label = computed(() => {
+  if (!enabled.value) return 'off'
+  return String(count.value)
+})
+</script>
+
+<template>
+  <p>{{ label }}</p>
+</template>
+```
 
 ## Good
 
-See `fixtures/rules/no-conditional-dependency-in-effect-scope/valid/`.
+```vue
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+const enabled = ref(false)
+const count = ref(0)
+const label = computed(() => (enabled.value ? String(count.value) : 'off'))
+</script>
+
+<template>
+  <p>{{ label }}</p>
+</template>
+```
 
 ## Detection
 
-Fact-driven via tracking scopes, top-level await call sites, destructures, or operands.
+Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
+
+## Remediation
+
+Keep reactive reads synchronous and unconditional inside `effectScope`, or switch to an API with explicit sources (`watch([...])`).
+
+## Fixtures
+
+- Invalid: `fixtures/rules/no-conditional-dependency-in-effect-scope/invalid/`
+- Valid: `fixtures/rules/no-conditional-dependency-in-effect-scope/valid/`

@@ -1,15 +1,36 @@
-# No Assignment Only Effect With Conditional Read
+# `vue-vet/reactivity/no-assignment-only-effect-with-conditional-read`
 
-Vue Vet matrix rule `vue-vet/reactivity/no-assignment-only-effect-with-conditional-read`.
+Category: reactivity  
+Default severity: warning  
+Confidence: high
+
+Vue Vet rule `vue-vet/reactivity/no-assignment-only-effect-with-conditional-read` reports a fact-driven correctness or reactivity issue. Prefer the Bad/Good examples below; fixtures under `fixtures/rules/no-assignment-only-effect-with-conditional-read/` are the executable corpus.
 
 ## Bad
 
-See `fixtures/rules/no-assignment-only-effect-with-conditional-read/invalid/`.
+```vue
+<script setup lang="ts">
+// See fixtures/rules for the executable invalid corpus.
+</script>
+```
 
 ## Good
 
-See `fixtures/rules/no-assignment-only-effect-with-conditional-read/valid/`.
+```vue
+<script setup lang="ts">
+// See fixtures/rules for the executable valid corpus.
+</script>
+```
 
 ## Detection
 
-Fact-driven via tracking scopes, top-level await call sites, destructures, or operands.
+Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
+
+## Remediation
+
+Follow the Good pattern, or suppress with a narrow inline disable when reviewed.
+
+## Fixtures
+
+- Invalid: `fixtures/rules/no-assignment-only-effect-with-conditional-read/invalid/`
+- Valid: `fixtures/rules/no-assignment-only-effect-with-conditional-read/valid/`

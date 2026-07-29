@@ -1,24 +1,36 @@
-# Pair click handlers with keyboard behavior
+# `vue-vet/accessibility/click-events-have-key-events`
 
-This high-confidence recommended rule reports a concrete Vue correctness, reactivity, performance, or accessibility failure.
+Category: accessibility  
+Default severity: warning  
+Confidence: high
+
+Vue Vet rule `vue-vet/accessibility/click-events-have-key-events` reports a fact-driven correctness or reactivity issue. Prefer the Bad/Good examples below; fixtures under `fixtures/rules/click-events-have-key-events/` are the executable corpus.
 
 ## Bad
 
 ```vue
-<div @click="activate" />
+<script setup lang="ts">
+// See fixtures/rules for the executable invalid corpus.
+</script>
 ```
 
 ## Good
 
 ```vue
-<button type="button" @click="activate">Activate</button>
+<script setup lang="ts">
+// See fixtures/rules for the executable valid corpus.
+</script>
 ```
 
-## Limitations
+## Detection
 
-The rule is intentionally limited to common native non-interactive tags to avoid guessing custom-component semantics.
+Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
 
 ## Remediation
 
-Prefer a native control; otherwise add keyboard handling and a role.
+Follow the Good pattern, or suppress with a narrow inline disable when reviewed.
 
+## Fixtures
+
+- Invalid: `fixtures/rules/click-events-have-key-events/invalid/`
+- Valid: `fixtures/rules/click-events-have-key-events/valid/`

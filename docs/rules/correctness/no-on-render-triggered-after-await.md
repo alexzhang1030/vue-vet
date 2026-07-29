@@ -1,15 +1,52 @@
-# No On Render Triggered After Await
+# `vue-vet/correctness/no-on-render-triggered-after-await`
 
-Vue Vet matrix rule `vue-vet/correctness/no-on-render-triggered-after-await`.
+Category: correctness  
+Default severity: warning  
+Confidence: high
+
+In `<script setup>`, calling `onRenderTriggered` after a top-level `await` runs outside the synchronous setup instance context, so the API will not bind correctly.
 
 ## Bad
 
-See `fixtures/rules/no-on-render-triggered-after-await/invalid/`.
+```vue
+<script setup lang="ts">
+import { onRenderTriggered } from 'vue'
+const data = await fetch('/api').then((response) => response.json())
+onRenderTriggered(() => {
+  console.log(data)
+})
+</script>
+
+<template>
+  <div />
+</template>
+```
 
 ## Good
 
-See `fixtures/rules/no-on-render-triggered-after-await/valid/`.
+```vue
+<script setup lang="ts">
+import { onRenderTriggered } from 'vue'
+onRenderTriggered(() => {
+  console.log('ready')
+})
+const data = await fetch('/api').then((response) => response.json())
+</script>
+
+<template>
+  <div>{{ data }}</div>
+</template>
+```
 
 ## Detection
 
-Fact-driven via tracking scopes, top-level await call sites, destructures, or operands.
+Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
+
+## Remediation
+
+Move `onRenderTriggered` before the first top-level `await`.
+
+## Fixtures
+
+- Invalid: `fixtures/rules/no-on-render-triggered-after-await/invalid/`
+- Valid: `fixtures/rules/no-on-render-triggered-after-await/valid/`

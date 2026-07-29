@@ -1,19 +1,27 @@
-# Replace removed slot-scope syntax
+# `vue-vet/correctness/no-deprecated-slot-scope`
 
-Vue 3 uses `v-slot` and the `#` shorthand instead of `slot-scope` or template `scope`.
+Category: correctness  
+Default severity: warning  
+Confidence: high
+
+`slot-scope` is Vue 2 syntax. Prefer `v-slot` / `#` destructuring.
 
 ## Bad
 
 ```vue
-<template slot-scope="slotProps">{{ slotProps.value }}</template>
+<template>
+  <Comp><div slot-scope="row">{{ row.name }}</div></Comp>
+</template>
 ```
 
 ## Good
 
 ```vue
-<template #default="slotProps">{{ slotProps.value }}</template>
+<template>
+  <Comp><template #default="{ name }">{{ name }}</template></Comp>
+</template>
 ```
 
 ## Remediation
 
-Migrate scoped-slot declarations to `v-slot`.
+Migrate to `v-slot` / named slot shorthand with props destructuring.

@@ -83,6 +83,11 @@ bench-codspeed-run:
 rules-catalog:
   python3 scripts/gen_rule_catalog.py
 
+# Expand stub rule docs into Bad/Good pages (skips polished essays).
+rules-docs:
+  python3 scripts/expand_rule_docs.py
+  just rules-catalog
+
 # Print quality-corpus tree digests (update fixtures/quality/manifest.json after intentional edits).
 quality-digest:
   cargo test -p vue-vet --test quality_gates digest_printer -- --exact --ignored --nocapture

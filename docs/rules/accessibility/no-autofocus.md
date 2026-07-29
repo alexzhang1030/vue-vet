@@ -1,28 +1,36 @@
-# Avoid automatic focus
+# `vue-vet/accessibility/no-autofocus`
 
-This high-confidence recommended rule reports a concrete Vue correctness, reactivity, performance, or accessibility failure.
+Category: accessibility  
+Default severity: warning  
+Confidence: high
+
+Vue Vet rule `vue-vet/accessibility/no-autofocus` reports a fact-driven correctness or reactivity issue. Prefer the Bad/Good examples below; fixtures under `fixtures/rules/no-autofocus/` are the executable corpus.
 
 ## Bad
 
 ```vue
-<input autofocus>
+<script setup lang="ts">
+// See fixtures/rules for the executable invalid corpus.
+</script>
 ```
 
 ## Good
 
 ```vue
-<input>
+<script setup lang="ts">
+// See fixtures/rules for the executable valid corpus.
+</script>
 ```
 
-## Limitations
+## Detection
 
-Programmatic focus is outside this template-only rule. The safe fix covers only
-boolean `autofocus`; valued forms remain visible for manual review because the
-diagnostic name span does not cover the complete attribute.
+Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
 
 ## Remediation
 
-Move focus only after an explicit user action when it is necessary.
+Follow the Good pattern, or suppress with a narrow inline disable when reviewed.
 
-Use `--fix-dry-run` to inspect the byte-range removal or `--fix-safe` to remove a
-boolean `autofocus` and report the fresh post-fix scan.
+## Fixtures
+
+- Invalid: `fixtures/rules/no-autofocus/invalid/`
+- Valid: `fixtures/rules/no-autofocus/valid/`

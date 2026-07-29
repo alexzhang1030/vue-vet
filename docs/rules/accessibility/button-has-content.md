@@ -1,29 +1,40 @@
-# Require accessible button content
+# `vue-vet/accessibility/button-has-content`
 
-This high-confidence recommended rule reports a concrete Vue correctness, reactivity, performance, or accessibility failure.
+Category: accessibility  
+Default severity: warning  
+Confidence: high
+
+Vue Vet rule `vue-vet/accessibility/button-has-content` reports a fact-driven correctness or reactivity issue. Prefer the Bad/Good examples below; fixtures under `fixtures/rules/button-has-content/` are the executable corpus.
 
 ## Bad
 
 ```vue
-<button type="button" />
-<button type="button" title="Close">
-  <div class="i-carbon-close" />
-</button>
+<template>
+  <button type="button">
+    <div class="i-carbon-close text-xl" />
+  </button>
+</template>
 ```
 
 ## Good
 
 ```vue
-<button type="button">Save</button>
-<button type="button" aria-label="Close">
-  <div class="i-carbon-close" />
-</button>
+<template>
+  <button type="button" aria-label="Close">
+    <div class="i-carbon-close text-xl" />
+  </button>
+</template>
 ```
 
-## Limitations
+## Detection
 
-Accessible content means non-whitespace text, interpolation, `v-text`/`v-html`, or a descendant `img`/`area` with a non-empty `alt`. Element-only children (icon wrappers) and `aria-hidden` subtrees do not count. `aria-label` and `aria-labelledby` on the button are accepted. A static `title` can receive a safe `aria-label` insert preview.
+Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
 
 ## Remediation
 
-Add text content, an image with `alt`, or an `aria-label` / `aria-labelledby` binding.
+Follow the Good pattern, or suppress with a narrow inline disable when reviewed.
+
+## Fixtures
+
+- Invalid: `fixtures/rules/button-has-content/invalid/`
+- Valid: `fixtures/rules/button-has-content/valid/`

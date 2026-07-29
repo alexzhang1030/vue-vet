@@ -1,24 +1,36 @@
-# Require image alternatives
+# `vue-vet/accessibility/img-has-alt`
 
-This high-confidence recommended rule reports a concrete Vue correctness, reactivity, performance, or accessibility failure.
+Category: accessibility  
+Default severity: warning  
+Confidence: high
+
+Vue Vet rule `vue-vet/accessibility/img-has-alt` reports a fact-driven correctness or reactivity issue. Prefer the Bad/Good examples below; fixtures under `fixtures/rules/img-has-alt/` are the executable corpus.
 
 ## Bad
 
 ```vue
-<img src="avatar.png">
+<script setup lang="ts">
+// See fixtures/rules for the executable invalid corpus.
+</script>
 ```
 
 ## Good
 
 ```vue
-<img src="avatar.png" alt="Account avatar">
+<script setup lang="ts">
+// See fixtures/rules for the executable valid corpus.
+</script>
 ```
 
-## Limitations
+## Detection
 
-The rule cannot decide whether an image is decorative; `alt=""` is accepted.
+Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
 
 ## Remediation
 
-Describe meaningful images or use an empty alt for decorative images.
+Follow the Good pattern, or suppress with a narrow inline disable when reviewed.
 
+## Fixtures
+
+- Invalid: `fixtures/rules/img-has-alt/invalid/`
+- Valid: `fixtures/rules/img-has-alt/valid/`
