@@ -1,5 +1,36 @@
 # Architecture
 
+## Monorepo analysis pipeline (end-to-end)
+
+One open pipeline across crates — no side-pocket “magic” hosts. Each crate is a
+stage owner; `lib.rs` files stay thin façades where the crate has been split.
+
+```text
+vue-vet CLI / --lsp / --mcp
+  -> vue_vet_session
+       discovery     WorkspaceInputSnapshot + PackageIndex
+       parse         vue_vet_vize (SFC) / vue_vet_oxc (JS/TS) → File Fact IR
+       project       vue_vet_project pipeline
+                       context → structural → passes(enrichment)
+                       → reactivity Trace → layers → project rules
+       reactivity    vue_vet_reactivity (single-file trace + ModuleSummary link)
+       rules         vue_vet_rules + vue_vet_practice (RuleRegistry over facts)
+       finalize      DiagnosticFinalizer → vue_vet_core ScanSummary
+  -> vue_vet_reporters | vue_vet_lsp | vue_vet_mcp
+```
+
+Crate ownership (read before editing that stage):
+
+| Stage | Crate | Notes |
+| --- | --- | --- |
+| Stable contracts | `vue_vet_core` | facts / diagnostics / `Rule` — no Oxc/Vize types |
+| Adapters | `vue_vet_vize`, `vue_vet_oxc` | short-lived AST → facts only |
+| Project graph | `vue_vet_project` | see `vue_vet_project` pipeline below |
+| Cross-file seeds | `vue_vet_reactivity` | `ModuleSummary` boundary; under-approx |
+| File rules | `vue_vet_rules`, `vue_vet_practice` | consume facts; practice off score |
+| Orchestration | `vue_vet_session` | discovery → parse → project → rules → finalize |
+| Surfaces | `vue_vet_cli`, `vue_vet_lsp`, `vue_vet_mcp`, `vue_vet_reporters` | thin |
+
 ## Current vertical slice
 
 ```text
