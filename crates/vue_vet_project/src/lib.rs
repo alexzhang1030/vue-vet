@@ -1,4 +1,5 @@
 mod conventions;
+mod passes;
 mod resolve;
 
 use std::{
@@ -13,8 +14,7 @@ use vue_vet_core::{
 };
 use vue_vet_reactivity::{
   ModuleLink, ModuleReactivity, ModuleSource, ModuleTraceState, PropFlowSite, TraceModulesOptions,
-  join_prop_flows, merge_declaration_implementation_summary, prepare_standalone_module_source,
-  trace_modules_incremental_with_options,
+  join_prop_flows, prepare_standalone_module_source, trace_modules_incremental_with_options,
 };
 
 pub use resolve::{OXC_RESOLVER_VERSION, normalize_project_root, resolver_config_inputs};
@@ -22,8 +22,14 @@ pub use resolve::{OXC_RESOLVER_VERSION, normalize_project_root, resolver_config_
 pub use conventions::NuxtImportTarget;
 use conventions::{
   NUXT_COMPONENT_DTS_CANDIDATES, NUXT_IMPORTS_DTS_CANDIDATES, convention_component_name,
-  load_nuxt_component_dts_names, load_nuxt_imports_dts_names, nuxt_imports_link_specifier,
-  parse_nuxt_components_dts, parse_nuxt_imports_dts, strip_lazy_component_prefix,
+  load_nuxt_component_dts_names, load_nuxt_imports_dts_names, parse_nuxt_components_dts,
+  parse_nuxt_imports_dts, strip_lazy_component_prefix,
+};
+use passes::apply_provisional_factory_merge as merge_provisional_factory;
+use passes::run_nuxt_imports_seed_pass;
+pub use passes::{
+  EXTERNAL_COMPANION_MAX_BYTES, EnrichmentPass, EnrichmentPhase, NuxtImportsSeedPass,
+  ProvisionalFactoryMergePass, apply_provisional_factory_merge, companion_implementation_path,
 };
 use resolve::{
   ProjectResolver, Resolution, language_for_path, normalized_path, prefer_types_declaration,
@@ -33,10 +39,6 @@ use resolve::{
 const EXTERNAL_REACTIVITY_MAX_FILES: usize = 64;
 /// Max re-export follow depth from an external entry.
 const EXTERNAL_REACTIVITY_MAX_DEPTH: usize = 8;
-/// Skip companion implementation bodies larger than this (bytes). Nuxt/VueUse
-/// runtime composables are tiny; multi‑MB bundles like `typescript.js` are not
-/// reactivity evidence and must not be parsed.
-const EXTERNAL_COMPANION_MAX_BYTES: u64 = 512 * 1024;
 
 pub const CONVENTIONS_VERSION: u32 = 6;
 pub const PROJECT_RULE_IDS: [&str; 2] =
@@ -434,10 +436,10 @@ struct StructuralFileOutput {
 
 /// One resolved external import that should be summarized for A6 seeds.
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct ExternalReactivityRoot {
-  from: ModuleId,
-  specifier: String,
-  resolved_path: PathBuf,
+pub(crate) struct ExternalReactivityRoot {
+  pub(crate) from: ModuleId,
+  pub(crate) specifier: String,
+  pub(crate) resolved_path: PathBuf,
 }
 
 #[must_use]
@@ -778,52 +780,12 @@ fn analyze_structural_file(
     if let Some(to) = composable_by_name.get(&call.callee) {
       output.edges.push(edge(&from, to, EdgeKind::AutoComposable, &call.callee, call.span.clone()));
     }
-    // Bare Nuxt auto-import: no local import binding, name present in imports.d.ts.
-    if imports.iter().any(|import| import.local == call.callee) {
-      continue;
-    }
-    let Some(target) = nuxt_import_names.get(&call.callee) else {
-      continue;
-    };
-    let link_specifier = nuxt_imports_link_specifier(&call.callee);
-    // Specifiers are relative to the declaring dts (not the consumer, and not a
-    // fixed `.nuxt/imports.d.ts` — types/imports uses one more `../`).
-    match resolver.resolve(&target.importer, &target.specifier, known) {
-      Resolution::File(target) => {
-        let target_id = ModuleId::primary(&FileId::from(target.as_str()));
-        for module_from in [ModuleId::primary(&file.path), ModuleId::ordinary(&file.path)] {
-          if module_ids.contains(&module_from) && module_ids.contains(&target_id) {
-            output.module_links.push(ModuleLink {
-              from: module_from,
-              specifier: link_specifier.clone(),
-              to: target_id.clone(),
-            });
-          }
-        }
-      }
-      Resolution::External { package, resolved_path: Some(resolved_path) } => {
-        let id = format!("external:{package}");
-        output.external_nodes.push(GraphNode {
-          id: id.clone(),
-          kind: NodeKind::External,
-          path: package.clone(),
-          name: package,
-        });
-        for module_from in [ModuleId::primary(&file.path), ModuleId::ordinary(&file.path)] {
-          if module_ids.contains(&module_from) {
-            output.external_reactivity_roots.push(ExternalReactivityRoot {
-              from: module_from,
-              specifier: link_specifier.clone(),
-              resolved_path: resolved_path.clone(),
-            });
-          }
-        }
-      }
-      Resolution::External { resolved_path: None, .. } | Resolution::Unresolved => {
-        // Virtual `#app/…` / unresolved auto-imports stay quiet (no unresolved-import).
-      }
-    }
   }
+  // Enrichment: bare Nuxt auto-imports → `#nuxt-imports:` seeds (StructuralLink).
+  let nuxt_delta = run_nuxt_imports_seed_pass(file, resolver, known, module_ids, nuxt_import_names);
+  output.module_links.extend(nuxt_delta.module_links);
+  output.external_nodes.extend(nuxt_delta.external_nodes);
+  output.external_reactivity_roots.extend(nuxt_delta.external_reactivity_roots);
   output
 }
 
@@ -910,7 +872,8 @@ fn load_external_reactivity_modules(
     else {
       continue;
     };
-    if let Some(merged) = merge_companion_implementation(&path, &module) {
+    // Enrichment: provisional .d.ts + companion body → Factory (SummaryMerge).
+    if let Some(merged) = merge_provisional_factory(&path, &module) {
       module = merged;
     }
     let follow =
@@ -950,45 +913,6 @@ fn load_external_reactivity_modules(
   });
   links.dedup();
   (sources, links)
-}
-
-/// When a `.d.ts` summary has provisional Factory halves, load companion
-/// `.js`/`.mjs`/`.ts` body evidence and merge (size-bounded).
-fn merge_companion_implementation(
-  types_path: &Path,
-  module: &ModuleSource,
-) -> Option<ModuleSource> {
-  let summary = module.module_summary()?;
-  if !summary.needs_implementation_merge() {
-    return None;
-  }
-  let impl_path = companion_implementation_path(types_path)?;
-  let metadata = std::fs::metadata(&impl_path).ok()?;
-  if !metadata.is_file() || metadata.len() > EXTERNAL_COMPANION_MAX_BYTES {
-    return None;
-  }
-  let source_text = std::fs::read_to_string(&impl_path).ok()?;
-  let language = language_for_path(&impl_path);
-  let impl_module =
-    prepare_standalone_module_source(module.id.clone(), source_text, language).ok()?;
-  let impl_summary = impl_module.module_summary()?;
-  let merged = merge_declaration_implementation_summary((*summary).clone(), impl_summary.as_ref());
-  Some(module.clone().with_module_summary(merged))
-}
-
-fn companion_implementation_path(types_path: &Path) -> Option<PathBuf> {
-  let file_name = types_path.file_name().and_then(|name| name.to_str())?;
-  let stem = file_name
-    .strip_suffix(".d.ts")
-    .or_else(|| file_name.strip_suffix(".d.mts"))
-    .or_else(|| file_name.strip_suffix(".d.cts"))?;
-  for extension in [".js", ".mjs", ".cjs", ".ts", ".mts", ".cts"] {
-    let candidate = types_path.with_file_name(format!("{stem}{extension}"));
-    if candidate.is_file() {
-      return Some(candidate);
-    }
-  }
-  None
 }
 
 /// Inline relative `import type` targets so same-file interface lookup sees them.

@@ -74,12 +74,15 @@ are part of the graph invalidation set.
 
 When `.nuxt/imports.d.ts` or `.nuxt/types/imports.d.ts` exists, bare script
 calls whose callee is listed there (and not shadowed by a local import) create
-reactivity seed links (`#nuxt-imports:{name}`) to the resolved module. This is
+reactivity seed links (`#nuxt-imports:{name}`) to the resolved module via the
+built-in enrichment pass `NuxtImportsSeedPass` (StructuralLink phase). This is
 reactivity-only — it does **not** raise `unresolved-import`. Specifiers resolve
 relative to the **declaring** dts (not a fixed `.nuxt/imports.d.ts` base): the
 types variant usually needs one more `../` than the re-export map. When both
 files list the same name, prefer `.nuxt/imports.d.ts`. Those imports maps are
-also invalidation inputs.
+also invalidation inputs. Provisional `.d.ts` + companion `.js` Factory merge is
+`ProvisionalFactoryMergePass` (SummaryMerge). See architecture PCR
+`Analysis enrichment passes`.
 
 ## Component navigation (not prop dataflow)
 

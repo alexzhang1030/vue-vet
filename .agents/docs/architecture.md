@@ -207,12 +207,37 @@ unused.
 
 Vue Vet's normalized facts and diagnostics are the architectural seam. Dependency AST objects must not cross into public rule, reporter, cache, LSP, or agent contracts. Adapters may change with dependency upgrades while downstream product behavior stays versioned and reviewable.
 
+## Analysis enrichment passes (not user plugins)
+
+Nuxt / package-shape specialization lives in **compile-time Rust enrichment
+passes** over Vue Vet IR — not AST Traverse (Oxc/SWC), and not a dynamic JS
+plugin host. Diagnostic [`Rule`](../../crates/vue_vet_core/src/lib.rs) passes
+consume the enriched facts; enrichment passes must not `report` diagnostics.
+
+Pipeline phases (deterministic order):
+
+```text
+ConventionsLoad
+  -> StructuralLink          (imports, components, NuxtImportsSeedPass)
+  -> ExternalSummaryLoad     (prefer .d.ts; on-demand package bodies)
+  -> SummaryMerge            (ProvisionalFactoryMergePass: companion .js, size-capped)
+  -> SeedPlan / Trace        (module seed fixed point)
+  -> RuleRegistry            (oxlint-style diagnostic passes over facts)
+```
+
+Constraints: IR only (`ProjectContext`, `ModuleLink`, `ModuleSummary`,
+`ExportState`); sorted outputs; quiet under-approx; no `dlopen` / npm analysis
+plugins before a separate ADR. Code: `vue_vet_project::passes`. See
+[gotchas](./gotchas.md) (bare Nuxt seeds / companion merge) and
+[reactivity tracer](./reactivity-tracer.md).
+
 ## Planned analysis flow
 
 ```text
 project discovery and configuration
   -> Vize SFC/template facts
   -> Oxc script facts
+  -> enrichment passes (Nuxt seeds, external summaries, provisional Factory merge)
   -> per-file built-in rules
   -> versioned project graph and graph-backed cross-file rules
   -> normalize, suppress, deduplicate, fingerprint

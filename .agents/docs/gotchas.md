@@ -471,13 +471,15 @@ and/or body unwrap — not merely “no finished seeds”). Specifiers must reso
 from the **declaring** dts importer: Nuxt’s types map uses one more `../` than
 the re-export map; resolving a types specifier from `.nuxt/imports.d.ts` goes
 outside the package and quietly drops the seed (real-app `colorMode` FP). When
-both maps exist, keep the `.nuxt/imports.d.ts` entry. Parsing every seedless
-package’s companion `.js` pulls multi‑MB bundles such as `typescript.js` and
-stalls real Nuxt docs apps. Companion bodies are also size-capped. Do **not**
-invent `Factory(Reactive)` from a plain interface alone, or from
-`return <call>(...).value` alone without a declared plain-object return
-(≥1 property, no Ref-like fields). Name-agnostic: any unresolved/`#imports`
-callee unwrap counts, not a `useState` allowlist.
+both maps exist, keep the `.nuxt/imports.d.ts` entry. Wiring lives in enrichment
+pass `NuxtImportsSeedPass`; companion merge in `ProvisionalFactoryMergePass`
+([architecture](./architecture.md) `Analysis enrichment passes`) — not diagnostic
+Rules and not user plugins. Parsing every seedless package’s companion `.js`
+pulls multi‑MB bundles such as `typescript.js` and stalls real Nuxt docs apps.
+Companion bodies are also size-capped. Do **not** invent `Factory(Reactive)`
+from a plain interface alone, or from `return <call>(...).value` alone without
+a declared plain-object return (≥1 property, no Ref-like fields). Name-agnostic:
+any unresolved/`#imports` callee unwrap counts, not a `useState` allowlist.
 
 ## Edge `from` / `to_id` labels (graph v4–v6)
 
