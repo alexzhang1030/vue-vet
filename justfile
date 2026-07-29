@@ -79,6 +79,10 @@ bench-codspeed-build:
 bench-codspeed-run:
   cargo codspeed run
 
+# Regenerate docs/rules/README.md from RuleMeta documentation keys.
+rules-catalog:
+  python3 scripts/gen_rule_catalog.py
+
 # Print quality-corpus tree digests (update fixtures/quality/manifest.json after intentional edits).
 quality-digest:
   cargo test -p vue-vet --test quality_gates digest_printer -- --exact --ignored --nocapture

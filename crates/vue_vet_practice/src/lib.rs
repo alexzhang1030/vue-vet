@@ -26,6 +26,8 @@ pub fn practice_registry() -> RuleRegistry {
 
 #[cfg(test)]
 mod tests {
+  use std::path::PathBuf;
+
   use vue_vet_core::{PRACTICE_CATEGORY, Severity};
 
   use super::*;
@@ -52,5 +54,18 @@ mod tests {
       metadata.iter().any(|meta| meta.id == "vue-vet/reactivity/prefer-use-template-ref"),
       "prefer-use-template-ref keeps its stable historical id"
     );
+  }
+
+  #[test]
+  fn every_practice_rule_has_documentation_file() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut missing = Vec::new();
+    for meta in practice_registry().metadata() {
+      let path = root.join(format!("docs/{}.md", meta.documentation));
+      if !path.is_file() {
+        missing.push(format!("{} -> {}", meta.id, path.display()));
+      }
+    }
+    assert!(missing.is_empty(), "missing practice docs:\n{}", missing.join("\n"));
   }
 }

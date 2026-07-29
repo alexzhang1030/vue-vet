@@ -4,7 +4,9 @@ Fixtures are small source inputs whose paths describe why they exist:
 
 - `rules/<rule>/invalid` contains the smallest inputs that must report.
 - `rules/<rule>/valid` contains safe patterns and false-positive regressions.
-- `rules/recommended` exercises the complete default preset as one integration corpus.
+- `rules/recommended` exercises the original default Essential/a11y/reactivity
+  slice as one integration corpus (newer matrix/directive rules use their own
+  `fixtures/rules/<name>/` trees; see [docs/rules/README.md](../docs/rules/README.md)).
 - `parser/malformed` contains deterministic parser failures.
 - `reporters` contains checked-in text and JSON reporter snapshots.
 - `projects` contains layouts for configuration discovery, suppressions, and cross-file facts.

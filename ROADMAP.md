@@ -92,17 +92,21 @@ Completion evidence:
 
 ## M1 — useful local doctor
 
-Current: 33 high-confidence built-in lint rules (plus practice suggestions).
+Current: 100+ high-confidence built-in lint rules plus practice suggestions
+(see [docs/rules/README.md](docs/rules/README.md)).
 
 Status: complete
 
-Implemented across the merged Phase 2 and semantic-reactivity branches:
+Implemented across the merged Phase 2, semantic-reactivity, and reactivity-native
+rule-pack branches:
 
 - Oxc 0.127 semantic adapter for JavaScript, TypeScript, JSX, and TSX script blocks
-- dependency-neutral imports, bindings, calls, and member-write facts
+- dependency-neutral imports, bindings, calls, member-write, operand, and
+  top-level-await facts
 - versioned strict configuration, recommended/none presets, severity overrides,
   include/exclude globs, and scoped suppressions with unused-suppression diagnostics
-- 31 documented high-confidence recommended rules with positive and safe fixtures
+- large fact-driven rule catalog (tracking-graph matrix, after-await/macros,
+  template Essential, a11y, practice) with per-rule docs and fixtures
 - normalized compiler-macro assignment facts and alias-aware readonly-props enforcement
 - semantic reactivity graph facts plus package-version-gated Vue 3.4/3.5 diagnostics
 - dedicated reactivity tracer crate with local control-flow analysis, module
@@ -253,7 +257,7 @@ Exit criteria:
 ### Alpha — complete
 
 - [x] M0 complete
-- [x] 30 documented high-confidence rules
+- [x] 100+ documented high-confidence built-in rules (plus practice channel)
 - [x] JSON output declares its initial versioned contract (`schema_version: 1`)
 - [x] the complete reference fixture corpus is covered by a no-crash integration test
 
