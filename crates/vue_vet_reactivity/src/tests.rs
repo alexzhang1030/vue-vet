@@ -1790,6 +1790,41 @@ fn nested_local_refs_classify_inside_composable_computed() {
 }
 
 #[test]
+fn to_refs_destructure_inside_setup_classifies_value_reads() {
+  let graph = graph(
+    "import { computed, toRefs, defineComponent } from 'vue';\n\
+     export default defineComponent({\n\
+       props: { deviceKey: String, type: String, back: Boolean },\n\
+       setup(props) {\n\
+         const { deviceKey, type, back } = toRefs(props);\n\
+         const label = computed(() => deviceKey.value + type.value);\n\
+         const enabled = computed(() => back.value);\n\
+         return () => label.value;\n\
+       },\n\
+     });",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.iter().any(|read| read.binding == "deviceKey")
+        && scope.reads.iter().any(|read| read.binding == "type")
+        && scope.uncertain_accesses.is_empty()
+    }),
+    "toRefs() locals inside setup must classify .value; got {:?}",
+    graph.scopes
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.iter().any(|read| read.binding == "back")
+        && scope.uncertain_accesses.is_empty()
+    }),
+    "toRefs() back must classify; got {:?}",
+    graph.scopes
+  );
+}
+
+#[test]
 fn nested_uncertain_value_and_alias_binding_are_handled() {
   let nested = graph(
     "import { computed } from 'vue';\n\
