@@ -189,6 +189,12 @@ quiet. Plain `reactive()` returns typed as interfaces of string/boolean fields
 (Nuxt `useColorMode(): ColorModeInstance`) still stay quiet — there is no
 Ref-shaped evidence in the type surface.
 
+Declared object-bag shape helpers must stay off the `const x = ref(0)` cold
+path (`trace_1k_modules`): build the return-statement index only after seeing a
+function/arrow init, compute `.d.ts` shapes lazily when body analysis returns
+`None`, and keep shape helpers `#[inline(never)]` so they do not bloat export
+collection instruction cache.
+
 Local variable names are never enough for module propagation. Export collection,
 composable returns, imported calls, and effect reads must agree on Oxc symbol
 identity so shadowed parameters and function-local refs do not leak across the

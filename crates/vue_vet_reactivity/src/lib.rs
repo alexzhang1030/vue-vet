@@ -241,7 +241,7 @@ fn collect_local_composable_usage(
       script_offset,
       index,
       modules::function_return_type_kind(function),
-      modules::function_return_type_shape(semantic, function),
+      || modules::function_return_type_shape(semantic, function),
     ) else {
       continue;
     };
@@ -259,30 +259,37 @@ fn collect_local_composable_usage(
     let Some(init) = &declarator.init else {
       continue;
     };
-    let (function_id, declared_kind, declared_shape) = match init {
-      Expression::ArrowFunctionExpression(arrow) => (
-        arrow.node_id.get(),
-        modules::arrow_return_type_kind(arrow),
-        modules::arrow_return_type_shape(semantic, arrow),
-      ),
-      Expression::FunctionExpression(function) => (
-        function.node_id.get(),
-        modules::function_return_type_kind(function),
-        modules::function_return_type_shape(semantic, function),
-      ),
+    // Do not build the return index / declared shapes for `const x = ref(0)`.
+    let export = match init {
+      Expression::ArrowFunctionExpression(arrow) => {
+        let index =
+          returns_by_function.get_or_insert_with(|| modules::build_returns_by_function(semantic));
+        local_composable_export_for(
+          semantic,
+          arrow.node_id.get(),
+          shape_graph,
+          script_offset,
+          index,
+          modules::arrow_return_type_kind(arrow),
+          || modules::arrow_return_type_shape(semantic, arrow),
+        )
+      }
+      Expression::FunctionExpression(function) => {
+        let index =
+          returns_by_function.get_or_insert_with(|| modules::build_returns_by_function(semantic));
+        local_composable_export_for(
+          semantic,
+          function.node_id.get(),
+          shape_graph,
+          script_offset,
+          index,
+          modules::function_return_type_kind(function),
+          || modules::function_return_type_shape(semantic, function),
+        )
+      }
       _ => continue,
     };
-    let index =
-      returns_by_function.get_or_insert_with(|| modules::build_returns_by_function(semantic));
-    let Some(export) = local_composable_export_for(
-      semantic,
-      function_id,
-      shape_graph,
-      script_offset,
-      index,
-      declared_kind,
-      declared_shape,
-    ) else {
+    let Some(export) = export else {
       continue;
     };
     composables.insert(identifier.name.to_string(), (identifier.span, export));
@@ -363,7 +370,7 @@ fn local_composable_export_for(
   script_offset: usize,
   returns_by_function: &BTreeMap<oxc_semantic::NodeId, Vec<oxc_semantic::NodeId>>,
   declared_return_kind: Option<ReactiveBindingKind>,
-  declared_return_shape: BTreeMap<String, ReactiveBindingKind>,
+  declared_return_shape: impl FnOnce() -> BTreeMap<String, ReactiveBindingKind>,
 ) -> Option<LocalComposableExport> {
   let shape = modules::composable_return_shape_with_index(
     semantic,
@@ -384,10 +391,12 @@ fn local_composable_export_for(
   ) {
     return Some(LocalComposableExport::Factory(kind));
   }
-  if !declared_return_shape.is_empty() {
-    return Some(LocalComposableExport::Bag(declared_return_shape));
+  let declared_shape = declared_return_shape();
+  if declared_shape.is_empty() {
+    declared_return_kind.map(LocalComposableExport::Factory)
+  } else {
+    Some(LocalComposableExport::Bag(declared_shape))
   }
-  declared_return_kind.map(LocalComposableExport::Factory)
 }
 
 fn reference_resolves_to_span(
