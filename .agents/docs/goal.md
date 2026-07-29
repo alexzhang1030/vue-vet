@@ -18,6 +18,11 @@ The target product combines Vue-aware semantic diagnostics, deterministic scorin
 4. Safe, previewable changes before broad autofix coverage.
 5. Measured compatibility and performance before release claims.
 
+Rule-pack growth should prefer **tracer-tier** diagnostics (reactivity graph
+read kinds, guards, scopes, prop edges, binding kinds) over Essential/a11y
+parity with other doctors. Parity rules may remain for open-box completeness;
+they are not the differentiation story. See [the rule catalog](../../docs/rules/README.md).
+
 ## Non-goals before Beta
 
 - Replacing `vue-tsc` for every TypeScript type-checking case.

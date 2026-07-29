@@ -17,6 +17,10 @@ Related: [architecture](./architecture.md), [gotchas](./gotchas.md),
 - Keep Vue Vet-owned serializable contracts independent of Oxc and Vize types.
 - Grow the graph so multiple consumers can share it: rules, project graph,
   cache, future LSP/codemod surfaces.
+- **Rules that need this graph are the product differentiator** (catalog tier
+  `tracer`). Template Essential / a11y / after-await registrars are `parity`
+  completeness — valuable, but not what only Vue Vet can do. See
+  [`docs/rules/README.md`](../../docs/rules/README.md).
 - The CLI surfaces a **Reactivity** digest after the score line (optional
   `--print-reactivity` text detail, or `--reactivity-tui` interactive browser)
   so a clean score is distinguishable from a no-op tracer. Machine consumers get

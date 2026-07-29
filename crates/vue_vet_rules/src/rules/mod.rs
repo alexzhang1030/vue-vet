@@ -4,6 +4,7 @@ mod directives;
 mod graph_extra;
 mod matrix;
 mod support;
+mod tracer_extra;
 
 mod a11y_content;
 mod anchor_has_content;
@@ -78,6 +79,7 @@ pub fn builtins() -> Vec<&'static dyn Rule> {
   ];
   rules.extend(matrix::matrix_rules());
   rules.extend(graph_extra::extra_rules());
+  rules.extend(tracer_extra::tracer_extra_rules());
   rules.extend(directives::directive_rules());
   rules
 }

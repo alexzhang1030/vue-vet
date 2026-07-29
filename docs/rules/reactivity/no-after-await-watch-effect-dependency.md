@@ -1,55 +1,48 @@
-# Avoid untracked reads after await in watchEffect
+# `vue-vet/reactivity/no-after-await-watch-effect-dependency`
+
+Category: reactivity  
+Default severity: warning  
+Confidence: high  
+Tier: tracer
 
 `watchEffect()` only tracks reactive reads reached during its **synchronous**
-execution. After a top-level `await`, or inside deferred callbacks such as
-`Promise.then` / `nextTick`, Vue stops collecting dependencies. Reads in those
-regions do not subscribe the effect.
+execution. After `await`, Vue stops collecting dependencies for that run.
+
+Deferred callbacks (`nextTick` / `then` / `pauseTracking`) are covered by
+sibling tracer rules, not this one.
 
 ## Bad
 
 ```vue
+<script setup lang="ts">
+import { ref, watchEffect } from 'vue'
+
+const result = ref(0)
 watchEffect(async () => {
-  await load()
-  render(result.value)
+  await Promise.resolve()
+  console.log(result.value)
 })
+</script>
 ```
-
-```vue
-watchEffect(() => {
-  Promise.resolve().then(() => {
-    render(result.value)
-  })
-})
-```
-
-Changes to `result` do not re-run the effect once execution has crossed the
-async boundary.
 
 ## Good
 
 ```vue
-watch(result, async () => {
-  await load()
-  render(result.value)
-}, { immediate: true })
-```
+<script setup lang="ts">
+import { ref, watchEffect } from 'vue'
 
-```vue
+const result = ref(0)
 watchEffect(async () => {
   const current = result.value
-  await load()
-  render(current)
+  await Promise.resolve()
+  console.log(current)
 })
+</script>
 ```
 
 ## Detection
 
-The rule consumes reactivity graph edges for `watchEffect`, `watchPostEffect`,
-and `watchSyncEffect`. It reports reads classified as `after_await` or
-`outside_tracking` (deferred callbacks nested in the effect).
-
-Nested arbitrary functions that are not known deferred APIs remain excluded so
-the rule stays high-confidence.
+Fact-driven: effect-family reads classified `AfterAwait`.
 
 ## Remediation
 
