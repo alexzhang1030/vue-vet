@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+import { computed } from 'vue'
+const label = computed(() => 'static')
 </script>
-<template>{{ x }}</template>
+
+<template>
+  <p>{{ label }}</p>
+</template>

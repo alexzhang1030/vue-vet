@@ -469,12 +469,28 @@ impl Rule for PathologyRule {
         if !scope.reads.is_empty() {
           return;
         }
-        context.report(
-          self.meta(),
-          scope.span.clone(),
-          "`computed` does not read any reactive dependency".into(),
-          Some("Return a plain value, or read reactive state inside the getter.".into()),
-        );
+        let (message, help) = if scope.uncertain_accesses.is_empty() {
+          (
+            "`computed` does not read any reactive dependency".into(),
+            Some("Return a plain value, or read reactive state inside the getter.".into()),
+          )
+        } else {
+          let maybe = scope
+            .uncertain_accesses
+            .iter()
+            .map(|name| format!("`{name}`"))
+            .collect::<Vec<_>>()
+            .join(", ");
+          (
+            format!(
+              "`computed` does not read any known reactive dependency (maybe: {maybe})"
+            ),
+            Some(
+              "Analyzed `.value` / `unref` / `toValue` on names that could not be classified as reactive bindings. Return a plain value, or ensure the dependency is a known ref/reactive source.".into(),
+            ),
+          )
+        };
+        context.report(self.meta(), scope.span.clone(), message, help);
       }
       PathologyKind::PreferWatchSingle => {
         if !scope.assignment_only {

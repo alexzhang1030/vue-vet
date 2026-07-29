@@ -67,9 +67,19 @@ pub fn trace_reactivity(
 type ComposableShape = BTreeMap<String, ReactiveBindingKind>;
 /// Map of bag/composable name → return shape.
 type ComposableShapeMap = BTreeMap<String, ComposableShape>;
-/// Same-file composable defs: name → (definition span, return shape).
+
+/// Same-file composable/factory export classification.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum LocalComposableExport {
+  /// `return { field: ref(0) }` object bag.
+  Bag(ComposableShape),
+  /// `return ref(0)` / declared `(): Ref<T>` scalar factory.
+  Factory(ReactiveBindingKind),
+}
+
+/// Same-file composable defs: name → (definition span, return classification).
 /// Span is required so call sites resolve like instance-bag seeding (no name-only invent).
-type LocalComposableDefs = BTreeMap<String, (Span, ComposableShape)>;
+type LocalComposableDefs = BTreeMap<String, (Span, LocalComposableExport)>;
 
 #[derive(Clone, Debug, Default)]
 struct TraceSeeds {
@@ -198,9 +208,9 @@ fn trace_reactivity_seeded_inner(
   graph
 }
 
-/// Local composable defs + instance/destructure calls in the same file.
+/// Local composable defs + instance/destructure/factory calls in the same file.
 ///
-/// Returns `(instances, destructured_bindings, composable_defs_with_spans)`.
+/// Returns `(instances, seeded_bindings, composable_defs_with_spans)`.
 fn collect_local_composable_usage(
   semantic: &Semantic<'_>,
   shape_graph: &ReactivityGraph,
@@ -211,7 +221,7 @@ fn collect_local_composable_usage(
   // Lazy index — skip full return walks when the file has no function candidates.
   let mut returns_by_function = None;
 
-  // `function useX() { return { field: ref(0) } }`
+  // `function useX() { return { field: ref(0) } }` / `return ref(0)`
   for node in semantic.nodes() {
     let AstKind::Function(function) = node.kind() else {
       continue;
@@ -221,20 +231,20 @@ fn collect_local_composable_usage(
     };
     let index =
       returns_by_function.get_or_insert_with(|| modules::build_returns_by_function(semantic));
-    let shape = modules::composable_return_shape_with_index(
+    let Some(export) = local_composable_export_for(
       semantic,
       function.node_id.get(),
       shape_graph,
       script_offset,
       index,
-    );
-    if shape.is_empty() {
+      modules::function_return_type_kind(function),
+    ) else {
       continue;
-    }
-    composables.insert(identifier.name.to_string(), (identifier.span, shape));
+    };
+    composables.insert(identifier.name.to_string(), (identifier.span, export));
   }
 
-  // `const useX = () => ({ … })` / `const useX = function () { … }`
+  // `const useX = () => ({ … })` / `const useX = () => ref(0)` / `(): Ref`
   for node in semantic.nodes() {
     let AstKind::VariableDeclarator(declarator) = node.kind() else {
       continue;
@@ -245,28 +255,32 @@ fn collect_local_composable_usage(
     let Some(init) = &declarator.init else {
       continue;
     };
-    let function_id = match init {
-      Expression::ArrowFunctionExpression(arrow) => arrow.node_id.get(),
-      Expression::FunctionExpression(function) => function.node_id.get(),
+    let (function_id, declared_kind) = match init {
+      Expression::ArrowFunctionExpression(arrow) => {
+        (arrow.node_id.get(), modules::arrow_return_type_kind(arrow))
+      }
+      Expression::FunctionExpression(function) => {
+        (function.node_id.get(), modules::function_return_type_kind(function))
+      }
       _ => continue,
     };
     let index =
       returns_by_function.get_or_insert_with(|| modules::build_returns_by_function(semantic));
-    let shape = modules::composable_return_shape_with_index(
+    let Some(export) = local_composable_export_for(
       semantic,
       function_id,
       shape_graph,
       script_offset,
       index,
-    );
-    if shape.is_empty() {
+      declared_kind,
+    ) else {
       continue;
-    }
-    composables.insert(identifier.name.to_string(), (identifier.span, shape));
+    };
+    composables.insert(identifier.name.to_string(), (identifier.span, export));
   }
 
   let mut instances = BTreeMap::new();
-  let mut destructured = Vec::new();
+  let mut seeded = Vec::new();
   for node in semantic.nodes() {
     let AstKind::CallExpression(call) = node.kind() else {
       continue;
@@ -274,7 +288,7 @@ fn collect_local_composable_usage(
     let Some(callee) = call.callee.get_identifier_reference() else {
       continue;
     };
-    let Some((_, shape)) = composables
+    let Some((_, export)) = composables
       .get(callee.name.as_str())
       .filter(|(def_span, _)| reference_resolves_to_span(semantic, callee, *def_span))
     else {
@@ -284,12 +298,26 @@ fn collect_local_composable_usage(
     else {
       continue;
     };
-    match &declarator.id {
-      BindingPattern::BindingIdentifier(identifier) => {
+    match (&declarator.id, export) {
+      (BindingPattern::BindingIdentifier(identifier), LocalComposableExport::Bag(shape)) => {
         // `const bag = useX()` — bag.field via composable_instances only.
         instances.insert(identifier.name.to_string(), shape.clone());
       }
-      BindingPattern::ObjectPattern(pattern) => {
+      (BindingPattern::BindingIdentifier(identifier), LocalComposableExport::Factory(kind)) => {
+        // `const flag = useFlag()` — scalar factory seeds a local reactive binding.
+        if !seeded
+          .iter()
+          .any(|binding: &ReactiveBindingFact| binding.name == identifier.name.as_str())
+        {
+          seeded.push(ReactiveBindingFact {
+            name: identifier.name.to_string(),
+            kind: *kind,
+            initialized_with_null: false,
+            span: source_span(sfc_source, script_offset, identifier.span),
+          });
+        }
+      }
+      (BindingPattern::ObjectPattern(pattern), LocalComposableExport::Bag(shape)) => {
         // `const { field } = useX()` — seed each known field as a local binding.
         for property in &pattern.properties {
           let Some(exported) = property.key.static_name() else {
@@ -301,10 +329,10 @@ fn collect_local_composable_usage(
           let mut identifiers = Vec::new();
           collect_binding_identifiers(&property.value, &mut identifiers);
           for (local, span) in identifiers {
-            if destructured.iter().any(|binding: &ReactiveBindingFact| binding.name == local) {
+            if seeded.iter().any(|binding: &ReactiveBindingFact| binding.name == local) {
               continue;
             }
-            destructured.push(ReactiveBindingFact {
+            seeded.push(ReactiveBindingFact {
               name: local,
               kind: *kind,
               initialized_with_null: false,
@@ -316,7 +344,37 @@ fn collect_local_composable_usage(
       _ => {}
     }
   }
-  (instances, destructured, composables)
+  (instances, seeded, composables)
+}
+
+fn local_composable_export_for(
+  semantic: &Semantic<'_>,
+  function_id: oxc_semantic::NodeId,
+  shape_graph: &ReactivityGraph,
+  script_offset: usize,
+  returns_by_function: &BTreeMap<oxc_semantic::NodeId, Vec<oxc_semantic::NodeId>>,
+  declared_return_kind: Option<ReactiveBindingKind>,
+) -> Option<LocalComposableExport> {
+  let shape = modules::composable_return_shape_with_index(
+    semantic,
+    function_id,
+    shape_graph,
+    script_offset,
+    returns_by_function,
+  );
+  if !shape.is_empty() {
+    return Some(LocalComposableExport::Bag(shape));
+  }
+  if let Some(kind) = modules::composable_factory_kind_with_index(
+    semantic,
+    function_id,
+    shape_graph,
+    script_offset,
+    returns_by_function,
+  ) {
+    return Some(LocalComposableExport::Factory(kind));
+  }
+  declared_return_kind.map(LocalComposableExport::Factory)
 }
 
 fn reference_resolves_to_span(
@@ -788,12 +846,19 @@ fn expression_provide_offer(
     // `provide('api', useCounter())` — resolve callee to the composable def span
     // (name-only would invent outer shape when a block shadows `useCounter`).
     if let Some(callee) = call.callee.get_identifier_reference()
-      && let Some((_, shape)) =
-        local_composable_defs.get(callee.name.as_str()).filter(|(def_span, shape)| {
-          !shape.is_empty() && reference_resolves_to_span(semantic, callee, *def_span)
-        })
+      && let Some((_, export)) = local_composable_defs
+        .get(callee.name.as_str())
+        .filter(|(def_span, _)| reference_resolves_to_span(semantic, callee, *def_span))
     {
-      return ProvideOffer { kind: None, instance_shape: Some(shape.clone()) };
+      return match export {
+        LocalComposableExport::Bag(shape) if !shape.is_empty() => {
+          ProvideOffer { kind: None, instance_shape: Some(shape.clone()) }
+        }
+        LocalComposableExport::Factory(kind) => {
+          ProvideOffer { kind: Some(*kind), instance_shape: None }
+        }
+        LocalComposableExport::Bag(_) => ProvideOffer { kind: None, instance_shape: None },
+      };
     }
     if let Some(callee) =
       resolved_vue_callee(semantic, &call.callee, imported_bindings, script_kind)
@@ -1786,6 +1851,7 @@ struct ScopeBuild<'a> {
   scope_id: NodeId,
   body: Option<&'a FunctionBody<'a>>,
   reactive_bindings: &'a [ReactiveBindingFact],
+  imported_bindings: &'a BTreeMap<String, (String, String)>,
   sfc_source: &'a str,
   script_offset: usize,
 }
@@ -1798,6 +1864,13 @@ fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
     build.sfc_source,
     build.script_offset,
   );
+  let uncertain_accesses = collect_uncertain_scope_accesses(
+    build.semantic,
+    build.scope_id,
+    build.reactive_bindings,
+    build.imported_bindings,
+    build.script_offset,
+  );
   TrackingScopeFact {
     kind: build.kind,
     callee: build.callee,
@@ -1806,6 +1879,72 @@ fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
     writes,
     assignment_only: is_assignment_only_body(build.body),
     binding: build.binding,
+    uncertain_accesses,
+  }
+}
+
+/// `.value` / `unref` / `toValue` roots inside a scope that are not known reactive.
+///
+/// Surfaced so rules can say `(maybe: name)` instead of inventing edges or staying quiet.
+fn collect_uncertain_scope_accesses(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
+  reactive_bindings: &[ReactiveBindingFact],
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  script_offset: usize,
+) -> Vec<String> {
+  let mut names = BTreeSet::new();
+  for (node_id, node) in semantic.nodes().iter_enumerated() {
+    let Some((name, span)) = uncertain_access_at(
+      semantic,
+      node.kind(),
+      reactive_bindings,
+      imported_bindings,
+      script_offset,
+    ) else {
+      continue;
+    };
+    if scope_context(semantic, scope_id, node_id, span, imported_bindings).is_none() {
+      continue;
+    }
+    names.insert(name);
+  }
+  names.into_iter().collect()
+}
+
+fn uncertain_access_at(
+  semantic: &oxc_semantic::Semantic<'_>,
+  kind: AstKind<'_>,
+  reactive_bindings: &[ReactiveBindingFact],
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  script_offset: usize,
+) -> Option<(String, Span)> {
+  match kind {
+    AstKind::StaticMemberExpression(member) if member.property.name.as_str() == "value" => {
+      let object = member.object.get_identifier_reference()?;
+      let known = reactive_bindings.iter().any(|binding| {
+        binding.name == object.name.as_str()
+          && reference_resolves_to_binding(semantic, object, binding, script_offset)
+          && is_ref_like(binding.kind)
+      });
+      (!known).then(|| (object.name.to_string(), member.span))
+    }
+    AstKind::CallExpression(call) => {
+      let callee =
+        resolved_vue_callee(semantic, &call.callee, imported_bindings, ScriptKind::Setup)?;
+      if !matches!(callee.as_str(), "unref" | "toValue") {
+        return None;
+      }
+      let argument = call.arguments.first().and_then(Argument::as_expression)?;
+      let identifier = argument.get_identifier_reference()?;
+      let known = reactive_bindings.iter().any(|binding| {
+        binding.name == identifier.name.as_str()
+          && reference_resolves_to_binding(semantic, identifier, binding, script_offset)
+          && is_ref_like(binding.kind)
+      });
+      (!known).then(|| (identifier.name.to_string(), call.span))
+    }
+    _ => None,
   }
 }
 
@@ -1864,6 +2003,7 @@ fn collect_tracking_scopes(
         scope_id,
         body,
         reactive_bindings,
+        imported_bindings,
         sfc_source,
         script_offset,
       }));
@@ -1935,6 +2075,7 @@ fn collect_tracking_scopes(
           scope_id,
           body,
           reactive_bindings,
+          imported_bindings,
           sfc_source,
           script_offset,
         }));
@@ -1971,6 +2112,7 @@ fn collect_tracking_scopes(
             scope_id,
             body,
             reactive_bindings,
+            imported_bindings,
             sfc_source,
             script_offset,
           }));
@@ -1999,6 +2141,7 @@ fn collect_tracking_scopes(
           writes: Vec::new(),
           assignment_only: false,
           binding: None,
+          uncertain_accesses: Vec::new(),
         });
 
         if let Some(callback_argument) = call.arguments.get(1)
@@ -2039,6 +2182,7 @@ fn collect_tracking_scopes(
             scope_id,
             body,
             reactive_bindings,
+            imported_bindings,
             sfc_source,
             script_offset,
           }));
@@ -2298,7 +2442,7 @@ pub use modules::{
   ModuleLink, ModuleReactivity, ModuleSource, ModuleSummary, ModuleTraceState, PreparedModuleTrace,
   TraceModulesError, TraceModulesOptions, TraceModulesReport, TraceModulesStats,
   build_returns_by_function, composable_return_shape, composable_return_shape_with_index,
-  prepare_module_summary, prepare_module_trace, trace_modules,
+  prepare_module_summary, prepare_module_trace, prepare_standalone_module_source, trace_modules,
   trace_modules_incremental_with_options, trace_modules_with_options,
 };
 pub use prop_flow::{PropFlowSite, join_prop_flows};
