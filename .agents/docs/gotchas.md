@@ -177,10 +177,23 @@ multi-hop re-exports, and cycles. Exported composables are summarized when:
 - every analyzable return is the **same scalar reactive kind** (`return ref(0)`,
   `return flag`, or a declared `.d.ts` return type `Ref` / `ComputedRef` / …)
   → `ExportState::Factory(kind)`, and `const x = useX()` seeds a local binding
-  of that kind (the imported function name itself is never a Ref).
+  of that kind (the imported function name itself is never a Ref); or
+- a declared `.d.ts` / annotated return type is an **object type literal** (or a
+  same-file `interface` / `type` alias of one) whose static properties resolve to
+  ref-like types → `ExportState::Composable(shape)` even when the body is only
+  `declare function` (VueUse `useElementSize(): { width: Ref; height: Ref }`).
+  Non-reactive fields (`stop: () => void`) stay out of the shape.
 
 Mixed object/scalar returns, conflicting kinds, and unanalyzable returns stay
-quiet.
+quiet. Plain `reactive()` returns typed as interfaces of string/boolean fields
+(Nuxt `useColorMode(): ColorModeInstance`) still stay quiet — there is no
+Ref-shaped evidence in the type surface.
+
+Declared object-bag shape helpers must stay off the `const x = ref(0)` cold
+path (`trace_1k_modules`): build the return-statement index only after seeing a
+function/arrow init, compute `.d.ts` shapes lazily when body analysis returns
+`None`, and keep shape helpers `#[inline(never)]` so they do not bloat export
+collection instruction cache.
 
 Local variable names are never enough for module propagation. Export collection,
 composable returns, imported calls, and effect reads must agree on Oxc symbol

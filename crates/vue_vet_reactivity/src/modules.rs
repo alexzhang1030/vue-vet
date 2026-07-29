@@ -1148,6 +1148,7 @@ fn collect_local_values(
       script_offset,
       index,
       function_return_type_kind(function),
+      || function_return_type_shape(semantic, function),
     ) {
       locals.insert(identifier.name.to_string(), state);
     }
@@ -1164,24 +1165,36 @@ fn collect_local_values(
     let Some(init) = &declarator.init else {
       continue;
     };
-    let (function_id, declared_kind) = match init {
+    // Keep the CallExpression/`ref()` cold path tiny: never build the return
+    // index or declared object-bag shapes until we see a real function init.
+    let state = match init {
       Expression::ArrowFunctionExpression(arrow) => {
-        (arrow.node_id.get(), arrow_return_type_kind(arrow))
+        let index = returns_by_function.get_or_insert_with(|| build_returns_by_function(semantic));
+        composable_export_state(
+          semantic,
+          arrow.node_id.get(),
+          shape_graph,
+          script_offset,
+          index,
+          arrow_return_type_kind(arrow),
+          || arrow_return_type_shape(semantic, arrow),
+        )
       }
       Expression::FunctionExpression(function) => {
-        (function.node_id.get(), function_return_type_kind(function))
+        let index = returns_by_function.get_or_insert_with(|| build_returns_by_function(semantic));
+        composable_export_state(
+          semantic,
+          function.node_id.get(),
+          shape_graph,
+          script_offset,
+          index,
+          function_return_type_kind(function),
+          || function_return_type_shape(semantic, function),
+        )
       }
       _ => continue,
     };
-    let index = returns_by_function.get_or_insert_with(|| build_returns_by_function(semantic));
-    if let Some(state) = composable_export_state(
-      semantic,
-      function_id,
-      shape_graph,
-      script_offset,
-      index,
-      declared_kind,
-    ) {
+    if let Some(state) = state {
       locals.insert(identifier.name.to_string(), state);
     }
   }
@@ -1195,6 +1208,7 @@ fn composable_export_state(
   script_offset: usize,
   returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
   declared_return_kind: Option<ReactiveBindingKind>,
+  declared_return_shape: impl FnOnce() -> BTreeMap<String, ReactiveBindingKind>,
 ) -> Option<ExportState> {
   match composable_return_with_index(
     semantic,
@@ -1205,7 +1219,14 @@ fn composable_export_state(
   ) {
     Some(ComposableReturn::Object(shape)) => Some(ExportState::Composable(shape)),
     Some(ComposableReturn::Factory(kind)) => Some(ExportState::Factory(kind)),
-    None => declared_return_kind.map(ExportState::Factory),
+    None => {
+      let shape = declared_return_shape();
+      if shape.is_empty() {
+        declared_return_kind.map(ExportState::Factory)
+      } else {
+        Some(ExportState::Composable(shape))
+      }
+    }
   }
 }
 
@@ -1410,6 +1431,23 @@ pub fn function_return_type_kind(
     .and_then(|annotation| ts_type_reactive_kind(&annotation.type_annotation))
 }
 
+/// Declared object-bag return shape on a function (`.d.ts` / annotated source).
+///
+/// Kept out of line so the `const x = ref(0)` module-export cold path does not
+/// pay for TypeScript shape machinery in instruction cache.
+#[must_use]
+#[inline(never)]
+pub fn function_return_type_shape(
+  semantic: &oxc_semantic::Semantic<'_>,
+  function: &oxc_ast::ast::Function<'_>,
+) -> BTreeMap<String, ReactiveBindingKind> {
+  let Some(annotation) = function.return_type.as_ref() else {
+    return BTreeMap::new();
+  };
+  let mut index = None;
+  ts_type_composable_shape(semantic, &annotation.type_annotation, 0, &mut index)
+}
+
 /// Declared TypeScript return type on an arrow function.
 #[must_use]
 pub fn arrow_return_type_kind(
@@ -1419,6 +1457,20 @@ pub fn arrow_return_type_kind(
     .return_type
     .as_ref()
     .and_then(|annotation| ts_type_reactive_kind(&annotation.type_annotation))
+}
+
+/// Declared object-bag return shape on an arrow function.
+#[must_use]
+#[inline(never)]
+pub fn arrow_return_type_shape(
+  semantic: &oxc_semantic::Semantic<'_>,
+  arrow: &oxc_ast::ast::ArrowFunctionExpression<'_>,
+) -> BTreeMap<String, ReactiveBindingKind> {
+  let Some(annotation) = arrow.return_type.as_ref() else {
+    return BTreeMap::new();
+  };
+  let mut index = None;
+  ts_type_composable_shape(semantic, &annotation.type_annotation, 0, &mut index)
 }
 
 /// Scalar factory kind from return expressions (`return ref(0)`), when consistent.
@@ -1447,12 +1499,24 @@ pub fn composable_factory_kind_with_index(
 /// Only recognizes Vue ref-like type names (`Ref`, `ComputedRef`, …). Full checker
 /// inference and utility wrappers stay quiet.
 fn ts_type_reactive_kind(ts_type: &oxc_ast::ast::TSType<'_>) -> Option<ReactiveBindingKind> {
-  use oxc_ast::ast::{TSType, TSTypeName};
+  use oxc_ast::ast::{TSType, TSTypeName, TSTypeOperatorOperator};
   match ts_type {
+    TSType::TSParenthesizedType(paren) => ts_type_reactive_kind(&paren.type_annotation),
+    TSType::TSTypeOperatorType(operator)
+      if operator.operator == TSTypeOperatorOperator::Readonly =>
+    {
+      ts_type_reactive_kind(&operator.type_annotation).map(|kind| match kind {
+        ReactiveBindingKind::Ref => ReactiveBindingKind::Readonly,
+        ReactiveBindingKind::ShallowRef => ReactiveBindingKind::ShallowReadonly,
+        other => other,
+      })
+    }
     TSType::TSTypeReference(reference) => {
       let name = match &reference.type_name {
         TSTypeName::IdentifierReference(identifier) => identifier.name.as_str(),
-        TSTypeName::QualifiedName(_) | TSTypeName::ThisExpression(_) => return None,
+        // `vue.Ref` / `import('vue').ShallowRef` rightmost name (qualified only).
+        TSTypeName::QualifiedName(qualified) => qualified.right.name.as_str(),
+        TSTypeName::ThisExpression(_) => return None,
       };
       match name {
         "Ref" => Some(ReactiveBindingKind::Ref),
@@ -1474,6 +1538,107 @@ fn ts_type_reactive_kind(ts_type: &oxc_ast::ast::TSType<'_>) -> Option<ReactiveB
     }
     _ => None,
   }
+}
+
+/// Same-file `interface` / `type` declarations, built once per shape query.
+struct TypeDeclIndex<'a> {
+  interfaces: BTreeMap<&'a str, &'a [oxc_ast::ast::TSSignature<'a>]>,
+  aliases: BTreeMap<&'a str, &'a oxc_ast::ast::TSType<'a>>,
+}
+
+impl<'a> TypeDeclIndex<'a> {
+  fn build(semantic: &'a oxc_semantic::Semantic<'a>) -> Self {
+    let mut interfaces = BTreeMap::new();
+    let mut aliases = BTreeMap::new();
+    for node in semantic.nodes() {
+      match node.kind() {
+        AstKind::TSInterfaceDeclaration(interface) => {
+          interfaces.insert(interface.id.name.as_str(), interface.body.body.as_slice());
+        }
+        AstKind::TSTypeAliasDeclaration(alias) => {
+          aliases.insert(alias.id.name.as_str(), &alias.type_annotation);
+        }
+        _ => {}
+      }
+    }
+    Self { interfaces, aliases }
+  }
+}
+
+/// Object-bag shape from a TypeScript return type (under-approx).
+///
+/// Recognizes inline `{ width: Ref<number> }`, same-file `interface` / `type`
+/// aliases, and peels a single `readonly` operator. Non-reactive fields
+/// (`stop: () => void`) stay out of the shape. Depth-bounded alias follow.
+fn ts_type_composable_shape<'a>(
+  semantic: &'a oxc_semantic::Semantic<'a>,
+  ts_type: &'a oxc_ast::ast::TSType<'a>,
+  depth: u8,
+  index: &mut Option<TypeDeclIndex<'a>>,
+) -> BTreeMap<String, ReactiveBindingKind> {
+  use oxc_ast::ast::{TSType, TSTypeName, TSTypeOperatorOperator};
+  if depth > 4 {
+    return BTreeMap::new();
+  }
+  // Scalar Ref returns are Factory, not bags.
+  if ts_type_reactive_kind(ts_type).is_some() {
+    return BTreeMap::new();
+  }
+  match ts_type {
+    TSType::TSParenthesizedType(paren) => {
+      ts_type_composable_shape(semantic, &paren.type_annotation, depth, index)
+    }
+    TSType::TSTypeOperatorType(operator)
+      if operator.operator == TSTypeOperatorOperator::Readonly =>
+    {
+      ts_type_composable_shape(semantic, &operator.type_annotation, depth, index)
+    }
+    TSType::TSTypeLiteral(literal) => shape_from_ts_signatures(&literal.members),
+    TSType::TSTypeReference(reference) => {
+      let Some(name) = (match &reference.type_name {
+        TSTypeName::IdentifierReference(identifier) => Some(identifier.name.as_str()),
+        TSTypeName::QualifiedName(_) | TSTypeName::ThisExpression(_) => None,
+      }) else {
+        return BTreeMap::new();
+      };
+      // Resolve through a one-shot index; drop borrows before recursing into aliases.
+      let alias = {
+        let decls = index.get_or_insert_with(|| TypeDeclIndex::build(semantic));
+        if let Some(members) = decls.interfaces.get(name).copied() {
+          return shape_from_ts_signatures(members);
+        }
+        decls.aliases.get(name).copied()
+      };
+      let Some(alias) = alias else {
+        return BTreeMap::new();
+      };
+      ts_type_composable_shape(semantic, alias, depth.saturating_add(1), index)
+    }
+    _ => BTreeMap::new(),
+  }
+}
+
+fn shape_from_ts_signatures(
+  members: &[oxc_ast::ast::TSSignature<'_>],
+) -> BTreeMap<String, ReactiveBindingKind> {
+  use oxc_ast::ast::TSSignature;
+  let mut shape = BTreeMap::new();
+  for member in members {
+    let TSSignature::TSPropertySignature(property) = member else {
+      continue;
+    };
+    let Some(exported) = property.key.static_name() else {
+      continue;
+    };
+    let Some(annotation) = &property.type_annotation else {
+      continue;
+    };
+    let Some(kind) = ts_type_reactive_kind(&annotation.type_annotation) else {
+      continue;
+    };
+    shape.insert(exported.into_owned(), kind);
+  }
+  shape
 }
 
 #[expect(

@@ -408,11 +408,11 @@ struct StructuralFileOutput {
   edges: Vec<GraphEdge>,
   diagnostics: Vec<Diagnostic>,
   module_links: Vec<ModuleLink>,
-  /// External package files that may contribute reactivity factory seeds.
+  /// External package files that may contribute reactivity Factory/Composable seeds.
   external_reactivity_roots: Vec<ExternalReactivityRoot>,
 }
 
-/// One resolved external import that should be summarized for A6 factory seeds.
+/// One resolved external import that should be summarized for A6 seeds.
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ExternalReactivityRoot {
   from: ModuleId,
@@ -1615,6 +1615,117 @@ const hint = computed(() => (isCoarsePointer.value ? 'a' : 'b'))\n";
         })
       }),
       "external @vueuse-style Ref factory must seed computed dependency; got {:?}",
+      demo.map(|module| (&module.graph.bindings, &module.graph.scopes))
+    );
+  }
+
+  #[test]
+  fn external_package_composable_object_return_seeds_destructure_watch() {
+    let project = TempProject::new("vueuse-element-size");
+    project.write(
+      "node_modules/@vueuse/core/package.json",
+      r#"{"name":"@vueuse/core","version":"1.0.0","types":"./index.d.ts","exports":{".":{"types":"./index.d.ts","import":"./index.js","default":"./index.js"}}}"#,
+    );
+    project.write(
+      "node_modules/@vueuse/core/index.js",
+      "export { useElementSize } from './useElementSize.js'\n",
+    );
+    project.write(
+      "node_modules/@vueuse/core/index.d.ts",
+      "export { useElementSize } from './useElementSize'\n",
+    );
+    project.write(
+      "node_modules/@vueuse/core/useElementSize.js",
+      "export function useElementSize() { return { width: { value: 0 }, height: { value: 0 }, stop() {} } }\n",
+    );
+    project.write(
+      "node_modules/@vueuse/core/useElementSize.d.ts",
+      "import type { Ref } from 'vue'\n\
+export declare function useElementSize(): {\n\
+  width: Ref<number>\n\
+  height: Ref<number>\n\
+  stop: () => void\n\
+}\n",
+    );
+
+    let script = "import { watch } from 'vue'\n\
+import { useElementSize } from '@vueuse/core'\n\
+const { width: hostWidth, height: hostHeight } = useElementSize()\n\
+watch([hostWidth, hostHeight], () => {})\n";
+    let prefix = "<script setup lang=\"ts\">\n";
+    let sfc = format!("{prefix}{script}</script>\n<template><p>ok</p></template>\n");
+    let script_offset = prefix.len();
+    project.write("components/ViewportDemo.client.vue", &sfc);
+
+    let consumer = ProjectFile {
+      path: "components/ViewportDemo.client.vue".into(),
+      source_len: sfc.len(),
+      facts: SfcFacts {
+        template: TemplateFacts { elements: Vec::new(), expressions: Vec::new() },
+        script: ScriptFacts {
+          blocks: vec![ScriptBlockFacts {
+            kind: ScriptKind::Setup,
+            language: "ts".into(),
+            imports: vec![
+              ScriptImportFact {
+                source: "vue".into(),
+                imported: "watch".into(),
+                local: "watch".into(),
+                span: span(0),
+              },
+              ScriptImportFact {
+                source: "@vueuse/core".into(),
+                imported: "useElementSize".into(),
+                local: "useElementSize".into(),
+                span: span(1),
+              },
+            ],
+            bindings: Vec::new(),
+            calls: Vec::new(),
+            member_writes: Vec::new(),
+            destructures: Vec::new(),
+            top_level_await_ends: Vec::new(),
+            operands: Vec::new(),
+            reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
+          }],
+        },
+      }
+      .into(),
+      module_source: Some(ModuleSource::sfc_script(
+        "components/ViewportDemo.client.vue",
+        script,
+        "ts",
+        ScriptKind::Setup,
+        script_offset,
+        sfc,
+      )),
+      ordinary_module_source: None,
+    };
+
+    let graph = build_project_graph(project.root(), &[consumer]);
+    assert!(
+      graph.reactivity_error.is_none(),
+      "external object-bag tracing must succeed: {:?}",
+      graph.reactivity_error
+    );
+    let demo = graph
+      .module_reactivity
+      .iter()
+      .find(|module| module.id == "components/ViewportDemo.client.vue");
+    assert!(
+      demo.is_some_and(|module| {
+        module.graph.bindings.iter().any(|binding| {
+          binding.name == "hostWidth" && binding.kind == vue_vet_core::ReactiveBindingKind::Ref
+        }) && module.graph.bindings.iter().any(|binding| {
+          binding.name == "hostHeight" && binding.kind == vue_vet_core::ReactiveBindingKind::Ref
+        }) && module.graph.scopes.iter().any(|scope| {
+          scope.kind == vue_vet_core::TrackingScopeKind::WatchSources
+            && scope.reads.iter().any(|read| read.binding == "hostWidth")
+            && scope.reads.iter().any(|read| read.binding == "hostHeight")
+            && scope.uncertain_accesses.is_empty()
+        })
+      }),
+      "external useElementSize object bag must seed renamed destructure watch; got {:?}",
       demo.map(|module| (&module.graph.bindings, &module.graph.scopes))
     );
   }
