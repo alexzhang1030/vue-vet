@@ -1,6 +1,6 @@
 {
   "name": "@vue-vet/cli",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "Thin npm launcher for the Vue Vet native CLI",
   "license": "MIT",
   "repository": {
@@ -38,10 +38,10 @@
     "test": "node --test test/*.test.js"
   },
   "optionalDependencies": {
-    "@vue-vet/linux-x64": "0.1.13",
-    "@vue-vet/linux-arm64": "0.1.13",
-    "@vue-vet/darwin-x64": "0.1.13",
-    "@vue-vet/darwin-arm64": "0.1.13",
-    "@vue-vet/win32-x64": "0.1.13"
+    "@vue-vet/linux-x64": "0.1.14",
+    "@vue-vet/linux-arm64": "0.1.14",
+    "@vue-vet/darwin-x64": "0.1.14",
+    "@vue-vet/darwin-arm64": "0.1.14",
+    "@vue-vet/win32-x64": "0.1.14"
   }
 }
