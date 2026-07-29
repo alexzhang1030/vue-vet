@@ -85,11 +85,12 @@ pub fn analyze_module_source(
   }
   let semantic = built.semantic;
   let line_index = vue_vet_core::LineIndex::new(sfc_source);
-  let (mut imports, imported_bindings) =
+  let (imports, imported_bindings) =
     collect_import_facts(&semantic, &line_index, sfc_source, script_offset);
   let bindings = collect_binding_facts(&semantic, &line_index, sfc_source, script_offset);
-  let mut node_facts =
-    collect_node_facts(&semantic, &imported_bindings, &line_index, sfc_source, script_offset);
+  let node_facts =
+    collect_node_facts(&semantic, &imported_bindings, &line_index, sfc_source, script_offset)
+      .into_source_order();
 
   let reactivity_graph = Arc::new(trace_reactivity(&semantic, sfc_source, script_offset, kind));
   let module_trace = Arc::new(prepare_module_summary(
@@ -100,13 +101,6 @@ pub fn analyze_module_source(
     Arc::clone(&reactivity_graph),
   ));
 
-  imports.sort_by_key(|fact| fact.span.offset);
-  node_facts.calls.sort_by_key(|fact| fact.span.offset);
-  node_facts.member_writes.sort_by_key(|fact| fact.span.offset);
-  node_facts.destructures.sort_by_key(|fact| fact.span.offset);
-  node_facts.top_level_await_ends.sort_unstable();
-  node_facts.top_level_await_ends.dedup();
-  node_facts.operands.sort_by_key(|fact| fact.span.offset);
   Ok(ModuleAnalysis {
     script_facts: ScriptBlockFacts {
       kind,
@@ -130,6 +124,21 @@ struct CollectedNodeFacts {
   destructures: Vec<ScriptDestructureFact>,
   top_level_await_ends: Vec<usize>,
   operands: Vec<ScriptOperandFact>,
+}
+
+impl CollectedNodeFacts {
+  /// Oxc node iteration is not a source-order guarantee. Sort span-keyed
+  /// vectors once here so callers do not grow a parallel laundry list of
+  /// `sort_by_key` lines whenever a new fact kind is added.
+  fn into_source_order(mut self) -> Self {
+    self.calls.sort_by_key(|fact| fact.span.offset);
+    self.member_writes.sort_by_key(|fact| fact.span.offset);
+    self.destructures.sort_by_key(|fact| fact.span.offset);
+    self.operands.sort_by_key(|fact| fact.span.offset);
+    self.top_level_await_ends.sort_unstable();
+    self.top_level_await_ends.dedup();
+    self
+  }
 }
 
 fn collect_import_facts(
@@ -179,6 +188,7 @@ fn collect_import_facts(
     }
   }
 
+  imports.sort_by_key(|fact| fact.span.offset);
   (imports, imported_bindings)
 }
 
@@ -189,7 +199,7 @@ fn collect_binding_facts(
   script_offset: usize,
 ) -> Vec<ScriptBindingFact> {
   let scoping = semantic.scoping();
-  scoping
+  let mut bindings = scoping
     .symbol_ids()
     .map(|symbol_id| {
       let references = scoping.get_resolved_references(symbol_id);
@@ -206,7 +216,10 @@ fn collect_binding_facts(
         span: source_span(line_index, sfc_source, script_offset, scoping.symbol_span(symbol_id)),
       }
     })
-    .collect()
+    .collect::<Vec<_>>();
+  // Symbol iteration order is not a source-order contract.
+  bindings.sort_by_key(|fact| fact.span.offset);
+  bindings
 }
 
 fn collect_node_facts(
