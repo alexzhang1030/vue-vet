@@ -241,6 +241,11 @@ struct InstanceCallBinding {
   span: Span,
 }
 
+/// Synthetic [`ModuleLink`] specifier prefix for bare Nuxt auto-import calls.
+///
+/// Kept in sync with `vue_vet_project::conventions::NUXT_IMPORTS_SPECIFIER_PREFIX`.
+const NUXT_IMPORTS_SPECIFIER_PREFIX: &str = "#nuxt-imports:";
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum ExportState {
   /// Imported local is itself a reactive binding (`import { count } from './x'`).
@@ -249,6 +254,10 @@ enum ExportState {
   Composable(BTreeMap<String, ReactiveBindingKind>),
   /// Calling the export returns a scalar reactive value (`return ref(0)` / `(): Ref<T>`).
   Factory(ReactiveBindingKind),
+  /// Declared `() => PlainObject` (no Ref fields) — needs body evidence for Reactive factory.
+  DeclaredPlainObjectFactory,
+  /// Body unwraps a state ref (e.g. `return useState(...).value`) — needs plain-object declaration.
+  BodyUnwrappedState,
   Ambiguous,
 }
 
@@ -257,6 +266,17 @@ enum ExportState {
 enum ComposableReturn {
   Object(BTreeMap<String, ReactiveBindingKind>),
   Factory(ReactiveBindingKind),
+  /// Body unwraps a state ref (`return useState(...).value`, unresolved / `#imports`).
+  UnwrappedState,
+}
+
+/// Declared TypeScript return surface for factory/composable exports.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum DeclaredReturn {
+  Factory(ReactiveBindingKind),
+  Composable(BTreeMap<String, ReactiveBindingKind>),
+  /// Object-shaped type with ≥1 property and no Ref-like fields.
+  PlainObject,
 }
 
 /// Export-resolution payload only — no source body, no owned reactivity graph.
@@ -300,6 +320,68 @@ impl ModuleSummary {
     }
     specifiers.into_iter().collect()
   }
+
+  /// Whether any export local is a finished Factory/Composable/Known seed.
+  #[must_use]
+  pub fn has_reactivity_export_seeds(&self) -> bool {
+    self.locals.values().any(|state| {
+      matches!(state, ExportState::Factory(_) | ExportState::Composable(_) | ExportState::Known(_))
+    })
+  }
+
+  /// Whether a companion implementation file may still complete provisional seeds.
+  #[must_use]
+  pub fn needs_implementation_merge(&self) -> bool {
+    self.locals.values().any(|state| {
+      matches!(state, ExportState::DeclaredPlainObjectFactory | ExportState::BodyUnwrappedState)
+    }) || !self.has_reactivity_export_seeds()
+  }
+
+  /// Replace locals after merging a declaration file with its implementation body.
+  #[must_use]
+  fn with_locals(mut self, locals: BTreeMap<String, ExportState>) -> Self {
+    self.locals = locals;
+    self
+  }
+}
+
+/// Merge `.d.ts` declaration locals with companion implementation locals.
+///
+/// `DeclaredPlainObjectFactory` + `BodyUnwrappedState` → `Factory(Reactive)`.
+#[must_use]
+pub fn merge_declaration_implementation_summary(
+  declaration: ModuleSummary,
+  implementation: &ModuleSummary,
+) -> ModuleSummary {
+  let mut merged = declaration.locals.clone();
+  for (name, impl_state) in &implementation.locals {
+    match (merged.get(name), impl_state) {
+      (Some(ExportState::DeclaredPlainObjectFactory), ExportState::BodyUnwrappedState)
+      | (Some(ExportState::BodyUnwrappedState), ExportState::DeclaredPlainObjectFactory) => {
+        merged.insert(name.clone(), ExportState::Factory(ReactiveBindingKind::Reactive));
+      }
+      (Some(ExportState::DeclaredPlainObjectFactory), ExportState::Factory(kind))
+        if *kind == ReactiveBindingKind::Reactive =>
+      {
+        merged.insert(name.clone(), ExportState::Factory(ReactiveBindingKind::Reactive));
+      }
+      (
+        None | Some(ExportState::DeclaredPlainObjectFactory | ExportState::BodyUnwrappedState),
+        state,
+      ) if matches!(
+        state,
+        ExportState::Factory(_) | ExportState::Composable(_) | ExportState::Known(_)
+      ) =>
+      {
+        merged.insert(name.clone(), state.clone());
+      }
+      (None, ExportState::BodyUnwrappedState | ExportState::DeclaredPlainObjectFactory) => {
+        merged.insert(name.clone(), impl_state.clone());
+      }
+      _ => {}
+    }
+  }
+  declaration.with_locals(merged)
 }
 
 /// Parse a standalone module and attach its [`ModuleSummary`] (external seed path).
@@ -1141,20 +1223,15 @@ fn collect_local_values(
     };
     let index = returns_by_function.get_or_insert_with(|| build_returns_by_function(semantic));
     let function_id = function.node_id.get();
-    if let Some(state) = composable_export_state(
-      semantic,
-      function_id,
-      shape_graph,
-      script_offset,
-      index,
-      function_return_type_kind(function),
-      || function_return_type_shape(semantic, function),
-    ) {
+    let declared = declared_return_for_function(semantic, function);
+    if let Some(state) =
+      composable_export_state(semantic, function_id, shape_graph, script_offset, index, declared)
+    {
       locals.insert(identifier.name.to_string(), state);
     }
   }
 
-  // `const useX = () => ({ … })` / `export const useX = function () { … }` / `(): Ref`
+  // `const useX = () => ({ … })` / `export declare const useX: () => T`
   for node in semantic.nodes() {
     let AstKind::VariableDeclarator(declarator) = node.kind() else {
       continue;
@@ -1162,37 +1239,34 @@ fn collect_local_values(
     let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
       continue;
     };
-    let Some(init) = &declarator.init else {
-      continue;
-    };
-    // Keep the CallExpression/`ref()` cold path tiny: never build the return
-    // index or declared object-bag shapes until we see a real function init.
-    let state = match init {
-      Expression::ArrowFunctionExpression(arrow) => {
+    let annotated = declared_return_from_declarator_annotation(semantic, declarator);
+    let state = match &declarator.init {
+      Some(Expression::ArrowFunctionExpression(arrow)) => {
         let index = returns_by_function.get_or_insert_with(|| build_returns_by_function(semantic));
+        let declared = annotated.or_else(|| declared_return_for_arrow(semantic, arrow));
         composable_export_state(
           semantic,
           arrow.node_id.get(),
           shape_graph,
           script_offset,
           index,
-          arrow_return_type_kind(arrow),
-          || arrow_return_type_shape(semantic, arrow),
+          declared,
         )
       }
-      Expression::FunctionExpression(function) => {
+      Some(Expression::FunctionExpression(function)) => {
         let index = returns_by_function.get_or_insert_with(|| build_returns_by_function(semantic));
+        let declared = annotated.or_else(|| declared_return_for_function(semantic, function));
         composable_export_state(
           semantic,
           function.node_id.get(),
           shape_graph,
           script_offset,
           index,
-          function_return_type_kind(function),
-          || function_return_type_shape(semantic, function),
+          declared,
         )
       }
-      _ => continue,
+      None => combine_composable_export(None, annotated),
+      Some(_) => continue,
     };
     if let Some(state) = state {
       locals.insert(identifier.name.to_string(), state);
@@ -1207,26 +1281,36 @@ fn composable_export_state(
   shape_graph: &ReactivityGraph,
   script_offset: usize,
   returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
-  declared_return_kind: Option<ReactiveBindingKind>,
-  declared_return_shape: impl FnOnce() -> BTreeMap<String, ReactiveBindingKind>,
+  declared: Option<DeclaredReturn>,
 ) -> Option<ExportState> {
-  match composable_return_with_index(
-    semantic,
-    function_id,
-    shape_graph,
-    script_offset,
-    returns_by_function,
-  ) {
-    Some(ComposableReturn::Object(shape)) => Some(ExportState::Composable(shape)),
-    Some(ComposableReturn::Factory(kind)) => Some(ExportState::Factory(kind)),
-    None => {
-      let shape = declared_return_shape();
-      if shape.is_empty() {
-        declared_return_kind.map(ExportState::Factory)
-      } else {
-        Some(ExportState::Composable(shape))
-      }
+  combine_composable_export(
+    composable_return_with_index(
+      semantic,
+      function_id,
+      shape_graph,
+      script_offset,
+      returns_by_function,
+    ),
+    declared,
+  )
+}
+
+fn combine_composable_export(
+  body: Option<ComposableReturn>,
+  declared: Option<DeclaredReturn>,
+) -> Option<ExportState> {
+  match (body, declared) {
+    (Some(ComposableReturn::Object(shape)), _)
+    | (None, Some(DeclaredReturn::Composable(shape))) => Some(ExportState::Composable(shape)),
+    (Some(ComposableReturn::Factory(kind)), _) | (None, Some(DeclaredReturn::Factory(kind))) => {
+      Some(ExportState::Factory(kind))
     }
+    (Some(ComposableReturn::UnwrappedState), Some(DeclaredReturn::PlainObject)) => {
+      Some(ExportState::Factory(ReactiveBindingKind::Reactive))
+    }
+    (Some(ComposableReturn::UnwrappedState), _) => Some(ExportState::BodyUnwrappedState),
+    (None, Some(DeclaredReturn::PlainObject)) => Some(ExportState::DeclaredPlainObjectFactory),
+    (None, None) => None,
   }
 }
 
@@ -1295,10 +1379,14 @@ pub fn composable_return_shape_with_index(
     returns_by_function,
   ) {
     Some(ComposableReturn::Object(shape)) => shape,
-    Some(ComposableReturn::Factory(_)) | None => BTreeMap::new(),
+    Some(ComposableReturn::Factory(_) | ComposableReturn::UnwrappedState) | None => BTreeMap::new(),
   }
 }
 
+#[expect(
+  clippy::struct_excessive_bools,
+  reason = "return-kind accumulator tracks independent under-approx signals"
+)]
 struct ReturnKindAccum {
   shape: BTreeMap<String, ReactiveBindingKind>,
   ambiguous: BTreeSet<String>,
@@ -1306,6 +1394,8 @@ struct ReturnKindAccum {
   factory_conflict: bool,
   saw_object_return: bool,
   saw_scalar_return: bool,
+  /// `return <call>(...).value` — provisional until paired with a plain object declaration.
+  saw_unwrapped_state: bool,
 }
 
 impl ReturnKindAccum {
@@ -1336,6 +1426,11 @@ impl ReturnKindAccum {
       );
       return;
     }
+    if is_unwrapped_call_return(semantic, expression, imported_bindings) {
+      self.saw_scalar_return = true;
+      self.saw_unwrapped_state = true;
+      return;
+    }
     self.saw_scalar_return = true;
     let Some(kind) = reactive_return_kind(
       semantic,
@@ -1363,7 +1458,12 @@ impl ReturnKindAccum {
       return Some(ComposableReturn::Object(self.shape));
     }
     if self.saw_scalar_return && !self.factory_conflict {
-      return self.factory_kind.map(ComposableReturn::Factory);
+      if let Some(kind) = self.factory_kind {
+        return Some(ComposableReturn::Factory(kind));
+      }
+      if self.saw_unwrapped_state {
+        return Some(ComposableReturn::UnwrappedState);
+      }
     }
     None
   }
@@ -1386,6 +1486,7 @@ fn composable_return_with_index(
     factory_conflict: false,
     saw_object_return: false,
     saw_scalar_return: false,
+    saw_unwrapped_state: false,
   };
 
   // `() => ({ field: ref(0) })` / `() => ref(0)` expression body — no ReturnStatement.
@@ -1490,8 +1591,162 @@ pub fn composable_factory_kind_with_index(
     returns_by_function,
   ) {
     Some(ComposableReturn::Factory(kind)) => Some(kind),
-    Some(ComposableReturn::Object(_)) | None => None,
+    Some(ComposableReturn::Object(_) | ComposableReturn::UnwrappedState) | None => None,
   }
+}
+
+/// `return <call>(...).value` where callee is unresolved or imported from `#imports`.
+///
+/// Name-agnostic: pairs with a declared plain-object return to yield `Factory(Reactive)`.
+fn is_unwrapped_call_return(
+  semantic: &oxc_semantic::Semantic<'_>,
+  expression: &Expression<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> bool {
+  let Expression::StaticMemberExpression(member) = expression else {
+    return false;
+  };
+  if member.property.name.as_str() != "value" {
+    return false;
+  }
+  let Expression::CallExpression(call) = &member.object else {
+    return false;
+  };
+  let Some(callee) = call.callee.get_identifier_reference() else {
+    return false;
+  };
+  if let Some((source, _)) = imported_bindings.get(callee.name.as_str()) {
+    return source == "#imports";
+  }
+  let Some(reference_id) = callee.reference_id.get() else {
+    return false;
+  };
+  semantic.scoping().get_reference(reference_id).symbol_id().is_none()
+}
+
+fn declared_return_for_function(
+  semantic: &oxc_semantic::Semantic<'_>,
+  function: &oxc_ast::ast::Function<'_>,
+) -> Option<DeclaredReturn> {
+  if let Some(kind) = function_return_type_kind(function) {
+    return Some(DeclaredReturn::Factory(kind));
+  }
+  let annotation = function.return_type.as_ref()?;
+  classify_declared_return_type(semantic, &annotation.type_annotation)
+}
+
+fn declared_return_for_arrow(
+  semantic: &oxc_semantic::Semantic<'_>,
+  arrow: &oxc_ast::ast::ArrowFunctionExpression<'_>,
+) -> Option<DeclaredReturn> {
+  if let Some(kind) = arrow_return_type_kind(arrow) {
+    return Some(DeclaredReturn::Factory(kind));
+  }
+  let annotation = arrow.return_type.as_ref()?;
+  classify_declared_return_type(semantic, &annotation.type_annotation)
+}
+
+/// `export declare const useX: () => T` — function type on the declarator.
+#[inline(never)]
+fn declared_return_from_declarator_annotation(
+  semantic: &oxc_semantic::Semantic<'_>,
+  declarator: &oxc_ast::ast::VariableDeclarator<'_>,
+) -> Option<DeclaredReturn> {
+  use oxc_ast::ast::TSType;
+  let annotation = declarator.type_annotation.as_ref()?;
+  let ts_type = match &annotation.type_annotation {
+    TSType::TSParenthesizedType(paren) => &paren.type_annotation,
+    other => other,
+  };
+  let TSType::TSFunctionType(function_type) = ts_type else {
+    return None;
+  };
+  classify_declared_return_type(semantic, &function_type.return_type.type_annotation)
+}
+
+#[inline(never)]
+fn classify_declared_return_type(
+  semantic: &oxc_semantic::Semantic<'_>,
+  ts_type: &oxc_ast::ast::TSType<'_>,
+) -> Option<DeclaredReturn> {
+  if let Some(kind) = ts_type_reactive_kind(ts_type) {
+    return Some(DeclaredReturn::Factory(kind));
+  }
+  let mut index = None;
+  let shape = ts_type_composable_shape(semantic, ts_type, 0, &mut index);
+  if !shape.is_empty() {
+    return Some(DeclaredReturn::Composable(shape));
+  }
+  if ts_type_is_plain_object_shaped(semantic, ts_type, 0, &mut index) {
+    return Some(DeclaredReturn::PlainObject);
+  }
+  None
+}
+
+/// Object-shaped type: ≥1 property and no Ref-like field types (under-approx).
+#[inline(never)]
+fn ts_type_is_plain_object_shaped<'a>(
+  semantic: &'a oxc_semantic::Semantic<'a>,
+  ts_type: &'a oxc_ast::ast::TSType<'a>,
+  depth: u8,
+  index: &mut Option<TypeDeclIndex<'a>>,
+) -> bool {
+  use oxc_ast::ast::{TSType, TSTypeName, TSTypeOperatorOperator};
+  if depth > 4 {
+    return false;
+  }
+  if ts_type_reactive_kind(ts_type).is_some() {
+    return false;
+  }
+  match ts_type {
+    TSType::TSParenthesizedType(paren) => {
+      ts_type_is_plain_object_shaped(semantic, &paren.type_annotation, depth, index)
+    }
+    TSType::TSTypeOperatorType(operator)
+      if operator.operator == TSTypeOperatorOperator::Readonly =>
+    {
+      ts_type_is_plain_object_shaped(semantic, &operator.type_annotation, depth, index)
+    }
+    TSType::TSTypeLiteral(literal) => signatures_are_plain_object_shaped(&literal.members),
+    TSType::TSTypeReference(reference) => {
+      let Some(name) = (match &reference.type_name {
+        TSTypeName::IdentifierReference(identifier) => Some(identifier.name.as_str()),
+        TSTypeName::QualifiedName(_) | TSTypeName::ThisExpression(_) => None,
+      }) else {
+        return false;
+      };
+      let alias = {
+        let decls = index.get_or_insert_with(|| TypeDeclIndex::build(semantic));
+        if let Some(members) = decls.interfaces.get(name).copied() {
+          return signatures_are_plain_object_shaped(members);
+        }
+        decls.aliases.get(name).copied()
+      };
+      let Some(alias) = alias else {
+        return false;
+      };
+      ts_type_is_plain_object_shaped(semantic, alias, depth.saturating_add(1), index)
+    }
+    _ => false,
+  }
+}
+
+fn signatures_are_plain_object_shaped(members: &[oxc_ast::ast::TSSignature<'_>]) -> bool {
+  use oxc_ast::ast::TSSignature;
+  let mut property_count = 0_usize;
+  for member in members {
+    let TSSignature::TSPropertySignature(property) = member else {
+      continue;
+    };
+    property_count = property_count.saturating_add(1);
+    let Some(annotation) = &property.type_annotation else {
+      continue;
+    };
+    if ts_type_reactive_kind(&annotation.type_annotation).is_some() {
+      return false;
+    }
+  }
+  property_count > 0
 }
 
 /// Map a TypeScript return type surface to a reactive binding kind (under-approx).
@@ -2069,6 +2324,10 @@ fn insert_export(
   exported: &str,
   state: ExportState,
 ) -> bool {
+  // Provisional declaration/body halves never cross the seed barrier alone.
+  if matches!(state, ExportState::DeclaredPlainObjectFactory | ExportState::BodyUnwrappedState) {
+    return false;
+  }
   let Some(module_exports) = resolved.get_mut(module) else {
     return false;
   };
@@ -2085,6 +2344,10 @@ fn insert_export(
     }
     Entry::Occupied(_) => false,
   }
+}
+
+const fn is_seedable_export_state(state: &ExportState) -> bool {
+  matches!(state, ExportState::Known(_) | ExportState::Factory(_) | ExportState::Composable(_))
 }
 
 /// Coordinator-side: which of this module's import locals resolve to reactive exports.
@@ -2106,8 +2369,31 @@ fn seed_plan_for(
     else {
       continue;
     };
+    if !is_seedable_export_state(state) {
+      continue;
+    }
     // Only the resolved export state crosses the barrier (not source text / graphs).
     plan.insert(import.local.clone(), state.clone());
+  }
+  // Bare Nuxt auto-imports: `#nuxt-imports:{name}` links without an import statement.
+  for ((from, specifier), target) in links {
+    if *from != &facts.id {
+      continue;
+    }
+    let Some(name) = specifier.strip_prefix(NUXT_IMPORTS_SPECIFIER_PREFIX) else {
+      continue;
+    };
+    if name.is_empty() || plan.contains_key(name) {
+      continue;
+    }
+    let Some(state) = exports.get(*target).and_then(|module_exports| module_exports.get(name))
+    else {
+      continue;
+    };
+    if !is_seedable_export_state(state) {
+      continue;
+    }
+    plan.insert(name.to_owned(), state.clone());
   }
   plan
 }
@@ -2150,22 +2436,29 @@ fn materialize_seeds(
   let imports = collect_imports(semantic);
   let destructured_calls = collect_destructured_calls(semantic, &imports);
   let instance_calls = collect_instance_calls(semantic, &imports);
+  let bare_instance_calls = collect_bare_instance_calls(semantic, &plan.imports);
+  let bare_destructured_calls = collect_bare_destructured_calls(semantic, &plan.imports);
   let span_source = module.span_origin();
   let span_base = module.source_offset;
   let mut seeds = TraceSeeds::default();
-  for import in &imports {
-    let Some(state) = plan.imports.get(&import.local) else {
-      continue;
-    };
+  for (local, state) in &plan.imports {
     match state {
-      ExportState::Known(kind) => seeds.bindings.push(ReactiveBindingFact {
-        name: import.local.clone(),
-        kind: *kind,
-        initialized_with_null: false,
-        span: source_span(span_source, span_base, import.span),
-      }),
+      ExportState::Known(kind) => {
+        // Known seeds still require an import binding span.
+        let Some(import) = imports.iter().find(|import| import.local == *local) else {
+          continue;
+        };
+        seeds.bindings.push(ReactiveBindingFact {
+          name: local.clone(),
+          kind: *kind,
+          initialized_with_null: false,
+          span: source_span(span_source, span_base, import.span),
+        });
+      }
       ExportState::Factory(kind) => {
-        for call in instance_calls.iter().filter(|call| call.imported_local == import.local) {
+        let imported_calls = instance_calls.iter().filter(|call| call.imported_local == *local);
+        let bare_calls = bare_instance_calls.iter().filter(|call| call.imported_local == *local);
+        for call in imported_calls.chain(bare_calls) {
           if seeds.bindings.iter().any(|binding| binding.name == call.local) {
             continue;
           }
@@ -2178,7 +2471,11 @@ fn materialize_seeds(
         }
       }
       ExportState::Composable(shape) => {
-        for call in destructured_calls.iter().filter(|call| call.imported_local == import.local) {
+        let imported_destructure =
+          destructured_calls.iter().filter(|call| call.imported_local == *local);
+        let bare_destructure =
+          bare_destructured_calls.iter().filter(|call| call.imported_local == *local);
+        for call in imported_destructure.chain(bare_destructure) {
           let Some(kind) = shape.get(&call.property) else {
             continue;
           };
@@ -2189,12 +2486,16 @@ fn materialize_seeds(
             span: source_span(span_source, span_base, call.span),
           });
         }
-        for call in instance_calls.iter().filter(|call| call.imported_local == import.local) {
-          // Only record the instance bag for `bag.field.value` resolution.
+        let imported_instances = instance_calls.iter().filter(|call| call.imported_local == *local);
+        let bare_instances =
+          bare_instance_calls.iter().filter(|call| call.imported_local == *local);
+        for call in imported_instances.chain(bare_instances) {
           seeds.composable_instances.insert(call.local.clone(), shape.clone());
         }
       }
-      ExportState::Ambiguous => {}
+      ExportState::DeclaredPlainObjectFactory
+      | ExportState::BodyUnwrappedState
+      | ExportState::Ambiguous => {}
     }
   }
   // Inject locals: re-read sites for exact spans; offers from the coordinator plan.
@@ -2221,6 +2522,94 @@ fn materialize_seeds(
     }
   }
   seeds
+}
+
+/// `const x = useX()` where `useX` is unresolved and present in the seed plan (bare auto-import).
+fn collect_bare_instance_calls(
+  semantic: &oxc_semantic::Semantic<'_>,
+  plan: &ImportSeedPlan,
+) -> Vec<InstanceCallBinding> {
+  let mut calls = Vec::new();
+  for node in semantic.nodes() {
+    let AstKind::CallExpression(call) = node.kind() else {
+      continue;
+    };
+    let Some(callee) = call.callee.get_identifier_reference() else {
+      continue;
+    };
+    if !plan.contains_key(callee.name.as_str()) {
+      continue;
+    }
+    let Some(reference_id) = callee.reference_id.get() else {
+      continue;
+    };
+    if semantic.scoping().get_reference(reference_id).symbol_id().is_some() {
+      continue;
+    }
+    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
+    else {
+      continue;
+    };
+    let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
+      continue;
+    };
+    calls.push(InstanceCallBinding {
+      imported_local: callee.name.to_string(),
+      local: identifier.name.to_string(),
+      span: identifier.span,
+    });
+  }
+  calls.sort_by_key(|call| call.span.start);
+  calls
+}
+
+/// `const { field } = useX()` for bare unresolved auto-import callees in the seed plan.
+fn collect_bare_destructured_calls(
+  semantic: &oxc_semantic::Semantic<'_>,
+  plan: &ImportSeedPlan,
+) -> Vec<DestructuredCallBinding> {
+  let mut calls = Vec::new();
+  for node in semantic.nodes() {
+    let AstKind::CallExpression(call) = node.kind() else {
+      continue;
+    };
+    let Some(callee) = call.callee.get_identifier_reference() else {
+      continue;
+    };
+    if !plan.contains_key(callee.name.as_str()) {
+      continue;
+    }
+    let Some(reference_id) = callee.reference_id.get() else {
+      continue;
+    };
+    if semantic.scoping().get_reference(reference_id).symbol_id().is_some() {
+      continue;
+    }
+    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
+    else {
+      continue;
+    };
+    let BindingPattern::ObjectPattern(pattern) = &declarator.id else {
+      continue;
+    };
+    for property in &pattern.properties {
+      let Some(exported) = property.key.static_name() else {
+        continue;
+      };
+      let mut identifiers = Vec::new();
+      collect_binding_identifiers(&property.value, &mut identifiers);
+      for (local, span) in identifiers {
+        calls.push(DestructuredCallBinding {
+          imported_local: callee.name.to_string(),
+          property: exported.to_string(),
+          local,
+          span,
+        });
+      }
+    }
+  }
+  calls.sort_by_key(|call| call.span.start);
+  calls
 }
 
 fn join_errors(errors: &[impl ToString]) -> String {

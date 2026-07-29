@@ -13,14 +13,16 @@ use vue_vet_core::{
 };
 use vue_vet_reactivity::{
   ModuleLink, ModuleReactivity, ModuleSource, ModuleTraceState, PropFlowSite, TraceModulesOptions,
-  join_prop_flows, prepare_standalone_module_source, trace_modules_incremental_with_options,
+  join_prop_flows, merge_declaration_implementation_summary, prepare_standalone_module_source,
+  trace_modules_incremental_with_options,
 };
 
 pub use resolve::{OXC_RESOLVER_VERSION, normalize_project_root, resolver_config_inputs};
 
 use conventions::{
-  NUXT_COMPONENT_DTS_CANDIDATES, convention_component_name, load_nuxt_component_dts_names,
-  parse_nuxt_components_dts, strip_lazy_component_prefix,
+  NUXT_COMPONENT_DTS_CANDIDATES, NUXT_IMPORTS_DTS_CANDIDATES, convention_component_name,
+  load_nuxt_component_dts_names, load_nuxt_imports_dts_names, nuxt_imports_link_specifier,
+  parse_nuxt_components_dts, parse_nuxt_imports_dts, strip_lazy_component_prefix,
 };
 use resolve::{
   ProjectResolver, Resolution, language_for_path, normalized_path, prefer_types_declaration,
@@ -31,7 +33,7 @@ const EXTERNAL_REACTIVITY_MAX_FILES: usize = 64;
 /// Max re-export follow depth from an external entry.
 const EXTERNAL_REACTIVITY_MAX_DEPTH: usize = 8;
 
-pub const CONVENTIONS_VERSION: u32 = 4;
+pub const CONVENTIONS_VERSION: u32 = 5;
 pub const PROJECT_RULE_IDS: [&str; 2] =
   ["vue-vet/project/unresolved-import", "vue-vet/project/unused-component"];
 
@@ -190,6 +192,8 @@ impl ContextEpochs {
 pub struct ProjectContext {
   pub revision: u64,
   pub nuxt_component_names: BTreeMap<String, String>,
+  /// Bare auto-import name → module specifier from `.nuxt/imports.d.ts`.
+  pub nuxt_import_names: BTreeMap<String, String>,
   pub invalidation_inputs: Vec<String>,
   /// Per-kind epochs consumed by long-lived incremental analysis.
   pub epochs: ContextEpochs,
@@ -202,6 +206,7 @@ impl ProjectContext {
     Self {
       revision: 0,
       nuxt_component_names: load_nuxt_component_dts_names(&root, known),
+      nuxt_import_names: load_nuxt_imports_dts_names(&root),
       invalidation_inputs: resolver_config_inputs(&root),
       epochs: ContextEpochs::default(),
     }
@@ -220,20 +225,25 @@ pub fn project_context_from_inputs<'a>(
   let known =
     known_files.into_iter().map(|file| normalized_path(file.as_path())).collect::<BTreeSet<_>>();
   let mut nuxt_component_names = BTreeMap::new();
+  let mut nuxt_import_names = BTreeMap::new();
   let mut invalidation_inputs = Vec::new();
   for (relative, bytes) in inputs {
     if is_project_invalidation_input(relative) {
       invalidation_inputs.push(relative.to_owned());
     }
-    if !NUXT_COMPONENT_DTS_CANDIDATES.contains(&relative) {
-      continue;
-    }
     let Ok(source) = std::str::from_utf8(bytes) else {
       continue;
     };
-    let path = root.join(relative);
-    for (name, target) in parse_nuxt_components_dts(&path, source, &root, &known) {
-      nuxt_component_names.insert(name, target);
+    if NUXT_COMPONENT_DTS_CANDIDATES.contains(&relative) {
+      let path = root.join(relative);
+      for (name, target) in parse_nuxt_components_dts(&path, source, &root, &known) {
+        nuxt_component_names.insert(name, target);
+      }
+    }
+    if NUXT_IMPORTS_DTS_CANDIDATES.contains(&relative) {
+      for (name, specifier) in parse_nuxt_imports_dts(source) {
+        nuxt_import_names.insert(name, specifier);
+      }
     }
   }
   invalidation_inputs.sort();
@@ -241,6 +251,7 @@ pub fn project_context_from_inputs<'a>(
   ProjectContext {
     revision,
     nuxt_component_names,
+    nuxt_import_names,
     invalidation_inputs,
     epochs: ContextEpochs::default(),
   }
@@ -394,6 +405,7 @@ struct StructuralContextKey {
   revision: u64,
   nodes: Vec<GraphNode>,
   module_ids: BTreeSet<ModuleId>,
+  nuxt_import_names: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug)]
@@ -509,6 +521,7 @@ pub fn build_project_graph_incremental_with_options<'a>(
     revision: project_context.revision,
     nodes: nodes.clone(),
     module_ids: module_ids.clone(),
+    nuxt_import_names: project_context.nuxt_import_names.clone(),
   };
   if Arc::strong_count(&state.structural) > 1 {
     state.last_stats.partition_cow_clones += 1;
@@ -535,6 +548,7 @@ pub fn build_project_graph_incremental_with_options<'a>(
       &component_by_name,
       &composable_by_name,
       &module_ids,
+      &project_context.nuxt_import_names,
     ));
     structural
       .files
@@ -631,7 +645,13 @@ pub fn context_change_kind_for(path: &str) -> Option<ContextChangeKind> {
   {
     return Some(ContextChangeKind::Lockfile);
   }
-  if matches!(path, ".nuxt/components.d.ts" | ".nuxt/types/components.d.ts") {
+  if matches!(
+    path,
+    ".nuxt/components.d.ts"
+      | ".nuxt/types/components.d.ts"
+      | ".nuxt/imports.d.ts"
+      | ".nuxt/types/imports.d.ts"
+  ) {
     return Some(ContextChangeKind::NuxtDeclarations);
   }
   if matches!(
@@ -645,6 +665,10 @@ pub fn context_change_kind_for(path: &str) -> Option<ContextChangeKind> {
   None
 }
 
+#[expect(
+  clippy::too_many_arguments,
+  reason = "structural analysis needs graph indexes plus Nuxt import maps"
+)]
 fn analyze_structural_file(
   file: &ProjectFile,
   resolver: &ProjectResolver,
@@ -653,6 +677,7 @@ fn analyze_structural_file(
   component_by_name: &BTreeMap<String, Vec<String>>,
   composable_by_name: &BTreeMap<String, String>,
   module_ids: &BTreeSet<ModuleId>,
+  nuxt_import_names: &BTreeMap<String, String>,
 ) -> StructuralFileOutput {
   let path = normalized_path(file.path.as_path());
   let from = file_id(&path);
@@ -743,6 +768,50 @@ fn analyze_structural_file(
     if let Some(to) = composable_by_name.get(&call.callee) {
       output.edges.push(edge(&from, to, EdgeKind::AutoComposable, &call.callee, call.span.clone()));
     }
+    // Bare Nuxt auto-import: no local import binding, name present in imports.d.ts.
+    if imports.iter().any(|import| import.local == call.callee) {
+      continue;
+    }
+    let Some(specifier) = nuxt_import_names.get(&call.callee) else {
+      continue;
+    };
+    let link_specifier = nuxt_imports_link_specifier(&call.callee);
+    // Specifiers in imports.d.ts are relative to that file (not the consumer).
+    match resolver.resolve(".nuxt/imports.d.ts", specifier, known) {
+      Resolution::File(target) => {
+        let target_id = ModuleId::primary(&FileId::from(target.as_str()));
+        for module_from in [ModuleId::primary(&file.path), ModuleId::ordinary(&file.path)] {
+          if module_ids.contains(&module_from) && module_ids.contains(&target_id) {
+            output.module_links.push(ModuleLink {
+              from: module_from,
+              specifier: link_specifier.clone(),
+              to: target_id.clone(),
+            });
+          }
+        }
+      }
+      Resolution::External { package, resolved_path: Some(resolved_path) } => {
+        let id = format!("external:{package}");
+        output.external_nodes.push(GraphNode {
+          id: id.clone(),
+          kind: NodeKind::External,
+          path: package.clone(),
+          name: package,
+        });
+        for module_from in [ModuleId::primary(&file.path), ModuleId::ordinary(&file.path)] {
+          if module_ids.contains(&module_from) {
+            output.external_reactivity_roots.push(ExternalReactivityRoot {
+              from: module_from,
+              specifier: link_specifier.clone(),
+              resolved_path: resolved_path.clone(),
+            });
+          }
+        }
+      }
+      Resolution::External { resolved_path: None, .. } | Resolution::Unresolved => {
+        // Virtual `#app/…` / unresolved auto-imports stay quiet (no unresolved-import).
+      }
+    }
   }
   output
 }
@@ -814,10 +883,18 @@ fn load_external_reactivity_modules(
     };
     let module_id = external_module_id(root, &path);
     let language = language_for_path(&path);
-    let Ok(module) = prepare_standalone_module_source(module_id.clone(), source_text, language)
+    let source_text = if language == "d.ts" {
+      enrich_dts_with_relative_type_imports(&path, &source_text)
+    } else {
+      source_text
+    };
+    let Ok(mut module) = prepare_standalone_module_source(module_id.clone(), source_text, language)
     else {
       continue;
     };
+    if let Some(merged) = merge_companion_implementation(&path, &module) {
+      module = merged;
+    }
     let follow =
       module.module_summary().map(|summary| summary.follow_specifiers()).unwrap_or_default();
     loaded.insert(path.clone(), module_id.clone());
@@ -855,6 +932,91 @@ fn load_external_reactivity_modules(
   });
   links.dedup();
   (sources, links)
+}
+
+/// When a `.d.ts` summary still lacks finished Factory/Composable seeds, load companion
+/// `.js`/`.mjs`/`.ts` body evidence and merge (bounded; only if summary is incomplete).
+fn merge_companion_implementation(
+  types_path: &Path,
+  module: &ModuleSource,
+) -> Option<ModuleSource> {
+  let summary = module.module_summary()?;
+  if !summary.needs_implementation_merge() {
+    return None;
+  }
+  let impl_path = companion_implementation_path(types_path)?;
+  let source_text = std::fs::read_to_string(&impl_path).ok()?;
+  let language = language_for_path(&impl_path);
+  let impl_module =
+    prepare_standalone_module_source(module.id.clone(), source_text, language).ok()?;
+  let impl_summary = impl_module.module_summary()?;
+  let merged = merge_declaration_implementation_summary((*summary).clone(), impl_summary.as_ref());
+  Some(module.clone().with_module_summary(merged))
+}
+
+fn companion_implementation_path(types_path: &Path) -> Option<PathBuf> {
+  let file_name = types_path.file_name().and_then(|name| name.to_str())?;
+  let stem = file_name
+    .strip_suffix(".d.ts")
+    .or_else(|| file_name.strip_suffix(".d.mts"))
+    .or_else(|| file_name.strip_suffix(".d.cts"))?;
+  for extension in [".js", ".mjs", ".cjs", ".ts", ".mts", ".cts"] {
+    let candidate = types_path.with_file_name(format!("{stem}{extension}"));
+    if candidate.is_file() {
+      return Some(candidate);
+    }
+  }
+  None
+}
+
+/// Inline relative `import type` targets so same-file interface lookup sees them.
+fn enrich_dts_with_relative_type_imports(dts_path: &Path, source: &str) -> String {
+  let mut extras = String::new();
+  let mut seen = BTreeSet::new();
+  for specifier in relative_type_import_specifiers(source) {
+    if !seen.insert(specifier.clone()) {
+      continue;
+    }
+    let candidate = dts_path.parent().unwrap_or(dts_path).join(&specifier);
+    let resolved = prefer_types_declaration(&candidate);
+    let Ok(text) = std::fs::read_to_string(&resolved) else {
+      // Try common extension swaps for `./types.js` → `types.d.ts`.
+      let fallback = candidate.with_extension("").with_extension("d.ts");
+      let Ok(text) = std::fs::read_to_string(&fallback) else {
+        continue;
+      };
+      extras.push_str(&text);
+      extras.push('\n');
+      continue;
+    };
+    extras.push_str(&text);
+    extras.push('\n');
+  }
+  if extras.is_empty() { source.to_owned() } else { format!("{extras}{source}") }
+}
+
+fn relative_type_import_specifiers(source: &str) -> Vec<String> {
+  let mut out = Vec::new();
+  for line in source.lines() {
+    let trimmed = line.trim();
+    let rest = trimmed.strip_prefix("import type ").unwrap_or(trimmed);
+    let Some((_, from_part)) = rest.split_once(" from ") else {
+      continue;
+    };
+    let from_part = from_part.trim().trim_end_matches(';').trim();
+    let mut chars = from_part.chars();
+    let Some(quote) = chars.next().filter(|ch| *ch == '"' || *ch == '\'') else {
+      continue;
+    };
+    let rest: String = chars.collect();
+    let Some((specifier, _)) = rest.split_once(quote) else {
+      continue;
+    };
+    if specifier.starts_with("./") || specifier.starts_with("../") {
+      out.push(specifier.to_owned());
+    }
+  }
+  out
 }
 
 fn external_module_id(root: &Path, absolute: &Path) -> ModuleId {
@@ -1726,6 +1888,118 @@ watch([hostWidth, hostHeight], () => {})\n";
         })
       }),
       "external useElementSize object bag must seed renamed destructure watch; got {:?}",
+      demo.map(|module| (&module.graph.bindings, &module.graph.scopes))
+    );
+  }
+
+  #[test]
+  fn bare_nuxt_imports_dts_color_mode_seeds_reactive_watch() {
+    let project = TempProject::new("nuxt-color-mode");
+    project.write(
+      "node_modules/@nuxtjs/color-mode/package.json",
+      r#"{"name":"@nuxtjs/color-mode","version":"1.0.0","exports":{"./dist/runtime/composables":{"types":"./dist/runtime/composables.d.ts","import":"./dist/runtime/composables.js","default":"./dist/runtime/composables.js"}}}"#,
+    );
+    project.write(
+      "node_modules/@nuxtjs/color-mode/dist/runtime/types.d.ts",
+      "export interface ColorModeInstance {\n\
+  preference: string;\n\
+  value: string;\n\
+  unknown: boolean;\n\
+  forced: boolean;\n\
+}\n",
+    );
+    project.write(
+      "node_modules/@nuxtjs/color-mode/dist/runtime/composables.d.ts",
+      "import type { ColorModeInstance } from './types.js';\n\
+export declare const useColorMode: () => ColorModeInstance;\n",
+    );
+    project.write(
+      "node_modules/@nuxtjs/color-mode/dist/runtime/composables.js",
+      "import { useState } from '#imports';\n\
+export const useColorMode = () => {\n\
+  return useState('color-mode').value;\n\
+};\n",
+    );
+    project.write(
+      ".nuxt/imports.d.ts",
+      "export { useColorMode } from '../node_modules/@nuxtjs/color-mode/dist/runtime/composables';\n",
+    );
+
+    let script = "import { watch } from 'vue'\n\
+const colorMode = useColorMode()\n\
+watch(() => colorMode.value, () => {})\n";
+    let prefix = "<script setup lang=\"ts\">\n";
+    let sfc = format!("{prefix}{script}</script>\n<template><p>ok</p></template>\n");
+    let script_offset = prefix.len();
+    project.write("components/ViewportDemo.client.vue", &sfc);
+
+    let consumer = ProjectFile {
+      path: "components/ViewportDemo.client.vue".into(),
+      source_len: sfc.len(),
+      facts: SfcFacts {
+        template: TemplateFacts { elements: Vec::new(), expressions: Vec::new() },
+        script: ScriptFacts {
+          blocks: vec![ScriptBlockFacts {
+            kind: ScriptKind::Setup,
+            language: "ts".into(),
+            imports: vec![ScriptImportFact {
+              source: "vue".into(),
+              imported: "watch".into(),
+              local: "watch".into(),
+              span: span(0),
+            }],
+            bindings: Vec::new(),
+            calls: vec![ScriptCallFact {
+              callee: "useColorMode".into(),
+              assigned_to: Some("colorMode".into()),
+              resolved_import: None,
+              argument_identifiers: Vec::new(),
+              span: span(1),
+            }],
+            member_writes: Vec::new(),
+            destructures: Vec::new(),
+            top_level_await_ends: Vec::new(),
+            operands: Vec::new(),
+            reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
+          }],
+        },
+      }
+      .into(),
+      module_source: Some(ModuleSource::sfc_script(
+        "components/ViewportDemo.client.vue",
+        script,
+        "ts",
+        ScriptKind::Setup,
+        script_offset,
+        sfc,
+      )),
+      ordinary_module_source: None,
+    };
+
+    let graph = build_project_graph(project.root(), &[consumer]);
+    assert!(
+      graph.reactivity_error.is_none(),
+      "bare useColorMode tracing must succeed: {:?}",
+      graph.reactivity_error
+    );
+    let demo = graph
+      .module_reactivity
+      .iter()
+      .find(|module| module.id == "components/ViewportDemo.client.vue");
+    assert!(
+      demo.is_some_and(|module| {
+        module.graph.bindings.iter().any(|binding| {
+          binding.name == "colorMode" && binding.kind == vue_vet_core::ReactiveBindingKind::Reactive
+        }) && module.graph.scopes.iter().any(|scope| {
+          scope.kind == vue_vet_core::TrackingScopeKind::WatchSources
+            && scope
+              .reads
+              .iter()
+              .any(|read| read.binding == "colorMode" && read.property.as_deref() == Some("value"))
+            && scope.uncertain_accesses.is_empty()
+        })
+      }),
+      "bare Nuxt useColorMode must seed Reactive watch without uncertain; got {:?}",
       demo.map(|module| (&module.graph.bindings, &module.graph.scopes))
     );
   }

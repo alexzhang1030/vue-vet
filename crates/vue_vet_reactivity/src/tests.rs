@@ -12,7 +12,9 @@ use vue_vet_core::{
 
 use super::{
   ModuleLink, ModuleReactivity, ModuleSource, ModuleTraceState, TraceModulesOptions,
-  prepare_module_summary, trace_modules, trace_modules_incremental_with_options, trace_reactivity,
+  merge_declaration_implementation_summary, prepare_module_summary,
+  prepare_standalone_module_source, trace_modules, trace_modules_incremental_with_options,
+  trace_reactivity,
 };
 
 fn trace(
@@ -1950,6 +1952,168 @@ fn dts_composable_object_return_seeds_destructure() {
       consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
     );
   }
+}
+
+#[expect(clippy::panic, reason = "fixture setup failures must fail the unit test")]
+fn prepared_standalone(id: &str, source: &str, language: &str) -> ModuleSource {
+  prepare_standalone_module_source(id, source, language)
+    .unwrap_or_else(|error| panic!("prepare {id}: {error}"))
+}
+
+#[expect(clippy::panic, reason = "fixture setup failures must fail the unit test")]
+fn attached_summary(module: &ModuleSource) -> super::ModuleSummary {
+  module
+    .module_summary()
+    .unwrap_or_else(|| panic!("missing summary for {}", module.id))
+    .as_ref()
+    .clone()
+}
+
+#[test]
+fn plain_object_declaration_plus_unwrapped_call_seeds_reactive_factory() {
+  let declaration = prepared_standalone(
+    "producer.d.ts",
+    "export interface ColorModeInstance {\n\
+       preference: string;\n\
+       value: string;\n\
+       unknown: boolean;\n\
+       forced: boolean;\n\
+     }\n\
+     export declare const useColorMode: () => ColorModeInstance;\n",
+    "d.ts",
+  );
+  let implementation = prepared_standalone(
+    "producer.js",
+    "import { useState } from '#imports';\n\
+     export const useColorMode = () => {\n\
+       return useState('color-mode').value;\n\
+     };\n",
+    "js",
+  );
+  let merged = merge_declaration_implementation_summary(
+    attached_summary(&declaration),
+    &attached_summary(&implementation),
+  );
+  let producer = ModuleSource::standalone(
+    "producer.d.ts",
+    "export declare const useColorMode: () => ColorModeInstance;",
+    "d.ts",
+    ScriptKind::Script,
+  )
+  .with_module_summary(merged);
+  let consumer = ModuleSource::standalone(
+    "consumer.ts",
+    "import { watch } from 'vue';\n\
+     import { useColorMode } from './producer';\n\
+     const colorMode = useColorMode();\n\
+     watch(() => colorMode.value, () => {});\n",
+    "ts",
+    ScriptKind::Script,
+  );
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./producer".into(),
+    to: "producer.d.ts".into(),
+  }];
+  let traced = traced_modules(&[producer, consumer], &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "colorMode" && binding.kind == ReactiveBindingKind::Reactive)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::WatchSources
+            && scope
+              .reads
+              .iter()
+              .any(|read| read.binding == "colorMode" && read.property.as_deref() == Some("value"))
+            && scope.uncertain_accesses.is_empty()
+        })
+    }),
+    "plain object + unwrapped call must seed Reactive factory watch; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
+  );
+}
+
+#[test]
+fn unwrapped_call_without_plain_object_declaration_stays_quiet() {
+  let implementation = prepared_standalone(
+    "producer.js",
+    "import { useState } from '#imports';\n\
+     export const useFlag = () => useState('flag').value;\n",
+    "js",
+  );
+  let declaration =
+    prepared_standalone("producer.d.ts", "export declare const useFlag: () => number;\n", "d.ts");
+  let merged = merge_declaration_implementation_summary(
+    attached_summary(&declaration),
+    &attached_summary(&implementation),
+  );
+  assert!(
+    !merged.has_reactivity_export_seeds(),
+    "number return + unwrapped call must not invent Reactive; summary={merged:?}"
+  );
+}
+
+#[test]
+fn bare_nuxt_imports_link_seeds_reactive_factory_call() {
+  let declaration = prepared_standalone(
+    "producer.d.ts",
+    "export interface Mode { value: string; forced: boolean }\n\
+     export declare const useColorMode: () => Mode;\n",
+    "d.ts",
+  );
+  let implementation = prepared_standalone(
+    "producer.js",
+    "import { useState } from '#imports';\n\
+     export const useColorMode = () => useState('color-mode').value;\n",
+    "js",
+  );
+  let merged = merge_declaration_implementation_summary(
+    attached_summary(&declaration),
+    &attached_summary(&implementation),
+  );
+  let producer = ModuleSource::standalone(
+    "producer.d.ts",
+    "export declare const useColorMode: () => Mode;",
+    "d.ts",
+    ScriptKind::Script,
+  )
+  .with_module_summary(merged);
+  let consumer = ModuleSource::standalone(
+    "consumer.ts",
+    "import { watch } from 'vue';\n\
+     const colorMode = useColorMode();\n\
+     watch(() => colorMode.value, () => {});\n",
+    "ts",
+    ScriptKind::Script,
+  );
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "#nuxt-imports:useColorMode".into(),
+    to: "producer.d.ts".into(),
+  }];
+  let traced = traced_modules(&[producer, consumer], &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "colorMode" && binding.kind == ReactiveBindingKind::Reactive)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::WatchSources
+            && scope.reads.iter().any(|read| read.binding == "colorMode")
+            && scope.uncertain_accesses.is_empty()
+        })
+    }),
+    "bare #nuxt-imports Factory(Reactive) must seed watch; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
+  );
 }
 
 #[test]

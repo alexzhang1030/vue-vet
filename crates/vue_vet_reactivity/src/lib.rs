@@ -2000,13 +2000,12 @@ fn uncertain_access_at(
   match kind {
     AstKind::StaticMemberExpression(member) if member.property.name.as_str() == "value" => {
       let root = member_expression_root_identifier(&member.object)?;
-      let known_ref = reactive_bindings.iter().any(|binding| {
+      let known_binding = reactive_bindings.iter().any(|binding| {
         binding.name == root.name.as_str()
           && reference_resolves_to_binding(semantic, root, binding, script_offset)
-          && is_ref_like(binding.kind)
       });
       let known_bag = composable_instances.contains_key(root.name.as_str());
-      (!known_ref && !known_bag).then(|| (root.name.to_string(), member.span))
+      (!known_binding && !known_bag).then(|| (root.name.to_string(), member.span))
     }
     AstKind::CallExpression(call) => {
       let callee =
@@ -2728,8 +2727,9 @@ pub use modules::{
   ModuleLink, ModuleReactivity, ModuleSource, ModuleSummary, ModuleTraceState, PreparedModuleTrace,
   TraceModulesError, TraceModulesOptions, TraceModulesReport, TraceModulesStats,
   build_returns_by_function, composable_return_shape, composable_return_shape_with_index,
-  prepare_module_summary, prepare_module_trace, prepare_standalone_module_source, trace_modules,
-  trace_modules_incremental_with_options, trace_modules_with_options,
+  merge_declaration_implementation_summary, prepare_module_summary, prepare_module_trace,
+  prepare_standalone_module_source, trace_modules, trace_modules_incremental_with_options,
+  trace_modules_with_options,
 };
 pub use prop_flow::{PropFlowSite, join_prop_flows};
 

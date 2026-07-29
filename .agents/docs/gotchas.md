@@ -463,6 +463,14 @@ Oxc marks them unresolved and the name is on the `vue` / `#imports` allowlist.
 A local `function ref()` still wins and stays quiet. Empty module facts mean
 under-approx miss, not “100% reactive.”
 
+Bare **package** auto-imports (e.g. `useColorMode()` with no import) need
+`.nuxt/imports.d.ts` → a concrete file, then Factory/Composable evidence from
+that file (or companion `.js` when the preferred `.d.ts` summary is incomplete).
+Do **not** invent `Factory(Reactive)` from a plain interface alone, or from
+`return <call>(...).value` alone without a declared plain-object return
+(≥1 property, no Ref-like fields). Name-agnostic: any unresolved/`#imports`
+callee unwrap counts, not a `useState` allowlist.
+
 ## Edge `from` / `to_id` labels (graph v4–v6)
 
 Computed edges prefer the assigned binding name (`doubled`). Other scopes use
