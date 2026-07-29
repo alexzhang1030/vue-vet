@@ -8,9 +8,10 @@
 //! - `trace` — local effect tracing, `ModuleSummary` prepare, and cross-module link
 //! - [`prop_flow`] — template prop → child props edges
 
-mod trace;
 mod prop_flow;
+mod trace;
 
+pub use prop_flow::{PropFlowSite, join_prop_flows};
 pub use trace::{
   DEEP_WATCH_PROPERTY, ModuleLink, ModuleReactivity, ModuleSource, ModuleSummary, ModuleTraceState,
   PreparedModuleTrace, TraceModulesError, TraceModulesOptions, TraceModulesReport,
@@ -20,7 +21,6 @@ pub use trace::{
   prepare_module_summary, prepare_module_trace, prepare_standalone_module_source, trace_modules,
   trace_modules_incremental_with_options, trace_modules_with_options, trace_reactivity,
 };
-pub use prop_flow::{PropFlowSite, join_prop_flows};
 
 #[cfg(test)]
 pub(crate) use trace::{TraceSeeds, trace_reactivity_seeded};

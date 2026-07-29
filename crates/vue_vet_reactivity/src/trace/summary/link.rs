@@ -4,19 +4,15 @@ use std::{
 };
 
 use oxc_allocator::Allocator;
-use oxc_ast::{
-  AstKind,
-  ast::BindingPattern,
-};
+use oxc_ast::{AstKind, ast::BindingPattern};
 use oxc_parser::Parser;
 use oxc_semantic::{Semantic, SemanticBuilder};
 use rayon::prelude::*;
 use vue_vet_core::{ModuleId, ReactiveBindingFact, ReactivityGraph};
 
 use super::super::{
-  ProvideOffer, TraceSeeds, collect_binding_identifiers,
-  collect_inject_sites, provide_offer_index, resolve_inject_offer, source_span,
-  trace_reactivity_seeded,
+  ProvideOffer, TraceSeeds, collect_binding_identifiers, collect_inject_sites, provide_offer_index,
+  resolve_inject_offer, source_span, trace_reactivity_seeded,
 };
 use super::{
   DestructuredCallBinding, ExportState, ExportSummary, ImportSummary, InstanceCallBinding,
@@ -642,7 +638,6 @@ enum PhaseTwoOutcome {
     error: TraceModulesError,
   },
 }
-
 
 fn trace_module_phase_two(
   module: &ModuleSource,

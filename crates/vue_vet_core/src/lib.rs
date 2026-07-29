@@ -6,8 +6,8 @@
 //!
 //! Modules: [`diagnostics`], [`facts`], [`rule`], plus identity/edits/source helpers.
 
-mod digest;
 mod diagnostics;
+mod digest;
 mod edits;
 mod facts;
 mod identity;
@@ -15,8 +15,8 @@ mod line_index;
 mod rule;
 mod source_context;
 
-pub use digest::{content_digest, serde_digest};
 pub use diagnostics::*;
+pub use digest::{content_digest, serde_digest};
 pub use edits::{ByteRange, EditApplicability, EditPlan, EditPlanError, TextEdit};
 pub use facts::*;
 pub use identity::{FileId, ModuleId, PhysicalPath, WorkspaceRoot};

@@ -227,4 +227,3 @@ pub fn density_score(raw_weight: u32, files_scanned: usize) -> u8 {
   let score = (100_u32.saturating_mul(capacity)) / capacity.saturating_add(raw_weight);
   u8::try_from(score.min(100)).unwrap_or(0)
 }
-

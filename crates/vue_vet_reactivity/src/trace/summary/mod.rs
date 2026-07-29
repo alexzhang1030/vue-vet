@@ -16,14 +16,12 @@ use oxc_semantic::{NodeId, Semantic, SemanticBuilder};
 use oxc_span::{SourceType, Span};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use vue_vet_core::{
-  ModuleId, ReactiveBindingKind, ReactivityGraph, ScriptKind,
-};
+use vue_vet_core::{ModuleId, ReactiveBindingKind, ReactivityGraph, ScriptKind};
 
 use super::{
-  TraceSeeds, collect_binding_identifiers, collect_imported_bindings,
-  collect_inject_sites, collect_provide_sites, collect_reactive_bindings, module_export_name, reactive_binding_kind, reference_resolves_to_binding,
-  resolved_vue_callee, trace_reactivity_seeded,
+  TraceSeeds, collect_binding_identifiers, collect_imported_bindings, collect_inject_sites,
+  collect_provide_sites, collect_reactive_bindings, module_export_name, reactive_binding_kind,
+  reference_resolves_to_binding, resolved_vue_callee, trace_reactivity_seeded,
 };
 use oxc_ast::ast::Argument;
 
@@ -446,7 +444,9 @@ pub(super) fn analyze_module_phase_one_cached(
   analyze_module_phase_one(module)
 }
 
-pub(super) fn analyze_module_phase_one(module: &ModuleSource) -> Result<ModulePhaseOne, TraceModulesError> {
+pub(super) fn analyze_module_phase_one(
+  module: &ModuleSource,
+) -> Result<ModulePhaseOne, TraceModulesError> {
   if let Some(summary) = &module.module_summary {
     return Ok(phase_one_from_summary(module, summary));
   }
@@ -487,7 +487,10 @@ pub(super) fn analyze_module_phase_one(module: &ModuleSource) -> Result<ModulePh
   Ok(phase_one_from_summary(module, &summary))
 }
 
-pub(super) fn phase_one_from_summary(module: &ModuleSource, summary: &Arc<ModuleSummary>) -> ModulePhaseOne {
+pub(super) fn phase_one_from_summary(
+  module: &ModuleSource,
+  summary: &Arc<ModuleSummary>,
+) -> ModulePhaseOne {
   ModulePhaseOne {
     facts: ModuleExportFacts { id: module.id.clone(), summary: Arc::clone(summary) },
     local_graph: Arc::clone(&summary.local_graph),

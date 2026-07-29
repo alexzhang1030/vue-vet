@@ -764,9 +764,7 @@ pub fn resolve_inject_links(
 }
 
 /// Global/same-file index: injection key → known offers (one entry per provide site).
-pub fn provide_offer_index(
-  provides: &[ProvideSite],
-) -> BTreeMap<InjectionKey, Vec<ProvideOffer>> {
+pub fn provide_offer_index(provides: &[ProvideSite]) -> BTreeMap<InjectionKey, Vec<ProvideOffer>> {
   let mut index: BTreeMap<InjectionKey, Vec<ProvideOffer>> = BTreeMap::new();
   for site in provides {
     if !site.offer.is_known() {
@@ -2722,7 +2720,6 @@ fn source_span(source: &str, base: usize, span: Span) -> SourceSpan {
   });
   SourceSpan { offset, length: end.saturating_sub(offset), line, column }
 }
-
 
 mod summary;
 
