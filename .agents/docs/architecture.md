@@ -13,7 +13,7 @@ vue-vet CLI / --lsp / --mcp
        project       vue_vet_project pipeline
                        context → structural → passes(enrichment)
                        → reactivity Trace → layers → project rules
-       reactivity    vue_vet_reactivity (single-file trace + ModuleSummary link)
+       reactivity    vue_vet_reactivity (trace / summary / link)
        rules         vue_vet_rules + vue_vet_practice (RuleRegistry over facts)
        finalize      DiagnosticFinalizer → vue_vet_core ScanSummary
   -> vue_vet_reporters | vue_vet_lsp | vue_vet_mcp
@@ -26,9 +26,9 @@ Crate ownership (read before editing that stage):
 | Stable contracts | `vue_vet_core` | facts / diagnostics / `Rule` — no Oxc/Vize types |
 | Adapters | `vue_vet_vize`, `vue_vet_oxc` | short-lived AST → facts only |
 | Project graph | `vue_vet_project` | see `vue_vet_project` pipeline below |
-| Cross-file seeds | `vue_vet_reactivity` | `ModuleSummary` boundary; under-approx |
+| Cross-file seeds | `vue_vet_reactivity` | `trace` / `summary` / `link`; `ModuleSummary` boundary; under-approx |
 | File rules | `vue_vet_rules`, `vue_vet_practice` | consume facts; practice off score |
-| Orchestration | `vue_vet_session` | discovery → parse → project → rules → finalize |
+| Orchestration | `vue_vet_session` | thin façade; `pipeline` stages discovery → facts → project → rules → finalize |
 | Surfaces | `vue_vet_cli`, `vue_vet_lsp`, `vue_vet_mcp`, `vue_vet_reporters` | thin |
 
 ## Current vertical slice

@@ -14,18 +14,16 @@ use oxc_ast::{
 use oxc_parser::Parser;
 use oxc_semantic::{NodeId, Semantic, SemanticBuilder};
 use oxc_span::{SourceType, Span};
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use vue_vet_core::{
-  ModuleId, ReactiveBindingFact, ReactiveBindingKind, ReactivityGraph, ScriptKind,
+  ModuleId, ReactiveBindingKind, ReactivityGraph, ScriptKind,
 };
 
 use super::{
-  ProvideOffer, TraceSeeds, collect_binding_identifiers, collect_imported_bindings,
-  collect_inject_sites, collect_provide_sites, module_export_name, provide_offer_index,
-  reactive_binding_kind, reference_resolves_to_binding, resolve_inject_offer, resolved_vue_callee,
-  source_span, trace_reactivity_seeded,
+  TraceSeeds, collect_binding_identifiers, collect_imported_bindings,
+  collect_inject_sites, collect_provide_sites, collect_reactive_bindings, module_export_name, reactive_binding_kind, reference_resolves_to_binding,
+  resolved_vue_callee, trace_reactivity_seeded,
 };
 use oxc_ast::ast::Argument;
 
@@ -125,7 +123,8 @@ impl ModuleSource {
     self.with_module_summary(prepared_trace)
   }
 
-  fn span_origin(&self) -> &str {
+  #[must_use]
+  pub(super) fn span_origin(&self) -> &str {
     if self.span_source.is_empty() { self.source.as_ref() } else { self.span_source.as_ref() }
   }
 }
@@ -182,36 +181,8 @@ impl TraceModulesError {
   }
 }
 
-/// Concurrency limit for cross-module tracing.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TraceModulesOptions {
-  /// Maximum native workers used by either tracing phase.
-  ///
-  /// Honored when [`Self::reuse_current_pool`] is `false` by installing a
-  /// dedicated Rayon pool. Session analysis sets `reuse_current_pool` so the
-  /// outer `--threads N` pool is shared instead of nesting a second pool.
-  pub max_workers: usize,
-  /// Use the already-installed Rayon pool (or the global pool) without creating
-  /// a nested worker pool. Public callers should leave this `false`.
-  pub reuse_current_pool: bool,
-  /// Retain export/seed fixed-point snapshots on `state` for later incremental
-  /// scans. One-shot [`trace_modules_with_options`] forces this off so cold
-  /// `trace_*` benches do not pay archive costs that are immediately discarded.
-  pub persist_linking_cache: bool,
-}
-
-impl Default for TraceModulesOptions {
-  fn default() -> Self {
-    Self {
-      max_workers: std::thread::available_parallelism().map_or(1, std::num::NonZero::get),
-      reuse_current_pool: false,
-      persist_linking_cache: true,
-    }
-  }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct ImportSummary {
+pub(super) struct ImportSummary {
   local: String,
   imported: String,
   source: String,
@@ -219,14 +190,14 @@ struct ImportSummary {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum ExportSummary {
+pub(super) enum ExportSummary {
   Local { local: String, exported: String },
   Reexport { source: String, imported: String, exported: String },
   Star { source: String },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct DestructuredCallBinding {
+pub(super) struct DestructuredCallBinding {
   imported_local: String,
   property: String,
   local: String,
@@ -235,7 +206,7 @@ struct DestructuredCallBinding {
 
 /// `const bag = useFoo()` — whole-object composable call used via member access.
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct InstanceCallBinding {
+pub(super) struct InstanceCallBinding {
   imported_local: String,
   local: String,
   span: Span,
@@ -244,12 +215,12 @@ struct InstanceCallBinding {
 /// Synthetic [`ModuleLink`] specifier prefix for bare Nuxt auto-import calls.
 ///
 /// Kept in sync with `vue_vet_project::conventions::NUXT_IMPORTS_SPECIFIER_PREFIX`.
-const NUXT_IMPORTS_SPECIFIER_PREFIX: &str = "#nuxt-imports:";
+pub(super) const NUXT_IMPORTS_SPECIFIER_PREFIX: &str = "#nuxt-imports:";
 /// Exclusive end for [`BTreeMap::range`] over `#nuxt-imports:…` keys (`';` follows `:`).
-const NUXT_IMPORTS_RANGE_END: &str = "#nuxt-imports;";
+pub(super) const NUXT_IMPORTS_RANGE_END: &str = "#nuxt-imports;";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum ExportState {
+pub(super) enum ExportState {
   /// Imported local is itself a reactive binding (`import { count } from './x'`).
   Known(ReactiveBindingKind),
   /// Calling the export returns a statically keyed object bag.
@@ -284,9 +255,9 @@ enum DeclaredReturn {
 /// Export-resolution payload only — no source body, no owned reactivity graph.
 /// Shares [`ModuleSummary`] across the seed barrier instead of cloning its vectors.
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct ModuleExportFacts {
-  id: ModuleId,
-  summary: Arc<ModuleSummary>,
+pub(super) struct ModuleExportFacts {
+  pub(super) id: ModuleId,
+  pub(super) summary: Arc<ModuleSummary>,
 }
 
 /// Stable module semantic IR extracted from an existing Oxc semantic.
@@ -408,112 +379,6 @@ pub fn prepare_standalone_module_source(
 /// Compatibility alias for [`ModuleSummary`].
 pub type PreparedModuleTrace = ModuleSummary;
 
-/// Per-import resolution for one consumer module (`import.local` → export state).
-/// Spans are applied on the worker that still holds the parse.
-type ImportSeedPlan = BTreeMap<String, ExportState>;
-
-/// Cross-module seeds delivered after the barrier (imports + unique inject keys).
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-struct ModuleSeedPlan {
-  imports: ImportSeedPlan,
-  /// inject local → offer (scalar kind and/or composable bag shape).
-  injects: BTreeMap<String, ProvideOffer>,
-}
-
-/// Reusable state for cross-module linking in a long-lived project session.
-///
-/// Entries contain only Vue Vet-owned sources, seed plans, and final graphs.
-/// No Oxc allocator, AST, or semantic object crosses this boundary.
-#[derive(Clone, Debug, Default)]
-pub struct ModuleTraceState {
-  entries: BTreeMap<ModuleId, CachedModuleTrace>,
-  /// Last export/provide/seed fixed-point inputs and outputs.
-  linking: Option<CachedLinkingSnapshot>,
-}
-
-#[derive(Clone, Debug)]
-struct CachedModuleTrace {
-  source: ModuleSource,
-  summary: Arc<ModuleSummary>,
-  plan: ModuleSeedPlan,
-  reactivity: ModuleReactivity,
-}
-
-/// Cross-scan cache for export resolution and seed plans.
-///
-/// Linking surface excludes [`ModuleSummary::local_graph`]: a leaf body edit that
-/// does not change imports/exports/provides/injects reuses the prior fixed point.
-/// When only a subset of surfaces change, seed plans are recomputed for the
-/// export/inject closure — not every module.
-///
-/// Summaries are retained as [`Arc`] handles so warm reuse can use
-/// [`Arc::ptr_eq`] instead of cloning imports/exports/locals on every scan.
-#[derive(Clone, Debug)]
-struct CachedLinkingSnapshot {
-  links: Vec<ModuleLink>,
-  /// Phase-one summaries keyed for linking-surface equality (not `local_graph`).
-  summaries: BTreeMap<ModuleId, Arc<ModuleSummary>>,
-  exports: Arc<BTreeMap<ModuleId, BTreeMap<String, ExportState>>>,
-  provide_index: Arc<BTreeMap<super::InjectionKey, Vec<super::ProvideOffer>>>,
-  plans: Arc<BTreeMap<ModuleId, ModuleSeedPlan>>,
-}
-
-/// Linking-relevant fields only — never clones; prefers [`Arc::ptr_eq`].
-fn linking_surface_eq(left: &Arc<ModuleSummary>, right: &Arc<ModuleSummary>) -> bool {
-  Arc::ptr_eq(left, right)
-    || (left.imports == right.imports
-      && left.exports == right.exports
-      && left.locals == right.locals
-      && left.provides == right.provides
-      && left.injects == right.injects)
-}
-
-fn linking_cache_reusable(
-  owned_links: &[ModuleLink],
-  facts_by_id: &BTreeMap<ModuleId, ModuleExportFacts>,
-  cached: &CachedLinkingSnapshot,
-) -> bool {
-  if cached.links != owned_links || cached.summaries.len() != facts_by_id.len() {
-    return false;
-  }
-  facts_by_id.iter().all(|(id, facts)| {
-    cached.summaries.get(id).is_some_and(|prev| linking_surface_eq(&facts.summary, prev))
-  })
-}
-
-/// Work counters used by incremental tests and performance instrumentation.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct TraceModulesStats {
-  pub phase_one_succeeded: usize,
-  pub phase_one_failed: usize,
-  pub seeded_reparses: usize,
-  pub reused_graphs: usize,
-  /// Modules whose seed plans were freshly computed (not taken from linking cache).
-  pub seed_plans_recomputed: usize,
-  /// Whether `resolve_exports` / provide indexing ran this pass.
-  pub export_resolve_ran: bool,
-}
-
-/// Partial, deterministic result from a module-linking pass.
-#[derive(Debug, Default)]
-pub struct TraceModulesReport {
-  pub modules: Vec<ModuleReactivity>,
-  pub issues: Vec<TraceModulesError>,
-  pub stats: TraceModulesStats,
-}
-
-impl ModuleSeedPlan {
-  fn is_empty(&self) -> bool {
-    self.imports.is_empty() && self.injects.is_empty()
-  }
-}
-
-/// Extract module semantic IR from a semantic already built by Oxc.
-///
-/// The returned value contains only Vue Vet-owned facts and spans. It can be
-/// attached to [`ModuleSource::with_module_summary`] so project tracing does not
-/// parse the module again unless cross-module seeds require materialization.
-#[must_use]
 pub fn prepare_module_summary(
   semantic: &Semantic<'_>,
   span_source: &str,
@@ -525,9 +390,9 @@ pub fn prepare_module_summary(
   let imports = collect_imports(semantic);
   let exports = collect_exports(semantic);
   let shape_graph = ReactivityGraph {
-    bindings: super::collect_reactive_bindings(
+    bindings: collect_reactive_bindings(
       semantic,
-      &super::collect_imported_bindings(semantic),
+      &collect_imported_bindings(semantic),
       span_source,
       source_offset,
       kind,
@@ -536,7 +401,7 @@ pub fn prepare_module_summary(
     ..ReactivityGraph::default()
   };
   let locals = collect_local_values(semantic, &local_graph, &shape_graph, source_offset);
-  let imported_bindings = super::collect_imported_bindings(semantic);
+  let imported_bindings = collect_imported_bindings(semantic);
   let provides = collect_provide_sites(
     semantic,
     &imported_bindings,
@@ -561,502 +426,12 @@ pub fn prepare_module_trace(
   prepare_module_summary(semantic, span_source, source_offset, kind, local_graph)
 }
 
-/// Traces local and linked reactivity across a resolved module graph.
-///
-/// Work is bounded by [`TraceModulesOptions::max_workers`]. Phase 1 parses every
-/// module and retains only serializable export facts plus the local graph. The
-/// coordinator resolves cross-module seeds. Phase 2 reuses local graphs for
-/// modules without seeds and reparses only modules that need seed materialization.
-///
-/// # Errors
-///
-/// Returns an error when a module cannot be parsed or analyzed, module identifiers
-/// are duplicated, or a supplied resolved link is unknown or ambiguous.
-pub fn trace_modules(
-  modules: &[ModuleSource],
-  links: &[ModuleLink],
-) -> Result<Vec<ModuleReactivity>, TraceModulesError> {
-  trace_modules_with_options(modules, links, TraceModulesOptions::default())
+pub(super) struct ModulePhaseOne {
+  pub(super) facts: ModuleExportFacts,
+  pub(super) local_graph: Arc<ReactivityGraph>,
 }
 
-/// Traces local and linked reactivity with an explicit worker bound.
-///
-/// # Errors
-///
-/// Returns an error when a module cannot be parsed or analyzed, module identifiers
-/// are duplicated, a supplied resolved link is invalid, or the worker pool fails.
-pub fn trace_modules_with_options(
-  modules: &[ModuleSource],
-  links: &[ModuleLink],
-  mut options: TraceModulesOptions,
-) -> Result<Vec<ModuleReactivity>, TraceModulesError> {
-  // Fresh state is dropped on return — never archive linking snapshots.
-  options.persist_linking_cache = false;
-  let mut state = ModuleTraceState::default();
-  let report = trace_modules_incremental_with_options(modules, links, options, &mut state);
-  if let Some(error) = report.issues.into_iter().next() { Err(error) } else { Ok(report.modules) }
-}
-
-/// Trace a module set while retaining healthy cross-module results and reusing
-/// unchanged seeded graphs from `state`.
-///
-/// When [`TraceModulesOptions::reuse_current_pool`] is `false`, installs a
-/// dedicated Rayon pool sized to [`TraceModulesOptions::max_workers`]. Session
-/// analysis should set `reuse_current_pool: true` after installing its own pool.
-#[must_use]
-pub fn trace_modules_incremental_with_options(
-  modules: &[ModuleSource],
-  links: &[ModuleLink],
-  options: TraceModulesOptions,
-  state: &mut ModuleTraceState,
-) -> TraceModulesReport {
-  let mut report = TraceModulesReport::default();
-  let mut seen = BTreeSet::new();
-  let unique = modules
-    .iter()
-    .filter(|module| {
-      if seen.insert(module.id.clone()) {
-        true
-      } else {
-        report.issues.push(TraceModulesError::DuplicateModule(module.id.clone()));
-        false
-      }
-    })
-    .collect::<Vec<_>>();
-  if unique.is_empty() {
-    state.entries.clear();
-    state.linking = None;
-    return report;
-  }
-
-  if options.reuse_current_pool {
-    return trace_modules_incremental_in_current_pool(&unique, links, state, report, options);
-  }
-
-  let Ok(pool) = rayon::ThreadPoolBuilder::new()
-    .num_threads(options.max_workers.max(1).min(unique.len()))
-    .build()
-  else {
-    report.issues.push(TraceModulesError::WorkerDisconnected);
-    return report;
-  };
-  pool.install(|| trace_modules_incremental_in_current_pool(&unique, links, state, report, options))
-}
-
-fn trace_modules_incremental_in_current_pool(
-  unique: &[&ModuleSource],
-  links: &[ModuleLink],
-  state: &mut ModuleTraceState,
-  mut report: TraceModulesReport,
-  options: TraceModulesOptions,
-) -> TraceModulesReport {
-  // Borrow entries for phase-one reuse — never clone ModuleSource into a side map.
-  let phase_one = {
-    let entries = &state.entries;
-    unique
-      .par_iter()
-      .map(|module| {
-        analyze_module_phase_one_cached(
-          module,
-          entries.get(&module.id).map(|entry| (&entry.source, &entry.summary)),
-        )
-      })
-      .collect::<Vec<Result<ModulePhaseOne, TraceModulesError>>>()
-  };
-  let mut facts_by_id = BTreeMap::new();
-  let mut local_graphs = BTreeMap::new();
-  for (module, outcome) in unique.iter().zip(phase_one) {
-    match outcome {
-      Ok(analysis) => {
-        report.stats.phase_one_succeeded += 1;
-        facts_by_id.insert(module.id.clone(), analysis.facts);
-        local_graphs.insert(module.id.clone(), analysis.local_graph);
-      }
-      Err(error) => {
-        report.stats.phase_one_failed += 1;
-        report.issues.push(error);
-      }
-    }
-  }
-
-  let (resolved_links, mut link_issues) = resolved_links_partial(&facts_by_id, links);
-  report.issues.append(&mut link_issues);
-
-  let mut pending_linking_archive = None;
-  let work = if options.persist_linking_cache {
-    if state.linking.is_none() {
-      // First persistent scan: build plans once (like oneshot), archive after phase two.
-      let (work, archive) = build_cold_persistent_seed_work(
-        unique,
-        links,
-        &resolved_links,
-        &facts_by_id,
-        &mut local_graphs,
-        &mut report,
-      );
-      pending_linking_archive = Some(archive);
-      work
-    } else {
-      build_persistent_seed_work(
-        unique,
-        links,
-        &resolved_links,
-        &facts_by_id,
-        &mut local_graphs,
-        state,
-        &mut report,
-      )
-    }
-  } else {
-    // One-shot cold path: no link sort / seed-plan archive.
-    build_oneshot_seed_work(unique, &resolved_links, &facts_by_id, &mut local_graphs, &mut report)
-  };
-
-  let persist = options.persist_linking_cache;
-  // Split reused vs dirty before Rayon — independent leaf edits must not
-  // schedule 999 immediate-reuse workers.
-  let mut reused = Vec::new();
-  let mut dirty_work = Vec::new();
-  for (module, local_graph, plan, summary) in work {
-    if let Some(cached) = state.entries.get(&module.id)
-      && cached.source == *module
-      && cached.plan == plan
-    {
-      reused.push(cached.reactivity.clone());
-      continue;
-    }
-    dirty_work.push((module, local_graph, plan, summary));
-  }
-  report.stats.reused_graphs += reused.len();
-  for reactivity in reused {
-    report.modules.push(reactivity);
-  }
-
-  let outcomes = dirty_work
-    .into_par_iter()
-    .map(|(module, mut local_graph, plan, summary)| {
-      let seeded = !plan.is_empty();
-      match trace_module_phase_two(module, Arc::clone(&local_graph), &plan) {
-        Ok(reactivity) => PhaseTwoOutcome::Traced {
-          source: persist.then(|| module.clone()),
-          summary,
-          plan: persist.then_some(plan),
-          reactivity,
-          seeded,
-        },
-        Err(error) => {
-          Arc::make_mut(&mut local_graph).set_module_id(module.id.clone());
-          PhaseTwoOutcome::Partial {
-            source: persist.then(|| module.clone()),
-            summary,
-            plan: persist.then_some(plan),
-            reactivity: ModuleReactivity { id: module.id.clone(), graph: local_graph },
-            error,
-          }
-        }
-      }
-    })
-    .collect::<Vec<_>>();
-
-  let mut keep: BTreeSet<ModuleId> =
-    report.modules.iter().map(|module| module.id.clone()).collect();
-  for outcome in outcomes {
-    match outcome {
-      PhaseTwoOutcome::Traced { source, summary, plan, reactivity, seeded } => {
-        report.stats.seeded_reparses += usize::from(seeded);
-        keep.insert(reactivity.id.clone());
-        if let (Some(source), Some(summary), Some(plan)) = (source, summary, plan) {
-          state.entries.insert(
-            reactivity.id.clone(),
-            CachedModuleTrace { source, summary, plan, reactivity: reactivity.clone() },
-          );
-        }
-        report.modules.push(reactivity);
-      }
-      PhaseTwoOutcome::Partial { source, summary, plan, reactivity, error } => {
-        report.issues.push(error);
-        keep.insert(reactivity.id.clone());
-        if let (Some(source), Some(summary), Some(plan)) = (source, summary, plan) {
-          state.entries.insert(
-            reactivity.id.clone(),
-            CachedModuleTrace { source, summary, plan, reactivity: reactivity.clone() },
-          );
-        }
-        report.modules.push(reactivity);
-      }
-    }
-  }
-  if persist {
-    state.entries.retain(|module_id, _| keep.contains(module_id));
-    if let Some(archive) = pending_linking_archive {
-      let plans = state
-        .entries
-        .iter()
-        .map(|(id, entry)| (id.clone(), entry.plan.clone()))
-        .collect::<BTreeMap<_, _>>();
-      state.linking = Some(CachedLinkingSnapshot {
-        links: archive.links,
-        summaries: archive.summaries,
-        exports: archive.exports,
-        provide_index: archive.provide_index,
-        plans: Arc::new(plans),
-      });
-    }
-  }
-  report.modules.sort_by(|left, right| left.id.cmp(&right.id));
-  report.issues.sort_by(|left, right| {
-    (left.module_id(), left.to_string()).cmp(&(right.module_id(), right.to_string()))
-  });
-  report
-}
-
-type SeedWorkItem<'a> =
-  (&'a ModuleSource, Arc<ReactivityGraph>, ModuleSeedPlan, Option<Arc<ModuleSummary>>);
-
-struct PendingLinkingArchive {
-  links: Vec<ModuleLink>,
-  summaries: BTreeMap<ModuleId, Arc<ModuleSummary>>,
-  exports: Arc<BTreeMap<ModuleId, BTreeMap<String, ExportState>>>,
-  provide_index: Arc<BTreeMap<super::InjectionKey, Vec<super::ProvideOffer>>>,
-}
-
-fn build_cold_persistent_seed_work<'a>(
-  unique: &[&'a ModuleSource],
-  links: &[ModuleLink],
-  resolved_links: &BTreeMap<(ModuleId, String), ModuleId>,
-  facts_by_id: &BTreeMap<ModuleId, ModuleExportFacts>,
-  local_graphs: &mut BTreeMap<ModuleId, Arc<ReactivityGraph>>,
-  report: &mut TraceModulesReport,
-) -> (Vec<SeedWorkItem<'a>>, PendingLinkingArchive) {
-  let mut owned_links = links.to_vec();
-  owned_links.sort_by(|left, right| {
-    (&left.from, &left.specifier, &left.to).cmp(&(&right.from, &right.specifier, &right.to))
-  });
-  owned_links.dedup();
-  let link_index = link_index(resolved_links);
-  let exports = Arc::new(resolve_exports(facts_by_id, &link_index));
-  let provide_index = Arc::new(global_provide_index(facts_by_id));
-  report.stats.export_resolve_ran = true;
-  let work = unique
-    .iter()
-    .filter_map(|module| {
-      let facts = facts_by_id.get(&module.id)?;
-      let local_graph = local_graphs.remove(&module.id)?;
-      let plan = ModuleSeedPlan {
-        imports: seed_plan_for(facts, &exports, &link_index),
-        injects: inject_seed_plan(facts, &provide_index),
-      };
-      Some((*module, local_graph, plan, Some(Arc::clone(&facts.summary))))
-    })
-    .collect::<Vec<_>>();
-  report.stats.seed_plans_recomputed = work.len();
-  let summaries =
-    facts_by_id.iter().map(|(id, facts)| (id.clone(), Arc::clone(&facts.summary))).collect();
-  (work, PendingLinkingArchive { links: owned_links, summaries, exports, provide_index })
-}
-
-fn build_oneshot_seed_work<'a>(
-  unique: &[&'a ModuleSource],
-  resolved_links: &BTreeMap<(ModuleId, String), ModuleId>,
-  facts_by_id: &BTreeMap<ModuleId, ModuleExportFacts>,
-  local_graphs: &mut BTreeMap<ModuleId, Arc<ReactivityGraph>>,
-  report: &mut TraceModulesReport,
-) -> Vec<SeedWorkItem<'a>> {
-  let link_index = link_index(resolved_links);
-  let exports = resolve_exports(facts_by_id, &link_index);
-  let provide_index = global_provide_index(facts_by_id);
-  report.stats.export_resolve_ran = true;
-  let work = unique
-    .iter()
-    .filter_map(|module| {
-      let facts = facts_by_id.get(&module.id)?;
-      let local_graph = local_graphs.remove(&module.id)?;
-      let plan = ModuleSeedPlan {
-        imports: seed_plan_for(facts, &exports, &link_index),
-        injects: inject_seed_plan(facts, &provide_index),
-      };
-      Some((*module, local_graph, plan, None))
-    })
-    .collect::<Vec<_>>();
-  report.stats.seed_plans_recomputed = work.len();
-  work
-}
-
-fn build_persistent_seed_work<'a>(
-  unique: &[&'a ModuleSource],
-  links: &[ModuleLink],
-  resolved_links: &BTreeMap<(ModuleId, String), ModuleId>,
-  facts_by_id: &BTreeMap<ModuleId, ModuleExportFacts>,
-  local_graphs: &mut BTreeMap<ModuleId, Arc<ReactivityGraph>>,
-  state: &mut ModuleTraceState,
-  report: &mut TraceModulesReport,
-) -> Vec<SeedWorkItem<'a>> {
-  let mut owned_links = links.to_vec();
-  owned_links.sort_by(|left, right| {
-    (&left.from, &left.specifier, &left.to).cmp(&(&right.from, &right.specifier, &right.to))
-  });
-  owned_links.dedup();
-
-  let plans = if let Some(cached) = state
-    .linking
-    .as_ref()
-    .filter(|cached| linking_cache_reusable(&owned_links, facts_by_id, cached))
-  {
-    report.stats.seed_plans_recomputed = 0;
-    report.stats.export_resolve_ran = false;
-    Arc::clone(&cached.plans)
-  } else {
-    // Caller guarantees `state.linking` is already populated (warm invalidate path).
-    report.stats.export_resolve_ran = true;
-    let link_index = link_index(resolved_links);
-    let exports = Arc::new(resolve_exports(facts_by_id, &link_index));
-    let provide_index = Arc::new(global_provide_index(facts_by_id));
-    let dirty_seed = modules_needing_seed_recompute(
-      state.linking.as_ref(),
-      &exports,
-      &provide_index,
-      &owned_links,
-      facts_by_id,
-    );
-    let mut next_plans =
-      state.linking.as_ref().map(|cached| (*cached.plans).clone()).unwrap_or_default();
-    next_plans.retain(|id, _| facts_by_id.contains_key(id));
-    let mut recomputed = 0_usize;
-    for id in &dirty_seed {
-      let Some(facts) = facts_by_id.get(id) else {
-        continue;
-      };
-      next_plans.insert(
-        id.clone(),
-        ModuleSeedPlan {
-          imports: seed_plan_for(facts, &exports, &link_index),
-          injects: inject_seed_plan(facts, &provide_index),
-        },
-      );
-      recomputed += 1;
-    }
-    for module in unique {
-      if next_plans.contains_key(&module.id) {
-        continue;
-      }
-      let Some(facts) = facts_by_id.get(&module.id) else {
-        continue;
-      };
-      next_plans.insert(
-        module.id.clone(),
-        ModuleSeedPlan {
-          imports: seed_plan_for(facts, &exports, &link_index),
-          injects: inject_seed_plan(facts, &provide_index),
-        },
-      );
-      recomputed += 1;
-    }
-    report.stats.seed_plans_recomputed = recomputed;
-    let plans = Arc::new(next_plans);
-    let summaries =
-      facts_by_id.iter().map(|(id, facts)| (id.clone(), Arc::clone(&facts.summary))).collect();
-    state.linking = Some(CachedLinkingSnapshot {
-      links: owned_links,
-      summaries,
-      exports,
-      provide_index,
-      plans: Arc::clone(&plans),
-    });
-    plans
-  };
-
-  unique
-    .iter()
-    .filter_map(|module| {
-      let facts = facts_by_id.get(&module.id)?;
-      let local_graph = local_graphs.remove(&module.id)?;
-      let plan = plans.get(&module.id)?.clone();
-      Some((*module, local_graph, plan, Some(Arc::clone(&facts.summary))))
-    })
-    .collect()
-}
-
-/// Modules whose seed plans must be refreshed after a linking-surface change.
-fn modules_needing_seed_recompute(
-  previous: Option<&CachedLinkingSnapshot>,
-  exports: &BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
-  provide_index: &BTreeMap<super::InjectionKey, Vec<super::ProvideOffer>>,
-  links: &[ModuleLink],
-  facts: &BTreeMap<ModuleId, ModuleExportFacts>,
-) -> BTreeSet<ModuleId> {
-  let Some(prev) = previous else {
-    return facts.keys().cloned().collect();
-  };
-  if prev.links != links {
-    return facts.keys().cloned().collect();
-  }
-
-  let mut dirty = BTreeSet::new();
-  for (id, module_facts) in facts {
-    match prev.summaries.get(id) {
-      Some(prev_summary) if linking_surface_eq(&module_facts.summary, prev_summary) => {}
-      _ => {
-        dirty.insert(id.clone());
-      }
-    }
-  }
-
-  let mut changed_exports = BTreeSet::new();
-  for (id, map) in exports {
-    if prev.exports.get(id) != Some(map) {
-      changed_exports.insert(id.clone());
-    }
-  }
-  for id in prev.exports.keys() {
-    if !exports.contains_key(id) {
-      changed_exports.insert(id.clone());
-    }
-  }
-  for link in links {
-    if changed_exports.contains(&link.to) {
-      dirty.insert(link.from.clone());
-    }
-  }
-
-  if prev.provide_index.as_ref() != provide_index {
-    for (id, module_facts) in facts {
-      if module_facts.summary.injects.is_empty() {
-        continue;
-      }
-      let old = inject_seed_plan(module_facts, prev.provide_index.as_ref());
-      let new = inject_seed_plan(module_facts, provide_index);
-      if old != new {
-        dirty.insert(id.clone());
-      }
-    }
-  }
-
-  dirty
-}
-
-enum PhaseTwoOutcome {
-  Traced {
-    source: Option<ModuleSource>,
-    summary: Option<Arc<ModuleSummary>>,
-    plan: Option<ModuleSeedPlan>,
-    reactivity: ModuleReactivity,
-    seeded: bool,
-  },
-  Partial {
-    source: Option<ModuleSource>,
-    summary: Option<Arc<ModuleSummary>>,
-    plan: Option<ModuleSeedPlan>,
-    reactivity: ModuleReactivity,
-    error: TraceModulesError,
-  },
-}
-
-struct ModulePhaseOne {
-  facts: ModuleExportFacts,
-  local_graph: Arc<ReactivityGraph>,
-}
-
-fn analyze_module_phase_one_cached(
+pub(super) fn analyze_module_phase_one_cached(
   module: &ModuleSource,
   cached: Option<(&ModuleSource, &Arc<ModuleSummary>)>,
 ) -> Result<ModulePhaseOne, TraceModulesError> {
@@ -1071,7 +446,7 @@ fn analyze_module_phase_one_cached(
   analyze_module_phase_one(module)
 }
 
-fn analyze_module_phase_one(module: &ModuleSource) -> Result<ModulePhaseOne, TraceModulesError> {
+pub(super) fn analyze_module_phase_one(module: &ModuleSource) -> Result<ModulePhaseOne, TraceModulesError> {
   if let Some(summary) = &module.module_summary {
     return Ok(phase_one_from_summary(module, summary));
   }
@@ -1112,53 +487,14 @@ fn analyze_module_phase_one(module: &ModuleSource) -> Result<ModulePhaseOne, Tra
   Ok(phase_one_from_summary(module, &summary))
 }
 
-fn phase_one_from_summary(module: &ModuleSource, summary: &Arc<ModuleSummary>) -> ModulePhaseOne {
+pub(super) fn phase_one_from_summary(module: &ModuleSource, summary: &Arc<ModuleSummary>) -> ModulePhaseOne {
   ModulePhaseOne {
     facts: ModuleExportFacts { id: module.id.clone(), summary: Arc::clone(summary) },
     local_graph: Arc::clone(&summary.local_graph),
   }
 }
 
-fn trace_module_phase_two(
-  module: &ModuleSource,
-  mut local_graph: Arc<ReactivityGraph>,
-  plan: &ModuleSeedPlan,
-) -> Result<ModuleReactivity, TraceModulesError> {
-  if plan.is_empty() {
-    Arc::make_mut(&mut local_graph).set_module_id(module.id.clone());
-    return Ok(ModuleReactivity { id: module.id.clone(), graph: local_graph });
-  }
-
-  let allocator = Allocator::default();
-  let source_type = source_type(module)?;
-  let parsed = Parser::new(&allocator, module.source.as_ref(), source_type).parse();
-  if !parsed.errors.is_empty() {
-    return Err(TraceModulesError::Parse {
-      module: module.id.clone(),
-      message: join_errors(&parsed.errors),
-    });
-  }
-  let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
-  if !built.errors.is_empty() {
-    return Err(TraceModulesError::Semantic {
-      module: module.id.clone(),
-      message: join_errors(&built.errors),
-    });
-  }
-  let semantic = built.semantic;
-  let seeds = materialize_seeds(module, &semantic, plan);
-  let mut graph = trace_reactivity_seeded(
-    &semantic,
-    module.span_origin(),
-    module.source_offset,
-    module.kind,
-    &seeds,
-  );
-  graph.set_module_id(module.id.clone());
-  Ok(ModuleReactivity { id: module.id.clone(), graph: Arc::new(graph) })
-}
-
-fn source_type(module: &ModuleSource) -> Result<SourceType, TraceModulesError> {
+pub(super) fn source_type(module: &ModuleSource) -> Result<SourceType, TraceModulesError> {
   match module.language.as_str() {
     "js" | "javascript" => Ok(SourceType::mjs()),
     "jsx" => Ok(SourceType::jsx()),
@@ -1172,7 +508,7 @@ fn source_type(module: &ModuleSource) -> Result<SourceType, TraceModulesError> {
   }
 }
 
-fn collect_imports(semantic: &oxc_semantic::Semantic<'_>) -> Vec<ImportSummary> {
+pub(super) fn collect_imports(semantic: &oxc_semantic::Semantic<'_>) -> Vec<ImportSummary> {
   let mut imports = Vec::new();
   for node in semantic.nodes() {
     let AstKind::ImportDeclaration(declaration) = node.kind() else {
@@ -2063,100 +1399,6 @@ fn reactive_return_kind(
   reactive_binding_kind(&callee)
 }
 
-fn resolve_imported_callee<'a>(
-  semantic: &oxc_semantic::Semantic<'_>,
-  callee: &oxc_ast::ast::IdentifierReference<'_>,
-  imports: &'a [ImportSummary],
-) -> Option<&'a ImportSummary> {
-  imports.iter().find(|import| {
-    if import.local != callee.name.as_str() {
-      return false;
-    }
-    let Some(reference_id) = callee.reference_id.get() else {
-      return false;
-    };
-    semantic
-      .scoping()
-      .get_reference(reference_id)
-      .symbol_id()
-      .is_some_and(|symbol_id| semantic.scoping().symbol_span(symbol_id) == import.span)
-  })
-}
-
-fn collect_destructured_calls(
-  semantic: &oxc_semantic::Semantic<'_>,
-  imports: &[ImportSummary],
-) -> Vec<DestructuredCallBinding> {
-  let mut calls = Vec::new();
-  for node in semantic.nodes() {
-    let AstKind::CallExpression(call) = node.kind() else {
-      continue;
-    };
-    let Some(callee) = call.callee.get_identifier_reference() else {
-      continue;
-    };
-    let Some(import) = resolve_imported_callee(semantic, callee, imports) else {
-      continue;
-    };
-    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
-    else {
-      continue;
-    };
-    let BindingPattern::ObjectPattern(pattern) = &declarator.id else {
-      continue;
-    };
-    for property in &pattern.properties {
-      let Some(exported) = property.key.static_name() else {
-        continue;
-      };
-      let mut identifiers = Vec::new();
-      collect_binding_identifiers(&property.value, &mut identifiers);
-      for (local, span) in identifiers {
-        calls.push(DestructuredCallBinding {
-          imported_local: import.local.clone(),
-          property: exported.to_string(),
-          local,
-          span,
-        });
-      }
-    }
-  }
-  calls.sort_by_key(|call| call.span.start);
-  calls
-}
-
-fn collect_instance_calls(
-  semantic: &oxc_semantic::Semantic<'_>,
-  imports: &[ImportSummary],
-) -> Vec<InstanceCallBinding> {
-  let mut calls = Vec::new();
-  for node in semantic.nodes() {
-    let AstKind::CallExpression(call) = node.kind() else {
-      continue;
-    };
-    let Some(callee) = call.callee.get_identifier_reference() else {
-      continue;
-    };
-    let Some(import) = resolve_imported_callee(semantic, callee, imports) else {
-      continue;
-    };
-    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
-    else {
-      continue;
-    };
-    let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
-      continue;
-    };
-    calls.push(InstanceCallBinding {
-      imported_local: import.local.clone(),
-      local: identifier.name.to_string(),
-      span: identifier.span,
-    });
-  }
-  calls.sort_by_key(|call| call.span.start);
-  calls
-}
-
 fn collect_exports(semantic: &oxc_semantic::Semantic<'_>) -> Vec<ExportSummary> {
   let mut exports = Vec::new();
   for node in semantic.nodes() {
@@ -2221,435 +1463,13 @@ fn collect_exports(semantic: &oxc_semantic::Semantic<'_>) -> Vec<ExportSummary> 
   exports
 }
 
-fn resolved_links_partial(
-  facts: &BTreeMap<ModuleId, ModuleExportFacts>,
-  links: &[ModuleLink],
-) -> (BTreeMap<(ModuleId, String), ModuleId>, Vec<TraceModulesError>) {
-  let mut resolved = BTreeMap::new();
-  let mut ambiguous = BTreeSet::new();
-  let mut issues = Vec::new();
-  for link in links {
-    if !facts.contains_key(&link.from) || !facts.contains_key(&link.to) {
-      issues.push(TraceModulesError::UnknownLink { from: link.from.clone(), to: link.to.clone() });
-      continue;
-    }
-    let key = (link.from.clone(), link.specifier.clone());
-    if ambiguous.contains(&key) {
-      continue;
-    }
-    match resolved.entry(key) {
-      Entry::Vacant(entry) => {
-        entry.insert(link.to.clone());
-      }
-      Entry::Occupied(entry) if entry.get() == &link.to => {}
-      Entry::Occupied(entry) => {
-        let key = entry.key().clone();
-        entry.remove();
-        ambiguous.insert(key);
-        issues.push(TraceModulesError::AmbiguousLink {
-          from: link.from.clone(),
-          specifier: link.specifier.clone(),
-        });
-      }
-    }
-  }
-  (resolved, issues)
-}
-
-fn resolve_exports(
-  facts: &BTreeMap<ModuleId, ModuleExportFacts>,
-  links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
-) -> BTreeMap<ModuleId, BTreeMap<String, ExportState>> {
-  use std::collections::VecDeque;
-
-  let mut resolved =
-    facts.keys().map(|id| (id.clone(), BTreeMap::new())).collect::<BTreeMap<_, _>>();
-
-  for (id, module_facts) in facts {
-    for export in &module_facts.summary.exports {
-      let ExportSummary::Local { local, exported } = export else {
-        continue;
-      };
-      if let Some(state) = module_facts.summary.locals.get(local) {
-        insert_export(&mut resolved, id, exported, state.clone());
-      }
-    }
-  }
-
-  // target module → consumers that import/re-export from it
-  let mut reverse_users: BTreeMap<&ModuleId, Vec<&ModuleId>> = BTreeMap::new();
-  for ((from, _), to) in links {
-    reverse_users.entry(*to).or_default().push(*from);
-  }
-
-  let mut queue = VecDeque::new();
-  let mut queued = BTreeSet::new();
-  for (id, module_facts) in facts {
-    if module_facts
-      .summary
-      .exports
-      .iter()
-      .any(|export| matches!(export, ExportSummary::Reexport { .. } | ExportSummary::Star { .. }))
-    {
-      queue.push_back(id);
-      queued.insert(id);
-    }
-  }
-
-  while let Some(id) = queue.pop_front() {
-    queued.remove(id);
-    let Some(module_facts) = facts.get(id) else {
-      continue;
-    };
-    let mut changed = false;
-    for export in &module_facts.summary.exports {
-      match export {
-        ExportSummary::Local { .. } => {}
-        ExportSummary::Reexport { source, imported, exported } => {
-          let Some(target) = links.get(&(id, source.as_str())).copied() else {
-            continue;
-          };
-          let Some(state) = resolved.get(target).and_then(|exports| exports.get(imported)).cloned()
-          else {
-            continue;
-          };
-          changed |= insert_export(&mut resolved, id, exported, state);
-        }
-        ExportSummary::Star { source } => {
-          let Some(target) = links.get(&(id, source.as_str())).copied() else {
-            continue;
-          };
-          let Some(target_exports) = resolved.get(target).cloned() else {
-            continue;
-          };
-          for (exported, state) in target_exports {
-            if exported != "default" {
-              changed |= insert_export(&mut resolved, id, &exported, state);
-            }
-          }
-        }
-      }
-    }
-    if !changed {
-      continue;
-    }
-    let Some(users) = reverse_users.get(id) else {
-      continue;
-    };
-    for consumer in users {
-      if queued.insert(consumer) {
-        queue.push_back(consumer);
-      }
-    }
-  }
-
-  resolved
-}
-
-/// Borrowed index over owned resolved links — avoids re-allocating key pairs on lookup.
-fn link_index(
-  links: &BTreeMap<(ModuleId, String), ModuleId>,
-) -> BTreeMap<(&ModuleId, &str), &ModuleId> {
-  links.iter().map(|((from, specifier), to)| ((from, specifier.as_str()), to)).collect()
-}
-
-fn insert_export(
-  resolved: &mut BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
-  module: &ModuleId,
-  exported: &str,
-  state: ExportState,
-) -> bool {
-  // Provisional declaration/body halves never cross the seed barrier alone.
-  if matches!(state, ExportState::DeclaredPlainObjectFactory | ExportState::BodyUnwrappedState) {
-    return false;
-  }
-  let Some(module_exports) = resolved.get_mut(module) else {
-    return false;
-  };
-  match module_exports.entry(exported.into()) {
-    Entry::Vacant(entry) => {
-      entry.insert(state);
-      true
-    }
-    Entry::Occupied(mut entry)
-      if entry.get() != &state && entry.get() != &ExportState::Ambiguous =>
-    {
-      entry.insert(ExportState::Ambiguous);
-      true
-    }
-    Entry::Occupied(_) => false,
-  }
-}
-
-const fn is_seedable_export_state(state: &ExportState) -> bool {
-  matches!(state, ExportState::Known(_) | ExportState::Factory(_) | ExportState::Composable(_))
-}
-
-/// Coordinator-side: which of this module's import locals resolve to reactive exports.
-fn seed_plan_for(
-  facts: &ModuleExportFacts,
-  exports: &BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
-  links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
-) -> ImportSeedPlan {
-  use std::ops::Bound;
-
-  let mut plan = ImportSeedPlan::new();
-  for import in &facts.summary.imports {
-    if import.imported == "*" {
-      continue;
-    }
-    let Some(target) = links.get(&(&facts.id, import.source.as_str())).copied() else {
-      continue;
-    };
-    let Some(state) =
-      exports.get(target).and_then(|module_exports| module_exports.get(&import.imported))
-    else {
-      continue;
-    };
-    if !is_seedable_export_state(state) {
-      continue;
-    }
-    // Only the resolved export state crosses the barrier (not source text / graphs).
-    plan.insert(import.local.clone(), state.clone());
-  }
-  // Bare Nuxt auto-imports: `#nuxt-imports:{name}` — range-scan only this module's keys
-  // (full-map filter would be O(modules × links) on long re-export chains).
-  for ((_from, specifier), target) in links.range((
-    Bound::Included((&facts.id, NUXT_IMPORTS_SPECIFIER_PREFIX)),
-    Bound::Excluded((&facts.id, NUXT_IMPORTS_RANGE_END)),
-  )) {
-    let Some(name) = specifier.strip_prefix(NUXT_IMPORTS_SPECIFIER_PREFIX) else {
-      continue;
-    };
-    if name.is_empty() || plan.contains_key(name) {
-      continue;
-    }
-    let Some(state) = exports.get(*target).and_then(|module_exports| module_exports.get(name))
-    else {
-      continue;
-    };
-    if !is_seedable_export_state(state) {
-      continue;
-    }
-    plan.insert(name.to_owned(), state.clone());
-  }
-  plan
-}
-
-/// Project-wide provide index (no App Tree): key → offers from every known site.
-fn global_provide_index(
-  facts: &BTreeMap<ModuleId, ModuleExportFacts>,
-) -> BTreeMap<super::InjectionKey, Vec<ProvideOffer>> {
-  let mut all = Vec::new();
-  for module in facts.values() {
-    all.extend(module.summary.provides.iter().cloned());
-  }
-  provide_offer_index(&all)
-}
-
-/// Unique inject seeds for one consumer (multi-provide keys stay quiet).
-fn inject_seed_plan(
-  facts: &ModuleExportFacts,
-  provide_index: &BTreeMap<super::InjectionKey, Vec<ProvideOffer>>,
-) -> BTreeMap<String, ProvideOffer> {
-  let mut plan = BTreeMap::new();
-  for inject in &facts.summary.injects {
-    let Some(offer) = resolve_inject_offer(provide_index, inject) else {
-      continue;
-    };
-    plan.insert(inject.local.clone(), offer);
-  }
-  plan
-}
-
-/// Worker-side: attach SFC-absolute spans from the live parse (no second parse).
-fn materialize_seeds(
-  module: &ModuleSource,
-  semantic: &Semantic<'_>,
-  plan: &ModuleSeedPlan,
-) -> TraceSeeds {
-  if plan.is_empty() {
-    return TraceSeeds::default();
-  }
-  let imports = collect_imports(semantic);
-  let destructured_calls = collect_destructured_calls(semantic, &imports);
-  let instance_calls = collect_instance_calls(semantic, &imports);
-  let bare_instance_calls = collect_bare_instance_calls(semantic, &plan.imports);
-  let bare_destructured_calls = collect_bare_destructured_calls(semantic, &plan.imports);
-  let span_source = module.span_origin();
-  let span_base = module.source_offset;
-  let mut seeds = TraceSeeds::default();
-  for (local, state) in &plan.imports {
-    match state {
-      ExportState::Known(kind) => {
-        // Known seeds still require an import binding span.
-        let Some(import) = imports.iter().find(|import| import.local == *local) else {
-          continue;
-        };
-        seeds.bindings.push(ReactiveBindingFact {
-          name: local.clone(),
-          kind: *kind,
-          initialized_with_null: false,
-          span: source_span(span_source, span_base, import.span),
-        });
-      }
-      ExportState::Factory(kind) => {
-        let imported_calls = instance_calls.iter().filter(|call| call.imported_local == *local);
-        let bare_calls = bare_instance_calls.iter().filter(|call| call.imported_local == *local);
-        for call in imported_calls.chain(bare_calls) {
-          if seeds.bindings.iter().any(|binding| binding.name == call.local) {
-            continue;
-          }
-          seeds.bindings.push(ReactiveBindingFact {
-            name: call.local.clone(),
-            kind: *kind,
-            initialized_with_null: false,
-            span: source_span(span_source, span_base, call.span),
-          });
-        }
-      }
-      ExportState::Composable(shape) => {
-        let imported_destructure =
-          destructured_calls.iter().filter(|call| call.imported_local == *local);
-        let bare_destructure =
-          bare_destructured_calls.iter().filter(|call| call.imported_local == *local);
-        for call in imported_destructure.chain(bare_destructure) {
-          let Some(kind) = shape.get(&call.property) else {
-            continue;
-          };
-          seeds.bindings.push(ReactiveBindingFact {
-            name: call.local.clone(),
-            kind: *kind,
-            initialized_with_null: false,
-            span: source_span(span_source, span_base, call.span),
-          });
-        }
-        let imported_instances = instance_calls.iter().filter(|call| call.imported_local == *local);
-        let bare_instances =
-          bare_instance_calls.iter().filter(|call| call.imported_local == *local);
-        for call in imported_instances.chain(bare_instances) {
-          seeds.composable_instances.insert(call.local.clone(), shape.clone());
-        }
-      }
-      ExportState::DeclaredPlainObjectFactory
-      | ExportState::BodyUnwrappedState
-      | ExportState::Ambiguous => {}
-    }
-  }
-  // Inject locals: re-read sites for exact spans; offers from the coordinator plan.
-  if !plan.injects.is_empty() {
-    let imported_bindings = super::collect_imported_bindings(semantic);
-    let injects = collect_inject_sites(semantic, &imported_bindings, &[], module.kind);
-    for inject in injects {
-      let Some(offer) = plan.injects.get(&inject.local) else {
-        continue;
-      };
-      if let Some(kind) = offer.kind
-        && !seeds.bindings.iter().any(|binding| binding.name == inject.local)
-      {
-        seeds.bindings.push(ReactiveBindingFact {
-          name: inject.local.clone(),
-          kind,
-          initialized_with_null: false,
-          span: source_span(span_source, span_base, inject.span),
-        });
-      }
-      if let Some(shape) = &offer.instance_shape {
-        seeds.composable_instances.entry(inject.local).or_insert_with(|| shape.clone());
-      }
-    }
-  }
-  seeds
-}
-
-/// `const x = useX()` where `useX` is unresolved and present in the seed plan (bare auto-import).
-fn collect_bare_instance_calls(
-  semantic: &oxc_semantic::Semantic<'_>,
-  plan: &ImportSeedPlan,
-) -> Vec<InstanceCallBinding> {
-  let mut calls = Vec::new();
-  for node in semantic.nodes() {
-    let AstKind::CallExpression(call) = node.kind() else {
-      continue;
-    };
-    let Some(callee) = call.callee.get_identifier_reference() else {
-      continue;
-    };
-    if !plan.contains_key(callee.name.as_str()) {
-      continue;
-    }
-    let Some(reference_id) = callee.reference_id.get() else {
-      continue;
-    };
-    if semantic.scoping().get_reference(reference_id).symbol_id().is_some() {
-      continue;
-    }
-    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
-    else {
-      continue;
-    };
-    let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
-      continue;
-    };
-    calls.push(InstanceCallBinding {
-      imported_local: callee.name.to_string(),
-      local: identifier.name.to_string(),
-      span: identifier.span,
-    });
-  }
-  calls.sort_by_key(|call| call.span.start);
-  calls
-}
-
-/// `const { field } = useX()` for bare unresolved auto-import callees in the seed plan.
-fn collect_bare_destructured_calls(
-  semantic: &oxc_semantic::Semantic<'_>,
-  plan: &ImportSeedPlan,
-) -> Vec<DestructuredCallBinding> {
-  let mut calls = Vec::new();
-  for node in semantic.nodes() {
-    let AstKind::CallExpression(call) = node.kind() else {
-      continue;
-    };
-    let Some(callee) = call.callee.get_identifier_reference() else {
-      continue;
-    };
-    if !plan.contains_key(callee.name.as_str()) {
-      continue;
-    }
-    let Some(reference_id) = callee.reference_id.get() else {
-      continue;
-    };
-    if semantic.scoping().get_reference(reference_id).symbol_id().is_some() {
-      continue;
-    }
-    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
-    else {
-      continue;
-    };
-    let BindingPattern::ObjectPattern(pattern) = &declarator.id else {
-      continue;
-    };
-    for property in &pattern.properties {
-      let Some(exported) = property.key.static_name() else {
-        continue;
-      };
-      let mut identifiers = Vec::new();
-      collect_binding_identifiers(&property.value, &mut identifiers);
-      for (local, span) in identifiers {
-        calls.push(DestructuredCallBinding {
-          imported_local: callee.name.to_string(),
-          property: exported.to_string(),
-          local,
-          span,
-        });
-      }
-    }
-  }
-  calls.sort_by_key(|call| call.span.start);
-  calls
-}
-
-fn join_errors(errors: &[impl ToString]) -> String {
+pub(super) fn join_errors(errors: &[impl ToString]) -> String {
   errors.iter().map(ToString::to_string).collect::<Vec<_>>().join("; ")
 }
+
+mod link;
+
+pub use link::{
+  ModuleTraceState, TraceModulesOptions, TraceModulesReport, TraceModulesStats, trace_modules,
+  trace_modules_incremental_with_options, trace_modules_with_options,
+};
