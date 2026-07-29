@@ -3,8 +3,8 @@ mod passes;
 mod resolve;
 
 use std::{
-  collections::{BTreeMap, BTreeSet, VecDeque},
-  path::{Path, PathBuf},
+  collections::{BTreeMap, BTreeSet},
+  path::Path,
   sync::Arc,
 };
 
@@ -14,7 +14,7 @@ use vue_vet_core::{
 };
 use vue_vet_reactivity::{
   ModuleLink, ModuleReactivity, ModuleSource, ModuleTraceState, PropFlowSite, TraceModulesOptions,
-  join_prop_flows, prepare_standalone_module_source, trace_modules_incremental_with_options,
+  join_prop_flows, trace_modules_incremental_with_options,
 };
 
 pub use resolve::{OXC_RESOLVER_VERSION, normalize_project_root, resolver_config_inputs};
@@ -25,20 +25,12 @@ use conventions::{
   load_nuxt_component_dts_names, load_nuxt_imports_dts_names, parse_nuxt_components_dts,
   parse_nuxt_imports_dts, strip_lazy_component_prefix,
 };
-use passes::apply_provisional_factory_merge as merge_provisional_factory;
-use passes::run_nuxt_imports_seed_pass;
+use passes::ExternalReactivityRoot;
 pub use passes::{
-  EXTERNAL_COMPANION_MAX_BYTES, EnrichmentPass, EnrichmentPhase, NuxtImportsSeedPass,
-  ProvisionalFactoryMergePass, apply_provisional_factory_merge, companion_implementation_path,
+  ENRICHMENT_STEPS, EXTERNAL_COMPANION_MAX_BYTES, EnrichmentStage, EnrichmentStepMeta,
+  ExternalSummaryLoadPass, NuxtImportsSeedPass, ProvisionalFactoryMergePass,
 };
-use resolve::{
-  ProjectResolver, Resolution, language_for_path, normalized_path, prefer_types_declaration,
-};
-
-/// Max external package files loaded for reactivity seed follow (under-approx budget).
-const EXTERNAL_REACTIVITY_MAX_FILES: usize = 64;
-/// Max re-export follow depth from an external entry.
-const EXTERNAL_REACTIVITY_MAX_DEPTH: usize = 8;
+use resolve::{ProjectResolver, Resolution, normalized_path};
 
 pub const CONVENTIONS_VERSION: u32 = 6;
 pub const PROJECT_RULE_IDS: [&str; 2] =
@@ -434,14 +426,6 @@ struct StructuralFileOutput {
   external_reactivity_roots: Vec<ExternalReactivityRoot>,
 }
 
-/// One resolved external import that should be summarized for A6 seeds.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ExternalReactivityRoot {
-  pub(crate) from: ModuleId,
-  pub(crate) specifier: String,
-  pub(crate) resolved_path: PathBuf,
-}
-
 #[must_use]
 pub fn build_project_graph(root: &Path, files: &[ProjectFile]) -> ProjectGraph {
   build_project_graph_with_options(root, files, TraceModulesOptions::default())
@@ -596,8 +580,9 @@ pub fn build_project_graph_incremental_with_options<'a>(
       &right.rule_id,
     ))
   });
+  // Enrichment: ExternalSummaryLoad (+ per-module SummaryMerge).
   let (external_sources, external_links) =
-    load_external_reactivity_modules(&root, resolver.as_ref(), &external_roots, on_external_seeds);
+    ExternalSummaryLoadPass::run(&root, resolver.as_ref(), &external_roots, on_external_seeds);
   module_sources.extend(external_sources);
   module_links.extend(external_links);
   if Arc::strong_count(&state.module_trace) > 1 {
@@ -781,8 +766,8 @@ fn analyze_structural_file(
       output.edges.push(edge(&from, to, EdgeKind::AutoComposable, &call.callee, call.span.clone()));
     }
   }
-  // Enrichment: bare Nuxt auto-imports → `#nuxt-imports:` seeds (StructuralLink).
-  let nuxt_delta = run_nuxt_imports_seed_pass(file, resolver, known, module_ids, nuxt_import_names);
+  // Enrichment: StructuralLink — bare Nuxt auto-imports → `#nuxt-imports:` seeds.
+  let nuxt_delta = NuxtImportsSeedPass::run(file, resolver, known, module_ids, nuxt_import_names);
   output.module_links.extend(nuxt_delta.module_links);
   output.external_nodes.extend(nuxt_delta.external_nodes);
   output.external_reactivity_roots.extend(nuxt_delta.external_reactivity_roots);
@@ -824,151 +809,6 @@ fn auto_component_targets(tag: &str, map: &BTreeMap<String, Vec<String>>) -> Vec
     }
   }
   targets
-}
-
-fn load_external_reactivity_modules(
-  root: &Path,
-  resolver: &ProjectResolver,
-  roots: &[ExternalReactivityRoot],
-  on_external_seeds: Option<&dyn Fn(usize)>,
-) -> (Vec<ModuleSource>, Vec<ModuleLink>) {
-  let mut sources = Vec::new();
-  let mut links = Vec::new();
-  let mut loaded: BTreeMap<PathBuf, ModuleId> = BTreeMap::new();
-  let mut queue: VecDeque<(PathBuf, usize)> = VecDeque::new();
-
-  if !roots.is_empty()
-    && let Some(on_external_seeds) = on_external_seeds
-  {
-    on_external_seeds(roots.len());
-  }
-
-  for root_link in roots {
-    let path = prefer_types_declaration(&root_link.resolved_path);
-    queue.push_back((path.clone(), 0));
-    let module_id = external_module_id(root, &path);
-    links.push(ModuleLink {
-      from: root_link.from.clone(),
-      specifier: root_link.specifier.clone(),
-      to: module_id,
-    });
-  }
-
-  while let Some((path, depth)) = queue.pop_front() {
-    if loaded.contains_key(&path) || sources.len() >= EXTERNAL_REACTIVITY_MAX_FILES {
-      continue;
-    }
-    let Ok(source_text) = std::fs::read_to_string(&path) else {
-      continue;
-    };
-    let module_id = external_module_id(root, &path);
-    let language = language_for_path(&path);
-    let source_text = if language == "d.ts" {
-      enrich_dts_with_relative_type_imports(&path, &source_text)
-    } else {
-      source_text
-    };
-    let Ok(mut module) = prepare_standalone_module_source(module_id.clone(), source_text, language)
-    else {
-      continue;
-    };
-    // Enrichment: provisional .d.ts + companion body → Factory (SummaryMerge).
-    if let Some(merged) = merge_provisional_factory(&path, &module) {
-      module = merged;
-    }
-    let follow =
-      module.module_summary().map(|summary| summary.follow_specifiers()).unwrap_or_default();
-    loaded.insert(path.clone(), module_id.clone());
-    sources.push(module);
-
-    if depth >= EXTERNAL_REACTIVITY_MAX_DEPTH {
-      continue;
-    }
-    for specifier in follow {
-      // Only follow relative / same-package paths; bare packages stay quiet.
-      if !(specifier.starts_with("./") || specifier.starts_with("../")) {
-        continue;
-      }
-      let Resolution::External { resolved_path: Some(target_path), .. } =
-        resolver.resolve_from_absolute(&path, &specifier)
-      else {
-        continue;
-      };
-      let child = prefer_types_declaration(&target_path);
-      let child_id = external_module_id(root, &child);
-      links.push(ModuleLink { from: module_id.clone(), specifier, to: child_id.clone() });
-      if !loaded.contains_key(&child) {
-        queue.push_back((child, depth + 1));
-      }
-    }
-  }
-
-  // Drop links whose target failed to load (quiet under-approx).
-  let loaded_ids = sources.iter().map(|module| module.id.clone()).collect::<BTreeSet<_>>();
-  links.retain(|link| loaded_ids.contains(&link.to));
-  // Stable order for determinism.
-  sources.sort_by(|left, right| left.id.cmp(&right.id));
-  links.sort_by(|left, right| {
-    (&left.from, &left.specifier, &left.to).cmp(&(&right.from, &right.specifier, &right.to))
-  });
-  links.dedup();
-  (sources, links)
-}
-
-/// Inline relative `import type` targets so same-file interface lookup sees them.
-fn enrich_dts_with_relative_type_imports(dts_path: &Path, source: &str) -> String {
-  let mut extras = String::new();
-  let mut seen = BTreeSet::new();
-  for specifier in relative_type_import_specifiers(source) {
-    if !seen.insert(specifier.clone()) {
-      continue;
-    }
-    let candidate = dts_path.parent().unwrap_or(dts_path).join(&specifier);
-    let resolved = prefer_types_declaration(&candidate);
-    let Ok(text) = std::fs::read_to_string(&resolved) else {
-      // Try common extension swaps for `./types.js` → `types.d.ts`.
-      let fallback = candidate.with_extension("").with_extension("d.ts");
-      let Ok(text) = std::fs::read_to_string(&fallback) else {
-        continue;
-      };
-      extras.push_str(&text);
-      extras.push('\n');
-      continue;
-    };
-    extras.push_str(&text);
-    extras.push('\n');
-  }
-  if extras.is_empty() { source.to_owned() } else { format!("{extras}{source}") }
-}
-
-fn relative_type_import_specifiers(source: &str) -> Vec<String> {
-  let mut out = Vec::new();
-  for line in source.lines() {
-    let trimmed = line.trim();
-    let rest = trimmed.strip_prefix("import type ").unwrap_or(trimmed);
-    let Some((_, from_part)) = rest.split_once(" from ") else {
-      continue;
-    };
-    let from_part = from_part.trim().trim_end_matches(';').trim();
-    let mut chars = from_part.chars();
-    let Some(quote) = chars.next().filter(|ch| *ch == '"' || *ch == '\'') else {
-      continue;
-    };
-    let rest: String = chars.collect();
-    let Some((specifier, _)) = rest.split_once(quote) else {
-      continue;
-    };
-    if specifier.starts_with("./") || specifier.starts_with("../") {
-      out.push(specifier.to_owned());
-    }
-  }
-  out
-}
-
-fn external_module_id(root: &Path, absolute: &Path) -> ModuleId {
-  let relative =
-    absolute.strip_prefix(root).map_or_else(|_| normalized_path(absolute), normalized_path);
-  ModuleId::primary(&FileId::from(relative.as_str()))
 }
 
 fn node_kind(path: &str) -> NodeKind {

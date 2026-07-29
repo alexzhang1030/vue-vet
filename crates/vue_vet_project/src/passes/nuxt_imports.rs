@@ -1,16 +1,17 @@
-//! `NuxtImportsSeedPass` — [`StructuralLink`](super::EnrichmentPhase::StructuralLink)
+//! [`NuxtImportsSeedPass`] — [`StructuralLink`](super::EnrichmentStage::StructuralLink)
 //! enrichment for bare Nuxt auto-imports.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use vue_vet_core::{FileId, ModuleId, ScriptCallFact, ScriptFacts, ScriptImportFact};
 
+use super::types::ExternalReactivityRoot;
 use crate::{
-  ExternalReactivityRoot, GraphNode, NodeKind, NuxtImportTarget, ProjectFile, ProjectResolver,
-  Resolution, conventions::nuxt_imports_link_specifier,
+  GraphNode, NodeKind, NuxtImportTarget, ProjectFile, ProjectResolver, Resolution,
+  conventions::nuxt_imports_link_specifier,
 };
 
-/// Deterministic delta produced by [`run_nuxt_imports_seed_pass`].
+/// Deterministic delta produced by [`NuxtImportsSeedPass::run`].
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct NuxtImportsSeedDelta {
   pub module_links: Vec<vue_vet_reactivity::ModuleLink>,
@@ -18,33 +19,41 @@ pub struct NuxtImportsSeedDelta {
   pub external_reactivity_roots: Vec<ExternalReactivityRoot>,
 }
 
-/// Wire bare script calls listed in `.nuxt` imports maps to `#nuxt-imports:` seeds.
-///
-/// Specifiers resolve from the **declaring** dts importer (`NuxtImportTarget::importer`).
-/// Local imports shadow auto-import names. Unresolved / quiet virtuals stay silent.
-#[must_use]
-pub fn run_nuxt_imports_seed_pass(
-  file: &ProjectFile,
-  resolver: &ProjectResolver,
-  known: &BTreeSet<String>,
-  module_ids: &BTreeSet<ModuleId>,
-  nuxt_import_names: &BTreeMap<String, NuxtImportTarget>,
-) -> NuxtImportsSeedDelta {
-  let imports = all_imports(&file.facts.script);
-  let mut delta = NuxtImportsSeedDelta::default();
-  for call in file.facts.script.blocks.iter().flat_map(|block| &block.calls) {
-    append_bare_nuxt_seed(
-      file,
-      call,
-      &imports,
-      resolver,
-      known,
-      module_ids,
-      nuxt_import_names,
-      &mut delta,
-    );
+/// Bare `.nuxt` auto-import → `#nuxt-imports:` reactivity seeds.
+pub struct NuxtImportsSeedPass;
+
+impl NuxtImportsSeedPass {
+  pub const NAME: &'static str = "nuxt_imports_seed";
+  pub const STAGE: super::EnrichmentStage = super::EnrichmentStage::StructuralLink;
+
+  /// Wire bare script calls listed in `.nuxt` imports maps to `#nuxt-imports:` seeds.
+  ///
+  /// Specifiers resolve from the **declaring** dts importer (`NuxtImportTarget::importer`).
+  /// Local imports shadow auto-import names. Unresolved / quiet virtuals stay silent.
+  #[must_use]
+  pub fn run(
+    file: &ProjectFile,
+    resolver: &ProjectResolver,
+    known: &BTreeSet<String>,
+    module_ids: &BTreeSet<ModuleId>,
+    nuxt_import_names: &BTreeMap<String, NuxtImportTarget>,
+  ) -> NuxtImportsSeedDelta {
+    let imports = all_imports(&file.facts.script);
+    let mut delta = NuxtImportsSeedDelta::default();
+    for call in file.facts.script.blocks.iter().flat_map(|block| &block.calls) {
+      append_bare_nuxt_seed(
+        file,
+        call,
+        &imports,
+        resolver,
+        known,
+        module_ids,
+        nuxt_import_names,
+        &mut delta,
+      );
+    }
+    delta
   }
-  delta
 }
 
 #[expect(
@@ -119,7 +128,7 @@ mod tests {
   };
   use vue_vet_reactivity::ModuleSource;
 
-  use super::run_nuxt_imports_seed_pass;
+  use super::NuxtImportsSeedPass;
   use crate::{
     NuxtImportTarget, ProjectFile, ProjectResolver, conventions::NUXT_IMPORTS_SPECIFIER_PREFIX,
   };
@@ -209,7 +218,7 @@ mod tests {
     );
     let resolver = ProjectResolver::new(&dir);
     let module_ids = BTreeSet::from([ModuleId::primary(&FileId::from("components/Demo.vue"))]);
-    let delta = run_nuxt_imports_seed_pass(&file, &resolver, &BTreeSet::new(), &module_ids, &names);
+    let delta = NuxtImportsSeedPass::run(&file, &resolver, &BTreeSet::new(), &module_ids, &names);
     drop(std::fs::remove_dir_all(&dir));
 
     assert!(
@@ -272,7 +281,7 @@ mod tests {
     );
     let resolver = ProjectResolver::new(std::env::temp_dir().as_path());
     let delta =
-      run_nuxt_imports_seed_pass(&file, &resolver, &BTreeSet::new(), &BTreeSet::new(), &names);
+      NuxtImportsSeedPass::run(&file, &resolver, &BTreeSet::new(), &BTreeSet::new(), &names);
     assert!(
       delta.external_reactivity_roots.is_empty() && delta.module_links.is_empty(),
       "local import must shadow Nuxt auto-import: {delta:?}"

@@ -471,8 +471,9 @@ and/or body unwrap — not merely “no finished seeds”). Specifiers must reso
 from the **declaring** dts importer: Nuxt’s types map uses one more `../` than
 the re-export map; resolving a types specifier from `.nuxt/imports.d.ts` goes
 outside the package and quietly drops the seed (real-app `colorMode` FP). When
-both maps exist, keep the `.nuxt/imports.d.ts` entry. Wiring lives in enrichment
-pass `NuxtImportsSeedPass`; companion merge in `ProvisionalFactoryMergePass`
+both maps exist, keep the `.nuxt/imports.d.ts` entry. Wiring lives in
+`NuxtImportsSeedPass::run`; companion merge in `ProvisionalFactoryMergePass::run`
+at `ExternalSummaryLoadPass` module completion
 ([architecture](./architecture.md) `Analysis enrichment passes`) — not diagnostic
 Rules and not user plugins. Parsing every seedless package’s companion `.js`
 pulls multi‑MB bundles such as `typescript.js` and stalls real Nuxt docs apps.

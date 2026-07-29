@@ -1,5 +1,8 @@
-//! `ProvisionalFactoryMergePass` — [`SummaryMerge`](super::EnrichmentPhase::SummaryMerge)
+//! [`ProvisionalFactoryMergePass`] — [`SummaryMerge`](super::EnrichmentStage::SummaryMerge)
 //! enrichment for provisional Factory halves.
+//!
+//! Invoked at each module completion inside [`ExternalSummaryLoadPass`](super::ExternalSummaryLoadPass)
+//! (same traversal; not a hidden side effect).
 
 use std::path::{Path, PathBuf};
 
@@ -14,45 +17,51 @@ use crate::resolve::language_for_path;
 /// reactivity evidence and must not be parsed.
 pub const EXTERNAL_COMPANION_MAX_BYTES: u64 = 512 * 1024;
 
-/// When a `.d.ts` summary has provisional Factory halves, load companion
-/// `.js`/`.mjs`/`.ts` body evidence and merge (size-bounded).
-///
-/// Quiet under-approx: missing files, oversize bodies, or parse failures return
-/// `None` without inventing `Factory(Reactive)`.
-#[must_use]
-pub fn apply_provisional_factory_merge(
-  types_path: &Path,
-  module: &ModuleSource,
-) -> Option<ModuleSource> {
-  apply_provisional_factory_merge_with_limit(types_path, module, EXTERNAL_COMPANION_MAX_BYTES)
+/// Provisional `.d.ts` + size-capped companion body → Factory evidence.
+pub struct ProvisionalFactoryMergePass;
+
+impl ProvisionalFactoryMergePass {
+  pub const NAME: &'static str = "provisional_factory_merge";
+  pub const STAGE: super::EnrichmentStage = super::EnrichmentStage::SummaryMerge;
+
+  /// When a `.d.ts` summary has provisional Factory halves, load companion
+  /// `.js`/`.mjs`/`.ts` body evidence and merge (size-bounded).
+  ///
+  /// Quiet under-approx: missing files, oversize bodies, or parse failures return
+  /// `None` without inventing `Factory(Reactive)`.
+  #[must_use]
+  pub fn run(types_path: &Path, module: &ModuleSource) -> Option<ModuleSource> {
+    Self::run_with_limit(types_path, module, EXTERNAL_COMPANION_MAX_BYTES)
+  }
+
+  #[must_use]
+  pub fn run_with_limit(
+    types_path: &Path,
+    module: &ModuleSource,
+    max_bytes: u64,
+  ) -> Option<ModuleSource> {
+    let summary = module.module_summary()?;
+    if !summary.needs_implementation_merge() {
+      return None;
+    }
+    let impl_path = companion_implementation_path(types_path)?;
+    let metadata = std::fs::metadata(&impl_path).ok()?;
+    if !metadata.is_file() || metadata.len() > max_bytes {
+      return None;
+    }
+    let source_text = std::fs::read_to_string(&impl_path).ok()?;
+    let language = language_for_path(&impl_path);
+    let impl_module =
+      prepare_standalone_module_source(module.id.clone(), source_text, language).ok()?;
+    let impl_summary = impl_module.module_summary()?;
+    let merged =
+      merge_declaration_implementation_summary((*summary).clone(), impl_summary.as_ref());
+    Some(module.clone().with_module_summary(merged))
+  }
 }
 
 #[must_use]
-pub fn apply_provisional_factory_merge_with_limit(
-  types_path: &Path,
-  module: &ModuleSource,
-  max_bytes: u64,
-) -> Option<ModuleSource> {
-  let summary = module.module_summary()?;
-  if !summary.needs_implementation_merge() {
-    return None;
-  }
-  let impl_path = companion_implementation_path(types_path)?;
-  let metadata = std::fs::metadata(&impl_path).ok()?;
-  if !metadata.is_file() || metadata.len() > max_bytes {
-    return None;
-  }
-  let source_text = std::fs::read_to_string(&impl_path).ok()?;
-  let language = language_for_path(&impl_path);
-  let impl_module =
-    prepare_standalone_module_source(module.id.clone(), source_text, language).ok()?;
-  let impl_summary = impl_module.module_summary()?;
-  let merged = merge_declaration_implementation_summary((*summary).clone(), impl_summary.as_ref());
-  Some(module.clone().with_module_summary(merged))
-}
-
-#[must_use]
-pub fn companion_implementation_path(types_path: &Path) -> Option<PathBuf> {
+fn companion_implementation_path(types_path: &Path) -> Option<PathBuf> {
   let file_name = types_path.file_name().and_then(|name| name.to_str())?;
   let stem = file_name
     .strip_suffix(".d.ts")
@@ -70,8 +79,7 @@ pub fn companion_implementation_path(types_path: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
   use super::{
-    EXTERNAL_COMPANION_MAX_BYTES, apply_provisional_factory_merge_with_limit,
-    companion_implementation_path,
+    EXTERNAL_COMPANION_MAX_BYTES, ProvisionalFactoryMergePass, companion_implementation_path,
   };
   use vue_vet_core::FileId;
   use vue_vet_reactivity::prepare_standalone_module_source;
@@ -126,7 +134,7 @@ export declare const useColorMode: () => Mode;\n";
       "fixture must be provisional"
     );
     assert!(
-      apply_provisional_factory_merge_with_limit(&dts, &module, 1).is_none(),
+      ProvisionalFactoryMergePass::run_with_limit(&dts, &module, 1).is_none(),
       "oversize companion must be skipped"
     );
     assert!(

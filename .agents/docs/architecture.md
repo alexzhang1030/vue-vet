@@ -214,16 +214,24 @@ passes** over Vue Vet IR — not AST Traverse (Oxc/SWC), and not a dynamic JS
 plugin host. Diagnostic [`Rule`](../../crates/vue_vet_core/src/lib.rs) passes
 consume the enriched facts; enrichment passes must not `report` diagnostics.
 
-Pipeline phases (deterministic order):
+Each enrichment step is a named `struct` with an inherent `::run(...)`
+(see `ENRICHMENT_STEPS` in `vue_vet_project::passes`). There is no empty
+metadata trait and no dynamic plugin ABI — the project graph builder calls
+passes explicitly.
+
+Enrichment stages (deterministic order):
 
 ```text
-ConventionsLoad
-  -> StructuralLink          (imports, components, NuxtImportsSeedPass)
-  -> ExternalSummaryLoad     (prefer .d.ts; on-demand package bodies)
-  -> SummaryMerge            (ProvisionalFactoryMergePass: companion .js, size-capped)
-  -> SeedPlan / Trace        (module seed fixed point)
-  -> RuleRegistry            (oxlint-style diagnostic passes over facts)
+ConventionsLoad           (conventions.rs → ProjectContext maps)
+  -> StructuralLink       (ordinary import/component edges in lib;
+                           NuxtImportsSeedPass::run for bare auto-imports)
+  -> ExternalSummaryLoad  (ExternalSummaryLoadPass::run)
+       └─ SummaryMerge    (ProvisionalFactoryMergePass::run at each loaded
+                           module — same traversal, not a hidden side effect)
 ```
+
+After enrichment: SeedPlan / Trace / RuleRegistry run in the product pipeline
+outside `passes` (they are not enrichment stages and have no pass runner here).
 
 Constraints: IR only (`ProjectContext`, `ModuleLink`, `ModuleSummary`,
 `ExportState`); sorted outputs; quiet under-approx; no `dlopen` / npm analysis
