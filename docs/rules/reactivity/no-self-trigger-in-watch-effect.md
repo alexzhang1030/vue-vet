@@ -1,15 +1,41 @@
-# No Self Trigger In Watch Effect
+# `vue-vet/reactivity/no-self-trigger-in-watch-effect`
 
-Vue Vet matrix rule `vue-vet/reactivity/no-self-trigger-in-watch-effect`.
+Category: reactivity  
+Default severity: warning  
+Confidence: high
+
+`watchEffect` that writes a dependency it also reads can loop.
 
 ## Bad
 
-See `fixtures/rules/no-self-trigger-in-watch-effect/invalid/`.
+```vue
+<script setup lang="ts">
+import { ref, watchEffect } from 'vue'
+const count = ref(0)
+watchEffect(() => { count.value = count.value + 1 })
+</script>
+```
 
 ## Good
 
-See `fixtures/rules/no-self-trigger-in-watch-effect/valid/`.
+```vue
+<script setup lang="ts">
+import { ref, watchEffect } from 'vue'
+const src = ref(0)
+const dst = ref(0)
+watchEffect(() => { dst.value = src.value })
+</script>
+```
 
 ## Detection
 
-Fact-driven via tracking scopes, top-level await call sites, destructures, or operands.
+Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
+
+## Remediation
+
+Write a different binding, or use `watch` with explicit sources.
+
+## Fixtures
+
+- Invalid: `fixtures/rules/no-self-trigger-in-watch-effect/invalid/`
+- Valid: `fixtures/rules/no-self-trigger-in-watch-effect/valid/`

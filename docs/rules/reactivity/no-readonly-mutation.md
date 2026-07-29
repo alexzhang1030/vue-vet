@@ -1,15 +1,43 @@
-# No Readonly Mutation
+# `vue-vet/reactivity/no-readonly-mutation`
 
-Vue Vet matrix rule for `no-readonly-mutation`.
+Category: reactivity  
+Default severity: warning  
+Confidence: high
+
+Readonly projections must not be mutated.
 
 ## Bad
 
-See `fixtures/rules/no-readonly-mutation/invalid/`.
+```vue
+<script setup lang="ts">
+import { reactive, readonly } from 'vue'
+const state = reactive({ count: 0 })
+const view = readonly(state)
+view.count++
+</script>
+```
 
 ## Good
 
-See `fixtures/rules/no-readonly-mutation/valid/`.
+```vue
+<script setup lang="ts">
+import { reactive, readonly } from 'vue'
+const state = reactive({ count: 0 })
+const view = readonly(state)
+state.count++
+void view
+</script>
+```
 
 ## Detection
 
-Fact-driven via `vue_vet_reactivity` tracking scopes / script call facts / operands.
+Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
+
+## Remediation
+
+Mutate the source reactive state instead.
+
+## Fixtures
+
+- Invalid: `fixtures/rules/no-readonly-mutation/invalid/`
+- Valid: `fixtures/rules/no-readonly-mutation/valid/`

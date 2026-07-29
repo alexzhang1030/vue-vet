@@ -1,15 +1,51 @@
-# No Outside Tracking Dependency In Watch Sources
+# `vue-vet/reactivity/no-outside-tracking-dependency-in-watch-sources`
 
-Vue Vet matrix rule `vue-vet/reactivity/no-outside-tracking-dependency-in-watch-sources`.
+Category: reactivity  
+Default severity: warning  
+Confidence: high
+
+Reports reactive reads inside `watch sources` that happen outside synchronous tracking. Those reads are not stable dependencies for the tracking scope.
 
 ## Bad
 
-See `fixtures/rules/no-outside-tracking-dependency-in-watch-sources/invalid/`.
+```vue
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+const count = ref(0)
+const label = computed(() => {
+  const later = () => count.value
+  return later()
+})
+</script>
+
+<template>
+  <p>{{ label }}</p>
+</template>
+```
 
 ## Good
 
-See `fixtures/rules/no-outside-tracking-dependency-in-watch-sources/valid/`.
+```vue
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+const count = ref(0)
+const label = computed(() => count.value)
+</script>
+
+<template>
+  <p>{{ label }}</p>
+</template>
+```
 
 ## Detection
 
-Fact-driven via tracking scopes, top-level await call sites, destructures, or operands.
+Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
+
+## Remediation
+
+Keep reactive reads synchronous and unconditional inside `watch sources`, or switch to an API with explicit sources (`watch([...])`).
+
+## Fixtures
+
+- Invalid: `fixtures/rules/no-outside-tracking-dependency-in-watch-sources/invalid/`
+- Valid: `fixtures/rules/no-outside-tracking-dependency-in-watch-sources/valid/`

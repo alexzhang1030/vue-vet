@@ -1,4 +1,9 @@
-# Keep one defineOptions declaration
+# `vue-vet/correctness/no-duplicate-define-options`
+
+Category: correctness  
+Default severity: warning  
+Confidence: high
+
 
 This high-confidence rule reports multiple `defineOptions` calls in one `<script setup>` block.
 
@@ -18,3 +23,4 @@ defineOptions({ name: 'Panel', inheritAttrs: false })
 ## Remediation
 
 Merge component options into one compiler macro call.
+

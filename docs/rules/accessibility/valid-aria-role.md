@@ -1,23 +1,27 @@
-# Use concrete ARIA roles
+# `vue-vet/accessibility/valid-aria-role`
 
-This rule reports a static role value that contains no recognized concrete ARIA role.
+Category: accessibility  
+Default severity: warning  
+Confidence: high
+
+`role` values must be valid ARIA roles.
 
 ## Bad
 
 ```vue
-<div role="interactive-panel" />
+<template>
+  <div role="primry">...</div>
+</template>
 ```
 
 ## Good
 
 ```vue
-<section role="region" aria-label="Status" />
+<template>
+  <div role="status">...</div>
+</template>
 ```
-
-## Limitations
-
-Dynamic `:role` expressions are not evaluated.
 
 ## Remediation
 
-Use a valid role only when native HTML semantics are insufficient.
+Correct the typo or remove an invalid custom role.

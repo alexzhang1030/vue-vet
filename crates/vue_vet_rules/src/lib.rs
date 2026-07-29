@@ -15,6 +15,8 @@ pub fn builtin_registry() -> RuleRegistry {
 
 #[cfg(test)]
 mod tests {
+  use std::path::PathBuf;
+
   use vue_vet_core::Confidence;
 
   use super::*;
@@ -46,5 +48,18 @@ mod tests {
       metadata.len(),
       "every rule module must register one unique rule ID"
     );
+  }
+
+  #[test]
+  fn every_builtin_rule_has_documentation_file() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut missing = Vec::new();
+    for meta in builtin_registry().metadata() {
+      let path = root.join(format!("docs/{}.md", meta.documentation));
+      if !path.is_file() {
+        missing.push(format!("{} -> {}", meta.id, path.display()));
+      }
+    }
+    assert!(missing.is_empty(), "missing rule docs:\n{}", missing.join("\n"));
   }
 }

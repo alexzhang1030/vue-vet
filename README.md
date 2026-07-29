@@ -11,8 +11,9 @@ The project is an early local-doctor implementation. Today it:
 - discovers `.vue` files while respecting `.gitignore`;
 - parses every SFC with Vize;
 - analyzes JavaScript, TypeScript, JSX, and TSX in both Vue script blocks with Oxc;
-- runs 30 documented high-confidence correctness, reactivity, accessibility,
-  security, and maintainability rules with original-source locations;
+- runs 100+ high-confidence built-in rules (correctness, reactivity,
+  accessibility, security, maintainability) plus practice suggestions, with
+  original-source locations — see [the rule catalog](docs/rules/README.md);
 - supports strict versioned configuration, presets, severity overrides, path
   filters, and scoped suppressions;
 - builds a deterministic Vue/Nuxt project graph with initial cross-file findings;

@@ -1,20 +1,27 @@
-# Prefer native semantics without redundant roles
+# `vue-vet/maintainability/no-redundant-role`
 
-Adding the same role an HTML element already owns creates noise and can drift from native behavior.
+Category: maintainability  
+Default severity: warning  
+Confidence: high
+
+Native elements already expose an implicit ARIA role; repeating it adds noise.
 
 ## Bad
 
 ```vue
-<button role="button">Save</button>
+<template>
+  <button role="button">Save</button>
+</template>
 ```
 
 ## Good
 
 ```vue
-<button>Save</button>
-<button role="switch" aria-checked="false">Notifications</button>
+<template>
+  <button>Save</button>
+</template>
 ```
 
 ## Remediation
 
-Remove roles that exactly duplicate native semantics.
+Drop the redundant `role` attribute.
