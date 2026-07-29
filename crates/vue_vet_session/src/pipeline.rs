@@ -17,7 +17,7 @@ use rayon::prelude::*;
 use vue_vet_config::Config;
 use vue_vet_core::{
   Diagnostic, FileId, ModuleId, ReactivityGraph, RuleEnvironment, ScanSummary, ScriptFacts,
-  Severity, SfcFacts, SourceSpan, TemplateFacts, content_digest, serde_digest,
+  Severity, SfcFacts, SourceSpan, content_digest, serde_digest,
 };
 use vue_vet_oxc::analyze_module_source;
 use vue_vet_project::{
@@ -301,8 +301,7 @@ fn scan_parallel(
   expand_reverse_dependencies(&mut state.last_affected, &previous.reverse_dependencies);
   state.files = Arc::new(next_files);
 
-  let files_scanned =
-    input.sources.iter().filter(|source| matches!(&source.kind, SourceKind::Vue)).count();
+  let files_scanned = input.sources.len();
   let mut project_files = Vec::new();
   let mut pending_vue = Vec::new();
   // Prefer `state.files` so environment refreshes (no re-parse) reach rules.
@@ -324,6 +323,14 @@ fn scan_parallel(
       }
       AnalyzedCandidate::Script { project_file } => {
         project_files.push(Arc::clone(project_file));
+        // Standalone JS/TS/JSX modules carry TemplateFacts when JSX lowers; run
+        // the same file-rule registry as Vue SFCs.
+        pending_vue.push(Arc::new(PendingVueFile {
+          file_id: project_file.path.clone(),
+          source: Arc::clone(&cached.source),
+          environment: cached.environment.clone().unwrap_or_default(),
+          facts: Arc::clone(&project_file.facts),
+        }));
       }
     }
   }
@@ -443,11 +450,8 @@ fn scan_parallel(
   raw_diagnostics.extend(graph.diagnostics.clone());
   raw_diagnostics.extend(issues.iter().filter_map(issue_diagnostic));
   let diagnostics_finalized = u64::try_from(raw_diagnostics.len()).unwrap_or(u64::MAX);
-  let sources = input
-    .sources
-    .iter()
-    .filter(|source| matches!(&source.kind, SourceKind::Vue))
-    .map(|source| (source.file_id.clone(), Arc::clone(&source.source)));
+  let sources =
+    input.sources.iter().map(|source| (source.file_id.clone(), Arc::clone(&source.source)));
   let summary = DiagnosticFinalizer::new(config, sources).finalize(files_scanned, raw_diagnostics);
 
   // Phase-one still walks every module summary (cheap when already attached).
@@ -609,7 +613,7 @@ fn analyze_candidate(
           path: input.file_id.clone(),
           source_len: input.source.len(),
           facts: Arc::new(SfcFacts {
-            template: TemplateFacts::default(),
+            template: analysis.template_facts,
             script: ScriptFacts { blocks: vec![analysis.script_facts] },
           }),
           module_source: Some(

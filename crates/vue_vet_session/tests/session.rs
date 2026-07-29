@@ -727,6 +727,39 @@ fn failed_apply_changes_preserves_revision_and_analysis() {
 
 #[test]
 #[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn analyzes_tsx_jsx_v_html_via_template_facts() {
+  let root = std::env::temp_dir().join(format!("vue-vet-jsx-vhtml-{}", std::process::id()));
+  std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("temp workspace: {error}"));
+  std::fs::write(
+    root.join("Comp.tsx"),
+    "import { defineComponent } from 'vue'\n\
+     const html = '<b>x</b>'\n\
+     export default defineComponent({\n\
+       setup() { return () => <div v-html={html} /> }\n\
+     })\n",
+  )
+  .unwrap_or_else(|error| panic!("tsx: {error}"));
+  let session = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+  })
+  .unwrap_or_else(|error| panic!("session: {error}"));
+  let snapshot = session.analyze().unwrap_or_else(|error| panic!("analyze: {error}"));
+  assert!(
+    snapshot.summary.diagnostics.iter().any(|diagnostic| {
+      diagnostic.file == FileId::from("Comp.tsx") && diagnostic.rule_id.contains("no-v-html")
+    }),
+    "tsx v-html must fire no-v-html; got {:?}",
+    snapshot.summary.diagnostics
+  );
+  let _ignored = std::fs::remove_dir_all(root);
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
 fn first_discover_includes_overlay_only_unsaved_vue() {
   let root = std::env::temp_dir().join(format!("vue-vet-overlay-first-{}", std::process::id()));
   std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("temp workspace: {error}"));

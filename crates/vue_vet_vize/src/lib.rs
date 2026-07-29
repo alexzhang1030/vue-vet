@@ -141,7 +141,10 @@ fn analyze_sfc_facts_inner(
   let reuse_setup =
     previous.is_some_and(|prev| prev.revisions.script_setup == revisions.script_setup);
 
-  let template = if reuse_template {
+  // Reuse a prior template only when script blocks are also reused. JSX from
+  // script is merged into `template`; a script rebuild must start from a clean
+  // Vize-only surface so stale JSX facts are not retained.
+  let mut template = if reuse_template && reuse_script && reuse_setup {
     previous.map(|prev| prev.facts.template.clone()).unwrap_or_default()
   } else if let Some(template) = descriptor.template {
     // Vize already supplies template content + absolute SFC content offsets.
@@ -153,7 +156,9 @@ fn analyze_sfc_facts_inner(
   let mut script = ScriptFacts::default();
   let mut script_rebuilt = false;
   if let Some(block) = descriptor.script {
-    let (script_facts, summary) = if reuse_script
+    let lang = block.lang.as_deref().unwrap_or("js");
+    let can_reuse_script = (reuse_template || !matches!(lang, "jsx" | "tsx")) && reuse_script;
+    let (script_facts, summary) = if can_reuse_script
       && let Some(previous) = previous
       && let Some(facts) = previous_script_block(&previous.facts, ScriptKind::Script)
     {
@@ -166,13 +171,9 @@ fn analyze_sfc_facts_inner(
     } else {
       script_rebuilt = true;
       // `block.loc.start/end` are absolute offsets into the original SFC source.
-      let analysis = analyze_module_source(
-        source,
-        &block.content,
-        block.loc.start,
-        block.lang.as_deref().unwrap_or("js"),
-        ScriptKind::Script,
-      )?;
+      let analysis =
+        analyze_module_source(source, &block.content, block.loc.start, lang, ScriptKind::Script)?;
+      merge_jsx_template_facts(&mut template, analysis.template_facts);
       (analysis.script_facts, Some(analysis.module_trace))
     };
     let target = if has_script_setup { &mut ordinary_module_source } else { &mut module_source };
@@ -185,20 +186,18 @@ fn analyze_sfc_facts_inner(
     script.blocks.push(script_facts);
   }
   if let Some(block) = descriptor.script_setup {
-    let (script_facts, summary) = if reuse_setup
+    let lang = block.lang.as_deref().unwrap_or("js");
+    let can_reuse_setup = (reuse_template || !matches!(lang, "jsx" | "tsx")) && reuse_setup;
+    let (script_facts, summary) = if can_reuse_setup
       && let Some(previous) = previous
       && let Some(facts) = previous_script_block(&previous.facts, ScriptKind::Setup)
     {
       (facts.clone(), previous.module_source.as_ref().and_then(ModuleSource::module_summary))
     } else {
       script_rebuilt = true;
-      let analysis = analyze_module_source(
-        source,
-        &block.content,
-        block.loc.start,
-        block.lang.as_deref().unwrap_or("js"),
-        ScriptKind::Setup,
-      )?;
+      let analysis =
+        analyze_module_source(source, &block.content, block.loc.start, lang, ScriptKind::Setup)?;
+      merge_jsx_template_facts(&mut template, analysis.template_facts);
       (analysis.script_facts, Some(analysis.module_trace))
     };
     if let Some(module) = module_source.take() {
@@ -298,6 +297,16 @@ fn dual_module_sources(
     (None, Some(ordinary)) => (Some(ordinary), None),
     (None, None) => (None, None),
   }
+}
+
+fn merge_jsx_template_facts(target: &mut TemplateFacts, jsx: TemplateFacts) {
+  if jsx.elements.is_empty() && jsx.expressions.is_empty() {
+    return;
+  }
+  target.elements.extend(jsx.elements);
+  target.expressions.extend(jsx.expressions);
+  target.elements.sort_by_key(|element| element.span.offset);
+  target.expressions.sort_by_key(|expression| expression.span.offset);
 }
 
 fn extract_template_facts(

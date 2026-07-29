@@ -212,6 +212,8 @@ pub enum TrackingScopeKind {
   EffectScope,
   /// `onScopeDispose(() => ...)` cleanup (not dependency-tracking).
   OnScopeDispose,
+  /// Component render function body (options `render`, `setup`→render, functional, …).
+  Render,
 }
 
 impl TrackingScopeKind {
@@ -232,6 +234,7 @@ impl TrackingScopeKind {
         | Self::Computed
         | Self::WatchSources
         | Self::EffectScope
+        | Self::Render
     )
   }
 
@@ -245,6 +248,7 @@ impl TrackingScopeKind {
       Self::WatchSources | Self::WatchCallback => "watch",
       Self::EffectScope => "effectScope",
       Self::OnScopeDispose => "onScopeDispose",
+      Self::Render => "render",
     }
   }
 
@@ -381,7 +385,7 @@ pub struct ReactivityEffectFact {
 
 /// Wire format version for [`ReactivityGraph`]. Bump when consumers must
 /// distinguish shape or semantic changes in serialized facts.
-pub const REACTIVITY_GRAPH_VERSION: u32 = 8;
+pub const REACTIVITY_GRAPH_VERSION: u32 = 9;
 
 const fn default_reactivity_graph_version() -> u32 {
   1
@@ -454,6 +458,7 @@ fn scope_edge_from(scope: &TrackingScopeFact) -> String {
     TrackingScopeKind::WatchCallback => "watch_callback",
     TrackingScopeKind::EffectScope => "effect_scope",
     TrackingScopeKind::OnScopeDispose => "on_scope_dispose",
+    TrackingScopeKind::Render => "render",
   };
   format!("{kind}:{}@{}", scope.callee, scope.span.offset)
 }

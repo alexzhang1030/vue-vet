@@ -643,6 +643,7 @@ const fn scope_kind_label(kind: TrackingScopeKind) -> &'static str {
     TrackingScopeKind::WatchCallback => "watch_callback",
     TrackingScopeKind::EffectScope => "effect_scope",
     TrackingScopeKind::OnScopeDispose => "on_scope_dispose",
+    TrackingScopeKind::Render => "render",
   }
 }
 

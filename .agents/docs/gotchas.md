@@ -214,6 +214,15 @@ extract time. `TemplateExpressionFact.identifiers` is `Some(…)` when resolved
 (including empty = no free reads); only `None` triggers the lexical join
 fallback—do not treat empty `Some` as unknown.
 
+Vue JSX is not React JSX and must not be Babel-transformed for analysis: Oxc
+parses source JSX/TSX and lowers Vue-JSX attributes (`v-html`, `innerHTML` /
+`domPropsInnerHTML`, `v-model*`, `v-show`, `onClick`, …) into `TemplateFacts`.
+Do not route JSX through Vize. Render-effect recognition is structure-first;
+unknown cross-file factories stay quiet unless a local options/`setup`/`render`
+object or exported functional component is visible. Same-file
+`const definePage = (o) => defineComponent(o)` forwarders are recognized; deeper
+or options-mutating wrappers are not.
+
 Cross-file module tracing for `.vue` uses the preferred script block
 (`script setup` first) as `ModuleSource::sfc_script` with Vize `loc.start` and
 the full SFC as `span_source`. Standalone JS/TS modules keep offset 0. Seed
