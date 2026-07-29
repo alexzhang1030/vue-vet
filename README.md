@@ -32,8 +32,11 @@ npx vue-vet .
 
 Prebuilt binaries cover Linux/macOS/Windows x64 and Linux/macOS arm64 via
 `@vue-vet/{os}-{arch}` optional dependencies. See
-[install docs](docs/install.md) for GitHub Release archives, checksums, and
+[install docs](docs/install.md) for GitHub Release archives, checksums,
+[pkg.pr.new](https://github.com/stackblitz-labs/pkg.pr.new) PR previews, and
 source builds.
+
+[![pkg.pr.new](https://pkg.pr.new/badge/alexzhang1030/vue-vet)](https://pkg.pr.new/~/alexzhang1030/vue-vet)
 
 ## Try it
 

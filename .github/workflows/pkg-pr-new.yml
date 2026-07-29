@@ -1,0 +1,147 @@
+name: pkg.pr.new
+
+on:
+  pull_request:
+  push:
+    branches:
+      - '**'
+    tags:
+      - '!**'
+
+concurrency:
+  group: pkg-pr-new-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Comments / check runs are posted by the pkg.pr.new GitHub App.
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            npm_pkg: linux-x64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            npm_pkg: linux-arm64
+          - target: x86_64-apple-darwin
+            os: macos-15
+            npm_pkg: darwin-x64
+          - target: aarch64-apple-darwin
+            os: macos-15
+            npm_pkg: darwin-arm64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            npm_pkg: win32-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Resolve workspace version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(
+            cargo metadata --no-deps --format-version 1 --manifest-path crates/vue_vet_cli/Cargo.toml \
+              | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const j=JSON.parse(s);const p=j.packages.find(p=>p.name==="vue-vet");if(!p)process.exit(1);process.stdout.write(p.version)})'
+          )"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build release binary
+        shell: bash
+        run: cargo build -p vue-vet --release --target ${{ matrix.target }} --locked
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Pack platform package
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="target/${{ matrix.target }}/release/vue-vet"
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            binary="${binary}.exe"
+          fi
+          node npm/scripts/pack-platform.mjs \
+            --target "${{ matrix.target }}" \
+            --binary "$binary" \
+            --version "${{ steps.version.outputs.version }}" \
+            --out "dist/npm/@vue-vet/${{ matrix.npm_pkg }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-${{ matrix.npm_pkg }}
+          path: dist/npm/@vue-vet/${{ matrix.npm_pkg }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish preview
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Resolve workspace version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(
+            cargo metadata --no-deps --format-version 1 --manifest-path crates/vue_vet_cli/Cargo.toml \
+              | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const j=JSON.parse(s);const p=j.packages.find(p=>p.name==="vue-vet");if(!p)process.exit(1);process.stdout.write(p.version)})'
+          )"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Download platform packages
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/npm-artifacts
+          pattern: npm-*
+
+      - name: Arrange packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/npm/@vue-vet
+          for dir in dist/npm-artifacts/npm-*; do
+            name="${dir##*/npm-}"
+            rm -rf "dist/npm/@vue-vet/$name"
+            cp -R "$dir" "dist/npm/@vue-vet/$name"
+            # upload-artifact does not preserve unix execute bits.
+            chmod a+x "dist/npm/@vue-vet/$name"/bin/vue-vet \
+              "dist/npm/@vue-vet/$name"/bin/vue-vet.exe 2>/dev/null || true
+          done
+          node npm/scripts/prepare-preview-launcher.mjs \
+            --version "${{ steps.version.outputs.version }}" \
+            --out dist/npm/@vue-vet/cli
+          ls -laR dist/npm/@vue-vet
+
+      - name: Install pkg-pr-new
+        working-directory: npm/pkg-pr-new
+        run: npm ci
+
+      - name: Publish to pkg.pr.new
+        working-directory: npm/pkg-pr-new
+        run: >
+          npm exec -- pkg-pr-new publish
+          --bin
+          --previewVersion
+          --comment=update
+          '../../dist/npm/@vue-vet/*'

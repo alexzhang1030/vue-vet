@@ -4,6 +4,12 @@
 
 The scanner, semantic product layer, CLI, cache, graph, reporters, and fix engine stay in Rust. The npm package `@vue-vet/cli` is a thin installer/launcher under `npm/vue-vet`: it selects an `@vue-vet/{os}-{arch}` optional dependency, spawns the native binary (`vue-vet`), and forwards arguments, signals, output, and exit codes. It must never grow analysis logic. See [install docs](../../docs/install.md).
 
+PR / branch continuous previews use [pkg.pr.new](https://github.com/stackblitz-labs/pkg.pr.new)
+(`.github/workflows/pkg-pr-new.yml`): matrix-build platform packages, copy the
+launcher into `dist/`, then `npm exec pkg-pr-new publish --bin --previewVersion`
+from the locked install under `npm/pkg-pr-new/`. Requires the
+[pkg-pr-new GitHub App](https://github.com/apps/pkg-pr-new) on the repository.
+
 Interactive reactivity browsing uses exact-pinned `ratatui` (crossterm backend only)
 inside the CLI crate. Analysis logic stays out of the TUI; it only presents
 `ReactivityModuleStats` already produced by the scan.

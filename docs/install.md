@@ -45,6 +45,25 @@ missing `@vue-vet/*` package:
 3. Or install the host platform package explicitly, for example
    `npm install -D @vue-vet/darwin-arm64`.
 
+## Continuous preview packages (pkg.pr.new)
+
+Every push and pull request builds the npm matrix and publishes preview
+tarballs via [pkg.pr.new](https://github.com/stackblitz-labs/pkg.pr.new)
+(workflow [`.github/workflows/pkg-pr-new.yml`](../.github/workflows/pkg-pr-new.yml)).
+Nothing is published to the public npm registry.
+
+After the GitHub App
+[pkg-pr-new](https://github.com/apps/pkg-pr-new) is installed on the
+repository, each PR gets a bot comment with install commands. Typical usage:
+
+```bash
+# CLI preview (rewrites optional platform deps to matching preview URLs)
+npx https://pkg.pr.new/@vue-vet/cli@<pr-or-sha>
+```
+
+Preview versions use `0.0.0-preview-<sha>` so they cannot collide with a later
+semver publish of the same workspace version.
+
 ## GitHub Release binaries
 
 Each tagged release (`vX.Y.Z`) publishes archives named
