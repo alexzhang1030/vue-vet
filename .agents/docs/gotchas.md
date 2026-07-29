@@ -339,6 +339,12 @@ source string — otherwise cold `trace_1k_*` / SFC benches regress.
 seed-plan maps that are immediately dropped regresses CodSpeed `trace_*`.
 Build `returns_by_function` lazily — only after a real function/composable
 candidate is found.
+
+**Phase-two must not Rayon-schedule immediate reuse.** On persistent scans,
+split reused vs dirty modules before `par_iter`. Independent leaf edits with
+999 reusable graphs must not pay worker scheduling for no-op reuse. Never clone
+all `ModuleSource` values into a side cache map for phase-one — borrow
+`state.entries` instead.
 `AnalysisSnapshot` keeps `summary`/`graph` behind `Arc` so commit/`last_snapshot`
 is refcount-only for those fields.
 

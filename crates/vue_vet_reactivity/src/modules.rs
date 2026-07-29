@@ -516,15 +516,19 @@ fn trace_modules_incremental_in_current_pool(
   mut report: TraceModulesReport,
   options: TraceModulesOptions,
 ) -> TraceModulesReport {
-  let cached_summaries = state
-    .entries
-    .iter()
-    .map(|(id, entry)| (id.clone(), (entry.source.clone(), Arc::clone(&entry.summary))))
-    .collect::<BTreeMap<_, _>>();
-  let phase_one = unique
-    .par_iter()
-    .map(|module| analyze_module_phase_one_cached(module, cached_summaries.get(&module.id)))
-    .collect::<Vec<Result<ModulePhaseOne, TraceModulesError>>>();
+  // Borrow entries for phase-one reuse — never clone ModuleSource into a side map.
+  let phase_one = {
+    let entries = &state.entries;
+    unique
+      .par_iter()
+      .map(|module| {
+        analyze_module_phase_one_cached(
+          module,
+          entries.get(&module.id).map(|entry| (&entry.source, &entry.summary)),
+        )
+      })
+      .collect::<Vec<Result<ModulePhaseOne, TraceModulesError>>>()
+  };
   let mut facts_by_id = BTreeMap::new();
   let mut local_graphs = BTreeMap::new();
   for (module, outcome) in unique.iter().zip(phase_one) {
@@ -560,15 +564,28 @@ fn trace_modules_incremental_in_current_pool(
   };
 
   let persist = options.persist_linking_cache;
-  let outcomes = work
+  // Split reused vs dirty before Rayon — independent leaf edits must not
+  // schedule 999 immediate-reuse workers.
+  let mut reused = Vec::new();
+  let mut dirty_work = Vec::new();
+  for (module, local_graph, plan, summary) in work {
+    if let Some(cached) = state.entries.get(&module.id)
+      && cached.source == *module
+      && cached.plan == plan
+    {
+      reused.push(cached.reactivity.clone());
+      continue;
+    }
+    dirty_work.push((module, local_graph, plan, summary));
+  }
+  report.stats.reused_graphs += reused.len();
+  for reactivity in reused {
+    report.modules.push(reactivity);
+  }
+
+  let outcomes = dirty_work
     .into_par_iter()
     .map(|(module, mut local_graph, plan, summary)| {
-      if let Some(cached) = state.entries.get(&module.id)
-        && cached.source == *module
-        && cached.plan == plan
-      {
-        return PhaseTwoOutcome::Reused { reactivity: cached.reactivity.clone() };
-      }
       let seeded = !plan.is_empty();
       match trace_module_phase_two(module, Arc::clone(&local_graph), &plan) {
         Ok(reactivity) => PhaseTwoOutcome::Traced {
@@ -592,18 +609,14 @@ fn trace_modules_incremental_in_current_pool(
     })
     .collect::<Vec<_>>();
 
-  let mut keep = BTreeSet::new();
+  let mut keep: BTreeSet<ModuleId> =
+    report.modules.iter().map(|module| module.id.clone()).collect();
   for outcome in outcomes {
     match outcome {
-      PhaseTwoOutcome::Reused { reactivity } => {
-        report.stats.reused_graphs += 1;
-        keep.insert(reactivity.id.clone());
-        report.modules.push(reactivity);
-      }
       PhaseTwoOutcome::Traced { source, summary, plan, reactivity, seeded } => {
         report.stats.seeded_reparses += usize::from(seeded);
+        keep.insert(reactivity.id.clone());
         if let (Some(source), Some(summary), Some(plan)) = (source, summary, plan) {
-          keep.insert(reactivity.id.clone());
           state.entries.insert(
             reactivity.id.clone(),
             CachedModuleTrace { source, summary, plan, reactivity: reactivity.clone() },
@@ -613,8 +626,8 @@ fn trace_modules_incremental_in_current_pool(
       }
       PhaseTwoOutcome::Partial { source, summary, plan, reactivity, error } => {
         report.issues.push(error);
+        keep.insert(reactivity.id.clone());
         if let (Some(source), Some(summary), Some(plan)) = (source, summary, plan) {
-          keep.insert(reactivity.id.clone());
           state.entries.insert(
             reactivity.id.clone(),
             CachedModuleTrace { source, summary, plan, reactivity: reactivity.clone() },
@@ -835,9 +848,6 @@ fn modules_needing_seed_recompute(
 }
 
 enum PhaseTwoOutcome {
-  Reused {
-    reactivity: ModuleReactivity,
-  },
   Traced {
     source: Option<ModuleSource>,
     summary: Option<Arc<ModuleSummary>>,
@@ -861,7 +871,7 @@ struct ModulePhaseOne {
 
 fn analyze_module_phase_one_cached(
   module: &ModuleSource,
-  cached: Option<&(ModuleSource, Arc<ModuleSummary>)>,
+  cached: Option<(&ModuleSource, &Arc<ModuleSummary>)>,
 ) -> Result<ModulePhaseOne, TraceModulesError> {
   if let Some(summary) = &module.module_summary {
     return Ok(phase_one_from_summary(module, summary));
