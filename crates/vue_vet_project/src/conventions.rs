@@ -112,6 +112,8 @@ pub const NUXT_COMPONENT_DTS_CANDIDATES: &[&str] =
   &[".nuxt/components.d.ts", ".nuxt/types/components.d.ts"];
 
 /// Nuxt auto-import maps (`.nuxt/imports.d.ts` and the types variant).
+///
+/// Order matters: prefer `.nuxt/imports.d.ts` re-exports when both exist.
 pub const NUXT_IMPORTS_DTS_CANDIDATES: &[&str] =
   &[".nuxt/imports.d.ts", ".nuxt/types/imports.d.ts"];
 
@@ -119,6 +121,18 @@ pub const NUXT_IMPORTS_DTS_CANDIDATES: &[&str] =
 ///
 /// Format: `#nuxt-imports:{exportName}` — reactivity seed only (never unresolved-import).
 pub const NUXT_IMPORTS_SPECIFIER_PREFIX: &str = "#nuxt-imports:";
+
+/// One bare auto-import binding from a Nuxt imports map.
+///
+/// Specifiers are relative to [`Self::importer`] (the dts that declared them),
+/// not to the consumer SFC. `.nuxt/types/imports.d.ts` uses one more `../`
+/// than `.nuxt/imports.d.ts` for the same package.
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct NuxtImportTarget {
+  pub specifier: String,
+  /// Workspace-relative path of the declaring dts.
+  pub importer: String,
+}
 
 #[must_use]
 pub fn load_nuxt_component_dts_names(
@@ -154,7 +168,7 @@ pub fn parse_nuxt_imports_dts(source: &str) -> BTreeMap<String, String> {
 }
 
 #[must_use]
-pub fn load_nuxt_imports_dts_names(root: &Path) -> BTreeMap<String, String> {
+pub fn load_nuxt_imports_dts_names(root: &Path) -> BTreeMap<String, NuxtImportTarget> {
   let mut names = BTreeMap::new();
   for candidate in NUXT_IMPORTS_DTS_CANDIDATES {
     let path = root.join(candidate);
@@ -162,7 +176,10 @@ pub fn load_nuxt_imports_dts_names(root: &Path) -> BTreeMap<String, String> {
       continue;
     };
     for (name, specifier) in parse_nuxt_imports_dts(&source) {
-      names.insert(name, specifier);
+      // First candidate wins: `.nuxt/imports.d.ts` before types variant.
+      names
+        .entry(name)
+        .or_insert_with(|| NuxtImportTarget { specifier, importer: (*candidate).to_owned() });
     }
   }
   names

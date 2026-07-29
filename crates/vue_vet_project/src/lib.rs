@@ -19,6 +19,7 @@ use vue_vet_reactivity::{
 
 pub use resolve::{OXC_RESOLVER_VERSION, normalize_project_root, resolver_config_inputs};
 
+pub use conventions::NuxtImportTarget;
 use conventions::{
   NUXT_COMPONENT_DTS_CANDIDATES, NUXT_IMPORTS_DTS_CANDIDATES, convention_component_name,
   load_nuxt_component_dts_names, load_nuxt_imports_dts_names, nuxt_imports_link_specifier,
@@ -37,7 +38,7 @@ const EXTERNAL_REACTIVITY_MAX_DEPTH: usize = 8;
 /// reactivity evidence and must not be parsed.
 const EXTERNAL_COMPANION_MAX_BYTES: u64 = 512 * 1024;
 
-pub const CONVENTIONS_VERSION: u32 = 5;
+pub const CONVENTIONS_VERSION: u32 = 6;
 pub const PROJECT_RULE_IDS: [&str; 2] =
   ["vue-vet/project/unresolved-import", "vue-vet/project/unused-component"];
 
@@ -196,8 +197,8 @@ impl ContextEpochs {
 pub struct ProjectContext {
   pub revision: u64,
   pub nuxt_component_names: BTreeMap<String, String>,
-  /// Bare auto-import name → module specifier from `.nuxt/imports.d.ts`.
-  pub nuxt_import_names: BTreeMap<String, String>,
+  /// Bare auto-import name → specifier + declaring dts importer.
+  pub nuxt_import_names: BTreeMap<String, NuxtImportTarget>,
   pub invalidation_inputs: Vec<String>,
   /// Per-kind epochs consumed by long-lived incremental analysis.
   pub epochs: ContextEpochs,
@@ -246,7 +247,10 @@ pub fn project_context_from_inputs<'a>(
     }
     if NUXT_IMPORTS_DTS_CANDIDATES.contains(&relative) {
       for (name, specifier) in parse_nuxt_imports_dts(source) {
-        nuxt_import_names.insert(name, specifier);
+        // First dts wins (sorted cache inputs hit `.nuxt/imports.d.ts` before types).
+        nuxt_import_names
+          .entry(name)
+          .or_insert_with(|| NuxtImportTarget { specifier, importer: relative.to_owned() });
       }
     }
   }
@@ -409,7 +413,7 @@ struct StructuralContextKey {
   revision: u64,
   nodes: Vec<GraphNode>,
   module_ids: BTreeSet<ModuleId>,
-  nuxt_import_names: BTreeMap<String, String>,
+  nuxt_import_names: BTreeMap<String, NuxtImportTarget>,
 }
 
 #[derive(Clone, Debug)]
@@ -683,7 +687,7 @@ fn analyze_structural_file(
   component_by_name: &BTreeMap<String, Vec<String>>,
   composable_by_name: &BTreeMap<String, String>,
   module_ids: &BTreeSet<ModuleId>,
-  nuxt_import_names: &BTreeMap<String, String>,
+  nuxt_import_names: &BTreeMap<String, NuxtImportTarget>,
 ) -> StructuralFileOutput {
   let path = normalized_path(file.path.as_path());
   let from = file_id(&path);
@@ -778,12 +782,13 @@ fn analyze_structural_file(
     if imports.iter().any(|import| import.local == call.callee) {
       continue;
     }
-    let Some(specifier) = nuxt_import_names.get(&call.callee) else {
+    let Some(target) = nuxt_import_names.get(&call.callee) else {
       continue;
     };
     let link_specifier = nuxt_imports_link_specifier(&call.callee);
-    // Specifiers in imports.d.ts are relative to that file (not the consumer).
-    match resolver.resolve(".nuxt/imports.d.ts", specifier, known) {
+    // Specifiers are relative to the declaring dts (not the consumer, and not a
+    // fixed `.nuxt/imports.d.ts` — types/imports uses one more `../`).
+    match resolver.resolve(&target.importer, &target.specifier, known) {
       Resolution::File(target) => {
         let target_id = ModuleId::primary(&FileId::from(target.as_str()));
         for module_from in [ModuleId::primary(&file.path), ModuleId::ordinary(&file.path)] {
@@ -1915,6 +1920,72 @@ watch([hostWidth, hostHeight], () => {})\n";
   #[test]
   fn bare_nuxt_imports_dts_color_mode_seeds_reactive_watch() {
     let project = TempProject::new("nuxt-color-mode");
+    write_color_mode_package(&project);
+    project.write(
+      ".nuxt/imports.d.ts",
+      "export { useColorMode } from '../node_modules/@nuxtjs/color-mode/dist/runtime/composables';\n",
+    );
+
+    let graph = color_mode_consumer_graph(&project);
+    assert_color_mode_reactive_watch(&graph);
+  }
+
+  /// Real Nuxt emits both maps; types/imports uses one extra `../`. Sorted
+  /// cache inputs used to overwrite the re-export with the types specifier and
+  /// still resolve from `.nuxt/imports.d.ts` → Unresolved → colorMode FP.
+  #[test]
+  fn bare_nuxt_types_imports_dts_does_not_break_color_mode_seed() {
+    let project = TempProject::new("nuxt-color-mode-types");
+    write_color_mode_package(&project);
+    let imports = "export { useColorMode } from '../node_modules/@nuxtjs/color-mode/dist/runtime/composables';\n";
+    let types = "export {}\n\
+declare global {\n\
+  const useColorMode: typeof import('../../node_modules/@nuxtjs/color-mode/dist/runtime/composables').useColorMode\n\
+}\n\
+export {}\n";
+    project.write(".nuxt/imports.d.ts", imports);
+    project.write(".nuxt/types/imports.d.ts", types);
+
+    // Mimic discovery: sorted cache_inputs process types after imports.
+    let known = FileId::from("components/ViewportDemo.client.vue");
+    let context = project_context_from_inputs(
+      project.root(),
+      [&known],
+      [(".nuxt/imports.d.ts", imports.as_bytes()), (".nuxt/types/imports.d.ts", types.as_bytes())],
+      1,
+    );
+    assert_eq!(
+      context.nuxt_import_names.get("useColorMode").map(|target| target.importer.as_str()),
+      Some(".nuxt/imports.d.ts"),
+      "prefer imports.d.ts re-export over types/imports overwrite"
+    );
+    assert_eq!(
+      context.nuxt_import_names.get("useColorMode").map(|target| target.specifier.as_str()),
+      Some("../node_modules/@nuxtjs/color-mode/dist/runtime/composables")
+    );
+
+    let graph = color_mode_consumer_graph(&project);
+    assert_color_mode_reactive_watch(&graph);
+  }
+
+  /// When only the types map exists, resolve from that importer (extra `../`).
+  #[test]
+  fn bare_nuxt_types_imports_only_resolves_from_types_importer() {
+    let project = TempProject::new("nuxt-color-mode-types-only");
+    write_color_mode_package(&project);
+    project.write(
+      ".nuxt/types/imports.d.ts",
+      "export {}\n\
+declare global {\n\
+  const useColorMode: typeof import('../../node_modules/@nuxtjs/color-mode/dist/runtime/composables').useColorMode\n\
+}\n",
+    );
+
+    let graph = color_mode_consumer_graph(&project);
+    assert_color_mode_reactive_watch(&graph);
+  }
+
+  fn write_color_mode_package(project: &TempProject) {
     project.write(
       "node_modules/@nuxtjs/color-mode/package.json",
       r#"{"name":"@nuxtjs/color-mode","version":"1.0.0","exports":{"./dist/runtime/composables":{"types":"./dist/runtime/composables.d.ts","import":"./dist/runtime/composables.js","default":"./dist/runtime/composables.js"}}}"#,
@@ -1940,11 +2011,9 @@ export const useColorMode = () => {\n\
   return useState('color-mode').value;\n\
 };\n",
     );
-    project.write(
-      ".nuxt/imports.d.ts",
-      "export { useColorMode } from '../node_modules/@nuxtjs/color-mode/dist/runtime/composables';\n",
-    );
+  }
 
+  fn color_mode_consumer_graph(project: &TempProject) -> ProjectGraph {
     let script = "import { watch } from 'vue'\n\
 const colorMode = useColorMode()\n\
 watch(() => colorMode.value, () => {})\n";
@@ -1996,7 +2065,10 @@ watch(() => colorMode.value, () => {})\n";
       ordinary_module_source: None,
     };
 
-    let graph = build_project_graph(project.root(), &[consumer]);
+    build_project_graph(project.root(), &[consumer])
+  }
+
+  fn assert_color_mode_reactive_watch(graph: &ProjectGraph) {
     assert!(
       graph.reactivity_error.is_none(),
       "bare useColorMode tracing must succeed: {:?}",
