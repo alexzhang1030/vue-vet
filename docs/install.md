@@ -47,10 +47,11 @@ missing `@vue-vet/*` package:
 
 ## Continuous preview packages (pkg.pr.new)
 
-Every push and pull request builds the npm matrix and publishes preview
-tarballs via [pkg.pr.new](https://github.com/stackblitz-labs/pkg.pr.new)
+In-repo pull requests and pushes to `main` that touch crates / npm / lockfiles
+build the npm matrix and publish preview tarballs via
+[pkg.pr.new](https://github.com/stackblitz-labs/pkg.pr.new)
 (workflow [`.github/workflows/pkg-pr-new.yml`](../.github/workflows/pkg-pr-new.yml)).
-Nothing is published to the public npm registry.
+Docs-only changes are skipped. Nothing is published to the public npm registry.
 
 After the GitHub App
 [pkg-pr-new](https://github.com/apps/pkg-pr-new) is installed on the
@@ -62,7 +63,8 @@ npx https://pkg.pr.new/@vue-vet/cli@<pr-or-sha>
 ```
 
 Preview versions use `0.0.0-preview-<sha>` so they cannot collide with a later
-semver publish of the same workspace version.
+semver publish of the same workspace version. Branch tips on `main` also get a
+`@main` alias when the workflow runs there.
 
 ## GitHub Release binaries
 
