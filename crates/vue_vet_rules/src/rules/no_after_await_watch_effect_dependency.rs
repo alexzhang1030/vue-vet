@@ -28,22 +28,18 @@ impl Rule for NoAfterAwaitWatchEffectDependency {
       return;
     };
     for read in &effect.reads {
-      if !matches!(read.kind, ReactiveReadKind::AfterAwait | ReactiveReadKind::OutsideTracking) {
+      // OutsideTracking (nextTick / then / pauseTracking) is owned by tracer_extra rules.
+      if read.kind != ReactiveReadKind::AfterAwait {
         continue;
       }
       let binding = read
         .property
         .as_ref()
         .map_or_else(|| read.binding.clone(), |property| format!("{}.{property}", read.binding));
-      let reason = match read.kind {
-        ReactiveReadKind::AfterAwait => "after `await`",
-        ReactiveReadKind::OutsideTracking => "inside a deferred callback (`then` / `nextTick` / …)",
-        ReactiveReadKind::Unconditional | ReactiveReadKind::Conditional => "outside tracking",
-      };
       context.report(
         self.meta(),
         read.span.clone(),
-        format!("`{binding}` is read {reason}, so `watchEffect` will not track it"),
+        format!("`{binding}` is read after `await`, so `watchEffect` will not track it"),
         Some(
           "Read every dependency before the first `await`, or use explicit `watch` sources for values needed after async work."
             .into(),
