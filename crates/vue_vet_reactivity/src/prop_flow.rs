@@ -7,7 +7,7 @@ use vue_vet_core::{
   TemplateElementFact, TemplateFacts, qualify_dependency_to_id,
 };
 
-use crate::modules::ModuleReactivity;
+use crate::ModuleReactivity;
 
 /// One resolved component usage in a parent template that targets `child_module`.
 pub struct PropFlowSite<'a> {

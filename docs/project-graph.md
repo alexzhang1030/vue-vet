@@ -74,12 +74,18 @@ are part of the graph invalidation set.
 
 When `.nuxt/imports.d.ts` or `.nuxt/types/imports.d.ts` exists, bare script
 calls whose callee is listed there (and not shadowed by a local import) create
-reactivity seed links (`#nuxt-imports:{name}`) to the resolved module. This is
-reactivity-only — it does **not** raise `unresolved-import`. Specifiers resolve
-relative to the **declaring** dts (not a fixed `.nuxt/imports.d.ts` base): the
-types variant usually needs one more `../` than the re-export map. When both
-files list the same name, prefer `.nuxt/imports.d.ts`. Those imports maps are
-also invalidation inputs.
+reactivity seed links (`#nuxt-imports:{name}`) to the resolved module via
+`NuxtImportsSeedPass::run` (StructuralLink). This is reactivity-only — it does
+**not** raise `unresolved-import`. Specifiers resolve relative to the
+**declaring** dts (not a fixed `.nuxt/imports.d.ts` base): the types variant
+usually needs one more `../` than the re-export map. When both files list the
+same name, prefer `.nuxt/imports.d.ts`. Those imports maps are also invalidation
+inputs. External package summaries load through `ExternalSummaryLoadPass::run`;
+provisional `.d.ts` + companion `.js` Factory merge is
+`ProvisionalFactoryMergePass::run` at each loaded module (SummaryMerge). The
+`vue_vet_project` crate is staged as `context` → `structural` → `passes` →
+trace → `layers` → `rules` (orchestrated by `pipeline`). See architecture PCR
+`vue_vet_project` pipeline and `ENRICHMENT_STEPS`.
 
 ## Component navigation (not prop dataflow)
 

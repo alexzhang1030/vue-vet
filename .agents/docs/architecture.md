@@ -1,5 +1,36 @@
 # Architecture
 
+## Monorepo analysis pipeline (end-to-end)
+
+One open pipeline across crates — no side-pocket “magic” hosts. Each crate is a
+stage owner; `lib.rs` files stay thin façades where the crate has been split.
+
+```text
+vue-vet CLI / --lsp / --mcp
+  -> vue_vet_session
+       discovery     WorkspaceInputSnapshot + PackageIndex
+       parse         vue_vet_vize (SFC) / vue_vet_oxc (JS/TS) → File Fact IR
+       project       vue_vet_project pipeline
+                       context → structural → passes(enrichment)
+                       → reactivity Trace → layers → project rules
+       reactivity    vue_vet_reactivity (trace / summary / link)
+       rules         vue_vet_rules + vue_vet_practice (RuleRegistry over facts)
+       finalize      DiagnosticFinalizer → vue_vet_core ScanSummary
+  -> vue_vet_reporters | vue_vet_lsp | vue_vet_mcp
+```
+
+Crate ownership (read before editing that stage):
+
+| Stage | Crate | Notes |
+| --- | --- | --- |
+| Stable contracts | `vue_vet_core` | facts / diagnostics / `Rule` — no Oxc/Vize types |
+| Adapters | `vue_vet_vize`, `vue_vet_oxc` | short-lived AST → facts only |
+| Project graph | `vue_vet_project` | see `vue_vet_project` pipeline below |
+| Cross-file seeds | `vue_vet_reactivity` | `trace` / `summary` / `link`; `ModuleSummary` boundary; under-approx |
+| File rules | `vue_vet_rules`, `vue_vet_practice` | consume facts; practice off score |
+| Orchestration | `vue_vet_session` | thin façade; `pipeline` stages discovery → facts → project → rules → finalize |
+| Surfaces | `vue_vet_cli`, `vue_vet_lsp`, `vue_vet_mcp`, `vue_vet_reporters` | thin |
+
 ## Current vertical slice
 
 ```text
@@ -207,12 +238,62 @@ unused.
 
 Vue Vet's normalized facts and diagnostics are the architectural seam. Dependency AST objects must not cross into public rule, reporter, cache, LSP, or agent contracts. Adapters may change with dependency upgrades while downstream product behavior stays versioned and reviewable.
 
+## `vue_vet_project` pipeline (crate layout)
+
+The project crate is an **explicit stage pipeline**, not a monolith with
+side-pocket special cases. `lib.rs` is a thin façade; orchestration lives in
+`pipeline.rs`:
+
+```text
+context          ConventionsLoad → ProjectContext
+structural       StructuralLink (import/component edges)
+passes           enrichment (see below)
+pipeline         Trace handoff + ProjectGraph assembly
+layers           template joins + prop-flow
+rules            unresolved-import / unused-component
+model / state    DTOs + retained incremental partitions
+resolve / conventions   oxc_resolver + Nuxt maps
+```
+
+### Analysis enrichment passes (not user plugins)
+
+Nuxt / package-shape specialization lives in **compile-time Rust enrichment
+passes** over Vue Vet IR — not AST Traverse (Oxc/SWC), and not a dynamic JS
+plugin host. Diagnostic [`Rule`](../../crates/vue_vet_core/src/lib.rs) passes
+consume the enriched facts; enrichment passes must not `report` diagnostics.
+
+Each enrichment step is a named `struct` with an inherent `::run(...)`
+(see `ENRICHMENT_STEPS` in `vue_vet_project::passes`). There is no empty
+metadata trait and no dynamic plugin ABI — `pipeline` / `structural` call
+passes by name.
+
+Enrichment stages (deterministic order):
+
+```text
+ConventionsLoad           (context + conventions → ProjectContext maps)
+  -> StructuralLink       (structural.rs ordinary edges;
+                           NuxtImportsSeedPass::run for bare auto-imports)
+  -> ExternalSummaryLoad  (ExternalSummaryLoadPass::run)
+       └─ SummaryMerge    (ProvisionalFactoryMergePass::run at each loaded
+                           module — same traversal, not a hidden side effect)
+```
+
+After enrichment: SeedPlan / Trace (via `vue_vet_reactivity` from `pipeline`)
+and RuleRegistry (file rules outside this crate). Project-level diagnostics
+stay in `rules.rs`.
+
+Constraints: IR only (`ProjectContext`, `ModuleLink`, `ModuleSummary`,
+`ExportState`); sorted outputs; quiet under-approx; no `dlopen` / npm analysis
+plugins before a separate ADR. See [gotchas](./gotchas.md) and
+[reactivity tracer](./reactivity-tracer.md).
+
 ## Planned analysis flow
 
 ```text
 project discovery and configuration
   -> Vize SFC/template facts
   -> Oxc script facts
+  -> enrichment passes (Nuxt seeds, external summaries, provisional Factory merge)
   -> per-file built-in rules
   -> versioned project graph and graph-backed cross-file rules
   -> normalize, suppress, deduplicate, fingerprint

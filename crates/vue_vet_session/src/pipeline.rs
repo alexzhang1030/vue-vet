@@ -1,3 +1,12 @@
+//! Scan orchestration stages (in [`scan_parallel`] order):
+//! 1. **facts** — reuse or parse each source into analyzed candidates
+//! 2. **project** — structural graph + reactivity module linking
+//! 3. **rules** — seed-aware file rules over final graphs
+//! 4. **finalize** — [`DiagnosticFinalizer`] → [`ScanSummary`]
+//!
+//! Discovery / input snapshot construction happens before this module
+//! (`WorkspaceInputSnapshot` from [`crate::discovery`]).
+
 use std::{
   collections::{BTreeMap, BTreeSet},
   path::Path,
@@ -28,7 +37,7 @@ use crate::{
   package_index::PackageIndex,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct CachedCandidate {
   source: Arc<str>,
   environment: Option<RuleEnvironment>,
@@ -189,6 +198,7 @@ fn scan_parallel(
   force_full_parse: bool,
   progress: Option<&ProgressReporter>,
 ) -> Result<ScanResult, SessionError> {
+  // --- Stage: facts (dirty plan + parse / reuse) ---
   let previously_analyzed = previous.files.keys().cloned().collect::<BTreeSet<_>>();
   let impact = change_impact_from(
     dirty_files,
@@ -318,6 +328,7 @@ fn scan_parallel(
     }
   }
 
+  // --- Stage: project (graph + module reactivity) ---
   if let Some(progress) = progress {
     progress.emit(&ProgressEvent::BuildingGraph);
   }
@@ -358,6 +369,7 @@ fn scan_parallel(
     .map(|module| (module.id.clone(), Arc::clone(&module.graph)))
     .collect::<BTreeMap<_, _>>();
 
+  // --- Stage: rules (seed-aware file diagnostics) ---
   if let Some(progress) = progress {
     progress.emit(&ProgressEvent::RunningRules { files: pending_vue.len() });
   }
@@ -423,6 +435,7 @@ fn scan_parallel(
   state.file_diagnostics = Arc::new(
     file_diagnostics.iter().map(|(file, cached, _)| (file.clone(), cached.clone())).collect(),
   );
+  // --- Stage: finalize ---
   let mut raw_diagnostics = file_diagnostics
     .into_iter()
     .flat_map(|(_, cached, _)| cached.diagnostics.iter().cloned().collect::<Vec<_>>())
@@ -518,7 +531,7 @@ fn apply_context_consumers(
   last_affected.extend(impact.environment.iter().cloned());
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 enum AnalyzedCandidate {
   Vue {
     project_file: Arc<ProjectFile>,
@@ -615,7 +628,7 @@ fn analyze_candidate(
   }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct PendingVueFile {
   file_id: FileId,
   source: Arc<str>,

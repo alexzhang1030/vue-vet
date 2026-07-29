@@ -299,7 +299,9 @@ cache on full `ModuleSummary` (it includes the local graph). Never rebuild a
 cloned `LinkingSurface` map for every module on each scan — retain
 `Arc<ModuleSummary>` and prefer `Arc::ptr_eq`, then compare linking fields in
 place. O(N) deep clones on cold `trace_modules` / independent leaf edits are a
-known CodSpeed regression.
+known CodSpeed regression. `ModuleSummary` deliberately omits `Clone`: share
+with `Arc`, and let companion merge rebuild locals while `Arc::clone`-ing
+`local_graph`. Do not re-derive `Clone` to make `(*summary).clone()` compile.
 
 **Template/prop layers must not `make_mut` reused base graphs on warm scans.**
 Keep base reactivity from module-trace separate from the layered final graphs;
@@ -471,13 +473,16 @@ and/or body unwrap — not merely “no finished seeds”). Specifiers must reso
 from the **declaring** dts importer: Nuxt’s types map uses one more `../` than
 the re-export map; resolving a types specifier from `.nuxt/imports.d.ts` goes
 outside the package and quietly drops the seed (real-app `colorMode` FP). When
-both maps exist, keep the `.nuxt/imports.d.ts` entry. Parsing every seedless
-package’s companion `.js` pulls multi‑MB bundles such as `typescript.js` and
-stalls real Nuxt docs apps. Companion bodies are also size-capped. Do **not**
-invent `Factory(Reactive)` from a plain interface alone, or from
-`return <call>(...).value` alone without a declared plain-object return
-(≥1 property, no Ref-like fields). Name-agnostic: any unresolved/`#imports`
-callee unwrap counts, not a `useState` allowlist.
+both maps exist, keep the `.nuxt/imports.d.ts` entry. Wiring lives in
+`NuxtImportsSeedPass::run`; companion merge in `ProvisionalFactoryMergePass::run`
+at `ExternalSummaryLoadPass` module completion
+([architecture](./architecture.md) `Analysis enrichment passes`) — not diagnostic
+Rules and not user plugins. Parsing every seedless package’s companion `.js`
+pulls multi‑MB bundles such as `typescript.js` and stalls real Nuxt docs apps.
+Companion bodies are also size-capped. Do **not** invent `Factory(Reactive)`
+from a plain interface alone, or from `return <call>(...).value` alone without
+a declared plain-object return (≥1 property, no Ref-like fields). Name-agnostic:
+any unresolved/`#imports` callee unwrap counts, not a `useState` allowlist.
 
 ## Edge `from` / `to_id` labels (graph v4–v6)
 
