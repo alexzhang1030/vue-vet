@@ -1,7 +1,8 @@
 //! Template / macro Essential gap rules (shared directive harness).
 
 use vue_vet_core::{
-  Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity, TemplateElementFact,
+  Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, ScriptKind, Severity,
+  TemplateElementFact,
 };
 
 struct MissingExprRule {
@@ -520,18 +521,21 @@ impl Rule for NoImportCompilerMacros {
           continue;
         }
         if MACROS.contains(&import.imported.as_str()) {
-          findings.push((import.span.clone(), import.imported.clone()));
+          findings.push((import.span.clone(), import.imported.clone(), block.kind));
         }
       }
     }
-    for (span, name) in findings {
+    for (span, name, kind) in findings {
+      let help = if kind == ScriptKind::Setup {
+        "Remove the import; compiler macros are globally available in `<script setup>`."
+      } else {
+        "Remove the import; these names are `<script setup>` compiler macros, not runtime exports from `vue`."
+      };
       context.report(
         self.meta(),
         span,
         format!("`{name}` is a compiler macro and must not be imported"),
-        Some(
-          "Remove the import; compiler macros are globally available in `<script setup>`.".into(),
-        ),
+        Some(help.into()),
       );
     }
   }
@@ -556,6 +560,9 @@ impl Rule for NoDuplicateDefineModel {
   fn run_once(&self, context: &mut RuleContext<'_>) {
     let mut findings = Vec::new();
     for block in &context.script().blocks {
+      if block.kind != ScriptKind::Setup {
+        continue;
+      }
       let mut seen = std::collections::BTreeSet::new();
       for call in &block.calls {
         if call.callee != "defineModel" {
