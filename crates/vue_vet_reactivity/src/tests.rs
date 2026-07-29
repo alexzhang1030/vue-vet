@@ -3006,3 +3006,30 @@ fn recognizes_render_scopes_for_jsx_shapes_and_factory_wrappers() {
     opaque.scopes
   );
 }
+
+#[test]
+fn classifies_conditional_reads_inside_render_scopes() {
+  let graph = graph_tsx(
+    "import { defineComponent, ref } from 'vue';\n\
+     const enabled = ref(false);\n\
+     const count = ref(0);\n\
+     export default defineComponent(() => {\n\
+       return () => {\n\
+         if (!enabled.value) return <p>off</p>;\n\
+         return <p>{count.value}</p>;\n\
+       };\n\
+     });",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Render
+        && scope.reads.iter().any(|read| {
+          read.binding == "count"
+            && read.kind == ReactiveReadKind::Conditional
+            && read.guards.iter().any(|guard| guard.role == ReactiveGuardRole::EarlyExit)
+        })
+    }),
+    "count behind early-exit in render must be Conditional; got {:?}",
+    graph.scopes
+  );
+}

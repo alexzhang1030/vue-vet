@@ -237,6 +237,15 @@ Content cache keys include `CACHE_FORMAT_VERSION`, ruleset version, and
 caches do not serve stale graphs. Dual ordinary+setup blocks re-trace as setup
 plus `{path}#script` (not a single concatenated module).
 
+## Do not stack per-guard-role Conditional rule ids
+
+`ReactiveGuardRole` (early-exit, short-circuit, switch, branch) is fact metadata
+on a Conditional read. Scope-aware rules already report that read once
+(`no-conditional-dependency-in-{computed,watch-sources,effect-scope,render}` and
+`no-conditional-watch-effect-dependency`). Do not revive separate rule ids per
+guard role: they duplicate findings on the same span, inflate score density, and
+add redundant TrackingScope visitor passes (#136).
+
 ## Performance: do not re-serialize the hot path
 
 CLI scan follows oxlint's model (parallel files, coordinated seed resolution).

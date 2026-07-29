@@ -26,12 +26,6 @@
       "rationale": "Same guarded watchEffect; recommend explicit watch sources"
     },
     {
-      "rule_id": "vue-vet/reactivity/no-early-exit-gated-dependency",
-      "file": "ConditionalWatch.vue",
-      "classification": "true_positive",
-      "rationale": "result.value is behind an early-exit guard (ReactiveGuardRole::EarlyExit)"
-    },
-    {
       "rule_id": "vue-vet/reactivity/no-unused-reactive-binding",
       "file": "SafePatterns.vue",
       "classification": "false_positive",
@@ -54,12 +48,6 @@
       "file": "SafePatterns.vue",
       "classification": "false_positive",
       "rationale": "Nested callback after guard is an intentional quiet pattern"
-    },
-    {
-      "rule_id": "vue-vet/reactivity/no-early-exit-gated-dependency",
-      "file": "SafePatterns.vue",
-      "classification": "false_positive",
-      "rationale": "Nested callback after guard must stay quiet for early-exit role rule"
     },
     {
       "rule_id": "vue-vet/reactivity/no-computed-without-dependency",

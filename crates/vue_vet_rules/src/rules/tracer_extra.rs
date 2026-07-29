@@ -1,8 +1,8 @@
 //! Tracer-differentiated rules that need reactivity-graph read kinds / guards.
 
 use vue_vet_core::{
-  Confidence, FactKinds, FactRef, ReactiveGuardRole, ReactiveReadKind, Rule, RuleContext, RuleMeta,
-  Severity, TrackingScopeKind,
+  Confidence, FactKinds, FactRef, ReactiveReadKind, Rule, RuleContext, RuleMeta, Severity,
+  TrackingScopeKind,
 };
 
 use crate::rules::support::{binding_path, effect_family};
@@ -117,17 +117,28 @@ impl Rule for NoReactiveReadDuringPauseTracking {
   }
 }
 
-// --- guard-role gated dependencies -----------------------------------------------
+// --- conditional dependency in render --------------------------------------------
+//
+// Scope-aware Conditional reads for computed / watch sources / effectScope live in
+// the matrix family. Effect-family scopes use `no-conditional-watch-effect-dependency`.
+// Per-`ReactiveGuardRole` rule ids were removed (#136): they stacked on the same
+// Conditional fact and inflated finding count without extra precision.
 
-struct GuardRoleRule {
-  meta: &'static RuleMeta,
-  role: ReactiveGuardRole,
-  role_label: &'static str,
-}
+const RENDER_CONDITIONAL_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-conditional-dependency-in-render",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-conditional-dependency-in-render",
+};
 
-impl Rule for GuardRoleRule {
+pub(super) struct NoConditionalDependencyInRender;
+pub(super) static NO_CONDITIONAL_DEPENDENCY_IN_RENDER: NoConditionalDependencyInRender =
+  NoConditionalDependencyInRender;
+
+impl Rule for NoConditionalDependencyInRender {
   fn meta(&self) -> &'static RuleMeta {
-    self.meta
+    &RENDER_CONDITIONAL_META
   }
 
   fn fact_kinds(&self) -> FactKinds {
@@ -138,14 +149,11 @@ impl Rule for GuardRoleRule {
     let FactRef::TrackingScope { scope, .. } = fact else {
       return;
     };
-    if !scope.kind.tracks_dependencies() {
+    if scope.kind != TrackingScopeKind::Render {
       return;
     }
     for read in &scope.reads {
       if read.kind != ReactiveReadKind::Conditional {
-        continue;
-      }
-      if !read.guards.iter().any(|guard| guard.role == self.role) {
         continue;
       }
       let already_unconditional = scope.reads.iter().any(|candidate| {
@@ -162,59 +170,15 @@ impl Rule for GuardRoleRule {
         self.meta(),
         read.span.clone(),
         format!(
-          "`{path}` is only reached after a {} guard in `{}`, so tracking is incomplete",
-          self.role_label, scope.callee
+          "`{path}` is read only after a control-flow guard inside render, so it is not a reliable dependency"
         ),
-        Some(
-          "Read the dependency before the guard, or use explicit `watch([...])` / getter sources."
-            .into(),
-        ),
+        Some(format!(
+          "Read `{path}` synchronously in render, or use explicit `watch` sources."
+        )),
       );
     }
   }
 }
-
-const EARLY_EXIT_META: RuleMeta = RuleMeta {
-  id: "vue-vet/reactivity/no-early-exit-gated-dependency",
-  category: "reactivity",
-  default_severity: Severity::Warning,
-  confidence: Confidence::High,
-  documentation: "rules/reactivity/no-early-exit-gated-dependency",
-};
-
-const SHORT_CIRCUIT_META: RuleMeta = RuleMeta {
-  id: "vue-vet/reactivity/no-short-circuit-gated-dependency",
-  category: "reactivity",
-  default_severity: Severity::Warning,
-  confidence: Confidence::High,
-  documentation: "rules/reactivity/no-short-circuit-gated-dependency",
-};
-
-const SWITCH_META: RuleMeta = RuleMeta {
-  id: "vue-vet/reactivity/no-switch-gated-dependency",
-  category: "reactivity",
-  default_severity: Severity::Warning,
-  confidence: Confidence::High,
-  documentation: "rules/reactivity/no-switch-gated-dependency",
-};
-
-static NO_EARLY_EXIT_GATED_DEPENDENCY: GuardRoleRule = GuardRoleRule {
-  meta: &EARLY_EXIT_META,
-  role: ReactiveGuardRole::EarlyExit,
-  role_label: "early-exit",
-};
-
-static NO_SHORT_CIRCUIT_GATED_DEPENDENCY: GuardRoleRule = GuardRoleRule {
-  meta: &SHORT_CIRCUIT_META,
-  role: ReactiveGuardRole::ShortCircuit,
-  role_label: "short-circuit",
-};
-
-static NO_SWITCH_GATED_DEPENDENCY: GuardRoleRule = GuardRoleRule {
-  meta: &SWITCH_META,
-  role: ReactiveGuardRole::SwitchDiscriminant,
-  role_label: "switch",
-};
 
 // --- deferred OutsideTracking in effects -----------------------------------------
 
@@ -276,9 +240,7 @@ pub(super) fn tracer_extra_rules() -> Vec<&'static dyn Rule> {
   vec![
     &NO_DEEP_WATCH_ON_REACTIVE_ROOT,
     &NO_REACTIVE_READ_DURING_PAUSE_TRACKING,
-    &NO_EARLY_EXIT_GATED_DEPENDENCY,
-    &NO_SHORT_CIRCUIT_GATED_DEPENDENCY,
-    &NO_SWITCH_GATED_DEPENDENCY,
+    &NO_CONDITIONAL_DEPENDENCY_IN_RENDER,
     &NO_DEFERRED_CALLBACK_REACTIVE_READ_IN_EFFECT,
   ]
 }
