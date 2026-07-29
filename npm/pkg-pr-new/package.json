@@ -1,0 +1,9 @@
+{
+  "name": "vue-vet-pkg-pr-new",
+  "private": true,
+  "description": "Locked pkg-pr-new for continuous preview publishes (CI only)",
+  "license": "MIT",
+  "dependencies": {
+    "pkg-pr-new": "0.0.82"
+  }
+}

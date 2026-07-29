@@ -1,0 +1,176 @@
+name: pkg.pr.new
+
+on:
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'npm/**'
+      - '.github/workflows/pkg-pr-new.yml'
+  push:
+    branches: [main]
+    tags: ['!**']
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'npm/**'
+      - '.github/workflows/pkg-pr-new.yml'
+
+concurrency:
+  group: pkg-pr-new-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# Comments / check runs are posted by the pkg.pr.new GitHub App.
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    # Fork PRs cannot publish via the installed App; skip the matrix early.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            npm_pkg: linux-x64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            npm_pkg: linux-arm64
+          - target: x86_64-apple-darwin
+            os: macos-15
+            npm_pkg: darwin-x64
+          - target: aarch64-apple-darwin
+            os: macos-15
+            npm_pkg: darwin-arm64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            npm_pkg: win32-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: pkg-pr-new-${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Resolve workspace version
+        id: version
+        shell: bash
+        run: echo "version=$(node npm/scripts/workspace-version.mjs)" >> "$GITHUB_OUTPUT"
+
+      - name: Build release binary
+        shell: bash
+        run: cargo build -p vue-vet --release --target ${{ matrix.target }} --locked
+
+      - name: Pack platform package
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="target/${{ matrix.target }}/release/vue-vet"
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            binary="${binary}.exe"
+          fi
+          node npm/scripts/pack-platform.mjs \
+            --target "${{ matrix.target }}" \
+            --binary "$binary" \
+            --version "${{ steps.version.outputs.version }}" \
+            --out "dist/npm/@vue-vet/${{ matrix.npm_pkg }}"
+
+      - name: Smoke --version on native host
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="target/${{ matrix.target }}/release/vue-vet"
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            binary="${binary}.exe"
+          fi
+          host="$(rustc -vV | sed -n 's/^host: //p')"
+          if [[ "$host" == "${{ matrix.target }}" ]]; then
+            "$binary" --version
+          else
+            echo "skip host smoke for ${{ matrix.target }} on $host"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-${{ matrix.npm_pkg }}
+          path: dist/npm/@vue-vet/${{ matrix.npm_pkg }}
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish preview
+    needs: build
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: npm/pkg-pr-new/package-lock.json
+
+      - name: Resolve workspace version
+        id: version
+        shell: bash
+        run: echo "version=$(node npm/scripts/workspace-version.mjs)" >> "$GITHUB_OUTPUT"
+
+      - name: Download platform packages
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/npm-artifacts
+          pattern: npm-*
+
+      - name: Arrange packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/npm/@vue-vet
+          for dir in dist/npm-artifacts/npm-*; do
+            name="${dir##*/npm-}"
+            rm -rf "dist/npm/@vue-vet/$name"
+            cp -R "$dir" "dist/npm/@vue-vet/$name"
+            # upload-artifact does not preserve unix execute bits.
+            chmod a+x "dist/npm/@vue-vet/$name"/bin/vue-vet \
+              "dist/npm/@vue-vet/$name"/bin/vue-vet.exe 2>/dev/null || true
+          done
+          node npm/scripts/prepare-preview-launcher.mjs \
+            --version "${{ steps.version.outputs.version }}" \
+            --out dist/npm/@vue-vet/cli
+          ls -laR dist/npm/@vue-vet
+
+      - name: Install pkg-pr-new
+        working-directory: npm/pkg-pr-new
+        run: npm ci
+
+      - name: Publish to pkg.pr.new
+        working-directory: npm/pkg-pr-new
+        run: >
+          npm exec -- pkg-pr-new publish
+          --bin
+          --previewVersion
+          --no-template
+          --comment=update
+          '../../dist/npm/@vue-vet/*'
