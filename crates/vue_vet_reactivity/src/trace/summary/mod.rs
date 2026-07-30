@@ -315,7 +315,7 @@ pub(super) enum ExportState {
 
 /// Under-approx classification of a composable/factory function return.
 #[derive(Debug, Eq, PartialEq)]
-enum ComposableReturn {
+pub enum ComposableReturn {
   Object(ComposableShape),
   ValueBag(ValueBag),
   Factory(ReactiveBindingKind),
@@ -1171,8 +1171,11 @@ impl ReturnKindAccum {
   }
 }
 
-/// Object bag or scalar factory return for a function/arrow (under-approx).
-fn composable_return_with_index(
+/// Object bag / value bag / scalar factory return for a function/arrow (under-approx).
+///
+/// Single-pass — callers should prefer this over calling shape + value-bag + factory
+/// helpers separately (each would re-walk returns).
+pub fn composable_return_with_index(
   semantic: &oxc_semantic::Semantic<'_>,
   function_id: NodeId,
   graph: &ReactivityGraph,

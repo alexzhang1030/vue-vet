@@ -150,16 +150,22 @@ fn trace_reactivity_seeded_inner(
     false,
   );
   // `type: ComputedRef<T>` / `const x: Ref<T> = …` — typed parameters & declarators.
-  for binding in collect_typed_reactive_bindings(semantic, sfc_source, script_offset) {
-    push_binding_by_span(&mut scope_bindings, binding);
+  // Cheap source gate: skip the AST walk when no Ref-like annotation text exists
+  // (keeps `trace_1k_modules` / plain `ref()` modules off this path).
+  if source_may_have_typed_ref_annotations(sfc_source) {
+    for binding in collect_typed_reactive_bindings(semantic, sfc_source, script_offset) {
+      push_binding_by_span(&mut scope_bindings, binding);
+    }
   }
   // `defineComponent` / `defineTypedComponent` / `setup(props)` — props bag is reactive.
-  for binding in
-    collect_component_props_bindings(semantic, &imported_bindings, sfc_source, script_offset)
-  {
-    push_binding_by_span(&mut scope_bindings, binding.clone());
-    if !bindings.iter().any(|local| local.name == binding.name) {
-      bindings.push(binding);
+  if source_may_have_component_props_factory(sfc_source) {
+    for binding in
+      collect_component_props_bindings(semantic, &imported_bindings, sfc_source, script_offset)
+    {
+      push_binding_by_span(&mut scope_bindings, binding.clone());
+      if !bindings.iter().any(|local| local.name == binding.name) {
+        bindings.push(binding);
+      }
     }
   }
   for binding in &seeds.bindings {
@@ -400,14 +406,16 @@ fn collect_local_composable_usage(
     }
   }
   // `api.maps.useX()` member destructures against local value bags.
-  seed_local_member_calls(
-    semantic,
-    &value_bags,
-    &mut instances,
-    &mut seeded,
-    sfc_source,
-    script_offset,
-  );
+  if !value_bags.is_empty() {
+    seed_local_member_calls(
+      semantic,
+      &value_bags,
+      &mut instances,
+      &mut seeded,
+      sfc_source,
+      script_offset,
+    );
+  }
   (instances, seeded, composables)
 }
 
@@ -420,6 +428,7 @@ fn seed_local_member_calls(
   script_offset: usize,
 ) {
   use summary::ValueBagEntry;
+  debug_assert!(!value_bags.is_empty(), "caller gates empty value bags");
   for node in semantic.nodes() {
     let AstKind::CallExpression(call) = node.kind() else {
       continue;
@@ -489,33 +498,30 @@ fn local_composable_export_for(
   declared_return_kind: Option<ReactiveBindingKind>,
   declared_return_shape: impl FnOnce() -> summary::ComposableShape,
 ) -> Option<LocalComposableExport> {
-  let shape = summary::composable_return_shape_with_index(
-    semantic,
-    function_id,
-    shape_graph,
-    script_offset,
-    returns_by_function,
-  );
-  if !shape.is_empty() {
-    return Some(LocalComposableExport::Bag(shape));
-  }
-  if let Some(bag) = summary::composable_value_bag_with_index(
+  // One return walk — do not call shape/value-bag/factory helpers separately.
+  match summary::composable_return_with_index(
     semantic,
     function_id,
     shape_graph,
     script_offset,
     returns_by_function,
   ) {
-    return Some(LocalComposableExport::ValueFactory(bag));
-  }
-  if let Some(kind) = summary::composable_factory_kind_with_index(
-    semantic,
-    function_id,
-    shape_graph,
-    script_offset,
-    returns_by_function,
-  ) {
-    return Some(LocalComposableExport::Factory(kind));
+    Some(summary::ComposableReturn::Object(shape)) if !shape.is_empty() => {
+      return Some(LocalComposableExport::Bag(shape));
+    }
+    Some(summary::ComposableReturn::ValueBag(bag)) if !bag.is_empty() => {
+      return Some(LocalComposableExport::ValueFactory(bag));
+    }
+    Some(summary::ComposableReturn::Factory(kind)) => {
+      return Some(LocalComposableExport::Factory(kind));
+    }
+    Some(
+      summary::ComposableReturn::Object(_)
+      | summary::ComposableReturn::ValueBag(_)
+      | summary::ComposableReturn::UnwrappedState
+      | summary::ComposableReturn::Forward(_),
+    )
+    | None => {}
   }
   let declared_shape = declared_return_shape();
   if declared_shape.is_empty() {
@@ -1055,6 +1061,22 @@ fn push_binding_by_span(bindings: &mut Vec<ReactiveBindingFact>, binding: Reacti
   {
     bindings.push(binding);
   }
+}
+
+/// Source may contain a typed Ref-like annotation worth walking the AST for.
+#[inline]
+fn source_may_have_typed_ref_annotations(source: &str) -> bool {
+  // Forms recognized by `ts_type_reactive_kind` (not the `ref()` runtime API).
+  source.contains("Ref")
+    || source.contains("Computed")
+    || source.contains("Readonly")
+    || source.contains("ToRef")
+}
+
+/// Source may call a component factory that seeds a props bag.
+#[inline]
+fn source_may_have_component_props_factory(source: &str) -> bool {
+  source.contains("defineComponent") || source.contains("defineTypedComponent")
 }
 
 /// Seed bindings from TypeScript ref-like annotations on parameters / declarators.
