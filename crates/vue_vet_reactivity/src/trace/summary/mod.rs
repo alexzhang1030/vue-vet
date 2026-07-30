@@ -740,56 +740,61 @@ fn collect_local_values(
     }
   }
 
-  // Same-file fixpoint: ForwardReturn → known local shapes; call inits → ValueBag.
-  for _ in 0..8 {
-    let mut changed = false;
-    let forwards: Vec<(String, String)> = locals
-      .iter()
-      .filter_map(|(name, state)| match state {
-        ExportState::ForwardReturn(callee) => Some((name.clone(), callee.clone())),
-        _ => None,
-      })
-      .collect();
-    for (name, callee) in forwards {
-      let Some(resolved) = locals.get(&callee).cloned() else {
-        continue;
-      };
-      if !matches!(
-        resolved,
-        ExportState::Composable(_) | ExportState::Factory(_) | ExportState::ValueFactory(_)
-      ) {
-        continue;
+  // Same-file fixpoint only when forwards / value factories are present.
+  let needs_fixpoint = locals
+    .values()
+    .any(|state| matches!(state, ExportState::ForwardReturn(_) | ExportState::ValueFactory(_)));
+  if needs_fixpoint {
+    for _ in 0..8 {
+      let mut changed = false;
+      let forwards: Vec<(String, String)> = locals
+        .iter()
+        .filter_map(|(name, state)| match state {
+          ExportState::ForwardReturn(callee) => Some((name.clone(), callee.clone())),
+          _ => None,
+        })
+        .collect();
+      for (name, callee) in forwards {
+        let Some(resolved) = locals.get(&callee).cloned() else {
+          continue;
+        };
+        if !matches!(
+          resolved,
+          ExportState::Composable(_) | ExportState::Factory(_) | ExportState::ValueFactory(_)
+        ) {
+          continue;
+        }
+        if locals.get(&name) != Some(&resolved) {
+          locals.insert(name, resolved);
+          changed = true;
+        }
       }
-      if locals.get(&name) != Some(&resolved) {
-        locals.insert(name, resolved);
-        changed = true;
+      for node in semantic.nodes() {
+        let AstKind::VariableDeclarator(declarator) = node.kind() else {
+          continue;
+        };
+        let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
+          continue;
+        };
+        let Some(Expression::CallExpression(call)) = &declarator.init else {
+          continue;
+        };
+        let Some(callee) = call.callee.get_identifier_reference() else {
+          continue;
+        };
+        let Some(ExportState::ValueFactory(bag)) = locals.get(callee.name.as_str()) else {
+          continue;
+        };
+        let next = ExportState::ValueBag(bag.clone());
+        let name = identifier.name.to_string();
+        if locals.get(&name) != Some(&next) {
+          locals.insert(name, next);
+          changed = true;
+        }
       }
-    }
-    for node in semantic.nodes() {
-      let AstKind::VariableDeclarator(declarator) = node.kind() else {
-        continue;
-      };
-      let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
-        continue;
-      };
-      let Some(Expression::CallExpression(call)) = &declarator.init else {
-        continue;
-      };
-      let Some(callee) = call.callee.get_identifier_reference() else {
-        continue;
-      };
-      let Some(ExportState::ValueFactory(bag)) = locals.get(callee.name.as_str()) else {
-        continue;
-      };
-      let next = ExportState::ValueBag(bag.clone());
-      let name = identifier.name.to_string();
-      if locals.get(&name) != Some(&next) {
-        locals.insert(name, next);
-        changed = true;
+      if !changed {
+        break;
       }
-    }
-    if !changed {
-      break;
     }
   }
 
@@ -1037,16 +1042,20 @@ impl ReturnKindAccum {
         &mut self.ambiguous,
       );
       self.open_reactive_spread = self.open_reactive_spread || opened;
-      merge_return_object_into_value_bag(
-        semantic,
-        expression,
-        graph,
-        imported_bindings,
-        script_offset,
-        returns_by_function,
-        visiting,
-        &mut self.value_bag,
-      );
+      // Value-bag walk is for method nests (`{ maps: { useX } }`). Skip when this
+      // return is already a reactive field bag — the common composable path.
+      if self.shape.is_empty() && !self.open_reactive_spread {
+        merge_return_object_into_value_bag(
+          semantic,
+          expression,
+          graph,
+          imported_bindings,
+          script_offset,
+          returns_by_function,
+          visiting,
+          &mut self.value_bag,
+        );
+      }
       return;
     }
     if is_to_refs_call(semantic, expression, imported_bindings) {
@@ -1055,12 +1064,7 @@ impl ReturnKindAccum {
       return;
     }
     if let Expression::Identifier(identifier) = expression
-      && identifier_initialized_with_to_refs(
-        semantic,
-        function_id,
-        identifier.name.as_str(),
-        imported_bindings,
-      )
+      && identifier_initialized_with_to_refs(semantic, function_id, identifier, imported_bindings)
     {
       self.saw_object_return = true;
       self.open_reactive_spread = true;
@@ -1703,31 +1707,28 @@ fn is_to_refs_call(
 fn identifier_initialized_with_to_refs(
   semantic: &oxc_semantic::Semantic<'_>,
   function_id: NodeId,
-  name: &str,
+  identifier: &oxc_ast::ast::IdentifierReference<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
 ) -> bool {
-  for node in semantic.nodes() {
-    let AstKind::VariableDeclarator(declarator) = node.kind() else {
-      continue;
-    };
-    let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
-      continue;
-    };
-    if identifier.name.as_str() != name {
-      continue;
-    }
-    // Same owning function/arrow only.
-    let owned_here =
-      semantic.nodes().ancestor_ids(node.id()).any(|ancestor| ancestor == function_id);
-    if !owned_here {
-      continue;
-    }
-    let Some(init) = &declarator.init else {
-      continue;
-    };
-    return is_to_refs_call(semantic, init, imported_bindings);
+  // Resolve via the return identifier's symbol — O(1) vs scanning all nodes.
+  let Some(reference_id) = identifier.reference_id.get() else {
+    return false;
+  };
+  let Some(symbol_id) = semantic.scoping().get_reference(reference_id).symbol_id() else {
+    return false;
+  };
+  let decl = semantic.symbol_declaration(symbol_id);
+  let AstKind::VariableDeclarator(declarator) = decl.kind() else {
+    return false;
+  };
+  let owned_here = semantic.nodes().ancestor_ids(decl.id()).any(|ancestor| ancestor == function_id);
+  if !owned_here {
+    return false;
   }
-  false
+  let Some(init) = &declarator.init else {
+    return false;
+  };
+  is_to_refs_call(semantic, init, imported_bindings)
 }
 
 fn resolve_call_return_forward(
@@ -1790,39 +1791,39 @@ fn resolve_call_return_forward(
 
 fn local_function_id_for_name(
   semantic: &oxc_semantic::Semantic<'_>,
-  name: &str,
+  _name: &str,
   reference: &oxc_ast::ast::IdentifierReference<'_>,
 ) -> Option<NodeId> {
   let reference_id = reference.reference_id.get()?;
   let symbol_id = semantic.scoping().get_reference(reference_id).symbol_id()?;
-  let def_span = semantic.scoping().symbol_span(symbol_id);
-  for node in semantic.nodes() {
-    match node.kind() {
-      AstKind::Function(function) => {
-        if let Some(identifier) = &function.id
-          && identifier.name.as_str() == name
-          && identifier.span == def_span
-        {
-          return Some(function.node_id.get());
-        }
-      }
-      AstKind::VariableDeclarator(declarator) => {
-        let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
-          continue;
-        };
-        if identifier.name.as_str() != name || identifier.span != def_span {
-          continue;
-        }
-        match &declarator.init {
-          Some(Expression::ArrowFunctionExpression(arrow)) => return Some(arrow.node_id.get()),
-          Some(Expression::FunctionExpression(function)) => return Some(function.node_id.get()),
+  let decl = semantic.symbol_declaration(symbol_id);
+  match decl.kind() {
+    AstKind::Function(function) => Some(function.node_id.get()),
+    AstKind::VariableDeclarator(declarator) => match &declarator.init {
+      Some(Expression::ArrowFunctionExpression(arrow)) => Some(arrow.node_id.get()),
+      Some(Expression::FunctionExpression(function)) => Some(function.node_id.get()),
+      _ => None,
+    },
+    // `function useX()` binds on the Function node; some paths surface the id binding.
+    AstKind::BindingIdentifier(_) => {
+      // Walk one hop to the owning function / declarator.
+      for ancestor_id in semantic.nodes().ancestor_ids(decl.id()) {
+        match semantic.nodes().kind(ancestor_id) {
+          AstKind::Function(function) => return Some(function.node_id.get()),
+          AstKind::VariableDeclarator(declarator) => {
+            return match &declarator.init {
+              Some(Expression::ArrowFunctionExpression(arrow)) => Some(arrow.node_id.get()),
+              Some(Expression::FunctionExpression(function)) => Some(function.node_id.get()),
+              _ => None,
+            };
+          }
           _ => {}
         }
       }
-      _ => {}
+      None
     }
+    _ => None,
   }
-  None
 }
 
 fn merge_value_bag(into: &mut ValueBag, from: ValueBag) {

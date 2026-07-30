@@ -816,11 +816,30 @@ fn resolve_exports(
   let mut resolved =
     facts.keys().map(|id| (id.clone(), BTreeMap::new())).collect::<BTreeMap<_, _>>();
 
-  // Working locals include ForwardReturn; refined into `resolved` as they become seedable.
-  let mut working_locals: BTreeMap<ModuleId, BTreeMap<String, ExportState>> = facts
-    .iter()
-    .map(|(id, module_facts)| (id.clone(), module_facts.summary.locals.clone()))
-    .collect();
+  // Cheap path: seed finished locals once (same as pre-forward linking).
+  for (id, module_facts) in facts {
+    for export in &module_facts.summary.exports {
+      let ExportSummary::Local { local, exported } = export else {
+        continue;
+      };
+      if let Some(state) = module_facts.summary.locals.get(local) {
+        insert_export(&mut resolved, id, exported, state.clone());
+      }
+    }
+  }
+
+  // Working copies only for modules that still need ForwardReturn / value-bag refine.
+  let mut working_locals: BTreeMap<ModuleId, BTreeMap<String, ExportState>> = BTreeMap::new();
+  for (id, module_facts) in facts {
+    if module_facts.summary.locals.values().any(|state| {
+      matches!(
+        state,
+        ExportState::ForwardReturn(_) | ExportState::ValueFactory(_) | ExportState::ValueBag(_)
+      )
+    }) {
+      working_locals.insert(id.clone(), module_facts.summary.locals.clone());
+    }
+  }
 
   // target module → consumers that import/re-export from it
   let mut reverse_users: BTreeMap<&ModuleId, Vec<&ModuleId>> = BTreeMap::new();
@@ -828,8 +847,18 @@ fn resolve_exports(
     reverse_users.entry(*to).or_default().push(*from);
   }
 
-  let mut queue: VecDeque<&ModuleId> = facts.keys().collect();
-  let mut queued: BTreeSet<&ModuleId> = facts.keys().collect();
+  let mut queue = VecDeque::new();
+  let mut queued = BTreeSet::new();
+  for (id, module_facts) in facts {
+    let needs_reexport =
+      module_facts.summary.exports.iter().any(|export| {
+        matches!(export, ExportSummary::Reexport { .. } | ExportSummary::Star { .. })
+      });
+    if needs_reexport || working_locals.contains_key(id) {
+      queue.push_back(id);
+      queued.insert(id);
+    }
+  }
 
   while let Some(id) = queue.pop_front() {
     queued.remove(id);
@@ -837,6 +866,7 @@ fn resolve_exports(
       continue;
     };
     let mut changed = false;
+    let mut refined_forward = false;
 
     // Resolve ForwardReturn / refine value bags against imports + working locals.
     if let Some(locals) = working_locals.get_mut(id) {
@@ -845,15 +875,19 @@ fn resolve_exports(
         let Some(state) = locals.get(&name).cloned() else {
           continue;
         };
+        if !matches!(
+          state,
+          ExportState::ForwardReturn(_) | ExportState::ValueFactory(_) | ExportState::ValueBag(_)
+        ) {
+          continue;
+        }
         let refined = refine_export_state(state, id, locals, facts, links, &resolved);
         if locals.get(&name) != Some(&refined) {
+          refined_forward = true;
           locals.insert(name, refined);
           changed = true;
         }
       }
-    }
-
-    if let Some(locals) = working_locals.get(id) {
       for export in &module_facts.summary.exports {
         let ExportSummary::Local { local, exported } = export else {
           continue;
@@ -895,16 +929,15 @@ fn resolve_exports(
     if !changed {
       continue;
     }
-    let Some(users) = reverse_users.get(id) else {
-      continue;
-    };
-    for consumer in users {
-      if queued.insert(consumer) {
-        queue.push_back(consumer);
+    if let Some(users) = reverse_users.get(id) {
+      for consumer in users {
+        if queued.insert(consumer) {
+          queue.push_back(consumer);
+        }
       }
     }
-    // Re-queue self when forwards may unlock further locals.
-    if queued.insert(id) {
+    // Only re-enter when a forward/value-bag refine may unlock more locals.
+    if refined_forward && working_locals.contains_key(id) && queued.insert(id) {
       queue.push_back(id);
     }
   }
