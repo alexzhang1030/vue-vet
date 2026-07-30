@@ -15,12 +15,12 @@ pub use prop_flow::{PropFlowSite, join_prop_flows};
 pub use trace::{
   ComposableShape, DEEP_WATCH_PROPERTY, ModuleLink, ModuleReactivity, ModuleSource, ModuleSummary,
   ModuleTraceState, PreparedModuleTrace, TraceModulesError, TraceModulesOptions,
-  TraceModulesReport, TraceModulesStats, arrow_return_type_kind, arrow_return_type_shape,
-  build_returns_by_function, composable_factory_kind_with_index, composable_return_shape,
-  composable_return_shape_with_index, function_return_type_kind, function_return_type_shape,
-  merge_declaration_implementation_summary, prepare_module_summary, prepare_module_trace,
-  prepare_standalone_module_source, trace_modules, trace_modules_incremental_with_options,
-  trace_modules_with_options, trace_reactivity,
+  TraceModulesReport, TraceModulesStats, ValueBag, ValueBagEntry, arrow_return_type_kind,
+  arrow_return_type_shape, build_returns_by_function, composable_factory_kind_with_index,
+  composable_return_shape, composable_return_shape_with_index, composable_value_bag_with_index,
+  function_return_type_kind, function_return_type_shape, merge_declaration_implementation_summary,
+  prepare_module_summary, prepare_module_trace, prepare_standalone_module_source, trace_modules,
+  trace_modules_incremental_with_options, trace_modules_with_options, trace_reactivity,
 };
 
 #[cfg(test)]

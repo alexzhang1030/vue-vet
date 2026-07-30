@@ -501,6 +501,13 @@ reads stay empty do they consult `uncertain_accesses` (reactivity-shaped
 and report with `(maybe: …)`. Do not invent edges; do not treat empty reads as
 ironclad proof when soft evidence remains.
 
+**Typed ref parameters & nested composable locals.** Formal parameters /
+declarators annotated as `Ref` / `ComputedRef` / … seed scope-classification
+bindings via `ts_type_reactive_kind` so `type.value` inside a composable is not
+`(maybe: type)`. Function-local `ref()` / `computed()` calls likewise participate
+in scope classification (span-resolved) even though they stay out of the
+published top-level `bindings` list (#140).
+
 Nuxt (and unplugin-auto-import) often call `ref` / `watchEffect` with **no**
 `import` statement. The tracer treats bare identifiers as Vue APIs only when
 Oxc marks them unresolved and the name is on the `vue` / `#imports` allowlist.
@@ -586,6 +593,33 @@ function (`queryResult.data.value` / similar). Then known `bag.field.value`
 keys merge into the shape and `open_reactive_spread` lets consumers destructure
 additional keys (e.g. `isLoading`) as `Ref`. Plain `...extras` without `.value`
 reads stays closed — do not invent Ref seeds.
+
+**Component `props` bags.** `defineProps()` already seeds `Reactive`. Also seed
+the first parameter of Vue `defineComponent` factories (import from
+`vue` / `#imports` / `vue-demi` / `@vue/runtime-*`, bare auto-import, same-file
+identity forwarder, or a setup-forward wrapper) and options-API `setup(props)`
+so `computed(() => props.foo)` tracks. Wrappers whose body forwards the first
+parameter to `defineComponent` (allowing `as any` aliases and an optional second
+options argument) export as `ExportState::ComponentFactory`; consumers seed via
+that summary — not by helper name. Opaque helpers without a `defineComponent`
+forward stay quiet. Package `.d.ts` declare wrappers regain the flag when a
+size-capped `exports.import` body (and one relative chunk hop) proves the
+forward — never from the declaration signature alone.
+
+**Composable shape forwarding (not name allowlists).** Prefer declared / body
+return shapes over package or callee-name heuristics. Mapped object types whose
+values peel to `Ref`/`ComputedRef` (including
+`{ [K in keyof T]: … ? Fn : Ref<…> }`) become `ComposableShape` with
+`open_reactive_spread` so destructured keys seed as `Ref` without a field table.
+`return toRefs(…)` and `return <call>(…)` that resolve to a known composable
+shape forward that shape. Nested `return { maps: createX() }` value bags plus
+static member calls (`api.maps.useX()`) resolve the leaf composable — quiet when
+the path is unknown. Do not add `useApi*` / `*Query*` name matchers.
+
+**unused-component + barrels / stories.** Script `import { Foo } from '@components'`
+often resolves to an index barrel while `components/Foo/…` is the real node —
+also emit `ComponentUsage` edges by imported local/exported name. Skip
+`.story.` / `.test.` / `.spec.` / `__tests__` paths.
 
 Cross-module export shapes are not only `export function useX`. Also register:
 - `export const useX = () => ({ … })` / `export const useX = function () { … }`

@@ -17,8 +17,8 @@ use super::super::{
 use super::{
   DestructuredCallBinding, ExportState, ExportSummary, ImportSummary, InstanceCallBinding,
   ModuleExportFacts, ModuleLink, ModulePhaseOne, ModuleReactivity, ModuleSource, ModuleSummary,
-  NUXT_IMPORTS_RANGE_END, NUXT_IMPORTS_SPECIFIER_PREFIX, TraceModulesError,
-  analyze_module_phase_one_cached, collect_imports, join_errors, source_type,
+  NUXT_IMPORTS_RANGE_END, NUXT_IMPORTS_SPECIFIER_PREFIX, TraceModulesError, ValueBag,
+  ValueBagEntry, analyze_module_phase_one_cached, collect_imports, join_errors, source_type,
 };
 
 /// Concurrency limit for cross-module tracing.
@@ -816,6 +816,9 @@ fn resolve_exports(
   let mut resolved =
     facts.keys().map(|id| (id.clone(), BTreeMap::new())).collect::<BTreeMap<_, _>>();
 
+  // Cheap path: seed finished locals once (same as pre-forward linking).
+  // `import { x as y }; export { y }` barrels resolve via import links in the
+  // fixed-point below — only locals with finished state are inserted here.
   for (id, module_facts) in facts {
     for export in &module_facts.summary.exports {
       let ExportSummary::Local { local, exported } = export else {
@@ -824,6 +827,19 @@ fn resolve_exports(
       if let Some(state) = module_facts.summary.locals.get(local) {
         insert_export(&mut resolved, id, exported, state.clone());
       }
+    }
+  }
+
+  // Working copies only for modules that still need ForwardReturn / value-bag refine.
+  let mut working_locals: BTreeMap<ModuleId, BTreeMap<String, ExportState>> = BTreeMap::new();
+  for (id, module_facts) in facts {
+    if module_facts.summary.locals.values().any(|state| {
+      matches!(
+        state,
+        ExportState::ForwardReturn(_) | ExportState::ValueFactory(_) | ExportState::ValueBag(_)
+      )
+    }) {
+      working_locals.insert(id.clone(), module_facts.summary.locals.clone());
     }
   }
 
@@ -836,12 +852,20 @@ fn resolve_exports(
   let mut queue = VecDeque::new();
   let mut queued = BTreeSet::new();
   for (id, module_facts) in facts {
-    if module_facts
-      .summary
-      .exports
-      .iter()
-      .any(|export| matches!(export, ExportSummary::Reexport { .. } | ExportSummary::Star { .. }))
-    {
+    let needs_reexport =
+      module_facts.summary.exports.iter().any(|export| {
+        matches!(export, ExportSummary::Reexport { .. } | ExportSummary::Star { .. })
+      });
+    // `import { d as x }; export { x }` — Local export name is not in `locals`.
+    let needs_import_local_export = module_facts.summary.exports.iter().any(|export| {
+      matches!(
+        export,
+        ExportSummary::Local { local, .. }
+          if !module_facts.summary.locals.contains_key(local)
+            && module_facts.summary.imports.iter().any(|import| import.local == *local)
+      )
+    });
+    if needs_reexport || working_locals.contains_key(id) || needs_import_local_export {
       queue.push_back(id);
       queued.insert(id);
     }
@@ -853,9 +877,51 @@ fn resolve_exports(
       continue;
     };
     let mut changed = false;
+    let mut refined_forward = false;
+
+    // Resolve ForwardReturn / refine value bags against imports + working locals.
+    if let Some(locals) = working_locals.get_mut(id) {
+      let names: Vec<String> = locals.keys().cloned().collect();
+      for name in names {
+        let Some(state) = locals.get(&name).cloned() else {
+          continue;
+        };
+        if !matches!(
+          state,
+          ExportState::ForwardReturn(_) | ExportState::ValueFactory(_) | ExportState::ValueBag(_)
+        ) {
+          continue;
+        }
+        let refined = refine_export_state(state, id, locals, facts, links, &resolved);
+        if locals.get(&name) != Some(&refined) {
+          refined_forward = true;
+          locals.insert(name, refined);
+          changed = true;
+        }
+      }
+      for export in &module_facts.summary.exports {
+        let ExportSummary::Local { local, exported } = export else {
+          continue;
+        };
+        if let Some(state) = locals.get(local) {
+          changed |= insert_export(&mut resolved, id, exported, state.clone());
+        }
+      }
+    }
+
     for export in &module_facts.summary.exports {
       match export {
-        ExportSummary::Local { .. } => {}
+        ExportSummary::Local { local, exported } => {
+          // Barrel: `import { d as defineTypedComponent }; export { defineTypedComponent }`.
+          if module_facts.summary.locals.contains_key(local) {
+            continue;
+          }
+          if let Some(state) =
+            resolve_name_export_state(id, local, &BTreeMap::new(), facts, links, &resolved, 0)
+          {
+            changed |= insert_export(&mut resolved, id, exported, state);
+          }
+        }
         ExportSummary::Reexport { source, imported, exported } => {
           let Some(target) = links.get(&(id, source.as_str())).copied() else {
             continue;
@@ -884,17 +950,120 @@ fn resolve_exports(
     if !changed {
       continue;
     }
-    let Some(users) = reverse_users.get(id) else {
-      continue;
-    };
-    for consumer in users {
-      if queued.insert(consumer) {
-        queue.push_back(consumer);
+    if let Some(users) = reverse_users.get(id) {
+      for consumer in users {
+        if queued.insert(consumer) {
+          queue.push_back(consumer);
+        }
       }
+    }
+    // Only re-enter when a forward/value-bag refine may unlock more locals.
+    if refined_forward && working_locals.contains_key(id) && queued.insert(id) {
+      queue.push_back(id);
     }
   }
 
   resolved
+}
+
+fn refine_export_state(
+  state: ExportState,
+  module_id: &ModuleId,
+  locals: &BTreeMap<String, ExportState>,
+  facts: &BTreeMap<ModuleId, ModuleExportFacts>,
+  links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
+  resolved: &BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
+) -> ExportState {
+  match state {
+    ExportState::ForwardReturn(callee) => {
+      resolve_name_export_state(module_id, &callee, locals, facts, links, resolved, 0)
+        .unwrap_or(ExportState::ForwardReturn(callee))
+    }
+    ExportState::ValueFactory(bag) => {
+      ExportState::ValueFactory(refine_value_bag(bag, module_id, locals, facts, links, resolved))
+    }
+    ExportState::ValueBag(bag) => {
+      ExportState::ValueBag(refine_value_bag(bag, module_id, locals, facts, links, resolved))
+    }
+    other => other,
+  }
+}
+
+fn refine_value_bag(
+  bag: super::ValueBag,
+  module_id: &ModuleId,
+  locals: &BTreeMap<String, ExportState>,
+  facts: &BTreeMap<ModuleId, ModuleExportFacts>,
+  links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
+  resolved: &BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
+) -> super::ValueBag {
+  use super::ValueBagEntry;
+  let mut entries = BTreeMap::new();
+  for (key, entry) in bag.entries {
+    let next = match entry {
+      ValueBagEntry::Nested(nested) => {
+        ValueBagEntry::Nested(refine_value_bag(nested, module_id, locals, facts, links, resolved))
+      }
+      ValueBagEntry::MethodForward(callee) => {
+        match resolve_name_export_state(module_id, &callee, locals, facts, links, resolved, 0) {
+          Some(ExportState::Composable(shape)) => ValueBagEntry::Method(shape),
+          Some(ExportState::Factory(kind)) => ValueBagEntry::MethodFactory(kind),
+          Some(ExportState::ValueFactory(nested) | ExportState::ValueBag(nested)) => {
+            ValueBagEntry::Nested(nested)
+          }
+          _ => ValueBagEntry::MethodForward(callee),
+        }
+      }
+      other => other,
+    };
+    entries.insert(key, next);
+  }
+  super::ValueBag { entries }
+}
+
+fn resolve_name_export_state(
+  module_id: &ModuleId,
+  name: &str,
+  locals: &BTreeMap<String, ExportState>,
+  facts: &BTreeMap<ModuleId, ModuleExportFacts>,
+  links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
+  resolved: &BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
+  depth: u8,
+) -> Option<ExportState> {
+  if depth > 8 {
+    return None;
+  }
+  if let Some(state) = locals.get(name) {
+    match state {
+      ExportState::ForwardReturn(callee) => {
+        return resolve_name_export_state(
+          module_id,
+          callee,
+          locals,
+          facts,
+          links,
+          resolved,
+          depth.saturating_add(1),
+        );
+      }
+      ExportState::Composable(_)
+      | ExportState::Factory(_)
+      | ExportState::ValueFactory(_)
+      | ExportState::ValueBag(_)
+      | ExportState::Known(_)
+      | ExportState::ComponentFactory => return Some(state.clone()),
+      _ => {}
+    }
+  }
+  let module_facts = facts.get(module_id)?;
+  for import in &module_facts.summary.imports {
+    if import.local != name {
+      continue;
+    }
+    let target = links.get(&(module_id, import.source.as_str())).copied()?;
+    return resolved.get(target)?.get(&import.imported).cloned();
+  }
+  None
 }
 
 /// Borrowed index over owned resolved links — avoids re-allocating key pairs on lookup.
@@ -910,8 +1079,22 @@ fn insert_export(
   exported: &str,
   state: ExportState,
 ) -> bool {
-  // Provisional declaration/body halves never cross the seed barrier alone.
-  if matches!(state, ExportState::DeclaredPlainObjectFactory | ExportState::BodyUnwrappedState) {
+  // Provisional / unresolved halves never cross the seed barrier alone.
+  if matches!(
+    state,
+    ExportState::DeclaredPlainObjectFactory
+      | ExportState::BodyUnwrappedState
+      | ExportState::ForwardReturn(_)
+  ) {
+    return false;
+  }
+  // Value bags still carrying MethodForward must wait for import resolution.
+  if match &state {
+    ExportState::ValueFactory(bag) | ExportState::ValueBag(bag) => {
+      value_bag_has_method_forward(bag)
+    }
+    _ => false,
+  } {
     return false;
   }
   let Some(module_exports) = resolved.get_mut(module) else {
@@ -925,15 +1108,41 @@ fn insert_export(
     Entry::Occupied(mut entry)
       if entry.get() != &state && entry.get() != &ExportState::Ambiguous =>
     {
-      entry.insert(ExportState::Ambiguous);
-      true
+      // Allow value-bag refinement to replace a previously inserted bag.
+      match (entry.get(), &state) {
+        (ExportState::ValueFactory(_), ExportState::ValueFactory(_))
+        | (ExportState::ValueBag(_), ExportState::ValueBag(_)) => {
+          entry.insert(state);
+          true
+        }
+        _ => {
+          entry.insert(ExportState::Ambiguous);
+          true
+        }
+      }
     }
     Entry::Occupied(_) => false,
   }
 }
 
+fn value_bag_has_method_forward(bag: &ValueBag) -> bool {
+  bag.entries.values().any(|entry| match entry {
+    ValueBagEntry::MethodForward(_) => true,
+    ValueBagEntry::Nested(nested) => value_bag_has_method_forward(nested),
+    ValueBagEntry::Method(_) | ValueBagEntry::MethodFactory(_) => false,
+  })
+}
+
 const fn is_seedable_export_state(state: &ExportState) -> bool {
-  matches!(state, ExportState::Known(_) | ExportState::Factory(_) | ExportState::Composable(_))
+  matches!(
+    state,
+    ExportState::Known(_)
+      | ExportState::Factory(_)
+      | ExportState::Composable(_)
+      | ExportState::ValueFactory(_)
+      | ExportState::ValueBag(_)
+      | ExportState::ComponentFactory
+  )
 }
 
 /// Coordinator-side: which of this module's import locals resolve to reactive exports.
@@ -1082,11 +1291,31 @@ fn materialize_seeds(
           seeds.composable_instances.insert(call.local.clone(), shape.fields.clone());
         }
       }
+      ExportState::ValueFactory(bag) => {
+        // `const api = createApi()` — calling a value factory yields a value bag.
+        let imported_instances = instance_calls.iter().filter(|call| call.imported_local == *local);
+        let bare_instances =
+          bare_instance_calls.iter().filter(|call| call.imported_local == *local);
+        for call in imported_instances.chain(bare_instances) {
+          seed_value_bag_binding(&mut seeds, &call.local, bag);
+        }
+      }
+      ExportState::ValueBag(bag) => {
+        seed_value_bag_binding(&mut seeds, local, bag);
+      }
+      ExportState::ComponentFactory => {
+        // Import local is a defineComponent setup wrapper — seed props at call sites.
+        seeds.component_factories.insert(local.clone());
+      }
       ExportState::DeclaredPlainObjectFactory
       | ExportState::BodyUnwrappedState
+      | ExportState::ForwardReturn(_)
       | ExportState::Ambiguous => {}
     }
   }
+  // Member-call destructures against seeded value bags (`api.maps.useX()`).
+  let bags = seeds.value_bags.clone();
+  seed_member_calls_from_value_bags(semantic, &bags, span_source, span_base, &mut seeds);
   // Inject locals: re-read sites for exact spans; offers from the coordinator plan.
   if !plan.injects.is_empty() {
     let imported_bindings = super::collect_imported_bindings(semantic);
@@ -1199,4 +1428,78 @@ fn collect_bare_destructured_calls(
   }
   calls.sort_by_key(|call| call.span.start);
   calls
+}
+
+fn seed_value_bag_binding(seeds: &mut TraceSeeds, local: &str, bag: &ValueBag) {
+  seeds.value_bags.insert(local.to_owned(), bag.clone());
+}
+
+fn seed_member_calls_from_value_bags(
+  semantic: &Semantic<'_>,
+  bags: &BTreeMap<String, ValueBag>,
+  span_source: &str,
+  span_base: usize,
+  seeds: &mut TraceSeeds,
+) {
+  if bags.is_empty() {
+    return;
+  }
+  for node in semantic.nodes() {
+    let AstKind::CallExpression(call) = node.kind() else {
+      continue;
+    };
+    let Some((root, path)) = super::static_member_call_path(&call.callee) else {
+      continue;
+    };
+    let Some(bag) = bags.get(&root) else {
+      continue;
+    };
+    let Some(entry) = bag.resolve_path(&path) else {
+      continue;
+    };
+    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
+    else {
+      continue;
+    };
+    match (entry, &declarator.id) {
+      (ValueBagEntry::Method(shape), BindingPattern::ObjectPattern(pattern)) => {
+        for property in &pattern.properties {
+          let Some(exported) = property.key.static_name() else {
+            continue;
+          };
+          let Some(kind) = shape.kind_for_destructure(exported.as_ref()) else {
+            continue;
+          };
+          let mut identifiers = Vec::new();
+          collect_binding_identifiers(&property.value, &mut identifiers);
+          for (local, span) in identifiers {
+            if seeds.bindings.iter().any(|binding| binding.name == local) {
+              continue;
+            }
+            seeds.bindings.push(ReactiveBindingFact {
+              name: local,
+              kind,
+              initialized_with_null: false,
+              span: source_span(span_source, span_base, span),
+            });
+          }
+        }
+      }
+      (ValueBagEntry::Method(shape), BindingPattern::BindingIdentifier(identifier)) => {
+        seeds.composable_instances.insert(identifier.name.to_string(), shape.fields.clone());
+      }
+      (ValueBagEntry::MethodFactory(kind), BindingPattern::BindingIdentifier(identifier)) => {
+        if seeds.bindings.iter().any(|binding| binding.name == identifier.name.as_str()) {
+          continue;
+        }
+        seeds.bindings.push(ReactiveBindingFact {
+          name: identifier.name.to_string(),
+          kind: *kind,
+          initialized_with_null: false,
+          span: source_span(span_source, span_base, identifier.span),
+        });
+      }
+      _ => {}
+    }
+  }
 }

@@ -78,6 +78,8 @@ pub enum LocalComposableExport {
   Bag(summary::ComposableShape),
   /// `return ref(0)` / declared `(): Ref<T>` scalar factory.
   Factory(ReactiveBindingKind),
+  /// `return { maps: { useX } }` nested method bag factory.
+  ValueFactory(summary::ValueBag),
 }
 
 /// Same-file composable defs: name → (definition span, return classification).
@@ -89,6 +91,10 @@ pub struct TraceSeeds {
   bindings: Vec<ReactiveBindingFact>,
   /// `const bag = useFoo()` locals mapped to composable return field kinds.
   composable_instances: ComposableShapeMap,
+  /// `const api = createApi()` nested method bags for member-call seeding.
+  value_bags: BTreeMap<String, summary::ValueBag>,
+  /// Import locals that wrap Vue `defineComponent` (cross-module `ComponentFactory`).
+  component_factories: BTreeSet<String>,
 }
 
 thread_local! {
@@ -126,10 +132,10 @@ fn trace_reactivity_seeded_inner(
   seeds: &TraceSeeds,
 ) -> ReactivityGraph {
   let imported_bindings = collect_imported_bindings(semantic);
-  // Include function-local refs when resolving `return { signal }` shapes, but do
-  // not publish them as top-level graph bindings (they would collide with
-  // `const { signal } = useX()` seeds and invent bare-name edges).
-  let shape_bindings = collect_reactive_bindings(
+  // Include function-local refs when resolving `return { signal }` shapes and when
+  // classifying nested tracking scopes. Do not publish them as top-level graph
+  // bindings (they would collide with `const { signal } = useX()` seeds by name).
+  let mut scope_bindings = collect_reactive_bindings(
     semantic,
     &imported_bindings,
     sfc_source,
@@ -145,19 +151,47 @@ fn trace_reactivity_seeded_inner(
     script_kind,
     false,
   );
+  // `type: ComputedRef<T>` / `const x: Ref<T> = …` — typed parameters & declarators.
+  // Cheap source gate: skip the AST walk when no Ref-like annotation text exists
+  // (keeps `trace_1k_modules` / plain `ref()` modules off this path).
+  if source_may_have_typed_ref_annotations(sfc_source) {
+    for binding in collect_typed_reactive_bindings(semantic, sfc_source, script_offset) {
+      push_binding_by_span(&mut scope_bindings, binding);
+    }
+  }
+  // `defineComponent` / `setup(props)` — props bag is reactive.
+  // Custom wrappers seed when they forward to `defineComponent` (same-file or
+  // cross-module `ExportState::ComponentFactory` via seeds).
+  if source_may_have_component_props_factory(sfc_source) || !seeds.component_factories.is_empty() {
+    for binding in collect_component_props_bindings(
+      semantic,
+      &imported_bindings,
+      sfc_source,
+      script_offset,
+      &seeds.component_factories,
+    ) {
+      push_binding_by_span(&mut scope_bindings, binding.clone());
+      if !bindings.iter().any(|local| local.name == binding.name) {
+        bindings.push(binding);
+      }
+    }
+  }
   for binding in &seeds.bindings {
     if !bindings.iter().any(|local| local.name == binding.name) {
       bindings.push(binding.clone());
     }
+    push_binding_by_span(&mut scope_bindings, binding.clone());
   }
 
   // Same-file composables: `function useX()` / `const useX = () => …` shapes, then
   // `const bag = useX()` / `const { field } = useX()` seeds. Cross-module seeds win
   // on name conflict (already linked by the module graph).
-  let shape_graph = ReactivityGraph { bindings: shape_bindings, ..ReactivityGraph::default() };
+  let shape_graph =
+    ReactivityGraph { bindings: scope_bindings.clone(), ..ReactivityGraph::default() };
   let (local_instances, local_destructured, local_composable_shapes) =
     collect_local_composable_usage(semantic, &shape_graph, sfc_source, script_offset);
   for binding in local_destructured {
+    push_binding_by_span(&mut scope_bindings, binding.clone());
     if !bindings.iter().any(|local| local.name == binding.name) {
       bindings.push(binding);
     }
@@ -178,6 +212,7 @@ fn trace_reactivity_seeded_inner(
   let injects = collect_inject_sites(semantic, &imported_bindings, &bindings, script_kind);
   let resolved = resolve_inject_links(&provides, &injects, sfc_source, script_offset);
   for binding in resolved.bindings {
+    push_binding_by_span(&mut scope_bindings, binding.clone());
     if !bindings.iter().any(|local| local.name == binding.name) {
       bindings.push(binding);
     }
@@ -188,11 +223,13 @@ fn trace_reactivity_seeded_inner(
 
   // `const alias = knownRef` — same object identity; seed before scopes so `.value` tracks.
   extend_with_reactive_aliases(semantic, &mut bindings, sfc_source, script_offset);
+  extend_with_reactive_aliases(semantic, &mut scope_bindings, sfc_source, script_offset);
 
+  // Classify scopes with function-local + typed bindings; publish top-level bindings only.
   let mut scopes = collect_tracking_scopes(
     semantic,
     &imported_bindings,
-    &bindings,
+    &scope_bindings,
     &composable_instances,
     sfc_source,
     script_offset,
@@ -200,7 +237,7 @@ fn trace_reactivity_seeded_inner(
   scopes.extend(collect_render_scopes(
     semantic,
     &imported_bindings,
-    &bindings,
+    &scope_bindings,
     &composable_instances,
     sfc_source,
     script_offset,
@@ -309,6 +346,7 @@ fn collect_local_composable_usage(
 
   let mut instances = BTreeMap::new();
   let mut seeded = Vec::new();
+  let mut value_bags = BTreeMap::new();
   for node in semantic.nodes() {
     let AstKind::CallExpression(call) = node.kind() else {
       continue;
@@ -345,6 +383,9 @@ fn collect_local_composable_usage(
           });
         }
       }
+      (BindingPattern::BindingIdentifier(identifier), LocalComposableExport::ValueFactory(bag)) => {
+        value_bags.insert(identifier.name.to_string(), bag.clone());
+      }
       (BindingPattern::ObjectPattern(pattern), LocalComposableExport::Bag(shape)) => {
         // `const { field } = useX()` — seed each known field as a local binding.
         for property in &pattern.properties {
@@ -372,7 +413,88 @@ fn collect_local_composable_usage(
       _ => {}
     }
   }
+  // `api.maps.useX()` member destructures against local value bags.
+  if !value_bags.is_empty() {
+    seed_local_member_calls(
+      semantic,
+      &value_bags,
+      &mut instances,
+      &mut seeded,
+      sfc_source,
+      script_offset,
+    );
+  }
   (instances, seeded, composables)
+}
+
+fn seed_local_member_calls(
+  semantic: &Semantic<'_>,
+  value_bags: &BTreeMap<String, summary::ValueBag>,
+  instances: &mut ComposableShapeMap,
+  seeded: &mut Vec<ReactiveBindingFact>,
+  sfc_source: &str,
+  script_offset: usize,
+) {
+  use summary::ValueBagEntry;
+  debug_assert!(!value_bags.is_empty(), "caller gates empty value bags");
+  for node in semantic.nodes() {
+    let AstKind::CallExpression(call) = node.kind() else {
+      continue;
+    };
+    let Some((root, path)) = summary::static_member_call_path(&call.callee) else {
+      continue;
+    };
+    let Some(bag) = value_bags.get(&root) else {
+      continue;
+    };
+    let Some(entry) = bag.resolve_path(&path) else {
+      continue;
+    };
+    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
+    else {
+      continue;
+    };
+    match (entry, &declarator.id) {
+      (ValueBagEntry::Method(shape), BindingPattern::ObjectPattern(pattern)) => {
+        for property in &pattern.properties {
+          let Some(exported) = property.key.static_name() else {
+            continue;
+          };
+          let Some(kind) = shape.kind_for_destructure(exported.as_ref()) else {
+            continue;
+          };
+          let mut identifiers = Vec::new();
+          collect_binding_identifiers(&property.value, &mut identifiers);
+          for (local, span) in identifiers {
+            if seeded.iter().any(|binding| binding.name == local) {
+              continue;
+            }
+            seeded.push(ReactiveBindingFact {
+              name: local,
+              kind,
+              initialized_with_null: false,
+              span: source_span(sfc_source, script_offset, span),
+            });
+          }
+        }
+      }
+      (ValueBagEntry::Method(shape), BindingPattern::BindingIdentifier(identifier)) => {
+        instances.insert(identifier.name.to_string(), shape.fields.clone());
+      }
+      (ValueBagEntry::MethodFactory(kind), BindingPattern::BindingIdentifier(identifier)) => {
+        if seeded.iter().any(|binding| binding.name == identifier.name.as_str()) {
+          continue;
+        }
+        seeded.push(ReactiveBindingFact {
+          name: identifier.name.to_string(),
+          kind: *kind,
+          initialized_with_null: false,
+          span: source_span(sfc_source, script_offset, identifier.span),
+        });
+      }
+      _ => {}
+    }
+  }
 }
 
 fn local_composable_export_for(
@@ -382,32 +504,38 @@ fn local_composable_export_for(
   script_offset: usize,
   returns_by_function: &BTreeMap<oxc_semantic::NodeId, Vec<oxc_semantic::NodeId>>,
   declared_return_kind: Option<ReactiveBindingKind>,
-  declared_return_shape: impl FnOnce() -> BTreeMap<String, ReactiveBindingKind>,
+  declared_return_shape: impl FnOnce() -> summary::ComposableShape,
 ) -> Option<LocalComposableExport> {
-  let shape = summary::composable_return_shape_with_index(
-    semantic,
-    function_id,
-    shape_graph,
-    script_offset,
-    returns_by_function,
-  );
-  if !shape.is_empty() {
-    return Some(LocalComposableExport::Bag(shape));
-  }
-  if let Some(kind) = summary::composable_factory_kind_with_index(
+  // One return walk — do not call shape/value-bag/factory helpers separately.
+  match summary::composable_return_with_index(
     semantic,
     function_id,
     shape_graph,
     script_offset,
     returns_by_function,
   ) {
-    return Some(LocalComposableExport::Factory(kind));
+    Some(summary::ComposableReturn::Object(shape)) if !shape.is_empty() => {
+      return Some(LocalComposableExport::Bag(shape));
+    }
+    Some(summary::ComposableReturn::ValueBag(bag)) if !bag.is_empty() => {
+      return Some(LocalComposableExport::ValueFactory(bag));
+    }
+    Some(summary::ComposableReturn::Factory(kind)) => {
+      return Some(LocalComposableExport::Factory(kind));
+    }
+    Some(
+      summary::ComposableReturn::Object(_)
+      | summary::ComposableReturn::ValueBag(_)
+      | summary::ComposableReturn::UnwrappedState
+      | summary::ComposableReturn::Forward(_),
+    )
+    | None => {}
   }
   let declared_shape = declared_return_shape();
   if declared_shape.is_empty() {
     declared_return_kind.map(LocalComposableExport::Factory)
   } else {
-    Some(LocalComposableExport::Bag(summary::ComposableShape::from_fields(declared_shape)))
+    Some(LocalComposableExport::Bag(declared_shape))
   }
 }
 
@@ -889,7 +1017,9 @@ fn expression_provide_offer(
         LocalComposableExport::Factory(kind) => {
           ProvideOffer { kind: Some(*kind), instance_shape: None }
         }
-        LocalComposableExport::Bag(_) => ProvideOffer { kind: None, instance_shape: None },
+        LocalComposableExport::Bag(_) | LocalComposableExport::ValueFactory(_) => {
+          ProvideOffer { kind: None, instance_shape: None }
+        }
       };
     }
     if let Some(callee) =
@@ -930,6 +1060,200 @@ fn collect_binding_identifiers(
       collect_binding_identifiers(&assignment.left, identifiers);
     }
   }
+}
+
+fn push_binding_by_span(bindings: &mut Vec<ReactiveBindingFact>, binding: ReactiveBindingFact) {
+  if !bindings
+    .iter()
+    .any(|local| local.name == binding.name && local.span.offset == binding.span.offset)
+  {
+    bindings.push(binding);
+  }
+}
+
+/// Source may contain a typed Ref-like annotation worth walking the AST for.
+#[inline]
+fn source_may_have_typed_ref_annotations(source: &str) -> bool {
+  // Forms recognized by `ts_type_reactive_kind` (not the `ref()` runtime API).
+  source.contains("Ref")
+    || source.contains("Computed")
+    || source.contains("Readonly")
+    || source.contains("ToRef")
+}
+
+/// Source may call a component factory that seeds a props bag.
+#[inline]
+fn source_may_have_component_props_factory(source: &str) -> bool {
+  source.contains("defineComponent")
+}
+
+/// Seed bindings from TypeScript ref-like annotations on parameters / declarators.
+///
+/// Example: `function useDetail(type: ComputedRef<T>)` so `type.value` classifies
+/// instead of becoming `uncertain_accesses` / `(maybe: type)`.
+fn collect_typed_reactive_bindings(
+  semantic: &oxc_semantic::Semantic<'_>,
+  sfc_source: &str,
+  script_offset: usize,
+) -> Vec<ReactiveBindingFact> {
+  let mut bindings = Vec::new();
+  for node in semantic.nodes() {
+    match node.kind() {
+      AstKind::FormalParameter(parameter) => {
+        let Some(annotation) = parameter.type_annotation.as_ref() else {
+          continue;
+        };
+        let Some(kind) = summary::ts_type_reactive_kind(&annotation.type_annotation) else {
+          continue;
+        };
+        let BindingPattern::BindingIdentifier(identifier) = &parameter.pattern else {
+          continue;
+        };
+        bindings.push(ReactiveBindingFact {
+          name: identifier.name.to_string(),
+          kind,
+          initialized_with_null: false,
+          span: source_span(sfc_source, script_offset, identifier.span),
+        });
+      }
+      AstKind::VariableDeclarator(declarator) => {
+        let Some(annotation) = declarator.type_annotation.as_ref() else {
+          continue;
+        };
+        let Some(kind) = summary::ts_type_reactive_kind(&annotation.type_annotation) else {
+          continue;
+        };
+        let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
+          continue;
+        };
+        bindings.push(ReactiveBindingFact {
+          name: identifier.name.to_string(),
+          kind,
+          initialized_with_null: false,
+          span: source_span(sfc_source, script_offset, identifier.span),
+        });
+      }
+      _ => {}
+    }
+  }
+  bindings
+}
+
+/// Seed the props parameter of component factories / `setup` as a reactive bag.
+///
+/// Covers `defineComponent((props) => …)` and `defineComponent({ setup(props) })`.
+/// Same-file identity / setup-forward wrappers and seeded cross-module
+/// `ComponentFactory` imports also seed; opaque helpers stay quiet.
+fn collect_component_props_bindings(
+  semantic: &oxc_semantic::Semantic<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  sfc_source: &str,
+  script_offset: usize,
+  seeded_factories: &BTreeSet<String>,
+) -> Vec<ReactiveBindingFact> {
+  let mut factories = render::component_factories_including_bare(semantic, imported_bindings);
+  if sfc_source.contains("defineComponent") {
+    factories.extend(render::component_factory_wrapper_locals(semantic, imported_bindings));
+  }
+  factories.extend(seeded_factories.iter().cloned());
+  let mut bindings = Vec::new();
+  for node in semantic.nodes() {
+    let AstKind::CallExpression(call) = node.kind() else {
+      continue;
+    };
+    if !is_component_factory_callee(&call.callee, &factories) {
+      continue;
+    }
+    let Some(first) = call.arguments.first().and_then(Argument::as_expression) else {
+      continue;
+    };
+    match first {
+      Expression::ArrowFunctionExpression(arrow) => {
+        seed_first_formal_as_reactive(
+          arrow.params.items.first(),
+          sfc_source,
+          script_offset,
+          &mut bindings,
+        );
+      }
+      Expression::FunctionExpression(function) => {
+        seed_first_formal_as_reactive(
+          function.params.items.first(),
+          sfc_source,
+          script_offset,
+          &mut bindings,
+        );
+      }
+      Expression::ObjectExpression(object) => {
+        for property in &object.properties {
+          let ObjectPropertyKind::ObjectProperty(property) = property else {
+            continue;
+          };
+          let is_setup = match &property.key {
+            PropertyKey::StaticIdentifier(identifier) => identifier.name == "setup",
+            PropertyKey::StringLiteral(literal) => literal.value == "setup",
+            _ => false,
+          };
+          if !is_setup {
+            continue;
+          }
+          match &property.value {
+            Expression::ArrowFunctionExpression(arrow) => {
+              seed_first_formal_as_reactive(
+                arrow.params.items.first(),
+                sfc_source,
+                script_offset,
+                &mut bindings,
+              );
+            }
+            Expression::FunctionExpression(function) => {
+              seed_first_formal_as_reactive(
+                function.params.items.first(),
+                sfc_source,
+                script_offset,
+                &mut bindings,
+              );
+            }
+            _ => {}
+          }
+        }
+      }
+      _ => {}
+    }
+  }
+  bindings
+}
+
+fn is_component_factory_callee(callee: &Expression<'_>, factories: &BTreeSet<String>) -> bool {
+  callee
+    .get_identifier_reference()
+    .is_some_and(|identifier| factories.contains(identifier.name.as_str()))
+}
+
+fn seed_first_formal_as_reactive(
+  parameter: Option<&oxc_ast::ast::FormalParameter<'_>>,
+  sfc_source: &str,
+  script_offset: usize,
+  bindings: &mut Vec<ReactiveBindingFact>,
+) {
+  let Some(parameter) = parameter else {
+    return;
+  };
+  let BindingPattern::BindingIdentifier(identifier) = &parameter.pattern else {
+    return;
+  };
+  if bindings.iter().any(|binding| {
+    binding.name == identifier.name.as_str()
+      && binding.span.offset == source_span(sfc_source, script_offset, identifier.span).offset
+  }) {
+    return;
+  }
+  bindings.push(ReactiveBindingFact {
+    name: identifier.name.to_string(),
+    kind: ReactiveBindingKind::Reactive,
+    initialized_with_null: false,
+    span: source_span(sfc_source, script_offset, identifier.span),
+  });
 }
 
 /// Propagate known reactive bindings through `const alias = known` (under-approx).
@@ -2782,9 +3106,10 @@ mod summary;
 pub use summary::{
   ComposableShape, ModuleLink, ModuleReactivity, ModuleSource, ModuleSummary, ModuleTraceState,
   PreparedModuleTrace, TraceModulesError, TraceModulesOptions, TraceModulesReport,
-  TraceModulesStats, arrow_return_type_kind, arrow_return_type_shape, build_returns_by_function,
-  composable_factory_kind_with_index, composable_return_shape, composable_return_shape_with_index,
-  function_return_type_kind, function_return_type_shape, merge_declaration_implementation_summary,
-  prepare_module_summary, prepare_module_trace, prepare_standalone_module_source, trace_modules,
+  TraceModulesStats, ValueBag, ValueBagEntry, arrow_return_type_kind, arrow_return_type_shape,
+  build_returns_by_function, composable_factory_kind_with_index, composable_return_shape,
+  composable_return_shape_with_index, composable_value_bag_with_index, function_return_type_kind,
+  function_return_type_shape, merge_declaration_implementation_summary, prepare_module_summary,
+  prepare_module_trace, prepare_standalone_module_source, trace_modules,
   trace_modules_incremental_with_options, trace_modules_with_options,
 };

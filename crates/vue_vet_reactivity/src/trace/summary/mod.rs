@@ -249,6 +249,49 @@ impl ComposableShape {
   }
 }
 
+/// Nested object of callables / sub-bags (`createApi()` → `{ maps: { useX } }`).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ValueBag {
+  pub entries: BTreeMap<String, ValueBagEntry>,
+}
+
+impl ValueBag {
+  #[must_use]
+  pub fn is_empty(&self) -> bool {
+    self.entries.is_empty()
+  }
+
+  /// Walk a static member path to a leaf method shape / factory.
+  #[must_use]
+  pub fn resolve_path(&self, path: &[String]) -> Option<&ValueBagEntry> {
+    let mut current = self;
+    for (index, segment) in path.iter().enumerate() {
+      let entry = current.entries.get(segment)?;
+      if index + 1 == path.len() {
+        return Some(entry);
+      }
+      match entry {
+        ValueBagEntry::Nested(nested) => current = nested,
+        ValueBagEntry::Method(_)
+        | ValueBagEntry::MethodFactory(_)
+        | ValueBagEntry::MethodForward(_) => return None,
+      }
+    }
+    None
+  }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ValueBagEntry {
+  Nested(ValueBag),
+  /// Property is a function that returns a composable object bag.
+  Method(ComposableShape),
+  /// Property is a function that returns a scalar reactive value.
+  MethodFactory(ReactiveBindingKind),
+  /// Property forwards to another local/import name — resolve at link time.
+  MethodForward(String),
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum ExportState {
   /// Imported local is itself a reactive binding (`import { count } from './x'`).
@@ -257,6 +300,15 @@ pub(super) enum ExportState {
   Composable(ComposableShape),
   /// Calling the export returns a scalar reactive value (`return ref(0)` / `(): Ref<T>`).
   Factory(ReactiveBindingKind),
+  /// Calling the export returns a nested value bag of methods / sub-bags.
+  ValueFactory(ValueBag),
+  /// Binding is already a nested value bag (`const api = createApi()`).
+  ValueBag(ValueBag),
+  /// Body is `return callee(...)` — resolve callee export at link time.
+  ForwardReturn(String),
+  /// Calling the export wraps `defineComponent` with the first argument as setup
+  /// (cross-module typed helpers). Consumers seed the setup `props` parameter.
+  ComponentFactory,
   /// Declared `() => PlainObject` (no Ref fields) — needs body evidence for Reactive factory.
   DeclaredPlainObjectFactory,
   /// Body unwraps a state ref (e.g. `return useState(...).value`) — needs plain-object declaration.
@@ -266,11 +318,14 @@ pub(super) enum ExportState {
 
 /// Under-approx classification of a composable/factory function return.
 #[derive(Debug, Eq, PartialEq)]
-enum ComposableReturn {
+pub enum ComposableReturn {
   Object(ComposableShape),
+  ValueBag(ValueBag),
   Factory(ReactiveBindingKind),
   /// Body unwraps a state ref (`return useState(...).value`, unresolved / `#imports`).
   UnwrappedState,
+  /// Sole return is `return callee(...)` to an unresolved local/import name.
+  Forward(String),
 }
 
 /// Declared TypeScript return surface for factory/composable exports.
@@ -324,11 +379,19 @@ impl ModuleSummary {
     specifiers.into_iter().collect()
   }
 
-  /// Whether any export local is a finished Factory/Composable/Known seed.
+  /// Whether any export local is a finished Factory/Composable/Known/value-bag seed.
   #[must_use]
   pub fn has_reactivity_export_seeds(&self) -> bool {
     self.locals.values().any(|state| {
-      matches!(state, ExportState::Factory(_) | ExportState::Composable(_) | ExportState::Known(_))
+      matches!(
+        state,
+        ExportState::Factory(_)
+          | ExportState::Composable(_)
+          | ExportState::Known(_)
+          | ExportState::ValueFactory(_)
+          | ExportState::ValueBag(_)
+          | ExportState::ComponentFactory
+      )
     })
   }
 
@@ -342,6 +405,35 @@ impl ModuleSummary {
     self.locals.values().any(|state| {
       matches!(state, ExportState::DeclaredPlainObjectFactory | ExportState::BodyUnwrappedState)
     })
+  }
+
+  /// Whether a size-capped companion body may still publish `ComponentFactory`.
+  ///
+  /// True when an exported local has no seedable state yet (typical `export declare
+  /// function wrap(...)` in package `.d.ts`). Still requires a real body that
+  /// forwards to `defineComponent` — never invent from the declaration alone.
+  #[must_use]
+  pub fn may_gain_component_factory_from_impl(&self) -> bool {
+    self.exports.iter().any(|export| match export {
+      ExportSummary::Local { local, .. } => !matches!(
+        self.locals.get(local),
+        Some(
+          ExportState::ComponentFactory
+            | ExportState::Factory(_)
+            | ExportState::Composable(_)
+            | ExportState::Known(_)
+            | ExportState::ValueFactory(_)
+            | ExportState::ValueBag(_)
+        )
+      ),
+      ExportSummary::Reexport { .. } | ExportSummary::Star { .. } => false,
+    })
+  }
+
+  /// Whether any local is a `ComponentFactory` setup-forward wrapper.
+  #[must_use]
+  pub fn has_component_factory_local(&self) -> bool {
+    self.locals.values().any(|state| matches!(state, ExportState::ComponentFactory))
   }
 }
 
@@ -371,8 +463,25 @@ pub fn merge_declaration_implementation_summary(
         state,
       ) if matches!(
         state,
-        ExportState::Factory(_) | ExportState::Composable(_) | ExportState::Known(_)
+        ExportState::Factory(_)
+          | ExportState::Composable(_)
+          | ExportState::Known(_)
+          | ExportState::ValueFactory(_)
+          | ExportState::ValueBag(_)
+          | ExportState::ComponentFactory
       ) =>
+      {
+        merged.insert(name.clone(), state.clone());
+      }
+      // Implementation body forwards to a resolved composable/factory shape.
+      (Some(ExportState::ForwardReturn(_)), state)
+        if matches!(
+          state,
+          ExportState::Factory(_)
+            | ExportState::Composable(_)
+            | ExportState::ValueFactory(_)
+            | ExportState::ComponentFactory
+        ) =>
       {
         merged.insert(name.clone(), state.clone());
       }
@@ -431,7 +540,8 @@ pub fn prepare_module_summary(
     ),
     ..ReactivityGraph::default()
   };
-  let locals = collect_local_values(semantic, &local_graph, &shape_graph, source_offset);
+  let locals =
+    collect_local_values(semantic, &local_graph, &shape_graph, source_offset, span_source);
   let imported_bindings = collect_imported_bindings(semantic);
   let provides = collect_provide_sites(
     semantic,
@@ -580,6 +690,7 @@ fn collect_local_values(
   public_graph: &ReactivityGraph,
   shape_graph: &ReactivityGraph,
   script_offset: usize,
+  span_source: &str,
 ) -> BTreeMap<String, ExportState> {
   let mut locals = public_graph
     .bindings
@@ -591,6 +702,15 @@ fn collect_local_values(
   // return-statement index walk (cold `trace_1k_*` synthetic modules).
   let mut returns_by_function = None;
 
+  // `defineComponent` setup wrappers → ComponentFactory (before composable Forward).
+  // Cheap source gate keeps synthetic 1k modules off the wrapper AST walk.
+  if span_source.contains("defineComponent") {
+    let imported_bindings = collect_imported_bindings(semantic);
+    for name in super::render::component_factory_wrapper_locals(semantic, &imported_bindings) {
+      locals.insert(name, ExportState::ComponentFactory);
+    }
+  }
+
   // `function useX() { return { field } }` / `return ref(0)` / `(): Ref<T>`
   for node in semantic.nodes() {
     let AstKind::Function(function) = node.kind() else {
@@ -599,6 +719,10 @@ fn collect_local_values(
     let Some(identifier) = &function.id else {
       continue;
     };
+    let name = identifier.name.to_string();
+    if matches!(locals.get(&name), Some(ExportState::ComponentFactory)) {
+      continue;
+    }
     let index = returns_by_function.get_or_insert_with(|| build_returns_by_function(semantic));
     let function_id = function.node_id.get();
     if let Some(state) = composable_export_state(
@@ -610,7 +734,7 @@ fn collect_local_values(
       function_return_type_kind(function),
       || declared_return_for_function(semantic, function),
     ) {
-      locals.insert(identifier.name.to_string(), state);
+      locals.insert(name, state);
     }
   }
 
@@ -622,6 +746,10 @@ fn collect_local_values(
     let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
       continue;
     };
+    let name = identifier.name.to_string();
+    if matches!(locals.get(&name), Some(ExportState::ComponentFactory)) {
+      continue;
+    }
     let state = match &declarator.init {
       Some(Expression::ArrowFunctionExpression(arrow)) => {
         let index = returns_by_function.get_or_insert_with(|| build_returns_by_function(semantic));
@@ -658,14 +786,77 @@ fn collect_local_values(
         None,
         declared_return_from_declarator_annotation(semantic, declarator),
       ),
-      // Keep the CallExpression/`ref()` cold path tiny: never build the return
-      // index or declared shapes until we see a real function init.
+      // `const api = createApi()` — value bag from a ValueFactory callee (filled in fixpoint).
+      Some(Expression::CallExpression(_)) => None,
+      // Keep the `ref()` cold path tiny: never build the return index until a function init.
       Some(_) => continue,
     };
     if let Some(state) = state {
-      locals.insert(identifier.name.to_string(), state);
+      locals.insert(name, state);
     }
   }
+
+  // Same-file fixpoint only when forwards / value factories are present.
+  let needs_fixpoint = locals
+    .values()
+    .any(|state| matches!(state, ExportState::ForwardReturn(_) | ExportState::ValueFactory(_)));
+  if needs_fixpoint {
+    for _ in 0..8 {
+      let mut changed = false;
+      let forwards: Vec<(String, String)> = locals
+        .iter()
+        .filter_map(|(name, state)| match state {
+          ExportState::ForwardReturn(callee) => Some((name.clone(), callee.clone())),
+          _ => None,
+        })
+        .collect();
+      for (name, callee) in forwards {
+        let Some(resolved) = locals.get(&callee).cloned() else {
+          continue;
+        };
+        if !matches!(
+          resolved,
+          ExportState::Composable(_)
+            | ExportState::Factory(_)
+            | ExportState::ValueFactory(_)
+            | ExportState::ComponentFactory
+        ) {
+          continue;
+        }
+        if locals.get(&name) != Some(&resolved) {
+          locals.insert(name, resolved);
+          changed = true;
+        }
+      }
+      for node in semantic.nodes() {
+        let AstKind::VariableDeclarator(declarator) = node.kind() else {
+          continue;
+        };
+        let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
+          continue;
+        };
+        let Some(Expression::CallExpression(call)) = &declarator.init else {
+          continue;
+        };
+        let Some(callee) = call.callee.get_identifier_reference() else {
+          continue;
+        };
+        let Some(ExportState::ValueFactory(bag)) = locals.get(callee.name.as_str()) else {
+          continue;
+        };
+        let next = ExportState::ValueBag(bag.clone());
+        let name = identifier.name.to_string();
+        if locals.get(&name) != Some(&next) {
+          locals.insert(name, next);
+          changed = true;
+        }
+      }
+      if !changed {
+        break;
+      }
+    }
+  }
+
   locals
 }
 
@@ -686,7 +877,9 @@ fn composable_export_state(
     returns_by_function,
   ) {
     Some(ComposableReturn::Object(shape)) => Some(ExportState::Composable(shape)),
+    Some(ComposableReturn::ValueBag(bag)) => Some(ExportState::ValueFactory(bag)),
     Some(ComposableReturn::Factory(kind)) => Some(ExportState::Factory(kind)),
+    Some(ComposableReturn::Forward(callee)) => Some(ExportState::ForwardReturn(callee)),
     Some(ComposableReturn::UnwrappedState) => match declared_return() {
       Some(DeclaredReturn::PlainObject) => {
         Some(ExportState::Factory(ReactiveBindingKind::Reactive))
@@ -709,9 +902,16 @@ fn combine_composable_export(
   match (body, declared) {
     (Some(ComposableReturn::Object(shape)), _)
     | (None, Some(DeclaredReturn::Composable(shape))) => Some(ExportState::Composable(shape)),
+    (Some(ComposableReturn::ValueBag(bag)), _) => Some(ExportState::ValueFactory(bag)),
     (Some(ComposableReturn::Factory(kind)), _) | (None, Some(DeclaredReturn::Factory(kind))) => {
       Some(ExportState::Factory(kind))
     }
+    (Some(ComposableReturn::Forward(callee)), Some(DeclaredReturn::Composable(shape))) => {
+      // Declared shape wins over unresolved forward (e.g. `.d.ts` + thin body).
+      let _ = callee;
+      Some(ExportState::Composable(shape))
+    }
+    (Some(ComposableReturn::Forward(callee)), _) => Some(ExportState::ForwardReturn(callee)),
     (Some(ComposableReturn::UnwrappedState), Some(DeclaredReturn::PlainObject)) => {
       Some(ExportState::Factory(ReactiveBindingKind::Reactive))
     }
@@ -786,8 +986,62 @@ pub fn composable_return_shape_with_index(
     returns_by_function,
   ) {
     Some(ComposableReturn::Object(shape)) => shape,
-    Some(ComposableReturn::Factory(_) | ComposableReturn::UnwrappedState) | None => {
-      ComposableShape::default()
+    Some(
+      ComposableReturn::Factory(_)
+      | ComposableReturn::UnwrappedState
+      | ComposableReturn::Forward(_)
+      | ComposableReturn::ValueBag(_),
+    )
+    | None => ComposableShape::default(),
+  }
+}
+
+/// Nested value-bag return for a function/arrow (`return { maps: { useX } }`).
+#[must_use]
+pub fn composable_value_bag_with_index(
+  semantic: &oxc_semantic::Semantic<'_>,
+  function_id: NodeId,
+  graph: &ReactivityGraph,
+  script_offset: usize,
+  returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
+) -> Option<ValueBag> {
+  match composable_return_with_index(
+    semantic,
+    function_id,
+    graph,
+    script_offset,
+    returns_by_function,
+  ) {
+    Some(ComposableReturn::ValueBag(bag)) if !bag.is_empty() => Some(bag),
+    _ => None,
+  }
+}
+
+/// `api.maps.useX` → root `api` plus path segments `maps` / `useX`.
+pub fn static_member_call_path(callee: &Expression<'_>) -> Option<(String, Vec<String>)> {
+  let mut path = Vec::new();
+  let mut current = callee;
+  loop {
+    match current {
+      Expression::StaticMemberExpression(member) => {
+        path.push(member.property.name.to_string());
+        current = &member.object;
+      }
+      Expression::ChainExpression(chain) => match &chain.expression {
+        oxc_ast::ast::ChainElement::StaticMemberExpression(member) => {
+          path.push(member.property.name.to_string());
+          current = &member.object;
+        }
+        _ => return None,
+      },
+      Expression::Identifier(identifier) => {
+        if path.is_empty() {
+          return None;
+        }
+        path.reverse();
+        return Some((identifier.name.to_string(), path));
+      }
+      _ => return None,
     }
   }
 }
@@ -800,12 +1054,16 @@ struct ReturnKindAccum {
   shape: BTreeMap<String, ReactiveBindingKind>,
   open_reactive_spread: bool,
   ambiguous: BTreeSet<String>,
+  value_bag: ValueBag,
   factory_kind: Option<ReactiveBindingKind>,
   factory_conflict: bool,
   saw_object_return: bool,
   saw_scalar_return: bool,
   /// `return <call>(...).value` — provisional until paired with a plain object declaration.
   saw_unwrapped_state: bool,
+  /// Sole unresolved `return callee(...)` forward target.
+  forward_callee: Option<String>,
+  forward_conflict: bool,
 }
 
 impl ReturnKindAccum {
@@ -822,6 +1080,8 @@ impl ReturnKindAccum {
     param_names: &BTreeSet<String>,
     script_offset: usize,
     function_id: NodeId,
+    returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
+    visiting: &mut BTreeSet<NodeId>,
   ) {
     let expression = match expression {
       Expression::ParenthesizedExpression(paren) => &paren.expression,
@@ -841,6 +1101,75 @@ impl ReturnKindAccum {
         &mut self.ambiguous,
       );
       self.open_reactive_spread = self.open_reactive_spread || opened;
+      // Value-bag walk is for method nests (`{ maps: { useX } }`). Skip when this
+      // return is already a reactive field bag — the common composable path.
+      if self.shape.is_empty() && !self.open_reactive_spread {
+        merge_return_object_into_value_bag(
+          semantic,
+          expression,
+          graph,
+          imported_bindings,
+          script_offset,
+          returns_by_function,
+          visiting,
+          &mut self.value_bag,
+        );
+      }
+      return;
+    }
+    if is_to_refs_call(semantic, expression, imported_bindings) {
+      self.saw_object_return = true;
+      self.open_reactive_spread = true;
+      return;
+    }
+    if let Expression::Identifier(identifier) = expression
+      && identifier_initialized_with_to_refs(semantic, function_id, identifier, imported_bindings)
+    {
+      self.saw_object_return = true;
+      self.open_reactive_spread = true;
+      return;
+    }
+    if let Expression::CallExpression(call) = expression
+      && let Some(forwarded) = resolve_call_return_forward(
+        semantic,
+        call,
+        graph,
+        imported_bindings,
+        script_offset,
+        returns_by_function,
+        visiting,
+      )
+    {
+      match forwarded {
+        ComposableReturn::Object(shape) => {
+          self.saw_object_return = true;
+          self.open_reactive_spread = self.open_reactive_spread || shape.open_reactive_spread;
+          for (field, kind) in shape.fields {
+            merge_shape_field(&mut self.shape, &mut self.ambiguous, field, kind);
+          }
+        }
+        ComposableReturn::ValueBag(bag) => {
+          self.saw_object_return = true;
+          merge_value_bag(&mut self.value_bag, bag);
+        }
+        ComposableReturn::Factory(kind) => {
+          self.saw_scalar_return = true;
+          match self.factory_kind {
+            None => self.factory_kind = Some(kind),
+            Some(existing) if existing == kind => {}
+            Some(_) => self.factory_conflict = true,
+          }
+        }
+        ComposableReturn::Forward(name) => match &self.forward_callee {
+          None => self.forward_callee = Some(name),
+          Some(existing) if existing == &name => {}
+          Some(_) => self.forward_conflict = true,
+        },
+        ComposableReturn::UnwrappedState => {
+          self.saw_scalar_return = true;
+          self.saw_unwrapped_state = true;
+        }
+      }
       return;
     }
     if is_unwrapped_call_return(semantic, expression, imported_bindings) {
@@ -871,11 +1200,16 @@ impl ReturnKindAccum {
     if self.saw_object_return && self.saw_scalar_return {
       return None;
     }
-    if self.saw_object_return && (!self.shape.is_empty() || self.open_reactive_spread) {
-      return Some(ComposableReturn::Object(ComposableShape {
-        fields: self.shape,
-        open_reactive_spread: self.open_reactive_spread,
-      }));
+    if self.saw_object_return {
+      if !self.shape.is_empty() || self.open_reactive_spread {
+        return Some(ComposableReturn::Object(ComposableShape {
+          fields: self.shape,
+          open_reactive_spread: self.open_reactive_spread,
+        }));
+      }
+      if !self.value_bag.is_empty() {
+        return Some(ComposableReturn::ValueBag(self.value_bag));
+      }
     }
     if self.saw_scalar_return && !self.factory_conflict {
       if let Some(kind) = self.factory_kind {
@@ -885,29 +1219,64 @@ impl ReturnKindAccum {
         return Some(ComposableReturn::UnwrappedState);
       }
     }
+    if !self.saw_object_return
+      && !self.saw_scalar_return
+      && !self.forward_conflict
+      && let Some(callee) = self.forward_callee
+    {
+      return Some(ComposableReturn::Forward(callee));
+    }
     None
   }
 }
 
-/// Object bag or scalar factory return for a function/arrow (under-approx).
-fn composable_return_with_index(
+/// Object bag / value bag / scalar factory return for a function/arrow (under-approx).
+///
+/// Single-pass — callers should prefer this over calling shape + value-bag + factory
+/// helpers separately (each would re-walk returns).
+pub fn composable_return_with_index(
   semantic: &oxc_semantic::Semantic<'_>,
   function_id: NodeId,
   graph: &ReactivityGraph,
   script_offset: usize,
   returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
 ) -> Option<ComposableReturn> {
+  let mut visiting = BTreeSet::new();
+  composable_return_with_index_visiting(
+    semantic,
+    function_id,
+    graph,
+    script_offset,
+    returns_by_function,
+    &mut visiting,
+  )
+}
+
+fn composable_return_with_index_visiting(
+  semantic: &oxc_semantic::Semantic<'_>,
+  function_id: NodeId,
+  graph: &ReactivityGraph,
+  script_offset: usize,
+  returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
+  visiting: &mut BTreeSet<NodeId>,
+) -> Option<ComposableReturn> {
+  if !visiting.insert(function_id) {
+    return None;
+  }
   let imported_bindings = collect_imported_bindings(semantic);
   let param_names = function_param_names(semantic, function_id);
   let mut accum = ReturnKindAccum {
     shape: BTreeMap::new(),
     open_reactive_spread: false,
     ambiguous: BTreeSet::new(),
+    value_bag: ValueBag::default(),
     factory_kind: None,
     factory_conflict: false,
     saw_object_return: false,
     saw_scalar_return: false,
     saw_unwrapped_state: false,
+    forward_callee: None,
+    forward_conflict: false,
   };
 
   // `() => ({ field: ref(0) })` / `() => ref(0)` expression body — no ReturnStatement.
@@ -924,6 +1293,8 @@ fn composable_return_with_index(
       &param_names,
       script_offset,
       function_id,
+      returns_by_function,
+      visiting,
     );
   }
 
@@ -944,10 +1315,13 @@ fn composable_return_with_index(
         &param_names,
         script_offset,
         function_id,
+        returns_by_function,
+        visiting,
       );
     }
   }
 
+  visiting.remove(&function_id);
   accum.finish()
 }
 
@@ -971,9 +1345,9 @@ pub fn function_return_type_kind(
 pub fn function_return_type_shape(
   semantic: &oxc_semantic::Semantic<'_>,
   function: &oxc_ast::ast::Function<'_>,
-) -> BTreeMap<String, ReactiveBindingKind> {
+) -> ComposableShape {
   let Some(annotation) = function.return_type.as_ref() else {
-    return BTreeMap::new();
+    return ComposableShape::default();
   };
   let mut index = None;
   ts_type_composable_shape(semantic, &annotation.type_annotation, 0, &mut index)
@@ -996,9 +1370,9 @@ pub fn arrow_return_type_kind(
 pub fn arrow_return_type_shape(
   semantic: &oxc_semantic::Semantic<'_>,
   arrow: &oxc_ast::ast::ArrowFunctionExpression<'_>,
-) -> BTreeMap<String, ReactiveBindingKind> {
+) -> ComposableShape {
   let Some(annotation) = arrow.return_type.as_ref() else {
-    return BTreeMap::new();
+    return ComposableShape::default();
   };
   let mut index = None;
   ts_type_composable_shape(semantic, &annotation.type_annotation, 0, &mut index)
@@ -1021,7 +1395,13 @@ pub fn composable_factory_kind_with_index(
     returns_by_function,
   ) {
     Some(ComposableReturn::Factory(kind)) => Some(kind),
-    Some(ComposableReturn::Object(_) | ComposableReturn::UnwrappedState) | None => None,
+    Some(
+      ComposableReturn::Object(_)
+      | ComposableReturn::ValueBag(_)
+      | ComposableReturn::UnwrappedState
+      | ComposableReturn::Forward(_),
+    )
+    | None => None,
   }
 }
 
@@ -1105,7 +1485,7 @@ fn classify_declared_return_type(
   let mut index = None;
   let shape = ts_type_composable_shape(semantic, ts_type, 0, &mut index);
   if !shape.is_empty() {
-    return Some(DeclaredReturn::Composable(ComposableShape::from_fields(shape)));
+    return Some(DeclaredReturn::Composable(shape));
   }
   if ts_type_is_plain_object_shaped(semantic, ts_type, 0, &mut index) {
     return Some(DeclaredReturn::PlainObject);
@@ -1179,11 +1559,14 @@ fn signatures_are_plain_object_shaped(members: &[oxc_ast::ast::TSSignature<'_>])
   property_count > 0
 }
 
-/// Map a TypeScript return type surface to a reactive binding kind (under-approx).
+/// Map a TypeScript type surface to a reactive binding kind (under-approx).
 ///
 /// Only recognizes Vue ref-like type names (`Ref`, `ComputedRef`, …). Full checker
-/// inference and utility wrappers stay quiet.
-fn ts_type_reactive_kind(ts_type: &oxc_ast::ast::TSType<'_>) -> Option<ReactiveBindingKind> {
+/// inference and utility wrappers stay quiet. Used for declared returns and for
+/// seeding typed parameters / declarators (`type: ComputedRef<T>`).
+pub(super) fn ts_type_reactive_kind(
+  ts_type: &oxc_ast::ast::TSType<'_>,
+) -> Option<ReactiveBindingKind> {
   use oxc_ast::ast::{TSType, TSTypeName, TSTypeOperatorOperator};
   match ts_type {
     TSType::TSParenthesizedType(paren) => ts_type_reactive_kind(&paren.type_annotation),
@@ -1253,21 +1636,22 @@ impl<'a> TypeDeclIndex<'a> {
 /// Object-bag shape from a TypeScript return type (under-approx).
 ///
 /// Recognizes inline `{ width: Ref<number> }`, same-file `interface` / `type`
-/// aliases, and peels a single `readonly` operator. Non-reactive fields
+/// aliases, mapped types whose values peel to Ref (`open_reactive_spread`),
+/// intersections, and a single `readonly` operator. Non-reactive fields
 /// (`stop: () => void`) stay out of the shape. Depth-bounded alias follow.
 fn ts_type_composable_shape<'a>(
   semantic: &'a oxc_semantic::Semantic<'a>,
   ts_type: &'a oxc_ast::ast::TSType<'a>,
   depth: u8,
   index: &mut Option<TypeDeclIndex<'a>>,
-) -> BTreeMap<String, ReactiveBindingKind> {
+) -> ComposableShape {
   use oxc_ast::ast::{TSType, TSTypeName, TSTypeOperatorOperator};
   if depth > 4 {
-    return BTreeMap::new();
+    return ComposableShape::default();
   }
   // Scalar Ref returns are Factory, not bags.
   if ts_type_reactive_kind(ts_type).is_some() {
-    return BTreeMap::new();
+    return ComposableShape::default();
   }
   match ts_type {
     TSType::TSParenthesizedType(paren) => {
@@ -1278,28 +1662,72 @@ fn ts_type_composable_shape<'a>(
     {
       ts_type_composable_shape(semantic, &operator.type_annotation, depth, index)
     }
-    TSType::TSTypeLiteral(literal) => shape_from_ts_signatures(&literal.members),
+    TSType::TSIntersectionType(intersection) => {
+      let mut merged = ComposableShape::default();
+      for part in &intersection.types {
+        let part_shape = ts_type_composable_shape(semantic, part, depth.saturating_add(1), index);
+        merged.open_reactive_spread =
+          merged.open_reactive_spread || part_shape.open_reactive_spread;
+        for (field, kind) in part_shape.fields {
+          merged.fields.entry(field).or_insert(kind);
+        }
+      }
+      merged
+    }
+    TSType::TSMappedType(mapped) => {
+      let Some(annotation) = &mapped.type_annotation else {
+        return ComposableShape::default();
+      };
+      if ts_type_has_ref_branch(annotation) {
+        ComposableShape { fields: BTreeMap::new(), open_reactive_spread: true }
+      } else {
+        ComposableShape::default()
+      }
+    }
+    TSType::TSTypeLiteral(literal) => {
+      ComposableShape::from_fields(shape_from_ts_signatures(&literal.members))
+    }
     TSType::TSTypeReference(reference) => {
       let Some(name) = (match &reference.type_name {
         TSTypeName::IdentifierReference(identifier) => Some(identifier.name.as_str()),
         TSTypeName::QualifiedName(_) | TSTypeName::ThisExpression(_) => None,
       }) else {
-        return BTreeMap::new();
+        return ComposableShape::default();
       };
       // Resolve through a one-shot index; drop borrows before recursing into aliases.
       let alias = {
         let decls = index.get_or_insert_with(|| TypeDeclIndex::build(semantic));
         if let Some(members) = decls.interfaces.get(name).copied() {
-          return shape_from_ts_signatures(members);
+          return ComposableShape::from_fields(shape_from_ts_signatures(members));
         }
         decls.aliases.get(name).copied()
       };
       let Some(alias) = alias else {
-        return BTreeMap::new();
+        return ComposableShape::default();
       };
       ts_type_composable_shape(semantic, alias, depth.saturating_add(1), index)
     }
-    _ => BTreeMap::new(),
+    _ => ComposableShape::default(),
+  }
+}
+
+/// Whether a type (or conditional branch) peels to a Vue Ref-like type.
+fn ts_type_has_ref_branch(ts_type: &oxc_ast::ast::TSType<'_>) -> bool {
+  use oxc_ast::ast::TSType;
+  if ts_type_reactive_kind(ts_type).is_some() {
+    return true;
+  }
+  match ts_type {
+    TSType::TSParenthesizedType(paren) => ts_type_has_ref_branch(&paren.type_annotation),
+    TSType::TSConditionalType(conditional) => {
+      ts_type_has_ref_branch(&conditional.true_type)
+        || ts_type_has_ref_branch(&conditional.false_type)
+    }
+    TSType::TSUnionType(union) => union.types.iter().any(ts_type_has_ref_branch),
+    TSType::TSIntersectionType(intersection) => {
+      intersection.types.iter().any(ts_type_has_ref_branch)
+    }
+    _ => false,
   }
 }
 
@@ -1324,6 +1752,293 @@ fn shape_from_ts_signatures(
     shape.insert(exported.into_owned(), kind);
   }
   shape
+}
+
+fn is_to_refs_call(
+  semantic: &oxc_semantic::Semantic<'_>,
+  expression: &Expression<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> bool {
+  let Expression::CallExpression(call) = expression else {
+    return false;
+  };
+  resolved_vue_callee(semantic, &call.callee, imported_bindings, ScriptKind::Script)
+    .is_some_and(|callee| callee == "toRefs")
+}
+
+fn identifier_initialized_with_to_refs(
+  semantic: &oxc_semantic::Semantic<'_>,
+  function_id: NodeId,
+  identifier: &oxc_ast::ast::IdentifierReference<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> bool {
+  // Resolve via the return identifier's symbol — O(1) vs scanning all nodes.
+  let Some(reference_id) = identifier.reference_id.get() else {
+    return false;
+  };
+  let Some(symbol_id) = semantic.scoping().get_reference(reference_id).symbol_id() else {
+    return false;
+  };
+  let decl = semantic.symbol_declaration(symbol_id);
+  let AstKind::VariableDeclarator(declarator) = decl.kind() else {
+    return false;
+  };
+  let owned_here = semantic.nodes().ancestor_ids(decl.id()).any(|ancestor| ancestor == function_id);
+  if !owned_here {
+    return false;
+  }
+  let Some(init) = &declarator.init else {
+    return false;
+  };
+  is_to_refs_call(semantic, init, imported_bindings)
+}
+
+fn resolve_call_return_forward(
+  semantic: &oxc_semantic::Semantic<'_>,
+  call: &oxc_ast::ast::CallExpression<'_>,
+  graph: &ReactivityGraph,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  script_offset: usize,
+  returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
+  visiting: &mut BTreeSet<NodeId>,
+) -> Option<ComposableReturn> {
+  let callee = call.callee.get_identifier_reference()?;
+  let name = callee.name.as_str();
+  // Vue primitives (`ref`, `computed`, …) stay on the scalar factory path.
+  if resolved_vue_callee(semantic, &call.callee, imported_bindings, ScriptKind::Script)
+    .is_some_and(|resolved| reactive_binding_kind(&resolved).is_some())
+  {
+    return None;
+  }
+  // Same-file function / const arrow — recurse into its return kind.
+  if let Some(callee_id) = local_function_id_for_name(semantic, name, callee) {
+    return composable_return_with_index_visiting(
+      semantic,
+      callee_id,
+      graph,
+      script_offset,
+      returns_by_function,
+      visiting,
+    )
+    .or_else(|| {
+      // Declared return on the callee when body is quiet.
+      match semantic.nodes().kind(callee_id) {
+        AstKind::Function(function) => {
+          declared_return_for_function(semantic, function).and_then(|declared| match declared {
+            DeclaredReturn::Composable(shape) => Some(ComposableReturn::Object(shape)),
+            DeclaredReturn::Factory(kind) => Some(ComposableReturn::Factory(kind)),
+            DeclaredReturn::PlainObject => None,
+          })
+        }
+        AstKind::ArrowFunctionExpression(arrow) => declared_return_for_arrow(semantic, arrow)
+          .and_then(|declared| match declared {
+            DeclaredReturn::Composable(shape) => Some(ComposableReturn::Object(shape)),
+            DeclaredReturn::Factory(kind) => Some(ComposableReturn::Factory(kind)),
+            DeclaredReturn::PlainObject => None,
+          }),
+        _ => None,
+      }
+    });
+  }
+  // Import / unresolved — forward by local name at link time.
+  if imported_bindings.contains_key(name) {
+    return Some(ComposableReturn::Forward(name.to_owned()));
+  }
+  let reference_id = callee.reference_id.get()?;
+  if semantic.scoping().get_reference(reference_id).symbol_id().is_none() {
+    return Some(ComposableReturn::Forward(name.to_owned()));
+  }
+  None
+}
+
+fn local_function_id_for_name(
+  semantic: &oxc_semantic::Semantic<'_>,
+  _name: &str,
+  reference: &oxc_ast::ast::IdentifierReference<'_>,
+) -> Option<NodeId> {
+  let reference_id = reference.reference_id.get()?;
+  let symbol_id = semantic.scoping().get_reference(reference_id).symbol_id()?;
+  let decl = semantic.symbol_declaration(symbol_id);
+  match decl.kind() {
+    AstKind::Function(function) => Some(function.node_id.get()),
+    AstKind::VariableDeclarator(declarator) => match &declarator.init {
+      Some(Expression::ArrowFunctionExpression(arrow)) => Some(arrow.node_id.get()),
+      Some(Expression::FunctionExpression(function)) => Some(function.node_id.get()),
+      _ => None,
+    },
+    // `function useX()` binds on the Function node; some paths surface the id binding.
+    AstKind::BindingIdentifier(_) => {
+      // Walk one hop to the owning function / declarator.
+      for ancestor_id in semantic.nodes().ancestor_ids(decl.id()) {
+        match semantic.nodes().kind(ancestor_id) {
+          AstKind::Function(function) => return Some(function.node_id.get()),
+          AstKind::VariableDeclarator(declarator) => {
+            return match &declarator.init {
+              Some(Expression::ArrowFunctionExpression(arrow)) => Some(arrow.node_id.get()),
+              Some(Expression::FunctionExpression(function)) => Some(function.node_id.get()),
+              _ => None,
+            };
+          }
+          _ => {}
+        }
+      }
+      None
+    }
+    _ => None,
+  }
+}
+
+fn merge_value_bag(into: &mut ValueBag, from: ValueBag) {
+  for (key, entry) in from.entries {
+    match (into.entries.get_mut(&key), entry) {
+      (Some(ValueBagEntry::Nested(existing)), ValueBagEntry::Nested(incoming)) => {
+        merge_value_bag(existing, incoming);
+      }
+      (None, entry) => {
+        into.entries.insert(key, entry);
+      }
+      (Some(_), _) => {
+        // Conflicting entry kinds stay with the first under-approx winner.
+      }
+    }
+  }
+}
+
+#[expect(clippy::too_many_arguments, reason = "value-bag merge mirrors object-shape helper arity")]
+fn merge_return_object_into_value_bag(
+  semantic: &oxc_semantic::Semantic<'_>,
+  expression: &Expression<'_>,
+  graph: &ReactivityGraph,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  script_offset: usize,
+  returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
+  visiting: &mut BTreeSet<NodeId>,
+  bag: &mut ValueBag,
+) {
+  let expression = match expression {
+    Expression::ParenthesizedExpression(paren) => &paren.expression,
+    other => other,
+  };
+  let Expression::ObjectExpression(object) = expression else {
+    return;
+  };
+  for property in &object.properties {
+    let ObjectPropertyKind::ObjectProperty(property) = property else {
+      continue;
+    };
+    let Some(exported) = property.key.static_name() else {
+      continue;
+    };
+    let key = exported.into_owned();
+    if let Some(entry) = value_bag_entry_from_expression(
+      semantic,
+      &property.value,
+      graph,
+      imported_bindings,
+      script_offset,
+      returns_by_function,
+      visiting,
+    ) {
+      bag.entries.entry(key).or_insert(entry);
+    }
+  }
+}
+
+fn value_bag_entry_from_expression(
+  semantic: &oxc_semantic::Semantic<'_>,
+  expression: &Expression<'_>,
+  graph: &ReactivityGraph,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  script_offset: usize,
+  returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
+  visiting: &mut BTreeSet<NodeId>,
+) -> Option<ValueBagEntry> {
+  let expression = match expression {
+    Expression::ParenthesizedExpression(paren) => &paren.expression,
+    other => other,
+  };
+  match expression {
+    Expression::Identifier(identifier) => {
+      let name = identifier.name.as_str();
+      let callee_id = local_function_id_for_name(semantic, name, identifier)?;
+      match composable_return_with_index_visiting(
+        semantic,
+        callee_id,
+        graph,
+        script_offset,
+        returns_by_function,
+        visiting,
+      )? {
+        ComposableReturn::Object(shape) => Some(ValueBagEntry::Method(shape)),
+        ComposableReturn::Factory(kind) => Some(ValueBagEntry::MethodFactory(kind)),
+        ComposableReturn::ValueBag(nested) => Some(ValueBagEntry::Nested(nested)),
+        ComposableReturn::Forward(callee) => Some(ValueBagEntry::MethodForward(callee)),
+        ComposableReturn::UnwrappedState => None,
+      }
+    }
+    Expression::CallExpression(call) => match resolve_call_return_forward(
+      semantic,
+      call,
+      graph,
+      imported_bindings,
+      script_offset,
+      returns_by_function,
+      visiting,
+    )? {
+      ComposableReturn::ValueBag(nested) => Some(ValueBagEntry::Nested(nested)),
+      ComposableReturn::Object(shape) => Some(ValueBagEntry::Method(shape)),
+      ComposableReturn::Factory(kind) => Some(ValueBagEntry::MethodFactory(kind)),
+      ComposableReturn::Forward(callee) => Some(ValueBagEntry::MethodForward(callee)),
+      ComposableReturn::UnwrappedState => None,
+    },
+    Expression::ObjectExpression(_) => {
+      let mut nested = ValueBag::default();
+      merge_return_object_into_value_bag(
+        semantic,
+        expression,
+        graph,
+        imported_bindings,
+        script_offset,
+        returns_by_function,
+        visiting,
+        &mut nested,
+      );
+      (!nested.is_empty()).then_some(ValueBagEntry::Nested(nested))
+    }
+    Expression::FunctionExpression(function) => {
+      match composable_return_with_index_visiting(
+        semantic,
+        function.node_id.get(),
+        graph,
+        script_offset,
+        returns_by_function,
+        visiting,
+      )? {
+        ComposableReturn::Object(shape) => Some(ValueBagEntry::Method(shape)),
+        ComposableReturn::Factory(kind) => Some(ValueBagEntry::MethodFactory(kind)),
+        ComposableReturn::ValueBag(nested) => Some(ValueBagEntry::Nested(nested)),
+        ComposableReturn::Forward(callee) => Some(ValueBagEntry::MethodForward(callee)),
+        ComposableReturn::UnwrappedState => None,
+      }
+    }
+    Expression::ArrowFunctionExpression(arrow) => {
+      match composable_return_with_index_visiting(
+        semantic,
+        arrow.node_id.get(),
+        graph,
+        script_offset,
+        returns_by_function,
+        visiting,
+      )? {
+        ComposableReturn::Object(shape) => Some(ValueBagEntry::Method(shape)),
+        ComposableReturn::Factory(kind) => Some(ValueBagEntry::MethodFactory(kind)),
+        ComposableReturn::ValueBag(nested) => Some(ValueBagEntry::Nested(nested)),
+        ComposableReturn::Forward(callee) => Some(ValueBagEntry::MethodForward(callee)),
+        ComposableReturn::UnwrappedState => None,
+      }
+    }
+    _ => None,
+  }
 }
 
 #[expect(

@@ -234,6 +234,32 @@ fn reports_broken_imports_and_unused_components() {
 }
 
 #[test]
+fn named_barrel_imports_mark_component_name_targets_used() {
+  let project = TempProject::new("barrel-named");
+  // Import local name matches the component convention name (barrel path alias).
+  let page = file("pages/index.vue", &[("@components", "PageContainer")], &[], &[]);
+  let component = file("components/PageContainer/index.tsx", &[], &[], &[]);
+  let story = file("components/PageContainer/PageContainer.story.vue", &[], &[], &[]);
+  project.write("components/PageContainer/index.tsx", "export const PageContainer = {}\n");
+  project
+    .write("components/PageContainer/PageContainer.story.vue", "<template><div /></template>\n");
+  let graph = build_project_graph(project.root(), &[page, component, story]);
+  assert!(
+    graph.diagnostics.iter().all(|diagnostic| diagnostic.rule_id != PROJECT_RULE_IDS[1]),
+    "named import + story files must not report unused-component: {:?}",
+    graph.diagnostics
+  );
+  assert!(
+    graph
+      .edges
+      .iter()
+      .any(|edge| { edge.kind == EdgeKind::ComponentUsage && edge.to.contains("PageContainer") }),
+    "named import must create a ComponentUsage edge by component name: {:?}",
+    graph.edges
+  );
+}
+
+#[test]
 fn client_suffix_and_lazy_prefix_resolve_auto_imports() {
   let project = TempProject::new("client-lazy");
   let page = file("pages/index.vue", &[], &["HeroDemo", "LazyPlaygroundDemo"], &[]);

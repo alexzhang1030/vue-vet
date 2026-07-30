@@ -13,8 +13,8 @@ library surface (project graph, cache, future LSP / codemod tools).
 ## Status
 
 Early `0.x`. The fact schema is versioned
-(`REACTIVITY_GRAPH_VERSION = 9` in `vue_vet_core`: Render scopes,
-module-qualified `to_id`, `property` / `to_path`). In-scope design axes A1–A7 and Evidence are
+(`REACTIVITY_GRAPH_VERSION = 10` in `vue_vet_core`: ComponentFactory props seeds,
+Render scopes, module-qualified `to_id`, `property` / `to_path`). In-scope design axes A1–A7 and Evidence are
 **complete** per the repository PCR
 ([reactivity tracer](https://github.com/alexzhang1030/vue-vet/blob/main/.agents/docs/reactivity-tracer.md))
 — complete means the in-scope checklists, not whole-program JS soundness.
