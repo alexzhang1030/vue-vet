@@ -1841,10 +1841,7 @@ fn merge_value_bag(into: &mut ValueBag, from: ValueBag) {
   }
 }
 
-#[expect(
-  clippy::too_many_arguments,
-  reason = "value-bag merge mirrors object-shape helper arity"
-)]
+#[expect(clippy::too_many_arguments, reason = "value-bag merge mirrors object-shape helper arity")]
 fn merge_return_object_into_value_bag(
   semantic: &oxc_semantic::Semantic<'_>,
   expression: &Expression<'_>,
