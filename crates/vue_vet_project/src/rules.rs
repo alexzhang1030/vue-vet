@@ -51,6 +51,7 @@ pub fn unused_component_diagnostics(
     .iter()
     .filter(|node| node.kind == NodeKind::Component)
     .filter(|node| !referenced.contains(node.id.as_str()))
+    .filter(|node| !is_non_production_component_path(&node.path))
     .filter_map(|node| {
       let file = file_by_path.get(&node.path)?;
       Some(Diagnostic {
@@ -68,4 +69,14 @@ pub fn unused_component_diagnostics(
       })
     })
     .collect()
+}
+
+fn is_non_production_component_path(path: &str) -> bool {
+  let lower = path.to_ascii_lowercase();
+  lower.contains(".story.")
+    || lower.contains(".stories.")
+    || lower.contains(".test.")
+    || lower.contains(".spec.")
+    || lower.contains("/__tests__/")
+    || lower.contains("/__mocks__/")
 }

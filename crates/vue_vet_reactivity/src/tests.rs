@@ -1790,6 +1790,125 @@ fn nested_local_refs_classify_inside_composable_computed() {
 }
 
 #[test]
+fn define_component_props_member_reads_track_in_computed() {
+  let options = graph(
+    "import { computed, defineComponent } from 'vue';\n\
+     export default defineComponent({\n\
+       props: { displayMode: String },\n\
+       setup(props) {\n\
+         const mode = computed(() => props.displayMode || 'whiteboard');\n\
+         return () => mode.value;\n\
+       },\n\
+     });",
+  );
+  assert!(
+    options.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "props" && read.property.as_deref() == Some("displayMode"))
+        && scope.uncertain_accesses.is_empty()
+    }),
+    "setup(props).displayMode must track; got {:?}",
+    options.scopes
+  );
+
+  let functional = graph_tsx(
+    "import { computed, defineComponent } from 'vue';\n\
+     export default defineComponent((props: { title: string }) => {\n\
+       const label = computed(() => props.title);\n\
+       return () => <p>{label.value}</p>;\n\
+     });",
+  );
+  assert!(
+    functional.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "props" && read.property.as_deref() == Some("title"))
+        && scope.uncertain_accesses.is_empty()
+    }),
+    "defineComponent((props) => props.title) must track; got {:?}",
+    functional.scopes
+  );
+
+  let typed = graph_tsx(
+    "import { computed } from 'vue';\n\
+     declare function defineTypedComponent<P>(setup: (props: P) => unknown): unknown;\n\
+     export const Panel = defineTypedComponent<{ open: boolean }>((props) => {\n\
+       const shown = computed(() => props.open);\n\
+       return () => <div>{shown.value}</div>;\n\
+     });",
+  );
+  assert!(
+    typed.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "props" && read.property.as_deref() == Some("open"))
+        && scope.uncertain_accesses.is_empty()
+    }),
+    "defineTypedComponent props.open must track; got {:?}",
+    typed.scopes
+  );
+}
+
+#[test]
+fn vue_query_style_member_hooks_seed_data_and_is_loading() {
+  let member = graph(
+    "import { computed } from 'vue';\n\
+     declare const apiQuery: { maps: { useApiV4MapsGet: (...args: unknown[]) => any } };\n\
+     const { data, isLoading } = apiQuery.maps.useApiV4MapsGet({});\n\
+     const rows = computed(() => data.value?.records ?? []);\n\
+     const pending = computed(() => isLoading.value);",
+  );
+  assert!(
+    member
+      .bindings
+      .iter()
+      .any(|binding| { binding.name == "data" && binding.kind == ReactiveBindingKind::Ref })
+      && member
+        .bindings
+        .iter()
+        .any(|binding| { binding.name == "isLoading" && binding.kind == ReactiveBindingKind::Ref }),
+    "useApi* destructure must seed data/isLoading; bindings={:?}",
+    member.bindings
+  );
+  assert!(
+    member.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.iter().any(|read| read.binding == "data")
+        && scope.uncertain_accesses.is_empty()
+    }) && member.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.iter().any(|read| read.binding == "isLoading")
+        && scope.uncertain_accesses.is_empty()
+    }),
+    "query field .value reads must classify; scopes={:?}",
+    member.scopes
+  );
+
+  let imported = graph(
+    "import { computed } from 'vue';\n\
+     import { useQuery } from '@tanstack/vue-query';\n\
+     const { data } = useQuery({ queryKey: ['x'], queryFn: async () => 1 });\n\
+     const value = computed(() => data.value);",
+  );
+  assert!(
+    imported.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.iter().any(|read| read.binding == "data")
+        && scope.uncertain_accesses.is_empty()
+    }),
+    "imported useQuery data must track; got {:?}",
+    imported.scopes
+  );
+}
+
+#[test]
 fn to_refs_destructure_inside_setup_classifies_value_reads() {
   let graph = graph(
     "import { computed, toRefs, defineComponent } from 'vue';\n\

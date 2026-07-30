@@ -149,6 +149,15 @@ fn trace_reactivity_seeded_inner(
   for binding in collect_typed_reactive_bindings(semantic, sfc_source, script_offset) {
     push_binding_by_span(&mut scope_bindings, binding);
   }
+  // `defineComponent` / `defineTypedComponent` / `setup(props)` — props bag is reactive.
+  for binding in
+    collect_component_props_bindings(semantic, &imported_bindings, sfc_source, script_offset)
+  {
+    push_binding_by_span(&mut scope_bindings, binding.clone());
+    if !bindings.iter().any(|local| local.name == binding.name) {
+      bindings.push(binding);
+    }
+  }
   for binding in &seeds.bindings {
     if !bindings.iter().any(|local| local.name == binding.name) {
       bindings.push(binding.clone());
@@ -169,7 +178,19 @@ fn trace_reactivity_seeded_inner(
       bindings.push(binding);
     }
   }
+  // TanStack Query / generated `*.useApi…` destructures (`data`, `isLoading`, …).
+  let (query_instances, query_destructured) =
+    collect_vue_query_call_bindings(semantic, &imported_bindings, sfc_source, script_offset);
+  for binding in query_destructured {
+    push_binding_by_span(&mut scope_bindings, binding.clone());
+    if !bindings.iter().any(|local| local.name == binding.name) {
+      bindings.push(binding);
+    }
+  }
   let mut composable_instances = local_instances;
+  for (bag, shape) in query_instances {
+    composable_instances.entry(bag).or_insert(shape);
+  }
   for (bag, shape) in &seeds.composable_instances {
     composable_instances.insert(bag.clone(), shape.clone());
   }
@@ -1001,6 +1022,263 @@ fn collect_typed_reactive_bindings(
     }
   }
   bindings
+}
+
+/// Seed the props parameter of component factories / `setup` as a reactive bag.
+///
+/// Covers `defineComponent((props) => …)`, `defineTypedComponent((props) => …)`,
+/// and `defineComponent({ setup(props) { … } })` so `props.foo` tracks.
+fn collect_component_props_bindings(
+  semantic: &oxc_semantic::Semantic<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  sfc_source: &str,
+  script_offset: usize,
+) -> Vec<ReactiveBindingFact> {
+  let mut bindings = Vec::new();
+  for node in semantic.nodes() {
+    let AstKind::CallExpression(call) = node.kind() else {
+      continue;
+    };
+    if !is_component_factory_callee(&call.callee, imported_bindings) {
+      continue;
+    }
+    let Some(first) = call.arguments.first().and_then(Argument::as_expression) else {
+      continue;
+    };
+    match first {
+      Expression::ArrowFunctionExpression(arrow) => {
+        seed_first_formal_as_reactive(
+          arrow.params.items.first(),
+          sfc_source,
+          script_offset,
+          &mut bindings,
+        );
+      }
+      Expression::FunctionExpression(function) => {
+        seed_first_formal_as_reactive(
+          function.params.items.first(),
+          sfc_source,
+          script_offset,
+          &mut bindings,
+        );
+      }
+      Expression::ObjectExpression(object) => {
+        for property in &object.properties {
+          let ObjectPropertyKind::ObjectProperty(property) = property else {
+            continue;
+          };
+          let is_setup = match &property.key {
+            PropertyKey::StaticIdentifier(identifier) => identifier.name == "setup",
+            PropertyKey::StringLiteral(literal) => literal.value == "setup",
+            _ => false,
+          };
+          if !is_setup {
+            continue;
+          }
+          match &property.value {
+            Expression::ArrowFunctionExpression(arrow) => {
+              seed_first_formal_as_reactive(
+                arrow.params.items.first(),
+                sfc_source,
+                script_offset,
+                &mut bindings,
+              );
+            }
+            Expression::FunctionExpression(function) => {
+              seed_first_formal_as_reactive(
+                function.params.items.first(),
+                sfc_source,
+                script_offset,
+                &mut bindings,
+              );
+            }
+            _ => {}
+          }
+        }
+      }
+      _ => {}
+    }
+  }
+  bindings
+}
+
+fn is_component_factory_callee(
+  callee: &Expression<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> bool {
+  let Some(identifier) = callee.get_identifier_reference() else {
+    return false;
+  };
+  let local = identifier.name.as_str();
+  if local == "defineTypedComponent" {
+    return true;
+  }
+  if let Some((source, imported)) = imported_bindings.get(local) {
+    return imported == "defineComponent"
+      && matches!(source.as_str(), "vue" | "#imports" | "vue-demi");
+  }
+  // Bare `defineComponent` (auto-import) or local helper with that name.
+  local == "defineComponent"
+}
+
+fn seed_first_formal_as_reactive(
+  parameter: Option<&oxc_ast::ast::FormalParameter<'_>>,
+  sfc_source: &str,
+  script_offset: usize,
+  bindings: &mut Vec<ReactiveBindingFact>,
+) {
+  let Some(parameter) = parameter else {
+    return;
+  };
+  let BindingPattern::BindingIdentifier(identifier) = &parameter.pattern else {
+    return;
+  };
+  if bindings.iter().any(|binding| {
+    binding.name == identifier.name.as_str()
+      && binding.span.offset == source_span(sfc_source, script_offset, identifier.span).offset
+  }) {
+    return;
+  }
+  bindings.push(ReactiveBindingFact {
+    name: identifier.name.to_string(),
+    kind: ReactiveBindingKind::Reactive,
+    initialized_with_null: false,
+    span: source_span(sfc_source, script_offset, identifier.span),
+  });
+}
+
+/// `@tanstack/vue-query` result fields that are `Ref`-like (not function helpers).
+const VUE_QUERY_REF_FIELDS: &[&str] = &[
+  "data",
+  "dataUpdatedAt",
+  "error",
+  "errorUpdateCount",
+  "errorUpdatedAt",
+  "failureCount",
+  "failureReason",
+  "fetchStatus",
+  "isError",
+  "isFetched",
+  "isFetchedAfterMount",
+  "isFetching",
+  "isInitialLoading",
+  "isLoading",
+  "isLoadingError",
+  "isPaused",
+  "isPending",
+  "isPlaceholderData",
+  "isRefetchError",
+  "isRefetching",
+  "isStale",
+  "isSuccess",
+  "status",
+  // Mutation extras
+  "isIdle",
+  "submittedAt",
+  "variables",
+  "context",
+];
+
+/// Seed `const { data, isLoading } = useQuery()` / `api.useApiV4…()` destructures.
+fn collect_vue_query_call_bindings(
+  semantic: &oxc_semantic::Semantic<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  sfc_source: &str,
+  script_offset: usize,
+) -> (ComposableShapeMap, Vec<ReactiveBindingFact>) {
+  let mut instances = BTreeMap::new();
+  let mut seeded = Vec::new();
+  let shape_fields = vue_query_result_shape_fields();
+  for node in semantic.nodes() {
+    let AstKind::CallExpression(call) = node.kind() else {
+      continue;
+    };
+    if !call_looks_like_vue_query(&call.callee, imported_bindings) {
+      continue;
+    }
+    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
+    else {
+      continue;
+    };
+    match &declarator.id {
+      BindingPattern::BindingIdentifier(identifier) => {
+        instances.insert(identifier.name.to_string(), shape_fields.clone());
+      }
+      BindingPattern::ObjectPattern(pattern) => {
+        for property in &pattern.properties {
+          let Some(exported) = property.key.static_name() else {
+            continue;
+          };
+          if !VUE_QUERY_REF_FIELDS.contains(&exported.as_ref()) {
+            continue;
+          }
+          let mut identifiers = Vec::new();
+          collect_binding_identifiers(&property.value, &mut identifiers);
+          for (local, span) in identifiers {
+            if seeded.iter().any(|binding: &ReactiveBindingFact| binding.name == local) {
+              continue;
+            }
+            seeded.push(ReactiveBindingFact {
+              name: local,
+              kind: ReactiveBindingKind::Ref,
+              initialized_with_null: false,
+              span: source_span(sfc_source, script_offset, span),
+            });
+          }
+        }
+      }
+      _ => {}
+    }
+  }
+  (instances, seeded)
+}
+
+fn vue_query_result_shape_fields() -> BTreeMap<String, ReactiveBindingKind> {
+  VUE_QUERY_REF_FIELDS.iter().map(|field| ((*field).to_owned(), ReactiveBindingKind::Ref)).collect()
+}
+
+fn call_looks_like_vue_query(
+  callee: &Expression<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> bool {
+  if let Some(identifier) = callee.get_identifier_reference() {
+    let local = identifier.name.as_str();
+    if let Some((source, imported)) = imported_bindings.get(local) {
+      return is_tanstack_vue_query_source(source)
+        && matches!(imported.as_str(), "useQuery" | "useInfiniteQuery" | "useMutation");
+    }
+    return matches!(local, "useQuery" | "useInfiniteQuery" | "useMutation");
+  }
+  match callee {
+    Expression::StaticMemberExpression(member) => {
+      member_looks_like_query_hook(member.property.name.as_str())
+    }
+    Expression::ComputedMemberExpression(member) => {
+      member.static_property_name().as_deref().is_some_and(member_looks_like_query_hook)
+    }
+    Expression::ChainExpression(chain) => match &chain.expression {
+      oxc_ast::ast::ChainElement::StaticMemberExpression(member) => {
+        member_looks_like_query_hook(member.property.name.as_str())
+      }
+      oxc_ast::ast::ChainElement::ComputedMemberExpression(member) => {
+        member.static_property_name().as_deref().is_some_and(member_looks_like_query_hook)
+      }
+      _ => false,
+    },
+    _ => false,
+  }
+}
+
+fn is_tanstack_vue_query_source(source: &str) -> bool {
+  matches!(source, "@tanstack/vue-query" | "vue-query" | "@tanstack/vue-query/build/modern")
+    || source.contains("tanstack") && source.contains("vue-query")
+}
+
+fn member_looks_like_query_hook(property: &str) -> bool {
+  matches!(property, "useQuery" | "useInfiniteQuery" | "useMutation")
+    || property.starts_with("useApi")
+    || (property.starts_with("use")
+      && (property.contains("Query") || property.contains("Mutation")))
 }
 
 /// Propagate known reactive bindings through `const alias = known` (under-approx).

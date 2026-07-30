@@ -88,6 +88,32 @@ pub fn analyze_structural_file(
   let imports = all_imports(&file.facts.script);
   let mut output = StructuralFileOutput::default();
   for import in &imports {
+    // Barrel / path-alias imports (`@components`) often resolve to an index file
+    // while the real component lives beside it — also mark name-matched components.
+    for to in auto_component_targets(&import.local, component_by_name) {
+      if to != from {
+        output.edges.push(edge(
+          &from,
+          &to,
+          EdgeKind::ComponentUsage,
+          &import.local,
+          import.span.clone(),
+        ));
+      }
+    }
+    if import.imported != import.local {
+      for to in auto_component_targets(&import.imported, component_by_name) {
+        if to != from {
+          output.edges.push(edge(
+            &from,
+            &to,
+            EdgeKind::ComponentUsage,
+            &import.imported,
+            import.span.clone(),
+          ));
+        }
+      }
+    }
     match resolver.resolve(&path, &import.source, known) {
       Resolution::File(target) => {
         if let Some(to) = node_by_path.get(&target) {

@@ -594,6 +594,22 @@ keys merge into the shape and `open_reactive_spread` lets consumers destructure
 additional keys (e.g. `isLoading`) as `Ref`. Plain `...extras` without `.value`
 reads stays closed — do not invent Ref seeds.
 
+**Component `props` bags.** `defineProps()` already seeds `Reactive`. Also seed
+the first parameter of `defineComponent` / `defineTypedComponent` factories and
+of options-API `setup(props)` so `computed(() => props.foo)` tracks. Without
+that, TSX/`defineTypedComponent` codebases flood `no-computed-without-dependency`.
+
+**TanStack Query / generated `useApi*` hooks.** Destructure `data` / `isLoading`
+/ … from `useQuery` (`@tanstack/vue-query`) or member callees matching `useApi*`,
+`*Query*`, `*Mutation*` as `Ref`. Do not invent seeds for helper methods
+(`refetch`, `mutate`). This covers codegen wrappers like `RIoTApiQuery.*.useApi…`
+where the concrete return type is not a local composable shape.
+
+**unused-component + barrels / stories.** Script `import { Foo } from '@components'`
+often resolves to an index barrel while `components/Foo/…` is the real node —
+also emit `ComponentUsage` edges by imported local/exported name. Skip
+`.story.` / `.test.` / `.spec.` / `__tests__` paths.
+
 Cross-module export shapes are not only `export function useX`. Also register:
 - `export const useX = () => ({ … })` / `export const useX = function () { … }`
 - `export default function useX() { … }` (exported name `default`, local name `useX`)
