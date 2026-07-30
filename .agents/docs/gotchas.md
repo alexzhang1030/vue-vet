@@ -599,11 +599,15 @@ the first parameter of `defineComponent` / `defineTypedComponent` factories and
 of options-API `setup(props)` so `computed(() => props.foo)` tracks. Without
 that, TSX/`defineTypedComponent` codebases flood `no-computed-without-dependency`.
 
-**TanStack Query / generated `useApi*` hooks.** Destructure `data` / `isLoading`
-/ … from `useQuery` (`@tanstack/vue-query`) or member callees matching `useApi*`,
-`*Query*`, `*Mutation*` as `Ref`. Do not invent seeds for helper methods
-(`refetch`, `mutate`). This covers codegen wrappers like `RIoTApiQuery.*.useApi…`
-where the concrete return type is not a local composable shape.
+**Composable shape forwarding (not name allowlists).** Prefer declared / body
+return shapes over package or callee-name heuristics. Mapped object types whose
+values peel to `Ref`/`ComputedRef` (including
+`{ [K in keyof T]: … ? Fn : Ref<…> }`) become `ComposableShape` with
+`open_reactive_spread` so destructured keys seed as `Ref` without a field table.
+`return toRefs(…)` and `return <call>(…)` that resolve to a known composable
+shape forward that shape. Nested `return { maps: createX() }` value bags plus
+static member calls (`api.maps.useX()`) resolve the leaf composable — quiet when
+the path is unknown. Do not add `useApi*` / `*Query*` name matchers.
 
 **unused-component + barrels / stories.** Script `import { Foo } from '@components'`
 often resolves to an index barrel while `components/Foo/…` is the real node —

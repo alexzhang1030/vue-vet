@@ -1857,54 +1857,292 @@ fn define_component_props_member_reads_track_in_computed() {
 }
 
 #[test]
-fn vue_query_style_member_hooks_seed_data_and_is_loading() {
-  let member = graph(
-    "import { computed } from 'vue';\n\
-     declare const apiQuery: { maps: { useApiV4MapsGet: (...args: unknown[]) => any } };\n\
-     const { data, isLoading } = apiQuery.maps.useApiV4MapsGet({});\n\
-     const rows = computed(() => data.value?.records ?? []);\n\
-     const pending = computed(() => isLoading.value);",
+fn return_call_forwards_same_file_composable_shape() {
+  let graph = graph(
+    "import { ref, computed } from 'vue';\n\
+     function useInner() { return { data: ref(0), ready: ref(false) }; }\n\
+     function useOuter() { return useInner(); }\n\
+     const { data, ready } = useOuter();\n\
+     const rows = computed(() => data.value);\n\
+     const pending = computed(() => ready.value);",
   );
   assert!(
-    member
+    graph
       .bindings
       .iter()
-      .any(|binding| { binding.name == "data" && binding.kind == ReactiveBindingKind::Ref })
-      && member
+      .any(|binding| binding.name == "data" && binding.kind == ReactiveBindingKind::Ref)
+      && graph
         .bindings
         .iter()
-        .any(|binding| { binding.name == "isLoading" && binding.kind == ReactiveBindingKind::Ref }),
-    "useApi* destructure must seed data/isLoading; bindings={:?}",
-    member.bindings
+        .any(|binding| binding.name == "ready" && binding.kind == ReactiveBindingKind::Ref),
+    "return useInner() must forward bag fields; bindings={:?}",
+    graph.bindings
   );
   assert!(
-    member.scopes.iter().any(|scope| {
+    graph.scopes.iter().any(|scope| {
       scope.kind == TrackingScopeKind::Computed
         && scope.reads.iter().any(|read| read.binding == "data")
         && scope.uncertain_accesses.is_empty()
-    }) && member.scopes.iter().any(|scope| {
+    }) && graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.iter().any(|read| read.binding == "ready")
+        && scope.uncertain_accesses.is_empty()
+    }),
+    "forwarded destructure .value must classify; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn mapped_ref_return_type_opens_destructure_keys() {
+  let modules = [
+    ModuleSource::standalone(
+      "producer.d.ts",
+      "import type { Ref } from 'vue';\n\
+       type Result = { data: string; isLoading: boolean; refetch: () => void };\n\
+       type OpenBag = { [K in keyof Result]: K extends 'refetch' ? Result[K] : Ref<Result[K]> };\n\
+       export declare function useRemote(): OpenBag;\n",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { useRemote } from './producer';\n\
+       const { data, isLoading } = useRemote();\n\
+       const rows = computed(() => data.value);\n\
+       const pending = computed(() => isLoading.value);\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./producer".into(),
+    to: "producer.d.ts".into(),
+  }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "data" && binding.kind == ReactiveBindingKind::Ref)
+        && module
+          .graph
+          .bindings
+          .iter()
+          .any(|binding| binding.name == "isLoading" && binding.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope.reads.iter().any(|read| read.binding == "data")
+            && scope.uncertain_accesses.is_empty()
+        })
+    }),
+    "mapped Ref return must open destructure keys; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
+  );
+}
+
+#[test]
+fn return_call_forwards_imported_composable_across_modules() {
+  let modules = [
+    ModuleSource::standalone(
+      "producer.d.ts",
+      "import type { Ref } from 'vue';\n\
+       type Result = { data: number; isLoading: boolean };\n\
+       type OpenBag = { [K in keyof Result]: Ref<Result[K]> };\n\
+       export declare function useRemote(): OpenBag;\n",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "wrapper.ts",
+      "import { useRemote } from './producer';\n\
+       export function useWrapped() { return useRemote(); }\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { useWrapped } from './wrapper';\n\
+       const { data, isLoading } = useWrapped();\n\
+       const rows = computed(() => data.value);\n\
+       const pending = computed(() => isLoading.value);\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [
+    ModuleLink {
+      from: "wrapper.ts".into(),
+      specifier: "./producer".into(),
+      to: "producer.d.ts".into(),
+    },
+    ModuleLink {
+      from: "consumer.ts".into(),
+      specifier: "./wrapper".into(),
+      to: "wrapper.ts".into(),
+    },
+  ];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "data" && binding.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope.reads.iter().any(|read| read.binding == "data")
+            && scope.uncertain_accesses.is_empty()
+        })
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope.reads.iter().any(|read| read.binding == "isLoading")
+            && scope.uncertain_accesses.is_empty()
+        })
+    }),
+    "return useRemote() forward must seed consumer; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
+  );
+}
+
+#[test]
+fn value_bag_member_call_seeds_destructure() {
+  let graph = graph(
+    "import { ref, computed } from 'vue';\n\
+     function useMapsGet() { return { data: ref(0), isLoading: ref(false) }; }\n\
+     function createApi() {\n\
+       return { maps: { useMapsGet } };\n\
+     }\n\
+     const api = createApi();\n\
+     const { data, isLoading } = api.maps.useMapsGet();\n\
+     const rows = computed(() => data.value);\n\
+     const pending = computed(() => isLoading.value);",
+  );
+  assert!(
+    graph
+      .bindings
+      .iter()
+      .any(|binding| binding.name == "data" && binding.kind == ReactiveBindingKind::Ref)
+      && graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "isLoading" && binding.kind == ReactiveBindingKind::Ref),
+    "api.maps.useMapsGet() must seed destructure; bindings={:?}",
+    graph.bindings
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.iter().any(|read| read.binding == "data")
+        && scope.uncertain_accesses.is_empty()
+    }) && graph.scopes.iter().any(|scope| {
       scope.kind == TrackingScopeKind::Computed
         && scope.reads.iter().any(|read| read.binding == "isLoading")
         && scope.uncertain_accesses.is_empty()
     }),
-    "query field .value reads must classify; scopes={:?}",
-    member.scopes
+    "value-bag member destructure .value must classify; scopes={:?}",
+    graph.scopes
   );
+}
 
-  let imported = graph(
-    "import { computed } from 'vue';\n\
-     import { useQuery } from '@tanstack/vue-query';\n\
-     const { data } = useQuery({ queryKey: ['x'], queryFn: async () => 1 });\n\
-     const value = computed(() => data.value);",
+#[test]
+fn value_bag_member_call_forwards_imported_shape_across_modules() {
+  let modules = [
+    ModuleSource::standalone(
+      "producer.d.ts",
+      "import type { Ref } from 'vue';\n\
+       type Result = { data: number; isLoading: boolean };\n\
+       type OpenBag = { [K in keyof Result]: Ref<Result[K]> };\n\
+       export declare function useRemote(): OpenBag;\n",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "api.ts",
+      "import { useRemote } from './producer';\n\
+       function useMapsGet() { return useRemote(); }\n\
+       export function createApi() { return { maps: { useMapsGet } }; }\n\
+       export const api = createApi();\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { api } from './api';\n\
+       const { data, isLoading } = api.maps.useMapsGet();\n\
+       const rows = computed(() => data.value);\n\
+       const pending = computed(() => isLoading.value);\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [
+    ModuleLink {
+      from: "api.ts".into(),
+      specifier: "./producer".into(),
+      to: "producer.d.ts".into(),
+    },
+    ModuleLink { from: "consumer.ts".into(), specifier: "./api".into(), to: "api.ts".into() },
+  ];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "data" && binding.kind == ReactiveBindingKind::Ref)
+        && module
+          .graph
+          .bindings
+          .iter()
+          .any(|binding| binding.name == "isLoading" && binding.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope.reads.iter().any(|read| read.binding == "data")
+            && scope.uncertain_accesses.is_empty()
+        })
+    }),
+    "cross-module value-bag member call must seed; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
+  );
+}
+
+#[test]
+fn to_refs_return_opens_destructure_keys() {
+  let graph = graph(
+    "import { reactive, toRefs, computed } from 'vue';\n\
+     function useStateBag() {\n\
+       const state = reactive({ data: 1, isLoading: false });\n\
+       return toRefs(state);\n\
+     }\n\
+     const { data, isLoading } = useStateBag();\n\
+     const rows = computed(() => data.value);\n\
+     const pending = computed(() => isLoading.value);",
   );
   assert!(
-    imported.scopes.iter().any(|scope| {
-      scope.kind == TrackingScopeKind::Computed
-        && scope.reads.iter().any(|read| read.binding == "data")
-        && scope.uncertain_accesses.is_empty()
-    }),
-    "imported useQuery data must track; got {:?}",
-    imported.scopes
+    graph
+      .bindings
+      .iter()
+      .any(|binding| binding.name == "data" && binding.kind == ReactiveBindingKind::Ref)
+      && graph.scopes.iter().any(|scope| {
+        scope.kind == TrackingScopeKind::Computed
+          && scope.reads.iter().any(|read| read.binding == "data")
+          && scope.uncertain_accesses.is_empty()
+      }),
+    "return toRefs(state) must open destructure; bindings={:?} scopes={:?}",
+    graph.bindings,
+    graph.scopes
   );
 }
 
