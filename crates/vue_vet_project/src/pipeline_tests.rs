@@ -837,6 +837,217 @@ declare global {\n\
   assert_color_mode_reactive_watch(&graph);
 }
 
+/// Same as Vite auto-import seeding, but the composable is **not** in the scanned
+/// file set — only reached via `ExternalSummaryLoad` (single-file / IDE path).
+#[test]
+fn bare_vite_auto_imports_external_spread_seeds_is_loading() {
+  let project = TempProject::new("vite-auto-imports-external");
+  let producer_source = "import { computed, ref, watch } from 'vue'\n\
+export function useTableQuery(tableQuery) {\n\
+  const page = ref(1)\n\
+  const queryResult = tableQuery()\n\
+  const list = computed(() => queryResult.data.value?.records || [])\n\
+  watch(() => queryResult.isSuccess.value && !queryResult.isFetching.value, () => {})\n\
+  return { page, list, ...queryResult }\n\
+}\n";
+  project.write("src/composables/useTable.ts", producer_source);
+  project.write(
+    "auto-imports.d.ts",
+    "export {}\n\
+declare global {\n\
+  const useTableQuery: typeof import('./src/composables/useTable')['useTableQuery']\n\
+}\n",
+  );
+
+  let script = "import { computed } from 'vue'\n\
+const { list: rows, isLoading: queryLoading } = useTableQuery(() => ({\n\
+  data: { value: { records: [] } },\n\
+  isSuccess: { value: true },\n\
+  isFetching: { value: false },\n\
+  isLoading: { value: false },\n\
+}))\n\
+const isLoading = computed(() => queryLoading.value)\n";
+  let prefix = "<script setup lang=\"ts\">\n";
+  let sfc = format!("{prefix}{script}</script>\n<template><p>ok</p></template>\n");
+  let script_offset = prefix.len();
+  project.write("pages/index.vue", &sfc);
+
+  // Intentionally omit producer from ProjectFile list — external seed only.
+  let consumer = ProjectFile {
+    path: "pages/index.vue".into(),
+    source_len: sfc.len(),
+    facts: SfcFacts {
+      template: TemplateFacts { elements: Vec::new(), expressions: Vec::new() },
+      script: ScriptFacts {
+        blocks: vec![ScriptBlockFacts {
+          kind: ScriptKind::Setup,
+          language: "ts".into(),
+          imports: vec![ScriptImportFact {
+            source: "vue".into(),
+            imported: "computed".into(),
+            local: "computed".into(),
+            span: span(0),
+          }],
+          bindings: Vec::new(),
+          calls: vec![ScriptCallFact {
+            callee: "useTableQuery".into(),
+            assigned_to: None,
+            resolved_import: None,
+            argument_identifiers: Vec::new(),
+            span: span(1),
+          }],
+          member_writes: Vec::new(),
+          destructures: Vec::new(),
+          top_level_await_ends: Vec::new(),
+          operands: Vec::new(),
+          reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
+        }],
+      },
+    }
+    .into(),
+    module_source: Some(ModuleSource::sfc_script(
+      "pages/index.vue",
+      script,
+      "ts",
+      ScriptKind::Setup,
+      script_offset,
+      sfc,
+    )),
+    ordinary_module_source: None,
+  };
+
+  let graph = build_project_graph(project.root(), &[consumer]);
+  assert!(
+    graph.reactivity_error.is_none(),
+    "external Vite auto-import tracing must succeed: {:?}",
+    graph.reactivity_error
+  );
+  let page = graph.module_reactivity.iter().find(|module| module.id == "pages/index.vue");
+  assert!(
+    page.is_some_and(|module| {
+      module.graph.bindings.iter().any(|binding| {
+        binding.name == "queryLoading" && binding.kind == vue_vet_core::ReactiveBindingKind::Ref
+      }) && module.graph.scopes.iter().any(|scope| {
+        scope.kind == vue_vet_core::TrackingScopeKind::Computed
+          && scope
+            .reads
+            .iter()
+            .any(|read| read.binding == "queryLoading" && read.property.as_deref() == Some("value"))
+          && scope.uncertain_accesses.is_empty()
+      })
+    }),
+    "external ...queryResult must seed isLoading via auto-imports; got {:?}",
+    page.map(|module| (&module.graph.bindings, &module.graph.scopes))
+  );
+}
+
+/// Vite unplugin-auto-import writes root `auto-imports.d.ts` with
+/// `typeof import('…')['name']` — seed bare composable destructure like Nuxt maps.
+#[test]
+fn bare_vite_auto_imports_dts_seeds_composable_destructure() {
+  let project = TempProject::new("vite-auto-imports");
+  let producer_source = "import { computed } from 'vue'\n\
+export function useTableQuery() {\n\
+  const list = computed(() => [] as number[])\n\
+  return { list }\n\
+}\n";
+  project.write("src/composables/useTable.ts", producer_source);
+  project.write(
+    "auto-imports.d.ts",
+    "export {}\n\
+declare global {\n\
+  const useTableQuery: typeof import('./src/composables/useTable')['useTableQuery']\n\
+}\n",
+  );
+
+  let script = "import { computed } from 'vue'\n\
+const { list: rows } = useTableQuery()\n\
+const all = computed(() => rows.value.length)\n";
+  let prefix = "<script setup lang=\"ts\">\n";
+  let sfc = format!("{prefix}{script}</script>\n<template><p>ok</p></template>\n");
+  let script_offset = prefix.len();
+  project.write("pages/index.vue", &sfc);
+
+  let producer = ProjectFile {
+    path: "src/composables/useTable.ts".into(),
+    source_len: producer_source.len(),
+    facts: SfcFacts { template: TemplateFacts::default(), script: ScriptFacts::default() }.into(),
+    module_source: Some(ModuleSource::standalone(
+      "src/composables/useTable.ts",
+      producer_source,
+      "ts",
+      ScriptKind::Script,
+    )),
+    ordinary_module_source: None,
+  };
+  let consumer = ProjectFile {
+    path: "pages/index.vue".into(),
+    source_len: sfc.len(),
+    facts: SfcFacts {
+      template: TemplateFacts { elements: Vec::new(), expressions: Vec::new() },
+      script: ScriptFacts {
+        blocks: vec![ScriptBlockFacts {
+          kind: ScriptKind::Setup,
+          language: "ts".into(),
+          imports: vec![ScriptImportFact {
+            source: "vue".into(),
+            imported: "computed".into(),
+            local: "computed".into(),
+            span: span(0),
+          }],
+          bindings: Vec::new(),
+          calls: vec![ScriptCallFact {
+            callee: "useTableQuery".into(),
+            assigned_to: None,
+            resolved_import: None,
+            argument_identifiers: Vec::new(),
+            span: span(1),
+          }],
+          member_writes: Vec::new(),
+          destructures: Vec::new(),
+          top_level_await_ends: Vec::new(),
+          operands: Vec::new(),
+          reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
+        }],
+      },
+    }
+    .into(),
+    module_source: Some(ModuleSource::sfc_script(
+      "pages/index.vue",
+      script,
+      "ts",
+      ScriptKind::Setup,
+      script_offset,
+      sfc,
+    )),
+    ordinary_module_source: None,
+  };
+
+  let graph = build_project_graph(project.root(), &[producer, consumer]);
+  assert!(
+    graph.reactivity_error.is_none(),
+    "Vite auto-import tracing must succeed: {:?}",
+    graph.reactivity_error
+  );
+  let page = graph.module_reactivity.iter().find(|module| module.id == "pages/index.vue");
+  assert!(
+    page.is_some_and(|module| {
+      module.graph.bindings.iter().any(|binding| {
+        binding.name == "rows" && binding.kind == vue_vet_core::ReactiveBindingKind::Computed
+      }) && module.graph.scopes.iter().any(|scope| {
+        scope.kind == vue_vet_core::TrackingScopeKind::Computed
+          && scope
+            .reads
+            .iter()
+            .any(|read| read.binding == "rows" && read.property.as_deref() == Some("value"))
+          && scope.uncertain_accesses.is_empty()
+      })
+    }),
+    "bare Vite useTableQuery destructure must seed Computed without uncertain; got {:?}",
+    page.map(|module| (&module.graph.bindings, &module.graph.scopes))
+  );
+}
+
 fn write_color_mode_package(project: &TempProject) {
   project.write(
       "node_modules/@nuxtjs/color-mode/package.json",

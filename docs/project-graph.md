@@ -72,15 +72,19 @@ generated name→path maps enrich (and can override) the convention names so
 `pathPrefix: false` and custom `components` dirs stay accurate. Those dts files
 are part of the graph invalidation set.
 
-When `.nuxt/imports.d.ts` or `.nuxt/types/imports.d.ts` exists, bare script
-calls whose callee is listed there (and not shadowed by a local import) create
-reactivity seed links (`#nuxt-imports:{name}`) to the resolved module via
-`NuxtImportsSeedPass::run` (StructuralLink). This is reactivity-only — it does
-**not** raise `unresolved-import`. Specifiers resolve relative to the
-**declaring** dts (not a fixed `.nuxt/imports.d.ts` base): the types variant
-usually needs one more `../` than the re-export map. When both files list the
-same name, prefer `.nuxt/imports.d.ts`. Those imports maps are also invalidation
-inputs. External package summaries load through `ExternalSummaryLoadPass::run`;
+When `.nuxt/imports.d.ts`, `.nuxt/types/imports.d.ts`, or Vite
+unplugin-auto-import's `auto-imports.d.ts` / `src/auto-imports.d.ts` exists,
+bare script calls whose callee is listed there (and not shadowed by a local
+import) create reactivity seed links (`#nuxt-imports:{name}`) to the resolved
+module via `NuxtImportsSeedPass::run` (StructuralLink). This is reactivity-only
+— it does **not** raise `unresolved-import`. Specifiers resolve relative to the
+**declaring** dts (not a fixed `.nuxt/imports.d.ts` base): the Nuxt types
+variant usually needs one more `../` than the re-export map; Vite maps typically
+use `typeof import('./src/…')['name']` from the project root. When multiple maps
+list the same name, prefer `.nuxt/imports.d.ts`, then `.nuxt/types/imports.d.ts`,
+then root `auto-imports.d.ts`. Those imports maps are also invalidation inputs.
+Single-file / IDE scans walk up to the nearest `package.json` as the workspace
+boundary so nested paths still load these root maps. External package summaries load through `ExternalSummaryLoadPass::run`;
 provisional `.d.ts` + companion `.js` Factory merge is
 `ProvisionalFactoryMergePass::run` at each loaded module (SummaryMerge). The
 `vue_vet_project` crate is staged as `context` → `structural` → `passes` →

@@ -14,7 +14,7 @@ use vue_vet_project::{
   resolver_config_inputs,
 };
 
-use crate::{SessionError, package_index::PackageIndex, scan_directory};
+use crate::{SessionError, discover_workspace_boundary, package_index::PackageIndex};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SourceKind {
@@ -52,7 +52,8 @@ impl WorkspaceInputSnapshot {
       return Err(SessionError::message(format!("path does not exist: {}", root.display())));
     }
     let filter = config.path_filter().map_err(|error| SessionError::message(error.to_string()))?;
-    let boundary = scan_directory(root).to_path_buf();
+    // File scans walk up to the nearest package.json so Vite/Nuxt maps resolve.
+    let boundary = discover_workspace_boundary(root);
     let mut sources = Vec::new();
     let mut package_index = PackageIndex::default();
     let mut package_sources = BTreeMap::new();
@@ -65,7 +66,7 @@ impl WorkspaceInputSnapshot {
       if !path.is_file() {
         continue;
       }
-      let file_id = file_id_for_physical(root, path);
+      let file_id = file_id_for_physical(root, &boundary, path);
       if path.file_name().and_then(|name| name.to_str()) == Some("package.json") {
         let bytes = overlay_source(path, overlays)
           .map_or_else(|| read_bytes(path), |source| Ok(Arc::from(source.as_bytes())))?;
@@ -185,7 +186,7 @@ impl WorkspaceInputSnapshot {
           requested_path.display()
         )));
       }
-      let file_id = file_id_for_physical(root, &path);
+      let file_id = file_id_for_physical(root, &self.boundary, &path);
       let was_source = self.sources.iter().any(|source| source.file_id == file_id);
       let bytes = match overlay {
         Some(source) => Some(Arc::<[u8]>::from(source.as_bytes())),
@@ -281,10 +282,13 @@ impl WorkspaceInputSnapshot {
   }
 }
 
-/// Workspace-relative [`FileId`] for a physical path under `root`.
+/// Workspace-relative [`FileId`] for a physical path under `root` / `boundary`.
+///
+/// Directory scans strip `root`. File scans strip `boundary` (package root when
+/// discovered) so importer paths and diagnostic ids stay package-relative.
 #[must_use]
-pub fn file_id_for_physical(root: &Path, path: &Path) -> FileId {
-  FileId::from(logical_path(root, path))
+pub fn file_id_for_physical(root: &Path, boundary: &Path, path: &Path) -> FileId {
+  FileId::from(logical_path(root, boundary, path))
 }
 
 struct OverlayMergeState<'a> {
@@ -307,7 +311,7 @@ fn merge_overlay_only_sources(
     if !path.starts_with(boundary) {
       continue;
     }
-    let file_id = file_id_for_physical(root, &path);
+    let file_id = file_id_for_physical(root, boundary, &path);
     if state.seen_file_ids.contains(&file_id) {
       continue;
     }
@@ -365,9 +369,9 @@ fn overlay_source<'a>(path: &Path, overlays: &'a BTreeMap<PathBuf, String>) -> O
   })
 }
 
-fn logical_path<'a>(root: &'a Path, path: &'a Path) -> &'a Path {
+fn logical_path<'a>(root: &'a Path, boundary: &'a Path, path: &'a Path) -> &'a Path {
   if root.is_file() {
-    path.file_name().map_or(path, |name| Path::new(name))
+    path.strip_prefix(boundary).unwrap_or_else(|_| path.file_name().map_or(path, Path::new))
   } else {
     path.strip_prefix(root).unwrap_or(path)
   }
@@ -436,6 +440,48 @@ mod tests {
         .iter()
         .any(|source| source.file_id.as_str() == "Good.vue" && !source.source.contains("v-html")),
       "failed mutation must not install the earlier overlay in the batch"
+    );
+    let _ignored = std::fs::remove_dir_all(root);
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "discovery fixture failures must fail the unit test")]
+  fn single_file_discover_walks_up_to_package_auto_imports() {
+    let root = std::env::temp_dir().join(format!("vue-vet-file-boundary-{}", std::process::id()));
+    let nested = root.join("src/pages/deep");
+    std::fs::create_dir_all(&nested).unwrap_or_else(|error| panic!("dirs: {error}"));
+    std::fs::write(root.join("package.json"), r#"{"name":"app"}"#)
+      .unwrap_or_else(|error| panic!("package: {error}"));
+    std::fs::write(
+      root.join("auto-imports.d.ts"),
+      "export {}\ndeclare global {\n  const useTableQuery: typeof import('./src/composables/useTable')['useTableQuery']\n}\n",
+    )
+    .unwrap_or_else(|error| panic!("auto-imports: {error}"));
+    let file = nested.join("index.tsx");
+    std::fs::write(&file, "export const ok = 1\n").unwrap_or_else(|error| panic!("file: {error}"));
+
+    let snapshot = WorkspaceInputSnapshot::discover(&file, &Config::default(), &BTreeMap::new())
+      .unwrap_or_else(|error| panic!("discover: {error}"));
+    let expected_boundary = root.canonicalize().unwrap_or_else(|_| root.clone());
+    let actual_boundary =
+      snapshot.boundary.canonicalize().unwrap_or_else(|_| snapshot.boundary.clone());
+    assert_eq!(
+      actual_boundary, expected_boundary,
+      "single-file scan must use the package root as boundary"
+    );
+    assert_eq!(
+      snapshot
+        .project_context
+        .nuxt_import_names
+        .get("useTableQuery")
+        .map(|t| (t.importer.as_str(), t.specifier.as_str())),
+      Some(("auto-imports.d.ts", "./src/composables/useTable")),
+      "package-root auto-imports.d.ts must load for nested file scans"
+    );
+    assert_eq!(
+      snapshot.sources.iter().map(|s| s.file_id.as_str()).collect::<Vec<_>>(),
+      ["src/pages/deep/index.tsx"],
+      "file ids must be package-relative for nested single-file scans"
     );
     let _ignored = std::fs::remove_dir_all(root);
   }

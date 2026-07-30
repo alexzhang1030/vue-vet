@@ -173,7 +173,7 @@ pub fn analyze_structural_file(
       output.edges.push(edge(&from, to, EdgeKind::AutoComposable, &call.callee, call.span.clone()));
     }
   }
-  // Enrichment (`StructuralLink`): bare Nuxt auto-imports → `#nuxt-imports:` seeds.
+  // Enrichment (`StructuralLink`): bare Nuxt / Vite auto-imports → `#nuxt-imports:` seeds.
   let nuxt_delta = NuxtImportsSeedPass::run(file, resolver, known, module_ids, nuxt_import_names);
   output.module_links.extend(nuxt_delta.module_links);
   output.external_nodes.extend(nuxt_delta.external_nodes);

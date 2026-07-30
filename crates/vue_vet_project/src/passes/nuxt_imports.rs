@@ -1,5 +1,5 @@
 //! [`NuxtImportsSeedPass`] — [`StructuralLink`](super::EnrichmentStage::StructuralLink)
-//! enrichment for bare Nuxt auto-imports.
+//! enrichment for bare Nuxt / Vite unplugin-auto-import maps.
 
 use std::collections::{BTreeMap, BTreeSet};
 

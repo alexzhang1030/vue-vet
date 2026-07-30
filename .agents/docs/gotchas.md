@@ -500,17 +500,24 @@ Oxc marks them unresolved and the name is on the `vue` / `#imports` allowlist.
 A local `function ref()` still wins and stays quiet. Empty module facts mean
 under-approx miss, not “100% reactive.”
 
-Bare **package** auto-imports (e.g. `useColorMode()` with no import) need
-`.nuxt/imports.d.ts` (or `.nuxt/types/imports.d.ts`) → a concrete file, then
-Factory/Composable evidence from that file (or companion `.js` when the
+Bare **package / local composable** auto-imports (e.g. `useColorMode()` or
+Vite `useTableQuery()` with no import) need an imports map → a concrete file,
+then Factory/Composable evidence from that file (or companion `.js` when the
 preferred `.d.ts` has **provisional** halves: declared plain-object return
-and/or body unwrap — not merely “no finished seeds”). Specifiers must resolve
-from the **declaring** dts importer: Nuxt’s types map uses one more `../` than
-the re-export map; resolving a types specifier from `.nuxt/imports.d.ts` goes
-outside the package and quietly drops the seed (real-app `colorMode` FP). When
-both maps exist, keep the `.nuxt/imports.d.ts` entry. Wiring lives in
-`NuxtImportsSeedPass::run`; companion merge in `ProvisionalFactoryMergePass::run`
-at `ExternalSummaryLoadPass` module completion
+and/or body unwrap — not merely “no finished seeds”). Maps loaded (first wins):
+`.nuxt/imports.d.ts`, `.nuxt/types/imports.d.ts`, root `auto-imports.d.ts`,
+`src/auto-imports.d.ts`. Specifiers must resolve from the **declaring** dts
+importer: Nuxt’s types map uses one more `../` than the re-export map; resolving
+a types specifier from `.nuxt/imports.d.ts` goes outside the package and quietly
+drops the seed (real-app `colorMode` FP). Vite unplugin maps use
+`typeof import('./src/…')['name']` — bracket members must parse, not only
+`.name`. When Nuxt and Vite maps both exist, keep the Nuxt entry. **Single-file /
+IDE scans** must not treat the file’s immediate parent as the package root:
+`discover_workspace_boundary` walks up to the nearest `package.json` so root
+`auto-imports.d.ts` still loads (otherwise bare `useTableQuery` never seeds and
+`no-computed-without-dependency` FPs on destructured `list` / spread `isLoading`).
+Wiring lives in `NuxtImportsSeedPass::run`; companion merge in
+`ProvisionalFactoryMergePass::run` at `ExternalSummaryLoadPass` module completion
 ([architecture](./architecture.md) `Analysis enrichment passes`) — not diagnostic
 Rules and not user plugins. Parsing every seedless package’s companion `.js`
 pulls multi‑MB bundles such as `typescript.js` and stalls real Nuxt docs apps.
@@ -565,6 +572,13 @@ Composable return-shape resolution must use the **same `script_offset`** as
 binding spans. Hardcoding offset `0` makes `return { signal }` miss nested refs
 inside SFC `<script setup>` (absolute spans) and silently drops same-file
 instance bags — a quiet A6 failure, not under-approx by design.
+
+**Return object spreads.** `return { list, ...queryResult }` skips
+`SpreadElement` unless the spread source is a proven reactive bag in the same
+function (`queryResult.data.value` / similar). Then known `bag.field.value`
+keys merge into the shape and `open_reactive_spread` lets consumers destructure
+additional keys (e.g. `isLoading`) as `Ref`. Plain `...extras` without `.value`
+reads stays closed — do not invent Ref seeds.
 
 Cross-module export shapes are not only `export function useX`. Also register:
 - `export const useX = () => ({ … })` / `export const useX = function () { … }`

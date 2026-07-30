@@ -26,7 +26,7 @@ pub use explain::Explained;
 pub use locality::{AnalysisProduct, ChangeImpact, DirtyPlan, ResolutionScope, ScanWorkCounters};
 pub use path::resolve_under_root;
 pub use progress::{ProgressEvent, ProgressReporter};
-pub use scan::scan_directory;
+pub use scan::{discover_workspace_boundary, scan_directory};
 pub use session::{
   AnalysisCoverage, AnalysisIssue, AnalysisSnapshot, AnalysisStage, ChangeSet, ProjectSession,
   Recoverability, SessionError, SessionOptions, SessionStats, file_analysis_registry,
