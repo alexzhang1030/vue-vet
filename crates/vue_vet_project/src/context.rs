@@ -150,6 +150,8 @@ pub fn context_change_kind_for(path: &str) -> Option<ContextChangeKind> {
       | ".nuxt/types/components.d.ts"
       | ".nuxt/imports.d.ts"
       | ".nuxt/types/imports.d.ts"
+      | "auto-imports.d.ts"
+      | "src/auto-imports.d.ts"
   ) {
     return Some(ContextChangeKind::NuxtDeclarations);
   }

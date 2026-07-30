@@ -1,4 +1,8 @@
-use std::{collections::BTreeSet, path::Path, sync::Arc};
+use std::{
+  collections::BTreeSet,
+  path::{Path, PathBuf},
+  sync::Arc,
+};
 
 use vue_vet_cache::{CacheLookup, CachePayload, CacheStore, content_key};
 use vue_vet_config::Config;
@@ -152,7 +156,36 @@ fn fill_cache(
 }
 
 /// Directory used as the project boundary for a file or directory scan path.
+///
+/// For a directory path this is the path itself. For a file path this is the
+/// immediate parent — use [`discover_workspace_boundary`] when Vite/Nuxt maps
+/// and package-root resolution must walk up to the nearest `package.json`.
 #[must_use]
 pub fn scan_directory(path: &Path) -> &Path {
   if path.is_dir() { path } else { path.parent().unwrap_or(path) }
+}
+
+/// Workspace root for project graph, resolver config, and auto-import maps.
+///
+/// Directory scans keep the given directory (explicit scope). File scans walk
+/// up from the parent until a `package.json` is found so nested single-file /
+/// IDE paths still load root `auto-imports.d.ts` and `.nuxt` maps. When no
+/// package manifest exists, falls back to [`scan_directory`].
+#[must_use]
+pub fn discover_workspace_boundary(path: &Path) -> PathBuf {
+  if path.is_dir() {
+    return path.to_path_buf();
+  }
+  let start = scan_directory(path).to_path_buf();
+  let mut current = start.clone();
+  loop {
+    if current.join("package.json").is_file() {
+      return current;
+    }
+    match current.parent() {
+      Some(parent) if parent != current.as_path() => current = parent.to_path_buf(),
+      _ => break,
+    }
+  }
+  start
 }

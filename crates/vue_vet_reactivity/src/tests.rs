@@ -2255,6 +2255,109 @@ fn local_composable_destructure_seeds_fields() {
 }
 
 #[test]
+fn return_reactive_spread_opens_unknown_destructure_keys() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     function useTableQuery(run) {\n\
+       const list = computed(() => []);\n\
+       const queryResult = run();\n\
+       void queryResult.data.value;\n\
+       return { list, ...queryResult };\n\
+     }\n\
+     const { list, isLoading } = useTableQuery(() => ({ data: { value: 1 }, isLoading: { value: false } }));\n\
+     const ready = computed(() => !isLoading.value && list.value.length >= 0);\n",
+  );
+  assert!(
+    graph
+      .bindings
+      .iter()
+      .any(|binding| { binding.name == "isLoading" && binding.kind == ReactiveBindingKind::Ref }),
+    "open reactive spread must seed unknown destructured isLoading; bindings={:?}",
+    graph.bindings
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "isLoading" && read.property.as_deref() == Some("value"))
+        && scope.uncertain_accesses.is_empty()
+    }),
+    "isLoading.value must be a proven computed read; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn return_plain_spread_does_not_open_destructure_keys() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     function usePlain() {\n\
+       const list = computed(() => []);\n\
+       const extras = { flag: true };\n\
+       return { list, ...extras };\n\
+     }\n\
+     const { list, flag } = usePlain();\n\
+     const label = computed(() => (flag ? list.value : list.value));\n",
+  );
+  assert!(
+    !graph.bindings.iter().any(|binding| binding.name == "flag"),
+    "plain object spread must not invent Ref seeds; bindings={:?}",
+    graph.bindings
+  );
+}
+
+#[test]
+fn return_reactive_spread_matches_vue_query_usetable_shape() {
+  // vue-query style table helper: optional-chain on data.value + watch reads + spread.
+  let producer = "import { computed, ref, watch } from 'vue';\n\
+export function useTableQuery(tableQuery) {\n\
+  const page = ref(1);\n\
+  const queryResult = tableQuery();\n\
+  const list = computed(() => queryResult.data.value?.records || []);\n\
+  watch(() => queryResult.isSuccess.value && !queryResult.isFetching.value, () => {});\n\
+  return { page, list, ...queryResult };\n\
+}\n";
+  let consumer = "import { computed } from 'vue';\n\
+import { useTableQuery } from './producer';\n\
+const { list: rows, isLoading: queryLoading } = useTableQuery(() => ({\n\
+  data: { value: { records: [] } },\n\
+  isSuccess: { value: true },\n\
+  isFetching: { value: false },\n\
+  isLoading: { value: false },\n\
+}));\n\
+const isLoading = computed(() => queryLoading.value);\n\
+const all = computed(() => rows.value);\n";
+  let modules = [
+    ModuleSource::standalone("producer.ts", producer, "ts", ScriptKind::Script),
+    ModuleSource::standalone("consumer.ts", consumer, "ts", ScriptKind::Script),
+  ];
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./producer".into(),
+    to: "producer.ts".into(),
+  }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.bindings.iter().any(|binding| {
+        binding.name == "queryLoading" && binding.kind == ReactiveBindingKind::Ref
+      }) && module.graph.scopes.iter().any(|scope| {
+        scope.kind == TrackingScopeKind::Computed
+          && scope.reads.iter().any(|read| {
+            read.binding == "queryLoading" && read.property.as_deref() == Some("value")
+          })
+          && scope.uncertain_accesses.is_empty()
+      })
+    }),
+    "cross-module ...queryResult must seed isLoading; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
+  );
+}
+
+#[test]
 fn local_instance_does_not_invent_bare_field_reads() {
   let graph = graph(
     "import { ref, watchEffect } from 'vue'; function useSignal() { const signal = ref(0); return { signal }; } const bag = useSignal(); watchEffect(() => { signal.value; });",
@@ -3031,5 +3134,58 @@ fn classifies_conditional_reads_inside_render_scopes() {
     }),
     "count behind early-exit in render must be Conditional; got {:?}",
     graph.scopes
+  );
+}
+
+#[test]
+fn use_table_style_query_result_spread_seeds_is_loading() {
+  // vue-query style table helper: explicit `list` + `...queryResult` after
+  // `queryResult.isLoading.value` (and similar) reads in the same function.
+  let producer = "import { computed, ref, watch } from 'vue';\n\
+export function useTableQuery(_params, tableQuery) {\n\
+  const page = ref(1);\n\
+  const queryResult = tableQuery();\n\
+  const list = computed(() => queryResult.data.value?.records || []);\n\
+  watch(() => queryResult.isSuccess.value && !queryResult.isFetching.value, () => {});\n\
+  return { page, list, ...queryResult };\n\
+}\n";
+  let consumer = "import { computed } from 'vue';\n\
+import { useTableQuery } from './useTable';\n\
+const { list, isLoading } = useTableQuery({ pageNum: 1 }, () => ({\n\
+  data: { value: null },\n\
+  isLoading: { value: false },\n\
+  isSuccess: { value: true },\n\
+  isFetching: { value: false },\n\
+}));\n\
+const x = computed(() => isLoading.value);\n";
+  let modules = [
+    ModuleSource::standalone("useTable.ts", producer, "ts", ScriptKind::Script),
+    ModuleSource::standalone("consumer.ts", consumer, "ts", ScriptKind::Script),
+  ];
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./useTable".into(),
+    to: "useTable.ts".into(),
+  }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "isLoading" && binding.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope
+              .reads
+              .iter()
+              .any(|read| read.binding == "isLoading" && read.property.as_deref() == Some("value"))
+            && scope.uncertain_accesses.is_empty()
+        })
+    }),
+    "useTable-style ...queryResult must seed isLoading; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
   );
 }

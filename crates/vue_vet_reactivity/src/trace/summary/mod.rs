@@ -217,12 +217,44 @@ pub(super) const NUXT_IMPORTS_SPECIFIER_PREFIX: &str = "#nuxt-imports:";
 /// Exclusive end for [`BTreeMap::range`] over `#nuxt-imports:…` keys (`';` follows `:`).
 pub(super) const NUXT_IMPORTS_RANGE_END: &str = "#nuxt-imports;";
 
+/// Object-bag return shape for a composable (explicit fields + optional open spread).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ComposableShape {
+  pub fields: BTreeMap<String, ReactiveBindingKind>,
+  /// `return { …, ...bag }` where `bag` is a proven reactive object surface
+  /// (`bag.field.value` reads in the same function). Unknown destructured keys
+  /// seed as [`ReactiveBindingKind::Ref`] (under-approx).
+  pub open_reactive_spread: bool,
+}
+
+impl ComposableShape {
+  #[must_use]
+  pub const fn from_fields(fields: BTreeMap<String, ReactiveBindingKind>) -> Self {
+    Self { fields, open_reactive_spread: false }
+  }
+
+  #[must_use]
+  pub fn is_empty(&self) -> bool {
+    self.fields.is_empty() && !self.open_reactive_spread
+  }
+
+  /// Kind for a destructured property; open spreads default unknown keys to Ref.
+  #[must_use]
+  pub fn kind_for_destructure(&self, key: &str) -> Option<ReactiveBindingKind> {
+    self
+      .fields
+      .get(key)
+      .copied()
+      .or_else(|| self.open_reactive_spread.then_some(ReactiveBindingKind::Ref))
+  }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum ExportState {
   /// Imported local is itself a reactive binding (`import { count } from './x'`).
   Known(ReactiveBindingKind),
   /// Calling the export returns a statically keyed object bag.
-  Composable(BTreeMap<String, ReactiveBindingKind>),
+  Composable(ComposableShape),
   /// Calling the export returns a scalar reactive value (`return ref(0)` / `(): Ref<T>`).
   Factory(ReactiveBindingKind),
   /// Declared `() => PlainObject` (no Ref fields) — needs body evidence for Reactive factory.
@@ -235,7 +267,7 @@ pub(super) enum ExportState {
 /// Under-approx classification of a composable/factory function return.
 #[derive(Debug, Eq, PartialEq)]
 enum ComposableReturn {
-  Object(BTreeMap<String, ReactiveBindingKind>),
+  Object(ComposableShape),
   Factory(ReactiveBindingKind),
   /// Body unwraps a state ref (`return useState(...).value`, unresolved / `#imports`).
   UnwrappedState,
@@ -245,7 +277,7 @@ enum ComposableReturn {
 #[derive(Debug, Eq, PartialEq)]
 enum DeclaredReturn {
   Factory(ReactiveBindingKind),
-  Composable(BTreeMap<String, ReactiveBindingKind>),
+  Composable(ComposableShape),
   /// Object-shaped type with ≥1 property and no Ref-like fields.
   PlainObject,
 }
@@ -726,7 +758,7 @@ pub fn composable_return_shape(
   function_id: NodeId,
   graph: &ReactivityGraph,
   script_offset: usize,
-) -> BTreeMap<String, ReactiveBindingKind> {
+) -> ComposableShape {
   let returns_by_function = build_returns_by_function(semantic);
   composable_return_shape_with_index(
     semantic,
@@ -745,7 +777,7 @@ pub fn composable_return_shape_with_index(
   graph: &ReactivityGraph,
   script_offset: usize,
   returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
-) -> BTreeMap<String, ReactiveBindingKind> {
+) -> ComposableShape {
   match composable_return_with_index(
     semantic,
     function_id,
@@ -754,7 +786,9 @@ pub fn composable_return_shape_with_index(
     returns_by_function,
   ) {
     Some(ComposableReturn::Object(shape)) => shape,
-    Some(ComposableReturn::Factory(_) | ComposableReturn::UnwrappedState) | None => BTreeMap::new(),
+    Some(ComposableReturn::Factory(_) | ComposableReturn::UnwrappedState) | None => {
+      ComposableShape::default()
+    }
   }
 }
 
@@ -764,6 +798,7 @@ pub fn composable_return_shape_with_index(
 )]
 struct ReturnKindAccum {
   shape: BTreeMap<String, ReactiveBindingKind>,
+  open_reactive_spread: bool,
   ambiguous: BTreeSet<String>,
   factory_kind: Option<ReactiveBindingKind>,
   factory_conflict: bool,
@@ -774,6 +809,10 @@ struct ReturnKindAccum {
 }
 
 impl ReturnKindAccum {
+  #[expect(
+    clippy::too_many_arguments,
+    reason = "return-kind classification needs semantic + graph + import/param context"
+  )]
   fn consider(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
@@ -782,6 +821,7 @@ impl ReturnKindAccum {
     imported_bindings: &BTreeMap<String, (String, String)>,
     param_names: &BTreeSet<String>,
     script_offset: usize,
+    function_id: NodeId,
   ) {
     let expression = match expression {
       Expression::ParenthesizedExpression(paren) => &paren.expression,
@@ -789,16 +829,18 @@ impl ReturnKindAccum {
     };
     if matches!(expression, Expression::ObjectExpression(_)) {
       self.saw_object_return = true;
-      merge_return_object_into_shape(
+      let opened = merge_return_object_into_shape(
         semantic,
         expression,
         graph,
         imported_bindings,
         param_names,
         script_offset,
+        function_id,
         &mut self.shape,
         &mut self.ambiguous,
       );
+      self.open_reactive_spread = self.open_reactive_spread || opened;
       return;
     }
     if is_unwrapped_call_return(semantic, expression, imported_bindings) {
@@ -829,8 +871,11 @@ impl ReturnKindAccum {
     if self.saw_object_return && self.saw_scalar_return {
       return None;
     }
-    if self.saw_object_return && !self.shape.is_empty() {
-      return Some(ComposableReturn::Object(self.shape));
+    if self.saw_object_return && (!self.shape.is_empty() || self.open_reactive_spread) {
+      return Some(ComposableReturn::Object(ComposableShape {
+        fields: self.shape,
+        open_reactive_spread: self.open_reactive_spread,
+      }));
     }
     if self.saw_scalar_return && !self.factory_conflict {
       if let Some(kind) = self.factory_kind {
@@ -856,6 +901,7 @@ fn composable_return_with_index(
   let param_names = function_param_names(semantic, function_id);
   let mut accum = ReturnKindAccum {
     shape: BTreeMap::new(),
+    open_reactive_spread: false,
     ambiguous: BTreeSet::new(),
     factory_kind: None,
     factory_conflict: false,
@@ -877,6 +923,7 @@ fn composable_return_with_index(
       &imported_bindings,
       &param_names,
       script_offset,
+      function_id,
     );
   }
 
@@ -889,7 +936,15 @@ fn composable_return_with_index(
         accum.factory_conflict = true;
         continue;
       };
-      accum.consider(semantic, argument, graph, &imported_bindings, &param_names, script_offset);
+      accum.consider(
+        semantic,
+        argument,
+        graph,
+        &imported_bindings,
+        &param_names,
+        script_offset,
+        function_id,
+      );
     }
   }
 
@@ -1050,7 +1105,7 @@ fn classify_declared_return_type(
   let mut index = None;
   let shape = ts_type_composable_shape(semantic, ts_type, 0, &mut index);
   if !shape.is_empty() {
-    return Some(DeclaredReturn::Composable(shape));
+    return Some(DeclaredReturn::Composable(ComposableShape::from_fields(shape)));
   }
   if ts_type_is_plain_object_shaped(semantic, ts_type, 0, &mut index) {
     return Some(DeclaredReturn::PlainObject);
@@ -1282,9 +1337,10 @@ fn merge_return_object_into_shape(
   imported_bindings: &BTreeMap<String, (String, String)>,
   param_names: &BTreeSet<String>,
   script_offset: usize,
+  function_id: NodeId,
   shape: &mut BTreeMap<String, ReactiveBindingKind>,
   ambiguous: &mut BTreeSet<String>,
-) {
+) -> bool {
   // `() => ({ field })` wraps the object in parentheses.
   let expression = match expression {
     Expression::ParenthesizedExpression(paren) => &paren.expression,
@@ -1302,43 +1358,99 @@ fn merge_return_object_into_shape(
       .is_some_and(|identifier| param_names.contains(identifier.name.as_str()))
   {
     // Without an object shape we cannot invent keys; leave quiet.
-    return;
+    return false;
   }
   let Expression::ObjectExpression(object) = expression else {
-    return;
+    return false;
   };
+  let mut open_reactive_spread = false;
   for property in &object.properties {
-    let ObjectPropertyKind::ObjectProperty(property) = property else {
-      continue;
-    };
-    let Some(exported) = property.key.static_name() else {
-      continue;
-    };
-    let Some(kind) = reactive_return_kind(
-      semantic,
-      &property.value,
-      graph,
-      imported_bindings,
-      param_names,
-      script_offset,
-    ) else {
-      continue;
-    };
-    let exported = exported.into_owned();
-    if ambiguous.contains(&exported) {
-      continue;
-    }
-    match shape.entry(exported.clone()) {
-      Entry::Vacant(entry) => {
-        entry.insert(kind);
+    match property {
+      ObjectPropertyKind::SpreadProperty(spread) => {
+        let Some(ident) = spread.argument.get_identifier_reference() else {
+          continue;
+        };
+        let bag = ident.name.as_str();
+        let from_members = bag_ref_fields_in_function(semantic, function_id, bag);
+        if from_members.is_empty() {
+          continue;
+        }
+        open_reactive_spread = true;
+        for (exported, kind) in from_members {
+          merge_shape_field(shape, ambiguous, exported, kind);
+        }
       }
-      Entry::Occupied(entry) if *entry.get() == kind => {}
-      Entry::Occupied(entry) => {
-        entry.remove();
-        ambiguous.insert(exported);
+      ObjectPropertyKind::ObjectProperty(property) => {
+        let Some(exported) = property.key.static_name() else {
+          continue;
+        };
+        let Some(kind) = reactive_return_kind(
+          semantic,
+          &property.value,
+          graph,
+          imported_bindings,
+          param_names,
+          script_offset,
+        ) else {
+          continue;
+        };
+        merge_shape_field(shape, ambiguous, exported.into_owned(), kind);
       }
     }
   }
+  open_reactive_spread
+}
+
+fn merge_shape_field(
+  shape: &mut BTreeMap<String, ReactiveBindingKind>,
+  ambiguous: &mut BTreeSet<String>,
+  exported: String,
+  kind: ReactiveBindingKind,
+) {
+  if ambiguous.contains(&exported) {
+    return;
+  }
+  match shape.entry(exported.clone()) {
+    Entry::Vacant(entry) => {
+      entry.insert(kind);
+    }
+    Entry::Occupied(entry) if *entry.get() == kind => {}
+    Entry::Occupied(entry) => {
+      entry.remove();
+      ambiguous.insert(exported);
+    }
+  }
+}
+
+/// `bag.field.value` reads inside `function_id` → `{ field: Ref }` (under-approx).
+fn bag_ref_fields_in_function(
+  semantic: &oxc_semantic::Semantic<'_>,
+  function_id: NodeId,
+  bag: &str,
+) -> BTreeMap<String, ReactiveBindingKind> {
+  let mut fields = BTreeMap::new();
+  for (node_id, node) in semantic.nodes().iter_enumerated() {
+    if !semantic.nodes().ancestor_ids(node_id).any(|ancestor| ancestor == function_id) {
+      continue;
+    }
+    let AstKind::StaticMemberExpression(outer) = node.kind() else {
+      continue;
+    };
+    if outer.property.name.as_str() != "value" {
+      continue;
+    }
+    let Expression::StaticMemberExpression(inner) = &outer.object else {
+      continue;
+    };
+    let Some(root) = inner.object.get_identifier_reference() else {
+      continue;
+    };
+    if root.name.as_str() != bag {
+      continue;
+    }
+    fields.insert(inner.property.name.to_string(), ReactiveBindingKind::Ref);
+  }
+  fields
 }
 
 fn function_param_names(

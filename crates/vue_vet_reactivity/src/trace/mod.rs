@@ -66,16 +66,16 @@ pub fn trace_reactivity(
   trace_reactivity_seeded(semantic, sfc_source, script_offset, script_kind, &TraceSeeds::default())
 }
 
-/// Composable return shape: field name → reactive kind.
-type ComposableShape = BTreeMap<String, ReactiveBindingKind>;
-/// Map of bag/composable name → return shape.
-type ComposableShapeMap = BTreeMap<String, ComposableShape>;
+/// Instance bag fields: field name → reactive kind (no open-spread flag).
+type InstanceShape = BTreeMap<String, ReactiveBindingKind>;
+/// Map of bag/composable name → return field kinds.
+type ComposableShapeMap = BTreeMap<String, InstanceShape>;
 
 /// Same-file composable/factory export classification.
 #[derive(Debug, Eq, PartialEq)]
 pub enum LocalComposableExport {
-  /// `return { field: ref(0) }` object bag.
-  Bag(ComposableShape),
+  /// `return { field: ref(0) }` object bag (may include open reactive spreads).
+  Bag(summary::ComposableShape),
   /// `return ref(0)` / declared `(): Ref<T>` scalar factory.
   Factory(ReactiveBindingKind),
 }
@@ -329,7 +329,7 @@ fn collect_local_composable_usage(
     match (&declarator.id, export) {
       (BindingPattern::BindingIdentifier(identifier), LocalComposableExport::Bag(shape)) => {
         // `const bag = useX()` — bag.field via composable_instances only.
-        instances.insert(identifier.name.to_string(), shape.clone());
+        instances.insert(identifier.name.to_string(), shape.fields.clone());
       }
       (BindingPattern::BindingIdentifier(identifier), LocalComposableExport::Factory(kind)) => {
         // `const flag = useFlag()` — scalar factory seeds a local reactive binding.
@@ -351,7 +351,7 @@ fn collect_local_composable_usage(
           let Some(exported) = property.key.static_name() else {
             continue;
           };
-          let Some(kind) = shape.get(exported.as_ref()) else {
+          let Some(kind) = shape.kind_for_destructure(exported.as_ref()) else {
             continue;
           };
           let mut identifiers = Vec::new();
@@ -362,7 +362,7 @@ fn collect_local_composable_usage(
             }
             seeded.push(ReactiveBindingFact {
               name: local,
-              kind: *kind,
+              kind,
               initialized_with_null: false,
               span: source_span(sfc_source, script_offset, span),
             });
@@ -407,7 +407,7 @@ fn local_composable_export_for(
   if declared_shape.is_empty() {
     declared_return_kind.map(LocalComposableExport::Factory)
   } else {
-    Some(LocalComposableExport::Bag(declared_shape))
+    Some(LocalComposableExport::Bag(summary::ComposableShape::from_fields(declared_shape)))
   }
 }
 
@@ -606,7 +606,7 @@ pub enum InjectionKey {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProvideOffer {
   pub kind: Option<ReactiveBindingKind>,
-  pub instance_shape: Option<ComposableShape>,
+  pub instance_shape: Option<InstanceShape>,
 }
 
 impl ProvideOffer {
@@ -627,7 +627,7 @@ pub struct InjectSite {
   pub key: InjectionKey,
   pub span: Span,
   pub default_kind: Option<ReactiveBindingKind>,
-  pub default_instance_shape: Option<ComposableShape>,
+  pub default_instance_shape: Option<InstanceShape>,
 }
 
 /// Resolved inject seeds for one file/module.
@@ -883,8 +883,8 @@ fn expression_provide_offer(
         .filter(|(def_span, _)| reference_resolves_to_span(semantic, callee, *def_span))
     {
       return match export {
-        LocalComposableExport::Bag(shape) if !shape.is_empty() => {
-          ProvideOffer { kind: None, instance_shape: Some(shape.clone()) }
+        LocalComposableExport::Bag(shape) if !shape.fields.is_empty() => {
+          ProvideOffer { kind: None, instance_shape: Some(shape.fields.clone()) }
         }
         LocalComposableExport::Factory(kind) => {
           ProvideOffer { kind: Some(*kind), instance_shape: None }
@@ -2780,9 +2780,9 @@ mod render;
 mod summary;
 
 pub use summary::{
-  ModuleLink, ModuleReactivity, ModuleSource, ModuleSummary, ModuleTraceState, PreparedModuleTrace,
-  TraceModulesError, TraceModulesOptions, TraceModulesReport, TraceModulesStats,
-  arrow_return_type_kind, arrow_return_type_shape, build_returns_by_function,
+  ComposableShape, ModuleLink, ModuleReactivity, ModuleSource, ModuleSummary, ModuleTraceState,
+  PreparedModuleTrace, TraceModulesError, TraceModulesOptions, TraceModulesReport,
+  TraceModulesStats, arrow_return_type_kind, arrow_return_type_shape, build_returns_by_function,
   composable_factory_kind_with_index, composable_return_shape, composable_return_shape_with_index,
   function_return_type_kind, function_return_type_shape, merge_declaration_implementation_summary,
   prepare_module_summary, prepare_module_trace, prepare_standalone_module_source, trace_modules,

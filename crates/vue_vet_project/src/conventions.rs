@@ -111,22 +111,24 @@ pub fn parse_nuxt_components_dts(
 pub const NUXT_COMPONENT_DTS_CANDIDATES: &[&str] =
   &[".nuxt/components.d.ts", ".nuxt/types/components.d.ts"];
 
-/// Nuxt auto-import maps (`.nuxt/imports.d.ts` and the types variant).
+/// Bare auto-import maps (Nuxt + Vite unplugin-auto-import).
 ///
-/// Order matters: prefer `.nuxt/imports.d.ts` re-exports when both exist.
+/// Order matters: prefer `.nuxt/imports.d.ts` re-exports when both Nuxt maps
+/// exist; Vite `auto-imports.d.ts` is last so Nuxt wins on name collisions.
 pub const NUXT_IMPORTS_DTS_CANDIDATES: &[&str] =
-  &[".nuxt/imports.d.ts", ".nuxt/types/imports.d.ts"];
+  &[".nuxt/imports.d.ts", ".nuxt/types/imports.d.ts", "auto-imports.d.ts", "src/auto-imports.d.ts"];
 
-/// Synthetic `ModuleLink` specifier prefix for bare Nuxt auto-import calls.
+/// Synthetic `ModuleLink` specifier prefix for bare Nuxt / Vite auto-import calls.
 ///
 /// Format: `#nuxt-imports:{exportName}` — reactivity seed only (never unresolved-import).
 pub const NUXT_IMPORTS_SPECIFIER_PREFIX: &str = "#nuxt-imports:";
 
-/// One bare auto-import binding from a Nuxt imports map.
+/// One bare auto-import binding from a Nuxt or Vite imports map.
 ///
 /// Specifiers are relative to [`Self::importer`] (the dts that declared them),
 /// not to the consumer SFC. `.nuxt/types/imports.d.ts` uses one more `../`
-/// than `.nuxt/imports.d.ts` for the same package.
+/// than `.nuxt/imports.d.ts` for the same package. Vite root
+/// `auto-imports.d.ts` typically uses `./src/…` from the project root.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct NuxtImportTarget {
   pub specifier: String,
@@ -152,9 +154,10 @@ pub fn load_nuxt_component_dts_names(
   names
 }
 
-/// Parse Nuxt-generated import re-exports into `name -> specifier`.
+/// Parse Nuxt / unplugin-auto-import maps into `name -> specifier`.
 ///
-/// Accepts `export { useX } from '…'` and `typeof import('…').useX` shapes.
+/// Accepts `export { useX } from '…'`, `typeof import('…').useX`, and
+/// `typeof import('…')['useX']` (Vite `auto-imports.d.ts`) shapes.
 #[must_use]
 pub fn parse_nuxt_imports_dts(source: &str) -> BTreeMap<String, String> {
   let mut names = BTreeMap::new();
@@ -176,7 +179,7 @@ pub fn load_nuxt_imports_dts_names(root: &Path) -> BTreeMap<String, NuxtImportTa
       continue;
     };
     for (name, specifier) in parse_nuxt_imports_dts(&source) {
-      // First candidate wins: `.nuxt/imports.d.ts` before types variant.
+      // First candidate wins: Nuxt maps before Vite `auto-imports.d.ts`.
       names
         .entry(name)
         .or_insert_with(|| NuxtImportTarget { specifier, importer: (*candidate).to_owned() });
@@ -345,7 +348,8 @@ fn extract_named_reexports(source: &str) -> Vec<(String, String)> {
   out
 }
 
-/// `export const useX: typeof import('…').useX` (types/imports.d.ts style).
+/// `typeof import('…').useX` (Nuxt types) and `typeof import('…')['useX']`
+/// (Vite unplugin-auto-import).
 fn extract_typeof_member_imports(source: &str) -> Vec<(String, String)> {
   let mut out = Vec::new();
   for line in source.lines() {
@@ -364,22 +368,27 @@ fn extract_typeof_member_imports(source: &str) -> Vec<(String, String)> {
     let Some((import_path, after_path)) = rest.split_once(quote) else {
       continue;
     };
-    // Require `.member` so component maps (`typeof import('x')`) stay elsewhere.
+    // Require a member access so component maps (`typeof import('x')`) stay elsewhere.
     let after_path = after_path.trim_start();
     if !after_path.starts_with(')') {
       continue;
     }
     let after_paren = after_path.trim_start_matches(')').trim_start();
+    if after_paren.is_empty() || after_paren.starts_with(';') {
+      continue;
+    }
     if let Some(member) = after_paren.strip_prefix('.') {
-      let member = member
-        .trim_end_matches(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
-        .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
-        .next()
-        .unwrap_or("");
-      if !member.is_empty() && member != name.as_str() {
-        // Keep the declaration's local name (left of `:`) as the auto-import key.
+      let member =
+        member.split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_').next().unwrap_or("");
+      if member.is_empty() {
+        continue;
       }
-    } else if !after_paren.is_empty() && !after_paren.starts_with(';') {
+      // Keep the declaration's local name (left of `:`) as the auto-import key.
+    } else if after_paren.starts_with('[') {
+      if bracket_member_name(after_paren).is_none() {
+        continue;
+      }
+    } else {
       continue;
     }
     if !name.is_empty() && !import_path.is_empty() {
@@ -387,6 +396,22 @@ fn extract_typeof_member_imports(source: &str) -> Vec<(String, String)> {
     }
   }
   out
+}
+
+/// `['useX']` / `["useX"]` after `typeof import('…')`.
+fn bracket_member_name(after_paren: &str) -> Option<&str> {
+  let rest = after_paren.strip_prefix('[')?.trim_start();
+  let quote = rest.chars().next().filter(|ch| *ch == '"' || *ch == '\'')?;
+  let inner = rest.get(1..)?;
+  let (member, after_member) = inner.split_once(quote)?;
+  let after_member = after_member.trim_start();
+  if !after_member.starts_with(']') {
+    return None;
+  }
+  if member.is_empty() || !member.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_') {
+    return None;
+  }
+  Some(member)
 }
 
 fn component_name_before_colon(before: &str) -> Option<String> {
@@ -449,5 +474,29 @@ export { useFoo as useBar } from './composables/foo';\n";
     );
     assert_eq!(names.get("useBar").map(String::as_str), Some("./composables/foo"));
     assert_eq!(names.get("useState").map(String::as_str), Some("#app/composables/state"));
+  }
+
+  #[test]
+  fn parses_vite_auto_imports_typeof_bracket_member() {
+    let source = "export {}\n\
+declare global {\n\
+  const computed: typeof import('vue')['computed']\n\
+  const useTableQuery: typeof import('./src/composables/useTable')['useTableQuery']\n\
+}\n";
+    let names = parse_nuxt_imports_dts(source);
+    assert_eq!(names.get("computed").map(String::as_str), Some("vue"));
+    assert_eq!(names.get("useTableQuery").map(String::as_str), Some("./src/composables/useTable"));
+  }
+
+  #[test]
+  fn parses_nuxt_types_typeof_dot_member() {
+    let source = "declare global {\n\
+  const useColorMode: typeof import('../../node_modules/@nuxtjs/color-mode/dist/runtime/composables').useColorMode\n\
+}\n";
+    let names = parse_nuxt_imports_dts(source);
+    assert_eq!(
+      names.get("useColorMode").map(String::as_str),
+      Some("../../node_modules/@nuxtjs/color-mode/dist/runtime/composables")
+    );
   }
 }

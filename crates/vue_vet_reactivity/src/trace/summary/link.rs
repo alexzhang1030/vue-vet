@@ -1065,12 +1065,12 @@ fn materialize_seeds(
         let bare_destructure =
           bare_destructured_calls.iter().filter(|call| call.imported_local == *local);
         for call in imported_destructure.chain(bare_destructure) {
-          let Some(kind) = shape.get(&call.property) else {
+          let Some(kind) = shape.kind_for_destructure(&call.property) else {
             continue;
           };
           seeds.bindings.push(ReactiveBindingFact {
             name: call.local.clone(),
-            kind: *kind,
+            kind,
             initialized_with_null: false,
             span: source_span(span_source, span_base, call.span),
           });
@@ -1079,7 +1079,7 @@ fn materialize_seeds(
         let bare_instances =
           bare_instance_calls.iter().filter(|call| call.imported_local == *local);
         for call in imported_instances.chain(bare_instances) {
-          seeds.composable_instances.insert(call.local.clone(), shape.clone());
+          seeds.composable_instances.insert(call.local.clone(), shape.fields.clone());
         }
       }
       ExportState::DeclaredPlainObjectFactory

@@ -31,7 +31,7 @@ use crate::{
   locality::{AnalysisProduct, DirtyPlan, ScanWorkCounters},
   path::resolve_under_root,
   progress::{ProgressEvent, ProgressReporter},
-  scan::scan_directory,
+  scan::discover_workspace_boundary,
 };
 
 #[cfg(test)]
@@ -172,6 +172,8 @@ pub static PROJECT_RULE_META: [RuleMeta; 2] = [
 #[derive(Debug)]
 pub struct ProjectSession {
   root: WorkspaceRoot,
+  /// Package / workspace boundary (file scans walk up to nearest `package.json`).
+  boundary: PathBuf,
   config: Config,
   cache_dir: PathBuf,
   no_cache: bool,
@@ -264,9 +266,11 @@ impl ProjectSession {
   /// Returns a config I/O, parse, or rule-validation error.
   pub fn open(options: SessionOptions) -> Result<Self, SessionError> {
     let root = options.root.canonicalize().unwrap_or(options.root);
+    let boundary = discover_workspace_boundary(&root);
     let config = load_config(&root, options.config_path.as_deref())?;
     Ok(Self {
       root: WorkspaceRoot::new(root),
+      boundary,
       config,
       cache_dir: options.cache_dir.unwrap_or_else(default_cache_dir),
       no_cache: options.no_cache,
@@ -331,10 +335,13 @@ impl ProjectSession {
     self.root.as_path()
   }
 
-  /// Directory boundary used for project graph and git diff (file parents collapse here).
+  /// Directory boundary used for project graph and git diff.
+  ///
+  /// File scans use the nearest ancestor `package.json` directory when present
+  /// so Vite/Nuxt auto-import maps resolve; otherwise the file's parent.
   #[must_use]
   pub fn workspace_root(&self) -> &Path {
-    scan_directory(self.root.as_path())
+    self.boundary.as_path()
   }
 
   #[must_use]
@@ -363,7 +370,7 @@ impl ProjectSession {
   /// Returns [`SessionError`] when the path escapes the session root.
   pub fn file_id_for_path(&self, path: &Path) -> Result<FileId, SessionError> {
     let resolved = self.resolve_workspace_path(path)?;
-    Ok(file_id_for_physical(self.root.as_path(), &resolved))
+    Ok(file_id_for_physical(self.root.as_path(), self.boundary.as_path(), &resolved))
   }
 
   /// Scan with the session cache policy.
