@@ -93,6 +93,8 @@ pub struct TraceSeeds {
   composable_instances: ComposableShapeMap,
   /// `const api = createApi()` nested method bags for member-call seeding.
   value_bags: BTreeMap<String, summary::ValueBag>,
+  /// Import locals that wrap Vue `defineComponent` (cross-module `ComponentFactory`).
+  component_factories: BTreeSet<String>,
 }
 
 thread_local! {
@@ -157,11 +159,17 @@ fn trace_reactivity_seeded_inner(
       push_binding_by_span(&mut scope_bindings, binding);
     }
   }
-  // `defineComponent` / `defineTypedComponent` / `setup(props)` — props bag is reactive.
-  if source_may_have_component_props_factory(sfc_source) {
-    for binding in
-      collect_component_props_bindings(semantic, &imported_bindings, sfc_source, script_offset)
-    {
+  // `defineComponent` / `setup(props)` — props bag is reactive.
+  // Custom wrappers seed when they forward to `defineComponent` (same-file or
+  // cross-module `ExportState::ComponentFactory` via seeds).
+  if source_may_have_component_props_factory(sfc_source) || !seeds.component_factories.is_empty() {
+    for binding in collect_component_props_bindings(
+      semantic,
+      &imported_bindings,
+      sfc_source,
+      script_offset,
+      &seeds.component_factories,
+    ) {
       push_binding_by_span(&mut scope_bindings, binding.clone());
       if !bindings.iter().any(|local| local.name == binding.name) {
         bindings.push(binding);
@@ -1076,7 +1084,7 @@ fn source_may_have_typed_ref_annotations(source: &str) -> bool {
 /// Source may call a component factory that seeds a props bag.
 #[inline]
 fn source_may_have_component_props_factory(source: &str) -> bool {
-  source.contains("defineComponent") || source.contains("defineTypedComponent")
+  source.contains("defineComponent")
 }
 
 /// Seed bindings from TypeScript ref-like annotations on parameters / declarators.
@@ -1133,20 +1141,27 @@ fn collect_typed_reactive_bindings(
 
 /// Seed the props parameter of component factories / `setup` as a reactive bag.
 ///
-/// Covers `defineComponent((props) => …)`, `defineTypedComponent((props) => …)`,
-/// and `defineComponent({ setup(props) { … } })` so `props.foo` tracks.
+/// Covers `defineComponent((props) => …)` and `defineComponent({ setup(props) })`.
+/// Same-file identity / setup-forward wrappers and seeded cross-module
+/// `ComponentFactory` imports also seed; opaque helpers stay quiet.
 fn collect_component_props_bindings(
   semantic: &oxc_semantic::Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
   sfc_source: &str,
   script_offset: usize,
+  seeded_factories: &BTreeSet<String>,
 ) -> Vec<ReactiveBindingFact> {
+  let mut factories = render::component_factories_including_bare(semantic, imported_bindings);
+  if sfc_source.contains("defineComponent") {
+    factories.extend(render::component_factory_wrapper_locals(semantic, imported_bindings));
+  }
+  factories.extend(seeded_factories.iter().cloned());
   let mut bindings = Vec::new();
   for node in semantic.nodes() {
     let AstKind::CallExpression(call) = node.kind() else {
       continue;
     };
-    if !is_component_factory_callee(&call.callee, imported_bindings) {
+    if !is_component_factory_callee(&call.callee, &factories) {
       continue;
     }
     let Some(first) = call.arguments.first().and_then(Argument::as_expression) else {
@@ -1209,23 +1224,10 @@ fn collect_component_props_bindings(
   bindings
 }
 
-fn is_component_factory_callee(
-  callee: &Expression<'_>,
-  imported_bindings: &BTreeMap<String, (String, String)>,
-) -> bool {
-  let Some(identifier) = callee.get_identifier_reference() else {
-    return false;
-  };
-  let local = identifier.name.as_str();
-  if local == "defineTypedComponent" {
-    return true;
-  }
-  if let Some((source, imported)) = imported_bindings.get(local) {
-    return imported == "defineComponent"
-      && matches!(source.as_str(), "vue" | "#imports" | "vue-demi");
-  }
-  // Bare `defineComponent` (auto-import) or local helper with that name.
-  local == "defineComponent"
+fn is_component_factory_callee(callee: &Expression<'_>, factories: &BTreeSet<String>) -> bool {
+  callee
+    .get_identifier_reference()
+    .is_some_and(|identifier| factories.contains(identifier.name.as_str()))
 }
 
 fn seed_first_formal_as_reactive(

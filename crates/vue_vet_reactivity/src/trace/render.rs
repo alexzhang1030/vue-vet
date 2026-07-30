@@ -116,7 +116,12 @@ fn push_unique<'a>(
   bodies.push(body);
 }
 
-fn component_factories(
+/// Locals that are Vue `defineComponent` (import or same-file identity forwarder).
+///
+/// Used for render-body discovery and props-bag seeding. Does **not** treat
+/// project helpers like `defineTypedComponent` as factories unless they forward
+/// to `defineComponent` in this file.
+pub(super) fn component_factories(
   semantic: &oxc_semantic::Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
 ) -> BTreeSet<String> {
@@ -131,7 +136,28 @@ fn component_factories(
   if factories.is_empty() {
     return factories;
   }
+  chase_identity_factory_forwarders(semantic, &mut factories);
+  factories
+}
 
+/// Like [`component_factories`], but also treats bare auto-import `defineComponent`
+/// as a seed and always chases identity forwarders.
+///
+/// Call only when the module source already mentions `defineComponent` (cheap gate).
+pub(super) fn component_factories_including_bare(
+  semantic: &oxc_semantic::Semantic<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> BTreeSet<String> {
+  let mut factories = component_factories(semantic, imported_bindings);
+  factories.insert("defineComponent".to_owned());
+  chase_identity_factory_forwarders(semantic, &mut factories);
+  factories
+}
+
+fn chase_identity_factory_forwarders(
+  semantic: &oxc_semantic::Semantic<'_>,
+  factories: &mut BTreeSet<String>,
+) {
   let mut grew = true;
   while grew {
     grew = false;
@@ -149,17 +175,192 @@ fn component_factories(
       let Some(init) = &declarator.init else {
         continue;
       };
-      if is_identity_factory_forward(init, &factories) {
+      if is_identity_factory_forward(init, factories) {
         factories.insert(name.to_owned());
         grew = true;
       }
     }
   }
-  factories
 }
 
 fn is_vue_runtime_source(source: &str) -> bool {
-  matches!(source, "vue" | "@vue/runtime-dom" | "@vue/runtime-core")
+  matches!(source, "vue" | "#imports" | "vue-demi" | "@vue/runtime-dom" | "@vue/runtime-core")
+}
+
+/// Locals whose body forwards the first parameter to `defineComponent` (setup wrap).
+///
+/// Recognizes multi-statement / multi-arg setup wrappers:
+/// `function wrap(setup, extra?) { const _s = setup as any; return defineComponent(_s, extra) }`
+/// Same-file identity forwarders are already covered by [`component_factories`].
+pub(super) fn component_factory_wrapper_locals(
+  semantic: &oxc_semantic::Semantic<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> BTreeSet<String> {
+  let mut define = component_factories(semantic, imported_bindings);
+  define.insert("defineComponent".to_owned());
+  let mut wrappers = BTreeSet::new();
+  for node in semantic.nodes() {
+    match node.kind() {
+      AstKind::Function(function) => {
+        let Some(identifier) = &function.id else {
+          continue;
+        };
+        if function_forwards_setup_to_define_component(function, &define) {
+          wrappers.insert(identifier.name.to_string());
+        }
+      }
+      AstKind::VariableDeclarator(declarator) => {
+        let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+          continue;
+        };
+        let forwards = match &declarator.init {
+          Some(Expression::ArrowFunctionExpression(arrow)) => {
+            arrow_forwards_setup_to_define_component(arrow, &define)
+          }
+          Some(Expression::FunctionExpression(function)) => {
+            function_forwards_setup_to_define_component(function, &define)
+          }
+          _ => false,
+        };
+        if forwards {
+          wrappers.insert(binding.name.to_string());
+        }
+      }
+      _ => {}
+    }
+  }
+  wrappers
+}
+
+fn function_forwards_setup_to_define_component(
+  function: &Function<'_>,
+  define_factories: &BTreeSet<String>,
+) -> bool {
+  let Some(param) = first_binding_param_name(&function.params) else {
+    return false;
+  };
+  let Some(body) = function.body.as_ref() else {
+    return false;
+  };
+  body_forwards_setup_to_define_component(body, param, define_factories)
+}
+
+fn arrow_forwards_setup_to_define_component(
+  arrow: &oxc_ast::ast::ArrowFunctionExpression<'_>,
+  define_factories: &BTreeSet<String>,
+) -> bool {
+  let Some(param) = first_binding_param_name(&arrow.params) else {
+    return false;
+  };
+  if arrow.expression {
+    let Some(Statement::ExpressionStatement(statement)) = arrow.body.statements.first() else {
+      return false;
+    };
+    let mut aliases = BTreeSet::new();
+    aliases.insert(param.to_owned());
+    return is_define_component_setup_call(&statement.expression, define_factories, &aliases);
+  }
+  body_forwards_setup_to_define_component(&arrow.body, param, define_factories)
+}
+
+fn first_binding_param_name<'a>(params: &'a oxc_ast::ast::FormalParameters<'a>) -> Option<&'a str> {
+  let param = params.items.first()?;
+  match &param.pattern {
+    BindingPattern::BindingIdentifier(identifier) => Some(identifier.name.as_str()),
+    _ => None,
+  }
+}
+
+fn body_forwards_setup_to_define_component(
+  body: &FunctionBody<'_>,
+  param_name: &str,
+  define_factories: &BTreeSet<String>,
+) -> bool {
+  let aliases = param_aliases_in_body(body, param_name);
+  let mut saw_forward = false;
+  for statement in &body.statements {
+    let Statement::ReturnStatement(ret) = statement else {
+      continue;
+    };
+    let Some(argument) = &ret.argument else {
+      return false;
+    };
+    if !is_define_component_setup_call(argument, define_factories, &aliases) {
+      return false;
+    }
+    saw_forward = true;
+  }
+  saw_forward
+}
+
+fn param_aliases_in_body(body: &FunctionBody<'_>, param_name: &str) -> BTreeSet<String> {
+  let mut aliases = BTreeSet::new();
+  aliases.insert(param_name.to_owned());
+  let mut grew = true;
+  while grew {
+    grew = false;
+    for statement in &body.statements {
+      let Statement::VariableDeclaration(declaration) = statement else {
+        continue;
+      };
+      for declarator in &declaration.declarations {
+        let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+          continue;
+        };
+        let name = binding.name.as_str();
+        if aliases.contains(name) {
+          continue;
+        }
+        let Some(init) = &declarator.init else {
+          continue;
+        };
+        let Some(root) = peel_type_assertions(init).get_identifier_reference() else {
+          continue;
+        };
+        if aliases.contains(root.name.as_str()) {
+          aliases.insert(name.to_owned());
+          grew = true;
+        }
+      }
+    }
+  }
+  aliases
+}
+
+fn is_define_component_setup_call(
+  expression: &Expression<'_>,
+  define_factories: &BTreeSet<String>,
+  aliases: &BTreeSet<String>,
+) -> bool {
+  let Expression::CallExpression(call) = peel_type_assertions(expression) else {
+    return false;
+  };
+  let Some(callee) = call.callee.get_identifier_reference() else {
+    return false;
+  };
+  if !define_factories.contains(callee.name.as_str()) || call.arguments.is_empty() {
+    return false;
+  }
+  call
+    .arguments
+    .first()
+    .and_then(Argument::as_expression)
+    .and_then(|arg| peel_type_assertions(arg).get_identifier_reference())
+    .is_some_and(|id| aliases.contains(id.name.as_str()))
+}
+
+fn peel_type_assertions<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
+  let mut current = expression;
+  loop {
+    current = match current {
+      Expression::ParenthesizedExpression(paren) => &paren.expression,
+      Expression::TSAsExpression(assertion) => &assertion.expression,
+      Expression::TSTypeAssertion(assertion) => &assertion.expression,
+      Expression::TSSatisfiesExpression(satisfies) => &satisfies.expression,
+      Expression::TSNonNullExpression(non_null) => &non_null.expression,
+      other => return other,
+    };
+  }
 }
 
 fn is_identity_factory_forward(expression: &Expression<'_>, factories: &BTreeSet<String>) -> bool {

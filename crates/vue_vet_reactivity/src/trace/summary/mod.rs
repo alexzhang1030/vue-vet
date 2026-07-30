@@ -306,6 +306,9 @@ pub(super) enum ExportState {
   ValueBag(ValueBag),
   /// Body is `return callee(...)` — resolve callee export at link time.
   ForwardReturn(String),
+  /// Calling the export wraps `defineComponent` with the first argument as setup
+  /// (cross-module typed helpers). Consumers seed the setup `props` parameter.
+  ComponentFactory,
   /// Declared `() => PlainObject` (no Ref fields) — needs body evidence for Reactive factory.
   DeclaredPlainObjectFactory,
   /// Body unwraps a state ref (e.g. `return useState(...).value`) — needs plain-object declaration.
@@ -387,6 +390,7 @@ impl ModuleSummary {
           | ExportState::Known(_)
           | ExportState::ValueFactory(_)
           | ExportState::ValueBag(_)
+          | ExportState::ComponentFactory
       )
     })
   }
@@ -401,6 +405,35 @@ impl ModuleSummary {
     self.locals.values().any(|state| {
       matches!(state, ExportState::DeclaredPlainObjectFactory | ExportState::BodyUnwrappedState)
     })
+  }
+
+  /// Whether a size-capped companion body may still publish `ComponentFactory`.
+  ///
+  /// True when an exported local has no seedable state yet (typical `export declare
+  /// function wrap(...)` in package `.d.ts`). Still requires a real body that
+  /// forwards to `defineComponent` — never invent from the declaration alone.
+  #[must_use]
+  pub fn may_gain_component_factory_from_impl(&self) -> bool {
+    self.exports.iter().any(|export| match export {
+      ExportSummary::Local { local, .. } => !matches!(
+        self.locals.get(local),
+        Some(
+          ExportState::ComponentFactory
+            | ExportState::Factory(_)
+            | ExportState::Composable(_)
+            | ExportState::Known(_)
+            | ExportState::ValueFactory(_)
+            | ExportState::ValueBag(_)
+        )
+      ),
+      ExportSummary::Reexport { .. } | ExportSummary::Star { .. } => false,
+    })
+  }
+
+  /// Whether any local is a `ComponentFactory` setup-forward wrapper.
+  #[must_use]
+  pub fn has_component_factory_local(&self) -> bool {
+    self.locals.values().any(|state| matches!(state, ExportState::ComponentFactory))
   }
 }
 
@@ -435,6 +468,7 @@ pub fn merge_declaration_implementation_summary(
           | ExportState::Known(_)
           | ExportState::ValueFactory(_)
           | ExportState::ValueBag(_)
+          | ExportState::ComponentFactory
       ) =>
       {
         merged.insert(name.clone(), state.clone());
@@ -443,7 +477,10 @@ pub fn merge_declaration_implementation_summary(
       (Some(ExportState::ForwardReturn(_)), state)
         if matches!(
           state,
-          ExportState::Factory(_) | ExportState::Composable(_) | ExportState::ValueFactory(_)
+          ExportState::Factory(_)
+            | ExportState::Composable(_)
+            | ExportState::ValueFactory(_)
+            | ExportState::ComponentFactory
         ) =>
       {
         merged.insert(name.clone(), state.clone());
@@ -503,7 +540,8 @@ pub fn prepare_module_summary(
     ),
     ..ReactivityGraph::default()
   };
-  let locals = collect_local_values(semantic, &local_graph, &shape_graph, source_offset);
+  let locals =
+    collect_local_values(semantic, &local_graph, &shape_graph, source_offset, span_source);
   let imported_bindings = collect_imported_bindings(semantic);
   let provides = collect_provide_sites(
     semantic,
@@ -652,6 +690,7 @@ fn collect_local_values(
   public_graph: &ReactivityGraph,
   shape_graph: &ReactivityGraph,
   script_offset: usize,
+  span_source: &str,
 ) -> BTreeMap<String, ExportState> {
   let mut locals = public_graph
     .bindings
@@ -663,6 +702,15 @@ fn collect_local_values(
   // return-statement index walk (cold `trace_1k_*` synthetic modules).
   let mut returns_by_function = None;
 
+  // `defineComponent` setup wrappers → ComponentFactory (before composable Forward).
+  // Cheap source gate keeps synthetic 1k modules off the wrapper AST walk.
+  if span_source.contains("defineComponent") {
+    let imported_bindings = collect_imported_bindings(semantic);
+    for name in super::render::component_factory_wrapper_locals(semantic, &imported_bindings) {
+      locals.insert(name, ExportState::ComponentFactory);
+    }
+  }
+
   // `function useX() { return { field } }` / `return ref(0)` / `(): Ref<T>`
   for node in semantic.nodes() {
     let AstKind::Function(function) = node.kind() else {
@@ -671,6 +719,10 @@ fn collect_local_values(
     let Some(identifier) = &function.id else {
       continue;
     };
+    let name = identifier.name.to_string();
+    if matches!(locals.get(&name), Some(ExportState::ComponentFactory)) {
+      continue;
+    }
     let index = returns_by_function.get_or_insert_with(|| build_returns_by_function(semantic));
     let function_id = function.node_id.get();
     if let Some(state) = composable_export_state(
@@ -682,7 +734,7 @@ fn collect_local_values(
       function_return_type_kind(function),
       || declared_return_for_function(semantic, function),
     ) {
-      locals.insert(identifier.name.to_string(), state);
+      locals.insert(name, state);
     }
   }
 
@@ -694,6 +746,10 @@ fn collect_local_values(
     let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
       continue;
     };
+    let name = identifier.name.to_string();
+    if matches!(locals.get(&name), Some(ExportState::ComponentFactory)) {
+      continue;
+    }
     let state = match &declarator.init {
       Some(Expression::ArrowFunctionExpression(arrow)) => {
         let index = returns_by_function.get_or_insert_with(|| build_returns_by_function(semantic));
@@ -736,7 +792,7 @@ fn collect_local_values(
       Some(_) => continue,
     };
     if let Some(state) = state {
-      locals.insert(identifier.name.to_string(), state);
+      locals.insert(name, state);
     }
   }
 
@@ -760,7 +816,10 @@ fn collect_local_values(
         };
         if !matches!(
           resolved,
-          ExportState::Composable(_) | ExportState::Factory(_) | ExportState::ValueFactory(_)
+          ExportState::Composable(_)
+            | ExportState::Factory(_)
+            | ExportState::ValueFactory(_)
+            | ExportState::ComponentFactory
         ) {
           continue;
         }

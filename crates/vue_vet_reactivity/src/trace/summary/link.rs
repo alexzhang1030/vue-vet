@@ -817,6 +817,8 @@ fn resolve_exports(
     facts.keys().map(|id| (id.clone(), BTreeMap::new())).collect::<BTreeMap<_, _>>();
 
   // Cheap path: seed finished locals once (same as pre-forward linking).
+  // `import { x as y }; export { y }` barrels resolve via import links in the
+  // fixed-point below — only locals with finished state are inserted here.
   for (id, module_facts) in facts {
     for export in &module_facts.summary.exports {
       let ExportSummary::Local { local, exported } = export else {
@@ -854,7 +856,16 @@ fn resolve_exports(
       module_facts.summary.exports.iter().any(|export| {
         matches!(export, ExportSummary::Reexport { .. } | ExportSummary::Star { .. })
       });
-    if needs_reexport || working_locals.contains_key(id) {
+    // `import { d as x }; export { x }` — Local export name is not in `locals`.
+    let needs_import_local_export = module_facts.summary.exports.iter().any(|export| {
+      matches!(
+        export,
+        ExportSummary::Local { local, .. }
+          if !module_facts.summary.locals.contains_key(local)
+            && module_facts.summary.imports.iter().any(|import| import.local == *local)
+      )
+    });
+    if needs_reexport || working_locals.contains_key(id) || needs_import_local_export {
       queue.push_back(id);
       queued.insert(id);
     }
@@ -900,7 +911,17 @@ fn resolve_exports(
 
     for export in &module_facts.summary.exports {
       match export {
-        ExportSummary::Local { .. } => {}
+        ExportSummary::Local { local, exported } => {
+          // Barrel: `import { d as defineTypedComponent }; export { defineTypedComponent }`.
+          if module_facts.summary.locals.contains_key(local) {
+            continue;
+          }
+          if let Some(state) =
+            resolve_name_export_state(id, local, &BTreeMap::new(), facts, links, &resolved, 0)
+          {
+            changed |= insert_export(&mut resolved, id, exported, state);
+          }
+        }
         ExportSummary::Reexport { source, imported, exported } => {
           let Some(target) = links.get(&(id, source.as_str())).copied() else {
             continue;
@@ -1029,7 +1050,8 @@ fn resolve_name_export_state(
       | ExportState::Factory(_)
       | ExportState::ValueFactory(_)
       | ExportState::ValueBag(_)
-      | ExportState::Known(_) => return Some(state.clone()),
+      | ExportState::Known(_)
+      | ExportState::ComponentFactory => return Some(state.clone()),
       _ => {}
     }
   }
@@ -1119,6 +1141,7 @@ const fn is_seedable_export_state(state: &ExportState) -> bool {
       | ExportState::Composable(_)
       | ExportState::ValueFactory(_)
       | ExportState::ValueBag(_)
+      | ExportState::ComponentFactory
   )
 }
 
@@ -1279,6 +1302,10 @@ fn materialize_seeds(
       }
       ExportState::ValueBag(bag) => {
         seed_value_bag_binding(&mut seeds, local, bag);
+      }
+      ExportState::ComponentFactory => {
+        // Import local is a defineComponent setup wrapper — seed props at call sites.
+        seeds.component_factories.insert(local.clone());
       }
       ExportState::DeclaredPlainObjectFactory
       | ExportState::BodyUnwrappedState

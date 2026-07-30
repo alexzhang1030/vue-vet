@@ -595,9 +595,16 @@ additional keys (e.g. `isLoading`) as `Ref`. Plain `...extras` without `.value`
 reads stays closed — do not invent Ref seeds.
 
 **Component `props` bags.** `defineProps()` already seeds `Reactive`. Also seed
-the first parameter of `defineComponent` / `defineTypedComponent` factories and
-of options-API `setup(props)` so `computed(() => props.foo)` tracks. Without
-that, TSX/`defineTypedComponent` codebases flood `no-computed-without-dependency`.
+the first parameter of Vue `defineComponent` factories (import from
+`vue` / `#imports` / `vue-demi` / `@vue/runtime-*`, bare auto-import, same-file
+identity forwarder, or a setup-forward wrapper) and options-API `setup(props)`
+so `computed(() => props.foo)` tracks. Wrappers whose body forwards the first
+parameter to `defineComponent` (allowing `as any` aliases and an optional second
+options argument) export as `ExportState::ComponentFactory`; consumers seed via
+that summary — not by helper name. Opaque helpers without a `defineComponent`
+forward stay quiet. Package `.d.ts` declare wrappers regain the flag when a
+size-capped `exports.import` body (and one relative chunk hop) proves the
+forward — never from the declaration signature alone.
 
 **Composable shape forwarding (not name allowlists).** Prefer declared / body
 return shapes over package or callee-name heuristics. Mapped object types whose
