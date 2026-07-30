@@ -926,13 +926,13 @@ const isLoading = computed(() => queryLoading.value)\n";
   assert!(
     page.is_some_and(|module| {
       module.graph.bindings.iter().any(|binding| {
-        binding.name == "queryLoading"
-          && binding.kind == vue_vet_core::ReactiveBindingKind::Ref
+        binding.name == "queryLoading" && binding.kind == vue_vet_core::ReactiveBindingKind::Ref
       }) && module.graph.scopes.iter().any(|scope| {
         scope.kind == vue_vet_core::TrackingScopeKind::Computed
-          && scope.reads.iter().any(|read| {
-            read.binding == "queryLoading" && read.property.as_deref() == Some("value")
-          })
+          && scope
+            .reads
+            .iter()
+            .any(|read| read.binding == "queryLoading" && read.property.as_deref() == Some("value"))
           && scope.uncertain_accesses.is_empty()
       })
     }),
@@ -1033,8 +1033,7 @@ const all = computed(() => rows.value.length)\n";
   assert!(
     page.is_some_and(|module| {
       module.graph.bindings.iter().any(|binding| {
-        binding.name == "rows"
-          && binding.kind == vue_vet_core::ReactiveBindingKind::Computed
+        binding.name == "rows" && binding.kind == vue_vet_core::ReactiveBindingKind::Computed
       }) && module.graph.scopes.iter().any(|scope| {
         scope.kind == vue_vet_core::TrackingScopeKind::Computed
           && scope

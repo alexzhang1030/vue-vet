@@ -2342,15 +2342,18 @@ const all = computed(() => rows.value);\n";
   let consumer = traced.iter().find(|module| module.id == "consumer.ts");
   assert!(
     consumer.is_some_and(|module| {
-      module.graph.bindings.iter().any(|binding| {
-        binding.name == "queryLoading" && binding.kind == ReactiveBindingKind::Ref
-      }) && module.graph.scopes.iter().any(|scope| {
-        scope.kind == TrackingScopeKind::Computed
-          && scope.reads.iter().any(|read| {
-            read.binding == "queryLoading" && read.property.as_deref() == Some("value")
-          })
-          && scope.uncertain_accesses.is_empty()
-      })
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "queryLoading" && binding.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope.reads.iter().any(|read| {
+              read.binding == "queryLoading" && read.property.as_deref() == Some("value")
+            })
+            && scope.uncertain_accesses.is_empty()
+        })
     }),
     "cross-module ...queryResult must seed isLoading; got {:?}",
     consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
