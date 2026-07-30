@@ -754,6 +754,10 @@ impl Rule for NoDeprecatedFilter {
   }
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
+    // Vue 2 pipe filters are SFC template syntax only — never JSX/TSX.
+    if is_jsx_module_path(context.file()) {
+      return;
+    }
     let template = context.template();
     let mut findings = Vec::new();
     if template.expressions.is_empty() {
@@ -785,26 +789,72 @@ impl Rule for NoDeprecatedFilter {
   }
 }
 
-/// Legacy filter syntax is a single ` | ` (spaced pipe, not `||`) — a
-/// conservative pattern that avoids flagging logical-or or bitwise-or usage.
+fn is_jsx_module_path(path: &std::path::Path) -> bool {
+  path
+    .extension()
+    .and_then(|extension| extension.to_str())
+    .is_some_and(|extension| matches!(extension, "jsx" | "tsx"))
+}
+
+/// Legacy filter syntax: spaced pipe ` | ` whose RHS looks like a filter name
+/// (`ident` or `ident(...)`), not `||`, bitwise-or without spaces, or TS unions
+/// like `Foo.Bar | Foo.Baz`.
 fn has_filter_pipe(expression: &str) -> bool {
   let bytes = expression.as_bytes();
-  for (index, byte) in bytes.iter().enumerate() {
-    if *byte != b'|' {
+  let mut index = 0;
+  while index < bytes.len() {
+    if bytes.get(index) != Some(&b'|') {
+      index += 1;
       continue;
     }
     let previous_is_pipe = index > 0 && bytes.get(index - 1) == Some(&b'|');
     let next_is_pipe = bytes.get(index + 1) == Some(&b'|');
     if previous_is_pipe || next_is_pipe {
+      index += 1;
       continue;
     }
     let previous_is_space = index > 0 && bytes.get(index - 1) == Some(&b' ');
     let next_is_space = bytes.get(index + 1) == Some(&b' ');
-    if previous_is_space && next_is_space {
+    if !(previous_is_space && next_is_space) {
+      index += 1;
+      continue;
+    }
+    let rhs_start = index.saturating_add(2);
+    let Some(rhs) = bytes.get(rhs_start..) else {
+      index += 1;
+      continue;
+    };
+    if looks_like_filter_rhs(rhs) {
       return true;
     }
+    index += 1;
   }
   false
+}
+
+fn looks_like_filter_rhs(rhs: &[u8]) -> bool {
+  let mut index = 0;
+  while rhs.get(index).is_some_and(u8::is_ascii_whitespace) {
+    index += 1;
+  }
+  let Some(&first) = rhs.get(index) else {
+    return false;
+  };
+  if !(first.is_ascii_alphabetic() || first == b'_' || first == b'$') {
+    return false;
+  }
+  index += 1;
+  while rhs
+    .get(index)
+    .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_' || *byte == b'$')
+  {
+    index += 1;
+  }
+  while rhs.get(index).is_some_and(u8::is_ascii_whitespace) {
+    index += 1;
+  }
+  // Filter name alone, chained ` | next`, or `filter(arg)`. Reject `Foo.Bar`.
+  matches!(rhs.get(index), None | Some(b'|' | b'('))
 }
 
 fn looks_like_component(element: &TemplateElementFact) -> bool {
@@ -838,4 +888,32 @@ pub fn directive_rules() -> Vec<&'static dyn Rule> {
     &REQUIRE_TOGGLE_INSIDE_TRANSITION,
     &NO_DEPRECATED_FILTER,
   ]
+}
+
+#[cfg(test)]
+mod filter_pipe_tests {
+  use super::{has_filter_pipe, is_jsx_module_path};
+  use std::path::Path;
+
+  #[test]
+  fn detects_vue2_filter_pipes() {
+    assert!(has_filter_pipe("message | capitalize"));
+    assert!(has_filter_pipe("message | capitalize | upper"));
+    assert!(has_filter_pipe("n | currency(2)"));
+  }
+
+  #[test]
+  fn rejects_ts_unions_and_non_filters() {
+    assert!(!has_filter_pipe("props.name as PresetAppName.Monitor | PresetAppName.Dashboard"));
+    assert!(!has_filter_pipe("Foo.Bar | Foo.Baz"));
+    assert!(!has_filter_pipe("a || b"));
+    assert!(!has_filter_pipe("a|b"));
+  }
+
+  #[test]
+  fn jsx_paths_are_recognized() {
+    assert!(is_jsx_module_path(Path::new("Comp.tsx")));
+    assert!(is_jsx_module_path(Path::new("Comp.jsx")));
+    assert!(!is_jsx_module_path(Path::new("Comp.vue")));
+  }
 }
