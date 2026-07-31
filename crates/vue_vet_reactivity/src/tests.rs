@@ -4478,3 +4478,101 @@ fn options_object_callback_slots_follow_export_star_barrel() {
     consumer.map(|module| &module.graph.scopes)
   );
 }
+
+#[test]
+fn typed_function_callback_param_seeds_same_file() {
+  let graph = graph(
+    "import type { ComputedRef } from 'vue';\n\
+     import { computed } from 'vue';\n\
+     function usePagedQuery<T>(\n\
+       _init: T,\n\
+       run: (state: ComputedRef<T & { page: number }>) => unknown,\n\
+     ) {\n\
+       void run;\n\
+     }\n\
+     usePagedQuery({ q: '' }, (state) => {\n\
+       const page = computed(() => state.value.page);\n\
+       void page.value;\n\
+     });",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "state" && read.property.as_deref() == Some("value"))
+        && !scope.uncertain_accesses.iter().any(|name| name == "state")
+    }),
+    "typed (state: ComputedRef) callback formal must classify .value; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn typed_function_callback_param_seeds_across_modules() {
+  let modules = [
+    ModuleSource::standalone(
+      "query.ts",
+      "import type { ComputedRef } from 'vue';\n\
+       export function usePagedQuery<T>(\n\
+         _init: T,\n\
+         run: (state: ComputedRef<T & { page: number }>) => unknown,\n\
+       ) {\n\
+         void run;\n\
+       }\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { usePagedQuery } from './query';\n\
+       usePagedQuery({ q: '' }, (state) => {\n\
+         const page = computed(() => state.value.page);\n\
+         void page.value;\n\
+       });",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links =
+    [ModuleLink { from: "consumer.ts".into(), specifier: "./query".into(), to: "query.ts".into() }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.scopes.iter().any(|scope| {
+        scope.kind == TrackingScopeKind::Computed
+          && scope
+            .reads
+            .iter()
+            .any(|read| read.binding == "state" && read.property.as_deref() == Some("value"))
+          && scope.uncertain_accesses.iter().all(|name| name != "state")
+      })
+    }),
+    "imported typed callback formal must seed across modules; consumer={consumer:?}"
+  );
+}
+
+#[test]
+fn typed_function_callback_ignores_non_ref_formals() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     function useMapped(\n\
+       map: (label: string) => string,\n\
+     ) {\n\
+       void map;\n\
+     }\n\
+     useMapped((label) => {\n\
+       const upper = computed(() => label.toUpperCase());\n\
+       void upper.value;\n\
+       return label;\n\
+     });",
+  );
+  assert!(
+    !graph.bindings.iter().any(|binding| binding.name == "label"),
+    "non-Ref callback formals must not invent bindings; bindings={:?}",
+    graph.bindings
+  );
+}

@@ -18,8 +18,8 @@ use super::{
   DestructuredCallBinding, ExportState, ExportSummary, ImportSummary, InstanceCallBinding,
   ModuleExportFacts, ModuleLink, ModulePhaseOne, ModuleReactivity, ModuleSource, ModuleSummary,
   NUXT_IMPORTS_RANGE_END, NUXT_IMPORTS_SPECIFIER_PREFIX, OptionsCallbackSlots, TraceModulesError,
-  ValueBag, ValueBagEntry, analyze_module_phase_one_cached, collect_imports, join_errors,
-  source_type,
+  TypedCallbackParamSlots, ValueBag, ValueBagEntry, analyze_module_phase_one_cached,
+  collect_imports, join_errors, source_type,
 };
 
 /// Concurrency limit for cross-module tracing.
@@ -62,6 +62,8 @@ struct ModuleSeedPlan {
   injects: BTreeMap<String, ProvideOffer>,
   /// Import / bare auto-import local → options-object callback bag shapes.
   options_callback_slots: BTreeMap<String, OptionsCallbackSlots>,
+  /// Import / bare auto-import local → typed function-callback Ref formals.
+  typed_callback_param_slots: BTreeMap<String, TypedCallbackParamSlots>,
 }
 
 /// Reusable state for cross-module linking in a long-lived project session.
@@ -109,6 +111,7 @@ fn linking_surface_eq(left: &Arc<ModuleSummary>, right: &Arc<ModuleSummary>) -> 
       && left.exports == right.exports
       && left.locals == right.locals
       && left.options_callback_slots == right.options_callback_slots
+      && left.typed_callback_param_slots == right.typed_callback_param_slots
       && left.provides == right.provides
       && left.injects == right.injects)
 }
@@ -149,7 +152,10 @@ pub struct TraceModulesReport {
 
 impl ModuleSeedPlan {
   fn is_empty(&self) -> bool {
-    self.imports.is_empty() && self.injects.is_empty() && self.options_callback_slots.is_empty()
+    self.imports.is_empty()
+      && self.injects.is_empty()
+      && self.options_callback_slots.is_empty()
+      && self.typed_callback_param_slots.is_empty()
   }
 }
 
@@ -428,6 +434,7 @@ fn build_cold_persistent_seed_work<'a>(
   let link_index = link_index(resolved_links);
   let exports = Arc::new(resolve_exports(facts_by_id, &link_index));
   let options_exports = resolve_options_callback_exports(facts_by_id, &link_index);
+  let typed_callback_exports = resolve_typed_callback_param_exports(facts_by_id, &link_index);
   let provide_index = Arc::new(global_provide_index(facts_by_id));
   report.stats.export_resolve_ran = true;
   let work = unique
@@ -435,12 +442,13 @@ fn build_cold_persistent_seed_work<'a>(
     .filter_map(|module| {
       let facts = facts_by_id.get(&module.id)?;
       let local_graph = local_graphs.remove(&module.id)?;
-      let (imports, options_callback_slots) =
-        seed_plan_for(facts, &exports, &options_exports, &link_index);
+      let (imports, options_callback_slots, typed_callback_param_slots) =
+        seed_plan_for(facts, &exports, &options_exports, &typed_callback_exports, &link_index);
       let plan = ModuleSeedPlan {
         imports,
         injects: inject_seed_plan(facts, &provide_index),
         options_callback_slots,
+        typed_callback_param_slots,
       };
       Some((*module, local_graph, plan, Some(Arc::clone(&facts.summary))))
     })
@@ -461,6 +469,7 @@ fn build_oneshot_seed_work<'a>(
   let link_index = link_index(resolved_links);
   let exports = resolve_exports(facts_by_id, &link_index);
   let options_exports = resolve_options_callback_exports(facts_by_id, &link_index);
+  let typed_callback_exports = resolve_typed_callback_param_exports(facts_by_id, &link_index);
   let provide_index = global_provide_index(facts_by_id);
   report.stats.export_resolve_ran = true;
   let work = unique
@@ -468,12 +477,13 @@ fn build_oneshot_seed_work<'a>(
     .filter_map(|module| {
       let facts = facts_by_id.get(&module.id)?;
       let local_graph = local_graphs.remove(&module.id)?;
-      let (imports, options_callback_slots) =
-        seed_plan_for(facts, &exports, &options_exports, &link_index);
+      let (imports, options_callback_slots, typed_callback_param_slots) =
+        seed_plan_for(facts, &exports, &options_exports, &typed_callback_exports, &link_index);
       let plan = ModuleSeedPlan {
         imports,
         injects: inject_seed_plan(facts, &provide_index),
         options_callback_slots,
+        typed_callback_param_slots,
       };
       Some((*module, local_graph, plan, None))
     })
@@ -511,6 +521,7 @@ fn build_persistent_seed_work<'a>(
     let link_index = link_index(resolved_links);
     let exports = Arc::new(resolve_exports(facts_by_id, &link_index));
     let options_exports = resolve_options_callback_exports(facts_by_id, &link_index);
+    let typed_callback_exports = resolve_typed_callback_param_exports(facts_by_id, &link_index);
     let provide_index = Arc::new(global_provide_index(facts_by_id));
     let dirty_seed = modules_needing_seed_recompute(
       state.linking.as_ref(),
@@ -527,14 +538,15 @@ fn build_persistent_seed_work<'a>(
       let Some(facts) = facts_by_id.get(id) else {
         continue;
       };
-      let (imports, options_callback_slots) =
-        seed_plan_for(facts, &exports, &options_exports, &link_index);
+      let (imports, options_callback_slots, typed_callback_param_slots) =
+        seed_plan_for(facts, &exports, &options_exports, &typed_callback_exports, &link_index);
       next_plans.insert(
         id.clone(),
         ModuleSeedPlan {
           imports,
           injects: inject_seed_plan(facts, &provide_index),
           options_callback_slots,
+          typed_callback_param_slots,
         },
       );
       recomputed += 1;
@@ -546,14 +558,15 @@ fn build_persistent_seed_work<'a>(
       let Some(facts) = facts_by_id.get(&module.id) else {
         continue;
       };
-      let (imports, options_callback_slots) =
-        seed_plan_for(facts, &exports, &options_exports, &link_index);
+      let (imports, options_callback_slots, typed_callback_param_slots) =
+        seed_plan_for(facts, &exports, &options_exports, &typed_callback_exports, &link_index);
       next_plans.insert(
         module.id.clone(),
         ModuleSeedPlan {
           imports,
           injects: inject_seed_plan(facts, &provide_index),
           options_callback_slots,
+          typed_callback_param_slots,
         },
       );
       recomputed += 1;
@@ -1417,18 +1430,177 @@ fn insert_options_callback_export(
   }
 }
 
+/// Propagate typed function-callback Ref formals through barrels (same as options slots).
+fn resolve_typed_callback_param_exports(
+  facts: &BTreeMap<ModuleId, ModuleExportFacts>,
+  links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
+) -> BTreeMap<ModuleId, BTreeMap<String, TypedCallbackParamSlots>> {
+  use std::collections::VecDeque;
+
+  let mut resolved =
+    facts.keys().map(|id| (id.clone(), BTreeMap::new())).collect::<BTreeMap<_, _>>();
+
+  for (id, module_facts) in facts {
+    for (name, slots) in &module_facts.summary.typed_callback_param_slots {
+      if slots.is_empty() {
+        continue;
+      }
+      resolved.entry(id.clone()).or_default().insert(name.clone(), slots.clone());
+    }
+    for export in &module_facts.summary.exports {
+      let ExportSummary::Local { local, exported } = export else {
+        continue;
+      };
+      if local == exported {
+        continue;
+      }
+      if let Some(slots) = module_facts.summary.typed_callback_param_slots.get(local)
+        && !slots.is_empty()
+      {
+        resolved.entry(id.clone()).or_default().insert(exported.clone(), slots.clone());
+      }
+    }
+  }
+
+  let mut reverse_users: BTreeMap<&ModuleId, Vec<&ModuleId>> = BTreeMap::new();
+  for ((from, _), to) in links {
+    reverse_users.entry(*to).or_default().push(*from);
+  }
+
+  let mut queue = VecDeque::new();
+  let mut queued = BTreeSet::new();
+  for (id, module_facts) in facts {
+    let needs_reexport =
+      module_facts.summary.exports.iter().any(|export| {
+        matches!(export, ExportSummary::Reexport { .. } | ExportSummary::Star { .. })
+      });
+    let needs_import_local_export = module_facts.summary.exports.iter().any(|export| {
+      matches!(
+        export,
+        ExportSummary::Local { local, .. }
+          if !module_facts.summary.locals.contains_key(local)
+            && !module_facts.summary.typed_callback_param_slots.contains_key(local)
+            && module_facts.summary.imports.iter().any(|import| import.local == *local)
+      )
+    });
+    if needs_reexport || needs_import_local_export {
+      queue.push_back(id);
+      queued.insert(id);
+    }
+  }
+
+  while let Some(id) = queue.pop_front() {
+    queued.remove(id);
+    let Some(module_facts) = facts.get(id) else {
+      continue;
+    };
+    let mut changed = false;
+    for export in &module_facts.summary.exports {
+      match export {
+        ExportSummary::Local { local, exported } => {
+          if module_facts.summary.typed_callback_param_slots.contains_key(local)
+            || module_facts.summary.locals.contains_key(local)
+          {
+            continue;
+          }
+          let Some(import) =
+            module_facts.summary.imports.iter().find(|import| import.local == *local)
+          else {
+            continue;
+          };
+          let Some(target) = links.get(&(id, import.source.as_str())).copied() else {
+            continue;
+          };
+          let Some(slots) =
+            resolved.get(target).and_then(|exports| exports.get(&import.imported)).cloned()
+          else {
+            continue;
+          };
+          changed |= insert_typed_callback_param_export(&mut resolved, id, exported, slots);
+        }
+        ExportSummary::Reexport { source, imported, exported } => {
+          let Some(target) = links.get(&(id, source.as_str())).copied() else {
+            continue;
+          };
+          let Some(slots) = resolved.get(target).and_then(|exports| exports.get(imported)).cloned()
+          else {
+            continue;
+          };
+          changed |= insert_typed_callback_param_export(&mut resolved, id, exported, slots);
+        }
+        ExportSummary::Star { source } => {
+          let Some(target) = links.get(&(id, source.as_str())).copied() else {
+            continue;
+          };
+          let Some(target_slots) = resolved.get(target).cloned() else {
+            continue;
+          };
+          for (exported, slots) in target_slots {
+            if exported != "default" {
+              changed |= insert_typed_callback_param_export(&mut resolved, id, &exported, slots);
+            }
+          }
+        }
+      }
+    }
+    if !changed {
+      continue;
+    }
+    if let Some(users) = reverse_users.get(id) {
+      for consumer in users {
+        if queued.insert(consumer) {
+          queue.push_back(consumer);
+        }
+      }
+    }
+  }
+
+  resolved
+}
+
+fn insert_typed_callback_param_export(
+  resolved: &mut BTreeMap<ModuleId, BTreeMap<String, TypedCallbackParamSlots>>,
+  module: &ModuleId,
+  exported: &str,
+  slots: TypedCallbackParamSlots,
+) -> bool {
+  if slots.is_empty() {
+    return false;
+  }
+  let Some(module_exports) = resolved.get_mut(module) else {
+    return false;
+  };
+  match module_exports.entry(exported.into()) {
+    Entry::Vacant(entry) => {
+      entry.insert(slots);
+      true
+    }
+    Entry::Occupied(mut entry) if entry.get() != &slots => {
+      entry.insert(slots);
+      true
+    }
+    Entry::Occupied(_) => false,
+  }
+}
+
 /// Coordinator-side: which of this module's import locals resolve to reactive exports,
-/// plus options-callback slots (independent of return-shape seedability).
+/// plus callback-param slots (independent of return-shape seedability).
 fn seed_plan_for(
   facts: &ModuleExportFacts,
   exports: &BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
   options_exports: &BTreeMap<ModuleId, BTreeMap<String, OptionsCallbackSlots>>,
+  typed_callback_exports: &BTreeMap<ModuleId, BTreeMap<String, TypedCallbackParamSlots>>,
   links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
-) -> (ImportSeedPlan, BTreeMap<String, OptionsCallbackSlots>) {
+) -> (
+  ImportSeedPlan,
+  BTreeMap<String, OptionsCallbackSlots>,
+  BTreeMap<String, TypedCallbackParamSlots>,
+) {
   use std::ops::Bound;
 
   let mut plan = ImportSeedPlan::new();
   let mut options_callback_slots = BTreeMap::new();
+  let mut typed_callback_param_slots = BTreeMap::new();
   for import in &facts.summary.imports {
     if import.imported == "*" {
       continue;
@@ -1442,6 +1614,13 @@ fn seed_plan_for(
       .filter(|slots| !slots.is_empty())
     {
       options_callback_slots.insert(import.local.clone(), slots.clone());
+    }
+    if let Some(slots) = typed_callback_exports
+      .get(target)
+      .and_then(|module| module.get(&import.imported))
+      .filter(|slots| !slots.is_empty())
+    {
+      typed_callback_param_slots.insert(import.local.clone(), slots.clone());
     }
     let Some(state) =
       exports.get(target).and_then(|module_exports| module_exports.get(&import.imported))
@@ -1474,6 +1653,14 @@ fn seed_plan_for(
     {
       options_callback_slots.insert(name.to_owned(), slots.clone());
     }
+    if !typed_callback_param_slots.contains_key(name)
+      && let Some(slots) = typed_callback_exports
+        .get(*target)
+        .and_then(|module| module.get(name))
+        .filter(|slots| !slots.is_empty())
+    {
+      typed_callback_param_slots.insert(name.to_owned(), slots.clone());
+    }
     if plan.contains_key(name) {
       continue;
     }
@@ -1486,7 +1673,7 @@ fn seed_plan_for(
     }
     plan.insert(name.to_owned(), state.clone());
   }
-  (plan, options_callback_slots)
+  (plan, options_callback_slots, typed_callback_param_slots)
 }
 
 /// Project-wide provide index (no App Tree): key → offers from every known site.
@@ -1615,6 +1802,14 @@ fn materialize_seeds(
   super::seed_options_callback_params_at_calls(
     semantic,
     &plan.options_callback_slots,
+    span_source,
+    span_base,
+    &mut seeds.bindings,
+  );
+  // `useX(init, (state: ComputedRef<T>) => …)` — seed typed function-callback formals.
+  super::seed_typed_callback_params_at_calls(
+    semantic,
+    &plan.typed_callback_param_slots,
     span_source,
     span_base,
     &mut seeds.bindings,

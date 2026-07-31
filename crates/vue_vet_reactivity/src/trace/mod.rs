@@ -178,6 +178,24 @@ fn trace_reactivity_seeded_inner(
       }
     }
   }
+  // Same-file `useX(init, (params: ComputedRef<T>) => …)` typed function callbacks.
+  let typed_callback_slots = summary::collect_local_typed_callback_param_slots(semantic);
+  if !typed_callback_slots.is_empty() {
+    let mut typed_bindings = Vec::new();
+    summary::seed_typed_callback_params_at_calls(
+      semantic,
+      &typed_callback_slots,
+      sfc_source,
+      script_offset,
+      &mut typed_bindings,
+    );
+    for binding in typed_bindings {
+      push_binding_by_span(&mut scope_bindings, binding.clone());
+      if !bindings.iter().any(|local| local.name == binding.name) {
+        bindings.push(binding);
+      }
+    }
+  }
   // `defineComponent` / `setup(props)` — props bag is reactive.
   // Custom wrappers seed when they forward to `defineComponent` (same-file or
   // cross-module `ExportState::ComponentFactory` via seeds).

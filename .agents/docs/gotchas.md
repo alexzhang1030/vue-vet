@@ -506,6 +506,10 @@ declarators annotated as `Ref` / `ComputedRef` / … seed scope-classification
 bindings via `ts_type_reactive_kind` so `type.value` inside a composable is not
 `(maybe: type)`. Outermost `const x = expr as Ref<T>` / `<Ref<T>>expr` assertions
 on declarator inits count the same way (VueUse `useVModel(…) as Ref`).
+Callee parameters typed as function types whose formals are Ref-like
+(`run: (state: ComputedRef<T>) => R`) publish `TypedCallbackParamSlots` so
+call-site `(state) => computed(() => state.value…)` seeds without a
+callee-name allowlist (same barrel follow as options-callback slots).
 Function-local `ref()` / `computed()` calls likewise participate in scope
 classification (span-resolved) even though they stay out of the published
 top-level `bindings` list (#140).

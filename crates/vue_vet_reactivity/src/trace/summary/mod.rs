@@ -392,6 +392,8 @@ pub struct ModuleSummary {
   locals: BTreeMap<String, ExportState>,
   /// Named local/export → options-object callback bag shapes (from declared types).
   pub(super) options_callback_slots: BTreeMap<String, options_callback::OptionsCallbackSlots>,
+  /// Named local/export → typed function-callback Ref formals (from declared types).
+  pub(super) typed_callback_param_slots: BTreeMap<String, typed_callback::TypedCallbackParamSlots>,
   provides: Vec<super::ProvideSite>,
   injects: Vec<super::InjectSite>,
   local_graph: std::sync::Arc<ReactivityGraph>,
@@ -399,6 +401,10 @@ pub struct ModuleSummary {
 
 pub use options_callback::{
   OptionsCallbackSlots, collect_local_options_callback_slots, seed_options_callback_params_at_calls,
+};
+pub use typed_callback::{
+  TypedCallbackParamSlots, collect_local_typed_callback_param_slots,
+  seed_typed_callback_params_at_calls,
 };
 
 impl ModuleSummary {
@@ -536,11 +542,16 @@ pub fn merge_declaration_implementation_summary(
   for (name, slots) in &implementation.options_callback_slots {
     options_callback_slots.insert(name.clone(), slots.clone());
   }
+  let mut typed_callback_param_slots = declaration.typed_callback_param_slots.clone();
+  for (name, slots) in &implementation.typed_callback_param_slots {
+    typed_callback_param_slots.insert(name.clone(), slots.clone());
+  }
   ModuleSummary {
     imports: declaration.imports.clone(),
     exports: declaration.exports.clone(),
     locals: merged,
     options_callback_slots,
+    typed_callback_param_slots,
     provides: declaration.provides.clone(),
     injects: declaration.injects.clone(),
     local_graph: Arc::clone(&declaration.local_graph),
@@ -589,6 +600,7 @@ pub fn prepare_module_summary(
   let locals =
     collect_local_values(semantic, &local_graph, &shape_graph, source_offset, span_source);
   let options_callback_slots = collect_local_options_callback_slots(semantic);
+  let typed_callback_param_slots = collect_local_typed_callback_param_slots(semantic);
   let imported_bindings = collect_imported_bindings(semantic);
   let provides = collect_provide_sites(
     semantic,
@@ -599,7 +611,16 @@ pub fn prepare_module_summary(
     kind,
   );
   let injects = collect_inject_sites(semantic, &imported_bindings, &local_graph.bindings, kind);
-  ModuleSummary { imports, exports, locals, options_callback_slots, provides, injects, local_graph }
+  ModuleSummary {
+    imports,
+    exports,
+    locals,
+    options_callback_slots,
+    typed_callback_param_slots,
+    provides,
+    injects,
+    local_graph,
+  }
 }
 
 /// Compatibility alias for [`prepare_module_summary`].
@@ -2762,6 +2783,7 @@ pub(super) fn join_errors(errors: &[impl ToString]) -> String {
 
 mod link;
 mod options_callback;
+mod typed_callback;
 
 pub use link::{
   ModuleTraceState, TraceModulesOptions, TraceModulesReport, TraceModulesStats, trace_modules,
