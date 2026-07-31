@@ -51,7 +51,13 @@ complete.
 
 ## Current baseline
 
-Contract version: **`REACTIVITY_GRAPH_VERSION = 10`** (v9 + cross-module
+Contract version: **`REACTIVITY_GRAPH_VERSION = 13`** (v12 + cross-module
+`const api = createApi()` via `ExportState::ValueFactoryCall` → `ValueBag` so
+imported value-factory results export for member-call destructure seeds; v12
+options-object callback slots follow `export { x } from` / `export *` barrels so
+package entry imports see leaf `declare function` bags; v11 options-object
+callback bag slots: `defineFormProps({ setup({ values }) })` from declared
+`(ctx: { values: Ref })` / interface `extends` shapes; v10 cross-module
 `ExportState::ComponentFactory` props seeding; v9 **`TrackingScopeKind::Render`**;
 v8 module-qualified `to_id` `{module}:{name}@{offset}`; v7 `property` / `to_path`
 retained; bare `to` kept for rule matching).
@@ -64,7 +70,7 @@ retained; bare `to` kept for rule matching).
 | A4 Conditions | complete | if / early-exit / ternary / short-circuit / switch roles (fact metadata; diagnostics are scope-aware Conditional rules, not per-role ids — #136) | — (no further depth) |
 | A5 Boundaries | complete | after-await; pause/enable/resetTracking windows; nested `then`/`nextTick` outside; watch callback outside | — |
 | A6 Modules | complete | composable object bags + **scalar `Factory` returns** + **declared object-bag return types** + **plain-object + unwrapped-call → `Factory(Reactive)`** + **`ComponentFactory` setup-forward wrappers**; instance bags; dual script; provide/inject unique-key; static `:prop` / `v-model` / `ident` / `ident.value` / static member + optional chains → child `props` Prop edges; **on-demand ExternalImport summaries** (`.d.ts` + companion `.js` for provisional halves, size-capped; re-export follow; not lint targets); **bare `.nuxt/imports.d.ts` / Vite `auto-imports.d.ts` → `#nuxt-imports:` seeds** | whole-object `v-bind` stays quiet; `#imports` virtuals stay quiet without a concrete file body |
-| A7 Contract | complete | v10 ComponentFactory props seeds; v9 Render scopes; v8 module-qualified `to_id`; v7 `property` / `to_path`; deterministic sort | — |
+| A7 Contract | complete | v13 imported `createApi()` → exported ValueBag; v12 options-callback slots via `export*` barrels; v11 options-object callback Ref bags (`setup({ values })`); v10 ComponentFactory props seeds; v9 Render scopes; v8 module-qualified `to_id`; v7 `property` / `to_path`; deterministic sort | — |
 | Evidence | complete | Runtime oracle (≥99% recall on committed cases); deep-watch `*`; exhaustive local reads; key SFC E2E | — (prop flow is static unit/project; not an `onTrack` pair) |
 
 ### In-scope complete checklists
@@ -237,8 +243,10 @@ growing prose ledger.
 | 2026-07-29 | `.d.ts` object-bag returns (#118) | Declared `{ width: Ref }` / same-file `interface`·`type` return shapes → `ExportState::Composable`; fixes VueUse `useElementSize` destructure → `no-empty-watch-sources` FP |
 | 2026-07-29 | Plain-object Reactive factory (#119) | Declared plain object (no Ref fields) + body `return <call>(...).value` (`#imports`/unresolved) or `return reactive(...)` → `Factory(Reactive)`; `.nuxt/imports.d.ts` bare calls → `#nuxt-imports:` ExternalReactivityRoot; companion `.js` merge only for provisional halves (+ size cap); fixes Nuxt `useColorMode` → `no-empty-watch-sources` FP |
 | 2026-07-29 | Nuxt imports importer resolve | Bare `#nuxt-imports:` seeds resolve from the **declaring** dts (`imports.d.ts` vs `types/imports.d.ts`); prefer re-export map when both list the same name. Types-map overwrite + fixed importer was the real-app `colorMode` FP after #119 |
+| 2026-07-31 | Imported value-factory call | `const api = createApi()` with imported `createApi` → `ValueFactoryCall` → link-time `ValueBag` re-snapshot; nested hooks + `api.ns.useX()` destructure seeds; wrapper `return { isLoading }` via `PendingValueBagField` (generated query clients) |
 | 2026-07-30 | Vite `auto-imports.d.ts` | Load root / `src/auto-imports.d.ts` after Nuxt maps; parse `typeof import('…')['name']`; single-file scans walk up to nearest `package.json` so nested IDE paths still load the map; composable `return { …, ...reactiveBag }` open-spread seeds unknown destructure keys as Ref — fixes unplugin-auto-import / vue-query `isLoading` FPs |
 | 2026-07-30 | props + shape forwarding | Seed Vue `defineComponent` / `setup(props)` bags; setup-forward wrappers → `ExportState::ComponentFactory` (cross-module + size-capped package `exports.import` body); opaque helpers quiet; mapped/`toRefs`/return-call composable shapes + nested value-bag member calls (no query name allowlists); barrel named imports mark component-name targets used |
+| 2026-07-30 | options-object callback bags | Export summary carries `(argIndex → prop → Ref bag)` from options params (`setup?: (ctx) =>`); call-site `setup({ values })` seeds ObjectPattern fields; interface `extends` merges with visited+depth guards (avoid project-wide stack overflow) |
 | 2026-07-30 | Return reactive spreads | `return { …, ...bag }` with same-function `bag.field.value` evidence → `ComposableShape.open_reactive_spread`; unknown destructure keys seed as `Ref` (vue-query `isLoading` via `...queryResult`) |
 | 2026-07-29 | Analysis enrichment passes | Nuxt bare seeds + provisional Factory companion merge extracted as compile-time IR passes (`vue_vet_project::passes`); diagnostic `Rule` stays separate; no user/AST plugin host |
 | 2026-07-29 | Enrichment Pass::run | Dropped empty metadata trait; `ENRICHMENT_STEPS` checklist + inherent `Pass::run`; `ExternalSummaryLoadPass` owns load; SummaryMerge at per-module completion |

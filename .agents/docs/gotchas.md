@@ -540,6 +540,31 @@ from a plain interface alone, or from `return <call>(...).value` alone without
 a declared plain-object return (≥1 property, no Ref-like fields). Name-agnostic:
 any unresolved/`#imports` callee unwrap counts, not a `useState` allowlist.
 
+**Package root JS ≠ sibling `.d.ts`.** Bundler resolve often lands on
+`exports["."].import` (`dist/index.js`) while types live at
+`exports["."].types` / `types` (`dist/types/index.d.ts`).
+`prefer_types_declaration` must remap that root entry via `package.json`, or
+`ExternalSummaryLoad` only parses an empty JS barrel and never follows Form /
+vue-query leaves. Relative chunk follows still require a sibling `.d.ts`.
+Directory barrels (`export * from './components'`) need
+`components/index.d.ts` filesystem fallback when resolver returns a directory or
+`Unresolved`. Relative `.d.ts` enrich must strip **all** import lines from
+inlined bodies — concatenating `utils` + `types` + `composables` otherwise
+redeclares `MaybeRefOrGetter` from `vue` and Oxc semantics fails, falling back
+to raw `utils.d.ts` with no `StdFormProps` bag. Options-object callback slots
+(`defineStdFormProps({ setup({ values }) })`) are collected on the leaf
+`declare function` module and must also propagate through `export { x } from` /
+`export *` in the seed plan — looking only at the package entry summary misses
+them (`CONVENTIONS_VERSION` / `REACTIVITY_GRAPH_VERSION` bumps when either side
+changes). External follow budget is global **and** per-`node_modules` package
+(soft cap). Expand **one package at a time** ordered by seed priority then
+importer popularity — a flat BFS across thousands of roots lets vueuse / ambient
+entries fill the budget before a deep UI barrel reaches `Form/utils.d.ts`.
+Canonicalize load paths so pnpm symlink vs store duplicates do not split one
+barrel across two trees. Per-package budget keys must skip `node_modules/.pnpm`
+(and `.yarn`) store segments — otherwise every package collapses to key
+`.pnpm` and one soft cap starves `@standard-design/ui` / Form leaves.
+
 ## Edge `from` / `to_id` labels (graph v4–v6)
 
 Computed edges prefer the assigned binding name (`doubled`). Other scopes use
@@ -606,6 +631,15 @@ forward stay quiet. Package `.d.ts` declare wrappers regain the flag when a
 size-capped `exports.import` body (and one relative chunk hop) proves the
 forward — never from the declaration signature alone.
 
+**Options-object callback bags.** Helpers like
+`defineFormProps({ setup({ values }) {…} })` put the callback on an object
+literal property, not as a direct call argument. When the callee declares
+`props: { setup?: (ctx: Ctx) => … }` and `Ctx` (or an `extends` base) has Ref
+fields, publish options-callback slots and seed the call-site ObjectPattern.
+Cross-module consumers often have no `Ref` text — slots must travel in the seed
+plan. Interface `extends` follow must use a visited set + depth bound; unbounded
+extends recursion stack-overflows on large `.d.ts` graphs.
+
 **Composable shape forwarding (not name allowlists).** Prefer declared / body
 return shapes over package or callee-name heuristics. Mapped object types whose
 values peel to `Ref`/`ComputedRef` (including
@@ -615,6 +649,24 @@ values peel to `Ref`/`ComputedRef` (including
 shape forward that shape. Nested `return { maps: createX() }` value bags plus
 static member calls (`api.maps.useX()`) resolve the leaf composable — quiet when
 the path is unknown. Do not add `useApi*` / `*Query*` name matchers.
+`export const api = createApi()` where `createApi` is an **import** must record
+`ExportState::ValueFactoryCall` and materialize `ValueBag` at each export publish
+by re-resolving the callee — same-file fixpoint only sees local ValueFactory
+callees, so without the call marker the binding never enters `locals`. Do not
+sticky-convert the call into a `ValueBag` clone in working locals: an early
+snapshot can freeze `MethodForward("useQuery")` before the factory refines.
+Never mark `const x = computed(...)` / other Vue primitives as
+`ValueFactoryCall` — that overwrites [`ExportState::Known`] and breaks
+incremental seed reuse.
+Residual unresolved `MethodForward` (e.g. `useMutation` beside resolved
+`useQuery`) must not block publishing the whole factory — leaf `resolve_path`
+stays quiet for those methods.
+Wrapper re-exports (`return { isLoading }` after
+`const { isLoading } = api.ns.useX()`) record `PendingValueBagField` on the
+composable shape and resolve at link time — Oxc's `symbol_declaration` for
+object-pattern bindings is often the whole `VariableDeclarator`, not the inner
+identifier.
+
 
 **unused-component + barrels / stories.** Script `import { Foo } from '@components'`
 often resolves to an index barrel while `components/Foo/…` is the real node —

@@ -217,6 +217,16 @@ pub(super) const NUXT_IMPORTS_SPECIFIER_PREFIX: &str = "#nuxt-imports:";
 /// Exclusive end for [`BTreeMap::range`] over `#nuxt-imports:…` keys (`';` follows `:`).
 pub(super) const NUXT_IMPORTS_RANGE_END: &str = "#nuxt-imports;";
 
+/// `return { isLoading }` where `isLoading` came from `api.ns.useX()` destructure.
+///
+/// Resolved at link time against the root's [`ExportState::ValueBag`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingValueBagField {
+  pub root: String,
+  pub path: Vec<String>,
+  pub field: String,
+}
+
 /// Object-bag return shape for a composable (explicit fields + optional open spread).
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ComposableShape {
@@ -225,17 +235,19 @@ pub struct ComposableShape {
   /// (`bag.field.value` reads in the same function). Unknown destructured keys
   /// seed as [`ReactiveBindingKind::Ref`] (under-approx).
   pub open_reactive_spread: bool,
+  /// Re-exported fields from value-bag member destructures (resolved at link).
+  pub(crate) pending_value_bag_fields: BTreeMap<String, PendingValueBagField>,
 }
 
 impl ComposableShape {
   #[must_use]
   pub const fn from_fields(fields: BTreeMap<String, ReactiveBindingKind>) -> Self {
-    Self { fields, open_reactive_spread: false }
+    Self { fields, open_reactive_spread: false, pending_value_bag_fields: BTreeMap::new() }
   }
 
   #[must_use]
   pub fn is_empty(&self) -> bool {
-    self.fields.is_empty() && !self.open_reactive_spread
+    self.fields.is_empty() && !self.open_reactive_spread && self.pending_value_bag_fields.is_empty()
   }
 
   /// Kind for a destructured property; open spreads default unknown keys to Ref.
@@ -246,6 +258,11 @@ impl ComposableShape {
       .get(key)
       .copied()
       .or_else(|| self.open_reactive_spread.then_some(ReactiveBindingKind::Ref))
+  }
+
+  #[must_use]
+  pub(crate) fn has_pending_value_bag_fields(&self) -> bool {
+    !self.pending_value_bag_fields.is_empty()
   }
 }
 
@@ -304,6 +321,10 @@ pub(super) enum ExportState {
   ValueFactory(ValueBag),
   /// Binding is already a nested value bag (`const api = createApi()`).
   ValueBag(ValueBag),
+  /// `const api = createApi()` where `createApi` is not yet a local
+  /// [`ValueFactory`](ExportState::ValueFactory) (typically an import).
+  /// Link-time refine → [`ExportState::ValueBag`].
+  ValueFactoryCall(String),
   /// Body is `return callee(...)` — resolve callee export at link time.
   ForwardReturn(String),
   /// Calling the export wraps `defineComponent` with the first argument as setup
@@ -355,10 +376,16 @@ pub struct ModuleSummary {
   imports: Vec<ImportSummary>,
   exports: Vec<ExportSummary>,
   locals: BTreeMap<String, ExportState>,
+  /// Named local/export → options-object callback bag shapes (from declared types).
+  pub(super) options_callback_slots: BTreeMap<String, options_callback::OptionsCallbackSlots>,
   provides: Vec<super::ProvideSite>,
   injects: Vec<super::InjectSite>,
   local_graph: std::sync::Arc<ReactivityGraph>,
 }
+
+pub use options_callback::{
+  OptionsCallbackSlots, collect_local_options_callback_slots, seed_options_callback_params_at_calls,
+};
 
 impl ModuleSummary {
   /// Specifiers this module imports or re-exports (for external follow).
@@ -491,10 +518,15 @@ pub fn merge_declaration_implementation_summary(
       _ => {}
     }
   }
+  let mut options_callback_slots = declaration.options_callback_slots.clone();
+  for (name, slots) in &implementation.options_callback_slots {
+    options_callback_slots.insert(name.clone(), slots.clone());
+  }
   ModuleSummary {
     imports: declaration.imports.clone(),
     exports: declaration.exports.clone(),
     locals: merged,
+    options_callback_slots,
     provides: declaration.provides.clone(),
     injects: declaration.injects.clone(),
     local_graph: Arc::clone(&declaration.local_graph),
@@ -542,6 +574,7 @@ pub fn prepare_module_summary(
   };
   let locals =
     collect_local_values(semantic, &local_graph, &shape_graph, source_offset, span_source);
+  let options_callback_slots = collect_local_options_callback_slots(semantic);
   let imported_bindings = collect_imported_bindings(semantic);
   let provides = collect_provide_sites(
     semantic,
@@ -552,7 +585,7 @@ pub fn prepare_module_summary(
     kind,
   );
   let injects = collect_inject_sites(semantic, &imported_bindings, &local_graph.bindings, kind);
-  ModuleSummary { imports, exports, locals, provides, injects, local_graph }
+  ModuleSummary { imports, exports, locals, options_callback_slots, provides, injects, local_graph }
 }
 
 /// Compatibility alias for [`prepare_module_summary`].
@@ -739,6 +772,7 @@ fn collect_local_values(
   }
 
   // `const useX = () => ({ … })` / `export declare const useX: () => T`
+  let imported_bindings = collect_imported_bindings(semantic);
   for node in semantic.nodes() {
     let AstKind::VariableDeclarator(declarator) = node.kind() else {
       continue;
@@ -747,7 +781,8 @@ fn collect_local_values(
       continue;
     };
     let name = identifier.name.to_string();
-    if matches!(locals.get(&name), Some(ExportState::ComponentFactory)) {
+    // Keep graph-seeded `ref`/`computed`/… bindings; do not overwrite with call markers.
+    if matches!(locals.get(&name), Some(ExportState::ComponentFactory | ExportState::Known(_))) {
       continue;
     }
     let state = match &declarator.init {
@@ -786,8 +821,25 @@ fn collect_local_values(
         None,
         declared_return_from_declarator_annotation(semantic, declarator),
       ),
-      // `const api = createApi()` — value bag from a ValueFactory callee (filled in fixpoint).
-      Some(Expression::CallExpression(_)) => None,
+      // `const api = createApi()` — import / local factory only (not `computed()` etc.).
+      Some(Expression::CallExpression(call)) => {
+        call.callee.get_identifier_reference().and_then(|callee| {
+          let callee_name = callee.name.as_str();
+          if local_function_id_for_name(semantic, callee_name, callee).is_some() {
+            return Some(ExportState::ValueFactoryCall(callee_name.to_owned()));
+          }
+          if !imported_bindings.contains_key(callee_name) {
+            return None;
+          }
+          // Vue / `#imports` primitives seed [`ExportState::Known`] via the graph.
+          if resolved_vue_callee(semantic, &call.callee, &imported_bindings, ScriptKind::Script)
+            .is_some_and(|name| reactive_binding_kind(&name).is_some())
+          {
+            return None;
+          }
+          Some(ExportState::ValueFactoryCall(callee_name.to_owned()))
+        })
+      }
       // Keep the `ref()` cold path tiny: never build the return index until a function init.
       Some(_) => continue,
     };
@@ -797,9 +849,14 @@ fn collect_local_values(
   }
 
   // Same-file fixpoint only when forwards / value factories are present.
-  let needs_fixpoint = locals
-    .values()
-    .any(|state| matches!(state, ExportState::ForwardReturn(_) | ExportState::ValueFactory(_)));
+  let needs_fixpoint = locals.values().any(|state| {
+    matches!(
+      state,
+      ExportState::ForwardReturn(_)
+        | ExportState::ValueFactory(_)
+        | ExportState::ValueFactoryCall(_)
+    )
+  });
   if needs_fixpoint {
     for _ in 0..8 {
       let mut changed = false;
@@ -828,24 +885,18 @@ fn collect_local_values(
           changed = true;
         }
       }
-      for node in semantic.nodes() {
-        let AstKind::VariableDeclarator(declarator) = node.kind() else {
+      let factory_calls: Vec<(String, String)> = locals
+        .iter()
+        .filter_map(|(name, state)| match state {
+          ExportState::ValueFactoryCall(callee) => Some((name.clone(), callee.clone())),
+          _ => None,
+        })
+        .collect();
+      for (name, callee) in factory_calls {
+        let Some(ExportState::ValueFactory(bag)) = locals.get(&callee).cloned() else {
           continue;
         };
-        let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
-          continue;
-        };
-        let Some(Expression::CallExpression(call)) = &declarator.init else {
-          continue;
-        };
-        let Some(callee) = call.callee.get_identifier_reference() else {
-          continue;
-        };
-        let Some(ExportState::ValueFactory(bag)) = locals.get(callee.name.as_str()) else {
-          continue;
-        };
-        let next = ExportState::ValueBag(bag.clone());
-        let name = identifier.name.to_string();
+        let next = ExportState::ValueBag(bag);
         if locals.get(&name) != Some(&next) {
           locals.insert(name, next);
           changed = true;
@@ -1054,6 +1105,7 @@ struct ReturnKindAccum {
   shape: BTreeMap<String, ReactiveBindingKind>,
   open_reactive_spread: bool,
   ambiguous: BTreeSet<String>,
+  pending_value_bag_fields: BTreeMap<String, PendingValueBagField>,
   value_bag: ValueBag,
   factory_kind: Option<ReactiveBindingKind>,
   factory_conflict: bool,
@@ -1099,11 +1151,15 @@ impl ReturnKindAccum {
         function_id,
         &mut self.shape,
         &mut self.ambiguous,
+        &mut self.pending_value_bag_fields,
       );
       self.open_reactive_spread = self.open_reactive_spread || opened;
       // Value-bag walk is for method nests (`{ maps: { useX } }`). Skip when this
       // return is already a reactive field bag — the common composable path.
-      if self.shape.is_empty() && !self.open_reactive_spread {
+      if self.shape.is_empty()
+        && !self.open_reactive_spread
+        && self.pending_value_bag_fields.is_empty()
+      {
         merge_return_object_into_value_bag(
           semantic,
           expression,
@@ -1146,6 +1202,9 @@ impl ReturnKindAccum {
           self.open_reactive_spread = self.open_reactive_spread || shape.open_reactive_spread;
           for (field, kind) in shape.fields {
             merge_shape_field(&mut self.shape, &mut self.ambiguous, field, kind);
+          }
+          for (field, pending) in shape.pending_value_bag_fields {
+            self.pending_value_bag_fields.entry(field).or_insert(pending);
           }
         }
         ComposableReturn::ValueBag(bag) => {
@@ -1201,10 +1260,14 @@ impl ReturnKindAccum {
       return None;
     }
     if self.saw_object_return {
-      if !self.shape.is_empty() || self.open_reactive_spread {
+      if !self.shape.is_empty()
+        || self.open_reactive_spread
+        || !self.pending_value_bag_fields.is_empty()
+      {
         return Some(ComposableReturn::Object(ComposableShape {
           fields: self.shape,
           open_reactive_spread: self.open_reactive_spread,
+          pending_value_bag_fields: self.pending_value_bag_fields,
         }));
       }
       if !self.value_bag.is_empty() {
@@ -1269,6 +1332,7 @@ fn composable_return_with_index_visiting(
     shape: BTreeMap::new(),
     open_reactive_spread: false,
     ambiguous: BTreeSet::new(),
+    pending_value_bag_fields: BTreeMap::new(),
     value_bag: ValueBag::default(),
     factory_kind: None,
     factory_conflict: false,
@@ -1671,6 +1735,9 @@ fn ts_type_composable_shape<'a>(
         for (field, kind) in part_shape.fields {
           merged.fields.entry(field).or_insert(kind);
         }
+        for (field, pending) in part_shape.pending_value_bag_fields {
+          merged.pending_value_bag_fields.entry(field).or_insert(pending);
+        }
       }
       merged
     }
@@ -1679,7 +1746,11 @@ fn ts_type_composable_shape<'a>(
         return ComposableShape::default();
       };
       if ts_type_has_ref_branch(annotation) {
-        ComposableShape { fields: BTreeMap::new(), open_reactive_spread: true }
+        ComposableShape {
+          fields: BTreeMap::new(),
+          open_reactive_spread: true,
+          pending_value_bag_fields: BTreeMap::new(),
+        }
       } else {
         ComposableShape::default()
       }
@@ -2055,6 +2126,7 @@ fn merge_return_object_into_shape(
   function_id: NodeId,
   shape: &mut BTreeMap<String, ReactiveBindingKind>,
   ambiguous: &mut BTreeSet<String>,
+  pending_value_bag_fields: &mut BTreeMap<String, PendingValueBagField>,
 ) -> bool {
   // `() => ({ field })` wraps the object in parentheses.
   let expression = match expression {
@@ -2099,21 +2171,93 @@ fn merge_return_object_into_shape(
         let Some(exported) = property.key.static_name() else {
           continue;
         };
-        let Some(kind) = reactive_return_kind(
+        let key = exported.into_owned();
+        if let Some(kind) = reactive_return_kind(
           semantic,
           &property.value,
           graph,
           imported_bindings,
           param_names,
           script_offset,
-        ) else {
+        ) {
+          merge_shape_field(shape, ambiguous, key, kind);
           continue;
-        };
-        merge_shape_field(shape, ambiguous, exported.into_owned(), kind);
+        }
+        // `return { isLoading }` after `const { isLoading } = api.ns.useX()`.
+        if let Some(reference) = property.value.get_identifier_reference()
+          && let Some(pending) = pending_value_bag_field_from_binding(semantic, reference)
+        {
+          pending_value_bag_fields.entry(key).or_insert(pending);
+        }
       }
     }
   }
   open_reactive_spread
+}
+
+/// Binding from `const { field } = root.a.b()` → pending value-bag field ref.
+fn pending_value_bag_field_from_binding(
+  semantic: &oxc_semantic::Semantic<'_>,
+  reference: &oxc_ast::ast::IdentifierReference<'_>,
+) -> Option<PendingValueBagField> {
+  let reference_id = reference.reference_id.get()?;
+  let symbol_id = semantic.scoping().get_reference(reference_id).symbol_id()?;
+  let local_name = reference.name.as_str();
+  let decl = semantic.symbol_declaration(symbol_id);
+  // Oxc often reports the whole `const { a, b } = …` declarator as the symbol
+  // declaration — not the inner BindingIdentifier — so handle that node first.
+  let (field, call) = match decl.kind() {
+    AstKind::VariableDeclarator(declarator) => {
+      object_pattern_field_and_member_call(declarator, local_name)?
+    }
+    AstKind::BindingIdentifier(_) => {
+      let mut field_name: Option<String> = None;
+      let mut call_expr: Option<&oxc_ast::ast::CallExpression<'_>> = None;
+      for ancestor_id in semantic.nodes().ancestor_ids(decl.id()) {
+        match semantic.nodes().kind(ancestor_id) {
+          AstKind::BindingProperty(property) if field_name.is_none() => {
+            field_name = property.key.static_name().map(std::borrow::Cow::into_owned);
+          }
+          AstKind::VariableDeclarator(declarator) => {
+            if let Some(Expression::CallExpression(call)) = &declarator.init {
+              call_expr = Some(call);
+            }
+            break;
+          }
+          _ => {}
+        }
+      }
+      (field_name?, call_expr?)
+    }
+    _ => return None,
+  };
+  let (root, path) = static_member_call_path(&call.callee)?;
+  if path.is_empty() {
+    return None;
+  }
+  Some(PendingValueBagField { root, path, field })
+}
+
+fn object_pattern_field_and_member_call<'a>(
+  declarator: &'a oxc_ast::ast::VariableDeclarator<'a>,
+  local_name: &str,
+) -> Option<(String, &'a oxc_ast::ast::CallExpression<'a>)> {
+  let BindingPattern::ObjectPattern(pattern) = &declarator.id else {
+    return None;
+  };
+  let Expression::CallExpression(call) = declarator.init.as_ref()? else {
+    return None;
+  };
+  for property in &pattern.properties {
+    let mut identifiers = Vec::new();
+    collect_binding_identifiers(&property.value, &mut identifiers);
+    if !identifiers.iter().any(|(name, _)| name == local_name) {
+      continue;
+    }
+    let field = property.key.static_name().map(std::borrow::Cow::into_owned)?;
+    return Some((field, call));
+  }
+  None
 }
 
 fn merge_shape_field(
@@ -2299,6 +2443,7 @@ pub(super) fn join_errors(errors: &[impl ToString]) -> String {
 }
 
 mod link;
+mod options_callback;
 
 pub use link::{
   ModuleTraceState, TraceModulesOptions, TraceModulesReport, TraceModulesStats, trace_modules,

@@ -157,6 +157,11 @@ fn classify_resolved(
 }
 
 /// Prefer a companion `.d.ts` / `.d.mts` / `.d.cts` next to a resolved JS module.
+///
+/// When types live in a separate tree (`exports["."].types` → `dist/types/…`
+/// while `import` → `dist/index.js`), also remap the package root JS entry via
+/// `package.json` (`types` / `typings` / `exports["."].types`). Relative chunk
+/// follows still require a sibling declaration (vue-query style).
 #[must_use]
 pub fn prefer_types_declaration(path: &Path) -> PathBuf {
   let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
@@ -166,16 +171,100 @@ pub fn prefer_types_declaration(path: &Path) -> PathBuf {
     .strip_suffix(".mjs")
     .or_else(|| file_name.strip_suffix(".cjs"))
     .or_else(|| file_name.strip_suffix(".js"));
-  let Some(stem) = stem else {
-    return path.to_path_buf();
-  };
-  for suffix in [".d.ts", ".d.mts", ".d.cts"] {
-    let candidate = path.with_file_name(format!("{stem}{suffix}"));
-    if candidate.is_file() {
-      return candidate;
+  if let Some(stem) = stem {
+    for suffix in [".d.ts", ".d.mts", ".d.cts"] {
+      let candidate = path.with_file_name(format!("{stem}{suffix}"));
+      if candidate.is_file() {
+        return candidate;
+      }
     }
   }
+  if let Some(types) = package_root_types_for_js_entry(path) {
+    return types;
+  }
   path.to_path_buf()
+}
+
+/// `package.json` types entry when `path` is that package's root `import` / `main`.
+fn package_root_types_for_js_entry(js_path: &Path) -> Option<PathBuf> {
+  let mut dir = js_path.parent()?;
+  loop {
+    let package_json = dir.join("package.json");
+    if package_json.is_file() {
+      let text = std::fs::read_to_string(&package_json).ok()?;
+      let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+      let import_rel = package_root_import_specifier(&value)?;
+      let import_path = dir.join(import_rel);
+      if !same_path(js_path, &import_path) {
+        return None;
+      }
+      let types_rel = package_root_types_specifier(&value)?;
+      let types_path = dir.join(types_rel);
+      return types_path.is_file().then_some(types_path);
+    }
+    dir = dir.parent()?;
+  }
+}
+
+fn package_root_import_specifier(value: &serde_json::Value) -> Option<String> {
+  if let Some(import) = value.pointer("/exports/.").and_then(|entry| match entry {
+    serde_json::Value::String(path) => Some(path.as_str()),
+    serde_json::Value::Object(map) => map
+      .get("import")
+      .and_then(|import| match import {
+        serde_json::Value::String(path) => Some(path.as_str()),
+        serde_json::Value::Object(nested) => nested
+          .get("default")
+          .and_then(serde_json::Value::as_str)
+          .or_else(|| nested.values().find_map(serde_json::Value::as_str)),
+        _ => None,
+      })
+      .or_else(|| {
+        map
+          .get("default")
+          .and_then(serde_json::Value::as_str)
+          .or_else(|| map.get("module").and_then(serde_json::Value::as_str))
+      }),
+    _ => None,
+  }) {
+    return Some(import.to_owned());
+  }
+  value
+    .get("module")
+    .or_else(|| value.get("main"))
+    .and_then(serde_json::Value::as_str)
+    .map(str::to_owned)
+}
+
+fn package_root_types_specifier(value: &serde_json::Value) -> Option<String> {
+  if let Some(types) = value.pointer("/exports/.").and_then(|entry| match entry {
+    serde_json::Value::Object(map) => map.get("types").and_then(|types| match types {
+      serde_json::Value::String(path) => Some(path.as_str()),
+      serde_json::Value::Object(nested) => nested
+        .get("default")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| nested.values().find_map(serde_json::Value::as_str)),
+      _ => None,
+    }),
+    _ => None,
+  }) {
+    return Some(types.to_owned());
+  }
+  value
+    .get("types")
+    .or_else(|| value.get("typings"))
+    .and_then(serde_json::Value::as_str)
+    .map(str::to_owned)
+}
+
+fn same_path(left: &Path, right: &Path) -> bool {
+  if left == right {
+    return true;
+  }
+  match (left.canonicalize(), right.canonicalize()) {
+    (Ok(left), Ok(right)) => left == right,
+    _ => false,
+  }
 }
 
 /// Language hint for Oxc from a filesystem path.
@@ -313,8 +402,38 @@ pub fn resolver_config_inputs(root: &Path) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-  use super::{is_quiet_external_specifier, normalize_project_root};
+  use super::{is_quiet_external_specifier, normalize_project_root, prefer_types_declaration};
   use std::path::Path;
+
+  #[test]
+  #[expect(clippy::expect_used, reason = "unit test asserts temp fixture setup succeeds")]
+  fn prefer_types_remaps_package_root_js_via_exports_types() {
+    let dir = std::env::temp_dir().join(format!(
+      "vue-vet-prefer-types-{}-{}",
+      std::process::id(),
+      std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos())
+    ));
+    drop(std::fs::remove_dir_all(&dir));
+    std::fs::create_dir_all(dir.join("dist/types")).expect("types dir");
+    std::fs::create_dir_all(dir.join("dist")).expect("dist dir");
+    std::fs::write(
+      dir.join("package.json"),
+      r#"{"name":"ui","types":"./dist/types/index.d.ts","exports":{".":{"types":"./dist/types/index.d.ts","import":"./dist/index.js"}}}"#,
+    )
+    .expect("package.json");
+    let js = dir.join("dist/index.js");
+    let dts = dir.join("dist/types/index.d.ts");
+    std::fs::write(&js, "export {}\n").expect("js");
+    std::fs::write(&dts, "export {}\n").expect("dts");
+    assert_eq!(prefer_types_declaration(&js), dts);
+    // Relative chunks still need a sibling declaration — do not remap to package root types.
+    let chunk = dir.join("dist/chunk.js");
+    std::fs::write(&chunk, "export {}\n").expect("chunk");
+    assert_eq!(prefer_types_declaration(&chunk), chunk);
+    drop(std::fs::remove_dir_all(&dir));
+  }
 
   #[test]
   fn quiets_node_builtins_styles_and_common_virtuals() {

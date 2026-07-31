@@ -8,7 +8,7 @@ use oxc_ast::{AstKind, ast::BindingPattern};
 use oxc_parser::Parser;
 use oxc_semantic::{Semantic, SemanticBuilder};
 use rayon::prelude::*;
-use vue_vet_core::{ModuleId, ReactiveBindingFact, ReactivityGraph};
+use vue_vet_core::{ModuleId, ReactiveBindingFact, ReactiveBindingKind, ReactivityGraph};
 
 use super::super::{
   ProvideOffer, TraceSeeds, collect_binding_identifiers, collect_inject_sites, provide_offer_index,
@@ -17,8 +17,9 @@ use super::super::{
 use super::{
   DestructuredCallBinding, ExportState, ExportSummary, ImportSummary, InstanceCallBinding,
   ModuleExportFacts, ModuleLink, ModulePhaseOne, ModuleReactivity, ModuleSource, ModuleSummary,
-  NUXT_IMPORTS_RANGE_END, NUXT_IMPORTS_SPECIFIER_PREFIX, TraceModulesError, ValueBag,
-  ValueBagEntry, analyze_module_phase_one_cached, collect_imports, join_errors, source_type,
+  NUXT_IMPORTS_RANGE_END, NUXT_IMPORTS_SPECIFIER_PREFIX, OptionsCallbackSlots, TraceModulesError,
+  ValueBag, ValueBagEntry, analyze_module_phase_one_cached, collect_imports, join_errors,
+  source_type,
 };
 
 /// Concurrency limit for cross-module tracing.
@@ -59,6 +60,8 @@ struct ModuleSeedPlan {
   imports: ImportSeedPlan,
   /// inject local → offer (scalar kind and/or composable bag shape).
   injects: BTreeMap<String, ProvideOffer>,
+  /// Import / bare auto-import local → options-object callback bag shapes.
+  options_callback_slots: BTreeMap<String, OptionsCallbackSlots>,
 }
 
 /// Reusable state for cross-module linking in a long-lived project session.
@@ -105,6 +108,7 @@ fn linking_surface_eq(left: &Arc<ModuleSummary>, right: &Arc<ModuleSummary>) -> 
     || (left.imports == right.imports
       && left.exports == right.exports
       && left.locals == right.locals
+      && left.options_callback_slots == right.options_callback_slots
       && left.provides == right.provides
       && left.injects == right.injects)
 }
@@ -145,7 +149,7 @@ pub struct TraceModulesReport {
 
 impl ModuleSeedPlan {
   fn is_empty(&self) -> bool {
-    self.imports.is_empty() && self.injects.is_empty()
+    self.imports.is_empty() && self.injects.is_empty() && self.options_callback_slots.is_empty()
   }
 }
 
@@ -423,6 +427,7 @@ fn build_cold_persistent_seed_work<'a>(
   owned_links.dedup();
   let link_index = link_index(resolved_links);
   let exports = Arc::new(resolve_exports(facts_by_id, &link_index));
+  let options_exports = resolve_options_callback_exports(facts_by_id, &link_index);
   let provide_index = Arc::new(global_provide_index(facts_by_id));
   report.stats.export_resolve_ran = true;
   let work = unique
@@ -430,9 +435,12 @@ fn build_cold_persistent_seed_work<'a>(
     .filter_map(|module| {
       let facts = facts_by_id.get(&module.id)?;
       let local_graph = local_graphs.remove(&module.id)?;
+      let (imports, options_callback_slots) =
+        seed_plan_for(facts, &exports, &options_exports, &link_index);
       let plan = ModuleSeedPlan {
-        imports: seed_plan_for(facts, &exports, &link_index),
+        imports,
         injects: inject_seed_plan(facts, &provide_index),
+        options_callback_slots,
       };
       Some((*module, local_graph, plan, Some(Arc::clone(&facts.summary))))
     })
@@ -452,6 +460,7 @@ fn build_oneshot_seed_work<'a>(
 ) -> Vec<SeedWorkItem<'a>> {
   let link_index = link_index(resolved_links);
   let exports = resolve_exports(facts_by_id, &link_index);
+  let options_exports = resolve_options_callback_exports(facts_by_id, &link_index);
   let provide_index = global_provide_index(facts_by_id);
   report.stats.export_resolve_ran = true;
   let work = unique
@@ -459,9 +468,12 @@ fn build_oneshot_seed_work<'a>(
     .filter_map(|module| {
       let facts = facts_by_id.get(&module.id)?;
       let local_graph = local_graphs.remove(&module.id)?;
+      let (imports, options_callback_slots) =
+        seed_plan_for(facts, &exports, &options_exports, &link_index);
       let plan = ModuleSeedPlan {
-        imports: seed_plan_for(facts, &exports, &link_index),
+        imports,
         injects: inject_seed_plan(facts, &provide_index),
+        options_callback_slots,
       };
       Some((*module, local_graph, plan, None))
     })
@@ -498,6 +510,7 @@ fn build_persistent_seed_work<'a>(
     report.stats.export_resolve_ran = true;
     let link_index = link_index(resolved_links);
     let exports = Arc::new(resolve_exports(facts_by_id, &link_index));
+    let options_exports = resolve_options_callback_exports(facts_by_id, &link_index);
     let provide_index = Arc::new(global_provide_index(facts_by_id));
     let dirty_seed = modules_needing_seed_recompute(
       state.linking.as_ref(),
@@ -514,11 +527,14 @@ fn build_persistent_seed_work<'a>(
       let Some(facts) = facts_by_id.get(id) else {
         continue;
       };
+      let (imports, options_callback_slots) =
+        seed_plan_for(facts, &exports, &options_exports, &link_index);
       next_plans.insert(
         id.clone(),
         ModuleSeedPlan {
-          imports: seed_plan_for(facts, &exports, &link_index),
+          imports,
           injects: inject_seed_plan(facts, &provide_index),
+          options_callback_slots,
         },
       );
       recomputed += 1;
@@ -530,11 +546,14 @@ fn build_persistent_seed_work<'a>(
       let Some(facts) = facts_by_id.get(&module.id) else {
         continue;
       };
+      let (imports, options_callback_slots) =
+        seed_plan_for(facts, &exports, &options_exports, &link_index);
       next_plans.insert(
         module.id.clone(),
         ModuleSeedPlan {
-          imports: seed_plan_for(facts, &exports, &link_index),
+          imports,
           injects: inject_seed_plan(facts, &provide_index),
+          options_callback_slots,
         },
       );
       recomputed += 1;
@@ -836,7 +855,13 @@ fn resolve_exports(
     if module_facts.summary.locals.values().any(|state| {
       matches!(
         state,
-        ExportState::ForwardReturn(_) | ExportState::ValueFactory(_) | ExportState::ValueBag(_)
+        ExportState::ForwardReturn(_)
+          | ExportState::ValueFactory(_)
+          | ExportState::ValueBag(_)
+          | ExportState::ValueFactoryCall(_)
+      ) || matches!(
+        state,
+        ExportState::Composable(shape) if shape.has_pending_value_bag_fields()
       )
     }) {
       working_locals.insert(id.clone(), module_facts.summary.locals.clone());
@@ -888,7 +913,11 @@ fn resolve_exports(
         };
         if !matches!(
           state,
-          ExportState::ForwardReturn(_) | ExportState::ValueFactory(_) | ExportState::ValueBag(_)
+          ExportState::ForwardReturn(_)
+            | ExportState::ValueFactory(_)
+            | ExportState::ValueBag(_)
+            | ExportState::ValueFactoryCall(_)
+            | ExportState::Composable(_)
         ) {
           continue;
         }
@@ -903,8 +932,11 @@ fn resolve_exports(
         let ExportSummary::Local { local, exported } = export else {
           continue;
         };
-        if let Some(state) = locals.get(local) {
-          changed |= insert_export(&mut resolved, id, exported, state.clone());
+        if let Some(state) = locals.get(local)
+          && let Some(publish) =
+            publishable_export_state(state, id, locals, facts, links, &resolved)
+        {
+          changed |= insert_export(&mut resolved, id, exported, publish);
         }
       }
     }
@@ -985,7 +1017,80 @@ fn refine_export_state(
     ExportState::ValueBag(bag) => {
       ExportState::ValueBag(refine_value_bag(bag, module_id, locals, facts, links, resolved))
     }
+    ExportState::Composable(shape) => ExportState::Composable(refine_composable_shape(
+      shape, module_id, locals, facts, links, resolved,
+    )),
+    // Keep the call marker so each export publish re-snapshots the callee bag
+    // (avoid sticky MethodForward clones after the factory later refines).
+    ExportState::ValueFactoryCall(callee) => ExportState::ValueFactoryCall(callee),
     other => other,
+  }
+}
+
+fn refine_composable_shape(
+  mut shape: super::ComposableShape,
+  module_id: &ModuleId,
+  locals: &BTreeMap<String, ExportState>,
+  facts: &BTreeMap<ModuleId, ModuleExportFacts>,
+  links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
+  resolved: &BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
+) -> super::ComposableShape {
+  let pending = std::mem::take(&mut shape.pending_value_bag_fields);
+  for (key, pref) in pending {
+    if shape.fields.contains_key(&key) {
+      continue;
+    }
+    match resolve_pending_value_bag_field(&pref, module_id, locals, facts, links, resolved) {
+      Some(kind) => {
+        shape.fields.insert(key, kind);
+      }
+      None => {
+        shape.pending_value_bag_fields.insert(key, pref);
+      }
+    }
+  }
+  shape
+}
+
+fn resolve_pending_value_bag_field(
+  pref: &super::PendingValueBagField,
+  module_id: &ModuleId,
+  locals: &BTreeMap<String, ExportState>,
+  facts: &BTreeMap<ModuleId, ModuleExportFacts>,
+  links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
+  resolved: &BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
+) -> Option<ReactiveBindingKind> {
+  use super::ValueBagEntry;
+  let state = resolve_name_export_state(module_id, &pref.root, locals, facts, links, resolved, 0)?;
+  let (ExportState::ValueBag(bag) | ExportState::ValueFactory(bag)) = state else {
+    return None;
+  };
+  match bag.resolve_path(&pref.path)? {
+    ValueBagEntry::Method(method_shape) => method_shape.kind_for_destructure(&pref.field),
+    ValueBagEntry::MethodFactory(kind) => Some(*kind),
+    ValueBagEntry::MethodForward(_) | ValueBagEntry::Nested(_) => None,
+  }
+}
+
+/// Materialize [`ExportState::ValueFactoryCall`] against current resolved exports.
+fn publishable_export_state(
+  state: &ExportState,
+  module_id: &ModuleId,
+  locals: &BTreeMap<String, ExportState>,
+  facts: &BTreeMap<ModuleId, ModuleExportFacts>,
+  links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
+  resolved: &BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
+) -> Option<ExportState> {
+  match state {
+    ExportState::ValueFactoryCall(callee) => {
+      match resolve_name_export_state(module_id, callee, locals, facts, links, resolved, 0) {
+        Some(ExportState::ValueFactory(bag)) => Some(ExportState::ValueBag(refine_value_bag(
+          bag, module_id, locals, facts, links, resolved,
+        ))),
+        _ => None,
+      }
+    }
+    other => Some(other.clone()),
   }
 }
 
@@ -1085,18 +1190,13 @@ fn insert_export(
     ExportState::DeclaredPlainObjectFactory
       | ExportState::BodyUnwrappedState
       | ExportState::ForwardReturn(_)
+      | ExportState::ValueFactoryCall(_)
   ) {
     return false;
   }
-  // Value bags still carrying MethodForward must wait for import resolution.
-  if match &state {
-    ExportState::ValueFactory(bag) | ExportState::ValueBag(bag) => {
-      value_bag_has_method_forward(bag)
-    }
-    _ => false,
-  } {
-    return false;
-  }
+  // Publish value bags even when some MethodForward entries remain. Waiting for
+  // *every* forward (e.g. `useMutation` next to resolved `useQuery`) blocked the
+  // whole factory export; unresolved methods stay quiet at `resolve_path`.
   let Some(module_exports) = resolved.get_mut(module) else {
     return false;
   };
@@ -1111,7 +1211,8 @@ fn insert_export(
       // Allow value-bag refinement to replace a previously inserted bag.
       match (entry.get(), &state) {
         (ExportState::ValueFactory(_), ExportState::ValueFactory(_))
-        | (ExportState::ValueBag(_), ExportState::ValueBag(_)) => {
+        | (ExportState::ValueBag(_), ExportState::ValueBag(_))
+        | (ExportState::Composable(_), ExportState::Composable(_)) => {
           entry.insert(state);
           true
         }
@@ -1123,14 +1224,6 @@ fn insert_export(
     }
     Entry::Occupied(_) => false,
   }
-}
-
-fn value_bag_has_method_forward(bag: &ValueBag) -> bool {
-  bag.entries.values().any(|entry| match entry {
-    ValueBagEntry::MethodForward(_) => true,
-    ValueBagEntry::Nested(nested) => value_bag_has_method_forward(nested),
-    ValueBagEntry::Method(_) | ValueBagEntry::MethodFactory(_) => false,
-  })
 }
 
 const fn is_seedable_export_state(state: &ExportState) -> bool {
@@ -1145,15 +1238,174 @@ const fn is_seedable_export_state(state: &ExportState) -> bool {
   )
 }
 
-/// Coordinator-side: which of this module's import locals resolve to reactive exports.
+/// Propagate options-callback slots through `export { x } from` / `export *` barrels.
+///
+/// Independent of [`resolve_exports`]: a `declare function` may publish callback bags
+/// without a seedable return [`ExportState`].
+fn resolve_options_callback_exports(
+  facts: &BTreeMap<ModuleId, ModuleExportFacts>,
+  links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
+) -> BTreeMap<ModuleId, BTreeMap<String, OptionsCallbackSlots>> {
+  use std::collections::VecDeque;
+
+  let mut resolved =
+    facts.keys().map(|id| (id.clone(), BTreeMap::new())).collect::<BTreeMap<_, _>>();
+
+  for (id, module_facts) in facts {
+    for (name, slots) in &module_facts.summary.options_callback_slots {
+      if slots.is_empty() {
+        continue;
+      }
+      resolved.entry(id.clone()).or_default().insert(name.clone(), slots.clone());
+    }
+    for export in &module_facts.summary.exports {
+      let ExportSummary::Local { local, exported } = export else {
+        continue;
+      };
+      if local == exported {
+        continue;
+      }
+      if let Some(slots) = module_facts.summary.options_callback_slots.get(local)
+        && !slots.is_empty()
+      {
+        resolved.entry(id.clone()).or_default().insert(exported.clone(), slots.clone());
+      }
+    }
+  }
+
+  let mut reverse_users: BTreeMap<&ModuleId, Vec<&ModuleId>> = BTreeMap::new();
+  for ((from, _), to) in links {
+    reverse_users.entry(*to).or_default().push(*from);
+  }
+
+  let mut queue = VecDeque::new();
+  let mut queued = BTreeSet::new();
+  for (id, module_facts) in facts {
+    let needs_reexport =
+      module_facts.summary.exports.iter().any(|export| {
+        matches!(export, ExportSummary::Reexport { .. } | ExportSummary::Star { .. })
+      });
+    let needs_import_local_export = module_facts.summary.exports.iter().any(|export| {
+      matches!(
+        export,
+        ExportSummary::Local { local, .. }
+          if !module_facts.summary.locals.contains_key(local)
+            && !module_facts.summary.options_callback_slots.contains_key(local)
+            && module_facts.summary.imports.iter().any(|import| import.local == *local)
+      )
+    });
+    if needs_reexport || needs_import_local_export {
+      queue.push_back(id);
+      queued.insert(id);
+    }
+  }
+
+  while let Some(id) = queue.pop_front() {
+    queued.remove(id);
+    let Some(module_facts) = facts.get(id) else {
+      continue;
+    };
+    let mut changed = false;
+    for export in &module_facts.summary.exports {
+      match export {
+        ExportSummary::Local { local, exported } => {
+          if module_facts.summary.options_callback_slots.contains_key(local)
+            || module_facts.summary.locals.contains_key(local)
+          {
+            continue;
+          }
+          let Some(import) =
+            module_facts.summary.imports.iter().find(|import| import.local == *local)
+          else {
+            continue;
+          };
+          let Some(target) = links.get(&(id, import.source.as_str())).copied() else {
+            continue;
+          };
+          let Some(slots) =
+            resolved.get(target).and_then(|exports| exports.get(&import.imported)).cloned()
+          else {
+            continue;
+          };
+          changed |= insert_options_callback_export(&mut resolved, id, exported, slots);
+        }
+        ExportSummary::Reexport { source, imported, exported } => {
+          let Some(target) = links.get(&(id, source.as_str())).copied() else {
+            continue;
+          };
+          let Some(slots) = resolved.get(target).and_then(|exports| exports.get(imported)).cloned()
+          else {
+            continue;
+          };
+          changed |= insert_options_callback_export(&mut resolved, id, exported, slots);
+        }
+        ExportSummary::Star { source } => {
+          let Some(target) = links.get(&(id, source.as_str())).copied() else {
+            continue;
+          };
+          let Some(target_slots) = resolved.get(target).cloned() else {
+            continue;
+          };
+          for (exported, slots) in target_slots {
+            if exported != "default" {
+              changed |= insert_options_callback_export(&mut resolved, id, &exported, slots);
+            }
+          }
+        }
+      }
+    }
+    if !changed {
+      continue;
+    }
+    if let Some(users) = reverse_users.get(id) {
+      for consumer in users {
+        if queued.insert(consumer) {
+          queue.push_back(consumer);
+        }
+      }
+    }
+  }
+
+  resolved
+}
+
+fn insert_options_callback_export(
+  resolved: &mut BTreeMap<ModuleId, BTreeMap<String, OptionsCallbackSlots>>,
+  module: &ModuleId,
+  exported: &str,
+  slots: OptionsCallbackSlots,
+) -> bool {
+  if slots.is_empty() {
+    return false;
+  }
+  let Some(module_exports) = resolved.get_mut(module) else {
+    return false;
+  };
+  match module_exports.entry(exported.into()) {
+    Entry::Vacant(entry) => {
+      entry.insert(slots);
+      true
+    }
+    Entry::Occupied(mut entry) if entry.get() != &slots => {
+      entry.insert(slots);
+      true
+    }
+    Entry::Occupied(_) => false,
+  }
+}
+
+/// Coordinator-side: which of this module's import locals resolve to reactive exports,
+/// plus options-callback slots (independent of return-shape seedability).
 fn seed_plan_for(
   facts: &ModuleExportFacts,
   exports: &BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
+  options_exports: &BTreeMap<ModuleId, BTreeMap<String, OptionsCallbackSlots>>,
   links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
-) -> ImportSeedPlan {
+) -> (ImportSeedPlan, BTreeMap<String, OptionsCallbackSlots>) {
   use std::ops::Bound;
 
   let mut plan = ImportSeedPlan::new();
+  let mut options_callback_slots = BTreeMap::new();
   for import in &facts.summary.imports {
     if import.imported == "*" {
       continue;
@@ -1161,6 +1413,13 @@ fn seed_plan_for(
     let Some(target) = links.get(&(&facts.id, import.source.as_str())).copied() else {
       continue;
     };
+    if let Some(slots) = options_exports
+      .get(target)
+      .and_then(|module| module.get(&import.imported))
+      .filter(|slots| !slots.is_empty())
+    {
+      options_callback_slots.insert(import.local.clone(), slots.clone());
+    }
     let Some(state) =
       exports.get(target).and_then(|module_exports| module_exports.get(&import.imported))
     else {
@@ -1181,7 +1440,18 @@ fn seed_plan_for(
     let Some(name) = specifier.strip_prefix(NUXT_IMPORTS_SPECIFIER_PREFIX) else {
       continue;
     };
-    if name.is_empty() || plan.contains_key(name) {
+    if name.is_empty() {
+      continue;
+    }
+    if !options_callback_slots.contains_key(name)
+      && let Some(slots) = options_exports
+        .get(*target)
+        .and_then(|module| module.get(name))
+        .filter(|slots| !slots.is_empty())
+    {
+      options_callback_slots.insert(name.to_owned(), slots.clone());
+    }
+    if plan.contains_key(name) {
       continue;
     }
     let Some(state) = exports.get(*target).and_then(|module_exports| module_exports.get(name))
@@ -1193,7 +1463,7 @@ fn seed_plan_for(
     }
     plan.insert(name.to_owned(), state.clone());
   }
-  plan
+  (plan, options_callback_slots)
 }
 
 /// Project-wide provide index (no App Tree): key → offers from every known site.
@@ -1310,12 +1580,21 @@ fn materialize_seeds(
       ExportState::DeclaredPlainObjectFactory
       | ExportState::BodyUnwrappedState
       | ExportState::ForwardReturn(_)
+      | ExportState::ValueFactoryCall(_)
       | ExportState::Ambiguous => {}
     }
   }
   // Member-call destructures against seeded value bags (`api.maps.useX()`).
   let bags = seeds.value_bags.clone();
   seed_member_calls_from_value_bags(semantic, &bags, span_source, span_base, &mut seeds);
+  // `defineFormProps({ setup({ values }) {…} })` — seed options-object callback bags.
+  super::seed_options_callback_params_at_calls(
+    semantic,
+    &plan.options_callback_slots,
+    span_source,
+    span_base,
+    &mut seeds.bindings,
+  );
   // Inject locals: re-read sites for exact spans; offers from the coordinator plan.
   if !plan.injects.is_empty() {
     let imported_bindings = super::collect_imported_bindings(semantic);

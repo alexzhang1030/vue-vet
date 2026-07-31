@@ -7,7 +7,7 @@ use vue_vet_core::{Diagnostic, FileId, ModuleId, SfcFacts, SourceSpan};
 use vue_vet_reactivity::{ModuleReactivity, ModuleSource};
 
 /// Bump when Nuxt convention / resolver seed semantics change (cache invalidation).
-pub const CONVENTIONS_VERSION: u32 = 6;
+pub const CONVENTIONS_VERSION: u32 = 9;
 
 pub const PROJECT_RULE_IDS: [&str; 2] =
   ["vue-vet/project/unresolved-import", "vue-vet/project/unused-component"];

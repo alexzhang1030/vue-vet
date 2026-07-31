@@ -159,6 +159,25 @@ fn trace_reactivity_seeded_inner(
       push_binding_by_span(&mut scope_bindings, binding);
     }
   }
+  // Same-file `defineFormProps({ setup({ values }) })` options-object callback bags.
+  // Collect is cheap when empty; do not require local `Ref` text (slots come from types).
+  let options_slots = summary::collect_local_options_callback_slots(semantic);
+  if !options_slots.is_empty() {
+    let mut options_bindings = Vec::new();
+    summary::seed_options_callback_params_at_calls(
+      semantic,
+      &options_slots,
+      sfc_source,
+      script_offset,
+      &mut options_bindings,
+    );
+    for binding in options_bindings {
+      push_binding_by_span(&mut scope_bindings, binding.clone());
+      if !bindings.iter().any(|local| local.name == binding.name) {
+        bindings.push(binding);
+      }
+    }
+  }
   // `defineComponent` / `setup(props)` — props bag is reactive.
   // Custom wrappers seed when they forward to `defineComponent` (same-file or
   // cross-module `ExportState::ComponentFactory` via seeds).

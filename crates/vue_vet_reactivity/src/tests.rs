@@ -2200,6 +2200,211 @@ fn value_bag_member_call_seeds_destructure() {
 }
 
 #[test]
+fn value_bag_nested_function_member_call_seeds_destructure() {
+  let graph = graph(
+    "import { ref, computed } from 'vue';\n\
+     function useQuery() { return { data: ref(0), isLoading: ref(false) }; }\n\
+     const createDeviceApiQuery = (api) => {\n\
+       function useDevicesGet() { return useQuery(); }\n\
+       return { useDevicesGet };\n\
+     };\n\
+     const createApiQuery = (api) => {\n\
+       return { device: createDeviceApiQuery(api) };\n\
+     };\n\
+     const api = createApiQuery({});\n\
+     const { data, isLoading } = api.device.useDevicesGet();\n\
+     const rows = computed(() => data.value);\n\
+     const pending = computed(() => isLoading.value);",
+  );
+  assert!(
+    graph
+      .bindings
+      .iter()
+      .any(|binding| binding.name == "data" && binding.kind == ReactiveBindingKind::Ref)
+      && graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "isLoading" && binding.kind == ReactiveBindingKind::Ref),
+    "nested-fn value-bag member call must seed; bindings={:?}",
+    graph.bindings
+  );
+}
+
+#[test]
+fn value_bag_member_call_reexport_via_wrapper_composable() {
+  // Wrapper destructures api.ns.useX() and returns { isLoading } for consumers.
+  let modules = [
+    ModuleSource::standalone(
+      "producer.d.ts",
+      "import type { Ref } from 'vue';\n\
+       type Result = { data: number; isLoading: boolean };\n\
+       type OpenBag = { [K in keyof Result]: Ref<Result[K]> };\n\
+       export declare function useQuery(): OpenBag;\n",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "queries.ts",
+      "import { useQuery } from './producer';\n\
+       export const createApiQuery = (api) => {\n\
+         function useDevicesGet() { return useQuery(); }\n\
+         return { device: { useDevicesGet } };\n\
+       };\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "api.ts",
+      "import { createApiQuery } from './queries';\n\
+       export const appApi = createApiQuery({});\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "device.ts",
+      "import { computed } from 'vue';\n\
+       import { appApi } from './api';\n\
+       export function useDeviceDetail() {\n\
+         const { data, isLoading } = appApi.device.useDevicesGet();\n\
+         const detail = computed(() => data.value);\n\
+         return { detail, isLoading };\n\
+       }\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { useDeviceDetail } from './device';\n\
+       const { detail, isLoading } = useDeviceDetail();\n\
+       const pending = computed(() => isLoading.value);\n\
+       const title = computed(() => detail.value);\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [
+    ModuleLink {
+      from: "queries.ts".into(),
+      specifier: "./producer".into(),
+      to: "producer.d.ts".into(),
+    },
+    ModuleLink { from: "api.ts".into(), specifier: "./queries".into(), to: "queries.ts".into() },
+    ModuleLink { from: "device.ts".into(), specifier: "./api".into(), to: "api.ts".into() },
+    ModuleLink { from: "consumer.ts".into(), specifier: "./device".into(), to: "device.ts".into() },
+  ];
+  let traced = traced_modules(&modules, &links);
+  let device = traced.iter().find(|module| module.id == "device.ts");
+  assert!(
+    device.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "isLoading" && binding.kind == ReactiveBindingKind::Ref)
+    }),
+    "wrapper must seed isLoading locally; got {:?}",
+    device.map(|module| &module.graph.bindings)
+  );
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "isLoading" && binding.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope.reads.iter().any(|read| read.binding == "isLoading")
+            && scope.uncertain_accesses.is_empty()
+        })
+    }),
+    "wrapper re-export must seed consumer isLoading; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
+  );
+}
+
+#[test]
+fn value_bag_imported_factory_call_exports_value_bag() {
+  // `export const api = createApi()` in another module — ValueFactoryCall → ValueBag.
+  let modules = [
+    ModuleSource::standalone(
+      "producer.d.ts",
+      "import type { Ref } from 'vue';\n\
+       type Result = { data: number; isLoading: boolean };\n\
+       type OpenBag = { [K in keyof Result]: Ref<Result[K]> };\n\
+       export declare function useQuery(): OpenBag;\n",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "queries.ts",
+      "import { useQuery } from './producer';\n\
+       export const createDeviceApiQuery = (api) => {\n\
+         function useDevicesGet() { return useQuery(); }\n\
+         function useDevicesPostMutation() { return useMutation(); }\n\
+         return { useDevicesGet, useDevicesPostMutation };\n\
+       };\n\
+       export const createApiQuery = (api) => {\n\
+         return { device: createDeviceApiQuery(api) };\n\
+       };\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "api.ts",
+      "import { createApiQuery } from './queries';\n\
+       export const appApi = createApiQuery({});\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { appApi } from './api';\n\
+       const { data, isLoading } = appApi.device.useDevicesGet();\n\
+       const rows = computed(() => data.value);\n\
+       const pending = computed(() => isLoading.value);\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [
+    ModuleLink {
+      from: "queries.ts".into(),
+      specifier: "./producer".into(),
+      to: "producer.d.ts".into(),
+    },
+    ModuleLink { from: "api.ts".into(), specifier: "./queries".into(), to: "queries.ts".into() },
+    ModuleLink { from: "consumer.ts".into(), specifier: "./api".into(), to: "api.ts".into() },
+  ];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "data" && binding.kind == ReactiveBindingKind::Ref)
+        && module
+          .graph
+          .bindings
+          .iter()
+          .any(|binding| binding.name == "isLoading" && binding.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope.reads.iter().any(|read| read.binding == "data")
+            && scope.uncertain_accesses.is_empty()
+        })
+    }),
+    "imported createApiQuery() export must seed member destructure; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
+  );
+}
+
+#[test]
 fn value_bag_member_call_forwards_imported_shape_across_modules() {
   let modules = [
     ModuleSource::standalone(
@@ -3777,5 +3982,202 @@ const x = computed(() => isLoading.value);\n";
     }),
     "useTable-style ...queryResult must seed isLoading; got {:?}",
     consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
+  );
+}
+
+#[test]
+fn options_object_callback_ref_bag_seeds_same_file() {
+  let graph = graph(
+    "import { computed, type Ref } from 'vue';\n\
+     interface FormCtx { values: Ref<{ name: string }> }\n\
+     type FormSetup = (ctx: FormCtx) => void;\n\
+     function defineFormProps(props: { setup?: FormSetup }) {\n\
+       props.setup?.({ values: null as unknown as Ref<{ name: string }> });\n\
+     }\n\
+     defineFormProps({\n\
+       setup({ values }) {\n\
+         return computed(() => values.value.name);\n\
+       },\n\
+     });",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.iter().any(|read| read.binding == "values")
+        && scope.uncertain_accesses.is_empty()
+    }),
+    "options callback ObjectPattern Ref field must seed; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn options_object_callback_ref_bag_seeds_across_modules_with_extends() {
+  let modules = [
+    ModuleSource::standalone(
+      "form.d.ts",
+      "import type { Ref } from 'vue';\n\
+       export interface FormContext { values: Ref<{ name: string }> }\n\
+       export interface FormSetupContext extends FormContext { ready: boolean }\n\
+       export type FormSetupFn = (ctx: FormSetupContext) => void;\n\
+       export interface FormProps { setup?: FormSetupFn }\n\
+       export declare function defineFormProps(props: FormProps): void;\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { defineFormProps } from './form';\n\
+       defineFormProps({\n\
+         setup({ values }) {\n\
+           return computed(() => values.value.name);\n\
+         },\n\
+       });\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links =
+    [ModuleLink { from: "consumer.ts".into(), specifier: "./form".into(), to: "form.d.ts".into() }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.scopes.iter().any(|scope| {
+        scope.kind == TrackingScopeKind::Computed
+          && scope.reads.iter().any(|read| read.binding == "values")
+          && scope.uncertain_accesses.is_empty()
+      })
+    }),
+    "cross-module options callback with interface extends must seed; got {:?}",
+    consumer.map(|module| &module.graph.scopes)
+  );
+}
+
+#[test]
+fn options_object_callback_type_param_constraint_seeds_across_modules() {
+  let modules = [
+    ModuleSource::standalone(
+      "form.d.ts",
+      "import type { Ref } from 'vue';\n\
+       export interface FormContext { values: Ref<{ name: string }> }\n\
+       export interface FormSetupContext extends FormContext { ready: boolean }\n\
+       export type FormSetupFn = (ctx: FormSetupContext) => void;\n\
+       export interface FormProps<Setup extends FormSetupFn> { setup?: Setup }\n\
+       export declare function defineFormProps<Setup extends FormSetupFn>(\n\
+         props: FormProps<Setup>,\n\
+       ): void;\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { defineFormProps } from './form';\n\
+       defineFormProps({\n\
+         setup: ({ values }) => {\n\
+           return computed(() => values.value.name);\n\
+         },\n\
+       });\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links =
+    [ModuleLink { from: "consumer.ts".into(), specifier: "./form".into(), to: "form.d.ts".into() }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.scopes.iter().any(|scope| {
+        scope.kind == TrackingScopeKind::Computed
+          && scope.reads.iter().any(|read| read.binding == "values")
+          && scope.uncertain_accesses.is_empty()
+      })
+    }),
+    "type-param `Setup extends Fn` options callback must seed; got {:?}",
+    consumer.map(|module| &module.graph.scopes)
+  );
+}
+
+#[test]
+fn options_object_callback_without_ref_fields_stays_quiet() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     function definePlain(props: { setup?: (ctx: { name: string }) => void }) {\n\
+       props.setup?.({ name: '' });\n\
+     }\n\
+     definePlain({\n\
+       setup({ name }) {\n\
+         return computed(() => name.length);\n\
+       },\n\
+     });",
+  );
+  assert!(
+    !graph.bindings.iter().any(|binding| binding.name == "name")
+      && graph.scopes.iter().all(|scope| {
+        scope.kind != TrackingScopeKind::Computed
+          || !scope.reads.iter().any(|read| read.binding == "name")
+      }),
+    "non-Ref options callback fields must not seed; bindings={:?} scopes={:?}",
+    graph.bindings,
+    graph.scopes
+  );
+}
+
+#[test]
+fn options_object_callback_slots_follow_export_star_barrel() {
+  let modules = [
+    ModuleSource::standalone(
+      "utils.d.ts",
+      "import type { Ref } from 'vue';\n\
+       export interface FormContext { values: Ref<{ name: string }> }\n\
+       export interface FormSetupContext extends FormContext {}\n\
+       export type FormSetupFn = (ctx: FormSetupContext) => void;\n\
+       export interface FormProps<Setup extends FormSetupFn> { setup?: Setup }\n\
+       export declare function defineFormProps<Setup extends FormSetupFn>(\n\
+         props: FormProps<Setup>,\n\
+       ): void;\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "form.d.ts",
+      "export { defineFormProps } from './utils';\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone("index.d.ts", "export * from './form';\n", "ts", ScriptKind::Script),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { defineFormProps } from './index';\n\
+       defineFormProps({\n\
+         setup: ({ values }) => {\n\
+           return computed(() => values.value.name);\n\
+         },\n\
+       });\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [
+    ModuleLink { from: "form.d.ts".into(), specifier: "./utils".into(), to: "utils.d.ts".into() },
+    ModuleLink { from: "index.d.ts".into(), specifier: "./form".into(), to: "form.d.ts".into() },
+    ModuleLink { from: "consumer.ts".into(), specifier: "./index".into(), to: "index.d.ts".into() },
+  ];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.scopes.iter().any(|scope| {
+        scope.kind == TrackingScopeKind::Computed
+          && scope.reads.iter().any(|read| read.binding == "values")
+          && scope.uncertain_accesses.is_empty()
+      })
+    }),
+    "options callback slots must follow export {{ x }} / export * barrels; got {:?}",
+    consumer.map(|module| &module.graph.scopes)
   );
 }
