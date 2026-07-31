@@ -13,7 +13,11 @@ library surface (project graph, cache, future LSP / codemod tools).
 ## Status
 
 Early `0.x`. The fact schema is versioned
-(`REACTIVITY_GRAPH_VERSION = 10` in `vue_vet_core`: ComponentFactory props seeds,
+(`REACTIVITY_GRAPH_VERSION = 14` in `vue_vet_core`: VueUse
+`createSharedComposable` / `createGlobalState` forward factory bags; v13
+imported `const api = createApi()` exports as ValueBag; v12 options-object
+callback slots follow `export*` / re-export barrels; v11 options-object
+callback Ref bags (`setup({ values })`), ComponentFactory props seeds,
 Render scopes, module-qualified `to_id`, `property` / `to_path`). In-scope design axes A1–A7 and Evidence are
 **complete** per the repository PCR
 ([reactivity tracer](https://github.com/alexzhang1030/vue-vet/blob/main/.agents/docs/reactivity-tracer.md))

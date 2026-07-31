@@ -1391,6 +1391,159 @@ fn distinct_local_symbols_do_not_cross_link() {
 }
 
 #[test]
+fn inject_as_typed_bag_seeds_without_known_provide() {
+  let graph = graph(
+    "import type { Ref } from 'vue';\n\
+     import { inject, computed } from 'vue';\n\
+     interface MapCtx { mapId: Ref<number | undefined> }\n\
+     const KEY = Symbol('map');\n\
+     const ctx = inject(KEY) as MapCtx;\n\
+     const d = computed(() => ctx.mapId.value);\n\
+     void d.value;",
+  );
+  assert!(
+    graph
+      .composable_instances
+      .get("ctx")
+      .is_some_and(|shape| shape.get("mapId") == Some(&ReactiveBindingKind::Ref)),
+    "inject(key) as Ctx must seed bag from asserted interface; instances={:?}",
+    graph.composable_instances
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "mapId" && read.property.as_deref() == Some("value"))
+    }),
+    "computed must track ctx.mapId.value via asserted inject bag; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn generic_context_factory_instantiates_inject_bag() {
+  let modules = [
+    ModuleSource::standalone(
+      "common.ts",
+      "import { inject, provide } from 'vue';\n\
+       export function createContext<T>(identifier: string) {\n\
+         const key = Symbol(identifier);\n\
+         const useProvide = (value: T) => { provide(key, value); };\n\
+         const useInject = () => {\n\
+           const value = inject(key);\n\
+           return value as T;\n\
+         };\n\
+         return { useProvide, useInject };\n\
+       }\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "ctx.ts",
+      "import type { Ref } from 'vue';\n\
+       import { createContext } from './common';\n\
+       interface MapCtx { mapId: Ref<number | undefined> }\n\
+       export const {\n\
+         useProvide: provideMapCtx,\n\
+         useInject: useMapCtx,\n\
+       } = createContext<MapCtx>('MAP');\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { useMapCtx } from './ctx';\n\
+       const { mapId } = useMapCtx();\n\
+       const d = computed(() => mapId.value);\n\
+       void d.value;",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [
+    ModuleLink { from: "ctx.ts".into(), specifier: "./common".into(), to: "common.ts".into() },
+    ModuleLink { from: "consumer.ts".into(), specifier: "./ctx".into(), to: "ctx.ts".into() },
+  ];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "mapId" && binding.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope
+              .reads
+              .iter()
+              .any(|read| read.binding == "mapId" && read.property.as_deref() == Some("value"))
+        })
+    }),
+    "createContext<Ctx> useInject destructure must seed mapId; consumer={consumer:?}"
+  );
+}
+
+#[test]
+fn typed_inject_helper_forwards_bag_across_modules() {
+  let modules = [
+    ModuleSource::standalone(
+      "ctx.ts",
+      "import type { Ref } from 'vue';\n\
+       import { inject, provide, shallowRef } from 'vue';\n\
+       interface MapCtx { mapId: Ref<number | undefined> }\n\
+       const KEY = Symbol('map');\n\
+       export function provideMapCtx(mapId: Ref<number | undefined>) {\n\
+         const local = { mapId, robots: shallowRef([]) };\n\
+         provide(KEY, local);\n\
+         return local;\n\
+       }\n\
+       export function useMapCtx() {\n\
+         const ctx = inject(KEY) as MapCtx;\n\
+         return ctx;\n\
+       }\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { useMapCtx } from './ctx';\n\
+       const { mapId } = useMapCtx();\n\
+       const d = computed(() => mapId.value);\n\
+       void d.value;",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links =
+    [ModuleLink { from: "consumer.ts".into(), specifier: "./ctx".into(), to: "ctx.ts".into() }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "mapId" && binding.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope
+              .reads
+              .iter()
+              .any(|read| read.binding == "mapId" && read.property.as_deref() == Some("value"))
+        })
+    }),
+    "useX() returning inject(key) as Ctx must seed destructured Ref fields; consumer={consumer:?}"
+  );
+}
+
+#[test]
 fn provide_composable_instance_seeds_inject_bag() {
   let graph = graph(
     "import { provide, inject, ref, computed } from 'vue';\n\
@@ -1741,6 +1894,50 @@ fn uncertain_value_access_is_recorded_on_computed_scope() {
 }
 
 #[test]
+fn optional_sole_value_duck_param_seeds_ref_binding() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     function useScale(doc: { value?: { scale: number } }) {\n\
+       return computed(() => doc.value?.scale ?? 1);\n\
+     }\n\
+     const scale = useScale({ value: { scale: 2 } });\n\
+     void scale.value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "doc" && read.property.as_deref() == Some("value"))
+        && scope.uncertain_accesses.iter().all(|name| name != "doc")
+    }),
+    "optional sole {{ value?: T }} param must classify .value; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn required_sole_value_type_does_not_seed_ref_binding() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     function useLabel(option: { value: string }) {\n\
+       return computed(() => option.value);\n\
+     }\n\
+     void useLabel({ value: 'a' }).value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.is_empty()
+        && scope.uncertain_accesses.iter().any(|name| name == "option")
+    }),
+    "required {{ value: T }} must not invent Ref seeds; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
 fn typed_computed_ref_parameters_classify_value_reads_inside_composables() {
   let graph = graph(
     "import { computed, type ComputedRef } from 'vue';\n\
@@ -1764,6 +1961,32 @@ fn typed_computed_ref_parameters_classify_value_reads_inside_composables() {
       scope.kind != TrackingScopeKind::Computed || scope.uncertain_accesses.is_empty()
     }),
     "typed Ref parameters must not remain uncertain; got {:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn asserted_ref_on_declarator_init_classifies_value_reads() {
+  let graph = graph(
+    "import type { Ref } from 'vue';\n\
+     import { computed } from 'vue';\n\
+     declare function useVModel(props: object, key: string, emit: unknown): unknown;\n\
+     const props = { modelValue: { id: 1 } };\n\
+     const emit = () => {};\n\
+     const modelValue = useVModel(props, 'modelValue', emit) as Ref<{ id: number }>;\n\
+     const id = computed(() => modelValue.value.id);\n\
+     void id.value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "modelValue" && read.property.as_deref() == Some("value"))
+        && !scope.uncertain_accesses.iter().any(|name| name == "modelValue")
+    }),
+    "asserted Ref init must classify .value; scopes={:?}",
     graph.scopes
   );
 }
@@ -2196,6 +2419,329 @@ fn value_bag_member_call_seeds_destructure() {
     }),
     "value-bag member destructure .value must classify; scopes={:?}",
     graph.scopes
+  );
+}
+
+#[test]
+fn value_bag_nested_function_member_call_seeds_destructure() {
+  let graph = graph(
+    "import { ref, computed } from 'vue';\n\
+     function useQuery() { return { data: ref(0), isLoading: ref(false) }; }\n\
+     const createDeviceApiQuery = (api) => {\n\
+       function useDevicesGet() { return useQuery(); }\n\
+       return { useDevicesGet };\n\
+     };\n\
+     const createApiQuery = (api) => {\n\
+       return { device: createDeviceApiQuery(api) };\n\
+     };\n\
+     const api = createApiQuery({});\n\
+     const { data, isLoading } = api.device.useDevicesGet();\n\
+     const rows = computed(() => data.value);\n\
+     const pending = computed(() => isLoading.value);",
+  );
+  assert!(
+    graph
+      .bindings
+      .iter()
+      .any(|binding| binding.name == "data" && binding.kind == ReactiveBindingKind::Ref)
+      && graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "isLoading" && binding.kind == ReactiveBindingKind::Ref),
+    "nested-fn value-bag member call must seed; bindings={:?}",
+    graph.bindings
+  );
+}
+
+#[test]
+fn value_bag_member_call_reexport_via_wrapper_composable() {
+  // Wrapper destructures api.ns.useX() and returns { isLoading } for consumers.
+  let modules = [
+    ModuleSource::standalone(
+      "producer.d.ts",
+      "import type { Ref } from 'vue';\n\
+       type Result = { data: number; isLoading: boolean };\n\
+       type OpenBag = { [K in keyof Result]: Ref<Result[K]> };\n\
+       export declare function useQuery(): OpenBag;\n",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "queries.ts",
+      "import { useQuery } from './producer';\n\
+       export const createApiQuery = (api) => {\n\
+         function useDevicesGet() { return useQuery(); }\n\
+         return { device: { useDevicesGet } };\n\
+       };\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "api.ts",
+      "import { createApiQuery } from './queries';\n\
+       export const appApi = createApiQuery({});\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "device.ts",
+      "import { computed } from 'vue';\n\
+       import { appApi } from './api';\n\
+       export function useDeviceDetail() {\n\
+         const { data, isLoading } = appApi.device.useDevicesGet();\n\
+         const detail = computed(() => data.value);\n\
+         return { detail, isLoading };\n\
+       }\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { useDeviceDetail } from './device';\n\
+       const { detail, isLoading } = useDeviceDetail();\n\
+       const pending = computed(() => isLoading.value);\n\
+       const title = computed(() => detail.value);\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [
+    ModuleLink {
+      from: "queries.ts".into(),
+      specifier: "./producer".into(),
+      to: "producer.d.ts".into(),
+    },
+    ModuleLink { from: "api.ts".into(), specifier: "./queries".into(), to: "queries.ts".into() },
+    ModuleLink { from: "device.ts".into(), specifier: "./api".into(), to: "api.ts".into() },
+    ModuleLink { from: "consumer.ts".into(), specifier: "./device".into(), to: "device.ts".into() },
+  ];
+  let traced = traced_modules(&modules, &links);
+  let device = traced.iter().find(|module| module.id == "device.ts");
+  assert!(
+    device.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "isLoading" && binding.kind == ReactiveBindingKind::Ref)
+    }),
+    "wrapper must seed isLoading locally; got {:?}",
+    device.map(|module| &module.graph.bindings)
+  );
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "isLoading" && binding.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope.reads.iter().any(|read| read.binding == "isLoading")
+            && scope.uncertain_accesses.is_empty()
+        })
+    }),
+    "wrapper re-export must seed consumer isLoading; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
+  );
+}
+
+#[test]
+fn create_shared_composable_forwards_factory_bag() {
+  // VueUse createSharedComposable<Fn>(Fn): Fn — export keeps the factory bag.
+  let modules = [
+    ModuleSource::standalone(
+      "vueuse.d.ts",
+      "export declare function createSharedComposable<Fn extends (...args: any[]) => any>(composable: Fn): Fn;\n",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "permission.ts",
+      "import { computed } from 'vue';\n\
+       import { createSharedComposable } from '@vueuse/core';\n\
+       export const useUserFunctionPermission = createSharedComposable(() => {\n\
+         const hasPermission = computed(() => (code) => Boolean(code));\n\
+         return { hasPermission };\n\
+       });\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { useUserFunctionPermission } from './permission';\n\
+       const { hasPermission } = useUserFunctionPermission();\n\
+       const canDelete = computed(() => hasPermission.value('delete'));\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [
+    ModuleLink {
+      from: "permission.ts".into(),
+      specifier: "@vueuse/core".into(),
+      to: "vueuse.d.ts".into(),
+    },
+    ModuleLink {
+      from: "consumer.ts".into(),
+      specifier: "./permission".into(),
+      to: "permission.ts".into(),
+    },
+  ];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.bindings.iter().any(|binding| {
+        binding.name == "hasPermission" && binding.kind == ReactiveBindingKind::Computed
+      }) && module.graph.scopes.iter().any(|scope| {
+        scope.kind == TrackingScopeKind::Computed
+          && scope.reads.iter().any(|read| read.binding == "hasPermission")
+          && scope.uncertain_accesses.is_empty()
+      })
+    }),
+    "createSharedComposable factory bag must seed; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
+  );
+}
+
+#[test]
+fn create_shared_composable_forwards_named_local_factory() {
+  let modules = [
+    ModuleSource::standalone(
+      "vueuse.d.ts",
+      "export declare function createSharedComposable<Fn extends (...args: any[]) => any>(composable: Fn): Fn;\n",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "permission.ts",
+      "import { computed } from 'vue';\n\
+       import { createSharedComposable } from '@vueuse/core';\n\
+       function usePermission() {\n\
+         const hasPermission = computed(() => (code) => Boolean(code));\n\
+         return { hasPermission };\n\
+       }\n\
+       export const useUserFunctionPermission = createSharedComposable(usePermission);\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { useUserFunctionPermission } from './permission';\n\
+       const { hasPermission } = useUserFunctionPermission();\n\
+       const canDelete = computed(() => hasPermission.value('delete'));\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [
+    ModuleLink {
+      from: "permission.ts".into(),
+      specifier: "@vueuse/core".into(),
+      to: "vueuse.d.ts".into(),
+    },
+    ModuleLink {
+      from: "consumer.ts".into(),
+      specifier: "./permission".into(),
+      to: "permission.ts".into(),
+    },
+  ];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.bindings.iter().any(|binding| binding.name == "hasPermission")
+        && module.graph.scopes.iter().any(|scope| {
+          scope.reads.iter().any(|read| read.binding == "hasPermission")
+            && scope.uncertain_accesses.is_empty()
+        })
+    }),
+    "named factory through createSharedComposable must seed; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
+  );
+}
+
+#[test]
+fn value_bag_imported_factory_call_exports_value_bag() {
+  // `export const api = createApi()` in another module — ValueFactoryCall → ValueBag.
+  let modules = [
+    ModuleSource::standalone(
+      "producer.d.ts",
+      "import type { Ref } from 'vue';\n\
+       type Result = { data: number; isLoading: boolean };\n\
+       type OpenBag = { [K in keyof Result]: Ref<Result[K]> };\n\
+       export declare function useQuery(): OpenBag;\n",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "queries.ts",
+      "import { useQuery } from './producer';\n\
+       export const createDeviceApiQuery = (api) => {\n\
+         function useDevicesGet() { return useQuery(); }\n\
+         function useDevicesPostMutation() { return useMutation(); }\n\
+         return { useDevicesGet, useDevicesPostMutation };\n\
+       };\n\
+       export const createApiQuery = (api) => {\n\
+         return { device: createDeviceApiQuery(api) };\n\
+       };\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "api.ts",
+      "import { createApiQuery } from './queries';\n\
+       export const appApi = createApiQuery({});\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { appApi } from './api';\n\
+       const { data, isLoading } = appApi.device.useDevicesGet();\n\
+       const rows = computed(() => data.value);\n\
+       const pending = computed(() => isLoading.value);\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [
+    ModuleLink {
+      from: "queries.ts".into(),
+      specifier: "./producer".into(),
+      to: "producer.d.ts".into(),
+    },
+    ModuleLink { from: "api.ts".into(), specifier: "./queries".into(), to: "queries.ts".into() },
+    ModuleLink { from: "consumer.ts".into(), specifier: "./api".into(), to: "api.ts".into() },
+  ];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "data" && binding.kind == ReactiveBindingKind::Ref)
+        && module
+          .graph
+          .bindings
+          .iter()
+          .any(|binding| binding.name == "isLoading" && binding.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope.reads.iter().any(|read| read.binding == "data")
+            && scope.uncertain_accesses.is_empty()
+        })
+    }),
+    "imported createApiQuery() export must seed member destructure; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
   );
 }
 
@@ -3777,5 +4323,552 @@ const x = computed(() => isLoading.value);\n";
     }),
     "useTable-style ...queryResult must seed isLoading; got {:?}",
     consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
+  );
+}
+
+#[test]
+fn options_object_callback_ref_bag_seeds_same_file() {
+  let graph = graph(
+    "import { computed, type Ref } from 'vue';\n\
+     interface FormCtx { values: Ref<{ name: string }> }\n\
+     type FormSetup = (ctx: FormCtx) => void;\n\
+     function defineFormProps(props: { setup?: FormSetup }) {\n\
+       props.setup?.({ values: null as unknown as Ref<{ name: string }> });\n\
+     }\n\
+     defineFormProps({\n\
+       setup({ values }) {\n\
+         return computed(() => values.value.name);\n\
+       },\n\
+     });",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.iter().any(|read| read.binding == "values")
+        && scope.uncertain_accesses.is_empty()
+    }),
+    "options callback ObjectPattern Ref field must seed; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn options_object_callback_ref_bag_seeds_across_modules_with_extends() {
+  let modules = [
+    ModuleSource::standalone(
+      "form.d.ts",
+      "import type { Ref } from 'vue';\n\
+       export interface FormContext { values: Ref<{ name: string }> }\n\
+       export interface FormSetupContext extends FormContext { ready: boolean }\n\
+       export type FormSetupFn = (ctx: FormSetupContext) => void;\n\
+       export interface FormProps { setup?: FormSetupFn }\n\
+       export declare function defineFormProps(props: FormProps): void;\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { defineFormProps } from './form';\n\
+       defineFormProps({\n\
+         setup({ values }) {\n\
+           return computed(() => values.value.name);\n\
+         },\n\
+       });\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links =
+    [ModuleLink { from: "consumer.ts".into(), specifier: "./form".into(), to: "form.d.ts".into() }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.scopes.iter().any(|scope| {
+        scope.kind == TrackingScopeKind::Computed
+          && scope.reads.iter().any(|read| read.binding == "values")
+          && scope.uncertain_accesses.is_empty()
+      })
+    }),
+    "cross-module options callback with interface extends must seed; got {:?}",
+    consumer.map(|module| &module.graph.scopes)
+  );
+}
+
+#[test]
+fn options_object_callback_type_param_constraint_seeds_across_modules() {
+  let modules = [
+    ModuleSource::standalone(
+      "form.d.ts",
+      "import type { Ref } from 'vue';\n\
+       export interface FormContext { values: Ref<{ name: string }> }\n\
+       export interface FormSetupContext extends FormContext { ready: boolean }\n\
+       export type FormSetupFn = (ctx: FormSetupContext) => void;\n\
+       export interface FormProps<Setup extends FormSetupFn> { setup?: Setup }\n\
+       export declare function defineFormProps<Setup extends FormSetupFn>(\n\
+         props: FormProps<Setup>,\n\
+       ): void;\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { defineFormProps } from './form';\n\
+       defineFormProps({\n\
+         setup: ({ values }) => {\n\
+           return computed(() => values.value.name);\n\
+         },\n\
+       });\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links =
+    [ModuleLink { from: "consumer.ts".into(), specifier: "./form".into(), to: "form.d.ts".into() }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.scopes.iter().any(|scope| {
+        scope.kind == TrackingScopeKind::Computed
+          && scope.reads.iter().any(|read| read.binding == "values")
+          && scope.uncertain_accesses.is_empty()
+      })
+    }),
+    "type-param `Setup extends Fn` options callback must seed; got {:?}",
+    consumer.map(|module| &module.graph.scopes)
+  );
+}
+
+#[test]
+fn options_object_callback_without_ref_fields_stays_quiet() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     function definePlain(props: { setup?: (ctx: { name: string }) => void }) {\n\
+       props.setup?.({ name: '' });\n\
+     }\n\
+     definePlain({\n\
+       setup({ name }) {\n\
+         return computed(() => name.length);\n\
+       },\n\
+     });",
+  );
+  assert!(
+    !graph.bindings.iter().any(|binding| binding.name == "name")
+      && graph.scopes.iter().all(|scope| {
+        scope.kind != TrackingScopeKind::Computed
+          || !scope.reads.iter().any(|read| read.binding == "name")
+      }),
+    "non-Ref options callback fields must not seed; bindings={:?} scopes={:?}",
+    graph.bindings,
+    graph.scopes
+  );
+}
+
+#[test]
+fn options_object_callback_slots_follow_export_star_barrel() {
+  let modules = [
+    ModuleSource::standalone(
+      "utils.d.ts",
+      "import type { Ref } from 'vue';\n\
+       export interface FormContext { values: Ref<{ name: string }> }\n\
+       export interface FormSetupContext extends FormContext {}\n\
+       export type FormSetupFn = (ctx: FormSetupContext) => void;\n\
+       export interface FormProps<Setup extends FormSetupFn> { setup?: Setup }\n\
+       export declare function defineFormProps<Setup extends FormSetupFn>(\n\
+         props: FormProps<Setup>,\n\
+       ): void;\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "form.d.ts",
+      "export { defineFormProps } from './utils';\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone("index.d.ts", "export * from './form';\n", "ts", ScriptKind::Script),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { defineFormProps } from './index';\n\
+       defineFormProps({\n\
+         setup: ({ values }) => {\n\
+           return computed(() => values.value.name);\n\
+         },\n\
+       });\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [
+    ModuleLink { from: "form.d.ts".into(), specifier: "./utils".into(), to: "utils.d.ts".into() },
+    ModuleLink { from: "index.d.ts".into(), specifier: "./form".into(), to: "form.d.ts".into() },
+    ModuleLink { from: "consumer.ts".into(), specifier: "./index".into(), to: "index.d.ts".into() },
+  ];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.scopes.iter().any(|scope| {
+        scope.kind == TrackingScopeKind::Computed
+          && scope.reads.iter().any(|read| read.binding == "values")
+          && scope.uncertain_accesses.is_empty()
+      })
+    }),
+    "options callback slots must follow export {{ x }} / export * barrels; got {:?}",
+    consumer.map(|module| &module.graph.scopes)
+  );
+}
+
+#[test]
+fn typed_function_callback_param_seeds_same_file() {
+  let graph = graph(
+    "import type { ComputedRef } from 'vue';\n\
+     import { computed } from 'vue';\n\
+     function usePagedQuery<T>(\n\
+       _init: T,\n\
+       run: (state: ComputedRef<T & { page: number }>) => unknown,\n\
+     ) {\n\
+       void run;\n\
+     }\n\
+     usePagedQuery({ q: '' }, (state) => {\n\
+       const page = computed(() => state.value.page);\n\
+       void page.value;\n\
+     });",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "state" && read.property.as_deref() == Some("value"))
+        && !scope.uncertain_accesses.iter().any(|name| name == "state")
+    }),
+    "typed (state: ComputedRef) callback formal must classify .value; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn typed_function_callback_param_seeds_across_modules() {
+  let modules = [
+    ModuleSource::standalone(
+      "query.ts",
+      "import type { ComputedRef } from 'vue';\n\
+       export function usePagedQuery<T>(\n\
+         _init: T,\n\
+         run: (state: ComputedRef<T & { page: number }>) => unknown,\n\
+       ) {\n\
+         void run;\n\
+       }\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { usePagedQuery } from './query';\n\
+       usePagedQuery({ q: '' }, (state) => {\n\
+         const page = computed(() => state.value.page);\n\
+         void page.value;\n\
+       });",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links =
+    [ModuleLink { from: "consumer.ts".into(), specifier: "./query".into(), to: "query.ts".into() }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.scopes.iter().any(|scope| {
+        scope.kind == TrackingScopeKind::Computed
+          && scope
+            .reads
+            .iter()
+            .any(|read| read.binding == "state" && read.property.as_deref() == Some("value"))
+          && scope.uncertain_accesses.iter().all(|name| name != "state")
+      })
+    }),
+    "imported typed callback formal must seed across modules; consumer={consumer:?}"
+  );
+}
+
+#[test]
+fn typed_function_callback_ignores_non_ref_formals() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     function useMapped(\n\
+       map: (label: string) => string,\n\
+     ) {\n\
+       void map;\n\
+     }\n\
+     useMapped((label) => {\n\
+       const upper = computed(() => label.toUpperCase());\n\
+       void upper.value;\n\
+       return label;\n\
+     });",
+  );
+  assert!(
+    !graph.bindings.iter().any(|binding| binding.name == "label"),
+    "non-Ref callback formals must not invent bindings; bindings={:?}",
+    graph.bindings
+  );
+}
+
+#[test]
+fn removable_ref_dts_return_seeds_factory_call() {
+  let modules = [
+    ModuleSource::standalone(
+      "storage.d.ts",
+      "import type { RemovableRef } from 'vue';\n\
+       export declare function usePersistedState<T>(key: string, init: T): RemovableRef<T>;\n",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { usePersistedState } from './storage';\n\
+       const state = usePersistedState('k', { on: false });\n\
+       const on = computed(() => state.value.on);\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./storage".into(),
+    to: "storage.d.ts".into(),
+  }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "state" && binding.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope
+              .reads
+              .iter()
+              .any(|read| read.binding == "state" && read.property.as_deref() == Some("value"))
+            && scope.uncertain_accesses.iter().all(|name| name != "state")
+        })
+    }),
+    "RemovableRef .d.ts return must seed Factory(Ref); consumer={consumer:?}"
+  );
+}
+
+#[test]
+fn typeof_import_reexport_forwards_composable_bag() {
+  let modules = [
+    ModuleSource::standalone(
+      "fields.d.ts",
+      "import type { Ref } from 'vue';\n\
+       export interface FieldListContext {\n\
+         fields: Ref<{ key: string }[]>;\n\
+         push(value: { key: string }): void;\n\
+       }\n\
+       export declare function useFieldList(): FieldListContext;\n",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "alias.d.ts",
+      "import { useFieldList } from './fields';\n\
+       export declare const useFormFieldList: typeof useFieldList;\n",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { useFormFieldList } from './alias';\n\
+       const ctx = useFormFieldList();\n\
+       const keys = computed(() => ctx.fields.value.map((row) => row.key));\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [
+    ModuleLink {
+      from: "alias.d.ts".into(),
+      specifier: "./fields".into(),
+      to: "fields.d.ts".into(),
+    },
+    ModuleLink { from: "consumer.ts".into(), specifier: "./alias".into(), to: "alias.d.ts".into() },
+  ];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.composable_instances.contains_key("ctx")
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope
+              .reads
+              .iter()
+              .any(|read| read.binding == "fields" && read.property.as_deref() == Some("value"))
+            && scope.uncertain_accesses.iter().all(|name| name != "ctx")
+        })
+    }),
+    "typeof re-export must forward composable instance bag; consumer={consumer:?}"
+  );
+}
+
+#[test]
+fn draggable_return_bag_seeds_destructured_coords() {
+  let modules = [
+    ModuleSource::standalone(
+      "drag.d.ts",
+      "import type { Ref, ComputedRef } from 'vue';\n\
+       export interface DragReturn {\n\
+         x: Ref<number>;\n\
+         y: Ref<number>;\n\
+         style: ComputedRef<string>;\n\
+       }\n\
+       export declare function useDrag(\n\
+         target: unknown,\n\
+         options?: unknown,\n\
+       ): DragReturn;\n",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed, ref } from 'vue';\n\
+       import { useDrag } from './drag';\n\
+       const el = ref<HTMLElement | null>(null);\n\
+       const { x, y } = useDrag(el, { axis: 'y' });\n\
+       const style = computed(() => `${x.value}px ${y.value}px`);\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links =
+    [ModuleLink { from: "consumer.ts".into(), specifier: "./drag".into(), to: "drag.d.ts".into() }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.bindings.iter().any(|b| b.name == "x" && b.kind == ReactiveBindingKind::Ref)
+        && module.graph.bindings.iter().any(|b| b.name == "y" && b.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope.reads.iter().any(|read| read.binding == "x")
+            && scope.reads.iter().any(|read| read.binding == "y")
+            && scope.uncertain_accesses.iter().all(|name| name != "x" && name != "y")
+        })
+    }),
+    "drag return bag must seed destructured x/y; consumer={consumer:?}"
+  );
+}
+
+#[test]
+fn declare_plus_export_list_forwards_composable_bag() {
+  let modules = [
+    ModuleSource::standalone(
+      "drag.d.ts",
+      "import type { Ref } from 'vue';\n\
+       interface DragReturn {\n\
+         x: Ref<number>;\n\
+         y: Ref<number>;\n\
+       }\n\
+       declare function useDrag(target: unknown, options?: unknown): DragReturn;\n\
+       export { useDrag };\n",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed, ref } from 'vue';\n\
+       import { useDrag } from './drag';\n\
+       const el = ref(null);\n\
+       const { x, y } = useDrag(el);\n\
+       const style = computed(() => `${x.value},${y.value}`);\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links =
+    [ModuleLink { from: "consumer.ts".into(), specifier: "./drag".into(), to: "drag.d.ts".into() }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.bindings.iter().any(|b| b.name == "x")
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope.reads.iter().any(|read| read.binding == "x")
+            && scope.uncertain_accesses.iter().all(|name| name != "x" && name != "y")
+        })
+    }),
+    "declare + export {{ name }} must publish composable bag; consumer={consumer:?}"
+  );
+}
+
+#[test]
+fn array_hof_callback_plain_value_is_not_uncertain() {
+  let plain = graph(
+    "import { computed } from 'vue';\n\
+     const OPTIONS = [{ value: 'a' }, { value: 'b' }];\n\
+     const labels = computed(() => OPTIONS.map((option) => option.value));\n\
+     void labels.value;",
+  );
+  assert!(
+    plain.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.is_empty()
+        && scope.uncertain_accesses.iter().all(|name| name != "option")
+    }),
+    "plain option.value in Array#map must not be uncertain; scopes={:?}",
+    plain.scopes
+  );
+
+  let from_ref = graph(
+    "import { computed, ref } from 'vue';\n\
+     const items = ref([{ value: 'a' }]);\n\
+     const labels = computed(() => items.value.map((option) => option.value));\n\
+     void labels.value;",
+  );
+  assert!(
+    from_ref.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "items" && read.property.as_deref() == Some("value"))
+        && scope.uncertain_accesses.iter().all(|name| name != "option")
+    }),
+    "items.value.map(option => option.value) must track items only; scopes={:?}",
+    from_ref.scopes
+  );
+}
+
+#[test]
+fn untyped_composable_param_value_stays_uncertain() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     function useLabel(option) {\n\
+       return computed(() => option.value);\n\
+     }\n\
+     void useLabel({ value: 'a' }).value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.uncertain_accesses.iter().any(|name| name == "option")
+    }),
+    "untyped composable params must remain uncertain; scopes={:?}",
+    graph.scopes
   );
 }

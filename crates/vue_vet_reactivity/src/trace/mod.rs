@@ -159,6 +159,43 @@ fn trace_reactivity_seeded_inner(
       push_binding_by_span(&mut scope_bindings, binding);
     }
   }
+  // Same-file `defineFormProps({ setup({ values }) })` options-object callback bags.
+  // Collect is cheap when empty; do not require local `Ref` text (slots come from types).
+  let options_slots = summary::collect_local_options_callback_slots(semantic);
+  if !options_slots.is_empty() {
+    let mut options_bindings = Vec::new();
+    summary::seed_options_callback_params_at_calls(
+      semantic,
+      &options_slots,
+      sfc_source,
+      script_offset,
+      &mut options_bindings,
+    );
+    for binding in options_bindings {
+      push_binding_by_span(&mut scope_bindings, binding.clone());
+      if !bindings.iter().any(|local| local.name == binding.name) {
+        bindings.push(binding);
+      }
+    }
+  }
+  // Same-file `useX(init, (params: ComputedRef<T>) => …)` typed function callbacks.
+  let typed_callback_slots = summary::collect_local_typed_callback_param_slots(semantic);
+  if !typed_callback_slots.is_empty() {
+    let mut typed_bindings = Vec::new();
+    summary::seed_typed_callback_params_at_calls(
+      semantic,
+      &typed_callback_slots,
+      sfc_source,
+      script_offset,
+      &mut typed_bindings,
+    );
+    for binding in typed_bindings {
+      push_binding_by_span(&mut scope_bindings, binding.clone());
+      if !bindings.iter().any(|local| local.name == binding.name) {
+        bindings.push(binding);
+      }
+    }
+  }
   // `defineComponent` / `setup(props)` — props bag is reactive.
   // Custom wrappers seed when they forward to `defineComponent` (same-file or
   // cross-module `ExportState::ComponentFactory` via seeds).
@@ -527,7 +564,8 @@ fn local_composable_export_for(
       summary::ComposableReturn::Object(_)
       | summary::ComposableReturn::ValueBag(_)
       | summary::ComposableReturn::UnwrappedState
-      | summary::ComposableReturn::Forward(_),
+      | summary::ComposableReturn::Forward(_)
+      | summary::ComposableReturn::GenericParam(_),
     )
     | None => {}
   }
@@ -807,7 +845,7 @@ pub fn collect_provide_sites(
   sites
 }
 
-/// `const local = inject(key)` / `inject(key, default)`.
+/// `const local = inject(key)` / `inject(key, default)` / `inject(key) as Ctx`.
 pub fn collect_inject_sites(
   semantic: &Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
@@ -826,7 +864,8 @@ pub fn collect_inject_sites(
     if callee != "inject" {
       continue;
     }
-    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
+    let Some((declarator, asserted_type)) =
+      inject_declarator_and_assertion(semantic, call.node_id.get())
     else {
       continue;
     };
@@ -839,7 +878,7 @@ pub fn collect_inject_sites(
     let Some(key) = injection_key(semantic, key_expr, imported_bindings) else {
       continue;
     };
-    let (default_kind, default_instance_shape) =
+    let (default_kind, mut default_instance_shape) =
       call.arguments.get(1).and_then(Argument::as_expression).map_or((None, None), |value| {
         if matches!(
           value,
@@ -859,6 +898,15 @@ pub fn collect_inject_sites(
           (offer.kind, offer.instance_shape)
         }
       });
+    // `inject(key) as Ctx` — same-file interface/type with Ref fields seeds the
+    // inject local when no unique known provide exists (common for provide helpers
+    // that spread a typed parameter into the bag).
+    if let Some(ts_type) = asserted_type {
+      let shape = summary::composable_shape_from_ts_type(semantic, ts_type);
+      if !shape.fields.is_empty() {
+        default_instance_shape = Some(shape.fields);
+      }
+    }
     sites.push(InjectSite {
       local: identifier.name.to_string(),
       key,
@@ -868,6 +916,38 @@ pub fn collect_inject_sites(
     });
   }
   sites
+}
+
+/// Walk paren / `as` / type-assertion wrappers from `inject(...)` up to its
+/// `VariableDeclarator`, capturing the outermost asserted type when present.
+fn inject_declarator_and_assertion<'a>(
+  semantic: &'a Semantic<'a>,
+  call_id: NodeId,
+) -> Option<(&'a oxc_ast::ast::VariableDeclarator<'a>, Option<&'a oxc_ast::ast::TSType<'a>>)> {
+  let mut current = call_id;
+  let mut asserted_type = None;
+  // Bound the peel: real sources only wrap once or twice.
+  for _ in 0..8 {
+    let parent_id = semantic.nodes().parent_id(current);
+    match semantic.nodes().kind(parent_id) {
+      AstKind::ParenthesizedExpression(_) => {
+        current = parent_id;
+      }
+      AstKind::TSAsExpression(assertion) => {
+        asserted_type = Some(&assertion.type_annotation);
+        current = parent_id;
+      }
+      AstKind::TSTypeAssertion(assertion) => {
+        asserted_type = Some(&assertion.type_annotation);
+        current = parent_id;
+      }
+      AstKind::VariableDeclarator(declarator) => {
+        return Some((declarator, asserted_type));
+      }
+      _ => return None,
+    }
+  }
+  None
 }
 
 /// Unique known provide → inject binding/bag, else inject default, else quiet.
@@ -1079,6 +1159,8 @@ fn source_may_have_typed_ref_annotations(source: &str) -> bool {
     || source.contains("Computed")
     || source.contains("Readonly")
     || source.contains("ToRef")
+    // Structural duck `{ value?: T }` (optional sole `value`).
+    || source.contains("value?")
 }
 
 /// Source may call a component factory that seeds a props bag.
@@ -1117,10 +1199,23 @@ fn collect_typed_reactive_bindings(
         });
       }
       AstKind::VariableDeclarator(declarator) => {
-        let Some(annotation) = declarator.type_annotation.as_ref() else {
-          continue;
-        };
-        let Some(kind) = summary::ts_type_reactive_kind(&annotation.type_annotation) else {
+        // `const x: Ref<T> = …` or `const x = useVModel(…) as Ref<T>`.
+        let kind = declarator
+          .type_annotation
+          .as_ref()
+          .and_then(|annotation| summary::ts_type_reactive_kind(&annotation.type_annotation))
+          .or_else(|| {
+            declarator.init.as_ref().and_then(|init| match init {
+              Expression::TSAsExpression(assertion) => {
+                summary::ts_type_reactive_kind(&assertion.type_annotation)
+              }
+              Expression::TSTypeAssertion(assertion) => {
+                summary::ts_type_reactive_kind(&assertion.type_annotation)
+              }
+              _ => None,
+            })
+          });
+        let Some(kind) = kind else {
           continue;
         };
         let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
@@ -1486,6 +1581,36 @@ fn is_sync_hof_callback(semantic: &oxc_semantic::Semantic<'_>, function_id: Node
       continue;
     };
     return is_sync_hof_at_arg(&call.callee, arg_index);
+  }
+  false
+}
+
+/// True when `reference` resolves to a formal parameter of a sync HOF callback.
+fn is_sync_hof_callback_param(
+  semantic: &oxc_semantic::Semantic<'_>,
+  reference: &IdentifierReference<'_>,
+) -> bool {
+  let Some(reference_id) = reference.reference_id.get() else {
+    return false;
+  };
+  let Some(symbol_id) = semantic.scoping().get_reference(reference_id).symbol_id() else {
+    return false;
+  };
+  let decl = semantic.symbol_declaration(symbol_id);
+  let mut saw_formal = false;
+  for ancestor_id in std::iter::once(decl.id()).chain(semantic.nodes().ancestor_ids(decl.id())) {
+    match semantic.nodes().kind(ancestor_id) {
+      AstKind::FormalParameter(_) => {
+        saw_formal = true;
+      }
+      AstKind::ArrowFunctionExpression(_) | AstKind::Function(_) if saw_formal => {
+        return is_sync_hof_callback(semantic, ancestor_id);
+      }
+      AstKind::VariableDeclarator(_) | AstKind::VariableDeclaration(_) if !saw_formal => {
+        return false;
+      }
+      _ => {}
+    }
   }
   false
 }
@@ -2339,7 +2464,16 @@ fn uncertain_access_at(
           && reference_resolves_to_binding(semantic, root, binding, script_offset)
       });
       let known_bag = composable_instances.contains_key(root.name.as_str());
-      (!known_binding && !known_bag).then(|| (root.name.to_string(), member.span))
+      if known_binding || known_bag {
+        return None;
+      }
+      // Sync Array/String HOF callback params almost always use `.value` as a
+      // plain data field (`OPTIONS.map(o => o.value)`), not a Ref unwrap.
+      // Typed Ref formals still classify via `known_binding` above.
+      if is_sync_hof_callback_param(semantic, root) {
+        return None;
+      }
+      Some((root.name.to_string(), member.span))
     }
     AstKind::CallExpression(call) => {
       let callee =
@@ -2791,7 +2925,7 @@ fn collect_uncertain_watch_expression(
           && is_ref_like(binding.kind)
       });
       let known_bag = composable_instances.contains_key(root.name.as_str());
-      if !known_ref && !known_bag {
+      if !known_ref && !known_bag && !is_sync_hof_callback_param(semantic, root) {
         names.insert(root.name.to_string());
       }
     }

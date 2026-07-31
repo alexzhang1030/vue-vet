@@ -499,14 +499,30 @@ evidence first (bindings, Factory returns, aliases, classified reads). Only when
 reads stay empty do they consult `uncertain_accesses` (reactivity-shaped
 `.value` / `unref` / `toValue` / bare watch sources that could not be classified)
 and report with `(maybe: …)`. Do not invent edges; do not treat empty reads as
-ironclad proof when soft evidence remains.
+ironclad proof when soft evidence remains. Sync Array/String HOF callback
+params (`OPTIONS.map(o => o.value)`) are not soft evidence — `.value` there is
+almost always a plain data field; leave reads empty so absence rules can report
+a hard no-dependency finding instead of `(maybe: option)`. Untyped composable
+formals (`function useX(option) { option.value }`) still surface as uncertain.
 
 **Typed ref parameters & nested composable locals.** Formal parameters /
 declarators annotated as `Ref` / `ComputedRef` / … seed scope-classification
 bindings via `ts_type_reactive_kind` so `type.value` inside a composable is not
-`(maybe: type)`. Function-local `ref()` / `computed()` calls likewise participate
-in scope classification (span-resolved) even though they stay out of the
-published top-level `bindings` list (#140).
+`(maybe: type)`. Outermost `const x = expr as Ref<T>` / `<Ref<T>>expr` assertions
+on declarator inits count the same way (VueUse `useVModel(…) as Ref`).
+Callee parameters typed as function types whose formals are Ref-like
+(`run: (state: ComputedRef<T>) => R`) publish `TypedCallbackParamSlots` so
+call-site `(state) => computed(() => state.value…)` seeds without a
+callee-name allowlist (same barrel follow as options-callback slots).
+VueUse `RemovableRef` is Factory(Ref) like `Ref` (storage helpers). Package
+aliases `export const useX: typeof useY` become `ForwardReturn` so the
+imported bag/factory is not dropped; external follow may load that bare
+package (still size-capped — not every import). A type literal whose only
+member is optional `value?` is a Ref duck (mock/`as` stand-ins); required
+`{ value: T }` (select options, `{ value: boolean }` returns) stays quiet.
+Function-local `ref()` / `computed()` calls likewise participate in scope
+classification (span-resolved) even though they stay out of the published
+top-level `bindings` list (#140).
 
 Nuxt (and unplugin-auto-import) often call `ref` / `watchEffect` with **no**
 `import` statement. The tracer treats bare identifiers as Vue APIs only when
@@ -539,6 +555,31 @@ Companion bodies are also size-capped. Do **not** invent `Factory(Reactive)`
 from a plain interface alone, or from `return <call>(...).value` alone without
 a declared plain-object return (≥1 property, no Ref-like fields). Name-agnostic:
 any unresolved/`#imports` callee unwrap counts, not a `useState` allowlist.
+
+**Package root JS ≠ sibling `.d.ts`.** Bundler resolve often lands on
+`exports["."].import` (`dist/index.js`) while types live at
+`exports["."].types` / `types` (`dist/types/index.d.ts`).
+`prefer_types_declaration` must remap that root entry via `package.json`, or
+`ExternalSummaryLoad` only parses an empty JS barrel and never follows Form /
+vue-query leaves. Relative chunk follows still require a sibling `.d.ts`.
+Directory barrels (`export * from './components'`) need
+`components/index.d.ts` filesystem fallback when resolver returns a directory or
+`Unresolved`. Relative `.d.ts` enrich must strip **all** import lines from
+inlined bodies — concatenating `utils` + `types` + `composables` otherwise
+redeclares `MaybeRefOrGetter` from `vue` and Oxc semantics fails, falling back
+to raw `utils.d.ts` with no `StdFormProps` bag. Options-object callback slots
+(`defineStdFormProps({ setup({ values }) })`) are collected on the leaf
+`declare function` module and must also propagate through `export { x } from` /
+`export *` in the seed plan — looking only at the package entry summary misses
+them (`CONVENTIONS_VERSION` / `REACTIVITY_GRAPH_VERSION` bumps when either side
+changes). External follow budget is global **and** per-`node_modules` package
+(soft cap). Expand **one package at a time** ordered by seed priority then
+importer popularity — a flat BFS across thousands of roots lets vueuse / ambient
+entries fill the budget before a deep UI barrel reaches `Form/utils.d.ts`.
+Canonicalize load paths so pnpm symlink vs store duplicates do not split one
+barrel across two trees. Per-package budget keys must skip `node_modules/.pnpm`
+(and `.yarn`) store segments — otherwise every package collapses to key
+`.pnpm` and one soft cap starves `@standard-design/ui` / Form leaves.
 
 ## Edge `from` / `to_id` labels (graph v4–v6)
 
@@ -606,6 +647,15 @@ forward stay quiet. Package `.d.ts` declare wrappers regain the flag when a
 size-capped `exports.import` body (and one relative chunk hop) proves the
 forward — never from the declaration signature alone.
 
+**Options-object callback bags.** Helpers like
+`defineFormProps({ setup({ values }) {…} })` put the callback on an object
+literal property, not as a direct call argument. When the callee declares
+`props: { setup?: (ctx: Ctx) => … }` and `Ctx` (or an `extends` base) has Ref
+fields, publish options-callback slots and seed the call-site ObjectPattern.
+Cross-module consumers often have no `Ref` text — slots must travel in the seed
+plan. Interface `extends` follow must use a visited set + depth bound; unbounded
+extends recursion stack-overflows on large `.d.ts` graphs.
+
 **Composable shape forwarding (not name allowlists).** Prefer declared / body
 return shapes over package or callee-name heuristics. Mapped object types whose
 values peel to `Ref`/`ComputedRef` (including
@@ -615,6 +665,27 @@ values peel to `Ref`/`ComputedRef` (including
 shape forward that shape. Nested `return { maps: createX() }` value bags plus
 static member calls (`api.maps.useX()`) resolve the leaf composable — quiet when
 the path is unknown. Do not add `useApi*` / `*Query*` name matchers.
+`export const api = createApi()` where `createApi` is an **import** must record
+`ExportState::ValueFactoryCall` and materialize `ValueBag` at each export publish
+by re-resolving the callee — same-file fixpoint only sees local ValueFactory
+callees, so without the call marker the binding never enters `locals`. Do not
+sticky-convert the call into a `ValueBag` clone in working locals: an early
+snapshot can freeze `MethodForward("useQuery")` before the factory refines.
+Never mark `const x = computed(...)` / other Vue primitives as
+`ValueFactoryCall` — that overwrites [`ExportState::Known`] and breaks
+incremental seed reuse.
+VueUse `createSharedComposable` / `createGlobalState` are identity wrappers
+(`Fn` → `Fn`): take the first-argument factory bag, do not stop at the wrapper
+call name.
+Residual unresolved `MethodForward` (e.g. `useMutation` beside resolved
+`useQuery`) must not block publishing the whole factory — leaf `resolve_path`
+stays quiet for those methods.
+Wrapper re-exports (`return { isLoading }` after
+`const { isLoading } = api.ns.useX()`) record `PendingValueBagField` on the
+composable shape and resolve at link time — Oxc's `symbol_declaration` for
+object-pattern bindings is often the whole `VariableDeclarator`, not the inner
+identifier.
+
 
 **unused-component + barrels / stories.** Script `import { Foo } from '@components'`
 often resolves to an index barrel while `components/Foo/…` is the real node —
@@ -660,6 +731,20 @@ ancestor chain. Rules:
   stay outside tracking.
 - Factory defaults (`inject(key, () => ref(0))`) stay quiet; plain
   `inject(key, someRef)` may seed from the default.
+- `const ctx = inject(key) as Ctx` must peel the `TSAsExpression` (parent of the
+  call is not the declarator). When `Ctx` is a same-file interface/type with
+  Ref-like fields and no unique known provide exists, seed the inject local from
+  that asserted bag. Helpers that `return ctx` after such an assertion export the
+  bag shape so cross-module `const { mapId } = useCtx()` seeds — provide helpers
+  that `provide(key, { ...param, localRef })` often have an unknown offer at the
+  definition site because the spread parameter is not a composable instance.
+- Generic context factories (`createContext<T>`-style): nested `return value as T`
+  becomes `MethodGeneric(paramIndex)`. Call-site
+  `const { useInject: useX } = factory<Ctx>(…)` records
+  `GenericMethodInstantiate` and must stay in link `working_locals` until the
+  callee `ValueFactory` is published — otherwise the pending state never refines
+  and `useX` stays unpublished. Only properties that are `MethodGeneric` promote
+  (so `useProvide` stays quiet).
 
 ## Text report color is CLI-injected
 
@@ -669,11 +754,19 @@ ANSI styles apply only when `ReportContext.color` is true (CLI `--color`).
 snapshots keep color off so byte-stable fixtures stay green. JSON / SARIF /
 GitHub never paint.
 
-## Scan progress streams on stderr only
+## Scan progress vs per-file stream
 
-`--progress auto|always|never` (default `auto`) emits coarse stage lines
-(`discovering` → `parsing` → `building project graph` → optional
-`loading external seeds (…, prefer .d.ts)` → `running rules` →
-`writing report`) on **stderr**. `auto` enables only when stderr is a TTY and
-`CI` is unset/empty — so GitHub Actions and piped JSON/SARIF stay quiet.
-Never write progress to stdout.
+`--progress auto|always|never` (default `auto`) emits **stage barriers** on
+**stderr** (`discovering` → `parsing` → `building project graph` → optional
+`loading external seeds (…, prefer .d.ts)` → `running rules` → then per-file
+`analyzed <path> (n/total)` → `writing report`). `auto` enables only when
+stderr is a TTY and `CI` is unset/empty — so GitHub Actions and piped
+JSON/SARIF stay quiet. Never write progress lines to stdout.
+
+**Stream** means: after the project graph is ready, each file that finishes
+the rules pass emits immediately — stderr gets `analyzed …`, and **text**
+format also prints that file's findings on stdout (completion order under
+parallelism). JSON/SARIF/GitHub stay a single final document. Graph/analysis
+diagnostics that are not per-file rules still appear in the final text
+footer pass. Baseline/diff modes keep text batching so filtered findings are
+not streamed early.

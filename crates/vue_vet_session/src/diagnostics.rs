@@ -29,15 +29,36 @@ impl<'a> DiagnosticFinalizer<'a> {
       finalized.extend(apply_suppressions(file.as_path(), source, diagnostics));
     }
     finalized.extend(by_file.into_values().flatten());
-    finalized.sort_by(|left, right| {
-      (&left.file, left.span.offset, &left.rule_id, &left.message).cmp(&(
-        &right.file,
-        right.span.offset,
-        &right.rule_id,
-        &right.message,
-      ))
-    });
-    finalized.dedup();
+    sort_and_dedup_diagnostics(&mut finalized);
     ScanSummary { files_scanned, diagnostics: finalized, score: 0 }.finish()
   }
+}
+
+/// Config + suppression pass for a single file (used while rules complete).
+#[must_use]
+pub fn finalize_file_diagnostics(
+  config: &Config,
+  file: &FileId,
+  source: &str,
+  diagnostics: Vec<Diagnostic>,
+) -> Arc<[Diagnostic]> {
+  let (analysis_issues, configurable): (Vec<_>, Vec<_>) =
+    diagnostics.into_iter().partition(|diagnostic| diagnostic.category == "analysis");
+  let configured = config.apply(configurable);
+  let mut finalized = analysis_issues;
+  finalized.extend(apply_suppressions(file.as_path(), source, configured));
+  sort_and_dedup_diagnostics(&mut finalized);
+  finalized.into()
+}
+
+fn sort_and_dedup_diagnostics(diagnostics: &mut Vec<Diagnostic>) {
+  diagnostics.sort_by(|left, right| {
+    (&left.file, left.span.offset, &left.rule_id, &left.message).cmp(&(
+      &right.file,
+      right.span.offset,
+      &right.rule_id,
+      &right.message,
+    ))
+  });
+  diagnostics.dedup();
 }

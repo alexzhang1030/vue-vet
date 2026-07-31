@@ -162,40 +162,76 @@ fn collect_import_facts(
   let mut imported_bindings = BTreeMap::new();
 
   for node in semantic.nodes() {
-    let AstKind::ImportDeclaration(declaration) = node.kind() else {
-      continue;
-    };
-    let source = declaration.source.value.to_string();
-    let Some(specifiers) = &declaration.specifiers else {
-      imports.push(ScriptImportFact {
-        source,
-        imported: String::new(),
-        local: String::new(),
-        span: source_span(line_index, sfc_source, script_offset, declaration.span),
-      });
-      continue;
-    };
-    for specifier in specifiers {
-      let (imported, local, span) = match specifier {
-        ImportDeclarationSpecifier::ImportSpecifier(specifier) => (
-          module_export_name(&specifier.imported),
-          specifier.local.name.to_string(),
-          specifier.span,
-        ),
-        ImportDeclarationSpecifier::ImportDefaultSpecifier(specifier) => {
-          ("default".into(), specifier.local.name.to_string(), specifier.span)
+    match node.kind() {
+      AstKind::ImportDeclaration(declaration) => {
+        let source = declaration.source.value.to_string();
+        let Some(specifiers) = &declaration.specifiers else {
+          imports.push(ScriptImportFact {
+            source,
+            imported: String::new(),
+            local: String::new(),
+            span: source_span(line_index, sfc_source, script_offset, declaration.span),
+          });
+          continue;
+        };
+        for specifier in specifiers {
+          let (imported, local, span) = match specifier {
+            ImportDeclarationSpecifier::ImportSpecifier(specifier) => (
+              module_export_name(&specifier.imported),
+              specifier.local.name.to_string(),
+              specifier.span,
+            ),
+            ImportDeclarationSpecifier::ImportDefaultSpecifier(specifier) => {
+              ("default".into(), specifier.local.name.to_string(), specifier.span)
+            }
+            ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier) => {
+              ("*".into(), specifier.local.name.to_string(), specifier.span)
+            }
+          };
+          imported_bindings.insert(local.clone(), (source.clone(), imported.clone()));
+          imports.push(ScriptImportFact {
+            source: source.clone(),
+            imported,
+            local,
+            span: source_span(line_index, sfc_source, script_offset, span),
+          });
         }
-        ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier) => {
-          ("*".into(), specifier.local.name.to_string(), specifier.span)
+      }
+      // Barrel / re-export edges: `export * from './map'` and `export { x } from './x'`.
+      // Structural linking treats these like imports so Factory/Composable seeds flow
+      // through index barrels (specifier is what ModuleLink resolves).
+      AstKind::ExportAllDeclaration(declaration) if declaration.exported.is_none() => {
+        imports.push(ScriptImportFact {
+          source: declaration.source.value.to_string(),
+          imported: "*".into(),
+          local: String::new(),
+          span: source_span(line_index, sfc_source, script_offset, declaration.span),
+        });
+      }
+      AstKind::ExportNamedDeclaration(declaration) => {
+        let Some(source) = &declaration.source else {
+          continue;
+        };
+        let source = source.value.to_string();
+        if declaration.specifiers.is_empty() {
+          imports.push(ScriptImportFact {
+            source,
+            imported: String::new(),
+            local: String::new(),
+            span: source_span(line_index, sfc_source, script_offset, declaration.span),
+          });
+          continue;
         }
-      };
-      imported_bindings.insert(local.clone(), (source.clone(), imported.clone()));
-      imports.push(ScriptImportFact {
-        source: source.clone(),
-        imported,
-        local,
-        span: source_span(line_index, sfc_source, script_offset, span),
-      });
+        for specifier in &declaration.specifiers {
+          imports.push(ScriptImportFact {
+            source: source.clone(),
+            imported: module_export_name(&specifier.local),
+            local: module_export_name(&specifier.exported),
+            span: source_span(line_index, sfc_source, script_offset, specifier.span),
+          });
+        }
+      }
+      _ => {}
     }
   }
 

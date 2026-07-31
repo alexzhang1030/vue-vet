@@ -335,10 +335,18 @@ fn normalize_path(path: &str) -> String {
 }
 
 fn render_text(summary: &ScanSummary, context: &ReportContext) -> String {
-  let color = context.color;
+  let mut output = render_text_diagnostics(&summary.diagnostics, context.color);
+  output.push('\n');
+  output.push_str(&render_text_score_footer(summary, context));
+  output
+}
+
+/// Render lint + practice diagnostics as text lines (no score footer).
+#[must_use]
+pub fn render_text_diagnostics(diagnostics: &[Diagnostic], color: bool) -> String {
   let mut output = String::new();
   let (lint, practice): (Vec<_>, Vec<_>) =
-    summary.diagnostics.iter().partition(|diagnostic| diagnostic.category != PRACTICE_CATEGORY);
+    diagnostics.iter().partition(|diagnostic| diagnostic.category != PRACTICE_CATEGORY);
   for diagnostic in &lint {
     append_text_diagnostic(&mut output, diagnostic, color);
   }
@@ -352,7 +360,14 @@ fn render_text(summary: &ScanSummary, context: &ReportContext) -> String {
       append_text_diagnostic(&mut output, diagnostic, color);
     }
   }
-  output.push('\n');
+  output
+}
+
+/// Score / reactivity footer for text reports (after streamed per-file findings).
+#[must_use]
+pub fn render_text_score_footer(summary: &ScanSummary, context: &ReportContext) -> String {
+  let color = context.color;
+  let mut output = String::new();
   output.push_str(&color::score_label(color));
   output.push_str(": ");
   output.push_str(&color::score_value(&summary.score.to_string(), color));

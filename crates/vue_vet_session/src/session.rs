@@ -294,7 +294,7 @@ impl ProjectSession {
     })
   }
 
-  /// Attach a coarse stage reporter (CLI `--progress`, tests).
+  /// Attach a stage / per-file stream reporter (CLI `--progress`, text stream).
   #[must_use]
   pub fn with_progress(mut self, progress: ProgressReporter) -> Self {
     self.progress = Some(progress);
