@@ -10,7 +10,10 @@
 use std::{
   collections::{BTreeMap, BTreeSet},
   path::Path,
-  sync::Arc,
+  sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+  },
 };
 
 use rayon::prelude::*;
@@ -29,7 +32,7 @@ use vue_vet_vize::{AnalyzeError, AnalyzedSfc, analyze_sfc_facts_reusing};
 
 use crate::{
   AnalysisIssue, AnalysisStage, ProgressEvent, ProgressReporter, Recoverability, SessionError,
-  diagnostics::DiagnosticFinalizer,
+  diagnostics::{DiagnosticFinalizer, finalize_file_diagnostics},
   discovery::{SourceInput, SourceKind, WorkspaceInputSnapshot},
   file_analysis_registry,
   invalidation::{expand_reverse_dependencies, reverse_dependency_index},
@@ -380,9 +383,11 @@ fn scan_parallel(
     .collect::<BTreeMap<_, _>>();
 
   // --- Stage: rules (seed-aware file diagnostics) ---
+  let rules_total = pending_vue.len();
   if let Some(progress) = progress {
-    progress.emit(&ProgressEvent::RunningRules { files: pending_vue.len() });
+    progress.emit(&ProgressEvent::RunningRules { files: rules_total });
   }
+  let rules_done = AtomicUsize::new(0);
   let file_diagnostics = pending_vue
     .into_par_iter()
     .map(|pending| {
@@ -399,41 +404,46 @@ fn scan_parallel(
       );
       // Outside DirtyPlan.rule_files: keep the previous finalized diagnostics.
       // Inside the plan: FileRuleInputKey still allows reuse when IR is unchanged.
-      if !plan.rule_files.contains(&file_id) {
-        if let Some(cached) = previous.file_diagnostics.get(&file_id) {
-          return (
-            file_id,
-            CachedFileDiagnostics {
-              key: cached.key.clone(),
-              diagnostics: Arc::clone(&cached.diagnostics),
-            },
-            false,
-          );
-        }
+      let (cached, reran) = if !plan.rule_files.contains(&file_id) {
+        previous.file_diagnostics.get(&file_id).map_or_else(
+          || {
+            let diagnostics = run_file_rules(&pending, primary_graph, ordinary_graph);
+            (CachedFileDiagnostics { key, diagnostics: diagnostics.into() }, true)
+          },
+          |cached| {
+            (
+              CachedFileDiagnostics {
+                key: cached.key.clone(),
+                diagnostics: Arc::clone(&cached.diagnostics),
+              },
+              false,
+            )
+          },
+        )
       } else if let Some(cached) = previous.file_diagnostics.get(&file_id)
         && cached.key == key
       {
-        return (
-          file_id,
-          CachedFileDiagnostics { key, diagnostics: Arc::clone(&cached.diagnostics) },
-          false,
+        (CachedFileDiagnostics { key, diagnostics: Arc::clone(&cached.diagnostics) }, false)
+      } else {
+        let diagnostics = run_file_rules(&pending, primary_graph, ordinary_graph);
+        (CachedFileDiagnostics { key, diagnostics: diagnostics.into() }, true)
+      };
+      if let Some(progress) = progress {
+        let done = rules_done.fetch_add(1, Ordering::Relaxed).saturating_add(1);
+        let streamed = finalize_file_diagnostics(
+          config,
+          &file_id,
+          pending.source.as_ref(),
+          cached.diagnostics.iter().cloned().collect(),
         );
+        progress.emit(&ProgressEvent::FileRules {
+          path: file_id.as_str().to_owned(),
+          done,
+          total: rules_total,
+          diagnostics: streamed,
+        });
       }
-      let mut facts = (*pending.facts).clone();
-      if let Some(graph) = primary_graph {
-        facts.apply_module_reactivity(graph);
-      }
-      if let Some(graph) = ordinary_graph {
-        facts.apply_module_reactivity_for(vue_vet_core::ScriptKind::Script, graph);
-      }
-      let diagnostics = file_analysis_registry().run_with_environment(
-        file_id.as_path(),
-        &pending.source,
-        &facts.template,
-        &facts.script,
-        pending.environment.clone(),
-      );
-      (file_id, CachedFileDiagnostics { key, diagnostics: diagnostics.into() }, true)
+      (file_id, cached, reran)
     })
     .collect::<Vec<_>>();
   if cancelled() {
@@ -641,6 +651,27 @@ struct PendingVueFile {
   source: Arc<str>,
   environment: RuleEnvironment,
   facts: Arc<SfcFacts>,
+}
+
+fn run_file_rules(
+  pending: &PendingVueFile,
+  primary_graph: Option<Arc<ReactivityGraph>>,
+  ordinary_graph: Option<Arc<ReactivityGraph>>,
+) -> Vec<Diagnostic> {
+  let mut facts = (*pending.facts).clone();
+  if let Some(graph) = primary_graph {
+    facts.apply_module_reactivity(graph);
+  }
+  if let Some(graph) = ordinary_graph {
+    facts.apply_module_reactivity_for(vue_vet_core::ScriptKind::Script, graph);
+  }
+  file_analysis_registry().run_with_environment(
+    pending.file_id.as_path(),
+    &pending.source,
+    &facts.template,
+    &facts.script,
+    pending.environment.clone(),
+  )
 }
 
 fn script_needs_file_rules(path: &Path, template: &TemplateFacts) -> bool {

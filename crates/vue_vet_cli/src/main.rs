@@ -1,10 +1,10 @@
 use std::{
-  collections::BTreeMap,
+  collections::{BTreeMap, BTreeSet},
   fs,
-  io::IsTerminal,
+  io::{IsTerminal, Write},
   path::{Path, PathBuf},
   process::ExitCode,
-  sync::Arc,
+  sync::{Arc, Mutex},
 };
 
 use clap::{Args, Parser, ValueEnum};
@@ -17,7 +17,8 @@ use vue_vet_reporters::{
   ReactivitySpanRef, ReportContext, ReportFormat, ReportFramework, ReportMode, binding_detail,
   component_nav_from_edges, edge_detail, render, render_error, render_finding_explain_json,
   render_finding_explain_text, render_reactivity_detail, render_rule_explain_json,
-  render_rule_explain_text, scope_detail, template_read_detail, to_span_from_identity,
+  render_rule_explain_text, render_text_diagnostics, render_text_score_footer, scope_detail,
+  template_read_detail, to_span_from_identity,
 };
 use vue_vet_session::{
   AnalysisSnapshot, Explained, ProgressEvent, ProgressReporter, ProjectSession, SessionOptions,
@@ -54,7 +55,7 @@ struct Cli {
     value_enum,
     default_value = "auto",
     value_name = "WHEN",
-    help = "Stream scan stages on stderr: auto (TTY stderr and not CI), always, or never"
+    help = "Stream stages on stderr and per-file analyzed lines; text also streams findings as each file finishes: auto (TTY stderr and not CI), always, or never"
   )]
   progress: ProgressWhen,
 
@@ -242,10 +243,46 @@ fn progress_enabled(when: ProgressWhen) -> bool {
   }
 }
 
-#[expect(clippy::print_stderr, reason = "scan progress streams on stderr by design")]
-fn progress_reporter() -> ProgressReporter {
-  ProgressReporter::new(|event: &ProgressEvent| {
-    eprintln!("vue-vet: {}", event.message());
+struct StreamState {
+  /// Files whose rule diagnostics were already printed (text stream).
+  streamed_files: Mutex<BTreeSet<String>>,
+}
+
+#[expect(
+  clippy::print_stderr,
+  clippy::print_stdout,
+  reason = "progress on stderr; text findings stream on stdout by design"
+)]
+fn progress_reporter(
+  stderr_stages: bool,
+  stream_text: bool,
+  color: bool,
+  stream_state: Arc<StreamState>,
+) -> ProgressReporter {
+  ProgressReporter::new(move |event: &ProgressEvent| match event {
+    ProgressEvent::FileRules { path, done, total, diagnostics } => {
+      if stderr_stages {
+        eprintln!("vue-vet: analyzed {path} ({done}/{total})");
+      }
+      if stream_text {
+        if let Ok(mut files) = stream_state.streamed_files.lock() {
+          files.insert(path.clone());
+        }
+        let chunk = render_text_diagnostics(diagnostics, color);
+        if !chunk.is_empty() {
+          print!("{chunk}");
+          #[expect(
+            clippy::let_underscore_must_use,
+            reason = "best-effort flush while streaming text findings"
+          )]
+          let _ = std::io::stdout().flush();
+        }
+      }
+    }
+    other if stderr_stages => {
+      eprintln!("vue-vet: {}", other.message());
+    }
+    _ => {}
   })
 }
 
@@ -288,8 +325,8 @@ fn main() -> ExitCode {
   if let Some(target) = cli.explain.as_deref() {
     return run_explain(&cli, target);
   }
-  let session = match open_session(&cli) {
-    Ok(session) => session,
+  let (session, stream_state, text_streamed) = match open_session(&cli) {
+    Ok(opened) => opened,
     Err(error) => return operational_failure(&cli, &error),
   };
   if cli.print_config {
@@ -349,7 +386,17 @@ fn main() -> ExitCode {
       if progress_enabled(cli.progress) {
         eprintln!("vue-vet: {}", ProgressEvent::WritingReport.message());
       }
-      if let Err(error) = print_summary(&snapshot.summary, cli.format, &report_context) {
+      let streamed_files = stream_state
+        .as_ref()
+        .and_then(|state| state.streamed_files.lock().ok().map(|files| files.clone()))
+        .unwrap_or_default();
+      if let Err(error) = print_summary(
+        &snapshot.summary,
+        cli.format,
+        &report_context,
+        text_streamed,
+        &streamed_files,
+      ) {
         return operational_failure(&cli, &format!("failed to serialize report: {error}"));
       }
       if cli.print_reactivity
@@ -374,7 +421,7 @@ fn main() -> ExitCode {
   }
 }
 
-fn open_session(cli: &Cli) -> Result<ProjectSession, String> {
+fn open_session(cli: &Cli) -> Result<(ProjectSession, Option<Arc<StreamState>>, bool), String> {
   let session = ProjectSession::open(SessionOptions {
     root: cli.path.clone(),
     config_path: cli.config.clone(),
@@ -383,11 +430,21 @@ fn open_session(cli: &Cli) -> Result<ProjectSession, String> {
     threads: cli.threads,
   })
   .map_err(|error| error.to_string())?;
-  Ok(if progress_enabled(cli.progress) {
-    session.with_progress(progress_reporter())
-  } else {
-    session
-  })
+  let stderr_stages = progress_enabled(cli.progress);
+  // Stream text findings as each file finishes unless baseline/diff would hide them.
+  let stream_text =
+    matches!(cli.format, OutputFormat::Text) && cli.baseline.is_none() && cli.diff.is_none();
+  if !stderr_stages && !stream_text {
+    return Ok((session, None, false));
+  }
+  let stream_state = Arc::new(StreamState { streamed_files: Mutex::new(BTreeSet::new()) });
+  let session = session.with_progress(progress_reporter(
+    stderr_stages,
+    stream_text,
+    color_enabled(cli.color),
+    Arc::clone(&stream_state),
+  ));
+  Ok((session, Some(stream_state), stream_text))
 }
 
 fn run_requested_fixes(
@@ -683,8 +740,8 @@ fn report_framework(root: &Path) -> ReportFramework {
 
 #[expect(clippy::print_stderr, reason = "cache stats for finding explain belong on stderr")]
 fn run_explain(cli: &Cli, target: &str) -> ExitCode {
-  let session = match open_session(cli) {
-    Ok(session) => session,
+  let (session, _, _) = match open_session(cli) {
+    Ok(opened) => opened,
     Err(error) => return operational_failure(cli, &error),
   };
   let explained = match session.explain(target) {
@@ -756,7 +813,26 @@ fn print_summary(
   summary: &ScanSummary,
   format: OutputFormat,
   context: &ReportContext,
+  text_streamed: bool,
+  streamed_files: &BTreeSet<String>,
 ) -> Result<(), serde_json::Error> {
+  if text_streamed && matches!(format, OutputFormat::Text) {
+    let remaining: Vec<_> = summary
+      .diagnostics
+      .iter()
+      .filter(|diagnostic| !streamed_files.contains(diagnostic.file.as_str()))
+      .cloned()
+      .collect();
+    let leftover = render_text_diagnostics(&remaining, context.color);
+    if !leftover.is_empty() {
+      print!("{leftover}");
+    }
+    if !streamed_files.is_empty() || !leftover.is_empty() {
+      println!();
+    }
+    println!("{}", render_text_score_footer(summary, context));
+    return Ok(());
+  }
   let output = render(summary, format.into(), context)?;
   println!("{output}");
   Ok(())

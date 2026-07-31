@@ -754,11 +754,19 @@ ANSI styles apply only when `ReportContext.color` is true (CLI `--color`).
 snapshots keep color off so byte-stable fixtures stay green. JSON / SARIF /
 GitHub never paint.
 
-## Scan progress streams on stderr only
+## Scan progress vs per-file stream
 
-`--progress auto|always|never` (default `auto`) emits coarse stage lines
-(`discovering` → `parsing` → `building project graph` → optional
-`loading external seeds (…, prefer .d.ts)` → `running rules` →
-`writing report`) on **stderr**. `auto` enables only when stderr is a TTY and
-`CI` is unset/empty — so GitHub Actions and piped JSON/SARIF stay quiet.
-Never write progress to stdout.
+`--progress auto|always|never` (default `auto`) emits **stage barriers** on
+**stderr** (`discovering` → `parsing` → `building project graph` → optional
+`loading external seeds (…, prefer .d.ts)` → `running rules` → then per-file
+`analyzed <path> (n/total)` → `writing report`). `auto` enables only when
+stderr is a TTY and `CI` is unset/empty — so GitHub Actions and piped
+JSON/SARIF stay quiet. Never write progress lines to stdout.
+
+**Stream** means: after the project graph is ready, each file that finishes
+the rules pass emits immediately — stderr gets `analyzed …`, and **text**
+format also prints that file's findings on stdout (completion order under
+parallelism). JSON/SARIF/GitHub stay a single final document. Graph/analysis
+diagnostics that are not per-file rules still appear in the final text
+footer pass. Baseline/diff modes keep text batching so filtered findings are
+not streamed early.

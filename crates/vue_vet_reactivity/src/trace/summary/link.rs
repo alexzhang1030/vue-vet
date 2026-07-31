@@ -1284,8 +1284,16 @@ fn resolve_options_callback_exports(
 ) -> BTreeMap<ModuleId, BTreeMap<String, OptionsCallbackSlots>> {
   use std::collections::VecDeque;
 
-  let mut resolved =
-    facts.keys().map(|id| (id.clone(), BTreeMap::new())).collect::<BTreeMap<_, _>>();
+  // Empty-slot graphs (typical synthetic / re-export benches) must not pay a
+  // full barrel fixpoint that queues every `export { … } from`.
+  if !facts
+    .values()
+    .any(|module| module.summary.options_callback_slots.values().any(|slots| !slots.is_empty()))
+  {
+    return BTreeMap::new();
+  }
+
+  let mut resolved: BTreeMap<ModuleId, BTreeMap<String, OptionsCallbackSlots>> = BTreeMap::new();
 
   for (id, module_facts) in facts {
     for (name, slots) in &module_facts.summary.options_callback_slots {
@@ -1414,10 +1422,8 @@ fn insert_options_callback_export(
   if slots.is_empty() {
     return false;
   }
-  let Some(module_exports) = resolved.get_mut(module) else {
-    return false;
-  };
-  match module_exports.entry(exported.into()) {
+  // Barrel-only modules are not pre-seeded; create on first insert.
+  match resolved.entry(module.clone()).or_default().entry(exported.into()) {
     Entry::Vacant(entry) => {
       entry.insert(slots);
       true
@@ -1437,8 +1443,14 @@ fn resolve_typed_callback_param_exports(
 ) -> BTreeMap<ModuleId, BTreeMap<String, TypedCallbackParamSlots>> {
   use std::collections::VecDeque;
 
-  let mut resolved =
-    facts.keys().map(|id| (id.clone(), BTreeMap::new())).collect::<BTreeMap<_, _>>();
+  if !facts
+    .values()
+    .any(|module| module.summary.typed_callback_param_slots.values().any(|slots| !slots.is_empty()))
+  {
+    return BTreeMap::new();
+  }
+
+  let mut resolved: BTreeMap<ModuleId, BTreeMap<String, TypedCallbackParamSlots>> = BTreeMap::new();
 
   for (id, module_facts) in facts {
     for (name, slots) in &module_facts.summary.typed_callback_param_slots {
@@ -1567,10 +1579,7 @@ fn insert_typed_callback_param_export(
   if slots.is_empty() {
     return false;
   }
-  let Some(module_exports) = resolved.get_mut(module) else {
-    return false;
-  };
-  match module_exports.entry(exported.into()) {
+  match resolved.entry(module.clone()).or_default().entry(exported.into()) {
     Entry::Vacant(entry) => {
       entry.insert(slots);
       true

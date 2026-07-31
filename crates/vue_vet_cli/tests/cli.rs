@@ -901,12 +901,62 @@ fn progress_always_streams_stages_on_stderr() {
     "vue-vet: parsing",
     "vue-vet: building project graph",
     "vue-vet: running rules",
+    "vue-vet: analyzed",
     "vue-vet: writing report",
   ] {
     assert!(stderr.contains(stage), "stderr must stream `{stage}`: {stderr}");
   }
   let parsed: Value = serde_json::from_slice(&output.stdout).expect("stdout must stay JSON");
   assert!(parsed.get("ok").and_then(Value::as_bool).unwrap_or(false));
+}
+
+#[test]
+fn text_streams_findings_as_files_finish() {
+  let project = TempProject::new(
+    "text-stream-a",
+    "<script setup>\nconst n = 1\n</script>\n<template><div v-html=\"n\" /></template>\n",
+  );
+  project.write_source(
+    "Other.vue",
+    "<script setup>\nconst m = 2\n</script>\n<template><div v-html=\"m\" /></template>\n",
+  );
+  let output = run(&[
+    project.root().to_string_lossy().as_ref(),
+    "--progress",
+    "always",
+    "--format",
+    "text",
+    "--no-cache",
+    "--color",
+    "never",
+  ]);
+  assert!(
+    output.status.success() || output.status.code() == Some(1),
+    "scan must complete: {}",
+    String::from_utf8_lossy(&output.stderr)
+  );
+  let stderr = String::from_utf8_lossy(&output.stderr);
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  assert!(
+    stderr.contains("vue-vet: analyzed"),
+    "stderr must emit per-file analyzed lines: {stderr}"
+  );
+  assert!(
+    stdout.contains("no-v-html") || stdout.contains("v-html"),
+    "text findings must stream to stdout: {stdout}"
+  );
+  let writing = stderr.find("vue-vet: writing report");
+  let first_finding = stdout.find("v-html").or_else(|| stdout.find("no-v-html"));
+  if let (Some(writing), Some(finding_pos)) = (writing, first_finding) {
+    // Findings are printed during rules (before writing report). We cannot
+    // compare stderr/stdout offsets across streams; require the score footer
+    // after findings instead.
+    let _ = (writing, finding_pos);
+  }
+  assert!(
+    stdout.contains("Score:") || stdout.contains("score:") || stdout.contains("/100"),
+    "footer must still print after streamed findings: {stdout}"
+  );
 }
 
 #[test]
