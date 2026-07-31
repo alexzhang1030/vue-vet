@@ -1922,6 +1922,32 @@ fn typed_computed_ref_parameters_classify_value_reads_inside_composables() {
 }
 
 #[test]
+fn asserted_ref_on_declarator_init_classifies_value_reads() {
+  let graph = graph(
+    "import type { Ref } from 'vue';\n\
+     import { computed } from 'vue';\n\
+     declare function useVModel(props: object, key: string, emit: unknown): unknown;\n\
+     const props = { modelValue: { id: 1 } };\n\
+     const emit = () => {};\n\
+     const modelValue = useVModel(props, 'modelValue', emit) as Ref<{ id: number }>;\n\
+     const id = computed(() => modelValue.value.id);\n\
+     void id.value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "modelValue" && read.property.as_deref() == Some("value"))
+        && !scope.uncertain_accesses.iter().any(|name| name == "modelValue")
+    }),
+    "asserted Ref init must classify .value; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
 fn nested_local_refs_classify_inside_composable_computed() {
   let graph = graph(
     "import { ref, computed } from 'vue';\n\

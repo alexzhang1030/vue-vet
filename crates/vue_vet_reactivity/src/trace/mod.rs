@@ -1179,10 +1179,23 @@ fn collect_typed_reactive_bindings(
         });
       }
       AstKind::VariableDeclarator(declarator) => {
-        let Some(annotation) = declarator.type_annotation.as_ref() else {
-          continue;
-        };
-        let Some(kind) = summary::ts_type_reactive_kind(&annotation.type_annotation) else {
+        // `const x: Ref<T> = …` or `const x = useVModel(…) as Ref<T>`.
+        let kind = declarator
+          .type_annotation
+          .as_ref()
+          .and_then(|annotation| summary::ts_type_reactive_kind(&annotation.type_annotation))
+          .or_else(|| {
+            declarator.init.as_ref().and_then(|init| match init {
+              Expression::TSAsExpression(assertion) => {
+                summary::ts_type_reactive_kind(&assertion.type_annotation)
+              }
+              Expression::TSTypeAssertion(assertion) => {
+                summary::ts_type_reactive_kind(&assertion.type_annotation)
+              }
+              _ => None,
+            })
+          });
+        let Some(kind) = kind else {
           continue;
         };
         let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {

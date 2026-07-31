@@ -504,9 +504,11 @@ ironclad proof when soft evidence remains.
 **Typed ref parameters & nested composable locals.** Formal parameters /
 declarators annotated as `Ref` / `ComputedRef` / … seed scope-classification
 bindings via `ts_type_reactive_kind` so `type.value` inside a composable is not
-`(maybe: type)`. Function-local `ref()` / `computed()` calls likewise participate
-in scope classification (span-resolved) even though they stay out of the
-published top-level `bindings` list (#140).
+`(maybe: type)`. Outermost `const x = expr as Ref<T>` / `<Ref<T>>expr` assertions
+on declarator inits count the same way (VueUse `useVModel(…) as Ref`).
+Function-local `ref()` / `computed()` calls likewise participate in scope
+classification (span-resolved) even though they stay out of the published
+top-level `bindings` list (#140).
 
 Nuxt (and unplugin-auto-import) often call `ref` / `watchEffect` with **no**
 `import` statement. The tracer treats bare identifiers as Vue APIs only when

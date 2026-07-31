@@ -1033,9 +1033,7 @@ fn refine_export_state(
             Some(super::ValueBagEntry::MethodGeneric(index)) => type_arg_shapes
               .get(*index as usize)
               .filter(|shape| !shape.is_empty())
-              .map_or(ExportState::Ambiguous, |shape| {
-                ExportState::Composable(shape.clone())
-              }),
+              .map_or(ExportState::Ambiguous, |shape| ExportState::Composable(shape.clone())),
             _ => ExportState::Ambiguous,
           }
         }
