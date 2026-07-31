@@ -426,6 +426,30 @@ impl ModuleSummary {
     specifiers.into_iter().collect()
   }
 
+  /// Bare import sources that `typeof` forwards need (external follow may load them).
+  ///
+  /// Relative follows already cover same-package barrels; `typeof useY` aliases often
+  /// point at another package (`import { useY } from 'pkg'`), which stays quiet unless
+  /// listed here.
+  #[must_use]
+  pub fn typeof_forward_sources(&self) -> BTreeSet<String> {
+    let mut sources = BTreeSet::new();
+    for state in self.locals.values() {
+      let ExportState::ForwardReturn(callee) = state else {
+        continue;
+      };
+      for import in &self.imports {
+        if import.local == *callee
+          && !import.source.starts_with("./")
+          && !import.source.starts_with("../")
+        {
+          sources.insert(import.source.clone());
+        }
+      }
+    }
+    sources
+  }
+
   /// Whether any export local is a finished Factory/Composable/Known/value-bag seed.
   #[must_use]
   pub fn has_reactivity_export_seeds(&self) -> bool {
@@ -851,11 +875,13 @@ fn collect_local_values(
           },
         )
       }
-      // `export declare const useX: () => T` — no init; only then pay for annotations.
-      None => combine_composable_export(
-        None,
-        declared_return_from_declarator_annotation(semantic, declarator),
-      ),
+      // `export declare const useX: () => T` / `const useX: typeof useY` — no init.
+      None => typeof_forward_from_declarator(declarator).or_else(|| {
+        combine_composable_export(
+          None,
+          declared_return_from_declarator_annotation(semantic, declarator),
+        )
+      }),
       // `const api = createApi()` — import / local factory only (not `computed()` etc.).
       // VueUse `createSharedComposable(factory)` forwards the factory bag (Fn → Fn).
       Some(Expression::CallExpression(call)) => vueuse_shared_composable_export_state(
@@ -1640,6 +1666,34 @@ fn declared_return_from_declarator_annotation(
   classify_declared_return_type(semantic, &function_type.return_type.type_annotation)
 }
 
+/// `export declare const useX: typeof useY` — forward the named binding at link time.
+///
+/// Name-agnostic: only the `typeof` identifier matters (packages re-export
+/// `typeof` aliases without repeating the return shape).
+fn typeof_forward_from_declarator(
+  declarator: &oxc_ast::ast::VariableDeclarator<'_>,
+) -> Option<ExportState> {
+  use oxc_ast::ast::{TSType, TSTypeQueryExprName};
+  let annotation = declarator.type_annotation.as_ref()?;
+  let ts_type = match &annotation.type_annotation {
+    TSType::TSParenthesizedType(paren) => &paren.type_annotation,
+    other => other,
+  };
+  let TSType::TSTypeQuery(query) = ts_type else {
+    return None;
+  };
+  let name = match &query.expr_name {
+    TSTypeQueryExprName::IdentifierReference(identifier) => identifier.name.as_str(),
+    TSTypeQueryExprName::QualifiedName(_)
+    | TSTypeQueryExprName::ThisExpression(_)
+    | TSTypeQueryExprName::TSImportType(_) => return None,
+  };
+  if name.is_empty() {
+    return None;
+  }
+  Some(ExportState::ForwardReturn(name.to_owned()))
+}
+
 #[inline(never)]
 fn classify_declared_return_type(
   semantic: &oxc_semantic::Semantic<'_>,
@@ -1753,7 +1807,8 @@ pub(super) fn ts_type_reactive_kind(
         TSTypeName::ThisExpression(_) => return None,
       };
       match name {
-        "Ref" => Some(ReactiveBindingKind::Ref),
+        // VueUse `RemovableRef<T> = Ref<T, …>` — storage helpers (`useLocalStorage`).
+        "Ref" | "RemovableRef" => Some(ReactiveBindingKind::Ref),
         "ShallowRef" => Some(ReactiveBindingKind::ShallowRef),
         "ComputedRef" | "WritableComputedRef" => Some(ReactiveBindingKind::Computed),
         "CustomRef" => Some(ReactiveBindingKind::CustomRef),

@@ -113,8 +113,11 @@ impl ExternalSummaryLoadPass {
       );
       left_key.cmp(&right_key)
     });
+    // Worklist so `typeof` bare-package follows discovered mid-traversal still load.
+    let mut pending_packages: VecDeque<String> = package_order.into();
+    let mut scheduled_packages: BTreeSet<String> = pending_packages.iter().cloned().collect();
 
-    for package in package_order {
+    while let Some(package) = pending_packages.pop_front() {
       if sources.len() >= EXTERNAL_REACTIVITY_MAX_FILES {
         break;
       }
@@ -153,6 +156,10 @@ impl ExternalSummaryLoadPass {
         if let Some(merged) = ProvisionalFactoryMergePass::run(&path, &module) {
           module = merged;
         }
+        let typeof_forward_bares = module
+          .module_summary()
+          .map(|summary| summary.typeof_forward_sources())
+          .unwrap_or_default();
         let follow =
           module.module_summary().map(|summary| summary.follow_specifiers()).unwrap_or_default();
         loaded.insert(path.clone(), module_id.clone());
@@ -163,8 +170,9 @@ impl ExternalSummaryLoadPass {
           continue;
         }
         for specifier in follow {
-          // Only follow relative / same-package paths; bare packages stay quiet.
-          if !(specifier.starts_with("./") || specifier.starts_with("../")) {
+          let is_relative = specifier.starts_with("./") || specifier.starts_with("../");
+          // Bare packages stay quiet unless a `typeof` forward needs that import.
+          if !is_relative && !typeof_forward_bares.contains(&specifier) {
             continue;
           }
           let child = match resolver.resolve_from_absolute(&path, &specifier) {
@@ -176,17 +184,22 @@ impl ExternalSummaryLoadPass {
             // Directory barrels (`export * from './components'`) and types-only
             // chunks (`./queryClient-HASH.js` → `.d.ts`) need a filesystem fallback
             // when bundler resolve returns a directory or Unresolved.
-            _ => match relative_types_follow_path(&path, &specifier) {
+            _ if is_relative => match relative_types_follow_path(&path, &specifier) {
               Some(dts) => dts,
               None => continue,
             },
+            _ => continue,
           };
           let child = canonicalize_external_path(&child);
           let child_id = external_module_id(root, &child);
           links.push(ModuleLink { from: module_id.clone(), specifier, to: child_id.clone() });
           if !loaded.contains_key(&child) {
             let child_package = package_queue_key(&child);
-            package_queues.entry(child_package).or_default().push_back((child, depth + 1));
+            package_queues.entry(child_package.clone()).or_default().push_back((child, depth + 1));
+            if scheduled_packages.insert(child_package.clone()) {
+              package_priority.entry(child_package.clone()).or_insert(2);
+              pending_packages.push_back(child_package);
+            }
           }
         }
       }
@@ -545,6 +558,127 @@ mod enrich_fallback_tests {
     assert!(
       links.iter().any(|link| link.specifier.contains("queryClient")),
       "raw barrel must still follow leaf re-exports; links={links:?}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn typeof_forward_follows_bare_package_import() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp-typeof-bare");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("node_modules/@ui")).unwrap();
+    std::fs::create_dir_all(root.join("node_modules/field-kit")).unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("package.json"), r#"{"name":"typeof-bare"}"#).unwrap();
+    std::fs::write(
+      root.join("node_modules/field-kit/package.json"),
+      r#"{"name":"field-kit","types":"./index.d.ts","exports":{".":{"types":"./index.d.ts","import":"./index.js"}}}"#,
+    )
+    .unwrap();
+    std::fs::write(root.join("node_modules/field-kit/index.js"), "export {}\n").unwrap();
+    std::fs::write(
+      root.join("node_modules/field-kit/index.d.ts"),
+      "import type { Ref } from 'vue'\n\
+       export interface FieldListContext { fields: Ref<{ key: string }[]> }\n\
+       export declare function useFieldList(): FieldListContext\n",
+    )
+    .unwrap();
+    std::fs::write(
+      root.join("node_modules/@ui/package.json"),
+      r#"{"name":"@ui","types":"./index.d.ts","exports":{".":{"types":"./index.d.ts","import":"./index.js"}}}"#,
+    )
+    .unwrap();
+    std::fs::write(root.join("node_modules/@ui/index.js"), "export {}\n").unwrap();
+    std::fs::write(
+      root.join("node_modules/@ui/index.d.ts"),
+      "import { useFieldList } from 'field-kit'\n\
+       export declare const useFormFieldList: typeof useFieldList\n",
+    )
+    .unwrap();
+    std::fs::write(
+      root.join("src/consumer.ts"),
+      "import { computed } from 'vue'\n\
+       import { useFormFieldList } from '@ui'\n\
+       const ctx = useFormFieldList()\n\
+       const keys = computed(() => ctx.fields.value.map((row) => row.key))\n",
+    )
+    .unwrap();
+
+    let resolver = ProjectResolver::new(&root);
+    let known = BTreeSet::new();
+    let Resolution::External { resolved_path: Some(path), .. } =
+      resolver.resolve("src/consumer.ts", "@ui", &known)
+    else {
+      panic!("expected external resolve");
+    };
+    let roots = [ExternalReactivityRoot {
+      from: ModuleId::from("src/consumer.ts"),
+      specifier: "@ui".into(),
+      resolved_path: path,
+    }];
+    let ui_path = root.join("node_modules/@ui/index.d.ts");
+    let Ok(ui_module) = prepare_standalone_module_source(
+      ModuleId::from("ui"),
+      std::fs::read_to_string(&ui_path).unwrap(),
+      "d.ts",
+    ) else {
+      panic!("parse ui typeof alias");
+    };
+    let Some(ui_summary) = ui_module.module_summary() else {
+      panic!("ui summary");
+    };
+    let typeof_sources = ui_summary.typeof_forward_sources();
+    assert!(
+      typeof_sources.contains("field-kit"),
+      "ui alias must publish typeof forward source; got {typeof_sources:?}"
+    );
+    match resolver.resolve_from_absolute(&ui_path, "field-kit") {
+      Resolution::External { resolved_path: Some(path), .. } => {
+        assert!(
+          path.ends_with("field-kit/index.d.ts") || path.ends_with("field-kit/index.js"),
+          "unexpected field-kit path {path:?}"
+        );
+      }
+      Resolution::External { resolved_path: None, package } => {
+        panic!("quiet external for typeof target {package}")
+      }
+      Resolution::File(path) => panic!("unexpected project file resolve {path}"),
+      Resolution::Unresolved => panic!("unresolved field-kit from {ui_path:?}"),
+    }
+
+    let (sources, links) = ExternalSummaryLoadPass::run(&root, &resolver, &roots, None);
+    assert!(
+      sources.iter().any(|module| module.id.as_str().contains("field-kit")),
+      "typeof forward must load bare package; sources={:?}",
+      sources.iter().map(|module| module.id.as_str()).collect::<Vec<_>>()
+    );
+    assert!(
+      links.iter().any(|link| link.specifier == "field-kit"),
+      "typeof forward must link bare package; links={links:?}"
+    );
+    let mut modules = sources;
+    modules.push(ModuleSource::standalone(
+      "src/consumer.ts",
+      std::fs::read_to_string(root.join("src/consumer.ts")).unwrap(),
+      "ts",
+      vue_vet_core::ScriptKind::Script,
+    ));
+    let Ok(traced) = trace_modules(&modules, &links) else {
+      panic!("trace typeof bare modules");
+    };
+    let consumer = traced.iter().find(|module| module.id.as_str() == "src/consumer.ts");
+    assert!(
+      consumer.is_some_and(|module| {
+        module.graph.composable_instances.contains_key("ctx")
+          && module.graph.scopes.iter().any(|scope| {
+            scope
+              .reads
+              .iter()
+              .any(|read| read.binding == "fields" && read.property.as_deref() == Some("value"))
+          })
+      }),
+      "typeof bare package must seed instance bag; got {:?}",
+      consumer.map(|module| { (&module.graph.composable_instances, &module.graph.scopes) })
     );
     let _ = std::fs::remove_dir_all(&root);
   }

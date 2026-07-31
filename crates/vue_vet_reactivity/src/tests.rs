@@ -4576,3 +4576,107 @@ fn typed_function_callback_ignores_non_ref_formals() {
     graph.bindings
   );
 }
+
+#[test]
+fn removable_ref_dts_return_seeds_factory_call() {
+  let modules = [
+    ModuleSource::standalone(
+      "storage.d.ts",
+      "import type { RemovableRef } from 'vue';\n\
+       export declare function usePersistedState<T>(key: string, init: T): RemovableRef<T>;\n",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { usePersistedState } from './storage';\n\
+       const state = usePersistedState('k', { on: false });\n\
+       const on = computed(() => state.value.on);\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./storage".into(),
+    to: "storage.d.ts".into(),
+  }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "state" && binding.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope
+              .reads
+              .iter()
+              .any(|read| read.binding == "state" && read.property.as_deref() == Some("value"))
+            && scope.uncertain_accesses.iter().all(|name| name != "state")
+        })
+    }),
+    "RemovableRef .d.ts return must seed Factory(Ref); consumer={consumer:?}"
+  );
+}
+
+#[test]
+fn typeof_import_reexport_forwards_composable_bag() {
+  let modules = [
+    ModuleSource::standalone(
+      "fields.d.ts",
+      "import type { Ref } from 'vue';\n\
+       export interface FieldListContext {\n\
+         fields: Ref<{ key: string }[]>;\n\
+         push(value: { key: string }): void;\n\
+       }\n\
+       export declare function useFieldList(): FieldListContext;\n",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "alias.d.ts",
+      "import { useFieldList } from './fields';\n\
+       export declare const useFormFieldList: typeof useFieldList;\n",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { useFormFieldList } from './alias';\n\
+       const ctx = useFormFieldList();\n\
+       const keys = computed(() => ctx.fields.value.map((row) => row.key));\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [
+    ModuleLink {
+      from: "alias.d.ts".into(),
+      specifier: "./fields".into(),
+      to: "fields.d.ts".into(),
+    },
+    ModuleLink { from: "consumer.ts".into(), specifier: "./alias".into(), to: "alias.d.ts".into() },
+  ];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.composable_instances.contains_key("ctx")
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope
+              .reads
+              .iter()
+              .any(|read| read.binding == "fields" && read.property.as_deref() == Some("value"))
+            && scope.uncertain_accesses.iter().all(|name| name != "ctx")
+        })
+    }),
+    "typeof re-export must forward composable instance bag; consumer={consumer:?}"
+  );
+}

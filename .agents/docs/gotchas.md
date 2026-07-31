@@ -510,9 +510,13 @@ Callee parameters typed as function types whose formals are Ref-like
 (`run: (state: ComputedRef<T>) => R`) publish `TypedCallbackParamSlots` so
 call-site `(state) => computed(() => state.value…)` seeds without a
 callee-name allowlist (same barrel follow as options-callback slots).
-Function-local `ref()` / `computed()` calls likewise participate in scope
-classification (span-resolved) even though they stay out of the published
-top-level `bindings` list (#140).
+VueUse `RemovableRef` is Factory(Ref) like `Ref` (storage helpers). Package
+aliases `export const useX: typeof useY` become `ForwardReturn` so the
+imported bag/factory is not dropped; external follow may load that bare
+package (still size-capped — not every import). Function-local `ref()` /
+`computed()` calls likewise participate in scope classification
+(span-resolved) even though they stay out of the published top-level
+`bindings` list (#140).
 
 Nuxt (and unplugin-auto-import) often call `ref` / `watchEffect` with **no**
 `import` statement. The tracer treats bare identifiers as Vue APIs only when
