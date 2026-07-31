@@ -1894,6 +1894,50 @@ fn uncertain_value_access_is_recorded_on_computed_scope() {
 }
 
 #[test]
+fn optional_sole_value_duck_param_seeds_ref_binding() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     function useScale(doc: { value?: { scale: number } }) {\n\
+       return computed(() => doc.value?.scale ?? 1);\n\
+     }\n\
+     const scale = useScale({ value: { scale: 2 } });\n\
+     void scale.value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "doc" && read.property.as_deref() == Some("value"))
+        && scope.uncertain_accesses.iter().all(|name| name != "doc")
+    }),
+    "optional sole {{ value?: T }} param must classify .value; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn required_sole_value_type_does_not_seed_ref_binding() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     function useLabel(option: { value: string }) {\n\
+       return computed(() => option.value);\n\
+     }\n\
+     void useLabel({ value: 'a' }).value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.is_empty()
+        && scope.uncertain_accesses.iter().any(|name| name == "option")
+    }),
+    "required {{ value: T }} must not invent Ref seeds; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
 fn typed_computed_ref_parameters_classify_value_reads_inside_composables() {
   let graph = graph(
     "import { computed, type ComputedRef } from 'vue';\n\
@@ -4678,5 +4722,53 @@ fn typeof_import_reexport_forwards_composable_bag() {
         })
     }),
     "typeof re-export must forward composable instance bag; consumer={consumer:?}"
+  );
+}
+
+#[test]
+fn draggable_return_bag_seeds_destructured_coords() {
+  let modules = [
+    ModuleSource::standalone(
+      "drag.d.ts",
+      "import type { Ref, ComputedRef } from 'vue';\n\
+       export interface DragReturn {\n\
+         x: Ref<number>;\n\
+         y: Ref<number>;\n\
+         style: ComputedRef<string>;\n\
+       }\n\
+       export declare function useDrag(\n\
+         target: unknown,\n\
+         options?: unknown,\n\
+       ): DragReturn;\n",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed, ref } from 'vue';\n\
+       import { useDrag } from './drag';\n\
+       const el = ref<HTMLElement | null>(null);\n\
+       const { x, y } = useDrag(el, { axis: 'y' });\n\
+       const style = computed(() => `${x.value}px ${y.value}px`);\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links =
+    [ModuleLink { from: "consumer.ts".into(), specifier: "./drag".into(), to: "drag.d.ts".into() }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.bindings.iter().any(|b| b.name == "x" && b.kind == ReactiveBindingKind::Ref)
+        && module.graph.bindings.iter().any(|b| b.name == "y" && b.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope.reads.iter().any(|read| read.binding == "x")
+            && scope.reads.iter().any(|read| read.binding == "y")
+            && scope.uncertain_accesses.iter().all(|name| name != "x" && name != "y")
+        })
+    }),
+    "drag return bag must seed destructured x/y; consumer={consumer:?}"
   );
 }

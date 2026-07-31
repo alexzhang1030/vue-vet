@@ -1159,6 +1159,8 @@ fn source_may_have_typed_ref_annotations(source: &str) -> bool {
     || source.contains("Computed")
     || source.contains("Readonly")
     || source.contains("ToRef")
+    // Structural duck `{ value?: T }` (optional sole `value`).
+    || source.contains("value?")
 }
 
 /// Source may call a component factory that seeds a props bag.

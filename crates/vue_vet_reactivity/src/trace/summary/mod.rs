@@ -1781,9 +1781,11 @@ fn signatures_are_plain_object_shaped(members: &[oxc_ast::ast::TSSignature<'_>])
 
 /// Map a TypeScript type surface to a reactive binding kind (under-approx).
 ///
-/// Only recognizes Vue ref-like type names (`Ref`, `ComputedRef`, …). Full checker
-/// inference and utility wrappers stay quiet. Used for declared returns and for
-/// seeding typed parameters / declarators (`type: ComputedRef<T>`).
+/// Recognizes Vue ref-like type names (`Ref`, `ComputedRef`, …) and a narrow
+/// structural duck: a type literal whose **only** member is optional `value?`
+/// (test/mock `Ref` stand-ins). Required `{ value: T }` stays quiet so plain
+/// option shapes and `{ value: boolean }` factory returns are not invented.
+/// Used for declared returns and for seeding typed parameters / declarators.
 pub(super) fn ts_type_reactive_kind(
   ts_type: &oxc_ast::ast::TSType<'_>,
 ) -> Option<ReactiveBindingKind> {
@@ -1799,6 +1801,7 @@ pub(super) fn ts_type_reactive_kind(
         other => other,
       })
     }
+    TSType::TSTypeLiteral(literal) => optional_sole_value_ref_kind(&literal.members),
     TSType::TSTypeReference(reference) => {
       let name = match &reference.type_name {
         TSTypeName::IdentifierReference(identifier) => identifier.name.as_str(),
@@ -1827,6 +1830,25 @@ pub(super) fn ts_type_reactive_kind(
     }
     _ => None,
   }
+}
+
+/// `{ value?: T }` — sole optional `value` property, no methods/index signatures.
+fn optional_sole_value_ref_kind(
+  members: &[oxc_ast::ast::TSSignature<'_>],
+) -> Option<ReactiveBindingKind> {
+  use oxc_ast::ast::TSSignature;
+  let mut saw_optional_value = false;
+  for member in members {
+    let TSSignature::TSPropertySignature(property) = member else {
+      return None;
+    };
+    let name = property.key.static_name()?;
+    if name.as_ref() != "value" || !property.optional || saw_optional_value {
+      return None;
+    }
+    saw_optional_value = true;
+  }
+  saw_optional_value.then_some(ReactiveBindingKind::Ref)
 }
 
 /// Same-file `interface` / `type` declarations, built once per shape query.
