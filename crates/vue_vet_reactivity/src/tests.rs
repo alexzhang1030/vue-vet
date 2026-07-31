@@ -2326,6 +2326,124 @@ fn value_bag_member_call_reexport_via_wrapper_composable() {
 }
 
 #[test]
+fn create_shared_composable_forwards_factory_bag() {
+  // VueUse createSharedComposable<Fn>(Fn): Fn — export keeps the factory bag.
+  let modules = [
+    ModuleSource::standalone(
+      "vueuse.d.ts",
+      "export declare function createSharedComposable<Fn extends (...args: any[]) => any>(composable: Fn): Fn;\n",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "permission.ts",
+      "import { computed } from 'vue';\n\
+       import { createSharedComposable } from '@vueuse/core';\n\
+       export const useUserFunctionPermission = createSharedComposable(() => {\n\
+         const hasPermission = computed(() => (code) => Boolean(code));\n\
+         return { hasPermission };\n\
+       });\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { useUserFunctionPermission } from './permission';\n\
+       const { hasPermission } = useUserFunctionPermission();\n\
+       const canDelete = computed(() => hasPermission.value('delete'));\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [
+    ModuleLink {
+      from: "permission.ts".into(),
+      specifier: "@vueuse/core".into(),
+      to: "vueuse.d.ts".into(),
+    },
+    ModuleLink {
+      from: "consumer.ts".into(),
+      specifier: "./permission".into(),
+      to: "permission.ts".into(),
+    },
+  ];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.bindings.iter().any(|binding| {
+        binding.name == "hasPermission" && binding.kind == ReactiveBindingKind::Computed
+      }) && module.graph.scopes.iter().any(|scope| {
+        scope.kind == TrackingScopeKind::Computed
+          && scope.reads.iter().any(|read| read.binding == "hasPermission")
+          && scope.uncertain_accesses.is_empty()
+      })
+    }),
+    "createSharedComposable factory bag must seed; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
+  );
+}
+
+#[test]
+fn create_shared_composable_forwards_named_local_factory() {
+  let modules = [
+    ModuleSource::standalone(
+      "vueuse.d.ts",
+      "export declare function createSharedComposable<Fn extends (...args: any[]) => any>(composable: Fn): Fn;\n",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "permission.ts",
+      "import { computed } from 'vue';\n\
+       import { createSharedComposable } from '@vueuse/core';\n\
+       function usePermission() {\n\
+         const hasPermission = computed(() => (code) => Boolean(code));\n\
+         return { hasPermission };\n\
+       }\n\
+       export const useUserFunctionPermission = createSharedComposable(usePermission);\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { useUserFunctionPermission } from './permission';\n\
+       const { hasPermission } = useUserFunctionPermission();\n\
+       const canDelete = computed(() => hasPermission.value('delete'));\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [
+    ModuleLink {
+      from: "permission.ts".into(),
+      specifier: "@vueuse/core".into(),
+      to: "vueuse.d.ts".into(),
+    },
+    ModuleLink {
+      from: "consumer.ts".into(),
+      specifier: "./permission".into(),
+      to: "permission.ts".into(),
+    },
+  ];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.bindings.iter().any(|binding| binding.name == "hasPermission")
+        && module.graph.scopes.iter().any(|scope| {
+          scope.reads.iter().any(|read| read.binding == "hasPermission")
+            && scope.uncertain_accesses.is_empty()
+        })
+    }),
+    "named factory through createSharedComposable must seed; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.scopes))
+  );
+}
+
+#[test]
 fn value_bag_imported_factory_call_exports_value_bag() {
   // `export const api = createApi()` in another module — ValueFactoryCall → ValueBag.
   let modules = [

@@ -658,6 +658,9 @@ snapshot can freeze `MethodForward("useQuery")` before the factory refines.
 Never mark `const x = computed(...)` / other Vue primitives as
 `ValueFactoryCall` — that overwrites [`ExportState::Known`] and breaks
 incremental seed reuse.
+VueUse `createSharedComposable` / `createGlobalState` are identity wrappers
+(`Fn` → `Fn`): take the first-argument factory bag, do not stop at the wrapper
+call name.
 Residual unresolved `MethodForward` (e.g. `useMutation` beside resolved
 `useQuery`) must not block publishing the whole factory — leaf `resolve_path`
 stays quiet for those methods.

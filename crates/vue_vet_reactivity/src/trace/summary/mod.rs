@@ -822,7 +822,16 @@ fn collect_local_values(
         declared_return_from_declarator_annotation(semantic, declarator),
       ),
       // `const api = createApi()` — import / local factory only (not `computed()` etc.).
-      Some(Expression::CallExpression(call)) => {
+      // VueUse `createSharedComposable(factory)` forwards the factory bag (Fn → Fn).
+      Some(Expression::CallExpression(call)) => vueuse_shared_composable_export_state(
+        semantic,
+        call,
+        shape_graph,
+        script_offset,
+        &imported_bindings,
+        &mut returns_by_function,
+      )
+      .or_else(|| {
         call.callee.get_identifier_reference().and_then(|callee| {
           let callee_name = callee.name.as_str();
           if local_function_id_for_name(semantic, callee_name, callee).is_some() {
@@ -839,7 +848,7 @@ fn collect_local_values(
           }
           Some(ExportState::ValueFactoryCall(callee_name.to_owned()))
         })
-      }
+      }),
       // Keep the `ref()` cold path tiny: never build the return index until a function init.
       Some(_) => continue,
     };
@@ -1920,6 +1929,87 @@ fn resolve_call_return_forward(
     return Some(ComposableReturn::Forward(name.to_owned()));
   }
   None
+}
+
+/// `VueUse` identity wrappers: `createSharedComposable` / `createGlobalState` return `Fn`.
+///
+/// See <https://vueuse.org/shared/createSharedComposable/> — the export keeps the
+/// factory's return bag so consumers can destructure seeded fields.
+fn is_vueuse_identity_wrapper(
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  local_name: &str,
+) -> bool {
+  let Some((source, imported)) = imported_bindings.get(local_name) else {
+    return false;
+  };
+  let vueuse = source == "@vueuse/core"
+    || source == "@vueuse/shared"
+    || source.starts_with("@vueuse/core/")
+    || source.starts_with("@vueuse/shared/");
+  vueuse && matches!(imported.as_str(), "createSharedComposable" | "createGlobalState")
+}
+
+fn vueuse_shared_composable_export_state(
+  semantic: &oxc_semantic::Semantic<'_>,
+  call: &oxc_ast::ast::CallExpression<'_>,
+  shape_graph: &ReactivityGraph,
+  script_offset: usize,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  returns_by_function: &mut Option<BTreeMap<NodeId, Vec<NodeId>>>,
+) -> Option<ExportState> {
+  let callee = call.callee.get_identifier_reference()?;
+  if !is_vueuse_identity_wrapper(imported_bindings, callee.name.as_str()) {
+    return None;
+  }
+  let first = call.arguments.first()?.as_expression()?;
+  let index = returns_by_function.get_or_insert_with(|| build_returns_by_function(semantic));
+  match first {
+    Expression::ArrowFunctionExpression(arrow) => composable_export_state(
+      semantic,
+      arrow.node_id.get(),
+      shape_graph,
+      script_offset,
+      index,
+      arrow_return_type_kind(arrow),
+      || declared_return_for_arrow(semantic, arrow),
+    ),
+    Expression::FunctionExpression(function) => composable_export_state(
+      semantic,
+      function.node_id.get(),
+      shape_graph,
+      script_offset,
+      index,
+      function_return_type_kind(function),
+      || declared_return_for_function(semantic, function),
+    ),
+    Expression::Identifier(identifier) => {
+      local_function_id_for_name(semantic, identifier.name.as_str(), identifier).map_or_else(
+        || Some(ExportState::ForwardReturn(identifier.name.to_string())),
+        |callee_id| match semantic.nodes().kind(callee_id) {
+          AstKind::Function(function) => composable_export_state(
+            semantic,
+            callee_id,
+            shape_graph,
+            script_offset,
+            index,
+            function_return_type_kind(function),
+            || declared_return_for_function(semantic, function),
+          ),
+          AstKind::ArrowFunctionExpression(arrow) => composable_export_state(
+            semantic,
+            callee_id,
+            shape_graph,
+            script_offset,
+            index,
+            arrow_return_type_kind(arrow),
+            || declared_return_for_arrow(semantic, arrow),
+          ),
+          _ => Some(ExportState::ForwardReturn(identifier.name.to_string())),
+        },
+      )
+    }
+    _ => None,
+  }
 }
 
 fn local_function_id_for_name(
