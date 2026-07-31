@@ -499,7 +499,11 @@ evidence first (bindings, Factory returns, aliases, classified reads). Only when
 reads stay empty do they consult `uncertain_accesses` (reactivity-shaped
 `.value` / `unref` / `toValue` / bare watch sources that could not be classified)
 and report with `(maybe: …)`. Do not invent edges; do not treat empty reads as
-ironclad proof when soft evidence remains.
+ironclad proof when soft evidence remains. Sync Array/String HOF callback
+params (`OPTIONS.map(o => o.value)`) are not soft evidence — `.value` there is
+almost always a plain data field; leave reads empty so absence rules can report
+a hard no-dependency finding instead of `(maybe: option)`. Untyped composable
+formals (`function useX(option) { option.value }`) still surface as uncertain.
 
 **Typed ref parameters & nested composable locals.** Formal parameters /
 declarators annotated as `Ref` / `ComputedRef` / … seed scope-classification

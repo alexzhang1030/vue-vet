@@ -4772,3 +4772,103 @@ fn draggable_return_bag_seeds_destructured_coords() {
     "drag return bag must seed destructured x/y; consumer={consumer:?}"
   );
 }
+
+#[test]
+fn declare_plus_export_list_forwards_composable_bag() {
+  let modules = [
+    ModuleSource::standalone(
+      "drag.d.ts",
+      "import type { Ref } from 'vue';\n\
+       interface DragReturn {\n\
+         x: Ref<number>;\n\
+         y: Ref<number>;\n\
+       }\n\
+       declare function useDrag(target: unknown, options?: unknown): DragReturn;\n\
+       export { useDrag };\n",
+      "d.ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed, ref } from 'vue';\n\
+       import { useDrag } from './drag';\n\
+       const el = ref(null);\n\
+       const { x, y } = useDrag(el);\n\
+       const style = computed(() => `${x.value},${y.value}`);\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links =
+    [ModuleLink { from: "consumer.ts".into(), specifier: "./drag".into(), to: "drag.d.ts".into() }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.bindings.iter().any(|b| b.name == "x")
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope.reads.iter().any(|read| read.binding == "x")
+            && scope.uncertain_accesses.iter().all(|name| name != "x" && name != "y")
+        })
+    }),
+    "declare + export {{ name }} must publish composable bag; consumer={consumer:?}"
+  );
+}
+
+#[test]
+fn array_hof_callback_plain_value_is_not_uncertain() {
+  let plain = graph(
+    "import { computed } from 'vue';\n\
+     const OPTIONS = [{ value: 'a' }, { value: 'b' }];\n\
+     const labels = computed(() => OPTIONS.map((option) => option.value));\n\
+     void labels.value;",
+  );
+  assert!(
+    plain.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.is_empty()
+        && scope.uncertain_accesses.iter().all(|name| name != "option")
+    }),
+    "plain option.value in Array#map must not be uncertain; scopes={:?}",
+    plain.scopes
+  );
+
+  let from_ref = graph(
+    "import { computed, ref } from 'vue';\n\
+     const items = ref([{ value: 'a' }]);\n\
+     const labels = computed(() => items.value.map((option) => option.value));\n\
+     void labels.value;",
+  );
+  assert!(
+    from_ref.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "items" && read.property.as_deref() == Some("value"))
+        && scope.uncertain_accesses.iter().all(|name| name != "option")
+    }),
+    "items.value.map(option => option.value) must track items only; scopes={:?}",
+    from_ref.scopes
+  );
+}
+
+#[test]
+fn untyped_composable_param_value_stays_uncertain() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     function useLabel(option) {\n\
+       return computed(() => option.value);\n\
+     }\n\
+     void useLabel({ value: 'a' }).value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.uncertain_accesses.iter().any(|name| name == "option")
+    }),
+    "untyped composable params must remain uncertain; scopes={:?}",
+    graph.scopes
+  );
+}

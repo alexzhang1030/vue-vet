@@ -1585,6 +1585,36 @@ fn is_sync_hof_callback(semantic: &oxc_semantic::Semantic<'_>, function_id: Node
   false
 }
 
+/// True when `reference` resolves to a formal parameter of a sync HOF callback.
+fn is_sync_hof_callback_param(
+  semantic: &oxc_semantic::Semantic<'_>,
+  reference: &IdentifierReference<'_>,
+) -> bool {
+  let Some(reference_id) = reference.reference_id.get() else {
+    return false;
+  };
+  let Some(symbol_id) = semantic.scoping().get_reference(reference_id).symbol_id() else {
+    return false;
+  };
+  let decl = semantic.symbol_declaration(symbol_id);
+  let mut saw_formal = false;
+  for ancestor_id in std::iter::once(decl.id()).chain(semantic.nodes().ancestor_ids(decl.id())) {
+    match semantic.nodes().kind(ancestor_id) {
+      AstKind::FormalParameter(_) => {
+        saw_formal = true;
+      }
+      AstKind::ArrowFunctionExpression(_) | AstKind::Function(_) if saw_formal => {
+        return is_sync_hof_callback(semantic, ancestor_id);
+      }
+      AstKind::VariableDeclarator(_) | AstKind::VariableDeclaration(_) if !saw_formal => {
+        return false;
+      }
+      _ => {}
+    }
+  }
+  false
+}
+
 /// Whether a function at `arg_index` of a call with this `callee` runs synchronously
 /// during the parent tracking flush.
 fn is_sync_hof_at_arg(callee: &Expression<'_>, arg_index: usize) -> bool {
@@ -2434,7 +2464,16 @@ fn uncertain_access_at(
           && reference_resolves_to_binding(semantic, root, binding, script_offset)
       });
       let known_bag = composable_instances.contains_key(root.name.as_str());
-      (!known_binding && !known_bag).then(|| (root.name.to_string(), member.span))
+      if known_binding || known_bag {
+        return None;
+      }
+      // Sync Array/String HOF callback params almost always use `.value` as a
+      // plain data field (`OPTIONS.map(o => o.value)`), not a Ref unwrap.
+      // Typed Ref formals still classify via `known_binding` above.
+      if is_sync_hof_callback_param(semantic, root) {
+        return None;
+      }
+      Some((root.name.to_string(), member.span))
     }
     AstKind::CallExpression(call) => {
       let callee =
@@ -2886,7 +2925,7 @@ fn collect_uncertain_watch_expression(
           && is_ref_like(binding.kind)
       });
       let known_bag = composable_instances.contains_key(root.name.as_str());
-      if !known_ref && !known_bag {
+      if !known_ref && !known_bag && !is_sync_hof_callback_param(semantic, root) {
         names.insert(root.name.to_string());
       }
     }
