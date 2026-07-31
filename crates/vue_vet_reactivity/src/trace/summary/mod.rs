@@ -1128,6 +1128,17 @@ struct ReturnKindAccum {
 }
 
 impl ReturnKindAccum {
+  fn absorb_object_shape(&mut self, shape: ComposableShape) {
+    self.saw_object_return = true;
+    self.open_reactive_spread = self.open_reactive_spread || shape.open_reactive_spread;
+    for (field, kind) in shape.fields {
+      merge_shape_field(&mut self.shape, &mut self.ambiguous, field, kind);
+    }
+    for (field, pending) in shape.pending_value_bag_fields {
+      self.pending_value_bag_fields.entry(field).or_insert(pending);
+    }
+  }
+
   #[expect(
     clippy::too_many_arguments,
     reason = "return-kind classification needs semantic + graph + import/param context"
@@ -1146,6 +1157,17 @@ impl ReturnKindAccum {
   ) {
     let expression = match expression {
       Expression::ParenthesizedExpression(paren) => &paren.expression,
+      other => other,
+    };
+    // `return inject(key) as Ctx` / `return expr as { mapId: Ref<…> }` — peel the
+    // asserted object-bag type before walking the inner expression.
+    if let Some(shape) = composable_shape_from_type_assertion(semantic, expression) {
+      self.absorb_object_shape(shape);
+      return;
+    }
+    let expression = match expression {
+      Expression::TSAsExpression(assertion) => &assertion.expression,
+      Expression::TSTypeAssertion(assertion) => &assertion.expression,
       other => other,
     };
     if matches!(expression, Expression::ObjectExpression(_)) {
@@ -1187,12 +1209,16 @@ impl ReturnKindAccum {
       self.open_reactive_spread = true;
       return;
     }
-    if let Expression::Identifier(identifier) = expression
-      && identifier_initialized_with_to_refs(semantic, function_id, identifier, imported_bindings)
-    {
-      self.saw_object_return = true;
-      self.open_reactive_spread = true;
-      return;
+    if let Expression::Identifier(identifier) = expression {
+      if let Some(shape) = composable_shape_from_identifier_assertion_init(semantic, identifier) {
+        self.absorb_object_shape(shape);
+        return;
+      }
+      if identifier_initialized_with_to_refs(semantic, function_id, identifier, imported_bindings) {
+        self.saw_object_return = true;
+        self.open_reactive_spread = true;
+        return;
+      }
     }
     if let Expression::CallExpression(call) = expression
       && let Some(forwarded) = resolve_call_return_forward(
@@ -1706,6 +1732,19 @@ impl<'a> TypeDeclIndex<'a> {
   }
 }
 
+/// Object-bag shape from a TypeScript type surface (under-approx).
+///
+/// Same recognition as declared composable return types — used for
+/// `inject(key) as Ctx` defaults and `return x` when `x` was asserted to a
+/// Ref-field interface.
+pub(super) fn composable_shape_from_ts_type<'a>(
+  semantic: &'a oxc_semantic::Semantic<'a>,
+  ts_type: &'a oxc_ast::ast::TSType<'a>,
+) -> ComposableShape {
+  let mut index = None;
+  ts_type_composable_shape(semantic, ts_type, 0, &mut index)
+}
+
 /// Object-bag shape from a TypeScript return type (under-approx).
 ///
 /// Recognizes inline `{ width: Ref<number> }`, same-file `interface` / `type`
@@ -1832,6 +1871,35 @@ fn shape_from_ts_signatures(
     shape.insert(exported.into_owned(), kind);
   }
   shape
+}
+
+/// Non-empty object-bag shape from `expr as Ctx` / `<Ctx>expr`.
+fn composable_shape_from_type_assertion<'a>(
+  semantic: &'a oxc_semantic::Semantic<'a>,
+  expression: &'a Expression<'a>,
+) -> Option<ComposableShape> {
+  let ts_type = match expression {
+    Expression::TSAsExpression(assertion) => &assertion.type_annotation,
+    Expression::TSTypeAssertion(assertion) => &assertion.type_annotation,
+    _ => return None,
+  };
+  let shape = composable_shape_from_ts_type(semantic, ts_type);
+  (!shape.is_empty()).then_some(shape)
+}
+
+/// `const ctx = … as Ctx; return ctx` — one-hop init assertion → bag shape.
+fn composable_shape_from_identifier_assertion_init<'a>(
+  semantic: &'a oxc_semantic::Semantic<'a>,
+  identifier: &oxc_ast::ast::IdentifierReference<'_>,
+) -> Option<ComposableShape> {
+  let reference_id = identifier.reference_id.get()?;
+  let symbol_id = semantic.scoping().get_reference(reference_id).symbol_id()?;
+  let decl = semantic.symbol_declaration(symbol_id);
+  let AstKind::VariableDeclarator(declarator) = decl.kind() else {
+    return None;
+  };
+  let init = declarator.init.as_ref()?;
+  composable_shape_from_type_assertion(semantic, init)
 }
 
 fn is_to_refs_call(

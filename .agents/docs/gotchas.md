@@ -715,6 +715,13 @@ ancestor chain. Rules:
   stay outside tracking.
 - Factory defaults (`inject(key, () => ref(0))`) stay quiet; plain
   `inject(key, someRef)` may seed from the default.
+- `const ctx = inject(key) as Ctx` must peel the `TSAsExpression` (parent of the
+  call is not the declarator). When `Ctx` is a same-file interface/type with
+  Ref-like fields and no unique known provide exists, seed the inject local from
+  that asserted bag. Helpers that `return ctx` after such an assertion export the
+  bag shape so cross-module `const { mapId } = useCtx()` seeds — provide helpers
+  that `provide(key, { ...param, localRef })` often have an unknown offer at the
+  definition site because the spread parameter is not a composable instance.
 
 ## Text report color is CLI-injected
 

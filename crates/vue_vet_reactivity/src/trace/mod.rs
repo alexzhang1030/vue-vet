@@ -826,7 +826,7 @@ pub fn collect_provide_sites(
   sites
 }
 
-/// `const local = inject(key)` / `inject(key, default)`.
+/// `const local = inject(key)` / `inject(key, default)` / `inject(key) as Ctx`.
 pub fn collect_inject_sites(
   semantic: &Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
@@ -845,7 +845,8 @@ pub fn collect_inject_sites(
     if callee != "inject" {
       continue;
     }
-    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
+    let Some((declarator, asserted_type)) =
+      inject_declarator_and_assertion(semantic, call.node_id.get())
     else {
       continue;
     };
@@ -858,7 +859,7 @@ pub fn collect_inject_sites(
     let Some(key) = injection_key(semantic, key_expr, imported_bindings) else {
       continue;
     };
-    let (default_kind, default_instance_shape) =
+    let (default_kind, mut default_instance_shape) =
       call.arguments.get(1).and_then(Argument::as_expression).map_or((None, None), |value| {
         if matches!(
           value,
@@ -878,6 +879,15 @@ pub fn collect_inject_sites(
           (offer.kind, offer.instance_shape)
         }
       });
+    // `inject(key) as Ctx` — same-file interface/type with Ref fields seeds the
+    // inject local when no unique known provide exists (common for provide helpers
+    // that spread a typed parameter into the bag).
+    if let Some(ts_type) = asserted_type {
+      let shape = summary::composable_shape_from_ts_type(semantic, ts_type);
+      if !shape.fields.is_empty() {
+        default_instance_shape = Some(shape.fields);
+      }
+    }
     sites.push(InjectSite {
       local: identifier.name.to_string(),
       key,
@@ -887,6 +897,38 @@ pub fn collect_inject_sites(
     });
   }
   sites
+}
+
+/// Walk paren / `as` / type-assertion wrappers from `inject(...)` up to its
+/// `VariableDeclarator`, capturing the outermost asserted type when present.
+fn inject_declarator_and_assertion<'a>(
+  semantic: &'a Semantic<'a>,
+  call_id: NodeId,
+) -> Option<(&'a oxc_ast::ast::VariableDeclarator<'a>, Option<&'a oxc_ast::ast::TSType<'a>>)> {
+  let mut current = call_id;
+  let mut asserted_type = None;
+  // Bound the peel: real sources only wrap once or twice.
+  for _ in 0..8 {
+    let parent_id = semantic.nodes().parent_id(current);
+    match semantic.nodes().kind(parent_id) {
+      AstKind::ParenthesizedExpression(_) => {
+        current = parent_id;
+      }
+      AstKind::TSAsExpression(assertion) => {
+        asserted_type = Some(&assertion.type_annotation);
+        current = parent_id;
+      }
+      AstKind::TSTypeAssertion(assertion) => {
+        asserted_type = Some(&assertion.type_annotation);
+        current = parent_id;
+      }
+      AstKind::VariableDeclarator(declarator) => {
+        return Some((declarator, asserted_type));
+      }
+      _ => return None,
+    }
+  }
+  None
 }
 
 /// Unique known provide → inject binding/bag, else inject default, else quiet.

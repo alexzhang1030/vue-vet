@@ -385,7 +385,7 @@ pub struct ReactivityEffectFact {
 
 /// Wire format version for [`ReactivityGraph`]. Bump when consumers must
 /// distinguish shape or semantic changes in serialized facts.
-pub const REACTIVITY_GRAPH_VERSION: u32 = 14;
+pub const REACTIVITY_GRAPH_VERSION: u32 = 15;
 
 const fn default_reactivity_graph_version() -> u32 {
   1

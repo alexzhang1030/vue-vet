@@ -1391,6 +1391,93 @@ fn distinct_local_symbols_do_not_cross_link() {
 }
 
 #[test]
+fn inject_as_typed_bag_seeds_without_known_provide() {
+  let graph = graph(
+    "import type { Ref } from 'vue';\n\
+     import { inject, computed } from 'vue';\n\
+     interface MapCtx { mapId: Ref<number | undefined> }\n\
+     const KEY = Symbol('map');\n\
+     const ctx = inject(KEY) as MapCtx;\n\
+     const d = computed(() => ctx.mapId.value);\n\
+     void d.value;",
+  );
+  assert!(
+    graph
+      .composable_instances
+      .get("ctx")
+      .is_some_and(|shape| shape.get("mapId") == Some(&ReactiveBindingKind::Ref)),
+    "inject(key) as Ctx must seed bag from asserted interface; instances={:?}",
+    graph.composable_instances
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "mapId" && read.property.as_deref() == Some("value"))
+    }),
+    "computed must track ctx.mapId.value via asserted inject bag; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn typed_inject_helper_forwards_bag_across_modules() {
+  let modules = [
+    ModuleSource::standalone(
+      "ctx.ts",
+      "import type { Ref } from 'vue';\n\
+       import { inject, provide, shallowRef } from 'vue';\n\
+       interface MapCtx { mapId: Ref<number | undefined> }\n\
+       const KEY = Symbol('map');\n\
+       export function provideMapCtx(mapId: Ref<number | undefined>) {\n\
+         const local = { mapId, robots: shallowRef([]) };\n\
+         provide(KEY, local);\n\
+         return local;\n\
+       }\n\
+       export function useMapCtx() {\n\
+         const ctx = inject(KEY) as MapCtx;\n\
+         return ctx;\n\
+       }\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { useMapCtx } from './ctx';\n\
+       const { mapId } = useMapCtx();\n\
+       const d = computed(() => mapId.value);\n\
+       void d.value;",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links =
+    [ModuleLink { from: "consumer.ts".into(), specifier: "./ctx".into(), to: "ctx.ts".into() }];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "mapId" && binding.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope
+              .reads
+              .iter()
+              .any(|read| read.binding == "mapId" && read.property.as_deref() == Some("value"))
+        })
+    }),
+    "useX() returning inject(key) as Ctx must seed destructured Ref fields; consumer={consumer:?}"
+  );
+}
+
+#[test]
 fn provide_composable_instance_seeds_inject_bag() {
   let graph = graph(
     "import { provide, inject, ref, computed } from 'vue';\n\
