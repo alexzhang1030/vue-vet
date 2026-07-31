@@ -546,7 +546,8 @@ fn local_composable_export_for(
       summary::ComposableReturn::Object(_)
       | summary::ComposableReturn::ValueBag(_)
       | summary::ComposableReturn::UnwrappedState
-      | summary::ComposableReturn::Forward(_),
+      | summary::ComposableReturn::Forward(_)
+      | summary::ComposableReturn::GenericParam(_),
     )
     | None => {}
   }

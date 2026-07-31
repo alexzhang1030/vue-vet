@@ -1423,6 +1423,72 @@ fn inject_as_typed_bag_seeds_without_known_provide() {
 }
 
 #[test]
+fn generic_context_factory_instantiates_inject_bag() {
+  let modules = [
+    ModuleSource::standalone(
+      "common.ts",
+      "import { inject, provide } from 'vue';\n\
+       export function createContext<T>(identifier: string) {\n\
+         const key = Symbol(identifier);\n\
+         const useProvide = (value: T) => { provide(key, value); };\n\
+         const useInject = () => {\n\
+           const value = inject(key);\n\
+           return value as T;\n\
+         };\n\
+         return { useProvide, useInject };\n\
+       }\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "ctx.ts",
+      "import type { Ref } from 'vue';\n\
+       import { createContext } from './common';\n\
+       interface MapCtx { mapId: Ref<number | undefined> }\n\
+       export const {\n\
+         useProvide: provideMapCtx,\n\
+         useInject: useMapCtx,\n\
+       } = createContext<MapCtx>('MAP');\n",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { computed } from 'vue';\n\
+       import { useMapCtx } from './ctx';\n\
+       const { mapId } = useMapCtx();\n\
+       const d = computed(() => mapId.value);\n\
+       void d.value;",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [
+    ModuleLink { from: "ctx.ts".into(), specifier: "./common".into(), to: "common.ts".into() },
+    ModuleLink { from: "consumer.ts".into(), specifier: "./ctx".into(), to: "ctx.ts".into() },
+  ];
+  let traced = traced_modules(&modules, &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "mapId" && binding.kind == ReactiveBindingKind::Ref)
+        && module.graph.scopes.iter().any(|scope| {
+          scope.kind == TrackingScopeKind::Computed
+            && scope
+              .reads
+              .iter()
+              .any(|read| read.binding == "mapId" && read.property.as_deref() == Some("value"))
+        })
+    }),
+    "createContext<Ctx> useInject destructure must seed mapId; consumer={consumer:?}"
+  );
+}
+
+#[test]
 fn typed_inject_helper_forwards_bag_across_modules() {
   let modules = [
     ModuleSource::standalone(

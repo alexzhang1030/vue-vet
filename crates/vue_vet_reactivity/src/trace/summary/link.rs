@@ -849,7 +849,8 @@ fn resolve_exports(
     }
   }
 
-  // Working copies only for modules that still need ForwardReturn / value-bag refine.
+  // Working copies only for modules that still need ForwardReturn / value-bag /
+  // generic-method instantiate refine.
   let mut working_locals: BTreeMap<ModuleId, BTreeMap<String, ExportState>> = BTreeMap::new();
   for (id, module_facts) in facts {
     if module_facts.summary.locals.values().any(|state| {
@@ -859,6 +860,7 @@ fn resolve_exports(
           | ExportState::ValueFactory(_)
           | ExportState::ValueBag(_)
           | ExportState::ValueFactoryCall(_)
+          | ExportState::GenericMethodInstantiate { .. }
       ) || matches!(
         state,
         ExportState::Composable(shape) if shape.has_pending_value_bag_fields()
@@ -918,6 +920,7 @@ fn resolve_exports(
             | ExportState::ValueBag(_)
             | ExportState::ValueFactoryCall(_)
             | ExportState::Composable(_)
+            | ExportState::GenericMethodInstantiate { .. }
         ) {
           continue;
         }
@@ -1023,6 +1026,22 @@ fn refine_export_state(
     // Keep the call marker so each export publish re-snapshots the callee bag
     // (avoid sticky MethodForward clones after the factory later refines).
     ExportState::ValueFactoryCall(callee) => ExportState::ValueFactoryCall(callee),
+    ExportState::GenericMethodInstantiate { callee, property, type_arg_shapes } => {
+      match resolve_name_export_state(module_id, &callee, locals, facts, links, resolved, 0) {
+        Some(ExportState::ValueFactory(bag) | ExportState::ValueBag(bag)) => {
+          match bag.entries.get(&property) {
+            Some(super::ValueBagEntry::MethodGeneric(index)) => type_arg_shapes
+              .get(*index as usize)
+              .filter(|shape| !shape.is_empty())
+              .map_or(ExportState::Ambiguous, |shape| {
+                ExportState::Composable(shape.clone())
+              }),
+            _ => ExportState::Ambiguous,
+          }
+        }
+        _ => ExportState::GenericMethodInstantiate { callee, property, type_arg_shapes },
+      }
+    }
     other => other,
   }
 }
@@ -1068,7 +1087,9 @@ fn resolve_pending_value_bag_field(
   match bag.resolve_path(&pref.path)? {
     ValueBagEntry::Method(method_shape) => method_shape.kind_for_destructure(&pref.field),
     ValueBagEntry::MethodFactory(kind) => Some(*kind),
-    ValueBagEntry::MethodForward(_) | ValueBagEntry::Nested(_) => None,
+    ValueBagEntry::MethodForward(_)
+    | ValueBagEntry::MethodGeneric(_)
+    | ValueBagEntry::Nested(_) => None,
   }
 }
 
@@ -1090,6 +1111,8 @@ fn publishable_export_state(
         _ => None,
       }
     }
+    // Pending typed destructure — wait until refine promotes to Composable.
+    ExportState::GenericMethodInstantiate { .. } | ExportState::Ambiguous => None,
     other => Some(other.clone()),
   }
 }
@@ -1191,6 +1214,8 @@ fn insert_export(
       | ExportState::BodyUnwrappedState
       | ExportState::ForwardReturn(_)
       | ExportState::ValueFactoryCall(_)
+      | ExportState::GenericMethodInstantiate { .. }
+      | ExportState::Ambiguous
   ) {
     return false;
   }
@@ -1581,6 +1606,7 @@ fn materialize_seeds(
       | ExportState::BodyUnwrappedState
       | ExportState::ForwardReturn(_)
       | ExportState::ValueFactoryCall(_)
+      | ExportState::GenericMethodInstantiate { .. }
       | ExportState::Ambiguous => {}
     }
   }

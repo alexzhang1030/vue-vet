@@ -51,16 +51,14 @@ complete.
 
 ## Current baseline
 
-Contract version: **`REACTIVITY_GRAPH_VERSION = 15`** (v14 + `inject(key) as Ctx`
-peels `TSAsExpression` and seeds asserted Ref-field bags when no unique known
-provide exists; helpers `return ctx` after that assertion export the bag for
-cross-module destructure; v14 VueUse `createSharedComposable` /
-`createGlobalState` forward the factory return bag (`Fn` → `Fn`); v13
-cross-module `const api = createApi()` via `ExportState::ValueFactoryCall` →
-`ValueBag`; v12 options-object callback slots follow `export { x } from` /
-`export *` barrels; v11 options-object callback bag slots; v10
-`ExportState::ComponentFactory` props seeding; v9 **`TrackingScopeKind::Render`**;
-v8 module-qualified `to_id`; v7 `property` / `to_path` retained).
+Contract version: **`REACTIVITY_GRAPH_VERSION = 16`** (v15 + generic context
+factories: `return value as T` → `MethodGeneric`; `const { useInject: useX } =
+createContext<Ctx>(…)` instantiates the type-arg bag at link time; v15
+`inject(key) as Ctx` peels `TSAsExpression` and seeds asserted Ref-field bags;
+v14 VueUse `createSharedComposable` / `createGlobalState` forward factory bags;
+v13 imported `createApi()` → `ValueFactoryCall` → `ValueBag`; v12 options-callback
+`export*` barrels; v11 options-object callback bags; v10 `ComponentFactory`; v9
+Render; v8 `to_id`; v7 `property` / `to_path`).
 
 | Axis | Status | Covered (in-scope) | Remaining |
 | --- | --- | --- | --- |
@@ -70,7 +68,7 @@ v8 module-qualified `to_id`; v7 `property` / `to_path` retained).
 | A4 Conditions | complete | if / early-exit / ternary / short-circuit / switch roles (fact metadata; diagnostics are scope-aware Conditional rules, not per-role ids — #136) | — (no further depth) |
 | A5 Boundaries | complete | after-await; pause/enable/resetTracking windows; nested `then`/`nextTick` outside; watch callback outside | — |
 | A6 Modules | complete | composable object bags + **scalar `Factory` returns** + **declared object-bag return types** + **plain-object + unwrapped-call → `Factory(Reactive)`** + **`ComponentFactory` setup-forward wrappers**; instance bags; dual script; provide/inject unique-key; static `:prop` / `v-model` / `ident` / `ident.value` / static member + optional chains → child `props` Prop edges; **on-demand ExternalImport summaries** (`.d.ts` + companion `.js` for provisional halves, size-capped; re-export follow; not lint targets); **bare `.nuxt/imports.d.ts` / Vite `auto-imports.d.ts` → `#nuxt-imports:` seeds** | whole-object `v-bind` stays quiet; `#imports` virtuals stay quiet without a concrete file body |
-| A7 Contract | complete | v15 `inject(key) as Ctx` asserted bag + return forward; v14 VueUse shared composable bag forward; v13 imported `createApi()` → exported ValueBag; v12 options-callback slots via `export*` barrels; v11 options-object callback Ref bags (`setup({ values })`); v10 ComponentFactory props seeds; v9 Render scopes; v8 module-qualified `to_id`; v7 `property` / `to_path`; deterministic sort | — |
+| A7 Contract | complete | v16 generic `createContext<T>` MethodGeneric instantiate; v15 `inject(key) as Ctx` asserted bag + return forward; v14 VueUse shared composable bag forward; v13 imported `createApi()` → exported ValueBag; v12 options-callback slots via `export*` barrels; v11 options-object callback Ref bags; v10 ComponentFactory props seeds; v9 Render scopes; v8 module-qualified `to_id`; v7 `property` / `to_path`; deterministic sort | — |
 | Evidence | complete | Runtime oracle (≥99% recall on committed cases); deep-watch `*`; exhaustive local reads; key SFC E2E | — (prop flow is static unit/project; not an `onTrack` pair) |
 
 ### In-scope complete checklists
@@ -245,6 +243,7 @@ growing prose ledger.
 | 2026-07-29 | Nuxt imports importer resolve | Bare `#nuxt-imports:` seeds resolve from the **declaring** dts (`imports.d.ts` vs `types/imports.d.ts`); prefer re-export map when both list the same name. Types-map overwrite + fixed importer was the real-app `colorMode` FP after #119 |
 | 2026-07-31 | VueUse shared composable | `createSharedComposable` / `createGlobalState` from `@vueuse/core` forward the factory return bag (`Fn` → `Fn`) so destructured fields like `hasPermission` seed |
 | 2026-07-31 | `inject(key) as Ctx` bag | Peel `TSAsExpression` to find the declarator; seed asserted Ref-field interface when provide offer is unknown; `return ctx` after assertion exports the bag (map-context helpers) |
+| 2026-07-31 | Generic context factory | `return value as T` (enclosing type param) → `MethodGeneric`; typed call destructure `const { useInject: useX } = factory<Ctx>(…)` → link-time `Composable` from the matching type argument (no name allowlist) |
 | 2026-07-31 | Imported value-factory call | `const api = createApi()` with imported `createApi` → `ValueFactoryCall` → link-time `ValueBag` re-snapshot; nested hooks + `api.ns.useX()` destructure seeds; wrapper `return { isLoading }` via `PendingValueBagField` |
 | 2026-07-30 | Vite `auto-imports.d.ts` | Load root / `src/auto-imports.d.ts` after Nuxt maps; parse `typeof import('…')['name']`; single-file scans walk up to nearest `package.json` so nested IDE paths still load the map; composable `return { …, ...reactiveBag }` open-spread seeds unknown destructure keys as Ref — fixes unplugin-auto-import / vue-query `isLoading` FPs |
 | 2026-07-30 | props + shape forwarding | Seed Vue `defineComponent` / `setup(props)` bags; setup-forward wrappers → `ExportState::ComponentFactory` (cross-module + size-capped package `exports.import` body); opaque helpers quiet; mapped/`toRefs`/return-call composable shapes + nested value-bag member calls (no query name allowlists); barrel named imports mark component-name targets used |

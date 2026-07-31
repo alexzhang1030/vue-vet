@@ -722,6 +722,13 @@ ancestor chain. Rules:
   bag shape so cross-module `const { mapId } = useCtx()` seeds — provide helpers
   that `provide(key, { ...param, localRef })` often have an unknown offer at the
   definition site because the spread parameter is not a composable instance.
+- Generic context factories (`createContext<T>`-style): nested `return value as T`
+  becomes `MethodGeneric(paramIndex)`. Call-site
+  `const { useInject: useX } = factory<Ctx>(…)` records
+  `GenericMethodInstantiate` and must stay in link `working_locals` until the
+  callee `ValueFactory` is published — otherwise the pending state never refines
+  and `useX` stays unpublished. Only properties that are `MethodGeneric` promote
+  (so `useProvide` stays quiet).
 
 ## Text report color is CLI-injected
 
