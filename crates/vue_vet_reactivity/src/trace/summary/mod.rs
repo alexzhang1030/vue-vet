@@ -932,6 +932,10 @@ fn collect_local_values(
           Some(ExportState::ValueFactoryCall(callee_name.to_owned()))
         })
       }),
+      // `export const x = cond ? computed(...) : useStorage(...)` — both arms ref-like.
+      Some(Expression::ConditionalExpression(cond)) => {
+        known_export_from_ref_like_ternary(semantic, cond, &imported_bindings)
+      }
       // Keep the `ref()` cold path tiny: never build the return index until a function init.
       Some(_) => continue,
     };
@@ -1004,6 +1008,73 @@ fn collect_local_values(
   collect_generic_method_instantiations(semantic, &mut locals);
 
   locals
+}
+
+/// `cond ? computed(...) : useStorage(...)` / `cond ? ref(a) : shallowRef(b)`.
+///
+/// Both arms must be ref-like call results so the binding is safe to seed as
+/// [`ExportState::Known`]. Mixed plain arms stay quiet (under-approx).
+fn known_export_from_ref_like_ternary(
+  semantic: &oxc_semantic::Semantic<'_>,
+  cond: &oxc_ast::ast::ConditionalExpression<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> Option<ExportState> {
+  let left = ref_like_kind_from_value_expression(semantic, &cond.consequent, imported_bindings)?;
+  let right = ref_like_kind_from_value_expression(semantic, &cond.alternate, imported_bindings)?;
+  let kind = if left == right {
+    left
+  } else {
+    // Distinct ref-like kinds still share `.value` tracking.
+    ReactiveBindingKind::Ref
+  };
+  Some(ExportState::Known(kind))
+}
+
+fn ref_like_kind_from_value_expression(
+  semantic: &oxc_semantic::Semantic<'_>,
+  expression: &Expression<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> Option<ReactiveBindingKind> {
+  let mut current = expression;
+  for _ in 0..4 {
+    match current {
+      Expression::ParenthesizedExpression(paren) => current = &paren.expression,
+      Expression::TSAsExpression(assertion) => current = &assertion.expression,
+      Expression::TSTypeAssertion(assertion) => current = &assertion.expression,
+      Expression::TSNonNullExpression(non_null) => current = &non_null.expression,
+      Expression::CallExpression(call) => {
+        if let Some(vue) =
+          resolved_vue_callee(semantic, &call.callee, imported_bindings, ScriptKind::Script)
+        {
+          let kind = reactive_binding_kind(&vue)?;
+          return export_kind_is_ref_like(kind).then_some(kind);
+        }
+        // Bare / imported factory call (`useStorage`, `useNow`, …) — result is
+        // treated as Ref-like so SSR `computed` + client storage ternaries export.
+        let callee = call.callee.get_identifier_reference()?;
+        let name = callee.name.as_str();
+        if reactive_binding_kind(name).is_some() {
+          return None;
+        }
+        return Some(ReactiveBindingKind::Ref);
+      }
+      _ => return None,
+    }
+  }
+  None
+}
+
+const fn export_kind_is_ref_like(kind: ReactiveBindingKind) -> bool {
+  matches!(
+    kind,
+    ReactiveBindingKind::Ref
+      | ReactiveBindingKind::ShallowRef
+      | ReactiveBindingKind::Computed
+      | ReactiveBindingKind::CustomRef
+      | ReactiveBindingKind::ToRef
+      | ReactiveBindingKind::TemplateRef
+      | ReactiveBindingKind::ModelRef
+  )
 }
 
 /// Insert / merge a local export, preferring scalar [`ExportState::Factory`] over
