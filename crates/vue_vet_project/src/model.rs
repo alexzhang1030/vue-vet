@@ -6,8 +6,11 @@ use serde::{Deserialize, Serialize};
 use vue_vet_core::{Diagnostic, FileId, ModuleId, SfcFacts, SourceSpan};
 use vue_vet_reactivity::{ModuleReactivity, ModuleSource};
 
-/// Bump when Nuxt convention / resolver seed semantics change (cache invalidation).
-pub const CONVENTIONS_VERSION: u32 = 13;
+/// Bump when Nuxt/Vite seed-map or external-summary follow semantics change.
+///
+/// Invalidates content-addressed project cache. v14: bare `export * from 'pkg'`
+/// follow and widened bare auto-import / `ForwardReturn` seed resolution.
+pub const CONVENTIONS_VERSION: u32 = 14;
 
 pub const PROJECT_RULE_IDS: [&str; 2] =
   ["vue-vet/project/unresolved-import", "vue-vet/project/unused-component"];

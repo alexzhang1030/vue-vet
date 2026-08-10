@@ -61,7 +61,7 @@ form so alias joins and resolve results share one path representation.
 Convention recognition covers files under `components`, `composables`,
 `pages`, `layouts`, `plugins`, `middleware`, and `stores`. Component tags and
 composable calls create auto-import edges. Explicit imports shadow convention
-matches. `CONVENTIONS_VERSION` (currently 13) invalidates cached graphs when
+matches. `CONVENTIONS_VERSION` (currently 14) invalidates cached graphs when
 convention or resolver semantics change.
 
 Component auto-import names follow Nuxt defaults without executing

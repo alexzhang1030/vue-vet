@@ -1077,13 +1077,11 @@ const fn export_kind_is_ref_like(kind: ReactiveBindingKind) -> bool {
   )
 }
 
-/// Insert / merge a local export, preferring scalar [`ExportState::Factory`] over
-/// object bags when ambient overloads disagree.
+/// Insert / merge a local export per the A6 lattice (PCR reactivity-tracer).
 ///
-/// VueUse-style helpers declare both `(): Ref<T>` and
-/// `(options: { controls: true }): { field: Ref<T> } & Pausable`. Walking
-/// declarations last-wins used to keep only the bag, so `const x = useX()` never
-/// seeded a Ref. Prefer the Factory when both shapes appear for the same name.
+/// Prefer scalar [`ExportState::Factory`] over a later [`ExportState::Composable`]
+/// when ambient overloads disagree (`(): Ref` then controls bag). Keep
+/// graph-seeded [`ExportState::Known`] over provisional declare shapes.
 fn insert_local_export_state(
   locals: &mut BTreeMap<String, ExportState>,
   name: String,
