@@ -109,6 +109,7 @@ fn push_jsx_element(
     has_accessible_content,
     has_labelable_descendant: false,
     has_label_ancestor: false,
+    has_accessible_name_ancestor: false,
   });
 }
 

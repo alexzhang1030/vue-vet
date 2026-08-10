@@ -36,6 +36,7 @@ pub struct TemplateElementFact {
   /// True when the subtree exposes screen-reader content: non-whitespace text,
   /// interpolation, `v-text`/`v-html`, or `img`/`area` with a non-empty `alt`.
   /// Element-only trees (icon `<div>`s) are false even when `has_children` is true.
+  /// Vue component children also contribute (propagated from the template walk).
   #[serde(default)]
   pub has_accessible_content: bool,
   /// True when a labelable control (`input` / `textarea` / `select` / …) appears
@@ -47,6 +48,11 @@ pub struct TemplateElementFact {
   /// `form-control-has-label` (start-tag spans cannot prove nesting by containment).
   #[serde(default)]
   pub has_label_ancestor: bool,
+  /// True when nested under a Vue component that supplies a name-like prop
+  /// (`content` / `title` / `label` / `text` / `aria-label`), e.g. tooltip
+  /// wrappers around icon-only buttons.
+  #[serde(default)]
+  pub has_accessible_name_ancestor: bool,
 }
 
 impl TemplateElementFact {

@@ -111,6 +111,7 @@ fn file(path: &str, imports: &[(&str, &str)], tags: &[&str], calls: &[&str]) -> 
         has_accessible_content: false,
         has_labelable_descendant: false,
         has_label_ancestor: false,
+        has_accessible_name_ancestor: false,
       })
       .collect(),
     expressions: Vec::new(),

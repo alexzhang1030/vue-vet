@@ -22,6 +22,8 @@ pub(super) fn has_accessible_name_attrs(element: &TemplateElementFact) -> bool {
     || element.bound_attribute("aria-label").is_some()
     || element.attribute("aria-labelledby").is_some()
     || element.bound_attribute("aria-labelledby").is_some()
+    // Tooltip / menu wrappers that publish a name prop for their default slot.
+    || element.has_accessible_name_ancestor
 }
 
 #[must_use]
