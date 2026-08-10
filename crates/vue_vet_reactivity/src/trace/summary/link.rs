@@ -1203,6 +1203,13 @@ fn resolve_name_export_state(
     let target = links.get(&(module_id, import.source.as_str())).copied()?;
     return resolved.get(target)?.get(&import.imported).cloned();
   }
+  // Bare Nuxt / Vite auto-import: same `#nuxt-imports:{name}` shape as seed_plan_for.
+  // `ForwardReturn("useX")` must resolve when useX is auto-imported, not only ES-imported
+  // (`const storage = useX(); return storage` wrappers that call bare helpers).
+  let bare = format!("{NUXT_IMPORTS_SPECIFIER_PREFIX}{name}");
+  if let Some(target) = links.get(&(module_id, bare.as_str())).copied() {
+    return resolved.get(target)?.get(name).cloned();
+  }
   None
 }
 

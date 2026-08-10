@@ -1297,6 +1297,17 @@ impl ReturnKindAccum {
         self.open_reactive_spread = true;
         return;
       }
+      // `const storage = useX(); return storage` — forward to `useX`'s export kind at
+      // link time (same as `return useX()`). Covers storage helpers that return a
+      // local binding without a declared return type on the wrapper.
+      if let Some(callee) = initializer_call_callee_name(semantic, function_id, identifier) {
+        match &self.forward_callee {
+          None => self.forward_callee = Some(callee),
+          Some(existing) if existing == &callee => {}
+          Some(_) => self.forward_conflict = true,
+        }
+        return;
+      }
     }
     if let Expression::CallExpression(call) = expression
       && let Some(forwarded) = resolve_call_return_forward(
@@ -2174,25 +2185,65 @@ fn identifier_initialized_with_to_refs(
   identifier: &oxc_ast::ast::IdentifierReference<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
 ) -> bool {
-  // Resolve via the return identifier's symbol — O(1) vs scanning all nodes.
-  let Some(reference_id) = identifier.reference_id.get() else {
-    return false;
-  };
-  let Some(symbol_id) = semantic.scoping().get_reference(reference_id).symbol_id() else {
-    return false;
-  };
-  let decl = semantic.symbol_declaration(symbol_id);
-  let AstKind::VariableDeclarator(declarator) = decl.kind() else {
-    return false;
-  };
-  let owned_here = semantic.nodes().ancestor_ids(decl.id()).any(|ancestor| ancestor == function_id);
-  if !owned_here {
-    return false;
-  }
-  let Some(init) = &declarator.init else {
+  let Some(init) = identifier_initializer_expression(semantic, function_id, identifier) else {
     return false;
   };
   is_to_refs_call(semantic, init, imported_bindings)
+}
+
+/// `const local = callee(...)` / `const local = await callee(...)` owned by `function_id`.
+///
+/// Returns the bare callee name for export forwarding (`return local` ≡ `return callee()`).
+fn initializer_call_callee_name(
+  semantic: &oxc_semantic::Semantic<'_>,
+  function_id: NodeId,
+  identifier: &oxc_ast::ast::IdentifierReference<'_>,
+) -> Option<String> {
+  let init = identifier_initializer_expression(semantic, function_id, identifier)?;
+  let call = call_expression_from_init(init)?;
+  let callee = call.callee.get_identifier_reference()?;
+  // Skip Vue primitives — those stay on the scalar factory path via graph seeds.
+  if reactive_binding_kind(callee.name.as_str()).is_some() {
+    return None;
+  }
+  Some(callee.name.to_string())
+}
+
+fn identifier_initializer_expression<'a>(
+  semantic: &'a oxc_semantic::Semantic<'a>,
+  function_id: NodeId,
+  identifier: &oxc_ast::ast::IdentifierReference<'_>,
+) -> Option<&'a Expression<'a>> {
+  let reference_id = identifier.reference_id.get()?;
+  let symbol_id = semantic.scoping().get_reference(reference_id).symbol_id()?;
+  let decl = semantic.symbol_declaration(symbol_id);
+  let AstKind::VariableDeclarator(declarator) = decl.kind() else {
+    return None;
+  };
+  let owned_here = semantic.nodes().ancestor_ids(decl.id()).any(|ancestor| ancestor == function_id);
+  if !owned_here {
+    return None;
+  }
+  declarator.init.as_ref()
+}
+
+/// Peel `await` / TS assertions / non-null to reach an underlying call expression.
+fn call_expression_from_init<'a>(
+  expression: &'a Expression<'a>,
+) -> Option<&'a oxc_ast::ast::CallExpression<'a>> {
+  let mut current = expression;
+  for _ in 0..4 {
+    match current {
+      Expression::CallExpression(call) => return Some(call),
+      Expression::AwaitExpression(await_expr) => current = &await_expr.argument,
+      Expression::TSAsExpression(assertion) => current = &assertion.expression,
+      Expression::TSTypeAssertion(assertion) => current = &assertion.expression,
+      Expression::TSNonNullExpression(non_null) => current = &non_null.expression,
+      Expression::ParenthesizedExpression(paren) => current = &paren.expression,
+      _ => return None,
+    }
+  }
+  None
 }
 
 fn resolve_call_return_forward(
