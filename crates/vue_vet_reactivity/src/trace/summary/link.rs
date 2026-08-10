@@ -23,7 +23,7 @@ use super::{
   ModuleExportFacts, ModuleLink, ModulePhaseOne, ModuleReactivity, ModuleSource, ModuleSummary,
   NUXT_IMPORTS_RANGE_END, NUXT_IMPORTS_SPECIFIER_PREFIX, OptionsCallbackSlots, TraceModulesError,
   TypedCallbackParamSlots, ValueBag, ValueBagEntry, analyze_module_phase_one_cached,
-  collect_imports, join_errors, source_type,
+  collect_imports, export_lattice, join_errors, source_type,
 };
 
 /// Concurrency limit for cross-module tracing.
@@ -1280,18 +1280,6 @@ fn insert_export(
   }
 }
 
-const fn is_seedable_export_state(state: &ExportState) -> bool {
-  matches!(
-    state,
-    ExportState::Known(_)
-      | ExportState::Factory(_)
-      | ExportState::Composable(_)
-      | ExportState::ValueFactory(_)
-      | ExportState::ValueBag(_)
-      | ExportState::ComponentFactory
-  )
-}
-
 /// Propagate options-callback slots through `export { x } from` / `export *` barrels.
 ///
 /// Independent of [`resolve_exports`]: a `declare function` may publish callback bags
@@ -1654,7 +1642,7 @@ fn seed_plan_for(
     else {
       continue;
     };
-    if !is_seedable_export_state(state) {
+    if !export_lattice::is_seedable(state) {
       continue;
     }
     // Only the resolved export state crosses the barrier (not source text / graphs).
@@ -1695,7 +1683,7 @@ fn seed_plan_for(
     else {
       continue;
     };
-    if !is_seedable_export_state(state) {
+    if !export_lattice::is_seedable(state) {
       continue;
     }
     plan.insert(name.to_owned(), state.clone());

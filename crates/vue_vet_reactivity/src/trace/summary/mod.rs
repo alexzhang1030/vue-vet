@@ -1077,30 +1077,14 @@ const fn export_kind_is_ref_like(kind: ReactiveBindingKind) -> bool {
   )
 }
 
-/// Insert / merge a local export per the A6 lattice (PCR reactivity-tracer).
-///
-/// Prefer scalar [`ExportState::Factory`] over a later [`ExportState::Composable`]
-/// when ambient overloads disagree (`(): Ref` then controls bag). Keep
-/// graph-seeded [`ExportState::Known`] over provisional declare shapes.
+/// Insert / merge a local export per the A6 lattice ([`export_lattice`]).
 fn insert_local_export_state(
   locals: &mut BTreeMap<String, ExportState>,
   name: String,
   state: ExportState,
 ) {
-  let keep_existing = match locals.get(&name) {
-    // Scalar overload wins over a later controls/object bag overload.
-    Some(ExportState::Factory(_)) if matches!(state, ExportState::Composable(_)) => true,
-    // Graph-seeded Known wins over provisional declare shapes.
-    Some(ExportState::Known(_))
-      if matches!(state, ExportState::Composable(_) | ExportState::Factory(_)) =>
-    {
-      true
-    }
-    _ => false,
-  };
-  if !keep_existing {
-    locals.insert(name, state);
-  }
+  let merged = export_lattice::merge_local(locals.get(&name), state);
+  locals.insert(name, merged);
 }
 
 fn composable_export_state(
@@ -3032,6 +3016,7 @@ pub(super) fn join_errors(errors: &[impl ToString]) -> String {
   errors.iter().map(ToString::to_string).collect::<Vec<_>>().join("; ")
 }
 
+mod export_lattice;
 mod link;
 mod options_callback;
 mod typed_callback;
