@@ -1,13 +1,14 @@
 //! Pure A6 [`ExportState`] lattice operations (no AST).
 //!
 //! Contract: [reactivity tracer PCR](../../../../../../.agents/docs/reactivity-tracer.md)
-//! — seedable vs provisional, local merge, name resolve, publish barrier.
+//! — seedable vs provisional, local merge, name resolve, pending fields,
+//! `MethodForward` refine, publish barrier.
 
 use std::collections::BTreeMap;
 
-use vue_vet_core::ModuleId;
+use vue_vet_core::{ModuleId, ReactiveBindingKind};
 
-use super::ExportState;
+use super::{ComposableShape, ExportState, ValueBagEntry};
 
 /// Max `ForwardReturn` chain depth (depth starts at 0; `depth > this` → `None`).
 pub(super) const NAME_RESOLVE_MAX_DEPTH: u8 = 8;
@@ -112,6 +113,106 @@ where
     return resolved_export(&target, name);
   }
   None
+}
+
+/// Outcome of publishing `next` over an already-published `existing` export.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum PublishMerge {
+  /// Same state, or existing is already [`ExportState::Ambiguous`] — map unchanged.
+  Unchanged,
+  /// Same seedable class (`ValueFactory` / `ValueBag` / Composable) — replace with refinement.
+  Replace,
+  /// Conflicting seedable evidence — publish [`ExportState::Ambiguous`].
+  Ambiguous,
+}
+
+/// How two successive seedable publishes of the same export name combine.
+///
+/// Same-class bag refinements replace; anything else becomes Ambiguous.
+/// Sticky Ambiguous is never overwritten (fail closed).
+#[must_use]
+pub(super) fn merge_published(existing: &ExportState, next: &ExportState) -> PublishMerge {
+  if existing == next || *existing == ExportState::Ambiguous {
+    return PublishMerge::Unchanged;
+  }
+  match (existing, next) {
+    (ExportState::ValueFactory(_), ExportState::ValueFactory(_))
+    | (ExportState::ValueBag(_), ExportState::ValueBag(_))
+    | (ExportState::Composable(_), ExportState::Composable(_)) => PublishMerge::Replace,
+    _ => PublishMerge::Ambiguous,
+  }
+}
+
+/// Resolve a pending bag field against the already-resolved root export state.
+///
+/// - Empty `path`: `const { field } = useX()` → [`ExportState::Composable`] field lookup.
+/// - Non-empty path: `ValueBag` walk then method / `MethodFactory` leaf.
+///
+/// Under-approx: wrong root class, unresolved path, or `MethodForward` leaf → `None`.
+#[must_use]
+pub(super) fn resolve_pending_field(
+  root: &ExportState,
+  path: &[String],
+  field: &str,
+) -> Option<ReactiveBindingKind> {
+  if path.is_empty() {
+    let ExportState::Composable(shape) = root else {
+      return None;
+    };
+    return shape.fields.get(field).copied();
+  }
+  let (ExportState::ValueBag(bag) | ExportState::ValueFactory(bag)) = root else {
+    return None;
+  };
+  match bag.resolve_path(path)? {
+    ValueBagEntry::Method(method_shape) => method_shape.kind_for_destructure(field),
+    ValueBagEntry::MethodFactory(kind) => Some(*kind),
+    ValueBagEntry::MethodForward(_)
+    | ValueBagEntry::MethodGeneric(_)
+    | ValueBagEntry::Nested(_) => None,
+  }
+}
+
+/// Refine a [`ValueBagEntry::MethodForward`] once its callee export is known.
+///
+/// Unresolved / non-matching callee keeps the forward marker (under-approx).
+#[must_use]
+pub(super) fn refine_method_forward(resolved: &ExportState, callee: String) -> ValueBagEntry {
+  match resolved {
+    ExportState::Composable(shape) => ValueBagEntry::Method(shape.clone()),
+    ExportState::Factory(kind) => ValueBagEntry::MethodFactory(*kind),
+    ExportState::ValueFactory(nested) | ExportState::ValueBag(nested) => {
+      ValueBagEntry::Nested(nested.clone())
+    }
+    _ => ValueBagEntry::MethodForward(callee),
+  }
+}
+
+/// Refine [`ExportState::GenericMethodInstantiate`] against the callee bag.
+///
+/// - Callee is ValueFactory/ValueBag with `MethodGeneric(i)` at `property` and a
+///   non-empty type-arg shape → [`ExportState::Composable`].
+/// - Callee bag present but property/index miss → [`ExportState::Ambiguous`].
+/// - Callee not yet a bag → keep the instantiate marker.
+#[must_use]
+pub(super) fn refine_generic_method_instantiate(
+  callee_state: Option<&ExportState>,
+  property: &str,
+  type_arg_shapes: &[ComposableShape],
+  keep: ExportState,
+) -> ExportState {
+  match callee_state {
+    Some(ExportState::ValueFactory(bag) | ExportState::ValueBag(bag)) => {
+      match bag.entries.get(property) {
+        Some(ValueBagEntry::MethodGeneric(index)) => type_arg_shapes
+          .get(*index as usize)
+          .filter(|shape| !shape.is_empty())
+          .map_or(ExportState::Ambiguous, |shape| ExportState::Composable(shape.clone())),
+        _ => ExportState::Ambiguous,
+      }
+    }
+    _ => keep,
+  }
 }
 
 #[cfg(test)]
@@ -317,5 +418,174 @@ mod tests {
     }
     chain.insert("n20".into(), factory_ref());
     assert_eq!(resolve_name_export_state("n0", &chain, &[], |_| None, |_, _| None, 0), None);
+  }
+
+  fn composable_with(field: &str, kind: ReactiveBindingKind) -> ExportState {
+    let mut fields = BTreeMap::new();
+    fields.insert(field.into(), kind);
+    ExportState::Composable(super::super::ComposableShape::from_fields(fields))
+  }
+
+  #[test]
+  fn publish_merge_same_class_bags_replace() {
+    use super::super::{ValueBag, ValueBagEntry};
+    let a = ExportState::Composable(super::super::ComposableShape::default());
+    let b = composable_with("x", ReactiveBindingKind::Ref);
+    assert_eq!(merge_published(&a, &b), PublishMerge::Replace);
+    let empty_factory = ExportState::ValueFactory(ValueBag::default());
+    let refined_factory = ExportState::ValueFactory(ValueBag {
+      entries: BTreeMap::from([(
+        "useX".into(),
+        ValueBagEntry::MethodFactory(ReactiveBindingKind::Ref),
+      )]),
+    });
+    assert_eq!(merge_published(&empty_factory, &refined_factory), PublishMerge::Replace);
+  }
+
+  #[test]
+  fn publish_merge_conflict_becomes_ambiguous() {
+    assert_eq!(merge_published(&factory_ref(), &known_ref()), PublishMerge::Ambiguous);
+  }
+
+  #[test]
+  fn publish_merge_sticky_ambiguous_and_identity() {
+    assert_eq!(merge_published(&ExportState::Ambiguous, &factory_ref()), PublishMerge::Unchanged);
+    assert_eq!(merge_published(&factory_ref(), &factory_ref()), PublishMerge::Unchanged);
+  }
+
+  #[test]
+  fn pending_empty_path_reads_composable_field() {
+    let root = composable_with("isLoading", ReactiveBindingKind::Ref);
+    assert_eq!(resolve_pending_field(&root, &[], "isLoading"), Some(ReactiveBindingKind::Ref));
+    assert_eq!(resolve_pending_field(&root, &[], "missing"), None);
+    assert_eq!(resolve_pending_field(&factory_ref(), &[], "x"), None);
+  }
+
+  #[test]
+  fn pending_path_walks_value_bag_method_factory() {
+    use super::super::{ValueBag, ValueBagEntry};
+    let bag = ValueBag {
+      entries: BTreeMap::from([(
+        "maps".into(),
+        ValueBagEntry::Nested(ValueBag {
+          entries: BTreeMap::from([(
+            "useX".into(),
+            ValueBagEntry::MethodFactory(ReactiveBindingKind::Computed),
+          )]),
+        }),
+      )]),
+    };
+    let root = ExportState::ValueFactory(bag);
+    let path = vec!["maps".into(), "useX".into()];
+    assert_eq!(resolve_pending_field(&root, &path, "ignored"), Some(ReactiveBindingKind::Computed));
+  }
+
+  #[test]
+  fn pending_path_method_shape_destructure() {
+    use super::super::{ValueBag, ValueBagEntry};
+    let mut fields = BTreeMap::new();
+    fields.insert("count".into(), ReactiveBindingKind::Ref);
+    let bag = ValueBag {
+      entries: BTreeMap::from([(
+        "useX".into(),
+        ValueBagEntry::Method(super::super::ComposableShape::from_fields(fields)),
+      )]),
+    };
+    let root = ExportState::ValueBag(bag);
+    assert_eq!(
+      resolve_pending_field(&root, &["useX".into()], "count"),
+      Some(ReactiveBindingKind::Ref)
+    );
+  }
+
+  #[test]
+  fn pending_unresolved_forward_leaf_stays_none() {
+    use super::super::{ValueBag, ValueBagEntry};
+    let bag = ValueBag {
+      entries: BTreeMap::from([("useX".into(), ValueBagEntry::MethodForward("other".into()))]),
+    };
+    assert_eq!(resolve_pending_field(&ExportState::ValueFactory(bag), &["useX".into()], "a"), None);
+  }
+
+  #[test]
+  fn method_forward_refines_to_method_factory_or_nested() {
+    use super::super::{ValueBag, ValueBagEntry};
+    assert_eq!(
+      refine_method_forward(&empty_composable(), "useX".into()),
+      ValueBagEntry::Method(super::super::ComposableShape::default())
+    );
+    assert_eq!(
+      refine_method_forward(&factory_ref(), "useX".into()),
+      ValueBagEntry::MethodFactory(ReactiveBindingKind::Ref)
+    );
+    let nested = ValueBag::default();
+    assert_eq!(
+      refine_method_forward(&ExportState::ValueFactory(nested.clone()), "useX".into()),
+      ValueBagEntry::Nested(nested)
+    );
+    assert_eq!(
+      refine_method_forward(&ExportState::ForwardReturn("x".into()), "useX".into()),
+      ValueBagEntry::MethodForward("useX".into())
+    );
+  }
+
+  #[test]
+  fn generic_instantiate_promotes_non_empty_type_arg() {
+    use super::super::{ValueBag, ValueBagEntry};
+    let mut fields = BTreeMap::new();
+    fields.insert("state".into(), ReactiveBindingKind::Ref);
+    let shape = super::super::ComposableShape::from_fields(fields);
+    let bag =
+      ValueBag { entries: BTreeMap::from([("useInject".into(), ValueBagEntry::MethodGeneric(0))]) };
+    let keep = ExportState::GenericMethodInstantiate {
+      callee: "createContext".into(),
+      property: "useInject".into(),
+      type_arg_shapes: vec![shape.clone()],
+    };
+    let promoted = refine_generic_method_instantiate(
+      Some(&ExportState::ValueFactory(bag)),
+      "useInject",
+      std::slice::from_ref(&shape),
+      keep,
+    );
+    assert_eq!(promoted, ExportState::Composable(shape));
+  }
+
+  #[test]
+  fn generic_instantiate_keeps_marker_until_callee_is_bag() {
+    let shape = super::super::ComposableShape::default();
+    let keep = ExportState::GenericMethodInstantiate {
+      callee: "createContext".into(),
+      property: "useInject".into(),
+      type_arg_shapes: vec![shape.clone()],
+    };
+    let still = refine_generic_method_instantiate(None, "useInject", &[shape], keep.clone());
+    assert_eq!(still, keep);
+  }
+
+  #[test]
+  fn generic_instantiate_empty_shape_or_miss_is_ambiguous() {
+    use super::super::{ValueBag, ValueBagEntry};
+    let empty = super::super::ComposableShape::default();
+    let bag =
+      ValueBag { entries: BTreeMap::from([("useInject".into(), ValueBagEntry::MethodGeneric(0))]) };
+    let keep = ExportState::GenericMethodInstantiate {
+      callee: "c".into(),
+      property: "useInject".into(),
+      type_arg_shapes: vec![empty.clone()],
+    };
+    assert_eq!(
+      refine_generic_method_instantiate(
+        Some(&ExportState::ValueBag(bag.clone())),
+        "useInject",
+        &[empty],
+        keep.clone(),
+      ),
+      ExportState::Ambiguous
+    );
+    assert_eq!(
+      refine_generic_method_instantiate(Some(&ExportState::ValueBag(bag)), "missing", &[], keep,),
+      ExportState::Ambiguous
+    );
   }
 }
