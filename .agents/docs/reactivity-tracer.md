@@ -112,6 +112,9 @@ Axes A0–A7 can be **complete** while this lattice still gains **contract
 refinements** — refinements bump `REACTIVITY_GRAPH_VERSION` / project
 `CONVENTIONS_VERSION`, not a new axis.
 
+Executable merge/seedable checks live in
+`crates/vue_vet_reactivity/src/trace/summary/export_lattice.rs` (pure, no AST).
+
 ### In-scope complete checklists
 
 | Axis | Checklist (all required for `complete`) |
