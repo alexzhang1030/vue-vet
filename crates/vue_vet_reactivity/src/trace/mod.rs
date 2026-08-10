@@ -661,7 +661,7 @@ fn resolved_vue_callee(
 ) -> Option<String> {
   if let Some(identifier) = callee.get_identifier_reference() {
     let local = identifier.name.as_str();
-    if matches!(local, "defineModel" | "defineProps" | "withDefaults")
+    if matches!(local, "defineModel" | "defineModels" | "defineProps" | "withDefaults")
       && kind == ScriptKind::Setup
       && !imported_bindings.contains_key(local)
     {
@@ -672,7 +672,7 @@ fn resolved_vue_callee(
     }
     // Nuxt / unplugin-auto-import: bare `ref()` / `watchEffect()` with no local binding.
     // Compiler macros stay setup-only (handled above); do not invent them in ordinary scripts.
-    if !matches!(local, "defineModel" | "defineProps" | "withDefaults")
+    if !matches!(local, "defineModel" | "defineModels" | "defineProps" | "withDefaults")
       && known_reactivity_export("vue", local)
       && identifier_reference_is_unresolved(semantic, identifier)
     {
@@ -750,7 +750,9 @@ fn reactive_binding_kind(callee: &str) -> Option<ReactiveBindingKind> {
     "customRef" => Some(ReactiveBindingKind::CustomRef),
     "toRef" | "toRefs" | "storeToRefs" => Some(ReactiveBindingKind::ToRef),
     "useTemplateRef" => Some(ReactiveBindingKind::TemplateRef),
-    "defineModel" => Some(ReactiveBindingKind::ModelRef),
+    // `defineModel` is the Vue compiler macro; `defineModels` is Vue Macros' multi-model
+    // form (`const { modelValue } = defineModels<{…}>()`), each local is a writable ref.
+    "defineModel" | "defineModels" => Some(ReactiveBindingKind::ModelRef),
     _ => None,
   }
 }
@@ -1452,8 +1454,9 @@ fn collect_reactive_bindings(
     }
 
     let mut identifiers = Vec::new();
-    if matches!(callee.as_str(), "toRefs" | "storeToRefs") {
-      // `const { count, name } = storeToRefs(store)` / `toRefs(obj)` → each local is ref-like.
+    if matches!(callee.as_str(), "toRefs" | "storeToRefs" | "defineModels") {
+      // `const { count, name } = storeToRefs(store)` / `toRefs(obj)` /
+      // `const { modelValue } = defineModels<{…}>()` → each local is ref-like.
       if matches!(&declarator.id, BindingPattern::ObjectPattern(_)) {
         collect_binding_identifiers(&declarator.id, &mut identifiers);
       }

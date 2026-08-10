@@ -1,5 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-const x = ref(0)
+
+const text = ref('')
 </script>
-<template>{{ x }}</template>
+
+<template>
+  <input v-model="text" />
+</template>

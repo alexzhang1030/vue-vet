@@ -76,14 +76,16 @@ External showcase apps are reviewed offline only (licenses + mutable trees). Do
 not add them to `fixtures/quality/manifest.json` unless they become checksummed,
 project-owned fixtures.
 
-Captured 2026-07-27 with `vue-vet` at `CONVENTIONS_VERSION` 4 (post a11y /
-RouterLink work). Re-run offline after major a11y or project-graph changes.
+Captured 2026-08-10 with `vue-vet` at tip (post `defineModels` ModelRef seeds).
+Re-run offline after major a11y, project-graph, or tracer binding changes.
+Require `pnpm install` (or equivalent) so package resolution is External rather
+than unresolved-import noise.
 
 | Repo | License | Setup | Observed findings (informational) |
 | --- | --- | --- | --- |
-| [antfu/vitesse-lite](https://github.com/antfu/vitesse-lite) @ tip | MIT | `pnpm install` | No crash. Icon-only footer controls: `anchor-has-content` / `button-has-content` (static `title` may carry safe `aria-label` insert). |
+| [antfu/vitesse-lite](https://github.com/antfu/vitesse-lite) @ tip | MIT | `pnpm install` | No crash. Icon-only footer: `button-has-content` + `anchor-has-content` (static `title="GitHub"` carries safe `aria-label` insert). `TheInput` `form-control-has-label` (reusable control with `id` + `$attrs`). Standard `defineModel()` stays quiet. |
 | [nuxt/starter](https://github.com/nuxt/starter) `v4` | MIT | `pnpm install` | No crash; **0** findings on the minimal app. |
-| [antfu/vitesse](https://github.com/antfu/vitesse) @ tip | MIT | `pnpm install` | No crash; **5** on `TheFooter.vue` — icon-only `RouterLink`×2, `<button>`, `<a>`×2 (`anchor-has-content` / `button-has-content`; GitHub static `title` has safe `aria-label` insert). |
+| [antfu/vitesse](https://github.com/antfu/vitesse) @ tip | MIT | `pnpm install` | No crash. Footer icon controls: `anchor-has-content`×4 + `button-has-content` (bound `:title` stays report-only; static GitHub `title` has safe edit). `TheInput` `form-control-has-label`. Vue Macros `defineModels` destructure is **quiet** for `v-model` (was a false positive before ModelRef seeds). |
 
 Corpus coverage that pins the same classes of issue in CI:
 
@@ -92,6 +94,7 @@ Corpus coverage that pins the same classes of issue in CI:
 - Prop under-approx quiet gaps → `prop-flow` (`SpreadChild` whole-object `v-bind`; computed/bracket/call expressions)
 - Unique-key provide/inject → `provide-inject`
 - Core reactivity lint TPs → `reactivity-rules` (+ after-await in `module-seeds`)
+- `defineModel` / `defineModels` quiet for `no-v-model-nonreactive-source` → rule fixtures under `fixtures/rules/no-v-model-nonreactive-source`
 
 Still expected quiet outside CI corpus: Vite-only aliases not in tsconfig,
 dynamic imports, App Tree provide/inject beyond the unique-key index.
