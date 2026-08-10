@@ -3569,6 +3569,72 @@ fn return_of_call_initialized_local_forwards_factory() {
 }
 
 #[test]
+fn ternary_export_of_computed_and_factory_seeds_known() {
+  // SSR/test: `computed(() => …)`; client: storage factory — both ref-like.
+  // `export const bag = cond ? computed(...) : usePersisted(...)` must seed consumers.
+  let storage = prepared_standalone(
+    "storage.ts",
+    "import type { Ref } from 'vue';
+     import { shallowRef } from 'vue';
+     export function usePersisted<T>(init: T): Ref<T> {
+       return shallowRef(init);
+     }
+",
+    "ts",
+  );
+  let producer = prepared_standalone(
+    "producer.ts",
+    "import { computed } from 'vue';
+     const ssr = false;
+     export const sharedBag = ssr
+       ? computed(() => ({ a: 1 }))
+       : usePersisted({ a: 1 });
+",
+    "ts",
+  );
+  let consumer = prepared_standalone(
+    "consumer.ts",
+    "import { computed } from 'vue';
+     const keys = computed(() => Object.keys(sharedBag.value));
+",
+    "ts",
+  );
+  let links = [
+    ModuleLink {
+      from: "producer.ts".into(),
+      specifier: "#nuxt-imports:usePersisted".into(),
+      to: "storage.ts".into(),
+    },
+    ModuleLink {
+      from: "consumer.ts".into(),
+      specifier: "#nuxt-imports:sharedBag".into(),
+      to: "producer.ts".into(),
+    },
+  ];
+  let traced = traced_modules(&[storage, producer, consumer], &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.bindings.iter().any(|binding| {
+        binding.name == "sharedBag"
+          && matches!(
+            binding.kind,
+            ReactiveBindingKind::Ref
+              | ReactiveBindingKind::ShallowRef
+              | ReactiveBindingKind::Computed
+          )
+      }) && (module.graph.edges.iter().any(|edge| edge.from == "keys" && edge.to == "sharedBag")
+        || module.graph.scopes.iter().any(|scope| {
+          scope.binding.as_deref() == Some("keys")
+            && scope.reads.iter().any(|read| read.binding == "sharedBag")
+        }))
+    }),
+    "ternary computed|factory export must seed Known ref-like; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.edges, &module.graph.scopes))
+  );
+}
+
+#[test]
 fn return_renames_destructured_composable_field() {
   // `const { items } = useBag(); return { rows: items }` — pending composable field
   // resolves at link time so consumers see `rows` as Ref-like.
