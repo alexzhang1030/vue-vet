@@ -13,6 +13,7 @@ use std::{
 };
 
 use vue_vet_core::ModuleId;
+use vue_vet_plugins::default_named_api_bags;
 use vue_vet_reactivity::{TraceModulesOptions, trace_modules_incremental_with_options};
 
 use crate::context::ProjectContext;
@@ -34,14 +35,16 @@ mod tests;
 
 #[must_use]
 pub fn build_project_graph(root: &Path, files: &[ProjectFile]) -> ProjectGraph {
-  build_project_graph_with_options(root, files, TraceModulesOptions::default())
+  let options =
+    TraceModulesOptions { named_api_bags: default_named_api_bags().to_vec(), ..Default::default() };
+  build_project_graph_with_options(root, files, &options)
 }
 
 #[must_use]
 pub fn build_project_graph_with_options(
   root: &Path,
   files: &[ProjectFile],
-  trace_options: TraceModulesOptions,
+  trace_options: &TraceModulesOptions,
 ) -> ProjectGraph {
   let root = normalize_project_root(root);
   let known =
@@ -61,7 +64,7 @@ pub fn build_project_graph_with_options(
 pub fn build_project_graph_incremental_with_options<'a>(
   root: &Path,
   files: impl IntoIterator<Item = &'a ProjectFile>,
-  trace_options: TraceModulesOptions,
+  trace_options: &TraceModulesOptions,
   project_context: &ProjectContext,
   state: &mut ProjectGraphState,
   on_external_seeds: Option<&dyn Fn(usize)>,

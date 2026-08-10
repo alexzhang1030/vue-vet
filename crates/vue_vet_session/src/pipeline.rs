@@ -23,6 +23,7 @@ use vue_vet_core::{
   Severity, SfcFacts, SourceSpan, TemplateFacts, content_digest, serde_digest,
 };
 use vue_vet_oxc::analyze_module_source;
+use vue_vet_plugins::default_named_api_bags;
 use vue_vet_project::{
   ContextEpochs, ProjectFile, ProjectGraph, ProjectGraphState,
   build_project_graph_incremental_with_options,
@@ -351,10 +352,16 @@ fn scan_parallel(
     }
   });
   let on_external_ref = on_external.as_ref().map(|callback| callback as &dyn Fn(usize));
+  let trace_options = TraceModulesOptions {
+    max_workers,
+    reuse_current_pool: true,
+    named_api_bags: default_named_api_bags().to_vec(),
+    ..Default::default()
+  };
   let graph = build_project_graph_incremental_with_options(
     &input.boundary,
     project_files.iter().map(AsRef::as_ref),
-    TraceModulesOptions { max_workers, reuse_current_pool: true, ..Default::default() },
+    &trace_options,
     &input.project_context,
     &mut state.project,
     on_external_ref,

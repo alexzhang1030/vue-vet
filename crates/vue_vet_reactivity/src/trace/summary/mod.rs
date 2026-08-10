@@ -579,7 +579,7 @@ pub fn prepare_standalone_module_source(
   language: impl Into<String>,
 ) -> Result<ModuleSource, TraceModulesError> {
   let module = ModuleSource::standalone(id, source, language, ScriptKind::Script);
-  let phase = analyze_module_phase_one(&module)?;
+  let phase = analyze_module_phase_one(&module, &super::TraceConfig::empty())?;
   Ok(module.with_module_summary(phase.facts.summary))
 }
 
@@ -593,6 +593,25 @@ pub fn prepare_module_summary(
   kind: ScriptKind,
   local_graph: impl Into<Arc<ReactivityGraph>>,
 ) -> ModuleSummary {
+  prepare_module_summary_with_config(
+    semantic,
+    span_source,
+    source_offset,
+    kind,
+    local_graph,
+    &super::TraceConfig::empty(),
+  )
+}
+
+/// Prepare a module summary with an explicit plugin API-bag catalog.
+pub fn prepare_module_summary_with_config(
+  semantic: &Semantic<'_>,
+  span_source: &str,
+  source_offset: usize,
+  kind: ScriptKind,
+  local_graph: impl Into<Arc<ReactivityGraph>>,
+  config: &super::TraceConfig<'_>,
+) -> ModuleSummary {
   let local_graph = local_graph.into();
   let imports = collect_imports(semantic);
   let exports = collect_exports(semantic);
@@ -604,6 +623,7 @@ pub fn prepare_module_summary(
       source_offset,
       kind,
       true,
+      config.named_api_bags,
     )
     .bindings,
     ..ReactivityGraph::default()
@@ -654,6 +674,7 @@ pub(super) struct ModulePhaseOne {
 pub(super) fn analyze_module_phase_one_cached(
   module: &ModuleSource,
   cached: Option<(&ModuleSource, &Arc<ModuleSummary>)>,
+  config: &super::TraceConfig<'_>,
 ) -> Result<ModulePhaseOne, TraceModulesError> {
   if let Some(summary) = &module.module_summary {
     return Ok(phase_one_from_summary(module, summary));
@@ -663,11 +684,12 @@ pub(super) fn analyze_module_phase_one_cached(
   {
     return Ok(phase_one_from_summary(module, summary));
   }
-  analyze_module_phase_one(module)
+  analyze_module_phase_one(module, config)
 }
 
 pub(super) fn analyze_module_phase_one(
   module: &ModuleSource,
+  config: &super::TraceConfig<'_>,
 ) -> Result<ModulePhaseOne, TraceModulesError> {
   if let Some(summary) = &module.module_summary {
     return Ok(phase_one_from_summary(module, summary));
@@ -698,13 +720,15 @@ pub(super) fn analyze_module_phase_one(
     module.source_offset,
     module.kind,
     &empty,
+    config,
   ));
-  let summary = Arc::new(prepare_module_summary(
+  let summary = Arc::new(prepare_module_summary_with_config(
     &semantic,
     module.span_origin(),
     module.source_offset,
     module.kind,
     Arc::clone(&local_graph),
+    config,
   ));
   Ok(phase_one_from_summary(module, &summary))
 }

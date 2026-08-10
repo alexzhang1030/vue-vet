@@ -4060,6 +4060,15 @@ dependencies = [
  "oxc_syntax",
  "thiserror 2.0.18",
  "vue_vet_core",
+ "vue_vet_plugins",
+ "vue_vet_reactivity",
+]
+
+[[package]]
+name = "vue_vet_plugins"
+version = "0.1.19"
+dependencies = [
+ "vue_vet_core",
  "vue_vet_reactivity",
 ]
 
@@ -4078,6 +4087,7 @@ dependencies = [
  "serde",
  "serde_json",
  "vue_vet_core",
+ "vue_vet_plugins",
  "vue_vet_reactivity",
 ]
 
@@ -4128,6 +4138,7 @@ dependencies = [
  "vue_vet_config",
  "vue_vet_core",
  "vue_vet_oxc",
+ "vue_vet_plugins",
  "vue_vet_practice",
  "vue_vet_project",
  "vue_vet_reactivity",

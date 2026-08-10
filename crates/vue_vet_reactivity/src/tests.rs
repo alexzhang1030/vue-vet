@@ -11,11 +11,71 @@ use vue_vet_core::{
 };
 
 use super::{
-  ModuleLink, ModuleReactivity, ModuleSource, ModuleTraceState, TraceModulesOptions,
-  merge_declaration_implementation_summary, prepare_module_summary,
+  ModuleLink, ModuleReactivity, ModuleSource, ModuleTraceState, NamedApiBag, TraceConfig,
+  TraceModulesOptions, merge_declaration_implementation_summary, prepare_module_summary,
   prepare_standalone_module_source, trace_modules, trace_modules_incremental_with_options,
-  trace_reactivity,
+  trace_reactivity_with_config,
 };
+
+/// Test fixture catalog mirroring production `vue_vet_plugins` defaults.
+/// Engine unit tests must not depend on the plugins crate (avoids a dep cycle).
+fn fixture_named_api_bags() -> &'static [NamedApiBag] {
+  fn async_data_field_kind(field: &str) -> Option<ReactiveBindingKind> {
+    match field {
+      "data" | "pending" | "error" | "status" => Some(ReactiveBindingKind::Ref),
+      _ => None,
+    }
+  }
+  fn i18n_field_kind(field: &str) -> Option<ReactiveBindingKind> {
+    match field {
+      "locale" | "fallbackLocale" | "locales" | "messages" | "availableLocales" => {
+        Some(ReactiveBindingKind::Computed)
+      }
+      _ => None,
+    }
+  }
+  static BAGS: &[NamedApiBag] = &[
+    NamedApiBag {
+      callee: "useAsyncData",
+      field_kind: async_data_field_kind,
+      ambient_methods: &[],
+      ambient_fields: &[],
+    },
+    NamedApiBag {
+      callee: "useFetch",
+      field_kind: async_data_field_kind,
+      ambient_methods: &[],
+      ambient_fields: &[],
+    },
+    NamedApiBag {
+      callee: "useI18n",
+      field_kind: i18n_field_kind,
+      ambient_methods: &["t", "d", "n", "rt", "te"],
+      ambient_fields: &["locale", "fallbackLocale", "messages"],
+    },
+    NamedApiBag {
+      callee: "useLazyAsyncData",
+      field_kind: async_data_field_kind,
+      ambient_methods: &[],
+      ambient_fields: &[],
+    },
+    NamedApiBag {
+      callee: "useLazyFetch",
+      field_kind: async_data_field_kind,
+      ambient_methods: &[],
+      ambient_fields: &[],
+    },
+  ];
+  BAGS
+}
+
+fn default_trace_config() -> TraceConfig<'static> {
+  TraceConfig { named_api_bags: fixture_named_api_bags() }
+}
+
+fn default_trace_options() -> TraceModulesOptions {
+  TraceModulesOptions { named_api_bags: fixture_named_api_bags().to_vec(), ..Default::default() }
+}
 
 fn trace(
   sfc_source: &str,
@@ -28,7 +88,13 @@ fn trace(
   assert!(parsed.errors.is_empty(), "script parsing unexpectedly failed: {:?}", parsed.errors);
   let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
   assert!(built.errors.is_empty(), "semantic analysis unexpectedly failed: {:?}", built.errors);
-  trace_reactivity(&built.semantic, sfc_source, script_offset, kind)
+  trace_reactivity_with_config(
+    &built.semantic,
+    sfc_source,
+    script_offset,
+    kind,
+    &default_trace_config(),
+  )
 }
 
 fn graph(source: &str) -> ReactivityGraph {
@@ -41,7 +107,13 @@ fn graph_tsx(source: &str) -> ReactivityGraph {
   assert!(parsed.errors.is_empty(), "tsx parsing unexpectedly failed: {:?}", parsed.errors);
   let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
   assert!(built.errors.is_empty(), "tsx semantic analysis unexpectedly failed: {:?}", built.errors);
-  trace_reactivity(&built.semantic, source, 0, ScriptKind::Script)
+  trace_reactivity_with_config(
+    &built.semantic,
+    source,
+    0,
+    ScriptKind::Script,
+    &default_trace_config(),
+  )
 }
 
 #[test]
@@ -1181,7 +1253,7 @@ fn partial_module_failure_preserves_healthy_cross_module_links() {
   let report = trace_modules_incremental_with_options(
     &modules,
     &links,
-    TraceModulesOptions { max_workers: 2, ..Default::default() },
+    &TraceModulesOptions { max_workers: 2, ..default_trace_options() },
     &mut state,
   );
   assert!(
@@ -1227,7 +1299,7 @@ fn incremental_module_trace_reuses_unchanged_seeded_graphs() {
   let first = trace_modules_incremental_with_options(
     &modules,
     &links,
-    TraceModulesOptions { max_workers: 2, ..Default::default() },
+    &TraceModulesOptions { max_workers: 2, ..default_trace_options() },
     &mut state,
   );
   assert!(first.issues.is_empty());
@@ -1237,7 +1309,7 @@ fn incremental_module_trace_reuses_unchanged_seeded_graphs() {
   let second = trace_modules_incremental_with_options(
     &modules,
     &links,
-    TraceModulesOptions { max_workers: 2, ..Default::default() },
+    &TraceModulesOptions { max_workers: 2, ..default_trace_options() },
     &mut state,
   );
   assert!(second.issues.is_empty());
@@ -1279,7 +1351,7 @@ fn seed_plans_recompute_only_export_closure() {
   let first = trace_modules_incremental_with_options(
     &modules_v1,
     &links,
-    TraceModulesOptions { max_workers: 2, ..Default::default() },
+    &TraceModulesOptions { max_workers: 2, ..default_trace_options() },
     &mut state,
   );
   assert!(first.issues.is_empty());
@@ -1299,7 +1371,7 @@ fn seed_plans_recompute_only_export_closure() {
   let second = trace_modules_incremental_with_options(
     &modules_v2,
     &links,
-    TraceModulesOptions { max_workers: 2, ..Default::default() },
+    &TraceModulesOptions { max_workers: 2, ..default_trace_options() },
     &mut state,
   );
   assert!(second.issues.is_empty());
@@ -1314,7 +1386,7 @@ fn seed_plans_recompute_only_export_closure() {
 fn incremental_linking_skips_export_resolve_when_only_local_graph_changes() {
   use std::sync::Arc;
 
-  use crate::{TraceSeeds, prepare_module_summary, trace_reactivity_seeded};
+  use crate::{TraceSeeds, prepare_module_summary_with_config, trace_reactivity_seeded};
 
   fn summary_for(source: &str) -> Arc<crate::ModuleSummary> {
     let allocator = oxc_allocator::Allocator::default();
@@ -1322,14 +1394,23 @@ fn incremental_linking_skips_export_resolve_when_only_local_graph_changes() {
     let parsed = oxc_parser::Parser::new(&allocator, source, source_type).parse();
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
     let semantic = oxc_semantic::SemanticBuilder::new().build(&parsed.program).semantic;
+    let config = default_trace_config();
     let graph = Arc::new(trace_reactivity_seeded(
       &semantic,
       source,
       0,
       ScriptKind::Script,
       &TraceSeeds::default(),
+      &config,
     ));
-    Arc::new(prepare_module_summary(&semantic, source, 0, ScriptKind::Script, graph))
+    Arc::new(prepare_module_summary_with_config(
+      &semantic,
+      source,
+      0,
+      ScriptKind::Script,
+      graph,
+      &config,
+    ))
   }
 
   let producer_src = "import { ref } from 'vue'; export const count = ref(0);";
@@ -1351,7 +1432,7 @@ fn incremental_linking_skips_export_resolve_when_only_local_graph_changes() {
   let first = trace_modules_incremental_with_options(
     &first_modules,
     &links,
-    TraceModulesOptions { max_workers: 2, ..Default::default() },
+    &TraceModulesOptions { max_workers: 2, ..default_trace_options() },
     &mut state,
   );
   assert!(first.issues.is_empty());
@@ -1366,7 +1447,7 @@ fn incremental_linking_skips_export_resolve_when_only_local_graph_changes() {
   let second = trace_modules_incremental_with_options(
     &second_modules,
     &links,
-    TraceModulesOptions { max_workers: 2, ..Default::default() },
+    &TraceModulesOptions { max_workers: 2, ..default_trace_options() },
     &mut state,
   );
   assert!(second.issues.is_empty());
@@ -4952,7 +5033,13 @@ fn prepared_phase_one_facts_avoid_an_unseeded_second_parse() {
   assert!(parsed.errors.is_empty());
   let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
   assert!(built.errors.is_empty());
-  let local_graph = trace_reactivity(&built.semantic, source, 0, ScriptKind::Script);
+  let local_graph = trace_reactivity_with_config(
+    &built.semantic,
+    source,
+    0,
+    ScriptKind::Script,
+    &default_trace_config(),
+  );
   let summary = prepare_module_summary(&built.semantic, source, 0, ScriptKind::Script, local_graph);
   let mut module = ModuleSource::standalone("count.ts", source, "ts", ScriptKind::Script)
     .with_module_summary(summary);

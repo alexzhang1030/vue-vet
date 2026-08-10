@@ -63,7 +63,32 @@ pub fn trace_reactivity(
   script_offset: usize,
   script_kind: ScriptKind,
 ) -> ReactivityGraph {
-  trace_reactivity_seeded(semantic, sfc_source, script_offset, script_kind, &TraceSeeds::default())
+  trace_reactivity_with_config(
+    semantic,
+    sfc_source,
+    script_offset,
+    script_kind,
+    &TraceConfig::empty(),
+  )
+}
+
+/// Trace with an explicit plugin catalog ([`TraceConfig::named_api_bags`]).
+#[must_use]
+pub fn trace_reactivity_with_config(
+  semantic: &Semantic<'_>,
+  sfc_source: &str,
+  script_offset: usize,
+  script_kind: ScriptKind,
+  config: &TraceConfig<'_>,
+) -> ReactivityGraph {
+  trace_reactivity_seeded(
+    semantic,
+    sfc_source,
+    script_offset,
+    script_kind,
+    &TraceSeeds::default(),
+    config,
+  )
 }
 
 /// Instance bag fields: field name → reactive kind (no open-spread flag).
@@ -109,6 +134,7 @@ pub fn trace_reactivity_seeded(
   script_offset: usize,
   script_kind: ScriptKind,
   seeds: &TraceSeeds,
+  config: &TraceConfig<'_>,
 ) -> ReactivityGraph {
   // Index only — do not `SourceContext::new(&str)` here; that copies the whole
   // buffer into `Arc<str>` on every module and regresses cold `trace_*` benches.
@@ -117,7 +143,7 @@ pub fn trace_reactivity_seeded(
     *slot.borrow_mut() = Some(line_index);
   });
   let graph =
-    trace_reactivity_seeded_inner(semantic, sfc_source, script_offset, script_kind, seeds);
+    trace_reactivity_seeded_inner(semantic, sfc_source, script_offset, script_kind, seeds, config);
   TRACE_LINE_INDEX.with(|slot| {
     *slot.borrow_mut() = None;
   });
@@ -130,8 +156,10 @@ fn trace_reactivity_seeded_inner(
   script_offset: usize,
   script_kind: ScriptKind,
   seeds: &TraceSeeds,
+  config: &TraceConfig<'_>,
 ) -> ReactivityGraph {
   let imported_bindings = collect_imported_bindings(semantic);
+  let named_api_bags = config.named_api_bags;
   // Include function-local refs when resolving `return { signal }` shapes and when
   // classifying nested tracking scopes. Do not publish them as top-level graph
   // bindings (they would collide with `const { signal } = useX()` seeds by name).
@@ -143,6 +171,7 @@ fn trace_reactivity_seeded_inner(
       script_offset,
       script_kind,
       true,
+      named_api_bags,
     );
   let CollectedBindings { mut bindings, .. } = collect_reactive_bindings(
     semantic,
@@ -151,6 +180,7 @@ fn trace_reactivity_seeded_inner(
     script_offset,
     script_kind,
     false,
+    named_api_bags,
   );
   // `type: ComputedRef<T>` / `const x: Ref<T> = …` — typed parameters & declarators.
   // Cheap source gate: skip the AST walk when no Ref-like annotation text exists
@@ -1425,57 +1455,6 @@ struct AmbientCallHandle {
 /// Local name → handles (usually one; multi-site same name is rare).
 type AmbientCallHandles = BTreeMap<String, Vec<AmbientCallHandle>>;
 
-/// Table-driven named API bags: field seeds + optional ambient-on-call methods.
-///
-/// This is Vue/ecosystem **contract** data (like `unref` / sync HOF allowlists),
-/// not user-code pattern matching. New APIs add a row; seed/read stay generic.
-struct NamedApiBag {
-  callee: &'static str,
-  field_kind: fn(&str) -> Option<ReactiveBindingKind>,
-  /// Destructured methods whose call tracks [`Self::ambient_fields`].
-  ambient_methods: &'static [&'static str],
-  /// Fields tracked when an ambient method runs (e.g. vue-i18n `trackReactivityValues`).
-  ambient_fields: &'static [&'static str],
-}
-
-const NAMED_API_BAGS: &[NamedApiBag] = &[
-  NamedApiBag {
-    callee: "useAsyncData",
-    field_kind: async_data_field_kind,
-    ambient_methods: &[],
-    ambient_fields: &[],
-  },
-  NamedApiBag {
-    callee: "useLazyAsyncData",
-    field_kind: async_data_field_kind,
-    ambient_methods: &[],
-    ambient_fields: &[],
-  },
-  NamedApiBag {
-    callee: "useFetch",
-    field_kind: async_data_field_kind,
-    ambient_methods: &[],
-    ambient_fields: &[],
-  },
-  NamedApiBag {
-    callee: "useLazyFetch",
-    field_kind: async_data_field_kind,
-    ambient_methods: &[],
-    ambient_fields: &[],
-  },
-  NamedApiBag {
-    callee: "useI18n",
-    field_kind: i18n_field_kind,
-    // vue-i18n Composer: wrapWithDeps on these methods.
-    ambient_methods: &["t", "d", "n", "rt", "te"],
-    ambient_fields: &["locale", "fallbackLocale", "messages"],
-  },
-];
-
-fn named_api_bag(callee: &str) -> Option<&'static NamedApiBag> {
-  NAMED_API_BAGS.iter().find(|bag| bag.callee == callee)
-}
-
 fn collect_reactive_bindings(
   semantic: &oxc_semantic::Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
@@ -1483,6 +1462,7 @@ fn collect_reactive_bindings(
   script_offset: usize,
   script_kind: ScriptKind,
   include_nested: bool,
+  named_api_bags: &[NamedApiBag],
 ) -> CollectedBindings {
   let mut reactive_bindings = Vec::new();
   let mut ambient_call_handles = AmbientCallHandles::new();
@@ -1490,9 +1470,13 @@ fn collect_reactive_bindings(
     let AstKind::CallExpression(call) = node.kind() else {
       continue;
     };
-    let Some(callee) =
-      resolved_binding_callee(semantic, &call.callee, imported_bindings, script_kind)
-    else {
+    let Some(callee) = resolved_binding_callee(
+      semantic,
+      &call.callee,
+      imported_bindings,
+      script_kind,
+      named_api_bags,
+    ) else {
       continue;
     };
     let Some(declarator) = variable_declarator_for_call(semantic, call.node_id.get()) else {
@@ -1502,8 +1486,8 @@ fn collect_reactive_bindings(
       continue;
     }
 
-    // Named API bags (Nuxt data / vue-i18n / …): field seeds + ambient-on-call methods.
-    if let Some(api) = named_api_bag(&callee) {
+    // Named API bags from plugins: field seeds + ambient-on-call methods.
+    if let Some(api) = named_api_bag(named_api_bags, &callee) {
       if let BindingPattern::ObjectPattern(pattern) = &declarator.id {
         seed_named_api_bag_destructure(
           api,
@@ -1529,9 +1513,13 @@ fn collect_reactive_bindings(
       let Expression::CallExpression(inner_call) = inner else {
         continue;
       };
-      let Some(inner_callee) =
-        resolved_binding_callee(semantic, &inner_call.callee, imported_bindings, script_kind)
-      else {
+      let Some(inner_callee) = resolved_binding_callee(
+        semantic,
+        &inner_call.callee,
+        imported_bindings,
+        script_kind,
+        named_api_bags,
+      ) else {
         continue;
       };
       if inner_callee != "defineProps" {
@@ -1593,6 +1581,7 @@ fn collect_reactive_bindings(
     include_nested,
     sfc_source,
     script_offset,
+    named_api_bags,
     &mut reactive_bindings,
   );
 
@@ -1604,6 +1593,7 @@ fn collect_reactive_bindings(
     include_nested,
     sfc_source,
     script_offset,
+    named_api_bags,
     &mut reactive_bindings,
   );
 
@@ -1648,7 +1638,7 @@ fn seed_named_api_bag_destructure(
       continue;
     }
 
-    let Some(kind) = (api.field_kind)(&key) else {
+    let Some(kind) = api.field_kind_of(&key) else {
       continue;
     };
     for (name, span) in identifiers {
@@ -1732,6 +1722,7 @@ fn variable_declarator_node_id(
 ///
 /// Under-approx: only Vue primitive callees (not unknown helpers). Missing one arm
 /// stays quiet rather than inventing a binding from a single branch.
+#[expect(clippy::too_many_arguments, reason = "conditional init shares binding-collection context")]
 fn collect_conditional_init_bindings(
   semantic: &oxc_semantic::Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
@@ -1739,6 +1730,7 @@ fn collect_conditional_init_bindings(
   include_nested: bool,
   sfc_source: &str,
   script_offset: usize,
+  named_api_bags: &[NamedApiBag],
   reactive_bindings: &mut Vec<ReactiveBindingFact>,
 ) {
   for node in semantic.nodes() {
@@ -1760,6 +1752,7 @@ fn collect_conditional_init_bindings(
       &cond.alternate,
       imported_bindings,
       script_kind,
+      named_api_bags,
     ) else {
       continue;
     };
@@ -1785,9 +1778,12 @@ fn compatible_vue_binding_kind_from_arms(
   right: &Expression<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
   script_kind: ScriptKind,
+  named_api_bags: &[NamedApiBag],
 ) -> Option<ReactiveBindingKind> {
-  let left_kind = vue_call_binding_kind(semantic, left, imported_bindings, script_kind)?;
-  let right_kind = vue_call_binding_kind(semantic, right, imported_bindings, script_kind)?;
+  let left_kind =
+    vue_call_binding_kind(semantic, left, imported_bindings, script_kind, named_api_bags)?;
+  let right_kind =
+    vue_call_binding_kind(semantic, right, imported_bindings, script_kind, named_api_bags)?;
   if left_kind == right_kind {
     return Some(left_kind);
   }
@@ -1804,6 +1800,7 @@ fn vue_call_binding_kind(
   expression: &Expression<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
   script_kind: ScriptKind,
+  named_api_bags: &[NamedApiBag],
 ) -> Option<ReactiveBindingKind> {
   let mut current = expression;
   for _ in 0..4 {
@@ -1813,8 +1810,13 @@ fn vue_call_binding_kind(
       Expression::TSTypeAssertion(assertion) => current = &assertion.expression,
       Expression::TSNonNullExpression(non_null) => current = &non_null.expression,
       Expression::CallExpression(call) => {
-        let callee =
-          resolved_binding_callee(semantic, &call.callee, imported_bindings, script_kind)?;
+        let callee = resolved_binding_callee(
+          semantic,
+          &call.callee,
+          imported_bindings,
+          script_kind,
+          named_api_bags,
+        )?;
         return reactive_binding_kind(&callee);
       }
       _ => return None,
@@ -1842,20 +1844,20 @@ fn variable_declarator_for_call<'a>(
   }
 }
 
-/// Vue primitives plus bare Nuxt/vue-i18n helpers recognized without an import.
+/// Vue primitives plus bare auto-import helpers from the plugin API-bag catalog.
 fn resolved_binding_callee(
   semantic: &oxc_semantic::Semantic<'_>,
   callee: &Expression<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
   kind: ScriptKind,
+  named_api_bags: &[NamedApiBag],
 ) -> Option<String> {
   if let Some(name) = resolved_vue_callee(semantic, callee, imported_bindings, kind) {
     return Some(name);
   }
   let identifier = callee.get_identifier_reference()?;
   let local = identifier.name.as_str();
-  if !matches!(local, "useAsyncData" | "useLazyAsyncData" | "useFetch" | "useLazyFetch" | "useI18n")
-  {
+  if !is_named_api_bag_callee(named_api_bags, local) {
     return None;
   }
   if !identifier_reference_is_unresolved(semantic, identifier)
@@ -1864,7 +1866,7 @@ fn resolved_binding_callee(
     // Local binding of the same name (rare) — leave quiet.
     return None;
   }
-  // Bare auto-import or explicit import of the Nuxt/i18n helper.
+  // Bare auto-import or explicit import of a plugin-registered API bag.
   if imported_bindings.contains_key(local)
     || identifier_reference_is_unresolved(semantic, identifier)
   {
@@ -1873,25 +1875,8 @@ fn resolved_binding_callee(
   None
 }
 
-fn async_data_field_kind(field: &str) -> Option<ReactiveBindingKind> {
-  match field {
-    // Nuxt `AsyncData` bag — reactive halves only (skip `refresh` / `execute` / `clear`).
-    "data" | "pending" | "error" | "status" => Some(ReactiveBindingKind::Ref),
-    _ => None,
-  }
-}
-
-fn i18n_field_kind(field: &str) -> Option<ReactiveBindingKind> {
-  match field {
-    // vue-i18n composition API — locale/locales/messages are computed/ref-like.
-    "locale" | "fallbackLocale" | "locales" | "messages" | "availableLocales" => {
-      Some(ReactiveBindingKind::Computed)
-    }
-    _ => None,
-  }
-}
-
 /// Seed `const params = useRoute().params` (and `route.params` when `route` is Reactive).
+#[expect(clippy::too_many_arguments, reason = "route slice shares binding-collection context")]
 fn collect_route_slice_bindings(
   semantic: &oxc_semantic::Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
@@ -1899,6 +1884,7 @@ fn collect_route_slice_bindings(
   include_nested: bool,
   sfc_source: &str,
   script_offset: usize,
+  named_api_bags: &[NamedApiBag],
   reactive_bindings: &mut Vec<ReactiveBindingFact>,
 ) {
   for (node_id, node) in semantic.nodes().iter_enumerated() {
@@ -1925,10 +1911,14 @@ fn collect_route_slice_bindings(
       continue;
     }
     let from_use_route = match &member.object {
-      Expression::CallExpression(call) => {
-        resolved_binding_callee(semantic, &call.callee, imported_bindings, script_kind)
-          .is_some_and(|name| name == "useRoute")
-      }
+      Expression::CallExpression(call) => resolved_binding_callee(
+        semantic,
+        &call.callee,
+        imported_bindings,
+        script_kind,
+        named_api_bags,
+      )
+      .is_some_and(|name| name == "useRoute"),
       Expression::Identifier(object) => reactive_bindings.iter().any(|binding| {
         binding.name == object.name.as_str()
           && matches!(
@@ -4082,8 +4072,14 @@ fn collect_render_scopes(
 }
 
 mod branch_hygiene;
+mod plugin;
 mod render;
 mod summary;
+
+pub use plugin::{
+  NamedApiBag, TraceConfig, TracerPlugin, flatten_named_api_bags, is_named_api_bag_callee,
+  named_api_bag,
+};
 
 pub use summary::{
   ComposableShape, ModuleLink, ModuleReactivity, ModuleSource, ModuleSummary, ModuleTraceState,
@@ -4092,6 +4088,6 @@ pub use summary::{
   build_returns_by_function, composable_factory_kind_with_index, composable_return_shape,
   composable_return_shape_with_index, composable_value_bag_with_index, function_return_type_kind,
   function_return_type_shape, merge_declaration_implementation_summary, prepare_module_summary,
-  prepare_module_trace, prepare_standalone_module_source, trace_modules,
-  trace_modules_incremental_with_options, trace_modules_with_options,
+  prepare_module_summary_with_config, prepare_module_trace, prepare_standalone_module_source,
+  trace_modules, trace_modules_incremental_with_options, trace_modules_with_options,
 };

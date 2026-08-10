@@ -1,6 +1,6 @@
 [package]
 publish = false
-name = "vue_vet_oxc"
+name = "vue_vet_plugins"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,21 +9,11 @@ rust-version.workspace = true
 readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "Oxc-powered JavaScript and TypeScript semantic facts for Vue Vet"
+description = "Compile-time ecosystem plugins for Vue Vet (Nuxt, vue-i18n, …)"
 
 [lints]
 workspace = true
 
 [dependencies]
-oxc_allocator.workspace = true
-oxc_ast.workspace = true
-oxc_ast_visit.workspace = true
-oxc_parser.workspace = true
-oxc_semantic.workspace = true
-oxc_span.workspace = true
-oxc_syntax.workspace = true
-thiserror.workspace = true
 vue_vet_core = { path = "../vue_vet_core" }
-vue_vet_plugins = { path = "../vue_vet_plugins" }
 vue_vet_reactivity = { path = "../vue_vet_reactivity" }
-

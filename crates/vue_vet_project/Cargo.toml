@@ -19,4 +19,5 @@ oxc_resolver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 vue_vet_core = { path = "../vue_vet_core" }
+vue_vet_plugins = { path = "../vue_vet_plugins" }
 vue_vet_reactivity = { path = "../vue_vet_reactivity" }

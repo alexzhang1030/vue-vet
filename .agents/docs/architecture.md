@@ -273,6 +273,16 @@ passes** over Vue Vet IR — not AST Traverse (Oxc/SWC), and not a dynamic JS
 plugin host. Diagnostic [`Rule`](../../crates/vue_vet_core/src/lib.rs) passes
 consume the enriched facts; enrichment passes must not `report` diagnostics.
 
+### Reactivity tracer plugins (`vue_vet_plugins`)
+
+Ecosystem **named API bag** contracts (Nuxt `useAsyncData` / `useFetch`, vue-i18n
+`useI18n` ambient-on-call methods, …) are **not** hardcoded inside
+`vue_vet_reactivity`. The engine accepts a [`NamedApiBag`] catalog via
+`TraceConfig` / `TraceModulesOptions`. The `vue_vet_plugins` crate implements
+[`TracerPlugin`] and exposes `default_named_api_bags()` for Oxc / session /
+project entry points. Still compile-time Rust only — no `dlopen` / npm plugin
+ABI.
+
 Each enrichment step is a named `struct` with an inherent `::run(...)`
 (see `ENRICHMENT_STEPS` in `vue_vet_project::passes`). There is no empty
 metadata trait and no dynamic plugin ABI — `pipeline` / `structural` call
