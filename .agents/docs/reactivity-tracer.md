@@ -152,11 +152,26 @@ Executable merge/seedable/name-resolve/pending/publish/refine checks live in
 
 ### In-scope remaining (this epic)
 
-None for axis completeness. **Contract refinements** (lattice merge, seed
-surface, guard hygiene) still land when evidence shows invented Conditional
-or blocked seeds — always with a version bump, generic unit tests, and PCR
-lattice update. Product a11y / project-import polish is **not** an A0–A7
-axis (catalog `parity`); keep it off the tracer epic narrative.
+None for axis completeness.
+
+**2026-08-10 milestone (contract hygiene closed):** pure ExportState lattice
+(`export_lattice`, #161–#167), core `ReactiveBindingKind` ref-like contract
+(#168), pure A4 `branch_hygiene` (#169), and multi-consumer
+`uncertain_accesses` on digests (#170). Oracle green; graph still **v22**.
+This was **structure + durable contracts**, not new tracking edges.
+
+**Do not** auto-continue pure extracts, Elk/corpus KPI chasing, or a11y as
+tracer A0–A7. Next tracer work needs **evidence** first:
+
+1. **Contract refinement** — invent Conditional / blocked seed / dual-path
+   inconsistency → fix + unit/oracle + **`REACTIVITY_GRAPH_VERSION` bump** +
+   PCR lattice update.
+2. **Consumer surface** — rules / explain / TUI / VS Code using facts already
+   on the graph (optional product polish; not axis work).
+3. **Otherwise stop** — A0–A7 complete is a valid resting point.
+
+Product a11y / project-import polish is **not** an A0–A7 axis (catalog
+`parity`); keep it off the tracer epic narrative.
 
 ### Out of scope / A0 stop (never blocks complete)
 
@@ -308,6 +323,7 @@ growing prose ledger.
 | 2026-07-29 | Factory return kinds (#115) | `ExportState::Factory`; body `return ref` + `.d.ts` `Ref`/`ComputedRef` return types; ExternalImport on-demand summaries (not lint targets); fixes VueUse `useMediaQuery` → `no-computed-without-dependency` FP |
 | 2026-07-29 | Uncertain accesses `(maybe)` | Scope `uncertain_accesses` for unclassified `.value`/`unref`/`toValue`; `no-computed-without-dependency` labels `(maybe: name)` instead of silence or invented edges |
 | 2026-08-10 | Digest surfaces soft evidence | `--print-reactivity` `scope_details.uncertain_accesses` + text labels `maybe:a,b` for multi-consumer digests (same under-approx contract as absence rules) |
+| 2026-08-10 | Contract-hygiene series closed | #161–#170: lattice pure + ref-like + branch_hygiene + digest soft evidence; **stop pure-extract loops** until evidence; consumers optional |
 | 2026-07-29 | Absence-rule strategy | Prefer hard evidence (Factory, `const alias = ref`, nested `.value` roots, watch-source uncertain); absence pathologies share `(maybe)` when only soft evidence remains |
 | 2026-07-29 | `.d.ts` object-bag returns (#118) | Declared `{ width: Ref }` / same-file `interface`·`type` return shapes → `ExportState::Composable`; fixes VueUse `useElementSize` destructure → `no-empty-watch-sources` FP |
 | 2026-07-29 | Plain-object Reactive factory (#119) | Declared plain object (no Ref fields) + body `return <call>(...).value` (`#imports`/unresolved) or `return reactive(...)` → `Factory(Reactive)`; `.nuxt/imports.d.ts` bare calls → `#nuxt-imports:` ExternalReactivityRoot; companion `.js` merge only for provisional halves (+ size cap); fixes Nuxt `useColorMode` → `no-empty-watch-sources` FP |
