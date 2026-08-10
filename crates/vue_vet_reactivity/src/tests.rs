@@ -1755,6 +1755,137 @@ fn to_value_getter_tracks_nested_reactive_reads() {
 }
 
 #[test]
+fn same_file_zero_arg_helper_tracks_inside_computed() {
+  // StatusReactedBy-style: `computed(() => load())` with reads only in `load`.
+  let graph = graph(
+    "import { ref, computed } from 'vue';\n\
+     const type = ref('all');\n\
+     function load() { return type.value; }\n\
+     const paginator = computed(() => load());\n\
+     void paginator.value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.iter().any(|read| {
+          read.binding == "type"
+            && read.property.as_deref() == Some("value")
+            && read.kind == ReactiveReadKind::Unconditional
+        })
+    }),
+    "computed(() => load()) must track type.value inside load; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn same_file_arrow_helper_tracks_inside_watch_effect() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue';\n\
+     const count = ref(0);\n\
+     const read = () => count.value;\n\
+     watchEffect(() => { void read(); });",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::WatchEffect
+        && scope.reads.iter().any(|read| {
+          read.binding == "count"
+            && read.property.as_deref() == Some("value")
+            && read.kind != ReactiveReadKind::OutsideTracking
+        })
+    }),
+    "watchEffect helper call must track count.value; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn same_file_helper_two_hop_chain_tracks() {
+  let graph = graph(
+    "import { ref, computed } from 'vue';\n\
+     const n = ref(1);\n\
+     function inner() { return n.value; }\n\
+     function outer() { return inner(); }\n\
+     const c = computed(() => outer());\n\
+     void c.value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .reads
+          .iter()
+          .any(|read| read.binding == "n" && read.property.as_deref() == Some("value"))
+    }),
+    "two-hop zero-arg helpers must track; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn same_file_helper_inside_then_stays_outside_tracking() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue';\n\
+     const count = ref(0);\n\
+     function load() { return count.value; }\n\
+     watchEffect(() => { Promise.resolve().then(() => load()); });",
+  );
+  let effect = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchEffect);
+  assert!(effect.is_some(), "watchEffect scope missing; scopes={:?}", graph.scopes);
+  let count_reads: Vec<_> = effect
+    .map(|scope| {
+      scope.reads.iter().filter(|read| read.binding == "count").map(|read| read.kind).collect()
+    })
+    .unwrap_or_default();
+  assert!(
+    count_reads.iter().all(|kind| *kind == ReactiveReadKind::OutsideTracking),
+    "helper called only from then() must not invent tracked deps; reads={count_reads:?} scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn async_same_file_helper_is_not_followed() {
+  // After-await classification is relative to the tracking body; skip async
+  // callees so we do not invent pre-await edges for post-await reads.
+  let graph = graph(
+    "import { ref, computed } from 'vue';\n\
+     const type = ref('all');\n\
+     async function load() { return type.value; }\n\
+     const c = computed(() => load());\n\
+     void c.value;",
+  );
+  assert!(
+    graph.scopes.iter().all(|scope| {
+      scope.kind != TrackingScopeKind::Computed
+        || scope.reads.iter().all(|read| read.binding != "type")
+    }),
+    "async helpers must stay unfollowed (under-approx); scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn helper_with_args_is_not_followed() {
+  let graph = graph(
+    "import { ref, computed } from 'vue';\n\
+     const type = ref('all');\n\
+     function load(_x: number) { return type.value; }\n\
+     const c = computed(() => load(1));\n\
+     void c.value;",
+  );
+  assert!(
+    graph.scopes.iter().all(|scope| {
+      scope.kind != TrackingScopeKind::Computed
+        || scope.reads.iter().all(|read| read.binding != "type")
+    }),
+    "first cut follows zero-arg helpers only; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
 fn string_replace_callback_tracks_nested_reactive_reads() {
   for (label, method) in [("replace", "replace"), ("replaceAll", "replaceAll")] {
     let graph = graph(&format!(

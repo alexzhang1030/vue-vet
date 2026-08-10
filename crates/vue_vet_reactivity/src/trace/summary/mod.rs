@@ -20,8 +20,9 @@ use vue_vet_core::{ModuleId, ReactiveBindingKind, ReactivityGraph, ScriptKind};
 
 use super::{
   TraceSeeds, collect_binding_identifiers, collect_imported_bindings, collect_inject_sites,
-  collect_provide_sites, collect_reactive_bindings, module_export_name, reactive_binding_kind,
-  reference_resolves_to_binding, resolved_vue_callee, trace_reactivity_seeded,
+  collect_provide_sites, collect_reactive_bindings, local_function_id_for_name, module_export_name,
+  reactive_binding_kind, reference_resolves_to_binding, resolved_vue_callee,
+  trace_reactivity_seeded,
 };
 use oxc_ast::ast::Argument;
 
@@ -2427,43 +2428,6 @@ fn vueuse_shared_composable_export_state(
           _ => Some(ExportState::ForwardReturn(identifier.name.to_string())),
         },
       )
-    }
-    _ => None,
-  }
-}
-
-fn local_function_id_for_name(
-  semantic: &oxc_semantic::Semantic<'_>,
-  _name: &str,
-  reference: &oxc_ast::ast::IdentifierReference<'_>,
-) -> Option<NodeId> {
-  let reference_id = reference.reference_id.get()?;
-  let symbol_id = semantic.scoping().get_reference(reference_id).symbol_id()?;
-  let decl = semantic.symbol_declaration(symbol_id);
-  match decl.kind() {
-    AstKind::Function(function) => Some(function.node_id.get()),
-    AstKind::VariableDeclarator(declarator) => match &declarator.init {
-      Some(Expression::ArrowFunctionExpression(arrow)) => Some(arrow.node_id.get()),
-      Some(Expression::FunctionExpression(function)) => Some(function.node_id.get()),
-      _ => None,
-    },
-    // `function useX()` binds on the Function node; some paths surface the id binding.
-    AstKind::BindingIdentifier(_) => {
-      // Walk one hop to the owning function / declarator.
-      for ancestor_id in semantic.nodes().ancestor_ids(decl.id()) {
-        match semantic.nodes().kind(ancestor_id) {
-          AstKind::Function(function) => return Some(function.node_id.get()),
-          AstKind::VariableDeclarator(declarator) => {
-            return match &declarator.init {
-              Some(Expression::ArrowFunctionExpression(arrow)) => Some(arrow.node_id.get()),
-              Some(Expression::FunctionExpression(function)) => Some(function.node_id.get()),
-              _ => None,
-            };
-          }
-          _ => {}
-        }
-      }
-      None
     }
     _ => None,
   }

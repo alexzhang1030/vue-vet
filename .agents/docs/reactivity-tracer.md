@@ -51,23 +51,23 @@ complete.
 
 ## Current baseline
 
-Contract version: **`REACTIVITY_GRAPH_VERSION = 22`**.
+Contract version: **`REACTIVITY_GRAPH_VERSION = 23`**.
 
-v22 is a **contract refinement** (classification + seed surface), not a new axis:
-all-path branch reads; bare-import `ForwardReturn`; overload Factory≻Composable;
-ref-like ternary exports; empty-path pending composable fields. Prior: v21 sync
-HOF uncertain; v20 optional `{ value?: T }` duck; v19 `RemovableRef` / `typeof`;
-… v7 `property`/`to_path`.
+v23 follows **same-file zero-arg local helpers** called from a tracking scope
+(bounded depth 2; skip async/generator) so ambient Vue `activeEffect` reads
+inside `load()` are attributed to `computed(() => load())`. Prior: v22 all-path
+branch reads + export linking refinements; v21 sync HOF uncertain; … v7
+`property`/`to_path`.
 
 | Axis | Status | Covered (in-scope) | Remaining |
 | --- | --- | --- | --- |
 | A1 Bindings | complete | Vue primitives, aliases, `#imports`, bare Nuxt/auto-import allowlist, `defineModel`, **Vue Macros `defineModels` destructure → ModelRef locals**, `defineProps` (whole object **and Vue 3.5+ object-destructure locals → Reactive**), `withDefaults(defineProps())` same, `storeToRefs`, `useRoute`/`useRouter`, `unref`/`toValue`, module seeds, **factory call returns** (`Factory(Ref|Reactive)` from body / `.d.ts`), **`.d.ts` object-bag returns** (`{ field: Ref }` / same-file interface·type alias → destructure seeds), **typed `Ref`/`ComputedRef` parameters & declarators** (scope classification; nested locals span-resolved) | whole-object `const models = defineModels()` without destructure stays quiet; pre-3.5 props destructure still flagged by `no-nonreactive-props-destructure` |
-| A2 Scopes | complete | effects, computed getter/`{ get, set }`, watch sources + callback outside, effectScope `.run` + provenance, dispose, **Render** (options `render` / `setup`→render / functional export / same-file `defineComponent` factory+alias+one-hop forwarder) | cross-file opaque factories stay quiet unless options structure is local |
-| A3 Reads | complete | `.value` / members / bag.field / sync Array·String·`Array.from`·`JSON.parse` HOF / watch ref `.value` / `unref`·`toValue` / bare `watch(reactive)` deep root `*` | — |
+| A2 Scopes | complete | effects, computed getter/`{ get, set }`, watch sources + callback outside, effectScope `.run` + provenance, dispose, **Render** (options `render` / `setup`→render / functional export / same-file `defineComponent` factory+alias+one-hop forwarder); **bounded same-file zero-arg helper follow** into scope reads | cross-file / async / args / method callees stay quiet |
+| A3 Reads | complete | `.value` / members / bag.field / sync Array·String·`Array.from`·`JSON.parse` HOF / watch ref `.value` / `unref`·`toValue` / bare `watch(reactive)` deep root `*` / **reads inside followed local helpers** | — |
 | A4 Conditions | complete | if / early-exit / ternary / short-circuit / switch roles; **all-path same `(binding, property)` on both ternary/if-else arms → no BranchTest** (under-approx hygiene: do not invent Conditional); pure checks in `trace/branch_hygiene.rs` | further control-flow depth is out of charter |
 | A5 Boundaries | complete | after-await; pause/enable/resetTracking windows; nested `then`/`nextTick` outside; watch callback outside | — |
 | A6 Modules | complete | composable bags + Factory + ValueBag + ComponentFactory + ExternalImport + `#nuxt-imports` seeds; **export lattice** (below); **`return local = call()` → ForwardReturn**; bare auto-import callee resolve; pending empty-path composable fields | whole-object `v-bind` quiet; `#imports` virtual without body quiet |
-| A7 Contract | complete | **v22** all-path Unconditional + export linking refinements; v21…v7 as before; deterministic sort | — |
+| A7 Contract | complete | **v23** local zero-arg helper follow; v22 all-path Unconditional + export linking; v21…v7 as before; deterministic sort | — |
 | Evidence | complete | Runtime oracle (≥99% recall on committed cases); deep-watch `*`; exhaustive local reads; key SFC E2E | — (prop flow is static unit/project; not an `onTrack` pair) |
 
 ### ExportState lattice (A6 linking)
@@ -142,12 +142,12 @@ Executable merge/seedable/name-resolve/pending/publish/refine checks live in
 | Axis | Checklist (all required for `complete`) |
 | --- | --- |
 | A1 | ✅ Allowlist primitives + macros + pinia/router + auto-import + module seeds + factory call returns; local lookalikes quiet; unit/oracle cover |
-| A2 | ✅ effect / computed / watch / effectScope.run(+provenance) / dispose / Render scopes; no invented effectScope |
-| A3 | ✅ Member/HOF/unref·toValue reads; watch ref `.value`; **deep root `*` for bare `watch(reactive)`** (not per-key invention) |
+| A2 | ✅ effect / computed / watch / effectScope.run(+provenance) / dispose / Render scopes; no invented effectScope; **same-file zero-arg helper follow (depth≤2)** |
+| A3 | ✅ Member/HOF/unref·toValue reads; watch ref `.value`; **deep root `*` for bare `watch(reactive)`** (not per-key invention); helper-body ambient reads |
 | A4 | ✅ Guard roles + all-path same-identity branch reads (`branch_hygiene`); no further CF depth for recall |
 | A5 | ✅ After-await classification; pause/enable/resetTracking windows; nested callback outside-tracking; watch callback outside |
 | A6 | ✅ Composable/instance/dual-script/provide-inject; Factory/Composable/ValueBag/ComponentFactory; export lattice (above); bare `#nuxt-imports` seeds + ForwardReturn resolve; external summaries; static `:prop` edges |
-| A7 | ✅ Versioned graph (**v22**); deterministic sort; `property`/`to_path`; **`{module}:{name}@{offset}` `to_id`** |
+| A7 | ✅ Versioned graph (**v23**); deterministic sort; `property`/`to_path`; **`{module}:{name}@{offset}` `to_id`** |
 | Evidence | ✅ `just oracle` ≥99% recall on committed cases; exhaustive local reads; key SFC E2E |
 
 ### In-scope remaining (this epic)
@@ -157,8 +157,13 @@ None for axis completeness.
 **2026-08-10 milestone (contract hygiene closed):** pure ExportState lattice
 (`export_lattice`, #161–#167), core `ReactiveBindingKind` ref-like contract
 (#168), pure A4 `branch_hygiene` (#169), and multi-consumer
-`uncertain_accesses` on digests (#170). Oracle green; graph still **v22**.
-This was **structure + durable contracts**, not new tracking edges.
+`uncertain_accesses` on digests (#170). Oracle green.
+
+**2026-08-10 evidence refinement (v23):** Elk `StatusReactedBy` —
+`computed(() => load())` with reads only in same-file `load` — proved A2/A3
+missed ambient callee tracking. Bounded same-file zero-arg helper follow
+(depth 2, no async/generator/args/import/method). `PublishWidget` `t()` stays
+hard TP (i18n unmodeled).
 
 **Do not** auto-continue pure extracts, Elk/corpus KPI chasing, or a11y as
 tracer A0–A7. Next tracer work needs **evidence** first:
@@ -338,6 +343,7 @@ growing prose ledger.
 | 2026-08-10 | Pending empty-path field | `const { a } = useX(); return { b: a }` → link-time Composable field on `useX` |
 | 2026-08-10 | All-paths branch reads | Same `(binding, property)` on both ternary/if-else arms → drop BranchTest |
 | 2026-08-10 | Export lattice + versions | Lattice written as A6 contract; graph **v22** / conventions **v14** |
+| 2026-08-10 | Same-file zero-arg helper follow | `collect_scope_reads` follows bare `f()` to local `function`/`const f = () =>` (depth≤2, skip async/generator); graph **v23**; Elk StatusReactedBy-class FP |
 | 2026-08-10 | `defineProps` destructure | Object-pattern + rest locals seed `Reactive` (Vue 3.5); `withDefaults` same |
 | 2026-08-10 | Vue Macros `defineModels` | Setup-only; object-destructure locals seed `ModelRef` |
 | 2026-07-31 | `inject(key) as Ctx` bag | Peel `TSAsExpression` to find the declarator; seed asserted Ref-field interface when provide offer is unknown; `return ctx` after assertion exports the bag (map-context helpers) |

@@ -2088,7 +2088,74 @@ fn scope_context(
   Some((reached_scope, outside_tracking))
 }
 
+/// Max hops when following same-file zero-arg helpers from a tracking scope.
+/// Vue tracks sync reads inside callees; we under-approx with a small bound.
+const MAX_LOCAL_CALLEE_FOLLOW_DEPTH: u32 = 2;
+
 fn collect_scope_reads(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
+  reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  script_offset: usize,
+) -> Vec<RawReactiveRead> {
+  let mut visiting = BTreeSet::new();
+  visiting.insert(scope_id);
+  collect_scope_reads_bounded(
+    semantic,
+    scope_id,
+    reactive_bindings,
+    composable_instances,
+    imported_bindings,
+    script_offset,
+    0,
+    &mut visiting,
+  )
+}
+
+#[expect(clippy::too_many_arguments, reason = "bounded collector threads scope + visit state")]
+fn collect_scope_reads_bounded(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
+  reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  script_offset: usize,
+  depth: u32,
+  visiting: &mut BTreeSet<NodeId>,
+) -> Vec<RawReactiveRead> {
+  let mut reads = collect_scope_reads_local(
+    semantic,
+    scope_id,
+    reactive_bindings,
+    composable_instances,
+    imported_bindings,
+    script_offset,
+  );
+
+  // Same-file zero-arg local helpers called synchronously from this scope
+  // contribute ambient tracking reads (Vue's activeEffect). Under-approx:
+  // bare Identifier callees only, skip async/generator, depth-capped.
+  if depth < MAX_LOCAL_CALLEE_FOLLOW_DEPTH {
+    follow_local_zero_arg_callees(
+      semantic,
+      scope_id,
+      reactive_bindings,
+      composable_instances,
+      imported_bindings,
+      script_offset,
+      depth,
+      visiting,
+      &mut reads,
+    );
+  }
+
+  reads.sort_by_key(|read| read.span.start);
+  reads
+}
+
+fn collect_scope_reads_local(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
   reactive_bindings: &[ReactiveBindingFact],
@@ -2228,8 +2295,130 @@ fn collect_scope_reads(
     });
   }
 
-  reads.sort_by_key(|read| read.span.start);
   reads
+}
+
+#[expect(clippy::too_many_arguments, reason = "callee follow shares collect_scope_reads context")]
+fn follow_local_zero_arg_callees(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
+  reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  script_offset: usize,
+  depth: u32,
+  visiting: &mut BTreeSet<NodeId>,
+  reads: &mut Vec<RawReactiveRead>,
+) {
+  // Collect callee ids first so we do not hold a nodes borrow across recursion.
+  // `call_outside` is true only when *every* in-scope call site is outside tracking
+  // (any in-tracking call keeps ambient deps).
+  let mut callees: Vec<(NodeId, bool)> = Vec::new();
+  for (call_id, call_node) in semantic.nodes().iter_enumerated() {
+    let AstKind::CallExpression(call) = call_node.kind() else {
+      continue;
+    };
+    if !call.arguments.is_empty() {
+      continue;
+    }
+    let Some(identifier) = call.callee.get_identifier_reference() else {
+      continue;
+    };
+    let Some((_, call_outside)) =
+      scope_context(semantic, scope_id, call_id, call.span, imported_bindings)
+    else {
+      continue;
+    };
+    let Some(callee_id) =
+      local_function_id_for_name(semantic, identifier.name.as_str(), identifier)
+    else {
+      continue;
+    };
+    if is_async_or_generator_function(semantic, callee_id) {
+      continue;
+    }
+    if visiting.contains(&callee_id) {
+      continue;
+    }
+    if let Some((_, existing_outside)) = callees.iter_mut().find(|(id, _)| *id == callee_id) {
+      *existing_outside = *existing_outside && call_outside;
+      continue;
+    }
+    callees.push((callee_id, call_outside));
+  }
+
+  for (callee_id, call_outside) in callees {
+    if !visiting.insert(callee_id) {
+      continue;
+    }
+    let mut nested = collect_scope_reads_bounded(
+      semantic,
+      callee_id,
+      reactive_bindings,
+      composable_instances,
+      imported_bindings,
+      script_offset,
+      depth + 1,
+      visiting,
+    );
+    visiting.remove(&callee_id);
+    if call_outside {
+      for read in &mut nested {
+        read.outside_tracking = true;
+      }
+    }
+    reads.extend(nested);
+  }
+}
+
+/// Resolve a same-file local `function f` / `const f = () =>` / `function` expr
+/// from an identifier reference. Imports and non-function bindings return `None`.
+fn local_function_id_for_name(
+  semantic: &oxc_semantic::Semantic<'_>,
+  _name: &str,
+  reference: &IdentifierReference<'_>,
+) -> Option<NodeId> {
+  let reference_id = reference.reference_id.get()?;
+  let symbol_id = semantic.scoping().get_reference(reference_id).symbol_id()?;
+  let decl = semantic.symbol_declaration(symbol_id);
+  match decl.kind() {
+    AstKind::Function(function) => Some(function.node_id.get()),
+    AstKind::VariableDeclarator(declarator) => match &declarator.init {
+      Some(Expression::ArrowFunctionExpression(arrow)) => Some(arrow.node_id.get()),
+      Some(Expression::FunctionExpression(function)) => Some(function.node_id.get()),
+      _ => None,
+    },
+    // `function useX()` binds on the Function node; some paths surface the id binding.
+    AstKind::BindingIdentifier(_) => {
+      for ancestor_id in semantic.nodes().ancestor_ids(decl.id()) {
+        match semantic.nodes().kind(ancestor_id) {
+          AstKind::Function(function) => return Some(function.node_id.get()),
+          AstKind::VariableDeclarator(declarator) => {
+            return match &declarator.init {
+              Some(Expression::ArrowFunctionExpression(arrow)) => Some(arrow.node_id.get()),
+              Some(Expression::FunctionExpression(function)) => Some(function.node_id.get()),
+              _ => None,
+            };
+          }
+          _ => {}
+        }
+      }
+      None
+    }
+    _ => None,
+  }
+}
+
+fn is_async_or_generator_function(
+  semantic: &oxc_semantic::Semantic<'_>,
+  function_id: NodeId,
+) -> bool {
+  match semantic.nodes().kind(function_id) {
+    AstKind::Function(function) => function.r#async || function.generator,
+    AstKind::ArrowFunctionExpression(arrow) => arrow.r#async,
+    // Unknown shape: refuse to follow (under-approx).
+    _ => true,
+  }
 }
 
 /// True when this identifier is `obj` in `obj.prop` / `obj[prop]` (already covered
