@@ -3569,6 +3569,59 @@ fn return_of_call_initialized_local_forwards_factory() {
 }
 
 #[test]
+fn overload_prefers_factory_scalar_over_controls_bag() {
+  // VueUse-style ambient overloads: default `(): Ref<T>`, controls bag last.
+  // Last-wins used to keep only the bag so `const x = useClock()` never seeded Ref.
+  let producer = prepared_standalone(
+    "clock.d.ts",
+    "import type { Ref } from 'vue';
+     export interface UseClockOptions { interval?: number; controls?: boolean }
+     export declare function useClock(options?: UseClockOptions): Ref<Date>;
+     export declare function useClock(options: UseClockOptions & { controls: true }): {
+       now: Ref<Date>;
+       pause: () => void;
+       resume: () => void;
+     };
+",
+    "d.ts",
+  );
+  let consumer = prepared_standalone(
+    "consumer.ts",
+    "import { computed } from 'vue';
+     const now = useClock({ interval: 1000 });
+     const stamp = computed(() => now.value.getTime());
+",
+    "ts",
+  );
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "#nuxt-imports:useClock".into(),
+    to: "clock.d.ts".into(),
+  }];
+  let traced = traced_modules(&[producer, consumer], &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.bindings.iter().any(|binding| {
+        binding.name == "now"
+          && matches!(
+            binding.kind,
+            ReactiveBindingKind::Ref
+              | ReactiveBindingKind::ShallowRef
+              | ReactiveBindingKind::Computed
+          )
+      }) && (module.graph.edges.iter().any(|edge| edge.from == "stamp" && edge.to == "now")
+        || module.graph.scopes.iter().any(|scope| {
+          scope.binding.as_deref() == Some("stamp")
+            && scope.reads.iter().any(|read| read.binding == "now")
+        }))
+    }),
+    "scalar Factory overload must win over controls bag; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.edges, &module.graph.scopes))
+  );
+}
+
+#[test]
 fn bare_auto_import_factory_seeds_through_ref_like_ternary() {
   // `const flag = ssr ? ref(false) : usePref()` with bare Factory(Computed) helper.
   let helper = prepared_standalone(

@@ -845,7 +845,7 @@ fn collect_local_values(
       function_return_type_kind(function),
       || declared_return_for_function(semantic, function),
     ) {
-      locals.insert(name, state);
+      insert_local_export_state(&mut locals, name, state);
     }
   }
 
@@ -933,7 +933,7 @@ fn collect_local_values(
       Some(_) => continue,
     };
     if let Some(state) = state {
-      locals.insert(name, state);
+      insert_local_export_state(&mut locals, name, state);
     }
   }
 
@@ -1001,6 +1001,34 @@ fn collect_local_values(
   collect_generic_method_instantiations(semantic, &mut locals);
 
   locals
+}
+
+/// Insert / merge a local export, preferring scalar [`ExportState::Factory`] over
+/// object bags when ambient overloads disagree.
+///
+/// VueUse-style helpers declare both `(): Ref<T>` and
+/// `(options: { controls: true }): { field: Ref<T> } & Pausable`. Walking
+/// declarations last-wins used to keep only the bag, so `const x = useX()` never
+/// seeded a Ref. Prefer the Factory when both shapes appear for the same name.
+fn insert_local_export_state(
+  locals: &mut BTreeMap<String, ExportState>,
+  name: String,
+  state: ExportState,
+) {
+  let keep_existing = match locals.get(&name) {
+    // Scalar overload wins over a later controls/object bag overload.
+    Some(ExportState::Factory(_)) if matches!(state, ExportState::Composable(_)) => true,
+    // Graph-seeded Known wins over provisional declare shapes.
+    Some(ExportState::Known(_))
+      if matches!(state, ExportState::Composable(_) | ExportState::Factory(_)) =>
+    {
+      true
+    }
+    _ => false,
+  };
+  if !keep_existing {
+    locals.insert(name, state);
+  }
 }
 
 fn composable_export_state(
