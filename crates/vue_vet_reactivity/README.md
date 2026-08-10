@@ -13,7 +13,7 @@ library surface (project graph, cache, future LSP / codemod tools).
 ## Status
 
 Early `0.x`. The fact schema is versioned
-(`REACTIVITY_GRAPH_VERSION = 23` in `vue_vet_core`). See the repository PCR
+(`REACTIVITY_GRAPH_VERSION = 24` in `vue_vet_core`). See the repository PCR
 ([reactivity tracer](https://github.com/alexzhang1030/vue-vet/blob/main/.agents/docs/reactivity-tracer.md))
 for the ExportState lattice and axis checklist. In-scope design axes A1–A7
 and Evidence are **complete** — complete means the in-scope checklists, not

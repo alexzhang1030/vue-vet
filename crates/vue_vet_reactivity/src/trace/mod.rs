@@ -1432,16 +1432,24 @@ fn collect_reactive_bindings(
     // Nuxt data-fetch / vue-i18n: field-specific kinds on object destructure.
     if let Some(field_kinds) = named_destructure_field_kinds(&callee) {
       if let BindingPattern::ObjectPattern(pattern) = &declarator.id {
+        let mut seeded_ambient = false;
+        let mut has_translator = false;
         for property in &pattern.properties {
           let Some(key) = property.key.static_name() else {
             continue;
           };
+          if callee == "useI18n" && is_i18n_translator_key(key.as_ref()) {
+            has_translator = true;
+          }
           let Some(kind) = field_kinds(key.as_ref()) else {
             continue;
           };
           let mut identifiers = Vec::new();
           collect_binding_identifiers(&property.value, &mut identifiers);
           for (name, span) in identifiers {
+            if callee == "useI18n" && is_i18n_ambient_key(key.as_ref()) {
+              seeded_ambient = true;
+            }
             reactive_bindings.push(ReactiveBindingFact {
               name,
               kind,
@@ -1449,6 +1457,17 @@ fn collect_reactive_bindings(
               span: source_span(sfc_source, script_offset, span),
             });
           }
+        }
+        // `const { t } = useI18n()` — translators alone still track composer
+        // ambient deps at runtime; seed a synthetic bag for graph edges.
+        if callee == "useI18n" && has_translator && !seeded_ambient {
+          let call_span = source_span(sfc_source, script_offset, call.span);
+          reactive_bindings.push(ReactiveBindingFact {
+            name: i18n_composer_binding_name(call_span.offset),
+            kind: ReactiveBindingKind::Reactive,
+            initialized_with_null: false,
+            span: call_span,
+          });
         }
       }
       continue;
@@ -1716,6 +1735,20 @@ fn i18n_field_kind(field: &str) -> Option<ReactiveBindingKind> {
     }
     _ => None,
   }
+}
+
+/// vue-i18n `wrapWithDeps` translators (`trackReactivityValues` on each call).
+fn is_i18n_translator_key(key: &str) -> bool {
+  matches!(key, "t" | "d" | "n" | "rt" | "te")
+}
+
+/// Ambient deps that `trackReactivityValues` always reads (lite + full builds).
+fn is_i18n_ambient_key(key: &str) -> bool {
+  matches!(key, "locale" | "fallbackLocale" | "messages")
+}
+
+fn i18n_composer_binding_name(call_offset: usize) -> String {
+  format!("useI18n@{call_offset}")
 }
 
 /// Seed `const params = useRoute().params` (and `route.params` when `route` is Reactive).
@@ -2231,6 +2264,9 @@ fn collect_scope_reads_local(
         });
       }
 
+      // vue-i18n `t`/`d`/`n`/`rt`/`te` from `useI18n()` — wrapWithDeps tracks
+      // composer ambient refs. Handled after the member loop (multi-read inject).
+
       let (object, property, member_span) = match member_node.kind() {
         AstKind::StaticMemberExpression(member) => (
           member.object.get_identifier_reference()?,
@@ -2295,7 +2331,152 @@ fn collect_scope_reads_local(
     });
   }
 
+  // `t('key')` from `const { t } = useI18n()` — inject ambient composer deps.
+  for (call_id, call_node) in semantic.nodes().iter_enumerated() {
+    let AstKind::CallExpression(call) = call_node.kind() else {
+      continue;
+    };
+    let Some(identifier) = call.callee.get_identifier_reference() else {
+      continue;
+    };
+    let Some(deps) = i18n_translator_ambient_deps(
+      semantic,
+      identifier,
+      call.span,
+      script_offset,
+      imported_bindings,
+    ) else {
+      continue;
+    };
+    let Some((_, outside_tracking)) =
+      scope_context(semantic, scope_id, call_id, call.span, imported_bindings)
+    else {
+      continue;
+    };
+    for (binding, property) in deps {
+      reads.push(RawReactiveRead {
+        node_id: call_id,
+        binding,
+        property,
+        span: call.span,
+        outside_tracking,
+      });
+    }
+  }
+
   reads
+}
+
+/// Ambient deps for a `useI18n` translator call (`t`/`d`/`n`/`rt`/`te`).
+///
+/// Prefers co-destructured `locale`/`fallbackLocale`/`messages` locals; otherwise
+/// a synthetic `useI18n@{offset}` bag with those field properties.
+fn i18n_translator_ambient_deps(
+  semantic: &oxc_semantic::Semantic<'_>,
+  identifier: &IdentifierReference<'_>,
+  _call_span: Span,
+  script_offset: usize,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> Option<Vec<(String, Option<String>)>> {
+  let reference_id = identifier.reference_id.get()?;
+  let symbol_id = semantic.scoping().get_reference(reference_id).symbol_id()?;
+  let decl = semantic.symbol_declaration(symbol_id);
+
+  // Oxc often attaches destructured locals' symbols to the VariableDeclarator
+  // (not the BindingIdentifier). Recover the pattern key by local name.
+  let (declarator, export_key) = match decl.kind() {
+    AstKind::VariableDeclarator(declarator) => {
+      let BindingPattern::ObjectPattern(pattern) = &declarator.id else {
+        return None;
+      };
+      let key = object_pattern_key_for_local(pattern, identifier.name.as_str())?;
+      (declarator, key)
+    }
+    AstKind::BindingIdentifier(_) => {
+      let mut export_key = None;
+      let mut declarator_id = None;
+      for ancestor_id in semantic.nodes().ancestor_ids(decl.id()) {
+        match semantic.nodes().kind(ancestor_id) {
+          AstKind::BindingProperty(property) if export_key.is_none() => {
+            if let Some(key) = property.key.static_name() {
+              export_key = Some(key.into_owned());
+            }
+          }
+          AstKind::VariableDeclarator(_) => {
+            declarator_id = Some(ancestor_id);
+            break;
+          }
+          _ => {}
+        }
+      }
+      let declarator_id = declarator_id?;
+      let AstKind::VariableDeclarator(declarator) = semantic.nodes().kind(declarator_id) else {
+        return None;
+      };
+      (declarator, export_key?)
+    }
+    _ => return None,
+  };
+
+  if !is_i18n_translator_key(&export_key) {
+    return None;
+  }
+  let Some(Expression::CallExpression(init_call)) = &declarator.init else {
+    return None;
+  };
+  let callee =
+    resolved_binding_callee(semantic, &init_call.callee, imported_bindings, ScriptKind::Setup)?;
+  if callee != "useI18n" {
+    return None;
+  }
+  let BindingPattern::ObjectPattern(pattern) = &declarator.id else {
+    return None;
+  };
+
+  // Co-destructured ambient locals (prefer real names over synthetic bag).
+  let mut deps = Vec::new();
+  for property in &pattern.properties {
+    let Some(field) = property.key.static_name() else {
+      continue;
+    };
+    if !is_i18n_ambient_key(field.as_ref()) {
+      continue;
+    }
+    let mut locals = Vec::new();
+    collect_binding_identifiers(&property.value, &mut locals);
+    for (local, _) in locals {
+      // locale-like fields are Computed → track via `.value`.
+      deps.push((local, Some("value".into())));
+    }
+  }
+  if !deps.is_empty() {
+    return Some(deps);
+  }
+
+  // Translators only — synthetic composer bag; name must match seed offset.
+  let composer_offset =
+    script_offset.saturating_add(usize::try_from(init_call.span.start).unwrap_or(usize::MAX));
+  let composer = i18n_composer_binding_name(composer_offset);
+  Some(vec![
+    (composer.clone(), Some("locale".into())),
+    (composer.clone(), Some("fallbackLocale".into())),
+    (composer, Some("messages".into())),
+  ])
+}
+
+/// Object-pattern export key for a local binding name (`{ t: translate }` → `"t"`).
+fn object_pattern_key_for_local(
+  pattern: &oxc_ast::ast::ObjectPattern<'_>,
+  local: &str,
+) -> Option<String> {
+  for property in &pattern.properties {
+    let mut locals = Vec::new();
+    collect_binding_identifiers(&property.value, &mut locals);
+    if locals.iter().any(|(name, _)| name == local) {
+      return property.key.static_name().map(std::borrow::Cow::into_owned);
+    }
+  }
+  None
 }
 
 #[expect(clippy::too_many_arguments, reason = "callee follow shares collect_scope_reads context")]

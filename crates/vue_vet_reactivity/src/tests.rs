@@ -2261,6 +2261,132 @@ fn seeds_use_i18n_locale_destructure() {
 }
 
 #[test]
+fn use_i18n_translator_only_tracks_ambient_composer_deps() {
+  // PublishWidget-style: `const { t } = useI18n(); computed(() => t('…'))`.
+  let graph = graph(
+    "const { t } = useI18n();\n\
+     const expiresInOptions = computed(() => [t('time_ago_options.hour_future', 1)]);\n\
+     void expiresInOptions.value;",
+  );
+  assert!(
+    graph.bindings.iter().any(|b| b.name.starts_with("useI18n@")),
+    "translator-only useI18n must seed synthetic composer bag; got {:?}",
+    graph.bindings
+  );
+  assert!(
+    !graph.bindings.iter().any(|b| b.name == "t"),
+    "t itself must not become a reactive binding; got {:?}",
+    graph.bindings
+  );
+  let computed = graph.scopes.iter().find(|s| s.kind == TrackingScopeKind::Computed);
+  assert!(
+    computed.is_some_and(|scope| {
+      scope.reads.iter().any(|read| {
+        read.binding.starts_with("useI18n@")
+          && matches!(read.property.as_deref(), Some("locale" | "fallbackLocale" | "messages"))
+          && read.kind == ReactiveReadKind::Unconditional
+      })
+    }),
+    "t() must inject ambient composer reads; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn use_i18n_translator_prefers_co_destructured_locale() {
+  let graph = graph(
+    "const { locale, t } = useI18n();\n\
+     const label = computed(() => t('hello'));\n\
+     void label.value;",
+  );
+  assert!(
+    !graph.bindings.iter().any(|b| b.name.starts_with("useI18n@")),
+    "co-destructured locale must not invent synthetic composer; got {:?}",
+    graph.bindings
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.iter().any(|read| {
+          read.binding == "locale"
+            && read.property.as_deref() == Some("value")
+            && read.kind != ReactiveReadKind::OutsideTracking
+        })
+    }),
+    "t() with co-destructured locale must track locale.value; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn use_i18n_renamed_translator_tracks() {
+  let graph = graph(
+    "const { t: translate } = useI18n();\n\
+     const label = computed(() => translate('x'));\n\
+     void label.value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.iter().any(|read| {
+          read.binding.starts_with("useI18n@") && read.property.as_deref() == Some("locale")
+        })
+    }),
+    "renamed translator must still inject ambient deps; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn local_function_named_t_is_not_i18n_ambient() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     function t() { return 'x'; }\n\
+     const label = computed(() => t());\n\
+     void label.value;",
+  );
+  assert!(
+    graph.scopes.iter().all(|scope| {
+      scope.kind != TrackingScopeKind::Computed
+        || scope.reads.iter().all(|read| !read.binding.starts_with("useI18n@"))
+    }),
+    "local t() must not invent i18n ambient deps; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn use_i18n_translator_inside_then_is_outside_tracking() {
+  let graph = graph(
+    "import { watchEffect } from 'vue';\n\
+     const { t } = useI18n();\n\
+     watchEffect(() => { Promise.resolve().then(() => t('x')); });",
+  );
+  let effect = graph.scopes.iter().find(|s| s.kind == TrackingScopeKind::WatchEffect);
+  assert!(effect.is_some(), "watchEffect scope missing; scopes={:?}", graph.scopes);
+  let ambient: Vec<_> = effect
+    .map(|scope| {
+      scope
+        .reads
+        .iter()
+        .filter(|read| read.binding.starts_with("useI18n@"))
+        .map(|read| read.kind)
+        .collect()
+    })
+    .unwrap_or_default();
+  assert!(
+    !ambient.is_empty(),
+    "expected ambient reads from t() inside then(); scopes={:?}",
+    graph.scopes
+  );
+  assert!(
+    ambient.iter().all(|kind| *kind == ReactiveReadKind::OutsideTracking),
+    "t() only from then() must stay outside tracking; reads={ambient:?} scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
 fn dependency_edges_carry_member_property_for_props_bag() {
   let graph = graph(
     "import { computed } from 'vue'; const props = defineProps<{ count: number; mode: string }>(); const label = computed(() => props.count + props.mode);",
