@@ -69,6 +69,56 @@ fn explain_rule_loads_documentation_without_scan_diagnostics() {
 
 #[test]
 #[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn explain_scope_reports_no_known_dependency_for_static_computed() {
+  let Ok(session) = ProjectSession::open(SessionOptions {
+    root: fixture("rules/no-computed-without-dependency/invalid/placeholder.vue"),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+  }) else {
+    panic!("session must open");
+  };
+  let Ok((explains, _)) = session.explain_scope("label") else {
+    panic!("scope explain must find binding label");
+  };
+  assert_eq!(explains.len(), 1, "expected one computed scope: {explains:?}");
+  let Some(explain) = explains.first() else {
+    panic!("expected one computed scope");
+  };
+  assert_eq!(explain.kind, "computed");
+  assert_eq!(explain.binding.as_deref(), Some("label"));
+  assert!(explain.tracks.is_empty(), "static computed tracks nothing: {explain:?}");
+  assert!(
+    explain.summary.contains("no known reactive dependency"),
+    "summary must answer would Vue re-run?: {}",
+    explain.summary
+  );
+
+  let Ok(snapshot) = session.analyze() else {
+    panic!("analyze must succeed");
+  };
+  let Some(diagnostic) = snapshot
+    .summary
+    .diagnostics
+    .iter()
+    .find(|diagnostic| diagnostic.rule_id.contains("no-computed-without-dependency"))
+  else {
+    panic!("fixture must emit no-computed-without-dependency");
+  };
+  let id = finding_id(diagnostic);
+  let Ok(finding) = session.explain_finding(&id) else {
+    panic!("finding explain must succeed");
+  };
+  let Some(tracking) = finding.tracking.as_ref() else {
+    panic!("finding on a scope must attach tracking");
+  };
+  assert_eq!(tracking.binding.as_deref(), Some("label"));
+  assert!(tracking.summary.contains("no known reactive dependency"));
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
 fn analyze_with_overlays_uses_unsaved_buffer_source() {
   let root = fixture("rules/no-v-html/invalid/basic.vue");
   let Ok(session) = ProjectSession::open(SessionOptions {

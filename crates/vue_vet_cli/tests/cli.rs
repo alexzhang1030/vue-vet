@@ -224,6 +224,48 @@ fn explain_rejects_unknown_finding_ids() {
 }
 
 #[test]
+#[expect(clippy::panic, reason = "malformed explain-scope JSON must fail the integration test")]
+fn explain_scope_answers_would_vue_rerun() {
+  let path = fixture("rules/no-computed-without-dependency/invalid/placeholder.vue");
+  let path_argument = path.to_string_lossy();
+  let output = run(&[path_argument.as_ref(), "--explain-scope", "label", "--format", "json"]);
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  assert!(output.status.success(), "explain-scope must succeed: {stdout}");
+  let Ok(parsed) = serde_json::from_str::<Value>(&stdout) else {
+    panic!("explain-scope JSON must parse: {stdout}");
+  };
+  assert_eq!(parsed.get("kind").and_then(Value::as_str), Some("computed"));
+  assert_eq!(parsed.get("binding").and_then(Value::as_str), Some("label"));
+  assert!(
+    parsed
+      .get("summary")
+      .and_then(Value::as_str)
+      .is_some_and(|summary| summary.contains("no known reactive dependency")),
+    "scope explain must state Vue will not re-run: {stdout}"
+  );
+  assert!(parsed.get("diagnostics").is_none(), "explain-scope must not emit a scan report");
+
+  let text = run(&[path_argument.as_ref(), "--explain-scope", "label"]);
+  let text_stdout = String::from_utf8_lossy(&text.stdout);
+  assert!(text.status.success(), "text explain-scope must succeed: {text_stdout}");
+  assert!(text_stdout.contains("tracking scope"));
+  assert!(text_stdout.contains("summary:"));
+  assert!(text_stdout.contains("no known reactive dependency"));
+}
+
+#[test]
+fn explain_scope_rejects_unknown_queries() {
+  let path = fixture("rules/no-computed-without-dependency/invalid/placeholder.vue");
+  let output = run(&[path.to_string_lossy().as_ref(), "--explain-scope", "missingBinding"]);
+  let stderr = String::from_utf8_lossy(&output.stderr);
+  assert_eq!(output.status.code(), Some(2), "unknown scope queries are operational failures");
+  assert!(
+    stderr.contains("no tracking scope matched"),
+    "stderr must say no scope matched: {stderr}"
+  );
+}
+
+#[test]
 fn unsafe_fixture_has_stable_text_output_and_exit_code() {
   let path = fixture("rules/no-v-html/invalid/basic.vue");
   let output = run(&[path.to_string_lossy().as_ref(), "--deny-warnings"]);

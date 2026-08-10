@@ -29,6 +29,13 @@ Related: [architecture](./architecture.md), [gotchas](./gotchas.md),
   busiest-first, hides empty modules by default, supports click/wheel mouse
   input, and requires an interactive TTY. `editors/vscode` is a thin CLI
   consumer (not LSP).
+- **Explain Scope** (`--explain-scope <query>`) is the multi-consumer “would Vue
+  re-run this?” surface: pure `vue_vet_reactivity::explain_tracking_scope` over
+  `TrackingScopeFact`, session orchestration, text/JSON reporters. Finding
+  `--explain` attaches optional `tracking` when the diagnostic span sits inside
+  a scope. Query: binding, `module:binding`, `@offset`, `callee@offset`. Contract
+  types: `ScopeExplain` / `ScopeExplainDep` / `ScopeTrackReason` in
+  `vue_vet_core` (additive on `FindingExplain`).
 
 ## What “complete” means
 

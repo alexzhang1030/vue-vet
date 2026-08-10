@@ -18,8 +18,8 @@ use thiserror::Error;
 use vue_vet_cache::default_cache_dir;
 use vue_vet_config::{CONFIG_FILE, Config};
 use vue_vet_core::{
-  Confidence, FileId, FindingExplain, RuleExplain, RuleMeta, RuleRegistry, ScanSummary, Severity,
-  WorkspaceRoot,
+  Confidence, FileId, FindingExplain, RuleExplain, RuleMeta, RuleRegistry, ScanSummary,
+  ScopeExplain, Severity, WorkspaceRoot,
 };
 use vue_vet_practice::practice_rules;
 use vue_vet_project::{PROJECT_RULE_IDS, ProjectGraph};
@@ -585,6 +585,18 @@ impl ProjectSession {
   /// Returns when the finding is missing or its rule is unknown.
   pub fn explain_finding(&self, finding_id: &str) -> Result<FindingExplain, SessionError> {
     crate::explain::explain_finding(self, finding_id)
+  }
+
+  /// Scan and explain tracking scopes matching a human query (“would Vue re-run?”).
+  ///
+  /// # Errors
+  ///
+  /// Returns when the query is empty, no scope matches, or analysis fails.
+  pub fn explain_scope(
+    &self,
+    query: &str,
+  ) -> Result<(Vec<ScopeExplain>, &'static str), SessionError> {
+    crate::explain::explain_scope(self, query)
   }
 
   fn replace_overlays(&self, overlays: &BTreeMap<PathBuf, String>) -> Result<(), SessionError> {
