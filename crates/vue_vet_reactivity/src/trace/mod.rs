@@ -2356,6 +2356,15 @@ fn path_guards(
             .as_ref()
             .is_some_and(|alternate| span_contains(alternate.span(), read.span));
         if in_branch {
+          // Both if/else arms read the same binding+property → always reached.
+          if branch_pair_covers_read(
+            reads,
+            read,
+            statement.consequent.span(),
+            statement.alternate.as_ref().map(oxc_span::GetSpan::span),
+          ) {
+            continue;
+          }
           push_guards_in_span(
             &mut guards,
             reads,
@@ -2368,6 +2377,15 @@ fn path_guards(
         if span_contains(expression.consequent.span(), read.span)
           || span_contains(expression.alternate.span(), read.span)
         {
+          // `cond ? x.value : x.value` — `x` is a reliable dependency.
+          if branch_pair_covers_read(
+            reads,
+            read,
+            expression.consequent.span(),
+            Some(expression.alternate.span()),
+          ) {
+            continue;
+          }
           push_guards_in_span(
             &mut guards,
             reads,
@@ -2403,6 +2421,31 @@ fn path_guards(
 
   guards.sort_by_key(|guard| guard.read.span.start);
   guards
+}
+
+/// True when both arms of a branch pair contain a same-identity read as `read`.
+///
+/// Used so `cond ? x.value : x.value` / `if (c) x.value; else x.value` do not
+/// mark `x` as a conditional-only dependency — every path still tracks it.
+fn branch_pair_covers_read(
+  reads: &[RawReactiveRead],
+  read: &RawReactiveRead,
+  left: Span,
+  right: Option<Span>,
+) -> bool {
+  let Some(right) = right else {
+    return false;
+  };
+  let matches_id = |candidate: &RawReactiveRead| {
+    !candidate.outside_tracking
+      && candidate.binding == read.binding
+      && candidate.property == read.property
+  };
+  let in_left =
+    reads.iter().any(|candidate| matches_id(candidate) && span_contains(left, candidate.span));
+  let in_right =
+    reads.iter().any(|candidate| matches_id(candidate) && span_contains(right, candidate.span));
+  in_left && in_right
 }
 
 /// Per-tracking-scope control-flow facts built once, then used to classify reads.

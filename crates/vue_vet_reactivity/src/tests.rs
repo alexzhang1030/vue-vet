@@ -383,6 +383,90 @@ fn classifies_ternary_branch_reads() {
 }
 
 #[test]
+fn same_binding_on_both_ternary_arms_is_unconditional() {
+  // `cond ? x.value : x.value` always tracks `x` — not a conditional-only dependency.
+  let nested = graph(
+    "import { ref, computed } from 'vue';\n\
+     const prefer = ref(false);\n\
+     const account = ref({ avatar: 'a', alt: 'b' });\n\
+     const src = computed(() =>\n\
+       prefer.value ? account.value.avatar : account.value.alt);\n",
+  );
+  // account.value is read in both arms (object of .avatar / .alt) — every path tracks it.
+  assert!(
+    nested.scopes.iter().any(|scope| {
+      scope.binding.as_deref() == Some("src")
+        && scope.reads.iter().any(|read| {
+          read.binding == "account"
+            && read.property.as_deref() == Some("value")
+            && read.kind == ReactiveReadKind::Unconditional
+        })
+        && !scope.reads.iter().any(|read| {
+          read.binding == "account"
+            && read.property.as_deref() == Some("value")
+            && read.kind == ReactiveReadKind::Conditional
+        })
+    }),
+    "account.value on both ternary arms must be unconditional; got {:?}",
+    nested.scopes.iter().find(|scope| scope.binding.as_deref() == Some("src"))
+  );
+
+  let same = graph(
+    "import { ref, computed } from 'vue';\n\
+     const prefer = ref(false);\n\
+     const label = ref('a');\n\
+     const out = computed(() => (prefer.value ? label.value : label.value));\n",
+  );
+  assert!(
+    same.scopes.iter().any(|scope| {
+      scope.binding.as_deref() == Some("out")
+        && scope.reads.iter().any(|read| {
+          read.binding == "label"
+            && read.property.as_deref() == Some("value")
+            && read.kind == ReactiveReadKind::Unconditional
+        })
+        && !scope.reads.iter().any(|read| {
+          read.binding == "label"
+            && read.property.as_deref() == Some("value")
+            && read.kind == ReactiveReadKind::Conditional
+        })
+    }),
+    "identical arm reads must be unconditional; got {:?}",
+    same.scopes.iter().find(|scope| scope.binding.as_deref() == Some("out"))
+  );
+}
+
+#[test]
+fn same_binding_on_both_if_else_arms_is_unconditional() {
+  let traced = graph(
+    "import { ref, computed } from 'vue';\n\
+     const ready = ref(false);\n\
+     const count = ref(0);\n\
+     const label = computed(() => {\n\
+       if (ready.value) return String(count.value);\n\
+       else return String(count.value);\n\
+     });\n",
+  );
+  assert!(
+    traced.scopes.iter().any(|scope| {
+      scope.binding.as_deref() == Some("label")
+        && scope.reads.iter().any(|read| {
+          read.binding == "count"
+            && read.property.as_deref() == Some("value")
+            && read.kind == ReactiveReadKind::Unconditional
+        })
+        && !scope.reads.iter().any(|read| {
+          read.binding == "count"
+            && read.property.as_deref() == Some("value")
+            && read.kind == ReactiveReadKind::Conditional
+        })
+    }),
+    "if/else both arms reading count.value must be unconditional; got {:?}",
+    traced.scopes.iter().find(|scope| scope.binding.as_deref() == Some("label"))
+  );
+}
+
+#[test]
 fn seeds_ternary_init_when_both_arms_are_ref_like() {
   // `const flag = cond ? ref(false) : shallowRef(true)` — both arms reactive.
   let graph = graph(
