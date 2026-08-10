@@ -22,9 +22,9 @@ use vue_vet_core::{
   ScriptBindingFact, ScriptBlockFacts, ScriptCallFact, ScriptDestructureFact, ScriptImportFact,
   ScriptKind, ScriptMemberWriteFact, ScriptOperandFact, SourceSpan, TemplateFacts,
 };
-use vue_vet_plugins::default_named_api_bags;
+use vue_vet_plugins::default_trace_config;
 use vue_vet_reactivity::{
-  ModuleSummary, TraceConfig, prepare_module_summary_with_config, trace_reactivity_with_config,
+  ModuleSummary, prepare_module_summary_with_config, trace_reactivity_with_config,
 };
 
 mod jsx;
@@ -105,7 +105,8 @@ pub fn analyze_module_source(
     TemplateFacts::default()
   };
 
-  let trace_config = TraceConfig { named_api_bags: default_named_api_bags() };
+  // Auto-load ecosystem plugins (Nuxt / vue-i18n) at the analysis boundary.
+  let trace_config = default_trace_config();
   let reactivity_graph = Arc::new(trace_reactivity_with_config(
     &semantic,
     sfc_source,

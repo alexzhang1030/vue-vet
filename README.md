@@ -117,6 +117,8 @@ vue_vet_vize/oxc     Vize template facts + one-pass Oxc module facts
       |
 vue_vet_reactivity  local and cross-module reactive dependency graphs
       |
+vue_vet_plugins      compile-time ecosystem API bags (Nuxt, vue-i18n, …)
+      |
 vue_vet_project      deterministic Vue/Nuxt graph and cross-file findings
       |
 vue_vet_rules        deterministic high-confidence rule registry
@@ -126,10 +128,12 @@ vue_vet_core         diagnostics, spans, scoring, edits, stable public model
 vue_vet_reporters    deterministic text, JSON, SARIF, and GitHub rendering
 ```
 
-`vue_vet_core` and `vue_vet_reactivity` are the first crates prepared for
-crates.io (name reservation + library consumers). Tagged releases publish them
-via `.github/workflows/release.yml` (`CARGO_REGISTRY_TOKEN`). See
-[vue_vet_reactivity](crates/vue_vet_reactivity/README.md) and
+`vue_vet_core`, `vue_vet_reactivity`, and `vue_vet_plugins` are prepared for
+crates.io. Tagged releases publish them in dependency order via
+`.github/workflows/release.yml` (`CARGO_REGISTRY_TOKEN`). The CLI / session /
+Oxc boundary auto-loads default plugins. See
+[vue_vet_reactivity](crates/vue_vet_reactivity/README.md),
+[vue_vet_plugins](crates/vue_vet_plugins/README.md), and
 [install docs](docs/install.md).
 
 

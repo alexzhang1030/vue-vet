@@ -14,8 +14,14 @@ use vue_vet_core::{
   FileId, ScriptBlockFacts, ScriptCallFact, ScriptFacts, ScriptImportFact, ScriptKind, SfcFacts,
   SourceSpan, TemplateElementFact, TemplateFacts,
 };
-use vue_vet_plugins::default_named_api_bags;
+use vue_vet_plugins::default_trace_modules_options;
 use vue_vet_reactivity::{ModuleSource, TraceModulesOptions};
+
+fn trace_opts_workers(max_workers: usize) -> TraceModulesOptions {
+  let mut options = default_trace_modules_options();
+  options.max_workers = max_workers;
+  options
+}
 
 static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
 
@@ -164,11 +170,7 @@ fn incremental_structure_rebuilds_only_changed_file_facts() {
   let _initial = build_project_graph_incremental_with_options(
     project.root(),
     &[first.clone(), second.clone()],
-    &TraceModulesOptions {
-      max_workers: 1,
-      named_api_bags: default_named_api_bags().to_vec(),
-      ..Default::default()
-    },
+    &trace_opts_workers(1),
     &context,
     &mut state,
     None,
@@ -178,11 +180,7 @@ fn incremental_structure_rebuilds_only_changed_file_facts() {
   let _unchanged = build_project_graph_incremental_with_options(
     project.root(),
     &[first.clone(), second],
-    &TraceModulesOptions {
-      max_workers: 1,
-      named_api_bags: default_named_api_bags().to_vec(),
-      ..Default::default()
-    },
+    &trace_opts_workers(1),
     &context,
     &mut state,
     None,
@@ -194,11 +192,7 @@ fn incremental_structure_rebuilds_only_changed_file_facts() {
   let _changed = build_project_graph_incremental_with_options(
     project.root(),
     &[first, changed],
-    &TraceModulesOptions {
-      max_workers: 1,
-      named_api_bags: default_named_api_bags().to_vec(),
-      ..Default::default()
-    },
+    &trace_opts_workers(1),
     &context,
     &mut state,
     None,

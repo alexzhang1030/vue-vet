@@ -1,19 +1,20 @@
 [package]
-publish = false
 name = "vue_vet_plugins"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-readme.workspace = true
-keywords.workspace = true
-categories.workspace = true
+readme = "README.md"
 description = "Compile-time ecosystem plugins for Vue Vet (Nuxt, vue-i18n, …)"
+documentation = "https://docs.rs/vue_vet_plugins"
+homepage = "https://github.com/alexzhang1030/vue-vet"
+keywords = ["vue", "nuxt", "i18n", "static-analysis", "lint"]
+categories = ["development-tools"]
 
 [lints]
 workspace = true
 
 [dependencies]
-vue_vet_core = { path = "../vue_vet_core" }
-vue_vet_reactivity = { path = "../vue_vet_reactivity" }
+vue_vet_core = { version = "0.1.0", path = "../vue_vet_core" }
+vue_vet_reactivity = { version = "0.1.0", path = "../vue_vet_reactivity" }

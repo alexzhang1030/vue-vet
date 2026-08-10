@@ -13,7 +13,7 @@ use std::{
 };
 
 use vue_vet_core::ModuleId;
-use vue_vet_plugins::default_named_api_bags;
+use vue_vet_plugins::{default_trace_modules_options, ensure_default_plugins};
 use vue_vet_reactivity::{TraceModulesOptions, trace_modules_incremental_with_options};
 
 use crate::context::ProjectContext;
@@ -35,8 +35,7 @@ mod tests;
 
 #[must_use]
 pub fn build_project_graph(root: &Path, files: &[ProjectFile]) -> ProjectGraph {
-  let options =
-    TraceModulesOptions { named_api_bags: default_named_api_bags().to_vec(), ..Default::default() };
+  let options = default_trace_modules_options();
   build_project_graph_with_options(root, files, &options)
 }
 
@@ -50,10 +49,12 @@ pub fn build_project_graph_with_options(
   let known =
     files.iter().map(|file| normalized_path(file.path.as_path())).collect::<BTreeSet<_>>();
   let context = ProjectContext::from_filesystem(&root, &known);
+  // Clone so we can ensure_default_plugins without requiring &mut from callers.
+  let options = ensure_default_plugins(trace_options.clone());
   build_project_graph_incremental_with_options(
     &root,
     files,
-    trace_options,
+    &options,
     &context,
     &mut ProjectGraphState::default(),
     None,
@@ -69,6 +70,8 @@ pub fn build_project_graph_incremental_with_options<'a>(
   state: &mut ProjectGraphState,
   on_external_seeds: Option<&dyn Fn(usize)>,
 ) -> ProjectGraph {
+  let trace_options = ensure_default_plugins(trace_options.clone());
+  let trace_options = &trace_options;
   state.last_stats = ProjectGraphStats::default();
   let root = normalize_project_root(root);
   let mut ordered = files.into_iter().collect::<Vec<_>>();

@@ -23,12 +23,12 @@ use vue_vet_core::{
   Severity, SfcFacts, SourceSpan, TemplateFacts, content_digest, serde_digest,
 };
 use vue_vet_oxc::analyze_module_source;
-use vue_vet_plugins::default_named_api_bags;
+use vue_vet_plugins::default_trace_modules_options;
 use vue_vet_project::{
   ContextEpochs, ProjectFile, ProjectGraph, ProjectGraphState,
   build_project_graph_incremental_with_options,
 };
-use vue_vet_reactivity::{ModuleSource, TraceModulesOptions};
+use vue_vet_reactivity::ModuleSource;
 use vue_vet_vize::{AnalyzeError, AnalyzedSfc, analyze_sfc_facts_reusing};
 
 use crate::{
@@ -352,12 +352,10 @@ fn scan_parallel(
     }
   });
   let on_external_ref = on_external.as_ref().map(|callback| callback as &dyn Fn(usize));
-  let trace_options = TraceModulesOptions {
-    max_workers,
-    reuse_current_pool: true,
-    named_api_bags: default_named_api_bags().to_vec(),
-    ..Default::default()
-  };
+  // Auto-load ecosystem plugins; only override worker/pool settings.
+  let mut trace_options = default_trace_modules_options();
+  trace_options.max_workers = max_workers;
+  trace_options.reuse_current_pool = true;
   let graph = build_project_graph_incremental_with_options(
     &input.boundary,
     project_files.iter().map(AsRef::as_ref),
