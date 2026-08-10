@@ -1417,10 +1417,43 @@ fn collect_reactive_bindings(
     let AstKind::CallExpression(call) = node.kind() else {
       continue;
     };
-    let Some(callee) = resolved_vue_callee(semantic, &call.callee, imported_bindings, script_kind)
+    let Some(callee) =
+      resolved_binding_callee(semantic, &call.callee, imported_bindings, script_kind)
     else {
       continue;
     };
+    let Some(declarator) = variable_declarator_for_call(semantic, call.node_id.get()) else {
+      continue;
+    };
+    if !include_nested && is_nested_in_function(semantic, call.node_id.get()) {
+      continue;
+    }
+
+    // Nuxt data-fetch / vue-i18n: field-specific kinds on object destructure.
+    if let Some(field_kinds) = named_destructure_field_kinds(&callee) {
+      if let BindingPattern::ObjectPattern(pattern) = &declarator.id {
+        for property in &pattern.properties {
+          let Some(key) = property.key.static_name() else {
+            continue;
+          };
+          let Some(kind) = field_kinds(key.as_ref()) else {
+            continue;
+          };
+          let mut identifiers = Vec::new();
+          collect_binding_identifiers(&property.value, &mut identifiers);
+          for (name, span) in identifiers {
+            reactive_bindings.push(ReactiveBindingFact {
+              name,
+              kind,
+              initialized_with_null: false,
+              span: source_span(sfc_source, script_offset, span),
+            });
+          }
+        }
+      }
+      continue;
+    }
+
     // `const props = withDefaults(defineProps(...), defaults)` — binding is the
     // outer call's assignee; peel defineProps for the reactive kind.
     let binding_kind = if callee == "withDefaults" {
@@ -1431,7 +1464,7 @@ fn collect_reactive_bindings(
         continue;
       };
       let Some(inner_callee) =
-        resolved_vue_callee(semantic, &inner_call.callee, imported_bindings, script_kind)
+        resolved_binding_callee(semantic, &inner_call.callee, imported_bindings, script_kind)
       else {
         continue;
       };
@@ -1445,13 +1478,6 @@ fn collect_reactive_bindings(
       };
       kind
     };
-    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
-    else {
-      continue;
-    };
-    if !include_nested && is_nested_in_function(semantic, call.node_id.get()) {
-      continue;
-    }
 
     let mut identifiers = Vec::new();
     if matches!(callee.as_str(), "toRefs" | "storeToRefs" | "defineModels") {
@@ -1493,7 +1519,156 @@ fn collect_reactive_bindings(
     }
   }
 
+  // `const params = useRoute().params` / `const params = route.params`.
+  collect_route_slice_bindings(
+    semantic,
+    imported_bindings,
+    script_kind,
+    include_nested,
+    sfc_source,
+    script_offset,
+    &mut reactive_bindings,
+  );
+
   reactive_bindings
+}
+
+/// Parent `VariableDeclarator` for a call, peeling `await` (`const x = await useAsyncData()`).
+fn variable_declarator_for_call<'a>(
+  semantic: &'a oxc_semantic::Semantic<'a>,
+  call_id: NodeId,
+) -> Option<&'a oxc_ast::ast::VariableDeclarator<'a>> {
+  match semantic.nodes().parent_kind(call_id) {
+    AstKind::VariableDeclarator(declarator) => Some(declarator),
+    AstKind::AwaitExpression(_) => {
+      // call → await → declarator
+      let await_id = semantic.nodes().parent_id(call_id);
+      match semantic.nodes().parent_kind(await_id) {
+        AstKind::VariableDeclarator(declarator) => Some(declarator),
+        _ => None,
+      }
+    }
+    _ => None,
+  }
+}
+
+/// Vue primitives plus bare Nuxt/vue-i18n helpers recognized without an import.
+fn resolved_binding_callee(
+  semantic: &oxc_semantic::Semantic<'_>,
+  callee: &Expression<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  kind: ScriptKind,
+) -> Option<String> {
+  if let Some(name) = resolved_vue_callee(semantic, callee, imported_bindings, kind) {
+    return Some(name);
+  }
+  let identifier = callee.get_identifier_reference()?;
+  let local = identifier.name.as_str();
+  if !matches!(local, "useAsyncData" | "useLazyAsyncData" | "useFetch" | "useLazyFetch" | "useI18n")
+  {
+    return None;
+  }
+  if !identifier_reference_is_unresolved(semantic, identifier)
+    && !imported_bindings.contains_key(local)
+  {
+    // Local binding of the same name (rare) — leave quiet.
+    return None;
+  }
+  // Bare auto-import or explicit import of the Nuxt/i18n helper.
+  if imported_bindings.contains_key(local)
+    || identifier_reference_is_unresolved(semantic, identifier)
+  {
+    return Some(local.into());
+  }
+  None
+}
+
+/// Per-field kinds for Nuxt data-fetch / vue-i18n object destructure.
+fn named_destructure_field_kinds(callee: &str) -> Option<fn(&str) -> Option<ReactiveBindingKind>> {
+  match callee {
+    "useAsyncData" | "useLazyAsyncData" | "useFetch" | "useLazyFetch" => {
+      Some(async_data_field_kind)
+    }
+    "useI18n" => Some(i18n_field_kind),
+    _ => None,
+  }
+}
+
+fn async_data_field_kind(field: &str) -> Option<ReactiveBindingKind> {
+  match field {
+    // Nuxt `AsyncData` bag — reactive halves only (skip `refresh` / `execute` / `clear`).
+    "data" | "pending" | "error" | "status" => Some(ReactiveBindingKind::Ref),
+    _ => None,
+  }
+}
+
+fn i18n_field_kind(field: &str) -> Option<ReactiveBindingKind> {
+  match field {
+    // vue-i18n composition API — locale/locales/messages are computed/ref-like.
+    "locale" | "fallbackLocale" | "locales" | "messages" | "availableLocales" => {
+      Some(ReactiveBindingKind::Computed)
+    }
+    _ => None,
+  }
+}
+
+/// Seed `const params = useRoute().params` (and `route.params` when `route` is Reactive).
+fn collect_route_slice_bindings(
+  semantic: &oxc_semantic::Semantic<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  script_kind: ScriptKind,
+  include_nested: bool,
+  sfc_source: &str,
+  script_offset: usize,
+  reactive_bindings: &mut Vec<ReactiveBindingFact>,
+) {
+  for (node_id, node) in semantic.nodes().iter_enumerated() {
+    let AstKind::VariableDeclarator(declarator) = node.kind() else {
+      continue;
+    };
+    if !include_nested && is_nested_in_function(semantic, node_id) {
+      continue;
+    }
+    let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
+      continue;
+    };
+    if reactive_bindings.iter().any(|binding| binding.name == identifier.name.as_str()) {
+      continue;
+    }
+    let Some(init) = &declarator.init else {
+      continue;
+    };
+    let Expression::StaticMemberExpression(member) = init else {
+      continue;
+    };
+    let property = member.property.name.as_str();
+    if !matches!(property, "params" | "query" | "meta") {
+      continue;
+    }
+    let from_use_route = match &member.object {
+      Expression::CallExpression(call) => {
+        resolved_binding_callee(semantic, &call.callee, imported_bindings, script_kind)
+          .is_some_and(|name| name == "useRoute")
+      }
+      Expression::Identifier(object) => reactive_bindings.iter().any(|binding| {
+        binding.name == object.name.as_str()
+          && matches!(
+            binding.kind,
+            ReactiveBindingKind::Reactive | ReactiveBindingKind::ShallowReactive
+          )
+      }),
+      _ => false,
+    };
+    if !from_use_route {
+      continue;
+    }
+    reactive_bindings.push(ReactiveBindingFact {
+      name: identifier.name.to_string(),
+      kind: ReactiveBindingKind::Reactive,
+      initialized_with_null: false,
+      span: source_span(sfc_source, script_offset, identifier.span),
+    });
+  }
 }
 
 fn is_nested_in_function(semantic: &oxc_semantic::Semantic<'_>, node_id: NodeId) -> bool {
