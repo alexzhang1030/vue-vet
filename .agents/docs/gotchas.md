@@ -508,6 +508,11 @@ propagates component tags (PascalCase / kebab-case) to parents so
 icon `div`s still flag. Do not mark the control itself as content just for
 being a component (`<NuxtLink />` stays empty).
 
+Tooltip/menu wrappers that set a name-like prop (`content` / `title` / `label` /
+`text` / `aria-label`) mark descendants with `has_accessible_name_ancestor` so
+icon-only buttons in `<CommonTooltip :content="…">` stay quiet without treating
+bare `title=` as a name (static title still wants `aria-label` autofix).
+
 Do not treat every `use*` auto-import as reactive without evidence. `#imports`
 virtual modules still have no file body and stay quiet.
 

@@ -322,7 +322,7 @@ fn extract_template_facts(
 
   let mut facts = TemplateFacts::default();
   let mut scopes = TemplateAliasScopes::default();
-  collect_children(source, template_offset, &root.children, &mut facts, &mut scopes, 0);
+  collect_children(source, template_offset, &root.children, &mut facts, &mut scopes, 0, 0);
   // Elements follow document-order DFS; expressions are gathered from mixed
   // surfaces and need an explicit source-order pass.
   facts.expressions.sort_by_key(|expression| expression.span.offset);
@@ -380,13 +380,21 @@ fn collect_children(
   facts: &mut TemplateFacts,
   scopes: &mut TemplateAliasScopes,
   label_depth: usize,
+  name_depth: usize,
 ) -> SubtreeSummary {
   let mut summary = SubtreeSummary::default();
   for child in children {
     match child {
       TemplateChildNode::Element(element) => {
-        summary =
-          summary.or(collect_element(source, template_offset, element, facts, scopes, label_depth));
+        summary = summary.or(collect_element(
+          source,
+          template_offset,
+          element,
+          facts,
+          scopes,
+          label_depth,
+          name_depth,
+        ));
       }
       TemplateChildNode::Interpolation(interpolation) => {
         push_expression_fact(
@@ -417,6 +425,7 @@ fn collect_children(
             facts,
             scopes,
             label_depth,
+            name_depth,
           ));
         }
       }
@@ -432,6 +441,7 @@ fn collect_children(
           facts,
           scopes,
           label_depth,
+          name_depth,
         ));
         scopes.pop_if(&aliases);
       }
@@ -446,6 +456,7 @@ fn collect_children(
           facts,
           scopes,
           label_depth,
+          name_depth,
         ));
       }
       TemplateChildNode::Text(_)
@@ -463,6 +474,7 @@ fn collect_element(
   facts: &mut TemplateFacts,
   scopes: &mut TemplateAliasScopes,
   label_depth: usize,
+  name_depth: usize,
 ) -> SubtreeSummary {
   let offset = template_offset.saturating_add(position_offset(element.loc.start.offset));
   let end = template_offset.saturating_add(position_offset(element.loc.end.offset));
@@ -531,6 +543,9 @@ fn collect_element(
   } else {
     label_depth
   };
+  // `CommonTooltip :content` / menu wrappers name their default-slot controls.
+  let child_name_depth =
+    if component_provides_slot_name(element) { name_depth.saturating_add(1) } else { name_depth };
   // Preserve parent-before-child element order for deterministic fixtures.
   let element_index = facts.elements.len();
   facts.elements.push(TemplateElementFact {
@@ -542,9 +557,17 @@ fn collect_element(
     has_accessible_content: false,
     has_labelable_descendant: false,
     has_label_ancestor: label_depth > 0,
+    has_accessible_name_ancestor: name_depth > 0,
   });
-  let child_summary =
-    collect_children(source, template_offset, &element.children, facts, scopes, child_label_depth);
+  let child_summary = collect_children(
+    source,
+    template_offset,
+    &element.children,
+    facts,
+    scopes,
+    child_label_depth,
+    child_name_depth,
+  );
   let content_directive = element_has_content_directive(element);
   // Own content only: children / v-text / v-html. Do not treat the control itself
   // as content just because it is a component (`<NuxtLink />` stays empty).
@@ -587,6 +610,41 @@ fn tag_is_vue_component(tag: &str) -> bool {
   }
   // `common-dropdown-item` / `nuxt-link` (when used as a child, not the control itself)
   tag.contains('-')
+}
+
+/// Component publishes a name-like prop for its default slot (`:content`, `title`, …).
+fn component_provides_slot_name(element: &ElementNode<'_>) -> bool {
+  if !tag_is_vue_component(element.tag.as_str()) {
+    return false;
+  }
+  for prop in &element.props {
+    match prop {
+      PropNode::Attribute(attribute) if is_slot_name_prop(attribute.name.as_str()) => {
+        if attribute.value.as_ref().is_some_and(|value| !value.content.trim().is_empty()) {
+          return true;
+        }
+      }
+      PropNode::Directive(directive)
+        if directive.name == "bind"
+          && directive
+            .arg
+            .as_ref()
+            .is_some_and(|argument| is_slot_name_prop(expression_text(argument).as_str()))
+          && directive.exp.as_ref().is_some_and(|exp| !expression_text(exp).trim().is_empty()) =>
+      {
+        return true;
+      }
+      _ => {}
+    }
+  }
+  false
+}
+
+fn is_slot_name_prop(name: &str) -> bool {
+  matches!(
+    name.to_ascii_lowercase().as_str(),
+    "content" | "title" | "label" | "text" | "aria-label" | "aria-labelledby"
+  )
 }
 
 fn element_has_content_directive(element: &ElementNode<'_>) -> bool {
@@ -1492,6 +1550,37 @@ mod a11y_component_content_tests {
         .elements
         .iter()
         .map(|element| (&element.tag, element.has_accessible_content, element.has_children))
+        .collect::<Vec<_>>()
+    );
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "fixture setup failures must fail the unit test")]
+  fn tooltip_content_marks_nested_button_named() {
+    let template = r#"
+  <CommonTooltip :content="label">
+    <button type="button">
+      <span class="i-ri:close-line" />
+    </button>
+  </CommonTooltip>
+"#;
+    let source = format!("<template>{template}</template>");
+    let facts = match extract_template_facts(&source, template, 10) {
+      Ok(facts) => facts,
+      Err(error) => panic!("template parse failed: {error}"),
+    };
+    let Some(button) = facts.elements.iter().find(|element| element.tag == "button") else {
+      panic!("missing button element");
+    };
+    assert!(
+      button.has_accessible_name_ancestor,
+      "button under CommonTooltip :content must be named; elements={:?}",
+      facts
+        .elements
+        .iter()
+        .map(|element| {
+          (&element.tag, element.has_accessible_name_ancestor, element.has_accessible_content)
+        })
         .collect::<Vec<_>>()
     );
   }

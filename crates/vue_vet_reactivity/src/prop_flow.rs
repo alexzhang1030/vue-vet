@@ -204,6 +204,7 @@ mod tests {
         has_accessible_content: false,
         has_labelable_descendant: false,
         has_label_ancestor: false,
+        has_accessible_name_ancestor: false,
       }],
       expressions: Vec::new(),
     };
@@ -290,6 +291,7 @@ mod tests {
         has_accessible_content: false,
         has_labelable_descendant: false,
         has_label_ancestor: false,
+        has_accessible_name_ancestor: false,
       }],
       expressions: Vec::new(),
     };
@@ -368,6 +370,7 @@ mod tests {
         has_accessible_content: false,
         has_labelable_descendant: false,
         has_label_ancestor: false,
+        has_accessible_name_ancestor: false,
       }],
       expressions: Vec::new(),
     };
@@ -436,6 +439,7 @@ mod tests {
         has_accessible_content: false,
         has_labelable_descendant: false,
         has_label_ancestor: false,
+        has_accessible_name_ancestor: false,
       }],
       expressions: Vec::new(),
     };
@@ -511,6 +515,7 @@ mod tests {
         has_accessible_content: false,
         has_labelable_descendant: false,
         has_label_ancestor: false,
+        has_accessible_name_ancestor: false,
       }],
       expressions: Vec::new(),
     };
