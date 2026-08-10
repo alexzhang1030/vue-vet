@@ -90,6 +90,12 @@ fn push_jsx_element(
           script_offset,
         );
       }
+      // Nested custom components often own the accessible name (Vue JSX).
+      JSXChild::Element(child_element)
+        if jsx_tag_is_vue_component(&jsx_element_name(&child_element.opening_element.name)) =>
+      {
+        has_accessible_content = true;
+      }
       _ => {}
     }
   }
@@ -428,6 +434,14 @@ fn jsx_element_name(name: &JSXElementName<'_>) -> String {
     JSXElementName::MemberExpression(member) => jsx_member_name(member),
     JSXElementName::ThisExpression(_) => "this".into(),
   }
+}
+
+/// `PascalCase` / kebab-case multi-word tags are Vue components (see vize).
+fn jsx_tag_is_vue_component(tag: &str) -> bool {
+  if tag.is_empty() {
+    return false;
+  }
+  tag.chars().any(|ch| ch.is_ascii_uppercase()) || tag.contains('-')
 }
 
 fn jsx_member_name(member: &JSXMemberExpression<'_>) -> String {

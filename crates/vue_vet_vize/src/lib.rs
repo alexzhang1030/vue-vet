@@ -546,6 +546,8 @@ fn collect_element(
   let child_summary =
     collect_children(source, template_offset, &element.children, facts, scopes, child_label_depth);
   let content_directive = element_has_content_directive(element);
+  // Own content only: children / v-text / v-html. Do not treat the control itself
+  // as content just because it is a component (`<NuxtLink />` stays empty).
   let has_accessible_content = content_directive || child_summary.accessible_content;
   if let Some(fact) = facts.elements.get_mut(element_index) {
     fact.has_accessible_content = has_accessible_content;
@@ -554,16 +556,37 @@ fn collect_element(
   scopes.pop_if(&local_aliases);
 
   // Parents skip aria-hidden subtrees for accessible-content propagation.
+  // Custom Vue components often render text/aria names we cannot see statically
+  // (`AccountInfo`, `CommonDropdownItem :text`) — they still count for parents.
   let propagate_accessible = if element_is_aria_hidden(element) {
     false
   } else {
-    element_provides_alt_name(element) || content_directive || child_summary.accessible_content
+    element_provides_alt_name(element)
+      || content_directive
+      || child_summary.accessible_content
+      || tag_is_vue_component(element.tag.as_str())
   };
   SubtreeSummary {
     accessible_content: propagate_accessible,
     labelable_control: is_labelable_control_tag(element.tag.as_str())
       || child_summary.labelable_control,
   }
+}
+
+/// Vue SFC convention: `PascalCase` or kebab-case multi-word tags are components.
+///
+/// Under-approx for a11y: a component child may still be decorative, but real-app
+/// FPs from nested text/menu components dominate empty-icon false reports.
+fn tag_is_vue_component(tag: &str) -> bool {
+  if tag.is_empty() {
+    return false;
+  }
+  // `RouterLink` / `NuxtLink` / `AccountInfo`
+  if tag.chars().any(|ch| ch.is_ascii_uppercase()) {
+    return true;
+  }
+  // `common-dropdown-item` / `nuxt-link` (when used as a child, not the control itself)
+  tag.contains('-')
 }
 
 fn element_has_content_directive(element: &ElementNode<'_>) -> bool {
@@ -1438,6 +1461,38 @@ const count = ref(0)
         })
       }),
       "MultiHop.vue optional chain must join root binding onto Child props"
+    );
+  }
+}
+
+#[cfg(test)]
+mod a11y_component_content_tests {
+  use super::*;
+
+  #[test]
+  #[expect(clippy::panic, reason = "fixture setup failures must fail the unit test")]
+  fn component_child_marks_parent_link_accessible() {
+    let template = r#"
+  <NuxtLink to="/profile">
+    <AccountInfo :account="account" />
+  </NuxtLink>
+"#;
+    let source = format!("<template>{template}</template>");
+    let facts = match extract_template_facts(&source, template, 10) {
+      Ok(facts) => facts,
+      Err(error) => panic!("template parse failed: {error}"),
+    };
+    let Some(link) = facts.elements.iter().find(|element| element.tag == "NuxtLink") else {
+      panic!("missing NuxtLink element");
+    };
+    assert!(
+      link.has_accessible_content,
+      "NuxtLink with AccountInfo child must have accessible content; elements={:?}",
+      facts
+        .elements
+        .iter()
+        .map(|element| (&element.tag, element.has_accessible_content, element.has_children))
+        .collect::<Vec<_>>()
     );
   }
 }
