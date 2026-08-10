@@ -4,7 +4,10 @@ use std::{
 };
 
 use oxc_allocator::Allocator;
-use oxc_ast::{AstKind, ast::BindingPattern};
+use oxc_ast::{
+  AstKind,
+  ast::{BindingPattern, Expression},
+};
 use oxc_parser::Parser;
 use oxc_semantic::{Semantic, SemanticBuilder};
 use oxc_span::Span;
@@ -1891,11 +1894,15 @@ fn first_bare_identifier_span(semantic: &oxc_semantic::Semantic<'_>, name: &str)
 }
 
 /// `const x = useX()` where `useX` is unresolved and present in the seed plan (bare auto-import).
+///
+/// Also covers `const x = cond ? ref(false) : useX()` when both arms are ref-like
+/// (Vue primitive or seed-plan Factory/Known).
 fn collect_bare_instance_calls(
   semantic: &oxc_semantic::Semantic<'_>,
   plan: &ImportSeedPlan,
 ) -> Vec<InstanceCallBinding> {
   let mut calls = Vec::new();
+  let mut seen_locals = BTreeSet::new();
   for node in semantic.nodes() {
     let AstKind::CallExpression(call) = node.kind() else {
       continue;
@@ -1912,21 +1919,103 @@ fn collect_bare_instance_calls(
     if semantic.scoping().get_reference(reference_id).symbol_id().is_some() {
       continue;
     }
-    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
-    else {
-      continue;
+    let call_id = call.node_id.get();
+    let parent = semantic.nodes().parent_kind(call_id);
+    let (declarator, needs_arm_check) = match parent {
+      AstKind::VariableDeclarator(declarator) => (declarator, false),
+      AstKind::ConditionalExpression(_) => {
+        // call → conditional → declarator
+        let cond_id = semantic.nodes().parent_id(call_id);
+        match semantic.nodes().parent_kind(cond_id) {
+          AstKind::VariableDeclarator(declarator) => (declarator, true),
+          _ => continue,
+        }
+      }
+      _ => continue,
     };
     let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
       continue;
     };
+    if needs_arm_check {
+      let Some(Expression::ConditionalExpression(cond)) = &declarator.init else {
+        continue;
+      };
+      if !conditional_arms_ref_like_with_plan(cond, plan) {
+        continue;
+      }
+    }
+    let local = identifier.name.to_string();
+    if !seen_locals.insert(local.clone()) {
+      continue;
+    }
     calls.push(InstanceCallBinding {
       imported_local: callee.name.to_string(),
-      local: identifier.name.to_string(),
+      local,
       span: identifier.span,
     });
   }
   calls.sort_by_key(|call| call.span.start);
   calls
+}
+
+/// Both ternary arms are ref-like: Vue `ref`/`computed`/… or seed-plan Factory/Known.
+fn conditional_arms_ref_like_with_plan(
+  cond: &oxc_ast::ast::ConditionalExpression<'_>,
+  plan: &ImportSeedPlan,
+) -> bool {
+  arm_is_ref_like_with_plan(&cond.consequent, plan)
+    && arm_is_ref_like_with_plan(&cond.alternate, plan)
+}
+
+fn arm_is_ref_like_with_plan(
+  expression: &oxc_ast::ast::Expression<'_>,
+  plan: &ImportSeedPlan,
+) -> bool {
+  let mut current = expression;
+  for _ in 0..4 {
+    match current {
+      Expression::ParenthesizedExpression(paren) => current = &paren.expression,
+      Expression::TSAsExpression(assertion) => current = &assertion.expression,
+      Expression::TSTypeAssertion(assertion) => current = &assertion.expression,
+      Expression::TSNonNullExpression(non_null) => current = &non_null.expression,
+      Expression::CallExpression(call) => {
+        let Some(callee) = call.callee.get_identifier_reference() else {
+          return false;
+        };
+        let name = callee.name.as_str();
+        // Vue primitive allowlist (bare or imported).
+        if matches!(
+          name,
+          "ref"
+            | "shallowRef"
+            | "computed"
+            | "customRef"
+            | "toRef"
+            | "useTemplateRef"
+            | "defineModel"
+        ) {
+          return true;
+        }
+        return match plan.get(name) {
+          Some(ExportState::Factory(kind) | ExportState::Known(kind)) => {
+            matches!(
+              kind,
+              ReactiveBindingKind::Ref
+                | ReactiveBindingKind::ShallowRef
+                | ReactiveBindingKind::Computed
+                | ReactiveBindingKind::CustomRef
+                | ReactiveBindingKind::ToRef
+                | ReactiveBindingKind::TemplateRef
+                | ReactiveBindingKind::ModelRef
+            )
+          }
+          _ => false,
+        };
+      }
+      _ => return false,
+    }
+  }
+  false
 }
 
 /// `const { field } = useX()` for bare unresolved auto-import callees in the seed plan.

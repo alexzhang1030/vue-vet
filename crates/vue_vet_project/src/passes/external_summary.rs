@@ -160,6 +160,13 @@ impl ExternalSummaryLoadPass {
           .module_summary()
           .map(|summary| summary.typeof_forward_sources())
           .unwrap_or_default();
+        // `export * from 'other-pkg'` / `export { x } from 'other-pkg'` — the
+        // package surface is incomplete until that bare target is loaded (e.g.
+        // `@vueuse/core` → `@vueuse/shared` for `useTimeout`).
+        let reexport_bare_packages = module
+          .module_summary()
+          .map(|summary| summary.reexport_bare_package_sources())
+          .unwrap_or_default();
         let follow =
           module.module_summary().map(|summary| summary.follow_specifiers()).unwrap_or_default();
         loaded.insert(path.clone(), module_id.clone());
@@ -171,8 +178,12 @@ impl ExternalSummaryLoadPass {
         }
         for specifier in follow {
           let is_relative = specifier.starts_with("./") || specifier.starts_with("../");
-          // Bare packages stay quiet unless a `typeof` forward needs that import.
-          if !is_relative && !typeof_forward_bares.contains(&specifier) {
+          // Bare packages stay quiet unless a `typeof` forward needs that import
+          // or this module re-exports from that package.
+          if !is_relative
+            && !typeof_forward_bares.contains(&specifier)
+            && !reexport_bare_packages.contains(&specifier)
+          {
             continue;
           }
           let child = match resolver.resolve_from_absolute(&path, &specifier) {
@@ -679,6 +690,100 @@ mod enrich_fallback_tests {
       }),
       "typeof bare package must seed instance bag; got {:?}",
       consumer.map(|module| { (&module.graph.composable_instances, &module.graph.scopes) })
+    );
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn export_star_follows_bare_package_reexport() {
+    // Generic: entry package re-exports helpers via `export * from 'shared-kit'`.
+    // Without following that bare star, `useTimer` never becomes Factory on the entry.
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp-star-bare-pkg");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("node_modules/shared-kit")).unwrap();
+    std::fs::create_dir_all(root.join("node_modules/entry-kit")).unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("package.json"), r#"{"name":"star-bare-pkg"}"#).unwrap();
+    std::fs::write(
+      root.join("node_modules/shared-kit/package.json"),
+      r#"{"name":"shared-kit","types":"./index.d.ts","exports":{".":{"types":"./index.d.ts","import":"./index.js"}}}"#,
+    )
+    .unwrap();
+    std::fs::write(root.join("node_modules/shared-kit/index.js"), "export {}\n").unwrap();
+    std::fs::write(
+      root.join("node_modules/shared-kit/index.d.ts"),
+      "import type { ComputedRef } from 'vue'\n\
+       export declare function useTimer(ms?: number): ComputedRef<boolean>\n",
+    )
+    .unwrap();
+    std::fs::write(
+      root.join("node_modules/entry-kit/package.json"),
+      r#"{"name":"entry-kit","types":"./index.d.ts","exports":{".":{"types":"./index.d.ts","import":"./index.js"}}}"#,
+    )
+    .unwrap();
+    std::fs::write(root.join("node_modules/entry-kit/index.js"), "export {}\n").unwrap();
+    std::fs::write(root.join("node_modules/entry-kit/index.d.ts"), "export * from 'shared-kit'\n")
+      .unwrap();
+    std::fs::write(
+      root.join("src/consumer.ts"),
+      "import { computed } from 'vue'\n\
+       import { useTimer } from 'entry-kit'\n\
+       const done = useTimer(100)\n\
+       const label = computed(() => (done.value ? 'yes' : 'no'))\n",
+    )
+    .unwrap();
+
+    let resolver = ProjectResolver::new(&root);
+    let known = BTreeSet::new();
+    let Resolution::External { resolved_path: Some(path), .. } =
+      resolver.resolve("src/consumer.ts", "entry-kit", &known)
+    else {
+      panic!("expected external resolve for entry-kit");
+    };
+    let roots = [ExternalReactivityRoot {
+      from: ModuleId::from("src/consumer.ts"),
+      specifier: "entry-kit".into(),
+      resolved_path: path,
+    }];
+    let (sources, links) = ExternalSummaryLoadPass::run(&root, &resolver, &roots, None);
+    assert!(
+      sources.iter().any(|module| module.id.as_str().contains("shared-kit")),
+      "export * bare package must load shared target; sources={:?}",
+      sources.iter().map(|module| module.id.as_str()).collect::<Vec<_>>()
+    );
+    assert!(
+      links.iter().any(|link| link.specifier == "shared-kit"),
+      "export * bare package must link shared target; links={links:?}"
+    );
+    let mut modules = sources;
+    modules.push(ModuleSource::standalone(
+      "src/consumer.ts",
+      std::fs::read_to_string(root.join("src/consumer.ts")).unwrap(),
+      "ts",
+      vue_vet_core::ScriptKind::Script,
+    ));
+    let Ok(traced) = trace_modules(&modules, &links) else {
+      panic!("trace export-star bare modules");
+    };
+    let consumer = traced.iter().find(|module| module.id.as_str() == "src/consumer.ts");
+    assert!(
+      consumer.is_some_and(|module| {
+        module.graph.bindings.iter().any(|binding| {
+          binding.name == "done"
+            && matches!(
+              binding.kind,
+              vue_vet_core::ReactiveBindingKind::Ref
+                | vue_vet_core::ReactiveBindingKind::ShallowRef
+                | vue_vet_core::ReactiveBindingKind::Computed
+            )
+        }) && (module.graph.edges.iter().any(|edge| edge.from == "label" && edge.to == "done")
+          || module.graph.scopes.iter().any(|scope| {
+            scope.binding.as_deref() == Some("label")
+              && scope.reads.iter().any(|read| read.binding == "done")
+          }))
+      }),
+      "export * bare reexport must seed Factory return; got {:?}",
+      consumer.map(|module| (&module.graph.bindings, &module.graph.edges, &module.graph.scopes))
     );
     let _ = std::fs::remove_dir_all(&root);
   }

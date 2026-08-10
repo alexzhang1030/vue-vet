@@ -383,6 +383,50 @@ fn classifies_ternary_branch_reads() {
 }
 
 #[test]
+fn seeds_ternary_init_when_both_arms_are_ref_like() {
+  // `const flag = cond ? ref(false) : shallowRef(true)` — both arms reactive.
+  let graph = graph(
+    "import { ref, shallowRef, computed } from 'vue';\n\
+     const ssr = true;\n\
+     const flag = ssr ? ref(false) : shallowRef(true);\n\
+     const label = computed(() => (flag.value ? 'a' : 'b'));",
+  );
+  assert!(
+    graph.bindings.iter().any(|binding| {
+      binding.name == "flag"
+        && matches!(binding.kind, ReactiveBindingKind::Ref | ReactiveBindingKind::ShallowRef)
+    }),
+    "ternary of ref-like arms must seed the binding; got {:?}",
+    graph.bindings
+  );
+  assert!(
+    graph.edges.iter().any(|edge| edge.from == "label" && edge.to == "flag")
+      || graph.scopes.iter().any(|scope| {
+        scope.binding.as_deref() == Some("label")
+          && scope.reads.iter().any(|read| read.binding == "flag")
+      }),
+    "ternary-seeded flag must be a computed dependency; got {:?}",
+    (&graph.edges, &graph.scopes)
+  );
+}
+
+#[test]
+fn ternary_init_stays_quiet_when_one_arm_is_plain() {
+  // Under-approx: do not invent a Ref binding from a single reactive arm.
+  let graph = graph(
+    "import { ref, computed } from 'vue';\n\
+     const ssr = true;\n\
+     const flag = ssr ? ref(false) : false;\n\
+     const label = computed(() => String(flag));",
+  );
+  assert!(
+    !graph.bindings.iter().any(|binding| binding.name == "flag"),
+    "mixed reactive/plain ternary must stay quiet; got {:?}",
+    graph.bindings
+  );
+}
+
+#[test]
 fn excludes_reads_inside_nested_callbacks() {
   let graph = graph(
     "import { ref, watchEffect } from 'vue'; const outer = ref(0); const nested = ref(0);\n\
@@ -3521,6 +3565,56 @@ fn return_of_call_initialized_local_forwards_factory() {
     }),
     "return-of-call-init local must forward factory kind; got {:?}",
     consumer.map(|module| (&module.graph.bindings, &module.graph.edges))
+  );
+}
+
+#[test]
+fn bare_auto_import_factory_seeds_through_ref_like_ternary() {
+  // `const flag = ssr ? ref(false) : usePref()` with bare Factory(Computed) helper.
+  let helper = prepared_standalone(
+    "helper.ts",
+    "import type { ComputedRef } from 'vue';
+     import { computed } from 'vue';
+     export function usePref(): ComputedRef<boolean> {
+       return computed(() => false);
+     }
+",
+    "ts",
+  );
+  let consumer = prepared_standalone(
+    "consumer.ts",
+    "import { ref, computed } from 'vue';
+     const ssr = true;
+     const flag = ssr ? ref(false) : usePref();
+     const label = computed(() => (flag.value ? 'a' : 'b'));
+",
+    "ts",
+  );
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "#nuxt-imports:usePref".into(),
+    to: "helper.ts".into(),
+  }];
+  let traced = traced_modules(&[helper, consumer], &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.bindings.iter().any(|binding| {
+        binding.name == "flag"
+          && matches!(
+            binding.kind,
+            ReactiveBindingKind::Ref
+              | ReactiveBindingKind::ShallowRef
+              | ReactiveBindingKind::Computed
+          )
+      }) && (module.graph.edges.iter().any(|edge| edge.from == "label" && edge.to == "flag")
+        || module.graph.scopes.iter().any(|scope| {
+          scope.binding.as_deref() == Some("label")
+            && scope.reads.iter().any(|read| read.binding == "flag")
+        }))
+    }),
+    "ref-like ternary with bare factory arm must seed flag; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.edges, &module.graph.scopes))
   );
 }
 

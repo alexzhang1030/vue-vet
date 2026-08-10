@@ -426,6 +426,25 @@ impl ModuleSummary {
     specifiers.into_iter().collect()
   }
 
+  /// Bare package sources this module re-exports (`export * from 'pkg'` /
+  /// `export { x } from 'pkg'`). External summary follow uses these so a barrel
+  /// entry like `@vueuse/core` can load `@vueuse/shared` and publish star exports.
+  #[must_use]
+  pub fn reexport_bare_package_sources(&self) -> BTreeSet<String> {
+    let mut sources = BTreeSet::new();
+    for export in &self.exports {
+      let source = match export {
+        ExportSummary::Reexport { source, .. } | ExportSummary::Star { source } => source.as_str(),
+        ExportSummary::Local { .. } => continue,
+      };
+      if source.starts_with("./") || source.starts_with("../") || source.starts_with('#') {
+        continue;
+      }
+      sources.insert(source.to_owned());
+    }
+    sources
+  }
+
   /// Bare import sources that `typeof` forwards need (external follow may load them).
   ///
   /// Relative follows already cover same-package barrels; `typeof useY` aliases often
