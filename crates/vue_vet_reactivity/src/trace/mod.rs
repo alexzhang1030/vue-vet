@@ -1530,7 +1530,112 @@ fn collect_reactive_bindings(
     &mut reactive_bindings,
   );
 
+  // `const x = cond ? ref(false) : computed(() => …)` — both arms same reactive kind.
+  collect_conditional_init_bindings(
+    semantic,
+    imported_bindings,
+    script_kind,
+    include_nested,
+    sfc_source,
+    script_offset,
+    &mut reactive_bindings,
+  );
+
   reactive_bindings
+}
+
+/// `const local = cond ? ref(a) : shallowRef(b)` when both arms share a reactive kind.
+///
+/// Under-approx: only Vue primitive callees (not unknown helpers). Missing one arm
+/// stays quiet rather than inventing a binding from a single branch.
+fn collect_conditional_init_bindings(
+  semantic: &oxc_semantic::Semantic<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  script_kind: ScriptKind,
+  include_nested: bool,
+  sfc_source: &str,
+  script_offset: usize,
+  reactive_bindings: &mut Vec<ReactiveBindingFact>,
+) {
+  for node in semantic.nodes() {
+    let AstKind::VariableDeclarator(declarator) = node.kind() else {
+      continue;
+    };
+    if !include_nested && is_nested_in_function(semantic, node.id()) {
+      continue;
+    }
+    let Some(Expression::ConditionalExpression(cond)) = &declarator.init else {
+      continue;
+    };
+    let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
+      continue;
+    };
+    let Some(kind) = compatible_vue_binding_kind_from_arms(
+      semantic,
+      &cond.consequent,
+      &cond.alternate,
+      imported_bindings,
+      script_kind,
+    ) else {
+      continue;
+    };
+    let span = source_span(sfc_source, script_offset, identifier.span);
+    if reactive_bindings
+      .iter()
+      .any(|binding| binding.name == identifier.name.as_str() && binding.span.offset == span.offset)
+    {
+      continue;
+    }
+    reactive_bindings.push(ReactiveBindingFact {
+      name: identifier.name.to_string(),
+      kind,
+      initialized_with_null: false,
+      span,
+    });
+  }
+}
+
+fn compatible_vue_binding_kind_from_arms(
+  semantic: &Semantic<'_>,
+  left: &Expression<'_>,
+  right: &Expression<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  script_kind: ScriptKind,
+) -> Option<ReactiveBindingKind> {
+  let left_kind = vue_call_binding_kind(semantic, left, imported_bindings, script_kind)?;
+  let right_kind = vue_call_binding_kind(semantic, right, imported_bindings, script_kind)?;
+  if left_kind == right_kind {
+    return Some(left_kind);
+  }
+  // Ref-like arms (ref vs computed vs shallowRef) all track via `.value`.
+  if is_ref_like(left_kind) && is_ref_like(right_kind) {
+    return Some(left_kind);
+  }
+  None
+}
+
+fn vue_call_binding_kind(
+  semantic: &Semantic<'_>,
+  expression: &Expression<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  script_kind: ScriptKind,
+) -> Option<ReactiveBindingKind> {
+  let mut current = expression;
+  for _ in 0..4 {
+    match current {
+      Expression::ParenthesizedExpression(paren) => current = &paren.expression,
+      Expression::TSAsExpression(assertion) => current = &assertion.expression,
+      Expression::TSTypeAssertion(assertion) => current = &assertion.expression,
+      Expression::TSNonNullExpression(non_null) => current = &non_null.expression,
+      Expression::CallExpression(call) => {
+        let callee =
+          resolved_binding_callee(semantic, &call.callee, imported_bindings, script_kind)?;
+        return reactive_binding_kind(&callee);
+      }
+      _ => return None,
+    }
+  }
+  None
 }
 
 /// Parent `VariableDeclarator` for a call, peeling `await` (`const x = await useAsyncData()`).
