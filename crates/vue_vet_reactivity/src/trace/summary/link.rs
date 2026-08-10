@@ -1027,10 +1027,10 @@ fn refine_export_state(
   resolved: &BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
 ) -> ExportState {
   match state {
-    ExportState::ForwardReturn(callee) => {
-      resolve_name_export_state(module_id, &callee, locals, facts, links, resolved, 0)
-        .unwrap_or(ExportState::ForwardReturn(callee))
-    }
+    ExportState::ForwardReturn(callee) => export_lattice::refine_forward_return(
+      resolve_name_export_state(module_id, &callee, locals, facts, links, resolved, 0),
+      callee,
+    ),
     ExportState::ValueFactory(bag) => {
       ExportState::ValueFactory(refine_value_bag(bag, module_id, locals, facts, links, resolved))
     }
@@ -1063,41 +1063,16 @@ fn refine_export_state(
 }
 
 fn refine_composable_shape(
-  mut shape: super::ComposableShape,
+  shape: super::ComposableShape,
   module_id: &ModuleId,
   locals: &BTreeMap<String, ExportState>,
   facts: &BTreeMap<ModuleId, ModuleExportFacts>,
   links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
   resolved: &BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
 ) -> super::ComposableShape {
-  let pending = std::mem::take(&mut shape.pending_value_bag_fields);
-  for (key, pref) in pending {
-    if shape.fields.contains_key(&key) {
-      continue;
-    }
-    match resolve_pending_value_bag_field(&pref, module_id, locals, facts, links, resolved) {
-      Some(kind) => {
-        shape.fields.insert(key, kind);
-      }
-      None => {
-        shape.pending_value_bag_fields.insert(key, pref);
-      }
-    }
-  }
-  shape
-}
-
-fn resolve_pending_value_bag_field(
-  pref: &super::PendingValueBagField,
-  module_id: &ModuleId,
-  locals: &BTreeMap<String, ExportState>,
-  facts: &BTreeMap<ModuleId, ModuleExportFacts>,
-  links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
-  resolved: &BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
-) -> Option<ReactiveBindingKind> {
-  let state = resolve_name_export_state(module_id, &pref.root, locals, facts, links, resolved, 0)?;
-  // Empty path: composable field; non-empty: ValueBag walk (PCR pending bag fields).
-  export_lattice::resolve_pending_field(&state, &pref.path, &pref.field)
+  export_lattice::refine_composable_pending(shape, |root| {
+    resolve_name_export_state(module_id, root, locals, facts, links, resolved, 0)
+  })
 }
 
 /// Materialize [`ExportState::ValueFactoryCall`] against current resolved exports.
@@ -1109,19 +1084,24 @@ fn publishable_export_state(
   links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
   resolved: &BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
 ) -> Option<ExportState> {
-  match state {
+  let materialized = match state {
     ExportState::ValueFactoryCall(callee) => {
-      match resolve_name_export_state(module_id, callee, locals, facts, links, resolved, 0) {
-        Some(ExportState::ValueFactory(bag)) => Some(ExportState::ValueBag(refine_value_bag(
-          bag, module_id, locals, facts, links, resolved,
-        ))),
-        _ => None,
-      }
+      let callee_state =
+        resolve_name_export_state(module_id, callee, locals, facts, links, resolved, 0);
+      export_lattice::value_factory_call_bag(callee_state.as_ref()).map(|bag| {
+        ExportState::ValueBag(refine_value_bag(
+          bag.clone(),
+          module_id,
+          locals,
+          facts,
+          links,
+          resolved,
+        ))
+      })
     }
-    // Pending typed destructure — wait until refine promotes to Composable.
-    ExportState::GenericMethodInstantiate { .. } | ExportState::Ambiguous => None,
-    other => Some(other.clone()),
-  }
+    _ => None,
+  };
+  export_lattice::as_publishable(state, materialized)
 }
 
 fn refine_value_bag(
@@ -1132,24 +1112,9 @@ fn refine_value_bag(
   links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
   resolved: &BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
 ) -> super::ValueBag {
-  use super::ValueBagEntry;
-  let mut entries = BTreeMap::new();
-  for (key, entry) in bag.entries {
-    let next = match entry {
-      ValueBagEntry::Nested(nested) => {
-        ValueBagEntry::Nested(refine_value_bag(nested, module_id, locals, facts, links, resolved))
-      }
-      ValueBagEntry::MethodForward(callee) => {
-        match resolve_name_export_state(module_id, &callee, locals, facts, links, resolved, 0) {
-          Some(state) => export_lattice::refine_method_forward(&state, callee),
-          None => ValueBagEntry::MethodForward(callee),
-        }
-      }
-      other => other,
-    };
-    entries.insert(key, next);
-  }
-  super::ValueBag { entries }
+  export_lattice::refine_value_bag(bag, |name| {
+    resolve_name_export_state(module_id, name, locals, facts, links, resolved, 0)
+  })
 }
 
 fn resolve_name_export_state(
