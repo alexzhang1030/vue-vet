@@ -104,3 +104,26 @@ Release notes for Beta+ should link:
 2. `docs/quality-gates.md`
 3. The CodSpeed report for the release commit
 4. A short note if precision expectations changed since the previous tag
+
+### Beta cut checklist
+
+Do not tag Beta while any of these is red. Run from a clean `main` tip:
+
+1. `just roll-rust`
+2. `just compat-matrix`
+3. `just quality-gates`
+4. `just oracle`
+5. Confirm CodSpeed on the release commit has no unexplained regression vs the
+   previous published train
+6. Confirm Codecov project/patch thresholds still hold on the release PR or tip
+7. Confirm the native release matrix targets in `release.yml` still match
+   [install docs](./install.md)
+8. Draft release notes that include the four links above plus:
+   - version train (`vX.Y.Z` crates.io / npm / GitHub archives)
+   - one-paragraph precision summary (corpus size, TP count, FP pins)
+   - known quiet gaps (this file’s offline spot-check section)
+9. Tag and publish only after the release workflow’s gate jobs pass
+
+Post-Beta engineering that does **not** block the tag: real-repo offline FP
+passes, oracle-backed long-tail Factory / `.d.ts` seeds, extra single-file safe
+fix producers, multi-file fix transactions.
