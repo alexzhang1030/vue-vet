@@ -1882,6 +1882,61 @@ fn module_traces_qualify_to_id_with_module_prefix() {
 }
 
 #[test]
+fn expands_define_props_destructuring() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     const { account, context: ctx, ...rest } = defineProps<{\n\
+       account: { id: string }\n\
+       context?: string\n\
+     }>();\n\
+     const label = computed(() => account.id + (ctx ?? '') + String(rest));",
+  );
+  let names: Vec<&str> = graph.bindings.iter().map(|binding| binding.name.as_str()).collect();
+  for expected in ["account", "ctx", "rest", "label"] {
+    assert!(
+      names.contains(&expected),
+      "defineProps destructure must seed `{expected}`; bindings={names:?}"
+    );
+  }
+  assert!(
+    graph
+      .bindings
+      .iter()
+      .filter(|binding| matches!(binding.name.as_str(), "account" | "ctx" | "rest"))
+      .all(|binding| binding.kind == ReactiveBindingKind::Reactive),
+    "destructured props locals must be Reactive; got {:?}",
+    graph.bindings
+  );
+  assert!(
+    graph.edges.iter().any(|edge| edge.from == "label" && edge.to == "account"),
+    "computed must track bare destructured prop; edges={:?}",
+    graph.edges
+  );
+}
+
+#[test]
+fn expands_with_defaults_define_props_destructuring() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     const { title } = withDefaults(defineProps<{ title?: string }>(), { title: 'hi' });\n\
+     const label = computed(() => title);",
+  );
+  assert!(
+    graph
+      .bindings
+      .iter()
+      .any(|binding| binding.name == "title" && binding.kind == ReactiveBindingKind::Reactive),
+    "withDefaults(defineProps()) destructure must seed title; got {:?}",
+    graph.bindings
+  );
+  assert!(
+    graph.edges.iter().any(|edge| edge.from == "label" && edge.to == "title"),
+    "computed must track withDefaults-destructured prop; edges={:?}",
+    graph.edges
+  );
+}
+
+#[test]
 fn dependency_edges_carry_member_property_for_props_bag() {
   let graph = graph(
     "import { computed } from 'vue'; const props = defineProps<{ count: number; mode: string }>(); const label = computed(() => props.count + props.mode);",

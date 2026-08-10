@@ -108,7 +108,9 @@ resolve (`node:` / `nodejs:`, stylesheets, `virtual:…`, `uno.css`,
 flood real apps — see [project graph](../../docs/project-graph.md). Bare Node
 builtins (`fs`, `path`, `fs/promises`, …) are quieted **after** resolve via
 `oxc_resolver`'s `builtin_modules` + `ResolveError::Builtin` (same External,
-no path). Do **not** reinterpret arbitrary failed resolves as external packages.
+no path). Failed `#…` virtuals (`#components`, `#build-info`, …) are also
+quieted after resolve; successful Nuxt path mappings for `#app/…` still resolve.
+Do **not** reinterpret arbitrary failed resolves as external packages.
 Vue Vet still does **not** execute `vite.config.*` / `nuxt.config.*` — aliases
 come from Vite defaults (`@` → `src`, `~` → root), tsconfig paths (including
 `.nuxt/tsconfig.json`), and package `exports`.
