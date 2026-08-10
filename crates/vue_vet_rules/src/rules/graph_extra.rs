@@ -266,9 +266,12 @@ impl Rule for NoUnusedComputedBinding {
         if binding.kind != ReactiveBindingKind::Computed || used.contains(binding.name.as_str()) {
           continue;
         }
-        let script_reads =
-          block.bindings.iter().find(|item| item.name == binding.name).map_or(0, |item| item.reads);
-        if script_reads != 0 {
+        // Cross-module / bare auto-import seeds have no local symbol.
+        let Some(script_binding) = block.bindings.iter().find(|item| item.name == binding.name)
+        else {
+          continue;
+        };
+        if script_binding.reads != 0 {
           continue;
         }
         findings.push(binding.span.clone());

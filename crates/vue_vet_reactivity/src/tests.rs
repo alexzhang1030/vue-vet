@@ -3372,6 +3372,44 @@ fn bare_nuxt_imports_link_seeds_reactive_factory_call() {
 }
 
 #[test]
+fn bare_nuxt_imports_link_seeds_known_exported_const() {
+  // Elk-style: `export const currentUser = computed(...)` auto-imported as a bare id.
+  let producer = prepared_standalone(
+    "users.ts",
+    "import { computed, ref } from 'vue';\n\
+     const handle = ref('a');\n\
+     export const currentUser = computed(() => handle.value);\n",
+    "ts",
+  );
+  let consumer = prepared_standalone(
+    "consumer.ts",
+    "import { computed } from 'vue';\n\
+     const key = computed(() => currentUser.value ?? '');\n",
+    "ts",
+  );
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "#nuxt-imports:currentUser".into(),
+    to: "users.ts".into(),
+  }];
+  let traced = traced_modules(&[producer, consumer], &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.bindings.iter().any(|binding| {
+        binding.name == "currentUser" && binding.kind == ReactiveBindingKind::Computed
+      }) && (module.graph.edges.iter().any(|edge| edge.from == "key" && edge.to == "currentUser")
+        || module.graph.scopes.iter().any(|scope| {
+          scope.binding.as_deref() == Some("key")
+            && scope.reads.iter().any(|read| read.binding == "currentUser")
+        }))
+    }),
+    "bare #nuxt-imports Known(Computed) must seed currentUser; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.edges, &module.graph.scopes))
+  );
+}
+
+#[test]
 fn local_composable_instance_member_access() {
   for source in [
     "import { ref, watchEffect } from 'vue'; function useSignal() { const signal = ref(0); return { signal }; } const bag = useSignal(); watchEffect(() => bag.signal.value);",

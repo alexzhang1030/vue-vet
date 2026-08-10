@@ -7,6 +7,7 @@ use oxc_allocator::Allocator;
 use oxc_ast::{AstKind, ast::BindingPattern};
 use oxc_parser::Parser;
 use oxc_semantic::{Semantic, SemanticBuilder};
+use oxc_span::Span;
 use rayon::prelude::*;
 use vue_vet_core::{ModuleId, ReactiveBindingFact, ReactiveBindingKind, ReactivityGraph};
 
@@ -1731,15 +1732,24 @@ fn materialize_seeds(
   for (local, state) in &plan.imports {
     match state {
       ExportState::Known(kind) => {
-        // Known seeds still require an import binding span.
-        let Some(import) = imports.iter().find(|import| import.local == *local) else {
+        // Prefer the import binding span; bare Nuxt/Vite auto-imports of exported
+        // `const currentUser = computed(...)` have no import — use the first
+        // unresolved identifier reference as the span.
+        let span = if let Some(import) = imports.iter().find(|import| import.local == *local) {
+          source_span(span_source, span_base, import.span)
+        } else if let Some(reference_span) = first_bare_identifier_span(semantic, local) {
+          source_span(span_source, span_base, reference_span)
+        } else {
           continue;
         };
+        if seeds.bindings.iter().any(|binding| binding.name == *local) {
+          continue;
+        }
         seeds.bindings.push(ReactiveBindingFact {
           name: local.clone(),
           kind: *kind,
           initialized_with_null: false,
-          span: source_span(span_source, span_base, import.span),
+          span,
         });
       }
       ExportState::Factory(kind) => {
@@ -1847,6 +1857,30 @@ fn materialize_seeds(
     }
   }
   seeds
+}
+
+/// First unresolved `IdentifierReference` for `name` (bare auto-import value use).
+fn first_bare_identifier_span(semantic: &oxc_semantic::Semantic<'_>, name: &str) -> Option<Span> {
+  let mut best: Option<Span> = None;
+  for node in semantic.nodes() {
+    let AstKind::IdentifierReference(identifier) = node.kind() else {
+      continue;
+    };
+    if identifier.name.as_str() != name {
+      continue;
+    }
+    let Some(reference_id) = identifier.reference_id.get() else {
+      continue;
+    };
+    if semantic.scoping().get_reference(reference_id).symbol_id().is_some() {
+      continue;
+    }
+    let span = identifier.span;
+    if best.is_none_or(|current| span.start < current.start) {
+      best = Some(span);
+    }
+  }
+  best
 }
 
 /// `const x = useX()` where `useX` is unresolved and present in the seed plan (bare auto-import).
