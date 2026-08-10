@@ -13,15 +13,11 @@ library surface (project graph, cache, future LSP / codemod tools).
 ## Status
 
 Early `0.x`. The fact schema is versioned
-(`REACTIVITY_GRAPH_VERSION = 14` in `vue_vet_core`: VueUse
-`createSharedComposable` / `createGlobalState` forward factory bags; v13
-imported `const api = createApi()` exports as ValueBag; v12 options-object
-callback slots follow `export*` / re-export barrels; v11 options-object
-callback Ref bags (`setup({ values })`), ComponentFactory props seeds,
-Render scopes, module-qualified `to_id`, `property` / `to_path`). In-scope design axes A1–A7 and Evidence are
-**complete** per the repository PCR
+(`REACTIVITY_GRAPH_VERSION = 22` in `vue_vet_core`). See the repository PCR
 ([reactivity tracer](https://github.com/alexzhang1030/vue-vet/blob/main/.agents/docs/reactivity-tracer.md))
-— complete means the in-scope checklists, not whole-program JS soundness.
+for the ExportState lattice and axis checklist. In-scope design axes A1–A7
+and Evidence are **complete** — complete means the in-scope checklists, not
+whole-program JS soundness. Contract refinements still bump the graph version.
 Treat the Rust API as evolving until Vue Vet hits a stable release. Prefer
 **under-approximation**: missing edges are quiet failure; invented edges are
 bugs.

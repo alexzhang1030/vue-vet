@@ -51,25 +51,66 @@ complete.
 
 ## Current baseline
 
-Contract version: **`REACTIVITY_GRAPH_VERSION = 21`** (v20 + sync Array/String
-HOF callback params skip plain `.value` uncertain; v20 optional sole
-`{ value?: T }` structural Ref duck; v19 `RemovableRef` + `typeof` re-export;
-v18 typed function-callback formals; v17 `const x = expr as Ref` declarator
-assertions; v16 generic context `MethodGeneric`; v15 `inject(key) as Ctx`; v14
-VueUse shared composable forward; v13 `ValueFactoryCall`; v12 options-callback
-barrels; v11 options-object callback bags; v10 `ComponentFactory`; v9 Render;
-v8 `to_id`; v7 `property` / `to_path`).
+Contract version: **`REACTIVITY_GRAPH_VERSION = 22`**.
+
+v22 is a **contract refinement** (classification + seed surface), not a new axis:
+all-path branch reads; bare-import `ForwardReturn`; overload Factory≻Composable;
+ref-like ternary exports; empty-path pending composable fields. Prior: v21 sync
+HOF uncertain; v20 optional `{ value?: T }` duck; v19 `RemovableRef` / `typeof`;
+… v7 `property`/`to_path`.
 
 | Axis | Status | Covered (in-scope) | Remaining |
 | --- | --- | --- | --- |
 | A1 Bindings | complete | Vue primitives, aliases, `#imports`, bare Nuxt/auto-import allowlist, `defineModel`, **Vue Macros `defineModels` destructure → ModelRef locals**, `defineProps` (whole object **and Vue 3.5+ object-destructure locals → Reactive**), `withDefaults(defineProps())` same, `storeToRefs`, `useRoute`/`useRouter`, `unref`/`toValue`, module seeds, **factory call returns** (`Factory(Ref|Reactive)` from body / `.d.ts`), **`.d.ts` object-bag returns** (`{ field: Ref }` / same-file interface·type alias → destructure seeds), **typed `Ref`/`ComputedRef` parameters & declarators** (scope classification; nested locals span-resolved) | whole-object `const models = defineModels()` without destructure stays quiet; pre-3.5 props destructure still flagged by `no-nonreactive-props-destructure` |
 | A2 Scopes | complete | effects, computed getter/`{ get, set }`, watch sources + callback outside, effectScope `.run` + provenance, dispose, **Render** (options `render` / `setup`→render / functional export / same-file `defineComponent` factory+alias+one-hop forwarder) | cross-file opaque factories stay quiet unless options structure is local |
 | A3 Reads | complete | `.value` / members / bag.field / sync Array·String·`Array.from`·`JSON.parse` HOF / watch ref `.value` / `unref`·`toValue` / bare `watch(reactive)` deep root `*` | — |
-| A4 Conditions | complete | if / early-exit / ternary / short-circuit / switch roles (fact metadata; diagnostics are scope-aware Conditional rules, not per-role ids — #136) | — (no further depth) |
+| A4 Conditions | complete | if / early-exit / ternary / short-circuit / switch roles; **all-path same `(binding, property)` on both ternary/if-else arms → no BranchTest** (under-approx hygiene: do not invent Conditional) | further control-flow depth is out of charter |
 | A5 Boundaries | complete | after-await; pause/enable/resetTracking windows; nested `then`/`nextTick` outside; watch callback outside | — |
-| A6 Modules | complete | composable object bags + **scalar `Factory` returns** + **declared object-bag return types** + **plain-object + unwrapped-call → `Factory(Reactive)`** + **`ComponentFactory` setup-forward wrappers**; instance bags; dual script; provide/inject unique-key; static `:prop` / `v-model` / `ident` / `ident.value` / static member + optional chains → child `props` Prop edges; **on-demand ExternalImport summaries** (`.d.ts` + companion `.js` for provisional halves, size-capped; re-export follow; not lint targets); **bare `.nuxt/imports.d.ts` / Vite `auto-imports.d.ts` → `#nuxt-imports:` seeds** | whole-object `v-bind` stays quiet; `#imports` virtuals stay quiet without a concrete file body |
-| A7 Contract | complete | v21 sync HOF callback plain `.value` not uncertain; v20 optional `{ value?: T }` Ref duck; v19 `RemovableRef` + `typeof` re-export forward; v18 typed function-callback `ComputedRef` formals; v17 `expr as Ref` declarator seeds; v16 generic `MethodGeneric` instantiate; v15 `inject(key) as Ctx`; v14 VueUse shared composable bag forward; v13 imported `createApi()` → exported ValueBag; v12 options-callback slots via `export*` barrels; v11 options-object callback Ref bags; v10 ComponentFactory props seeds; v9 Render scopes; v8 module-qualified `to_id`; v7 `property` / `to_path`; deterministic sort | — |
+| A6 Modules | complete | composable bags + Factory + ValueBag + ComponentFactory + ExternalImport + `#nuxt-imports` seeds; **export lattice** (below); **`return local = call()` → ForwardReturn**; bare auto-import callee resolve; pending empty-path composable fields | whole-object `v-bind` quiet; `#imports` virtual without body quiet |
+| A7 Contract | complete | **v22** all-path Unconditional + export linking refinements; v21…v7 as before; deterministic sort | — |
 | Evidence | complete | Runtime oracle (≥99% recall on committed cases); deep-watch `*`; exhaustive local reads; key SFC E2E | — (prop flow is static unit/project; not an `onTrack` pair) |
+
+### ExportState lattice (A6 linking)
+
+Cross-module seeds cross only **finished** export states. Phase-one builds
+per-module `locals: name → ExportState`; link-time fixed point refines
+forwards and publishes seedable states.
+
+| State | Seedable? | Meaning (under-approx) |
+| --- | --- | --- |
+| `Known(k)` | yes | Value is already a reactive binding of kind `k` |
+| `Factory(k)` | yes | Call returns scalar reactive of kind `k` |
+| `Composable(shape)` | yes | Call returns object bag (fields / open spread / pending) |
+| `ValueBag` / `ValueFactory` | yes | Nested method bag |
+| `ComponentFactory` | yes | Setup-forward `defineComponent` wrapper |
+| `ForwardReturn(name)` | no (provisional) | Body/`typeof`/`return local=call()` → resolve `name` then re-enter |
+| `ValueFactoryCall` / `GenericMethodInstantiate` | no until refined | Call markers |
+| `DeclaredPlainObjectFactory` / `BodyUnwrappedState` | no alone | Provisional halves for Reactive factory merge |
+| `Ambiguous` | no | Conflicting evidence |
+
+**Local merge** (same name, multiple declare/defs — e.g. ambient overloads):
+
+1. Existing `Factory` + new `Composable` → keep **Factory** (scalar default overload).
+2. Existing `Composable` + new `Factory` → take **Factory**.
+3. Existing `Known` + new Factory/Composable → keep **Known** (graph-seeded wins).
+4. Otherwise last write wins.
+
+**Name resolve** for `ForwardReturn` / bag method forwards (depth-capped):
+
+1. Working locals (recurse through nested `ForwardReturn`).
+2. ES import → link `(module, source)` → resolved export of `imported`.
+3. Bare auto-import → link `(module, "#nuxt-imports:{name}")` → export `name`.
+
+**Ternary value exports** (`const x = cond ? arm1 : arm2`): only when **both**
+arms are ref-like call results → `Known(k)` (mixed plain arms quiet).
+
+**Pending bag fields**: `const { a } = useX(); return { b: a }` records pending
+`(export_key=b, root=useX, path=[], field=a)`; empty `path` means resolve
+`Composable` field on `root` (member paths still ValueBag walk).
+
+Axes A0–A7 can be **complete** while this lattice still gains **contract
+refinements** — refinements bump `REACTIVITY_GRAPH_VERSION` / project
+`CONVENTIONS_VERSION`, not a new axis.
 
 ### In-scope complete checklists
 
@@ -78,15 +119,19 @@ v8 `to_id`; v7 `property` / `to_path`).
 | A1 | ✅ Allowlist primitives + macros + pinia/router + auto-import + module seeds + factory call returns; local lookalikes quiet; unit/oracle cover |
 | A2 | ✅ effect / computed / watch / effectScope.run(+provenance) / dispose / Render scopes; no invented effectScope |
 | A3 | ✅ Member/HOF/unref·toValue reads; watch ref `.value`; **deep root `*` for bare `watch(reactive)`** (not per-key invention) |
-| A4 | ✅ Existing guard roles; no further control-flow deepening |
+| A4 | ✅ Guard roles + all-path same-identity branch reads; no further CF depth for recall |
 | A5 | ✅ After-await classification; pause/enable/resetTracking windows; nested callback outside-tracking; watch callback outside |
-| A6 | ✅ Composable/instance/dual-script/provide-inject; **Factory scalar + Reactive**; **ComponentFactory setup-forward**; **`.d.ts` / annotated object-bag returns**; **mapped Ref types → open spread**; **`return toRefs` / `return call()` / `return local=call()` shape forward** (+ bare `#nuxt-imports` callee resolve); **nested ValueBag member calls**; **plain-object + `call().value` merge**; **external package summaries** (+ companion js); **bare Nuxt / Vite auto-imports.d.ts seeds**; **static `:prop` → child props bag edges** |
-| A7 | ✅ Versioned graph (v9 Render); deterministic sort; `property`/`to_path`; **`{module}:{name}@{offset}` `to_id`** |
+| A6 | ✅ Composable/instance/dual-script/provide-inject; Factory/Composable/ValueBag/ComponentFactory; export lattice (above); bare `#nuxt-imports` seeds + ForwardReturn resolve; external summaries; static `:prop` edges |
+| A7 | ✅ Versioned graph (**v22**); deterministic sort; `property`/`to_path`; **`{module}:{name}@{offset}` `to_id`** |
 | Evidence | ✅ `just oracle` ≥99% recall on committed cases; exhaustive local reads; key SFC E2E |
 
 ### In-scope remaining (this epic)
 
-None — deep-watch `*`, v8 `to_id`, and static prop flow shipped. Further breadth is out of scope below.
+None for axis completeness. **Contract refinements** (lattice merge, seed
+surface, guard hygiene) still land when evidence shows invented Conditional
+or blocked seeds — always with a version bump, generic unit tests, and PCR
+lattice update. Product a11y / project-import polish is **not** an A0–A7
+axis (catalog `parity`); keep it off the tracer epic narrative.
 
 ### Out of scope / A0 stop (never blocks complete)
 
@@ -244,15 +289,15 @@ growing prose ledger.
 | 2026-07-31 | VueUse shared composable | `createSharedComposable` / `createGlobalState` from `@vueuse/core` forward the factory return bag (`Fn` → `Fn`) so destructured fields like `hasPermission` seed |
 | 2026-08-10 | Nuxt data / route slice / i18n | `await useAsyncData` destructure Ref fields; `useRoute().params|query|meta` Reactive; `useI18n` locale/locales |
 | 2026-08-10 | Bare auto-import Known | Nuxt/Vite map links for free idents (not only calls); `ExportState::Known` seeds without import span; unresolved refs match seed by name |
-| 2026-08-10 | Return local = call() forward | `const x = useY(); return x` → `ForwardReturn(useY)` (same as `return useY()`); `resolve_name_export_state` also follows `#nuxt-imports:{name}` so bare auto-import callees refine |
-| 2026-08-10 | External `export *` bare package | External summary follows bare re-export sources (`export * from 'pkg'`), not only `typeof` forwards — entry barrels like `@vueuse/core` → `@vueuse/shared` publish Factory leaves |
-| 2026-08-10 | Ternary ref-like init | `const x = cond ? ref(a) : shallowRef(b)` / bare Factory arm when both arms are ref-like → seed binding; mixed plain arm stays quiet |
-| 2026-08-10 | Overload Factory vs bag | Ambient overloads `(): Ref` + controls bag → prefer `Factory` so default `const x = useX()` seeds; VueUse `useNow` / `useTimestamp` style |
-| 2026-08-10 | Pending composable field | `const { a } = useX(); return { b: a }` records empty-path pending → link-time Composable field kind (same mechanism as value-bag member destructure) |
-| 2026-08-10 | Ternary export ref-like | `export const x = cond ? computed(...) : useStorage(...)` → `Known` when both arms are ref-like calls (SSR/test vs client storage pattern) |
-| 2026-08-10 | All-paths branch reads | `cond ? x.value : x.value` / if-else both arms → no BranchTest guard (reliable dep); distinct arm bindings stay Conditional |
-| 2026-08-10 | `defineProps` destructure | Object-pattern + rest locals seed `Reactive` (Vue 3.5 reactive props destructure); `withDefaults(defineProps())` same; cuts Elk mass `no-computed-without-dependency` FPs |
-| 2026-08-10 | Vue Macros `defineModels` | Setup-only macro; object-destructure locals seed `ModelRef` (like `toRefs`); fixes `no-v-model-nonreactive-source` FP on vitesse `TheInput` |
+| 2026-08-10 | Return local = call() forward | `const x = useY(); return x` → `ForwardReturn(useY)`; resolve via ES import **and** `#nuxt-imports:{name}` |
+| 2026-08-10 | External bare `export *` | External summary follows bare re-export sources (`export * from 'pkg'`), not only `typeof` forwards |
+| 2026-08-10 | Ternary ref-like init | Both arms ref-like calls → seed / export `Known`; mixed plain arm quiet |
+| 2026-08-10 | Overload Factory≻Composable | Ambient scalar + controls-bag overloads keep `Factory` for default call form |
+| 2026-08-10 | Pending empty-path field | `const { a } = useX(); return { b: a }` → link-time Composable field on `useX` |
+| 2026-08-10 | All-paths branch reads | Same `(binding, property)` on both ternary/if-else arms → drop BranchTest |
+| 2026-08-10 | Export lattice + versions | Lattice written as A6 contract; graph **v22** / conventions **v14** |
+| 2026-08-10 | `defineProps` destructure | Object-pattern + rest locals seed `Reactive` (Vue 3.5); `withDefaults` same |
+| 2026-08-10 | Vue Macros `defineModels` | Setup-only; object-destructure locals seed `ModelRef` |
 | 2026-07-31 | `inject(key) as Ctx` bag | Peel `TSAsExpression` to find the declarator; seed asserted Ref-field interface when provide offer is unknown; `return ctx` after assertion exports the bag (map-context helpers) |
 | 2026-07-31 | Generic context factory | `return value as T` (enclosing type param) → `MethodGeneric`; typed call destructure `const { useInject: useX } = factory<Ctx>(…)` → link-time `Composable` from the matching type argument (no name allowlist) |
 | 2026-07-31 | `expr as Ref` declarator | `const modelValue = useVModel(…) as Ref<T>` seeds a Ref binding from the outermost assertion (same under-approx as `: Ref` annotations) |
