@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use vue_vet_core::{FileId, ModuleId, ScriptCallFact, ScriptFacts, ScriptImportFact};
+use vue_vet_core::{FileId, ModuleId, ScriptFacts, ScriptImportFact};
 
 use super::types::ExternalReactivityRoot;
 use crate::conventions::{NuxtImportTarget, nuxt_imports_link_specifier};
@@ -25,10 +25,17 @@ impl NuxtImportsSeedPass {
   pub const NAME: &'static str = "nuxt_imports_seed";
   pub const STAGE: super::EnrichmentStage = super::EnrichmentStage::StructuralLink;
 
-  /// Wire bare script calls listed in `.nuxt` imports maps to `#nuxt-imports:` seeds.
+  /// Wire bare auto-import names listed in `.nuxt` / Vite imports maps to
+  /// `#nuxt-imports:` seeds.
+  ///
+  /// Covers:
+  /// - bare **calls** (`useColorMode()`)
+  /// - bare **value** references (`currentUser.value`, `commandPanelInput`) when
+  ///   the map points at an exported ref/computed local (`ExportState::Known`)
   ///
   /// Specifiers resolve from the **declaring** dts importer (`NuxtImportTarget::importer`).
-  /// Local imports shadow auto-import names. Unresolved / quiet virtuals stay silent.
+  /// Local imports and local bindings shadow auto-import names. Unresolved /
+  /// quiet virtuals stay silent.
   #[must_use]
   pub fn run(
     file: &ProjectFile,
@@ -39,17 +46,39 @@ impl NuxtImportsSeedPass {
   ) -> NuxtImportsSeedDelta {
     let imports = all_imports(&file.facts.script);
     let mut delta = NuxtImportsSeedDelta::default();
+    let mut seeded_names = BTreeSet::new();
     for call in file.facts.script.blocks.iter().flat_map(|block| &block.calls) {
-      append_bare_nuxt_seed(
-        file,
-        call,
-        &imports,
-        resolver,
-        known,
-        module_ids,
-        nuxt_import_names,
-        &mut delta,
-      );
+      if seeded_names.insert(call.callee.clone()) {
+        append_bare_nuxt_seed(
+          file,
+          &call.callee,
+          &imports,
+          resolver,
+          known,
+          module_ids,
+          nuxt_import_names,
+          &mut delta,
+        );
+      }
+    }
+    // Bare value auto-imports (exported `const currentUser = computed(...)`).
+    let script_source = file.module_source.as_ref().map_or("", |module| module.source.as_ref());
+    let local_bindings = all_binding_names(&file.facts.script);
+    for name in
+      free_auto_import_candidates(script_source, &imports, &local_bindings, nuxt_import_names)
+    {
+      if seeded_names.insert(name.clone()) {
+        append_bare_nuxt_seed(
+          file,
+          &name,
+          &imports,
+          resolver,
+          known,
+          module_ids,
+          nuxt_import_names,
+          &mut delta,
+        );
+      }
     }
     delta
   }
@@ -57,11 +86,11 @@ impl NuxtImportsSeedPass {
 
 #[expect(
   clippy::too_many_arguments,
-  reason = "seed wiring needs file, call, imports, resolver indexes, and out delta"
+  reason = "seed wiring needs file, name, imports, resolver indexes, and out delta"
 )]
 fn append_bare_nuxt_seed(
   file: &ProjectFile,
-  call: &ScriptCallFact,
+  name: &str,
   imports: &[&ScriptImportFact],
   resolver: &ProjectResolver,
   known: &BTreeSet<String>,
@@ -69,13 +98,13 @@ fn append_bare_nuxt_seed(
   nuxt_import_names: &BTreeMap<String, NuxtImportTarget>,
   delta: &mut NuxtImportsSeedDelta,
 ) {
-  if imports.iter().any(|import| import.local == call.callee) {
+  if imports.iter().any(|import| import.local == name) {
     return;
   }
-  let Some(target) = nuxt_import_names.get(&call.callee) else {
+  let Some(target) = nuxt_import_names.get(name) else {
     return;
   };
-  let link_specifier = nuxt_imports_link_specifier(&call.callee);
+  let link_specifier = nuxt_imports_link_specifier(name);
   match resolver.resolve(&target.importer, &target.specifier, known) {
     Resolution::File(workspace_path) => {
       let target_id = ModuleId::primary(&FileId::from(workspace_path.as_str()));
@@ -115,6 +144,66 @@ fn append_bare_nuxt_seed(
 
 fn all_imports(script: &ScriptFacts) -> Vec<&ScriptImportFact> {
   script.blocks.iter().flat_map(|block| &block.imports).collect()
+}
+
+fn all_binding_names(script: &ScriptFacts) -> BTreeSet<String> {
+  script
+    .blocks
+    .iter()
+    .flat_map(|block| block.bindings.iter().map(|binding| binding.name.clone()))
+    .collect()
+}
+
+/// Auto-import names that appear as free identifiers in script source (not local
+/// imports / bindings). Word-boundary scan on the extracted script body — cheap
+/// prefilter for `#nuxt-imports:` links; link materialization still requires a
+/// seedable export on the target.
+fn free_auto_import_candidates(
+  script_source: &str,
+  imports: &[&ScriptImportFact],
+  local_bindings: &BTreeSet<String>,
+  nuxt_import_names: &BTreeMap<String, NuxtImportTarget>,
+) -> Vec<String> {
+  if script_source.is_empty() || nuxt_import_names.is_empty() {
+    return Vec::new();
+  }
+  let mut names = Vec::new();
+  for name in nuxt_import_names.keys() {
+    if imports.iter().any(|import| import.local == *name) || local_bindings.contains(name) {
+      continue;
+    }
+    if source_has_ident(script_source, name) {
+      names.push(name.clone());
+    }
+  }
+  names.sort();
+  names
+}
+
+fn source_has_ident(source: &str, name: &str) -> bool {
+  let bytes = source.as_bytes();
+  let needle = name.as_bytes();
+  if needle.is_empty() {
+    return false;
+  }
+  let mut index = 0;
+  while index + needle.len() <= bytes.len() {
+    let Some(window) = bytes.get(index..index + needle.len()) else {
+      break;
+    };
+    if window == needle
+      && !is_ident_byte(bytes.get(index.wrapping_sub(1)).copied())
+      && !is_ident_byte(bytes.get(index + needle.len()).copied())
+    {
+      return true;
+    }
+    index = index.saturating_add(1);
+  }
+  false
+}
+
+const fn is_ident_byte(byte: Option<u8>) -> bool {
+  matches!(byte, Some(b'0'..=b'9' | b'A'..=b'Z' | b'a'..=b'z' | b'_' | b'$'))
 }
 
 #[cfg(test)]

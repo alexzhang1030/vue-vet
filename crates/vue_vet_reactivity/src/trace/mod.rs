@@ -1554,7 +1554,14 @@ fn reference_resolves_to_binding(
     return false;
   };
   let Some(symbol_id) = semantic.scoping().get_reference(reference_id).symbol_id() else {
-    return false;
+    // Bare Nuxt/Vite auto-import of an exported ref/computed (`currentUser`) has
+    // no local symbol. Match by name only when this module also has no local
+    // symbol of that name — otherwise nested `const signal = ref()` would
+    // attach free `signal.value` reads via scope_bindings (include_nested).
+    if reference.name.as_str() != binding.name {
+      return false;
+    }
+    return !module_has_local_symbol_named(semantic, binding.name.as_str());
   };
   if semantic.scoping().symbol_name(symbol_id) != binding.name {
     return false;
@@ -1569,6 +1576,11 @@ fn reference_resolves_to_binding(
   // Seeds historically/occasionally store script-relative spans even when the
   // module re-trace uses a non-zero SFC offset — accept the relative match too.
   script_offset > 0 && relative == binding.span.offset
+}
+
+fn module_has_local_symbol_named(semantic: &oxc_semantic::Semantic<'_>, name: &str) -> bool {
+  let scoping = semantic.scoping();
+  scoping.symbol_ids().any(|symbol_id| scoping.symbol_name(symbol_id) == name)
 }
 
 /// True when `function_id` is a callback argument to a known **synchronously**

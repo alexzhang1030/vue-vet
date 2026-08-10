@@ -49,12 +49,15 @@ impl Rule for NoUnusedReactiveBinding {
         if !is_local_value_binding(binding.kind) || used.contains(binding.name.as_str()) {
           continue;
         }
-        let script_reads = block
-          .bindings
-          .iter()
-          .find(|script_binding| script_binding.name == binding.name)
-          .map_or(0, |script_binding| script_binding.reads);
-        if script_reads != 0 {
+        // Cross-module / bare auto-import seeds have no local symbol — they are
+        // not "unused local bindings" (e.g. Nuxt `currentUser` used once at
+        // top-level). Only report when Oxc recorded a local binding.
+        let Some(script_binding) =
+          block.bindings.iter().find(|script_binding| script_binding.name == binding.name)
+        else {
+          continue;
+        };
+        if script_binding.reads != 0 {
           continue;
         }
         findings.push((binding.span.clone(), binding.name.clone(), binding.kind));
