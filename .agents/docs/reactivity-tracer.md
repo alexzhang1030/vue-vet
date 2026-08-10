@@ -80,7 +80,7 @@ v8 `to_id`; v7 `property` / `to_path`).
 | A3 | ✅ Member/HOF/unref·toValue reads; watch ref `.value`; **deep root `*` for bare `watch(reactive)`** (not per-key invention) |
 | A4 | ✅ Existing guard roles; no further control-flow deepening |
 | A5 | ✅ After-await classification; pause/enable/resetTracking windows; nested callback outside-tracking; watch callback outside |
-| A6 | ✅ Composable/instance/dual-script/provide-inject; **Factory scalar + Reactive**; **ComponentFactory setup-forward**; **`.d.ts` / annotated object-bag returns**; **mapped Ref types → open spread**; **`return toRefs` / `return call()` shape forward**; **nested ValueBag member calls**; **plain-object + `call().value` merge**; **external package summaries** (+ companion js); **bare Nuxt / Vite auto-imports.d.ts seeds**; **static `:prop` → child props bag edges** |
+| A6 | ✅ Composable/instance/dual-script/provide-inject; **Factory scalar + Reactive**; **ComponentFactory setup-forward**; **`.d.ts` / annotated object-bag returns**; **mapped Ref types → open spread**; **`return toRefs` / `return call()` / `return local=call()` shape forward** (+ bare `#nuxt-imports` callee resolve); **nested ValueBag member calls**; **plain-object + `call().value` merge**; **external package summaries** (+ companion js); **bare Nuxt / Vite auto-imports.d.ts seeds**; **static `:prop` → child props bag edges** |
 | A7 | ✅ Versioned graph (v9 Render); deterministic sort; `property`/`to_path`; **`{module}:{name}@{offset}` `to_id`** |
 | Evidence | ✅ `just oracle` ≥99% recall on committed cases; exhaustive local reads; key SFC E2E |
 
@@ -242,8 +242,9 @@ growing prose ledger.
 | 2026-07-29 | Plain-object Reactive factory (#119) | Declared plain object (no Ref fields) + body `return <call>(...).value` (`#imports`/unresolved) or `return reactive(...)` → `Factory(Reactive)`; `.nuxt/imports.d.ts` bare calls → `#nuxt-imports:` ExternalReactivityRoot; companion `.js` merge only for provisional halves (+ size cap); fixes Nuxt `useColorMode` → `no-empty-watch-sources` FP |
 | 2026-07-29 | Nuxt imports importer resolve | Bare `#nuxt-imports:` seeds resolve from the **declaring** dts (`imports.d.ts` vs `types/imports.d.ts`); prefer re-export map when both list the same name. Types-map overwrite + fixed importer was the real-app `colorMode` FP after #119 |
 | 2026-07-31 | VueUse shared composable | `createSharedComposable` / `createGlobalState` from `@vueuse/core` forward the factory return bag (`Fn` → `Fn`) so destructured fields like `hasPermission` seed |
-| 2026-08-10 | Nuxt data / route slice / i18n | `await useAsyncData` destructure Ref fields; `useRoute().params|query|meta` Reactive; `useI18n` locale/locales; Elk without-dep 28→12 |
-| 2026-08-10 | Bare auto-import Known | Nuxt/Vite map links for free idents (not only calls); `ExportState::Known` seeds without import span; unresolved refs match seed by name — Elk `currentUser` / `commandPanelInput` |
+| 2026-08-10 | Nuxt data / route slice / i18n | `await useAsyncData` destructure Ref fields; `useRoute().params|query|meta` Reactive; `useI18n` locale/locales |
+| 2026-08-10 | Bare auto-import Known | Nuxt/Vite map links for free idents (not only calls); `ExportState::Known` seeds without import span; unresolved refs match seed by name |
+| 2026-08-10 | Return local = call() forward | `const x = useY(); return x` → `ForwardReturn(useY)` (same as `return useY()`); `resolve_name_export_state` also follows `#nuxt-imports:{name}` so bare auto-import callees refine |
 | 2026-08-10 | `defineProps` destructure | Object-pattern + rest locals seed `Reactive` (Vue 3.5 reactive props destructure); `withDefaults(defineProps())` same; cuts Elk mass `no-computed-without-dependency` FPs |
 | 2026-08-10 | Vue Macros `defineModels` | Setup-only macro; object-destructure locals seed `ModelRef` (like `toRefs`); fixes `no-v-model-nonreactive-source` FP on vitesse `TheInput` |
 | 2026-07-31 | `inject(key) as Ctx` bag | Peel `TSAsExpression` to find the declarator; seed asserted Ref-field interface when provide offer is unknown; `return ctx` after assertion exports the bag (map-context helpers) |

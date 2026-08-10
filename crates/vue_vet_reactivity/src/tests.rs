@@ -3437,39 +3437,152 @@ fn bare_nuxt_imports_link_seeds_reactive_factory_call() {
 
 #[test]
 fn bare_nuxt_imports_link_seeds_known_exported_const() {
-  // Elk-style: `export const currentUser = computed(...)` auto-imported as a bare id.
+  // `export const sharedHandle = computed(...)` auto-imported as a bare id.
   let producer = prepared_standalone(
-    "users.ts",
+    "shared.ts",
     "import { computed, ref } from 'vue';\n\
      const handle = ref('a');\n\
-     export const currentUser = computed(() => handle.value);\n",
+     export const sharedHandle = computed(() => handle.value);\n",
     "ts",
   );
   let consumer = prepared_standalone(
     "consumer.ts",
     "import { computed } from 'vue';\n\
-     const key = computed(() => currentUser.value ?? '');\n",
+     const key = computed(() => sharedHandle.value ?? '');\n",
     "ts",
   );
   let links = [ModuleLink {
     from: "consumer.ts".into(),
-    specifier: "#nuxt-imports:currentUser".into(),
-    to: "users.ts".into(),
+    specifier: "#nuxt-imports:sharedHandle".into(),
+    to: "shared.ts".into(),
   }];
   let traced = traced_modules(&[producer, consumer], &links);
   let consumer = traced.iter().find(|module| module.id == "consumer.ts");
   assert!(
     consumer.is_some_and(|module| {
       module.graph.bindings.iter().any(|binding| {
-        binding.name == "currentUser" && binding.kind == ReactiveBindingKind::Computed
-      }) && (module.graph.edges.iter().any(|edge| edge.from == "key" && edge.to == "currentUser")
+        binding.name == "sharedHandle" && binding.kind == ReactiveBindingKind::Computed
+      }) && (module.graph.edges.iter().any(|edge| edge.from == "key" && edge.to == "sharedHandle")
         || module.graph.scopes.iter().any(|scope| {
           scope.binding.as_deref() == Some("key")
-            && scope.reads.iter().any(|read| read.binding == "currentUser")
+            && scope.reads.iter().any(|read| read.binding == "sharedHandle")
         }))
     }),
-    "bare #nuxt-imports Known(Computed) must seed currentUser; got {:?}",
+    "bare #nuxt-imports Known(Computed) must seed sharedHandle; got {:?}",
     consumer.map(|module| (&module.graph.bindings, &module.graph.edges, &module.graph.scopes))
+  );
+}
+
+#[test]
+fn return_of_call_initialized_local_forwards_factory() {
+  // Same-module: wrapper returns a local filled by another factory call.
+  // `export function usePersisted(): Ref<T>` +
+  // `export function useSettings() { const s = usePersisted(); return s }`
+  let producer = prepared_standalone(
+    "storage.ts",
+    "import type { Ref } from 'vue';
+     import { shallowRef } from 'vue';
+     export function usePersisted<T>(init: T): Ref<T> {
+       return shallowRef(init);
+     }
+     export function useSettings() {
+       const storage = usePersisted({ theme: 'light' });
+       return storage;
+     }
+",
+    "ts",
+  );
+  let consumer = prepared_standalone(
+    "consumer.ts",
+    "import { computed } from 'vue';
+     const settings = useSettings();
+     const theme = computed(() => settings.value.theme);
+",
+    "ts",
+  );
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "#nuxt-imports:useSettings".into(),
+    to: "storage.ts".into(),
+  }];
+  let traced = traced_modules(&[producer, consumer], &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.bindings.iter().any(|binding| {
+        binding.name == "settings"
+          && matches!(
+            binding.kind,
+            ReactiveBindingKind::Ref
+              | ReactiveBindingKind::ShallowRef
+              | ReactiveBindingKind::Computed
+          )
+      }) && module.graph.edges.iter().any(|edge| edge.from == "theme" && edge.to == "settings")
+    }),
+    "return-of-call-init local must forward factory kind; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.edges))
+  );
+}
+
+#[test]
+fn return_of_call_init_forwards_via_bare_auto_import_callee() {
+  // Cross-module: wrapper calls a bare auto-import helper, returns the local.
+  // ForwardReturn(helper) must resolve through `#nuxt-imports:helper`, not only ES imports.
+  let helper = prepared_standalone(
+    "helper.ts",
+    "import type { Ref } from 'vue';
+     import { shallowRef } from 'vue';
+     export function usePersisted<T>(init: T): Ref<T> {
+       return shallowRef(init);
+     }
+",
+    "ts",
+  );
+  let wrapper = prepared_standalone(
+    "wrapper.ts",
+    "export function useSettings() {
+       const storage = usePersisted({ theme: 'light' });
+       return storage;
+     }
+",
+    "ts",
+  );
+  let consumer = prepared_standalone(
+    "consumer.ts",
+    "import { computed } from 'vue';
+     const settings = useSettings();
+     const theme = computed(() => settings.value.theme);
+",
+    "ts",
+  );
+  let links = [
+    ModuleLink {
+      from: "wrapper.ts".into(),
+      specifier: "#nuxt-imports:usePersisted".into(),
+      to: "helper.ts".into(),
+    },
+    ModuleLink {
+      from: "consumer.ts".into(),
+      specifier: "#nuxt-imports:useSettings".into(),
+      to: "wrapper.ts".into(),
+    },
+  ];
+  let traced = traced_modules(&[helper, wrapper, consumer], &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.bindings.iter().any(|binding| {
+        binding.name == "settings"
+          && matches!(
+            binding.kind,
+            ReactiveBindingKind::Ref
+              | ReactiveBindingKind::ShallowRef
+              | ReactiveBindingKind::Computed
+          )
+      }) && module.graph.edges.iter().any(|edge| edge.from == "theme" && edge.to == "settings")
+    }),
+    "ForwardReturn via bare auto-import callee must seed factory; got {:?}",
+    consumer.map(|module| (&module.graph.bindings, &module.graph.edges))
   );
 }
 
