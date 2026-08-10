@@ -95,6 +95,14 @@ forwards and publishes seedable states.
 3. Existing `Known` + new Factory/Composable → keep **Known** (graph-seeded wins).
 4. Otherwise last write wins.
 
+**Declaration / implementation merge** (`.d.ts` + companion body, per name):
+
+1. `DeclaredPlainObjectFactory` ↔ `BodyUnwrappedState` → `Factory(Reactive)`.
+2. Provisional declaration + seedable impl → take impl.
+3. Declaration `ForwardReturn` + impl Factory/Composable/ValueFactory/ComponentFactory
+   → take impl (`Known` / `ValueBag` stay quiet here).
+4. Orphan provisional half alone is retained; unrelated pairs leave declaration unchanged.
+
 **Name resolve** for `ForwardReturn` / bag method forwards (depth-capped):
 
 1. Working locals (recurse through nested `ForwardReturn`).

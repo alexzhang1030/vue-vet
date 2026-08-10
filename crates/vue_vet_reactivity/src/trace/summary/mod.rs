@@ -541,47 +541,10 @@ pub fn merge_declaration_implementation_summary(
 ) -> ModuleSummary {
   let mut merged = declaration.locals.clone();
   for (name, impl_state) in &implementation.locals {
-    match (merged.get(name), impl_state) {
-      (Some(ExportState::DeclaredPlainObjectFactory), ExportState::BodyUnwrappedState)
-      | (Some(ExportState::BodyUnwrappedState), ExportState::DeclaredPlainObjectFactory) => {
-        merged.insert(name.clone(), ExportState::Factory(ReactiveBindingKind::Reactive));
-      }
-      (Some(ExportState::DeclaredPlainObjectFactory), ExportState::Factory(kind))
-        if *kind == ReactiveBindingKind::Reactive =>
-      {
-        merged.insert(name.clone(), ExportState::Factory(ReactiveBindingKind::Reactive));
-      }
-      (
-        None | Some(ExportState::DeclaredPlainObjectFactory | ExportState::BodyUnwrappedState),
-        state,
-      ) if matches!(
-        state,
-        ExportState::Factory(_)
-          | ExportState::Composable(_)
-          | ExportState::Known(_)
-          | ExportState::ValueFactory(_)
-          | ExportState::ValueBag(_)
-          | ExportState::ComponentFactory
-      ) =>
-      {
-        merged.insert(name.clone(), state.clone());
-      }
-      // Implementation body forwards to a resolved composable/factory shape.
-      (Some(ExportState::ForwardReturn(_)), state)
-        if matches!(
-          state,
-          ExportState::Factory(_)
-            | ExportState::Composable(_)
-            | ExportState::ValueFactory(_)
-            | ExportState::ComponentFactory
-        ) =>
-      {
-        merged.insert(name.clone(), state.clone());
-      }
-      (None, ExportState::BodyUnwrappedState | ExportState::DeclaredPlainObjectFactory) => {
-        merged.insert(name.clone(), impl_state.clone());
-      }
-      _ => {}
+    if let Some(next) =
+      export_lattice::merge_declaration_implementation_local(merged.get(name), impl_state)
+    {
+      merged.insert(name.clone(), next);
     }
   }
   let mut options_callback_slots = declaration.options_callback_slots.clone();

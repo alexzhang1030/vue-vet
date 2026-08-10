@@ -1,8 +1,8 @@
 //! Pure A6 [`ExportState`] lattice operations (no AST).
 //!
 //! Contract: [reactivity tracer PCR](../../../../../../.agents/docs/reactivity-tracer.md)
-//! — seedable vs provisional, local merge, name resolve, pending fields,
-//! `MethodForward` refine, publish barrier.
+//! — seedable vs provisional, local merge, declaration/implementation merge,
+//! name resolve, pending fields, `MethodForward` refine, publish barrier.
 
 use std::collections::BTreeMap;
 
@@ -56,6 +56,55 @@ pub(super) fn merge_local(existing: Option<&ExportState>, next: ExportState) -> 
   match existing {
     Some(prev) if prefers_existing(prev, &next) => prev.clone(),
     _ => next,
+  }
+}
+
+/// Merge one name from a `.d.ts` declaration with its companion implementation.
+///
+/// Returns `Some(next)` when the implementation should overwrite / complete the
+/// declaration local; `None` keeps the declaration entry unchanged.
+///
+/// Contract (under-approx):
+/// 1. `DeclaredPlainObjectFactory` ↔ `BodyUnwrappedState` → `Factory(Reactive)`.
+/// 2. Declaration plain-object + impl `Factory(Reactive)` → keep Reactive factory.
+/// 3. Missing/provisional declaration + seedable impl → take impl.
+/// 4. Declaration `ForwardReturn` + impl Factory/Composable/ValueFactory/ComponentFactory
+///    → take impl (not Known / `ValueBag` — those stay quiet here).
+/// 5. Missing declaration + provisional half alone → keep the half for later.
+#[must_use]
+pub(super) fn merge_declaration_implementation_local(
+  declaration: Option<&ExportState>,
+  implementation: &ExportState,
+) -> Option<ExportState> {
+  match (declaration, implementation) {
+    (Some(ExportState::DeclaredPlainObjectFactory), ExportState::BodyUnwrappedState)
+    | (Some(ExportState::BodyUnwrappedState), ExportState::DeclaredPlainObjectFactory) => {
+      Some(ExportState::Factory(ReactiveBindingKind::Reactive))
+    }
+    (Some(ExportState::DeclaredPlainObjectFactory), ExportState::Factory(kind))
+      if *kind == ReactiveBindingKind::Reactive =>
+    {
+      Some(ExportState::Factory(ReactiveBindingKind::Reactive))
+    }
+    (
+      None | Some(ExportState::DeclaredPlainObjectFactory | ExportState::BodyUnwrappedState),
+      state,
+    ) if is_seedable(state) => Some(state.clone()),
+    (Some(ExportState::ForwardReturn(_)), state)
+      if matches!(
+        state,
+        ExportState::Factory(_)
+          | ExportState::Composable(_)
+          | ExportState::ValueFactory(_)
+          | ExportState::ComponentFactory
+      ) =>
+    {
+      Some(state.clone())
+    }
+    (None, ExportState::BodyUnwrappedState | ExportState::DeclaredPlainObjectFactory) => {
+      Some(implementation.clone())
+    }
+    _ => None,
   }
 }
 
@@ -789,5 +838,85 @@ mod tests {
       refine_forward_return(None, "useX".into()),
       ExportState::ForwardReturn("useX".into())
     );
+  }
+
+  #[test]
+  fn decl_impl_plain_object_plus_unwrapped_becomes_reactive_factory() {
+    let reactive = ExportState::Factory(ReactiveBindingKind::Reactive);
+    assert_eq!(
+      merge_declaration_implementation_local(
+        Some(&ExportState::DeclaredPlainObjectFactory),
+        &ExportState::BodyUnwrappedState,
+      ),
+      Some(reactive.clone())
+    );
+    assert_eq!(
+      merge_declaration_implementation_local(
+        Some(&ExportState::BodyUnwrappedState),
+        &ExportState::DeclaredPlainObjectFactory,
+      ),
+      Some(reactive.clone())
+    );
+    assert_eq!(
+      merge_declaration_implementation_local(
+        Some(&ExportState::DeclaredPlainObjectFactory),
+        &reactive,
+      ),
+      Some(reactive)
+    );
+  }
+
+  #[test]
+  fn decl_impl_provisional_takes_seedable_impl() {
+    assert_eq!(
+      merge_declaration_implementation_local(
+        Some(&ExportState::DeclaredPlainObjectFactory),
+        &factory_ref(),
+      ),
+      Some(factory_ref())
+    );
+    assert_eq!(
+      merge_declaration_implementation_local(None, &empty_composable()),
+      Some(empty_composable())
+    );
+  }
+
+  #[test]
+  fn decl_impl_forward_return_takes_factory_not_known() {
+    assert_eq!(
+      merge_declaration_implementation_local(
+        Some(&ExportState::ForwardReturn("useX".into())),
+        &factory_ref(),
+      ),
+      Some(factory_ref())
+    );
+    // Known / ValueBag do not complete a ForwardReturn declaration (under-approx).
+    assert_eq!(
+      merge_declaration_implementation_local(
+        Some(&ExportState::ForwardReturn("useX".into())),
+        &known_ref(),
+      ),
+      None
+    );
+    assert_eq!(
+      merge_declaration_implementation_local(
+        Some(&ExportState::ForwardReturn("useX".into())),
+        &ExportState::ValueBag(super::super::ValueBag::default()),
+      ),
+      None
+    );
+  }
+
+  #[test]
+  fn decl_impl_orphan_provisional_half_is_kept() {
+    assert_eq!(
+      merge_declaration_implementation_local(None, &ExportState::BodyUnwrappedState),
+      Some(ExportState::BodyUnwrappedState)
+    );
+  }
+
+  #[test]
+  fn decl_impl_unrelated_pair_stays_unchanged() {
+    assert_eq!(merge_declaration_implementation_local(Some(&factory_ref()), &known_ref()), None);
   }
 }
