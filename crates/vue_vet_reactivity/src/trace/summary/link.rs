@@ -1180,47 +1180,30 @@ fn resolve_name_export_state(
   resolved: &BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
   depth: u8,
 ) -> Option<ExportState> {
-  if depth > 8 {
-    return None;
-  }
-  if let Some(state) = locals.get(name) {
-    match state {
-      ExportState::ForwardReturn(callee) => {
-        return resolve_name_export_state(
-          module_id,
-          callee,
-          locals,
-          facts,
-          links,
-          resolved,
-          depth.saturating_add(1),
-        );
-      }
-      ExportState::Composable(_)
-      | ExportState::Factory(_)
-      | ExportState::ValueFactory(_)
-      | ExportState::ValueBag(_)
-      | ExportState::Known(_)
-      | ExportState::ComponentFactory => return Some(state.clone()),
-      _ => {}
-    }
-  }
-  let module_facts = facts.get(module_id)?;
-  for import in &module_facts.summary.imports {
-    if import.local != name {
-      continue;
-    }
-    let target = links.get(&(module_id, import.source.as_str())).copied()?;
-    return resolved.get(target)?.get(&import.imported).cloned();
-  }
-  // Bare Nuxt / Vite auto-import: same `#nuxt-imports:{name}` shape as seed_plan_for.
-  // `ForwardReturn("useX")` must resolve when useX is auto-imported, not only ES-imported
-  // (`const storage = useX(); return storage` wrappers that call bare helpers).
-  let bare = format!("{NUXT_IMPORTS_SPECIFIER_PREFIX}{name}");
-  if let Some(target) = links.get(&(module_id, bare.as_str())).copied() {
-    return resolved.get(target)?.get(name).cloned();
-  }
-  None
+  // Pure order: locals → ES import → bare `#nuxt-imports:{name}` (PCR Name resolve).
+  let imports: Vec<export_lattice::ImportBindingView<'_>> = facts
+    .get(module_id)
+    .map(|module_facts| {
+      module_facts
+        .summary
+        .imports
+        .iter()
+        .map(|import| export_lattice::ImportBindingView {
+          local: import.local.as_str(),
+          source: import.source.as_str(),
+          imported: import.imported.as_str(),
+        })
+        .collect()
+    })
+    .unwrap_or_default();
+  export_lattice::resolve_name_export_state(
+    name,
+    locals,
+    &imports,
+    |specifier| links.get(&(module_id, specifier)).copied().cloned(),
+    |target, export_name| resolved.get(target)?.get(export_name).cloned(),
+    depth,
+  )
 }
 
 /// Borrowed index over owned resolved links — avoids re-allocating key pairs on lookup.
