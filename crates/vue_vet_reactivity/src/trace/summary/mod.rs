@@ -604,7 +604,8 @@ pub fn prepare_module_summary(
       source_offset,
       kind,
       true,
-    ),
+    )
+    .bindings,
     ..ReactivityGraph::default()
   };
   let locals =

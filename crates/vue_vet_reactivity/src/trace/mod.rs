@@ -135,15 +135,16 @@ fn trace_reactivity_seeded_inner(
   // Include function-local refs when resolving `return { signal }` shapes and when
   // classifying nested tracking scopes. Do not publish them as top-level graph
   // bindings (they would collide with `const { signal } = useX()` seeds by name).
-  let mut scope_bindings = collect_reactive_bindings(
-    semantic,
-    &imported_bindings,
-    sfc_source,
-    script_offset,
-    script_kind,
-    true,
-  );
-  let mut bindings = collect_reactive_bindings(
+  let CollectedBindings { bindings: mut scope_bindings, ambient_call_handles } =
+    collect_reactive_bindings(
+      semantic,
+      &imported_bindings,
+      sfc_source,
+      script_offset,
+      script_kind,
+      true,
+    );
+  let CollectedBindings { mut bindings, .. } = collect_reactive_bindings(
     semantic,
     &imported_bindings,
     sfc_source,
@@ -268,6 +269,7 @@ fn trace_reactivity_seeded_inner(
     &imported_bindings,
     &scope_bindings,
     &composable_instances,
+    &ambient_call_handles,
     sfc_source,
     script_offset,
   );
@@ -276,6 +278,7 @@ fn trace_reactivity_seeded_inner(
     &imported_bindings,
     &scope_bindings,
     &composable_instances,
+    &ambient_call_handles,
     sfc_source,
     script_offset,
   ));
@@ -1404,6 +1407,75 @@ fn extend_with_reactive_aliases(
   }
 }
 
+/// Result of walking reactive binding seeds in one script.
+struct CollectedBindings {
+  bindings: Vec<ReactiveBindingFact>,
+  /// Locals that are ambient-on-call methods of a named API bag (`t` from `useI18n`).
+  ambient_call_handles: AmbientCallHandles,
+}
+
+/// One local method handle: calling it injects the listed ambient reads.
+#[derive(Clone, Debug)]
+struct AmbientCallHandle {
+  /// Owning `VariableDeclarator` node (shared by a destructure pattern).
+  site_decl: NodeId,
+  ambient: Vec<(String, Option<String>)>,
+}
+
+/// Local name → handles (usually one; multi-site same name is rare).
+type AmbientCallHandles = BTreeMap<String, Vec<AmbientCallHandle>>;
+
+/// Table-driven named API bags: field seeds + optional ambient-on-call methods.
+///
+/// This is Vue/ecosystem **contract** data (like `unref` / sync HOF allowlists),
+/// not user-code pattern matching. New APIs add a row; seed/read stay generic.
+struct NamedApiBag {
+  callee: &'static str,
+  field_kind: fn(&str) -> Option<ReactiveBindingKind>,
+  /// Destructured methods whose call tracks [`Self::ambient_fields`].
+  ambient_methods: &'static [&'static str],
+  /// Fields tracked when an ambient method runs (e.g. vue-i18n `trackReactivityValues`).
+  ambient_fields: &'static [&'static str],
+}
+
+const NAMED_API_BAGS: &[NamedApiBag] = &[
+  NamedApiBag {
+    callee: "useAsyncData",
+    field_kind: async_data_field_kind,
+    ambient_methods: &[],
+    ambient_fields: &[],
+  },
+  NamedApiBag {
+    callee: "useLazyAsyncData",
+    field_kind: async_data_field_kind,
+    ambient_methods: &[],
+    ambient_fields: &[],
+  },
+  NamedApiBag {
+    callee: "useFetch",
+    field_kind: async_data_field_kind,
+    ambient_methods: &[],
+    ambient_fields: &[],
+  },
+  NamedApiBag {
+    callee: "useLazyFetch",
+    field_kind: async_data_field_kind,
+    ambient_methods: &[],
+    ambient_fields: &[],
+  },
+  NamedApiBag {
+    callee: "useI18n",
+    field_kind: i18n_field_kind,
+    // vue-i18n Composer: wrapWithDeps on these methods.
+    ambient_methods: &["t", "d", "n", "rt", "te"],
+    ambient_fields: &["locale", "fallbackLocale", "messages"],
+  },
+];
+
+fn named_api_bag(callee: &str) -> Option<&'static NamedApiBag> {
+  NAMED_API_BAGS.iter().find(|bag| bag.callee == callee)
+}
+
 fn collect_reactive_bindings(
   semantic: &oxc_semantic::Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
@@ -1411,8 +1483,9 @@ fn collect_reactive_bindings(
   script_offset: usize,
   script_kind: ScriptKind,
   include_nested: bool,
-) -> Vec<ReactiveBindingFact> {
+) -> CollectedBindings {
   let mut reactive_bindings = Vec::new();
+  let mut ambient_call_handles = AmbientCallHandles::new();
   for node in semantic.nodes() {
     let AstKind::CallExpression(call) = node.kind() else {
       continue;
@@ -1429,46 +1502,20 @@ fn collect_reactive_bindings(
       continue;
     }
 
-    // Nuxt data-fetch / vue-i18n: field-specific kinds on object destructure.
-    if let Some(field_kinds) = named_destructure_field_kinds(&callee) {
+    // Named API bags (Nuxt data / vue-i18n / …): field seeds + ambient-on-call methods.
+    if let Some(api) = named_api_bag(&callee) {
       if let BindingPattern::ObjectPattern(pattern) = &declarator.id {
-        let mut seeded_ambient = false;
-        let mut has_translator = false;
-        for property in &pattern.properties {
-          let Some(key) = property.key.static_name() else {
-            continue;
-          };
-          if callee == "useI18n" && is_i18n_translator_key(key.as_ref()) {
-            has_translator = true;
-          }
-          let Some(kind) = field_kinds(key.as_ref()) else {
-            continue;
-          };
-          let mut identifiers = Vec::new();
-          collect_binding_identifiers(&property.value, &mut identifiers);
-          for (name, span) in identifiers {
-            if callee == "useI18n" && is_i18n_ambient_key(key.as_ref()) {
-              seeded_ambient = true;
-            }
-            reactive_bindings.push(ReactiveBindingFact {
-              name,
-              kind,
-              initialized_with_null: false,
-              span: source_span(sfc_source, script_offset, span),
-            });
-          }
-        }
-        // `const { t } = useI18n()` — translators alone still track composer
-        // ambient deps at runtime; seed a synthetic bag for graph edges.
-        if callee == "useI18n" && has_translator && !seeded_ambient {
-          let call_span = source_span(sfc_source, script_offset, call.span);
-          reactive_bindings.push(ReactiveBindingFact {
-            name: i18n_composer_binding_name(call_span.offset),
-            kind: ReactiveBindingKind::Reactive,
-            initialized_with_null: false,
-            span: call_span,
-          });
-        }
+        seed_named_api_bag_destructure(
+          api,
+          pattern,
+          call,
+          // Parent of the call is the declarator (or await→declarator).
+          variable_declarator_node_id(semantic, call.node_id.get()),
+          sfc_source,
+          script_offset,
+          &mut reactive_bindings,
+          &mut ambient_call_handles,
+        );
       }
       continue;
     }
@@ -1560,7 +1607,125 @@ fn collect_reactive_bindings(
     &mut reactive_bindings,
   );
 
-  reactive_bindings
+  CollectedBindings { bindings: reactive_bindings, ambient_call_handles }
+}
+
+/// Seed object-destructure of a [`NamedApiBag`]: reactive fields + ambient-on-call methods.
+#[expect(clippy::too_many_arguments, reason = "seed needs call site + both output maps")]
+fn seed_named_api_bag_destructure(
+  api: &NamedApiBag,
+  pattern: &oxc_ast::ast::ObjectPattern<'_>,
+  call: &oxc_ast::ast::CallExpression<'_>,
+  site_decl: Option<NodeId>,
+  sfc_source: &str,
+  script_offset: usize,
+  reactive_bindings: &mut Vec<ReactiveBindingFact>,
+  ambient_call_handles: &mut AmbientCallHandles,
+) {
+  let Some(site_decl) = site_decl else {
+    return;
+  };
+
+  // export_key → local binding names (and spans) for reactive fields.
+  let mut field_locals: BTreeMap<String, Vec<(String, Span)>> = BTreeMap::new();
+  let mut method_locals: Vec<String> = Vec::new();
+
+  for property in &pattern.properties {
+    let Some(key) = property.key.static_name() else {
+      continue;
+    };
+    let key = key.into_owned();
+    let mut identifiers = Vec::new();
+    collect_binding_identifiers(&property.value, &mut identifiers);
+
+    if api.ambient_methods.contains(&key.as_str()) {
+      for (name, _) in &identifiers {
+        if !method_locals.iter().any(|existing| existing == name) {
+          method_locals.push(name.clone());
+        }
+      }
+      // Methods are not reactive bindings.
+      continue;
+    }
+
+    let Some(kind) = (api.field_kind)(&key) else {
+      continue;
+    };
+    for (name, span) in identifiers {
+      field_locals.entry(key.clone()).or_default().push((name.clone(), span));
+      reactive_bindings.push(ReactiveBindingFact {
+        name,
+        kind,
+        initialized_with_null: false,
+        span: source_span(sfc_source, script_offset, span),
+      });
+    }
+  }
+
+  if method_locals.is_empty() || api.ambient_fields.is_empty() {
+    return;
+  }
+
+  // Resolve ambient reads for method calls.
+  // Prefer co-destructured ambient field locals (under-approx: if the user
+  // took `locale` but not `messages`, we only attribute `locale` — enough for
+  // presence; missing edges stay quiet). When *no* ambient field was taken,
+  // seed a site bag for the full ambient field set.
+  let mut ambient: Vec<(String, Option<String>)> = Vec::new();
+  for field in api.ambient_fields {
+    if let Some(locals) = field_locals.get(*field) {
+      for (local, _) in locals {
+        // Field kinds from the contract are ref-like Computed → track `.value`.
+        ambient.push((local.clone(), Some("value".into())));
+      }
+    }
+  }
+
+  if ambient.is_empty() {
+    let call_span = source_span(sfc_source, script_offset, call.span);
+    let site_name = api_site_binding_name(api.callee, call_span.offset);
+    if !reactive_bindings.iter().any(|b| b.name == site_name) {
+      reactive_bindings.push(ReactiveBindingFact {
+        name: site_name.clone(),
+        kind: ReactiveBindingKind::Reactive,
+        initialized_with_null: false,
+        span: call_span,
+      });
+    }
+    for field in api.ambient_fields {
+      ambient.push((site_name.clone(), Some((*field).into())));
+    }
+  }
+
+  if ambient.is_empty() {
+    return;
+  }
+  for method in method_locals {
+    ambient_call_handles
+      .entry(method)
+      .or_default()
+      .push(AmbientCallHandle { site_decl, ambient: ambient.clone() });
+  }
+}
+
+fn api_site_binding_name(callee: &str, call_offset: usize) -> String {
+  format!("{callee}@{call_offset}")
+}
+
+fn variable_declarator_node_id(
+  semantic: &oxc_semantic::Semantic<'_>,
+  call_id: NodeId,
+) -> Option<NodeId> {
+  let parent = semantic.nodes().parent_id(call_id);
+  match semantic.nodes().kind(parent) {
+    AstKind::VariableDeclarator(_) => Some(parent),
+    AstKind::AwaitExpression(_) => {
+      let declarator = semantic.nodes().parent_id(parent);
+      matches!(semantic.nodes().kind(declarator), AstKind::VariableDeclarator(_))
+        .then_some(declarator)
+    }
+    _ => None,
+  }
 }
 
 /// `const local = cond ? ref(a) : shallowRef(b)` when both arms share a reactive kind.
@@ -1708,17 +1873,6 @@ fn resolved_binding_callee(
   None
 }
 
-/// Per-field kinds for Nuxt data-fetch / vue-i18n object destructure.
-fn named_destructure_field_kinds(callee: &str) -> Option<fn(&str) -> Option<ReactiveBindingKind>> {
-  match callee {
-    "useAsyncData" | "useLazyAsyncData" | "useFetch" | "useLazyFetch" => {
-      Some(async_data_field_kind)
-    }
-    "useI18n" => Some(i18n_field_kind),
-    _ => None,
-  }
-}
-
 fn async_data_field_kind(field: &str) -> Option<ReactiveBindingKind> {
   match field {
     // Nuxt `AsyncData` bag — reactive halves only (skip `refresh` / `execute` / `clear`).
@@ -1735,20 +1889,6 @@ fn i18n_field_kind(field: &str) -> Option<ReactiveBindingKind> {
     }
     _ => None,
   }
-}
-
-/// vue-i18n `wrapWithDeps` translators (`trackReactivityValues` on each call).
-fn is_i18n_translator_key(key: &str) -> bool {
-  matches!(key, "t" | "d" | "n" | "rt" | "te")
-}
-
-/// Ambient deps that `trackReactivityValues` always reads (lite + full builds).
-fn is_i18n_ambient_key(key: &str) -> bool {
-  matches!(key, "locale" | "fallbackLocale" | "messages")
-}
-
-fn i18n_composer_binding_name(call_offset: usize) -> String {
-  format!("useI18n@{call_offset}")
 }
 
 /// Seed `const params = useRoute().params` (and `route.params` when `route` is Reactive).
@@ -2131,6 +2271,7 @@ fn collect_scope_reads(
   reactive_bindings: &[ReactiveBindingFact],
   composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
+  ambient_call_handles: &AmbientCallHandles,
   script_offset: usize,
 ) -> Vec<RawReactiveRead> {
   let mut visiting = BTreeSet::new();
@@ -2141,6 +2282,7 @@ fn collect_scope_reads(
     reactive_bindings,
     composable_instances,
     imported_bindings,
+    ambient_call_handles,
     script_offset,
     0,
     &mut visiting,
@@ -2154,6 +2296,7 @@ fn collect_scope_reads_bounded(
   reactive_bindings: &[ReactiveBindingFact],
   composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
+  ambient_call_handles: &AmbientCallHandles,
   script_offset: usize,
   depth: u32,
   visiting: &mut BTreeSet<NodeId>,
@@ -2164,6 +2307,7 @@ fn collect_scope_reads_bounded(
     reactive_bindings,
     composable_instances,
     imported_bindings,
+    ambient_call_handles,
     script_offset,
   );
 
@@ -2177,6 +2321,7 @@ fn collect_scope_reads_bounded(
       reactive_bindings,
       composable_instances,
       imported_bindings,
+      ambient_call_handles,
       script_offset,
       depth,
       visiting,
@@ -2194,6 +2339,7 @@ fn collect_scope_reads_local(
   reactive_bindings: &[ReactiveBindingFact],
   composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
+  ambient_call_handles: &AmbientCallHandles,
   script_offset: usize,
 ) -> Vec<RawReactiveRead> {
   let mut reads = semantic
@@ -2331,7 +2477,7 @@ fn collect_scope_reads_local(
     });
   }
 
-  // `t('key')` from `const { t } = useI18n()` — inject ambient composer deps.
+  // Named API bag methods (`const { t } = useI18n()`): inject precomputed ambient reads.
   for (call_id, call_node) in semantic.nodes().iter_enumerated() {
     let AstKind::CallExpression(call) = call_node.kind() else {
       continue;
@@ -2339,13 +2485,8 @@ fn collect_scope_reads_local(
     let Some(identifier) = call.callee.get_identifier_reference() else {
       continue;
     };
-    let Some(deps) = i18n_translator_ambient_deps(
-      semantic,
-      identifier,
-      call.span,
-      script_offset,
-      imported_bindings,
-    ) else {
+    let Some(ambient) = resolve_ambient_call_handle(semantic, identifier, ambient_call_handles)
+    else {
       continue;
     };
     let Some((_, outside_tracking)) =
@@ -2353,11 +2494,11 @@ fn collect_scope_reads_local(
     else {
       continue;
     };
-    for (binding, property) in deps {
+    for (binding, property) in ambient {
       reads.push(RawReactiveRead {
         node_id: call_id,
-        binding,
-        property,
+        binding: binding.clone(),
+        property: property.clone(),
         span: call.span,
         outside_tracking,
       });
@@ -2367,116 +2508,37 @@ fn collect_scope_reads_local(
   reads
 }
 
-/// Ambient deps for a `useI18n` translator call (`t`/`d`/`n`/`rt`/`te`).
-///
-/// Prefers co-destructured `locale`/`fallbackLocale`/`messages` locals; otherwise
-/// a synthetic `useI18n@{offset}` bag with those field properties.
-fn i18n_translator_ambient_deps(
+/// Resolve a bare call to a registered ambient-on-call method handle.
+fn resolve_ambient_call_handle<'a>(
   semantic: &oxc_semantic::Semantic<'_>,
   identifier: &IdentifierReference<'_>,
-  _call_span: Span,
-  script_offset: usize,
-  imported_bindings: &BTreeMap<String, (String, String)>,
-) -> Option<Vec<(String, Option<String>)>> {
+  ambient_call_handles: &'a AmbientCallHandles,
+) -> Option<&'a [(String, Option<String>)]> {
+  let handles = ambient_call_handles.get(identifier.name.as_str())?;
   let reference_id = identifier.reference_id.get()?;
   let symbol_id = semantic.scoping().get_reference(reference_id).symbol_id()?;
-  let decl = semantic.symbol_declaration(symbol_id);
-
-  // Oxc often attaches destructured locals' symbols to the VariableDeclarator
-  // (not the BindingIdentifier). Recover the pattern key by local name.
-  let (declarator, export_key) = match decl.kind() {
-    AstKind::VariableDeclarator(declarator) => {
-      let BindingPattern::ObjectPattern(pattern) = &declarator.id else {
-        return None;
-      };
-      let key = object_pattern_key_for_local(pattern, identifier.name.as_str())?;
-      (declarator, key)
-    }
-    AstKind::BindingIdentifier(_) => {
-      let mut export_key = None;
-      let mut declarator_id = None;
-      for ancestor_id in semantic.nodes().ancestor_ids(decl.id()) {
-        match semantic.nodes().kind(ancestor_id) {
-          AstKind::BindingProperty(property) if export_key.is_none() => {
-            if let Some(key) = property.key.static_name() {
-              export_key = Some(key.into_owned());
-            }
-          }
-          AstKind::VariableDeclarator(_) => {
-            declarator_id = Some(ancestor_id);
-            break;
-          }
-          _ => {}
-        }
-      }
-      let declarator_id = declarator_id?;
-      let AstKind::VariableDeclarator(declarator) = semantic.nodes().kind(declarator_id) else {
-        return None;
-      };
-      (declarator, export_key?)
-    }
-    _ => return None,
-  };
-
-  if !is_i18n_translator_key(&export_key) {
-    return None;
-  }
-  let Some(Expression::CallExpression(init_call)) = &declarator.init else {
-    return None;
-  };
-  let callee =
-    resolved_binding_callee(semantic, &init_call.callee, imported_bindings, ScriptKind::Setup)?;
-  if callee != "useI18n" {
-    return None;
-  }
-  let BindingPattern::ObjectPattern(pattern) = &declarator.id else {
-    return None;
-  };
-
-  // Co-destructured ambient locals (prefer real names over synthetic bag).
-  let mut deps = Vec::new();
-  for property in &pattern.properties {
-    let Some(field) = property.key.static_name() else {
-      continue;
-    };
-    if !is_i18n_ambient_key(field.as_ref()) {
-      continue;
-    }
-    let mut locals = Vec::new();
-    collect_binding_identifiers(&property.value, &mut locals);
-    for (local, _) in locals {
-      // locale-like fields are Computed → track via `.value`.
-      deps.push((local, Some("value".into())));
-    }
-  }
-  if !deps.is_empty() {
-    return Some(deps);
-  }
-
-  // Translators only — synthetic composer bag; name must match seed offset.
-  let composer_offset =
-    script_offset.saturating_add(usize::try_from(init_call.span.start).unwrap_or(usize::MAX));
-  let composer = i18n_composer_binding_name(composer_offset);
-  Some(vec![
-    (composer.clone(), Some("locale".into())),
-    (composer.clone(), Some("fallbackLocale".into())),
-    (composer, Some("messages".into())),
-  ])
+  let site_decl = symbol_declaration_site_decl(semantic, symbol_id)?;
+  handles
+    .iter()
+    .find(|handle| handle.site_decl == site_decl)
+    .map(|handle| handle.ambient.as_slice())
 }
 
-/// Object-pattern export key for a local binding name (`{ t: translate }` → `"t"`).
-fn object_pattern_key_for_local(
-  pattern: &oxc_ast::ast::ObjectPattern<'_>,
-  local: &str,
-) -> Option<String> {
-  for property in &pattern.properties {
-    let mut locals = Vec::new();
-    collect_binding_identifiers(&property.value, &mut locals);
-    if locals.iter().any(|(name, _)| name == local) {
-      return property.key.static_name().map(std::borrow::Cow::into_owned);
-    }
+/// Anchor node for a binding symbol — `VariableDeclarator` when oxc surfaces that
+/// for object-pattern locals (shared by the whole destructure).
+fn symbol_declaration_site_decl(
+  semantic: &oxc_semantic::Semantic<'_>,
+  symbol_id: oxc_semantic::SymbolId,
+) -> Option<NodeId> {
+  let decl = semantic.symbol_declaration(symbol_id);
+  match decl.kind() {
+    AstKind::VariableDeclarator(_) => Some(decl.id()),
+    AstKind::BindingIdentifier(_) => semantic
+      .nodes()
+      .ancestor_ids(decl.id())
+      .find(|&id| matches!(semantic.nodes().kind(id), AstKind::VariableDeclarator(_))),
+    _ => None,
   }
-  None
 }
 
 #[expect(clippy::too_many_arguments, reason = "callee follow shares collect_scope_reads context")]
@@ -2486,6 +2548,7 @@ fn follow_local_zero_arg_callees(
   reactive_bindings: &[ReactiveBindingFact],
   composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
+  ambient_call_handles: &AmbientCallHandles,
   script_offset: usize,
   depth: u32,
   visiting: &mut BTreeSet<NodeId>,
@@ -2538,6 +2601,7 @@ fn follow_local_zero_arg_callees(
       reactive_bindings,
       composable_instances,
       imported_bindings,
+      ambient_call_handles,
       script_offset,
       depth + 1,
       visiting,
@@ -3292,6 +3356,7 @@ fn collect_tracking_scopes(
   imported_bindings: &BTreeMap<String, (String, String)>,
   reactive_bindings: &[ReactiveBindingFact],
   composable_instances: &ComposableShapeMap,
+  ambient_call_handles: &AmbientCallHandles,
   sfc_source: &str,
   script_offset: usize,
 ) -> Vec<TrackingScopeFact> {
@@ -3317,6 +3382,7 @@ fn collect_tracking_scopes(
         reactive_bindings,
         composable_instances,
         imported_bindings,
+        ambient_call_handles,
         script_offset,
       );
       let reads = classify_scope_reads(
@@ -3378,6 +3444,7 @@ fn collect_tracking_scopes(
           reactive_bindings,
           composable_instances,
           imported_bindings,
+          ambient_call_handles,
           script_offset,
         );
         let mut reads = classify_scope_reads(
@@ -3428,6 +3495,7 @@ fn collect_tracking_scopes(
             reactive_bindings,
             composable_instances,
             imported_bindings,
+            ambient_call_handles,
             script_offset,
           );
           let reads = classify_scope_reads(
@@ -3468,6 +3536,7 @@ fn collect_tracking_scopes(
           reactive_bindings,
           composable_instances,
           imported_bindings,
+          ambient_call_handles,
           sfc_source,
           script_offset,
         );
@@ -3499,6 +3568,7 @@ fn collect_tracking_scopes(
             reactive_bindings,
             composable_instances,
             imported_bindings,
+            ambient_call_handles,
             script_offset,
           );
           let reads = classify_scope_reads(
@@ -3727,12 +3797,14 @@ fn collect_uncertain_watch_expression(
   }
 }
 
+#[expect(clippy::too_many_arguments, reason = "watch sources share scope-read context fields")]
 fn collect_watch_source_reads(
   semantic: &oxc_semantic::Semantic<'_>,
   argument: &Argument<'_>,
   reactive_bindings: &[ReactiveBindingFact],
   composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
+  ambient_call_handles: &AmbientCallHandles,
   sfc_source: &str,
   script_offset: usize,
 ) -> Vec<ReactiveReadFact> {
@@ -3741,6 +3813,7 @@ fn collect_watch_source_reads(
     reactive_bindings,
     composable_instances,
     imported_bindings,
+    ambient_call_handles,
     sfc_source,
     script_offset,
   };
@@ -3824,6 +3897,7 @@ struct WatchSourceCtx<'a> {
   reactive_bindings: &'a [ReactiveBindingFact],
   composable_instances: &'a ComposableShapeMap,
   imported_bindings: &'a BTreeMap<String, (String, String)>,
+  ambient_call_handles: &'a AmbientCallHandles,
   sfc_source: &'a str,
   script_offset: usize,
 }
@@ -3840,6 +3914,7 @@ fn collect_watch_getter_reads(
     ctx.reactive_bindings,
     ctx.composable_instances,
     ctx.imported_bindings,
+    ctx.ambient_call_handles,
     ctx.script_offset,
   );
   classify_scope_reads(
@@ -3963,6 +4038,7 @@ fn collect_render_scopes(
   imported_bindings: &BTreeMap<String, (String, String)>,
   reactive_bindings: &[ReactiveBindingFact],
   composable_instances: &ComposableShapeMap,
+  ambient_call_handles: &AmbientCallHandles,
   sfc_source: &str,
   script_offset: usize,
 ) -> Vec<TrackingScopeFact> {
@@ -3974,6 +4050,7 @@ fn collect_render_scopes(
       reactive_bindings,
       composable_instances,
       imported_bindings,
+      ambient_call_handles,
       script_offset,
     );
     let reads = classify_scope_reads(

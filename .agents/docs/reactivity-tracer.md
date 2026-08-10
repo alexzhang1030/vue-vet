@@ -53,11 +53,11 @@ complete.
 
 Contract version: **`REACTIVITY_GRAPH_VERSION = 24`**.
 
-v24 models **vue-i18n `useI18n` translators** (`t`/`d`/`n`/`rt`/`te`): each call
-injects ambient composer deps (`locale` / `fallbackLocale` / `messages`) per
-`wrapWithDeps` / `trackReactivityValues`. Translator-only destructure seeds a
-synthetic `useI18n@{offset}` bag. Prior: v23 same-file zero-arg helper follow;
-v22 all-path branch + export linking; … v7 `property`/`to_path`.
+v24 models **named API bag ambient-on-call methods** (table-driven
+`NamedApiBag`): `useI18n` methods `t`/`d`/`n`/`rt`/`te` inject ambient field
+reads (`locale` / `fallbackLocale` / `messages`) per vue-i18n `wrapWithDeps`.
+Co-destructured fields preferred; translator-only seeds a site bag
+`{callee}@{offset}`. Prior: v23 same-file zero-arg helper follow; v22…v7.
 
 | Axis | Status | Covered (in-scope) | Remaining |
 | --- | --- | --- | --- |
@@ -166,8 +166,10 @@ missed ambient callee tracking. Bounded same-file zero-arg helper follow
 
 **2026-08-10 evidence refinement (v24):** Elk `PublishWidget` —
 `const { t } = useI18n(); computed(() => t(…))` is **not** a hard TP. vue-i18n
-`wrapWithDeps` tracks locale/messages; model translator calls as ambient
-composer deps (synthetic `useI18n@{offset}` when only translators destructured).
+`wrapWithDeps` tracks locale/messages. Modeled as table-driven `NamedApiBag`
+ambient-on-call methods (not case-by-case `has_translator` flags): contract row
+for useI18n; seed registers method handles; call injects precomputed ambient
+reads.
 
 **Do not** auto-continue pure extracts, Elk/corpus KPI chasing, or a11y as
 tracer A0–A7. Next tracer work needs **evidence** first:
@@ -348,7 +350,7 @@ growing prose ledger.
 | 2026-08-10 | All-paths branch reads | Same `(binding, property)` on both ternary/if-else arms → drop BranchTest |
 | 2026-08-10 | Export lattice + versions | Lattice written as A6 contract; graph **v22** / conventions **v14** |
 | 2026-08-10 | Same-file zero-arg helper follow | `collect_scope_reads` follows bare `f()` to local `function`/`const f = () =>` (depth≤2, skip async/generator); graph **v23**; Elk StatusReactedBy-class FP |
-| 2026-08-10 | useI18n translator ambient | `t`/`d`/`n`/`rt`/`te` from `useI18n` inject locale/fallbackLocale/messages (co-destructure or synthetic bag); graph **v24**; Elk PublishWidget without-dep FP |
+| 2026-08-10 | Named API bag ambient-on-call | `NamedApiBag` table: fields + methods that track ambient fields on call; useI18n row for `t`/`d`/`n`/`rt`/`te`; graph **v24**; Elk PublishWidget without-dep FP |
 | 2026-08-10 | `defineProps` destructure | Object-pattern + rest locals seed `Reactive` (Vue 3.5); `withDefaults` same |
 | 2026-08-10 | Vue Macros `defineModels` | Setup-only; object-destructure locals seed `ModelRef` |
 | 2026-07-31 | `inject(key) as Ctx` bag | Peel `TSAsExpression` to find the declarator; seed asserted Ref-field interface when provide offer is unknown; `return ctx` after assertion exports the bag (map-context helpers) |

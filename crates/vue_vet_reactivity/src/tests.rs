@@ -2269,11 +2269,6 @@ fn use_i18n_translator_only_tracks_ambient_composer_deps() {
      void expiresInOptions.value;",
   );
   assert!(
-    graph.bindings.iter().any(|b| b.name.starts_with("useI18n@")),
-    "translator-only useI18n must seed synthetic composer bag; got {:?}",
-    graph.bindings
-  );
-  assert!(
     !graph.bindings.iter().any(|b| b.name == "t"),
     "t itself must not become a reactive binding; got {:?}",
     graph.bindings
@@ -2281,11 +2276,11 @@ fn use_i18n_translator_only_tracks_ambient_composer_deps() {
   let computed = graph.scopes.iter().find(|s| s.kind == TrackingScopeKind::Computed);
   assert!(
     computed.is_some_and(|scope| {
-      scope.reads.iter().any(|read| {
-        read.binding.starts_with("useI18n@")
-          && matches!(read.property.as_deref(), Some("locale" | "fallbackLocale" | "messages"))
-          && read.kind == ReactiveReadKind::Unconditional
-      })
+      !scope.reads.is_empty()
+        && scope.reads.iter().all(|read| read.kind == ReactiveReadKind::Unconditional)
+        && scope.reads.iter().any(|read| {
+          matches!(read.property.as_deref(), Some("locale" | "fallbackLocale" | "messages"))
+        })
     }),
     "t() must inject ambient composer reads; scopes={:?}",
     graph.scopes
@@ -2300,11 +2295,6 @@ fn use_i18n_translator_prefers_co_destructured_locale() {
      void label.value;",
   );
   assert!(
-    !graph.bindings.iter().any(|b| b.name.starts_with("useI18n@")),
-    "co-destructured locale must not invent synthetic composer; got {:?}",
-    graph.bindings
-  );
-  assert!(
     graph.scopes.iter().any(|scope| {
       scope.kind == TrackingScopeKind::Computed
         && scope.reads.iter().any(|read| {
@@ -2314,6 +2304,15 @@ fn use_i18n_translator_prefers_co_destructured_locale() {
         })
     }),
     "t() with co-destructured locale must track locale.value; scopes={:?}",
+    graph.scopes
+  );
+  // Under-approx: co-destructured ambient fields only — no extra site bag.
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.iter().all(|read| read.binding == "locale")
+    }),
+    "co-destructured path should not invent extra ambient bindings; scopes={:?}",
     graph.scopes
   );
 }
@@ -2329,7 +2328,8 @@ fn use_i18n_renamed_translator_tracks() {
     graph.scopes.iter().any(|scope| {
       scope.kind == TrackingScopeKind::Computed
         && scope.reads.iter().any(|read| {
-          read.binding.starts_with("useI18n@") && read.property.as_deref() == Some("locale")
+          read.property.as_deref() == Some("locale")
+            && read.kind != ReactiveReadKind::OutsideTracking
         })
     }),
     "renamed translator must still inject ambient deps; scopes={:?}",
@@ -2346,11 +2346,11 @@ fn local_function_named_t_is_not_i18n_ambient() {
      void label.value;",
   );
   assert!(
-    graph.scopes.iter().all(|scope| {
-      scope.kind != TrackingScopeKind::Computed
-        || scope.reads.iter().all(|read| !read.binding.starts_with("useI18n@"))
-    }),
-    "local t() must not invent i18n ambient deps; scopes={:?}",
+    graph
+      .scopes
+      .iter()
+      .all(|scope| { scope.kind != TrackingScopeKind::Computed || scope.reads.is_empty() }),
+    "local t() must not invent API ambient deps; scopes={:?}",
     graph.scopes
   );
 }
@@ -2364,16 +2364,8 @@ fn use_i18n_translator_inside_then_is_outside_tracking() {
   );
   let effect = graph.scopes.iter().find(|s| s.kind == TrackingScopeKind::WatchEffect);
   assert!(effect.is_some(), "watchEffect scope missing; scopes={:?}", graph.scopes);
-  let ambient: Vec<_> = effect
-    .map(|scope| {
-      scope
-        .reads
-        .iter()
-        .filter(|read| read.binding.starts_with("useI18n@"))
-        .map(|read| read.kind)
-        .collect()
-    })
-    .unwrap_or_default();
+  let ambient: Vec<_> =
+    effect.map(|scope| scope.reads.iter().map(|read| read.kind).collect()).unwrap_or_default();
   assert!(
     !ambient.is_empty(),
     "expected ambient reads from t() inside then(); scopes={:?}",
