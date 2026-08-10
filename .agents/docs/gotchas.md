@@ -105,10 +105,12 @@ the scanned file set are external graph nodes; only true resolve failures raise
 `unresolved-import`. A small allowlist is classified as external **before**
 resolve (`node:` / `nodejs:`, stylesheets, `virtual:…`, `uno.css`,
 `*/auto-routes`, `#imports`) so Vite/Nuxt virtual and non-JS imports do not
-flood real apps — see [project graph](../../docs/project-graph.md). Do **not**
-reinterpret arbitrary failed resolves as external packages. Vue Vet still does
-**not** execute `vite.config.*` / `nuxt.config.*` — aliases come from Vite
-defaults (`@` → `src`, `~` → root), tsconfig paths (including
+flood real apps — see [project graph](../../docs/project-graph.md). Bare Node
+builtins (`fs`, `path`, `fs/promises`, …) are quieted **after** resolve via
+`oxc_resolver`'s `builtin_modules` + `ResolveError::Builtin` (same External,
+no path). Do **not** reinterpret arbitrary failed resolves as external packages.
+Vue Vet still does **not** execute `vite.config.*` / `nuxt.config.*` — aliases
+come from Vite defaults (`@` → `src`, `~` → root), tsconfig paths (including
 `.nuxt/tsconfig.json`), and package `exports`.
 `oxc_resolver` is pinned to `11.21.0` because `11.22+` requires `dashmap 6.2.1`
 while Vize pins `dashmap =6.1.0`. Always absolutize/canonicalize the scan root
@@ -116,7 +118,8 @@ before building the resolver: `vue-vet .` must not leave alias targets as `"."`,
 or Nuxt `~/…` imports fail even when the files exist. On Windows, also strip
 compatible `\\?\` verbatim prefixes after canonicalize — otherwise alias targets
 and `Path::strip_prefix` disagree with `oxc_resolver`'s ordinary `C:\…` paths and
-`@/` / `~/` imports look unresolved in CI.
+`@/` / `~/` imports look unresolved in CI. Bump `CONVENTIONS_VERSION` when
+resolve quiet rules change so content-addressed caches invalidate.
 
 Nuxt component auto-imports do not use the raw file stem. `HeroDemo.client.vue`
 is registered as `HeroDemo` (and `LazyHeroDemo`); nesting and `index.vue` also
