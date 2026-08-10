@@ -93,7 +93,16 @@ plus structured span details for editor consumers:
       "label": "label  →  props.count"
     }
   ],
-  "scope_details": [],
+  "scope_details": [
+    {
+      "kind": "computed",
+      "callee": "computed",
+      "binding": "derived",
+      "span": { "offset": 80, "length": 40 },
+      "label": "computed  →  derived",
+      "uncertain_accesses": ["mystery"]
+    }
+  ],
   "template_details": [
     {
       "binding": "error",
@@ -104,6 +113,12 @@ plus structured span details for editor consumers:
   ]
 }
 ```
+
+`scope_details[].uncertain_accesses` lists soft under-approx evidence: identifier
+roots of `.value` / `unref` / `toValue` (or bare watch sources) that were analyzed
+but not classified as known bindings. Absence rules report these as
+`(maybe: …)` instead of inventing edges. The field is omitted when empty.
+String `scopes` labels append ` maybe:a,b` when soft evidence is present.
 
 `span` / `to_span` are source **byte** ranges (`offset` + `length`). Editors should
 map them with UTF-8-aware `positionAt`. String label arrays remain for text

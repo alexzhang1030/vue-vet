@@ -42,6 +42,10 @@ pub struct ReactivityScopeDetail {
   pub binding: Option<String>,
   pub span: ReactivitySpanRef,
   pub label: String,
+  /// Under-approx soft evidence: roots of `.value` / `unref` / `toValue` that
+  /// were not classified as known bindings (absence rules surface as `(maybe: …)`).
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub uncertain_accesses: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -265,12 +269,38 @@ pub fn scope_detail(
   binding: Option<String>,
   span: ReactivitySpanRef,
 ) -> ReactivityScopeDetail {
+  scope_detail_with_uncertain(kind, callee, binding, span, Vec::new())
+}
+
+/// Like [`scope_detail`], attaching under-approx soft evidence for multi-consumer digests.
+#[must_use]
+pub fn scope_detail_with_uncertain(
+  kind: impl Into<String>,
+  callee: impl Into<String>,
+  binding: Option<String>,
+  span: ReactivitySpanRef,
+  uncertain_accesses: Vec<String>,
+) -> ReactivityScopeDetail {
   let kind = kind.into();
   let callee = callee.into();
   let machine =
     binding.as_ref().map_or_else(|| format!("{kind}({callee})"), |name| format!("{kind}({name})"));
   let label = humanize_scope(&machine);
-  ReactivityScopeDetail { kind, callee, binding, span, label }
+  ReactivityScopeDetail { kind, callee, binding, span, label, uncertain_accesses }
+}
+
+/// Compact text label for a scope, including soft evidence when present.
+#[must_use]
+pub fn scope_label_with_uncertain(detail: &ReactivityScopeDetail) -> String {
+  let base = detail.binding.as_ref().map_or_else(
+    || format!("{}({})", detail.kind, detail.callee),
+    |binding| format!("{}({binding})", detail.kind),
+  );
+  if detail.uncertain_accesses.is_empty() {
+    return base;
+  }
+  let maybe = detail.uncertain_accesses.join(",");
+  format!("{base} maybe:{maybe}")
 }
 
 #[must_use]
@@ -479,5 +509,21 @@ mod tests {
     let json = serde_json::to_string(&digest).expect("digest must serialize");
     assert!(json.contains("\"edge_details\""));
     assert!(json.contains("\"binding_details\""));
+  }
+
+  #[test]
+  fn scope_detail_carries_uncertain_accesses_and_label() {
+    let detail = scope_detail_with_uncertain(
+      "computed",
+      "computed",
+      Some("derived".into()),
+      ReactivitySpanRef::new(10, 8),
+      vec!["mystery".into(), "other".into()],
+    );
+    assert_eq!(detail.uncertain_accesses, ["mystery", "other"]);
+    assert_eq!(scope_label_with_uncertain(&detail), "computed(derived) maybe:mystery,other");
+    let quiet = scope_detail("watch_effect", "watchEffect", None, ReactivitySpanRef::new(0, 1));
+    assert!(quiet.uncertain_accesses.is_empty());
+    assert_eq!(scope_label_with_uncertain(&quiet), "watch_effect(watchEffect)");
   }
 }

@@ -31,7 +31,8 @@ pub use reactivity::{
   ReactivityBindingDetail, ReactivityDigest, ReactivityEdgeDetail, ReactivityHotspot,
   ReactivityModuleDetail, ReactivityModuleStats, ReactivityScopeDetail, ReactivitySpanRef,
   ReactivityTemplateReadDetail, binding_detail, edge_detail, render_reactivity_detail,
-  render_reactivity_footer, scope_detail, template_read_detail, to_span_from_identity,
+  render_reactivity_footer, scope_detail, scope_detail_with_uncertain, scope_label_with_uncertain,
+  template_read_detail, to_span_from_identity,
 };
 pub use vue_vet_core::{FindingExplain, RuleExplain};
 

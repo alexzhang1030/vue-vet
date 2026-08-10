@@ -17,8 +17,9 @@ use vue_vet_reporters::{
   ReactivitySpanRef, ReportContext, ReportFormat, ReportFramework, ReportMode, binding_detail,
   component_nav_from_edges, edge_detail, render, render_error, render_finding_explain_json,
   render_finding_explain_text, render_reactivity_detail, render_rule_explain_json,
-  render_rule_explain_text, render_text_diagnostics, render_text_score_footer, scope_detail,
-  template_read_detail, to_span_from_identity,
+  render_rule_explain_text, render_text_diagnostics, render_text_score_footer,
+  scope_detail_with_uncertain, scope_label_with_uncertain, template_read_detail,
+  to_span_from_identity,
 };
 use vue_vet_session::{
   AnalysisSnapshot, Explained, ProgressEvent, ProgressReporter, ProjectSession, SessionOptions,
@@ -563,11 +564,15 @@ fn reactivity_module_stats(modules: &[ModuleReactivity]) -> Vec<ReactivityModule
         .scopes
         .iter()
         .map(|scope| {
-          scope_detail(
+          let mut uncertain = scope.uncertain_accesses.clone();
+          uncertain.sort();
+          uncertain.dedup();
+          scope_detail_with_uncertain(
             scope_kind_label(scope.kind),
             scope.callee.clone(),
             scope.binding.clone(),
             ReactivitySpanRef::new(scope.span.offset, scope.span.length.max(1)),
+            uncertain,
           )
         })
         .collect::<Vec<_>>();
@@ -578,15 +583,7 @@ fn reactivity_module_stats(modules: &[ModuleReactivity]) -> Vec<ReactivityModule
           right.binding.as_deref(),
         ))
       });
-      let scope_labels = scope_details
-        .iter()
-        .map(|detail| {
-          detail.binding.as_ref().map_or_else(
-            || format!("{}({})", detail.kind, detail.callee),
-            |binding| format!("{}({binding})", detail.kind),
-          )
-        })
-        .collect();
+      let scope_labels = scope_details.iter().map(scope_label_with_uncertain).collect();
 
       let mut edge_details = module
         .graph
