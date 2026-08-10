@@ -24,6 +24,7 @@ vue_vet_config = { path = "../vue_vet_config" }
 vue_vet_core = { path = "../vue_vet_core" }
 vue_vet_oxc = { path = "../vue_vet_oxc" }
 vue_vet_practice = { path = "../vue_vet_practice" }
+vue_vet_plugins = { path = "../vue_vet_plugins" }
 vue_vet_project = { path = "../vue_vet_project" }
 vue_vet_reactivity = { path = "../vue_vet_reactivity" }
 vue_vet_rules = { path = "../vue_vet_rules" }

@@ -17,7 +17,7 @@ use oxc_span::SourceType;
 use serde::Deserialize;
 use vue_vet_core::{ReactiveReadKind, ReactivityGraph, ScriptKind};
 
-use crate::{DEEP_WATCH_PROPERTY, trace_reactivity};
+use crate::{DEEP_WATCH_PROPERTY, TraceConfig, trace_reactivity_with_config};
 
 #[derive(Debug, Deserialize)]
 struct OracleCase {
@@ -69,7 +69,7 @@ fn graph(source: &str) -> ReactivityGraph {
   assert!(parsed.errors.is_empty(), "oracle source must parse: {source}");
   let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
   assert!(built.errors.is_empty(), "oracle source must be semantically valid: {source}");
-  trace_reactivity(&built.semantic, source, 0, ScriptKind::Setup)
+  trace_reactivity_with_config(&built.semantic, source, 0, ScriptKind::Setup, &TraceConfig::empty())
 }
 
 /// Tracking deps only: unconditional/conditional reads (not after-await / outside).

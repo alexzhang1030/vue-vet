@@ -11,11 +11,71 @@ use vue_vet_core::{
 };
 
 use super::{
-  ModuleLink, ModuleReactivity, ModuleSource, ModuleTraceState, TraceModulesOptions,
-  merge_declaration_implementation_summary, prepare_module_summary,
+  ModuleLink, ModuleReactivity, ModuleSource, ModuleTraceState, NamedApiBag, TraceConfig,
+  TraceModulesOptions, merge_declaration_implementation_summary, prepare_module_summary,
   prepare_standalone_module_source, trace_modules, trace_modules_incremental_with_options,
-  trace_reactivity,
+  trace_reactivity_with_config,
 };
+
+/// Test fixture catalog mirroring production `vue_vet_plugins` defaults.
+/// Engine unit tests must not depend on the plugins crate (avoids a dep cycle).
+fn fixture_named_api_bags() -> &'static [NamedApiBag] {
+  fn async_data_field_kind(field: &str) -> Option<ReactiveBindingKind> {
+    match field {
+      "data" | "pending" | "error" | "status" => Some(ReactiveBindingKind::Ref),
+      _ => None,
+    }
+  }
+  fn i18n_field_kind(field: &str) -> Option<ReactiveBindingKind> {
+    match field {
+      "locale" | "fallbackLocale" | "locales" | "messages" | "availableLocales" => {
+        Some(ReactiveBindingKind::Computed)
+      }
+      _ => None,
+    }
+  }
+  static BAGS: &[NamedApiBag] = &[
+    NamedApiBag {
+      callee: "useAsyncData",
+      field_kind: async_data_field_kind,
+      ambient_methods: &[],
+      ambient_fields: &[],
+    },
+    NamedApiBag {
+      callee: "useFetch",
+      field_kind: async_data_field_kind,
+      ambient_methods: &[],
+      ambient_fields: &[],
+    },
+    NamedApiBag {
+      callee: "useI18n",
+      field_kind: i18n_field_kind,
+      ambient_methods: &["t", "d", "n", "rt", "te"],
+      ambient_fields: &["locale", "fallbackLocale", "messages"],
+    },
+    NamedApiBag {
+      callee: "useLazyAsyncData",
+      field_kind: async_data_field_kind,
+      ambient_methods: &[],
+      ambient_fields: &[],
+    },
+    NamedApiBag {
+      callee: "useLazyFetch",
+      field_kind: async_data_field_kind,
+      ambient_methods: &[],
+      ambient_fields: &[],
+    },
+  ];
+  BAGS
+}
+
+fn default_trace_config() -> TraceConfig<'static> {
+  TraceConfig { named_api_bags: fixture_named_api_bags() }
+}
+
+fn default_trace_options() -> TraceModulesOptions {
+  TraceModulesOptions { named_api_bags: fixture_named_api_bags().to_vec(), ..Default::default() }
+}
 
 fn trace(
   sfc_source: &str,
@@ -28,7 +88,13 @@ fn trace(
   assert!(parsed.errors.is_empty(), "script parsing unexpectedly failed: {:?}", parsed.errors);
   let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
   assert!(built.errors.is_empty(), "semantic analysis unexpectedly failed: {:?}", built.errors);
-  trace_reactivity(&built.semantic, sfc_source, script_offset, kind)
+  trace_reactivity_with_config(
+    &built.semantic,
+    sfc_source,
+    script_offset,
+    kind,
+    &default_trace_config(),
+  )
 }
 
 fn graph(source: &str) -> ReactivityGraph {
@@ -41,7 +107,13 @@ fn graph_tsx(source: &str) -> ReactivityGraph {
   assert!(parsed.errors.is_empty(), "tsx parsing unexpectedly failed: {:?}", parsed.errors);
   let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
   assert!(built.errors.is_empty(), "tsx semantic analysis unexpectedly failed: {:?}", built.errors);
-  trace_reactivity(&built.semantic, source, 0, ScriptKind::Script)
+  trace_reactivity_with_config(
+    &built.semantic,
+    source,
+    0,
+    ScriptKind::Script,
+    &default_trace_config(),
+  )
 }
 
 #[test]
@@ -1181,7 +1253,7 @@ fn partial_module_failure_preserves_healthy_cross_module_links() {
   let report = trace_modules_incremental_with_options(
     &modules,
     &links,
-    TraceModulesOptions { max_workers: 2, ..Default::default() },
+    &TraceModulesOptions { max_workers: 2, ..default_trace_options() },
     &mut state,
   );
   assert!(
@@ -1227,7 +1299,7 @@ fn incremental_module_trace_reuses_unchanged_seeded_graphs() {
   let first = trace_modules_incremental_with_options(
     &modules,
     &links,
-    TraceModulesOptions { max_workers: 2, ..Default::default() },
+    &TraceModulesOptions { max_workers: 2, ..default_trace_options() },
     &mut state,
   );
   assert!(first.issues.is_empty());
@@ -1237,7 +1309,7 @@ fn incremental_module_trace_reuses_unchanged_seeded_graphs() {
   let second = trace_modules_incremental_with_options(
     &modules,
     &links,
-    TraceModulesOptions { max_workers: 2, ..Default::default() },
+    &TraceModulesOptions { max_workers: 2, ..default_trace_options() },
     &mut state,
   );
   assert!(second.issues.is_empty());
@@ -1279,7 +1351,7 @@ fn seed_plans_recompute_only_export_closure() {
   let first = trace_modules_incremental_with_options(
     &modules_v1,
     &links,
-    TraceModulesOptions { max_workers: 2, ..Default::default() },
+    &TraceModulesOptions { max_workers: 2, ..default_trace_options() },
     &mut state,
   );
   assert!(first.issues.is_empty());
@@ -1299,7 +1371,7 @@ fn seed_plans_recompute_only_export_closure() {
   let second = trace_modules_incremental_with_options(
     &modules_v2,
     &links,
-    TraceModulesOptions { max_workers: 2, ..Default::default() },
+    &TraceModulesOptions { max_workers: 2, ..default_trace_options() },
     &mut state,
   );
   assert!(second.issues.is_empty());
@@ -1314,7 +1386,7 @@ fn seed_plans_recompute_only_export_closure() {
 fn incremental_linking_skips_export_resolve_when_only_local_graph_changes() {
   use std::sync::Arc;
 
-  use crate::{TraceSeeds, prepare_module_summary, trace_reactivity_seeded};
+  use crate::{TraceSeeds, prepare_module_summary_with_config, trace_reactivity_seeded};
 
   fn summary_for(source: &str) -> Arc<crate::ModuleSummary> {
     let allocator = oxc_allocator::Allocator::default();
@@ -1322,14 +1394,23 @@ fn incremental_linking_skips_export_resolve_when_only_local_graph_changes() {
     let parsed = oxc_parser::Parser::new(&allocator, source, source_type).parse();
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
     let semantic = oxc_semantic::SemanticBuilder::new().build(&parsed.program).semantic;
+    let config = default_trace_config();
     let graph = Arc::new(trace_reactivity_seeded(
       &semantic,
       source,
       0,
       ScriptKind::Script,
       &TraceSeeds::default(),
+      &config,
     ));
-    Arc::new(prepare_module_summary(&semantic, source, 0, ScriptKind::Script, graph))
+    Arc::new(prepare_module_summary_with_config(
+      &semantic,
+      source,
+      0,
+      ScriptKind::Script,
+      graph,
+      &config,
+    ))
   }
 
   let producer_src = "import { ref } from 'vue'; export const count = ref(0);";
@@ -1351,7 +1432,7 @@ fn incremental_linking_skips_export_resolve_when_only_local_graph_changes() {
   let first = trace_modules_incremental_with_options(
     &first_modules,
     &links,
-    TraceModulesOptions { max_workers: 2, ..Default::default() },
+    &TraceModulesOptions { max_workers: 2, ..default_trace_options() },
     &mut state,
   );
   assert!(first.issues.is_empty());
@@ -1366,7 +1447,7 @@ fn incremental_linking_skips_export_resolve_when_only_local_graph_changes() {
   let second = trace_modules_incremental_with_options(
     &second_modules,
     &links,
-    TraceModulesOptions { max_workers: 2, ..Default::default() },
+    &TraceModulesOptions { max_workers: 2, ..default_trace_options() },
     &mut state,
   );
   assert!(second.issues.is_empty());
@@ -2257,6 +2338,124 @@ fn seeds_use_i18n_locale_destructure() {
     graph.edges.iter().any(|e| e.from == "label" && e.to == "locale"),
     "computed must track locale; edges={:?}",
     graph.edges
+  );
+}
+
+#[test]
+fn use_i18n_translator_only_tracks_ambient_composer_deps() {
+  // PublishWidget-style: `const { t } = useI18n(); computed(() => t('…'))`.
+  let graph = graph(
+    "const { t } = useI18n();\n\
+     const expiresInOptions = computed(() => [t('time_ago_options.hour_future', 1)]);\n\
+     void expiresInOptions.value;",
+  );
+  assert!(
+    !graph.bindings.iter().any(|b| b.name == "t"),
+    "t itself must not become a reactive binding; got {:?}",
+    graph.bindings
+  );
+  let computed = graph.scopes.iter().find(|s| s.kind == TrackingScopeKind::Computed);
+  assert!(
+    computed.is_some_and(|scope| {
+      !scope.reads.is_empty()
+        && scope.reads.iter().all(|read| read.kind == ReactiveReadKind::Unconditional)
+        && scope.reads.iter().any(|read| {
+          matches!(read.property.as_deref(), Some("locale" | "fallbackLocale" | "messages"))
+        })
+    }),
+    "t() must inject ambient composer reads; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn use_i18n_translator_prefers_co_destructured_locale() {
+  let graph = graph(
+    "const { locale, t } = useI18n();\n\
+     const label = computed(() => t('hello'));\n\
+     void label.value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.iter().any(|read| {
+          read.binding == "locale"
+            && read.property.as_deref() == Some("value")
+            && read.kind != ReactiveReadKind::OutsideTracking
+        })
+    }),
+    "t() with co-destructured locale must track locale.value; scopes={:?}",
+    graph.scopes
+  );
+  // Under-approx: co-destructured ambient fields only — no extra site bag.
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.iter().all(|read| read.binding == "locale")
+    }),
+    "co-destructured path should not invent extra ambient bindings; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn use_i18n_renamed_translator_tracks() {
+  let graph = graph(
+    "const { t: translate } = useI18n();\n\
+     const label = computed(() => translate('x'));\n\
+     void label.value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.iter().any(|read| {
+          read.property.as_deref() == Some("locale")
+            && read.kind != ReactiveReadKind::OutsideTracking
+        })
+    }),
+    "renamed translator must still inject ambient deps; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn local_function_named_t_is_not_i18n_ambient() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     function t() { return 'x'; }\n\
+     const label = computed(() => t());\n\
+     void label.value;",
+  );
+  assert!(
+    graph
+      .scopes
+      .iter()
+      .all(|scope| { scope.kind != TrackingScopeKind::Computed || scope.reads.is_empty() }),
+    "local t() must not invent API ambient deps; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn use_i18n_translator_inside_then_is_outside_tracking() {
+  let graph = graph(
+    "import { watchEffect } from 'vue';\n\
+     const { t } = useI18n();\n\
+     watchEffect(() => { Promise.resolve().then(() => t('x')); });",
+  );
+  let effect = graph.scopes.iter().find(|s| s.kind == TrackingScopeKind::WatchEffect);
+  assert!(effect.is_some(), "watchEffect scope missing; scopes={:?}", graph.scopes);
+  let ambient: Vec<_> =
+    effect.map(|scope| scope.reads.iter().map(|read| read.kind).collect()).unwrap_or_default();
+  assert!(
+    !ambient.is_empty(),
+    "expected ambient reads from t() inside then(); scopes={:?}",
+    graph.scopes
+  );
+  assert!(
+    ambient.iter().all(|kind| *kind == ReactiveReadKind::OutsideTracking),
+    "t() only from then() must stay outside tracking; reads={ambient:?} scopes={:?}",
+    graph.scopes
   );
 }
 
@@ -4834,7 +5033,13 @@ fn prepared_phase_one_facts_avoid_an_unseeded_second_parse() {
   assert!(parsed.errors.is_empty());
   let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
   assert!(built.errors.is_empty());
-  let local_graph = trace_reactivity(&built.semantic, source, 0, ScriptKind::Script);
+  let local_graph = trace_reactivity_with_config(
+    &built.semantic,
+    source,
+    0,
+    ScriptKind::Script,
+    &default_trace_config(),
+  );
   let summary = prepare_module_summary(&built.semantic, source, 0, ScriptKind::Script, local_graph);
   let mut module = ModuleSource::standalone("count.ts", source, "ts", ScriptKind::Script)
     .with_module_summary(summary);

@@ -27,7 +27,7 @@ use super::{
 };
 
 /// Concurrency limit for cross-module tracing.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct TraceModulesOptions {
   /// Maximum native workers used by either tracing phase.
   ///
@@ -42,6 +42,9 @@ pub struct TraceModulesOptions {
   /// scans. One-shot [`trace_modules_with_options`] forces this off so cold
   /// `trace_*` benches do not pay archive costs that are immediately discarded.
   pub persist_linking_cache: bool,
+  /// Plugin-supplied named API bag contracts (Nuxt / vue-i18n / …). Empty by
+  /// default — the analysis boundary installs [`vue_vet_plugins`] defaults.
+  pub named_api_bags: Vec<crate::NamedApiBag>,
 }
 
 impl Default for TraceModulesOptions {
@@ -50,6 +53,7 @@ impl Default for TraceModulesOptions {
       max_workers: std::thread::available_parallelism().map_or(1, std::num::NonZero::get),
       reuse_current_pool: false,
       persist_linking_cache: true,
+      named_api_bags: Vec::new(),
     }
   }
 }
@@ -195,7 +199,7 @@ pub fn trace_modules_with_options(
   // Fresh state is dropped on return — never archive linking snapshots.
   options.persist_linking_cache = false;
   let mut state = ModuleTraceState::default();
-  let report = trace_modules_incremental_with_options(modules, links, options, &mut state);
+  let report = trace_modules_incremental_with_options(modules, links, &options, &mut state);
   if let Some(error) = report.issues.into_iter().next() { Err(error) } else { Ok(report.modules) }
 }
 
@@ -209,7 +213,7 @@ pub fn trace_modules_with_options(
 pub fn trace_modules_incremental_with_options(
   modules: &[ModuleSource],
   links: &[ModuleLink],
-  options: TraceModulesOptions,
+  options: &TraceModulesOptions,
   state: &mut ModuleTraceState,
 ) -> TraceModulesReport {
   let mut report = TraceModulesReport::default();
@@ -250,17 +254,19 @@ fn trace_modules_incremental_in_current_pool(
   links: &[ModuleLink],
   state: &mut ModuleTraceState,
   mut report: TraceModulesReport,
-  options: TraceModulesOptions,
+  options: &TraceModulesOptions,
 ) -> TraceModulesReport {
   // Borrow entries for phase-one reuse — never clone ModuleSource into a side map.
   let phase_one = {
     let entries = &state.entries;
+    let config = crate::TraceConfig { named_api_bags: &options.named_api_bags };
     unique
       .par_iter()
       .map(|module| {
         analyze_module_phase_one_cached(
           module,
           entries.get(&module.id).map(|entry| (&entry.source, &entry.summary)),
+          &config,
         )
       })
       .collect::<Vec<Result<ModulePhaseOne, TraceModulesError>>>()
@@ -338,7 +344,8 @@ fn trace_modules_incremental_in_current_pool(
     .into_par_iter()
     .map(|(module, mut local_graph, plan, summary)| {
       let seeded = !plan.is_empty();
-      match trace_module_phase_two(module, Arc::clone(&local_graph), &plan) {
+      match trace_module_phase_two(module, Arc::clone(&local_graph), &plan, &options.named_api_bags)
+      {
         Ok(reactivity) => PhaseTwoOutcome::Traced {
           source: persist.then(|| module.clone()),
           summary,
@@ -679,6 +686,7 @@ fn trace_module_phase_two(
   module: &ModuleSource,
   mut local_graph: Arc<ReactivityGraph>,
   plan: &ModuleSeedPlan,
+  named_api_bags: &[crate::NamedApiBag],
 ) -> Result<ModuleReactivity, TraceModulesError> {
   if plan.is_empty() {
     Arc::make_mut(&mut local_graph).set_module_id(module.id.clone());
@@ -703,12 +711,14 @@ fn trace_module_phase_two(
   }
   let semantic = built.semantic;
   let seeds = materialize_seeds(module, &semantic, plan);
+  let config = crate::TraceConfig { named_api_bags };
   let mut graph = trace_reactivity_seeded(
     &semantic,
     module.span_origin(),
     module.source_offset,
     module.kind,
     &seeds,
+    &config,
   );
   graph.set_module_id(module.id.clone());
   Ok(ModuleReactivity { id: module.id.clone(), graph: Arc::new(graph) })

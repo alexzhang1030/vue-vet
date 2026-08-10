@@ -7,6 +7,7 @@ members = [
   "crates/vue_vet_lsp",
   "crates/vue_vet_mcp",
   "crates/vue_vet_oxc",
+  "crates/vue_vet_plugins",
   "crates/vue_vet_practice",
   "crates/vue_vet_project",
   "crates/vue_vet_reactivity",

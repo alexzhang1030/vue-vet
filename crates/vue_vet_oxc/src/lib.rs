@@ -22,7 +22,10 @@ use vue_vet_core::{
   ScriptBindingFact, ScriptBlockFacts, ScriptCallFact, ScriptDestructureFact, ScriptImportFact,
   ScriptKind, ScriptMemberWriteFact, ScriptOperandFact, SourceSpan, TemplateFacts,
 };
-use vue_vet_reactivity::{ModuleSummary, prepare_module_summary, trace_reactivity};
+use vue_vet_plugins::default_trace_config;
+use vue_vet_reactivity::{
+  ModuleSummary, prepare_module_summary_with_config, trace_reactivity_with_config,
+};
 
 mod jsx;
 
@@ -102,13 +105,22 @@ pub fn analyze_module_source(
     TemplateFacts::default()
   };
 
-  let reactivity_graph = Arc::new(trace_reactivity(&semantic, sfc_source, script_offset, kind));
-  let module_trace = Arc::new(prepare_module_summary(
+  // Auto-load ecosystem plugins (Nuxt / vue-i18n) at the analysis boundary.
+  let trace_config = default_trace_config();
+  let reactivity_graph = Arc::new(trace_reactivity_with_config(
+    &semantic,
+    sfc_source,
+    script_offset,
+    kind,
+    &trace_config,
+  ));
+  let module_trace = Arc::new(prepare_module_summary_with_config(
     &semantic,
     sfc_source,
     script_offset,
     kind,
     Arc::clone(&reactivity_graph),
+    &trace_config,
   ));
 
   Ok(ModuleAnalysis {

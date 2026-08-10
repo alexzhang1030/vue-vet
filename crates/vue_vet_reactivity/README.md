@@ -13,7 +13,7 @@ library surface (project graph, cache, future LSP / codemod tools).
 ## Status
 
 Early `0.x`. The fact schema is versioned
-(`REACTIVITY_GRAPH_VERSION = 23` in `vue_vet_core`). See the repository PCR
+(`REACTIVITY_GRAPH_VERSION = 24` in `vue_vet_core`). See the repository PCR
 ([reactivity tracer](https://github.com/alexzhang1030/vue-vet/blob/main/.agents/docs/reactivity-tracer.md))
 for the ExportState lattice and axis checklist. In-scope design axes A1–A7
 and Evidence are **complete** — complete means the in-scope checklists, not
@@ -28,6 +28,8 @@ bugs.
 [dependencies]
 vue_vet_reactivity = "0.1"
 vue_vet_core = "0.1"
+# Optional: Nuxt / vue-i18n named API bags (product CLI loads these automatically)
+# vue_vet_plugins = "0.1"
 ```
 
 You also need a pinned Oxc semantic stack compatible with this crate's
@@ -56,10 +58,35 @@ let semantic = SemanticBuilder::new()
   .build(&parsed.program)
   .semantic;
 
+// Empty plugin catalog: Vue primitives only.
 let graph = trace_reactivity(&semantic, source, 0, ScriptKind::Setup);
 assert!(!graph.bindings.is_empty());
 assert!(!graph.scopes.is_empty());
 ```
+
+### Ecosystem plugins (Nuxt / vue-i18n)
+
+This crate does **not** hardcode Nuxt or vue-i18n surfaces. Pass a
+`NamedApiBag` catalog via `TraceConfig`:
+
+```rust
+use vue_vet_plugins::default_trace_config;
+use vue_vet_reactivity::trace_reactivity_with_config;
+
+let graph = trace_reactivity_with_config(
+  &semantic,
+  source,
+  0,
+  ScriptKind::Setup,
+  &default_trace_config(),
+);
+```
+
+Multi-module: set `TraceModulesOptions::named_api_bags` (or use
+`vue_vet_plugins::default_trace_modules_options()`).
+
+The Vue Vet CLI / session / Oxc adapter **auto-load** default plugins so product
+scans always include the catalog. See [vue_vet_plugins](../vue_vet_plugins/README.md).
 
 Spans are byte offsets into the original file. For Vue SFC script blocks, pass
 the full SFC text and the script body's byte offset so line/column map back to
@@ -102,10 +129,12 @@ assert_eq!(graphs.len(), 2);
 Link resolution is the caller's job (Vue Vet's project graph supplies it). This
 crate does not open the filesystem or resolve bare specifiers.
 Use `trace_modules_with_options` and
-`TraceModulesOptions { max_workers, ..Default::default() }` when the caller
-needs an explicit concurrency bound (a dedicated Rayon pool is installed).
+`TraceModulesOptions { max_workers, named_api_bags, ..Default::default() }` when
+the caller needs an explicit concurrency bound and/or ecosystem bags (a
+dedicated Rayon pool is installed when `reuse_current_pool` is false).
 Long-lived session analysis sets `reuse_current_pool: true` so it shares the
-outer `--threads` pool instead of nesting another. Vue Vet's Oxc adapter attaches
+outer `--threads` pool instead of nesting another, and installs default plugins
+via `vue_vet_plugins`. Vue Vet's Oxc adapter attaches
 a `ModuleSummary` (module semantic IR) from its file parse, so unseeded modules
 are not parsed again; only consumers that receive cross-module seeds reparse for
 symbol materialization. Attach summaries with

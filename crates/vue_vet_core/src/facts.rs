@@ -436,6 +436,9 @@ pub struct ReactivityEffectFact {
 /// Wire format version for [`ReactivityGraph`]. Bump when consumers must
 /// distinguish shape or semantic changes in serialized facts.
 ///
+/// v24: `useI18n` translator calls (`t`/`d`/`n`/`rt`/`te`) inject ambient
+/// composer deps (`locale` / `fallbackLocale` / `messages`) per vue-i18n
+/// `wrapWithDeps` / `trackReactivityValues`.
 /// v23: same-file zero-arg local helpers called from a tracking scope contribute
 /// ambient sync reads (bounded depth; skip async/generator) — Vue tracks callee
 /// reads under `activeEffect`.
@@ -443,7 +446,7 @@ pub struct ReactivityEffectFact {
 /// under-approx hygiene); export linking refinements that change seeded bindings
 /// (`ForwardReturn` bare `#nuxt-imports`, overload Factory≻Composable, ref-like
 /// ternary `Known` exports, empty-path pending composable fields).
-pub const REACTIVITY_GRAPH_VERSION: u32 = 23;
+pub const REACTIVITY_GRAPH_VERSION: u32 = 24;
 
 const fn default_reactivity_graph_version() -> u32 {
   1

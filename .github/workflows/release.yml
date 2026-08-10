@@ -172,7 +172,7 @@ jobs:
             exit 1
           fi
 
-      - name: Publish vue_vet_core then vue_vet_reactivity
+      - name: Publish vue_vet_core, vue_vet_reactivity, then vue_vet_plugins
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         shell: bash
@@ -207,29 +207,33 @@ jobs:
             cargo publish -p "$crate" "${publish_flags[@]}"
           }
 
+          wait_for_crate() {
+            local crate="$1"
+            echo "Waiting for $crate@$version on crates.io…"
+            for _ in $(seq 1 36); do
+              if crate_version_visible "$crate" "$version"; then
+                echo "$crate@$version is visible"
+                return 0
+              fi
+              sleep 5
+            done
+            echo "$crate@$version did not appear on crates.io in time" >&2
+            return 1
+          }
+
+          # Order: core → reactivity → plugins (each depends on the previous).
           publish_crate vue_vet_core
 
           if [[ "$dry_run" == "true" ]]; then
             publish_crate vue_vet_reactivity
+            publish_crate vue_vet_plugins
             exit 0
           fi
 
-          # crates.io may take a short time to index before the path+version
-          # dependency in vue_vet_reactivity can resolve from the registry.
-          echo "Waiting for vue_vet_core@$version on crates.io…"
-          for _ in $(seq 1 36); do
-            if crate_version_visible vue_vet_core "$version"; then
-              echo "vue_vet_core@$version is visible"
-              break
-            fi
-            sleep 5
-          done
-          if ! crate_version_visible vue_vet_core "$version"; then
-            echo "vue_vet_core@$version did not appear on crates.io in time" >&2
-            exit 1
-          fi
-
+          wait_for_crate vue_vet_core
           publish_crate vue_vet_reactivity
+          wait_for_crate vue_vet_reactivity
+          publish_crate vue_vet_plugins
 
   publish:
     name: Publish release
