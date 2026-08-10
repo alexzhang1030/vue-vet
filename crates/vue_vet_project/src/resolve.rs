@@ -60,6 +60,11 @@ impl ProjectResolver {
       Err(ResolveError::Builtin { .. }) => {
         Resolution::External { package: specifier.into(), resolved_path: None }
       }
+      // Nuxt virtuals (`#components`, `#build-info`, …) that fail resolve stay quiet —
+      // they are not project source modules. Successful `#app/…` path mappings still resolve.
+      Err(_) if specifier.starts_with('#') => {
+        Resolution::External { package: specifier.into(), resolved_path: None }
+      }
       Err(_) => Resolution::Unresolved,
     }
   }
@@ -75,6 +80,9 @@ impl ProjectResolver {
         Resolution::External { package: specifier.into(), resolved_path: Some(absolute) }
       }
       Err(ResolveError::Builtin { .. }) => {
+        Resolution::External { package: specifier.into(), resolved_path: None }
+      }
+      Err(_) if specifier.starts_with('#') => {
         Resolution::External { package: specifier.into(), resolved_path: None }
       }
       Err(_) => Resolution::Unresolved,
@@ -462,6 +470,8 @@ mod tests {
     // not the early `is_quiet_external_specifier` path.
     assert!(!is_quiet_external_specifier("fs"));
     assert!(!is_quiet_external_specifier("path"));
+    // Failed `#…` virtuals quiet after resolve; `#imports` is special-cased earlier.
+    assert!(!is_quiet_external_specifier("#components"));
   }
 
   #[test]
@@ -494,6 +504,15 @@ mod tests {
       ),
       "unknown bare packages must stay unresolved"
     );
+    for virtual_spec in ["#components", "#build-info", "#storage-config"] {
+      assert!(
+        matches!(
+          resolver.resolve("tool.ts", virtual_spec, &known),
+          Resolution::External { resolved_path: None, .. }
+        ),
+        "failed Nuxt virtual `{virtual_spec}` must quiet as External"
+      );
+    }
     drop(std::fs::remove_dir_all(dir));
   }
 

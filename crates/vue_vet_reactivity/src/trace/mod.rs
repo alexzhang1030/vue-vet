@@ -1460,6 +1460,23 @@ fn collect_reactive_bindings(
       if matches!(&declarator.id, BindingPattern::ObjectPattern(_)) {
         collect_binding_identifiers(&declarator.id, &mut identifiers);
       }
+    } else if matches!(callee.as_str(), "defineProps")
+      || (callee == "withDefaults" && binding_kind == ReactiveBindingKind::Reactive)
+    {
+      // Vue 3.5+ reactive props destructure:
+      // `const { account } = defineProps<{ account: Account }>()` and
+      // `const { title, ...rest } = withDefaults(defineProps<…>(), …)`.
+      // Each local tracks like a Reactive bag field (bare id, not `.value`).
+      // Pre-3.5 projects still get `no-nonreactive-props-destructure`.
+      match &declarator.id {
+        BindingPattern::ObjectPattern(_) => {
+          collect_binding_identifiers(&declarator.id, &mut identifiers);
+        }
+        BindingPattern::BindingIdentifier(identifier) => {
+          identifiers.push((identifier.name.to_string(), identifier.span));
+        }
+        _ => {}
+      }
     } else if let BindingPattern::BindingIdentifier(identifier) = &declarator.id {
       identifiers.push((identifier.name.to_string(), identifier.span));
     }
@@ -1902,8 +1919,58 @@ fn collect_scope_reads(
       })
     })
     .collect::<Vec<_>>();
+
+  // Bare identifier reads of Reactive / ShallowReactive bindings (Vue 3.5 props
+  // destructure, `reactive()` locals). Ref-like still require `.value` / unref /
+  // toValue above. Skip identifiers that are the object of a member expression —
+  // those already contributed a member read.
+  for (ident_id, ident_node) in semantic.nodes().iter_enumerated() {
+    let AstKind::IdentifierReference(identifier) = ident_node.kind() else {
+      continue;
+    };
+    if identifier_is_member_object(semantic, ident_id) {
+      continue;
+    }
+    let Some(binding) = reactive_bindings.iter().find(|binding| {
+      binding.name == identifier.name.as_str()
+        && reference_resolves_to_binding(semantic, identifier, binding, script_offset)
+        && !is_ref_like(binding.kind)
+    }) else {
+      continue;
+    };
+    let Some((_, outside_tracking)) =
+      scope_context(semantic, scope_id, ident_id, identifier.span, imported_bindings)
+    else {
+      continue;
+    };
+    reads.push(RawReactiveRead {
+      node_id: ident_id,
+      binding: binding.name.clone(),
+      property: None,
+      span: identifier.span,
+      outside_tracking,
+    });
+  }
+
   reads.sort_by_key(|read| read.span.start);
   reads
+}
+
+/// True when this identifier is `obj` in `obj.prop` / `obj[prop]` (already covered
+/// by member-expression reads). Computed keys (`obj[key]`) stay bare reads.
+fn identifier_is_member_object(semantic: &oxc_semantic::Semantic<'_>, ident_id: NodeId) -> bool {
+  let AstKind::IdentifierReference(identifier) = semantic.nodes().kind(ident_id) else {
+    return false;
+  };
+  match semantic.nodes().parent_kind(ident_id) {
+    AstKind::StaticMemberExpression(member) => {
+      member.object.get_identifier_reference().is_some_and(|object| object.span == identifier.span)
+    }
+    AstKind::ComputedMemberExpression(member) => {
+      member.object.get_identifier_reference().is_some_and(|object| object.span == identifier.span)
+    }
+    _ => false,
+  }
 }
 
 fn push_guards_in_span(

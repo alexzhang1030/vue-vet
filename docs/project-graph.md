@@ -45,7 +45,9 @@ with `builtin_modules` enabled and map `ResolveError::Builtin` to the same quiet
 `ExternalImport` (no path). They are **not** unresolved-import.
 
 Other `#*` specifiers still go through the resolver (typically via Nuxt
-tsconfig paths).
+tsconfig paths). When resolve fails for a `#…` specifier (`#components`,
+`#build-info`, …), the import is quieted as `ExternalImport` rather than
+`unresolved-import` — Nuxt virtuals are not project source modules.
 
 Vue Vet does **not** execute `vite.config.*` / `nuxt.config.*`. Alias and path
 mapping enter through tsconfig and the Vite defaults above. Resolver-affecting
@@ -59,7 +61,7 @@ form so alias joins and resolve results share one path representation.
 Convention recognition covers files under `components`, `composables`,
 `pages`, `layouts`, `plugins`, `middleware`, and `stores`. Component tags and
 composable calls create auto-import edges. Explicit imports shadow convention
-matches. `CONVENTIONS_VERSION` (currently 11) invalidates cached graphs when
+matches. `CONVENTIONS_VERSION` (currently 12) invalidates cached graphs when
 convention or resolver semantics change.
 
 Component auto-import names follow Nuxt defaults without executing
