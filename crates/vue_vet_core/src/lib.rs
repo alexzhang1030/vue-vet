@@ -54,6 +54,26 @@ mod tests {
   static Z_RULE: TestRule = TestRule(&Z_META);
 
   #[test]
+  fn reactive_binding_kind_ref_like_contract() {
+    assert!(ReactiveBindingKind::Ref.is_ref_like());
+    assert!(ReactiveBindingKind::Computed.is_ref_like());
+    assert!(ReactiveBindingKind::ModelRef.is_ref_like());
+    assert!(!ReactiveBindingKind::Reactive.is_ref_like());
+    assert!(!ReactiveBindingKind::Readonly.is_ref_like());
+    assert!(ReactiveBindingKind::Reactive.is_deep_watch_source());
+    assert!(ReactiveBindingKind::ShallowReactive.is_deep_watch_source());
+    assert!(!ReactiveBindingKind::Ref.is_deep_watch_source());
+    assert_eq!(
+      ReactiveBindingKind::Computed.merge_ref_like(ReactiveBindingKind::Computed),
+      ReactiveBindingKind::Computed
+    );
+    assert_eq!(
+      ReactiveBindingKind::Computed.merge_ref_like(ReactiveBindingKind::Ref),
+      ReactiveBindingKind::Ref
+    );
+  }
+
+  #[test]
   fn score_is_deterministic_and_density_normalized() {
     let diagnostic = Diagnostic {
       rule_id: "test/rule".into(),
