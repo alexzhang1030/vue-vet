@@ -159,6 +159,9 @@ Run and keep green:
 A Beta tag must not ship while `just quality-gates` fails or while an unexplained
 CodSpeed / precision expectation change lands without PR rationale.
 
+Operator checklist (release notes links + publish order):
+[Beta cut checklist](./quality-baselines.md#beta-cut-checklist).
+
 ### 1.0 (blocking, in addition to Beta)
 
 1. Stable configuration and diagnostic contracts (no silent JSON breakage)

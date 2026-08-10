@@ -287,14 +287,36 @@ Exit criteria:
 M0–M4 delivery issues are complete on `main`. `v0.1.19` published crates.io
 (`vue_vet_core`, `vue_vet_reactivity`), npm (`@vue-vet/cli`), and GitHub Release
 archives. Tracker [#14](https://github.com/alexzhang1030/vue-vet/issues/14)
-stays open for release coordination.
+stays open for **Beta release coordination** only — there are no open feature
+issues. Intent Prefer pack [#132](https://github.com/alexzhang1030/vue-vet/issues/132)
+is deferred; gated-dependency dedupe [#136](https://github.com/alexzhang1030/vue-vet/issues/136)
+shipped with the JSX/Render work.
 
-Near-term product work: keep `#13` quality gates green. The checksummed corpus
-now indexes twelve projects with TP labels plus project-level `false_positive`
-pins for safe patterns (see `fixtures/quality/README.md`). Deepen high-confidence
-reactivity coverage without racing Beta. Beta still requires publishing measured
-precision/performance evidence in the release notes
-([quality-baselines.md](./docs/quality-baselines.md), CodSpeed, precision delta).
+### Beta (do this next)
+
+Cut a Beta tag when the executable checklist is green and the release notes cite
+measured evidence:
+
+1. Gates: `just roll-rust`, `just compat-matrix`, `just quality-gates`,
+   `just oracle`, CodSpeed, Codecov, cross-platform CI, native release matrix
+   (see [quality-gates.md](./docs/quality-gates.md) Beta blocking list).
+2. Notes: link [quality-baselines.md](./docs/quality-baselines.md),
+   [quality-gates.md](./docs/quality-gates.md), the CodSpeed report for the
+   release commit, and any precision expectation delta
+   ([Beta cut checklist](./docs/quality-baselines.md#beta-cut-checklist)).
+3. Corpus: twelve checksummed projects with TP labels and project-level
+   `false_positive` pins (see `fixtures/quality/README.md`).
+
+### After Beta (does not block the tag)
+
+- Real-repo offline FP passes (vitesse / Nuxt starters already sketched in
+  baselines).
+- Oracle-backed long-tail Factory / `.d.ts` / auto-import seeds — not name
+  allowlists without evidence.
+- Extra single-file safe-fix producers; multi-file fix transactions and
+  platform metadata policy remain follow-up ([edit model](./docs/edit-model.md)).
+- Single high-signal Intent Prefer rule only when write/escape evidence is
+  solid (`prefer-trigger-ref` or `prefer-readonly` first — not the shallow pack).
 
 The engine lifecycle now uses exact `FileId` identities, a single discovery
 snapshot for cache lookup and analysis, bounded module workers, prepared Oxc

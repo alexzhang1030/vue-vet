@@ -73,9 +73,9 @@ because the current template fact does not cover the complete attribute.
 
 This slice is transactional for one file: content is written to a temporary
 sibling and atomically committed only after the whole plan validates. A plan
-that reaches two files fails before the first write. Issue #9 remains open for
-cross-file staging and rollback, additional safe producers, and explicit unsafe
-opt-in; no speculative fix is accepted. This slice guarantees atomic file
-contents and preserves untouched UTF-8 bytes, including line endings. A durable
-policy for timestamps, ACLs, extended attributes, and other platform metadata
-is also still follow-up work.
+that reaches two files fails before the first write. Cross-file staging and
+rollback, additional evidence-backed safe producers, and a durable policy for
+timestamps, ACLs, extended attributes, and other platform metadata remain
+post-Beta follow-up (issue #9 delivered the single-file SARIF / GitHub / safe-fix
+surface). No speculative fix is accepted. This slice guarantees atomic file
+contents and preserves untouched UTF-8 bytes, including line endings.
