@@ -1937,6 +1937,70 @@ fn expands_with_defaults_define_props_destructuring() {
 }
 
 #[test]
+fn seeds_await_use_async_data_destructure() {
+  let graph = graph(
+    "const { data: account, pending } = await useAsyncData('key', () => fetch());
+     const label = computed(() => account.value?.name ?? String(pending.value));",
+  );
+  assert!(
+    graph.bindings.iter().any(|b| b.name == "account" && b.kind == ReactiveBindingKind::Ref),
+    "useAsyncData data must seed Ref; got {:?}",
+    graph.bindings
+  );
+  assert!(
+    graph.bindings.iter().any(|b| b.name == "pending" && b.kind == ReactiveBindingKind::Ref),
+    "useAsyncData pending must seed Ref; got {:?}",
+    graph.bindings
+  );
+  assert!(
+    graph.edges.iter().any(|e| e.from == "label" && e.to == "account"),
+    "computed must track account; edges={:?}",
+    graph.edges
+  );
+}
+
+#[test]
+fn seeds_use_route_params_slice() {
+  let graph = graph(
+    "const params = useRoute().params;
+     const handle = computed(() => String(params.account));",
+  );
+  assert!(
+    graph.bindings.iter().any(|b| b.name == "params" && b.kind == ReactiveBindingKind::Reactive),
+    "useRoute().params must seed Reactive; got {:?}",
+    graph.bindings
+  );
+  assert!(
+    graph.edges.iter().any(|e| e.from == "handle" && e.to == "params"),
+    "computed must track params; edges={:?}",
+    graph.edges
+  );
+}
+
+#[test]
+fn seeds_use_i18n_locale_destructure() {
+  let graph = graph(
+    "const { locale, t } = useI18n();
+     const label = computed(() => locale.value + t('x'));",
+  );
+  assert!(
+    graph.bindings.iter().any(|b| b.name == "locale" && b.kind == ReactiveBindingKind::Computed),
+    "useI18n locale must seed Computed; got {:?}",
+    graph.bindings
+  );
+  assert!(
+    !graph.bindings.iter().any(|b| b.name == "t"),
+    "useI18n t function must not seed a binding; got {:?}",
+    graph.bindings
+  );
+  assert!(
+    graph.edges.iter().any(|e| e.from == "label" && e.to == "locale"),
+    "computed must track locale; edges={:?}",
+    graph.edges
+  );
+}
+
+#[test]
 fn dependency_edges_carry_member_property_for_props_bag() {
   let graph = graph(
     "import { computed } from 'vue'; const props = defineProps<{ count: number; mode: string }>(); const label = computed(() => props.count + props.mode);",
