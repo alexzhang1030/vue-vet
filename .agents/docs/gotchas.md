@@ -501,6 +501,13 @@ remain outside.
 quiet **unless** project resolution finds a concrete file and the reactivity
 linker can summarize a `Factory` / `Composable` export from that file (or a
 companion `.d.ts`). Prefer return-kind analysis over growing the name allowlist.
+Custom Vue component children (`AccountInfo`, `CommonDropdownItem`) supply
+accessible names the parent cannot see as text. `has_accessible_content`
+propagates component tags (PascalCase / kebab-case) to parents so
+`NuxtLink`/`button` wrappers are not false `*-has-content` hits; empty native
+icon `div`s still flag. Do not mark the control itself as content just for
+being a component (`<NuxtLink />` stays empty).
+
 Do not treat every `use*` auto-import as reactive without evidence. `#imports`
 virtual modules still have no file body and stay quiet.
 
