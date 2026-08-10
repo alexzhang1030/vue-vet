@@ -1096,6 +1096,13 @@ fn resolve_pending_value_bag_field(
 ) -> Option<ReactiveBindingKind> {
   use super::ValueBagEntry;
   let state = resolve_name_export_state(module_id, &pref.root, locals, facts, links, resolved, 0)?;
+  // `const { field } = useX()` — empty path means the root is a composable bag.
+  if pref.path.is_empty() {
+    let ExportState::Composable(shape) = state else {
+      return None;
+    };
+    return shape.fields.get(&pref.field).copied();
+  }
   let (ExportState::ValueBag(bag) | ExportState::ValueFactory(bag)) = state else {
     return None;
   };

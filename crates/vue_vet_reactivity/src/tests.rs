@@ -3569,6 +3569,80 @@ fn return_of_call_initialized_local_forwards_factory() {
 }
 
 #[test]
+fn return_renames_destructured_composable_field() {
+  // `const { items } = useBag(); return { rows: items }` — pending composable field
+  // resolves at link time so consumers see `rows` as Ref-like.
+  let bag = prepared_standalone(
+    "bag.ts",
+    "import { computed } from 'vue';
+     export function useBag() {
+       const items = computed(() => [1, 2]);
+       return { items };
+     }
+",
+    "ts",
+  );
+  let wrapper = prepared_standalone(
+    "wrapper.ts",
+    "export function useList() {
+       const { items } = useBag();
+       return { rows: items };
+     }
+",
+    "ts",
+  );
+  let consumer = prepared_standalone(
+    "consumer.ts",
+    "import { computed } from 'vue';
+     const list = useList();
+     const count = computed(() => list.rows.value.length);
+",
+    "ts",
+  );
+  let links = [
+    ModuleLink {
+      from: "wrapper.ts".into(),
+      specifier: "#nuxt-imports:useBag".into(),
+      to: "bag.ts".into(),
+    },
+    ModuleLink {
+      from: "consumer.ts".into(),
+      specifier: "#nuxt-imports:useList".into(),
+      to: "wrapper.ts".into(),
+    },
+  ];
+  let traced = traced_modules(&[bag, wrapper, consumer], &links);
+  let consumer = traced.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module.graph.composable_instances.get("list").is_some_and(|shape| {
+        shape.get("rows").is_some_and(|kind| {
+          matches!(
+            kind,
+            ReactiveBindingKind::Ref
+              | ReactiveBindingKind::ShallowRef
+              | ReactiveBindingKind::Computed
+          )
+        })
+      }) && (module.graph.edges.iter().any(|edge| edge.from == "count" && edge.to == "rows")
+        || module.graph.scopes.iter().any(|scope| {
+          scope.binding.as_deref() == Some("count")
+            && scope.reads.iter().any(|read| read.binding == "rows" || read.binding == "list")
+        }))
+    }),
+    "renamed destructured composable field must seed instance bag; got {:?}",
+    consumer.map(|module| {
+      (
+        &module.graph.composable_instances,
+        &module.graph.bindings,
+        &module.graph.edges,
+        &module.graph.scopes,
+      )
+    })
+  );
+}
+
+#[test]
 fn overload_prefers_factory_scalar_over_controls_bag() {
   // VueUse-style ambient overloads: default `(): Ref<T>`, controls bag last.
   // Last-wins used to keep only the bag so `const x = useClock()` never seeded Ref.

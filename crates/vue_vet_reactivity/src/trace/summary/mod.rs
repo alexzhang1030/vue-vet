@@ -217,9 +217,12 @@ pub(super) const NUXT_IMPORTS_SPECIFIER_PREFIX: &str = "#nuxt-imports:";
 /// Exclusive end for [`BTreeMap::range`] over `#nuxt-imports:…` keys (`';` follows `:`).
 pub(super) const NUXT_IMPORTS_RANGE_END: &str = "#nuxt-imports;";
 
-/// `return { isLoading }` where `isLoading` came from `api.ns.useX()` destructure.
+/// `return { isLoading }` where `isLoading` came from a call destructure.
 ///
-/// Resolved at link time against the root's [`ExportState::ValueBag`].
+/// - Non-empty [`Self::path`]: `const { field } = root.a.b()` → link-time
+///   [`ExportState::ValueBag`] walk.
+/// - Empty path: `const { field } = useX()` → link-time
+///   [`ExportState::Composable`] field lookup on `root` (bare or imported).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PendingValueBagField {
   pub root: String,
@@ -2745,11 +2748,15 @@ fn pending_value_bag_field_from_binding(
     }
     _ => return None,
   };
-  let (root, path) = static_member_call_path(&call.callee)?;
-  if path.is_empty() {
-    return None;
+  // Member path `api.ns.useX()` → value-bag walk; bare `useX()` → composable field.
+  if let Some((root, path)) = static_member_call_path(&call.callee) {
+    if path.is_empty() {
+      return None;
+    }
+    return Some(PendingValueBagField { root, path, field });
   }
-  Some(PendingValueBagField { root, path, field })
+  let callee = call.callee.get_identifier_reference()?;
+  Some(PendingValueBagField { root: callee.name.to_string(), path: Vec::new(), field })
 }
 
 fn object_pattern_field_and_member_call<'a>(
