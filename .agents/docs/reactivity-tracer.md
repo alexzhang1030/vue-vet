@@ -108,11 +108,19 @@ arms are ref-like call results → `Known(k)` (mixed plain arms quiet).
 `(export_key=b, root=useX, path=[], field=a)`; empty `path` means resolve
 `Composable` field on `root` (member paths still ValueBag walk).
 
+**Publish barrier** (seed map only accepts seedable states):
+
+1. Non-seedable → drop (never invent consumer seeds).
+2. First publish of a name → insert.
+3. Same-class bag refinement (`ValueFactory`/`ValueBag`/`Composable`) → replace.
+4. Conflicting seedable classes → sticky `Ambiguous`.
+5. Already `Ambiguous` → unchanged.
+
 Axes A0–A7 can be **complete** while this lattice still gains **contract
 refinements** — refinements bump `REACTIVITY_GRAPH_VERSION` / project
 `CONVENTIONS_VERSION`, not a new axis.
 
-Executable merge/seedable/name-resolve checks live in
+Executable merge/seedable/name-resolve/pending/publish checks live in
 `crates/vue_vet_reactivity/src/trace/summary/export_lattice.rs` (pure, no AST).
 
 ### In-scope complete checklists
