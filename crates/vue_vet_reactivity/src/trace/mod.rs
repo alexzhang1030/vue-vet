@@ -2407,29 +2407,40 @@ fn path_guards(
   guards
 }
 
+impl branch_hygiene::BranchReadView for RawReactiveRead {
+  fn binding(&self) -> &str {
+    self.binding.as_str()
+  }
+  fn property(&self) -> Option<&str> {
+    self.property.as_deref()
+  }
+  fn span_start(&self) -> u32 {
+    self.span.start
+  }
+  fn span_end(&self) -> u32 {
+    self.span.end
+  }
+  fn outside_tracking(&self) -> bool {
+    self.outside_tracking
+  }
+}
+
 /// True when both arms of a branch pair contain a same-identity read as `read`.
 ///
-/// Used so `cond ? x.value : x.value` / `if (c) x.value; else x.value` do not
-/// mark `x` as a conditional-only dependency — every path still tracks it.
+/// Pure contract: [`branch_hygiene::branch_pair_covers_read`].
 fn branch_pair_covers_read(
   reads: &[RawReactiveRead],
   read: &RawReactiveRead,
   left: Span,
   right: Option<Span>,
 ) -> bool {
-  let Some(right) = right else {
-    return false;
-  };
-  let matches_id = |candidate: &RawReactiveRead| {
-    !candidate.outside_tracking
-      && candidate.binding == read.binding
-      && candidate.property == read.property
-  };
-  let in_left =
-    reads.iter().any(|candidate| matches_id(candidate) && span_contains(left, candidate.span));
-  let in_right =
-    reads.iter().any(|candidate| matches_id(candidate) && span_contains(right, candidate.span));
-  in_left && in_right
+  branch_hygiene::branch_pair_covers_read(
+    reads,
+    read.binding.as_str(),
+    read.property.as_deref(),
+    branch_hygiene::SpanRange { start: left.start, end: left.end },
+    right.map(|span| branch_hygiene::SpanRange { start: span.start, end: span.end }),
+  )
 }
 
 /// Per-tracking-scope control-flow facts built once, then used to classify reads.
@@ -3623,6 +3634,7 @@ fn collect_render_scopes(
   scopes
 }
 
+mod branch_hygiene;
 mod render;
 mod summary;
 
