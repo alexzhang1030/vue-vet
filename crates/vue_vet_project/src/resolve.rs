@@ -6,7 +6,8 @@ use std::{
 };
 
 use oxc_resolver::{
-  AliasValue, ResolveOptions, Resolver, TsconfigDiscovery, TsconfigOptions, TsconfigReferences,
+  AliasValue, ResolveError, ResolveOptions, Resolver, TsconfigDiscovery, TsconfigOptions,
+  TsconfigReferences,
 };
 
 /// Pinned `oxc_resolver` crate version hashed into the content-addressed cache key.
@@ -51,12 +52,16 @@ impl ProjectResolver {
       return Resolution::External { package: specifier.into(), resolved_path: None };
     }
     let importer_path = absolute_under_root(&self.root, importer);
-    self
-      .resolver
-      .resolve_file(&importer_path, specifier)
-      .map_or(Resolution::Unresolved, |resolved| {
+    match self.resolver.resolve_file(&importer_path, specifier) {
+      Ok(resolved) => {
         classify_resolved(&self.root, resolved.full_path().as_path(), specifier, known)
-      })
+      }
+      // Bare `fs` / `path` / `fs/promises` (and `node:` forms) when `builtin_modules` is on.
+      Err(ResolveError::Builtin { .. }) => {
+        Resolution::External { package: specifier.into(), resolved_path: None }
+      }
+      Err(_) => Resolution::Unresolved,
+    }
   }
 
   /// Resolve a specifier from an absolute importer path (external follow).
@@ -64,13 +69,16 @@ impl ProjectResolver {
     if specifier == "#imports" || is_quiet_external_specifier(specifier) {
       return Resolution::External { package: specifier.into(), resolved_path: None };
     }
-    self.resolver.resolve_file(importer_absolute, specifier).map_or(
-      Resolution::Unresolved,
-      |resolved| {
+    match self.resolver.resolve_file(importer_absolute, specifier) {
+      Ok(resolved) => {
         let absolute = resolved.full_path();
         Resolution::External { package: specifier.into(), resolved_path: Some(absolute) }
-      },
-    )
+      }
+      Err(ResolveError::Builtin { .. }) => {
+        Resolution::External { package: specifier.into(), resolved_path: None }
+      }
+      Err(_) => Resolution::Unresolved,
+    }
   }
 }
 
@@ -133,7 +141,9 @@ fn bundler_resolve_options(root: &Path) -> ResolveOptions {
     modules: vec!["node_modules".into()],
     symlinks: true,
     node_path: false,
-    builtin_modules: false,
+    // Surface bare Node builtins (`fs`, `path`, `fs/promises`) as `ResolveError::Builtin`
+    // so project resolve can quiet them instead of emitting unresolved-import.
+    builtin_modules: true,
     module_type: true,
     allow_package_exports_in_directory_resolve: true,
     yarn_pnp,
@@ -448,6 +458,43 @@ mod tests {
     assert!(!is_quiet_external_specifier("vue"));
     assert!(!is_quiet_external_specifier("./Child.vue"));
     assert!(!is_quiet_external_specifier("#imports"));
+    // Bare builtins are quieted via `ResolveError::Builtin` (see `quiets_bare_node_builtins`),
+    // not the early `is_quiet_external_specifier` path.
+    assert!(!is_quiet_external_specifier("fs"));
+    assert!(!is_quiet_external_specifier("path"));
+  }
+
+  #[test]
+  #[expect(clippy::expect_used, reason = "unit test asserts temp fixture setup succeeds")]
+  fn quiets_bare_node_builtins() {
+    use super::{ProjectResolver, Resolution};
+    use std::collections::BTreeSet;
+
+    let dir = std::env::temp_dir().join(format!("vue-vet-builtins-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let importer = dir.join("tool.ts");
+    std::fs::write(&importer, "import fs from 'fs'\n").expect("write importer");
+    let resolver = ProjectResolver::new(&dir);
+    let known = BTreeSet::new();
+    for specifier in ["fs", "path", "fs/promises", "path/posix", "node:fs"] {
+      let resolution = resolver.resolve("tool.ts", specifier, &known);
+      assert!(
+        matches!(
+          &resolution,
+          Resolution::External { package, resolved_path: None } if package == specifier
+        ),
+        "expected quiet External for `{specifier}`"
+      );
+    }
+    // Non-builtins still miss when nothing is installed.
+    assert!(
+      matches!(
+        resolver.resolve("tool.ts", "definitely-not-a-package", &known),
+        Resolution::Unresolved
+      ),
+      "unknown bare packages must stay unresolved"
+    );
+    drop(std::fs::remove_dir_all(dir));
   }
 
   #[test]

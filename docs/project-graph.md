@@ -36,9 +36,13 @@ The following are classified as `ExternalImport` **without** attempting resolve
 (quiet — not `unresolved-import`; no reactivity summary either):
 
 - `#imports` (Nuxt virtual module)
-- Node builtins (`node:` / `nodejs:`)
+- Node builtins with an explicit protocol (`node:` / `nodejs:`)
 - Stylesheets (`.css`, `.scss`, `.sass`, `.less`, `.styl`/`.stylus`, `.pcss`, `.sss`, query stripped)
 - Common virtual entries: `virtual:…`, `uno.css`, `*/auto-routes` (e.g. `vue-router/auto-routes`)
+
+Bare Node builtins (`fs`, `path`, `fs/promises`, …) go through `oxc_resolver`
+with `builtin_modules` enabled and map `ResolveError::Builtin` to the same quiet
+`ExternalImport` (no path). They are **not** unresolved-import.
 
 Other `#*` specifiers still go through the resolver (typically via Nuxt
 tsconfig paths).
@@ -55,7 +59,7 @@ form so alias joins and resolve results share one path representation.
 Convention recognition covers files under `components`, `composables`,
 `pages`, `layouts`, `plugins`, `middleware`, and `stores`. Component tags and
 composable calls create auto-import edges. Explicit imports shadow convention
-matches. `CONVENTIONS_VERSION` (currently 6) invalidates cached graphs when
+matches. `CONVENTIONS_VERSION` (currently 11) invalidates cached graphs when
 convention or resolver semantics change.
 
 Component auto-import names follow Nuxt defaults without executing
