@@ -299,6 +299,57 @@ Re-run with the same scan path that produced the id. A missing match is an
 operational failure (exit 2). Consumers still treat `id` as opaque; the CLI only
 matches the full string.
 
+When the finding’s span sits inside a tracking scope (computed, `watchEffect`,
+…), JSON may include optional `tracking` — the same payload as
+[`--explain-scope`](#explain-scope-tracking-scope) for that scope. Text mode
+appends the scope section after rule docs.
+
+## `--explain-scope` (tracking scope)
+
+`--explain-scope <QUERY>` scans the CLI path and answers **would Vue re-run this
+scope when state changes?** from static tracer facts (not DevTools). With
+`--format json` it prints a standalone `ScopeExplain` object (or an array when
+multiple scopes match) — not wrapped in `schema_version` / `diagnostics`.
+
+### Query forms
+
+| Query | Matches |
+| --- | --- |
+| `label` | Scope binding `label` (or callee name) |
+| `App.vue:label` | Binding in modules whose id ends with `App.vue` |
+| `App.vue:` / `App.vue` | All scopes in matching modules (path-like / extension) |
+| `@42` | Scope whose span starts at byte offset 42 |
+| `computed@42` | Callee (or binding / module) + span offset |
+
+Unknown queries are operational failures (exit 2).
+
+### JSON shape
+
+```json
+{
+  "module_id": "placeholder.vue",
+  "kind": "computed",
+  "callee": "computed",
+  "binding": "label",
+  "span": { "offset": 48, "length": 24, "line": 3, "column": 15 },
+  "summary": "`label` has no known reactive dependency — Vue will not re-run it when state changes",
+  "tracks": [],
+  "does_not_track": [],
+  "uncertain": []
+}
+```
+
+- `tracks` — dependency paths that participate in tracking (`unconditional` /
+  `conditional`), each with `path`, `reason`, `reason_label`, `span`, optional
+  `guards`.
+- `does_not_track` — reads that do **not** establish tracking (`after_await`,
+  `outside_tracking`).
+- `uncertain` — soft `maybe:` roots that were not classified as known bindings.
+- `summary` — one-line human/agent verdict.
+
+Text mode prints the same fields as a short header (`tracking scope`, module,
+kind, summary, tracks / does not track lists).
+
 ## Agent consumption
 
 The JSON report is the complete fact layer, not a generated fix prompt. Agents

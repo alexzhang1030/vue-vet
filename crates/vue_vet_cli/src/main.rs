@@ -14,10 +14,11 @@ use vue_vet_project::{EdgeKind, ProjectGraph};
 use vue_vet_reactivity::ModuleReactivity;
 use vue_vet_reporters::{
   ComponentNavDigest, ComponentNavEdgeInput, ReactivityDigest, ReactivityModuleStats,
-  ReactivitySpanRef, ReportContext, ReportFormat, ReportFramework, ReportMode, binding_detail,
-  component_nav_from_edges, edge_detail, render, render_error, render_finding_explain_json,
-  render_finding_explain_text, render_reactivity_detail, render_rule_explain_json,
-  render_rule_explain_text, render_text_diagnostics, render_text_score_footer,
+  ReactivitySpanRef, ReportContext, ReportFormat, ReportFramework, ReportMode, ScopeExplain,
+  binding_detail, component_nav_from_edges, edge_detail, render, render_error,
+  render_finding_explain_json, render_finding_explain_text, render_reactivity_detail,
+  render_rule_explain_json, render_rule_explain_text, render_scope_explain_json,
+  render_scope_explain_text, render_text_diagnostics, render_text_score_footer,
   scope_detail_with_uncertain, scope_label_with_uncertain, template_read_detail,
   to_span_from_identity,
 };
@@ -86,9 +87,18 @@ struct Cli {
   #[arg(
     long,
     value_name = "RULE_OR_FINDING",
+    conflicts_with = "explain_scope",
     help = "Print rule docs, or scan and explain a finding id, then exit"
   )]
   explain: Option<String>,
+
+  #[arg(
+    long,
+    value_name = "QUERY",
+    conflicts_with = "explain",
+    help = "Scan and explain tracking scope deps (binding, file:binding, @offset), then exit"
+  )]
+  explain_scope: Option<String>,
 
   #[arg(long, help = "Print the deterministic project graph as JSON and exit")]
   print_graph: bool,
@@ -151,6 +161,7 @@ struct FixArgs {
       "lsp",
       "mcp",
       "explain",
+      "explain_scope",
       "print_graph",
       "print_reactivity",
       "reactivity_tui"
@@ -170,6 +181,7 @@ struct FixArgs {
       "lsp",
       "mcp",
       "explain",
+      "explain_scope",
       "print_graph",
       "print_reactivity",
       "reactivity_tui"
@@ -325,6 +337,9 @@ fn main() -> ExitCode {
   }
   if let Some(target) = cli.explain.as_deref() {
     return run_explain(&cli, target);
+  }
+  if let Some(query) = cli.explain_scope.as_deref() {
+    return run_explain_scope(&cli, query);
   }
   let (session, stream_state, text_streamed) = match open_session(&cli) {
     Ok(opened) => opened,
@@ -764,6 +779,47 @@ fn run_explain(cli: &Cli, target: &str) -> ExitCode {
     }
   };
   print_explain(cli, output)
+}
+
+#[expect(clippy::print_stderr, reason = "cache stats for scope explain belong on stderr")]
+fn run_explain_scope(cli: &Cli, query: &str) -> ExitCode {
+  let (session, _, _) = match open_session(cli) {
+    Ok(opened) => opened,
+    Err(error) => return operational_failure(cli, &error),
+  };
+  let (explains, cache_status) = match session.explain_scope(query) {
+    Ok(result) => result,
+    Err(error) => return operational_failure(cli, &error.to_string()),
+  };
+  if cli.cache.cache_stats {
+    eprintln!("vue-vet cache: {cache_status}");
+  }
+  let output = match cli.format {
+    OutputFormat::Text => Ok(render_scope_explains_text(&explains)),
+    OutputFormat::Json => render_scope_explains_json(&explains),
+    OutputFormat::Sarif | OutputFormat::Github => {
+      return operational_failure(cli, "--explain-scope supports --format text or json only");
+    }
+  };
+  print_explain(cli, output)
+}
+
+fn render_scope_explains_text(explains: &[ScopeExplain]) -> String {
+  let mut output = String::new();
+  for (index, explain) in explains.iter().enumerate() {
+    if index > 0 {
+      output.push('\n');
+    }
+    output.push_str(&render_scope_explain_text(explain));
+  }
+  output
+}
+
+fn render_scope_explains_json(explains: &[ScopeExplain]) -> Result<String, serde_json::Error> {
+  match explains {
+    [single] => render_scope_explain_json(single),
+    _ => serde_json::to_string_pretty(explains),
+  }
 }
 
 #[expect(clippy::print_stdout, reason = "explain is an early-exit CLI surface")]

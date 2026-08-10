@@ -118,6 +118,67 @@ pub struct FindingExplain {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub recommendation: Option<Recommendation>,
   pub rule: RuleExplain,
+  /// When the finding sits on a tracking scope, static “would Vue re-run?” evidence.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub tracking: Option<ScopeExplain>,
+}
+
+/// Why a scope tracks (or does not track) a dependency — multi-consumer contract.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScopeTrackReason {
+  /// Read always runs while the scope tracks.
+  Unconditional,
+  /// Read only on some control-flow paths.
+  Conditional,
+  /// Read after `await` (effect stopped tracking).
+  AfterAwait,
+  /// Read outside tracking (then/nextTick/watch callback/deferred).
+  OutsideTracking,
+  /// Soft evidence: unclassified `.value` / `unref` / `toValue` root.
+  UncertainAccess,
+  /// Scope has no known reactive reads (absence rules fire).
+  NoKnownDependency,
+}
+
+/// One dependency line in a [`ScopeExplain`].
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ScopeExplainDep {
+  pub binding: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub property: Option<String>,
+  /// Display path (`count.value`, `useI18n@12.locale`, bare `props`).
+  pub path: String,
+  pub reason: ScopeTrackReason,
+  /// Short human label for `reason`.
+  pub reason_label: String,
+  pub span: SourceSpan,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub guards: Vec<String>,
+}
+
+/// Static explanation of what a tracking scope depends on (and what it does not).
+///
+/// Killer product surface: CI / CLI / editor “would Vue re-run this?” without `DevTools`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ScopeExplain {
+  pub module_id: String,
+  pub kind: String,
+  pub callee: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub binding: Option<String>,
+  pub span: SourceSpan,
+  /// One-line verdict for humans and agents.
+  pub summary: String,
+  /// Known dependencies that participate in tracking (unconditional + conditional).
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub tracks: Vec<ScopeExplainDep>,
+  /// Reads that do **not** establish tracking (after-await, outside, …).
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub does_not_track: Vec<ScopeExplainDep>,
+  /// Soft roots (`maybe:`) that were not classified as known bindings.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub uncertain: Vec<String>,
 }
 
 /// Builds the stable, opaque identity used by machine-readable report consumers.

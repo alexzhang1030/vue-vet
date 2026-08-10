@@ -2,9 +2,12 @@ use std::{
   fs,
   path::{Path, PathBuf},
 };
+
 use vue_vet_core::{
-  Diagnostic, FindingExplain, RuleExplain, RuleMeta, finding_id as diagnostic_finding_id,
+  Diagnostic, FindingExplain, RuleExplain, RuleMeta, ScopeExplain,
+  finding_id as diagnostic_finding_id,
 };
+use vue_vet_reactivity::{explain_tracking_scope, scope_covering_span, select_tracking_scopes};
 
 use crate::{ProjectSession, SessionError, resolve_rule_meta};
 
@@ -44,6 +47,40 @@ pub fn explain_finding(
   Ok(explain_finding_with_status(session, finding_id)?.0)
 }
 
+/// Static “would Vue re-run this?” for tracking scopes matching `query`.
+///
+/// Query forms (same as [`select_tracking_scopes`]):
+/// - binding name (`label`, `doubled`)
+/// - `module:binding` or `module:` (all scopes in matching modules)
+/// - `@offset` / `callee@offset` / `module@offset`
+pub fn explain_scope(
+  session: &ProjectSession,
+  query: &str,
+) -> Result<(Vec<ScopeExplain>, &'static str), SessionError> {
+  let query = query.trim();
+  if query.is_empty() {
+    return Err(SessionError::message(
+      "empty --explain-scope query; pass a binding name, `file:binding`, or `@offset`",
+    ));
+  }
+  let snapshot = session.analyze()?;
+  let mut explains = collect_scope_explains(&snapshot.graph.module_reactivity, query);
+  if explains.is_empty() {
+    return Err(SessionError::message(format!(
+      "no tracking scope matched `{query}`; try a binding name (e.g. `label`), `file.vue:label`, or `@offset` from `--print-reactivity`"
+    )));
+  }
+  explains.sort_by(|left, right| {
+    (left.module_id.as_str(), left.span.offset, left.kind.as_str(), left.callee.as_str()).cmp(&(
+      right.module_id.as_str(),
+      right.span.offset,
+      right.kind.as_str(),
+      right.callee.as_str(),
+    ))
+  });
+  Ok((explains, snapshot.cache_status))
+}
+
 fn explain_finding_with_status(
   session: &ProjectSession,
   finding_id: &str,
@@ -67,7 +104,77 @@ fn explain_finding_with_status(
     )));
   };
   let rule = build_rule_explain(meta, &explain_search_roots(session.root()));
-  Ok((build_finding_explain(finding_id, diagnostic, file, rule), snapshot.cache_status))
+  let mut explain = build_finding_explain(finding_id, diagnostic, file, rule);
+  explain.tracking = tracking_for_diagnostic(&snapshot.graph.module_reactivity, diagnostic);
+  Ok((explain, snapshot.cache_status))
+}
+
+fn tracking_for_diagnostic(
+  modules: &[vue_vet_reactivity::ModuleReactivity],
+  diagnostic: &Diagnostic,
+) -> Option<ScopeExplain> {
+  let module_id = diagnostic.file.as_str();
+  let module = modules.iter().find(|module| {
+    module.id.as_str() == module_id
+      || module.id.as_str().ends_with(module_id)
+      || module.id.as_str().ends_with(&format!("/{module_id}"))
+  })?;
+  let scope =
+    scope_covering_span(module.graph.as_ref(), diagnostic.span.offset, diagnostic.span.length)?;
+  Some(explain_tracking_scope(module.id.as_str(), scope))
+}
+
+fn collect_scope_explains(
+  modules: &[vue_vet_reactivity::ModuleReactivity],
+  query: &str,
+) -> Vec<ScopeExplain> {
+  let mut explains = Vec::new();
+  for module in modules {
+    let module_id = module.id.as_str();
+    let selected = select_tracking_scopes(module_id, module.graph.as_ref(), query);
+    if selected.is_empty() {
+      // `module:` or bare module path → every scope in matching modules.
+      if module_list_query(module_id, query) {
+        for scope in &module.graph.scopes {
+          explains.push(explain_tracking_scope(module_id, scope));
+        }
+      }
+      continue;
+    }
+    for scope in selected {
+      explains.push(explain_tracking_scope(module_id, scope));
+    }
+  }
+  explains
+}
+
+/// `App.vue`, `App.vue:`, or trailing `path/App.vue:` lists all scopes in that module.
+fn module_list_query(module_id: &str, query: &str) -> bool {
+  let trimmed = query.strip_suffix(':').unwrap_or(query);
+  if trimmed.is_empty() || trimmed.contains('@') {
+    return false;
+  }
+  // Only treat as module list when the query is path-like or ends with a known extension,
+  // or explicitly used the `module:` form (empty binding after `:`).
+  let explicit_module_list = query.ends_with(':');
+  let path_like = trimmed.contains('/')
+    || trimmed.contains('\\')
+    || Path::new(trimmed).extension().is_some_and(|ext| {
+      ext.eq_ignore_ascii_case("vue")
+        || ext.eq_ignore_ascii_case("ts")
+        || ext.eq_ignore_ascii_case("tsx")
+        || ext.eq_ignore_ascii_case("js")
+        || ext.eq_ignore_ascii_case("jsx")
+        || ext.eq_ignore_ascii_case("mts")
+        || ext.eq_ignore_ascii_case("cts")
+    });
+  if !(explicit_module_list || path_like) {
+    return false;
+  }
+  module_id == trimmed
+    || module_id.ends_with(trimmed)
+    || module_id.ends_with(&format!("/{trimmed}"))
+    || module_id.ends_with(&format!("\\{trimmed}"))
 }
 
 fn build_rule_explain(meta: &RuleMeta, search_roots: &[PathBuf]) -> RuleExplain {
@@ -105,6 +212,7 @@ fn build_finding_explain(
     help: diagnostic.help.clone(),
     recommendation: diagnostic.recommendation.clone(),
     rule,
+    tracking: None,
   }
 }
 

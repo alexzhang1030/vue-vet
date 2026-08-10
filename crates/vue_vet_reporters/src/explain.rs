@@ -6,11 +6,14 @@
 //! Finding explain attaches scan evidence to the same rule docs payload.
 
 use std::{
+  fmt::Write,
   fs,
   path::{Path, PathBuf},
 };
 
-use vue_vet_core::{Confidence, Diagnostic, FindingExplain, RuleExplain, RuleMeta, Severity};
+use vue_vet_core::{
+  Confidence, Diagnostic, FindingExplain, RuleExplain, RuleMeta, ScopeExplain, Severity,
+};
 
 /// Map a [`RuleMeta::documentation`] key to the JSON/report path form.
 #[must_use]
@@ -72,7 +75,18 @@ pub fn explain_finding(
     help: diagnostic.help.clone(),
     recommendation: diagnostic.recommendation.clone(),
     rule,
+    tracking: None,
   }
+}
+
+/// Attach static tracking explain to a finding payload.
+#[must_use]
+pub fn finding_explain_with_tracking(
+  mut explain: FindingExplain,
+  tracking: ScopeExplain,
+) -> FindingExplain {
+  explain.tracking = Some(tracking);
+  explain
 }
 
 /// Render a human-readable explain report.
@@ -117,7 +131,82 @@ pub fn render_rule_explain_json(explain: &RuleExplain) -> Result<String, serde_j
   serde_json::to_string_pretty(explain)
 }
 
-/// Render a human-readable finding explain report (evidence + rule docs).
+/// Render a tracking-scope explain report (standalone or nested under a finding).
+#[must_use]
+pub fn render_scope_explain_text(explain: &ScopeExplain) -> String {
+  let mut output = String::new();
+  output.push_str("tracking scope\n");
+  output.push_str("module: ");
+  output.push_str(&explain.module_id);
+  output.push('\n');
+  output.push_str("kind: ");
+  output.push_str(&explain.kind);
+  output.push('\n');
+  output.push_str("callee: ");
+  output.push_str(&explain.callee);
+  output.push('\n');
+  if let Some(binding) = &explain.binding {
+    output.push_str("binding: ");
+    output.push_str(binding);
+    output.push('\n');
+  }
+  output.push_str("span: ");
+  if write!(
+    output,
+    "{}:{} (offset {}, length {})",
+    explain.span.line, explain.span.column, explain.span.offset, explain.span.length
+  )
+  .is_err()
+  {
+    // Writing into String cannot fail.
+  }
+  output.push('\n');
+  output.push_str("summary: ");
+  output.push_str(&explain.summary);
+  output.push('\n');
+  if !explain.tracks.is_empty() {
+    output.push_str("\ntracks:\n");
+    for dep in &explain.tracks {
+      output.push_str("  - ");
+      output.push_str(&dep.path);
+      output.push_str(" — ");
+      output.push_str(&dep.reason_label);
+      if !dep.guards.is_empty() {
+        output.push_str(" (guards: ");
+        output.push_str(&dep.guards.join(", "));
+        output.push(')');
+      }
+      output.push('\n');
+    }
+  }
+  if !explain.does_not_track.is_empty() {
+    output.push_str("\ndoes not track:\n");
+    for dep in &explain.does_not_track {
+      output.push_str("  - ");
+      output.push_str(&dep.path);
+      output.push_str(" — ");
+      output.push_str(&dep.reason_label);
+      output.push('\n');
+    }
+  }
+  if !explain.uncertain.is_empty() {
+    output.push_str("\nuncertain accesses (maybe): ");
+    output.push_str(&explain.uncertain.join(", "));
+    output.push('\n');
+  }
+  output
+}
+
+/// JSON form of a standalone scope explain (not wrapped in scan schema).
+///
+/// # Errors
+///
+/// Returns a serialization error when the payload cannot be encoded.
+pub fn render_scope_explain_json(explain: &ScopeExplain) -> Result<String, serde_json::Error> {
+  serde_json::to_string_pretty(explain)
+}
+
+/// Render a human-readable finding explain report (rule docs + optional tracking).
 #[must_use]
 pub fn render_finding_explain_text(explain: &FindingExplain) -> String {
   let mut output = String::new();
@@ -167,6 +256,10 @@ pub fn render_finding_explain_text(explain: &FindingExplain) -> String {
   }
   output.push('\n');
   output.push_str(&render_rule_explain_text(&explain.rule));
+  if let Some(tracking) = &explain.tracking {
+    output.push('\n');
+    output.push_str(&render_scope_explain_text(tracking));
+  }
   output
 }
 
@@ -321,5 +414,44 @@ mod tests {
     };
     assert!(json.contains("\"id\""));
     assert!(json.contains("\"rule\""));
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "malformed scope explain JSON must fail the unit test")]
+  fn scope_explain_text_and_json_render() {
+    use vue_vet_core::{ScopeExplain, ScopeExplainDep, ScopeTrackReason, SourceSpan};
+
+    let explain = ScopeExplain {
+      module_id: "App.vue".into(),
+      kind: "computed".into(),
+      callee: "computed".into(),
+      binding: Some("label".into()),
+      span: SourceSpan { offset: 10, length: 20, line: 2, column: 1 },
+      summary:
+        "`label` has no known reactive dependency — Vue will not re-run it when state changes"
+          .into(),
+      tracks: Vec::new(),
+      does_not_track: vec![ScopeExplainDep {
+        binding: "count".into(),
+        property: Some("value".into()),
+        path: "count.value".into(),
+        reason: ScopeTrackReason::OutsideTracking,
+        reason_label: "not tracked (outside active tracking: then/nextTick/callback)".into(),
+        span: SourceSpan { offset: 12, length: 5, line: 3, column: 3 },
+        guards: Vec::new(),
+      }],
+      uncertain: vec!["maybeRoot".into()],
+    };
+    let text = render_scope_explain_text(&explain);
+    assert!(text.contains("tracking scope"));
+    assert!(text.contains("summary: `label` has no known reactive dependency"));
+    assert!(text.contains("does not track:"));
+    assert!(text.contains("count.value"));
+    assert!(text.contains("uncertain accesses (maybe): maybeRoot"));
+    let Ok(json) = render_scope_explain_json(&explain) else {
+      panic!("scope explain JSON must serialize");
+    };
+    assert!(json.contains("\"module_id\""));
+    assert!(json.contains("\"does_not_track\""));
   }
 }

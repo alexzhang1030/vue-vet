@@ -8,9 +8,11 @@
 //! - `trace` — local effect tracing, `ModuleSummary` prepare, and cross-module link
 //! - [`prop_flow`] — template prop → child props edges
 
+mod explain;
 mod prop_flow;
 mod trace;
 
+pub use explain::{explain_tracking_scope, scope_covering_span, select_tracking_scopes};
 pub use prop_flow::{PropFlowSite, join_prop_flows};
 pub use trace::{
   ComposableShape, DEEP_WATCH_PROPERTY, ModuleLink, ModuleReactivity, ModuleSource, ModuleSummary,

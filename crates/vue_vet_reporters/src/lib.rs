@@ -19,9 +19,10 @@ pub use component_nav::{
   component_nav_from_edges,
 };
 pub use explain::{
-  documentation_path, explain_finding, explain_rule, find_rule_meta, looks_like_finding_id,
-  render_finding_explain_json, render_finding_explain_text, render_rule_explain_json,
-  render_rule_explain_text,
+  documentation_path, explain_finding, explain_rule, find_rule_meta, finding_explain_with_tracking,
+  looks_like_finding_id, render_finding_explain_json, render_finding_explain_text,
+  render_rule_explain_json, render_rule_explain_text, render_scope_explain_json,
+  render_scope_explain_text,
 };
 pub use humanize::{
   humanize_binding, humanize_edge, humanize_edge_parts_with_property, humanize_scope,
@@ -34,7 +35,9 @@ pub use reactivity::{
   render_reactivity_footer, scope_detail, scope_detail_with_uncertain, scope_label_with_uncertain,
   template_read_detail, to_span_from_identity,
 };
-pub use vue_vet_core::{FindingExplain, RuleExplain};
+pub use vue_vet_core::{
+  FindingExplain, RuleExplain, ScopeExplain, ScopeExplainDep, ScopeTrackReason,
+};
 
 pub const JSON_SCHEMA_VERSION: u8 = 1;
 
