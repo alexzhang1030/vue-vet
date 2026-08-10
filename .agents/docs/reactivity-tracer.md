@@ -111,6 +111,11 @@ forwards and publishes seedable states.
 
 **Ternary value exports** (`const x = cond ? arm1 : arm2`): only when **both**
 arms are ref-like call results → `Known(k)` (mixed plain arms quiet).
+Ref-like kinds live on `ReactiveBindingKind::is_ref_like` (core); same kind keeps
+it, distinct ref-like kinds merge to `Ref` (shared `.value` tracking).
+
+**Seed materialize** only acts on seedable export states; provisional / non-seedable
+variants stay quiet (`!is_seedable`) — never invent consumer bindings.
 
 **Pending bag fields**: `const { a } = useX(); return { b: a }` records pending
 `(export_key=b, root=useX, path=[], field=a)`; empty `path` means resolve

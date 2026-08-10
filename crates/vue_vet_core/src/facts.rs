@@ -168,6 +168,50 @@ pub enum ReactiveBindingKind {
   ModelRef,
 }
 
+impl ReactiveBindingKind {
+  /// Kinds that unwrap via `.value` (Vue Ref contract).
+  ///
+  /// Reactive objects are **not** ref-like — bare reads track the object root;
+  /// deep `watch(reactive)` uses [`Self::is_deep_watch_source`] + `property: "*"`.
+  #[must_use]
+  pub const fn is_ref_like(self) -> bool {
+    matches!(
+      self,
+      Self::Ref
+        | Self::ShallowRef
+        | Self::Computed
+        | Self::CustomRef
+        | Self::ToRef
+        | Self::TemplateRef
+        | Self::ModelRef
+    )
+  }
+
+  /// Object roots for bare `watch(reactive)` (deep-root sentinel, not per-key invent).
+  #[must_use]
+  pub const fn is_deep_watch_source(self) -> bool {
+    matches!(self, Self::Reactive | Self::ShallowReactive)
+  }
+
+  /// Merge two ref-like kinds for ternary / dual-arm Known exports.
+  ///
+  /// Same kind keeps it; distinct ref-like kinds still share `.value` tracking → [`Self::Ref`].
+  /// Callers must only pass ref-like kinds (under-approx: non-ref-like stay quiet upstream).
+  #[must_use]
+  pub const fn merge_ref_like(self, other: Self) -> Self {
+    match (self, other) {
+      (Self::Ref, Self::Ref)
+      | (Self::ShallowRef, Self::ShallowRef)
+      | (Self::Computed, Self::Computed)
+      | (Self::CustomRef, Self::CustomRef)
+      | (Self::ToRef, Self::ToRef)
+      | (Self::TemplateRef, Self::TemplateRef)
+      | (Self::ModelRef, Self::ModelRef) => self,
+      _ => Self::Ref,
+    }
+  }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ReactiveBindingFact {
   pub name: String,

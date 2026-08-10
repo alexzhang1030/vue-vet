@@ -1608,8 +1608,9 @@ fn compatible_vue_binding_kind_from_arms(
     return Some(left_kind);
   }
   // Ref-like arms (ref vs computed vs shallowRef) all track via `.value`.
-  if is_ref_like(left_kind) && is_ref_like(right_kind) {
-    return Some(left_kind);
+  // Distinct kinds merge to Ref (same contract as ternary export Known).
+  if left_kind.is_ref_like() && right_kind.is_ref_like() {
+    return Some(left_kind.merge_ref_like(right_kind));
   }
   None
 }
@@ -1802,23 +1803,6 @@ struct RawGuard {
 
 /// Sentinel property for bare `watch(reactiveObj)` deep/iterate roots (graph contract).
 pub const DEEP_WATCH_PROPERTY: &str = "*";
-
-const fn is_ref_like(kind: ReactiveBindingKind) -> bool {
-  matches!(
-    kind,
-    ReactiveBindingKind::Ref
-      | ReactiveBindingKind::ShallowRef
-      | ReactiveBindingKind::Computed
-      | ReactiveBindingKind::CustomRef
-      | ReactiveBindingKind::ToRef
-      | ReactiveBindingKind::TemplateRef
-      | ReactiveBindingKind::ModelRef
-  )
-}
-
-const fn is_deep_watch_source(kind: ReactiveBindingKind) -> bool {
-  matches!(kind, ReactiveBindingKind::Reactive | ReactiveBindingKind::ShallowReactive)
-}
 
 const fn span_contains(outer: Span, inner: Span) -> bool {
   outer.start <= inner.start && outer.end >= inner.end
@@ -2123,7 +2107,7 @@ fn collect_scope_reads(
         && let Some(instance) = inner.object.get_identifier_reference()
         && let Some(shape) = composable_instances.get(instance.name.as_str())
         && let Some(kind) = shape.get(inner.property.name.as_str())
-        && is_ref_like(*kind)
+        && kind.is_ref_like()
       {
         let (_, outside_tracking) =
           scope_context(semantic, scope_id, member_id, outer.span, imported_bindings)?;
@@ -2141,7 +2125,7 @@ fn collect_scope_reads(
         && let Some(instance) = member.object.get_identifier_reference()
         && let Some(shape) = composable_instances.get(instance.name.as_str())
         && let Some(kind) = shape.get(member.property.name.as_str())
-        && !is_ref_like(*kind)
+        && !kind.is_ref_like()
       {
         let (_, outside_tracking) =
           scope_context(semantic, scope_id, member_id, member.span, imported_bindings)?;
@@ -2169,7 +2153,7 @@ fn collect_scope_reads(
         let binding = reactive_bindings.iter().find(|binding| {
           binding.name == identifier.name.as_str()
             && reference_resolves_to_binding(semantic, identifier, binding, script_offset)
-            && is_ref_like(binding.kind)
+            && binding.kind.is_ref_like()
         })?;
         return Some(RawReactiveRead {
           node_id: member_id,
@@ -2200,7 +2184,7 @@ fn collect_scope_reads(
       let binding = reactive_bindings.iter().find(|binding| {
         binding.name == object.name.as_str()
           && reference_resolves_to_binding(semantic, object, binding, script_offset)
-          && (!is_ref_like(binding.kind) || property.as_deref() == Some("value"))
+          && (!binding.kind.is_ref_like() || property.as_deref() == Some("value"))
       })?;
       Some(RawReactiveRead {
         node_id: member_id,
@@ -2226,7 +2210,7 @@ fn collect_scope_reads(
     let Some(binding) = reactive_bindings.iter().find(|binding| {
       binding.name == identifier.name.as_str()
         && reference_resolves_to_binding(semantic, identifier, binding, script_offset)
-        && !is_ref_like(binding.kind)
+        && !binding.kind.is_ref_like()
     }) else {
       continue;
     };
@@ -2764,7 +2748,7 @@ fn collect_scope_writes(
     let Some(binding) = reactive_bindings.iter().find(|binding| {
       binding.name == object.name.as_str()
         && reference_resolves_to_binding(semantic, object, binding, script_offset)
-        && (!is_ref_like(binding.kind) || property.as_deref() == Some("value"))
+        && (!binding.kind.is_ref_like() || property.as_deref() == Some("value"))
     }) else {
       continue;
     };
@@ -2891,7 +2875,7 @@ fn uncertain_access_at(
       let known = reactive_bindings.iter().any(|binding| {
         binding.name == identifier.name.as_str()
           && reference_resolves_to_binding(semantic, identifier, binding, script_offset)
-          && is_ref_like(binding.kind)
+          && binding.kind.is_ref_like()
       });
       (!known).then(|| (identifier.name.to_string(), call.span))
     }
@@ -3327,7 +3311,7 @@ fn collect_uncertain_watch_expression(
       let known_ref = reactive_bindings.iter().any(|binding| {
         binding.name == root.name.as_str()
           && reference_resolves_to_binding(semantic, root, binding, script_offset)
-          && is_ref_like(binding.kind)
+          && binding.kind.is_ref_like()
       });
       let known_bag = composable_instances.contains_key(root.name.as_str());
       if !known_ref && !known_bag && !is_sync_hof_callback_param(semantic, root) {
@@ -3352,7 +3336,7 @@ fn collect_uncertain_watch_expression(
       let known = reactive_bindings.iter().any(|binding| {
         binding.name == identifier.name.as_str()
           && reference_resolves_to_binding(semantic, identifier, binding, script_offset)
-          && is_ref_like(binding.kind)
+          && binding.kind.is_ref_like()
       });
       if !known {
         names.insert(identifier.name.to_string());
@@ -3505,7 +3489,7 @@ fn collect_expression_source_reads(
         // Vue's `watch(ref)` / `watch([ref])` tracks the ref's `.value` dep key.
         // Bare `watch(reactiveObj)` deep-tracks many keys at runtime; emit a single
         // deep-root sentinel `property: "*"` rather than inventing nested fields.
-        if is_ref_like(binding.kind) {
+        if binding.kind.is_ref_like() {
           reads.push(ReactiveReadFact {
             binding: binding.name.clone(),
             property: Some("value".into()),
@@ -3514,7 +3498,7 @@ fn collect_expression_source_reads(
             guarded_by: None,
             span: source_span(sfc_source, script_offset, identifier.span),
           });
-        } else if is_deep_watch_source(binding.kind) {
+        } else if binding.kind.is_deep_watch_source() {
           reads.push(ReactiveReadFact {
             binding: binding.name.clone(),
             property: Some(DEEP_WATCH_PROPERTY.into()),
@@ -3531,7 +3515,7 @@ fn collect_expression_source_reads(
         && let Some(binding) = reactive_bindings.iter().find(|binding| {
           binding.name == object.name.as_str()
             && reference_resolves_to_binding(semantic, object, binding, script_offset)
-            && (!is_ref_like(binding.kind) || member.property.name.as_str() == "value")
+            && (!binding.kind.is_ref_like() || member.property.name.as_str() == "value")
         })
       {
         reads.push(ReactiveReadFact {
@@ -3550,7 +3534,7 @@ fn collect_expression_source_reads(
         && let Some(binding) = reactive_bindings.iter().find(|binding| {
           binding.name == object.name.as_str()
             && reference_resolves_to_binding(semantic, object, binding, script_offset)
-            && (!is_ref_like(binding.kind) || property == "value")
+            && (!binding.kind.is_ref_like() || property == "value")
         })
       {
         reads.push(ReactiveReadFact {

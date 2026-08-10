@@ -984,13 +984,7 @@ fn known_export_from_ref_like_ternary(
 ) -> Option<ExportState> {
   let left = ref_like_kind_from_value_expression(semantic, &cond.consequent, imported_bindings)?;
   let right = ref_like_kind_from_value_expression(semantic, &cond.alternate, imported_bindings)?;
-  let kind = if left == right {
-    left
-  } else {
-    // Distinct ref-like kinds still share `.value` tracking.
-    ReactiveBindingKind::Ref
-  };
-  Some(ExportState::Known(kind))
+  export_lattice::known_from_ref_like_kinds(left, right)
 }
 
 fn ref_like_kind_from_value_expression(
@@ -1010,7 +1004,7 @@ fn ref_like_kind_from_value_expression(
           resolved_vue_callee(semantic, &call.callee, imported_bindings, ScriptKind::Script)
         {
           let kind = reactive_binding_kind(&vue)?;
-          return export_kind_is_ref_like(kind).then_some(kind);
+          return kind.is_ref_like().then_some(kind);
         }
         // Bare / imported factory call (`useStorage`, `useNow`, …) — result is
         // treated as Ref-like so SSR `computed` + client storage ternaries export.
@@ -1025,19 +1019,6 @@ fn ref_like_kind_from_value_expression(
     }
   }
   None
-}
-
-const fn export_kind_is_ref_like(kind: ReactiveBindingKind) -> bool {
-  matches!(
-    kind,
-    ReactiveBindingKind::Ref
-      | ReactiveBindingKind::ShallowRef
-      | ReactiveBindingKind::Computed
-      | ReactiveBindingKind::CustomRef
-      | ReactiveBindingKind::ToRef
-      | ReactiveBindingKind::TemplateRef
-      | ReactiveBindingKind::ModelRef
-  )
 }
 
 /// Insert / merge a local export per the A6 lattice ([`export_lattice`]).

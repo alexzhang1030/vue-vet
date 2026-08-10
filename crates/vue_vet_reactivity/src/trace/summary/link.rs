@@ -12,7 +12,7 @@ use oxc_parser::Parser;
 use oxc_semantic::{Semantic, SemanticBuilder};
 use oxc_span::Span;
 use rayon::prelude::*;
-use vue_vet_core::{ModuleId, ReactiveBindingFact, ReactiveBindingKind, ReactivityGraph};
+use vue_vet_core::{ModuleId, ReactiveBindingFact, ReactivityGraph};
 
 use super::super::{
   ProvideOffer, TraceSeeds, collect_binding_identifiers, collect_inject_sites, provide_offer_index,
@@ -1725,12 +1725,9 @@ fn materialize_seeds(
         // Import local is a defineComponent setup wrapper — seed props at call sites.
         seeds.component_factories.insert(local.clone());
       }
-      ExportState::DeclaredPlainObjectFactory
-      | ExportState::BodyUnwrappedState
-      | ExportState::ForwardReturn(_)
-      | ExportState::ValueFactoryCall(_)
-      | ExportState::GenericMethodInstantiate { .. }
-      | ExportState::Ambiguous => {}
+      // Provisional / non-seedable (`!is_seedable`) — never invent consumer seeds.
+      // New seedable variants without an arm also fall here (fail closed).
+      _ => {}
     }
   }
   // Member-call destructures against seeded value bags (`api.maps.useX()`).
@@ -1905,21 +1902,7 @@ fn arm_is_ref_like_with_plan(
         ) {
           return true;
         }
-        return match plan.get(name) {
-          Some(ExportState::Factory(kind) | ExportState::Known(kind)) => {
-            matches!(
-              kind,
-              ReactiveBindingKind::Ref
-                | ReactiveBindingKind::ShallowRef
-                | ReactiveBindingKind::Computed
-                | ReactiveBindingKind::CustomRef
-                | ReactiveBindingKind::ToRef
-                | ReactiveBindingKind::TemplateRef
-                | ReactiveBindingKind::ModelRef
-            )
-          }
-          _ => false,
-        };
+        return plan.get(name).and_then(export_lattice::ref_like_kind_from_export).is_some();
       }
       _ => return false,
     }

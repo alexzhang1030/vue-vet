@@ -22,6 +22,8 @@ pub(super) struct ImportBindingView<'a> {
 }
 
 /// Whether a state may cross the seed barrier into a consumer module.
+///
+/// Also the defensive quiet set for seed materialize (provisional never seeds).
 #[must_use]
 pub(super) const fn is_seedable(state: &ExportState) -> bool {
   matches!(
@@ -33,6 +35,30 @@ pub(super) const fn is_seedable(state: &ExportState) -> bool {
       | ExportState::ValueBag(_)
       | ExportState::ComponentFactory
   )
+}
+
+/// Ref-like kind carried by a finished [`ExportState::Known`] / [`ExportState::Factory`].
+///
+/// Under-approx: other states (Composable bags, provisional, Reactive factory) → `None`.
+#[must_use]
+pub(super) const fn ref_like_kind_from_export(state: &ExportState) -> Option<ReactiveBindingKind> {
+  match state {
+    ExportState::Known(kind) | ExportState::Factory(kind) if kind.is_ref_like() => Some(*kind),
+    _ => None,
+  }
+}
+
+/// Build [`ExportState::Known`] when both arms are ref-like (ternary export contract).
+#[must_use]
+pub(super) const fn known_from_ref_like_kinds(
+  left: ReactiveBindingKind,
+  right: ReactiveBindingKind,
+) -> Option<ExportState> {
+  if left.is_ref_like() && right.is_ref_like() {
+    Some(ExportState::Known(left.merge_ref_like(right)))
+  } else {
+    None
+  }
 }
 
 /// Whether to keep `existing` when another definition offers `next` for the same name.
@@ -409,6 +435,34 @@ mod tests {
     assert!(!is_seedable(&ExportState::Ambiguous));
     assert!(!is_seedable(&ExportState::DeclaredPlainObjectFactory));
     assert!(!is_seedable(&ExportState::BodyUnwrappedState));
+  }
+
+  #[test]
+  fn ref_like_kind_from_export_only_factory_or_known_ref_like() {
+    assert_eq!(ref_like_kind_from_export(&factory_ref()), Some(ReactiveBindingKind::Ref));
+    assert_eq!(ref_like_kind_from_export(&known_ref()), Some(ReactiveBindingKind::Ref));
+    assert_eq!(
+      ref_like_kind_from_export(&ExportState::Factory(ReactiveBindingKind::Reactive)),
+      None
+    );
+    assert_eq!(ref_like_kind_from_export(&empty_composable()), None);
+    assert_eq!(ref_like_kind_from_export(&ExportState::ForwardReturn("useX".into())), None);
+  }
+
+  #[test]
+  fn known_from_ref_like_kinds_merges_or_stays_quiet() {
+    assert_eq!(
+      known_from_ref_like_kinds(ReactiveBindingKind::Computed, ReactiveBindingKind::Computed),
+      Some(ExportState::Known(ReactiveBindingKind::Computed))
+    );
+    assert_eq!(
+      known_from_ref_like_kinds(ReactiveBindingKind::Computed, ReactiveBindingKind::Ref),
+      Some(ExportState::Known(ReactiveBindingKind::Ref))
+    );
+    assert_eq!(
+      known_from_ref_like_kinds(ReactiveBindingKind::Reactive, ReactiveBindingKind::Ref),
+      None
+    );
   }
 
   #[test]
