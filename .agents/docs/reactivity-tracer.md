@@ -53,11 +53,24 @@ complete.
 
 Contract version: **`REACTIVITY_GRAPH_VERSION = 24`**.
 
-v24 models **named API bag ambient-on-call methods** (table-driven
-`NamedApiBag`): `useI18n` methods `t`/`d`/`n`/`rt`/`te` inject ambient field
-reads (`locale` / `fallbackLocale` / `messages`) per vue-i18n `wrapWithDeps`.
-Co-destructured fields preferred; translator-only seeds a site bag
-`{callee}@{offset}`. Prior: v23 same-file zero-arg helper follow; v22…v7.
+v24 models **named API bag ambient-on-call methods** via plugin-supplied
+`NamedApiBag` rows (not hardcoded in the engine). Default catalog from
+**`vue_vet_plugins`**: vue-i18n `t`/`d`/`n`/`rt`/`te` inject ambient field
+reads (`locale` / `fallbackLocale` / `messages`) per `wrapWithDeps`; Nuxt
+data destructure seeds. Product boundary auto-loads plugins. Prior: v23
+same-file zero-arg helper follow; v22…v7.
+
+### Tracer plugins (`vue_vet_plugins`)
+
+| Concern | Location |
+| --- | --- |
+| Engine types / empty default catalog | `vue_vet_reactivity` (`NamedApiBag`, `TracerPlugin`, `TraceConfig`) |
+| Ecosystem hardcode (Nuxt, vue-i18n) | **published** `vue_vet_plugins` |
+| Auto-load | `vue_vet_oxc`, `vue_vet_project` (`ensure_default_plugins`), `vue_vet_session` |
+| crates.io order | `core` → `reactivity` → `plugins` |
+
+See [vue_vet_plugins README](../../crates/vue_vet_plugins/README.md) and
+[architecture](./architecture.md) (`Reactivity tracer plugins`).
 
 | Axis | Status | Covered (in-scope) | Remaining |
 | --- | --- | --- | --- |
@@ -351,7 +364,7 @@ growing prose ledger.
 | 2026-08-10 | Export lattice + versions | Lattice written as A6 contract; graph **v22** / conventions **v14** |
 | 2026-08-10 | Same-file zero-arg helper follow | `collect_scope_reads` follows bare `f()` to local `function`/`const f = () =>` (depth≤2, skip async/generator); graph **v23**; Elk StatusReactedBy-class FP |
 | 2026-08-10 | Named API bag ambient-on-call | Engine consumes plugin-supplied `NamedApiBag` rows (ambient-on-call methods); graph **v24**; Elk PublishWidget without-dep FP |
-| 2026-08-10 | Tracer plugins crate | Ecosystem hardcode (Nuxt data bags, vue-i18n `useI18n`) lives in published `vue_vet_plugins`; engine has no Nuxt/i18n names; Oxc/project/session **auto-load** defaults; crates.io order core→reactivity→plugins |
+| 2026-08-10 | Tracer plugins crate | Ecosystem hardcode (Nuxt data bags, vue-i18n `useI18n`) lives in published `vue_vet_plugins`; engine has no Nuxt/i18n names; Oxc/project/session **auto-load** defaults; crates.io order core→reactivity→plugins; docs: crate README + install library table |
 | 2026-08-10 | `defineProps` destructure | Object-pattern + rest locals seed `Reactive` (Vue 3.5); `withDefaults` same |
 | 2026-08-10 | Vue Macros `defineModels` | Setup-only; object-destructure locals seed `ModelRef` |
 | 2026-07-31 | `inject(key) as Ctx` bag | Peel `TSAsExpression` to find the declarator; seed asserted Ref-field interface when provide offer is unknown; `return ctx` after assertion exports the bag (map-context helpers) |

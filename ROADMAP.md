@@ -47,6 +47,7 @@ vue_vet_core       stable diagnostics, spans, scoring, rule contracts
 vue_vet_vize       Vize adapter and Vue semantic facts
 vue_vet_oxc        JS/TS semantic facts and import resolution
 vue_vet_reactivity local effect tracing and cross-module summaries/linking
+vue_vet_plugins    compile-time ecosystem API bags (Nuxt, vue-i18n; crates.io)
 vue_vet_rules      built-in rules and presets
 vue_vet_project    project graph, cache, baseline, diff
 vue_vet_reporters  text, JSON, SARIF, GitHub annotations
