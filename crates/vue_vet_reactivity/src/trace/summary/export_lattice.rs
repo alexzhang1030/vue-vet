@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use vue_vet_core::{ModuleId, ReactiveBindingKind};
 
-use super::{ComposableShape, ExportState, ValueBagEntry};
+use super::{ComposableShape, ExportState, ValueBag, ValueBagEntry};
 
 /// Max `ForwardReturn` chain depth (depth starts at 0; `depth > this` → `None`).
 pub(super) const NAME_RESOLVE_MAX_DEPTH: u8 = 8;
@@ -213,6 +213,98 @@ pub(super) fn refine_generic_method_instantiate(
     }
     _ => keep,
   }
+}
+
+/// Resolve nested [`ValueBagEntry::MethodForward`] entries via `resolve(name)`.
+///
+/// Recurses into nested bags. Unresolved forwards stay markers (under-approx).
+#[must_use]
+pub(super) fn refine_value_bag(
+  bag: ValueBag,
+  mut resolve: impl FnMut(&str) -> Option<ExportState>,
+) -> ValueBag {
+  // Dyn object avoids infinitely nested `impl FnMut` types on nested bags.
+  fn refine_with(bag: ValueBag, resolve: &mut dyn FnMut(&str) -> Option<ExportState>) -> ValueBag {
+    let mut entries = BTreeMap::new();
+    for (key, entry) in bag.entries {
+      let next = match entry {
+        ValueBagEntry::Nested(nested) => ValueBagEntry::Nested(refine_with(nested, resolve)),
+        ValueBagEntry::MethodForward(callee) => match resolve(&callee) {
+          Some(state) => refine_method_forward(&state, callee),
+          None => ValueBagEntry::MethodForward(callee),
+        },
+        other => other,
+      };
+      entries.insert(key, next);
+    }
+    ValueBag { entries }
+  }
+  refine_with(bag, &mut resolve)
+}
+
+/// Materialize pending bag fields on a composable shape via `resolve_root(name)`.
+///
+/// Already-present fields win; unresolved pendings are retained for later rounds.
+#[must_use]
+pub(super) fn refine_composable_pending(
+  mut shape: ComposableShape,
+  mut resolve_root: impl FnMut(&str) -> Option<ExportState>,
+) -> ComposableShape {
+  let pending = std::mem::take(&mut shape.pending_value_bag_fields);
+  for (key, pref) in pending {
+    if shape.fields.contains_key(&key) {
+      continue;
+    }
+    match resolve_root(&pref.root)
+      .and_then(|root| resolve_pending_field(&root, &pref.path, &pref.field))
+    {
+      Some(kind) => {
+        shape.fields.insert(key, kind);
+      }
+      None => {
+        shape.pending_value_bag_fields.insert(key, pref);
+      }
+    }
+  }
+  shape
+}
+
+/// Whether a refined local may attempt publish this round (before seedable gate).
+///
+/// - [`ExportState::ValueFactoryCall`]: only when caller supplies a materialized
+///   [`ExportState::ValueBag`] (from a finished `ValueFactory` callee).
+/// - [`ExportState::GenericMethodInstantiate`] / [`ExportState::Ambiguous`]: never.
+/// - otherwise: clone (insert still applies [`is_seedable`]).
+#[must_use]
+pub(super) fn as_publishable(
+  state: &ExportState,
+  materialized_value_factory_call: Option<ExportState>,
+) -> Option<ExportState> {
+  match state {
+    ExportState::ValueFactoryCall(_) => match materialized_value_factory_call {
+      some @ Some(ExportState::ValueBag(_)) => some,
+      _ => None,
+    },
+    ExportState::GenericMethodInstantiate { .. } | ExportState::Ambiguous => None,
+    other => Some(other.clone()),
+  }
+}
+
+/// Extract a [`ValueFactory`] bag from a resolved callee of [`ExportState::ValueFactoryCall`].
+///
+/// Only unfinished call markers wait; a non-factory callee stays quiet (under-approx).
+#[must_use]
+pub(super) const fn value_factory_call_bag(callee: Option<&ExportState>) -> Option<&ValueBag> {
+  match callee {
+    Some(ExportState::ValueFactory(bag)) => Some(bag),
+    _ => None,
+  }
+}
+
+/// Collapse [`ExportState::ForwardReturn`] once the callee name resolves.
+#[must_use]
+pub(super) fn refine_forward_return(resolved: Option<ExportState>, callee: String) -> ExportState {
+  resolved.unwrap_or(ExportState::ForwardReturn(callee))
 }
 
 #[cfg(test)]
@@ -586,6 +678,116 @@ mod tests {
     assert_eq!(
       refine_generic_method_instantiate(Some(&ExportState::ValueBag(bag)), "missing", &[], keep,),
       ExportState::Ambiguous
+    );
+  }
+
+  #[test]
+  fn refine_value_bag_resolves_method_forwards() {
+    use super::super::{ValueBag, ValueBagEntry};
+    let bag = ValueBag {
+      entries: BTreeMap::from([
+        ("useX".into(), ValueBagEntry::MethodForward("useCount".into())),
+        (
+          "nested".into(),
+          ValueBagEntry::Nested(ValueBag {
+            entries: BTreeMap::from([(
+              "useY".into(),
+              ValueBagEntry::MethodForward("useCount".into()),
+            )]),
+          }),
+        ),
+      ]),
+    };
+    let refined = refine_value_bag(bag, |name| (name == "useCount").then_some(factory_ref()));
+    let expected = ValueBag {
+      entries: BTreeMap::from([
+        ("useX".into(), ValueBagEntry::MethodFactory(ReactiveBindingKind::Ref)),
+        (
+          "nested".into(),
+          ValueBagEntry::Nested(ValueBag {
+            entries: BTreeMap::from([(
+              "useY".into(),
+              ValueBagEntry::MethodFactory(ReactiveBindingKind::Ref),
+            )]),
+          }),
+        ),
+      ]),
+    };
+    assert_eq!(refined, expected);
+  }
+
+  #[test]
+  fn refine_value_bag_keeps_unresolved_forwards() {
+    use super::super::{ValueBag, ValueBagEntry};
+    let bag = ValueBag {
+      entries: BTreeMap::from([("useX".into(), ValueBagEntry::MethodForward("missing".into()))]),
+    };
+    let refined = refine_value_bag(bag, |_| None);
+    assert_eq!(refined.entries.get("useX"), Some(&ValueBagEntry::MethodForward("missing".into())));
+  }
+
+  #[test]
+  fn refine_composable_pending_materializes_and_retains() {
+    use super::super::PendingValueBagField;
+    let mut shape = super::super::ComposableShape::default();
+    shape.pending_value_bag_fields.insert(
+      "isLoading".into(),
+      PendingValueBagField { root: "useQuery".into(), path: vec![], field: "isLoading".into() },
+    );
+    shape.pending_value_bag_fields.insert(
+      "later".into(),
+      PendingValueBagField { root: "missing".into(), path: vec![], field: "x".into() },
+    );
+    let refined = refine_composable_pending(shape, |root| {
+      (root == "useQuery").then_some(composable_with("isLoading", ReactiveBindingKind::Ref))
+    });
+    assert_eq!(refined.fields.get("isLoading"), Some(&ReactiveBindingKind::Ref));
+    assert!(refined.pending_value_bag_fields.contains_key("later"));
+    assert!(!refined.pending_value_bag_fields.contains_key("isLoading"));
+  }
+
+  #[test]
+  fn as_publishable_gates_value_factory_call_and_provisional() {
+    let bag = ExportState::ValueBag(super::super::ValueBag::default());
+    assert_eq!(
+      as_publishable(&ExportState::ValueFactoryCall("create".into()), Some(bag.clone())),
+      Some(bag)
+    );
+    assert_eq!(
+      as_publishable(&ExportState::ValueFactoryCall("create".into()), Some(factory_ref())),
+      None
+    );
+    assert_eq!(as_publishable(&ExportState::ValueFactoryCall("create".into()), None), None);
+    assert_eq!(as_publishable(&ExportState::Ambiguous, None), None);
+    assert_eq!(
+      as_publishable(
+        &ExportState::GenericMethodInstantiate {
+          callee: "c".into(),
+          property: "p".into(),
+          type_arg_shapes: vec![],
+        },
+        None
+      ),
+      None
+    );
+    assert_eq!(as_publishable(&factory_ref(), None), Some(factory_ref()));
+  }
+
+  #[test]
+  fn value_factory_call_bag_only_accepts_value_factory() {
+    let bag = super::super::ValueBag::default();
+    assert!(value_factory_call_bag(Some(&ExportState::ValueFactory(bag.clone()))).is_some());
+    assert!(value_factory_call_bag(Some(&ExportState::ValueBag(bag))).is_none());
+    assert!(value_factory_call_bag(Some(&factory_ref())).is_none());
+    assert!(value_factory_call_bag(None).is_none());
+  }
+
+  #[test]
+  fn refine_forward_return_uses_resolved_or_keeps_marker() {
+    assert_eq!(refine_forward_return(Some(factory_ref()), "useX".into()), factory_ref());
+    assert_eq!(
+      refine_forward_return(None, "useX".into()),
+      ExportState::ForwardReturn("useX".into())
     );
   }
 }
