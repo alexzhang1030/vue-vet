@@ -1044,18 +1044,19 @@ fn refine_export_state(
     // (avoid sticky MethodForward clones after the factory later refines).
     ExportState::ValueFactoryCall(callee) => ExportState::ValueFactoryCall(callee),
     ExportState::GenericMethodInstantiate { callee, property, type_arg_shapes } => {
-      match resolve_name_export_state(module_id, &callee, locals, facts, links, resolved, 0) {
-        Some(ExportState::ValueFactory(bag) | ExportState::ValueBag(bag)) => {
-          match bag.entries.get(&property) {
-            Some(super::ValueBagEntry::MethodGeneric(index)) => type_arg_shapes
-              .get(*index as usize)
-              .filter(|shape| !shape.is_empty())
-              .map_or(ExportState::Ambiguous, |shape| ExportState::Composable(shape.clone())),
-            _ => ExportState::Ambiguous,
-          }
-        }
-        _ => ExportState::GenericMethodInstantiate { callee, property, type_arg_shapes },
-      }
+      let callee_state =
+        resolve_name_export_state(module_id, &callee, locals, facts, links, resolved, 0);
+      let keep = ExportState::GenericMethodInstantiate {
+        callee,
+        property: property.clone(),
+        type_arg_shapes: type_arg_shapes.clone(),
+      };
+      export_lattice::refine_generic_method_instantiate(
+        callee_state.as_ref(),
+        &property,
+        &type_arg_shapes,
+        keep,
+      )
     }
     other => other,
   }
@@ -1094,25 +1095,9 @@ fn resolve_pending_value_bag_field(
   links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
   resolved: &BTreeMap<ModuleId, BTreeMap<String, ExportState>>,
 ) -> Option<ReactiveBindingKind> {
-  use super::ValueBagEntry;
   let state = resolve_name_export_state(module_id, &pref.root, locals, facts, links, resolved, 0)?;
-  // `const { field } = useX()` — empty path means the root is a composable bag.
-  if pref.path.is_empty() {
-    let ExportState::Composable(shape) = state else {
-      return None;
-    };
-    return shape.fields.get(&pref.field).copied();
-  }
-  let (ExportState::ValueBag(bag) | ExportState::ValueFactory(bag)) = state else {
-    return None;
-  };
-  match bag.resolve_path(&pref.path)? {
-    ValueBagEntry::Method(method_shape) => method_shape.kind_for_destructure(&pref.field),
-    ValueBagEntry::MethodFactory(kind) => Some(*kind),
-    ValueBagEntry::MethodForward(_)
-    | ValueBagEntry::MethodGeneric(_)
-    | ValueBagEntry::Nested(_) => None,
-  }
+  // Empty path: composable field; non-empty: ValueBag walk (PCR pending bag fields).
+  export_lattice::resolve_pending_field(&state, &pref.path, &pref.field)
 }
 
 /// Materialize [`ExportState::ValueFactoryCall`] against current resolved exports.
@@ -1156,12 +1141,8 @@ fn refine_value_bag(
       }
       ValueBagEntry::MethodForward(callee) => {
         match resolve_name_export_state(module_id, &callee, locals, facts, links, resolved, 0) {
-          Some(ExportState::Composable(shape)) => ValueBagEntry::Method(shape),
-          Some(ExportState::Factory(kind)) => ValueBagEntry::MethodFactory(kind),
-          Some(ExportState::ValueFactory(nested) | ExportState::ValueBag(nested)) => {
-            ValueBagEntry::Nested(nested)
-          }
-          _ => ValueBagEntry::MethodForward(callee),
+          Some(state) => export_lattice::refine_method_forward(&state, callee),
+          None => ValueBagEntry::MethodForward(callee),
         }
       }
       other => other,
@@ -1220,15 +1201,7 @@ fn insert_export(
   state: ExportState,
 ) -> bool {
   // Provisional / unresolved halves never cross the seed barrier alone.
-  if matches!(
-    state,
-    ExportState::DeclaredPlainObjectFactory
-      | ExportState::BodyUnwrappedState
-      | ExportState::ForwardReturn(_)
-      | ExportState::ValueFactoryCall(_)
-      | ExportState::GenericMethodInstantiate { .. }
-      | ExportState::Ambiguous
-  ) {
+  if !export_lattice::is_seedable(&state) {
     return false;
   }
   // Publish value bags even when some MethodForward entries remain. Waiting for
@@ -1242,24 +1215,17 @@ fn insert_export(
       entry.insert(state);
       true
     }
-    Entry::Occupied(mut entry)
-      if entry.get() != &state && entry.get() != &ExportState::Ambiguous =>
-    {
-      // Allow value-bag refinement to replace a previously inserted bag.
-      match (entry.get(), &state) {
-        (ExportState::ValueFactory(_), ExportState::ValueFactory(_))
-        | (ExportState::ValueBag(_), ExportState::ValueBag(_))
-        | (ExportState::Composable(_), ExportState::Composable(_)) => {
-          entry.insert(state);
-          true
-        }
-        _ => {
-          entry.insert(ExportState::Ambiguous);
-          true
-        }
+    Entry::Occupied(mut entry) => match export_lattice::merge_published(entry.get(), &state) {
+      export_lattice::PublishMerge::Unchanged => false,
+      export_lattice::PublishMerge::Replace => {
+        entry.insert(state);
+        true
       }
-    }
-    Entry::Occupied(_) => false,
+      export_lattice::PublishMerge::Ambiguous => {
+        entry.insert(ExportState::Ambiguous);
+        true
+      }
+    },
   }
 }
 
