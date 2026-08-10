@@ -248,6 +248,7 @@ growing prose ledger.
 | 2026-08-10 | External `export *` bare package | External summary follows bare re-export sources (`export * from 'pkg'`), not only `typeof` forwards — entry barrels like `@vueuse/core` → `@vueuse/shared` publish Factory leaves |
 | 2026-08-10 | Ternary ref-like init | `const x = cond ? ref(a) : shallowRef(b)` / bare Factory arm when both arms are ref-like → seed binding; mixed plain arm stays quiet |
 | 2026-08-10 | Overload Factory vs bag | Ambient overloads `(): Ref` + controls bag → prefer `Factory` so default `const x = useX()` seeds; VueUse `useNow` / `useTimestamp` style |
+| 2026-08-10 | Pending composable field | `const { a } = useX(); return { b: a }` records empty-path pending → link-time Composable field kind (same mechanism as value-bag member destructure) |
 | 2026-08-10 | `defineProps` destructure | Object-pattern + rest locals seed `Reactive` (Vue 3.5 reactive props destructure); `withDefaults(defineProps())` same; cuts Elk mass `no-computed-without-dependency` FPs |
 | 2026-08-10 | Vue Macros `defineModels` | Setup-only macro; object-destructure locals seed `ModelRef` (like `toRefs`); fixes `no-v-model-nonreactive-source` FP on vitesse `TheInput` |
 | 2026-07-31 | `inject(key) as Ctx` bag | Peel `TSAsExpression` to find the declarator; seed asserted Ref-field interface when provide offer is unknown; `return ctx` after assertion exports the bag (map-context helpers) |
