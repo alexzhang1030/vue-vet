@@ -258,10 +258,16 @@ import exists (#134 / #136).
 
 ## SFC compiler macros are setup-only
 
-`defineModel` / `defineProps` / `defineEmits` / … are `<script setup>` compiler
-macros. Practice and correctness rules that recommend or enforce them must gate
-on `ScriptKind::Setup`. Standalone JSX/TSX modules use `ScriptKind::Script`;
-telling them to adopt `defineModel` is a false positive (#138).
+`defineModel` / `defineModels` / `defineProps` / `defineEmits` / … are
+`<script setup>` compiler macros. Practice and correctness rules that recommend
+or enforce them must gate on `ScriptKind::Setup`. Standalone JSX/TSX modules use
+`ScriptKind::Script`; telling them to adopt `defineModel` is a false positive
+(#138).
+
+Vue Macros' multi-model form is object-destructure only: each local from
+`const { modelValue } = defineModels<{…}>()` seeds a `ModelRef` binding (same
+shape as `toRefs` / `storeToRefs`). A whole-object assignment without
+destructure stays quiet under-approx.
 
 ## `no-deprecated-filter` is template syntax, not any spaced `|`
 

@@ -188,12 +188,42 @@ fn traces_define_model_in_script_setup() {
 }
 
 #[test]
+fn expands_define_models_destructuring() {
+  let graph = graph(
+    "const { modelValue, open: isOpen } = defineModels<{\n\
+       modelValue: string\n\
+       open: boolean\n\
+     }>()",
+  );
+  assert_eq!(
+    graph.bindings.iter().map(|binding| binding.name.as_str()).collect::<Vec<_>>(),
+    ["modelValue", "isOpen"],
+    "defineModels destructure must seed each local model ref"
+  );
+  assert!(
+    graph.bindings.iter().all(|binding| binding.kind == ReactiveBindingKind::ModelRef),
+    "defineModels locals must be ModelRef; got {:?}",
+    graph.bindings
+  );
+}
+
+#[test]
 fn ignores_define_model_outside_script_setup() {
   let source = "const model = defineModel<string>();";
   let graph = trace(source, source, 0, ScriptKind::Script);
   assert!(
     graph.bindings.is_empty(),
     "defineModel must not be assumed to be a compiler macro in a normal script"
+  );
+}
+
+#[test]
+fn ignores_define_models_outside_script_setup() {
+  let source = "const { modelValue } = defineModels<{ modelValue: string }>()";
+  let graph = trace(source, source, 0, ScriptKind::Script);
+  assert!(
+    graph.bindings.is_empty(),
+    "defineModels must not be assumed to be a compiler macro in a normal script"
   );
 }
 

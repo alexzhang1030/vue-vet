@@ -24,4 +24,5 @@ Native elements already expose an implicit ARIA role; repeating it adds noise.
 
 ## Remediation
 
-Drop the redundant `role` attribute.
+Drop the redundant `role` attribute. Static `role="…"` findings carry a safe
+edit that removes the full attribute (including the quoted value).
