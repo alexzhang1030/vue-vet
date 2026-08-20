@@ -19,8 +19,8 @@ use ratatui::{
 };
 use vue_vet_reporters::{
   ComponentNavDigest, ComponentNavLink, ComponentNavModule, ReactivityModuleStats,
-  humanize_binding, humanize_edge, humanize_scope, humanize_source, humanize_template_read,
-  humanize_template_surface,
+  ReactivityScopeDetail, humanize_binding, humanize_edge, humanize_scope, humanize_source,
+  humanize_template_read, humanize_template_surface,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -57,6 +57,8 @@ pub struct BrowseModule {
   pub scopes: Vec<String>,
   pub edges: Vec<String>,
   pub template_reads: Vec<String>,
+  /// Same `scope_details` as `--print-reactivity` (includes explain-scope `summary`).
+  pub scope_details: Vec<ReactivityScopeDetail>,
 }
 
 impl BrowseModule {
@@ -73,6 +75,7 @@ impl BrowseModule {
       scopes: module.scope_labels.clone(),
       edges: module.edge_labels.clone(),
       template_reads: module.template_labels.clone(),
+      scope_details: module.scope_details.clone(),
     }
   }
 }
@@ -871,11 +874,22 @@ fn inspect_lines(module: &BrowseModule, target: &str) -> Vec<Line<'static>> {
       Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
     )),
     Line::from(""),
-    Line::from(Span::styled(
-      "readers (inbound) — who tracks / reads this",
-      Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-    )),
   ];
+  let summaries = scope_summaries_for(module, binding, property);
+  if !summaries.is_empty() {
+    lines.push(Line::from(Span::styled(
+      "would Vue re-run? — same verdict as --explain-scope",
+      Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+    )));
+    for summary in summaries {
+      lines.push(Line::from(format!("  {summary}")));
+    }
+    lines.push(Line::from(""));
+  }
+  lines.push(Line::from(Span::styled(
+    "readers (inbound) — who tracks / reads this",
+    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+  )));
   let inbound = inbound_readers(module, binding, property);
   if inbound.is_empty() {
     lines.push(Line::from("  (none)"));
@@ -905,6 +919,28 @@ fn inspect_lines(module: &BrowseModule, target: &str) -> Vec<Line<'static>> {
     Style::default().fg(Color::DarkGray),
   )));
   lines
+}
+
+/// Explain-scope summaries for the binding that owns a tracking scope.
+/// Member picks (`props.count`) stay inbound-only — they are not a scope.
+fn scope_summaries_for<'module>(
+  module: &'module BrowseModule,
+  binding: &str,
+  property: Option<&str>,
+) -> Vec<&'module str> {
+  if property.is_some() {
+    return Vec::new();
+  }
+  let mut summaries = module
+    .scope_details
+    .iter()
+    .filter(|scope| scope.binding.as_deref() == Some(binding))
+    .filter_map(|scope| scope.summary.as_deref())
+    .filter(|summary| !summary.is_empty())
+    .collect::<Vec<_>>();
+  summaries.sort_unstable();
+  summaries.dedup();
+  summaries
 }
 
 /// Expand reactive / shallowReactive bags into bag + bag.property pick rows.
@@ -1190,6 +1226,7 @@ fn draw_help(frame: &mut Frame<'_>) {
     Line::from("  ? / click     close this help"),
     Line::from(""),
     Line::from("Inspect a binding"),
+    Line::from("  would Vue re-run? same ScopeExplain summary as --explain-scope"),
     Line::from("  readers (←)       who tracks / reads this ref"),
     Line::from("  dependencies (→)  what a computed/effect binding reads"),
     Line::from("  props.count       member pick filters inbound readers"),
@@ -1318,6 +1355,27 @@ mod tests {
   }
 
   #[test]
+  fn ranked_modules_keep_explain_scope_summaries() {
+    let mut stats = stats("App.vue", 1, 1, 0, 0);
+    let mut detail = vue_vet_reporters::scope_detail(
+      "computed",
+      "computed",
+      Some("label".into()),
+      vue_vet_reporters::ReactivitySpanRef::new(10, 8),
+    );
+    detail.summary = Some("`label` has no known reactive dependency".into());
+    stats.scope_details = vec![detail];
+    let ranked = ranked_modules(&[stats]);
+    assert_eq!(
+      ranked
+        .first()
+        .and_then(|module| module.scope_details.first())
+        .and_then(|scope| { scope.summary.as_deref() }),
+      Some("`label` has no known reactive dependency")
+    );
+  }
+
+  #[test]
   fn hides_empty_modules_until_toggled() {
     let ranked = ranked_modules(&[stats("hot.vue", 2, 0, 0, 0), stats("empty.ts", 0, 0, 0, 0)]);
     let mut app = BrowseApp::new(ranked, None, ComponentNavDigest::default());
@@ -1391,6 +1449,7 @@ mod tests {
         "watch_sources:watch@2 -> double".into(),
       ],
       template_reads: vec!["count@interpolation".into()],
+      scope_details: Vec::new(),
     };
     let count = line_text_join(&inspect_lines(&module, "count"));
     assert!(count.contains("readers (inbound)"));
@@ -1402,6 +1461,36 @@ mod tests {
     let double = line_text_join(&inspect_lines(&module, "double"));
     assert!(double.contains("→ count"));
     assert!(double.contains("← watch()"));
+    assert!(!double.contains("would Vue re-run?"));
+  }
+
+  #[test]
+  fn inspect_shows_explain_scope_summary_for_owning_binding() {
+    let mut module = BrowseModule {
+      id: "App.vue".into(),
+      weight: 2,
+      bindings: vec!["label:computed".into(), "count:ref".into()],
+      scopes: vec!["computed(label)".into()],
+      edges: vec!["label -> count".into()],
+      template_reads: Vec::new(),
+      scope_details: vec![vue_vet_reporters::scope_detail(
+        "computed",
+        "computed",
+        Some("label".into()),
+        vue_vet_reporters::ReactivitySpanRef::new(70, 24),
+      )],
+    };
+    module.scope_details[0].summary = Some(
+      "`label` has no known reactive dependency — Vue will not re-run it when state changes".into(),
+    );
+
+    let label = line_text_join(&inspect_lines(&module, "label"));
+    assert!(label.contains("would Vue re-run?"));
+    assert!(label.contains("no known reactive dependency"));
+    assert!(label.contains("→ count"));
+
+    let count = line_text_join(&inspect_lines(&module, "count"));
+    assert!(!count.contains("would Vue re-run?"), "plain refs are not tracking scopes: {count}");
   }
 
   #[test]
@@ -1465,6 +1554,7 @@ mod tests {
         "template:if@2 -> props".into(),
       ],
       template_reads: vec!["props@if".into()],
+      scope_details: Vec::new(),
     };
     let picks = expand_binding_picks(&module);
     assert!(picks.iter().any(|(name, kind)| name == "props" && kind == "reactive"));
@@ -1529,6 +1619,7 @@ mod tests {
         "watch_sources:watch@3 -> backend".into(),
       ],
       template_reads: Vec::new(),
+      scope_details: Vec::new(),
     };
     let rendered = graph_lines(&module)
       .into_iter()
