@@ -1466,23 +1466,24 @@ mod tests {
 
   #[test]
   fn inspect_shows_explain_scope_summary_for_owning_binding() {
-    let mut module = BrowseModule {
+    let mut scope = vue_vet_reporters::scope_detail(
+      "computed",
+      "computed",
+      Some("label".into()),
+      vue_vet_reporters::ReactivitySpanRef::new(70, 24),
+    );
+    scope.summary = Some(
+      "`label` has no known reactive dependency — Vue will not re-run it when state changes".into(),
+    );
+    let module = BrowseModule {
       id: "App.vue".into(),
       weight: 2,
       bindings: vec!["label:computed".into(), "count:ref".into()],
       scopes: vec!["computed(label)".into()],
       edges: vec!["label -> count".into()],
       template_reads: Vec::new(),
-      scope_details: vec![vue_vet_reporters::scope_detail(
-        "computed",
-        "computed",
-        Some("label".into()),
-        vue_vet_reporters::ReactivitySpanRef::new(70, 24),
-      )],
+      scope_details: vec![scope],
     };
-    module.scope_details[0].summary = Some(
-      "`label` has no known reactive dependency — Vue will not re-run it when state changes".into(),
-    );
 
     let label = line_text_join(&inspect_lines(&module, "label"));
     assert!(label.contains("would Vue re-run?"));
