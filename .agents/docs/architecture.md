@@ -360,8 +360,8 @@ session lock. The resulting snapshot refreshes every open document. Safe
 quick-fix code actions return versioned
 workspace edits from explicitly safe diagnostic edits only (client applies;
 server never writes). The thin MCP adapter (`vue-vet --mcp`, `vue_vet_mcp`)
-exposes scan / explain / safe-fix preview tools over stdio JSON-RPC with the
-same session path bounds; MCP never applies edits.
+exposes scan / explain / explain-scope / safe-fix preview tools over stdio
+JSON-RPC with the same session path bounds; MCP never applies edits.
 
 ### Published library crates
 
@@ -454,8 +454,9 @@ a parallel tracer.
 `diagnostics[].id` (stored in LSP `data`) plus the document version. Safe
 quick-fix code actions map active safe edits to versioned `WorkspaceEdit`s.
 `vue-vet --mcp` (`vue_vet_mcp`) exposes stdio JSON-RPC tools for scan, explain,
-and safe-fix preview with the same workspace path bounds; it never applies
-edits. Request-level cancellation remains later issue #12 work.
+explain-scope (`vue_vet_explain_scope`, same `ScopeExplain` JSON as CLI
+`--explain-scope`), and safe-fix preview with the same workspace path bounds;
+it never applies edits. Request-level cancellation remains later issue #12 work.
 
 ## Project intelligence
 

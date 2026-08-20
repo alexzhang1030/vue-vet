@@ -31,11 +31,13 @@ Related: [architecture](./architecture.md), [gotchas](./gotchas.md),
   consumer (not LSP).
 - **Explain Scope** (`--explain-scope <query>`) is the multi-consumer “would Vue
   re-run this?” surface: pure `vue_vet_reactivity::explain_tracking_scope` over
-  `TrackingScopeFact`, session orchestration, text/JSON reporters. Finding
-  `--explain` attaches optional `tracking` when the diagnostic span sits inside
-  a scope. Query: binding, `module:binding`, `@offset`, `callee@offset`. Contract
-  types: `ScopeExplain` / `ScopeExplainDep` / `ScopeTrackReason` in
-  `vue_vet_core` (additive on `FindingExplain`).
+  `TrackingScopeFact`, session orchestration, text/JSON reporters, and MCP
+  `vue_vet_explain_scope` (same JSON as CLI `--format json`). Finding
+  `--explain` / MCP `vue_vet_explain` attaches optional `tracking` when the
+  diagnostic span sits inside a scope. Query: binding, `module:binding`,
+  `@offset`, `callee@offset`. Contract types: `ScopeExplain` /
+  `ScopeExplainDep` / `ScopeTrackReason` in `vue_vet_core` (additive on
+  `FindingExplain`).
 
 ## What “complete” means
 
@@ -374,6 +376,7 @@ growing prose ledger.
 | 2026-08-10 | Tracer plugins crate | Ecosystem hardcode (Nuxt data bags, vue-i18n `useI18n`) lives in published `vue_vet_plugins`; engine has no Nuxt/i18n names; Oxc/project/session **auto-load** defaults; crates.io order core→reactivity→plugins; docs: crate README + install library table |
 | 2026-08-10 | `defineProps` destructure | Object-pattern + rest locals seed `Reactive` (Vue 3.5); `withDefaults` same |
 | 2026-08-10 | Vue Macros `defineModels` | Setup-only; object-destructure locals seed `ModelRef` |
+| 2026-08-20 | MCP explain-scope consumer | `vue_vet_explain_scope` returns the same `ScopeExplain` JSON as CLI `--explain-scope`; finding `vue_vet_explain` already nests `tracking` |
 | 2026-07-31 | `inject(key) as Ctx` bag | Peel `TSAsExpression` to find the declarator; seed asserted Ref-field interface when provide offer is unknown; `return ctx` after assertion exports the bag (map-context helpers) |
 | 2026-07-31 | Generic context factory | `return value as T` (enclosing type param) → `MethodGeneric`; typed call destructure `const { useInject: useX } = factory<Ctx>(…)` → link-time `Composable` from the matching type argument (no name allowlist) |
 | 2026-07-31 | `expr as Ref` declarator | `const modelValue = useVModel(…) as Ref<T>` seeds a Ref binding from the outermost assertion (same under-approx as `: Ref` annotations) |

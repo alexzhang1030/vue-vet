@@ -8,8 +8,8 @@ bindings, tracking scopes, demand reads, guards, and inverted dependency edges â
 without executing components, effects, or Proxies.
 
 Lint rules are the first consumer. The graph is intended as a multi-consumer
-library surface (project graph, cache, CLI `--explain-scope`, future LSP /
-codemod tools).
+library surface (project graph, cache, CLI `--explain-scope`, MCP
+`vue_vet_explain_scope`, future LSP / codemod tools).
 
 ### Explain a tracking scope
 
@@ -25,6 +25,7 @@ for scope in select_tracking_scopes("App.vue", &graph, "doubled") {
 ```
 
 CLI: `vue-vet path --explain-scope doubled` (or `App.vue:doubled`, `@offset`).
+MCP: tool `vue_vet_explain_scope` with the same query (JSON object or array).
 
 ## Status
 
