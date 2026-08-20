@@ -100,7 +100,7 @@ fn mcp_explain_scope_matches_cli_json() {
       .is_some_and(|summary| summary.contains("no known reactive dependency")),
     "summary must answer would Vue re-run?: {explain}"
   );
-  assert_eq!(explain["tracks"].as_array().map(Vec::len).unwrap_or(0), 0);
+  assert_eq!(explain["tracks"].as_array().map_or(0, Vec::len), 0);
 }
 
 #[test]
