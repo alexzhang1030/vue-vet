@@ -255,12 +255,9 @@ fn documentation_candidates(root: &Path, relative_docs_path: &str) -> Vec<PathBu
 }
 
 /// Prefer the last committed full snapshot so LSP hover / MCP explain-scope
-/// can reuse a DiagnosticsOnly publish without re-tracing.
+/// can reuse a `DiagnosticsOnly` publish without re-tracing.
 fn snapshot_for_explain(session: &ProjectSession) -> Result<crate::AnalysisSnapshot, SessionError> {
-  match session.current_snapshot()? {
-    Some(snapshot) => Ok((*snapshot).clone()),
-    None => session.analyze(),
-  }
+  session.current_snapshot()?.map_or_else(|| session.analyze(), |snapshot| Ok((*snapshot).clone()))
 }
 
 fn explain_search_roots(scan_path: &Path) -> Vec<PathBuf> {
