@@ -548,7 +548,7 @@ mod tests {
     let single = render_scope_explains_json(std::slice::from_ref(&explain))
       .unwrap_or_else(|_| panic!("single scope explain JSON must serialize"));
     assert_eq!(single, json, "one match stays an object, not an array");
-    let many = render_scope_explains_json(&[explain.clone(), explain])
+    let many = render_scope_explains_json(&[explain.clone(), explain.clone()])
       .unwrap_or_else(|_| panic!("multi scope explain JSON must serialize"));
     assert!(many.trim_start().starts_with('['), "multiple matches are an array: {many}");
     assert!(render_scope_explains_text(&[]).is_empty());
