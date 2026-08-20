@@ -14,13 +14,12 @@ use vue_vet_project::{EdgeKind, ProjectGraph};
 use vue_vet_reactivity::ModuleReactivity;
 use vue_vet_reporters::{
   ComponentNavDigest, ComponentNavEdgeInput, ReactivityDigest, ReactivityModuleStats,
-  ReactivitySpanRef, ReportContext, ReportFormat, ReportFramework, ReportMode, ScopeExplain,
-  binding_detail, component_nav_from_edges, edge_detail, render, render_error,
-  render_finding_explain_json, render_finding_explain_text, render_reactivity_detail,
-  render_rule_explain_json, render_rule_explain_text, render_scope_explain_json,
-  render_scope_explain_text, render_text_diagnostics, render_text_score_footer,
-  scope_detail_with_uncertain, scope_label_with_uncertain, template_read_detail,
-  to_span_from_identity,
+  ReactivitySpanRef, ReportContext, ReportFormat, ReportFramework, ReportMode, binding_detail,
+  component_nav_from_edges, edge_detail, render, render_error, render_finding_explain_json,
+  render_finding_explain_text, render_reactivity_detail, render_rule_explain_json,
+  render_rule_explain_text, render_scope_explains_json, render_scope_explains_text,
+  render_text_diagnostics, render_text_score_footer, scope_detail_with_uncertain,
+  scope_label_with_uncertain, template_read_detail, to_span_from_identity,
 };
 use vue_vet_session::{
   AnalysisSnapshot, Explained, ProgressEvent, ProgressReporter, ProjectSession, SessionOptions,
@@ -80,7 +79,7 @@ struct Cli {
   #[arg(
     long,
     conflicts_with = "lsp",
-    help = "Run the MCP server on stdio (scan / explain / safe-fix preview) and exit when the client closes"
+    help = "Run the MCP server on stdio (scan / explain / explain-scope / safe-fix preview) and exit when the client closes"
   )]
   mcp: bool,
 
@@ -802,24 +801,6 @@ fn run_explain_scope(cli: &Cli, query: &str) -> ExitCode {
     }
   };
   print_explain(cli, output)
-}
-
-fn render_scope_explains_text(explains: &[ScopeExplain]) -> String {
-  let mut output = String::new();
-  for (index, explain) in explains.iter().enumerate() {
-    if index > 0 {
-      output.push('\n');
-    }
-    output.push_str(&render_scope_explain_text(explain));
-  }
-  output
-}
-
-fn render_scope_explains_json(explains: &[ScopeExplain]) -> Result<String, serde_json::Error> {
-  match explains {
-    [single] => render_scope_explain_json(single),
-    _ => serde_json::to_string_pretty(explains),
-  }
 }
 
 #[expect(clippy::print_stdout, reason = "explain is an early-exit CLI surface")]

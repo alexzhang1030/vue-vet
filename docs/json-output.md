@@ -309,7 +309,9 @@ appends the scope section after rule docs.
 `--explain-scope <QUERY>` scans the CLI path and answers **would Vue re-run this
 scope when state changes?** from static tracer facts (not DevTools). With
 `--format json` it prints a standalone `ScopeExplain` object (or an array when
-multiple scopes match) — not wrapped in `schema_version` / `diagnostics`.
+multiple scopes match) — not wrapped in `schema_version` / `diagnostics`. The
+MCP tool `vue_vet_explain_scope` returns the same JSON (`query` plus optional
+scan `path`).
 
 ### Query forms
 
@@ -354,8 +356,10 @@ kind, summary, tracks / does not track lists).
 
 The JSON report is the complete fact layer, not a generated fix prompt. Agents
 should group diagnostics by `rule_id`, prioritize severity and confidence, read
-the referenced source and local documentation (`--explain` or the `documentation`
-path), and verify a finding before editing. An edit is actionable only when Vue
+the referenced source and local documentation (`--explain` / MCP `vue_vet_explain`
+or the `documentation` path), and ask `--explain-scope` / MCP
+`vue_vet_explain_scope` when the question is “would Vue re-run this scope?”.
+Verify a finding before editing. An edit is actionable only when Vue
 Vet emits it with explicit applicability; a diagnostic without one remains
 manual. Future bounded handoff prompts may point to this report, but must not
 replace it or silently omit lower-priority findings.

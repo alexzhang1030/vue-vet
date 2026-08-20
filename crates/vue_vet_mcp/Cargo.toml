@@ -9,7 +9,7 @@ rust-version.workspace = true
 readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "Thin MCP adapter over vue_vet_session for agent scan, explain, and safe-fix preview"
+description = "Thin MCP adapter over vue_vet_session for agent scan, explain, explain-scope, and safe-fix preview"
 
 [lints]
 workspace = true

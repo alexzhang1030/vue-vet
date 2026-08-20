@@ -77,6 +77,52 @@ fn mcp_explain_rule_returns_docs() {
   clippy::panic,
   reason = "parity test indexes known MCP tool result shape"
 )]
+fn mcp_explain_scope_matches_cli_json() {
+  let root = fixture("rules/no-computed-without-dependency/invalid/placeholder.vue");
+  let workspace = root.parent().map_or_else(|| PathBuf::from("."), Path::to_path_buf);
+  let file_name = root
+    .file_name()
+    .map_or_else(|| "placeholder.vue".into(), |name| name.to_string_lossy().into_owned());
+
+  let result =
+    call_tool(&workspace, "vue_vet_explain_scope", &json!({ "query": "label", "path": file_name }));
+  assert_eq!(result["isError"], false, "{result}");
+  let text = result["content"][0]["text"].as_str().unwrap_or_default();
+  let Ok(explain) = serde_json::from_str::<Value>(text) else {
+    panic!("explain-scope tool must return JSON: {text}");
+  };
+  assert!(explain.is_object(), "one match must be a ScopeExplain object: {explain}");
+  assert_eq!(explain["kind"], "computed");
+  assert_eq!(explain["binding"], "label");
+  assert!(
+    explain["summary"]
+      .as_str()
+      .is_some_and(|summary| summary.contains("no known reactive dependency")),
+    "summary must answer would Vue re-run?: {explain}"
+  );
+  assert_eq!(explain["tracks"].as_array().map_or(0, Vec::len), 0);
+}
+
+#[test]
+#[expect(clippy::indexing_slicing, reason = "parity test indexes known MCP tool result shape")]
+fn mcp_explain_scope_rejects_unknown_queries() {
+  let workspace = fixture("rules/no-computed-without-dependency/invalid");
+  let result = call_tool(
+    &workspace,
+    "vue_vet_explain_scope",
+    &json!({ "query": "missingBinding", "path": "placeholder.vue" }),
+  );
+  assert_eq!(result["isError"], true, "{result}");
+  let text = result["content"][0]["text"].as_str().unwrap_or_default();
+  assert!(text.contains("missingBinding"), "{text}");
+}
+
+#[test]
+#[expect(
+  clippy::indexing_slicing,
+  clippy::panic,
+  reason = "parity test indexes known MCP tool result shape"
+)]
 fn mcp_preview_safe_fixes_never_writes() {
   static NEXT: AtomicUsize = AtomicUsize::new(0);
   let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
@@ -106,8 +152,9 @@ fn mcp_preview_safe_fixes_never_writes() {
 
 #[test]
 fn tool_names_are_stable() {
-  assert_eq!(TOOL_NAMES.len(), 3);
+  assert_eq!(TOOL_NAMES.len(), 4);
   assert!(TOOL_NAMES.contains(&"vue_vet_scan"));
   assert!(TOOL_NAMES.contains(&"vue_vet_explain"));
+  assert!(TOOL_NAMES.contains(&"vue_vet_explain_scope"));
   assert!(TOOL_NAMES.contains(&"vue_vet_preview_safe_fixes"));
 }

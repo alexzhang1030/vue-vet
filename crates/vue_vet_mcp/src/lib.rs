@@ -1,8 +1,9 @@
 //! Thin MCP adapter over [`vue_vet_session`].
 //!
-//! Stdio JSON-RPC (Content-Length framing) exposing scan, explain, and safe-fix
-//! preview tools. Analysis stays in the session; this crate only maps protocol
-//! and enforces workspace path bounds. Apply remains CLI / LSP — never silent.
+//! Stdio JSON-RPC (Content-Length framing) exposing scan, explain, explain-scope,
+//! and safe-fix preview tools. Analysis stays in the session; this crate only
+//! maps protocol and enforces workspace path bounds. Apply remains CLI / LSP —
+//! never silent.
 
 mod protocol;
 mod tools;

@@ -10,14 +10,15 @@ use serde_json::{Value, json};
 use vue_vet_core::{EditApplicability, EditPlan, TextEdit};
 use vue_vet_reporters::{
   ReportContext, ReportFormat, ReportFramework, ReportMode, render, render_finding_explain_json,
-  render_rule_explain_json,
+  render_rule_explain_json, render_scope_explains_json,
 };
 use vue_vet_session::{
   AnalysisSnapshot, Explained, ProjectSession, SessionOptions, resolve_under_root, scan_directory,
 };
 
 /// Stable tool names for docs and tests.
-pub const TOOL_NAMES: &[&str] = &["vue_vet_scan", "vue_vet_explain", "vue_vet_preview_safe_fixes"];
+pub const TOOL_NAMES: &[&str] =
+  &["vue_vet_scan", "vue_vet_explain", "vue_vet_explain_scope", "vue_vet_preview_safe_fixes"];
 
 #[must_use]
 pub fn list_tools() -> Vec<Value> {
@@ -38,7 +39,7 @@ pub fn list_tools() -> Vec<Value> {
     ),
     tool_descriptor(
       "vue_vet_explain",
-      "Explain a rule id or opaque finding id (same payload as CLI `--explain`). Finding ids require a prior scan of the same path.",
+      "Explain a rule id or opaque finding id (same payload as CLI `--explain`). Finding ids require a prior scan of the same path. Finding spans inside a tracking scope may nest `tracking` (same payload as `vue_vet_explain_scope`).",
       &json!({
         "type": "object",
         "properties": {
@@ -52,6 +53,25 @@ pub fn list_tools() -> Vec<Value> {
           }
         },
         "required": ["target"],
+        "additionalProperties": false
+      }),
+    ),
+    tool_descriptor(
+      "vue_vet_explain_scope",
+      "Explain a tracking scope: would Vue re-run it when state changes? Same JSON as CLI `--explain-scope` (object for one match, array for several). Query a binding, `file:binding`, or `@offset`.",
+      &json!({
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Binding name (`label`), `file.vue:label`, `file.vue:` (all scopes in that module), `@offset`, or `callee@offset`."
+          },
+          "path": {
+            "type": "string",
+            "description": "Workspace-relative file or directory to scan. Defaults to the workspace root."
+          }
+        },
+        "required": ["query"],
         "additionalProperties": false
       }),
     ),
@@ -81,6 +101,10 @@ pub fn call_tool(workspace_root: &Path, name: &str, arguments: &Value) -> Value 
       Err(error) => tool_error(error),
     },
     "vue_vet_explain" => match tool_explain(workspace_root, arguments) {
+      Ok(text) => tool_success(&text),
+      Err(error) => tool_error(error),
+    },
+    "vue_vet_explain_scope" => match tool_explain_scope(workspace_root, arguments) {
       Ok(text) => tool_success(&text),
       Err(error) => tool_error(error),
     },
@@ -116,6 +140,18 @@ fn tool_explain(workspace_root: &Path, arguments: &Value) -> Result<String, Stri
       render_finding_explain_json(&explain).map_err(|error| error.to_string())
     }
   }
+}
+
+fn tool_explain_scope(workspace_root: &Path, arguments: &Value) -> Result<String, String> {
+  let query = arguments
+    .get("query")
+    .and_then(Value::as_str)
+    .filter(|value| !value.is_empty())
+    .ok_or_else(|| "vue_vet_explain_scope requires a non-empty `query`".to_owned())?;
+  let path = resolve_tool_path(workspace_root, arguments)?;
+  let session = open_session(&path)?;
+  let (explains, _) = session.explain_scope(query).map_err(|error| error.to_string())?;
+  render_scope_explains_json(&explains).map_err(|error| error.to_string())
 }
 
 fn tool_preview_safe_fixes(workspace_root: &Path, arguments: &Value) -> Result<String, String> {

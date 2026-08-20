@@ -206,6 +206,34 @@ pub fn render_scope_explain_json(explain: &ScopeExplain) -> Result<String, serde
   serde_json::to_string_pretty(explain)
 }
 
+/// Render every matching scope explain, separated by a blank line.
+#[must_use]
+pub fn render_scope_explains_text(explains: &[ScopeExplain]) -> String {
+  let mut output = String::new();
+  for (index, explain) in explains.iter().enumerate() {
+    if index > 0 {
+      output.push('\n');
+    }
+    output.push_str(&render_scope_explain_text(explain));
+  }
+  output
+}
+
+/// JSON form of one or more standalone scope explains (same as CLI `--explain-scope`).
+///
+/// A single match is an object; multiple matches are an array. Neither is wrapped
+/// in the scan `schema_version` report.
+///
+/// # Errors
+///
+/// Returns a serialization error when the payload cannot be encoded.
+pub fn render_scope_explains_json(explains: &[ScopeExplain]) -> Result<String, serde_json::Error> {
+  match explains {
+    [single] => render_scope_explain_json(single),
+    _ => serde_json::to_string_pretty(explains),
+  }
+}
+
 /// Render a human-readable finding explain report (rule docs + optional tracking).
 #[must_use]
 pub fn render_finding_explain_text(explain: &FindingExplain) -> String {
@@ -453,5 +481,13 @@ mod tests {
     };
     assert!(json.contains("\"module_id\""));
     assert!(json.contains("\"does_not_track\""));
+
+    let single = render_scope_explains_json(std::slice::from_ref(&explain))
+      .unwrap_or_else(|_| panic!("single scope explain JSON must serialize"));
+    assert_eq!(single, json, "one match stays an object, not an array");
+    let many = render_scope_explains_json(&[explain.clone(), explain])
+      .unwrap_or_else(|_| panic!("multi scope explain JSON must serialize"));
+    assert!(many.trim_start().starts_with('['), "multiple matches are an array: {many}");
+    assert!(render_scope_explains_text(&[]).is_empty());
   }
 }

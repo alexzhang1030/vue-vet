@@ -80,7 +80,7 @@ fn initialize_result() -> Value {
       "name": SERVER_NAME,
       "version": SERVER_VERSION
     },
-    "instructions": "Vue Vet MCP tools scan, explain, and preview safe fixes inside the bound workspace. Fixes are never applied through MCP."
+    "instructions": "Vue Vet MCP tools scan, explain rules/findings, explain tracking scopes (would Vue re-run?), and preview safe fixes inside the bound workspace. Fixes are never applied through MCP."
   })
 }
 
