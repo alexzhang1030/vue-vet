@@ -428,7 +428,10 @@ one file from the original source in reverse-range order. Apply mode uses a
 same-directory atomic replacement and then performs a fresh scan; both fix modes
 bypass cached results so a persisted plan can never authorize mutation. This
 first vertical slice fails closed on multi-file plans. Cross-file staging,
-rollback, and more edit producers remain later issue #9 work.
+rollback, and further producers remain later issue #9 work. Shipped single-file
+producers: boolean `autofocus` removal, quoted `aria-hidden="true"` /
+`:aria-hidden="true"` removal on focusable elements, static `title` →
+`aria-label` inserts, and redundant static `role` removal.
 
 ## Identity and determinism
 

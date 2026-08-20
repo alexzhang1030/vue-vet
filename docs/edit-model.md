@@ -69,6 +69,11 @@ The first producer removes boolean `autofocus`, including adjacent horizontal
 whitespace. A valued form such as `autofocus="true"` stays diagnostic-only
 because the current template fact does not cover the complete attribute.
 
+A second producer removes quoted `aria-hidden="true"`, `:aria-hidden="true"`,
+and `v-bind:aria-hidden="true"` on focusable elements when the full
+name-plus-value extent reconstructs from source. Unquoted `aria-hidden=true`
+stays diagnostic-only.
+
 ## Current phase limit
 
 This slice is transactional for one file: content is written to a temporary
