@@ -649,7 +649,11 @@ fn safe_fix_leaves_unquoted_aria_hidden_for_manual_review() {
   let report: Result<Value, _> = serde_json::from_slice(&output.stdout);
   let stderr = String::from_utf8_lossy(&output.stderr);
 
-  assert!(output.status.success(), "the remaining error must stay visible without deny-warnings");
+  assert_eq!(
+    output.status.code(),
+    Some(1),
+    "an unfixed error must fail the default exit policy: {stderr}"
+  );
   assert_eq!(
     unchanged.as_deref().ok(),
     Some(source),
