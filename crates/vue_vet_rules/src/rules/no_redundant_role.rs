@@ -1,6 +1,6 @@
-use vue_vet_core::{
-  ByteRange, Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity, SourceSpan,
-};
+use vue_vet_core::{Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity};
+
+use super::template_attr::static_attribute_removal_range;
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/maintainability/no-redundant-role",
@@ -65,61 +65,4 @@ impl Rule for NoRedundantRole {
       context.report(self.meta(), attribute.span.clone(), message, help);
     }
   }
-}
-
-/// Prefer removing ` role="value"` including the leading space and quoted value.
-/// Falls back to the attribute name span (plus leading space) when the value
-/// extent cannot be reconstructed — never a partial mid-attribute edit.
-fn static_attribute_removal_range(
-  source: &str,
-  attribute: &vue_vet_core::TemplateAttributeFact,
-) -> Option<ByteRange> {
-  let value = attribute.value.as_ref()?;
-  let bytes = source.as_bytes();
-  let mut index = attribute.span.offset.saturating_add(attribute.span.length);
-  while bytes.get(index).is_some_and(|byte| matches!(byte, b' ' | b'\t')) {
-    index = index.saturating_add(1);
-  }
-  if bytes.get(index) != Some(&b'=') {
-    return Some(name_only_removal_range(source, &attribute.span));
-  }
-  index = index.saturating_add(1);
-  while bytes.get(index).is_some_and(|byte| matches!(byte, b' ' | b'\t')) {
-    index = index.saturating_add(1);
-  }
-  let quote = *bytes.get(index)?;
-  if quote != b'"' && quote != b'\'' {
-    return Some(name_only_removal_range(source, &attribute.span));
-  }
-  index = index.saturating_add(1);
-  let value_start = index;
-  while bytes.get(index).is_some_and(|byte| *byte != quote) {
-    index = index.saturating_add(1);
-  }
-  if index >= bytes.len() {
-    return None;
-  }
-  let parsed = source.get(value_start..index)?;
-  if parsed != value.as_str() {
-    return None;
-  }
-  let end = index.saturating_add(1);
-  let mut offset = attribute.span.offset;
-  while offset > 0
-    && bytes.get(offset.saturating_sub(1)).is_some_and(|byte| matches!(byte, b' ' | b'\t'))
-  {
-    offset = offset.saturating_sub(1);
-  }
-  Some(ByteRange { offset, length: end.saturating_sub(offset) })
-}
-
-fn name_only_removal_range(source: &str, span: &SourceSpan) -> ByteRange {
-  let bytes = source.as_bytes();
-  let mut offset = span.offset;
-  while offset > 0
-    && bytes.get(offset.saturating_sub(1)).is_some_and(|byte| matches!(byte, b' ' | b'\t'))
-  {
-    offset = offset.saturating_sub(1);
-  }
-  ByteRange { offset, length: span.offset.saturating_add(span.length).saturating_sub(offset) }
 }

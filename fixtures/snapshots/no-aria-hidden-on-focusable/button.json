@@ -1,0 +1,30 @@
+[
+  {
+    "rule_id": "vue-vet/accessibility/no-aria-hidden-on-focusable",
+    "category": "accessibility",
+    "severity": "error",
+    "confidence": "high",
+    "documentation": "rules/accessibility/no-aria-hidden-on-focusable",
+    "message": "focusable element is hidden from assistive technology",
+    "help": "Remove aria-hidden, or remove the element from keyboard interaction as well.",
+    "file": "fixtures/rules/no-aria-hidden-on-focusable/invalid/button.vue",
+    "span": {
+      "offset": 21,
+      "length": 11,
+      "line": 2,
+      "column": 11
+    },
+    "edits": [
+      {
+        "file": "fixtures/rules/no-aria-hidden-on-focusable/invalid/button.vue",
+        "range": {
+          "offset": 20,
+          "length": 19
+        },
+        "replacement": "",
+        "applicability": "safe",
+        "rule_id": "vue-vet/accessibility/no-aria-hidden-on-focusable"
+      }
+    ]
+  }
+]

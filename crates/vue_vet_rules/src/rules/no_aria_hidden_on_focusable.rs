@@ -1,6 +1,9 @@
 use vue_vet_core::{
-  Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity, TemplateElementFact,
+  Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity, SourceSpan,
+  TemplateElementFact,
 };
+
+use super::template_attr::{bound_quoted_value_removal_range, quoted_name_value_removal_range};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/accessibility/no-aria-hidden-on-focusable",
@@ -27,31 +30,37 @@ impl Rule for NoAriaHiddenOnFocusable {
     let FactRef::TemplateElement(element) = fact else {
       return;
     };
-    let span = element
-      .attribute("aria-hidden")
-      .filter(|attribute| {
-        attribute.value.as_deref().is_some_and(|value| value.eq_ignore_ascii_case("true"))
-      })
-      .map(|attribute| &attribute.span)
-      .or_else(|| {
-        element
-          .bound_attribute("aria-hidden")
-          .filter(|directive| directive.expression.as_deref().is_some_and(|value| value == "true"))
-          .map(|directive| &directive.span)
-      });
-    let Some(span) = span else {
-      return;
-    };
     if !element_is_focusable(element) {
       return;
     }
-    context.report(
-      self.meta(),
-      span.clone(),
-      "focusable element is hidden from assistive technology".into(),
-      Some("Remove aria-hidden, or remove the element from keyboard interaction as well.".into()),
-    );
+    let Some((span, expected_value)) = hidden_true_target(element) else {
+      return;
+    };
+    let message = "focusable element is hidden from assistive technology".into();
+    let help =
+      Some("Remove aria-hidden, or remove the element from keyboard interaction as well.".into());
+    if let Some(range) = quoted_name_value_removal_range(context.source(), span, expected_value)
+      .or_else(|| {
+        bound_quoted_value_removal_range(context.source(), span, "aria-hidden", expected_value)
+      })
+    {
+      context.report_with_safe_edit(self.meta(), span.clone(), message, help, range, String::new());
+    } else {
+      context.report(self.meta(), span.clone(), message, help);
+    }
   }
+}
+
+fn hidden_true_target(element: &TemplateElementFact) -> Option<(&SourceSpan, &str)> {
+  if let Some(attribute) = element.attribute("aria-hidden")
+    && let Some(value) = attribute.value.as_deref()
+    && value.eq_ignore_ascii_case("true")
+  {
+    return Some((&attribute.span, value));
+  }
+  let directive = element.bound_attribute("aria-hidden")?;
+  let expression = directive.expression.as_deref()?;
+  (expression == "true").then_some((&directive.span, expression))
 }
 
 fn element_is_focusable(element: &TemplateElementFact) -> bool {

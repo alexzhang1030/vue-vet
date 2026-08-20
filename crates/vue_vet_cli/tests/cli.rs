@@ -612,6 +612,65 @@ fn safe_fix_leaves_valued_autofocus_for_manual_review() {
 }
 
 #[test]
+fn safe_fix_removes_quoted_aria_hidden_on_focusable() {
+  let source = "<template>\n  <button aria-hidden=\"true\">Save</button>\n</template>\n";
+  let expected = "<template>\n  <button>Save</button>\n</template>\n";
+  let project = TempProject::new("safe-fix-aria-hidden", source);
+  let source_path = project.source_path();
+  let output =
+    run(&[source_path.to_string_lossy().as_ref(), "--fix-safe", "--format", "json", "--no-cache"]);
+  let rewritten = fs::read_to_string(&source_path);
+  let report: Result<Value, _> = serde_json::from_slice(&output.stdout);
+  let stderr = String::from_utf8_lossy(&output.stderr);
+
+  assert!(output.status.success(), "removing aria-hidden should leave a clean button: {stderr}");
+  assert_eq!(rewritten.as_deref().ok(), Some(expected), "quoted aria-hidden=true must be removed");
+  assert_eq!(
+    report
+      .as_ref()
+      .ok()
+      .and_then(|value| value.get("diagnostics"))
+      .and_then(Value::as_array)
+      .map(Vec::len),
+    Some(0),
+    "stdout must report the post-fix rescan"
+  );
+  assert!(stderr.contains("applied 1 safe edit"), "stderr must summarize the mutation: {stderr}");
+}
+
+#[test]
+fn safe_fix_leaves_unquoted_aria_hidden_for_manual_review() {
+  let source = "<template>\n  <button aria-hidden=true>Save</button>\n</template>\n";
+  let project = TempProject::new("safe-fix-unquoted-aria-hidden", source);
+  let source_path = project.source_path();
+  let output =
+    run(&[source_path.to_string_lossy().as_ref(), "--fix-safe", "--format", "json", "--no-cache"]);
+  let unchanged = fs::read_to_string(&source_path);
+  let report: Result<Value, _> = serde_json::from_slice(&output.stdout);
+  let stderr = String::from_utf8_lossy(&output.stderr);
+
+  assert!(output.status.success(), "the remaining error must stay visible without deny-warnings");
+  assert_eq!(
+    unchanged.as_deref().ok(),
+    Some(source),
+    "an unquoted value has no complete replacement span"
+  );
+  assert_eq!(
+    report
+      .as_ref()
+      .ok()
+      .and_then(|value| value.get("diagnostics"))
+      .and_then(Value::as_array)
+      .and_then(|diagnostics| diagnostics.first())
+      .and_then(|diagnostic| diagnostic.get("rule_id"))
+      .and_then(Value::as_str),
+    Some("vue-vet/accessibility/no-aria-hidden-on-focusable"),
+    "the unfixed diagnostic must remain visible"
+  );
+  assert!(stderr.contains("applied 0 safe edits"), "no incomplete edit may be applied: {stderr}");
+}
+
+#[test]
 fn safe_fix_rejects_a_multi_file_plan_without_partial_writes() {
   let source = "<template>\n  <input autofocus aria-label=\"Field\">\n</template>\n";
   let project = TempProject::new("safe-fix-multi-file", source);

@@ -37,6 +37,7 @@ mod no_v_if_with_v_for;
 mod prefer_computed;
 mod require_component_is;
 mod require_v_for_key;
+mod template_attr;
 mod valid_aria_role;
 mod valid_v_html;
 mod valid_v_text;

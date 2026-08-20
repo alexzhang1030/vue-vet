@@ -75,8 +75,10 @@ still available (`has_labelable_descendant` for `label-has-for`,
 A diagnostic span is not automatically a safe replacement span. For example,
 the template fact for `autofocus` precisely covers its name but not a possible
 value. The first safe producer therefore removes only boolean `autofocus` and
-leaves `autofocus="..."` as a visible manual finding. Never turn a name-only span
-into a partial edit that leaves invalid syntax behind.
+leaves `autofocus="..."` as a visible manual finding. The `aria-hidden="true"`
+producer reconstructs the quoted value from source before deleting; unquoted
+forms stay report-only. Never turn a name-only span into a partial edit that
+leaves invalid syntax behind.
 
 Fix ranges are original-source UTF-8 byte ranges. Validate both endpoints before
 editing, apply multiple ranges from the end of the source, and preserve all

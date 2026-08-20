@@ -514,6 +514,60 @@ fn button_has_content_fixtures_match_exact_diagnostics() {
 }
 
 #[test]
+fn no_aria_hidden_on_focusable_fixtures_match_exact_diagnostics() {
+  assert_diagnostics(
+    "fixtures/rules/no-aria-hidden-on-focusable/invalid/button.vue",
+    include_str!("../../../fixtures/rules/no-aria-hidden-on-focusable/invalid/button.vue"),
+    include_str!("../../../fixtures/snapshots/no-aria-hidden-on-focusable/button.json"),
+  );
+  assert_diagnostics(
+    "fixtures/rules/no-aria-hidden-on-focusable/invalid/bound-true.vue",
+    include_str!("../../../fixtures/rules/no-aria-hidden-on-focusable/invalid/bound-true.vue"),
+    include_str!("../../../fixtures/snapshots/no-aria-hidden-on-focusable/bound-true.json"),
+  );
+  assert_diagnostics(
+    "fixtures/rules/no-aria-hidden-on-focusable/invalid/tabindex.vue",
+    include_str!("../../../fixtures/rules/no-aria-hidden-on-focusable/invalid/tabindex.vue"),
+    include_str!("../../../fixtures/snapshots/no-aria-hidden-on-focusable/tabindex.json"),
+  );
+  assert_diagnostics(
+    "fixtures/rules/no-aria-hidden-on-focusable/invalid/unquoted.vue",
+    include_str!("../../../fixtures/rules/no-aria-hidden-on-focusable/invalid/unquoted.vue"),
+    include_str!("../../../fixtures/snapshots/no-aria-hidden-on-focusable/unquoted.json"),
+  );
+  assert_diagnostics(
+    "fixtures/rules/no-aria-hidden-on-focusable/invalid/v-bind.vue",
+    include_str!("../../../fixtures/rules/no-aria-hidden-on-focusable/invalid/v-bind.vue"),
+    include_str!("../../../fixtures/snapshots/no-aria-hidden-on-focusable/v-bind.json"),
+  );
+  let empty = "[]";
+  for (path, source) in [
+    (
+      "fixtures/rules/no-aria-hidden-on-focusable/valid/decorative.vue",
+      include_str!("../../../fixtures/rules/no-aria-hidden-on-focusable/valid/decorative.vue"),
+    ),
+    (
+      "fixtures/rules/no-aria-hidden-on-focusable/valid/disabled.vue",
+      include_str!("../../../fixtures/rules/no-aria-hidden-on-focusable/valid/disabled.vue"),
+    ),
+    (
+      "fixtures/rules/no-aria-hidden-on-focusable/valid/false.vue",
+      include_str!("../../../fixtures/rules/no-aria-hidden-on-focusable/valid/false.vue"),
+    ),
+    (
+      "fixtures/rules/no-aria-hidden-on-focusable/valid/bound-dynamic.vue",
+      include_str!("../../../fixtures/rules/no-aria-hidden-on-focusable/valid/bound-dynamic.vue"),
+    ),
+    (
+      "fixtures/rules/no-aria-hidden-on-focusable/valid/hidden-input.vue",
+      include_str!("../../../fixtures/rules/no-aria-hidden-on-focusable/valid/hidden-input.vue"),
+    ),
+  ] {
+    assert_diagnostics(path, source, empty);
+  }
+}
+
+#[test]
 fn heading_and_label_a11y_fixtures_match_exact_diagnostics() {
   assert_diagnostics(
     "fixtures/rules/heading-has-content/invalid/empty.vue",
