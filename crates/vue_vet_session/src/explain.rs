@@ -63,7 +63,7 @@ pub fn explain_scope(
       "empty --explain-scope query; pass a binding name, `file:binding`, or `@offset`",
     ));
   }
-  let snapshot = session.analyze()?;
+  let snapshot = snapshot_for_explain(session)?;
   let mut explains = collect_scope_explains(&snapshot.graph.module_reactivity, query);
   if explains.is_empty() {
     return Err(SessionError::message(format!(
@@ -85,7 +85,7 @@ fn explain_finding_with_status(
   session: &ProjectSession,
   finding_id: &str,
 ) -> Result<(FindingExplain, &'static str), SessionError> {
-  let snapshot = session.analyze()?;
+  let snapshot = snapshot_for_explain(session)?;
   let Some(diagnostic) = snapshot
     .summary
     .diagnostics
@@ -252,6 +252,15 @@ fn documentation_candidates(root: &Path, relative_docs_path: &str) -> Vec<PathBu
     current = parent;
   }
   candidates
+}
+
+/// Prefer the last committed full snapshot so LSP hover / MCP explain-scope
+/// can reuse a DiagnosticsOnly publish without re-tracing.
+fn snapshot_for_explain(session: &ProjectSession) -> Result<crate::AnalysisSnapshot, SessionError> {
+  match session.current_snapshot()? {
+    Some(snapshot) => Ok((*snapshot).clone()),
+    None => session.analyze(),
+  }
 }
 
 fn explain_search_roots(scan_path: &Path) -> Vec<PathBuf> {

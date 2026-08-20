@@ -234,6 +234,69 @@ pub fn render_scope_explains_json(explains: &[ScopeExplain]) -> Result<String, s
   }
 }
 
+/// Markdown form of a tracking-scope explain (LSP hover / editor hosts).
+#[must_use]
+pub fn render_scope_explain_markdown(explain: &ScopeExplain) -> String {
+  let who = match explain.binding.as_deref() {
+    Some(name) if !name.is_empty() => name,
+    _ => explain.callee.as_str(),
+  };
+  let mut output = String::new();
+  output.push_str("## ");
+  output.push_str(who);
+  output.push_str("\n\n_");
+  output.push_str(&explain.kind);
+  output.push_str("_ · `");
+  output.push_str(&explain.module_id);
+  output.push_str("`\n\n");
+  output.push_str(&explain.summary);
+  if !explain.tracks.is_empty() {
+    output.push_str("\n\n**Tracks**");
+    for dep in &explain.tracks {
+      output.push_str("\n- `");
+      output.push_str(&dep.path);
+      output.push_str("` — ");
+      output.push_str(&dep.reason_label);
+    }
+  }
+  if !explain.does_not_track.is_empty() {
+    output.push_str("\n\n**Does not track**");
+    for dep in &explain.does_not_track {
+      output.push_str("\n- `");
+      output.push_str(&dep.path);
+      output.push_str("` — ");
+      output.push_str(&dep.reason_label);
+    }
+  }
+  if !explain.uncertain.is_empty() {
+    output.push_str("\n\n**Uncertain:** ");
+    let mut first = true;
+    for name in &explain.uncertain {
+      if !first {
+        output.push_str(", ");
+      }
+      first = false;
+      output.push('`');
+      output.push_str(name);
+      output.push('`');
+    }
+  }
+  output
+}
+
+/// Markdown for every matching scope explain, separated by a horizontal rule.
+#[must_use]
+pub fn render_scope_explains_markdown(explains: &[ScopeExplain]) -> String {
+  let mut output = String::new();
+  for (index, explain) in explains.iter().enumerate() {
+    if index > 0 {
+      output.push_str("\n\n---\n\n");
+    }
+    output.push_str(&render_scope_explain_markdown(explain));
+  }
+  output
+}
+
 /// Render a human-readable finding explain report (rule docs + optional tracking).
 #[must_use]
 pub fn render_finding_explain_text(explain: &FindingExplain) -> String {
@@ -489,5 +552,17 @@ mod tests {
       .unwrap_or_else(|_| panic!("multi scope explain JSON must serialize"));
     assert!(many.trim_start().starts_with('['), "multiple matches are an array: {many}");
     assert!(render_scope_explains_text(&[]).is_empty());
+
+    let markdown = render_scope_explain_markdown(&explain);
+    assert!(markdown.contains("## label"));
+    assert!(markdown.contains("_computed_"));
+    assert!(markdown.contains("`App.vue`"));
+    assert!(markdown.contains("no known reactive dependency"));
+    assert!(markdown.contains("**Does not track**"));
+    assert!(markdown.contains("`count.value`"));
+    assert!(markdown.contains("**Uncertain:** `maybeRoot`"));
+    assert!(render_scope_explains_markdown(&[]).is_empty());
+    let many_md = render_scope_explains_markdown(&[explain.clone(), explain]);
+    assert!(many_md.contains("\n\n---\n\n"), "multiple scopes are separated: {many_md}");
   }
 }

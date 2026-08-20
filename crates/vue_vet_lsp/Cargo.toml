@@ -9,7 +9,7 @@ rust-version.workspace = true
 readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "Thin LSP adapter over vue_vet_session for editor diagnostics"
+description = "Thin LSP adapter over vue_vet_session for diagnostics and explain-scope hover"
 
 [lints]
 workspace = true

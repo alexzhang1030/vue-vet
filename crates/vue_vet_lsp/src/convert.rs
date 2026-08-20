@@ -2,13 +2,15 @@
 
 use tower_lsp::lsp_types::{
   CodeAction, CodeActionKind, CodeActionOrCommand, Diagnostic as LspDiagnostic, DiagnosticSeverity,
-  DocumentChanges, NumberOrString, OneOf, OptionalVersionedTextDocumentIdentifier, Position, Range,
-  TextDocumentEdit, TextEdit as LspTextEdit, Url, WorkspaceEdit,
+  DocumentChanges, Hover, HoverContents, MarkupContent, MarkupKind, NumberOrString, OneOf,
+  OptionalVersionedTextDocumentIdentifier, Position, Range, TextDocumentEdit,
+  TextEdit as LspTextEdit, Url, WorkspaceEdit,
 };
 use vue_vet_core::{
-  ByteRange, Diagnostic, EditApplicability, EditPlan, FileId, LineIndex, Severity, SourceSpan,
+  ByteRange, Diagnostic, EditApplicability, EditPlan, FileId, LineIndex, ScopeExplain, Severity,
+  SourceSpan,
 };
-use vue_vet_reporters::report_diagnostic_id;
+use vue_vet_reporters::{render_scope_explains_markdown, report_diagnostic_id};
 
 /// Convert a Vue Vet finding into an LSP diagnostic.
 ///
@@ -156,6 +158,40 @@ pub fn safe_code_actions(
     actions.push(CodeActionOrCommand::CodeAction(action));
   }
   actions
+}
+
+/// Convert a 0-based LSP UTF-16 position into a UTF-8 byte offset.
+#[must_use]
+pub fn position_to_byte(source: &str, line_index: &LineIndex, position: Position) -> Option<usize> {
+  line_index.utf16_to_byte(source, position.line, position.character)
+}
+
+/// `--explain-scope` query for a caret in `file_id` (start-exact, else covering).
+#[must_use]
+pub fn explain_scope_query(file_id: &FileId, offset: usize) -> String {
+  format!("{}:@{offset}", file_id.as_str())
+}
+
+/// Hover payload from session `ScopeExplain` facts (same markdown as reporters).
+#[must_use]
+pub fn hover_from_scope_explains(
+  explains: &[ScopeExplain],
+  source: &str,
+  line_index: Option<&LineIndex>,
+) -> Option<Hover> {
+  if explains.is_empty() {
+    return None;
+  }
+  let range = explains
+    .first()
+    .map(|explain| span_to_range_with_index(&explain.span, Some(source), line_index));
+  Some(Hover {
+    contents: HoverContents::Markup(MarkupContent {
+      kind: MarkupKind::Markdown,
+      value: render_scope_explains_markdown(explains),
+    }),
+    range,
+  })
 }
 
 #[must_use]
@@ -448,5 +484,47 @@ mod tests {
       },
     );
     assert!(actions.is_empty());
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "unit test asserts unicode fixture layout")]
+  fn position_to_byte_round_trips_utf16_prefix() {
+    let source = "<template>\n  <div>中文😀</div>\n  <main v-html=\"html\" />\n</template>\n";
+    let index = LineIndex::new(source);
+    let Some(offset) = source.find("v-html") else {
+      panic!("fixture must contain v-html");
+    };
+    let (line, character) = index.byte_to_utf16(source, offset);
+    assert_eq!(position_to_byte(source, &index, Position { line, character }), Some(offset));
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "unit test asserts hover markdown shape")]
+  fn hover_from_scope_explains_uses_markdown_and_span_range() {
+    let source = "const label = computed(() => 'static')\n";
+    let explain = vue_vet_core::ScopeExplain {
+      module_id: "App.vue".into(),
+      kind: "computed".into(),
+      callee: "computed".into(),
+      binding: Some("label".into()),
+      span: SourceSpan { offset: 14, length: 24, line: 1, column: 15 },
+      summary:
+        "`label` has no known reactive dependency — Vue will not re-run it when state changes"
+          .into(),
+      tracks: Vec::new(),
+      does_not_track: Vec::new(),
+      uncertain: Vec::new(),
+    };
+    let hover = hover_from_scope_explains(std::slice::from_ref(&explain), source, None);
+    let Some(Hover { contents: HoverContents::Markup(markup), range: Some(range) }) = hover else {
+      panic!("expected markdown hover with range");
+    };
+    assert_eq!(markup.kind, MarkupKind::Markdown);
+    assert!(markup.value.contains("## label"));
+    assert!(markup.value.contains("no known reactive dependency"));
+    assert_eq!(range.start.line, 0);
+    assert_eq!(range.start.character, 14);
+    assert!(hover_from_scope_explains(&[], source, None).is_none());
+    assert_eq!(explain_scope_query(&FileId::from("App.vue"), 20), "App.vue:@20");
   }
 }

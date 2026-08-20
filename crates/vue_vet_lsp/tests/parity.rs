@@ -5,10 +5,12 @@ use std::{
 };
 
 use tower_lsp::lsp_types::{
-  CodeActionKind, CodeActionOrCommand, DocumentChanges, OneOf, Position, Range, Url,
+  CodeActionKind, CodeActionOrCommand, DocumentChanges, HoverContents, OneOf, Position, Range, Url,
 };
+use vue_vet_core::LineIndex;
 use vue_vet_lsp::{
-  SafeCodeActionRequest, is_current_generation, safe_code_actions, to_lsp_diagnostic,
+  SafeCodeActionRequest, explain_scope_query, hover_from_scope_explains, is_current_generation,
+  position_to_byte, safe_code_actions, to_lsp_diagnostic,
 };
 use vue_vet_reporters::report_diagnostic_id;
 use vue_vet_session::{ProjectSession, SessionOptions};
@@ -153,6 +155,57 @@ fn safe_code_actions_match_autofocus_producer() {
     panic!("expected plain text edit");
   };
   assert_eq!(text_edit.new_text, "");
+}
+
+#[test]
+#[expect(clippy::panic, reason = "parity setup failures must fail the integration test")]
+fn hover_mid_span_matches_explain_scope_summary() {
+  let root = fixture("rules/no-computed-without-dependency/invalid/placeholder.vue");
+  let Ok(session) = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+  }) else {
+    panic!("session must open");
+  };
+  let lean = session
+    .analyze_affected_product(vue_vet_session::AnalysisProduct::DiagnosticsOnly)
+    .unwrap_or_else(|error| panic!("diagnostics-only: {error}"));
+  assert!(lean.graph.module_reactivity.is_empty());
+
+  let Ok((explains, _)) = session.explain_scope("label") else {
+    panic!("explain-scope must find label after DiagnosticsOnly");
+  };
+  let Some(explain) = explains.first() else {
+    panic!("expected one computed scope");
+  };
+  let start = explain.span.offset;
+  let mid = start.saturating_add(explain.span.length / 2).max(start.saturating_add(1));
+  let Ok(source) = fs::read_to_string(&root) else {
+    panic!("fixture source must read");
+  };
+  let index = LineIndex::new(&source);
+  let (line, character) = index.byte_to_utf16(&source, mid);
+  assert_eq!(position_to_byte(&source, &index, Position { line, character }), Some(mid));
+
+  let Ok(file_id) = session.file_id_for_path(&root) else {
+    panic!("file id");
+  };
+  let query = explain_scope_query(&file_id, mid);
+  let Ok((at_mid, _)) = session.explain_scope(&query) else {
+    panic!("mid-span hover query must match: {query}");
+  };
+  assert_eq!(at_mid.first().and_then(|item| item.binding.clone()), Some("label".into()));
+  let Some(hover) = hover_from_scope_explains(&at_mid, &source, Some(&index)) else {
+    panic!("hover must render ScopeExplain");
+  };
+  let HoverContents::Markup(markup) = hover.contents else {
+    panic!("hover must be markdown");
+  };
+  assert!(markup.value.contains("no known reactive dependency"), "{}", markup.value);
+  assert!(markup.value.contains("## label"), "{}", markup.value);
 }
 
 #[expect(clippy::expect_used, reason = "test helper builds a file URL")]

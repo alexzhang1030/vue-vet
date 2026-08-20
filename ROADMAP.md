@@ -230,6 +230,7 @@ Implemented (#12):
   (`ScopeExplain` on findings when span sits in a scope)
 - `vue_vet_session` shared scan / explain / workspace bounds / buffer overlays
 - thin `vue-vet --lsp` diagnostics (open/change/save, unsaved overlays, versioned publish)
+- LSP hover for `--explain-scope` (`file:@offset`, same `ScopeExplain` markdown)
 - safe quick-fix code actions from explicitly safe diagnostic edits (client-applied)
 - thin `vue-vet --mcp` agent tools (scan / explain / explain-scope / safe-fix preview; no silent apply)
 

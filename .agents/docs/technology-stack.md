@@ -23,8 +23,8 @@ streams each file's findings as its rules finish. Force with `--progress always`
 
 The thin diagnostics LSP (`vue-vet --lsp`) uses `tower-lsp` + `tokio` in
 `vue_vet_lsp` as a protocol adapter only: it maps session diagnostics (including
-unsaved buffer overlays and safe quick-fix edits) to LSP types and must not
-re-implement analysis. The thin MCP adapter (`vue-vet --mcp`) lives in
+unsaved buffer overlays, safe quick-fix edits, and explain-scope hover) to LSP
+types and must not re-implement analysis. The thin MCP adapter (`vue-vet --mcp`) lives in
 `vue_vet_mcp` with a minimal stdio JSON-RPC tools subset (no heavy MCP SDK) over
 the same session; it must not re-implement analysis or silently apply fixes.
 

@@ -1,8 +1,9 @@
 //! Stdio language server backed by [`vue_vet_session::ProjectSession`].
 //!
 //! Publishes diagnostics from on-disk files plus unsaved buffer overlays
-//! (`textDocument/didOpen` / `didChange` / `didSave`) and exposes explicitly
-//! safe quick-fix code actions. Overlay changes advance the session revision,
+//! (`textDocument/didOpen` / `didChange` / `didSave`), exposes explicitly
+//! safe quick-fix code actions, and answers hover with `--explain-scope`
+//! (`ScopeExplain`) for the caret byte. Overlay changes advance the session revision,
 //! stale CPU work cooperatively cancels between phases, and a debounced
 //! latest-wins gate admits only one blocking analysis at a time. The initialized
 //! [`ProjectSession`] retains sources, facts, graph partitions, and reverse
@@ -22,9 +23,10 @@ use tokio::sync::{Mutex, RwLock};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
   CodeActionParams, CodeActionProviderCapability, CodeActionResponse, DidChangeTextDocumentParams,
-  DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-  InitializeParams, InitializeResult, InitializedParams, MessageType, ServerCapabilities,
-  ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
+  DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams, Hover,
+  HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
+  MessageType, ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind,
+  Url,
 };
 use tower_lsp::{Client, LanguageServer};
 use vue_vet_core::SourceContext;
@@ -32,7 +34,10 @@ use vue_vet_session::{
   AnalysisProduct, AnalysisSnapshot, ChangeSet, ProjectSession, SessionOptions,
 };
 
-use crate::convert::{SafeCodeActionRequest, safe_code_actions, to_lsp_diagnostic_with_index};
+use crate::convert::{
+  SafeCodeActionRequest, explain_scope_query, hover_from_scope_explains, position_to_byte,
+  safe_code_actions, to_lsp_diagnostic_with_index,
+};
 
 #[derive(Clone, Debug)]
 pub struct Backend {
@@ -207,6 +212,7 @@ impl LanguageServer for Backend {
       capabilities: ServerCapabilities {
         text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
         code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
         ..ServerCapabilities::default()
       },
       server_info: Some(ServerInfo {
@@ -219,7 +225,10 @@ impl LanguageServer for Backend {
   async fn initialized(&self, _: InitializedParams) {
     self
       .client
-      .log_message(MessageType::INFO, "vue-vet LSP ready (overlays + safe quick-fix code actions)")
+      .log_message(
+        MessageType::INFO,
+        "vue-vet LSP ready (overlays + safe quick-fix + explain-scope hover)",
+      )
       .await;
   }
 
@@ -371,6 +380,45 @@ impl LanguageServer for Backend {
       },
     );
     Ok(Some(actions).filter(|actions| !actions.is_empty()))
+  }
+
+  async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+    let uri = params.text_document_position_params.text_document.uri;
+    let position = params.text_document_position_params.position;
+    let (path, text, line_index, session) = {
+      let state = self.state.read().await;
+      let Some(doc) = state.open.get(&uri) else {
+        return Ok(None);
+      };
+      let Some(session) = state.session.clone() else {
+        return Ok(None);
+      };
+      let snapshot =
+        (doc.path.clone(), doc.context.text().to_owned(), doc.context.line_index_arc(), session);
+      drop(state);
+      snapshot
+    };
+    let Some(offset) = position_to_byte(&text, line_index.as_ref(), position) else {
+      return Ok(None);
+    };
+    let Ok(file_id) = session.file_id_for_path(&path) else {
+      return Ok(None);
+    };
+    let query = explain_scope_query(&file_id, offset);
+    let _gate = self.analysis_gate.lock().await;
+    let result = tokio::task::spawn_blocking(move || session.explain_scope(&query)).await;
+    let explains = match result {
+      Ok(Ok((explains, _))) => explains,
+      Ok(Err(_)) => return Ok(None),
+      Err(error) => {
+        self
+          .client
+          .log_message(MessageType::ERROR, format!("vue-vet hover worker failed: {error}"))
+          .await;
+        return Ok(None);
+      }
+    };
+    Ok(hover_from_scope_explains(&explains, &text, Some(line_index.as_ref())))
   }
 }
 

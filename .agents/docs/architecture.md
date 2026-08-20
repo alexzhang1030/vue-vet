@@ -359,9 +359,11 @@ work cancels between pipeline phases and its commit is rejected under the same
 session lock. The resulting snapshot refreshes every open document. Safe
 quick-fix code actions return versioned
 workspace edits from explicitly safe diagnostic edits only (client applies;
-server never writes). The thin MCP adapter (`vue-vet --mcp`, `vue_vet_mcp`)
-exposes scan / explain / explain-scope / safe-fix preview tools over stdio
-JSON-RPC with the same session path bounds; MCP never applies edits.
+server never writes). Hover answers “would Vue re-run?” from the committed
+full snapshot via `--explain-scope` `file:@offset`. The thin MCP adapter
+(`vue-vet --mcp`, `vue_vet_mcp`) exposes scan / explain / explain-scope /
+safe-fix preview tools over stdio JSON-RPC with the same session path bounds;
+MCP never applies edits.
 
 ### Published library crates
 
@@ -458,7 +460,12 @@ a parallel tracer. **Explain Scope** shells `vue-vet --explain-scope @offset`
 `textDocument/publishDiagnostics` with the same opaque finding ids as JSON
 `diagnostics[].id` (stored in LSP `data`) plus the document version. Safe
 quick-fix code actions map active safe edits to versioned `WorkspaceEdit`s.
-`vue-vet --mcp` (`vue_vet_mcp`) exposes stdio JSON-RPC tools for scan, explain,
+Hover converts the caret UTF-16 position to a byte offset and asks
+`session.explain_scope` with `file:@offset` (start-exact, else covering) —
+the same `ScopeExplain` markdown as CLI `--explain-scope`. Diagnostics
+publish may use `AnalysisProduct::DiagnosticsOnly`; the committed session
+snapshot keeps the full graph so hover does not re-trace. `vue-vet --mcp`
+(`vue_vet_mcp`) exposes stdio JSON-RPC tools for scan, explain,
 explain-scope (`vue_vet_explain_scope`, same `ScopeExplain` JSON as CLI
 `--explain-scope`), and safe-fix preview with the same workspace path bounds;
 it never applies edits. Request-level cancellation remains later issue #12 work.
