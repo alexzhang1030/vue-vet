@@ -3,7 +3,7 @@
 const path = require('node:path');
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { findWorkspaceBinary, resolveLauncher } = require('../lib/cli');
+const { findWorkspaceBinary, resolveLauncher, runExplainScope } = require('../lib/cli');
 
 describe('cli launcher resolution', () => {
   it('uses the configured path when set', async () => {
@@ -71,4 +71,55 @@ describe('cli launcher resolution', () => {
     assert.ok(seen.includes(debug));
     assert.ok(seen.indexOf(debug) < seen.indexOf(release));
   });
+
+  it('runExplainScope passes --explain-scope and parses JSON', async () => {
+    const payload = { kind: 'computed', binding: 'label', summary: 'no known' };
+    const result = await runExplainScope({
+      workspaceRoot: '/repo',
+      scanPath: '/repo/App.vue',
+      query: '@25',
+      configuredPath: '/bin/vue-vet',
+      resolveLauncherImpl: async () => ({ command: '/bin/vue-vet', argsPrefix: [] }),
+      spawnImpl: (command, args) => {
+        assert.equal(command, '/bin/vue-vet');
+        assert.deepEqual(args, [
+          '/repo/App.vue',
+          '--explain-scope',
+          '@25',
+          '--format',
+          'json',
+          '--no-cache',
+        ]);
+        return fakeProcess(JSON.stringify(payload), '', 0);
+      },
+    });
+    assert.deepEqual(result, payload);
+  });
 });
+
+/**
+ * @param {string} stdout
+ * @param {string} stderr
+ * @param {number} code
+ */
+function fakeProcess(stdout, stderr, code) {
+  const handlers = { data: [], close: [], error: [] };
+  const stream = (chunk) => ({
+    setEncoding() {},
+    on(event, handler) {
+      if (event === 'data') {
+        queueMicrotask(() => handler(chunk));
+      }
+    },
+  });
+  return {
+    stdout: stream(stdout),
+    stderr: stream(stderr),
+    on(event, handler) {
+      if (event === 'close') {
+        queueMicrotask(() => handler(code));
+      }
+      handlers[event].push(handler);
+    },
+  };
+}

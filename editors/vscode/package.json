@@ -22,6 +22,7 @@
     "onView:vueVet.reactivity",
     "onCommand:vue-vet.showReactivity",
     "onCommand:vue-vet.refreshReactivity",
+    "onCommand:vue-vet.explainScope",
     "onLanguage:vue",
     "onLanguage:typescript",
     "onLanguage:javascript"
@@ -58,6 +59,10 @@
       {
         "command": "vue-vet.showComponentUsers",
         "title": "Vue Vet: Show Component Users"
+      },
+      {
+        "command": "vue-vet.explainScope",
+        "title": "Vue Vet: Explain Scope (would Vue re-run?)"
       }
     ],
     "configuration": {
@@ -147,6 +152,11 @@
           "command": "vue-vet.showComponentUsers",
           "when": "resourceExtname == .vue",
           "group": "vue-vet@4"
+        },
+        {
+          "command": "vue-vet.explainScope",
+          "when": "resourceExtname == .vue || resourceLangId == typescript || resourceLangId == javascript",
+          "group": "vue-vet@5"
         }
       ]
     },

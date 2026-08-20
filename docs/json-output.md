@@ -100,7 +100,8 @@ plus structured span details for editor consumers:
       "binding": "derived",
       "span": { "offset": 80, "length": 40 },
       "label": "computed  →  derived",
-      "uncertain_accesses": ["mystery"]
+      "uncertain_accesses": ["mystery"],
+      "summary": "`derived` has no proven dependency; soft evidence maybe:mystery"
     }
   ],
   "template_details": [
@@ -119,6 +120,8 @@ roots of `.value` / `unref` / `toValue` (or bare watch sources) that were analyz
 but not classified as known bindings. Absence rules report these as
 `(maybe: …)` instead of inventing edges. The field is omitted when empty.
 String `scopes` labels append ` maybe:a,b` when soft evidence is present.
+`scope_details[].summary` is the same one-line “would Vue re-run?” verdict as
+`--explain-scope` / `ScopeExplain.summary` (omitted when unset).
 
 `span` / `to_span` are source **byte** ranges (`offset` + `length`). Editors should
 map them with UTF-8-aware `positionAt`. String label arrays remain for text
@@ -320,8 +323,8 @@ scan `path`).
 | `label` | Scope binding `label` (or callee name) |
 | `App.vue:label` | Binding in modules whose id ends with `App.vue` |
 | `App.vue:` / `App.vue` | All scopes in matching modules (path-like / extension) |
-| `@42` | Scope whose span starts at byte offset 42 |
-| `computed@42` | Callee (or binding / module) + span offset |
+| `@42` | Scope whose span **starts** at byte 42; if none, the tightest scope **covering** that byte (same rule as finding `--explain`) |
+| `computed@42` | Callee (or binding / module) + span **start** (exact; no covering fallback) |
 
 Unknown queries are operational failures (exit 2).
 

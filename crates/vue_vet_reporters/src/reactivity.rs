@@ -46,6 +46,9 @@ pub struct ReactivityScopeDetail {
   /// were not classified as known bindings (absence rules surface as `(maybe: …)`).
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub uncertain_accesses: Vec<String>,
+  /// Same one-line “would Vue re-run?” verdict as `--explain-scope` / `ScopeExplain.summary`.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub summary: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -286,7 +289,7 @@ pub fn scope_detail_with_uncertain(
   let machine =
     binding.as_ref().map_or_else(|| format!("{kind}({callee})"), |name| format!("{kind}({name})"));
   let label = humanize_scope(&machine);
-  ReactivityScopeDetail { kind, callee, binding, span, label, uncertain_accesses }
+  ReactivityScopeDetail { kind, callee, binding, span, label, uncertain_accesses, summary: None }
 }
 
 /// Compact text label for a scope, including soft evidence when present.
@@ -521,6 +524,7 @@ mod tests {
       vec!["mystery".into(), "other".into()],
     );
     assert_eq!(detail.uncertain_accesses, ["mystery", "other"]);
+    assert_eq!(detail.summary, None);
     assert_eq!(scope_label_with_uncertain(&detail), "computed(derived) maybe:mystery,other");
     let quiet = scope_detail("watch_effect", "watchEffect", None, ReactivitySpanRef::new(0, 1));
     assert!(quiet.uncertain_accesses.is_empty());

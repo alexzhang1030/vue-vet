@@ -2,13 +2,15 @@
 
 const path = require('node:path');
 const vscode = require('vscode');
-const { runReactivityScan } = require('./lib/cli');
+const { runReactivityScan, runExplainScope } = require('./lib/cli');
 const {
   modulesFromReport,
   componentNavFromReport,
   moduleForFile,
   decorationPlan,
   hoverAtOffset,
+  scopeAtOffset,
+  markdownFromScopeExplain,
   normalizePath,
   utf8OffsetToUtf16,
   utf16OffsetToUtf8,
@@ -86,6 +88,7 @@ function activate(context) {
     vscode.commands.registerCommand('vue-vet.showComponentUsers', (element) =>
       inspectComponents(element, 'used_by'),
     ),
+    vscode.commands.registerCommand('vue-vet.explainScope', () => explainScopeAtCursor()),
     vscode.languages.registerHoverProvider(
       [
         { language: 'vue' },
@@ -340,8 +343,49 @@ function provideHover(document, position) {
   const markdown = new vscode.MarkdownString();
   markdown.appendMarkdown(`**${hit.label}**\n\n`);
   markdown.appendMarkdown(`_${hit.kind}_\n\n`);
+  const covering = scopeAtOffset(module, offset);
+  if (covering?.summary) {
+    markdown.appendMarkdown(`${covering.summary}\n\n`);
+  }
   markdown.appendMarkdown('Static reactivity fact from `vue-vet --print-reactivity`.');
   return new vscode.Hover(markdown);
+}
+
+async function explainScopeAtCursor() {
+  const editor = vscode.window.activeTextEditor;
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  if (!editor || !folder) {
+    void vscode.window.showWarningMessage('Vue Vet: open a Vue/JS/TS file to explain a tracking scope.');
+    return;
+  }
+  const utf16 = editor.document.offsetAt(editor.selection.active);
+  const byteOffset = utf16OffsetToUtf8(editor.document.getText(), utf16);
+  const configuredPath = vscode.workspace.getConfiguration('vue-vet').get('path', '');
+  try {
+    const payload = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'Vue Vet: explaining scope…',
+        cancellable: false,
+      },
+      () =>
+        runExplainScope({
+          workspaceRoot: folder.uri.fsPath,
+          scanPath: editor.document.uri.fsPath,
+          query: `@${byteOffset}`,
+          configuredPath: typeof configuredPath === 'string' ? configuredPath : '',
+        }),
+    );
+    const markdown = markdownFromScopeExplain(payload);
+    const document = await vscode.workspace.openTextDocument({
+      language: 'markdown',
+      content: markdown,
+    });
+    await vscode.window.showTextDocument(document, { preview: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    void vscode.window.showErrorMessage(`Vue Vet: ${message}`);
+  }
 }
 
 /**

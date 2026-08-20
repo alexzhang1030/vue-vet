@@ -59,8 +59,9 @@ pub fn explain_tracking_scope(module_id: &str, scope: &TrackingScopeFact) -> Sco
 /// Supported forms (case-sensitive for names):
 /// - `binding` — `scope.binding == query`
 /// - `module:binding` — module id ends with / equals left, binding matches right
-/// - `module@offset` or `@offset` — span start equals offset
-/// - `callee@offset` — callee + span
+/// - `module@offset` or `@offset` — span **start** equals offset; if none, the
+///   tightest scope **covering** that byte (same rule as [`scope_covering_span`])
+/// - `callee@offset` — callee + span start (exact; no covering fallback)
 #[must_use]
 pub fn select_tracking_scopes<'graph>(
   module_id: &str,
@@ -72,6 +73,16 @@ pub fn select_tracking_scopes<'graph>(
     return Vec::new();
   }
 
+  if let Some(offset) = parse_bare_at_offset(query) {
+    return scopes_at_offset(graph, offset);
+  }
+  if let Some((left, right)) = query.split_once(':')
+    && module_id_matches(module_id, left)
+    && let Some(offset) = parse_bare_at_offset(right)
+  {
+    return scopes_at_offset(graph, offset);
+  }
+
   let mut selected = Vec::new();
   for scope in &graph.scopes {
     if scope_matches(module_id, scope, query) {
@@ -79,6 +90,20 @@ pub fn select_tracking_scopes<'graph>(
     }
   }
   selected
+}
+
+/// `@42` — a point query. `callee@42` stays exact-start via [`scope_matches`].
+fn parse_bare_at_offset(query: &str) -> Option<usize> {
+  query.strip_prefix('@')?.parse().ok()
+}
+
+fn scopes_at_offset(graph: &ReactivityGraph, offset: usize) -> Vec<&TrackingScopeFact> {
+  let exact = graph.scopes.iter().filter(|scope| scope.span.offset == offset).collect::<Vec<_>>();
+  if !exact.is_empty() {
+    return exact;
+  }
+  // Length 1 so the caret must sit on a byte inside the span, not on the exclusive end.
+  scope_covering_span(graph, offset, 1).into_iter().collect()
 }
 
 /// Find the tightest tracking scope covering a diagnostic span (same module).
@@ -99,13 +124,16 @@ pub fn scope_covering_span(
     .min_by_key(|scope| (scope.span.length, scope.span.offset))
 }
 
+fn module_id_matches(module_id: &str, query_module: &str) -> bool {
+  module_id == query_module
+    || module_id.ends_with(query_module)
+    || module_id.ends_with(&format!("/{query_module}"))
+    || PathTail(module_id).ends_with(query_module)
+}
+
 fn scope_matches(module_id: &str, scope: &TrackingScopeFact, query: &str) -> bool {
   if let Some((left, right)) = query.split_once(':') {
-    let module_ok = module_id == left
-      || module_id.ends_with(left)
-      || module_id.ends_with(&format!("/{left}"))
-      || PathTail(module_id).ends_with(left);
-    return module_ok && scope_matches(module_id, scope, right);
+    return module_id_matches(module_id, left) && scope_matches(module_id, scope, right);
   }
   if let Some(offset_text) = query.strip_prefix('@') {
     return offset_text.parse::<usize>().ok() == Some(scope.span.offset);
@@ -313,5 +341,51 @@ mod tests {
     assert_eq!(select_tracking_scopes("App.vue", &graph, "@42").len(), 1);
     assert_eq!(select_tracking_scopes("App.vue", &graph, "computed@42").len(), 1);
     assert!(select_tracking_scopes("App.vue", &graph, "missing").is_empty());
+  }
+
+  #[test]
+  fn at_offset_falls_back_to_tightest_covering_scope() {
+    let inner = TrackingScopeFact {
+      kind: TrackingScopeKind::Computed,
+      callee: "computed".into(),
+      span: SourceSpan { offset: 20, length: 10, line: 1, column: 21 },
+      reads: Vec::new(),
+      writes: Vec::new(),
+      assignment_only: false,
+      binding: Some("inner".into()),
+      uncertain_accesses: Vec::new(),
+    };
+    let outer = TrackingScopeFact {
+      kind: TrackingScopeKind::WatchEffect,
+      callee: "watchEffect".into(),
+      span: SourceSpan { offset: 10, length: 40, line: 1, column: 11 },
+      reads: Vec::new(),
+      writes: Vec::new(),
+      assignment_only: false,
+      binding: None,
+      uncertain_accesses: Vec::new(),
+    };
+    let graph = ReactivityGraph { scopes: vec![outer, inner], ..ReactivityGraph::default() };
+
+    let start = select_tracking_scopes("App.vue", &graph, "@20");
+    assert_eq!(start.len(), 1);
+    assert_eq!(start.first().and_then(|scope| scope.binding.as_deref()), Some("inner"));
+
+    let mid = select_tracking_scopes("App.vue", &graph, "@25");
+    assert_eq!(mid.len(), 1, "mid-span @offset must pick the tightest covering scope");
+    assert_eq!(mid.first().and_then(|scope| scope.binding.as_deref()), Some("inner"));
+
+    let outer_only = select_tracking_scopes("App.vue", &graph, "@15");
+    assert_eq!(outer_only.len(), 1);
+    assert_eq!(outer_only.first().map(|scope| scope.callee.as_str()), Some("watchEffect"));
+
+    let qualified = select_tracking_scopes("src/App.vue", &graph, "App.vue:@25");
+    assert_eq!(qualified.first().and_then(|scope| scope.binding.as_deref()), Some("inner"));
+
+    assert!(select_tracking_scopes("App.vue", &graph, "@99").is_empty());
+    assert!(
+      select_tracking_scopes("App.vue", &graph, "computed@25").is_empty(),
+      "callee@offset stays exact-start"
+    );
   }
 }

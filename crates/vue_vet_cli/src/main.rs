@@ -11,7 +11,7 @@ use clap::{Args, Parser, ValueEnum};
 use vue_vet_cache::{Baseline, filter_diff, read_git_diff};
 use vue_vet_core::{ReactiveBindingKind, ReactiveDependencyKind, ScanSummary, TrackingScopeKind};
 use vue_vet_project::{EdgeKind, ProjectGraph};
-use vue_vet_reactivity::ModuleReactivity;
+use vue_vet_reactivity::{ModuleReactivity, explain_tracking_scope};
 use vue_vet_reporters::{
   ComponentNavDigest, ComponentNavEdgeInput, ReactivityDigest, ReactivityModuleStats,
   ReactivitySpanRef, ReportContext, ReportFormat, ReportFramework, ReportMode, binding_detail,
@@ -95,7 +95,7 @@ struct Cli {
     long,
     value_name = "QUERY",
     conflicts_with = "explain",
-    help = "Scan and explain tracking scope deps (binding, file:binding, @offset), then exit"
+    help = "Scan and explain tracking scope deps (binding, file:binding, @offset start-or-covering), then exit"
   )]
   explain_scope: Option<String>,
 
@@ -581,13 +581,15 @@ fn reactivity_module_stats(modules: &[ModuleReactivity]) -> Vec<ReactivityModule
           let mut uncertain = scope.uncertain_accesses.clone();
           uncertain.sort();
           uncertain.dedup();
-          scope_detail_with_uncertain(
+          let mut detail = scope_detail_with_uncertain(
             scope_kind_label(scope.kind),
             scope.callee.clone(),
             scope.binding.clone(),
             ReactivitySpanRef::new(scope.span.offset, scope.span.length.max(1)),
             uncertain,
-          )
+          );
+          detail.summary = Some(explain_tracking_scope(module.id.as_str(), scope).summary);
+          detail
         })
         .collect::<Vec<_>>();
       scope_details.sort_by(|left, right| {

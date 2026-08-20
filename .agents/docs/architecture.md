@@ -449,7 +449,9 @@ that invalidate the graph.
 `editors/vscode` is a **thin** VS Code host for reactivity visualization. It
 spawns the Rust CLI (`--format json --print-reactivity`), maps structured
 `*_details` byte spans onto decorations / hover / a TreeView, and must not grow
-a parallel tracer.
+a parallel tracer. **Explain Scope** shells `vue-vet --explain-scope @offset`
+(covering fallback) and paints `ScopeExplain`; hover may show
+`scope_details[].summary` from the digest.
 
 `vue-vet --lsp` is the diagnostics LSP surface (`vue_vet_lsp`). It uses
 `vue_vet_session` with open-buffer overlays and publishes

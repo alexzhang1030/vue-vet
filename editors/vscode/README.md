@@ -60,6 +60,7 @@ the workspace and a built `target/debug/vue-vet`, no `vue-vet.path` is required.
 | `Vue Vet: Show Dependencies` | Right-click a computed/effect binding → outbound deps |
 | `Vue Vet: Show Components Used` | Structural uses from the project graph (not prop dataflow) |
 | `Vue Vet: Show Component Users` | Structural used-by from the project graph (not prop dataflow) |
+| `Vue Vet: Explain Scope (would Vue re-run?)` | Cursor byte offset → CLI `--explain-scope @offset` (covering fallback) |
 
 ## Settings
 
