@@ -133,6 +133,58 @@ async function runReactivityScan(options) {
 }
 
 /**
+ * Run `vue-vet --explain-scope` and parse the ScopeExplain JSON (object or array).
+ * @param {{
+ *   workspaceRoot: string,
+ *   query: string,
+ *   scanPath?: string,
+ *   configuredPath?: string,
+ *   extraArgs?: string[],
+ *   spawnImpl?: typeof spawn,
+ *   resolveLauncherImpl?: typeof resolveLauncher,
+ * }} options
+ */
+async function runExplainScope(options) {
+  const spawnImpl = options.spawnImpl || spawn;
+  const resolve = options.resolveLauncherImpl || resolveLauncher;
+  const launcher = await resolve(options.configuredPath || '', options.workspaceRoot || '');
+  const scanPath = options.scanPath || options.workspaceRoot;
+  const args = [
+    ...launcher.argsPrefix,
+    scanPath,
+    '--explain-scope',
+    options.query,
+    '--format',
+    'json',
+    '--no-cache',
+    ...(options.extraArgs || []),
+  ];
+
+  const { stdout, stderr, code } = await runProcess(spawnImpl, launcher.command, args, {
+    cwd: options.workspaceRoot,
+  });
+
+  if (!stdout.trim()) {
+    throw new Error(stderr.trim() || `vue-vet --explain-scope exited with code ${code}`);
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(stdout);
+  } catch (error) {
+    throw new Error(
+      `Failed to parse explain-scope JSON (exit ${code}): ${error instanceof Error ? error.message : error}\n${stdout.slice(0, 400)}`,
+    );
+  }
+
+  if (payload && typeof payload === 'object' && payload.ok === false && payload.error) {
+    throw new Error(typeof payload.error === 'string' ? payload.error : JSON.stringify(payload.error));
+  }
+
+  return payload;
+}
+
+/**
  * @param {typeof spawn} spawnImpl
  * @param {string} command
  * @param {string[]} args
@@ -164,5 +216,6 @@ module.exports = {
   findWorkspaceBinary,
   resolveLauncher,
   runReactivityScan,
+  runExplainScope,
   commandExists,
 };

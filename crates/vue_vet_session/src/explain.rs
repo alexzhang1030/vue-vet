@@ -52,7 +52,7 @@ pub fn explain_finding(
 /// Query forms (same as [`select_tracking_scopes`]):
 /// - binding name (`label`, `doubled`)
 /// - `module:binding` or `module:` (all scopes in matching modules)
-/// - `@offset` / `callee@offset` / `module@offset`
+/// - `@offset` / `callee@offset` / `module@offset` (`@offset` also covers a caret inside a span)
 pub fn explain_scope(
   session: &ProjectSession,
   query: &str,

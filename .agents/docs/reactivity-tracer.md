@@ -35,9 +35,11 @@ Related: [architecture](./architecture.md), [gotchas](./gotchas.md),
   `vue_vet_explain_scope` (same JSON as CLI `--format json`). Finding
   `--explain` / MCP `vue_vet_explain` attaches optional `tracking` when the
   diagnostic span sits inside a scope. Query: binding, `module:binding`,
-  `@offset`, `callee@offset`. Contract types: `ScopeExplain` /
+  `@offset` (span start, else tightest covering — same as finding `--explain`),
+  `callee@offset` (exact start). Contract types: `ScopeExplain` /
   `ScopeExplainDep` / `ScopeTrackReason` in `vue_vet_core` (additive on
-  `FindingExplain`).
+  `FindingExplain`). `--print-reactivity` `scope_details[].summary` is the same
+  one-line verdict. VS Code **Explain Scope** shells CLI `--explain-scope @offset`.
 
 ## What “complete” means
 
@@ -377,6 +379,7 @@ growing prose ledger.
 | 2026-08-10 | `defineProps` destructure | Object-pattern + rest locals seed `Reactive` (Vue 3.5); `withDefaults` same |
 | 2026-08-10 | Vue Macros `defineModels` | Setup-only; object-destructure locals seed `ModelRef` |
 | 2026-08-20 | MCP explain-scope consumer | `vue_vet_explain_scope` returns the same `ScopeExplain` JSON as CLI `--explain-scope`; finding `vue_vet_explain` already nests `tracking` |
+| 2026-08-20 | Explain-scope `@offset` covering | Dual-path: finding `--explain` used `scope_covering_span`; `@offset` was start-only. Bare / `module:@offset` now start-exact then tightest covering (length 1). `callee@offset` stays start-exact. Digest `scope_details.summary` + VS Code command. No graph version bump (query + digest field, not graph facts). |
 | 2026-07-31 | `inject(key) as Ctx` bag | Peel `TSAsExpression` to find the declarator; seed asserted Ref-field interface when provide offer is unknown; `return ctx` after assertion exports the bag (map-context helpers) |
 | 2026-07-31 | Generic context factory | `return value as T` (enclosing type param) → `MethodGeneric`; typed call destructure `const { useInject: useX } = factory<Ctx>(…)` → link-time `Composable` from the matching type argument (no name allowlist) |
 | 2026-07-31 | `expr as Ref` declarator | `const modelValue = useVModel(…) as Ref<T>` seeds a Ref binding from the outermost assertion (same under-approx as `: Ref` annotations) |

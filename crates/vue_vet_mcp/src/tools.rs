@@ -58,13 +58,13 @@ pub fn list_tools() -> Vec<Value> {
     ),
     tool_descriptor(
       "vue_vet_explain_scope",
-      "Explain a tracking scope: would Vue re-run it when state changes? Same JSON as CLI `--explain-scope` (object for one match, array for several). Query a binding, `file:binding`, or `@offset`.",
+      "Explain a tracking scope: would Vue re-run it when state changes? Same JSON as CLI `--explain-scope` (object for one match, array for several). Query a binding, `file:binding`, or `@offset` (start, else tightest covering scope).",
       &json!({
         "type": "object",
         "properties": {
           "query": {
             "type": "string",
-            "description": "Binding name (`label`), `file.vue:label`, `file.vue:` (all scopes in that module), `@offset`, or `callee@offset`."
+            "description": "Binding name (`label`), `file.vue:label`, `file.vue:` (all scopes in that module), `@offset` (span start, else covering), or `callee@offset` (exact start)."
           },
           "path": {
             "type": "string",

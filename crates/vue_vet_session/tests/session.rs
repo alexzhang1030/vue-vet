@@ -115,6 +115,18 @@ fn explain_scope_reports_no_known_dependency_for_static_computed() {
   };
   assert_eq!(tracking.binding.as_deref(), Some("label"));
   assert!(tracking.summary.contains("no known reactive dependency"));
+
+  let start = tracking.span.offset;
+  let mid = start.saturating_add(tracking.span.length / 2).max(start.saturating_add(1));
+  let Ok((at_start, _)) = session.explain_scope(&format!("@{start}")) else {
+    panic!("@start must match the computed span start");
+  };
+  let Ok((at_mid, _)) = session.explain_scope(&format!("@{mid}")) else {
+    panic!("mid-span @offset must fall back to the covering computed");
+  };
+  assert_eq!(at_start.first().and_then(|item| item.binding.clone()), Some("label".into()));
+  assert_eq!(at_mid.first().and_then(|item| item.binding.clone()), Some("label".into()));
+  assert_eq!(at_mid.first().map(|item| item.summary.as_str()), Some(tracking.summary.as_str()));
 }
 
 #[test]

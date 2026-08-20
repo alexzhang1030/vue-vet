@@ -254,6 +254,56 @@ fn explain_scope_answers_would_vue_rerun() {
 }
 
 #[test]
+#[expect(clippy::panic, reason = "malformed explain-scope JSON must fail the integration test")]
+fn explain_scope_at_offset_covers_mid_span() {
+  let path = fixture("rules/no-computed-without-dependency/invalid/placeholder.vue");
+  let path_argument = path.to_string_lossy();
+  let printed = run(&[
+    path_argument.as_ref(),
+    "--format",
+    "json",
+    "--print-reactivity",
+    "--no-cache",
+  ]);
+  let printed_stdout = String::from_utf8_lossy(&printed.stdout);
+  assert!(printed.status.success(), "print-reactivity must succeed: {printed_stdout}");
+  let Ok(report) = serde_json::from_str::<Value>(&printed_stdout) else {
+    panic!("print-reactivity JSON must parse: {printed_stdout}");
+  };
+  let Some(scope) = report
+    .pointer("/reactivity/modules_detail/0/scope_details/0")
+  else {
+    panic!("fixture must expose a computed scope_detail: {printed_stdout}");
+  };
+  assert!(
+    scope.get("summary").and_then(Value::as_str).is_some_and(|summary| {
+      summary.contains("no known reactive dependency")
+    }),
+    "print-reactivity scope_details must carry the explain-scope summary: {scope}"
+  );
+  let Some(offset) = scope.pointer("/span/offset").and_then(Value::as_u64) else {
+    panic!("scope span offset missing: {scope}");
+  };
+  let Some(length) = scope.pointer("/span/length").and_then(Value::as_u64) else {
+    panic!("scope span length missing: {scope}");
+  };
+  let mid = offset.saturating_add(length / 2).max(offset.saturating_add(1));
+  let output = run(&[
+    path_argument.as_ref(),
+    "--explain-scope",
+    &format!("@{mid}"),
+    "--format",
+    "json",
+  ]);
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  assert!(output.status.success(), "mid-span @offset must resolve: {stdout}");
+  let Ok(parsed) = serde_json::from_str::<Value>(&stdout) else {
+    panic!("explain-scope JSON must parse: {stdout}");
+  };
+  assert_eq!(parsed.get("binding").and_then(Value::as_str), Some("label"));
+}
+
+#[test]
 fn explain_scope_rejects_unknown_queries() {
   let path = fixture("rules/no-computed-without-dependency/invalid/placeholder.vue");
   let output = run(&[path.to_string_lossy().as_ref(), "--explain-scope", "missingBinding"]);

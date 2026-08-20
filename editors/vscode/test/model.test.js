@@ -10,6 +10,8 @@ const {
   moduleForFile,
   decorationPlan,
   hoverAtOffset,
+  scopeAtOffset,
+  markdownFromScopeExplain,
   buildTree,
   utf8OffsetToUtf16,
   utf16OffsetToUtf8,
@@ -250,5 +252,50 @@ describe('reactivity model', () => {
     assert.ok(usedBy);
     // Evidence reveal opens the parent template file.
     assert.equal(usedBy.children[0].moduleId, 'pages/index.vue');
+  });
+
+  it('picks the tightest covering scope at a mid-span offset', () => {
+    const module = {
+      id: 'App.vue',
+      bindings: [],
+      scopes: [],
+      edges: [],
+      template_reads: [],
+      scope_details: [
+        {
+          kind: 'watch_effect',
+          callee: 'watchEffect',
+          span: { offset: 10, length: 40 },
+          label: 'watchEffect',
+          summary: '`watchEffect` tracks 1 dependency path(s)',
+        },
+        {
+          kind: 'computed',
+          callee: 'computed',
+          binding: 'inner',
+          span: { offset: 20, length: 10 },
+          label: 'computed  →  inner',
+          summary: '`inner` has no known reactive dependency — Vue will not re-run it when state changes',
+        },
+      ],
+    };
+    assert.equal(scopeAtOffset(module, 25)?.binding, 'inner');
+    assert.equal(scopeAtOffset(module, 15)?.callee, 'watchEffect');
+    assert.equal(scopeAtOffset(module, 99), null);
+  });
+
+  it('renders ScopeExplain JSON as markdown', () => {
+    const markdown = markdownFromScopeExplain({
+      module_id: 'App.vue',
+      kind: 'computed',
+      binding: 'label',
+      summary: '`label` has no known reactive dependency — Vue will not re-run it when state changes',
+      tracks: [],
+      does_not_track: [],
+      uncertain: ['mystery'],
+    });
+    assert.match(markdown, /## label/);
+    assert.match(markdown, /no known reactive dependency/);
+    assert.match(markdown, /maybe|Uncertain/);
   });
 });

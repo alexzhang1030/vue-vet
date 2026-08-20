@@ -35,7 +35,8 @@
  *   callee: string,
  *   binding?: string,
  *   span: SpanRef,
- *   label: string
+ *   label: string,
+ *   summary?: string
  * }} ScopeDetail
  * @typedef {{
  *   id: string,
@@ -270,6 +271,82 @@ function hoverAtOffset(module, offset) {
     consider(read.span, read.label, `template · ${read.surface}`);
   }
   return best;
+}
+
+/**
+ * Tightest tracking scope covering a UTF-8 byte offset (same rule as
+ * `scope_covering_span` / `--explain-scope @offset` covering fallback).
+ * @param {ModuleDetail | undefined} module
+ * @param {number} offset
+ * @returns {ScopeDetail | null}
+ */
+function scopeAtOffset(module, offset) {
+  if (!module || typeof offset !== 'number') {
+    return null;
+  }
+  /** @type {ScopeDetail | null} */
+  let best = null;
+  for (const scope of module.scope_details || []) {
+    if (!isSpan(scope.span)) continue;
+    if (offset < scope.span.offset || offset >= scope.span.offset + scope.span.length) continue;
+    if (
+      !best ||
+      scope.span.length < best.span.length ||
+      (scope.span.length === best.span.length && scope.span.offset < best.span.offset)
+    ) {
+      best = scope;
+    }
+  }
+  return best;
+}
+
+/**
+ * Markdown for a CLI `--explain-scope` payload (one object or an array).
+ * @param {unknown} payload
+ * @returns {string}
+ */
+function markdownFromScopeExplain(payload) {
+  const explains = Array.isArray(payload) ? payload : payload ? [payload] : [];
+  if (explains.length === 0) {
+    return '_No tracking scope matched._';
+  }
+  return explains.map(formatOneScopeExplain).join('\n\n---\n\n');
+}
+
+/**
+ * @param {any} explain
+ */
+function formatOneScopeExplain(explain) {
+  if (!explain || typeof explain !== 'object') {
+    return '_Invalid scope explain._';
+  }
+  const who = explain.binding || explain.callee || 'scope';
+  const lines = [
+    `## ${who}`,
+    '',
+    `_${explain.kind || 'scope'}_ · \`${explain.module_id || ''}\``,
+    '',
+    explain.summary || '_No summary._',
+  ];
+  const tracks = Array.isArray(explain.tracks) ? explain.tracks : [];
+  if (tracks.length) {
+    lines.push('', '**Tracks**');
+    for (const dep of tracks) {
+      lines.push(`- \`${dep.path || dep.binding}\` — ${dep.reason_label || dep.reason || ''}`);
+    }
+  }
+  const skipped = Array.isArray(explain.does_not_track) ? explain.does_not_track : [];
+  if (skipped.length) {
+    lines.push('', '**Does not track**');
+    for (const dep of skipped) {
+      lines.push(`- \`${dep.path || dep.binding}\` — ${dep.reason_label || dep.reason || ''}`);
+    }
+  }
+  const uncertain = Array.isArray(explain.uncertain) ? explain.uncertain : [];
+  if (uncertain.length) {
+    lines.push('', `**Uncertain:** ${uncertain.map((name) => `\`${name}\``).join(', ')}`);
+  }
+  return lines.join('\n');
 }
 
 /**
@@ -623,6 +700,8 @@ module.exports = {
   moduleForFile,
   decorationPlan,
   hoverAtOffset,
+  scopeAtOffset,
+  markdownFromScopeExplain,
   buildTree,
   isSpan,
   utf8OffsetToUtf16,
