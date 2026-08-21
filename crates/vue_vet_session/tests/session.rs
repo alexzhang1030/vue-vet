@@ -946,6 +946,44 @@ fn diagnostics_only_product_omits_graph_dto() {
 
 #[test]
 #[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn explain_scope_reuses_full_snapshot_after_diagnostics_only() {
+  let Ok(session) = ProjectSession::open(SessionOptions {
+    root: fixture("rules/no-computed-without-dependency/invalid/placeholder.vue"),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+  }) else {
+    panic!("session must open");
+  };
+  let lean = session
+    .analyze_affected_product(AnalysisProduct::DiagnosticsOnly)
+    .unwrap_or_else(|error| panic!("diagnostics-only: {error}"));
+  assert!(
+    lean.graph.module_reactivity.is_empty(),
+    "published DiagnosticsOnly DTO must omit module reactivity"
+  );
+  let current = session
+    .current_snapshot()
+    .unwrap_or_else(|error| panic!("current snapshot: {error}"))
+    .unwrap_or_else(|| panic!("DiagnosticsOnly must commit a full snapshot"));
+  assert!(
+    !current.graph.module_reactivity.is_empty(),
+    "committed IR must keep module reactivity for explain-scope hover"
+  );
+  let Ok((explains, _)) = session.explain_scope("label") else {
+    panic!("explain-scope must reuse the committed full snapshot");
+  };
+  assert_eq!(explains.len(), 1, "expected one computed scope: {explains:?}");
+  let Some(explain) = explains.first() else {
+    panic!("expected one computed scope");
+  };
+  assert_eq!(explain.binding.as_deref(), Some("label"));
+  assert!(explain.summary.contains("no known reactive dependency"));
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
 fn noop_analyze_affected_does_not_recommit() {
   let root = fixture("rules/no-v-html/invalid");
   let session = ProjectSession::open(SessionOptions {

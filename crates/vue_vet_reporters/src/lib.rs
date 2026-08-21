@@ -22,7 +22,8 @@ pub use explain::{
   documentation_path, explain_finding, explain_rule, find_rule_meta, finding_explain_with_tracking,
   looks_like_finding_id, render_finding_explain_json, render_finding_explain_text,
   render_rule_explain_json, render_rule_explain_text, render_scope_explain_json,
-  render_scope_explain_text, render_scope_explains_json, render_scope_explains_text,
+  render_scope_explain_markdown, render_scope_explain_text, render_scope_explains_json,
+  render_scope_explains_markdown, render_scope_explains_text,
 };
 pub use humanize::{
   humanize_binding, humanize_edge, humanize_edge_parts_with_property, humanize_scope,

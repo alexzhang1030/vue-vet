@@ -589,6 +589,10 @@ impl ProjectSession {
 
   /// Scan and explain tracking scopes matching a human query (“would Vue re-run?”).
   ///
+  /// Reuses the last committed full snapshot when the workspace revision is
+  /// unchanged, including after a [`AnalysisProduct::DiagnosticsOnly`] publish
+  /// (the committed IR keeps `module_reactivity`; only the caller DTO is trimmed).
+  ///
   /// # Errors
   ///
   /// Returns when the query is empty, no scope matches, or analysis fails.
@@ -597,6 +601,18 @@ impl ProjectSession {
     query: &str,
   ) -> Result<(Vec<ScopeExplain>, &'static str), SessionError> {
     crate::explain::explain_scope(self, query)
+  }
+
+  /// Last committed snapshot when the workspace revision is unchanged.
+  ///
+  /// This is the full IR (including module reactivity), even when the last
+  /// caller requested [`AnalysisProduct::DiagnosticsOnly`].
+  ///
+  /// # Errors
+  ///
+  /// Returns when the session state lock was poisoned.
+  pub fn current_snapshot(&self) -> Result<Option<Arc<AnalysisSnapshot>>, SessionError> {
+    self.noop_snapshot()
   }
 
   fn replace_overlays(&self, overlays: &BTreeMap<PathBuf, String>) -> Result<(), SessionError> {

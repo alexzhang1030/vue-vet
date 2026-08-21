@@ -9,7 +9,7 @@ without executing components, effects, or Proxies.
 
 Lint rules are the first consumer. The graph is intended as a multi-consumer
 library surface (project graph, cache, CLI `--explain-scope`, MCP
-`vue_vet_explain_scope`, future LSP / codemod tools).
+`vue_vet_explain_scope`, LSP hover, future codemod tools).
 
 ### Explain a tracking scope
 
@@ -28,6 +28,7 @@ CLI: `vue-vet path --explain-scope doubled` (or `App.vue:doubled`, `@offset`).
 `@offset` matches a span start first, then the tightest covering scope (same as
 finding `--explain`). `callee@offset` stays exact-start.
 MCP: tool `vue_vet_explain_scope` with the same query (JSON object or array).
+LSP: `vue-vet --lsp` hover at a caret inside a tracking scope.
 
 ## Status
 

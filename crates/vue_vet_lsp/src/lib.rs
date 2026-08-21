@@ -1,15 +1,17 @@
 //! Thin LSP adapter over [`vue_vet_session`].
 //!
 //! Publishes diagnostics for on-disk files and unsaved buffer overlays with the
-//! same opaque finding ids as CLI JSON, and offers explicitly safe quick-fix
-//! code actions as versioned workspace edits. A debounced latest-wins queue
-//! cancels stale session revisions between analysis phases.
+//! same opaque finding ids as CLI JSON, offers explicitly safe quick-fix code
+//! actions as versioned workspace edits, and answers hover with the same
+//! `ScopeExplain` markdown as CLI `--explain-scope`. A debounced latest-wins
+//! queue cancels stale session revisions between analysis phases.
 
 mod convert;
 mod server;
 
 pub use convert::{
-  SafeCodeActionRequest, byte_range_to_range, safe_code_actions, span_to_range, to_lsp_diagnostic,
+  SafeCodeActionRequest, byte_range_to_range, explain_scope_query, hover_from_scope_explains,
+  position_to_byte, safe_code_actions, span_to_range, to_lsp_diagnostic,
 };
 pub use server::{Backend, is_current_generation};
 

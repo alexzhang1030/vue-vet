@@ -314,7 +314,8 @@ scope when state changes?** from static tracer facts (not DevTools). With
 `--format json` it prints a standalone `ScopeExplain` object (or an array when
 multiple scopes match) — not wrapped in `schema_version` / `diagnostics`. The
 MCP tool `vue_vet_explain_scope` returns the same JSON (`query` plus optional
-scan `path`).
+scan `path`). `vue-vet --lsp` hover uses `file:@offset` and renders the same
+payload as Markdown.
 
 ### Query forms
 
