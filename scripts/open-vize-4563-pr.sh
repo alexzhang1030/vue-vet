@@ -7,6 +7,9 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 patch="$root/docs/upstream/vize-4563-atelier-sfc-compile.patch"
 token="${VIZE_UPSTREAM_GITHUB_TOKEN:-${GH_TOKEN:-${GITHUB_TOKEN:-}}}"
+if [[ -z "$token" ]]; then
+  token="$(gh auth token 2>/dev/null || true)"
+fi
 work="${TMPDIR:-/tmp}/vize-4563-pr"
 branch="feat/atelier-sfc-compile-feature"
 
@@ -15,7 +18,7 @@ if [[ ! -f "$patch" ]]; then
   exit 1
 fi
 if [[ -z "$token" ]]; then
-  echo "set VIZE_UPSTREAM_GITHUB_TOKEN (or GH_TOKEN) to an account that can fork vize" >&2
+  echo "log in with gh, or set VIZE_UPSTREAM_GITHUB_TOKEN, as a user who can push to the vize fork" >&2
   exit 1
 fi
 
@@ -23,9 +26,11 @@ export GH_TOKEN="$token"
 export GITHUB_TOKEN="$token"
 
 login="$(gh api user --jq .login)"
-gh repo fork ubugeeei-prod/vize --clone=false --default-branch-only --remote=false >/dev/null
+if ! gh api "repos/$login/vize" --jq .full_name >/dev/null 2>&1; then
+  gh repo fork ubugeeei-prod/vize --clone=false --default-branch-only --remote=false >/dev/null
+fi
 rm -rf "$work"
-gh repo clone "$login/vize" "$work" -- --depth=1
+gh repo clone "$login/vize" "$work"
 git -C "$work" checkout -B "$branch"
 git -C "$work" am --3way "$patch"
 git -C "$work" push -u origin "$branch"
