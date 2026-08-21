@@ -125,7 +125,6 @@ fn relative_dot_scan_resolves_nuxt_tilde_imports() {
 }
 
 #[test]
-#[expect(clippy::panic, reason = "test setup failures must fail the integration test")]
 fn scoped_package_import_in_config_is_not_unresolved() {
   let project = TempProject::new("scoped-tailwind", "<template><div /></template>\n");
   project.write_source(

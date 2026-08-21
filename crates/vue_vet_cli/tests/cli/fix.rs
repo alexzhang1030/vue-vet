@@ -167,7 +167,6 @@ fn safe_fix_does_not_apply_a_suppressed_finding() {
 }
 
 #[test]
-#[expect(clippy::panic, reason = "test setup failures must fail the integration test")]
 fn safe_fix_does_not_apply_a_disabled_rule() {
   let source = "<template>\n  <input autofocus aria-label=\"Field\">\n</template>\n";
   let project = TempProject::new("safe-fix-disabled", source);

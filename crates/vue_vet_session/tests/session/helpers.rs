@@ -10,7 +10,6 @@ pub fn fixture(name: &str) -> PathBuf {
   PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures").join(name)
 }
 
-#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
 pub fn open_session(root: impl Into<PathBuf>) -> ProjectSession {
   open_session_threads(root, 1)
 }
