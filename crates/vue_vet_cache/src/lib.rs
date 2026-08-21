@@ -299,7 +299,7 @@ fn parse_patch(diff: &str, changed: &mut ChangedLines) -> Result<(), DiffError> 
         return Err(DiffError::InvalidHunk(line.into()));
       };
       let range = added.trim_start_matches('+');
-      let (start, count) = range.split_once(',').map_or((range, "1"), |parts| parts);
+      let (start, count) = range.split_once(',').unwrap_or((range, "1"));
       let start = start.parse::<usize>().map_err(|_| DiffError::InvalidHunk(line.into()))?;
       let count = count.parse::<usize>().map_err(|_| DiffError::InvalidHunk(line.into()))?;
       let lines = changed.files.entry(path.clone()).or_default();
