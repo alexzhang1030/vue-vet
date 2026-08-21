@@ -20,7 +20,7 @@ use vue_vet_core::{ModuleId, ReactiveBindingKind, ReactivityGraph, ScriptKind};
 
 use super::{
   TraceSeeds, collect_binding_identifiers, collect_imported_bindings, collect_inject_sites,
-  collect_provide_sites, collect_reactive_bindings, local_function_id_for_name, module_export_name,
+  collect_provide_sites, collect_reactive_bindings, local_function_id, module_export_name,
   reactive_binding_kind, reference_resolves_to_binding, resolved_vue_callee,
   trace_reactivity_seeded,
 };
@@ -909,7 +909,7 @@ fn collect_local_values(
       .or_else(|| {
         call.callee.get_identifier_reference().and_then(|callee| {
           let callee_name = callee.name.as_str();
-          if local_function_id_for_name(semantic, callee_name, callee).is_some() {
+          if local_function_id(semantic, callee).is_some() {
             return Some(ExportState::ValueFactoryCall(callee_name.to_owned()));
           }
           if !imported_bindings.contains_key(callee_name) {
@@ -2340,7 +2340,7 @@ fn resolve_call_return_forward(
     return None;
   }
   // Same-file function / const arrow — recurse into its return kind.
-  if let Some(callee_id) = local_function_id_for_name(semantic, name, callee) {
+  if let Some(callee_id) = local_function_id(semantic, callee) {
     return composable_return_with_index_visiting(
       semantic,
       callee_id,
@@ -2431,32 +2431,30 @@ fn vueuse_shared_composable_export_state(
       function_return_type_kind(function),
       || declared_return_for_function(semantic, function),
     ),
-    Expression::Identifier(identifier) => {
-      local_function_id_for_name(semantic, identifier.name.as_str(), identifier).map_or_else(
-        || Some(ExportState::ForwardReturn(identifier.name.to_string())),
-        |callee_id| match semantic.nodes().kind(callee_id) {
-          AstKind::Function(function) => composable_export_state(
-            semantic,
-            callee_id,
-            shape_graph,
-            script_offset,
-            index,
-            function_return_type_kind(function),
-            || declared_return_for_function(semantic, function),
-          ),
-          AstKind::ArrowFunctionExpression(arrow) => composable_export_state(
-            semantic,
-            callee_id,
-            shape_graph,
-            script_offset,
-            index,
-            arrow_return_type_kind(arrow),
-            || declared_return_for_arrow(semantic, arrow),
-          ),
-          _ => Some(ExportState::ForwardReturn(identifier.name.to_string())),
-        },
-      )
-    }
+    Expression::Identifier(identifier) => local_function_id(semantic, identifier).map_or_else(
+      || Some(ExportState::ForwardReturn(identifier.name.to_string())),
+      |callee_id| match semantic.nodes().kind(callee_id) {
+        AstKind::Function(function) => composable_export_state(
+          semantic,
+          callee_id,
+          shape_graph,
+          script_offset,
+          index,
+          function_return_type_kind(function),
+          || declared_return_for_function(semantic, function),
+        ),
+        AstKind::ArrowFunctionExpression(arrow) => composable_export_state(
+          semantic,
+          callee_id,
+          shape_graph,
+          script_offset,
+          index,
+          arrow_return_type_kind(arrow),
+          || declared_return_for_arrow(semantic, arrow),
+        ),
+        _ => Some(ExportState::ForwardReturn(identifier.name.to_string())),
+      },
+    ),
     _ => None,
   }
 }
@@ -2533,7 +2531,7 @@ fn value_bag_entry_from_expression(
   match expression {
     Expression::Identifier(identifier) => {
       let name = identifier.name.as_str();
-      let callee_id = local_function_id_for_name(semantic, name, identifier)?;
+      let callee_id = local_function_id(semantic, identifier)?;
       match composable_return_with_index_visiting(
         semantic,
         callee_id,

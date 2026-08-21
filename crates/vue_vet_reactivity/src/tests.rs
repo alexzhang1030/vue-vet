@@ -1858,541 +1858,515 @@ fn to_value_getter_tracks_nested_reactive_reads() {
   );
 }
 
-#[test]
-fn same_file_zero_arg_helper_tracks_inside_computed() {
-  // StatusReactedBy-style: `computed(() => load())` with reads only in `load`.
-  let graph = graph(
-    "import { ref, computed } from 'vue';\n\
-     const type = ref('all');\n\
-     function load() { return type.value; }\n\
-     const paginator = computed(() => load());\n\
-     void paginator.value;",
-  );
-  assert!(
-    graph.scopes.iter().any(|scope| {
-      scope.kind == TrackingScopeKind::Computed
-        && scope.reads.iter().any(|read| {
-          read.binding == "type"
-            && read.property.as_deref() == Some("value")
-            && read.kind == ReactiveReadKind::Unconditional
-        })
-    }),
-    "computed(() => load()) must track type.value inside load; scopes={:?}",
-    graph.scopes
-  );
+fn helper_follow_scope(
+  graph: &ReactivityGraph,
+  kind: TrackingScopeKind,
+) -> Option<&vue_vet_core::TrackingScopeFact> {
+  graph.scopes.iter().find(|scope| scope.kind == kind)
+}
+
+fn helper_follow_has_value_read(
+  graph: &ReactivityGraph,
+  kind: TrackingScopeKind,
+  binding: &str,
+) -> bool {
+  helper_follow_scope(graph, kind).is_some_and(|scope| {
+    scope
+      .reads
+      .iter()
+      .any(|read| read.binding == binding && read.property.as_deref() == Some("value"))
+  })
 }
 
 #[test]
-fn same_file_arrow_helper_tracks_inside_watch_effect() {
-  let graph = graph(
-    "import { ref, watchEffect } from 'vue';\n\
-     const count = ref(0);\n\
-     const read = () => count.value;\n\
-     watchEffect(() => { void read(); });",
-  );
-  assert!(
-    graph.scopes.iter().any(|scope| {
-      scope.kind == TrackingScopeKind::WatchEffect
-        && scope.reads.iter().any(|read| {
-          read.binding == "count"
-            && read.property.as_deref() == Some("value")
-            && read.kind != ReactiveReadKind::OutsideTracking
-        })
-    }),
-    "watchEffect helper call must track count.value; scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn same_file_helper_two_hop_chain_tracks() {
-  let graph = graph(
-    "import { ref, computed } from 'vue';\n\
-     const n = ref(1);\n\
-     function inner() { return n.value; }\n\
-     function outer() { return inner(); }\n\
-     const c = computed(() => outer());\n\
-     void c.value;",
-  );
-  assert!(
-    graph.scopes.iter().any(|scope| {
-      scope.kind == TrackingScopeKind::Computed
-        && scope
-          .reads
-          .iter()
-          .any(|read| read.binding == "n" && read.property.as_deref() == Some("value"))
-    }),
-    "two-hop zero-arg helpers must track; scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn same_file_helper_inside_then_stays_outside_tracking() {
-  let graph = graph(
-    "import { ref, watchEffect } from 'vue';\n\
-     const count = ref(0);\n\
-     function load() { return count.value; }\n\
-     watchEffect(() => { Promise.resolve().then(() => load()); });",
-  );
-  let effect = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchEffect);
-  assert!(effect.is_some(), "watchEffect scope missing; scopes={:?}", graph.scopes);
-  let count_reads: Vec<_> = effect
-    .map(|scope| {
-      scope.reads.iter().filter(|read| read.binding == "count").map(|read| read.kind).collect()
-    })
-    .unwrap_or_default();
-  assert!(
-    count_reads.iter().all(|kind| *kind == ReactiveReadKind::OutsideTracking),
-    "helper called only from then() must not invent tracked deps; reads={count_reads:?} scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn async_same_file_helper_is_not_followed() {
-  // After-await classification is relative to the tracking body; skip async
-  // callees so we do not invent pre-await edges for post-await reads.
-  let graph = graph(
-    "import { ref, computed } from 'vue';\n\
-     const type = ref('all');\n\
-     async function load() { return type.value; }\n\
-     const c = computed(() => load());\n\
-     void c.value;",
-  );
-  assert!(
-    graph.scopes.iter().all(|scope| {
-      scope.kind != TrackingScopeKind::Computed
-        || scope.reads.iter().all(|read| read.binding != "type")
-    }),
-    "async helpers must stay unfollowed (under-approx); scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn helper_with_args_is_not_followed() {
-  let graph = graph(
-    "import { ref, computed } from 'vue';\n\
-     const type = ref('all');\n\
-     function load(_x: number) { return type.value; }\n\
-     const c = computed(() => load(1));\n\
-     void c.value;",
-  );
-  assert!(
-    graph.scopes.iter().all(|scope| {
-      scope.kind != TrackingScopeKind::Computed
-        || scope.reads.iter().all(|read| read.binding != "type")
-    }),
-    "first cut follows zero-arg helpers only; scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn same_file_helper_uncertain_value_is_recorded_on_computed() {
-  // Dual-path with `uncertain_value_access_is_recorded_on_computed_scope`:
-  // unclassified `.value` inside `load` must surface as maybe, not confident absence.
-  let graph = graph(
-    "import { computed } from 'vue';\n\
-     declare function useMediaQuery(q: string): { value: boolean };\n\
-     const isCoarse = useMediaQuery('(pointer: coarse)');\n\
-     function load() { return isCoarse.value; }\n\
-     const hint = computed(() => load());",
-  );
-  assert_eq!(graph.version, vue_vet_core::REACTIVITY_GRAPH_VERSION);
-  assert!(
-    graph.scopes.iter().any(|scope| {
-      scope.kind == TrackingScopeKind::Computed
-        && scope.reads.is_empty()
-        && scope.uncertain_accesses.iter().any(|name| name == "isCoarse")
-    }),
-    "helper-wrapped unclassified .value must be uncertain (maybe); scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn same_file_helper_two_hop_uncertain_is_recorded() {
-  let graph = graph(
-    "import { computed } from 'vue';\n\
-     declare function useMediaQuery(q: string): { value: boolean };\n\
-     const isCoarse = useMediaQuery('(pointer: coarse)');\n\
-     function inner() { return isCoarse.value; }\n\
-     function outer() { return inner(); }\n\
-     const hint = computed(() => outer());",
-  );
-  assert!(
-    graph.scopes.iter().any(|scope| {
-      scope.kind == TrackingScopeKind::Computed
-        && scope.reads.is_empty()
-        && scope.uncertain_accesses.iter().any(|name| name == "isCoarse")
-    }),
-    "two-hop helper unclassified .value must be uncertain; scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn watch_getter_helper_uncertain_is_recorded() {
-  let graph = graph(
-    "import { watch } from 'vue';\n\
-     declare function useMediaQuery(q: string): { value: boolean };\n\
-     const isCoarse = useMediaQuery('(pointer: coarse)');\n\
-     function load() { return isCoarse.value; }\n\
-     watch(() => load(), () => {});",
-  );
-  assert!(
-    graph.scopes.iter().any(|scope| {
-      scope.kind == TrackingScopeKind::WatchSources
-        && scope.reads.is_empty()
-        && scope.uncertain_accesses.iter().any(|name| name == "isCoarse")
-    }),
-    "watch(() => load()) must record helper uncertain; scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn same_file_helper_unref_and_to_value_uncertain_are_recorded() {
-  for (label, source) in [
-    (
-      "unref",
-      "import { computed, unref } from 'vue';\n\
-       declare const mystery: unknown;\n\
-       function load() { return unref(mystery); }\n\
-       const hint = computed(() => load());",
-    ),
-    (
-      "toValue",
-      "import { computed, toValue } from 'vue';\n\
-       declare const mystery: unknown;\n\
-       function load() { return toValue(mystery); }\n\
-       const hint = computed(() => load());",
-    ),
-  ] {
-    let graph = graph(source);
-    assert!(
-      graph.scopes.iter().any(|scope| {
-        scope.kind == TrackingScopeKind::Computed
-          && scope.reads.is_empty()
-          && scope.uncertain_accesses.iter().any(|name| name == "mystery")
-      }),
-      "helper-wrapped {label}(mystery) must be uncertain; scopes={:?}",
-      graph.scopes
-    );
+fn same_file_zero_arg_helper_follow_reads() {
+  #[derive(Clone, Copy)]
+  enum Want {
+    Unconditional,
+    Tracked,
+    Quiet,
+    ThenOutside,
+  }
+  struct Case {
+    label: &'static str,
+    source: &'static str,
+    kind: TrackingScopeKind,
+    binding: &'static str,
+    want: Want,
+  }
+  let cases = [
+    Case {
+      label: "computed(() => load()) tracks type.value",
+      source: "import { ref, computed } from 'vue';\n\
+               const type = ref('all');\n\
+               function load() { return type.value; }\n\
+               const paginator = computed(() => load());\n\
+               void paginator.value;",
+      kind: TrackingScopeKind::Computed,
+      binding: "type",
+      want: Want::Unconditional,
+    },
+    Case {
+      label: "watchEffect arrow helper tracks count.value",
+      source: "import { ref, watchEffect } from 'vue';\n\
+               const count = ref(0);\n\
+               const read = () => count.value;\n\
+               watchEffect(() => { void read(); });",
+      kind: TrackingScopeKind::WatchEffect,
+      binding: "count",
+      want: Want::Tracked,
+    },
+    Case {
+      label: "two-hop zero-arg helpers track",
+      source: "import { ref, computed } from 'vue';\n\
+               const n = ref(1);\n\
+               function inner() { return n.value; }\n\
+               function outer() { return inner(); }\n\
+               const c = computed(() => outer());\n\
+               void c.value;",
+      kind: TrackingScopeKind::Computed,
+      binding: "n",
+      want: Want::Tracked,
+    },
+    Case {
+      label: "then()-only helper stays outside tracking",
+      source: "import { ref, watchEffect } from 'vue';\n\
+               const count = ref(0);\n\
+               function load() { return count.value; }\n\
+               watchEffect(() => { Promise.resolve().then(() => load()); });",
+      kind: TrackingScopeKind::WatchEffect,
+      binding: "count",
+      want: Want::ThenOutside,
+    },
+    Case {
+      label: "async helpers stay unfollowed",
+      source: "import { ref, computed } from 'vue';\n\
+               const type = ref('all');\n\
+               async function load() { return type.value; }\n\
+               const c = computed(() => load());\n\
+               void c.value;",
+      kind: TrackingScopeKind::Computed,
+      binding: "type",
+      want: Want::Quiet,
+    },
+    Case {
+      label: "args helpers stay unfollowed",
+      source: "import { ref, computed } from 'vue';\n\
+               const type = ref('all');\n\
+               function load(_x: number) { return type.value; }\n\
+               const c = computed(() => load(1));\n\
+               void c.value;",
+      kind: TrackingScopeKind::Computed,
+      binding: "type",
+      want: Want::Quiet,
+    },
+  ];
+  for case in cases {
+    let graph = graph(case.source);
+    let scope = helper_follow_scope(&graph, case.kind);
+    match case.want {
+      Want::Unconditional => {
+        assert!(
+          scope.is_some_and(|scope| {
+            scope.reads.iter().any(|read| {
+              read.binding == case.binding
+                && read.property.as_deref() == Some("value")
+                && read.kind == ReactiveReadKind::Unconditional
+            })
+          }),
+          "{}: scopes={:?}",
+          case.label,
+          graph.scopes
+        );
+      }
+      Want::Tracked => {
+        assert!(
+          helper_follow_has_value_read(&graph, case.kind, case.binding)
+            && scope.is_some_and(|scope| {
+              scope.reads.iter().any(|read| {
+                read.binding == case.binding && read.kind != ReactiveReadKind::OutsideTracking
+              })
+            }),
+          "{}: scopes={:?}",
+          case.label,
+          graph.scopes
+        );
+      }
+      Want::Quiet => {
+        assert!(
+          scope.is_none_or(|scope| scope.reads.iter().all(|read| read.binding != case.binding)),
+          "{}: scopes={:?}",
+          case.label,
+          graph.scopes
+        );
+      }
+      Want::ThenOutside => {
+        assert!(scope.is_some(), "{}: missing scope; scopes={:?}", case.label, graph.scopes);
+        let kinds: Vec<_> = scope
+          .map(|scope| {
+            scope
+              .reads
+              .iter()
+              .filter(|read| read.binding == case.binding)
+              .map(|read| read.kind)
+              .collect()
+          })
+          .unwrap_or_default();
+        assert!(
+          kinds.iter().all(|kind| *kind == ReactiveReadKind::OutsideTracking),
+          "{}: reads={kinds:?} scopes={:?}",
+          case.label,
+          graph.scopes
+        );
+      }
+    }
   }
 }
 
 #[test]
-fn same_file_helper_uncertain_inside_then_is_not_recorded() {
-  let graph = graph(
-    "import { computed } from 'vue';\n\
-     declare function useMediaQuery(q: string): { value: boolean };\n\
-     const isCoarse = useMediaQuery('(pointer: coarse)');\n\
-     function load() { return isCoarse.value; }\n\
-     const hint = computed(() => {\n\
-       Promise.resolve().then(() => load());\n\
-       return 'x';\n\
-     });",
-  );
-  assert!(
-    graph.scopes.iter().any(|scope| {
-      scope.kind == TrackingScopeKind::Computed
-        && scope.reads.is_empty()
-        && scope.uncertain_accesses.iter().all(|name| name != "isCoarse")
-    }),
-    "then()-only helper must not invent maybe; scopes={:?}",
-    graph.scopes
-  );
+fn same_file_zero_arg_helper_follow_uncertain() {
+  #[derive(Clone, Copy)]
+  enum Want {
+    Maybe,
+    Quiet,
+  }
+  struct Case {
+    label: &'static str,
+    source: &'static str,
+    kind: TrackingScopeKind,
+    name: &'static str,
+    want: Want,
+  }
+  let cases = [
+    Case {
+      label: "computed(() => load()) records maybe",
+      source: "import { computed } from 'vue';\n\
+               declare function useMediaQuery(q: string): { value: boolean };\n\
+               const isCoarse = useMediaQuery('(pointer: coarse)');\n\
+               function load() { return isCoarse.value; }\n\
+               const hint = computed(() => load());",
+      kind: TrackingScopeKind::Computed,
+      name: "isCoarse",
+      want: Want::Maybe,
+    },
+    Case {
+      label: "two-hop helper records maybe",
+      source: "import { computed } from 'vue';\n\
+               declare function useMediaQuery(q: string): { value: boolean };\n\
+               const isCoarse = useMediaQuery('(pointer: coarse)');\n\
+               function inner() { return isCoarse.value; }\n\
+               function outer() { return inner(); }\n\
+               const hint = computed(() => outer());",
+      kind: TrackingScopeKind::Computed,
+      name: "isCoarse",
+      want: Want::Maybe,
+    },
+    Case {
+      label: "watch(() => load()) records maybe",
+      source: "import { watch } from 'vue';\n\
+               declare function useMediaQuery(q: string): { value: boolean };\n\
+               const isCoarse = useMediaQuery('(pointer: coarse)');\n\
+               function load() { return isCoarse.value; }\n\
+               watch(() => load(), () => {});",
+      kind: TrackingScopeKind::WatchSources,
+      name: "isCoarse",
+      want: Want::Maybe,
+    },
+    Case {
+      label: "helper-wrapped unref(mystery) is maybe",
+      source: "import { computed, unref } from 'vue';\n\
+               declare const mystery: unknown;\n\
+               function load() { return unref(mystery); }\n\
+               const hint = computed(() => load());",
+      kind: TrackingScopeKind::Computed,
+      name: "mystery",
+      want: Want::Maybe,
+    },
+    Case {
+      label: "helper-wrapped toValue(mystery) is maybe",
+      source: "import { computed, toValue } from 'vue';\n\
+               declare const mystery: unknown;\n\
+               function load() { return toValue(mystery); }\n\
+               const hint = computed(() => load());",
+      kind: TrackingScopeKind::Computed,
+      name: "mystery",
+      want: Want::Maybe,
+    },
+    Case {
+      label: "then()-only helper does not invent maybe",
+      source: "import { computed } from 'vue';\n\
+               declare function useMediaQuery(q: string): { value: boolean };\n\
+               const isCoarse = useMediaQuery('(pointer: coarse)');\n\
+               function load() { return isCoarse.value; }\n\
+               const hint = computed(() => {\n\
+                 Promise.resolve().then(() => load());\n\
+                 return 'x';\n\
+               });",
+      kind: TrackingScopeKind::Computed,
+      name: "isCoarse",
+      want: Want::Quiet,
+    },
+    Case {
+      label: "mixed in-tracking + then() keeps maybe",
+      source: "import { computed } from 'vue';\n\
+               declare function useMediaQuery(q: string): { value: boolean };\n\
+               const isCoarse = useMediaQuery('(pointer: coarse)');\n\
+               function load() { return isCoarse.value; }\n\
+               const hint = computed(() => {\n\
+                 const now = load();\n\
+                 Promise.resolve().then(() => load());\n\
+                 return now ? 'a' : 'b';\n\
+               });",
+      kind: TrackingScopeKind::Computed,
+      name: "isCoarse",
+      want: Want::Maybe,
+    },
+    Case {
+      label: "async helpers stay unfollowed for uncertain",
+      source: "import { computed } from 'vue';\n\
+               declare function useMediaQuery(q: string): { value: boolean };\n\
+               const isCoarse = useMediaQuery('(pointer: coarse)');\n\
+               async function load() { return isCoarse.value; }\n\
+               const hint = computed(() => load());",
+      kind: TrackingScopeKind::Computed,
+      name: "isCoarse",
+      want: Want::Quiet,
+    },
+    Case {
+      label: "args helpers stay unfollowed for uncertain",
+      source: "import { computed } from 'vue';\n\
+               declare function useMediaQuery(q: string): { value: boolean };\n\
+               const isCoarse = useMediaQuery('(pointer: coarse)');\n\
+               function load(_x: number) { return isCoarse.value; }\n\
+               const hint = computed(() => load(1));",
+      kind: TrackingScopeKind::Computed,
+      name: "isCoarse",
+      want: Want::Quiet,
+    },
+  ];
+  for case in cases {
+    let graph = graph(case.source);
+    assert_eq!(graph.version, vue_vet_core::REACTIVITY_GRAPH_VERSION);
+    let scope = helper_follow_scope(&graph, case.kind);
+    match case.want {
+      Want::Maybe => {
+        assert!(
+          scope.is_some_and(|scope| {
+            scope.reads.is_empty() && scope.uncertain_accesses.iter().any(|name| name == case.name)
+          }),
+          "{}: scopes={:?}",
+          case.label,
+          graph.scopes
+        );
+      }
+      Want::Quiet => {
+        assert!(
+          scope
+            .is_none_or(|scope| { scope.uncertain_accesses.iter().all(|name| name != case.name) }),
+          "{}: scopes={:?}",
+          case.label,
+          graph.scopes
+        );
+      }
+    }
+  }
 }
 
 #[test]
-fn same_file_helper_uncertain_mixed_then_and_in_tracking_is_recorded() {
-  let graph = graph(
-    "import { computed } from 'vue';\n\
-     declare function useMediaQuery(q: string): { value: boolean };\n\
-     const isCoarse = useMediaQuery('(pointer: coarse)');\n\
-     function load() { return isCoarse.value; }\n\
-     const hint = computed(() => {\n\
-       const now = load();\n\
-       Promise.resolve().then(() => load());\n\
-       return now ? 'a' : 'b';\n\
-     });",
-  );
-  assert!(
-    graph.scopes.iter().any(|scope| {
-      scope.kind == TrackingScopeKind::Computed
-        && scope.reads.is_empty()
-        && scope.uncertain_accesses.iter().any(|name| name == "isCoarse")
-    }),
-    "any in-tracking helper call keeps maybe; scopes={:?}",
-    graph.scopes
-  );
+fn same_file_zero_arg_helper_follow_writes() {
+  #[derive(Clone, Copy)]
+  enum Want {
+    TargetValue,
+    Target,
+    Quiet,
+  }
+  struct Case {
+    label: &'static str,
+    source: &'static str,
+    want: Want,
+  }
+  let cases = [
+    Case {
+      label: "computed(() => load()) records target.value write",
+      source: "import { ref, computed } from 'vue';\n\
+               const source = ref(0); const target = ref(0);\n\
+               function load() { target.value = source.value; return target.value; }\n\
+               const c = computed(() => load());\n\
+               void c.value;",
+      want: Want::TargetValue,
+    },
+    Case {
+      label: "two-hop helper write is recorded",
+      source: "import { ref, computed } from 'vue';\n\
+               const source = ref(0); const target = ref(0);\n\
+               function inner() { target.value = source.value; return target.value; }\n\
+               function outer() { return inner(); }\n\
+               const c = computed(() => outer());\n\
+               void c.value;",
+      want: Want::Target,
+    },
+    Case {
+      label: "then()-only helper does not invent writes",
+      source: "import { ref, computed } from 'vue';\n\
+               const source = ref(0); const target = ref(0);\n\
+               function load() { target.value = source.value; return target.value; }\n\
+               const c = computed(() => {\n\
+                 Promise.resolve().then(() => load());\n\
+                 return source.value;\n\
+               });\n\
+               void c.value;",
+      want: Want::Quiet,
+    },
+    Case {
+      label: "mixed in-tracking + then() keeps the write",
+      source: "import { ref, computed } from 'vue';\n\
+               const source = ref(0); const target = ref(0);\n\
+               function load() { target.value = source.value; return target.value; }\n\
+               const c = computed(() => {\n\
+                 const now = load();\n\
+                 Promise.resolve().then(() => load());\n\
+                 return now;\n\
+               });\n\
+               void c.value;",
+      want: Want::Target,
+    },
+    Case {
+      label: "async helpers stay unfollowed for writes",
+      source: "import { ref, computed } from 'vue';\n\
+               const source = ref(0); const target = ref(0);\n\
+               async function load() { target.value = source.value; return target.value; }\n\
+               const c = computed(() => load());\n\
+               void c.value;",
+      want: Want::Quiet,
+    },
+    Case {
+      label: "args helpers stay unfollowed for writes",
+      source: "import { ref, computed } from 'vue';\n\
+               const source = ref(0); const target = ref(0);\n\
+               function load(_x: number) { target.value = source.value; return target.value; }\n\
+               const c = computed(() => load(1));\n\
+               void c.value;",
+      want: Want::Quiet,
+    },
+  ];
+  for case in cases {
+    let graph = graph(case.source);
+    assert_eq!(graph.version, vue_vet_core::REACTIVITY_GRAPH_VERSION);
+    let scope = helper_follow_scope(&graph, TrackingScopeKind::Computed);
+    match case.want {
+      Want::TargetValue => {
+        assert!(
+          scope.is_some_and(|scope| {
+            scope
+              .writes
+              .iter()
+              .any(|write| write.binding == "target" && write.property.as_deref() == Some("value"))
+          }),
+          "{}: scopes={:?}",
+          case.label,
+          graph.scopes
+        );
+      }
+      Want::Target => {
+        assert!(
+          scope.is_some_and(|scope| scope.writes.iter().any(|write| write.binding == "target")),
+          "{}: scopes={:?}",
+          case.label,
+          graph.scopes
+        );
+      }
+      Want::Quiet => {
+        assert!(
+          scope.is_none_or(|scope| scope.writes.iter().all(|write| write.binding != "target")),
+          "{}: scopes={:?}",
+          case.label,
+          graph.scopes
+        );
+      }
+    }
+  }
 }
 
 #[test]
-fn async_same_file_helper_uncertain_is_not_followed() {
-  let graph = graph(
-    "import { computed } from 'vue';\n\
-     declare function useMediaQuery(q: string): { value: boolean };\n\
-     const isCoarse = useMediaQuery('(pointer: coarse)');\n\
-     async function load() { return isCoarse.value; }\n\
-     const hint = computed(() => load());",
-  );
-  assert!(
-    graph.scopes.iter().all(|scope| {
-      scope.kind != TrackingScopeKind::Computed
-        || scope.uncertain_accesses.iter().all(|name| name != "isCoarse")
-    }),
-    "async helpers must stay unfollowed for uncertain; scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn helper_with_args_uncertain_is_not_followed() {
-  let graph = graph(
-    "import { computed } from 'vue';\n\
-     declare function useMediaQuery(q: string): { value: boolean };\n\
-     const isCoarse = useMediaQuery('(pointer: coarse)');\n\
-     function load(_x: number) { return isCoarse.value; }\n\
-     const hint = computed(() => load(1));",
-  );
-  assert!(
-    graph.scopes.iter().all(|scope| {
-      scope.kind != TrackingScopeKind::Computed
-        || scope.uncertain_accesses.iter().all(|name| name != "isCoarse")
-    }),
-    "args helpers must stay unfollowed for uncertain; scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn same_file_helper_write_is_recorded_on_computed() {
-  let graph = graph(
-    "import { ref, computed } from 'vue';\n\
-     const source = ref(0); const target = ref(0);\n\
-     function load() { target.value = source.value; return target.value; }\n\
-     const c = computed(() => load());\n\
-     void c.value;",
-  );
-  assert_eq!(graph.version, vue_vet_core::REACTIVITY_GRAPH_VERSION);
-  assert!(
-    graph.scopes.iter().any(|scope| {
-      scope.kind == TrackingScopeKind::Computed
-        && scope
-          .writes
-          .iter()
-          .any(|write| write.binding == "target" && write.property.as_deref() == Some("value"))
-    }),
-    "computed(() => load()) must record target.value write inside load; scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn same_file_helper_two_hop_write_is_recorded() {
-  let graph = graph(
-    "import { ref, computed } from 'vue';\n\
-     const source = ref(0); const target = ref(0);\n\
-     function inner() { target.value = source.value; return target.value; }\n\
-     function outer() { return inner(); }\n\
-     const c = computed(() => outer());\n\
-     void c.value;",
-  );
-  assert!(
-    graph.scopes.iter().any(|scope| {
-      scope.kind == TrackingScopeKind::Computed
-        && scope.writes.iter().any(|write| write.binding == "target")
-    }),
-    "two-hop helper write must be recorded; scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn same_file_helper_write_inside_then_is_not_recorded() {
-  let graph = graph(
-    "import { ref, computed } from 'vue';\n\
-     const source = ref(0); const target = ref(0);\n\
-     function load() { target.value = source.value; return target.value; }\n\
-     const c = computed(() => {\n\
-       Promise.resolve().then(() => load());\n\
-       return source.value;\n\
-     });\n\
-     void c.value;",
-  );
-  assert!(
-    graph.scopes.iter().any(|scope| {
-      scope.kind == TrackingScopeKind::Computed
-        && scope.writes.iter().all(|write| write.binding != "target")
-    }),
-    "then()-only helper must not invent computed writes; scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn same_file_helper_write_mixed_then_and_in_tracking_is_recorded() {
-  let graph = graph(
-    "import { ref, computed } from 'vue';\n\
-     const source = ref(0); const target = ref(0);\n\
-     function load() { target.value = source.value; return target.value; }\n\
-     const c = computed(() => {\n\
-       const now = load();\n\
-       Promise.resolve().then(() => load());\n\
-       return now;\n\
-     });\n\
-     void c.value;",
-  );
-  assert!(
-    graph.scopes.iter().any(|scope| {
-      scope.kind == TrackingScopeKind::Computed
-        && scope.writes.iter().any(|write| write.binding == "target")
-    }),
-    "any in-tracking helper call keeps the write; scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn async_same_file_helper_write_is_not_followed() {
-  let graph = graph(
-    "import { ref, computed } from 'vue';\n\
-     const source = ref(0); const target = ref(0);\n\
-     async function load() { target.value = source.value; return target.value; }\n\
-     const c = computed(() => load());\n\
-     void c.value;",
-  );
-  assert!(
-    graph.scopes.iter().all(|scope| {
-      scope.kind != TrackingScopeKind::Computed
-        || scope.writes.iter().all(|write| write.binding != "target")
-    }),
-    "async helpers must stay unfollowed for writes; scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn helper_with_args_write_is_not_followed() {
-  let graph = graph(
-    "import { ref, computed } from 'vue';\n\
-     const source = ref(0); const target = ref(0);\n\
-     function load(_x: number) { target.value = source.value; return target.value; }\n\
-     const c = computed(() => load(1));\n\
-     void c.value;",
-  );
-  assert!(
-    graph.scopes.iter().all(|scope| {
-      scope.kind != TrackingScopeKind::Computed
-        || scope.writes.iter().all(|write| write.binding != "target")
-    }),
-    "args helpers must stay unfollowed for writes; scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn helper_assignment_only_watch_effect_is_assignment_only() {
-  let graph = graph(
-    "import { ref, watchEffect } from 'vue';\n\
-     const first = ref('a'); const last = ref('b'); const full = ref('');\n\
-     function assign() { full.value = first.value + last.value; }\n\
-     watchEffect(() => { assign(); });",
-  );
-  let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchEffect);
-  assert_eq!(
-    scope.map(|scope| scope.assignment_only),
-    Some(true),
-    "watchEffect(() => {{ assign() }}) must be assignment_only; scopes={:?}",
-    graph.scopes
-  );
-  assert!(
-    scope.is_some_and(|scope| {
-      scope
-        .writes
-        .iter()
-        .any(|write| write.binding == "full" && write.property.as_deref() == Some("value"))
-    }),
-    "assignment-only helper must record the write; scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn helper_assignment_only_expression_arrow_is_assignment_only() {
-  let graph = graph(
-    "import { ref, watchEffect } from 'vue';\n\
-     const first = ref('a'); const last = ref('b'); const full = ref('');\n\
-     const assign = () => { full.value = first.value + last.value; };\n\
-     watchEffect(() => assign());",
-  );
-  assert!(
-    graph
-      .scopes
-      .iter()
-      .any(|scope| { scope.kind == TrackingScopeKind::WatchEffect && scope.assignment_only }),
-    "watchEffect(() => assign()) must be assignment_only; scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn helper_assignment_only_two_hop_is_assignment_only() {
-  let graph = graph(
-    "import { ref, watchEffect } from 'vue';\n\
-     const first = ref('a'); const last = ref('b'); const full = ref('');\n\
-     function inner() { full.value = first.value + last.value; }\n\
-     function outer() { inner(); }\n\
-     watchEffect(() => { outer(); });",
-  );
-  assert!(
-    graph
-      .scopes
-      .iter()
-      .any(|scope| { scope.kind == TrackingScopeKind::WatchEffect && scope.assignment_only }),
-    "two-hop assignment-only helpers must stay assignment_only; scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn helper_assignment_only_inside_then_is_not_assignment_only() {
-  let graph = graph(
-    "import { ref, watchEffect } from 'vue';\n\
-     const first = ref('a'); const last = ref('b'); const full = ref('');\n\
-     function assign() { full.value = first.value + last.value; }\n\
-     watchEffect(() => { Promise.resolve().then(() => assign()); });",
-  );
-  assert!(
-    graph
-      .scopes
-      .iter()
-      .any(|scope| { scope.kind == TrackingScopeKind::WatchEffect && !scope.assignment_only }),
-    "then()-only helper must not mark assignment_only; scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn async_helper_assignment_is_not_assignment_only() {
-  let graph = graph(
-    "import { ref, watchEffect } from 'vue';\n\
-     const first = ref('a'); const last = ref('b'); const full = ref('');\n\
-     async function assign() { full.value = first.value + last.value; }\n\
-     watchEffect(() => { assign(); });",
-  );
-  assert!(
-    graph
-      .scopes
-      .iter()
-      .any(|scope| { scope.kind == TrackingScopeKind::WatchEffect && !scope.assignment_only }),
-    "async helpers must stay unfollowed for assignment_only; scopes={:?}",
-    graph.scopes
-  );
+fn same_file_zero_arg_helper_follow_assignment_only() {
+  struct Case {
+    label: &'static str,
+    source: &'static str,
+    assignment_only: bool,
+    expect_full_write: bool,
+  }
+  let cases = [
+    Case {
+      label: "watchEffect(() => { assign() }) is assignment_only",
+      source: "import { ref, watchEffect } from 'vue';\n\
+               const first = ref('a'); const last = ref('b'); const full = ref('');\n\
+               function assign() { full.value = first.value + last.value; }\n\
+               watchEffect(() => { assign(); });",
+      assignment_only: true,
+      expect_full_write: true,
+    },
+    Case {
+      label: "watchEffect(() => assign()) expression arrow is assignment_only",
+      source: "import { ref, watchEffect } from 'vue';\n\
+               const first = ref('a'); const last = ref('b'); const full = ref('');\n\
+               const assign = () => { full.value = first.value + last.value; };\n\
+               watchEffect(() => assign());",
+      assignment_only: true,
+      expect_full_write: false,
+    },
+    Case {
+      label: "two-hop assignment-only helpers stay assignment_only",
+      source: "import { ref, watchEffect } from 'vue';\n\
+               const first = ref('a'); const last = ref('b'); const full = ref('');\n\
+               function inner() { full.value = first.value + last.value; }\n\
+               function outer() { inner(); }\n\
+               watchEffect(() => { outer(); });",
+      assignment_only: true,
+      expect_full_write: false,
+    },
+    Case {
+      label: "then()-only helper is not assignment_only",
+      source: "import { ref, watchEffect } from 'vue';\n\
+               const first = ref('a'); const last = ref('b'); const full = ref('');\n\
+               function assign() { full.value = first.value + last.value; }\n\
+               watchEffect(() => { Promise.resolve().then(() => assign()); });",
+      assignment_only: false,
+      expect_full_write: false,
+    },
+    Case {
+      label: "async helpers stay unfollowed for assignment_only",
+      source: "import { ref, watchEffect } from 'vue';\n\
+               const first = ref('a'); const last = ref('b'); const full = ref('');\n\
+               async function assign() { full.value = first.value + last.value; }\n\
+               watchEffect(() => { assign(); });",
+      assignment_only: false,
+      expect_full_write: false,
+    },
+  ];
+  for case in cases {
+    let graph = graph(case.source);
+    let scope = helper_follow_scope(&graph, TrackingScopeKind::WatchEffect);
+    assert_eq!(
+      scope.map(|scope| scope.assignment_only),
+      Some(case.assignment_only),
+      "{}: scopes={:?}",
+      case.label,
+      graph.scopes
+    );
+    if case.expect_full_write {
+      assert!(
+        scope.is_some_and(|scope| {
+          scope
+            .writes
+            .iter()
+            .any(|write| write.binding == "full" && write.property.as_deref() == Some("value"))
+        }),
+        "{}: missing full.value write; scopes={:?}",
+        case.label,
+        graph.scopes
+      );
+    }
+  }
 }
 
 #[test]

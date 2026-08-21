@@ -2301,23 +2301,35 @@ fn collect_scope_reads_bounded(
     script_offset,
   );
 
-  // Same-file zero-arg local helpers called synchronously from this scope
-  // contribute ambient tracking reads (Vue's activeEffect). Under-approx:
-  // bare Identifier callees only, skip async/generator, depth-capped.
-  if depth < MAX_LOCAL_CALLEE_FOLLOW_DEPTH {
-    follow_local_zero_arg_callees(
-      semantic,
-      scope_id,
-      reactive_bindings,
-      composable_instances,
-      imported_bindings,
-      ambient_call_handles,
-      script_offset,
-      depth,
-      visiting,
-      &mut reads,
-    );
-  }
+  // Same-file zero-arg helpers contribute ambient tracking reads (Vue's
+  // activeEffect). `then()` / `nextTick`-only calls stay outside-tracking.
+  follow_local_callees(
+    semantic,
+    scope_id,
+    imported_bindings,
+    depth,
+    visiting,
+    FollowOutside::Mark,
+    |callee_id, call_outside, next_depth, visiting| {
+      let mut nested = collect_scope_reads_bounded(
+        semantic,
+        callee_id,
+        reactive_bindings,
+        composable_instances,
+        imported_bindings,
+        ambient_call_handles,
+        script_offset,
+        next_depth,
+        visiting,
+      );
+      if call_outside {
+        for read in &mut nested {
+          read.outside_tracking = true;
+        }
+      }
+      reads.extend(nested);
+    },
+  );
 
   reads.sort_by_key(|read| read.span.start);
   reads
@@ -2534,9 +2546,9 @@ fn symbol_declaration_site_decl(
 /// Same-file zero-arg local helpers called from `scope_id`.
 ///
 /// Each entry is `(callee_id, all_in_scope_call_sites_are_outside_tracking)`.
-/// Shared by hard-read follow, `uncertain_accesses`, writes, and
-/// `assignment_only` so those pipelines cannot disagree on which callees
-/// are in scope.
+/// [`follow_local_callees`] is the only consumer so reads / uncertain / writes
+/// cannot disagree on the callee set. `assignment_only` walks statements but
+/// uses the same [`local_function_id`] + async skip.
 fn local_zero_arg_callees_in_scope(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
@@ -2562,9 +2574,7 @@ fn local_zero_arg_callees_in_scope(
     else {
       continue;
     };
-    let Some(callee_id) =
-      local_function_id_for_name(semantic, identifier.name.as_str(), identifier)
-    else {
+    let Some(callee_id) = local_function_id(semantic, identifier) else {
       continue;
     };
     if is_async_or_generator_function(semantic, callee_id) {
@@ -2582,51 +2592,45 @@ fn local_zero_arg_callees_in_scope(
   callees
 }
 
-#[expect(clippy::too_many_arguments, reason = "callee follow shares collect_scope_reads context")]
-fn follow_local_zero_arg_callees(
+/// What to do with helpers whose *every* in-scope call is outside tracking
+/// (`then()` / `nextTick`). Reads mark nested facts; writes / uncertain skip
+/// so we do not invent computed side-effects or maybe-deps.
+#[derive(Clone, Copy)]
+enum FollowOutside {
+  Mark,
+  Skip,
+}
+
+/// Shared walk for hard reads, `uncertain_accesses`, and writes.
+fn follow_local_callees(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
-  reactive_bindings: &[ReactiveBindingFact],
-  composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
-  ambient_call_handles: &AmbientCallHandles,
-  script_offset: usize,
   depth: u32,
   visiting: &mut BTreeSet<NodeId>,
-  reads: &mut Vec<RawReactiveRead>,
+  outside: FollowOutside,
+  mut visit: impl FnMut(NodeId, bool, u32, &mut BTreeSet<NodeId>),
 ) {
+  if depth >= MAX_LOCAL_CALLEE_FOLLOW_DEPTH {
+    return;
+  }
   let callees = local_zero_arg_callees_in_scope(semantic, scope_id, imported_bindings, visiting);
-
   for (callee_id, call_outside) in callees {
+    if matches!(outside, FollowOutside::Skip) && call_outside {
+      continue;
+    }
     if !visiting.insert(callee_id) {
       continue;
     }
-    let mut nested = collect_scope_reads_bounded(
-      semantic,
-      callee_id,
-      reactive_bindings,
-      composable_instances,
-      imported_bindings,
-      ambient_call_handles,
-      script_offset,
-      depth + 1,
-      visiting,
-    );
+    visit(callee_id, call_outside, depth.saturating_add(1), visiting);
     visiting.remove(&callee_id);
-    if call_outside {
-      for read in &mut nested {
-        read.outside_tracking = true;
-      }
-    }
-    reads.extend(nested);
   }
 }
 
 /// Resolve a same-file local `function f` / `const f = () =>` / `function` expr
 /// from an identifier reference. Imports and non-function bindings return `None`.
-fn local_function_id_for_name(
+fn local_function_id(
   semantic: &oxc_semantic::Semantic<'_>,
-  _name: &str,
   reference: &IdentifierReference<'_>,
 ) -> Option<NodeId> {
   let reference_id = reference.reference_id.get()?;
@@ -3202,9 +3206,7 @@ fn statement_is_assignment_or_followed_helper(
       let Some(identifier) = call.callee.get_identifier_reference() else {
         return false;
       };
-      let Some(callee_id) =
-        local_function_id_for_name(semantic, identifier.name.as_str(), identifier)
-      else {
+      let Some(callee_id) = local_function_id(semantic, identifier) else {
         return false;
       };
       if is_async_or_generator_function(semantic, callee_id) || !visiting.insert(callee_id) {
@@ -3260,31 +3262,26 @@ fn collect_scope_writes_bounded(
 ) -> Vec<ReactiveWriteFact> {
   let mut writes =
     collect_scope_writes_local(semantic, scope_id, reactive_bindings, sfc_source, script_offset);
-  if depth >= MAX_LOCAL_CALLEE_FOLLOW_DEPTH {
-    return writes;
-  }
-  // Skip helpers whose *every* in-scope call is `then()` / `nextTick` — those
-  // writes are outside tracking. Do not invent computed side-effects for
-  // deferred assignments (matches skipping nested functions for inline `then()`).
-  for (callee_id, call_outside) in
-    local_zero_arg_callees_in_scope(semantic, scope_id, imported_bindings, visiting)
-  {
-    if call_outside || !visiting.insert(callee_id) {
-      continue;
-    }
-    let nested = collect_scope_writes_bounded(
-      semantic,
-      callee_id,
-      reactive_bindings,
-      imported_bindings,
-      sfc_source,
-      script_offset,
-      depth.saturating_add(1),
-      visiting,
-    );
-    visiting.remove(&callee_id);
-    writes.extend(nested);
-  }
+  follow_local_callees(
+    semantic,
+    scope_id,
+    imported_bindings,
+    depth,
+    visiting,
+    FollowOutside::Skip,
+    |callee_id, _, next_depth, visiting| {
+      writes.extend(collect_scope_writes_bounded(
+        semantic,
+        callee_id,
+        reactive_bindings,
+        imported_bindings,
+        sfc_source,
+        script_offset,
+        next_depth,
+        visiting,
+      ));
+    },
+  );
   writes
 }
 
@@ -3410,8 +3407,8 @@ fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
 /// Soft evidence inside a scope: reactivity-shaped accesses we could not classify.
 ///
 /// Surfaced so absence rules can say `(maybe: name)` after trying to find hard edges.
-/// Follows the same same-file zero-arg helpers as [`collect_scope_reads`] so
-/// `computed(() => load())` cannot disagree with an inlined getter.
+/// Shares [`follow_local_callees`] with hard reads so `computed(() => load())`
+/// cannot disagree with an inlined getter.
 fn collect_uncertain_scope_accesses(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
@@ -3455,31 +3452,26 @@ fn collect_uncertain_scope_accesses_bounded(
     imported_bindings,
     script_offset,
   );
-  if depth >= MAX_LOCAL_CALLEE_FOLLOW_DEPTH {
-    return names;
-  }
-  // Skip helpers whose *every* in-scope call is `then()` / `nextTick` — those
-  // reads are outside tracking. Do not expand same-scope then() looseness
-  // (inline `then(() => isCoarse.value)` still records maybe).
-  for (callee_id, call_outside) in
-    local_zero_arg_callees_in_scope(semantic, scope_id, imported_bindings, visiting)
-  {
-    if call_outside || !visiting.insert(callee_id) {
-      continue;
-    }
-    let nested = collect_uncertain_scope_accesses_bounded(
-      semantic,
-      callee_id,
-      reactive_bindings,
-      composable_instances,
-      imported_bindings,
-      script_offset,
-      depth + 1,
-      visiting,
-    );
-    visiting.remove(&callee_id);
-    names.extend(nested);
-  }
+  follow_local_callees(
+    semantic,
+    scope_id,
+    imported_bindings,
+    depth,
+    visiting,
+    FollowOutside::Skip,
+    |callee_id, _, next_depth, visiting| {
+      names.extend(collect_uncertain_scope_accesses_bounded(
+        semantic,
+        callee_id,
+        reactive_bindings,
+        composable_instances,
+        imported_bindings,
+        script_offset,
+        next_depth,
+        visiting,
+      ));
+    },
+  );
   names
 }
 

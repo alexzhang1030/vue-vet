@@ -548,7 +548,10 @@ ironclad proof when soft evidence remains. A helper called only from `then()` /
 The same helper follow records **writes** and **`assignment_only`** (graph v26):
 `computed(() => load())` where `load` assigns a ref is a computed side effect;
 `watchEffect(() => { assign() })` where `assign` is assignment-only is
-`prefer-computed`. `then()`-only helpers must not invent those facts either. Sync Array/String HOF callback
+`prefer-computed`. `then()`-only helpers must not invent those facts either.
+New dual-path collectors must go through `follow_local_callees` (or the same
+`local_function_id` + async skip for statement walks) — do not add a fourth
+callee enumerator. Sync Array/String HOF callback
 params (`OPTIONS.map(o => o.value)`) are not soft evidence — `.value` there is
 almost always a plain data field; leave reads empty so absence rules can report
 a hard no-dependency finding instead of `(maybe: option)`. Untyped composable
