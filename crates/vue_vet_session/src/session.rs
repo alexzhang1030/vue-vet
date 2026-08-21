@@ -1,4 +1,4 @@
-//! [`ProjectSession`] and session-facing types.
+//! [`ProjectSession`] handle.
 //!
 //! Orchestration stages live in [`crate::pipeline`]: discovery input → per-file
 //! facts → project graph / reactivity → seed-aware rules → finalize.

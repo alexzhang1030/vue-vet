@@ -3,15 +3,7 @@ use super::helpers::*;
 #[test]
 #[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
 fn explain_rule_loads_documentation_without_scan_diagnostics() {
-  let Ok(session) = ProjectSession::open(SessionOptions {
-    root: fixture("rules/no-v-html/invalid/basic.vue"),
-    config_path: None,
-    cache_dir: None,
-    no_cache: true,
-    threads: Some(1),
-  }) else {
-    panic!("session must open");
-  };
+  let session = open_session(fixture("rules/no-v-html/invalid/basic.vue"));
   let Ok(explain) = session.explain_rule("vue-vet/security/no-v-html") else {
     panic!("rule explain");
   };
@@ -22,15 +14,8 @@ fn explain_rule_loads_documentation_without_scan_diagnostics() {
 #[test]
 #[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
 fn explain_scope_reports_no_known_dependency_for_static_computed() {
-  let Ok(session) = ProjectSession::open(SessionOptions {
-    root: fixture("rules/no-computed-without-dependency/invalid/placeholder.vue"),
-    config_path: None,
-    cache_dir: None,
-    no_cache: true,
-    threads: Some(1),
-  }) else {
-    panic!("session must open");
-  };
+  let session =
+    open_session(fixture("rules/no-computed-without-dependency/invalid/placeholder.vue"));
   let Ok((explains, _)) = session.explain_scope("label") else {
     panic!("scope explain must find binding label");
   };
@@ -84,15 +69,8 @@ fn explain_scope_reports_no_known_dependency_for_static_computed() {
 #[test]
 #[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
 fn explain_scope_reuses_full_snapshot_after_diagnostics_only() {
-  let Ok(session) = ProjectSession::open(SessionOptions {
-    root: fixture("rules/no-computed-without-dependency/invalid/placeholder.vue"),
-    config_path: None,
-    cache_dir: None,
-    no_cache: true,
-    threads: Some(1),
-  }) else {
-    panic!("session must open");
-  };
+  let session =
+    open_session(fixture("rules/no-computed-without-dependency/invalid/placeholder.vue"));
   let lean = session
     .analyze_affected_product(AnalysisProduct::DiagnosticsOnly)
     .unwrap_or_else(|error| panic!("diagnostics-only: {error}"));

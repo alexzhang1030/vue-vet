@@ -83,14 +83,7 @@ fn relative_dot_scan_resolves_nuxt_tilde_imports() {
     "tilde-dot-cli",
     "<script setup lang=\"ts\">\nimport type { Contract } from '~/utils/contract'\n</script>\n<template><div /></template>\n",
   );
-  if let Err(error) = fs::create_dir_all(project.root().join("utils")) {
-    panic!("failed to create utils: {error}");
-  }
-  if let Err(error) =
-    fs::write(project.root().join("utils/contract.ts"), "export type Contract = string\n")
-  {
-    panic!("failed to write contract: {error}");
-  }
+  project.write_source("utils/contract.ts", "export type Contract = string\n");
   // Move the SFC under components/ so ~/utils is not a relative look-alike.
   if let Err(error) = fs::create_dir_all(project.root().join("components")) {
     panic!("failed to create components: {error}");
@@ -135,25 +128,15 @@ fn relative_dot_scan_resolves_nuxt_tilde_imports() {
 #[expect(clippy::panic, reason = "test setup failures must fail the integration test")]
 fn scoped_package_import_in_config_is_not_unresolved() {
   let project = TempProject::new("scoped-tailwind", "<template><div /></template>\n");
-  let package = project.root().join("node_modules").join("@tailwindcss").join("vite");
-  if let Err(error) = fs::create_dir_all(&package) {
-    panic!("failed to create scoped package directory: {error}");
-  }
-  if let Err(error) = fs::write(
-    package.join("package.json"),
+  project.write_source(
+    "node_modules/@tailwindcss/vite/package.json",
     r#"{"name":"@tailwindcss/vite","version":"1.0.0","exports":{".":"./index.js"}}"#,
-  ) {
-    panic!("failed to write scoped package.json: {error}");
-  }
-  if let Err(error) = fs::write(package.join("index.js"), "export default {}\n") {
-    panic!("failed to write scoped package entry: {error}");
-  }
-  if let Err(error) = fs::write(
-    project.root().join("nuxt.config.ts"),
+  );
+  project.write_source("node_modules/@tailwindcss/vite/index.js", "export default {}\n");
+  project.write_source(
+    "nuxt.config.ts",
     "import tailwindcss from '@tailwindcss/vite'\nexport default { vite: { plugins: [tailwindcss()] } }\n",
-  ) {
-    panic!("failed to write nuxt.config.ts: {error}");
-  }
+  );
   let output = run(&[project.root().to_string_lossy().as_ref(), "--format", "json", "--no-cache"]);
   assert!(
     output.status.success(),

@@ -177,9 +177,7 @@ fn safe_fix_does_not_apply_a_disabled_rule() {
     "[rules]\n",
     "\"vue-vet/accessibility/no-autofocus\" = \"off\"\n",
   );
-  if let Err(error) = fs::write(project.root().join("vue-vet.toml"), config) {
-    panic!("failed to write temporary configuration: {error}");
-  }
+  project.write_source("vue-vet.toml", config);
   let output = run(&[
     project.root().to_string_lossy().as_ref(),
     "--fix-safe",

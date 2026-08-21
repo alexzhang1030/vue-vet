@@ -42,6 +42,11 @@ impl TempProject {
   #[expect(clippy::panic, reason = "test setup failures must fail the integration test")]
   pub fn write_source(&self, name: &str, source: &str) -> PathBuf {
     let path = self.root.join(name);
+    if let Some(parent) = path.parent()
+      && let Err(error) = fs::create_dir_all(parent)
+    {
+      panic!("failed to create {}: {error}", parent.display());
+    }
     if let Err(error) = fs::write(&path, source) {
       panic!("failed to write temporary source {}: {error}", path.display());
     }

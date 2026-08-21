@@ -1,12 +1,28 @@
 //! Built-in + practice + project rule metadata used by session scans.
 use std::sync::LazyLock;
 
-use vue_vet_core::{RuleMeta, RuleRegistry};
+use vue_vet_core::{Confidence, RuleMeta, RuleRegistry, Severity};
 use vue_vet_practice::practice_rules;
 use vue_vet_project::PROJECT_RULE_IDS;
 use vue_vet_rules::builtin_rules;
 
-use crate::types::PROJECT_RULE_META;
+/// Project-graph rules live outside `builtin_registry` but share the same docs key.
+static PROJECT_RULE_META: [RuleMeta; 2] = [
+  RuleMeta {
+    id: PROJECT_RULE_IDS[0],
+    category: "project",
+    default_severity: Severity::Error,
+    confidence: Confidence::High,
+    documentation: "project-graph",
+  },
+  RuleMeta {
+    id: PROJECT_RULE_IDS[1],
+    category: "project",
+    default_severity: Severity::Warning,
+    confidence: Confidence::Medium,
+    documentation: "project-graph",
+  },
+];
 
 /// Per-file lint + practice registry shared by session scans.
 static FILE_RULES: LazyLock<RuleRegistry> = LazyLock::new(|| {

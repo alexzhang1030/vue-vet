@@ -11,7 +11,7 @@ use vue_vet_reactivity::{
   explain_tracking_scope, module_id_matches, scope_covering_span, select_tracking_scopes,
 };
 
-use crate::{ProjectSession, SessionError, resolve_rule_meta};
+use crate::{ProjectSession, SessionError, registry::resolve_rule_meta};
 
 /// Session explain payload for text/JSON rendering by the caller.
 #[derive(Clone, Debug, Eq, PartialEq)]

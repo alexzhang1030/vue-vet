@@ -23,12 +23,8 @@ fn analyze_for_test(path: &Path, source: &str) -> Vec<Diagnostic> {
   }
 }
 
-#[expect(clippy::panic, reason = "an unexpected parser error must fail the test")]
 fn facts_for_test(path: &Path, source: &str) -> SfcFacts {
-  match analyze_sfc_with_facts(path, source) {
-    Ok(analysis) => analysis.facts,
-    Err(error) => panic!("analysis unexpectedly failed: {error}"),
-  }
+  analysis_for_test(path, source).facts
 }
 
 #[expect(clippy::panic, reason = "an unexpected parser error must fail the test")]

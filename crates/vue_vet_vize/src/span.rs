@@ -5,7 +5,7 @@ use std::sync::Arc;
 use vue_vet_core::SourceSpan;
 
 thread_local! {
-  /// Installed for one SFC analysis from a shared [`vue_vet_core::SourceContext`].
+  /// Installed for one SFC analysis so span mapping can reuse the LineIndex.
   static SFC_LINE_INDEX: RefCell<Option<Arc<vue_vet_core::LineIndex>>> = const { RefCell::new(None) };
 }
 

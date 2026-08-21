@@ -1,4 +1,14 @@
 use crate::template::extract_template_facts;
+use vue_vet_core::TemplateFacts;
+
+#[expect(clippy::panic, reason = "fixture setup failures must fail the unit test")]
+fn facts(template: &str) -> TemplateFacts {
+  let source = format!("<template>{template}</template>");
+  match extract_template_facts(&source, template, 10) {
+    Ok(facts) => facts,
+    Err(error) => panic!("template parse failed: {error}"),
+  }
+}
 
 #[test]
 #[expect(clippy::panic, reason = "fixture setup failures must fail the unit test")]
@@ -8,11 +18,7 @@ fn component_child_marks_parent_link_accessible() {
   <AccountInfo :account="account" />
 </NuxtLink>
 "#;
-  let source = format!("<template>{template}</template>");
-  let facts = match extract_template_facts(&source, template, 10) {
-    Ok(facts) => facts,
-    Err(error) => panic!("template parse failed: {error}"),
-  };
+  let facts = facts(template);
   let Some(link) = facts.elements.iter().find(|element| element.tag == "NuxtLink") else {
     panic!("missing NuxtLink element");
   };
@@ -37,11 +43,7 @@ fn tooltip_content_marks_nested_button_named() {
   </button>
 </CommonTooltip>
 "#;
-  let source = format!("<template>{template}</template>");
-  let facts = match extract_template_facts(&source, template, 10) {
-    Ok(facts) => facts,
-    Err(error) => panic!("template parse failed: {error}"),
-  };
+  let facts = facts(template);
   let Some(button) = facts.elements.iter().find(|element| element.tag == "button") else {
     panic!("missing button element");
   };

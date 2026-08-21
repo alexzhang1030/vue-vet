@@ -53,7 +53,7 @@ pub fn template_expression_identifiers_with_shadow(
 #[must_use]
 pub fn v_for_alias_identifiers(expression: &str) -> Vec<String> {
   let trimmed = expression.trim();
-  let Some(alias_part) = v_for_alias_part(trimmed) else {
+  let Some((alias_part, _)) = v_for_parts(trimmed) else {
     return Vec::new();
   };
   let mut names = BTreeSet::new();
@@ -74,7 +74,7 @@ pub fn slot_prop_alias_identifiers(expression: &str) -> Vec<String> {
 fn normalize_template_expression(expression: &str, surface: &str) -> String {
   let trimmed = expression.trim();
   if surface == "for"
-    && let Some(source) = v_for_iterable_source(trimmed)
+    && let Some((_, source)) = v_for_parts(trimmed)
   {
     return source;
   }
@@ -82,14 +82,6 @@ fn normalize_template_expression(expression: &str, surface: &str) -> String {
 }
 
 /// Vue `v-for` is `alias in|of source`. Only `source` is a reactive read surface.
-fn v_for_iterable_source(expression: &str) -> Option<String> {
-  v_for_parts(expression).map(|(_, source)| source)
-}
-
-fn v_for_alias_part(expression: &str) -> Option<&str> {
-  v_for_parts(expression).map(|(alias, _)| alias)
-}
-
 fn v_for_parts(expression: &str) -> Option<(&str, String)> {
   for separator in [" in ", " of "] {
     if let Some((alias, source)) = expression.rsplit_once(separator) {

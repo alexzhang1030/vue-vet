@@ -2,8 +2,8 @@
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 
 use thiserror::Error;
-use vue_vet_core::{Confidence, FileId, RuleMeta, ScanSummary, Severity};
-use vue_vet_project::{PROJECT_RULE_IDS, ProjectGraph};
+use vue_vet_core::{FileId, ScanSummary};
+use vue_vet_project::ProjectGraph;
 
 use crate::locality::ScanWorkCounters;
 
@@ -119,21 +119,3 @@ impl From<String> for SessionError {
     Self::Message(message)
   }
 }
-
-/// Project-graph rules live outside `builtin_registry` but share the same docs key.
-pub static PROJECT_RULE_META: [RuleMeta; 2] = [
-  RuleMeta {
-    id: PROJECT_RULE_IDS[0],
-    category: "project",
-    default_severity: Severity::Error,
-    confidence: Confidence::High,
-    documentation: "project-graph",
-  },
-  RuleMeta {
-    id: PROJECT_RULE_IDS[1],
-    category: "project",
-    default_severity: Severity::Warning,
-    confidence: Confidence::Medium,
-    documentation: "project-graph",
-  },
-];

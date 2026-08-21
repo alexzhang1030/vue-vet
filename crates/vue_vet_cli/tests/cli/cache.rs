@@ -26,18 +26,10 @@ fn cold_and_warm_cache_results_are_byte_equivalent() {
 #[expect(clippy::panic, reason = "test setup failures must fail the integration test")]
 fn cache_key_ignores_node_modules_package_directories() {
   let project = TempProject::new("nm-pixi-js", "<template><div /></template>\n");
+  project
+    .write_source("node_modules/pixi.js/package.json", r#"{"name":"pixi.js","version":"1.0.0"}"#);
+  project.write_source("node_modules/pixi.js/index.js", "export default {}\n");
   let package_dir = project.root().join("node_modules").join("pixi.js");
-  if let Err(error) = fs::create_dir_all(&package_dir) {
-    panic!("failed to create node_modules/pixi.js directory: {error}");
-  }
-  if let Err(error) =
-    fs::write(package_dir.join("package.json"), r#"{"name":"pixi.js","version":"1.0.0"}"#)
-  {
-    panic!("failed to write nested package.json: {error}");
-  }
-  if let Err(error) = fs::write(package_dir.join("index.js"), "export default {}\n") {
-    panic!("failed to write package entry: {error}");
-  }
   // Symlink install shape: alias pointing at a directory package.
   let link = project.root().join("node_modules").join("alias.js");
   #[cfg(unix)]

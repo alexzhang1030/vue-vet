@@ -32,6 +32,7 @@ vue_vet_vize = { path = "../vue_vet_vize" }
 
 [dev-dependencies]
 divan.workspace = true
+vue_vet_reporters = { path = "../vue_vet_reporters" }
 
 [[bench]]
 name = "scan_modes"

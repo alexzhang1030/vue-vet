@@ -4,15 +4,7 @@ use super::helpers::*;
 #[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
 fn analyze_with_overlays_uses_unsaved_buffer_source() {
   let root = fixture("rules/no-v-html/invalid/basic.vue");
-  let Ok(session) = ProjectSession::open(SessionOptions {
-    root: root.clone(),
-    config_path: None,
-    cache_dir: None,
-    no_cache: true,
-    threads: Some(1),
-  }) else {
-    panic!("session must open");
-  };
+  let session = open_session(root.clone());
   let Ok(disk) = session.analyze() else {
     panic!("disk analyze must succeed");
   };
@@ -36,15 +28,7 @@ fn analyze_with_overlays_uses_unsaved_buffer_source() {
 #[test]
 #[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
 fn resolve_workspace_path_rejects_escape() {
-  let Ok(session) = ProjectSession::open(SessionOptions {
-    root: fixture("rules/no-v-html/invalid"),
-    config_path: None,
-    cache_dir: None,
-    no_cache: true,
-    threads: Some(1),
-  }) else {
-    panic!("session must open");
-  };
+  let session = open_session(fixture("rules/no-v-html/invalid"));
   let Ok(inside) = session.resolve_workspace_path(std::path::Path::new("basic.vue")) else {
     panic!("inside path must resolve");
   };
@@ -69,14 +53,7 @@ fn analyzes_tsx_jsx_v_html_via_template_facts() {
      })\n",
   )
   .unwrap_or_else(|error| panic!("tsx: {error}"));
-  let session = ProjectSession::open(SessionOptions {
-    root: root.clone(),
-    config_path: None,
-    cache_dir: None,
-    no_cache: true,
-    threads: Some(1),
-  })
-  .unwrap_or_else(|error| panic!("session: {error}"));
+  let session = open_session(root.clone());
   let snapshot = session.analyze().unwrap_or_else(|error| panic!("analyze: {error}"));
   assert!(
     snapshot.summary.diagnostics.iter().any(|diagnostic| {
@@ -95,14 +72,7 @@ fn first_discover_includes_overlay_only_unsaved_vue() {
   std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("temp workspace: {error}"));
   std::fs::write(root.join("Existing.vue"), "<template><main /></template>")
     .unwrap_or_else(|error| panic!("existing: {error}"));
-  let session = ProjectSession::open(SessionOptions {
-    root: root.clone(),
-    config_path: None,
-    cache_dir: None,
-    no_cache: true,
-    threads: Some(1),
-  })
-  .unwrap_or_else(|error| panic!("session: {error}"));
+  let session = open_session(root.clone());
   session
     .apply_changes(ChangeSet::upsert(
       root.join("NewComponent.vue"),
@@ -125,14 +95,7 @@ fn first_discover_includes_overlay_only_unsaved_vue() {
 #[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
 fn file_id_for_path_matches_diagnostic_identity() {
   let root = fixture("rules/no-v-html/invalid");
-  let session = ProjectSession::open(SessionOptions {
-    root: root.clone(),
-    config_path: None,
-    cache_dir: None,
-    no_cache: true,
-    threads: Some(1),
-  })
-  .unwrap_or_else(|error| panic!("session: {error}"));
+  let session = open_session(root.clone());
   let file_id = session
     .file_id_for_path(&root.join("basic.vue"))
     .unwrap_or_else(|error| panic!("file id: {error}"));
@@ -152,14 +115,7 @@ fn duplicate_suffix_paths_keep_distinct_file_ids() {
     )
     .unwrap_or_else(|error| panic!("fixture: {error}"));
   }
-  let session = ProjectSession::open(SessionOptions {
-    root: root.clone(),
-    config_path: None,
-    cache_dir: None,
-    no_cache: true,
-    threads: Some(2),
-  })
-  .unwrap_or_else(|error| panic!("session: {error}"));
+  let session = open_session_threads(root.clone(), 2);
   let snapshot = session.analyze().unwrap_or_else(|error| panic!("analyze: {error}"));
   let files = snapshot
     .summary

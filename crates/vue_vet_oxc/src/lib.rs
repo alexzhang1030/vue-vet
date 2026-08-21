@@ -141,18 +141,6 @@ pub fn analyze_module_source(
   })
 }
 
-/// Analyze a standalone JavaScript or TypeScript module.
-///
-/// # Errors
-///
-/// Returns a deterministic parser, semantic, or language-selection error.
-pub fn analyze_module(
-  source: &str,
-  language: &str,
-) -> Result<ScriptBlockFacts, AnalyzeScriptError> {
-  analyze_script(source, source, 0, language, ScriptKind::Script)
-}
-
 fn source_type(language: &str) -> Result<SourceType, AnalyzeScriptError> {
   match language {
     "js" | "javascript" => Ok(SourceType::mjs()),

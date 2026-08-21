@@ -241,7 +241,7 @@ const fn scope_kind_label(kind: TrackingScopeKind) -> &'static str {
   }
 }
 
-pub const fn report_mode(cli: &Cli) -> ReportMode {
+const fn report_mode(cli: &Cli) -> ReportMode {
   if cli.diff.is_some() {
     ReportMode::Diff
   } else if cli.baseline.is_some() {
@@ -251,12 +251,12 @@ pub const fn report_mode(cli: &Cli) -> ReportMode {
   }
 }
 
-pub fn report_root(path: &Path) -> String {
+fn report_root(path: &Path) -> String {
   let root = scan_directory(path).to_string_lossy().replace('\\', "/");
   if root.is_empty() { ".".into() } else { root }
 }
 
-pub fn report_framework(root: &Path) -> ReportFramework {
+fn report_framework(root: &Path) -> ReportFramework {
   let package = if root.is_dir() {
     root.join("package.json")
   } else {

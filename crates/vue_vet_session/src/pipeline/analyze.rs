@@ -13,8 +13,8 @@ use vue_vet_vize::{AnalyzeError, AnalyzedSfc, analyze_sfc_facts_reusing};
 use crate::{
   AnalysisIssue, AnalysisStage, Recoverability,
   discovery::{SourceInput, SourceKind},
-  file_analysis_registry,
   package_index::PackageIndex,
+  registry::file_analysis_registry,
 };
 
 #[derive(Debug)]

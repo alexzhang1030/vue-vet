@@ -52,20 +52,8 @@ pub struct BlockFingerprint {
 /// # Errors
 ///
 /// Returns the same deterministic parse and semantic errors as
-/// [`analyze_sfc_facts`].
+/// [`analyze_sfc_facts_reusing`].
 pub fn analyze_sfc_with_facts(path: &Path, source: &str) -> Result<AnalyzedSfc, AnalyzeError> {
-  analyze_sfc_facts(path, source)
-}
-
-/// Extract SFC facts and module identity without running built-in rules.
-///
-/// Used by the CLI project pass so cross-file module graphs can seed bindings
-/// before rule execution.
-///
-/// # Errors
-///
-/// Returns the same parse / template / script errors as [`analyze_sfc_with_facts`].
-pub fn analyze_sfc_facts(path: &Path, source: &str) -> Result<AnalyzedSfc, AnalyzeError> {
   analyze_sfc_facts_reusing(path, source, None)
 }
 
@@ -76,7 +64,7 @@ pub fn analyze_sfc_facts(path: &Path, source: &str) -> Result<AnalyzedSfc, Analy
 ///
 /// # Errors
 ///
-/// Returns the same parse / template / script errors as [`analyze_sfc_facts`].
+/// Returns the same parse / template / script errors as [`analyze_sfc_with_facts`].
 pub fn analyze_sfc_facts_reusing(
   path: &Path,
   source: &str,
@@ -101,7 +89,6 @@ fn analyze_sfc_facts_inner(
   if let Some(previous) = previous
     && previous.revisions == revisions
   {
-    // Style-only (or identical) edit: every tracked block fingerprint matches.
     let (module_source, ordinary_module_source) = dual_module_sources(path, source, &descriptor);
     let module_source = attach_reused_summaries(module_source, previous.module_source.as_ref());
     let ordinary_module_source =
@@ -134,7 +121,6 @@ fn analyze_sfc_facts_inner(
   let mut template = if reuse_template && reuse_script && reuse_setup {
     previous.map(|prev| prev.facts.template.clone()).unwrap_or_default()
   } else if let Some(template) = descriptor.template.as_ref() {
-    // Vize already supplies template content + absolute SFC content offsets.
     template::extract_template_facts(source, &template.content, template.loc.start)?
   } else {
     TemplateFacts::default()
@@ -270,7 +256,6 @@ fn dual_module_sources(
   });
   let ordinary = descriptor.script.as_ref().map(|block| {
     ModuleSource::sfc_script(
-      // Dual companion id so both blocks re-trace with seeds independently.
       if setup.is_some() { format!("{id}#script") } else { id.clone() },
       block.content.as_ref(),
       block.lang.as_deref().unwrap_or("js"),

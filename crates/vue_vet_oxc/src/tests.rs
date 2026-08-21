@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use super::*;
-use vue_vet_core::{ReactiveReadKind, ScriptCallFact};
+use vue_vet_core::ReactiveReadKind;
 
 #[expect(clippy::panic, reason = "unexpected Oxc errors must fail adapter tests")]
 fn analyze(source: &str, language: &str) -> ScriptBlockFacts {
@@ -34,13 +34,12 @@ fn records_new_expressions_as_call_facts() {
     facts.calls
   );
   assert!(
-    facts.calls.iter().any(callee_is_disconnect),
+    facts
+      .calls
+      .iter()
+      .any(|call| call.callee == "disconnect" || call.callee.ends_with(".disconnect")),
     "member disconnect calls must remain queryable"
   );
-}
-
-fn callee_is_disconnect(call: &ScriptCallFact) -> bool {
-  call.callee == "disconnect" || call.callee.ends_with(".disconnect")
 }
 
 #[test]
