@@ -82,13 +82,16 @@ pub fn analyze_module_source(
   let source_type = source_type(language)?;
   let allocator = Allocator::default();
   let parsed = Parser::new(&allocator, script_source, source_type).parse();
-  if !parsed.errors.is_empty() {
-    return Err(AnalyzeScriptError::Parse(join_errors(&parsed.errors)));
+  if !parsed.diagnostics.is_empty() {
+    return Err(AnalyzeScriptError::Parse(join_errors(parsed.diagnostics.as_slice())));
   }
 
-  let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
-  if !built.errors.is_empty() {
-    return Err(AnalyzeScriptError::Semantic(join_errors(&built.errors)));
+  let built = SemanticBuilder::new()
+    .with_build_nodes(true)
+    .with_check_syntax_error(true)
+    .build(&parsed.program);
+  if !built.diagnostics.is_empty() {
+    return Err(AnalyzeScriptError::Semantic(join_errors(built.diagnostics.as_slice())));
   }
   let semantic = built.semantic;
   let line_index = vue_vet_core::LineIndex::new(sfc_source);
@@ -551,7 +554,7 @@ fn binding_pattern_identifiers(pattern: &str) -> Vec<String> {
   let source = format!("let {trimmed} = null");
   let allocator = Allocator::default();
   let parsed = Parser::new(&allocator, &source, SourceType::mjs()).parse();
-  if !parsed.errors.is_empty() {
+  if !parsed.diagnostics.is_empty() {
     // Best-effort: pull simple identifier tokens from the pattern text.
     return template_expression_identifiers(trimmed, "bind");
   }

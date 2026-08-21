@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use thiserror::Error;
 use vize_atelier_core::{
-  Allocator, ElementNode, ExpressionNode, ForNode, PropNode, TemplateChildNode, parse,
+  Allocator, CompoundExpressionChild, ElementNode, ExpressionNode, ForNode, PropNode,
+  TemplateChildNode, parse,
 };
 use vize_atelier_sfc::{SfcDescriptor, SfcParseOptions, parse_sfc};
 use vue_vet_core::{
@@ -322,7 +323,7 @@ fn extract_template_facts(
   template_offset: usize,
 ) -> Result<TemplateFacts, AnalyzeError> {
   let allocator = Allocator::default();
-  let (root, errors) = parse(allocator.as_bump(), template);
+  let (root, errors) = parse(&allocator, template);
   if let Some(error) = errors.iter().find(|error| !error.is_recoverable()) {
     return Err(AnalyzeError::Template(error.to_string()));
   }
@@ -483,8 +484,8 @@ fn collect_element(
   label_depth: usize,
   name_depth: usize,
 ) -> SubtreeSummary {
-  let offset = template_offset.saturating_add(position_offset(element.loc.start.offset));
-  let end = template_offset.saturating_add(position_offset(element.loc.end.offset));
+  let offset = template_offset.saturating_add(position_offset(element.loc.span.start));
+  let end = template_offset.saturating_add(position_offset(element.loc.span.end));
   let mut attributes = Vec::new();
   let mut directives = Vec::new();
 
@@ -495,8 +496,7 @@ fn collect_element(
   for prop in &element.props {
     match prop {
       PropNode::Attribute(attribute) => {
-        let offset =
-          template_offset.saturating_add(position_offset(attribute.name_loc.start.offset));
+        let offset = template_offset.saturating_add(position_offset(attribute.name_loc.span.start));
         attributes.push(TemplateAttributeFact {
           name: attribute.name.to_string(),
           value: attribute.value.as_ref().map(|value| value.content.to_string()),
@@ -508,7 +508,7 @@ fn collect_element(
           .raw_name
           .as_ref()
           .map_or_else(|| format!("v-{}", directive.name), ToString::to_string);
-        let offset = template_offset.saturating_add(position_offset(directive.loc.start.offset));
+        let offset = template_offset.saturating_add(position_offset(directive.loc.span.start));
         let argument = directive.arg.as_ref().map(expression_text);
         let expression = directive.exp.as_ref().map(expression_text);
         let modifiers = directive
@@ -545,7 +545,7 @@ fn collect_element(
     }
   }
 
-  let child_label_depth = if element.tag.as_str().eq_ignore_ascii_case("label") {
+  let child_label_depth = if element.tag.eq_ignore_ascii_case("label") {
     label_depth.saturating_add(1)
   } else {
     label_depth
@@ -594,12 +594,11 @@ fn collect_element(
     element_provides_alt_name(element)
       || content_directive
       || child_summary.accessible_content
-      || tag_is_vue_component(element.tag.as_str())
+      || tag_is_vue_component(element.tag)
   };
   SubtreeSummary {
     accessible_content: propagate_accessible,
-    labelable_control: is_labelable_control_tag(element.tag.as_str())
-      || child_summary.labelable_control,
+    labelable_control: is_labelable_control_tag(element.tag) || child_summary.labelable_control,
   }
 }
 
@@ -621,12 +620,12 @@ fn tag_is_vue_component(tag: &str) -> bool {
 
 /// Component publishes a name-like prop for its default slot (`:content`, `title`, …).
 fn component_provides_slot_name(element: &ElementNode<'_>) -> bool {
-  if !tag_is_vue_component(element.tag.as_str()) {
+  if !tag_is_vue_component(element.tag) {
     return false;
   }
   for prop in &element.props {
     match prop {
-      PropNode::Attribute(attribute) if is_slot_name_prop(attribute.name.as_str()) => {
+      PropNode::Attribute(attribute) if is_slot_name_prop(attribute.name) => {
         if attribute.value.as_ref().is_some_and(|value| !value.content.trim().is_empty()) {
           return true;
         }
@@ -656,7 +655,7 @@ fn is_slot_name_prop(name: &str) -> bool {
 
 fn element_has_content_directive(element: &ElementNode<'_>) -> bool {
   element.props.iter().any(|prop| {
-    matches!(prop, PropNode::Directive(directive) if matches!(directive.name.as_str(), "text" | "html"))
+    matches!(prop, PropNode::Directive(directive) if matches!(directive.name, "text" | "html"))
   })
 }
 
@@ -726,7 +725,7 @@ fn element_local_aliases(element: &ElementNode<'_>) -> BTreeSet<String> {
     let Some(exp) = directive.exp.as_ref().map(expression_text) else {
       continue;
     };
-    match directive.name.as_str() {
+    match directive.name {
       "for" => {
         for name in v_for_alias_identifiers(&exp) {
           aliases.insert(name);
@@ -896,8 +895,8 @@ fn push_expression_fact(
     return;
   }
   let loc = expression.loc();
-  let offset = template_offset.saturating_add(position_offset(loc.start.offset));
-  let end = template_offset.saturating_add(position_offset(loc.end.offset));
+  let offset = template_offset.saturating_add(position_offset(loc.span.start));
+  let end = template_offset.saturating_add(position_offset(loc.span.end));
   let length = end.saturating_sub(offset).max(text.len());
   let shadowed = scopes.shadowed();
   // `Some` even when empty: empty means resolved-no-reads, not “unknown”.
@@ -913,8 +912,23 @@ fn push_expression_fact(
 fn expression_text(expression: &ExpressionNode<'_>) -> String {
   match expression {
     ExpressionNode::Simple(expression) => expression.content.to_string(),
-    ExpressionNode::Compound(expression) => expression.loc.source.to_string(),
+    ExpressionNode::Compound(expression) => compound_expression_text(expression),
   }
+}
+
+fn compound_expression_text(expression: &vize_atelier_core::CompoundExpressionNode<'_>) -> String {
+  expression
+    .children
+    .iter()
+    .map(|child| match child {
+      CompoundExpressionChild::Simple(node) => node.content.to_string(),
+      CompoundExpressionChild::Compound(node) => compound_expression_text(node),
+      CompoundExpressionChild::Interpolation(node) => expression_text(&node.content),
+      CompoundExpressionChild::Text(node) => node.content.to_string(),
+      CompoundExpressionChild::String(text) => (*text).to_string(),
+      CompoundExpressionChild::Symbol(_) => String::new(),
+    })
+    .collect()
 }
 
 fn expression_is_static(expression: &ExpressionNode<'_>) -> bool {

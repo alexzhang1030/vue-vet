@@ -698,17 +698,20 @@ pub(super) fn analyze_module_phase_one(
   let allocator = Allocator::default();
   let source_type = source_type(module)?;
   let parsed = Parser::new(&allocator, module.source.as_ref(), source_type).parse();
-  if !parsed.errors.is_empty() {
+  if !parsed.diagnostics.is_empty() {
     return Err(TraceModulesError::Parse {
       module: module.id.clone(),
-      message: join_errors(&parsed.errors),
+      message: join_errors(parsed.diagnostics.as_slice()),
     });
   }
-  let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
-  if !built.errors.is_empty() {
+  let built = SemanticBuilder::new()
+    .with_build_nodes(true)
+    .with_check_syntax_error(true)
+    .build(&parsed.program);
+  if !built.diagnostics.is_empty() {
     return Err(TraceModulesError::Semantic {
       module: module.id.clone(),
-      message: join_errors(&built.errors),
+      message: join_errors(built.diagnostics.as_slice()),
     });
   }
   let semantic = built.semantic;

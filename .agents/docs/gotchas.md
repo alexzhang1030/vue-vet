@@ -4,7 +4,16 @@
 
 Vize is not yet production-stable and publishes frequently. Keep the dependency exact-pinned. An upgrade is a compatibility task: compile, inspect API changes, run golden fixtures and diagnostic snapshots, and record behavior differences. Do not change the version range just to unblock dependency resolution.
 
-Vize 0.291.0 requires Rust 1.95 or newer, and its Oxc dependency requires Rust 1.93 or newer. The original Rust 1.85 pin therefore failed before Vue Vet compiled. Keep the exact Rust toolchain aligned with the workspace `rust-version`, regenerate `Cargo.lock` only with that toolchain, and validate upgrades through `just roll-rust`.
+Vize 0.355.0 requires Rust 1.95 or newer and pins Oxc 0.142.0. The original
+Rust 1.85 pin therefore failed before Vue Vet compiled. Keep the exact Rust
+toolchain aligned with the workspace `rust-version`, regenerate `Cargo.lock`
+only with that toolchain, and validate upgrades through `just roll-rust`.
+Template `SourceLocation` is now a byte `Span` only (no copied `loc.source`);
+compound expression text is reconstructed from children. Tag/name fields are
+`&str` — do not call `.as_str()` (unstable `str::as_str`).
+Oxc 0.142 `SemanticBuilder` leaves `Semantic::nodes` empty unless
+`.with_build_nodes(true)` is set; forgetting it makes every node-walk fact
+collector (imports, calls, scopes) succeed with empty results.
 
 ## SFC offsets are not plain string positions
 

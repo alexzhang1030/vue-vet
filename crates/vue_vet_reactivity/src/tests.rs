@@ -85,9 +85,20 @@ fn trace(
 ) -> ReactivityGraph {
   let allocator = Allocator::default();
   let parsed = Parser::new(&allocator, script_source, SourceType::ts()).parse();
-  assert!(parsed.errors.is_empty(), "script parsing unexpectedly failed: {:?}", parsed.errors);
-  let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
-  assert!(built.errors.is_empty(), "semantic analysis unexpectedly failed: {:?}", built.errors);
+  assert!(
+    parsed.diagnostics.is_empty(),
+    "script parsing unexpectedly failed: {:?}",
+    parsed.diagnostics
+  );
+  let built = SemanticBuilder::new()
+    .with_build_nodes(true)
+    .with_check_syntax_error(true)
+    .build(&parsed.program);
+  assert!(
+    built.diagnostics.is_empty(),
+    "semantic analysis unexpectedly failed: {:?}",
+    built.diagnostics
+  );
   trace_reactivity_with_config(
     &built.semantic,
     sfc_source,
@@ -104,9 +115,20 @@ fn graph(source: &str) -> ReactivityGraph {
 fn graph_tsx(source: &str) -> ReactivityGraph {
   let allocator = Allocator::default();
   let parsed = Parser::new(&allocator, source, SourceType::tsx()).parse();
-  assert!(parsed.errors.is_empty(), "tsx parsing unexpectedly failed: {:?}", parsed.errors);
-  let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
-  assert!(built.errors.is_empty(), "tsx semantic analysis unexpectedly failed: {:?}", built.errors);
+  assert!(
+    parsed.diagnostics.is_empty(),
+    "tsx parsing unexpectedly failed: {:?}",
+    parsed.diagnostics
+  );
+  let built = SemanticBuilder::new()
+    .with_build_nodes(true)
+    .with_check_syntax_error(true)
+    .build(&parsed.program);
+  assert!(
+    built.diagnostics.is_empty(),
+    "tsx semantic analysis unexpectedly failed: {:?}",
+    built.diagnostics
+  );
   trace_reactivity_with_config(
     &built.semantic,
     source,
@@ -1392,8 +1414,9 @@ fn incremental_linking_skips_export_resolve_when_only_local_graph_changes() {
     let allocator = oxc_allocator::Allocator::default();
     let source_type = oxc_span::SourceType::default().with_module(true).with_typescript(true);
     let parsed = oxc_parser::Parser::new(&allocator, source, source_type).parse();
-    assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
-    let semantic = oxc_semantic::SemanticBuilder::new().build(&parsed.program).semantic;
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let semantic =
+      oxc_semantic::SemanticBuilder::new().with_build_nodes(true).build(&parsed.program).semantic;
     let config = default_trace_config();
     let graph = Arc::new(trace_reactivity_seeded(
       &semantic,
@@ -5436,9 +5459,12 @@ fn prepared_phase_one_facts_avoid_an_unseeded_second_parse() {
   let source = "import { ref } from 'vue'; export const count = ref(0);";
   let allocator = Allocator::default();
   let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
-  assert!(parsed.errors.is_empty());
-  let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
-  assert!(built.errors.is_empty());
+  assert!(parsed.diagnostics.is_empty());
+  let built = SemanticBuilder::new()
+    .with_build_nodes(true)
+    .with_check_syntax_error(true)
+    .build(&parsed.program);
+  assert!(built.diagnostics.is_empty());
   let local_graph = trace_reactivity_with_config(
     &built.semantic,
     source,
