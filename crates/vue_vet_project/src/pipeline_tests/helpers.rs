@@ -73,12 +73,7 @@ pub fn span(offset: usize) -> SourceSpan {
   SourceSpan { offset, length: 1, line: 1, column: offset.saturating_add(1) }
 }
 
-pub fn file(
-  path: &str,
-  imports: &[(&str, &str)],
-  tags: &[&str],
-  calls: &[&str],
-) -> ProjectFile {
+pub fn file(path: &str, imports: &[(&str, &str)], tags: &[&str], calls: &[&str]) -> ProjectFile {
   let script = ScriptFacts {
     blocks: vec![ScriptBlockFacts {
       kind: ScriptKind::Setup,
