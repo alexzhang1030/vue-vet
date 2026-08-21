@@ -34,8 +34,11 @@ whose body is **assignment-only**, with:
 - one or more writes to ref-like `.value` targets
 - no conditional, after-await, or outside-tracking reads
 
-Side-effecting bodies (logs, DOM, network, multi-statement control flow) stay
-quiet.
+Same-file zero-arg helpers that are themselves assignment-only count as
+assignment-only (`watchEffect(() => { assign() })` where `assign` only writes
+refs). Side-effecting bodies (logs, DOM, network, multi-statement control flow)
+stay quiet. Helpers called only from `then()` / `nextTick`, or async / args
+helpers, stay quiet.
 
 ## Remediation
 

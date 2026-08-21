@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-computed-without-dependency",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-computed-without-dependency",
+    "message": "`computed` does not read any known reactive dependency (maybe: `isCoarse`)",
+    "help": "Analyzed reactivity-shaped accesses (`.value` / `unref` / `toValue` / bare sources) that could not be classified as known bindings. Prefer proven reactive sources; treat this as under-approx uncertainty, not a proven absence.",
+    "file": "fixtures/rules/no-computed-without-dependency/invalid/helper-uncertain.vue",
+    "span": {
+      "offset": 227,
+      "length": 22,
+      "line": 8,
+      "column": 14
+    }
+  }
+]

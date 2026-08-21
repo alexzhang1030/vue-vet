@@ -2534,8 +2534,9 @@ fn symbol_declaration_site_decl(
 /// Same-file zero-arg local helpers called from `scope_id`.
 ///
 /// Each entry is `(callee_id, all_in_scope_call_sites_are_outside_tracking)`.
-/// Shared by hard-read follow and `uncertain_accesses` so the two pipelines
-/// cannot disagree on which callees are in scope.
+/// Shared by hard-read follow, `uncertain_accesses`, writes, and
+/// `assignment_only` so those pipelines cannot disagree on which callees
+/// are in scope.
 fn local_zero_arg_callees_in_scope(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
@@ -3137,14 +3138,157 @@ fn is_assignment_only_body(body: Option<&FunctionBody<'_>>) -> bool {
   }
   body.statements.iter().all(|statement| match statement {
     Statement::ExpressionStatement(expression) => {
-      matches!(expression.expression, Expression::AssignmentExpression(_))
+      matches!(peel_parens(&expression.expression), Expression::AssignmentExpression(_))
     }
     Statement::EmptyStatement(_) => true,
     _ => false,
   })
 }
 
+fn peel_parens<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
+  match expression {
+    Expression::ParenthesizedExpression(paren) => peel_parens(&paren.expression),
+    other => other,
+  }
+}
+
+fn function_body_of<'a>(
+  semantic: &'a oxc_semantic::Semantic<'a>,
+  function_id: NodeId,
+) -> Option<&'a FunctionBody<'a>> {
+  match semantic.nodes().kind(function_id) {
+    AstKind::Function(function) => function.body.as_deref(),
+    AstKind::ArrowFunctionExpression(arrow) => Some(&*arrow.body),
+    _ => None,
+  }
+}
+
+/// Dual-path with [`is_assignment_only_body`]: a body is assignment-only when
+/// every statement is an assignment, empty, or a same-file zero-arg helper
+/// whose body is itself assignment-only (depth-capped).
+fn is_assignment_only_followed(
+  semantic: &oxc_semantic::Semantic<'_>,
+  body: Option<&FunctionBody<'_>>,
+  depth: u32,
+  visiting: &mut BTreeSet<NodeId>,
+) -> bool {
+  if is_assignment_only_body(body) {
+    return true;
+  }
+  let Some(body) = body else {
+    return false;
+  };
+  if body.statements.is_empty() || depth >= MAX_LOCAL_CALLEE_FOLLOW_DEPTH {
+    return false;
+  }
+  body.statements.iter().all(|statement| match statement {
+    Statement::EmptyStatement(_) => true,
+    Statement::ExpressionStatement(expression) => {
+      statement_is_assignment_or_followed_helper(semantic, &expression.expression, depth, visiting)
+    }
+    _ => false,
+  })
+}
+
+fn statement_is_assignment_or_followed_helper(
+  semantic: &oxc_semantic::Semantic<'_>,
+  expression: &Expression<'_>,
+  depth: u32,
+  visiting: &mut BTreeSet<NodeId>,
+) -> bool {
+  match peel_parens(expression) {
+    Expression::AssignmentExpression(_) => true,
+    Expression::CallExpression(call) if call.arguments.is_empty() => {
+      let Some(identifier) = call.callee.get_identifier_reference() else {
+        return false;
+      };
+      let Some(callee_id) =
+        local_function_id_for_name(semantic, identifier.name.as_str(), identifier)
+      else {
+        return false;
+      };
+      if is_async_or_generator_function(semantic, callee_id) || !visiting.insert(callee_id) {
+        return false;
+      }
+      let ok = is_assignment_only_followed(
+        semantic,
+        function_body_of(semantic, callee_id),
+        depth.saturating_add(1),
+        visiting,
+      );
+      visiting.remove(&callee_id);
+      ok
+    }
+    _ => false,
+  }
+}
+
 fn collect_scope_writes(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
+  reactive_bindings: &[ReactiveBindingFact],
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  sfc_source: &str,
+  script_offset: usize,
+) -> Vec<ReactiveWriteFact> {
+  let mut visiting = BTreeSet::new();
+  visiting.insert(scope_id);
+  let mut writes = collect_scope_writes_bounded(
+    semantic,
+    scope_id,
+    reactive_bindings,
+    imported_bindings,
+    sfc_source,
+    script_offset,
+    0,
+    &mut visiting,
+  );
+  writes.sort_by_key(|write| write.span.offset);
+  writes
+}
+
+#[expect(clippy::too_many_arguments, reason = "bounded collector threads scope + visit state")]
+fn collect_scope_writes_bounded(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
+  reactive_bindings: &[ReactiveBindingFact],
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  sfc_source: &str,
+  script_offset: usize,
+  depth: u32,
+  visiting: &mut BTreeSet<NodeId>,
+) -> Vec<ReactiveWriteFact> {
+  let mut writes =
+    collect_scope_writes_local(semantic, scope_id, reactive_bindings, sfc_source, script_offset);
+  if depth >= MAX_LOCAL_CALLEE_FOLLOW_DEPTH {
+    return writes;
+  }
+  // Skip helpers whose *every* in-scope call is `then()` / `nextTick` — those
+  // writes are outside tracking. Do not invent computed side-effects for
+  // deferred assignments (matches skipping nested functions for inline `then()`).
+  for (callee_id, call_outside) in
+    local_zero_arg_callees_in_scope(semantic, scope_id, imported_bindings, visiting)
+  {
+    if call_outside || !visiting.insert(callee_id) {
+      continue;
+    }
+    let nested = collect_scope_writes_bounded(
+      semantic,
+      callee_id,
+      reactive_bindings,
+      imported_bindings,
+      sfc_source,
+      script_offset,
+      depth.saturating_add(1),
+      visiting,
+    );
+    visiting.remove(&callee_id);
+    writes.extend(nested);
+  }
+  writes
+}
+
+fn collect_scope_writes_local(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
   reactive_bindings: &[ReactiveBindingFact],
@@ -3208,7 +3352,6 @@ fn collect_scope_writes(
       span: source_span(sfc_source, script_offset, write_span),
     });
   }
-  writes.sort_by_key(|write| write.span.offset);
   writes
 }
 
@@ -3233,6 +3376,7 @@ fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
     build.semantic,
     build.scope_id,
     build.reactive_bindings,
+    build.imported_bindings,
     build.sfc_source,
     build.script_offset,
   );
@@ -3244,13 +3388,20 @@ fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
     build.imported_bindings,
     build.script_offset,
   );
+  let mut assignment_visiting = BTreeSet::new();
+  assignment_visiting.insert(build.scope_id);
   TrackingScopeFact {
     kind: build.kind,
     callee: build.callee,
     span: build.span,
     reads: build.reads,
     writes,
-    assignment_only: is_assignment_only_body(build.body),
+    assignment_only: is_assignment_only_followed(
+      build.semantic,
+      build.body,
+      0,
+      &mut assignment_visiting,
+    ),
     binding: build.binding,
     uncertain_accesses,
   }

@@ -220,6 +220,12 @@ not mistaken for bindings; lexical scan is only the empty-list fallback. Handler
 extract time. `TemplateExpressionFact.identifiers` is `Some(…)` when resolved
 (including empty = no free reads); only `None` triggers the lexical join
 fallback—do not treat empty `Some` as unknown.
+`<style>` `v-bind(ident)` / `v-bind('ident')` / `v-bind("ident")` are the same
+join surface (`surface: "style"`). Complex CSS expressions stay quiet.
+`SfcBlockRevisions` still fingerprints only template/script/script_setup:
+style-only color edits reuse facts, but the adapter strips `surface == "style"`
+and re-extracts from current style blocks so a `v-bind` ident swap still
+re-joins. Do not add style to revisions just to catch color-only CSS.
 
 Vue JSX is not React JSX and must not be Babel-transformed for analysis: Oxc
 parses source JSX/TSX and lowers Vue-JSX attributes (`v-html`, `innerHTML` /
@@ -526,7 +532,11 @@ reads stay empty do they consult `uncertain_accesses` (reactivity-shaped
 including those inside same-file zero-arg helpers followed from the scope)
 and report with `(maybe: …)`. Do not invent edges; do not treat empty reads as
 ironclad proof when soft evidence remains. A helper called only from `then()` /
-`nextTick` must not contribute maybe — those accesses are outside tracking. Sync Array/String HOF callback
+`nextTick` must not contribute maybe — those accesses are outside tracking.
+The same helper follow records **writes** and **`assignment_only`** (graph v26):
+`computed(() => load())` where `load` assigns a ref is a computed side effect;
+`watchEffect(() => { assign() })` where `assign` is assignment-only is
+`prefer-computed`. `then()`-only helpers must not invent those facts either. Sync Array/String HOF callback
 params (`OPTIONS.map(o => o.value)`) are not soft evidence — `.value` there is
 almost always a plain data field; leave reads empty so absence rules can report
 a hard no-dependency finding instead of `(maybe: option)`. Untyped composable
