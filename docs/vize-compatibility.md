@@ -28,6 +28,9 @@ Rust 1.97.0 for the repository baseline. Do not jump Oxc ahead of Vize.
 - Parse-only `default-features = false` still pulls DOM / Vapor / SSR. Upstream
   `compile` feature request:
   [ubugeeei-prod/vize#4563](https://github.com/ubugeeei-prod/vize/issues/4563).
+  The ready `git format-patch` is
+  [`docs/upstream/vize-4563-atelier-sfc-compile.patch`](./upstream/vize-4563-atelier-sfc-compile.patch);
+  `scripts/open-vize-4563-pr.sh` opens the PR once a token can fork Vize.
 
 ## 0.291 → 0.355 adapter notes (2026-08-21)
 

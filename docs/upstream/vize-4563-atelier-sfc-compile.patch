@@ -1,0 +1,534 @@
+From 3ffb3720057dea947e3171a88261409e498eb120 Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Fri, 21 Aug 2026 14:58:49 +0000
+Subject: [PATCH] feat(atelier-sfc): add compile feature for parse-only
+ consumers
+
+Split template/script codegen behind an optional `compile` feature so
+linters that only call `parse_sfc` can drop DOM/Vapor/SSR and the oxc
+transformer from this crate's graph. `native` still defaults on and
+includes `compile` plus LightningCSS, so the published compiler is
+unchanged.
+
+`is_ts_lang` moves to `types` because Croquis prop merging needs it
+without the compile modules.
+---
+ crates/vize_atelier_sfc/Cargo.toml            | 25 ++++++++++++++-----
+ crates/vize_atelier_sfc/README.md             | 11 ++++++++
+ crates/vize_atelier_sfc/src/compile.rs        |  6 +----
+ crates/vize_atelier_sfc/src/croquis.rs        |  3 +--
+ crates/vize_atelier_sfc/src/lib.rs            | 24 +++++++++++++-----
+ crates/vize_atelier_sfc/src/parse_tests.rs    |  6 +++--
+ crates/vize_atelier_sfc/src/source_map.rs     |  2 +-
+ .../vize_atelier_sfc/src/source_map/tests.rs  |  9 ++++---
+ crates/vize_atelier_sfc/src/types.rs          |  9 +++++++
+ .../tests/allocation_budget.rs                |  2 ++
+ .../tests/component_spread_props.rs           |  2 ++
+ .../tests/component_tag_binding.rs            |  2 ++
+ .../tests/custom_directive_patch_flag.rs      |  2 ++
+ .../tests/davinci_arena_pool.rs               |  2 ++
+ .../tests/dynamic_slot_setup_binding.rs       |  2 ++
+ .../tests/dynamic_template_ref.rs             |  2 ++
+ .../tests/emitter_javascript_output.rs        |  2 ++
+ .../vize_atelier_sfc/tests/empty_component.rs |  2 ++
+ .../tests/imported_pick_intersection_props.rs |  2 ++
+ .../tests/imported_prop_defaults.rs           |  2 ++
+ .../tests/imported_type_cache.rs              |  2 ++
+ .../tests/indexed_access_props.rs             |  2 ++
+ .../tests/module_mode_setup_bindings.rs       |  2 ++
+ .../tests/scoped_slot_shadowing.rs            |  2 ++
+ .../tests/setup_component_unref.rs            |  2 ++
+ .../tests/workspace_prop_types.rs             |  2 ++
+ 26 files changed, 104 insertions(+), 25 deletions(-)
+
+diff --git a/crates/vize_atelier_sfc/Cargo.toml b/crates/vize_atelier_sfc/Cargo.toml
+index 2f5e396..7fc5417 100644
+--- a/crates/vize_atelier_sfc/Cargo.toml
++++ b/crates/vize_atelier_sfc/Cargo.toml
+@@ -10,12 +10,24 @@ metadata.vize.stability = "alpha-supported"
+ 
+ [features]
+ default = ["native"]
+-native = ["dep:lightningcss", "lightningcss/serde", "dep:parcel_selectors"]
++# Template/script codegen (DOM / Vapor / SSR) plus oxc transformer/codegen.
++# Off: `parse_sfc` and style/bundler helpers stay available for linters that
++# do not emit render functions. `native` includes this so the published
++# default stays a full compiler.
++compile = [
++  "dep:vize_atelier_dom",
++  "dep:vize_atelier_ssr",
++  "dep:vize_atelier_vapor",
++  "dep:oxc_transformer",
++  "dep:oxc_codegen",
++]
++native = ["compile", "dep:lightningcss", "lightningcss/serde", "dep:parcel_selectors"]
+ # Arms the Davinci P1-7 differential lane across the atelier crates: every
+ # retained-AST consumption dual-runs the legacy re-parse and panics on
+ # divergence. Off in production builds; the corpus-runnable entry below
+ # requires it.
+ davinci-differential = [
++  "compile",
+   "vize_atelier_core/davinci-differential",
+   "vize_atelier_vapor/davinci-differential",
+ ]
+@@ -24,9 +36,9 @@ davinci-differential = [
+ vize_carton = { workspace = true }
+ vize_croquis = { workspace = true }
+ vize_atelier_core = { workspace = true }
+-vize_atelier_dom = { workspace = true }
+-vize_atelier_ssr = { workspace = true }
+-vize_atelier_vapor = { workspace = true }
++vize_atelier_dom = { workspace = true, optional = true }
++vize_atelier_ssr = { workspace = true, optional = true }
++vize_atelier_vapor = { workspace = true, optional = true }
+ 
+ # OXC for JavaScript/TypeScript parsing and transformation
+ oxc_parser = { workspace = true }
+@@ -36,8 +48,8 @@ oxc_span = { workspace = true }
+ oxc_allocator = { workspace = true }
+ oxc_syntax = { workspace = true }
+ oxc_semantic = { workspace = true }
+-oxc_transformer = { workspace = true }
+-oxc_codegen = { workspace = true }
++oxc_transformer = { workspace = true, optional = true }
++oxc_codegen = { workspace = true, optional = true }
+ 
+ memchr = { workspace = true }
+ serde = { workspace = true }
+@@ -62,6 +74,7 @@ harness = false
+ [[bench]]
+ name = "sfc_compile"
+ harness = false
++required-features = ["compile"]
+ 
+ [[test]]
+ name = "davinci_differential"
+diff --git a/crates/vize_atelier_sfc/README.md b/crates/vize_atelier_sfc/README.md
+index 639eaf9..a05c2d9 100644
+--- a/crates/vize_atelier_sfc/README.md
++++ b/crates/vize_atelier_sfc/README.md
+@@ -8,6 +8,17 @@ Support and deprecation guarantees are defined in the
+ 
+ `vize_atelier_sfc` parses and compiles Vue Single File Components.
+ 
++Parse-only consumers (linters that call `parse_sfc` and do not emit render
++functions) should disable default features so LightningCSS and the DOM/Vapor/SSR
++codegen crates stay out of the graph:
++
++```toml
++vize_atelier_sfc = { version = "0.356", default-features = false }
++```
++
++`native` (the crate default) includes `compile` plus LightningCSS. `compile`
++alone is template/script codegen without the CSS engine.
++
+ ## Highlights
+ 
+ - `.vue` descriptor parsing (`<template>`, `<script>`, `<script setup>`, `<style>`, custom blocks)
+diff --git a/crates/vize_atelier_sfc/src/compile.rs b/crates/vize_atelier_sfc/src/compile.rs
+index 1ff92a2..fabcc1d 100644
+--- a/crates/vize_atelier_sfc/src/compile.rs
++++ b/crates/vize_atelier_sfc/src/compile.rs
+@@ -28,7 +28,7 @@ use crate::rewrite_default::rewrite_default;
+ use crate::script::ScriptCompileContext;
+ use crate::types::{
+     BindingMetadata, BindingType, SfcCompileOptions, SfcCompileResult, SfcDescriptor, SfcError,
+-    SfcMacroArtifact,
++    SfcMacroArtifact, is_ts_lang,
+ };
+ use vize_atelier_core::{CodegenOptions, TemplateSyntaxMode, options::CustomElementMatcher};
+ 
+@@ -58,10 +58,6 @@ pub use entry::{
+ };
+ use vize_carton::{String, ToCompactString, profile};
+ 
+-pub(crate) fn is_ts_lang(lang: Option<&str>) -> bool {
+-    matches!(lang, Some("ts" | "tsx"))
+-}
+-
+ fn extract_descriptor_macro_artifacts(descriptor: &SfcDescriptor) -> Vec<SfcMacroArtifact> {
+     let mut artifacts = Vec::new();
+ 
+diff --git a/crates/vize_atelier_sfc/src/croquis.rs b/crates/vize_atelier_sfc/src/croquis.rs
+index 295a46b..e671709 100644
+--- a/crates/vize_atelier_sfc/src/croquis.rs
++++ b/crates/vize_atelier_sfc/src/croquis.rs
+@@ -237,9 +237,8 @@ pub fn merge_resolved_props_into_croquis(
+     descriptor: &SfcDescriptor<'_>,
+     filename: &str,
+ ) {
+-    use crate::compile::is_ts_lang;
+     use crate::script::ScriptCompileContext;
+-    use crate::types::BindingType;
++    use crate::types::{BindingType, is_ts_lang};
+ 
+     let Some(script_setup) = descriptor.script_setup.as_ref() else {
+         return;
+diff --git a/crates/vize_atelier_sfc/src/lib.rs b/crates/vize_atelier_sfc/src/lib.rs
+index 96a200e..4db3d6c 100644
+--- a/crates/vize_atelier_sfc/src/lib.rs
++++ b/crates/vize_atelier_sfc/src/lib.rs
+@@ -3,9 +3,9 @@
+ //! This module follows the Vue.js core structure for parsing and compilation:
+ //!
+ //! - `parse` - SFC parsing into descriptor blocks
+-//! - `compile_script` - Script/script setup compilation
+-//! - `compile_template` - Template block compilation (DOM and Vapor)
+-//! - `compile` - Main SFC compilation orchestration
++//! - `compile_script` - Script/script setup compilation (`compile` feature)
++//! - `compile_template` - Template block compilation (DOM and Vapor; `compile` feature)
++//! - `compile` - Main SFC compilation orchestration (`compile` feature)
+ //! - `style` - Style block compilation with scoped CSS
+ //! - `css` - Low-level CSS compilation with LightningCSS
+ //!
+@@ -29,6 +29,10 @@
+ //! println!("{}", result.code);
+ //! ```
+ 
++// Compile-only helpers stay in the crate so this feature is a dependency cut,
++// not a second source tree. Isolated `--no-default-features` builds therefore
++// see unused `pub(crate)` items that `native`/`compile` call.
++#![cfg_attr(not(feature = "compile"), allow(dead_code, unused_imports))]
+ #![allow(clippy::collapsible_match)]
+ #![allow(clippy::type_complexity)]
+ #![allow(clippy::redundant_field_names)]
+@@ -38,8 +42,11 @@
+ 
+ // Core modules - following Vue.js compiler-sfc structure
+ pub mod bundler;
++#[cfg(feature = "compile")]
+ pub mod compile;
++#[cfg(feature = "compile")]
+ pub mod compile_script;
++#[cfg(feature = "compile")]
+ pub mod compile_template;
+ pub mod croquis;
+ pub mod css;
+@@ -59,14 +66,18 @@ pub use bundler::{
+     extract_style_blocks, generate_bundler_scope_id, has_scoped_style, is_importable_asset_url,
+     strip_css_comments_for_scoped, wrap_scoped_preprocessor_style,
+ };
++#[cfg(feature = "compile")]
+ #[allow(deprecated)]
+ pub use compile::compile_sfc_with_vue_parser_quirks;
++#[cfg(feature = "compile")]
+ pub use compile::{ScriptCompileResult, compile_sfc, compile_sfc_with_template_syntax};
++#[cfg(feature = "compile")]
+ pub use compile::{
+     SfcScriptOutputMode, compile_sfc_for_adapter,
+     compile_sfc_with_custom_elements_template_syntax_and_codegen_options,
+     compile_sfc_with_template_syntax_and_codegen_options,
+ };
++#[cfg(feature = "compile")]
+ pub use compile_script::props::{
+     script_setup_has_semantic_validator_candidates, validate_script_setup_semantics,
+     validate_script_setup_semantics_located,
+@@ -87,13 +98,14 @@ pub use types::{
+ 
+ // Re-export key types from dependencies
+ pub use vize_atelier_core::CompilerError;
++#[cfg(feature = "compile")]
+ pub use vize_atelier_dom::compile_template;
+ 
+-#[cfg(test)]
++#[cfg(all(test, feature = "compile"))]
+ mod compile_tests;
+ #[cfg(test)]
+ mod parse_tests;
+-#[cfg(test)]
++#[cfg(all(test, feature = "compile"))]
+ mod snapshot_tests;
+-#[cfg(test)]
++#[cfg(all(test, feature = "compile"))]
+ mod template_tests;
+diff --git a/crates/vize_atelier_sfc/src/parse_tests.rs b/crates/vize_atelier_sfc/src/parse_tests.rs
+index 2efd9c0..473c88f 100644
+--- a/crates/vize_atelier_sfc/src/parse_tests.rs
++++ b/crates/vize_atelier_sfc/src/parse_tests.rs
+@@ -3,8 +3,7 @@
+ //! Split out of `lib.rs` so that module stays inside the per-file
+ //! source-length budget.
+ 
+-use super::{SfcCompileOptions, compile_sfc, compile_sfc_with_template_syntax, parse_sfc};
+-use vize_atelier_core::TemplateSyntaxMode;
++use super::{SfcCompileOptions, parse_sfc};
+ use vize_carton::config::VueVersion;
+ 
+ #[test]
+@@ -14,6 +13,7 @@ fn template_compile_options_default_dialect_is_vue3() {
+     assert_eq!(options.template.dialect, VueVersion::V3);
+ }
+ 
++#[cfg(feature = "compile")]
+ #[test]
+ fn dialect_threads_through_compile_without_changing_vue3_output() {
+     // PR2 is plumbing only: a non-Vue-3 dialect must reach the compile
+@@ -25,6 +25,8 @@ fn dialect_threads_through_compile_without_changing_vue3_output() {
+   <div :class="cls" @click="onClick">{{ msg }}</div>
+ </template>
+ "#;
++    use super::compile_sfc;
++
+     let descriptor = parse_sfc(source, Default::default()).unwrap();
+ 
+     let mut v2_options = SfcCompileOptions::default();
+diff --git a/crates/vize_atelier_sfc/src/source_map.rs b/crates/vize_atelier_sfc/src/source_map.rs
+index 9f75c2e..54a00a1 100644
+--- a/crates/vize_atelier_sfc/src/source_map.rs
++++ b/crates/vize_atelier_sfc/src/source_map.rs
+@@ -2,7 +2,7 @@
+ //!
+ //! # Why the map is recovered rather than recorded
+ //!
+-//! [`compile_sfc`](crate::compile_sfc) does not edit the `.vue` source into its
++//! `compile_sfc` does not edit the `.vue` source into its
+ //! output the way a MagicString-based compiler does. It *concatenates*
+ //! independently produced chunks: hoisted template imports, the rewritten
+ //! `<script>`/`<script setup>` body, a synthesized render function, an
+diff --git a/crates/vize_atelier_sfc/src/source_map/tests.rs b/crates/vize_atelier_sfc/src/source_map/tests.rs
+index 5d735dc..797ce60 100644
+--- a/crates/vize_atelier_sfc/src/source_map/tests.rs
++++ b/crates/vize_atelier_sfc/src/source_map/tests.rs
+@@ -2,9 +2,6 @@
+ 
+ use super::test_support::{Segment, decode_mappings, descriptor_of};
+ use super::*;
+-use crate::compile_sfc_with_template_syntax_and_codegen_options;
+-use crate::types::{ScriptCompileOptions, SfcCompileOptions, SfcParseOptions};
+-use vize_atelier_core::{CodegenOptions, TemplateSyntaxMode};
+ 
+ /// A `.vue` whose script lines are all distinct, so every one of them is an
+ /// unambiguous anchor.
+@@ -165,7 +162,12 @@ fn crlf_sources_resolve_to_the_same_positions() {
+     );
+ }
+ 
++#[cfg(feature = "compile")]
+ fn compile_with_source_map(source: &str, source_map: bool) -> crate::types::SfcCompileResult {
++    use crate::compile_sfc_with_template_syntax_and_codegen_options;
++    use crate::types::{ScriptCompileOptions, SfcCompileOptions, SfcParseOptions};
++    use vize_atelier_core::{CodegenOptions, TemplateSyntaxMode};
++
+     let descriptor = descriptor_of(source);
+     let options = SfcCompileOptions {
+         parse: SfcParseOptions {
+@@ -191,6 +193,7 @@ fn compile_with_source_map(source: &str, source_map: bool) -> crate::types::SfcC
+     .expect("fixture compiles")
+ }
+ 
++#[cfg(feature = "compile")]
+ #[test]
+ fn compile_sfc_attaches_a_map_only_when_the_flag_is_on() {
+     assert_eq!(compile_with_source_map(COUNTER_VUE, false).map, None);
+diff --git a/crates/vize_atelier_sfc/src/types.rs b/crates/vize_atelier_sfc/src/types.rs
+index f62ae03..4e58c7e 100644
+--- a/crates/vize_atelier_sfc/src/types.rs
++++ b/crates/vize_atelier_sfc/src/types.rs
+@@ -13,6 +13,14 @@ use vize_carton::{FxHashMap, String};
+ // Re-export from vize_relief to avoid duplication
+ pub use vize_atelier_core::options::{BindingMetadata, BindingType};
+ 
++/// True when a `<script>` / `<script setup>` `lang` is TypeScript.
++///
++/// Lives on `types` so Croquis / parse-only consumers can classify the block
++/// without pulling in the `compile` feature.
++pub(crate) fn is_ts_lang(lang: Option<&str>) -> bool {
++    matches!(lang, Some("ts" | "tsx"))
++}
++
+ /// SFC Descriptor - parsed result of a .vue file
+ /// Uses Cow<str> for zero-copy parsing with optional ownership
+ #[derive(Debug, Clone, Serialize, Deserialize)]
+@@ -532,6 +540,7 @@ pub struct TemplateCompileOptions {
+     pub dialect: vize_carton::config::VueVersion,
+ 
+     /// Compiler options
++    #[cfg(feature = "compile")]
+     pub compiler_options: Option<vize_atelier_dom::DomCompilerOptions>,
+ }
+ 
+diff --git a/crates/vize_atelier_sfc/tests/allocation_budget.rs b/crates/vize_atelier_sfc/tests/allocation_budget.rs
+index 5f345bb..a07ddac 100644
+--- a/crates/vize_atelier_sfc/tests/allocation_budget.rs
++++ b/crates/vize_atelier_sfc/tests/allocation_budget.rs
+@@ -22,6 +22,8 @@
+ //! `cargo test -p vize_atelier_sfc --test allocation_budget -- --nocapture`,
+ //! read the printed `measured ...`, and update the matching budget below.
+ 
++#![cfg(feature = "compile")]
++
+ #![allow(clippy::disallowed_macros, clippy::disallowed_types)]
+ 
+ use std::alloc::System;
+diff --git a/crates/vize_atelier_sfc/tests/component_spread_props.rs b/crates/vize_atelier_sfc/tests/component_spread_props.rs
+index 96bd899..aa11a6b 100644
+--- a/crates/vize_atelier_sfc/tests/component_spread_props.rs
++++ b/crates/vize_atelier_sfc/tests/component_spread_props.rs
+@@ -6,6 +6,8 @@
+ //! every prop undefined, which took down the whole Nuxt UI playground with
+ //! `Missing required prop: "name"` followed by an SSR 500.
+ 
++#![cfg(feature = "compile")]
++
+ use vize_atelier_sfc::{SfcCompileOptions, SfcParseOptions, compile_sfc, parse_sfc};
+ 
+ const NUXT_UI_ICON_SFC: &str = r#"<script setup lang="ts">
+diff --git a/crates/vize_atelier_sfc/tests/component_tag_binding.rs b/crates/vize_atelier_sfc/tests/component_tag_binding.rs
+index a011e63..2b4259c 100644
+--- a/crates/vize_atelier_sfc/tests/component_tag_binding.rs
++++ b/crates/vize_atelier_sfc/tests/component_tag_binding.rs
+@@ -1,3 +1,5 @@
++#![cfg(feature = "compile")]
++
+ #![allow(clippy::disallowed_macros)] // `insta::assert_snapshot!` expands to `format!`.
+ 
+ use oxc_allocator::Allocator;
+diff --git a/crates/vize_atelier_sfc/tests/custom_directive_patch_flag.rs b/crates/vize_atelier_sfc/tests/custom_directive_patch_flag.rs
+index 307fb88..9ba9f90 100644
+--- a/crates/vize_atelier_sfc/tests/custom_directive_patch_flag.rs
++++ b/crates/vize_atelier_sfc/tests/custom_directive_patch_flag.rs
+@@ -1,3 +1,5 @@
++#![cfg(feature = "compile")]
++
+ use vize_atelier_sfc::{SfcCompileOptions, SfcParseOptions, compile_sfc, parse_sfc};
+ 
+ fn compile(source: &str) -> vize_carton::String {
+diff --git a/crates/vize_atelier_sfc/tests/davinci_arena_pool.rs b/crates/vize_atelier_sfc/tests/davinci_arena_pool.rs
+index d12bc64..aa05dd1 100644
+--- a/crates/vize_atelier_sfc/tests/davinci_arena_pool.rs
++++ b/crates/vize_atelier_sfc/tests/davinci_arena_pool.rs
+@@ -21,6 +21,8 @@
+ //! that outlived a file is a compile error). These tests cover what it cannot
+ //! see: the pool's own bookkeeping and the owned-form contract.
+ 
++#![cfg(feature = "compile")]
++
+ use vize_atelier_sfc::{
+     SfcCompileOptions, SfcCompileResult, SfcParseOptions, compile_sfc, parse_sfc,
+ };
+diff --git a/crates/vize_atelier_sfc/tests/dynamic_slot_setup_binding.rs b/crates/vize_atelier_sfc/tests/dynamic_slot_setup_binding.rs
+index 2649e4d..f3e905d 100644
+--- a/crates/vize_atelier_sfc/tests/dynamic_slot_setup_binding.rs
++++ b/crates/vize_atelier_sfc/tests/dynamic_slot_setup_binding.rs
+@@ -1,3 +1,5 @@
++#![cfg(feature = "compile")]
++
+ use vize_atelier_sfc::{SfcCompileOptions, SfcParseOptions, compile_sfc, parse_sfc};
+ 
+ #[test]
+diff --git a/crates/vize_atelier_sfc/tests/dynamic_template_ref.rs b/crates/vize_atelier_sfc/tests/dynamic_template_ref.rs
+index e262024..556d947 100644
+--- a/crates/vize_atelier_sfc/tests/dynamic_template_ref.rs
++++ b/crates/vize_atelier_sfc/tests/dynamic_template_ref.rs
+@@ -1,3 +1,5 @@
++#![cfg(feature = "compile")]
++
+ #![allow(clippy::disallowed_macros)] // `insta::assert_snapshot!` expands to `format!`.
+ 
+ use oxc_allocator::Allocator;
+diff --git a/crates/vize_atelier_sfc/tests/emitter_javascript_output.rs b/crates/vize_atelier_sfc/tests/emitter_javascript_output.rs
+index 074de45..26f9d7e 100644
+--- a/crates/vize_atelier_sfc/tests/emitter_javascript_output.rs
++++ b/crates/vize_atelier_sfc/tests/emitter_javascript_output.rs
+@@ -5,6 +5,8 @@
+ //! JavaScript via `ensure_javascript_output`. These tests pin that guarantee so
+ //! a regression in the script pipeline cannot leak TypeScript into the bundler.
+ 
++#![cfg(feature = "compile")]
++
+ use vize_atelier_sfc::{
+     SfcCompileOptions, SfcParseOptions,
+     compile_script::typescript::{
+diff --git a/crates/vize_atelier_sfc/tests/empty_component.rs b/crates/vize_atelier_sfc/tests/empty_component.rs
+index 22fb195..2be67ff 100644
+--- a/crates/vize_atelier_sfc/tests/empty_component.rs
++++ b/crates/vize_atelier_sfc/tests/empty_component.rs
+@@ -1,3 +1,5 @@
++#![cfg(feature = "compile")]
++
+ use vize_atelier_sfc::{SfcCompileOptions, SfcParseOptions, compile_sfc, parse_sfc};
+ 
+ #[test]
+diff --git a/crates/vize_atelier_sfc/tests/imported_pick_intersection_props.rs b/crates/vize_atelier_sfc/tests/imported_pick_intersection_props.rs
+index 9a4c416..22736cb 100644
+--- a/crates/vize_atelier_sfc/tests/imported_pick_intersection_props.rs
++++ b/crates/vize_atelier_sfc/tests/imported_pick_intersection_props.rs
+@@ -1,3 +1,5 @@
++#![cfg(feature = "compile")]
++
+ #![allow(clippy::disallowed_macros)] // `insta::assert_snapshot!` expands to `format!`.
+ 
+ use std::path::PathBuf;
+diff --git a/crates/vize_atelier_sfc/tests/imported_prop_defaults.rs b/crates/vize_atelier_sfc/tests/imported_prop_defaults.rs
+index 39fde19..77e3479 100644
+--- a/crates/vize_atelier_sfc/tests/imported_prop_defaults.rs
++++ b/crates/vize_atelier_sfc/tests/imported_prop_defaults.rs
+@@ -1,3 +1,5 @@
++#![cfg(feature = "compile")]
++
+ #![allow(clippy::disallowed_macros)] // `insta::assert_snapshot!` expands to `format!`.
+ 
+ use oxc_allocator::Allocator;
+diff --git a/crates/vize_atelier_sfc/tests/imported_type_cache.rs b/crates/vize_atelier_sfc/tests/imported_type_cache.rs
+index 860cf6e..8f17005 100644
+--- a/crates/vize_atelier_sfc/tests/imported_type_cache.rs
++++ b/crates/vize_atelier_sfc/tests/imported_type_cache.rs
+@@ -1,3 +1,5 @@
++#![cfg(feature = "compile")]
++
+ use std::path::{Path, PathBuf};
+ use std::time::Duration;
+ 
+diff --git a/crates/vize_atelier_sfc/tests/indexed_access_props.rs b/crates/vize_atelier_sfc/tests/indexed_access_props.rs
+index b24c0ff..bd55d5b 100644
+--- a/crates/vize_atelier_sfc/tests/indexed_access_props.rs
++++ b/crates/vize_atelier_sfc/tests/indexed_access_props.rs
+@@ -1,3 +1,5 @@
++#![cfg(feature = "compile")]
++
+ use vize_atelier_sfc::{SfcCompileOptions, SfcParseOptions, compile_sfc, parse_sfc};
+ 
+ #[test]
+diff --git a/crates/vize_atelier_sfc/tests/module_mode_setup_bindings.rs b/crates/vize_atelier_sfc/tests/module_mode_setup_bindings.rs
+index dd5a6aa..ba2d475 100644
+--- a/crates/vize_atelier_sfc/tests/module_mode_setup_bindings.rs
++++ b/crates/vize_atelier_sfc/tests/module_mode_setup_bindings.rs
+@@ -1,3 +1,5 @@
++#![cfg(feature = "compile")]
++
+ #![allow(clippy::disallowed_macros)] // `insta::assert_snapshot!` expands to `format!`.
+ 
+ use oxc_allocator::Allocator;
+diff --git a/crates/vize_atelier_sfc/tests/scoped_slot_shadowing.rs b/crates/vize_atelier_sfc/tests/scoped_slot_shadowing.rs
+index 2a1a82f..bb01a19 100644
+--- a/crates/vize_atelier_sfc/tests/scoped_slot_shadowing.rs
++++ b/crates/vize_atelier_sfc/tests/scoped_slot_shadowing.rs
+@@ -1,3 +1,5 @@
++#![cfg(feature = "compile")]
++
+ use vize_atelier_sfc::{
+     ScriptCompileOptions, SfcCompileOptions, SfcParseOptions, TemplateCompileOptions, compile_sfc,
+     parse_sfc,
+diff --git a/crates/vize_atelier_sfc/tests/setup_component_unref.rs b/crates/vize_atelier_sfc/tests/setup_component_unref.rs
+index 06f8a72..6cf5fad 100644
+--- a/crates/vize_atelier_sfc/tests/setup_component_unref.rs
++++ b/crates/vize_atelier_sfc/tests/setup_component_unref.rs
+@@ -1,3 +1,5 @@
++#![cfg(feature = "compile")]
++
+ use vize_atelier_sfc::{SfcCompileOptions, SfcParseOptions, compile_sfc, parse_sfc};
+ 
+ #[test]
+diff --git a/crates/vize_atelier_sfc/tests/workspace_prop_types.rs b/crates/vize_atelier_sfc/tests/workspace_prop_types.rs
+index fa7cdf1..915aa80 100644
+--- a/crates/vize_atelier_sfc/tests/workspace_prop_types.rs
++++ b/crates/vize_atelier_sfc/tests/workspace_prop_types.rs
+@@ -1,3 +1,5 @@
++#![cfg(feature = "compile")]
++
+ use std::path::PathBuf;
+ 
+ use vize_atelier_sfc::{SfcCompileOptions, SfcParseOptions, compile_sfc, parse_sfc};
+-- 
+2.43.0
+
