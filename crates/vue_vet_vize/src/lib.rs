@@ -879,7 +879,7 @@ fn skip_ascii_ws(bytes: &[u8], mut cursor: usize) -> usize {
   cursor
 }
 
-fn is_js_ident_byte(byte: u8, first: bool) -> bool {
+const fn is_js_ident_byte(byte: u8, first: bool) -> bool {
   byte == b'_' || byte == b'$' || byte.is_ascii_alphabetic() || (!first && byte.is_ascii_digit())
 }
 
