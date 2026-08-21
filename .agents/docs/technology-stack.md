@@ -67,14 +67,15 @@ product surface.
 
 ## atomic-write-file owns the single-file commit
 
-The safe-fix executor uses exact-pinned `atomic-write-file` 0.3.0 for the final
-same-directory replacement on Unix, Windows, and WASI. Vue Vet still owns edit
-classification, planning, scan-scope containment, byte/UTF-8 validation, and
-post-fix rescanning; the dependency receives only a completely rendered file
-body and owns the filesystem-specific atomic commit. It does not provide or
-imply a multi-file transaction. Its `nix` and `rand` versions are a reviewed
-source of duplicate transitive packages rather than a reason to weaken the
-workspace lint policy further.
+The safe-fix executor uses exact-pinned `atomic-write-file` 0.3.1 for the final
+same-directory replacement on Unix, Windows, and WASI. 0.3.1 is the crate bump
+that moves `rand` to 0.10.2 and `nix` to 0.31.3 (shared with CodSpeed); the
+public commit API is unchanged. Vue Vet still owns edit classification,
+planning, scan-scope containment, byte/UTF-8 validation, and post-fix
+rescanning; the dependency receives only a completely rendered file body and
+owns the filesystem-specific atomic commit. It does not provide or imply a
+multi-file transaction. Remaining `nix` 0.29 / `sha2` 0.10 / `thiserror` 1.x
+duplicates come from wezterm / `mac_address` (ratatui), not this pin.
 
 ## Vue Vet owns the product contracts
 

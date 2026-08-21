@@ -126,7 +126,10 @@ Vue Vet still does **not** execute `vite.config.*` / `nuxt.config.*` — aliases
 come from Vite defaults (`@` → `src`, `~` → root), tsconfig paths (including
 `.nuxt/tsconfig.json`), and package `exports`.
 `oxc_resolver` is pinned to `11.21.0` because `11.22+` requires `dashmap 6.2.1`
-while Vize pins `dashmap =6.1.0`. Always absolutize/canonicalize the scan root
+while Vize pins `dashmap =6.1.0`. The same Vize 0.355 release exact-pins
+`serde =1.0.228`, `serde_json =1.0.149`, and `compact_str =0.9.0`, so a
+workspace `cargo update` cannot float those patches either. Always
+absolutize/canonicalize the scan root
 before building the resolver: `vue-vet .` must not leave alias targets as `"."`,
 or Nuxt `~/…` imports fail even when the files exist. On Windows, also strip
 compatible `\\?\` verbatim prefixes after canonicalize — otherwise alias targets

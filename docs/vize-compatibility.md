@@ -44,6 +44,21 @@ Reviewed against `vize_atelier_sfc` / `vize_atelier_core` 0.355.0 and Oxc
   `extract_css_vars` (no spans), `oxc_ecmascript::MayHaveSideEffects`,
   `oxc_semantic` `cfg` / `oxc_cfg`, croquis `effect_graph`.
 - Latest crates.io Oxc is 0.146; stay on 0.142 until Vize moves.
+  Jumping our adapter to 0.146 while Vize stays on 0.142 would ship two Oxc
+  graphs and break the “Vize owns SFC, Oxc family matches Vize” contract.
+- Workspace-direct leftovers that *can* move are now latest:
+  `atomic-write-file` 0.3.1 (rand 0.10.2 / nix 0.31.3 only), `globset`
+  0.4.20, `ignore` 0.4.33, plus a full `cargo update` of unconstrained
+  transitives. Already latest: Vize 0.355.0, clap 4.6.6, rayon 1.12,
+  thiserror 2.0.20, ratatui 0.30.2, tokio 1.53.1, tower-lsp 0.20.0,
+  anstyle 1.0.14, sha2 0.11.0.
+- Cargo still reports 16 packages behind latest. Those are **not** skipped
+  leftovers — Vize / CodSpeed / digest exact-pin them:
+  Oxc `0.142.0` (latest 0.146), `oxc_resolver` `11.21.0` (dashmap
+  `=6.1.0`), `serde` / `serde_core` / `serde_derive` `=1.0.228` and
+  `serde_json` `=1.0.149`, `compact_str` `=0.9.0`, `divan-macros`
+  `=0.1.17` (via `codspeed-divan-compat =5.0.1`), `generic-array`
+  `=0.14.7` (crypto-common). Do not `[patch]` them to jump the pin.
 
 ## Initial performance baseline
 
