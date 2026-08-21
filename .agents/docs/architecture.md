@@ -251,6 +251,25 @@ unused.
 
 Vue Vet's normalized facts and diagnostics are the architectural seam. Dependency AST objects must not cross into public rule, reporter, cache, LSP, or agent contracts. Adapters may change with dependency upgrades while downstream product behavior stays versioned and reviewable.
 
+## `vue_vet_reactivity` crate layout
+
+The tracer crate is a **library of collectors**, not a 4k-line `mod.rs` plus a
+6k-line `tests.rs`. `lib.rs` stays a façade; stages live in `trace/`:
+
+```text
+trace/mod.rs     single-file entry, binding/scope collectors
+trace/inject.rs  provide/inject sites + unique-key resolve
+trace/follow.rs  same-file zero-arg helper walk (reads/uncertain/writes)
+trace/expr.rs    paren / TS peel shared by assignment-only and factories
+trace/summary    prepare / return shapes
+trace/summary/link  cross-module seeds
+src/tests/       domain modules + shared helpers (not one file)
+```
+
+Do not grow `trace/mod.rs` or `src/tests/` with another collector family or
+fixture corpus — add a sibling module. Types stay Vue Vet-owned; Oxc AST does
+not leave this crate.
+
 ## `vue_vet_project` pipeline (crate layout)
 
 The project crate is an **explicit stage pipeline**, not a monolith with

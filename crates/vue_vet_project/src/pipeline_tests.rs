@@ -132,6 +132,122 @@ fn file(path: &str, imports: &[(&str, &str)], tags: &[&str], calls: &[&str]) -> 
   }
 }
 
+fn empty_graph() -> std::sync::Arc<vue_vet_core::ReactivityGraph> {
+  std::sync::Arc::new(vue_vet_core::ReactivityGraph::default())
+}
+
+fn write_setup_sfc(
+  project: &TempProject,
+  path: &str,
+  script: &str,
+  template: &str,
+) -> (String, usize) {
+  let prefix = "<script setup lang=\"ts\">\n";
+  let sfc = format!("{prefix}{script}</script>\n{template}");
+  project.write(path, &sfc);
+  (sfc, prefix.len())
+}
+
+fn standalone_ts(path: &str, source: &str) -> ProjectFile {
+  ProjectFile {
+    path: path.into(),
+    source_len: source.len(),
+    facts: SfcFacts { template: TemplateFacts::default(), script: ScriptFacts::default() }.into(),
+    module_source: Some(ModuleSource::standalone(path, source, "ts", ScriptKind::Script)),
+    ordinary_module_source: None,
+  }
+}
+
+fn setup_sfc_file(
+  path: &str,
+  script: &str,
+  sfc: String,
+  script_offset: usize,
+  imports: &[(&str, &str, &str)],
+  calls: &[(&str, Option<&str>)],
+  expressions: Vec<vue_vet_core::TemplateExpressionFact>,
+) -> ProjectFile {
+  ProjectFile {
+    path: path.into(),
+    source_len: sfc.len(),
+    facts: SfcFacts {
+      template: TemplateFacts { elements: Vec::new(), expressions },
+      script: ScriptFacts {
+        blocks: vec![ScriptBlockFacts {
+          kind: ScriptKind::Setup,
+          language: "ts".into(),
+          imports: imports
+            .iter()
+            .enumerate()
+            .map(|(index, (source, imported, local))| ScriptImportFact {
+              source: (*source).into(),
+              imported: (*imported).into(),
+              local: (*local).into(),
+              span: span(index),
+            })
+            .collect(),
+          bindings: Vec::new(),
+          calls: calls
+            .iter()
+            .enumerate()
+            .map(|(index, (callee, assigned_to))| ScriptCallFact {
+              callee: (*callee).into(),
+              assigned_to: assigned_to.map(str::to_string),
+              resolved_import: None,
+              argument_identifiers: Vec::new(),
+              span: span(index.saturating_add(1)),
+            })
+            .collect(),
+          member_writes: Vec::new(),
+          destructures: Vec::new(),
+          top_level_await_ends: Vec::new(),
+          operands: Vec::new(),
+          reactivity_graph: empty_graph(),
+        }],
+      },
+    }
+    .into(),
+    module_source: Some(ModuleSource::sfc_script(
+      path,
+      script,
+      "ts",
+      ScriptKind::Setup,
+      script_offset,
+      sfc,
+    )),
+    ordinary_module_source: None,
+  }
+}
+
+fn write_vueuse_core(project: &TempProject, export: &str, js: &str, dts: &str) {
+  project.write(
+    "node_modules/@vueuse/core/package.json",
+    r#"{"name":"@vueuse/core","version":"1.0.0","types":"./index.d.ts","exports":{".":{"types":"./index.d.ts","import":"./index.js","default":"./index.js"}}}"#,
+  );
+  project.write(
+    "node_modules/@vueuse/core/index.js",
+    &format!("export {{ {export} }} from './{export}.js'\n"),
+  );
+  project.write(
+    "node_modules/@vueuse/core/index.d.ts",
+    &format!("export {{ {export} }} from './{export}'\n"),
+  );
+  project.write(&format!("node_modules/@vueuse/core/{export}.js"), js);
+  project.write(&format!("node_modules/@vueuse/core/{export}.d.ts"), dts);
+}
+
+fn write_vite_auto_import(project: &TempProject, specifier: &str, name: &str) {
+  project.write(
+    "auto-imports.d.ts",
+    &format!(
+      "export {{}}\n\
+declare global {{\n\
+  const {name}: typeof import('{specifier}')['{name}']\n\
+}}\n"
+    ),
+  );
+}
+
 fn materialize(project: &TempProject, files: &[ProjectFile]) {
   for file in files {
     let relative = normalized_path(file.path.as_path());
@@ -507,68 +623,28 @@ fn vue_modules_receive_composable_seeds_and_template_joins() {
   let project = TempProject::new("module-seeds");
   let producer_source = "import { toRef } from 'vue'; export function useField(props) { return { title: toRef(props, 'title') }; }";
   let consumer_script = "import { useField } from '../composables/useField'\nconst props = { title: 'x' }\nconst { title } = useField(props)\n";
-  let sfc = format!(
-    "<script setup lang=\"ts\">\n{consumer_script}</script>\n<template>\n  <p>{{{{ title }}}}</p>\n</template>\n"
-  );
-  let script_offset = sfc.find(consumer_script).unwrap_or(0);
   project.write("composables/useField.ts", producer_source);
-  project.write("pages/index.vue", &sfc);
-  let producer = ProjectFile {
-    path: "composables/useField.ts".into(),
-    source_len: producer_source.len(),
-    facts: SfcFacts { template: TemplateFacts::default(), script: ScriptFacts::default() }.into(),
-    module_source: Some(ModuleSource::standalone(
-      "composables/useField.ts",
-      producer_source,
-      "ts",
-      ScriptKind::Script,
-    )),
-    ordinary_module_source: None,
-  };
-  let consumer = ProjectFile {
-    path: "pages/index.vue".into(),
-    source_len: sfc.len(),
-    facts: SfcFacts {
-      template: TemplateFacts {
-        elements: Vec::new(),
-        expressions: vec![vue_vet_core::TemplateExpressionFact {
-          surface: "interpolation".into(),
-          expression: "title".into(),
-          span: span(script_offset.saturating_add(consumer_script.len().saturating_add(40))),
-          identifiers: Some(vec!["title".into()]),
-        }],
-      },
-      script: ScriptFacts {
-        blocks: vec![ScriptBlockFacts {
-          kind: ScriptKind::Setup,
-          language: "ts".into(),
-          imports: vec![ScriptImportFact {
-            source: "../composables/useField".into(),
-            imported: "useField".into(),
-            local: "useField".into(),
-            span: span(0),
-          }],
-          bindings: Vec::new(),
-          calls: Vec::new(),
-          member_writes: Vec::new(),
-          destructures: Vec::new(),
-          top_level_await_ends: Vec::new(),
-          operands: Vec::new(),
-          reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
-        }],
-      },
-    }
-    .into(),
-    module_source: Some(ModuleSource::sfc_script(
-      "pages/index.vue",
-      consumer_script,
-      "ts",
-      ScriptKind::Setup,
-      script_offset,
-      sfc,
-    )),
-    ordinary_module_source: None,
-  };
+  let (sfc, script_offset) = write_setup_sfc(
+    &project,
+    "pages/index.vue",
+    consumer_script,
+    "<template>\n  <p>{{ title }}</p>\n</template>\n",
+  );
+  let producer = standalone_ts("composables/useField.ts", producer_source);
+  let consumer = setup_sfc_file(
+    "pages/index.vue",
+    consumer_script,
+    sfc,
+    script_offset,
+    &[("../composables/useField", "useField", "useField")],
+    &[],
+    vec![vue_vet_core::TemplateExpressionFact {
+      surface: "interpolation".into(),
+      expression: "title".into(),
+      span: span(script_offset.saturating_add(consumer_script.len().saturating_add(40))),
+      identifiers: Some(vec!["title".into()]),
+    }],
+  );
   let graph = build_project_graph(project.root(), &[producer, consumer]);
   assert!(
     graph.reactivity_error.is_none(),
@@ -594,80 +670,32 @@ fn vue_modules_receive_composable_seeds_and_template_joins() {
 #[test]
 fn external_package_factory_ref_return_seeds_computed() {
   let project = TempProject::new("vueuse-factory");
-  project.write(
-      "node_modules/@vueuse/core/package.json",
-      r#"{"name":"@vueuse/core","version":"1.0.0","types":"./index.d.ts","exports":{".":{"types":"./index.d.ts","import":"./index.js","default":"./index.js"}}}"#,
-    );
-  project.write(
-    "node_modules/@vueuse/core/index.js",
-    "export { useMediaQuery } from './useMediaQuery.js'\n",
-  );
-  project.write(
-    "node_modules/@vueuse/core/index.d.ts",
-    "export { useMediaQuery } from './useMediaQuery'\n",
-  );
-  project.write(
-    "node_modules/@vueuse/core/useMediaQuery.js",
+  write_vueuse_core(
+    &project,
+    "useMediaQuery",
     "export function useMediaQuery() { return { value: false } }\n",
+    "import type { Ref } from 'vue'\nexport declare function useMediaQuery(query: string): Ref<boolean>\n",
   );
-  project.write(
-      "node_modules/@vueuse/core/useMediaQuery.d.ts",
-      "import type { Ref } from 'vue'\nexport declare function useMediaQuery(query: string): Ref<boolean>\n",
-    );
 
   let script = "import { computed } from 'vue'\n\
 import { useMediaQuery } from '@vueuse/core'\n\
 const isCoarsePointer = useMediaQuery('(pointer: coarse)')\n\
 const hint = computed(() => (isCoarsePointer.value ? 'a' : 'b'))\n";
-  let prefix = "<script setup lang=\"ts\">\n";
-  let sfc = format!("{prefix}{script}</script>\n<template><p>{{{{ hint }}}}</p></template>\n");
-  let script_offset = prefix.len();
-  project.write("components/ViewportDemo.vue", &sfc);
-
-  let consumer = ProjectFile {
-    path: "components/ViewportDemo.vue".into(),
-    source_len: sfc.len(),
-    facts: SfcFacts {
-      template: TemplateFacts { elements: Vec::new(), expressions: Vec::new() },
-      script: ScriptFacts {
-        blocks: vec![ScriptBlockFacts {
-          kind: ScriptKind::Setup,
-          language: "ts".into(),
-          imports: vec![
-            ScriptImportFact {
-              source: "vue".into(),
-              imported: "computed".into(),
-              local: "computed".into(),
-              span: span(0),
-            },
-            ScriptImportFact {
-              source: "@vueuse/core".into(),
-              imported: "useMediaQuery".into(),
-              local: "useMediaQuery".into(),
-              span: span(1),
-            },
-          ],
-          bindings: Vec::new(),
-          calls: Vec::new(),
-          member_writes: Vec::new(),
-          destructures: Vec::new(),
-          top_level_await_ends: Vec::new(),
-          operands: Vec::new(),
-          reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
-        }],
-      },
-    }
-    .into(),
-    module_source: Some(ModuleSource::sfc_script(
-      "components/ViewportDemo.vue",
-      script,
-      "ts",
-      ScriptKind::Setup,
-      script_offset,
-      sfc,
-    )),
-    ordinary_module_source: None,
-  };
+  let (sfc, script_offset) = write_setup_sfc(
+    &project,
+    "components/ViewportDemo.vue",
+    script,
+    "<template><p>{{ hint }}</p></template>\n",
+  );
+  let consumer = setup_sfc_file(
+    "components/ViewportDemo.vue",
+    script,
+    sfc,
+    script_offset,
+    &[("vue", "computed", "computed"), ("@vueuse/core", "useMediaQuery", "useMediaQuery")],
+    &[],
+    Vec::new(),
+  );
 
   let graph = build_project_graph(project.root(), &[consumer]);
   assert!(
@@ -696,24 +724,10 @@ const hint = computed(() => (isCoarsePointer.value ? 'a' : 'b'))\n";
 #[test]
 fn external_package_composable_object_return_seeds_destructure_watch() {
   let project = TempProject::new("vueuse-element-size");
-  project.write(
-      "node_modules/@vueuse/core/package.json",
-      r#"{"name":"@vueuse/core","version":"1.0.0","types":"./index.d.ts","exports":{".":{"types":"./index.d.ts","import":"./index.js","default":"./index.js"}}}"#,
-    );
-  project.write(
-    "node_modules/@vueuse/core/index.js",
-    "export { useElementSize } from './useElementSize.js'\n",
-  );
-  project.write(
-    "node_modules/@vueuse/core/index.d.ts",
-    "export { useElementSize } from './useElementSize'\n",
-  );
-  project.write(
-      "node_modules/@vueuse/core/useElementSize.js",
-      "export function useElementSize() { return { width: { value: 0 }, height: { value: 0 }, stop() {} } }\n",
-    );
-  project.write(
-    "node_modules/@vueuse/core/useElementSize.d.ts",
+  write_vueuse_core(
+    &project,
+    "useElementSize",
+    "export function useElementSize() { return { width: { value: 0 }, height: { value: 0 }, stop() {} } }\n",
     "import type { Ref } from 'vue'\n\
 export declare function useElementSize(): {\n\
   width: Ref<number>\n\
@@ -726,55 +740,21 @@ export declare function useElementSize(): {\n\
 import { useElementSize } from '@vueuse/core'\n\
 const { width: hostWidth, height: hostHeight } = useElementSize()\n\
 watch([hostWidth, hostHeight], () => {})\n";
-  let prefix = "<script setup lang=\"ts\">\n";
-  let sfc = format!("{prefix}{script}</script>\n<template><p>ok</p></template>\n");
-  let script_offset = prefix.len();
-  project.write("components/ViewportDemo.client.vue", &sfc);
-
-  let consumer = ProjectFile {
-    path: "components/ViewportDemo.client.vue".into(),
-    source_len: sfc.len(),
-    facts: SfcFacts {
-      template: TemplateFacts { elements: Vec::new(), expressions: Vec::new() },
-      script: ScriptFacts {
-        blocks: vec![ScriptBlockFacts {
-          kind: ScriptKind::Setup,
-          language: "ts".into(),
-          imports: vec![
-            ScriptImportFact {
-              source: "vue".into(),
-              imported: "watch".into(),
-              local: "watch".into(),
-              span: span(0),
-            },
-            ScriptImportFact {
-              source: "@vueuse/core".into(),
-              imported: "useElementSize".into(),
-              local: "useElementSize".into(),
-              span: span(1),
-            },
-          ],
-          bindings: Vec::new(),
-          calls: Vec::new(),
-          member_writes: Vec::new(),
-          destructures: Vec::new(),
-          top_level_await_ends: Vec::new(),
-          operands: Vec::new(),
-          reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
-        }],
-      },
-    }
-    .into(),
-    module_source: Some(ModuleSource::sfc_script(
-      "components/ViewportDemo.client.vue",
-      script,
-      "ts",
-      ScriptKind::Setup,
-      script_offset,
-      sfc,
-    )),
-    ordinary_module_source: None,
-  };
+  let (sfc, script_offset) = write_setup_sfc(
+    &project,
+    "components/ViewportDemo.client.vue",
+    script,
+    "<template><p>ok</p></template>\n",
+  );
+  let consumer = setup_sfc_file(
+    "components/ViewportDemo.client.vue",
+    script,
+    sfc,
+    script_offset,
+    &[("vue", "watch", "watch"), ("@vueuse/core", "useElementSize", "useElementSize")],
+    &[],
+    Vec::new(),
+  );
 
   let graph = build_project_graph(project.root(), &[consumer]);
   assert!(
@@ -885,13 +865,7 @@ export function useTableQuery(tableQuery) {\n\
   return { page, list, ...queryResult }\n\
 }\n";
   project.write("src/composables/useTable.ts", producer_source);
-  project.write(
-    "auto-imports.d.ts",
-    "export {}\n\
-declare global {\n\
-  const useTableQuery: typeof import('./src/composables/useTable')['useTableQuery']\n\
-}\n",
-  );
+  write_vite_auto_import(&project, "./src/composables/useTable", "useTableQuery");
 
   let script = "import { computed } from 'vue'\n\
 const { list: rows, isLoading: queryLoading } = useTableQuery(() => ({\n\
@@ -901,54 +875,19 @@ const { list: rows, isLoading: queryLoading } = useTableQuery(() => ({\n\
   isLoading: { value: false },\n\
 }))\n\
 const isLoading = computed(() => queryLoading.value)\n";
-  let prefix = "<script setup lang=\"ts\">\n";
-  let sfc = format!("{prefix}{script}</script>\n<template><p>ok</p></template>\n");
-  let script_offset = prefix.len();
-  project.write("pages/index.vue", &sfc);
+  let (sfc, script_offset) =
+    write_setup_sfc(&project, "pages/index.vue", script, "<template><p>ok</p></template>\n");
 
   // Intentionally omit producer from ProjectFile list — external seed only.
-  let consumer = ProjectFile {
-    path: "pages/index.vue".into(),
-    source_len: sfc.len(),
-    facts: SfcFacts {
-      template: TemplateFacts { elements: Vec::new(), expressions: Vec::new() },
-      script: ScriptFacts {
-        blocks: vec![ScriptBlockFacts {
-          kind: ScriptKind::Setup,
-          language: "ts".into(),
-          imports: vec![ScriptImportFact {
-            source: "vue".into(),
-            imported: "computed".into(),
-            local: "computed".into(),
-            span: span(0),
-          }],
-          bindings: Vec::new(),
-          calls: vec![ScriptCallFact {
-            callee: "useTableQuery".into(),
-            assigned_to: None,
-            resolved_import: None,
-            argument_identifiers: Vec::new(),
-            span: span(1),
-          }],
-          member_writes: Vec::new(),
-          destructures: Vec::new(),
-          top_level_await_ends: Vec::new(),
-          operands: Vec::new(),
-          reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
-        }],
-      },
-    }
-    .into(),
-    module_source: Some(ModuleSource::sfc_script(
-      "pages/index.vue",
-      script,
-      "ts",
-      ScriptKind::Setup,
-      script_offset,
-      sfc,
-    )),
-    ordinary_module_source: None,
-  };
+  let consumer = setup_sfc_file(
+    "pages/index.vue",
+    script,
+    sfc,
+    script_offset,
+    &[("vue", "computed", "computed")],
+    &[("useTableQuery", None)],
+    Vec::new(),
+  );
 
   let graph = build_project_graph(project.root(), &[consumer]);
   assert!(
@@ -986,76 +925,24 @@ export function useTableQuery() {\n\
   return { list }\n\
 }\n";
   project.write("src/composables/useTable.ts", producer_source);
-  project.write(
-    "auto-imports.d.ts",
-    "export {}\n\
-declare global {\n\
-  const useTableQuery: typeof import('./src/composables/useTable')['useTableQuery']\n\
-}\n",
-  );
+  write_vite_auto_import(&project, "./src/composables/useTable", "useTableQuery");
 
   let script = "import { computed } from 'vue'\n\
 const { list: rows } = useTableQuery()\n\
 const all = computed(() => rows.value.length)\n";
-  let prefix = "<script setup lang=\"ts\">\n";
-  let sfc = format!("{prefix}{script}</script>\n<template><p>ok</p></template>\n");
-  let script_offset = prefix.len();
-  project.write("pages/index.vue", &sfc);
+  let (sfc, script_offset) =
+    write_setup_sfc(&project, "pages/index.vue", script, "<template><p>ok</p></template>\n");
 
-  let producer = ProjectFile {
-    path: "src/composables/useTable.ts".into(),
-    source_len: producer_source.len(),
-    facts: SfcFacts { template: TemplateFacts::default(), script: ScriptFacts::default() }.into(),
-    module_source: Some(ModuleSource::standalone(
-      "src/composables/useTable.ts",
-      producer_source,
-      "ts",
-      ScriptKind::Script,
-    )),
-    ordinary_module_source: None,
-  };
-  let consumer = ProjectFile {
-    path: "pages/index.vue".into(),
-    source_len: sfc.len(),
-    facts: SfcFacts {
-      template: TemplateFacts { elements: Vec::new(), expressions: Vec::new() },
-      script: ScriptFacts {
-        blocks: vec![ScriptBlockFacts {
-          kind: ScriptKind::Setup,
-          language: "ts".into(),
-          imports: vec![ScriptImportFact {
-            source: "vue".into(),
-            imported: "computed".into(),
-            local: "computed".into(),
-            span: span(0),
-          }],
-          bindings: Vec::new(),
-          calls: vec![ScriptCallFact {
-            callee: "useTableQuery".into(),
-            assigned_to: None,
-            resolved_import: None,
-            argument_identifiers: Vec::new(),
-            span: span(1),
-          }],
-          member_writes: Vec::new(),
-          destructures: Vec::new(),
-          top_level_await_ends: Vec::new(),
-          operands: Vec::new(),
-          reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
-        }],
-      },
-    }
-    .into(),
-    module_source: Some(ModuleSource::sfc_script(
-      "pages/index.vue",
-      script,
-      "ts",
-      ScriptKind::Setup,
-      script_offset,
-      sfc,
-    )),
-    ordinary_module_source: None,
-  };
+  let producer = standalone_ts("src/composables/useTable.ts", producer_source);
+  let consumer = setup_sfc_file(
+    "pages/index.vue",
+    script,
+    sfc,
+    script_offset,
+    &[("vue", "computed", "computed")],
+    &[("useTableQuery", None)],
+    Vec::new(),
+  );
 
   let graph = build_project_graph(project.root(), &[producer, consumer]);
   assert!(
@@ -1114,53 +1001,21 @@ fn color_mode_consumer_graph(project: &TempProject) -> ProjectGraph {
   let script = "import { watch } from 'vue'\n\
 const colorMode = useColorMode()\n\
 watch(() => colorMode.value, () => {})\n";
-  let prefix = "<script setup lang=\"ts\">\n";
-  let sfc = format!("{prefix}{script}</script>\n<template><p>ok</p></template>\n");
-  let script_offset = prefix.len();
-  project.write("components/ViewportDemo.client.vue", &sfc);
-
-  let consumer = ProjectFile {
-    path: "components/ViewportDemo.client.vue".into(),
-    source_len: sfc.len(),
-    facts: SfcFacts {
-      template: TemplateFacts { elements: Vec::new(), expressions: Vec::new() },
-      script: ScriptFacts {
-        blocks: vec![ScriptBlockFacts {
-          kind: ScriptKind::Setup,
-          language: "ts".into(),
-          imports: vec![ScriptImportFact {
-            source: "vue".into(),
-            imported: "watch".into(),
-            local: "watch".into(),
-            span: span(0),
-          }],
-          bindings: Vec::new(),
-          calls: vec![ScriptCallFact {
-            callee: "useColorMode".into(),
-            assigned_to: Some("colorMode".into()),
-            resolved_import: None,
-            argument_identifiers: Vec::new(),
-            span: span(1),
-          }],
-          member_writes: Vec::new(),
-          destructures: Vec::new(),
-          top_level_await_ends: Vec::new(),
-          operands: Vec::new(),
-          reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
-        }],
-      },
-    }
-    .into(),
-    module_source: Some(ModuleSource::sfc_script(
-      "components/ViewportDemo.client.vue",
-      script,
-      "ts",
-      ScriptKind::Setup,
-      script_offset,
-      sfc,
-    )),
-    ordinary_module_source: None,
-  };
+  let (sfc, script_offset) = write_setup_sfc(
+    project,
+    "components/ViewportDemo.client.vue",
+    script,
+    "<template><p>ok</p></template>\n",
+  );
+  let consumer = setup_sfc_file(
+    "components/ViewportDemo.client.vue",
+    script,
+    sfc,
+    script_offset,
+    &[("vue", "watch", "watch")],
+    &[("useColorMode", Some("colorMode"))],
+    Vec::new(),
+  );
 
   build_project_graph(project.root(), &[consumer])
 }
