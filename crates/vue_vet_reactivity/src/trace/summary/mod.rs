@@ -2530,7 +2530,6 @@ fn value_bag_entry_from_expression(
   };
   match expression {
     Expression::Identifier(identifier) => {
-      let name = identifier.name.as_str();
       let callee_id = local_function_id(semantic, identifier)?;
       match composable_return_with_index_visiting(
         semantic,
