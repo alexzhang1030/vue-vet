@@ -14,6 +14,7 @@ use oxc_ast::{
 use oxc_semantic::Semantic;
 use vue_vet_core::{ReactiveBindingFact, ReactiveBindingKind};
 
+use super::super::expr::{is_nested_in_function, peel_parens};
 use super::ts_type_reactive_kind;
 
 /// Call-argument index → (callback formal index → reactive kind).
@@ -243,27 +244,4 @@ fn callback_formals_from_expression<'a>(
     Expression::FunctionExpression(function) => Some(function.params.items.as_slice()),
     _ => None,
   }
-}
-
-fn peel_parens<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
-  let mut current = expression;
-  loop {
-    current = match current {
-      Expression::ParenthesizedExpression(paren) => &paren.expression,
-      Expression::TSAsExpression(assertion) => &assertion.expression,
-      Expression::TSTypeAssertion(assertion) => &assertion.expression,
-      Expression::TSSatisfiesExpression(satisfies) => &satisfies.expression,
-      Expression::TSNonNullExpression(non_null) => &non_null.expression,
-      other => return other,
-    };
-  }
-}
-
-fn is_nested_in_function(semantic: &Semantic<'_>, node_id: oxc_semantic::NodeId) -> bool {
-  semantic.nodes().ancestor_ids(node_id).any(|ancestor_id| {
-    matches!(
-      semantic.nodes().kind(ancestor_id),
-      AstKind::Function(_) | AstKind::ArrowFunctionExpression(_)
-    )
-  })
 }

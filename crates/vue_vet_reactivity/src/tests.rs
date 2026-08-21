@@ -2370,125 +2370,104 @@ fn same_file_zero_arg_helper_follow_assignment_only() {
 }
 
 #[test]
-fn string_replace_callback_tracks_nested_reactive_reads() {
-  for (label, method) in [("replace", "replace"), ("replaceAll", "replaceAll")] {
-    let graph = graph(&format!(
-      "import {{ ref, computed }} from 'vue';\n\
-       const text = ref('ab');\n\
-       const flag = ref(true);\n\
-       const d = computed(() => text.value.{method}(/./g, c => flag.value ? c : ''));\n\
-       void d.value;"
-    ));
+fn sync_hof_callback_nested_reads() {
+  struct Case {
+    label: &'static str,
+    source: &'static str,
+    tracked: &'static [&'static str],
+  }
+  let cases = [
+    Case {
+      label: "String.replace replacer",
+      source: "import { ref, computed } from 'vue';\n\
+               const text = ref('ab');\n\
+               const flag = ref(true);\n\
+               const d = computed(() => text.value.replace(/./g, c => flag.value ? c : ''));\n\
+               void d.value;",
+      tracked: &["text", "flag"],
+    },
+    Case {
+      label: "String.replaceAll replacer",
+      source: "import { ref, computed } from 'vue';\n\
+               const text = ref('ab');\n\
+               const flag = ref(true);\n\
+               const d = computed(() => text.value.replaceAll(/./g, c => flag.value ? c : ''));\n\
+               void d.value;",
+      tracked: &["text", "flag"],
+    },
+    Case {
+      label: "Array.from mapFn",
+      source: "import { ref, computed } from 'vue';\n\
+               const list = ref([1, 2]);\n\
+               const factor = ref(2);\n\
+               const d = computed(() => Array.from(list.value, x => x * factor.value));\n\
+               void d.value;",
+      tracked: &["list", "factor"],
+    },
+    Case {
+      label: "JSON.parse reviver",
+      source: "import { ref, computed } from 'vue';\n\
+               const raw = ref('{\"a\":1}');\n\
+               const flag = ref(true);\n\
+               const d = computed(() => JSON.parse(raw.value, (k, v) => flag.value ? v : v));\n\
+               void d.value;",
+      tracked: &["raw", "flag"],
+    },
+    Case {
+      label: "Array.from first-arg function stays quiet",
+      source: "import { ref, computed } from 'vue';\n\
+               const factor = ref(2);\n\
+               const d = computed(() => Array.from(() => factor.value));\n\
+               void d.value;",
+      tracked: &[],
+    },
+    Case {
+      label: "JSON.parse first-arg function stays quiet",
+      source: "import { ref, computed } from 'vue';\n\
+               const flag = ref(true);\n\
+               const d = computed(() => JSON.parse(() => flag.value));\n\
+               void d.value;",
+      tracked: &[],
+    },
+    Case {
+      label: "String.replace first-arg function stays quiet",
+      source: "import { ref, computed } from 'vue';\n\
+               const text = ref('ab');\n\
+               const flag = ref(true);\n\
+               const d = computed(() => text.value.replace(() => flag.value));\n\
+               void d.value;",
+      tracked: &["text"],
+    },
+  ];
+  for case in cases {
+    let graph = graph(case.source);
+    let scope = helper_follow_scope(&graph, TrackingScopeKind::Computed);
+    let missing = case.tracked.iter().copied().find(|binding| {
+      !scope.is_some_and(|scope| {
+        scope
+          .reads
+          .iter()
+          .any(|read| read.binding == *binding && read.property.as_deref() == Some("value"))
+      })
+    });
     assert!(
-      graph.scopes.iter().any(|scope| {
-        scope.kind == TrackingScopeKind::Computed
-          && scope
-            .reads
-            .iter()
-            .any(|read| read.binding == "flag" && read.property.as_deref() == Some("value"))
-          && scope
-            .reads
-            .iter()
-            .any(|read| read.binding == "text" && read.property.as_deref() == Some("value"))
-      }),
-      "String#{label} replacer must track nested reactive reads; scopes={:?}",
+      missing.is_none(),
+      "{}: missing {:?}.value; scopes={:?}",
+      case.label,
+      missing,
       graph.scopes
     );
-  }
-}
-
-#[test]
-fn array_from_mapfn_tracks_nested_reactive_reads() {
-  let graph = graph(
-    "import { ref, computed } from 'vue';\n\
-     const list = ref([1, 2]);\n\
-     const factor = ref(2);\n\
-     const d = computed(() => Array.from(list.value, x => x * factor.value));\n\
-     void d.value;",
-  );
-  assert!(
-    graph.scopes.iter().any(|scope| {
-      scope.kind == TrackingScopeKind::Computed
-        && scope
-          .reads
-          .iter()
-          .any(|read| read.binding == "factor" && read.property.as_deref() == Some("value"))
-        && scope
-          .reads
-          .iter()
-          .any(|read| read.binding == "list" && read.property.as_deref() == Some("value"))
-    }),
-    "Array.from mapFn must track nested reactive reads; scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn json_parse_reviver_tracks_nested_reactive_reads() {
-  let graph = graph(
-    "import { ref, computed } from 'vue';\n\
-     const raw = ref('{\"a\":1}');\n\
-     const flag = ref(true);\n\
-     const d = computed(() => JSON.parse(raw.value, (k, v) => flag.value ? v : v));\n\
-     void d.value;",
-  );
-  assert!(
-    graph.scopes.iter().any(|scope| {
-      scope.kind == TrackingScopeKind::Computed
-        && scope
-          .reads
-          .iter()
-          .any(|read| read.binding == "flag" && read.property.as_deref() == Some("value"))
-        && scope
-          .reads
-          .iter()
-          .any(|read| read.binding == "raw" && read.property.as_deref() == Some("value"))
-    }),
-    "JSON.parse reviver must track nested reactive reads; scopes={:?}",
-    graph.scopes
-  );
-}
-
-#[test]
-fn sync_hof_first_arg_function_does_not_invent_tracking() {
-  // Callback-at-index-1 callees must not treat a sole first-arg function as the
-  // sync callback (runtime never invokes it as mapFn/reviver/replacer).
-  for (label, source) in [
-    (
-      "Array.from",
-      "import { ref, computed } from 'vue';\n\
-       const factor = ref(2);\n\
-       const d = computed(() => Array.from(() => factor.value));\n\
-       void d.value;",
-    ),
-    (
-      "JSON.parse",
-      "import { ref, computed } from 'vue';\n\
-       const flag = ref(true);\n\
-       const d = computed(() => JSON.parse(() => flag.value));\n\
-       void d.value;",
-    ),
-    (
-      "String.replace",
-      "import { ref, computed } from 'vue';\n\
-       const text = ref('ab');\n\
-       const flag = ref(true);\n\
-       const d = computed(() => text.value.replace(() => flag.value));\n\
-       void d.value;",
-    ),
-  ] {
-    let graph = graph(source);
-    let invented = graph.scopes.iter().any(|scope| {
-      scope.kind == TrackingScopeKind::Computed
-        && scope.reads.iter().any(|read| {
-          matches!(read.binding.as_str(), "factor" | "flag")
-            && read.property.as_deref() == Some("value")
-        })
+    let invented = scope.is_some_and(|scope| {
+      scope.reads.iter().any(|read| {
+        matches!(read.binding.as_str(), "factor" | "flag")
+          && read.property.as_deref() == Some("value")
+          && !case.tracked.contains(&read.binding.as_str())
+      })
     });
     assert!(
       !invented,
-      "{label} first-arg function must not invent nested reactive reads; scopes={:?}",
-      graph.scopes
+      "{}: first-arg function must not invent nested reads; scopes={:?}",
+      case.label, graph.scopes
     );
   }
 }

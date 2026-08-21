@@ -279,60 +279,64 @@ fn practice_prefer_to_value_fixtures_match_exact_diagnostics() {
 
 #[test]
 fn practice_vueuse_fixtures_match_exact_diagnostics() {
-  assert_diagnostics(
-    "fixtures/rules/vueuse-use-debounce-fn/invalid/hand-rolled.vue",
-    include_str!("../../../fixtures/rules/vueuse-use-debounce-fn/invalid/hand-rolled.vue"),
-    include_str!("../../../fixtures/snapshots/vueuse-use-debounce-fn/hand-rolled.json"),
-  );
-  assert_diagnostics(
-    "fixtures/rules/vueuse-use-event-listener/invalid/add-without-remove.vue",
-    include_str!(
-      "../../../fixtures/rules/vueuse-use-event-listener/invalid/add-without-remove.vue"
+  for (path, source, expected) in [
+    (
+      "fixtures/rules/vueuse-use-debounce-fn/invalid/hand-rolled.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-debounce-fn/invalid/hand-rolled.vue"),
+      include_str!("../../../fixtures/snapshots/vueuse-use-debounce-fn/hand-rolled.json"),
     ),
-    include_str!("../../../fixtures/snapshots/vueuse-use-event-listener/add-without-remove.json"),
-  );
-  assert_diagnostics(
-    "fixtures/rules/vueuse-use-interval-fn/invalid/set-without-clear.vue",
-    include_str!("../../../fixtures/rules/vueuse-use-interval-fn/invalid/set-without-clear.vue"),
-    include_str!("../../../fixtures/snapshots/vueuse-use-interval-fn/set-without-clear.json"),
-  );
-  assert_diagnostics(
-    "fixtures/rules/vueuse-use-timeout-fn/invalid/set-without-clear.vue",
-    include_str!("../../../fixtures/rules/vueuse-use-timeout-fn/invalid/set-without-clear.vue"),
-    include_str!("../../../fixtures/snapshots/vueuse-use-timeout-fn/set-without-clear.json"),
-  );
-  assert_diagnostics(
-    "fixtures/rules/vueuse-use-raf-fn/invalid/raf-without-cancel.vue",
-    include_str!("../../../fixtures/rules/vueuse-use-raf-fn/invalid/raf-without-cancel.vue"),
-    include_str!("../../../fixtures/snapshots/vueuse-use-raf-fn/raf-without-cancel.json"),
-  );
-  assert_diagnostics(
-    "fixtures/rules/vueuse-use-intersection-observer/invalid/new-without-disconnect.vue",
-    include_str!(
-      "../../../fixtures/rules/vueuse-use-intersection-observer/invalid/new-without-disconnect.vue"
+    (
+      "fixtures/rules/vueuse-use-event-listener/invalid/add-without-remove.vue",
+      include_str!(
+        "../../../fixtures/rules/vueuse-use-event-listener/invalid/add-without-remove.vue"
+      ),
+      include_str!("../../../fixtures/snapshots/vueuse-use-event-listener/add-without-remove.json"),
     ),
-    include_str!(
-      "../../../fixtures/snapshots/vueuse-use-intersection-observer/new-without-disconnect.json"
+    (
+      "fixtures/rules/vueuse-use-interval-fn/invalid/set-without-clear.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-interval-fn/invalid/set-without-clear.vue"),
+      include_str!("../../../fixtures/snapshots/vueuse-use-interval-fn/set-without-clear.json"),
     ),
-  );
-  assert_diagnostics(
-    "fixtures/rules/vueuse-use-resize-observer/invalid/new-without-disconnect.vue",
-    include_str!(
-      "../../../fixtures/rules/vueuse-use-resize-observer/invalid/new-without-disconnect.vue"
+    (
+      "fixtures/rules/vueuse-use-timeout-fn/invalid/set-without-clear.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-timeout-fn/invalid/set-without-clear.vue"),
+      include_str!("../../../fixtures/snapshots/vueuse-use-timeout-fn/set-without-clear.json"),
     ),
-    include_str!(
-      "../../../fixtures/snapshots/vueuse-use-resize-observer/new-without-disconnect.json"
+    (
+      "fixtures/rules/vueuse-use-raf-fn/invalid/raf-without-cancel.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-raf-fn/invalid/raf-without-cancel.vue"),
+      include_str!("../../../fixtures/snapshots/vueuse-use-raf-fn/raf-without-cancel.json"),
     ),
-  );
-  assert_diagnostics(
-    "fixtures/rules/vueuse-use-mutation-observer/invalid/new-without-disconnect.vue",
-    include_str!(
-      "../../../fixtures/rules/vueuse-use-mutation-observer/invalid/new-without-disconnect.vue"
+    (
+      "fixtures/rules/vueuse-use-intersection-observer/invalid/new-without-disconnect.vue",
+      include_str!(
+        "../../../fixtures/rules/vueuse-use-intersection-observer/invalid/new-without-disconnect.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/vueuse-use-intersection-observer/new-without-disconnect.json"
+      ),
     ),
-    include_str!(
-      "../../../fixtures/snapshots/vueuse-use-mutation-observer/new-without-disconnect.json"
+    (
+      "fixtures/rules/vueuse-use-resize-observer/invalid/new-without-disconnect.vue",
+      include_str!(
+        "../../../fixtures/rules/vueuse-use-resize-observer/invalid/new-without-disconnect.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/vueuse-use-resize-observer/new-without-disconnect.json"
+      ),
     ),
-  );
+    (
+      "fixtures/rules/vueuse-use-mutation-observer/invalid/new-without-disconnect.vue",
+      include_str!(
+        "../../../fixtures/rules/vueuse-use-mutation-observer/invalid/new-without-disconnect.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/vueuse-use-mutation-observer/new-without-disconnect.json"
+      ),
+    ),
+  ] {
+    assert_diagnostics(path, source, expected);
+  }
 }
 
 #[test]
@@ -698,33 +702,37 @@ fn path_normalization_is_platform_independent() {
 
 #[test]
 fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
-  assert_diagnostics(
-    "fixtures/rules/no-side-effects-in-computed/invalid/helper-write.vue",
-    include_str!("../../../fixtures/rules/no-side-effects-in-computed/invalid/helper-write.vue"),
-    include_str!("../../../fixtures/snapshots/no-side-effects-in-computed/helper-write.json"),
-  );
-  assert_diagnostics(
-    "fixtures/rules/prefer-computed/invalid/helper-assign.vue",
-    include_str!("../../../fixtures/rules/prefer-computed/invalid/helper-assign.vue"),
-    include_str!("../../../fixtures/snapshots/prefer-computed/helper-assign.json"),
-  );
-  assert_diagnostics(
-    "fixtures/rules/no-unused-computed-binding/invalid/unused.vue",
-    include_str!("../../../fixtures/rules/no-unused-computed-binding/invalid/unused.vue"),
-    include_str!("../../../fixtures/snapshots/no-unused-computed-binding/unused.json"),
-  );
-  assert_diagnostics(
-    "fixtures/rules/no-unused-computed-binding/valid/style-v-bind.vue",
-    include_str!("../../../fixtures/rules/no-unused-computed-binding/valid/style-v-bind.vue"),
-    include_str!("../../../fixtures/snapshots/no-unused-computed-binding/style-v-bind.json"),
-  );
-  assert_diagnostics(
-    "fixtures/rules/no-computed-without-dependency/invalid/helper-uncertain.vue",
-    include_str!(
-      "../../../fixtures/rules/no-computed-without-dependency/invalid/helper-uncertain.vue"
+  for (path, source, expected) in [
+    (
+      "fixtures/rules/no-side-effects-in-computed/invalid/helper-write.vue",
+      include_str!("../../../fixtures/rules/no-side-effects-in-computed/invalid/helper-write.vue"),
+      include_str!("../../../fixtures/snapshots/no-side-effects-in-computed/helper-write.json"),
     ),
-    include_str!(
-      "../../../fixtures/snapshots/no-computed-without-dependency/helper-uncertain.json"
+    (
+      "fixtures/rules/prefer-computed/invalid/helper-assign.vue",
+      include_str!("../../../fixtures/rules/prefer-computed/invalid/helper-assign.vue"),
+      include_str!("../../../fixtures/snapshots/prefer-computed/helper-assign.json"),
     ),
-  );
+    (
+      "fixtures/rules/no-unused-computed-binding/invalid/unused.vue",
+      include_str!("../../../fixtures/rules/no-unused-computed-binding/invalid/unused.vue"),
+      include_str!("../../../fixtures/snapshots/no-unused-computed-binding/unused.json"),
+    ),
+    (
+      "fixtures/rules/no-unused-computed-binding/valid/style-v-bind.vue",
+      include_str!("../../../fixtures/rules/no-unused-computed-binding/valid/style-v-bind.vue"),
+      include_str!("../../../fixtures/snapshots/no-unused-computed-binding/style-v-bind.json"),
+    ),
+    (
+      "fixtures/rules/no-computed-without-dependency/invalid/helper-uncertain.vue",
+      include_str!(
+        "../../../fixtures/rules/no-computed-without-dependency/invalid/helper-uncertain.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-computed-without-dependency/helper-uncertain.json"
+      ),
+    ),
+  ] {
+    assert_diagnostics(path, source, expected);
+  }
 }

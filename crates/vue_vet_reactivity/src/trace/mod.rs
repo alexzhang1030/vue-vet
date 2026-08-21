@@ -1482,7 +1482,7 @@ fn collect_reactive_bindings(
     let Some(declarator) = variable_declarator_for_call(semantic, call.node_id.get()) else {
       continue;
     };
-    if !include_nested && is_nested_in_function(semantic, call.node_id.get()) {
+    if !include_nested && expr::is_nested_in_function(semantic, call.node_id.get()) {
       continue;
     }
 
@@ -1737,7 +1737,7 @@ fn collect_conditional_init_bindings(
     let AstKind::VariableDeclarator(declarator) = node.kind() else {
       continue;
     };
-    if !include_nested && is_nested_in_function(semantic, node.id()) {
+    if !include_nested && expr::is_nested_in_function(semantic, node.id()) {
       continue;
     }
     let Some(Expression::ConditionalExpression(cond)) = &declarator.init else {
@@ -1891,7 +1891,7 @@ fn collect_route_slice_bindings(
     let AstKind::VariableDeclarator(declarator) = node.kind() else {
       continue;
     };
-    if !include_nested && is_nested_in_function(semantic, node_id) {
+    if !include_nested && expr::is_nested_in_function(semantic, node_id) {
       continue;
     }
     let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
@@ -1938,15 +1938,6 @@ fn collect_route_slice_bindings(
       span: source_span(sfc_source, script_offset, identifier.span),
     });
   }
-}
-
-fn is_nested_in_function(semantic: &oxc_semantic::Semantic<'_>, node_id: NodeId) -> bool {
-  semantic.nodes().ancestor_ids(node_id).any(|ancestor_id| {
-    matches!(
-      semantic.nodes().kind(ancestor_id),
-      AstKind::Function(_) | AstKind::ArrowFunctionExpression(_)
-    )
-  })
 }
 
 #[derive(Clone, Debug)]
@@ -3142,18 +3133,11 @@ fn is_assignment_only_body(body: Option<&FunctionBody<'_>>) -> bool {
   }
   body.statements.iter().all(|statement| match statement {
     Statement::ExpressionStatement(expression) => {
-      matches!(peel_parens(&expression.expression), Expression::AssignmentExpression(_))
+      matches!(expr::peel_parens(&expression.expression), Expression::AssignmentExpression(_))
     }
     Statement::EmptyStatement(_) => true,
     _ => false,
   })
-}
-
-fn peel_parens<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
-  match expression {
-    Expression::ParenthesizedExpression(paren) => peel_parens(&paren.expression),
-    other => other,
-  }
 }
 
 fn function_body_of<'a>(
@@ -3200,7 +3184,7 @@ fn statement_is_assignment_or_followed_helper(
   depth: u32,
   visiting: &mut BTreeSet<NodeId>,
 ) -> bool {
-  match peel_parens(expression) {
+  match expr::peel_parens(expression) {
     Expression::AssignmentExpression(_) => true,
     Expression::CallExpression(call) if call.arguments.is_empty() => {
       let Some(identifier) = call.callee.get_identifier_reference() else {
@@ -4303,6 +4287,7 @@ fn collect_render_scopes(
 }
 
 mod branch_hygiene;
+mod expr;
 mod plugin;
 mod render;
 mod summary;

@@ -12,7 +12,9 @@ mod explain;
 mod prop_flow;
 mod trace;
 
-pub use explain::{explain_tracking_scope, scope_covering_span, select_tracking_scopes};
+pub use explain::{
+  explain_tracking_scope, module_id_matches, scope_covering_span, select_tracking_scopes,
+};
 pub use prop_flow::{PropFlowSite, join_prop_flows};
 pub use trace::{
   ComposableShape, DEEP_WATCH_PROPERTY, ModuleLink, ModuleReactivity, ModuleSource, ModuleSummary,

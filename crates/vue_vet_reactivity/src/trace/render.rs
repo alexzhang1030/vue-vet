@@ -12,6 +12,8 @@ use oxc_ast::{
 use oxc_semantic::NodeId;
 use oxc_span::Span;
 
+use super::expr::peel_parens;
+
 /// One recognized render function body.
 pub(super) struct RenderBody<'a> {
   pub scope_id: NodeId,
@@ -314,7 +316,7 @@ fn param_aliases_in_body(body: &FunctionBody<'_>, param_name: &str) -> BTreeSet<
         let Some(init) = &declarator.init else {
           continue;
         };
-        let Some(root) = peel_type_assertions(init).get_identifier_reference() else {
+        let Some(root) = peel_parens(init).get_identifier_reference() else {
           continue;
         };
         if aliases.contains(root.name.as_str()) {
@@ -332,7 +334,7 @@ fn is_define_component_setup_call(
   define_factories: &BTreeSet<String>,
   aliases: &BTreeSet<String>,
 ) -> bool {
-  let Expression::CallExpression(call) = peel_type_assertions(expression) else {
+  let Expression::CallExpression(call) = peel_parens(expression) else {
     return false;
   };
   let Some(callee) = call.callee.get_identifier_reference() else {
@@ -345,22 +347,8 @@ fn is_define_component_setup_call(
     .arguments
     .first()
     .and_then(Argument::as_expression)
-    .and_then(|arg| peel_type_assertions(arg).get_identifier_reference())
+    .and_then(|arg| peel_parens(arg).get_identifier_reference())
     .is_some_and(|id| aliases.contains(id.name.as_str()))
-}
-
-fn peel_type_assertions<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
-  let mut current = expression;
-  loop {
-    current = match current {
-      Expression::ParenthesizedExpression(paren) => &paren.expression,
-      Expression::TSAsExpression(assertion) => &assertion.expression,
-      Expression::TSTypeAssertion(assertion) => &assertion.expression,
-      Expression::TSSatisfiesExpression(satisfies) => &satisfies.expression,
-      Expression::TSNonNullExpression(non_null) => &non_null.expression,
-      other => return other,
-    };
-  }
 }
 
 fn is_identity_factory_forward(expression: &Expression<'_>, factories: &BTreeSet<String>) -> bool {
