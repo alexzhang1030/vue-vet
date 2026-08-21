@@ -1967,6 +1967,186 @@ fn helper_with_args_is_not_followed() {
 }
 
 #[test]
+fn same_file_helper_uncertain_value_is_recorded_on_computed() {
+  // Dual-path with `uncertain_value_access_is_recorded_on_computed_scope`:
+  // unclassified `.value` inside `load` must surface as maybe, not confident absence.
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     declare function useMediaQuery(q: string): { value: boolean };\n\
+     const isCoarse = useMediaQuery('(pointer: coarse)');\n\
+     function load() { return isCoarse.value; }\n\
+     const hint = computed(() => load());",
+  );
+  assert_eq!(graph.version, vue_vet_core::REACTIVITY_GRAPH_VERSION);
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.is_empty()
+        && scope.uncertain_accesses.iter().any(|name| name == "isCoarse")
+    }),
+    "helper-wrapped unclassified .value must be uncertain (maybe); scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn same_file_helper_two_hop_uncertain_is_recorded() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     declare function useMediaQuery(q: string): { value: boolean };\n\
+     const isCoarse = useMediaQuery('(pointer: coarse)');\n\
+     function inner() { return isCoarse.value; }\n\
+     function outer() { return inner(); }\n\
+     const hint = computed(() => outer());",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.is_empty()
+        && scope.uncertain_accesses.iter().any(|name| name == "isCoarse")
+    }),
+    "two-hop helper unclassified .value must be uncertain; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn watch_getter_helper_uncertain_is_recorded() {
+  let graph = graph(
+    "import { watch } from 'vue';\n\
+     declare function useMediaQuery(q: string): { value: boolean };\n\
+     const isCoarse = useMediaQuery('(pointer: coarse)');\n\
+     function load() { return isCoarse.value; }\n\
+     watch(() => load(), () => {});",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::WatchSources
+        && scope.reads.is_empty()
+        && scope.uncertain_accesses.iter().any(|name| name == "isCoarse")
+    }),
+    "watch(() => load()) must record helper uncertain; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn same_file_helper_unref_and_to_value_uncertain_are_recorded() {
+  for (label, source) in [
+    (
+      "unref",
+      "import { computed, unref } from 'vue';\n\
+       declare const mystery: unknown;\n\
+       function load() { return unref(mystery); }\n\
+       const hint = computed(() => load());",
+    ),
+    (
+      "toValue",
+      "import { computed, toValue } from 'vue';\n\
+       declare const mystery: unknown;\n\
+       function load() { return toValue(mystery); }\n\
+       const hint = computed(() => load());",
+    ),
+  ] {
+    let graph = graph(source);
+    assert!(
+      graph.scopes.iter().any(|scope| {
+        scope.kind == TrackingScopeKind::Computed
+          && scope.reads.is_empty()
+          && scope.uncertain_accesses.iter().any(|name| name == "mystery")
+      }),
+      "helper-wrapped {label}(mystery) must be uncertain; scopes={:?}",
+      graph.scopes
+    );
+  }
+}
+
+#[test]
+fn same_file_helper_uncertain_inside_then_is_not_recorded() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     declare function useMediaQuery(q: string): { value: boolean };\n\
+     const isCoarse = useMediaQuery('(pointer: coarse)');\n\
+     function load() { return isCoarse.value; }\n\
+     const hint = computed(() => {\n\
+       Promise.resolve().then(() => load());\n\
+       return 'x';\n\
+     });",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.is_empty()
+        && scope.uncertain_accesses.iter().all(|name| name != "isCoarse")
+    }),
+    "then()-only helper must not invent maybe; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn same_file_helper_uncertain_mixed_then_and_in_tracking_is_recorded() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     declare function useMediaQuery(q: string): { value: boolean };\n\
+     const isCoarse = useMediaQuery('(pointer: coarse)');\n\
+     function load() { return isCoarse.value; }\n\
+     const hint = computed(() => {\n\
+       const now = load();\n\
+       Promise.resolve().then(() => load());\n\
+       return now ? 'a' : 'b';\n\
+     });",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.reads.is_empty()
+        && scope.uncertain_accesses.iter().any(|name| name == "isCoarse")
+    }),
+    "any in-tracking helper call keeps maybe; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn async_same_file_helper_uncertain_is_not_followed() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     declare function useMediaQuery(q: string): { value: boolean };\n\
+     const isCoarse = useMediaQuery('(pointer: coarse)');\n\
+     async function load() { return isCoarse.value; }\n\
+     const hint = computed(() => load());",
+  );
+  assert!(
+    graph.scopes.iter().all(|scope| {
+      scope.kind != TrackingScopeKind::Computed
+        || scope.uncertain_accesses.iter().all(|name| name != "isCoarse")
+    }),
+    "async helpers must stay unfollowed for uncertain; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn helper_with_args_uncertain_is_not_followed() {
+  let graph = graph(
+    "import { computed } from 'vue';\n\
+     declare function useMediaQuery(q: string): { value: boolean };\n\
+     const isCoarse = useMediaQuery('(pointer: coarse)');\n\
+     function load(_x: number) { return isCoarse.value; }\n\
+     const hint = computed(() => load(1));",
+  );
+  assert!(
+    graph.scopes.iter().all(|scope| {
+      scope.kind != TrackingScopeKind::Computed
+        || scope.uncertain_accesses.iter().all(|name| name != "isCoarse")
+    }),
+    "args helpers must stay unfollowed for uncertain; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
 fn string_replace_callback_tracks_nested_reactive_reads() {
   for (label, method) in [("replace", "replace"), ("replaceAll", "replaceAll")] {
     let graph = graph(&format!(

@@ -49,8 +49,10 @@ declared `.d.ts` return types) so unknown ecosystem callees are not mistaken for
 static computeds when their return is a proven ref.
 
 When the getter has `.value` / `unref` / `toValue` on names that could not be
-classified, the finding is still reported and marked `(maybe: …)` — analysis ran,
-but those accesses were not proven reactive (under-approx miss, not silence).
+classified — including the same accesses inside a same-file zero-arg helper
+called from the getter — the finding is still reported and marked `(maybe: …)`
+— analysis ran, but those accesses were not proven reactive (under-approx miss,
+not silence).
 
 ## Remediation
 
@@ -59,4 +61,6 @@ Return a plain value, or read reactive state inside the getter.
 ## Fixtures
 
 - Invalid: `fixtures/rules/no-computed-without-dependency/invalid/`
+  (`placeholder.vue` static getter; `helper-uncertain.vue` helper-wrapped
+  unclassified `.value` → `(maybe: isCoarse)`)
 - Valid: `fixtures/rules/no-computed-without-dependency/valid/`

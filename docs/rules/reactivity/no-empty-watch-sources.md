@@ -44,6 +44,9 @@ watch([hostWidth, hostHeight], () => {})
 ## Detection
 
 Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
+When a getter source only reaches unclassified `.value` / `unref` / `toValue`
+through a same-file zero-arg helper, the finding is marked `(maybe: …)` instead
+of a confident empty-source absence.
 
 ## Remediation
 
