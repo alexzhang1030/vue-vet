@@ -1,4 +1,4 @@
-//! Same-file zero-arg helper follow (reads / uncertain / writes / assignment_only).
+//! Same-file zero-arg helper follow (reads / uncertain / writes / `assignment_only`).
 //!
 //! One callee set and one depth cap so tracking-scope collectors cannot disagree
 //! on which local helpers are in the walk.
