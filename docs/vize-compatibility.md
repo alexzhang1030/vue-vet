@@ -2,7 +2,7 @@
 
 Vue Vet currently pins `vize_atelier_sfc` and `vize_atelier_core` to `0.355.0`.
 This release requires Rust 1.95 or newer and pins Oxc `0.142.0`; Vue Vet pins
-Rust 1.97.0 for the repository baseline. Do not jump Oxc ahead of Vize.
+Rust 1.98.0 for the repository baseline. Do not jump Oxc ahead of Vize.
 
 ## API assumptions
 
@@ -23,6 +23,8 @@ Rust 1.97.0 for the repository baseline. Do not jump Oxc ahead of Vize.
   directive name for `v-html` is `html`.
 - `SfcDescriptor.css_vars` lists CSS `v-bind` expressions without spans. Vue
   Vet keeps its own span-aware under-approx scanner for join.
+- `vize_atelier_sfc` is pinned with `default-features = false` so LightningCSS
+  (`native`) is not linked into the shipped CLI. `parse_sfc` does not need it.
 - Vize types stay inside `vue_vet_vize`; downstream crates consume Vue Vet
   diagnostics and facts.
 
@@ -52,13 +54,19 @@ Reviewed against `vize_atelier_sfc` / `vize_atelier_core` 0.355.0 and Oxc
   transitives. Already latest: Vize 0.355.0, clap 4.6.6, rayon 1.12,
   thiserror 2.0.20, ratatui 0.30.2, tokio 1.53.1, tower-lsp 0.20.0,
   anstyle 1.0.14, sha2 0.11.0.
-- Cargo still reports 16 packages behind latest. Those are **not** skipped
-  leftovers — Vize / CodSpeed / digest exact-pin them:
+- Cargo still reports packages behind latest. Those are **not** skipped
+  leftovers — Vize / CodSpeed exact-pin them:
   Oxc `0.142.0` (latest 0.146), `oxc_resolver` `11.21.0` (dashmap
   `=6.1.0`), `serde` / `serde_core` / `serde_derive` `=1.0.228` and
   `serde_json` `=1.0.149`, `compact_str` `=0.9.0`, `divan-macros`
-  `=0.1.17` (via `codspeed-divan-compat =5.0.1`), `generic-array`
-  `=0.14.7` (crypto-common). Do not `[patch]` them to jump the pin.
+  `=0.1.17` (via `codspeed-divan-compat =5.0.1`). Do not `[patch]` them
+  to jump the pin. LightningCSS is no longer in the lock: `vize_atelier_sfc`
+  is pinned with `default-features = false`.
+- Host `x86_64-unknown-linux-gnu` release binary (2026-08-21, stripped):
+  12_327_536 bytes thin LTO + default Vize `native` → 10_071_744 bytes
+  fat LTO + `panic = "abort"` + no LightningCSS / termwiz (~18% smaller).
+  The remaining mass is Oxc + Vize parse/semantic plus one CLI/LSP/MCP/TUI
+  binary. Do not UPX or split analysis into a second executable.
 
 ## Initial performance baseline
 

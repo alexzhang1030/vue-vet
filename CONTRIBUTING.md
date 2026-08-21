@@ -12,7 +12,7 @@ just setup
 just roll-rust
 ```
 
-The repository pins Rust 1.97.0 and the dependency lockfile. Do not update Vize,
+The repository pins Rust 1.98.0 and the dependency lockfile. Do not update Vize,
 Oxc, or serialized format versions without compatibility fixtures and rationale.
 
 ## Changes

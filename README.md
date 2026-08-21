@@ -170,7 +170,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow and
 
 ## Development
 
-The repository pins Rust 1.97.0 and uses `just` as its task runner. Install
+The repository pins Rust 1.98.0 and uses `just` as its task runner. Install
 `just`, then prepare a fresh checkout with:
 
 ```sh

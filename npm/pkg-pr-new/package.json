@@ -4,6 +4,6 @@
   "description": "Locked pkg-pr-new for continuous preview publishes (CI only)",
   "license": "MIT",
   "dependencies": {
-    "pkg-pr-new": "0.0.82"
+    "pkg-pr-new": "0.0.88"
   }
 }

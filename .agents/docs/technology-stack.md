@@ -28,7 +28,7 @@ types and must not re-implement analysis. The thin MCP adapter (`vue-vet --mcp`)
 `vue_vet_mcp` with a minimal stdio JSON-RPC tools subset (no heavy MCP SDK) over
 the same session; it must not re-implement analysis or silently apply fixes.
 
-The workspace tracks the latest stable Rust release and latest stable edition, following Rolldown's toolchain baseline. The repository pins the exact compiler in `rust-toolchain.toml`; all crates inherit the workspace `rust-version` and edition. Rolldown's lint policy is a floor: Vue Vet additionally denies the Clippy `all`, `cargo`, `pedantic`, and `nursery` groups, forbids unsafe Rust, and denies panic-prone conveniences such as unchecked indexing, string slicing, `unwrap`, and `expect`. The group-level duplicate-version exception covers the reviewed Vize and atomic-writer dependency graphs; each additional duplicate still requires explicit rationale. `just` is the task runner and the canonical interface for local and CI validation. `prek` manages Git hooks from `.pre-commit-config.yaml` without adding a Python runtime requirement.
+The workspace tracks the latest stable Rust release and latest stable edition, following Rolldown's toolchain baseline. The repository pins the exact compiler in `rust-toolchain.toml`; all crates inherit the workspace `rust-version` and edition. Shipped CLI/npm binaries use `profile.release` (`lto = "fat"`, `panic = "abort"`, `strip = "symbols"`). The remaining ~10 MB host Linux binary is the Oxc + Vize parse/semantic stack plus LSP/MCP/TUI in one process; unused LightningCSS and ratatui termwiz backends stay out of the lock. Do not add UPX or a second analysis binary. Rolldown's lint policy is a floor: Vue Vet additionally denies the Clippy `all`, `cargo`, `pedantic`, and `nursery` groups, forbids unsafe Rust, and denies panic-prone conveniences such as unchecked indexing, string slicing, `unwrap`, and `expect`. The group-level duplicate-version exception covers the reviewed Vize and atomic-writer dependency graphs; each additional duplicate still requires explicit rationale. `just` is the task runner and the canonical interface for local and CI validation. `prek` manages Git hooks from `.pre-commit-config.yaml` without adding a Python runtime requirement.
 
 ## Vize owns Vue semantics
 
@@ -43,6 +43,11 @@ The first adapter is pinned to the Oxc 0.142 family already present in Vize
 its declared `lang`, builds semantics with syntax checking, and maps every fact
 span back through the SFC block offset. Direct Oxc types remain private to
 `vue_vet_oxc`. Do not jump Oxc to 0.146 (latest) until Vize moves.
+
+`vize_atelier_sfc` default-enables `native` (LightningCSS + parcel_selectors)
+for style compile / minify. Vue Vet only calls `parse_sfc` and template parse,
+so the workspace pin sets `default-features = false`. Re-enable `native` only
+if a rule needs LightningCSS AST spans; do not turn it on just to compile.
 
 ## oxc_resolver owns bundler module resolution
 
@@ -74,8 +79,9 @@ public commit API is unchanged. Vue Vet still owns edit classification,
 planning, scan-scope containment, byte/UTF-8 validation, and post-fix
 rescanning; the dependency receives only a completely rendered file body and
 owns the filesystem-specific atomic commit. It does not provide or imply a
-multi-file transaction. Remaining `nix` 0.29 / `sha2` 0.10 / `thiserror` 1.x
-duplicates come from wezterm / `mac_address` (ratatui), not this pin.
+multi-file transaction. Dropping unused ratatui backends (termwiz / wezterm)
+removed the extra `nix` 0.29 / `sha2` 0.10 / `thiserror` 1.x copies; the
+remaining `nix` 0.31.3 is shared with CodSpeed.
 
 ## Vue Vet owns the product contracts
 
