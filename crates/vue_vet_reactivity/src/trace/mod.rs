@@ -2531,22 +2531,20 @@ fn symbol_declaration_site_decl(
   }
 }
 
-#[expect(clippy::too_many_arguments, reason = "callee follow shares collect_scope_reads context")]
-fn follow_local_zero_arg_callees(
+/// Same-file zero-arg local helpers called from `scope_id`.
+///
+/// Each entry is `(callee_id, all_in_scope_call_sites_are_outside_tracking)`.
+/// Shared by hard-read follow and `uncertain_accesses` so the two pipelines
+/// cannot disagree on which callees are in scope.
+fn local_zero_arg_callees_in_scope(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
-  reactive_bindings: &[ReactiveBindingFact],
-  composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
-  ambient_call_handles: &AmbientCallHandles,
-  script_offset: usize,
-  depth: u32,
-  visiting: &mut BTreeSet<NodeId>,
-  reads: &mut Vec<RawReactiveRead>,
-) {
-  // Collect callee ids first so we do not hold a nodes borrow across recursion.
+  visiting: &BTreeSet<NodeId>,
+) -> Vec<(NodeId, bool)> {
+  // Collect callee ids first so callers do not hold a nodes borrow across recursion.
   // `call_outside` is true only when *every* in-scope call site is outside tracking
-  // (any in-tracking call keeps ambient deps).
+  // (any in-tracking call keeps ambient deps / soft evidence).
   let mut callees: Vec<(NodeId, bool)> = Vec::new();
   for (call_id, call_node) in semantic.nodes().iter_enumerated() {
     let AstKind::CallExpression(call) = call_node.kind() else {
@@ -2580,6 +2578,23 @@ fn follow_local_zero_arg_callees(
     }
     callees.push((callee_id, call_outside));
   }
+  callees
+}
+
+#[expect(clippy::too_many_arguments, reason = "callee follow shares collect_scope_reads context")]
+fn follow_local_zero_arg_callees(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
+  reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  ambient_call_handles: &AmbientCallHandles,
+  script_offset: usize,
+  depth: u32,
+  visiting: &mut BTreeSet<NodeId>,
+  reads: &mut Vec<RawReactiveRead>,
+) {
+  let callees = local_zero_arg_callees_in_scope(semantic, scope_id, imported_bindings, visiting);
 
   for (callee_id, call_outside) in callees {
     if !visiting.insert(callee_id) {
@@ -3244,6 +3259,8 @@ fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
 /// Soft evidence inside a scope: reactivity-shaped accesses we could not classify.
 ///
 /// Surfaced so absence rules can say `(maybe: name)` after trying to find hard edges.
+/// Follows the same same-file zero-arg helpers as [`collect_scope_reads`] so
+/// `computed(() => load())` cannot disagree with an inlined getter.
 fn collect_uncertain_scope_accesses(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
@@ -3252,6 +3269,77 @@ fn collect_uncertain_scope_accesses(
   imported_bindings: &BTreeMap<String, (String, String)>,
   script_offset: usize,
 ) -> Vec<String> {
+  let mut visiting = BTreeSet::new();
+  visiting.insert(scope_id);
+  collect_uncertain_scope_accesses_bounded(
+    semantic,
+    scope_id,
+    reactive_bindings,
+    composable_instances,
+    imported_bindings,
+    script_offset,
+    0,
+    &mut visiting,
+  )
+  .into_iter()
+  .collect()
+}
+
+#[expect(clippy::too_many_arguments, reason = "bounded collector threads scope + visit state")]
+fn collect_uncertain_scope_accesses_bounded(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
+  reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  script_offset: usize,
+  depth: u32,
+  visiting: &mut BTreeSet<NodeId>,
+) -> BTreeSet<String> {
+  let mut names = collect_uncertain_scope_accesses_local(
+    semantic,
+    scope_id,
+    reactive_bindings,
+    composable_instances,
+    imported_bindings,
+    script_offset,
+  );
+  if depth >= MAX_LOCAL_CALLEE_FOLLOW_DEPTH {
+    return names;
+  }
+  // Skip helpers whose *every* in-scope call is `then()` / `nextTick` — those
+  // reads are outside tracking. Do not expand same-scope then() looseness
+  // (inline `then(() => isCoarse.value)` still records maybe).
+  for (callee_id, call_outside) in
+    local_zero_arg_callees_in_scope(semantic, scope_id, imported_bindings, visiting)
+  {
+    if call_outside || !visiting.insert(callee_id) {
+      continue;
+    }
+    let nested = collect_uncertain_scope_accesses_bounded(
+      semantic,
+      callee_id,
+      reactive_bindings,
+      composable_instances,
+      imported_bindings,
+      script_offset,
+      depth + 1,
+      visiting,
+    );
+    visiting.remove(&callee_id);
+    names.extend(nested);
+  }
+  names
+}
+
+fn collect_uncertain_scope_accesses_local(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
+  reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  script_offset: usize,
+) -> BTreeSet<String> {
   let mut names = BTreeSet::new();
   for (node_id, node) in semantic.nodes().iter_enumerated() {
     let Some((name, span)) = uncertain_access_at(
@@ -3269,7 +3357,7 @@ fn collect_uncertain_scope_accesses(
     }
     names.insert(name);
   }
-  names.into_iter().collect()
+  names
 }
 
 fn uncertain_access_at(
