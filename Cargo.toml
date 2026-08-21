@@ -23,7 +23,7 @@ version = "0.1.20"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/alexzhang1030/vue-vet"
-rust-version = "1.97"
+rust-version = "1.98"
 readme = "README.md"
 keywords = ["vue", "nuxt", "lint", "static-analysis"]
 categories = ["development-tools"]
@@ -45,14 +45,16 @@ oxc_semantic = "=0.142.0"
 oxc_span = "=0.142.0"
 oxc_syntax = "=0.142.0"
 rayon = "1.12"
-ratatui = { version = "0.30", default-features = false, features = ["crossterm", "std", "macros", "underline-color", "layout-cache"] }
+ratatui = { version = "0.30", default-features = false, features = ["crossterm", "std", "macros"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 sha2 = "0.11"
 thiserror = "2"
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "rt-multi-thread", "sync", "time"] }
 tower-lsp = "0.20"
-vize_atelier_sfc = "=0.355.0"
+# `native` pulls LightningCSS (style compile / minify). Vue Vet only calls
+# `parse_sfc` + template parse; keep CSS join on the span-aware scanner.
+vize_atelier_sfc = { version = "=0.355.0", default-features = false }
 vize_atelier_core = "=0.355.0"
 
 [workspace.lints.rust]
@@ -118,12 +120,14 @@ unwrap_used = "deny"
 unused_result_ok = "deny"
 
 [profile.release]
-lto = "thin"
+lto = "fat"
 codegen-units = 1
 strip = "symbols"
+panic = "abort"
 
 # CodSpeed instrumentation and Oxc's generated code do not link reliably under
-# thin LTO. Keep release artifacts unchanged and isolate that constraint here.
+# LTO. Keep release artifacts on fat LTO + abort; isolate benches here.
 [profile.codspeed]
 inherits = "release"
 lto = false
+panic = "unwind"

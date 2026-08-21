@@ -55,7 +55,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.97.0
+      - uses: dtolnay/rust-toolchain@1.98.0
       - uses: extractions/setup-just@v3
       - name: Compatibility matrix
         run: just compat-matrix
@@ -90,7 +90,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@1.97.0
+      - uses: dtolnay/rust-toolchain@1.98.0
         with:
           targets: ${{ matrix.target }}
 
@@ -155,7 +155,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@1.97.0
+      - uses: dtolnay/rust-toolchain@1.98.0
 
       - name: Verify workspace version matches release version
         shell: bash
