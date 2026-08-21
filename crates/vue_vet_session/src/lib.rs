@@ -5,11 +5,14 @@
 //! (clap, LSP, MCP) stay outside.
 //!
 //! Modules:
-//! - [`session`] — [`ProjectSession`] and snapshot / error types
+//! - [`session`] — [`ProjectSession`] handle
+//! - [`types`] — snapshot / options / error types
+//! - [`registry`] — file-rule + project metadata
 //! - [`discovery`] — workspace walk + input snapshot
 //! - [`pipeline`] — scan stages (facts → project → rules → finalize)
 //! - [`scan`] / [`explain`] / [`diagnostics`] / [`locality`] / [`progress`]
 
+mod config;
 mod diagnostics;
 mod discovery;
 mod explain;
@@ -19,16 +22,19 @@ mod package_index;
 mod path;
 mod pipeline;
 mod progress;
+mod registry;
 mod scan;
 mod session;
+mod types;
 
 pub use explain::Explained;
 pub use locality::{AnalysisProduct, ChangeImpact, DirtyPlan, ResolutionScope, ScanWorkCounters};
 pub use path::resolve_under_root;
 pub use progress::{ProgressEvent, ProgressReporter};
+pub use registry::{file_analysis_registry, resolve_rule_meta};
 pub use scan::{discover_workspace_boundary, scan_directory};
-pub use session::{
-  AnalysisCoverage, AnalysisIssue, AnalysisSnapshot, AnalysisStage, ChangeSet, ProjectSession,
-  Recoverability, SessionError, SessionOptions, SessionStats, file_analysis_registry,
-  resolve_rule_meta,
+pub use session::{ProjectSession, SessionStats};
+pub use types::{
+  AnalysisCoverage, AnalysisIssue, AnalysisSnapshot, AnalysisStage, ChangeSet, Recoverability,
+  SessionError, SessionOptions,
 };

@@ -30,7 +30,7 @@ use crate::structural::{
 };
 
 #[cfg(test)]
-#[path = "pipeline_tests.rs"]
+#[path = "pipeline_tests/mod.rs"]
 mod tests;
 
 #[must_use]
