@@ -44,6 +44,14 @@ its declared `lang`, builds semantics with syntax checking, and maps every fact
 span back through the SFC block offset. Direct Oxc types remain private to
 `vue_vet_oxc`. Do not jump Oxc to 0.146 (latest) until Vize moves.
 
+`vize_atelier_sfc` default-enables `native` (LightningCSS). Vue Vet only calls
+`parse_sfc` and template parse, so the pin uses `default-features = false`.
+That still leaves DOM / Vapor / SSR and this crate's `oxc_transformer` /
+`oxc_codegen` in the graph. Asked upstream for a `compile` feature:
+[ubugeeei-prod/vize#4563](https://github.com/ubugeeei-prod/vize/issues/4563).
+`oxc_transformer` would still remain via `vize_atelier_core` until a follow-up
+optionalizes it there. Do not re-enable `native` while waiting.
+
 ## oxc_resolver owns bundler module resolution
 
 Cross-file import edges in `vue_vet_project` resolve through exact-pinned
@@ -53,7 +61,8 @@ external nodes, and `unresolved-import` diagnostics. The resolver does not
 execute Vite or Nuxt config files; tsconfig paths and Vite default aliases are
 the configuration surface. Pin note: stay on `11.21.0` until `vize_croquis` loosens its
 `dashmap =6.1.0` requirement (`oxc_resolver 11.22+` needs `dashmap 6.2.1`).
-Vize 0.355 did not lift that pin.
+Asked upstream to bump the exact pin:
+[ubugeeei-prod/vize#4564](https://github.com/ubugeeei-prod/vize/issues/4564).
 
 ## Vize and Oxc are the complete analysis stack
 

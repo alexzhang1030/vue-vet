@@ -25,6 +25,9 @@ Rust 1.97.0 for the repository baseline. Do not jump Oxc ahead of Vize.
   Vet keeps its own span-aware under-approx scanner for join.
 - Vize types stay inside `vue_vet_vize`; downstream crates consume Vue Vet
   diagnostics and facts.
+- Parse-only `default-features = false` still pulls DOM / Vapor / SSR. Upstream
+  `compile` feature request:
+  [ubugeeei-prod/vize#4563](https://github.com/ubugeeei-prod/vize/issues/4563).
 
 ## 0.291 → 0.355 adapter notes (2026-08-21)
 
@@ -38,7 +41,8 @@ Reviewed against `vize_atelier_sfc` / `vize_atelier_core` 0.355.0 and Oxc
   `.with_build_nodes(true)` wherever facts walk `semantic.nodes()`. Without
   it, imports/calls/scopes are empty and rules go quiet.
 - `vize_croquis` still exact-pins `dashmap =6.1.0`, so `oxc_resolver` stays
-  `11.21.0` (`11.22+` needs `dashmap 6.2.1`).
+  `11.21.0` (`11.22+` needs `dashmap 6.2.1`). Upstream request to bump the pin:
+  [ubugeeei-prod/vize#4564](https://github.com/ubugeeei-prod/vize/issues/4564).
 - Not adopted this upgrade (available, keep under-approx / ownership):
   `parse_document` (full HTML / petite-vue), script `BindingMetadata`,
   `extract_css_vars` (no spans), `oxc_ecmascript::MayHaveSideEffects`,
