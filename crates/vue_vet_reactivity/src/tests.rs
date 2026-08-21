@@ -85,9 +85,20 @@ fn trace(
 ) -> ReactivityGraph {
   let allocator = Allocator::default();
   let parsed = Parser::new(&allocator, script_source, SourceType::ts()).parse();
-  assert!(parsed.errors.is_empty(), "script parsing unexpectedly failed: {:?}", parsed.errors);
-  let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
-  assert!(built.errors.is_empty(), "semantic analysis unexpectedly failed: {:?}", built.errors);
+  assert!(
+    parsed.diagnostics.is_empty(),
+    "script parsing unexpectedly failed: {:?}",
+    parsed.diagnostics
+  );
+  let built = SemanticBuilder::new()
+    .with_build_nodes(true)
+    .with_check_syntax_error(true)
+    .build(&parsed.program);
+  assert!(
+    built.diagnostics.is_empty(),
+    "semantic analysis unexpectedly failed: {:?}",
+    built.diagnostics
+  );
   trace_reactivity_with_config(
     &built.semantic,
     sfc_source,
@@ -104,9 +115,20 @@ fn graph(source: &str) -> ReactivityGraph {
 fn graph_tsx(source: &str) -> ReactivityGraph {
   let allocator = Allocator::default();
   let parsed = Parser::new(&allocator, source, SourceType::tsx()).parse();
-  assert!(parsed.errors.is_empty(), "tsx parsing unexpectedly failed: {:?}", parsed.errors);
-  let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
-  assert!(built.errors.is_empty(), "tsx semantic analysis unexpectedly failed: {:?}", built.errors);
+  assert!(
+    parsed.diagnostics.is_empty(),
+    "tsx parsing unexpectedly failed: {:?}",
+    parsed.diagnostics
+  );
+  let built = SemanticBuilder::new()
+    .with_build_nodes(true)
+    .with_check_syntax_error(true)
+    .build(&parsed.program);
+  assert!(
+    built.diagnostics.is_empty(),
+    "tsx semantic analysis unexpectedly failed: {:?}",
+    built.diagnostics
+  );
   trace_reactivity_with_config(
     &built.semantic,
     source,
@@ -1392,8 +1414,9 @@ fn incremental_linking_skips_export_resolve_when_only_local_graph_changes() {
     let allocator = oxc_allocator::Allocator::default();
     let source_type = oxc_span::SourceType::default().with_module(true).with_typescript(true);
     let parsed = oxc_parser::Parser::new(&allocator, source, source_type).parse();
-    assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
-    let semantic = oxc_semantic::SemanticBuilder::new().build(&parsed.program).semantic;
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let semantic =
+      oxc_semantic::SemanticBuilder::new().with_build_nodes(true).build(&parsed.program).semantic;
     let config = default_trace_config();
     let graph = Arc::new(trace_reactivity_seeded(
       &semantic,
@@ -2142,6 +2165,232 @@ fn helper_with_args_uncertain_is_not_followed() {
         || scope.uncertain_accesses.iter().all(|name| name != "isCoarse")
     }),
     "args helpers must stay unfollowed for uncertain; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn same_file_helper_write_is_recorded_on_computed() {
+  let graph = graph(
+    "import { ref, computed } from 'vue';\n\
+     const source = ref(0); const target = ref(0);\n\
+     function load() { target.value = source.value; return target.value; }\n\
+     const c = computed(() => load());\n\
+     void c.value;",
+  );
+  assert_eq!(graph.version, vue_vet_core::REACTIVITY_GRAPH_VERSION);
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope
+          .writes
+          .iter()
+          .any(|write| write.binding == "target" && write.property.as_deref() == Some("value"))
+    }),
+    "computed(() => load()) must record target.value write inside load; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn same_file_helper_two_hop_write_is_recorded() {
+  let graph = graph(
+    "import { ref, computed } from 'vue';\n\
+     const source = ref(0); const target = ref(0);\n\
+     function inner() { target.value = source.value; return target.value; }\n\
+     function outer() { return inner(); }\n\
+     const c = computed(() => outer());\n\
+     void c.value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.writes.iter().any(|write| write.binding == "target")
+    }),
+    "two-hop helper write must be recorded; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn same_file_helper_write_inside_then_is_not_recorded() {
+  let graph = graph(
+    "import { ref, computed } from 'vue';\n\
+     const source = ref(0); const target = ref(0);\n\
+     function load() { target.value = source.value; return target.value; }\n\
+     const c = computed(() => {\n\
+       Promise.resolve().then(() => load());\n\
+       return source.value;\n\
+     });\n\
+     void c.value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.writes.iter().all(|write| write.binding != "target")
+    }),
+    "then()-only helper must not invent computed writes; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn same_file_helper_write_mixed_then_and_in_tracking_is_recorded() {
+  let graph = graph(
+    "import { ref, computed } from 'vue';\n\
+     const source = ref(0); const target = ref(0);\n\
+     function load() { target.value = source.value; return target.value; }\n\
+     const c = computed(() => {\n\
+       const now = load();\n\
+       Promise.resolve().then(() => load());\n\
+       return now;\n\
+     });\n\
+     void c.value;",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::Computed
+        && scope.writes.iter().any(|write| write.binding == "target")
+    }),
+    "any in-tracking helper call keeps the write; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn async_same_file_helper_write_is_not_followed() {
+  let graph = graph(
+    "import { ref, computed } from 'vue';\n\
+     const source = ref(0); const target = ref(0);\n\
+     async function load() { target.value = source.value; return target.value; }\n\
+     const c = computed(() => load());\n\
+     void c.value;",
+  );
+  assert!(
+    graph.scopes.iter().all(|scope| {
+      scope.kind != TrackingScopeKind::Computed
+        || scope.writes.iter().all(|write| write.binding != "target")
+    }),
+    "async helpers must stay unfollowed for writes; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn helper_with_args_write_is_not_followed() {
+  let graph = graph(
+    "import { ref, computed } from 'vue';\n\
+     const source = ref(0); const target = ref(0);\n\
+     function load(_x: number) { target.value = source.value; return target.value; }\n\
+     const c = computed(() => load(1));\n\
+     void c.value;",
+  );
+  assert!(
+    graph.scopes.iter().all(|scope| {
+      scope.kind != TrackingScopeKind::Computed
+        || scope.writes.iter().all(|write| write.binding != "target")
+    }),
+    "args helpers must stay unfollowed for writes; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn helper_assignment_only_watch_effect_is_assignment_only() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue';\n\
+     const first = ref('a'); const last = ref('b'); const full = ref('');\n\
+     function assign() { full.value = first.value + last.value; }\n\
+     watchEffect(() => { assign(); });",
+  );
+  let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchEffect);
+  assert_eq!(
+    scope.map(|scope| scope.assignment_only),
+    Some(true),
+    "watchEffect(() => {{ assign() }}) must be assignment_only; scopes={:?}",
+    graph.scopes
+  );
+  assert!(
+    scope.is_some_and(|scope| {
+      scope
+        .writes
+        .iter()
+        .any(|write| write.binding == "full" && write.property.as_deref() == Some("value"))
+    }),
+    "assignment-only helper must record the write; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn helper_assignment_only_expression_arrow_is_assignment_only() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue';\n\
+     const first = ref('a'); const last = ref('b'); const full = ref('');\n\
+     const assign = () => { full.value = first.value + last.value; };\n\
+     watchEffect(() => assign());",
+  );
+  assert!(
+    graph
+      .scopes
+      .iter()
+      .any(|scope| { scope.kind == TrackingScopeKind::WatchEffect && scope.assignment_only }),
+    "watchEffect(() => assign()) must be assignment_only; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn helper_assignment_only_two_hop_is_assignment_only() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue';\n\
+     const first = ref('a'); const last = ref('b'); const full = ref('');\n\
+     function inner() { full.value = first.value + last.value; }\n\
+     function outer() { inner(); }\n\
+     watchEffect(() => { outer(); });",
+  );
+  assert!(
+    graph
+      .scopes
+      .iter()
+      .any(|scope| { scope.kind == TrackingScopeKind::WatchEffect && scope.assignment_only }),
+    "two-hop assignment-only helpers must stay assignment_only; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn helper_assignment_only_inside_then_is_not_assignment_only() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue';\n\
+     const first = ref('a'); const last = ref('b'); const full = ref('');\n\
+     function assign() { full.value = first.value + last.value; }\n\
+     watchEffect(() => { Promise.resolve().then(() => assign()); });",
+  );
+  assert!(
+    graph
+      .scopes
+      .iter()
+      .any(|scope| { scope.kind == TrackingScopeKind::WatchEffect && !scope.assignment_only }),
+    "then()-only helper must not mark assignment_only; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn async_helper_assignment_is_not_assignment_only() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue';\n\
+     const first = ref('a'); const last = ref('b'); const full = ref('');\n\
+     async function assign() { full.value = first.value + last.value; }\n\
+     watchEffect(() => { assign(); });",
+  );
+  assert!(
+    graph
+      .scopes
+      .iter()
+      .any(|scope| { scope.kind == TrackingScopeKind::WatchEffect && !scope.assignment_only }),
+    "async helpers must stay unfollowed for assignment_only; scopes={:?}",
     graph.scopes
   );
 }
@@ -5210,9 +5459,12 @@ fn prepared_phase_one_facts_avoid_an_unseeded_second_parse() {
   let source = "import { ref } from 'vue'; export const count = ref(0);";
   let allocator = Allocator::default();
   let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
-  assert!(parsed.errors.is_empty());
-  let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
-  assert!(built.errors.is_empty());
+  assert!(parsed.diagnostics.is_empty());
+  let built = SemanticBuilder::new()
+    .with_build_nodes(true)
+    .with_check_syntax_error(true)
+    .build(&parsed.program);
+  assert!(built.diagnostics.is_empty());
   let local_graph = trace_reactivity_with_config(
     &built.semantic,
     source,

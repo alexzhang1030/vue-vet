@@ -66,9 +66,12 @@ fn load_cases() -> Vec<OracleCase> {
 fn graph(source: &str) -> ReactivityGraph {
   let allocator = Allocator::default();
   let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
-  assert!(parsed.errors.is_empty(), "oracle source must parse: {source}");
-  let built = SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program);
-  assert!(built.errors.is_empty(), "oracle source must be semantically valid: {source}");
+  assert!(parsed.diagnostics.is_empty(), "oracle source must parse: {source}");
+  let built = SemanticBuilder::new()
+    .with_build_nodes(true)
+    .with_check_syntax_error(true)
+    .build(&parsed.program);
+  assert!(built.diagnostics.is_empty(), "oracle source must be semantically valid: {source}");
   trace_reactivity_with_config(&built.semantic, source, 0, ScriptKind::Setup, &TraceConfig::empty())
 }
 

@@ -367,7 +367,9 @@ pub struct TrackingScopeFact {
   /// Reactive member writes inside the scope (e.g. `derived.value = …`).
   #[serde(default)]
   pub writes: Vec<ReactiveWriteFact>,
-  /// Every statement is an assignment expression statement (no calls/awaits/control).
+  /// Every statement is an assignment, or a followed assignment-only local helper
+  /// (no awaits/control). Same-file zero-arg helpers count when their bodies are
+  /// assignment-only (depth-capped; async/args stay false).
   #[serde(default)]
   pub assignment_only: bool,
   /// For `computed` scopes: the binding name assigned from that call, when known.
@@ -440,6 +442,9 @@ pub struct ReactivityEffectFact {
 /// (unclassified `.value` / `unref` / `toValue` inside followed callees).
 /// `then()`/`nextTick`-only call sites stay quiet so absence rules do not
 /// invent `(maybe)` for outside-tracking accesses.
+/// v26: same helper follow for `writes` and `assignment_only` so
+/// `computed(() => load())` / `watchEffect(() => { assign() })` cannot
+/// disagree with an inlined body. `then()`/`nextTick`-only helpers stay quiet.
 /// v24: `useI18n` translator calls (`t`/`d`/`n`/`rt`/`te`) inject ambient
 /// composer deps (`locale` / `fallbackLocale` / `messages`) per vue-i18n
 /// `wrapWithDeps` / `trackReactivityValues`.
@@ -450,7 +455,7 @@ pub struct ReactivityEffectFact {
 /// under-approx hygiene); export linking refinements that change seeded bindings
 /// (`ForwardReturn` bare `#nuxt-imports`, overload Factory≻Composable, ref-like
 /// ternary `Known` exports, empty-path pending composable fields).
-pub const REACTIVITY_GRAPH_VERSION: u32 = 25;
+pub const REACTIVITY_GRAPH_VERSION: u32 = 26;
 
 const fn default_reactivity_graph_version() -> u32 {
   1

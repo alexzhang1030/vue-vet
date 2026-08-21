@@ -38,11 +38,11 @@ Vize parses Vue SFC structure and is the source of truth for template nodes, dir
 
 Oxc will parse script blocks and provide scopes, symbols, references, imports, and expression facts. Vue Vet is not initially a complete TypeScript type checker; rules requiring unavailable type certainty must remain out of the default preset or explicitly experimental.
 
-The first adapter is pinned to the Oxc 0.127 family already present in Vize's
-locked dependency graph. It parses each extracted script surface using its
-declared `lang`, builds semantics with syntax checking, and maps every fact span
-back through the SFC block offset. Direct Oxc types remain private to
-`vue_vet_oxc`.
+The first adapter is pinned to the Oxc 0.142 family already present in Vize
+0.355's locked dependency graph. It parses each extracted script surface using
+its declared `lang`, builds semantics with syntax checking, and maps every fact
+span back through the SFC block offset. Direct Oxc types remain private to
+`vue_vet_oxc`. Do not jump Oxc to 0.146 (latest) until Vize moves.
 
 ## oxc_resolver owns bundler module resolution
 
@@ -51,8 +51,9 @@ Cross-file import edges in `vue_vet_project` resolve through exact-pinned
 engine. Vue Vet owns classification of resolve results into project edges,
 external nodes, and `unresolved-import` diagnostics. The resolver does not
 execute Vite or Nuxt config files; tsconfig paths and Vite default aliases are
-the configuration surface. Pin note: stay on `11.21.0` until Vize loosens its
+the configuration surface. Pin note: stay on `11.21.0` until `vize_croquis` loosens its
 `dashmap =6.1.0` requirement (`oxc_resolver 11.22+` needs `dashmap 6.2.1`).
+Vize 0.355 did not lift that pin.
 
 ## Vize and Oxc are the complete analysis stack
 
@@ -66,14 +67,15 @@ product surface.
 
 ## atomic-write-file owns the single-file commit
 
-The safe-fix executor uses exact-pinned `atomic-write-file` 0.3.0 for the final
-same-directory replacement on Unix, Windows, and WASI. Vue Vet still owns edit
-classification, planning, scan-scope containment, byte/UTF-8 validation, and
-post-fix rescanning; the dependency receives only a completely rendered file
-body and owns the filesystem-specific atomic commit. It does not provide or
-imply a multi-file transaction. Its `nix` and `rand` versions are a reviewed
-source of duplicate transitive packages rather than a reason to weaken the
-workspace lint policy further.
+The safe-fix executor uses exact-pinned `atomic-write-file` 0.3.1 for the final
+same-directory replacement on Unix, Windows, and WASI. 0.3.1 is the crate bump
+that moves `rand` to 0.10.2 and `nix` to 0.31.3 (shared with CodSpeed); the
+public commit API is unchanged. Vue Vet still owns edit classification,
+planning, scan-scope containment, byte/UTF-8 validation, and post-fix
+rescanning; the dependency receives only a completely rendered file body and
+owns the filesystem-specific atomic commit. It does not provide or imply a
+multi-file transaction. Remaining `nix` 0.29 / `sha2` 0.10 / `thiserror` 1.x
+duplicates come from wezterm / `mac_address` (ratatui), not this pin.
 
 ## Vue Vet owns the product contracts
 

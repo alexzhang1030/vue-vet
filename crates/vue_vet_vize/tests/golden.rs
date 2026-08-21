@@ -695,3 +695,36 @@ fn path_normalization_is_platform_independent() {
     "Windows separators must normalize to the persisted form"
   );
 }
+
+#[test]
+fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
+  assert_diagnostics(
+    "fixtures/rules/no-side-effects-in-computed/invalid/helper-write.vue",
+    include_str!("../../../fixtures/rules/no-side-effects-in-computed/invalid/helper-write.vue"),
+    include_str!("../../../fixtures/snapshots/no-side-effects-in-computed/helper-write.json"),
+  );
+  assert_diagnostics(
+    "fixtures/rules/prefer-computed/invalid/helper-assign.vue",
+    include_str!("../../../fixtures/rules/prefer-computed/invalid/helper-assign.vue"),
+    include_str!("../../../fixtures/snapshots/prefer-computed/helper-assign.json"),
+  );
+  assert_diagnostics(
+    "fixtures/rules/no-unused-computed-binding/invalid/unused.vue",
+    include_str!("../../../fixtures/rules/no-unused-computed-binding/invalid/unused.vue"),
+    include_str!("../../../fixtures/snapshots/no-unused-computed-binding/unused.json"),
+  );
+  assert_diagnostics(
+    "fixtures/rules/no-unused-computed-binding/valid/style-v-bind.vue",
+    include_str!("../../../fixtures/rules/no-unused-computed-binding/valid/style-v-bind.vue"),
+    include_str!("../../../fixtures/snapshots/no-unused-computed-binding/style-v-bind.json"),
+  );
+  assert_diagnostics(
+    "fixtures/rules/no-computed-without-dependency/invalid/helper-uncertain.vue",
+    include_str!(
+      "../../../fixtures/rules/no-computed-without-dependency/invalid/helper-uncertain.vue"
+    ),
+    include_str!(
+      "../../../fixtures/snapshots/no-computed-without-dependency/helper-uncertain.json"
+    ),
+  );
+}

@@ -1,0 +1,34 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-unused-computed-binding",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-unused-computed-binding",
+    "message": "computed binding is never read in script or template",
+    "help": "Remove the unused computed, or read it from template / another scope.",
+    "file": "fixtures/rules/no-unused-computed-binding/invalid/unused.vue",
+    "span": {
+      "offset": 88,
+      "length": 6,
+      "line": 4,
+      "column": 7
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/no-unused-reactive-binding",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-unused-reactive-binding",
+    "message": "reactive binding `unused` (computed) is never read in script or template",
+    "help": "Remove the unused binding, or read it from a tracking scope, template expression, or other script use.",
+    "file": "fixtures/rules/no-unused-computed-binding/invalid/unused.vue",
+    "span": {
+      "offset": 88,
+      "length": 6,
+      "line": 4,
+      "column": 7
+    }
+  }
+]

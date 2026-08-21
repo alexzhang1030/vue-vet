@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-side-effects-in-computed",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-side-effects-in-computed",
+    "message": "computed getter writes `b.value`, which is a side effect",
+    "help": "Keep computed getters pure; move writes into `watch` / event handlers.",
+    "file": "fixtures/rules/no-side-effects-in-computed/invalid/helper-write.vue",
+    "span": {
+      "offset": 115,
+      "length": 7,
+      "line": 6,
+      "column": 3
+    }
+  }
+]

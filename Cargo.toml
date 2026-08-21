@@ -30,21 +30,21 @@ categories = ["development-tools"]
 
 [workspace.dependencies]
 anstyle = "1.0"
-atomic-write-file = "=0.3.0"
-clap = { version = "4.5", features = ["derive"] }
+atomic-write-file = "=0.3.1"
+clap = { version = "4.6", features = ["derive"] }
 divan = { package = "codspeed-divan-compat", version = "=5.0.1" }
 globset = "0.4"
 ignore = "0.4"
-oxc_allocator = "=0.127.0"
-oxc_ast = "=0.127.0"
-oxc_ast_visit = "=0.127.0"
-oxc_parser = "=0.127.0"
-# 11.22+ pulls dashmap 6.2.1; Vize pins dashmap =6.1.0. Stay on 11.21 until Vize moves.
+oxc_allocator = "=0.142.0"
+oxc_ast = "=0.142.0"
+oxc_ast_visit = "=0.142.0"
+oxc_parser = "=0.142.0"
+# 11.22+ pulls dashmap 6.2.1; vize_croquis 0.355 still pins dashmap =6.1.0.
 oxc_resolver = { version = "=11.21.0", features = ["yarn_pnp"] }
-oxc_semantic = "=0.127.0"
-oxc_span = "=0.127.0"
-oxc_syntax = "=0.127.0"
-rayon = "1.10"
+oxc_semantic = "=0.142.0"
+oxc_span = "=0.142.0"
+oxc_syntax = "=0.142.0"
+rayon = "1.12"
 ratatui = { version = "0.30", default-features = false, features = ["crossterm", "std", "macros", "underline-color", "layout-cache"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
@@ -52,8 +52,8 @@ sha2 = "0.11"
 thiserror = "2"
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "rt-multi-thread", "sync", "time"] }
 tower-lsp = "0.20"
-vize_atelier_sfc = "=0.291.0"
-vize_atelier_core = "=0.291.0"
+vize_atelier_sfc = "=0.355.0"
+vize_atelier_core = "=0.355.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

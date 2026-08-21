@@ -18,6 +18,9 @@ const c = computed(() => { b.value = a.value; return a.value })
 <template>{{ c }}</template>
 ```
 
+Same-file zero-arg helpers count too — `computed(() => load())` where `load`
+writes a ref is the same side effect as an inlined assignment.
+
 ## Good
 
 ```vue
@@ -40,4 +43,5 @@ Move side effects out of the computed getter.
 ## Fixtures
 
 - Invalid: `fixtures/rules/no-side-effects-in-computed/invalid/`
+  (`basic.vue` inlined write; `helper-write.vue` helper-wrapped write)
 - Valid: `fixtures/rules/no-side-effects-in-computed/valid/`

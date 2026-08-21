@@ -4,7 +4,16 @@
 
 Vize is not yet production-stable and publishes frequently. Keep the dependency exact-pinned. An upgrade is a compatibility task: compile, inspect API changes, run golden fixtures and diagnostic snapshots, and record behavior differences. Do not change the version range just to unblock dependency resolution.
 
-Vize 0.291.0 requires Rust 1.95 or newer, and its Oxc dependency requires Rust 1.93 or newer. The original Rust 1.85 pin therefore failed before Vue Vet compiled. Keep the exact Rust toolchain aligned with the workspace `rust-version`, regenerate `Cargo.lock` only with that toolchain, and validate upgrades through `just roll-rust`.
+Vize 0.355.0 requires Rust 1.95 or newer and pins Oxc 0.142.0. The original
+Rust 1.85 pin therefore failed before Vue Vet compiled. Keep the exact Rust
+toolchain aligned with the workspace `rust-version`, regenerate `Cargo.lock`
+only with that toolchain, and validate upgrades through `just roll-rust`.
+Template `SourceLocation` is now a byte `Span` only (no copied `loc.source`);
+compound expression text is reconstructed from children. Tag/name fields are
+`&str` — do not call `.as_str()` (unstable `str::as_str`).
+Oxc 0.142 `SemanticBuilder` leaves `Semantic::nodes` empty unless
+`.with_build_nodes(true)` is set; forgetting it makes every node-walk fact
+collector (imports, calls, scopes) succeed with empty results.
 
 ## SFC offsets are not plain string positions
 
@@ -117,7 +126,10 @@ Vue Vet still does **not** execute `vite.config.*` / `nuxt.config.*` — aliases
 come from Vite defaults (`@` → `src`, `~` → root), tsconfig paths (including
 `.nuxt/tsconfig.json`), and package `exports`.
 `oxc_resolver` is pinned to `11.21.0` because `11.22+` requires `dashmap 6.2.1`
-while Vize pins `dashmap =6.1.0`. Always absolutize/canonicalize the scan root
+while Vize pins `dashmap =6.1.0`. The same Vize 0.355 release exact-pins
+`serde =1.0.228`, `serde_json =1.0.149`, and `compact_str =0.9.0`, so a
+workspace `cargo update` cannot float those patches either. Always
+absolutize/canonicalize the scan root
 before building the resolver: `vue-vet .` must not leave alias targets as `"."`,
 or Nuxt `~/…` imports fail even when the files exist. On Windows, also strip
 compatible `\\?\` verbatim prefixes after canonicalize — otherwise alias targets
@@ -220,6 +232,12 @@ not mistaken for bindings; lexical scan is only the empty-list fallback. Handler
 extract time. `TemplateExpressionFact.identifiers` is `Some(…)` when resolved
 (including empty = no free reads); only `None` triggers the lexical join
 fallback—do not treat empty `Some` as unknown.
+`<style>` `v-bind(ident)` / `v-bind('ident')` / `v-bind("ident")` are the same
+join surface (`surface: "style"`). Complex CSS expressions stay quiet.
+`SfcBlockRevisions` still fingerprints only template/script/script_setup:
+style-only color edits reuse facts, but the adapter strips `surface == "style"`
+and re-extracts from current style blocks so a `v-bind` ident swap still
+re-joins. Do not add style to revisions just to catch color-only CSS.
 
 Vue JSX is not React JSX and must not be Babel-transformed for analysis: Oxc
 parses source JSX/TSX and lowers Vue-JSX attributes (`v-html`, `innerHTML` /
@@ -526,7 +544,11 @@ reads stay empty do they consult `uncertain_accesses` (reactivity-shaped
 including those inside same-file zero-arg helpers followed from the scope)
 and report with `(maybe: …)`. Do not invent edges; do not treat empty reads as
 ironclad proof when soft evidence remains. A helper called only from `then()` /
-`nextTick` must not contribute maybe — those accesses are outside tracking. Sync Array/String HOF callback
+`nextTick` must not contribute maybe — those accesses are outside tracking.
+The same helper follow records **writes** and **`assignment_only`** (graph v26):
+`computed(() => load())` where `load` assigns a ref is a computed side effect;
+`watchEffect(() => { assign() })` where `assign` is assignment-only is
+`prefer-computed`. `then()`-only helpers must not invent those facts either. Sync Array/String HOF callback
 params (`OPTIONS.map(o => o.value)`) are not soft evidence — `.value` there is
 almost always a plain data field; leave reads empty so absence rules can report
 a hard no-dependency finding instead of `(maybe: option)`. Untyped composable

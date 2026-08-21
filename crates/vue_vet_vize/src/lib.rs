@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use thiserror::Error;
 use vize_atelier_core::{
-  Allocator, ElementNode, ExpressionNode, ForNode, PropNode, TemplateChildNode, parse,
+  Allocator, CompoundExpressionChild, ElementNode, ExpressionNode, ForNode, PropNode,
+  TemplateChildNode, parse,
 };
 use vize_atelier_sfc::{SfcDescriptor, SfcParseOptions, parse_sfc};
 use vue_vet_core::{
@@ -125,12 +126,18 @@ fn analyze_sfc_facts_inner(
     let module_source = attach_reused_summaries(module_source, previous.module_source.as_ref());
     let ordinary_module_source =
       attach_reused_summaries(ordinary_module_source, previous.ordinary_module_source.as_ref());
-    return Ok(AnalyzedSfc {
-      facts: previous.facts.clone(),
-      module_source,
-      ordinary_module_source,
-      revisions,
-    });
+    let mut facts = previous.facts.clone();
+    // Style is not in `revisions`. Refresh `v-bind(ident)` expressions so a
+    // style-only ident change still joins, while color-only CSS stays equal.
+    if refresh_style_v_bind_expressions(source, &descriptor, &mut facts.template) {
+      let module_id = path.to_string_lossy().replace('\\', "/");
+      for block in &mut facts.script.blocks {
+        let graph = Arc::make_mut(&mut block.reactivity_graph);
+        graph.join_template_reads(&facts.template);
+        graph.set_module_id(module_id.clone());
+      }
+    }
+    return Ok(AnalyzedSfc { facts, module_source, ordinary_module_source, revisions });
   }
 
   let (mut module_source, mut ordinary_module_source) =
@@ -146,12 +153,13 @@ fn analyze_sfc_facts_inner(
   // Vize-only surface so stale JSX facts are not retained.
   let mut template = if reuse_template && reuse_script && reuse_setup {
     previous.map(|prev| prev.facts.template.clone()).unwrap_or_default()
-  } else if let Some(template) = descriptor.template {
+  } else if let Some(template) = descriptor.template.as_ref() {
     // Vize already supplies template content + absolute SFC content offsets.
     extract_template_facts(source, &template.content, template.loc.start)?
   } else {
     TemplateFacts::default()
   };
+  refresh_style_v_bind_expressions(source, &descriptor, &mut template);
 
   let mut script = ScriptFacts::default();
   let mut script_rebuilt = false;
@@ -315,7 +323,7 @@ fn extract_template_facts(
   template_offset: usize,
 ) -> Result<TemplateFacts, AnalyzeError> {
   let allocator = Allocator::default();
-  let (root, errors) = parse(allocator.as_bump(), template);
+  let (root, errors) = parse(&allocator, template);
   if let Some(error) = errors.iter().find(|error| !error.is_recoverable()) {
     return Err(AnalyzeError::Template(error.to_string()));
   }
@@ -476,8 +484,8 @@ fn collect_element(
   label_depth: usize,
   name_depth: usize,
 ) -> SubtreeSummary {
-  let offset = template_offset.saturating_add(position_offset(element.loc.start.offset));
-  let end = template_offset.saturating_add(position_offset(element.loc.end.offset));
+  let offset = template_offset.saturating_add(position_offset(element.loc.span.start));
+  let end = template_offset.saturating_add(position_offset(element.loc.span.end));
   let mut attributes = Vec::new();
   let mut directives = Vec::new();
 
@@ -488,8 +496,7 @@ fn collect_element(
   for prop in &element.props {
     match prop {
       PropNode::Attribute(attribute) => {
-        let offset =
-          template_offset.saturating_add(position_offset(attribute.name_loc.start.offset));
+        let offset = template_offset.saturating_add(position_offset(attribute.name_loc.span.start));
         attributes.push(TemplateAttributeFact {
           name: attribute.name.to_string(),
           value: attribute.value.as_ref().map(|value| value.content.to_string()),
@@ -501,7 +508,7 @@ fn collect_element(
           .raw_name
           .as_ref()
           .map_or_else(|| format!("v-{}", directive.name), ToString::to_string);
-        let offset = template_offset.saturating_add(position_offset(directive.loc.start.offset));
+        let offset = template_offset.saturating_add(position_offset(directive.loc.span.start));
         let argument = directive.arg.as_ref().map(expression_text);
         let expression = directive.exp.as_ref().map(expression_text);
         let modifiers = directive
@@ -538,7 +545,7 @@ fn collect_element(
     }
   }
 
-  let child_label_depth = if element.tag.as_str().eq_ignore_ascii_case("label") {
+  let child_label_depth = if element.tag.eq_ignore_ascii_case("label") {
     label_depth.saturating_add(1)
   } else {
     label_depth
@@ -587,12 +594,11 @@ fn collect_element(
     element_provides_alt_name(element)
       || content_directive
       || child_summary.accessible_content
-      || tag_is_vue_component(element.tag.as_str())
+      || tag_is_vue_component(element.tag)
   };
   SubtreeSummary {
     accessible_content: propagate_accessible,
-    labelable_control: is_labelable_control_tag(element.tag.as_str())
-      || child_summary.labelable_control,
+    labelable_control: is_labelable_control_tag(element.tag) || child_summary.labelable_control,
   }
 }
 
@@ -614,12 +620,12 @@ fn tag_is_vue_component(tag: &str) -> bool {
 
 /// Component publishes a name-like prop for its default slot (`:content`, `title`, …).
 fn component_provides_slot_name(element: &ElementNode<'_>) -> bool {
-  if !tag_is_vue_component(element.tag.as_str()) {
+  if !tag_is_vue_component(element.tag) {
     return false;
   }
   for prop in &element.props {
     match prop {
-      PropNode::Attribute(attribute) if is_slot_name_prop(attribute.name.as_str()) => {
+      PropNode::Attribute(attribute) if is_slot_name_prop(attribute.name) => {
         if attribute.value.as_ref().is_some_and(|value| !value.content.trim().is_empty()) {
           return true;
         }
@@ -649,7 +655,7 @@ fn is_slot_name_prop(name: &str) -> bool {
 
 fn element_has_content_directive(element: &ElementNode<'_>) -> bool {
   element.props.iter().any(|prop| {
-    matches!(prop, PropNode::Directive(directive) if matches!(directive.name.as_str(), "text" | "html"))
+    matches!(prop, PropNode::Directive(directive) if matches!(directive.name, "text" | "html"))
   })
 }
 
@@ -719,7 +725,7 @@ fn element_local_aliases(element: &ElementNode<'_>) -> BTreeSet<String> {
     let Some(exp) = directive.exp.as_ref().map(expression_text) else {
       continue;
     };
-    match directive.name.as_str() {
+    match directive.name {
       "for" => {
         for name in v_for_alias_identifiers(&exp) {
           aliases.insert(name);
@@ -748,6 +754,134 @@ fn structural_for_aliases(for_node: &ForNode<'_>) -> BTreeSet<String> {
   aliases
 }
 
+/// Replace `surface == "style"` expressions with a fresh under-approx scan of
+/// `<style>` `v-bind(ident)` / quoted ident. Returns whether the style set changed.
+fn refresh_style_v_bind_expressions(
+  source: &str,
+  descriptor: &SfcDescriptor<'_>,
+  facts: &mut TemplateFacts,
+) -> bool {
+  let before: Vec<TemplateExpressionFact> =
+    facts.expressions.iter().filter(|expression| expression.surface == "style").cloned().collect();
+  facts.expressions.retain(|expression| expression.surface != "style");
+  extract_style_v_bind_expressions(source, descriptor, facts);
+  let after: Vec<TemplateExpressionFact> =
+    facts.expressions.iter().filter(|expression| expression.surface == "style").cloned().collect();
+  before != after
+}
+
+fn extract_style_v_bind_expressions(
+  source: &str,
+  descriptor: &SfcDescriptor<'_>,
+  facts: &mut TemplateFacts,
+) {
+  for style in &descriptor.styles {
+    for found in scan_style_v_bind_idents(style.content.as_ref()) {
+      let offset = style.loc.start.saturating_add(found.byte_offset);
+      facts.expressions.push(TemplateExpressionFact {
+        surface: "style".into(),
+        expression: found.ident.clone(),
+        span: source_span(source, offset, found.ident.len()),
+        identifiers: Some(vec![found.ident]),
+      });
+    }
+  }
+}
+
+struct StyleVBindIdent {
+  ident: String,
+  byte_offset: usize,
+}
+
+/// Under-approx: `v-bind(ident)`, `v-bind('ident')`, `v-bind("ident")`.
+/// Skip members, calls, and other expressions (`height + 'px'`, `theme.color`).
+fn scan_style_v_bind_idents(content: &str) -> Vec<StyleVBindIdent> {
+  let bytes = content.as_bytes();
+  let mut found = Vec::new();
+  let mut index = 0;
+  while let Some(rel) = content.get(index..).and_then(|rest| rest.find("v-bind")) {
+    let start = index.saturating_add(rel);
+    if !v_bind_keyword_at(bytes, start) {
+      index = start.saturating_add(1);
+      continue;
+    }
+    let Some(ident) = parse_v_bind_simple_ident(content, bytes, start.saturating_add(6)) else {
+      index = start.saturating_add(6);
+      continue;
+    };
+    found.push(ident);
+    index = start.saturating_add(6);
+  }
+  found
+}
+
+fn v_bind_keyword_at(bytes: &[u8], start: usize) -> bool {
+  if start > 0
+    && bytes.get(start.saturating_sub(1)).is_some_and(|byte| {
+      byte.is_ascii_alphanumeric() || *byte == b'_' || *byte == b'-' || *byte == b'$'
+    })
+  {
+    return false;
+  }
+  bytes.get(start..start.saturating_add(6)) == Some(b"v-bind".as_slice())
+}
+
+fn parse_v_bind_simple_ident(
+  content: &str,
+  bytes: &[u8],
+  after_keyword: usize,
+) -> Option<StyleVBindIdent> {
+  let mut cursor = skip_ascii_ws(bytes, after_keyword);
+  if bytes.get(cursor).copied() != Some(b'(') {
+    return None;
+  }
+  cursor = skip_ascii_ws(bytes, cursor.saturating_add(1));
+  let (ident_start, ident_end) = match bytes.get(cursor).copied() {
+    Some(quote @ (b'\'' | b'"')) => {
+      cursor = cursor.saturating_add(1);
+      let start = cursor;
+      while bytes.get(cursor).is_some_and(|byte| *byte != quote) {
+        if !is_js_ident_byte(*bytes.get(cursor)?, cursor == start) {
+          return None;
+        }
+        cursor = cursor.saturating_add(1);
+      }
+      if bytes.get(cursor).copied() != Some(quote) || start == cursor {
+        return None;
+      }
+      let end = cursor;
+      cursor = cursor.saturating_add(1);
+      (start, end)
+    }
+    Some(byte) if is_js_ident_byte(byte, true) => {
+      let start = cursor;
+      cursor = cursor.saturating_add(1);
+      while bytes.get(cursor).is_some_and(|next| is_js_ident_byte(*next, false)) {
+        cursor = cursor.saturating_add(1);
+      }
+      (start, cursor)
+    }
+    _ => return None,
+  };
+  cursor = skip_ascii_ws(bytes, cursor);
+  if bytes.get(cursor).copied() != Some(b')') {
+    return None;
+  }
+  let ident = content.get(ident_start..ident_end)?.to_string();
+  Some(StyleVBindIdent { ident, byte_offset: ident_start })
+}
+
+fn skip_ascii_ws(bytes: &[u8], mut cursor: usize) -> usize {
+  while bytes.get(cursor).is_some_and(u8::is_ascii_whitespace) {
+    cursor = cursor.saturating_add(1);
+  }
+  cursor
+}
+
+const fn is_js_ident_byte(byte: u8, first: bool) -> bool {
+  byte == b'_' || byte == b'$' || byte.is_ascii_alphabetic() || (!first && byte.is_ascii_digit())
+}
+
 fn push_expression_fact(
   source: &str,
   template_offset: usize,
@@ -761,8 +895,8 @@ fn push_expression_fact(
     return;
   }
   let loc = expression.loc();
-  let offset = template_offset.saturating_add(position_offset(loc.start.offset));
-  let end = template_offset.saturating_add(position_offset(loc.end.offset));
+  let offset = template_offset.saturating_add(position_offset(loc.span.start));
+  let end = template_offset.saturating_add(position_offset(loc.span.end));
   let length = end.saturating_sub(offset).max(text.len());
   let shadowed = scopes.shadowed();
   // `Some` even when empty: empty means resolved-no-reads, not “unknown”.
@@ -778,8 +912,23 @@ fn push_expression_fact(
 fn expression_text(expression: &ExpressionNode<'_>) -> String {
   match expression {
     ExpressionNode::Simple(expression) => expression.content.to_string(),
-    ExpressionNode::Compound(expression) => expression.loc.source.to_string(),
+    ExpressionNode::Compound(expression) => compound_expression_text(expression),
   }
+}
+
+fn compound_expression_text(expression: &vize_atelier_core::CompoundExpressionNode<'_>) -> String {
+  expression
+    .children
+    .iter()
+    .map(|child| match child {
+      CompoundExpressionChild::Simple(node) => node.content.to_string(),
+      CompoundExpressionChild::Compound(node) => compound_expression_text(node),
+      CompoundExpressionChild::Interpolation(node) => expression_text(&node.content),
+      CompoundExpressionChild::Text(node) => node.content.to_string(),
+      CompoundExpressionChild::String(text) => (*text).to_string(),
+      CompoundExpressionChild::Symbol(_) => String::new(),
+    })
+    .collect()
 }
 
 fn expression_is_static(expression: &ExpressionNode<'_>) -> bool {
@@ -868,6 +1017,110 @@ mod tests {
     assert!(
       second.module_source.as_ref().and_then(ModuleSource::module_summary).is_some(),
       "reused analysis must keep module summary"
+    );
+  }
+
+  #[test]
+  fn style_v_bind_ident_joins_computed_binding() {
+    let source = concat!(
+      "<script setup lang=\"ts\">\n",
+      "import { computed, ref } from 'vue'\n",
+      "const count = ref(0)\n",
+      "const color = computed(() => (count.value > 0 ? 'red' : 'blue'))\n",
+      "</script>\n",
+      "<template><p>{{ count }}</p></template>\n",
+      "<style>.text { color: v-bind(color); background: v-bind('color'); }</style>\n",
+    );
+    let facts = facts_for_test(Path::new("StyleBind.vue"), source);
+    let style_exprs: Vec<_> = facts
+      .template
+      .expressions
+      .iter()
+      .filter(|expression| expression.surface == "style")
+      .collect();
+    assert_eq!(style_exprs.len(), 2, "quoted and unquoted v-bind(color) must both extract");
+    assert!(
+      style_exprs.iter().all(|expression| {
+        expression.identifiers.as_ref().is_some_and(|idents| idents == &["color".to_string()])
+      }),
+      "style v-bind must resolve the ident; got {style_exprs:?}"
+    );
+    assert!(
+      facts.script.blocks.first().is_some_and(|block| {
+        block
+          .reactivity_graph
+          .template_reads
+          .iter()
+          .any(|read| read.binding == "color" && read.surface == "style")
+      }),
+      "CSS v-bind(color) must join the computed; blocks={:?}",
+      facts.script.blocks
+    );
+    let diagnostics = analyze_for_test(Path::new("StyleBind.vue"), source);
+    assert!(
+      diagnostics.iter().all(|diagnostic| {
+        diagnostic.rule_id != "vue-vet/reactivity/no-unused-computed-binding"
+      }),
+      "computed used only in CSS v-bind must not be unused; {diagnostics:?}"
+    );
+  }
+
+  #[test]
+  fn style_v_bind_skips_complex_expressions() {
+    let source = concat!(
+      "<script setup lang=\"ts\">\n",
+      "import { computed, ref } from 'vue'\n",
+      "const height = computed(() => 10)\n",
+      "const theme = computed(() => ({ color: 'red' }))\n",
+      "</script>\n",
+      "<template><p></p></template>\n",
+      "<style>.box { height: v-bind(\"height + 'px'\"); color: v-bind(theme.color); }</style>\n",
+    );
+    let facts = facts_for_test(Path::new("StyleComplex.vue"), source);
+    assert!(
+      facts.template.expressions.iter().all(|expression| expression.surface != "style"),
+      "complex CSS v-bind must stay quiet; got {:?}",
+      facts.template.expressions
+    );
+  }
+
+  #[test]
+  fn style_only_v_bind_edit_refreshes_template_reads() {
+    let path = Path::new("StyleReuse.vue");
+    let base = concat!(
+      "<script setup lang=\"ts\">\nimport { computed, ref } from 'vue'\n",
+      "const count = ref(0)\nconst color = computed(() => 'red')\n",
+      "const size = computed(() => '1rem')\n</script>\n",
+      "<template><p>{{ count }}</p></template>\n",
+      "<style>.a { color: v-bind(color); }</style>\n",
+    );
+    let first = analysis_for_test(path, base);
+    let swapped = concat!(
+      "<script setup lang=\"ts\">\nimport { computed, ref } from 'vue'\n",
+      "const count = ref(0)\nconst color = computed(() => 'red')\n",
+      "const size = computed(() => '1rem')\n</script>\n",
+      "<template><p>{{ count }}</p></template>\n",
+      "<style>.a { font-size: v-bind(size); }</style>\n",
+    );
+    let second = analysis_reusing_for_test(path, swapped, &first);
+    assert_eq!(first.revisions, second.revisions);
+    let first_graph = first.facts.script.blocks.first().map(|block| &block.reactivity_graph);
+    let second_graph = second.facts.script.blocks.first().map(|block| &block.reactivity_graph);
+    assert!(
+      first_graph.is_some_and(|graph| {
+        graph.template_reads.iter().any(|read| read.binding == "color" && read.surface == "style")
+      }),
+      "first analysis must join color"
+    );
+    assert!(
+      second_graph.is_some_and(|graph| {
+        graph.template_reads.iter().any(|read| read.binding == "size" && read.surface == "style")
+          && graph
+            .template_reads
+            .iter()
+            .all(|read| read.binding != "color" || read.surface != "style")
+      }),
+      "style-only v-bind swap must re-join size and drop color; second={second_graph:?}"
     );
   }
 
