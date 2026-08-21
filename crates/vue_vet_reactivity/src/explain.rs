@@ -21,20 +21,8 @@ pub fn explain_tracking_scope(module_id: &str, scope: &TrackingScopeFact) -> Sco
       }
     }
   }
-  tracks.sort_by(|left, right| {
-    (left.path.as_str(), left.reason, left.span.offset).cmp(&(
-      right.path.as_str(),
-      right.reason,
-      right.span.offset,
-    ))
-  });
-  does_not_track.sort_by(|left, right| {
-    (left.path.as_str(), left.reason, left.span.offset).cmp(&(
-      right.path.as_str(),
-      right.reason,
-      right.span.offset,
-    ))
-  });
+  sort_deps(&mut tracks);
+  sort_deps(&mut does_not_track);
 
   let mut uncertain = scope.uncertain_accesses.clone();
   uncertain.sort();
@@ -124,7 +112,19 @@ pub fn scope_covering_span(
     .min_by_key(|scope| (scope.span.length, scope.span.offset))
 }
 
-fn module_id_matches(module_id: &str, query_module: &str) -> bool {
+fn sort_deps(deps: &mut [ScopeExplainDep]) {
+  deps.sort_by(|left, right| {
+    (left.path.as_str(), left.reason, left.span.offset).cmp(&(
+      right.path.as_str(),
+      right.reason,
+      right.span.offset,
+    ))
+  });
+}
+
+/// True when `module_id` equals or ends with `query_module` (path suffix).
+#[must_use]
+pub fn module_id_matches(module_id: &str, query_module: &str) -> bool {
   module_id == query_module
     || module_id.ends_with(query_module)
     || module_id.ends_with(&format!("/{query_module}"))
@@ -143,9 +143,7 @@ fn scope_matches(module_id: &str, scope: &TrackingScopeFact, query: &str) -> boo
   {
     let left_ok = scope.callee == left
       || scope.binding.as_deref() == Some(left)
-      || module_id == left
-      || module_id.ends_with(left)
-      || module_id.ends_with(&format!("/{left}"));
+      || module_id_matches(module_id, left);
     return left_ok && scope.span.offset == offset;
   }
   scope.binding.as_deref() == Some(query)

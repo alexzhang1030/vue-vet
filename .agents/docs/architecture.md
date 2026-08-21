@@ -251,6 +251,73 @@ unused.
 
 Vue Vet's normalized facts and diagnostics are the architectural seam. Dependency AST objects must not cross into public rule, reporter, cache, LSP, or agent contracts. Adapters may change with dependency upgrades while downstream product behavior stays versioned and reviewable.
 
+## `vue_vet_reactivity` crate layout
+
+The tracer crate is a **library of collectors**, not a 4k-line `mod.rs` plus a
+6k-line `tests.rs`. `lib.rs` stays a façade; stages live in `trace/`:
+
+```text
+trace/mod.rs     single-file entry, binding/scope collectors
+trace/inject.rs  provide/inject sites + unique-key resolve
+trace/follow.rs  same-file zero-arg helper walk (reads/uncertain/writes)
+trace/expr.rs    paren / TS peel shared by assignment-only and factories
+trace/summary    prepare / return shapes
+trace/summary/link  cross-module seeds
+src/tests/       domain modules + shared helpers (not one file)
+```
+
+Do not grow `trace/mod.rs` or `src/tests/` with another collector family or
+fixture corpus — add a sibling module. Types stay Vue Vet-owned; Oxc AST does
+not leave this crate.
+
+## Adapter and surface crate layouts
+
+`lib.rs` / `main.rs` stay façades. New collector families or test corpora go
+in a sibling module — do not grow the 1k-line adapter or CLI entry files.
+
+```text
+vue_vet_core
+  facts/        template + script + reactivity-graph IR (no parser AST)
+
+vue_vet_vize
+  lib.rs        analyze_sfc_* + block reuse
+  template.rs   Vize template walk → TemplateFacts
+  style.rs      <style> v-bind(ident) expressions
+  span.rs       analysis-scoped line index
+  tests/        analyze + a11y unit tests
+
+vue_vet_oxc
+  lib.rs           analyze_script / analyze_module_source
+  facts.rs         import / binding / call / write collectors
+  template_expr.rs free-identifier reads for template surfaces
+  jsx.rs           JSX → TemplateFacts
+  tests.rs         adapter unit tests
+
+vue_vet_session
+  types.rs         SessionOptions / AnalysisSnapshot / SessionError
+  registry.rs      file-rule + project metadata
+  config.rs        vue-vet.toml discovery / rule-id validation
+  session.rs       ProjectSession orchestration
+  pipeline/        scan stages + per-file analyze/rules
+  tests/session    explain / overlays / invalidation
+
+vue_vet_cli
+  main.rs      clap + scan dispatch
+  report.rs    digest / summary / operational errors
+  explain.rs   --explain / --explain-scope
+  tests/cli    explain / fix / report / cache / project
+
+vue_vet_reporters
+  lib.rs       ReportContext + format dispatch
+  json.rs      schema_version JSON + operational errors
+  text.rs      diagnostic lines + score footer
+
+vue_vet_project
+  pipeline.rs              orchestrator
+  pipeline_tests/          graph + external SFC consumers
+  passes/external_summary  package follow + `.d.ts` enrich + path keys
+```
+
 ## `vue_vet_project` pipeline (crate layout)
 
 The project crate is an **explicit stage pipeline**, not a monolith with

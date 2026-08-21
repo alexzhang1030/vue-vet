@@ -7,9 +7,11 @@ use vue_vet_core::{
   Diagnostic, FindingExplain, RuleExplain, RuleMeta, ScopeExplain,
   finding_id as diagnostic_finding_id,
 };
-use vue_vet_reactivity::{explain_tracking_scope, scope_covering_span, select_tracking_scopes};
+use vue_vet_reactivity::{
+  explain_tracking_scope, module_id_matches, scope_covering_span, select_tracking_scopes,
+};
 
-use crate::{ProjectSession, SessionError, resolve_rule_meta};
+use crate::{ProjectSession, SessionError, registry::resolve_rule_meta};
 
 /// Session explain payload for text/JSON rendering by the caller.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -114,11 +116,7 @@ fn tracking_for_diagnostic(
   diagnostic: &Diagnostic,
 ) -> Option<ScopeExplain> {
   let module_id = diagnostic.file.as_str();
-  let module = modules.iter().find(|module| {
-    module.id.as_str() == module_id
-      || module.id.as_str().ends_with(module_id)
-      || module.id.as_str().ends_with(&format!("/{module_id}"))
-  })?;
+  let module = modules.iter().find(|module| module_id_matches(module.id.as_str(), module_id))?;
   let scope =
     scope_covering_span(module.graph.as_ref(), diagnostic.span.offset, diagnostic.span.length)?;
   Some(explain_tracking_scope(module.id.as_str(), scope))
@@ -171,10 +169,7 @@ fn module_list_query(module_id: &str, query: &str) -> bool {
   if !(explicit_module_list || path_like) {
     return false;
   }
-  module_id == trimmed
-    || module_id.ends_with(trimmed)
-    || module_id.ends_with(&format!("/{trimmed}"))
-    || module_id.ends_with(&format!("\\{trimmed}"))
+  module_id_matches(module_id, trimmed)
 }
 
 fn build_rule_explain(meta: &RuleMeta, search_roots: &[PathBuf]) -> RuleExplain {

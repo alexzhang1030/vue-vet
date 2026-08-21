@@ -220,9 +220,10 @@ for **writes** and **`assignment_only`**. Inline
 `function load() { b.value = a.value; return a.value }; computed(() => load())`
 had empty writes. `watchEffect(() => { assign() })` stayed
 `assignment_only == false` so `prefer-computed` / PreferWatchSingle were
-silent. `collect_scope_writes` and `is_assignment_only_followed` now share
-the same callee set (depth≤2, skip async / generator / args /
-`then()`-only). CSS `<style>` `v-bind(ident)` joins as
+silent. Reads, uncertain, and writes share `follow_local_callees` (depth≤2,
+skip async / generator / args; reads mark `then()`-only outside, the others
+skip it). `is_assignment_only_followed` walks statements with the same
+`local_function_id` + async skip. CSS `<style>` `v-bind(ident)` joins as
 `TemplateExpressionFact { surface: "style" }` so unused-computed does not
 FP; style-only ident edits refresh those expressions without adding style
 to `SfcBlockRevisions`.
@@ -409,6 +410,7 @@ growing prose ledger.
 | 2026-08-10 | Named API bag ambient-on-call | Engine consumes plugin-supplied `NamedApiBag` rows (ambient-on-call methods); graph **v24**; Elk PublishWidget without-dep FP |
 | 2026-08-21 | Helper-follow uncertain | `uncertain_accesses` follows the same zero-arg helpers as hard reads; `then()`-only stays quiet; graph **v25**; dual-path with inline `(maybe)` |
 | 2026-08-21 | Helper-follow writes | `writes` + `assignment_only` follow the same zero-arg helpers; `then()`-only stays quiet; graph **v26**; dual-path with inlined assignment / `prefer-computed` |
+| 2026-08-21 | Helper-follow walk unify | Reads / uncertain / writes share `follow_local_callees`; drop unused `local_function_id` name arg. No graph version bump (same facts). |
 | 2026-08-21 | CSS `v-bind` join | `<style>` `v-bind(ident)` / quoted ident → `TemplateExpressionFact.surface = "style"`; style-only ident edits refresh without adding style to revisions |
 | 2026-08-10 | Tracer plugins crate | Ecosystem hardcode (Nuxt data bags, vue-i18n `useI18n`) lives in published `vue_vet_plugins`; engine has no Nuxt/i18n names; Oxc/project/session **auto-load** defaults; crates.io order core→reactivity→plugins; docs: crate README + install library table |
 | 2026-08-10 | `defineProps` destructure | Object-pattern + rest locals seed `Reactive` (Vue 3.5); `withDefaults` same |

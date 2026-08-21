@@ -790,363 +790,6 @@ fn reactive_binding_kind(callee: &str) -> Option<ReactiveBindingKind> {
   }
 }
 
-/// Injection key identity for provide/inject linking (under-approx).
-///
-/// - [`InjectionKey::String`]: exact string / cooked template key.
-/// - [`InjectionKey::Imported`]: named import used as key (`import { ThemeKey } from '…'`).
-/// - [`InjectionKey::Local`]: file-local binding (e.g. `const ThemeKey = Symbol()`), keyed by
-///   definition span so two `Symbol()` locals never collapse across files.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum InjectionKey {
-  String(String),
-  Imported { specifier: String, imported: String },
-  Local { name: String, def_start: u32 },
-}
-
-/// One `provide` site's offered value shape (scalar kind and/or composable bag).
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProvideOffer {
-  pub kind: Option<ReactiveBindingKind>,
-  pub instance_shape: Option<InstanceShape>,
-}
-
-impl ProvideOffer {
-  const fn is_known(&self) -> bool {
-    self.kind.is_some() || self.instance_shape.is_some()
-  }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProvideSite {
-  pub key: InjectionKey,
-  pub offer: ProvideOffer,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InjectSite {
-  pub local: String,
-  pub key: InjectionKey,
-  pub span: Span,
-  pub default_kind: Option<ReactiveBindingKind>,
-  pub default_instance_shape: Option<InstanceShape>,
-}
-
-/// Resolved inject seeds for one file/module.
-#[derive(Debug, Default)]
-pub struct ResolvedInjectLinks {
-  pub bindings: Vec<ReactiveBindingFact>,
-  pub instances: ComposableShapeMap,
-}
-
-/// `provide(key, value)` and `*.provide(key, value)` with a known-or-unknown value shape.
-pub fn collect_provide_sites(
-  semantic: &Semantic<'_>,
-  imported_bindings: &BTreeMap<String, (String, String)>,
-  reactive_bindings: &[ReactiveBindingFact],
-  composable_instances: &ComposableShapeMap,
-  local_composable_defs: &LocalComposableDefs,
-  script_kind: ScriptKind,
-) -> Vec<ProvideSite> {
-  let mut sites = Vec::new();
-  for node in semantic.nodes() {
-    let AstKind::CallExpression(call) = node.kind() else {
-      continue;
-    };
-    if !is_provide_call(semantic, &call.callee, imported_bindings, script_kind) {
-      continue;
-    }
-    let Some(key_expr) = call.arguments.first().and_then(Argument::as_expression) else {
-      continue;
-    };
-    let Some(key) = injection_key(semantic, key_expr, imported_bindings) else {
-      continue;
-    };
-    let offer = call.arguments.get(1).and_then(Argument::as_expression).map_or(
-      ProvideOffer { kind: None, instance_shape: None },
-      |value| {
-        expression_provide_offer(
-          semantic,
-          value,
-          imported_bindings,
-          reactive_bindings,
-          composable_instances,
-          local_composable_defs,
-          script_kind,
-        )
-      },
-    );
-    sites.push(ProvideSite { key, offer });
-  }
-  sites
-}
-
-/// `const local = inject(key)` / `inject(key, default)` / `inject(key) as Ctx`.
-pub fn collect_inject_sites(
-  semantic: &Semantic<'_>,
-  imported_bindings: &BTreeMap<String, (String, String)>,
-  reactive_bindings: &[ReactiveBindingFact],
-  script_kind: ScriptKind,
-) -> Vec<InjectSite> {
-  let mut sites = Vec::new();
-  for node in semantic.nodes() {
-    let AstKind::CallExpression(call) = node.kind() else {
-      continue;
-    };
-    let Some(callee) = resolved_vue_callee(semantic, &call.callee, imported_bindings, script_kind)
-    else {
-      continue;
-    };
-    if callee != "inject" {
-      continue;
-    }
-    let Some((declarator, asserted_type)) =
-      inject_declarator_and_assertion(semantic, call.node_id.get())
-    else {
-      continue;
-    };
-    let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
-      continue;
-    };
-    let Some(key_expr) = call.arguments.first().and_then(Argument::as_expression) else {
-      continue;
-    };
-    let Some(key) = injection_key(semantic, key_expr, imported_bindings) else {
-      continue;
-    };
-    let (default_kind, mut default_instance_shape) =
-      call.arguments.get(1).and_then(Argument::as_expression).map_or((None, None), |value| {
-        if matches!(
-          value,
-          Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
-        ) {
-          (None, None)
-        } else {
-          let offer = expression_provide_offer(
-            semantic,
-            value,
-            imported_bindings,
-            reactive_bindings,
-            &BTreeMap::new(),
-            &BTreeMap::new(),
-            script_kind,
-          );
-          (offer.kind, offer.instance_shape)
-        }
-      });
-    // `inject(key) as Ctx` — same-file interface/type with Ref fields seeds the
-    // inject local when no unique known provide exists (common for provide helpers
-    // that spread a typed parameter into the bag).
-    if let Some(ts_type) = asserted_type {
-      let shape = summary::composable_shape_from_ts_type(semantic, ts_type);
-      if !shape.fields.is_empty() {
-        default_instance_shape = Some(shape.fields);
-      }
-    }
-    sites.push(InjectSite {
-      local: identifier.name.to_string(),
-      key,
-      span: identifier.span,
-      default_kind,
-      default_instance_shape,
-    });
-  }
-  sites
-}
-
-/// Walk paren / `as` / type-assertion wrappers from `inject(...)` up to its
-/// `VariableDeclarator`, capturing the outermost asserted type when present.
-fn inject_declarator_and_assertion<'a>(
-  semantic: &'a Semantic<'a>,
-  call_id: NodeId,
-) -> Option<(&'a oxc_ast::ast::VariableDeclarator<'a>, Option<&'a oxc_ast::ast::TSType<'a>>)> {
-  let mut current = call_id;
-  let mut asserted_type = None;
-  // Bound the peel: real sources only wrap once or twice.
-  for _ in 0..8 {
-    let parent_id = semantic.nodes().parent_id(current);
-    match semantic.nodes().kind(parent_id) {
-      AstKind::ParenthesizedExpression(_) => {
-        current = parent_id;
-      }
-      AstKind::TSAsExpression(assertion) => {
-        asserted_type = Some(&assertion.type_annotation);
-        current = parent_id;
-      }
-      AstKind::TSTypeAssertion(assertion) => {
-        asserted_type = Some(&assertion.type_annotation);
-        current = parent_id;
-      }
-      AstKind::VariableDeclarator(declarator) => {
-        return Some((declarator, asserted_type));
-      }
-      _ => return None,
-    }
-  }
-  None
-}
-
-/// Unique known provide → inject binding/bag, else inject default, else quiet.
-pub fn resolve_inject_links(
-  provides: &[ProvideSite],
-  injects: &[InjectSite],
-  sfc_source: &str,
-  script_offset: usize,
-) -> ResolvedInjectLinks {
-  let index = provide_offer_index(provides);
-  let mut out = ResolvedInjectLinks::default();
-  for inject in injects {
-    let Some(offer) = resolve_inject_offer(&index, inject) else {
-      continue;
-    };
-    if let Some(kind) = offer.kind
-      && !out.bindings.iter().any(|binding| binding.name == inject.local)
-    {
-      out.bindings.push(ReactiveBindingFact {
-        name: inject.local.clone(),
-        kind,
-        initialized_with_null: false,
-        span: source_span(sfc_source, script_offset, inject.span),
-      });
-    }
-    if let Some(shape) = offer.instance_shape {
-      out.instances.entry(inject.local.clone()).or_insert(shape);
-    }
-  }
-  out
-}
-
-/// Global/same-file index: injection key → known offers (one entry per provide site).
-pub fn provide_offer_index(provides: &[ProvideSite]) -> BTreeMap<InjectionKey, Vec<ProvideOffer>> {
-  let mut index: BTreeMap<InjectionKey, Vec<ProvideOffer>> = BTreeMap::new();
-  for site in provides {
-    if !site.offer.is_known() {
-      continue;
-    }
-    index.entry(site.key.clone()).or_default().push(site.offer.clone());
-  }
-  index
-}
-
-/// Exactly one known provide offer wins; otherwise a static default; multi-provide stays quiet.
-pub fn resolve_inject_offer(
-  index: &BTreeMap<InjectionKey, Vec<ProvideOffer>>,
-  inject: &InjectSite,
-) -> Option<ProvideOffer> {
-  match index.get(&inject.key).map(Vec::as_slice) {
-    Some([offer]) => Some(offer.clone()),
-    Some([_, _, ..]) => None,
-    Some([]) | None => {
-      if inject.default_kind.is_none() && inject.default_instance_shape.is_none() {
-        return None;
-      }
-      Some(ProvideOffer {
-        kind: inject.default_kind,
-        instance_shape: inject.default_instance_shape.clone(),
-      })
-    }
-  }
-}
-
-fn is_provide_call(
-  semantic: &Semantic<'_>,
-  callee: &Expression<'_>,
-  imported_bindings: &BTreeMap<String, (String, String)>,
-  script_kind: ScriptKind,
-) -> bool {
-  if resolved_vue_callee(semantic, callee, imported_bindings, script_kind).as_deref()
-    == Some("provide")
-  {
-    return true;
-  }
-  match callee {
-    Expression::StaticMemberExpression(member) => member.property.name.as_str() == "provide",
-    Expression::ComputedMemberExpression(member) => {
-      member.static_property_name().is_some_and(|name| name == "provide")
-    }
-    _ => false,
-  }
-}
-
-fn injection_key(
-  semantic: &Semantic<'_>,
-  expression: &Expression<'_>,
-  imported_bindings: &BTreeMap<String, (String, String)>,
-) -> Option<InjectionKey> {
-  match expression {
-    Expression::StringLiteral(literal) => Some(InjectionKey::String(literal.value.to_string())),
-    Expression::TemplateLiteral(template) if template.expressions.is_empty() => {
-      let quasi = template.quasis.first()?;
-      Some(InjectionKey::String(quasi.value.cooked.as_ref()?.to_string()))
-    }
-    Expression::Identifier(identifier) => {
-      let name = identifier.name.as_str();
-      if let Some((specifier, imported)) = imported_bindings.get(name) {
-        if imported == "*" {
-          return None;
-        }
-        return Some(InjectionKey::Imported {
-          specifier: specifier.clone(),
-          imported: imported.clone(),
-        });
-      }
-      let reference_id = identifier.reference_id.get()?;
-      let symbol_id = semantic.scoping().get_reference(reference_id).symbol_id()?;
-      let def_start = semantic.scoping().symbol_span(symbol_id).start;
-      Some(InjectionKey::Local { name: name.into(), def_start })
-    }
-    _ => None,
-  }
-}
-
-fn expression_provide_offer(
-  semantic: &Semantic<'_>,
-  expression: &Expression<'_>,
-  imported_bindings: &BTreeMap<String, (String, String)>,
-  reactive_bindings: &[ReactiveBindingFact],
-  composable_instances: &ComposableShapeMap,
-  local_composable_defs: &LocalComposableDefs,
-  script_kind: ScriptKind,
-) -> ProvideOffer {
-  if let Some(identifier) = expression.get_identifier_reference() {
-    let name = identifier.name.as_str();
-    if let Some(shape) = composable_instances.get(name) {
-      return ProvideOffer { kind: None, instance_shape: Some(shape.clone()) };
-    }
-    if let Some(binding) = reactive_bindings.iter().find(|binding| binding.name == name) {
-      return ProvideOffer { kind: Some(binding.kind), instance_shape: None };
-    }
-    return ProvideOffer { kind: None, instance_shape: None };
-  }
-  if let Expression::CallExpression(call) = expression {
-    // `provide('api', useCounter())` — resolve callee to the composable def span
-    // (name-only would invent outer shape when a block shadows `useCounter`).
-    if let Some(callee) = call.callee.get_identifier_reference()
-      && let Some((_, export)) = local_composable_defs
-        .get(callee.name.as_str())
-        .filter(|(def_span, _)| reference_resolves_to_span(semantic, callee, *def_span))
-    {
-      return match export {
-        LocalComposableExport::Bag(shape) if !shape.fields.is_empty() => {
-          ProvideOffer { kind: None, instance_shape: Some(shape.fields.clone()) }
-        }
-        LocalComposableExport::Factory(kind) => {
-          ProvideOffer { kind: Some(*kind), instance_shape: None }
-        }
-        LocalComposableExport::Bag(_) | LocalComposableExport::ValueFactory(_) => {
-          ProvideOffer { kind: None, instance_shape: None }
-        }
-      };
-    }
-    if let Some(callee) =
-      resolved_vue_callee(semantic, &call.callee, imported_bindings, script_kind)
-      && let Some(kind) = reactive_binding_kind(&callee)
-    {
-      return ProvideOffer { kind: Some(kind), instance_shape: None };
-    }
-  }
-  ProvideOffer { kind: None, instance_shape: None }
-}
-
 fn collect_binding_identifiers(
   pattern: &BindingPattern<'_>,
   identifiers: &mut Vec<(String, Span)>,
@@ -1482,7 +1125,7 @@ fn collect_reactive_bindings(
     let Some(declarator) = variable_declarator_for_call(semantic, call.node_id.get()) else {
       continue;
     };
-    if !include_nested && is_nested_in_function(semantic, call.node_id.get()) {
+    if !include_nested && expr::is_nested_in_function(semantic, call.node_id.get()) {
       continue;
     }
 
@@ -1737,7 +1380,7 @@ fn collect_conditional_init_bindings(
     let AstKind::VariableDeclarator(declarator) = node.kind() else {
       continue;
     };
-    if !include_nested && is_nested_in_function(semantic, node.id()) {
+    if !include_nested && expr::is_nested_in_function(semantic, node.id()) {
       continue;
     }
     let Some(Expression::ConditionalExpression(cond)) = &declarator.init else {
@@ -1891,7 +1534,7 @@ fn collect_route_slice_bindings(
     let AstKind::VariableDeclarator(declarator) = node.kind() else {
       continue;
     };
-    if !include_nested && is_nested_in_function(semantic, node_id) {
+    if !include_nested && expr::is_nested_in_function(semantic, node_id) {
       continue;
     }
     let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
@@ -1938,15 +1581,6 @@ fn collect_route_slice_bindings(
       span: source_span(sfc_source, script_offset, identifier.span),
     });
   }
-}
-
-fn is_nested_in_function(semantic: &oxc_semantic::Semantic<'_>, node_id: NodeId) -> bool {
-  semantic.nodes().ancestor_ids(node_id).any(|ancestor_id| {
-    matches!(
-      semantic.nodes().kind(ancestor_id),
-      AstKind::Function(_) | AstKind::ArrowFunctionExpression(_)
-    )
-  })
 }
 
 #[derive(Clone, Debug)]
@@ -2251,10 +1885,6 @@ fn scope_context(
   Some((reached_scope, outside_tracking))
 }
 
-/// Max hops when following same-file zero-arg helpers from a tracking scope.
-/// Vue tracks sync reads inside callees; we under-approx with a small bound.
-const MAX_LOCAL_CALLEE_FOLLOW_DEPTH: u32 = 2;
-
 fn collect_scope_reads(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
@@ -2301,23 +1931,35 @@ fn collect_scope_reads_bounded(
     script_offset,
   );
 
-  // Same-file zero-arg local helpers called synchronously from this scope
-  // contribute ambient tracking reads (Vue's activeEffect). Under-approx:
-  // bare Identifier callees only, skip async/generator, depth-capped.
-  if depth < MAX_LOCAL_CALLEE_FOLLOW_DEPTH {
-    follow_local_zero_arg_callees(
-      semantic,
-      scope_id,
-      reactive_bindings,
-      composable_instances,
-      imported_bindings,
-      ambient_call_handles,
-      script_offset,
-      depth,
-      visiting,
-      &mut reads,
-    );
-  }
+  // Same-file zero-arg helpers contribute ambient tracking reads (Vue's
+  // activeEffect). `then()` / `nextTick`-only calls stay outside-tracking.
+  follow_local_callees(
+    semantic,
+    scope_id,
+    imported_bindings,
+    depth,
+    visiting,
+    FollowOutside::Mark,
+    |callee_id, call_outside, next_depth, visiting| {
+      let mut nested = collect_scope_reads_bounded(
+        semantic,
+        callee_id,
+        reactive_bindings,
+        composable_instances,
+        imported_bindings,
+        ambient_call_handles,
+        script_offset,
+        next_depth,
+        visiting,
+      );
+      if call_outside {
+        for read in &mut nested {
+          read.outside_tracking = true;
+        }
+      }
+      reads.extend(nested);
+    },
+  );
 
   reads.sort_by_key(|read| read.span.start);
   reads
@@ -2528,147 +2170,6 @@ fn symbol_declaration_site_decl(
       .ancestor_ids(decl.id())
       .find(|&id| matches!(semantic.nodes().kind(id), AstKind::VariableDeclarator(_))),
     _ => None,
-  }
-}
-
-/// Same-file zero-arg local helpers called from `scope_id`.
-///
-/// Each entry is `(callee_id, all_in_scope_call_sites_are_outside_tracking)`.
-/// Shared by hard-read follow, `uncertain_accesses`, writes, and
-/// `assignment_only` so those pipelines cannot disagree on which callees
-/// are in scope.
-fn local_zero_arg_callees_in_scope(
-  semantic: &oxc_semantic::Semantic<'_>,
-  scope_id: NodeId,
-  imported_bindings: &BTreeMap<String, (String, String)>,
-  visiting: &BTreeSet<NodeId>,
-) -> Vec<(NodeId, bool)> {
-  // Collect callee ids first so callers do not hold a nodes borrow across recursion.
-  // `call_outside` is true only when *every* in-scope call site is outside tracking
-  // (any in-tracking call keeps ambient deps / soft evidence).
-  let mut callees: Vec<(NodeId, bool)> = Vec::new();
-  for (call_id, call_node) in semantic.nodes().iter_enumerated() {
-    let AstKind::CallExpression(call) = call_node.kind() else {
-      continue;
-    };
-    if !call.arguments.is_empty() {
-      continue;
-    }
-    let Some(identifier) = call.callee.get_identifier_reference() else {
-      continue;
-    };
-    let Some((_, call_outside)) =
-      scope_context(semantic, scope_id, call_id, call.span, imported_bindings)
-    else {
-      continue;
-    };
-    let Some(callee_id) =
-      local_function_id_for_name(semantic, identifier.name.as_str(), identifier)
-    else {
-      continue;
-    };
-    if is_async_or_generator_function(semantic, callee_id) {
-      continue;
-    }
-    if visiting.contains(&callee_id) {
-      continue;
-    }
-    if let Some((_, existing_outside)) = callees.iter_mut().find(|(id, _)| *id == callee_id) {
-      *existing_outside = *existing_outside && call_outside;
-      continue;
-    }
-    callees.push((callee_id, call_outside));
-  }
-  callees
-}
-
-#[expect(clippy::too_many_arguments, reason = "callee follow shares collect_scope_reads context")]
-fn follow_local_zero_arg_callees(
-  semantic: &oxc_semantic::Semantic<'_>,
-  scope_id: NodeId,
-  reactive_bindings: &[ReactiveBindingFact],
-  composable_instances: &ComposableShapeMap,
-  imported_bindings: &BTreeMap<String, (String, String)>,
-  ambient_call_handles: &AmbientCallHandles,
-  script_offset: usize,
-  depth: u32,
-  visiting: &mut BTreeSet<NodeId>,
-  reads: &mut Vec<RawReactiveRead>,
-) {
-  let callees = local_zero_arg_callees_in_scope(semantic, scope_id, imported_bindings, visiting);
-
-  for (callee_id, call_outside) in callees {
-    if !visiting.insert(callee_id) {
-      continue;
-    }
-    let mut nested = collect_scope_reads_bounded(
-      semantic,
-      callee_id,
-      reactive_bindings,
-      composable_instances,
-      imported_bindings,
-      ambient_call_handles,
-      script_offset,
-      depth + 1,
-      visiting,
-    );
-    visiting.remove(&callee_id);
-    if call_outside {
-      for read in &mut nested {
-        read.outside_tracking = true;
-      }
-    }
-    reads.extend(nested);
-  }
-}
-
-/// Resolve a same-file local `function f` / `const f = () =>` / `function` expr
-/// from an identifier reference. Imports and non-function bindings return `None`.
-fn local_function_id_for_name(
-  semantic: &oxc_semantic::Semantic<'_>,
-  _name: &str,
-  reference: &IdentifierReference<'_>,
-) -> Option<NodeId> {
-  let reference_id = reference.reference_id.get()?;
-  let symbol_id = semantic.scoping().get_reference(reference_id).symbol_id()?;
-  let decl = semantic.symbol_declaration(symbol_id);
-  match decl.kind() {
-    AstKind::Function(function) => Some(function.node_id.get()),
-    AstKind::VariableDeclarator(declarator) => match &declarator.init {
-      Some(Expression::ArrowFunctionExpression(arrow)) => Some(arrow.node_id.get()),
-      Some(Expression::FunctionExpression(function)) => Some(function.node_id.get()),
-      _ => None,
-    },
-    // `function useX()` binds on the Function node; some paths surface the id binding.
-    AstKind::BindingIdentifier(_) => {
-      for ancestor_id in semantic.nodes().ancestor_ids(decl.id()) {
-        match semantic.nodes().kind(ancestor_id) {
-          AstKind::Function(function) => return Some(function.node_id.get()),
-          AstKind::VariableDeclarator(declarator) => {
-            return match &declarator.init {
-              Some(Expression::ArrowFunctionExpression(arrow)) => Some(arrow.node_id.get()),
-              Some(Expression::FunctionExpression(function)) => Some(function.node_id.get()),
-              _ => None,
-            };
-          }
-          _ => {}
-        }
-      }
-      None
-    }
-    _ => None,
-  }
-}
-
-fn is_async_or_generator_function(
-  semantic: &oxc_semantic::Semantic<'_>,
-  function_id: NodeId,
-) -> bool {
-  match semantic.nodes().kind(function_id) {
-    AstKind::Function(function) => function.r#async || function.generator,
-    AstKind::ArrowFunctionExpression(arrow) => arrow.r#async,
-    // Unknown shape: refuse to follow (under-approx).
-    _ => true,
   }
 }
 
@@ -3138,18 +2639,11 @@ fn is_assignment_only_body(body: Option<&FunctionBody<'_>>) -> bool {
   }
   body.statements.iter().all(|statement| match statement {
     Statement::ExpressionStatement(expression) => {
-      matches!(peel_parens(&expression.expression), Expression::AssignmentExpression(_))
+      matches!(expr::peel_parens(&expression.expression), Expression::AssignmentExpression(_))
     }
     Statement::EmptyStatement(_) => true,
     _ => false,
   })
-}
-
-fn peel_parens<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
-  match expression {
-    Expression::ParenthesizedExpression(paren) => peel_parens(&paren.expression),
-    other => other,
-  }
 }
 
 fn function_body_of<'a>(
@@ -3196,15 +2690,13 @@ fn statement_is_assignment_or_followed_helper(
   depth: u32,
   visiting: &mut BTreeSet<NodeId>,
 ) -> bool {
-  match peel_parens(expression) {
+  match expr::peel_parens(expression) {
     Expression::AssignmentExpression(_) => true,
     Expression::CallExpression(call) if call.arguments.is_empty() => {
       let Some(identifier) = call.callee.get_identifier_reference() else {
         return false;
       };
-      let Some(callee_id) =
-        local_function_id_for_name(semantic, identifier.name.as_str(), identifier)
-      else {
+      let Some(callee_id) = local_function_id(semantic, identifier) else {
         return false;
       };
       if is_async_or_generator_function(semantic, callee_id) || !visiting.insert(callee_id) {
@@ -3260,31 +2752,26 @@ fn collect_scope_writes_bounded(
 ) -> Vec<ReactiveWriteFact> {
   let mut writes =
     collect_scope_writes_local(semantic, scope_id, reactive_bindings, sfc_source, script_offset);
-  if depth >= MAX_LOCAL_CALLEE_FOLLOW_DEPTH {
-    return writes;
-  }
-  // Skip helpers whose *every* in-scope call is `then()` / `nextTick` — those
-  // writes are outside tracking. Do not invent computed side-effects for
-  // deferred assignments (matches skipping nested functions for inline `then()`).
-  for (callee_id, call_outside) in
-    local_zero_arg_callees_in_scope(semantic, scope_id, imported_bindings, visiting)
-  {
-    if call_outside || !visiting.insert(callee_id) {
-      continue;
-    }
-    let nested = collect_scope_writes_bounded(
-      semantic,
-      callee_id,
-      reactive_bindings,
-      imported_bindings,
-      sfc_source,
-      script_offset,
-      depth.saturating_add(1),
-      visiting,
-    );
-    visiting.remove(&callee_id);
-    writes.extend(nested);
-  }
+  follow_local_callees(
+    semantic,
+    scope_id,
+    imported_bindings,
+    depth,
+    visiting,
+    FollowOutside::Skip,
+    |callee_id, _, next_depth, visiting| {
+      writes.extend(collect_scope_writes_bounded(
+        semantic,
+        callee_id,
+        reactive_bindings,
+        imported_bindings,
+        sfc_source,
+        script_offset,
+        next_depth,
+        visiting,
+      ));
+    },
+  );
   writes
 }
 
@@ -3410,8 +2897,8 @@ fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
 /// Soft evidence inside a scope: reactivity-shaped accesses we could not classify.
 ///
 /// Surfaced so absence rules can say `(maybe: name)` after trying to find hard edges.
-/// Follows the same same-file zero-arg helpers as [`collect_scope_reads`] so
-/// `computed(() => load())` cannot disagree with an inlined getter.
+/// Shares [`follow_local_callees`] with hard reads so `computed(() => load())`
+/// cannot disagree with an inlined getter.
 fn collect_uncertain_scope_accesses(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
@@ -3455,31 +2942,26 @@ fn collect_uncertain_scope_accesses_bounded(
     imported_bindings,
     script_offset,
   );
-  if depth >= MAX_LOCAL_CALLEE_FOLLOW_DEPTH {
-    return names;
-  }
-  // Skip helpers whose *every* in-scope call is `then()` / `nextTick` — those
-  // reads are outside tracking. Do not expand same-scope then() looseness
-  // (inline `then(() => isCoarse.value)` still records maybe).
-  for (callee_id, call_outside) in
-    local_zero_arg_callees_in_scope(semantic, scope_id, imported_bindings, visiting)
-  {
-    if call_outside || !visiting.insert(callee_id) {
-      continue;
-    }
-    let nested = collect_uncertain_scope_accesses_bounded(
-      semantic,
-      callee_id,
-      reactive_bindings,
-      composable_instances,
-      imported_bindings,
-      script_offset,
-      depth + 1,
-      visiting,
-    );
-    visiting.remove(&callee_id);
-    names.extend(nested);
-  }
+  follow_local_callees(
+    semantic,
+    scope_id,
+    imported_bindings,
+    depth,
+    visiting,
+    FollowOutside::Skip,
+    |callee_id, _, next_depth, visiting| {
+      names.extend(collect_uncertain_scope_accesses_bounded(
+        semantic,
+        callee_id,
+        reactive_bindings,
+        composable_instances,
+        imported_bindings,
+        script_offset,
+        next_depth,
+        visiting,
+      ));
+    },
+  );
   names
 }
 
@@ -4311,10 +3793,21 @@ fn collect_render_scopes(
 }
 
 mod branch_hygiene;
+mod expr;
+mod follow;
+mod inject;
 mod plugin;
 mod render;
 mod summary;
 
+use follow::{
+  FollowOutside, MAX_LOCAL_CALLEE_FOLLOW_DEPTH, follow_local_callees,
+  is_async_or_generator_function, local_function_id,
+};
+pub use inject::{
+  InjectSite, InjectionKey, ProvideOffer, ProvideSite, collect_inject_sites, collect_provide_sites,
+  provide_offer_index, resolve_inject_links, resolve_inject_offer,
+};
 pub use plugin::{
   NamedApiBag, TraceConfig, TracerPlugin, flatten_named_api_bags, is_named_api_bag_callee,
   named_api_bag,

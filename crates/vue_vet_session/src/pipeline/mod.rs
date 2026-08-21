@@ -9,7 +9,6 @@
 
 use std::{
   collections::{BTreeMap, BTreeSet},
-  path::Path,
   sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -19,26 +18,27 @@ use std::{
 use rayon::prelude::*;
 use vue_vet_config::Config;
 use vue_vet_core::{
-  Diagnostic, FileId, ModuleId, ReactivityGraph, RuleEnvironment, ScanSummary, ScriptFacts,
-  Severity, SfcFacts, SourceSpan, TemplateFacts, content_digest, serde_digest,
+  Diagnostic, FileId, ModuleId, ReactivityGraph, RuleEnvironment, ScanSummary, content_digest,
+  serde_digest,
 };
-use vue_vet_oxc::analyze_module_source;
 use vue_vet_plugins::default_trace_modules_options;
 use vue_vet_project::{
-  ContextEpochs, ProjectFile, ProjectGraph, ProjectGraphState,
-  build_project_graph_incremental_with_options,
+  ContextEpochs, ProjectGraph, ProjectGraphState, build_project_graph_incremental_with_options,
 };
-use vue_vet_reactivity::ModuleSource;
-use vue_vet_vize::{AnalyzeError, AnalyzedSfc, analyze_sfc_facts_reusing};
+
+mod analyze;
+
+use analyze::{
+  AnalyzedCandidate, PendingVueFile, analyze_candidate, issue_diagnostic, run_file_rules,
+  script_needs_file_rules, source_environment,
+};
 
 use crate::{
   AnalysisIssue, AnalysisStage, ProgressEvent, ProgressReporter, Recoverability, SessionError,
   diagnostics::{DiagnosticFinalizer, finalize_file_diagnostics},
-  discovery::{SourceInput, SourceKind, WorkspaceInputSnapshot},
-  file_analysis_registry,
+  discovery::{SourceKind, WorkspaceInputSnapshot},
   invalidation::{expand_reverse_dependencies, reverse_dependency_index},
   locality::{ChangeImpact, DirtyPlan, ScanWorkCounters, change_impact_from, dirty_plan_from},
-  package_index::PackageIndex,
 };
 
 #[derive(Debug)]
@@ -494,6 +494,31 @@ fn scan_parallel(
   Ok(ScanResult { summary, graph, issues, work })
 }
 
+/// Mark diagnostic / rule consumers when context changes without re-parsing.
+fn apply_context_consumers(
+  last_affected: &mut BTreeSet<FileId>,
+  input: &WorkspaceInputSnapshot,
+  impact: &ChangeImpact,
+) {
+  use crate::locality::ResolutionScope;
+  if impact.resolution != ResolutionScope::None || impact.membership {
+    // Resolution / membership still invalidates all graph consumers until
+    // partitioned linking lands; it must not re-parse unchanged bytes.
+    last_affected.extend(input.sources.iter().map(|source| source.file_id.clone()));
+    return;
+  }
+  if impact.component_index {
+    last_affected.extend(
+      input
+        .sources
+        .iter()
+        .filter(|source| matches!(source.kind, SourceKind::Vue))
+        .map(|source| source.file_id.clone()),
+    );
+  }
+  last_affected.extend(impact.environment.iter().cloned());
+}
+
 #[cfg(test)]
 mod file_rule_key_tests {
   use super::*;
@@ -526,199 +551,4 @@ mod file_rule_key_tests {
     let right = FileRuleInputKey::new("b", &environment, Some(graph), None);
     assert_ne!(left, right);
   }
-}
-
-/// Mark diagnostic / rule consumers when context changes without re-parsing.
-fn apply_context_consumers(
-  last_affected: &mut BTreeSet<FileId>,
-  input: &WorkspaceInputSnapshot,
-  impact: &ChangeImpact,
-) {
-  use crate::locality::ResolutionScope;
-  if impact.resolution != ResolutionScope::None || impact.membership {
-    // Resolution / membership still invalidates all graph consumers until
-    // partitioned linking lands; it must not re-parse unchanged bytes.
-    last_affected.extend(input.sources.iter().map(|source| source.file_id.clone()));
-    return;
-  }
-  if impact.component_index {
-    last_affected.extend(
-      input
-        .sources
-        .iter()
-        .filter(|source| matches!(source.kind, SourceKind::Vue))
-        .map(|source| source.file_id.clone()),
-    );
-  }
-  last_affected.extend(impact.environment.iter().cloned());
-}
-
-#[derive(Debug)]
-enum AnalyzedCandidate {
-  Vue {
-    project_file: Arc<ProjectFile>,
-    pending: Arc<PendingVueFile>,
-    /// Retained for SFC block-level reuse on the next edit.
-    sfc: Arc<AnalyzedSfc>,
-  },
-  Script {
-    project_file: Arc<ProjectFile>,
-  },
-}
-
-fn analyze_candidate(
-  input: &SourceInput,
-  environment: Option<RuleEnvironment>,
-  previous_sfc: Option<&AnalyzedSfc>,
-) -> Result<AnalyzedCandidate, AnalysisIssue> {
-  match &input.kind {
-    SourceKind::Vue => {
-      let environment = environment.unwrap_or_default();
-      let analysis =
-        analyze_sfc_facts_reusing(input.file_id.as_path(), &input.source, previous_sfc).map_err(
-          |error| AnalysisIssue {
-            stage: match &error {
-              AnalyzeError::Parse(_) | AnalyzeError::Template(_) => AnalysisStage::SfcParse,
-              AnalyzeError::Script(_) => AnalysisStage::ScriptParse,
-            },
-            file: Some(input.file_id.clone()),
-            message: format!("failed to analyze {}: {error}", input.physical_path.display()),
-            recoverability: Recoverability::File,
-          },
-        )?;
-      let sfc = Arc::new(analysis);
-      let facts = Arc::new(sfc.facts.clone());
-      let project_file = Arc::new(ProjectFile {
-        path: input.file_id.clone(),
-        source_len: input.source.len(),
-        facts: Arc::clone(&facts),
-        module_source: sfc.module_source.clone().map(|mut module| {
-          module.id = ModuleId::primary(&input.file_id);
-          module
-        }),
-        ordinary_module_source: sfc.ordinary_module_source.clone().map(|mut module| {
-          module.id = ModuleId::ordinary(&input.file_id);
-          module
-        }),
-      });
-      Ok(AnalyzedCandidate::Vue {
-        project_file,
-        pending: Arc::new(PendingVueFile {
-          file_id: input.file_id.clone(),
-          source: Arc::clone(&input.source),
-          environment,
-          facts,
-        }),
-        sfc,
-      })
-    }
-    SourceKind::Script { language } => {
-      let analysis = analyze_module_source(
-        &input.source,
-        &input.source,
-        0,
-        language,
-        vue_vet_core::ScriptKind::Script,
-      )
-      .map_err(|error| AnalysisIssue {
-        stage: AnalysisStage::ScriptParse,
-        file: Some(input.file_id.clone()),
-        message: format!("failed to analyze {}: {error}", input.physical_path.display()),
-        recoverability: Recoverability::File,
-      })?;
-      Ok(AnalyzedCandidate::Script {
-        project_file: Arc::new(ProjectFile {
-          path: input.file_id.clone(),
-          source_len: input.source.len(),
-          facts: Arc::new(SfcFacts {
-            template: analysis.template_facts,
-            script: ScriptFacts { blocks: vec![analysis.script_facts] },
-          }),
-          module_source: Some(
-            ModuleSource::standalone(
-              ModuleId::primary(&input.file_id),
-              Arc::clone(&input.source),
-              language.clone(),
-              vue_vet_core::ScriptKind::Script,
-            )
-            .with_module_summary(analysis.module_trace),
-          ),
-          ordinary_module_source: None,
-        }),
-      })
-    }
-  }
-}
-
-#[derive(Debug)]
-struct PendingVueFile {
-  file_id: FileId,
-  source: Arc<str>,
-  environment: RuleEnvironment,
-  facts: Arc<SfcFacts>,
-}
-
-fn run_file_rules(
-  pending: &PendingVueFile,
-  primary_graph: Option<Arc<ReactivityGraph>>,
-  ordinary_graph: Option<Arc<ReactivityGraph>>,
-) -> Vec<Diagnostic> {
-  let mut facts = (*pending.facts).clone();
-  if let Some(graph) = primary_graph {
-    facts.apply_module_reactivity(graph);
-  }
-  if let Some(graph) = ordinary_graph {
-    facts.apply_module_reactivity_for(vue_vet_core::ScriptKind::Script, graph);
-  }
-  file_analysis_registry().run_with_environment(
-    pending.file_id.as_path(),
-    &pending.source,
-    &facts.template,
-    &facts.script,
-    pending.environment.clone(),
-  )
-}
-
-fn script_needs_file_rules(path: &Path, template: &TemplateFacts) -> bool {
-  let is_jsx = path
-    .extension()
-    .and_then(|extension| extension.to_str())
-    .is_some_and(|extension| matches!(extension, "jsx" | "tsx"));
-  is_jsx || !template.elements.is_empty() || !template.expressions.is_empty()
-}
-
-fn source_environment(
-  input: &SourceInput,
-  boundary: &Path,
-  package_index: &PackageIndex,
-) -> Option<RuleEnvironment> {
-  matches!(&input.kind, SourceKind::Vue)
-    .then(|| package_index.environment_for(input.physical_path.as_path(), boundary))
-}
-
-fn issue_diagnostic(issue: &AnalysisIssue) -> Option<Diagnostic> {
-  let file = issue.file.clone()?;
-  let (rule_id, help) = match issue.stage {
-    AnalysisStage::ModuleTracing => (
-      "vue-vet/analysis/module-tracing",
-      "Fix the module or its resolved import edge; other healthy module links were retained.",
-    ),
-    AnalysisStage::SfcParse | AnalysisStage::ScriptParse => (
-      "vue-vet/analysis/parse-error",
-      "Fix the syntax error; analysis continued for the rest of the workspace.",
-    ),
-  };
-  Some(Diagnostic {
-    rule_id: rule_id.into(),
-    category: "analysis".into(),
-    severity: Severity::Error,
-    confidence: None,
-    documentation: None,
-    message: issue.message.clone(),
-    help: Some(help.into()),
-    file,
-    span: SourceSpan { offset: 0, length: 0, line: 1, column: 1 },
-    edits: Vec::new(),
-    recommendation: None,
-  })
 }
