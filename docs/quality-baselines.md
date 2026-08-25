@@ -23,11 +23,13 @@ via `just quality-gates`.
 | `suppressed` | 0 | 1 |
 | `module-seeds` | 1 | 0 |
 | `provide-inject` | 0 | 2 |
-| `reactivity-rules` | 3 | 3 |
+| `reactivity-rules` | 4 | 5 |
 
 Expected findings count only `true_positive` / `known_limitation` pairs. FP pins
 must remain absent. Changing either set requires updating the precision JSON and
-explaining the behavior change in the PR.
+explaining the behavior change in the PR. `reactivity-rules` counts (4 TP / 5 FP)
+match `fixtures/quality/precision/reactivity-rules.json`; the table previously
+said 3 / 3 after the JSON grew.
 
 ## Performance baselines (CodSpeed suite names)
 
