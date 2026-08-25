@@ -596,218 +596,192 @@ fn sync_hof_callback_nested_reads() {
   }
 }
 
+#[derive(Clone, Copy)]
+enum IdentGetterWant {
+  ComputedType,
+  WatchEffectCount,
+  WatchSourceValue,
+  WriteTarget,
+  AssignmentOnly,
+  Quiet,
+}
+
+fn assert_ident_getter(source: &str, kind: TrackingScopeKind, want: IdentGetterWant, label: &str) {
+  let graph = graph(source);
+  assert_eq!(graph.version, vue_vet_core::REACTIVITY_GRAPH_VERSION);
+  let scope = helper_follow_scope(&graph, kind);
+  let ok = match want {
+    IdentGetterWant::ComputedType => scope.is_some_and(|scope| {
+      scope.reads.iter().any(|read| {
+        read.binding == "type"
+          && read.property.as_deref() == Some("value")
+          && read.kind == ReactiveReadKind::Unconditional
+      })
+    }),
+    IdentGetterWant::WatchEffectCount => helper_follow_has_value_read(&graph, kind, "count"),
+    IdentGetterWant::WatchSourceValue => scope.is_some_and(|scope| {
+      scope.reads.iter().any(|read| {
+        read.binding == "value"
+          && read.property.as_deref() == Some("value")
+          && read.kind != ReactiveReadKind::OutsideTracking
+      })
+    }),
+    IdentGetterWant::WriteTarget => scope.is_some_and(|scope| {
+      scope
+        .writes
+        .iter()
+        .any(|write| write.binding == "target" && write.property.as_deref() == Some("value"))
+    }),
+    IdentGetterWant::AssignmentOnly => scope.is_some_and(|scope| scope.assignment_only),
+    IdentGetterWant::Quiet => scope.is_none_or(|scope| {
+      scope.reads.iter().all(|read| read.binding != "type")
+        && scope.writes.iter().all(|write| write.binding != "target")
+    }),
+  };
+  assert!(ok, "{label}: scopes={:?}", graph.scopes);
+}
+
+fn computed_type_reads(
+  graph: &vue_vet_core::ReactivityGraph,
+) -> BTreeSet<(String, Option<String>)> {
+  helper_follow_scope(graph, TrackingScopeKind::Computed)
+    .map(|scope| {
+      scope
+        .reads
+        .iter()
+        .filter(|read| read.kind != ReactiveReadKind::OutsideTracking)
+        .map(|read| (read.binding.clone(), read.property.clone()))
+        .collect()
+    })
+    .unwrap_or_default()
+}
+
 #[test]
 fn identifier_getter_callback_tracks_like_inline() {
-  #[derive(Clone, Copy)]
-  enum Want {
-    ComputedType,
-    WatchEffectCount,
-    WatchSourceValue,
-    WriteTarget,
-    AssignmentOnly,
-    Quiet,
+  for (label, source, kind, want) in [
+    (
+      "computed(load) tracks type.value",
+      "import { ref, computed } from 'vue';\n\
+       const type = ref('all');\n\
+       function load() { return type.value; }\n\
+       const paginator = computed(load);\n\
+       void paginator.value;",
+      TrackingScopeKind::Computed,
+      IdentGetterWant::ComputedType,
+    ),
+    (
+      "computed((load)) peels parens / TS wrappers",
+      "import { ref, computed } from 'vue';\n\
+       const type = ref('all');\n\
+       const load = () => type.value;\n\
+       const paginator = computed((load as () => string));\n\
+       void paginator.value;",
+      TrackingScopeKind::Computed,
+      IdentGetterWant::ComputedType,
+    ),
+    (
+      "computed({ get: load }) tracks type.value",
+      "import { ref, computed } from 'vue';\n\
+       const type = ref('all');\n\
+       function load() { return type.value; }\n\
+       const paginator = computed({ get: load, set() {} });\n\
+       void paginator.value;",
+      TrackingScopeKind::Computed,
+      IdentGetterWant::ComputedType,
+    ),
+    (
+      "watchEffect(load) tracks count.value",
+      "import { ref, watchEffect } from 'vue';\n\
+       const count = ref(0);\n\
+       function load() { return count.value; }\n\
+       watchEffect(load);",
+      TrackingScopeKind::WatchEffect,
+      IdentGetterWant::WatchEffectCount,
+    ),
+    (
+      "function with unused params still tracks as identifier getter",
+      "import { ref, computed } from 'vue';\n\
+       const type = ref('all');\n\
+       function load(_x: number) { return type.value; }\n\
+       const c = computed(load);\n\
+       void c.value;",
+      TrackingScopeKind::Computed,
+      IdentGetterWant::ComputedType,
+    ),
+    (
+      "watch(load) source getter tracks value.value",
+      "import { ref, watch } from 'vue';\n\
+       const value = ref(0);\n\
+       function load() { return value.value; }\n\
+       watch(load, () => {});",
+      TrackingScopeKind::WatchSources,
+      IdentGetterWant::WatchSourceValue,
+    ),
+    (
+      "watch([load]) array source getter tracks value.value",
+      "import { ref, watch } from 'vue';\n\
+       const value = ref(0);\n\
+       function load() { return value.value; }\n\
+       watch([load], () => {});",
+      TrackingScopeKind::WatchSources,
+      IdentGetterWant::WatchSourceValue,
+    ),
+    (
+      "computed(load) records helper writes",
+      "import { ref, computed } from 'vue';\n\
+       const source = ref(0); const target = ref(0);\n\
+       function load() { target.value = source.value; return target.value; }\n\
+       const c = computed(load);\n\
+       void c.value;",
+      TrackingScopeKind::Computed,
+      IdentGetterWant::WriteTarget,
+    ),
+    (
+      "watchEffect(assign) is assignment_only",
+      "import { ref, watchEffect } from 'vue';\n\
+       const first = ref('a'); const last = ref('b'); const full = ref('');\n\
+       function assign() { full.value = first.value + last.value; }\n\
+       watchEffect(assign);",
+      TrackingScopeKind::WatchEffect,
+      IdentGetterWant::AssignmentOnly,
+    ),
+    (
+      "imported getter stays quiet",
+      "import { ref, computed } from 'vue';\n\
+       import { load } from './helpers';\n\
+       const type = ref('all');\n\
+       const c = computed(load);\n\
+       void type.value; void c;",
+      TrackingScopeKind::Computed,
+      IdentGetterWant::Quiet,
+    ),
+    (
+      "async identifier getter stays quiet",
+      "import { ref, computed } from 'vue';\n\
+       const type = ref('all');\n\
+       async function load() { return type.value; }\n\
+       const c = computed(load);\n\
+       void c.value;",
+      TrackingScopeKind::Computed,
+      IdentGetterWant::Quiet,
+    ),
+    (
+      "method identifier getter stays quiet",
+      "import { ref, computed } from 'vue';\n\
+       const type = ref('all');\n\
+       const obj = { load() { return type.value; } };\n\
+       const c = computed(obj.load);\n\
+       void c.value;",
+      TrackingScopeKind::Computed,
+      IdentGetterWant::Quiet,
+    ),
+  ] {
+    assert_ident_getter(source, kind, want, label);
   }
-  struct Case {
-    label: &'static str,
-    source: &'static str,
-    kind: TrackingScopeKind,
-    want: Want,
-  }
-  let cases = [
-    Case {
-      label: "computed(load) tracks type.value",
-      source: "import { ref, computed } from 'vue';\n\
-               const type = ref('all');\n\
-               function load() { return type.value; }\n\
-               const paginator = computed(load);\n\
-               void paginator.value;",
-      kind: TrackingScopeKind::Computed,
-      want: Want::ComputedType,
-    },
-    Case {
-      label: "computed((load)) peels parens / TS wrappers",
-      source: "import { ref, computed } from 'vue';\n\
-               const type = ref('all');\n\
-               const load = () => type.value;\n\
-               const paginator = computed((load as () => string));\n\
-               void paginator.value;",
-      kind: TrackingScopeKind::Computed,
-      want: Want::ComputedType,
-    },
-    Case {
-      label: "computed({ get: load }) tracks type.value",
-      source: "import { ref, computed } from 'vue';\n\
-               const type = ref('all');\n\
-               function load() { return type.value; }\n\
-               const paginator = computed({ get: load, set() {} });\n\
-               void paginator.value;",
-      kind: TrackingScopeKind::Computed,
-      want: Want::ComputedType,
-    },
-    Case {
-      label: "watchEffect(load) tracks count.value",
-      source: "import { ref, watchEffect } from 'vue';\n\
-               const count = ref(0);\n\
-               function load() { return count.value; }\n\
-               watchEffect(load);",
-      kind: TrackingScopeKind::WatchEffect,
-      want: Want::WatchEffectCount,
-    },
-    Case {
-      label: "function with unused params still tracks as identifier getter",
-      source: "import { ref, computed } from 'vue';\n\
-               const type = ref('all');\n\
-               function load(_x: number) { return type.value; }\n\
-               const c = computed(load);\n\
-               void c.value;",
-      kind: TrackingScopeKind::Computed,
-      want: Want::ComputedType,
-    },
-    Case {
-      label: "watch(load) source getter tracks value.value",
-      source: "import { ref, watch } from 'vue';\n\
-               const value = ref(0);\n\
-               function load() { return value.value; }\n\
-               watch(load, () => {});",
-      kind: TrackingScopeKind::WatchSources,
-      want: Want::WatchSourceValue,
-    },
-    Case {
-      label: "watch([load]) array source getter tracks value.value",
-      source: "import { ref, watch } from 'vue';\n\
-               const value = ref(0);\n\
-               function load() { return value.value; }\n\
-               watch([load], () => {});",
-      kind: TrackingScopeKind::WatchSources,
-      want: Want::WatchSourceValue,
-    },
-    Case {
-      label: "computed(load) records helper writes",
-      source: "import { ref, computed } from 'vue';\n\
-               const source = ref(0); const target = ref(0);\n\
-               function load() { target.value = source.value; return target.value; }\n\
-               const c = computed(load);\n\
-               void c.value;",
-      kind: TrackingScopeKind::Computed,
-      want: Want::WriteTarget,
-    },
-    Case {
-      label: "watchEffect(assign) is assignment_only",
-      source: "import { ref, watchEffect } from 'vue';\n\
-               const first = ref('a'); const last = ref('b'); const full = ref('');\n\
-               function assign() { full.value = first.value + last.value; }\n\
-               watchEffect(assign);",
-      kind: TrackingScopeKind::WatchEffect,
-      want: Want::AssignmentOnly,
-    },
-    Case {
-      label: "imported getter stays quiet",
-      source: "import { ref, computed } from 'vue';\n\
-               import { load } from './helpers';\n\
-               const type = ref('all');\n\
-               const c = computed(load);\n\
-               void type.value; void c;",
-      kind: TrackingScopeKind::Computed,
-      want: Want::Quiet,
-    },
-    Case {
-      label: "async identifier getter stays quiet",
-      source: "import { ref, computed } from 'vue';\n\
-               const type = ref('all');\n\
-               async function load() { return type.value; }\n\
-               const c = computed(load);\n\
-               void c.value;",
-      kind: TrackingScopeKind::Computed,
-      want: Want::Quiet,
-    },
-    Case {
-      label: "method identifier getter stays quiet",
-      source: "import { ref, computed } from 'vue';\n\
-               const type = ref('all');\n\
-               const obj = { load() { return type.value; } };\n\
-               const c = computed(obj.load);\n\
-               void c.value;",
-      kind: TrackingScopeKind::Computed,
-      want: Want::Quiet,
-    },
-  ];
-  for case in cases {
-    let graph = graph(case.source);
-    assert_eq!(graph.version, vue_vet_core::REACTIVITY_GRAPH_VERSION);
-    let scope = helper_follow_scope(&graph, case.kind);
-    match case.want {
-      Want::ComputedType => {
-        assert!(
-          scope.is_some_and(|scope| {
-            scope.reads.iter().any(|read| {
-              read.binding == "type"
-                && read.property.as_deref() == Some("value")
-                && read.kind == ReactiveReadKind::Unconditional
-            })
-          }),
-          "{}: scopes={:?}",
-          case.label,
-          graph.scopes
-        );
-      }
-      Want::WatchEffectCount => {
-        assert!(
-          helper_follow_has_value_read(&graph, case.kind, "count"),
-          "{}: scopes={:?}",
-          case.label,
-          graph.scopes
-        );
-      }
-      Want::WatchSourceValue => {
-        assert!(
-          scope.is_some_and(|scope| {
-            scope.reads.iter().any(|read| {
-              read.binding == "value"
-                && read.property.as_deref() == Some("value")
-                && read.kind != ReactiveReadKind::OutsideTracking
-            })
-          }),
-          "{}: scopes={:?}",
-          case.label,
-          graph.scopes
-        );
-      }
-      Want::WriteTarget => {
-        assert!(
-          scope.is_some_and(|scope| {
-            scope
-              .writes
-              .iter()
-              .any(|write| write.binding == "target" && write.property.as_deref() == Some("value"))
-          }),
-          "{}: scopes={:?}",
-          case.label,
-          graph.scopes
-        );
-      }
-      Want::AssignmentOnly => {
-        assert_eq!(
-          scope.map(|scope| scope.assignment_only),
-          Some(true),
-          "{}: scopes={:?}",
-          case.label,
-          graph.scopes
-        );
-      }
-      Want::Quiet => {
-        assert!(
-          scope.is_none_or(|scope| {
-            scope.reads.iter().all(|read| read.binding != "type")
-              && scope.writes.iter().all(|write| write.binding != "target")
-          }),
-          "{}: scopes={:?}",
-          case.label,
-          graph.scopes
-        );
-      }
-    }
-  }
+}
 
+#[test]
+fn identifier_getter_agrees_with_helper_call() {
   let inline = graph(
     "import { ref, computed } from 'vue';\n\
      const type = ref('all');\n\
@@ -822,21 +796,9 @@ fn identifier_getter_callback_tracks_like_inline() {
      const paginator = computed(load);\n\
      void paginator.value;",
   );
-  let keys = |graph: &vue_vet_core::ReactivityGraph| {
-    helper_follow_scope(graph, TrackingScopeKind::Computed)
-      .map(|scope| {
-        scope
-          .reads
-          .iter()
-          .filter(|read| read.kind != ReactiveReadKind::OutsideTracking)
-          .map(|read| (read.binding.as_str(), read.property.as_deref()))
-          .collect::<BTreeSet<_>>()
-      })
-      .unwrap_or_default()
-  };
   assert_eq!(
-    keys(&inline),
-    keys(&ident),
+    computed_type_reads(&inline),
+    computed_type_reads(&ident),
     "computed(load) must agree with computed(() => load()) on tracking reads"
   );
 }
