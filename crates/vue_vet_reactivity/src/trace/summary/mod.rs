@@ -18,12 +18,13 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use vue_vet_core::{ModuleId, ReactiveBindingKind, ReactivityGraph, ScriptKind};
 
-use super::{
-  TraceSeeds, collect_binding_identifiers, collect_imported_bindings, collect_inject_sites,
-  collect_provide_sites, collect_reactive_bindings, local_function_id, module_export_name,
+use super::bindings::collect_reactive_bindings;
+use super::follow::local_function_id;
+use super::kinds::{
+  collect_binding_identifiers, collect_imported_bindings, module_export_name,
   reactive_binding_kind, reference_resolves_to_binding, resolved_vue_callee,
-  trace_reactivity_seeded,
 };
+use super::{TraceSeeds, collect_inject_sites, collect_provide_sites, trace_reactivity_seeded};
 use oxc_ast::ast::Argument;
 
 /// One script surface to analyze — standalone JS/TS or an extracted SFC block.

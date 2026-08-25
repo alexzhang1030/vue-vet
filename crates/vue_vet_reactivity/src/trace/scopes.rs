@@ -1,0 +1,429 @@
+//! Tracking-scope and render-scope assembly.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use oxc_ast::{
+  AstKind,
+  ast::{BindingPattern, Expression, FunctionBody},
+};
+use oxc_semantic::NodeId;
+use vue_vet_core::{
+  ReactiveBindingFact, ReactiveReadFact, ReactiveReadKind, ScriptKind, TrackingScopeFact,
+  TrackingScopeKind,
+};
+
+use super::{
+  ComposableShapeMap,
+  bindings::AmbientCallHandles,
+  kinds::{resolved_vue_callee, source_span},
+  reads::{classify_scope_reads, collect_scope_reads},
+  render,
+  uncertain::{
+    collect_uncertain_scope_accesses, collect_uncertain_watch_sources, collect_watch_source_reads,
+  },
+  writes::{
+    callback_parts, collect_scope_writes, is_assignment_only_followed, tracking_callback_parts,
+  },
+};
+
+/// Locals assigned from `effectScope()` (Vue import / `#imports` / namespace).
+pub(super) fn effect_scope_instance_locals(
+  semantic: &oxc_semantic::Semantic<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> BTreeSet<String> {
+  let mut locals = BTreeSet::new();
+  for node in semantic.nodes() {
+    let AstKind::CallExpression(call) = node.kind() else {
+      continue;
+    };
+    let Some(callee) =
+      resolved_vue_callee(semantic, &call.callee, imported_bindings, ScriptKind::Script)
+    else {
+      continue;
+    };
+    if callee != "effectScope" {
+      continue;
+    }
+    if let Some(name) = assigned_binding_name(semantic, call.node_id.get()) {
+      locals.insert(name);
+    }
+  }
+  locals
+}
+
+pub(super) struct ScopeBuild<'a> {
+  kind: TrackingScopeKind,
+  callee: String,
+  span: vue_vet_core::SourceSpan,
+  reads: Vec<ReactiveReadFact>,
+  binding: Option<String>,
+  semantic: &'a oxc_semantic::Semantic<'a>,
+  scope_id: NodeId,
+  body: Option<&'a FunctionBody<'a>>,
+  reactive_bindings: &'a [ReactiveBindingFact],
+  composable_instances: &'a ComposableShapeMap,
+  imported_bindings: &'a BTreeMap<String, (String, String)>,
+  sfc_source: &'a str,
+  script_offset: usize,
+}
+
+pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
+  let writes = collect_scope_writes(
+    build.semantic,
+    build.scope_id,
+    build.reactive_bindings,
+    build.imported_bindings,
+    build.sfc_source,
+    build.script_offset,
+  );
+  let uncertain_accesses = collect_uncertain_scope_accesses(
+    build.semantic,
+    build.scope_id,
+    build.reactive_bindings,
+    build.composable_instances,
+    build.imported_bindings,
+    build.script_offset,
+  );
+  let mut assignment_visiting = BTreeSet::new();
+  assignment_visiting.insert(build.scope_id);
+  TrackingScopeFact {
+    kind: build.kind,
+    callee: build.callee,
+    span: build.span,
+    reads: build.reads,
+    writes,
+    assignment_only: is_assignment_only_followed(
+      build.semantic,
+      build.body,
+      0,
+      &mut assignment_visiting,
+    ),
+    binding: build.binding,
+    uncertain_accesses,
+  }
+}
+
+#[expect(
+  clippy::too_many_lines,
+  reason = "scope dispatch covers all Vue tracking APIs in one pass"
+)]
+pub(super) fn collect_tracking_scopes(
+  semantic: &oxc_semantic::Semantic<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
+  ambient_call_handles: &AmbientCallHandles,
+  sfc_source: &str,
+  script_offset: usize,
+) -> Vec<TrackingScopeFact> {
+  // Only treat `.run(cb)` as an effect-scope body when the receiver was assigned
+  // from Vue's `effectScope()` — never invent edges for arbitrary `.run` APIs.
+  let effect_scope_locals = effect_scope_instance_locals(semantic, imported_bindings);
+  let mut scopes = Vec::new();
+  for node in semantic.nodes() {
+    let AstKind::CallExpression(call) = node.kind() else {
+      continue;
+    };
+
+    if let Expression::StaticMemberExpression(member) = &call.callee
+      && member.property.name.as_str() == "run"
+      && let Some(receiver) = member.object.get_identifier_reference()
+      && effect_scope_locals.contains(receiver.name.as_str())
+      && let Some(argument) = call.arguments.first()
+      && let Some((scope_id, body)) = callback_parts(argument)
+    {
+      let raw_reads = collect_scope_reads(
+        semantic,
+        scope_id,
+        reactive_bindings,
+        composable_instances,
+        imported_bindings,
+        ambient_call_handles,
+        script_offset,
+      );
+      let reads = classify_scope_reads(
+        semantic,
+        scope_id,
+        body,
+        &raw_reads,
+        sfc_source,
+        script_offset,
+        imported_bindings,
+      );
+      scopes.push(finish_scope(ScopeBuild {
+        kind: TrackingScopeKind::EffectScope,
+        callee: "effectScope.run".into(),
+        span: source_span(sfc_source, script_offset, call.span),
+        reads,
+        binding: None,
+        semantic,
+        scope_id,
+        body,
+        reactive_bindings,
+        composable_instances,
+        imported_bindings,
+        sfc_source,
+        script_offset,
+      }));
+      continue;
+    }
+
+    let Some(callee) =
+      resolved_vue_callee(semantic, &call.callee, imported_bindings, ScriptKind::Script)
+    else {
+      continue;
+    };
+    let Some(scope_kind) = TrackingScopeKind::from_vue_callee(&callee) else {
+      continue;
+    };
+
+    match scope_kind {
+      TrackingScopeKind::WatchEffect
+      | TrackingScopeKind::WatchPostEffect
+      | TrackingScopeKind::WatchSyncEffect
+      | TrackingScopeKind::Computed
+      | TrackingScopeKind::OnScopeDispose => {
+        let Some(argument) = call.arguments.first() else {
+          continue;
+        };
+        // `computed` accepts a getter function or `{ get, set }` object form.
+        let Some((scope_id, body)) = (if scope_kind == TrackingScopeKind::Computed {
+          tracking_callback_parts(argument)
+        } else {
+          callback_parts(argument)
+        }) else {
+          continue;
+        };
+        let raw_reads = collect_scope_reads(
+          semantic,
+          scope_id,
+          reactive_bindings,
+          composable_instances,
+          imported_bindings,
+          ambient_call_handles,
+          script_offset,
+        );
+        let mut reads = classify_scope_reads(
+          semantic,
+          scope_id,
+          body,
+          &raw_reads,
+          sfc_source,
+          script_offset,
+          imported_bindings,
+        );
+        if scope_kind == TrackingScopeKind::OnScopeDispose {
+          for read in &mut reads {
+            read.kind = ReactiveReadKind::OutsideTracking;
+            read.guards.clear();
+            read.guarded_by = None;
+          }
+        }
+        let binding = if scope_kind == TrackingScopeKind::Computed {
+          assigned_binding_name(semantic, call.node_id.get())
+        } else {
+          None
+        };
+        scopes.push(finish_scope(ScopeBuild {
+          kind: scope_kind,
+          callee,
+          span: source_span(sfc_source, script_offset, call.span),
+          reads,
+          binding,
+          semantic,
+          scope_id,
+          body,
+          reactive_bindings,
+          composable_instances,
+          imported_bindings,
+          sfc_source,
+          script_offset,
+        }));
+      }
+      TrackingScopeKind::EffectScope => {
+        // effectScope(fn) or const s = effectScope(); s.run(fn)
+        if let Some(argument) = call.arguments.first()
+          && let Some((scope_id, body)) = callback_parts(argument)
+        {
+          let raw_reads = collect_scope_reads(
+            semantic,
+            scope_id,
+            reactive_bindings,
+            composable_instances,
+            imported_bindings,
+            ambient_call_handles,
+            script_offset,
+          );
+          let reads = classify_scope_reads(
+            semantic,
+            scope_id,
+            body,
+            &raw_reads,
+            sfc_source,
+            script_offset,
+            imported_bindings,
+          );
+          scopes.push(finish_scope(ScopeBuild {
+            kind: TrackingScopeKind::EffectScope,
+            callee: callee.clone(),
+            span: source_span(sfc_source, script_offset, call.span),
+            reads,
+            binding: assigned_binding_name(semantic, call.node_id.get()),
+            semantic,
+            scope_id,
+            body,
+            reactive_bindings,
+            composable_instances,
+            imported_bindings,
+            sfc_source,
+            script_offset,
+          }));
+        }
+        // Also capture `.run(callback)` on effectScope instances via member call below.
+      }
+      TrackingScopeKind::WatchSources => {
+        let Some(source_argument) = call.arguments.first() else {
+          continue;
+        };
+        let call_span = source_span(sfc_source, script_offset, call.span);
+        let reads = collect_watch_source_reads(
+          semantic,
+          source_argument,
+          reactive_bindings,
+          composable_instances,
+          imported_bindings,
+          ambient_call_handles,
+          sfc_source,
+          script_offset,
+        );
+        let uncertain_accesses = collect_uncertain_watch_sources(
+          semantic,
+          source_argument,
+          reactive_bindings,
+          composable_instances,
+          imported_bindings,
+          script_offset,
+        );
+        scopes.push(TrackingScopeFact {
+          kind: TrackingScopeKind::WatchSources,
+          callee: callee.clone(),
+          span: call_span.clone(),
+          reads,
+          writes: Vec::new(),
+          assignment_only: false,
+          binding: None,
+          uncertain_accesses,
+        });
+
+        if let Some(callback_argument) = call.arguments.get(1)
+          && let Some((scope_id, body)) = callback_parts(callback_argument)
+        {
+          let raw_reads = collect_scope_reads(
+            semantic,
+            scope_id,
+            reactive_bindings,
+            composable_instances,
+            imported_bindings,
+            ambient_call_handles,
+            script_offset,
+          );
+          let reads = classify_scope_reads(
+            semantic,
+            scope_id,
+            body,
+            &raw_reads,
+            sfc_source,
+            script_offset,
+            imported_bindings,
+          )
+          .into_iter()
+          .map(|mut fact| {
+            fact.kind = ReactiveReadKind::OutsideTracking;
+            fact.guards.clear();
+            fact.guarded_by = None;
+            fact
+          })
+          .collect();
+          scopes.push(finish_scope(ScopeBuild {
+            kind: TrackingScopeKind::WatchCallback,
+            callee,
+            span: call_span,
+            reads,
+            binding: None,
+            semantic,
+            scope_id,
+            body,
+            reactive_bindings,
+            composable_instances,
+            imported_bindings,
+            sfc_source,
+            script_offset,
+          }));
+        }
+      }
+      TrackingScopeKind::WatchCallback | TrackingScopeKind::Render => {}
+    }
+  }
+  scopes
+}
+
+pub(super) fn assigned_binding_name(
+  semantic: &oxc_semantic::Semantic<'_>,
+  call_id: NodeId,
+) -> Option<String> {
+  let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call_id) else {
+    return None;
+  };
+  match &declarator.id {
+    BindingPattern::BindingIdentifier(identifier) => Some(identifier.name.to_string()),
+    _ => None,
+  }
+}
+
+pub(super) fn collect_render_scopes(
+  semantic: &oxc_semantic::Semantic<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
+  ambient_call_handles: &AmbientCallHandles,
+  sfc_source: &str,
+  script_offset: usize,
+) -> Vec<TrackingScopeFact> {
+  let mut scopes = Vec::new();
+  for body in render::collect_render_bodies(semantic, imported_bindings) {
+    let raw_reads = collect_scope_reads(
+      semantic,
+      body.scope_id,
+      reactive_bindings,
+      composable_instances,
+      imported_bindings,
+      ambient_call_handles,
+      script_offset,
+    );
+    let reads = classify_scope_reads(
+      semantic,
+      body.scope_id,
+      body.body,
+      &raw_reads,
+      sfc_source,
+      script_offset,
+      imported_bindings,
+    );
+    scopes.push(finish_scope(ScopeBuild {
+      kind: TrackingScopeKind::Render,
+      callee: "render".into(),
+      span: source_span(sfc_source, script_offset, body.span),
+      reads,
+      binding: None,
+      semantic,
+      scope_id: body.scope_id,
+      body: body.body,
+      reactive_bindings,
+      composable_instances,
+      imported_bindings,
+      sfc_source,
+      script_offset,
+    }));
+  }
+  scopes
+}

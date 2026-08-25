@@ -722,7 +722,7 @@ fn push_options_callback_pattern_bindings(
     let Some(kind) = shape.kind_for_destructure(key.as_ref()) else {
       continue;
     };
-    let span = super::super::source_span(span_source, span_base, identifier.span);
+    let span = super::super::kinds::source_span(span_source, span_base, identifier.span);
     let name = identifier.name.to_string();
     if into.iter().any(|binding| binding.name == name && binding.span.offset == span.offset) {
       continue;

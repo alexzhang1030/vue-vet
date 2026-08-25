@@ -14,9 +14,10 @@ use oxc_span::Span;
 use rayon::prelude::*;
 use vue_vet_core::{ModuleId, ReactiveBindingFact, ReactivityGraph};
 
+use super::super::kinds::{collect_binding_identifiers, collect_imported_bindings, source_span};
 use super::super::{
-  ProvideOffer, TraceSeeds, collect_binding_identifiers, collect_inject_sites, provide_offer_index,
-  resolve_inject_offer, source_span, trace_reactivity_seeded,
+  ProvideOffer, TraceSeeds, collect_inject_sites, provide_offer_index, resolve_inject_offer,
+  trace_reactivity_seeded,
 };
 use super::{
   DestructuredCallBinding, ExportState, ExportSummary, ImportSummary, InstanceCallBinding,
@@ -1764,7 +1765,7 @@ fn materialize_seeds(
   );
   // Inject locals: re-read sites for exact spans; offers from the coordinator plan.
   if !plan.injects.is_empty() {
-    let imported_bindings = super::collect_imported_bindings(semantic);
+    let imported_bindings = collect_imported_bindings(semantic);
     let injects = collect_inject_sites(semantic, &imported_bindings, &[], module.kind);
     for inject in injects {
       let Some(offer) = plan.injects.get(&inject.local) else {

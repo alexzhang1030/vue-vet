@@ -13,9 +13,11 @@ use oxc_semantic::{NodeId, Semantic};
 use oxc_span::Span;
 use vue_vet_core::{ReactiveBindingFact, ReactiveBindingKind, ScriptKind};
 
+use super::kinds::{
+  reactive_binding_kind, reference_resolves_to_span, resolved_vue_callee, source_span,
+};
 use super::{
-  ComposableShapeMap, InstanceShape, LocalComposableDefs, LocalComposableExport,
-  reactive_binding_kind, reference_resolves_to_span, resolved_vue_callee, source_span, summary,
+  ComposableShapeMap, InstanceShape, LocalComposableDefs, LocalComposableExport, summary,
 };
 
 /// Injection key identity for provide/inject linking (under-approx).
