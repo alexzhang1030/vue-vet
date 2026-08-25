@@ -1,6 +1,6 @@
 //! Reconstruct complete static / bound attribute extents from name-only fact spans.
 
-use vue_vet_core::{ByteRange, SourceSpan, TemplateAttributeFact};
+use vue_vet_core::{ByteRange, SourceSpan, TemplateAttributeFact, TemplateDirectiveFact};
 
 /// Prefer removing ` name="value"` including the leading space and quoted value.
 /// Falls back to the attribute name span (plus leading space) when the value
@@ -134,6 +134,92 @@ pub(super) fn bound_quoted_value_removal_range(
   Some(expand_leading_space(source, directive_span.offset, end))
 }
 
+/// Rewrite `:arg.sync="expr"` / `v-bind:arg.sync="expr"` to `v-model:arg="expr"`
+/// when the quoted value reconstructs exactly.
+///
+/// Stays incomplete for object `v-bind.sync`, unquoted values, extra modifiers,
+/// and dynamic `:[name].sync` (the fact argument is the inner ident, so the
+/// source must still start with that ident after `:` / `v-bind`).
+pub(super) fn quoted_sync_bind_to_v_model(
+  source: &str,
+  directive: &TemplateDirectiveFact,
+) -> Option<(ByteRange, String)> {
+  if directive.name != "bind" {
+    return None;
+  }
+  let argument = directive.argument.as_deref().filter(|name| is_static_prop_name(name))?;
+  if !directive.modifiers.iter().any(|modifier| modifier == "sync")
+    && !directive.raw_name.contains(".sync")
+  {
+    return None;
+  }
+  if directive.modifiers.iter().any(|modifier| modifier != "sync") {
+    return None;
+  }
+  let expression = directive.expression.as_deref()?;
+  let bytes = source.as_bytes();
+  let mut index = directive.span.offset.saturating_add(directive.span.length);
+  index = skip_horizontal_space(bytes, index);
+  if bytes.get(index) == Some(&b':') {
+    index = skip_horizontal_space(bytes, index.saturating_add(1));
+  }
+  if !source.get(index..)?.starts_with(argument) {
+    return None;
+  }
+  let after_argument = index.saturating_add(argument.len());
+  if bytes
+    .get(after_argument)
+    .is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+  {
+    return None;
+  }
+  index = skip_horizontal_space(bytes, after_argument);
+  if !source.get(index..)?.starts_with(".sync") {
+    return None;
+  }
+  index = index.saturating_add(".sync".len());
+  if bytes.get(index) == Some(&b'.') {
+    return None;
+  }
+  index = skip_horizontal_space(bytes, index);
+  if bytes.get(index) != Some(&b'=') {
+    return None;
+  }
+  index = skip_horizontal_space(bytes, index.saturating_add(1));
+  let quote = *bytes.get(index)?;
+  if quote != b'"' && quote != b'\'' {
+    return None;
+  }
+  index = index.saturating_add(1);
+  let value_start = index;
+  while bytes.get(index).is_some_and(|byte| *byte != quote) {
+    index = index.saturating_add(1);
+  }
+  if index >= bytes.len() {
+    return None;
+  }
+  let parsed = source.get(value_start..index)?;
+  if parsed != expression {
+    return None;
+  }
+  let end = index.saturating_add(1);
+  let range =
+    ByteRange { offset: directive.span.offset, length: end.saturating_sub(directive.span.offset) };
+  let quote_char = char::from(quote);
+  Some((range, format!("v-model:{argument}={quote_char}{expression}{quote_char}")))
+}
+
+fn is_static_prop_name(name: &str) -> bool {
+  let mut chars = name.chars();
+  let Some(first) = chars.next() else {
+    return false;
+  };
+  if !first.is_ascii_alphabetic() && first != '_' {
+    return false;
+  }
+  chars.all(|next| next.is_ascii_alphanumeric() || matches!(next, '-' | '_'))
+}
+
 fn skip_horizontal_space(bytes: &[u8], mut index: usize) -> usize {
   while bytes.get(index).is_some_and(|byte| matches!(byte, b' ' | b'\t')) {
     index = index.saturating_add(1);
@@ -158,8 +244,10 @@ fn name_only_removal_range(source: &str, span: &SourceSpan) -> ByteRange {
 
 #[cfg(test)]
 mod tests {
-  use super::{bound_quoted_value_removal_range, quoted_name_value_removal_range};
-  use vue_vet_core::SourceSpan;
+  use super::{
+    bound_quoted_value_removal_range, quoted_name_value_removal_range, quoted_sync_bind_to_v_model,
+  };
+  use vue_vet_core::{SourceSpan, TemplateDirectiveFact};
 
   fn name_span(source: &str, name: &str) -> SourceSpan {
     let offset = source.find(name).unwrap_or(0);
@@ -210,5 +298,77 @@ mod tests {
     let source = "<button aria-hidden=true>Save</button>";
     let span = name_span(source, "aria-hidden");
     assert!(quoted_name_value_removal_range(source, &span, "true").is_none());
+  }
+
+  fn bind_sync(
+    source: &str,
+    raw: &str,
+    argument: Option<&str>,
+    expression: &str,
+    modifiers: &[&str],
+  ) -> TemplateDirectiveFact {
+    let offset = source.find(raw).unwrap_or(0);
+    TemplateDirectiveFact {
+      name: "bind".into(),
+      raw_name: raw.into(),
+      argument: argument.map(str::to_string),
+      expression: Some(expression.into()),
+      modifiers: modifiers.iter().map(|modifier| (*modifier).to_string()).collect(),
+      span: SourceSpan { offset, length: raw.len(), line: 1, column: offset.saturating_add(1) },
+    }
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "unit test asserts a reconstructed rewrite exists")]
+  fn shorthand_sync_rewrites_to_v_model() {
+    let source = r#"<Comp :title.sync="title" />"#;
+    let directive = bind_sync(source, ":", Some("title"), "title", &["sync"]);
+    let Some((range, replacement)) = quoted_sync_bind_to_v_model(source, &directive) else {
+      panic!("quoted :title.sync must rewrite");
+    };
+    let replaced = source.get(range.offset..range.offset.saturating_add(range.length));
+    assert_eq!(replaced, Some(r#":title.sync="title""#));
+    assert_eq!(replacement, r#"v-model:title="title""#);
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "unit test asserts a reconstructed rewrite exists")]
+  fn v_bind_sync_rewrites_to_v_model() {
+    let source = r#"<Comp v-bind:open.sync="open" />"#;
+    let directive = bind_sync(source, "v-bind", Some("open"), "open", &["sync"]);
+    let Some((range, replacement)) = quoted_sync_bind_to_v_model(source, &directive) else {
+      panic!("quoted v-bind:open.sync must rewrite");
+    };
+    let replaced = source.get(range.offset..range.offset.saturating_add(range.length));
+    assert_eq!(replaced, Some(r#"v-bind:open.sync="open""#));
+    assert_eq!(replacement, r#"v-model:open="open""#);
+  }
+
+  #[test]
+  fn unquoted_sync_stays_incomplete() {
+    let source = "<Comp :title.sync=title />";
+    let directive = bind_sync(source, ":", Some("title"), "title", &["sync"]);
+    assert!(quoted_sync_bind_to_v_model(source, &directive).is_none());
+  }
+
+  #[test]
+  fn object_sync_stays_incomplete() {
+    let source = r#"<Comp v-bind.sync="state" />"#;
+    let directive = bind_sync(source, "v-bind", None, "state", &["sync"]);
+    assert!(quoted_sync_bind_to_v_model(source, &directive).is_none());
+  }
+
+  #[test]
+  fn extra_modifier_stays_incomplete() {
+    let source = r#"<Comp :title.sync.foo="title" />"#;
+    let directive = bind_sync(source, ":", Some("title"), "title", &["sync", "foo"]);
+    assert!(quoted_sync_bind_to_v_model(source, &directive).is_none());
+  }
+
+  #[test]
+  fn dynamic_argument_stays_incomplete() {
+    let source = r#"<Comp :[name].sync="title" />"#;
+    let directive = bind_sync(source, ":", Some("name"), "title", &["sync"]);
+    assert!(quoted_sync_bind_to_v_model(source, &directive).is_none());
   }
 }

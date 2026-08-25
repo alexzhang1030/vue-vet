@@ -701,6 +701,62 @@ fn path_normalization_is_platform_independent() {
 }
 
 #[test]
+fn no_deprecated_v_bind_sync_fixtures_match_exact_diagnostics() {
+  for (path, source, expected) in [
+    (
+      "fixtures/rules/no-deprecated-v-bind-sync/invalid/basic.vue",
+      include_str!("../../../fixtures/rules/no-deprecated-v-bind-sync/invalid/basic.vue"),
+      include_str!("../../../fixtures/snapshots/no-deprecated-v-bind-sync/basic.json"),
+    ),
+    (
+      "fixtures/rules/no-deprecated-v-bind-sync/invalid/v-bind.vue",
+      include_str!("../../../fixtures/rules/no-deprecated-v-bind-sync/invalid/v-bind.vue"),
+      include_str!("../../../fixtures/snapshots/no-deprecated-v-bind-sync/v-bind.json"),
+    ),
+    (
+      "fixtures/rules/no-deprecated-v-bind-sync/invalid/unquoted.vue",
+      include_str!("../../../fixtures/rules/no-deprecated-v-bind-sync/invalid/unquoted.vue"),
+      include_str!("../../../fixtures/snapshots/no-deprecated-v-bind-sync/unquoted.json"),
+    ),
+    (
+      "fixtures/rules/no-deprecated-v-bind-sync/invalid/object.vue",
+      include_str!("../../../fixtures/rules/no-deprecated-v-bind-sync/invalid/object.vue"),
+      include_str!("../../../fixtures/snapshots/no-deprecated-v-bind-sync/object.json"),
+    ),
+    (
+      "fixtures/rules/no-deprecated-v-bind-sync/invalid/dynamic-arg.vue",
+      include_str!("../../../fixtures/rules/no-deprecated-v-bind-sync/invalid/dynamic-arg.vue"),
+      include_str!("../../../fixtures/snapshots/no-deprecated-v-bind-sync/dynamic-arg.json"),
+    ),
+    (
+      "fixtures/rules/no-deprecated-v-bind-sync/invalid/extra-modifier.vue",
+      include_str!("../../../fixtures/rules/no-deprecated-v-bind-sync/invalid/extra-modifier.vue"),
+      include_str!("../../../fixtures/snapshots/no-deprecated-v-bind-sync/extra-modifier.json"),
+    ),
+    (
+      "fixtures/rules/no-deprecated-v-bind-sync/invalid/unicode.vue",
+      include_str!("../../../fixtures/rules/no-deprecated-v-bind-sync/invalid/unicode.vue"),
+      include_str!("../../../fixtures/snapshots/no-deprecated-v-bind-sync/unicode.json"),
+    ),
+  ] {
+    assert_diagnostics(path, source, expected);
+  }
+  let empty = "[]";
+  for (path, source) in [
+    (
+      "fixtures/rules/no-deprecated-v-bind-sync/valid/safe.vue",
+      include_str!("../../../fixtures/rules/no-deprecated-v-bind-sync/valid/safe.vue"),
+    ),
+    (
+      "fixtures/rules/no-deprecated-v-bind-sync/valid/plain-bind.vue",
+      include_str!("../../../fixtures/rules/no-deprecated-v-bind-sync/valid/plain-bind.vue"),
+    ),
+  ] {
+    assert_diagnostics(path, source, empty);
+  }
+}
+
+#[test]
 fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
   for (path, source, expected) in [
     (

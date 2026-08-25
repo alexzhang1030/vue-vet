@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/no-deprecated-v-bind-sync",
+    "category": "correctness",
+    "severity": "error",
+    "confidence": "high",
+    "documentation": "rules/correctness/no-deprecated-v-bind-sync",
+    "message": "`.sync` is deprecated; use `v-model:prop` instead",
+    "help": "Replace `v-bind:prop.sync` with `v-model:prop`.",
+    "file": "fixtures/rules/no-deprecated-v-bind-sync/invalid/unquoted.vue",
+    "span": {
+      "offset": 19,
+      "length": 1,
+      "line": 2,
+      "column": 9
+    }
+  }
+]

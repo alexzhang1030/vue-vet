@@ -74,6 +74,11 @@ and `v-bind:aria-hidden="true"` on focusable elements when the full
 name-plus-value extent reconstructs from source. Unquoted `aria-hidden=true`
 stays diagnostic-only.
 
+A third producer rewrites quoted `:arg.sync="expr"` and `v-bind:arg.sync="expr"`
+to `v-model:arg="expr"` when the argument is a static prop name and `.sync` is
+the only modifier. Object `v-bind.sync`, unquoted values, extra modifiers, and
+dynamic `:[name].sync` stay diagnostic-only.
+
 ## Current phase limit
 
 This slice is transactional for one file: content is written to a temporary
