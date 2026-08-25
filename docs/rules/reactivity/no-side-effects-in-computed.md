@@ -19,7 +19,8 @@ const c = computed(() => { b.value = a.value; return a.value })
 ```
 
 Same-file zero-arg helpers count too — `computed(() => load())` where `load`
-writes a ref is the same side effect as an inlined assignment.
+writes a ref is the same side effect as an inlined assignment. A local function
+passed by reference (`computed(load)`) is the same getter body.
 
 ## Good
 
@@ -43,5 +44,6 @@ Move side effects out of the computed getter.
 ## Fixtures
 
 - Invalid: `fixtures/rules/no-side-effects-in-computed/invalid/`
-  (`basic.vue` inlined write; `helper-write.vue` helper-wrapped write)
+  (`basic.vue` inlined write; `helper-write.vue` helper-wrapped write;
+  `ident-getter-write.vue` `computed(load)` write)
 - Valid: `fixtures/rules/no-side-effects-in-computed/valid/`

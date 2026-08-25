@@ -14,9 +14,11 @@ use super::{
   ComposableShapeMap, DEEP_WATCH_PROPERTY,
   bindings::AmbientCallHandles,
   context::{is_sync_hof_callback_param, scope_context},
+  expr,
   follow::{FollowOutside, follow_local_callees},
   kinds::{reference_resolves_to_binding, resolved_vue_callee, source_span},
   reads::{classify_scope_reads, collect_scope_reads},
+  writes::local_getter_parts,
 };
 
 /// Soft evidence inside a scope: reactivity-shaped accesses we could not classify.
@@ -276,6 +278,18 @@ pub(super) fn collect_uncertain_watch_expression(
   script_offset: usize,
   names: &mut BTreeSet<String>,
 ) {
+  let expression = expr::peel_parens(expression);
+  if let Some((scope_id, _)) = local_getter_parts(semantic, expression) {
+    names.extend(collect_uncertain_scope_accesses(
+      semantic,
+      scope_id,
+      reactive_bindings,
+      composable_instances,
+      imported_bindings,
+      script_offset,
+    ));
+    return;
+  }
   match expression {
     Expression::ArrowFunctionExpression(callback) => {
       names.extend(collect_uncertain_scope_accesses(
@@ -409,14 +423,18 @@ pub(super) fn collect_watch_source_reads(
             ));
           }
           other => {
-            collect_expression_source_reads(
-              ctx.semantic,
-              other,
-              ctx.reactive_bindings,
-              ctx.sfc_source,
-              ctx.script_offset,
-              &mut reads,
-            );
+            if let Some((scope_id, body)) = local_getter_parts(ctx.semantic, other) {
+              reads.extend(collect_watch_getter_reads(&ctx, scope_id, body));
+            } else {
+              collect_expression_source_reads(
+                ctx.semantic,
+                other,
+                ctx.reactive_bindings,
+                ctx.sfc_source,
+                ctx.script_offset,
+                &mut reads,
+              );
+            }
           }
         }
       }
@@ -438,6 +456,9 @@ pub(super) fn collect_watch_source_reads(
             );
           }
           other => {
+            if let Some((scope_id, body)) = local_getter_parts(ctx.semantic, other) {
+              return collect_watch_getter_reads(&ctx, scope_id, body);
+            }
             collect_expression_source_reads(
               ctx.semantic,
               other,

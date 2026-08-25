@@ -263,7 +263,7 @@ trace/bindings.rs  reactive binding collectors (typed / props / aliases / route)
 trace/local.rs     same-file composable usage
 trace/context.rs   scope_context + HOF / toValue / deferred
 trace/reads.rs     scope reads + classify + guards
-trace/writes.rs    scope writes + assignment_only
+trace/writes.rs    scope writes + assignment_only + identifier getters
 trace/uncertain.rs uncertain accesses + watch sources
 trace/scopes.rs    tracking / render scope assembly
 trace/inject.rs    provide/inject sites + unique-key resolve

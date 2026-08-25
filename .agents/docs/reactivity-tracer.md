@@ -65,15 +65,17 @@ complete.
 
 ## Current baseline
 
-Contract version: **`REACTIVITY_GRAPH_VERSION = 26`**.
+Contract version: **`REACTIVITY_GRAPH_VERSION = 27`**.
 
-v26 extends v23/v25 same-file zero-arg helper follow to **`writes`** and
-**`assignment_only`**: `computed(() => load())` records reactive writes
-inside `load`, and `watchEffect(() => { assign() })` is assignment-only
-when `assign` itself is. Helpers called only from `then()` / `nextTick`
-stay quiet (no invented computed side-effects). Prior: v25 helper-follow
-`uncertain_accesses`; v24 named API bag ambient-on-call; v23 hard-read
-helper follow; v22…v7.
+v27 treats a same-file local function **reference** as the tracking body:
+`computed(load)`, `watchEffect(load)`, `watch(load)`, and
+`computed({ get: load })` collect the same reads / uncertain / writes /
+`assignment_only` as `computed(() => load())`. Imports, methods, and
+async/generator stay quiet. Unused parameters on the function are allowed
+(Vue invokes the getter with no args) — that is not the helper-follow
+`load(1)` quiet path. Prior: v26 helper-follow writes / `assignment_only`;
+v25 helper-follow `uncertain_accesses`; v24 named API bag ambient-on-call;
+v23 hard-read helper follow; v22…v7.
 
 v24 models **named API bag ambient-on-call methods** via plugin-supplied
 `NamedApiBag` rows (not hardcoded in the engine). Default catalog from
@@ -96,12 +98,12 @@ See [vue_vet_plugins README](../../crates/vue_vet_plugins/README.md) and
 | Axis | Status | Covered (in-scope) | Remaining |
 | --- | --- | --- | --- |
 | A1 Bindings | complete | Vue primitives, aliases, `#imports`, bare Nuxt/auto-import allowlist, `defineModel`, **Vue Macros `defineModels` destructure → ModelRef locals**, `defineProps` (whole object **and Vue 3.5+ object-destructure locals → Reactive**), `withDefaults(defineProps())` same, `storeToRefs`, `useRoute`/`useRouter`, `unref`/`toValue`, module seeds, **factory call returns** (`Factory(Ref|Reactive)` from body / `.d.ts`), **`.d.ts` object-bag returns** (`{ field: Ref }` / same-file interface·type alias → destructure seeds), **typed `Ref`/`ComputedRef` parameters & declarators** (scope classification; nested locals span-resolved), **`useI18n` ambient + synthetic composer when only translators destructured** | whole-object `const models = defineModels()` without destructure stays quiet; pre-3.5 props destructure still flagged by `no-nonreactive-props-destructure` |
-| A2 Scopes | complete | effects, computed getter/`{ get, set }`, watch sources + callback outside, effectScope `.run` + provenance, dispose, **Render** (options `render` / `setup`→render / functional export / same-file `defineComponent` factory+alias+one-hop forwarder); **bounded same-file zero-arg helper follow** into scope reads, **`uncertain_accesses`**, **writes**, and **`assignment_only`** | cross-file / async / args / method callees stay quiet |
+| A2 Scopes | complete | effects, computed getter/`{ get, set }`, **identifier getters** (`computed(load)` / `watchEffect(load)` / `watch(load)` / `{ get: load }`), watch sources + callback outside, effectScope `.run` + provenance, dispose, **Render** (options `render` / `setup`→render / functional export / same-file `defineComponent` factory+alias+one-hop forwarder); **bounded same-file zero-arg helper follow** into scope reads, **`uncertain_accesses`**, **writes**, and **`assignment_only`** | cross-file / async / args / method callees stay quiet |
 | A3 Reads | complete | `.value` / members / bag.field / sync Array·String·`Array.from`·`JSON.parse` HOF / watch ref `.value` / `unref`·`toValue` / bare `watch(reactive)` deep root `*` / **reads inside followed local helpers** / **uncertain accesses inside followed local helpers** / **writes / assignment-only inside followed local helpers** / **`useI18n` translator ambient deps** | — |
 | A4 Conditions | complete | if / early-exit / ternary / short-circuit / switch roles; **all-path same `(binding, property)` on both ternary/if-else arms → no BranchTest** (under-approx hygiene: do not invent Conditional); pure checks in `trace/branch_hygiene.rs` | further control-flow depth is out of charter |
 | A5 Boundaries | complete | after-await; pause/enable/resetTracking windows; nested `then`/`nextTick` outside; watch callback outside | — |
 | A6 Modules | complete | composable bags + Factory + ValueBag + ComponentFactory + ExternalImport + `#nuxt-imports` seeds; **export lattice** (below); **`return local = call()` → ForwardReturn**; bare auto-import callee resolve; pending empty-path composable fields | whole-object `v-bind` quiet; `#imports` virtual without body quiet |
-| A7 Contract | complete | **v26** helper-follow writes / `assignment_only`; v25 helper-follow `uncertain_accesses`; v24 useI18n translator ambient; v23 local zero-arg helper follow; v22…v7 as before; deterministic sort | — |
+| A7 Contract | complete | **v27** identifier getters; v26 helper-follow writes / `assignment_only`; v25 helper-follow `uncertain_accesses`; v24 useI18n translator ambient; v23 local zero-arg helper follow; v22…v7 as before; deterministic sort | — |
 | Evidence | complete | Runtime oracle (≥99% recall on committed cases); deep-watch `*`; exhaustive local reads; key SFC E2E | — (prop flow is static unit/project; not an `onTrack` pair) |
 
 ### ExportState lattice (A6 linking)
@@ -176,12 +178,12 @@ Executable merge/seedable/name-resolve/pending/publish/refine checks live in
 | Axis | Checklist (all required for `complete`) |
 | --- | --- |
 | A1 | ✅ Allowlist primitives + macros + pinia/router + auto-import + module seeds + factory call returns; local lookalikes quiet; unit/oracle cover |
-| A2 | ✅ effect / computed / watch / effectScope.run(+provenance) / dispose / Render scopes; no invented effectScope; **same-file zero-arg helper follow (depth≤2) for hard reads, uncertain, writes, and assignment_only** |
+| A2 | ✅ effect / computed / watch / effectScope.run(+provenance) / dispose / Render scopes; no invented effectScope; **same-file identifier getters** (`computed(load)` and watch/effect equivalents); **same-file zero-arg helper follow (depth≤2) for hard reads, uncertain, writes, and assignment_only** |
 | A3 | ✅ Member/HOF/unref·toValue reads; watch ref `.value`; **deep root `*` for bare `watch(reactive)`** (not per-key invention); helper-body ambient reads, uncertain, **and writes**; **useI18n `t`/`d`/`n`/`rt`/`te` ambient** |
 | A4 | ✅ Guard roles + all-path same-identity branch reads (`branch_hygiene`); no further CF depth for recall |
 | A5 | ✅ After-await classification; pause/enable/resetTracking windows; nested callback outside-tracking; watch callback outside |
 | A6 | ✅ Composable/instance/dual-script/provide-inject; Factory/Composable/ValueBag/ComponentFactory; export lattice (above); bare `#nuxt-imports` seeds + ForwardReturn resolve; external summaries; static `:prop` edges |
-| A7 | ✅ Versioned graph (**v26**); deterministic sort; `property`/`to_path`; **`{module}:{name}@{offset}` `to_id`** |
+| A7 | ✅ Versioned graph (**v27**); deterministic sort; `property`/`to_path`; **`{module}:{name}@{offset}` `to_id`** |
 | Evidence | ✅ `just oracle` ≥99% recall on committed cases; exhaustive local reads; key SFC E2E |
 
 ### In-scope remaining (this epic)
@@ -227,6 +229,15 @@ skip it). `is_assignment_only_followed` walks statements with the same
 `TemplateExpressionFact { surface: "style" }` so unused-computed does not
 FP; style-only ident edits refresh those expressions without adding style
 to `SfcBlockRevisions`.
+
+**2026-08-25 contract refinement (v27):** helper follow covered
+`computed(() => load())` but `callback_parts` only matched inline
+arrow/function/`{ get }`. Vue accepts a function reference as the getter
+(`computed(load)`, `watchEffect(load)`, `watch(load)`, `{ get: load }`) and
+tracks that body. Those forms created **no scope**. `local_getter_parts`
+resolves a peeled identifier through `local_function_id` (skip
+async/generator/import/method). Parameters do not disqualify — Vue calls
+the getter with no args. Oracle: `computed-fn-ref`, `watch-source-fn-ref`.
 
 **Do not** auto-continue pure extracts, Elk/corpus KPI chasing, or a11y as
 tracer A0–A7. Next tracer work needs **evidence** first:
@@ -410,6 +421,7 @@ growing prose ledger.
 | 2026-08-10 | Named API bag ambient-on-call | Engine consumes plugin-supplied `NamedApiBag` rows (ambient-on-call methods); graph **v24**; Elk PublishWidget without-dep FP |
 | 2026-08-21 | Helper-follow uncertain | `uncertain_accesses` follows the same zero-arg helpers as hard reads; `then()`-only stays quiet; graph **v25**; dual-path with inline `(maybe)` |
 | 2026-08-21 | Helper-follow writes | `writes` + `assignment_only` follow the same zero-arg helpers; `then()`-only stays quiet; graph **v26**; dual-path with inlined assignment / `prefer-computed` |
+| 2026-08-25 | Identifier getters | `computed(load)` / `watchEffect(load)` / `watch(load)` / `{ get: load }` use the local function as the tracking body; import/method/async quiet; graph **v27**; dual-path with `computed(() => load())` |
 | 2026-08-21 | Helper-follow walk unify | Reads / uncertain / writes share `follow_local_callees`; drop unused `local_function_id` name arg. No graph version bump (same facts). |
 | 2026-08-21 | CSS `v-bind` join | `<style>` `v-bind(ident)` / quoted ident → `TemplateExpressionFact.surface = "style"`; style-only ident edits refresh without adding style to revisions |
 | 2026-08-10 | Tracer plugins crate | Ecosystem hardcode (Nuxt data bags, vue-i18n `useI18n`) lives in published `vue_vet_plugins`; engine has no Nuxt/i18n names; Oxc/project/session **auto-load** defaults; crates.io order core→reactivity→plugins; docs: crate README + install library table |

@@ -130,7 +130,7 @@ pub(super) fn collect_tracking_scopes(
       && let Some(receiver) = member.object.get_identifier_reference()
       && effect_scope_locals.contains(receiver.name.as_str())
       && let Some(argument) = call.arguments.first()
-      && let Some((scope_id, body)) = callback_parts(argument)
+      && let Some((scope_id, body)) = callback_parts(semantic, argument)
     {
       let raw_reads = collect_scope_reads(
         semantic,
@@ -188,9 +188,9 @@ pub(super) fn collect_tracking_scopes(
         };
         // `computed` accepts a getter function or `{ get, set }` object form.
         let Some((scope_id, body)) = (if scope_kind == TrackingScopeKind::Computed {
-          tracking_callback_parts(argument)
+          tracking_callback_parts(semantic, argument)
         } else {
-          callback_parts(argument)
+          callback_parts(semantic, argument)
         }) else {
           continue;
         };
@@ -243,7 +243,7 @@ pub(super) fn collect_tracking_scopes(
       TrackingScopeKind::EffectScope => {
         // effectScope(fn) or const s = effectScope(); s.run(fn)
         if let Some(argument) = call.arguments.first()
-          && let Some((scope_id, body)) = callback_parts(argument)
+          && let Some((scope_id, body)) = callback_parts(semantic, argument)
         {
           let raw_reads = collect_scope_reads(
             semantic,
@@ -316,7 +316,7 @@ pub(super) fn collect_tracking_scopes(
         });
 
         if let Some(callback_argument) = call.arguments.get(1)
-          && let Some((scope_id, body)) = callback_parts(callback_argument)
+          && let Some((scope_id, body)) = callback_parts(semantic, callback_argument)
         {
           let raw_reads = collect_scope_reads(
             semantic,

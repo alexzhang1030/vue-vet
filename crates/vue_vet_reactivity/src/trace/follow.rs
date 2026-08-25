@@ -1,7 +1,9 @@
 //! Same-file zero-arg helper follow (reads / uncertain / writes / `assignment_only`).
 //!
 //! One callee set and one depth cap so tracking-scope collectors cannot disagree
-//! on which local helpers are in the walk.
+//! on which local helpers are in the walk. Identifier getters (`computed(load)`)
+//! are scope discovery in [`super::writes::local_getter_parts`], not a second
+//! follow walk.
 
 use std::collections::{BTreeMap, BTreeSet};
 

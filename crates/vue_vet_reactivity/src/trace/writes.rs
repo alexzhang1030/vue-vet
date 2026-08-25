@@ -20,6 +20,7 @@ use super::{
 };
 
 pub(super) fn callback_parts<'a>(
+  semantic: &'a oxc_semantic::Semantic<'a>,
   argument: &'a Argument<'a>,
 ) -> Option<(NodeId, Option<&'a FunctionBody<'a>>)> {
   match argument {
@@ -29,15 +30,16 @@ pub(super) fn callback_parts<'a>(
     Argument::FunctionExpression(callback) => {
       Some((callback.node_id.get(), callback.body.as_deref()))
     }
-    _ => None,
+    other => other.as_expression().and_then(|expression| local_getter_parts(semantic, expression)),
   }
 }
 
 /// Function/arrow body for a tracking scope, including `computed({ get, set })`.
 pub(super) fn tracking_callback_parts<'a>(
+  semantic: &'a oxc_semantic::Semantic<'a>,
   argument: &'a Argument<'a>,
 ) -> Option<(NodeId, Option<&'a FunctionBody<'a>>)> {
-  if let Some(parts) = callback_parts(argument) {
+  if let Some(parts) = callback_parts(semantic, argument) {
     return Some(parts);
   }
   let expression = argument.as_expression()?;
@@ -48,7 +50,7 @@ pub(super) fn tracking_callback_parts<'a>(
     let ObjectPropertyKind::ObjectProperty(property) = property else {
       continue;
     };
-    // Prefer explicit getters; also accept `get: () => …` / `get() { … }`.
+    // Prefer explicit getters; also accept `get: () => …` / `get() { … }` / `get: load`.
     let is_get = property.kind == PropertyKind::Get || property_key_is_name(&property.key, "get");
     if !is_get {
       continue;
@@ -60,10 +62,25 @@ pub(super) fn tracking_callback_parts<'a>(
       Expression::ArrowFunctionExpression(callback) => {
         Some((callback.node_id.get(), Some(&*callback.body)))
       }
-      _ => None,
+      other => local_getter_parts(semantic, other),
     };
   }
   None
+}
+
+/// Same-file `function f` / `const f = () =>` passed by reference to a Vue
+/// tracking API (`computed(load)`, `watchEffect(load)`, `watch(load)`,
+/// `computed({ get: load })`). Imports, methods, and async/generator stay quiet.
+pub(super) fn local_getter_parts<'a>(
+  semantic: &'a oxc_semantic::Semantic<'a>,
+  expression: &'a Expression<'a>,
+) -> Option<(NodeId, Option<&'a FunctionBody<'a>>)> {
+  let identifier = expr::peel_parens(expression).get_identifier_reference()?;
+  let function_id = local_function_id(semantic, identifier)?;
+  if is_async_or_generator_function(semantic, function_id) {
+    return None;
+  }
+  Some((function_id, function_body_of(semantic, function_id)))
 }
 
 pub(super) fn property_key_is_name(key: &PropertyKey<'_>, name: &str) -> bool {

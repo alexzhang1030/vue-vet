@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/prefer-computed",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/prefer-computed",
+    "message": "`watchEffect` only assigns `fullName` from other reactive reads",
+    "help": "Use `computed(() => …)` for pure derived state instead of syncing refs in `watchEffect`.",
+    "file": "fixtures/rules/prefer-computed/invalid/ident-getter-assign.vue",
+    "span": {
+      "offset": 218,
+      "length": 19,
+      "line": 12,
+      "column": 1
+    }
+  }
+]

@@ -171,6 +171,7 @@ fn oracle_cases_cover_known_hard_facts() {
   let ids = load_cases().into_iter().map(|case| case.id).collect::<BTreeSet<_>>();
   for required in [
     "baseline-ref-computed",
+    "computed-fn-ref",
     "computed-object-get",
     "pause-tracking-window",
     "reset-tracking-window",
@@ -201,6 +202,7 @@ fn oracle_cases_cover_known_hard_facts() {
     "watch-effect-ref",
     "watch-source-array",
     "watch-source-array-getters",
+    "watch-source-fn-ref",
     "watch-source-getter",
     "watch-source-ref",
   ] {
