@@ -18,6 +18,8 @@ completeness number — not a 280-case syntax matrix.
 | --- | --- |
 | `baseline-ref-computed` | happy path ref → computed |
 | `computed-object-get` | `computed({ get, set })` tracks getter reads |
+| `computed-fn-ref` | `computed(load)` tracks the referenced getter body |
+| `watch-source-fn-ref` | `watch(load)` treats a local function as a source getter |
 | `pause-tracking-window` | `pauseTracking`/`enableTracking` window drops mid-window reads |
 | `reset-tracking-window` | `pauseTracking`/`resetTracking` window drops mid-window reads |
 | `props-reactive-object` | `props.count` style reactive object (defineProps stand-in) |

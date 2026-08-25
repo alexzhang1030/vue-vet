@@ -556,9 +556,14 @@ The same helper follow records **writes** and **`assignment_only`** (graph v26):
 `computed(() => load())` where `load` assigns a ref is a computed side effect;
 `watchEffect(() => { assign() })` where `assign` is assignment-only is
 `prefer-computed`. `then()`-only helpers must not invent those facts either.
-New dual-path collectors must go through `follow_local_callees` (or the same
-`local_function_id` + async skip for statement walks) — do not add a fourth
-callee enumerator. Parens / TypeScript wrappers peel in `trace/expr.rs`
+A local function **reference** is the tracking body (graph v27):
+`computed(load)` / `watchEffect(load)` / `watch(load)` / `computed({ get: load })`
+must agree with the `() => load()` form. Resolve through `local_getter_parts`
+(`local_function_id` + async/generator skip). Do not treat `load(1)` (args) or
+an imported/method callee as a getter. Unused parameters on `function load(_x)`
+are allowed — Vue invokes the getter with no args. New dual-path collectors
+must go through `follow_local_callees` (or the same `local_function_id` + async
+skip for statement walks) — do not add a fourth callee enumerator. Parens / TypeScript wrappers peel in `trace/expr.rs`
 (`peel_parens`); do not add another copy in callback or render adapters.
 Explain-scope module suffix matching is `vue_vet_reactivity::module_id_matches`
 — session must not reimplement path tails. Sync Array/String HOF callback

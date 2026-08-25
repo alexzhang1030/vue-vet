@@ -765,9 +765,23 @@ fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
       include_str!("../../../fixtures/snapshots/no-side-effects-in-computed/helper-write.json"),
     ),
     (
+      "fixtures/rules/no-side-effects-in-computed/invalid/ident-getter-write.vue",
+      include_str!(
+        "../../../fixtures/rules/no-side-effects-in-computed/invalid/ident-getter-write.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-side-effects-in-computed/ident-getter-write.json"
+      ),
+    ),
+    (
       "fixtures/rules/prefer-computed/invalid/helper-assign.vue",
       include_str!("../../../fixtures/rules/prefer-computed/invalid/helper-assign.vue"),
       include_str!("../../../fixtures/snapshots/prefer-computed/helper-assign.json"),
+    ),
+    (
+      "fixtures/rules/prefer-computed/invalid/ident-getter-assign.vue",
+      include_str!("../../../fixtures/rules/prefer-computed/invalid/ident-getter-assign.vue"),
+      include_str!("../../../fixtures/snapshots/prefer-computed/ident-getter-assign.json"),
     ),
     (
       "fixtures/rules/no-unused-computed-binding/invalid/unused.vue",

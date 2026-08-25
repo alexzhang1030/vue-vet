@@ -1,0 +1,10 @@
+{
+  "id": "watch-source-fn-ref",
+  "source": "import { ref, watch } from 'vue'\nconst value = ref(0)\nfunction load() { return value.value }\nwatch(load, () => {})\n",
+  "runtime_deps": [
+    {
+      "binding": "value",
+      "key": "value"
+    }
+  ]
+}
