@@ -24,7 +24,7 @@ Crate ownership (read before editing that stage):
 | Stage | Crate | Notes |
 | --- | --- | --- |
 | Stable contracts | `vue_vet_core` | facts / diagnostics / `Rule` — no Oxc/Vize types |
-| Adapters | `vue_vet_vize`, `vue_vet_oxc` | short-lived AST → facts only |
+| Adapters | `vue_vet_vize`, `vue_vet_oxc` | short-lived AST → facts only; SFC parse is `vize_croquis::sfc`, never `vize_atelier_sfc` |
 | Project graph | `vue_vet_project` | see `vue_vet_project` pipeline below |
 | Cross-file seeds | `vue_vet_reactivity` | `trace` / `summary` / `link`; `ModuleSummary` boundary; under-approx |
 | File rules | `vue_vet_rules`, `vue_vet_practice` | consume facts; practice off score |
@@ -288,8 +288,8 @@ vue_vet_core
   facts/        template + script + reactivity-graph IR (no parser AST)
 
 vue_vet_vize
-  lib.rs        analyze_sfc_* + block reuse
-  template.rs   Vize template walk → TemplateFacts
+  lib.rs        analyze_sfc_* + block reuse (`vize_croquis::sfc::parse_sfc`)
+  template.rs   `vize_atelier_core::parse` walk → TemplateFacts
   style.rs      <style> v-bind(ident) expressions
   span.rs       analysis-scoped line index
   tests/        analyze + a11y unit tests

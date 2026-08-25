@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use thiserror::Error;
-use vize_atelier_sfc::{SfcDescriptor, SfcParseOptions, parse_sfc};
+use vize_croquis::sfc::{SfcDescriptor, SfcParseOptions, parse_sfc};
 use vue_vet_core::{
   ScriptBlockFacts, ScriptFacts, ScriptKind, SfcFacts, TemplateFacts, content_digest,
 };

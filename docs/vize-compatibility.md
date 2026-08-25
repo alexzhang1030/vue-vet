@@ -1,12 +1,22 @@
 # Vize compatibility baseline
 
-Vue Vet currently pins `vize_atelier_sfc` and `vize_atelier_core` to `0.355.0`.
+Vue Vet currently pins `vize_croquis` and `vize_atelier_core` to `0.387.0`.
 This release requires Rust 1.95 or newer and pins Oxc `0.142.0`; Vue Vet pins
 Rust 1.98.0 for the repository baseline. Do not jump Oxc ahead of Vize.
 
+Do not depend on `vize_atelier_sfc`. That crate is the full SFC compiler and
+still default-enables LightningCSS plus DOM / SSR / Vapor. The accepted
+parse-only path is `vize_croquis::sfc` ([ubugeeei-prod/vize#4746](https://github.com/ubugeeei-prod/vize/pull/4746),
+closes [#4565](https://github.com/ubugeeei-prod/vize/issues/4565)). Do not
+revive the rejected `compile` feature on `vize_atelier_sfc`
+([#4566](https://github.com/ubugeeei-prod/vize/pull/4566)).
+
 ## API assumptions
 
-- `parse_sfc` returns an `SfcDescriptor` or an `SfcError`.
+- SFC parse is `vize_croquis::sfc::parse_sfc`. It returns an `SfcDescriptor`
+  or an `SfcError`. Canonical rustdoc / `type_name` paths live under
+  `vize_croquis::sfc`; do not import the same types through
+  `vize_atelier_sfc` re-exports.
 - `SfcError` exposes a `message` (`vize_carton::String` / `CompactString`) but
   does not implement `Display`.
 - SFC block locations are byte offsets into the original source
@@ -23,10 +33,48 @@ Rust 1.98.0 for the repository baseline. Do not jump Oxc ahead of Vize.
   directive name for `v-html` is `html`.
 - `SfcDescriptor.css_vars` lists CSS `v-bind` expressions without spans. Vue
   Vet keeps its own span-aware under-approx scanner for join.
-- `vize_atelier_sfc` is pinned with `default-features = false` so LightningCSS
-  (`native`) is not linked into the shipped CLI. `parse_sfc` does not need it.
 - Vize types stay inside `vue_vet_vize`; downstream crates consume Vue Vet
   diagnostics and facts.
+
+## 0.355 → 0.387 adapter notes (2026-08-25)
+
+Reviewed against `vize_croquis` / `vize_atelier_core` 0.387.0 and Oxc 0.142.0.
+Adapter call sites did not need product-contract edits:
+`parse_sfc`, `SfcError.message`, `BlockLocation.start` / `end`, and
+`vize_atelier_core::parse` still match the 0.355 usage. The change is the
+crate boundary and the lockfile graph.
+
+- Consume [ubugeeei-prod/vize#4746](https://github.com/ubugeeei-prod/vize/pull/4746):
+  `use vize_croquis::sfc::{SfcDescriptor, SfcParseOptions, parse_sfc}`.
+  First published train with that facade is `v0.384.0` (2026-08-24);
+  Vue Vet pins the latest published `0.387.0`.
+- DashMap: [ubugeeei-prod/vize#4567](https://github.com/ubugeeei-prod/vize/pull/4567)
+  moved Vize's exact pin from `dashmap =6.1.0` to `=6.2.1`. The lock now
+  records `6.2.1` from Croquis. Leftover `dashmap 5.5.3` is still from
+  `tower-lsp`, not Vize.
+- Dropped from the Vue Vet lock: `vize_atelier_sfc`, `vize_atelier_dom`,
+  `vize_atelier_ssr`, `vize_atelier_vapor`, LightningCSS, and
+  `parcel_selectors`. Those were compiler / CSS-engine crates Vue Vet never
+  called. `default-features = false` on `vize_atelier_sfc` already dropped
+  LightningCSS in 0.355; #4746 is what drops the remaining compile backends
+  without a `compile` feature.
+- Still in the lock via `vize_atelier_core` (template parse): `oxc_codegen`
+  and `oxc_transformer`. Vize recorded optionalizing those on atelier-core
+  as a follow-up, not part of #4746. Do not `[patch]` them out.
+- `oxc_resolver` stays `11.21.0` (latest 11.24.3). The old dashmap 6.1
+  conflict is gone; this pin is now a resolve-quiet review, not a Vize
+  constraint. Do not jump the resolver in the same change.
+- Oxc stays `0.142.0` (latest 0.147). Jumping the adapter to 0.147 while
+  Vize stays on 0.142 would ship two Oxc graphs.
+- Vize still exact-pins `serde =1.0.228`, `serde_json =1.0.149`, and
+  `compact_str =0.9.0`. Do not `[patch]` those to float patches.
+- Not adopted (available, keep under-approx / ownership): `parse_document`,
+  script `BindingMetadata`, `extract_css_vars` (no spans),
+  `oxc_ecmascript::MayHaveSideEffects`, `oxc_semantic` `cfg` / `oxc_cfg`,
+  croquis `effect_graph`, croquis identifier walkers (vize#4762 / #4765 /
+  #4786). Template free-identifier reads stay Oxc-owned.
+- `CONVENTIONS_VERSION` stays 14. This upgrade does not change resolve-quiet
+  rules.
 
 ## 0.291 → 0.355 adapter notes (2026-08-21)
 

@@ -1,5 +1,5 @@
 //! `<style>` `v-bind(ident)` under-approx → template expression facts.
-use vize_atelier_sfc::SfcDescriptor;
+use vize_croquis::sfc::SfcDescriptor;
 use vue_vet_core::{TemplateExpressionFact, TemplateFacts};
 
 use crate::span::source_span;

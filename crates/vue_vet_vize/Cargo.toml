@@ -17,7 +17,7 @@ workspace = true
 [dependencies]
 thiserror.workspace = true
 vize_atelier_core.workspace = true
-vize_atelier_sfc.workspace = true
+vize_croquis.workspace = true
 vue_vet_core = { path = "../vue_vet_core" }
 vue_vet_oxc = { path = "../vue_vet_oxc" }
 vue_vet_reactivity = { path = "../vue_vet_reactivity" }

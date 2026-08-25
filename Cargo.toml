@@ -39,7 +39,8 @@ oxc_allocator = "=0.142.0"
 oxc_ast = "=0.142.0"
 oxc_ast_visit = "=0.142.0"
 oxc_parser = "=0.142.0"
-# 11.22+ pulls dashmap 6.2.1; vize_croquis 0.355 still pins dashmap =6.1.0.
+# 11.22+ needs dashmap 6.2.1. Vize 0.387 lifted that pin; stay on 11.21 until a
+# dedicated resolver upgrade reviews resolve-quiet behavior.
 oxc_resolver = { version = "=11.21.0", features = ["yarn_pnp"] }
 oxc_semantic = "=0.142.0"
 oxc_span = "=0.142.0"
@@ -52,10 +53,11 @@ sha2 = "0.11"
 thiserror = "2"
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "rt-multi-thread", "sync", "time"] }
 tower-lsp = "0.20"
-# `native` pulls LightningCSS (style compile / minify). Vue Vet only calls
-# `parse_sfc` + template parse; keep CSS join on the span-aware scanner.
-vize_atelier_sfc = { version = "=0.355.0", default-features = false }
-vize_atelier_core = "=0.355.0"
+# Parse-only SFC facade (ubugeeei-prod/vize#4746). Do not depend on
+# `vize_atelier_sfc` — that crate still default-enables LightningCSS / DOM /
+# SSR / Vapor compile. Template AST stays on `vize_atelier_core`.
+vize_croquis = "=0.387.0"
+vize_atelier_core = "=0.387.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

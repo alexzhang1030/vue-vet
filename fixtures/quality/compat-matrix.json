@@ -3,8 +3,8 @@
   "rust_channel": "1.98.0",
   "rust_version_msrv": "1.98",
   "workspace_pins": {
-    "vize_atelier_sfc": "0.355.0",
-    "vize_atelier_core": "0.355.0",
+    "vize_croquis": "0.387.0",
+    "vize_atelier_core": "0.387.0",
     "oxc_parser": "0.142.0",
     "oxc_semantic": "0.142.0",
     "oxc_resolver": "11.21.0"

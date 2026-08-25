@@ -39,15 +39,17 @@ Vize parses Vue SFC structure and is the source of truth for template nodes, dir
 Oxc will parse script blocks and provide scopes, symbols, references, imports, and expression facts. Vue Vet is not initially a complete TypeScript type checker; rules requiring unavailable type certainty must remain out of the default preset or explicitly experimental.
 
 The first adapter is pinned to the Oxc 0.142 family already present in Vize
-0.355's locked dependency graph. It parses each extracted script surface using
+0.387's locked dependency graph. It parses each extracted script surface using
 its declared `lang`, builds semantics with syntax checking, and maps every fact
 span back through the SFC block offset. Direct Oxc types remain private to
-`vue_vet_oxc`. Do not jump Oxc to 0.146 (latest) until Vize moves.
+`vue_vet_oxc`. Do not jump Oxc to 0.147 (latest) until Vize moves.
 
-`vize_atelier_sfc` default-enables `native` (LightningCSS + parcel_selectors)
-for style compile / minify. Vue Vet only calls `parse_sfc` and template parse,
-so the workspace pin sets `default-features = false`. Re-enable `native` only
-if a rule needs LightningCSS AST spans; do not turn it on just to compile.
+SFC parse is `vize_croquis::sfc` (ubugeeei-prod/vize#4746). That facade does
+not pull LightningCSS, parcel_selectors, or the DOM / SSR / Vapor compile
+backends. Template AST stays on `vize_atelier_core`. Do not depend on
+`vize_atelier_sfc` and do not revive the rejected `compile` feature
+(ubugeeei-prod/vize#4566). Re-add a CSS-engine crate only if a rule needs
+LightningCSS AST spans.
 
 ## oxc_resolver owns bundler module resolution
 
@@ -56,9 +58,11 @@ Cross-file import edges in `vue_vet_project` resolve through exact-pinned
 engine. Vue Vet owns classification of resolve results into project edges,
 external nodes, and `unresolved-import` diagnostics. The resolver does not
 execute Vite or Nuxt config files; tsconfig paths and Vite default aliases are
-the configuration surface. Pin note: stay on `11.21.0` until `vize_croquis` loosens its
-`dashmap =6.1.0` requirement (`oxc_resolver 11.22+` needs `dashmap 6.2.1`).
-Vize 0.355 did not lift that pin.
+the configuration surface. Pin note: stay on `11.21.0` until a dedicated
+resolver upgrade reviews resolve-quiet behavior. Vize 0.387 lifted
+`dashmap` to `=6.2.1` (ubugeeei-prod/vize#4567), so the old 6.1.0 conflict
+that blocked `oxc_resolver 11.22+` is gone; that lift is not permission to
+jump the resolver in the same change.
 
 ## Vize and Oxc are the complete analysis stack
 

@@ -4,7 +4,7 @@
 
 Vize is not yet production-stable and publishes frequently. Keep the dependency exact-pinned. An upgrade is a compatibility task: compile, inspect API changes, run golden fixtures and diagnostic snapshots, and record behavior differences. Do not change the version range just to unblock dependency resolution.
 
-Vize 0.355.0 requires Rust 1.95 or newer and pins Oxc 0.142.0. The original
+Vize 0.387.0 requires Rust 1.95 or newer and pins Oxc 0.142.0. The original
 Rust 1.85 pin therefore failed before Vue Vet compiled. Keep the exact Rust
 toolchain aligned with the workspace `rust-version`, regenerate `Cargo.lock`
 only with that toolchain, and validate upgrades through `just roll-rust`.
@@ -125,10 +125,13 @@ Do **not** reinterpret arbitrary failed resolves as external packages.
 Vue Vet still does **not** execute `vite.config.*` / `nuxt.config.*` — aliases
 come from Vite defaults (`@` → `src`, `~` → root), tsconfig paths (including
 `.nuxt/tsconfig.json`), and package `exports`.
-`oxc_resolver` is pinned to `11.21.0` because `11.22+` requires `dashmap 6.2.1`
-while Vize pins `dashmap =6.1.0`. The same Vize 0.355 release exact-pins
-`serde =1.0.228`, `serde_json =1.0.149`, and `compact_str =0.9.0`, so a
-workspace `cargo update` cannot float those patches either. Always
+`oxc_resolver` stays on `11.21.0` until a dedicated upgrade reviews
+resolve-quiet behavior (`11.22+` / latest 11.24.3). Vize 0.387 lifted its
+`dashmap` exact pin to `=6.2.1` (ubugeeei-prod/vize#4567), so the old 6.1.0
+conflict is gone; leftover `dashmap 5.5.3` in the lock is `tower-lsp`. The
+same Vize 0.387 release still exact-pins `serde =1.0.228`,
+`serde_json =1.0.149`, and `compact_str =0.9.0`, so a workspace
+`cargo update` cannot float those patches either. Always
 absolutize/canonicalize the scan root
 before building the resolver: `vue-vet .` must not leave alias targets as `"."`,
 or Nuxt `~/…` imports fail even when the files exist. On Windows, also strip
@@ -221,7 +224,7 @@ module boundary. Conflicting star exports, ambiguous links, unresolved imports,
 dynamic keys, namespace consumers, and unsupported return shapes stay quiet
 instead of inventing certainty. Standalone JavaScript/TypeScript files are wired
 into the project graph today. Template→script join is **not** blocked on Vize:
-`vize_atelier_sfc` already gives absolute block `loc` offsets, and
+`vize_croquis::sfc` already gives absolute block `loc` offsets, and
 `vize_atelier_core` parse trees expose `Interpolation`, directive `exp`/`arg`,
 and `ExpressionNode::loc()`. The historical gap was vue-vet under-extraction
 (elements-only walk, directive-name spans, no interpolation surfaces). Today
