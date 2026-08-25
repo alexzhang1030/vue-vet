@@ -299,6 +299,73 @@ fn safe_fix_leaves_unquoted_aria_hidden_for_manual_review() {
 }
 
 #[test]
+fn safe_fix_rewrites_quoted_v_bind_sync_to_v_model() {
+  let source = "<template>\n  <Comp :title.sync=\"title\" />\n</template>\n";
+  let expected = "<template>\n  <Comp v-model:title=\"title\" />\n</template>\n";
+  let project = TempProject::new("safe-fix-v-bind-sync", source);
+  let source_path = project.source_path();
+  let output =
+    run(&[source_path.to_string_lossy().as_ref(), "--fix-safe", "--format", "json", "--no-cache"]);
+  let rewritten = fs::read_to_string(&source_path);
+  let report: Result<Value, _> = serde_json::from_slice(&output.stdout);
+  let stderr = String::from_utf8_lossy(&output.stderr);
+
+  assert!(output.status.success(), "rewriting quoted .sync should leave a clean file: {stderr}");
+  assert_eq!(
+    rewritten.as_deref().ok(),
+    Some(expected),
+    "quoted :title.sync must become v-model:title"
+  );
+  assert_eq!(
+    report
+      .as_ref()
+      .ok()
+      .and_then(|value| value.get("diagnostics"))
+      .and_then(Value::as_array)
+      .map(Vec::len),
+    Some(0),
+    "stdout must report the post-fix rescan"
+  );
+  assert!(stderr.contains("applied 1 safe edit"), "stderr must summarize the mutation: {stderr}");
+}
+
+#[test]
+fn safe_fix_leaves_unquoted_v_bind_sync_for_manual_review() {
+  let source = "<template>\n  <Comp :title.sync=title />\n</template>\n";
+  let project = TempProject::new("safe-fix-unquoted-v-bind-sync", source);
+  let source_path = project.source_path();
+  let output =
+    run(&[source_path.to_string_lossy().as_ref(), "--fix-safe", "--format", "json", "--no-cache"]);
+  let unchanged = fs::read_to_string(&source_path);
+  let report: Result<Value, _> = serde_json::from_slice(&output.stdout);
+  let stderr = String::from_utf8_lossy(&output.stderr);
+
+  assert_eq!(
+    output.status.code(),
+    Some(1),
+    "an unfixed error must fail the default exit policy: {stderr}"
+  );
+  assert_eq!(
+    unchanged.as_deref().ok(),
+    Some(source),
+    "an unquoted .sync value has no complete replacement span"
+  );
+  assert_eq!(
+    report
+      .as_ref()
+      .ok()
+      .and_then(|value| value.get("diagnostics"))
+      .and_then(Value::as_array)
+      .and_then(|diagnostics| diagnostics.first())
+      .and_then(|diagnostic| diagnostic.get("rule_id"))
+      .and_then(Value::as_str),
+    Some("vue-vet/correctness/no-deprecated-v-bind-sync"),
+    "the unfixed diagnostic must remain visible"
+  );
+  assert!(stderr.contains("applied 0 safe edits"), "no incomplete edit may be applied: {stderr}");
+}
+
+#[test]
 fn safe_fix_rejects_a_multi_file_plan_without_partial_writes() {
   let source = "<template>\n  <input autofocus aria-label=\"Field\">\n</template>\n";
   let project = TempProject::new("safe-fix-multi-file", source);

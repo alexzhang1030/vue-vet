@@ -1,5 +1,3 @@
-<script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
-</script>
-<template>{{ x }}</template>
+<template>
+  <Comp v-model:title="title" />
+</template>

@@ -5,6 +5,8 @@ use vue_vet_core::{
   TemplateElementFact,
 };
 
+use super::template_attr::quoted_sync_bind_to_v_model;
+
 struct MissingExprRule {
   meta: &'static RuleMeta,
   directive: &'static str,
@@ -407,12 +409,22 @@ impl Rule for NoDeprecatedVBindSync {
       if !sync {
         continue;
       }
-      context.report(
-        self.meta(),
-        directive.span.clone(),
-        "`.sync` is deprecated; use `v-model:prop` instead".into(),
-        Some("Replace `v-bind:prop.sync` with `v-model:prop`.".into()),
-      );
+      let message = "`.sync` is deprecated; use `v-model:prop` instead".into();
+      let help = Some("Replace `v-bind:prop.sync` with `v-model:prop`.".into());
+      // Quoted `:arg.sync` / `v-bind:arg.sync` only. Object form, unquoted
+      // values, extra modifiers, and dynamic `:[name]` stay report-only.
+      if let Some((range, replacement)) = quoted_sync_bind_to_v_model(context.source(), directive) {
+        context.report_with_safe_edit(
+          self.meta(),
+          directive.span.clone(),
+          message,
+          help,
+          range,
+          replacement,
+        );
+      } else {
+        context.report(self.meta(), directive.span.clone(), message, help);
+      }
     }
   }
 }

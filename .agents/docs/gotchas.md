@@ -86,8 +86,12 @@ the template fact for `autofocus` precisely covers its name but not a possible
 value. The first safe producer therefore removes only boolean `autofocus` and
 leaves `autofocus="..."` as a visible manual finding. The `aria-hidden="true"`
 producer reconstructs the quoted value from source before deleting; unquoted
-forms stay report-only. Never turn a name-only span into a partial edit that
-leaves invalid syntax behind.
+forms stay report-only. The `.sync` producer reconstructs quoted
+`:arg.sync="expr"` / `v-bind:arg.sync="expr"` before rewriting to
+`v-model:arg`; object `v-bind.sync`, unquoted values, extra modifiers, and
+dynamic `:[name].sync` stay report-only (the fact argument for `:[name]` is
+the inner ident, so source must still start with that ident). Never turn a
+name-only span into a partial edit that leaves invalid syntax behind.
 
 Fix ranges are original-source UTF-8 byte ranges. Validate both endpoints before
 editing, apply multiple ranges from the end of the source, and preserve all
