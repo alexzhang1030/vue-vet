@@ -11,7 +11,7 @@ use oxc_ast::{
 };
 use oxc_semantic::NodeId;
 
-use super::scope_context;
+use super::context::scope_context;
 
 /// Max hops when following same-file zero-arg helpers from a tracking scope.
 /// Vue tracks sync reads inside callees; we under-approx with a small bound.

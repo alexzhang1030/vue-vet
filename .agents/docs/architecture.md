@@ -257,13 +257,21 @@ The tracer crate is a **library of collectors**, not a 4k-line `mod.rs` plus a
 6k-line `tests.rs`. `lib.rs` stays a façade; stages live in `trace/`:
 
 ```text
-trace/mod.rs     single-file entry, binding/scope collectors
-trace/inject.rs  provide/inject sites + unique-key resolve
-trace/follow.rs  same-file zero-arg helper walk (reads/uncertain/writes)
-trace/expr.rs    paren / TS peel shared by assignment-only and factories
-trace/summary    prepare / return shapes
-trace/summary/link  cross-module seeds
-src/tests/       domain modules + shared helpers (not one file)
+trace/mod.rs       single-file entry + orchestration
+trace/kinds.rs     vue callee / binding kind / import / span helpers
+trace/bindings.rs  reactive binding collectors (typed / props / aliases / route)
+trace/local.rs     same-file composable usage
+trace/context.rs   scope_context + HOF / toValue / deferred
+trace/reads.rs     scope reads + classify + guards
+trace/writes.rs    scope writes + assignment_only
+trace/uncertain.rs uncertain accesses + watch sources
+trace/scopes.rs    tracking / render scope assembly
+trace/inject.rs    provide/inject sites + unique-key resolve
+trace/follow.rs    same-file zero-arg helper walk (reads/uncertain/writes)
+trace/expr.rs      paren / TS peel shared by assignment-only and factories
+trace/summary      prepare / return shapes
+trace/summary/link cross-module seeds
+src/tests/         domain modules + shared helpers (not one file)
 ```
 
 Do not grow `trace/mod.rs` or `src/tests/` with another collector family or
