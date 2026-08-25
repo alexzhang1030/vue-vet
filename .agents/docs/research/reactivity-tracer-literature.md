@@ -1,8 +1,9 @@
 # Reactivity tracer literature matrix
 
 Status: **systematic harvest, not a finished academic survey**.  
-Harvested: 2026-07-24.  
-Goal: ground improvements to `vue_vet_reactivity` (local effect tracing, guards, module summaries).
+Harvested: 2026-07-24. Targeted refresh: **2026-08-25** (see §O).  
+Goal: ground improvements to `vue_vet_reactivity` (local effect tracing, guards, module summaries).  
+Implementation ranking after graph v27 lives in [reactivity-tracer-science.md](./reactivity-tracer-science.md). Do not treat this matrix as the live capability list.
 
 ## How this was built
 
@@ -224,18 +225,22 @@ Use for: formalizing “sync tick / after await” boundaries — not for implem
 
 ## K. Mapping to `vue_vet_reactivity` capabilities
 
-| Tracer concern | Current state | Primary literature |
-| --- | --- | --- |
-| Identify Vue reactive bindings | Implemented | AgentFlow (framework edges); Scala.React kinds |
-| Effect body reactive reads | `watchEffect*` only | Adapton demand; Svelte read-not-write; Vue runtime |
-| Conditional / guarded reads | Ancestor-span heuristic | PDG/CDG; Chalupa NTSCD; DCG |
-| After-await classification | Top-level await only | Yee event-driven; Elm async FRP; Modal FRP intuition |
-| Nested callbacks excluded | Hard exclude | Madsen listener sensitivity; demand under-approx policy |
-| Module summaries / composables | Coarse fixed point | IFDS/IDE; IceDust inversion; Sharir–Pnueli |
-| Ambiguous quiet failure | By design | Bimodal taint (conventions); high-confidence product stance |
-| Graph IR shape | Facts bag | Ritschel; CPG; AgentFlow |
-| Call resolution limits | Quiet | JS call graph comparative study |
-| Computed chain / derived state | Limited | IceDust; signal-first; Oeyen compiler opts |
+Refreshed 2026-08-25 against graph **v27**. The 2026-07-24 column was a year of implementation behind (`watchEffect*` only, "top-level await only" as if A5 were unfinished).
+
+| Tracer concern | Current state (v27) | Primary literature | What we are *not* adopting |
+| --- | --- | --- | --- |
+| Identify Vue reactive bindings | Allowlist + typed Ref + Factory/Composable seeds + plugins | AgentFlow (framework edges); Scala.React kinds | Host-language type inference as the binding source |
+| Effect / computed / watch / render bodies | Known Vue callees + identifier getters + bounded helper follow | Adapton demand; Svelte read-not-write; Vue `effect.ts` | Executing effects |
+| Conditional / guarded reads | Ancestor-span + `branch_hygiene` all-path drop | PDG/CDG; Chalupa NTSCD; DCG | oxc_cfg / NTSCD rewrite for recall |
+| After-await / pause | Top-level await; last pause/resume event; Vue `shouldTrack` stack | Yee event-driven; Elm async FRP | Modal FRP typechecker; pause *counter* (Vue does not use one) |
+| Nested callbacks excluded | Hard exclude (`then` / `nextTick` / …) | Madsen listener sensitivity | Listener-sensitivity ladder |
+| Module summaries / composables | Named-export **policy algebra** + worklist + publish barrier | IceDust inversion; Sharir–Pnueli *idea* | IFDS/IDE supergraph (literature cousin, not the destination) |
+| Incremental / demand | `ModuleTraceState` plan equality; session dirty parse; rules walk facts | Stein DAI (2021); demanded summarization (TOPLAS 2024); ECOOP 2025 summary reuse | DAIG / demanded-summarization graph in-tree |
+| Ambiguous quiet failure | By design | Bimodal taint (conventions) | Guessing seeds |
+| Graph IR shape | Versioned `ReactivityGraph` facts | Ritschel; CPG; AgentFlow | Unified AST IR (forbidden) |
+| Call resolution limits | Quiet; depth ≤ 2 same-file zero-arg | JS call-graph comparative study | Whole-program alias analysis |
+| Computed chain / derived state | Inverted edges + explain-scope | IceDust; Vue runtime | Vapor-shaped compile IR |
+| Ecosystem APIs | `NamedApiBag` rows in `vue_vet_plugins` | AgentFlow framework edges | Engine hardcode of Nuxt/i18n names |
 
 ---
 
@@ -277,6 +282,7 @@ Use for: formalizing “sync tick / after await” boundaries — not for implem
 | ½ day | Yee 2019 + Madsen 2015 | Async boundary lattice |
 | ½ day | AgentFlow + Ritschel ch. on graph meta-rep | Fact IR evolution |
 | ½ day | Svelte compiler analysis notes + exhaustive-deps implementation | Engineering duals |
+| ½ day | [science memo](./reactivity-tracer-science.md) + Vue `effect.ts` pause stack | Ranked next work; do not start from stale §K |
 
 ---
 
@@ -284,11 +290,29 @@ Use for: formalizing “sync tick / after await” boundaries — not for implem
 
 | File | Content |
 | --- | --- |
-| `arxiv-harvest.json` | Raw 385-paper arXiv harvest + query hit lists |
+| `arxiv-harvest.json` | Raw 385-paper arXiv harvest + query hit lists (2026-07-24) |
 | `arxiv-relevant.json` | Scored subset (heuristic; re-triage before citing) |
 | `dblp-harvest.json` | Early DBLP batch (truncated by rate limit) |
 | `dblp-classics.json` | Classic author/title DBLP confirmations |
 | `s2-snowball.json` | Partial Semantic Scholar seed/cite graph |
 | `reactivity-tracer-literature.md` | This matrix (human-oriented) |
+| `reactivity-tracer-science.md` | 2026-08-25 ranked memo (accurate / scientific / fast / smart) |
 
 When a decision lands in code, promote the durable judgment into PCR records under `.agents/docs/` (architecture / gotchas), not only this research folder.
+
+---
+
+## O. Targeted refresh (2026-08-25)
+
+Not a second 31-query harvest. Searched arXiv + Vue core for work that landed after the July matrix or that §K had gone stale against.
+
+| Year | Work | Pri | Takeaway for Vue Vet |
+| --- | --- | --- | --- |
+| 2026 | Wunder, Das, Gaboardi *Willow* (type-and-effect for render-based RP) | **P2** | [arXiv:2607.27074](https://arxiv.org/abs/2607.27074). Temporal dependency graph over renders. Vocabulary for "would this re-run, and when." Do **not** adopt the calculus or `○` modalities. Vue Vet analyzes existing SFCs under under-approx. |
+| 2025 | *ng-reactive-lint* | **P2** / **E** | [arXiv:2512.00250](https://arxiv.org/abs/2512.00250). Closest product dual (framework-aware reactivity lint). Lesson is evaluation on real apps, which we already do offline. Not a Vue algorithm. |
+| 2024 | Stein et al. *Interactive AI with Demanded Summarization* | **P1** | TOPLAS; [PDF](https://manu.sridharan.net/files/TOPLAS24DemandedSummarization.pdf). Compositional incrementality + from-scratch consistency. Maps to `ModuleSeedPlan` reuse, not a DAIG in this repo. July matrix had only the 2021 DAI paper. |
+| 2025 | *Reusing Caches and Invariants for Incremental Static Analysis* | **P1** | ECOOP; [LIPIcs](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.ECOOP.2025.28). When a function summary is soundly reusable. Same question `ModuleTraceState` already asks. |
+| 2024–25 | Vue core alien-signals ports | **E/P0** | [vuejs/core#12349](https://github.com/vuejs/core/pull/12349), [#12570](https://github.com/vuejs/core/pull/12570). Already in 3.5+. `onTrack` / `pauseTracking` stack remain the oracle surface. Linked-list deps are a runtime perf detail. Refresh expected JSON when the product Vue pin moves. |
+| 2026 | Vue 3.6 Vapor write-ups | **E/P2** | Compile-time template wiring. Same problem class, different product. Do not grow a second Vapor IR. Verify blog claims against `vuejs/core` before citing numbers. |
+
+Vue-specific static analysis of `watchEffect` / computed deps is still **essentially empty** in the literature. That implication from July stands.

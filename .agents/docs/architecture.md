@@ -269,6 +269,9 @@ trace/scopes.rs    tracking / render scope assembly
 trace/inject.rs    provide/inject sites + unique-key resolve
 trace/follow.rs    same-file zero-arg helper walk (reads/uncertain/writes)
 trace/expr.rs      paren / TS peel shared by assignment-only and factories
+trace/plugin.rs    NamedApiBag / TracerPlugin / TraceConfig
+trace/branch_hygiene.rs  pure A4 all-path coverage
+trace/render.rs    structure-first render bodies
 trace/summary      prepare / return shapes
 trace/summary/link cross-module seeds
 src/tests/         domain modules + shared helpers (not one file)

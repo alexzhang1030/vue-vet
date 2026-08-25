@@ -7,6 +7,7 @@ this record holds product stance and completeness judgment.
 
 Related: [architecture](./architecture.md), [gotchas](./gotchas.md),
 [literature matrix](./research/reactivity-tracer-literature.md),
+[science memo](./research/reactivity-tracer-science.md) (post-v27 ranking),
 [root roadmap](../../ROADMAP.md).
 
 ## Product stance
@@ -244,7 +245,10 @@ tracer A0–A7. Next tracer work needs **evidence** first:
 
 1. **Contract refinement** — invent Conditional / blocked seed / dual-path
    inconsistency → fix + unit/oracle + **`REACTIVITY_GRAPH_VERSION` bump** +
-   PCR lattice update.
+   PCR lattice update. Ranked candidates after v27 (caller guards on followed
+   reads, pause-in-helper, `+=` writes, watch-source peel, render identifier
+   getters) live in [science memo](./research/reactivity-tracer-science.md).
+   Caller-guard-on-follow is dual-path hygiene, not "further A4 for recall."
 2. **Consumer surface** — rules / explain / TUI / VS Code using facts already
    on the graph (optional product polish; not axis work).
 3. **Otherwise stop** — A0–A7 complete is a valid resting point.
@@ -422,6 +426,7 @@ growing prose ledger.
 | 2026-08-21 | Helper-follow uncertain | `uncertain_accesses` follows the same zero-arg helpers as hard reads; `then()`-only stays quiet; graph **v25**; dual-path with inline `(maybe)` |
 | 2026-08-21 | Helper-follow writes | `writes` + `assignment_only` follow the same zero-arg helpers; `then()`-only stays quiet; graph **v26**; dual-path with inlined assignment / `prefer-computed` |
 | 2026-08-25 | Identifier getters | `computed(load)` / `watchEffect(load)` / `watch(load)` / `{ get: load }` use the local function as the tracking body; import/method/async quiet; graph **v27**; dual-path with `computed(() => load())` |
+| 2026-08-25 | Science memo after v27 | Ranked dual-path / measurement / locality / consumer work. Literature §K refreshed (July column was stale). `ExportState` prose is policy algebra, not a math lattice. No graph bump (docs). |
 | 2026-08-21 | Helper-follow walk unify | Reads / uncertain / writes share `follow_local_callees`; drop unused `local_function_id` name arg. No graph version bump (same facts). |
 | 2026-08-21 | CSS `v-bind` join | `<style>` `v-bind(ident)` / quoted ident → `TemplateExpressionFact.surface = "style"`; style-only ident edits refresh without adding style to revisions |
 | 2026-08-10 | Tracer plugins crate | Ecosystem hardcode (Nuxt data bags, vue-i18n `useI18n`) lives in published `vue_vet_plugins`; engine has no Nuxt/i18n names; Oxc/project/session **auto-load** defaults; crates.io order core→reactivity→plugins; docs: crate README + install library table |
