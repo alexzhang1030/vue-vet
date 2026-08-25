@@ -559,9 +559,9 @@ dependencies = [
 
 [[package]]
 name = "dashmap"
-version = "6.1.0"
+version = "6.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5041cc499144891f3790297212f32a74fb938e5136a14943f338ef9e0ae276cf"
+checksum = "e6361d5c062261c78a176addb82d4c821ae42bed6089de0e12603cd25de2059c"
 dependencies = [
  "cfg-if",
  "crossbeam-utils",
@@ -2982,9 +2982,9 @@ dependencies = [
 
 [[package]]
 name = "vize_armature"
-version = "0.355.0"
+version = "0.387.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8801209fc19785713d18b8aaec4fa8fd2f3c2840ce9d46e631af743103bdcd89"
+checksum = "8b2866fcf467ff73d2866bf9fde9ac319826fc71bae81d119a6499ce94b28854"
 dependencies = [
  "compact_str 0.9.0",
  "htmlize",
@@ -2999,9 +2999,9 @@ dependencies = [
 
 [[package]]
 name = "vize_atelier_core"
-version = "0.355.0"
+version = "0.387.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4b1ba4cbe45158540f6d586fe32223ebe5968ac38b77eeb86bb1a10b581e3d9"
+checksum = "1f46d70b485248cacd640a7999513d2b5e18f341588ff68c32a3a324e6f367db"
 dependencies = [
  "compact_str 0.9.0",
  "memoffset",
@@ -3025,86 +3025,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "vize_atelier_dom"
-version = "0.355.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd3625d04a056ac7e6974216bc1b2bd545c088d570bfa49274ef2c9ea7dbb7a8"
-dependencies = [
- "phf 0.13.1",
- "serde",
- "thiserror",
- "vize_atelier_core",
- "vize_carton",
- "vize_croquis",
-]
-
-[[package]]
-name = "vize_atelier_sfc"
-version = "0.355.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "029fe44ad81c4c56986efdf646a5c4f01f66388c1416c905b12d08a0e8517ca3"
-dependencies = [
- "memchr",
- "oxc_allocator",
- "oxc_ast",
- "oxc_ast_visit",
- "oxc_codegen",
- "oxc_parser",
- "oxc_semantic",
- "oxc_span",
- "oxc_syntax",
- "oxc_transformer",
- "regex",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
- "vize_atelier_core",
- "vize_atelier_dom",
- "vize_atelier_ssr",
- "vize_atelier_vapor",
- "vize_carton",
- "vize_croquis",
-]
-
-[[package]]
-name = "vize_atelier_ssr"
-version = "0.355.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37edbf3c9fd88b19207e1befed6c11997ea800ec5194b37016d0415c1895979d"
-dependencies = [
- "serde",
- "vize_armature",
- "vize_atelier_core",
- "vize_carton",
- "vize_croquis",
- "vize_relief",
-]
-
-[[package]]
-name = "vize_atelier_vapor"
-version = "0.355.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3565051bdb2436202beea04ccf3640725b156393029239b8aacd5cfd4c9367d0"
-dependencies = [
- "oxc_allocator",
- "oxc_ast",
- "oxc_ast_visit",
- "oxc_parser",
- "oxc_span",
- "oxc_syntax",
- "serde",
- "thiserror",
- "vize_atelier_core",
- "vize_carton",
- "vize_croquis",
-]
-
-[[package]]
 name = "vize_carton"
-version = "0.355.0"
+version = "0.387.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d775156398783e0b4c125a6473dbf408b7e7dc208331aba265182c84a8e566a"
+checksum = "77e04666a861cefd142d979c16f11822eb9b97716d32ed82010499e2c3871212"
 dependencies = [
  "bitflags 2.13.1",
  "compact_str 0.9.0",
@@ -3124,11 +3048,12 @@ dependencies = [
 
 [[package]]
 name = "vize_croquis"
-version = "0.355.0"
+version = "0.387.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9690d6bee42b2665ce5370e9eca661597a07c3f71284a926fb92f70bbb0d900"
+checksum = "5b777abbf89ddf54ad460ce9b0e15dd2a0f5efe6e232c3bb0059dcf397ef611c"
 dependencies = [
- "dashmap 6.1.0",
+ "dashmap 6.2.1",
+ "memchr",
  "once_cell",
  "oxc_allocator",
  "oxc_ast",
@@ -3147,9 +3072,9 @@ dependencies = [
 
 [[package]]
 name = "vize_relief"
-version = "0.355.0"
+version = "0.387.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d6aae21e2279c9028f43b92cd78e5599ba0a939c6e638cf23414a92e10033f8"
+checksum = "b2626a31630250fecb2d1d187d6292a1cb58c19653abfef1fb60f9fc38ab88b1"
 dependencies = [
  "oxc_ast",
  "serde",
@@ -3352,7 +3277,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "vize_atelier_core",
- "vize_atelier_sfc",
+ "vize_croquis",
  "vue_vet_core",
  "vue_vet_oxc",
  "vue_vet_practice",
