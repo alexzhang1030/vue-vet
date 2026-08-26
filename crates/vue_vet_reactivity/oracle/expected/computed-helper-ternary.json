@@ -1,0 +1,14 @@
+{
+  "id": "computed-helper-ternary",
+  "source": "import { ref, computed } from 'vue'\nconst cond = ref(true)\nconst count = ref(1)\nfunction load() { return count.value }\nconst label = computed(() => (cond.value ? load() : 0))\nvoid label.value\n",
+  "runtime_deps": [
+    {
+      "binding": "cond",
+      "key": "value"
+    },
+    {
+      "binding": "count",
+      "key": "value"
+    }
+  ]
+}

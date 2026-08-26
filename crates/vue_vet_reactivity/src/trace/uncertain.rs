@@ -76,7 +76,7 @@ pub(super) fn collect_uncertain_scope_accesses_bounded(
     depth,
     visiting,
     FollowOutside::Skip,
-    |callee_id, _, next_depth, visiting| {
+    |callee_id, _, next_depth, _, visiting| {
       names.extend(collect_uncertain_scope_accesses_bounded(
         semantic,
         callee_id,

@@ -19,9 +19,17 @@ use super::context::scope_context;
 /// Vue tracks sync reads inside callees; we under-approx with a small bound.
 pub(super) const MAX_LOCAL_CALLEE_FOLLOW_DEPTH: u32 = 2;
 
+/// One same-file zero-arg helper reached from a tracking (or helper) scope.
+struct LocalCallee {
+  id: NodeId,
+  /// True only when *every* in-scope call site is outside tracking.
+  call_outside: bool,
+  /// `CallExpression` nodes in `scope_id` that invoke this helper.
+  call_sites: Vec<NodeId>,
+}
+
 /// Same-file zero-arg local helpers called from `scope_id`.
 ///
-/// Each entry is `(callee_id, all_in_scope_call_sites_are_outside_tracking)`.
 /// [`follow_local_callees`] is the only consumer so reads / uncertain / writes
 /// cannot disagree on the callee set. `assignment_only` walks statements but
 /// uses the same [`local_function_id`] + async skip.
@@ -30,11 +38,11 @@ fn local_zero_arg_callees_in_scope(
   scope_id: NodeId,
   imported_bindings: &BTreeMap<String, (String, String)>,
   visiting: &BTreeSet<NodeId>,
-) -> Vec<(NodeId, bool)> {
+) -> Vec<LocalCallee> {
   // Collect callee ids first so callers do not hold a nodes borrow across recursion.
   // `call_outside` is true only when *every* in-scope call site is outside tracking
   // (any in-tracking call keeps ambient deps / soft evidence).
-  let mut callees: Vec<(NodeId, bool)> = Vec::new();
+  let mut callees: Vec<LocalCallee> = Vec::new();
   for (call_id, call_node) in semantic.nodes().iter_enumerated() {
     let AstKind::CallExpression(call) = call_node.kind() else {
       continue;
@@ -59,11 +67,12 @@ fn local_zero_arg_callees_in_scope(
     if visiting.contains(&callee_id) {
       continue;
     }
-    if let Some((_, existing_outside)) = callees.iter_mut().find(|(id, _)| *id == callee_id) {
-      *existing_outside = *existing_outside && call_outside;
+    if let Some(existing) = callees.iter_mut().find(|callee| callee.id == callee_id) {
+      existing.call_outside = existing.call_outside && call_outside;
+      existing.call_sites.push(call_id);
       continue;
     }
-    callees.push((callee_id, call_outside));
+    callees.push(LocalCallee { id: callee_id, call_outside, call_sites: vec![call_id] });
   }
   callees
 }
@@ -85,21 +94,21 @@ pub(super) fn follow_local_callees(
   depth: u32,
   visiting: &mut BTreeSet<NodeId>,
   outside: FollowOutside,
-  mut visit: impl FnMut(NodeId, bool, u32, &mut BTreeSet<NodeId>),
+  mut visit: impl FnMut(NodeId, bool, u32, &[NodeId], &mut BTreeSet<NodeId>),
 ) {
   if depth >= MAX_LOCAL_CALLEE_FOLLOW_DEPTH {
     return;
   }
   let callees = local_zero_arg_callees_in_scope(semantic, scope_id, imported_bindings, visiting);
-  for (callee_id, call_outside) in callees {
-    if matches!(outside, FollowOutside::Skip) && call_outside {
+  for callee in callees {
+    if matches!(outside, FollowOutside::Skip) && callee.call_outside {
       continue;
     }
-    if !visiting.insert(callee_id) {
+    if !visiting.insert(callee.id) {
       continue;
     }
-    visit(callee_id, call_outside, depth.saturating_add(1), visiting);
-    visiting.remove(&callee_id);
+    visit(callee.id, callee.call_outside, depth.saturating_add(1), &callee.call_sites, visiting);
+    visiting.remove(&callee.id);
   }
 }
 

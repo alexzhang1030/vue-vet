@@ -66,7 +66,15 @@ complete.
 
 ## Current baseline
 
-Contract version: **`REACTIVITY_GRAPH_VERSION = 27`**.
+Contract version: **`REACTIVITY_GRAPH_VERSION = 28`**.
+
+v28 attaches **caller control-flow guards** to followed helper reads:
+`computed(() => cond ? load() : 0)` classifies `load`'s reads as Conditional
+(dual-path with `cond ? x.value : 0`). Both-arm `load()` stays Unconditional.
+Guards inside the helper (early-exit / inner ternary) also classify. Prior:
+v27 identifier getters; v26 helper-follow writes / `assignment_only`;
+v25 helper-follow `uncertain_accesses`; v24 named API bag ambient-on-call;
+v23 hard-read helper follow; v22…v7.
 
 v27 treats a same-file local function **reference** as the tracking body:
 `computed(load)`, `watchEffect(load)`, `watch(load)`, and
@@ -74,9 +82,7 @@ v27 treats a same-file local function **reference** as the tracking body:
 `assignment_only` as `computed(() => load())`. Imports, methods, and
 async/generator stay quiet. Unused parameters on the function are allowed
 (Vue invokes the getter with no args) — that is not the helper-follow
-`load(1)` quiet path. Prior: v26 helper-follow writes / `assignment_only`;
-v25 helper-follow `uncertain_accesses`; v24 named API bag ambient-on-call;
-v23 hard-read helper follow; v22…v7.
+`load(1)` quiet path.
 
 v24 models **named API bag ambient-on-call methods** via plugin-supplied
 `NamedApiBag` rows (not hardcoded in the engine). Default catalog from
@@ -101,10 +107,10 @@ See [vue_vet_plugins README](../../crates/vue_vet_plugins/README.md) and
 | A1 Bindings | complete | Vue primitives, aliases, `#imports`, bare Nuxt/auto-import allowlist, `defineModel`, **Vue Macros `defineModels` destructure → ModelRef locals**, `defineProps` (whole object **and Vue 3.5+ object-destructure locals → Reactive**), `withDefaults(defineProps())` same, `storeToRefs`, `useRoute`/`useRouter`, `unref`/`toValue`, module seeds, **factory call returns** (`Factory(Ref|Reactive)` from body / `.d.ts`), **`.d.ts` object-bag returns** (`{ field: Ref }` / same-file interface·type alias → destructure seeds), **typed `Ref`/`ComputedRef` parameters & declarators** (scope classification; nested locals span-resolved), **`useI18n` ambient + synthetic composer when only translators destructured** | whole-object `const models = defineModels()` without destructure stays quiet; pre-3.5 props destructure still flagged by `no-nonreactive-props-destructure` |
 | A2 Scopes | complete | effects, computed getter/`{ get, set }`, **identifier getters** (`computed(load)` / `watchEffect(load)` / `watch(load)` / `{ get: load }`), watch sources + callback outside, effectScope `.run` + provenance, dispose, **Render** (options `render` / `setup`→render / functional export / same-file `defineComponent` factory+alias+one-hop forwarder); **bounded same-file zero-arg helper follow** into scope reads, **`uncertain_accesses`**, **writes**, and **`assignment_only`** | cross-file / async / args / method callees stay quiet |
 | A3 Reads | complete | `.value` / members / bag.field / sync Array·String·`Array.from`·`JSON.parse` HOF / watch ref `.value` / `unref`·`toValue` / bare `watch(reactive)` deep root `*` / **reads inside followed local helpers** / **uncertain accesses inside followed local helpers** / **writes / assignment-only inside followed local helpers** / **`useI18n` translator ambient deps** | — |
-| A4 Conditions | complete | if / early-exit / ternary / short-circuit / switch roles; **all-path same `(binding, property)` on both ternary/if-else arms → no BranchTest** (under-approx hygiene: do not invent Conditional); pure checks in `trace/branch_hygiene.rs` | further control-flow depth is out of charter |
+| A4 Conditions | complete | if / early-exit / ternary / short-circuit / switch roles; **all-path same `(binding, property)` on both ternary/if-else arms → no BranchTest** (under-approx hygiene: do not invent Conditional); **followed helper reads inherit caller guards** (`cond ? load() : 0`); pure checks in `trace/branch_hygiene.rs` | further control-flow depth is out of charter |
 | A5 Boundaries | complete | after-await; pause/enable/resetTracking windows; nested `then`/`nextTick` outside; watch callback outside | — |
 | A6 Modules | complete | composable bags + Factory + ValueBag + ComponentFactory + ExternalImport + `#nuxt-imports` seeds; **export lattice** (below); **`return local = call()` → ForwardReturn**; bare auto-import callee resolve; pending empty-path composable fields | whole-object `v-bind` quiet; `#imports` virtual without body quiet |
-| A7 Contract | complete | **v27** identifier getters; v26 helper-follow writes / `assignment_only`; v25 helper-follow `uncertain_accesses`; v24 useI18n translator ambient; v23 local zero-arg helper follow; v22…v7 as before; deterministic sort | — |
+| A7 Contract | complete | **v28** caller guards on followed reads; v27 identifier getters; v26 helper-follow writes / `assignment_only`; v25 helper-follow `uncertain_accesses`; v24 useI18n translator ambient; v23 local zero-arg helper follow; v22…v7 as before; deterministic sort | — |
 | Evidence | complete | Runtime oracle (≥99% recall on committed cases); deep-watch `*`; exhaustive local reads; key SFC E2E | — (prop flow is static unit/project; not an `onTrack` pair) |
 
 ### ExportState lattice (A6 linking)
@@ -181,10 +187,10 @@ Executable merge/seedable/name-resolve/pending/publish/refine checks live in
 | A1 | ✅ Allowlist primitives + macros + pinia/router + auto-import + module seeds + factory call returns; local lookalikes quiet; unit/oracle cover |
 | A2 | ✅ effect / computed / watch / effectScope.run(+provenance) / dispose / Render scopes; no invented effectScope; **same-file identifier getters** (`computed(load)` and watch/effect equivalents); **same-file zero-arg helper follow (depth≤2) for hard reads, uncertain, writes, and assignment_only** |
 | A3 | ✅ Member/HOF/unref·toValue reads; watch ref `.value`; **deep root `*` for bare `watch(reactive)`** (not per-key invention); helper-body ambient reads, uncertain, **and writes**; **useI18n `t`/`d`/`n`/`rt`/`te` ambient** |
-| A4 | ✅ Guard roles + all-path same-identity branch reads (`branch_hygiene`); no further CF depth for recall |
+| A4 | ✅ Guard roles + all-path same-identity branch reads (`branch_hygiene`); **followed helpers inherit caller guards**; no further CF depth for recall |
 | A5 | ✅ After-await classification; pause/enable/resetTracking windows; nested callback outside-tracking; watch callback outside |
 | A6 | ✅ Composable/instance/dual-script/provide-inject; Factory/Composable/ValueBag/ComponentFactory; export lattice (above); bare `#nuxt-imports` seeds + ForwardReturn resolve; external summaries; static `:prop` edges |
-| A7 | ✅ Versioned graph (**v27**); deterministic sort; `property`/`to_path`; **`{module}:{name}@{offset}` `to_id`** |
+| A7 | ✅ Versioned graph (**v28**); deterministic sort; `property`/`to_path`; **`{module}:{name}@{offset}` `to_id`** |
 | Evidence | ✅ `just oracle` ≥99% recall on committed cases; exhaustive local reads; key SFC E2E |
 
 ### In-scope remaining (this epic)
@@ -240,14 +246,21 @@ resolves a peeled identifier through `local_function_id` (skip
 async/generator/import/method). Parameters do not disqualify — Vue calls
 the getter with no args. Oracle: `computed-fn-ref`, `watch-source-fn-ref`.
 
+**2026-08-26 contract refinement (v28):** followed helper reads ignored
+caller control flow. `path_guards` walked ancestors of the read, so
+`computed(() => cond ? load() : 0)` invented Unconditional. Each follow hop
+now records call sites; classify uses owning-function guards plus call-site
+proxies so `branch_hygiene` can see both-arm `load()`. Dual-path with
+`cond ? x.value : 0`. Oracle: `computed-helper-ternary`.
+
 **Do not** auto-continue pure extracts, Elk/corpus KPI chasing, or a11y as
 tracer A0–A7. Next tracer work needs **evidence** first:
 
 1. **Contract refinement** — invent Conditional / blocked seed / dual-path
    inconsistency → fix + unit/oracle + **`REACTIVITY_GRAPH_VERSION` bump** +
-   PCR lattice update. Ranked candidates after v27 (caller guards on followed
-   reads, pause-in-helper, `+=` writes, watch-source peel, render identifier
-   getters) live in [science memo](./research/reactivity-tracer-science.md).
+   PCR lattice update. Ranked candidates after v28 (pause-in-helper, `+=`
+   writes, watch-source peel, render identifier getters) live in
+   [science memo](./research/reactivity-tracer-science.md).
    Caller-guard-on-follow is dual-path hygiene, not "further A4 for recall."
 2. **Consumer surface** — rules / explain / TUI / VS Code using facts already
    on the graph (optional product polish; not axis work).
@@ -427,6 +440,7 @@ growing prose ledger.
 | 2026-08-21 | Helper-follow writes | `writes` + `assignment_only` follow the same zero-arg helpers; `then()`-only stays quiet; graph **v26**; dual-path with inlined assignment / `prefer-computed` |
 | 2026-08-25 | Identifier getters | `computed(load)` / `watchEffect(load)` / `watch(load)` / `{ get: load }` use the local function as the tracking body; import/method/async quiet; graph **v27**; dual-path with `computed(() => load())` |
 | 2026-08-25 | Science memo after v27 | Ranked dual-path / measurement / locality / consumer work. Literature §K refreshed (July column was stale). `ExportState` prose is policy algebra, not a math lattice. No graph bump (docs). |
+| 2026-08-26 | Caller guards on follow | Followed helper reads inherit caller ternary/if/early-exit/short-circuit; both-arm helper calls stay Unconditional; graph **v28**; dual-path with inline `cond ? x.value : 0` |
 | 2026-08-21 | Helper-follow walk unify | Reads / uncertain / writes share `follow_local_callees`; drop unused `local_function_id` name arg. No graph version bump (same facts). |
 | 2026-08-21 | CSS `v-bind` join | `<style>` `v-bind(ident)` / quoted ident → `TemplateExpressionFact.surface = "style"`; style-only ident edits refresh without adding style to revisions |
 | 2026-08-10 | Tracer plugins crate | Ecosystem hardcode (Nuxt data bags, vue-i18n `useI18n`) lives in published `vue_vet_plugins`; engine has no Nuxt/i18n names; Oxc/project/session **auto-load** defaults; crates.io order core→reactivity→plugins; docs: crate README + install library table |
