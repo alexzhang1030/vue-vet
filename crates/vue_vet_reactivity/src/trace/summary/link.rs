@@ -439,41 +439,44 @@ fn phase_one_outcomes(
   named_api_bags: &[crate::NamedApiBag],
 ) -> Vec<Result<ModulePhaseOne, TraceModulesError>> {
   let config = crate::TraceConfig { named_api_bags };
-  let mut outcomes: Vec<Option<Result<ModulePhaseOne, TraceModulesError>>> =
-    (0..unique.len()).map(|_| None).collect();
-  let mut need_parse = Vec::new();
-  for (index, module) in unique.iter().enumerate() {
-    if let Some(summary) = module.module_summary() {
-      outcomes[index] = Some(Ok(phase_one_from_summary(module, &summary)));
-      continue;
-    }
-    if let Some(entry) = state.entries.get(&module.id)
-      && entry.source == **module
-    {
-      outcomes[index] = Some(Ok(phase_one_from_summary(module, &entry.summary)));
-      continue;
-    }
-    need_parse.push(index);
-  }
-  if !need_parse.is_empty() {
-    let parsed = need_parse
-      .par_iter()
-      .map(|&index| {
+  let need_parse = unique
+    .iter()
+    .copied()
+    .filter(|module| {
+      module.module_summary().is_none()
+        && !state.entries.get(&module.id).is_some_and(|entry| entry.source == **module)
+    })
+    .collect::<Vec<_>>();
+  let mut parsed = need_parse
+    .par_iter()
+    .map(|module| {
+      (
+        module.id.clone(),
         analyze_module_phase_one_cached(
-          unique[index],
-          state.entries.get(&unique[index].id).map(|entry| (&entry.source, &entry.summary)),
+          module,
+          state.entries.get(&module.id).map(|entry| (&entry.source, &entry.summary)),
           &config,
-        )
-      })
-      .collect::<Vec<_>>();
-    for (index, outcome) in need_parse.iter().zip(parsed) {
-      outcomes[*index] = Some(outcome);
-    }
-  }
-  outcomes
-    .into_iter()
-    .map(|outcome| outcome.expect("phase-one slot is filled for every workspace module"))
+        ),
+      )
+    })
+    .collect::<BTreeMap<_, _>>();
+  unique
+    .iter()
+    .map(|module| {
+      reused_phase_one(module, state).map_or_else(
+        || parsed.remove(&module.id).unwrap_or(Err(TraceModulesError::WorkerDisconnected)),
+        Ok,
+      )
+    })
     .collect()
+}
+
+fn reused_phase_one(module: &ModuleSource, state: &ModuleTraceState) -> Option<ModulePhaseOne> {
+  if let Some(summary) = module.module_summary() {
+    return Some(phase_one_from_summary(module, &summary));
+  }
+  let entry = state.entries.get(&module.id)?;
+  (entry.source == *module).then(|| phase_one_from_summary(module, &entry.summary))
 }
 
 type SeedWorkItem<'a> =
