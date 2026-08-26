@@ -151,7 +151,8 @@ Execution plan shape (session-owned):
 ChangeImpact { parse, environment, resolution, component_index, membership }
   → DirtyPlan { parse_files, structural_files, module_summaries,
                 export_closure, rule_files, diagnostic_files }
-  → stage work counters (files_parsed, partitions rebuilt, COW clones, …)
+  → stage work counters (files_parsed, seed_plans_recomputed,
+                         export_resolve_ran, seeded_reparses, COW clones, …)
 ```
 
 Batch intent (execution lives in tracker issues, not temporary numbers here):

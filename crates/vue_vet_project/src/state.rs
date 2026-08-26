@@ -1,6 +1,6 @@
 //! Retained incremental partitions for long-lived project graph builds.
 
-use std::{path::PathBuf, sync::Arc};
+use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
 use vue_vet_core::ModuleId;
 use vue_vet_reactivity::{ModuleReactivity, ModuleTraceState};
@@ -23,6 +23,8 @@ pub struct ProjectGraphState {
   pub resolver_root: Option<PathBuf>,
   pub resolver_revision: Option<u64>,
   pub last_stats: ProjectGraphStats,
+  /// Seed-plan dirty set from the last trace (`TraceModulesReport::seed_plan_dirty`).
+  pub last_export_closure: BTreeSet<ModuleId>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -79,6 +81,7 @@ impl ProjectGraphState {
       resolver_root: self.resolver_root.clone(),
       resolver_revision: self.resolver_revision,
       last_stats: self.last_stats,
+      last_export_closure: self.last_export_closure.clone(),
     }
   }
 }

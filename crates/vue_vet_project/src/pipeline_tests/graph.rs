@@ -40,6 +40,14 @@ fn incremental_structure_rebuilds_only_changed_file_facts() {
   );
   assert_eq!(state.last_stats().structural_files_reused, 2);
   assert_eq!(state.last_stats().structural_files_rebuilt, 0);
+  assert!(
+    !state.last_stats().export_resolve_ran,
+    "unchanged linking surface must skip export resolve"
+  );
+  assert!(
+    state.last_export_closure.is_empty(),
+    "warm linking cache hit leaves export_closure empty"
+  );
 
   let changed = file("src/b.vue", &[], &["section"], &[]);
   let _changed = build_project_graph_incremental_with_options(

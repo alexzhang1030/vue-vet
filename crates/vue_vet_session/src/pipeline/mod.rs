@@ -378,8 +378,13 @@ fn scan_parallel(
   let reverse_dependencies = reverse_dependency_index(&graph);
   expand_reverse_dependencies(&mut state.last_affected, &reverse_dependencies);
   state.reverse_dependencies = Arc::new(reverse_dependencies);
-  state.last_plan =
-    Arc::new(dirty_plan_from(&impact, parse_files, &state.last_affected, &input.sources));
+  state.last_plan = Arc::new(dirty_plan_from(
+    &impact,
+    parse_files,
+    &state.last_affected,
+    &input.sources,
+    state.project.last_export_closure.clone(),
+  ));
   let plan = Arc::clone(&state.last_plan);
   let modules = graph
     .module_reactivity
@@ -486,6 +491,8 @@ fn scan_parallel(
       .unwrap_or(u64::MAX),
     module_summaries_visited,
     seed_plans_recomputed,
+    export_resolve_ran: project_stats.export_resolve_ran,
+    seeded_reparses: u64::try_from(project_stats.seeded_module_reparses).unwrap_or(u64::MAX),
     graph_cow_clones,
     rules_rerun,
     diagnostics_finalized,

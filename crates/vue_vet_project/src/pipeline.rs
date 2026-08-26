@@ -14,7 +14,9 @@ use std::{
 
 use vue_vet_core::ModuleId;
 use vue_vet_plugins::{default_trace_modules_options, ensure_default_plugins};
-use vue_vet_reactivity::{TraceModulesOptions, trace_modules_incremental_with_options};
+use vue_vet_reactivity::{
+  ModuleSource, ModuleTraceState, TraceModulesOptions, trace_modules_incremental_with_options,
+};
 
 use crate::context::ProjectContext;
 use crate::conventions::convention_component_name;
@@ -73,6 +75,7 @@ pub fn build_project_graph_incremental_with_options<'a>(
   let trace_options = ensure_default_plugins(trace_options.clone());
   let trace_options = &trace_options;
   state.last_stats = ProjectGraphStats::default();
+  state.last_export_closure.clear();
   let root = normalize_project_root(root);
   let mut ordered = files.into_iter().collect::<Vec<_>>();
   ordered.sort_by_key(|file| normalized_path(file.path.as_path()));
@@ -114,13 +117,11 @@ pub fn build_project_graph_incremental_with_options<'a>(
   let mut module_sources = ordered
     .iter()
     .flat_map(|file| {
-      let primary = file.module_source.clone().map(|mut module| {
-        module.id = ModuleId::primary(&file.path);
-        module
+      let primary = file.module_source.as_ref().map(|fresh| {
+        reuse_cached_module_source(fresh, ModuleId::primary(&file.path), &state.module_trace)
       });
-      let ordinary = file.ordinary_module_source.clone().map(|mut module| {
-        module.id = ModuleId::ordinary(&file.path);
-        module
+      let ordinary = file.ordinary_module_source.as_ref().map(|fresh| {
+        reuse_cached_module_source(fresh, ModuleId::ordinary(&file.path), &state.module_trace)
       });
       [primary, ordinary].into_iter().flatten()
     })
@@ -220,6 +221,7 @@ pub fn build_project_graph_incremental_with_options<'a>(
   state.last_stats.seeded_module_reparses = trace_report.stats.seeded_reparses;
   state.last_stats.seed_plans_recomputed = trace_report.stats.seed_plans_recomputed;
   state.last_stats.export_resolve_ran = trace_report.stats.export_resolve_ran;
+  state.last_export_closure = trace_report.seed_plan_dirty;
   let reactivity_issues = trace_report
     .issues
     .into_iter()
@@ -246,6 +248,23 @@ pub fn build_project_graph_incremental_with_options<'a>(
     reactivity_issues,
     reactivity_error,
   }
+}
+
+/// Prefer the cached [`ModuleSource`] when the script body is unchanged so a
+/// leaf edit does not reconstruct every workspace module from `ProjectFile`.
+fn reuse_cached_module_source(
+  fresh: &ModuleSource,
+  id: ModuleId,
+  state: &ModuleTraceState,
+) -> ModuleSource {
+  if let Some(cached) = state.cached_source(&id)
+    && cached == fresh
+  {
+    return cached.clone();
+  }
+  let mut module = fresh.clone();
+  module.id = id;
+  module
 }
 
 fn retain_project_resolver(
