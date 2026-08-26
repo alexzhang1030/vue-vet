@@ -196,7 +196,6 @@ pub(super) fn statement_is_assignment_or_followed_helper(
   }
 }
 
-#[expect(clippy::too_many_arguments, reason = "collector threads scope + instance bags")]
 pub(super) fn collect_scope_writes(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
