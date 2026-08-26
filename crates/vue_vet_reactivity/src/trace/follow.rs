@@ -91,6 +91,10 @@ pub(super) enum FollowOutside {
 ///
 /// `root_callees` skips rediscovery at the tracking-scope root. Nested hops
 /// pass `None` and walk nodes again (visiting set differs).
+#[expect(
+  clippy::too_many_arguments,
+  reason = "shared walk threads visiting, outside policy, and optional root set"
+)]
 pub(super) fn follow_local_callees(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,

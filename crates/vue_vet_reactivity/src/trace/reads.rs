@@ -63,6 +63,10 @@ pub(super) struct RawGuard {
   role: ReactiveGuardRole,
 }
 
+#[expect(
+  clippy::too_many_arguments,
+  reason = "root callee reuse is one extra arg on the collector surface"
+)]
 pub(super) fn collect_scope_reads(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,

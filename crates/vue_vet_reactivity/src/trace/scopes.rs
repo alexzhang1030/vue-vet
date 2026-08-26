@@ -141,10 +141,6 @@ pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
   }
 }
 
-#[expect(
-  clippy::too_many_lines,
-  reason = "scope dispatch covers all Vue tracking APIs in one pass"
-)]
 pub(super) fn collect_tracking_scopes(
   semantic: &oxc_semantic::Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
