@@ -574,6 +574,11 @@ Composable-instance writes are dual-path with reads (graph v33):
 `bag.field.value = …` records `binding = field` / `property = "value"` when
 `field` is a known ref-like shape entry. `bag.field = …` (replacing the ref),
 `bag['field'].value`, unknown bags, and `bag.nested.field.value` stay quiet.
+Sync HOF / `toValue` getter writes are dual-path with those nested reads
+(graph v34): `list.value.map(() => { t.value = 1 })` and
+`toValue(() => { t.value = 1; return x })` record writes. Deferred
+`then` / `nextTick` / `setTimeout`, first-arg `Array.from(() => …)`, and
+identifier `list.map(fn)` stay quiet — do not invent a second follow.
 A local function **reference** is the tracking body (graph v27 / v32):
 `computed(load)` / `watchEffect(load)` / `watch(load)` / `computed({ get: load })`
 / `render: renderFn` / `setup() { return renderFn }`
@@ -822,9 +827,9 @@ ancestor chain. Rules:
   shape (no intermediate bag variable required). The call must **resolve to the
   composable def span** — a block-shadowed non-composable `useX` stays quiet
   (name-only matching invents outer bag fields).
-- `toValue(() => …)` invokes the getter synchronously; reads inside that getter
-  stay in the parent tracking scope (like Array HOF callbacks). `unref` does not
-  call functions.
+- `toValue(() => …)` invokes the getter synchronously; reads **and writes**
+  inside that getter stay in the parent tracking scope (like Array HOF
+  callbacks). `unref` does not call functions.
 - Sync HOF callbacks also include **String#replace / replaceAll** replacers
   (and Array methods), plus well-known statics **`Array.from(…, mapFn)`** and
   **`JSON.parse(…, reviver)`** (receiver must be the `Array`/`JSON` identifier —
@@ -833,7 +838,8 @@ ancestor chain. Rules:
   First-arg-only forms (`Array.from(() => x)`, `JSON.parse(() => x)`,
   `str.replace(() => x)`) must stay quiet — runtime does not invoke them as
   mapFn/reviver/replacer. Deferred callbacks (`then`/`setTimeout`/`nextTick`)
-  stay outside tracking.
+  stay outside tracking. Writes in those same sync callbacks are recorded
+  (graph v34); deferred / first-arg / identifier `map(fn)` writes stay quiet.
 - Factory defaults (`inject(key, () => ref(0))`) stay quiet; plain
   `inject(key, someRef)` may seed from the default.
 - `const ctx = inject(key) as Ctx` must peel the `TSAsExpression` (parent of the

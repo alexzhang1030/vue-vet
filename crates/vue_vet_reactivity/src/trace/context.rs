@@ -1,7 +1,8 @@
 //! Whether a member/call sits inside a tracking scope (HOF / toValue / deferred).
 //!
-//! [`scope_context`] is the only ancestor walk [`follow`] and the read/write/uncertain
-//! collectors share, so they cannot disagree on outside-tracking vs write-only.
+//! [`scope_context`] (reads / uncertain) and [`sync_tracking_owns_node`] (writes)
+//! share HOF / `toValue` / deferred classification so they cannot disagree on
+//! whether a nested callback still runs in the parent tracking flush.
 
 use std::collections::BTreeMap;
 
@@ -208,6 +209,39 @@ pub(super) fn is_deferred_callback_container(
       }
       _ => false,
     };
+  }
+  false
+}
+
+/// True when `node_id` sits in `scope_id`'s synchronous tracking body.
+///
+/// Dual-path with [`scope_context`]: sync Array/String/`toValue` callbacks
+/// stay in; `then` / `nextTick` / `setTimeout` and other nested functions
+/// drop. Helper follow covers same-file zero-arg locals separately.
+pub(super) fn sync_tracking_owns_node(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
+  node_id: NodeId,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> bool {
+  for ancestor_id in semantic.nodes().ancestor_ids(node_id) {
+    if ancestor_id == scope_id {
+      return true;
+    }
+    match semantic.nodes().kind(ancestor_id) {
+      AstKind::ArrowFunctionExpression(_) | AstKind::Function(_) => {
+        if is_deferred_callback_container(semantic, ancestor_id) {
+          return false;
+        }
+        if is_sync_hof_callback(semantic, ancestor_id)
+          || is_to_value_getter_callback(semantic, ancestor_id, imported_bindings)
+        {
+          continue;
+        }
+        return false;
+      }
+      _ => {}
+    }
   }
   false
 }

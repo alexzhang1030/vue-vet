@@ -632,6 +632,139 @@ fn sync_hof_callback_nested_reads() {
   }
 }
 
+#[test]
+fn sync_hof_and_to_value_callback_nested_writes() {
+  #[derive(Clone, Copy)]
+  enum Want {
+    TargetValue,
+    Quiet,
+  }
+  struct Case {
+    label: &'static str,
+    source: &'static str,
+    want: Want,
+  }
+  let cases = [
+    Case {
+      label: "list.value.map writes target.value",
+      source: "import { ref, computed } from 'vue';\n\
+               const list = ref([0]); const target = ref(0);\n\
+               const c = computed(() => {\n\
+                 list.value.map(() => { target.value = 1; });\n\
+                 return list.value;\n\
+               });\n\
+               void c.value;",
+      want: Want::TargetValue,
+    },
+    Case {
+      label: "forEach += writes target.value",
+      source: "import { ref, computed } from 'vue';\n\
+               const list = ref([1]); const target = ref(0);\n\
+               const c = computed(() => {\n\
+                 list.value.forEach(() => { target.value += 1; });\n\
+                 return list.value;\n\
+               });\n\
+               void c.value;",
+      want: Want::TargetValue,
+    },
+    Case {
+      label: "Array.from mapFn writes target.value",
+      source: "import { ref, computed } from 'vue';\n\
+               const list = ref([1]); const target = ref(0);\n\
+               const c = computed(() => Array.from(list.value, () => { target.value = 1; return 1; }));\n\
+               void c.value;",
+      want: Want::TargetValue,
+    },
+    Case {
+      label: "toValue getter writes target.value",
+      source: "import { ref, computed, toValue } from 'vue';\n\
+               const source = ref(0); const target = ref(0);\n\
+               const c = computed(() => toValue(() => { target.value = 1; return source.value; }));\n\
+               void c.value;",
+      want: Want::TargetValue,
+    },
+    Case {
+      label: "helper-wrapped map write",
+      source: "import { ref, computed } from 'vue';\n\
+               const list = ref([0]); const target = ref(0);\n\
+               function load() {\n\
+                 list.value.map(() => { target.value = 1; });\n\
+                 return list.value;\n\
+               }\n\
+               const c = computed(() => load());\n\
+               void c.value;",
+      want: Want::TargetValue,
+    },
+    Case {
+      label: "then() callback write stays quiet",
+      source: "import { ref, computed } from 'vue';\n\
+               const source = ref(0); const target = ref(0);\n\
+               const c = computed(() => {\n\
+                 Promise.resolve().then(() => { target.value = 1; });\n\
+                 return source.value;\n\
+               });\n\
+               void c.value;",
+      want: Want::Quiet,
+    },
+    Case {
+      label: "Array.from first-arg function write stays quiet",
+      source: "import { ref, computed } from 'vue';\n\
+               const target = ref(0);\n\
+               const c = computed(() => Array.from(() => { target.value = 1; return 1; }));\n\
+               void c.value;",
+      want: Want::Quiet,
+    },
+    Case {
+      label: "setTimeout write stays quiet",
+      source: "import { ref, computed } from 'vue';\n\
+               const source = ref(0); const target = ref(0);\n\
+               const c = computed(() => {\n\
+                 setTimeout(() => { target.value = 1; });\n\
+                 return source.value;\n\
+               });\n\
+               void c.value;",
+      want: Want::Quiet,
+    },
+    Case {
+      label: "identifier map(fn) write stays quiet",
+      source: "import { ref, computed } from 'vue';\n\
+               const list = ref([0]); const target = ref(0);\n\
+               function mapper() { target.value = 1; return 1; }\n\
+               const c = computed(() => list.value.map(mapper));\n\
+               void c.value;",
+      want: Want::Quiet,
+    },
+  ];
+  for case in cases {
+    let graph = graph(case.source);
+    assert_eq!(graph.version, vue_vet_core::REACTIVITY_GRAPH_VERSION);
+    let scope = helper_follow_scope(&graph, TrackingScopeKind::Computed);
+    match case.want {
+      Want::TargetValue => {
+        assert!(
+          scope.is_some_and(|scope| {
+            scope
+              .writes
+              .iter()
+              .any(|write| write.binding == "target" && write.property.as_deref() == Some("value"))
+          }),
+          "{}: scopes={:?}",
+          case.label,
+          graph.scopes
+        );
+      }
+      Want::Quiet => {
+        assert!(
+          scope.is_none_or(|scope| scope.writes.iter().all(|write| write.binding != "target")),
+          "{}: scopes={:?}",
+          case.label,
+          graph.scopes
+        );
+      }
+    }
+  }
+}
+
 #[derive(Clone, Copy)]
 enum IdentGetterWant {
   ComputedType,

@@ -25,6 +25,10 @@ assignment (`b.value += a.value`) and update (`b.value++`) are writes too.
 A composable instance field (`bag.field.value = a.value`) is the same write
 as a destructured `field.value = a.value`. Replacing the ref (`bag.field = …`),
 computed keys (`bag['field'].value`), and unknown bags stay quiet.
+Sync Array/String/`toValue` callbacks run during the getter flush —
+`list.value.map(() => { t.value = 1 })` and `toValue(() => { t.value = 1; … })`
+are writes too. `then` / `nextTick` / `setTimeout` and identifier
+`list.map(fn)` stay quiet.
 
 ## Good
 
@@ -51,6 +55,8 @@ Move side effects out of the computed getter.
   (`basic.vue` inlined write; `helper-write.vue` helper-wrapped write;
   `ident-getter-write.vue` `computed(load)` write;
   `compound-assign.vue` `+=`; `update.vue` `++`;
-  `bag-field-write.vue` `bag.field.value`)
+  `bag-field-write.vue` `bag.field.value`;
+  `hof-map-write.vue` `list.value.map` write; `to-value-getter-write.vue`)
 - Valid: `fixtures/rules/no-side-effects-in-computed/valid/`
-  (`safe.vue` pure getter; `bag-field-replace.vue` replaces the ref, not `.value`)
+  (`safe.vue` pure getter; `bag-field-replace.vue` replaces the ref, not `.value`;
+  `then-write.vue` deferred `then()` write)

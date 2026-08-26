@@ -294,6 +294,10 @@ pub struct ReactivityEffectFact {
 /// (unclassified `.value` / `unref` / `toValue` inside followed callees).
 /// `then()`/`nextTick`-only call sites stay quiet so absence rules do not
 /// invent `(maybe)` for outside-tracking accesses.
+/// v34: writes inside sync Array/String HOF callbacks and `toValue(() => …)`
+/// getters record the same facts as inlined assignments. `then` / `nextTick`
+/// / `setTimeout`, first-arg `Array.from(() => …)`, and identifier
+/// `list.map(fn)` stay quiet (dual-path with reads).
 /// v33: `bag.field.value = …` on a known composable instance records the
 /// same write fact as a destructured `field.value = …` (`binding = field`,
 /// `property = "value"`). Replacing the ref (`bag.field = …`), computed
@@ -335,7 +339,7 @@ pub struct ReactivityEffectFact {
 /// under-approx hygiene); export linking refinements that change seeded bindings
 /// (`ForwardReturn` bare `#nuxt-imports`, overload Factory≻Composable, ref-like
 /// ternary `Known` exports, empty-path pending composable fields).
-pub const REACTIVITY_GRAPH_VERSION: u32 = 33;
+pub const REACTIVITY_GRAPH_VERSION: u32 = 34;
 
 const fn default_reactivity_graph_version() -> u32 {
   1
