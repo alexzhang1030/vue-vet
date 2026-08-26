@@ -66,8 +66,12 @@ complete.
 
 ## Current baseline
 
-Contract version: **`REACTIVITY_GRAPH_VERSION = 30`**.
+Contract version: **`REACTIVITY_GRAPH_VERSION = 31`**.
 
+v31 peels **parens / TypeScript wrappers on watch sources** so
+`watch((count))` / `watch(count as T)` / `watch((() => count.value))`
+agree with the unwrapped form. Nested arrays still do not treat inner
+arrows as source getters. Prior:
 v30 classifies **pause/enable/resetTracking inside followed helpers**
 (and after those calls return). `load()` that pauses then reads is
 OutsideTracking, dual-path with inline `pauseTracking(); x.value`. Vue's
@@ -117,11 +121,11 @@ See [vue_vet_plugins README](../../crates/vue_vet_plugins/README.md) and
 | --- | --- | --- | --- |
 | A1 Bindings | complete | Vue primitives, aliases, `#imports`, bare Nuxt/auto-import allowlist, `defineModel`, **Vue Macros `defineModels` destructure → ModelRef locals**, `defineProps` (whole object **and Vue 3.5+ object-destructure locals → Reactive**), `withDefaults(defineProps())` same, `storeToRefs`, `useRoute`/`useRouter`, `unref`/`toValue`, module seeds, **factory call returns** (`Factory(Ref|Reactive)` from body / `.d.ts`), **`.d.ts` object-bag returns** (`{ field: Ref }` / same-file interface·type alias → destructure seeds), **typed `Ref`/`ComputedRef` parameters & declarators** (scope classification; nested locals span-resolved), **`useI18n` ambient + synthetic composer when only translators destructured** | whole-object `const models = defineModels()` without destructure stays quiet; pre-3.5 props destructure still flagged by `no-nonreactive-props-destructure` |
 | A2 Scopes | complete | effects, computed getter/`{ get, set }`, **identifier getters** (`computed(load)` / `watchEffect(load)` / `watch(load)` / `{ get: load }`), watch sources + callback outside, effectScope `.run` + provenance, dispose, **Render** (options `render` / `setup`→render / functional export / same-file `defineComponent` factory+alias+one-hop forwarder); **bounded same-file zero-arg helper follow** into scope reads, **`uncertain_accesses`**, **writes**, and **`assignment_only`** | cross-file / async / args / method callees stay quiet |
-| A3 Reads | complete | `.value` / members / bag.field / sync Array·String·`Array.from`·`JSON.parse` HOF / watch ref `.value` / `unref`·`toValue` / bare `watch(reactive)` deep root `*` / **reads inside followed local helpers** / **uncertain accesses inside followed local helpers** / **writes / assignment-only inside followed local helpers** / **`+=` / `++` writes** / **`useI18n` translator ambient deps** | — |
+| A3 Reads | complete | `.value` / members / bag.field / sync Array·String·`Array.from`·`JSON.parse` HOF / watch ref `.value` / `unref`·`toValue` / bare `watch(reactive)` deep root `*` / **peeled watch sources** (`watch((ref))` / `watch(ref as T)`) / **reads inside followed local helpers** / **uncertain accesses inside followed local helpers** / **writes / assignment-only inside followed local helpers** / **`+=` / `++` writes** / **`useI18n` translator ambient deps** | — |
 | A4 Conditions | complete | if / early-exit / ternary / short-circuit / switch roles; **all-path same `(binding, property)` on both ternary/if-else arms → no BranchTest** (under-approx hygiene: do not invent Conditional); **followed helper reads inherit caller guards** (`cond ? load() : 0`); pure checks in `trace/branch_hygiene.rs` | further control-flow depth is out of charter |
 | A5 Boundaries | complete | after-await; pause/enable/resetTracking windows; **pause inside followed helpers + leak past the call**; nested `then`/`nextTick` outside; watch callback outside | — |
 | A6 Modules | complete | composable bags + Factory + ValueBag + ComponentFactory + ExternalImport + `#nuxt-imports` seeds; **export lattice** (below); **`return local = call()` → ForwardReturn**; bare auto-import callee resolve; pending empty-path composable fields | whole-object `v-bind` quiet; `#imports` virtual without body quiet |
-| A7 Contract | complete | **v30** pause-in-helper; v29 compound/update writes; v28 caller guards on followed reads; v27 identifier getters; v26 helper-follow writes / `assignment_only`; v25 helper-follow `uncertain_accesses`; v24 useI18n translator ambient; v23 local zero-arg helper follow; v22…v7 as before; deterministic sort | — |
+| A7 Contract | complete | **v31** watch-source peel; v30 pause-in-helper; v29 compound/update writes; v28 caller guards on followed reads; v27 identifier getters; v26 helper-follow writes / `assignment_only`; v25 helper-follow `uncertain_accesses`; v24 useI18n translator ambient; v23 local zero-arg helper follow; v22…v7 as before; deterministic sort | — |
 | Evidence | complete | Runtime oracle (≥99% recall on committed cases); deep-watch `*`; exhaustive local reads; key SFC E2E | — (prop flow is static unit/project; not an `onTrack` pair) |
 
 ### ExportState lattice (A6 linking)
@@ -201,7 +205,7 @@ Executable merge/seedable/name-resolve/pending/publish/refine checks live in
 | A4 | ✅ Guard roles + all-path same-identity branch reads (`branch_hygiene`); **followed helpers inherit caller guards**; no further CF depth for recall |
 | A5 | ✅ After-await classification; pause/enable/resetTracking windows; **pause inside followed helpers**; nested callback outside-tracking; watch callback outside |
 | A6 | ✅ Composable/instance/dual-script/provide-inject; Factory/Composable/ValueBag/ComponentFactory; export lattice (above); bare `#nuxt-imports` seeds + ForwardReturn resolve; external summaries; static `:prop` edges |
-| A7 | ✅ Versioned graph (**v30**); deterministic sort; `property`/`to_path`; **`{module}:{name}@{offset}` `to_id`** |
+| A7 | ✅ Versioned graph (**v31**); deterministic sort; `property`/`to_path`; **`{module}:{name}@{offset}` `to_id`** |
 | Evidence | ✅ `just oracle` ≥99% recall on committed cases; exhaustive local reads; key SFC E2E |
 
 ### In-scope remaining (this epic)
@@ -279,13 +283,21 @@ pause/resume onto the call end (Vue `shouldTrack` leaks). Oracle:
 `pause-tracking-helper`. Nested `pause; pause; enable` is still last-event,
 not a stack/counter.
 
+**2026-08-26 contract refinement (v31):** watch-source collection matched
+Identifier / member / array / inline getter on the raw argument.
+`local_getter_parts` and uncertain watch sources already peeled, so
+`watch((count))` / `watch(count as T)` invented an empty source (and a
+confident `no-empty-watch-sources` finding). Peel before classifying.
+Nested `watch([[() => x.value]])` still does not treat the inner arrow as
+a getter. Oracle: `watch-source-parens`.
+
 **Do not** auto-continue pure extracts, Elk/corpus KPI chasing, or a11y as
 tracer A0–A7. Next tracer work needs **evidence** first:
 
 1. **Contract refinement** — invent Conditional / blocked seed / dual-path
    inconsistency → fix + unit/oracle + **`REACTIVITY_GRAPH_VERSION` bump** +
-   PCR lattice update. Ranked candidates after v30 (watch-source peel,
-   render identifier getters) live in
+   PCR lattice update. Ranked candidates after v31 (render identifier
+   getters) live in
    [science memo](./research/reactivity-tracer-science.md).
    Caller-guard-on-follow is dual-path hygiene, not "further A4 for recall."
 2. **Consumer surface** — rules / explain / TUI / VS Code using facts already
@@ -469,6 +481,7 @@ growing prose ledger.
 | 2026-08-26 | Caller guards on follow | Followed helper reads inherit caller ternary/if/early-exit/short-circuit; both-arm helper calls stay Unconditional; graph **v28**; dual-path with inline `cond ? x.value : 0` |
 | 2026-08-26 | Compound / update writes | `+=` / `++` record write facts like `=`; logical `&&=` quiet; `assignment_only` includes updates; graph **v29** |
 | 2026-08-26 | Pause in followed helper | Pause/enable/reset inside `load()` + leak past the call; per-function IR (no file-offset mix); graph **v30**; oracle `pause-tracking-helper` |
+| 2026-08-26 | Watch-source peel | `watch((count))` / `watch(count as T)` / parenthesized getters agree with the bare form; nested arrays stay identifier-only; graph **v31**; oracle `watch-source-parens` |
 | 2026-08-21 | Helper-follow walk unify | Reads / uncertain / writes share `follow_local_callees`; drop unused `local_function_id` name arg. No graph version bump (same facts). |
 | 2026-08-21 | CSS `v-bind` join | `<style>` `v-bind(ident)` / quoted ident → `TemplateExpressionFact.surface = "style"`; style-only ident edits refresh without adding style to revisions |
 | 2026-08-10 | Tracer plugins crate | Ecosystem hardcode (Nuxt data bags, vue-i18n `useI18n`) lives in published `vue_vet_plugins`; engine has no Nuxt/i18n names; Oxc/project/session **auto-load** defaults; crates.io order core→reactivity→plugins; docs: crate README + install library table |

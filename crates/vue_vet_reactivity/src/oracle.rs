@@ -206,6 +206,8 @@ fn oracle_cases_cover_known_hard_facts() {
     "watch-source-array-getters",
     "watch-source-fn-ref",
     "watch-source-getter",
+    "watch-source-parens",
+    "watch-source-reactive-deep",
     "watch-source-ref",
   ] {
     assert!(ids.contains(required), "missing oracle case {required}");

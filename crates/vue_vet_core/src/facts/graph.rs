@@ -294,6 +294,10 @@ pub struct ReactivityEffectFact {
 /// (unclassified `.value` / `unref` / `toValue` inside followed callees).
 /// `then()`/`nextTick`-only call sites stay quiet so absence rules do not
 /// invent `(maybe)` for outside-tracking accesses.
+/// v31: watch-source arguments peel parens / TypeScript wrappers before
+/// classifying a ref, getter, or array (`watch((count))` / `watch(count as T)`
+/// agree with `watch(count)`). Nested arrays still do not treat inner arrows
+/// as source getters.
 /// v30: pause/enable/resetTracking inside a followed helper classify the
 /// helper's reads (and later sibling reads after the call returns). Vue's
 /// `shouldTrack` is process-global, so a helper that ends paused stays
@@ -324,7 +328,7 @@ pub struct ReactivityEffectFact {
 /// under-approx hygiene); export linking refinements that change seeded bindings
 /// (`ForwardReturn` bare `#nuxt-imports`, overload Factory≻Composable, ref-like
 /// ternary `Known` exports, empty-path pending composable fields).
-pub const REACTIVITY_GRAPH_VERSION: u32 = 30;
+pub const REACTIVITY_GRAPH_VERSION: u32 = 31;
 
 const fn default_reactivity_graph_version() -> u32 {
   1

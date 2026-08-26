@@ -899,6 +899,10 @@ fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
         "../../../fixtures/rules/no-reactive-read-during-pause-tracking/valid/unpaused-then-paused-call.vue"
       ),
     ),
+    (
+      "fixtures/rules/no-empty-watch-sources/valid/parens-ref.vue",
+      include_str!("../../../fixtures/rules/no-empty-watch-sources/valid/parens-ref.vue"),
+    ),
   ] {
     assert_diagnostics(path, source, empty);
   }

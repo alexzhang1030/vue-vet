@@ -33,7 +33,7 @@ LSP: `vue-vet --lsp` hover at a caret inside a tracking scope.
 ## Status
 
 Early `0.x`. The fact schema is versioned
-(`REACTIVITY_GRAPH_VERSION = 30` in `vue_vet_core`). See the repository PCR
+(`REACTIVITY_GRAPH_VERSION = 31` in `vue_vet_core`). See the repository PCR
 ([reactivity tracer](https://github.com/alexzhang1030/vue-vet/blob/main/.agents/docs/reactivity-tracer.md))
 for the ExportState lattice and axis checklist. In-scope design axes A1–A7
 and Evidence are **complete** — complete means the in-scope checklists, not
