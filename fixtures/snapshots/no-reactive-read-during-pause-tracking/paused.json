@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-reactive-read-during-pause-tracking",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-reactive-read-during-pause-tracking",
+    "message": "`value.value` is read while tracking is paused, so `watchEffect` will not track it",
+    "help": "Read the dependency outside `pauseTracking()`…`enableTracking()` / `resetTracking()`, or list it in explicit `watch` sources.",
+    "file": "fixtures/rules/no-reactive-read-during-pause-tracking/invalid/paused.vue",
+    "span": {
+      "offset": 169,
+      "length": 11,
+      "line": 7,
+      "column": 15
+    }
+  }
+]

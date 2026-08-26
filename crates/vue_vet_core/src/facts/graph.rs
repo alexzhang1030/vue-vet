@@ -294,6 +294,10 @@ pub struct ReactivityEffectFact {
 /// (unclassified `.value` / `unref` / `toValue` inside followed callees).
 /// `then()`/`nextTick`-only call sites stay quiet so absence rules do not
 /// invent `(maybe)` for outside-tracking accesses.
+/// v30: pause/enable/resetTracking inside a followed helper classify the
+/// helper's reads (and later sibling reads after the call returns). Vue's
+/// `shouldTrack` is process-global, so a helper that ends paused stays
+/// paused in the caller. Do not compare helper spans against caller events.
 /// v29: compound assignment (`+=` / `-=` / …) and update (`++` / `--`)
 /// record the same write facts as `=`. Logical `&&=` / `||=` / `??=` stay
 /// quiet (they may not write). `assignment_only` includes update expressions
@@ -320,7 +324,7 @@ pub struct ReactivityEffectFact {
 /// under-approx hygiene); export linking refinements that change seeded bindings
 /// (`ForwardReturn` bare `#nuxt-imports`, overload Factory≻Composable, ref-like
 /// ternary `Known` exports, empty-path pending composable fields).
-pub const REACTIVITY_GRAPH_VERSION: u32 = 29;
+pub const REACTIVITY_GRAPH_VERSION: u32 = 30;
 
 const fn default_reactivity_graph_version() -> u32 {
   1

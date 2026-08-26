@@ -18,7 +18,9 @@ use super::{
   bindings::AmbientCallHandles,
   branch_hygiene,
   context::scope_context,
-  follow::{FollowOutside, follow_local_callees},
+  follow::{
+    FollowOutside, follow_local_callees, innermost_function_id, local_helper_calls_by_owner,
+  },
   kinds::{reference_resolves_to_binding, resolved_vue_callee, source_span, span_contains},
   writes::function_body_of,
 };
@@ -563,44 +565,27 @@ pub(super) fn branch_pair_covers_read(
   )
 }
 
-/// Per-tracking-scope control-flow facts built once, then used to classify reads.
+/// Per-tracking-scope await facts. Pause events live in [`build_function_pause_irs`]
+/// so helper bodies are not compared against the caller by file offset.
 pub(super) struct TrackingScopeIR {
   /// Ends of top-level `await` expressions owned by this scope (sorted ascending).
   await_ends: Vec<u32>,
-  /// `(call_end, is_pause)` pause/resume events owned by this scope (sorted by end).
-  pause_events: Vec<(u32, bool)>,
 }
 
 pub(super) fn build_tracking_scope_ir(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
-  imported_bindings: &BTreeMap<String, (String, String)>,
 ) -> TrackingScopeIR {
   let mut await_ends = Vec::new();
-  let mut pause_events = Vec::new();
   for (node_id, node) in semantic.nodes().iter_enumerated() {
-    match node.kind() {
-      AstKind::AwaitExpression(await_expression) => {
-        if scope_owns_await(semantic, scope_id, node_id) {
-          await_ends.push(await_expression.span.end);
-        }
-      }
-      AstKind::CallExpression(call) => {
-        if !scope_owns_pause_call(semantic, scope_id, call.node_id.get()) {
-          continue;
-        }
-        if is_pause_tracking_call(semantic, call, imported_bindings) {
-          pause_events.push((call.span.end, true));
-        } else if is_resume_tracking_call(semantic, call, imported_bindings) {
-          pause_events.push((call.span.end, false));
-        }
-      }
-      _ => {}
+    if let AstKind::AwaitExpression(await_expression) = node.kind()
+      && scope_owns_await(semantic, scope_id, node_id)
+    {
+      await_ends.push(await_expression.span.end);
     }
   }
   await_ends.sort_unstable();
-  pause_events.sort_by_key(|(end, _)| *end);
-  TrackingScopeIR { await_ends, pause_events }
+  TrackingScopeIR { await_ends }
 }
 
 pub(super) fn scope_owns_await(
@@ -624,40 +609,95 @@ pub(super) fn scope_owns_await(
   false
 }
 
-pub(super) fn scope_owns_pause_call(
-  semantic: &oxc_semantic::Semantic<'_>,
-  scope_id: NodeId,
-  call_id: NodeId,
-) -> bool {
-  for ancestor_id in semantic.nodes().ancestor_ids(call_id) {
-    if ancestor_id == scope_id {
-      return true;
-    }
-    if matches!(
-      semantic.nodes().kind(ancestor_id),
-      AstKind::ArrowFunctionExpression(_) | AstKind::Function(_)
-    ) {
-      return false;
-    }
-  }
-  false
-}
-
 pub(super) fn is_after_top_level_await_ir(ir: &TrackingScopeIR, read: &RawReactiveRead) -> bool {
   // Any await that fully precedes the read.
   let index = ir.await_ends.partition_point(|&end| end <= read.span.start);
   index > 0
 }
 
-pub(super) fn is_after_pause_tracking_ir(ir: &TrackingScopeIR, read: &RawReactiveRead) -> bool {
-  let mut paused = false;
-  for (end, is_pause) in &ir.pause_events {
-    if *end > read.span.start {
+/// Last pause/resume before `pos` in one function. No events keeps `inherit`.
+/// Vue's `shouldTrack` is a stack, not a counter — this is still "last event",
+/// the same fold as the committed `pause-tracking-window` cases.
+fn pause_state_at(events: &[(u32, bool)], pos: u32, inherit: bool) -> bool {
+  let mut paused = inherit;
+  for (end, is_pause) in events {
+    if *end > pos {
       break;
     }
     paused = *is_pause;
   }
   paused
+}
+
+fn pause_events_for<'a>(
+  irs: &'a BTreeMap<NodeId, Vec<(u32, bool)>>,
+  function_id: NodeId,
+) -> &'a [(u32, bool)] {
+  irs.get(&function_id).map_or(&[], Vec::as_slice)
+}
+
+/// Per-function pause/resume, plus a synthetic event at each same-file helper
+/// call end when that callee's last event is pause or resume (leak).
+fn build_function_pause_irs(
+  semantic: &Semantic<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> BTreeMap<NodeId, Vec<(u32, bool)>> {
+  let mut raw: BTreeMap<NodeId, Vec<(u32, bool)>> = BTreeMap::new();
+  for (_, node) in semantic.nodes().iter_enumerated() {
+    let AstKind::CallExpression(call) = node.kind() else {
+      continue;
+    };
+    let is_pause = if is_pause_tracking_call(semantic, call, imported_bindings) {
+      true
+    } else if is_resume_tracking_call(semantic, call, imported_bindings) {
+      false
+    } else {
+      continue;
+    };
+    let Some(owner) = innermost_function_id(semantic, call.node_id.get()) else {
+      continue;
+    };
+    raw.entry(owner).or_default().push((call.span.end, is_pause));
+  }
+  let helper_calls = local_helper_calls_by_owner(semantic);
+  let mut owners: BTreeSet<NodeId> = raw.keys().copied().collect();
+  owners.extend(helper_calls.keys().copied());
+  let mut memo = BTreeMap::new();
+  let mut visiting = BTreeSet::new();
+  for owner in owners {
+    enrich_function_pause_events(owner, &raw, &helper_calls, &mut memo, &mut visiting);
+  }
+  memo
+}
+
+fn enrich_function_pause_events(
+  function_id: NodeId,
+  raw: &BTreeMap<NodeId, Vec<(u32, bool)>>,
+  helper_calls: &BTreeMap<NodeId, Vec<(u32, NodeId)>>,
+  memo: &mut BTreeMap<NodeId, Vec<(u32, bool)>>,
+  visiting: &mut BTreeSet<NodeId>,
+) -> Vec<(u32, bool)> {
+  if let Some(events) = memo.get(&function_id) {
+    return events.clone();
+  }
+  if !visiting.insert(function_id) {
+    let mut events = raw.get(&function_id).cloned().unwrap_or_default();
+    events.sort_by_key(|(end, _)| *end);
+    return events;
+  }
+  let mut events = raw.get(&function_id).cloned().unwrap_or_default();
+  if let Some(calls) = helper_calls.get(&function_id) {
+    for &(end, callee_id) in calls {
+      let nested = enrich_function_pause_events(callee_id, raw, helper_calls, memo, visiting);
+      if let Some((_, is_pause)) = nested.last() {
+        events.push((end, *is_pause));
+      }
+    }
+  }
+  events.sort_by_key(|(end, _)| *end);
+  visiting.remove(&function_id);
+  memo.insert(function_id, events.clone());
+  events
 }
 
 pub(super) fn is_pause_tracking_call(
@@ -687,6 +727,7 @@ pub(super) struct ClassifyRead<'a> {
   sfc_source: &'a str,
   script_offset: usize,
   ir: &'a TrackingScopeIR,
+  pause_irs: &'a BTreeMap<NodeId, Vec<(u32, bool)>>,
 }
 
 pub(super) fn classify_scope_reads(
@@ -701,7 +742,8 @@ pub(super) fn classify_scope_reads(
   if raw_reads.is_empty() {
     return Vec::new();
   }
-  let ir = build_tracking_scope_ir(semantic, scope_id, imported_bindings);
+  let ir = build_tracking_scope_ir(semantic, scope_id);
+  let pause_irs = build_function_pause_irs(semantic, imported_bindings);
   raw_reads
     .iter()
     .map(|read| {
@@ -714,24 +756,10 @@ pub(super) fn classify_scope_reads(
         sfc_source,
         script_offset,
         ir: &ir,
+        pause_irs: &pause_irs,
       })
     })
     .collect()
-}
-
-fn owning_function_id(semantic: &Semantic<'_>, node_id: NodeId) -> Option<NodeId> {
-  if matches!(
-    semantic.nodes().kind(node_id),
-    AstKind::Function(_) | AstKind::ArrowFunctionExpression(_)
-  ) {
-    return Some(node_id);
-  }
-  semantic.nodes().ancestor_ids(node_id).find(|&ancestor_id| {
-    matches!(
-      semantic.nodes().kind(ancestor_id),
-      AstKind::Function(_) | AstKind::ArrowFunctionExpression(_)
-    )
-  })
 }
 
 /// Guards on the read inside its owning function, plus caller guards at each
@@ -739,7 +767,7 @@ fn owning_function_id(semantic: &Semantic<'_>, node_id: NodeId) -> Option<NodeId
 /// nothing — that hop does not constrain the read.
 fn classify_path_guards(input: &ClassifyRead<'_>) -> Vec<RawGuard> {
   let local_scope =
-    owning_function_id(input.semantic, input.read.node_id).unwrap_or(input.scope_id);
+    innermost_function_id(input.semantic, input.read.node_id).unwrap_or(input.scope_id);
   let local_body = function_body_of(input.semantic, local_scope).or(input.body);
   let mut guards =
     path_guards(input.semantic, local_scope, local_body, input.raw_reads, input.read);
@@ -765,7 +793,7 @@ fn caller_hop_guards(
   let Some(first) = call_sites.first().copied() else {
     return Vec::new();
   };
-  let owner = owning_function_id(semantic, first).unwrap_or(first);
+  let owner = innermost_function_id(semantic, first).unwrap_or(first);
   let body = function_body_of(semantic, owner);
   let proxies: Vec<RawReactiveRead> = call_sites
     .iter()
@@ -792,8 +820,44 @@ fn caller_hop_guards(
   merged
 }
 
+fn hop_all_paused(input: &ClassifyRead<'_>, hop: &[NodeId], inherit: bool) -> bool {
+  if hop.is_empty() {
+    return inherit;
+  }
+  hop.iter().all(|&call_id| {
+    let owner = innermost_function_id(input.semantic, call_id).unwrap_or(input.scope_id);
+    let start = input.semantic.nodes().kind(call_id).span().start;
+    pause_state_at(pause_events_for(input.pause_irs, owner), start, inherit)
+  })
+}
+
+/// Pause on the owning function, caller hops, and (when the read is in-scope
+/// rather than followed) the tracking-scope IR so inline HOF callbacks still
+/// see `pauseTracking()` in the parent. Followed reads never compare helper
+/// spans against caller events.
+fn read_is_after_pause(input: &ClassifyRead<'_>) -> bool {
+  let owner = innermost_function_id(input.semantic, input.read.node_id).unwrap_or(input.scope_id);
+  if input.read.caller_hops.is_empty() {
+    let mut paused = pause_state_at(
+      pause_events_for(input.pause_irs, input.scope_id),
+      input.read.span.start,
+      false,
+    );
+    if owner != input.scope_id {
+      paused =
+        pause_state_at(pause_events_for(input.pause_irs, owner), input.read.span.start, paused);
+    }
+    return paused;
+  }
+  let mut paused = false;
+  for hop in input.read.caller_hops.iter().rev() {
+    paused = hop_all_paused(input, hop, paused);
+  }
+  pause_state_at(pause_events_for(input.pause_irs, owner), input.read.span.start, paused)
+}
+
 pub(super) fn classify_read(input: &ClassifyRead<'_>) -> ReactiveReadFact {
-  let outside = input.read.outside_tracking || is_after_pause_tracking_ir(input.ir, input.read);
+  let outside = input.read.outside_tracking || read_is_after_pause(input);
   let guards = if outside { Vec::new() } else { classify_path_guards(input) };
   let kind = if outside {
     ReactiveReadKind::OutsideTracking

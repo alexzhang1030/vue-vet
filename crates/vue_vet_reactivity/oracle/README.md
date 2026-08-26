@@ -22,6 +22,7 @@ completeness number — not a 280-case syntax matrix.
 | `computed-helper-ternary` | `computed(() => cond ? load() : 0)` tracks cond + helper reads |
 | `watch-source-fn-ref` | `watch(load)` treats a local function as a source getter |
 | `pause-tracking-window` | `pauseTracking`/`enableTracking` window drops mid-window reads |
+| `pause-tracking-helper` | `pauseTracking` inside `load()` drops the helper read; later `enableTracking` still tracks |
 | `reset-tracking-window` | `pauseTracking`/`resetTracking` window drops mid-window reads |
 | `props-reactive-object` | `props.count` style reactive object (defineProps stand-in) |
 | `reactive-member` | `reactive({ count }).count` member track |

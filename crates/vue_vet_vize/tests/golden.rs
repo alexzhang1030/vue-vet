@@ -837,6 +837,33 @@ fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
         "../../../fixtures/snapshots/no-conditional-dependency-in-computed/inline-ternary.json"
       ),
     ),
+    (
+      "fixtures/rules/no-reactive-read-during-pause-tracking/invalid/paused.vue",
+      include_str!(
+        "../../../fixtures/rules/no-reactive-read-during-pause-tracking/invalid/paused.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-reactive-read-during-pause-tracking/paused.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-reactive-read-during-pause-tracking/invalid/helper-pause.vue",
+      include_str!(
+        "../../../fixtures/rules/no-reactive-read-during-pause-tracking/invalid/helper-pause.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-reactive-read-during-pause-tracking/helper-pause.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-reactive-read-during-pause-tracking/invalid/caller-pause-helper.vue",
+      include_str!(
+        "../../../fixtures/rules/no-reactive-read-during-pause-tracking/invalid/caller-pause-helper.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-reactive-read-during-pause-tracking/caller-pause-helper.json"
+      ),
+    ),
   ] {
     assert_diagnostics(path, source, expected);
   }
@@ -852,6 +879,24 @@ fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
       "fixtures/rules/no-conditional-dependency-in-computed/valid/unconditional-helper.vue",
       include_str!(
         "../../../fixtures/rules/no-conditional-dependency-in-computed/valid/unconditional-helper.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-reactive-read-during-pause-tracking/valid/outside-pause.vue",
+      include_str!(
+        "../../../fixtures/rules/no-reactive-read-during-pause-tracking/valid/outside-pause.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-reactive-read-during-pause-tracking/valid/helper-resume.vue",
+      include_str!(
+        "../../../fixtures/rules/no-reactive-read-during-pause-tracking/valid/helper-resume.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-reactive-read-during-pause-tracking/valid/unpaused-then-paused-call.vue",
+      include_str!(
+        "../../../fixtures/rules/no-reactive-read-during-pause-tracking/valid/unpaused-then-paused-call.vue"
       ),
     ),
   ] {

@@ -174,6 +174,7 @@ fn oracle_cases_cover_known_hard_facts() {
     "computed-fn-ref",
     "computed-helper-ternary",
     "computed-object-get",
+    "pause-tracking-helper",
     "pause-tracking-window",
     "reset-tracking-window",
     "props-reactive-object",
