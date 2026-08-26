@@ -118,7 +118,7 @@ ECOOP 2025 *Reusing Caches and Invariants* (function-summary reuse when the anal
 
 Historical stall still in the PCR: companion `.js` over-merge parsed `typescript.js` (~9 MB) and stalled `pixi-heatmap/docs` (~20 s). The guard is `needs_implementation_merge` on provisional halves only. Do not reopen "no finished seeds means incomplete."
 
-Documented wall times are a 2026-07-27 maintainer spot check on `nuxt-graph` (session-analyze milliseconds, CLI process ~0.3 s). CodSpeed has names, not committed CPU times. Treat runner noise on `scan_diff_filter_nuxt_graph` as PR #182 already did.
+Documented wall times are a 2026-07-27 maintainer spot check on `nuxt-graph` (session-analyze milliseconds, CLI process ~0.3 s). CodSpeed has names, not committed CPU times. `scan_diff_filter_nuxt_graph` measures batched `filter_diff` only; analyze and cache teardown stay outside the timed closure. Do not treat that name as a scan-path regression.
 
 ## Smart
 

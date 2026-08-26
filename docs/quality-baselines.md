@@ -42,9 +42,14 @@ Stable benchmark names (do not rename without a new baseline rationale):
 | `vue_vet_session` / `scan_modes` | `scan_cold_nuxt_graph` | Cold project scan |
 | `vue_vet_session` / `scan_modes` | `scan_warm_nuxt_graph` | Warm cache scan |
 | `vue_vet_session` / `scan_modes` | `scan_overlay_nuxt_graph` | Incremental overlay |
-| `vue_vet_session` / `scan_modes` | `scan_diff_filter_nuxt_graph` | Diff filter |
+| `vue_vet_session` / `scan_modes` | `scan_diff_filter_nuxt_graph` | Diff filter (`filter_diff` only; analyze and cache teardown are unmeasured) |
 
 Commands: `just bench`, `just bench-codspeed-build`, `just bench-codspeed-run`.
+
+`scan_diff_filter_nuxt_graph` repeats `filter_diff` on the `nuxt-graph` summary
+so the timed work sits above CodSpeed's microsecond noise floor. Changing the
+repeat count or putting filesystem teardown back in the measured closure
+establishes a new baseline.
 
 ### Developer-machine spot check (informational)
 

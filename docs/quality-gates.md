@@ -102,7 +102,7 @@ Modes measured on the quality corpus:
 | Cold | Fresh cache directory, full analyze. |
 | Warm | Second analyze against a primed content-addressed cache. |
 | Incremental | Repeated `apply_changes` + `analyze_affected`, both on the Nuxt fixture and a synthetic 1k-module reverse-dependency chain. |
-| Diff | Full analyze then `filter_diff` with a fixed changed-file set (no git). |
+| Diff | Full analyze (unmeasured) then repeated `filter_diff` with a fixed changed-file set (no git). Cache teardown is outside the measured closure. |
 
 Canonical PR comparison uses CodSpeed (`just bench` / `just bench-codspeed-*`):
 

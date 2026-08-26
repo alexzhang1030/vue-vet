@@ -5,10 +5,7 @@
 use std::{
   collections::{BTreeMap, BTreeSet},
   path::{Path, PathBuf},
-  sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
-  },
+  sync::atomic::{AtomicUsize, Ordering},
 };
 
 use vue_vet_cache::{ChangedLines, filter_diff};
@@ -208,22 +205,28 @@ fn scan_incremental_root_edit_1k_modules(bencher: divan::Bencher) {
   let _ignored = std::fs::remove_dir_all(&cache);
 }
 
+// One `filter_diff` of the nuxt-graph summary is a retain+sort of a handful of
+// diagnostics (~8 µs). Repeat so CodSpeed is not sitting on that noise floor.
+const DIFF_FILTER_REPEATS: usize = 256;
+
 #[divan::bench]
 fn scan_diff_filter_nuxt_graph(bencher: divan::Bencher) {
   let root = nuxt_graph();
+  let cache = temp_cache("diff");
+  let _ignored = std::fs::remove_dir_all(&cache);
+  let session = open(&root, cache.clone(), true);
+  let snapshot = session.analyze().expect("analyze for diff");
+  let summary = snapshot.summary;
+  let mut changed = ChangedLines::default();
+  changed.files.insert("pages/index.vue".into(), BTreeSet::from([1]));
   bencher
-    .with_inputs(|| {
-      let cache = temp_cache("diff");
-      let _ignored = std::fs::remove_dir_all(&cache);
-      let session = open(&root, cache.clone(), true);
-      let snapshot = session.analyze().expect("analyze for diff");
-      (cache, snapshot.summary)
-    })
-    .bench_values(|(cache, summary)| {
-      let mut changed = ChangedLines::default();
-      changed.files.insert("pages/index.vue".into(), BTreeSet::from([1]));
-      let filtered = filter_diff(Arc::unwrap_or_clone(summary), &changed);
-      let _ignored = std::fs::remove_dir_all(&cache);
-      divan::black_box(filtered.diagnostics.len())
+    .with_inputs(|| (0..DIFF_FILTER_REPEATS).map(|_| summary.as_ref().clone()).collect::<Vec<_>>())
+    .bench_values(|summaries| {
+      let mut retained = 0;
+      for owned in summaries {
+        retained += filter_diff(owned, &changed).diagnostics.len();
+      }
+      divan::black_box(retained)
     });
+  let _ignored = std::fs::remove_dir_all(&cache);
 }
