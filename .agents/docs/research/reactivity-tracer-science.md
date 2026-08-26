@@ -111,7 +111,7 @@ Cold cost is dominated by (1) visiting every module in phase one, (2) cloning ma
 | Question | Already on the graph | Current waste |
 | --- | --- | --- |
 | Would Vue re-run this? | `explain_tracking_scope` | Module-qualified queries skip other graphs. Bare `@offset` / binding still scan all. VS Code `--explain-scope --no-cache`. MCP opens a new `ProjectSession`. |
-| Who reads `props.count`? | `edges` + `to_path` | TUI/VS Code filter label strings. |
+| Who reads `props.count`? | `edges` + `to_path` | ~~TUI/VS Code filter label strings.~~ `binding_nav` looks up inspect targets. Scan is fallback for older JSON. |
 | Scope at caret | `scope.span` covering | Linear `min_by_key`. VS Code reimplements it on `scope_details`. |
 | Tracer ran? | CLI / MCP `reactivity` totals | MCP scan now ships the same totals as CLI JSON (no `modules_detail`). |
 
@@ -170,7 +170,7 @@ Stay inside the PCR stop rule. Each row says what evidence already exists and wh
 
 ### Consumer polish (smarter without AST)
 
-13. ~~File-scoped explain (`file:@offset` / `module:binding` skip other graphs).~~ Binding → inbound edges index for TUI/VS Code still open.
+13. ~~File-scoped explain (`file:@offset` / `module:binding` skip other graphs).~~ ~~Binding → inbound edges index.~~ `--print-reactivity` `binding_nav` folds `edge_details` + `template_details` once. TUI/VS Code look up inspect targets. Label / `*_details` scan remains the fallback for older JSON.
 14. VS Code Explain Scope should hit the LSP session, not `--no-cache` CLI. ~~MCP `vue_vet_scan` should keep the `reactivity` digest.~~ Scan JSON now ships CLI totals.
 
 ### Stop
@@ -187,7 +187,7 @@ Unstamped. Nothing here is vouched.
 
 **Keep.** Under-approx, static-only, quiet failure, plugin-supplied bags, shared `follow_local_callees`, identifier getters, `ModuleTraceState` plan equality, oracle as the precision ruler.
 
-**The interesting remaining bug class** after v34 is not another write dual-path. The Do-now contract holes (caller guards, pause-in-helper, `+=`/`++`, watch peel, render ident getters, instance writes, HOF / `toValue` writes) are closed. Helper-call now has an `onTrack` pair. Remaining charter-quiet rows (NamedApiBag member form, CSS `v-bind` completeness) stay quiet on purpose. Next work is leftover consumer polish (binding inbound index, VS Code Explain Scope via LSP) and any later pass that *feeds* `export_closure` into the tracer as a subset input.
+**The interesting remaining bug class** after v34 is not another write dual-path. The Do-now contract holes (caller guards, pause-in-helper, `+=`/`++`, watch peel, render ident getters, instance writes, HOF / `toValue` writes) are closed. Helper-call now has an `onTrack` pair. Remaining charter-quiet rows (NamedApiBag member form, CSS `v-bind` completeness) stay quiet on purpose. Next leftover consumer work is VS Code Explain Scope via LSP, plus any later pass that *feeds* `export_closure` into the tracer as a subset input.
 
 **The interesting remaining speed class** is session input breadth (still a full module list), not a new interprocedural framework. Nested helper hops still rediscover callees; do not cache those without a visiting-set story.
 

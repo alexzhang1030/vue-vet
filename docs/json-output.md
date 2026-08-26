@@ -112,9 +112,32 @@ plus structured span details for editor consumers:
       "span": { "offset": 11768, "length": 5 },
       "label": "v-if  reads  error"
     }
-  ]
+  ],
+  "binding_nav": {
+    "inbound": {
+      "error": [
+        {
+          "source": "edge",
+          "from": "template:if@11768",
+          "to_path": "error",
+          "kind": "template",
+          "span": { "offset": 11768, "length": 5 },
+          "to_span": { "offset": 420, "length": 5 },
+          "label": "v-if  →  error"
+        }
+      ]
+    }
+  }
 }
 ```
+
+`binding_nav` is an inspect index folded from `edge_details` + `template_details`.
+Keys are inspect targets: bare `error`, bag `props`, or member `props.count`.
+Bag-level inbound includes member edges and template joins on the bare name.
+Member picks stay exact-`to_path` and inbound-only. TUI and the VS Code host
+look this up when present and scan labels / `*_details` only as a fallback for
+older JSON. The field is omitted when empty. Same facts as the edge list, not a
+graph-version change.
 
 `scope_details[].uncertain_accesses` lists soft under-approx evidence: identifier
 roots of `.value` / `unref` / `toValue` (or bare watch sources) that were analyzed

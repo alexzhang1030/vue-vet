@@ -47,8 +47,31 @@
  *   binding_details?: BindingDetail[],
  *   scope_details?: ScopeDetail[],
  *   edge_details?: EdgeDetail[],
- *   template_details?: TemplateDetail[]
+ *   template_details?: TemplateDetail[],
+ *   binding_nav?: BindingNav
  * }} ModuleDetail
+ * @typedef {{
+ *   source: 'edge' | 'template',
+ *   from: string,
+ *   to_path: string,
+ *   kind: string,
+ *   span?: SpanRef,
+ *   to_span?: SpanRef,
+ *   label: string
+ * }} BindingNavReader
+ * @typedef {{
+ *   from: string,
+ *   to_path: string,
+ *   kind: string,
+ *   span?: SpanRef,
+ *   to_span?: SpanRef,
+ *   label: string
+ * }} BindingNavDep
+ * @typedef {{
+ *   inbound?: Record<string, BindingNavReader[]>,
+ *   outbound?: Record<string, BindingNavDep[]>,
+ *   properties?: Record<string, string[]>
+ * }} BindingNav
  */
 
 /**
@@ -541,6 +564,9 @@ function toPath(to, property) {
  * @returns {string[]}
  */
 function propertiesForBag(module, bag) {
+  if (hasBindingNav(module) && module.binding_nav.properties) {
+    return [...(module.binding_nav.properties[bag] || [])];
+  }
   /** @type {Set<string>} */
   const properties = new Set();
   const prefix = `${bag}.`;
@@ -589,6 +615,13 @@ function inboundFor(module, bindingName) {
   const items = [];
   if (!module || !bindingName) return items;
   const { binding, property } = splitInspectTarget(bindingName);
+  if (hasBindingNav(module)) {
+    for (const reader of module.binding_nav.inbound?.[inspectKey(binding, property)] || []) {
+      items.push(inboundItemFromNav(reader));
+    }
+    items.sort((left, right) => left.label.localeCompare(right.label));
+    return items;
+  }
   for (const edge of module.edge_details || []) {
     if (!edgeToMatches(edge, binding, property)) continue;
     const path = edge.to_path || toPath(edge.to, edge.property);
@@ -628,6 +661,20 @@ function outboundFor(module, bindingName) {
   const { binding, property } = splitInspectTarget(bindingName);
   // Member picks are inbound-only.
   if (property) return items;
+  if (hasBindingNav(module)) {
+    for (const dep of module.binding_nav.outbound?.[binding] || []) {
+      items.push({
+        label: dep.label || `${dep.from} → ${dep.to_path}`,
+        kind: `dependency · ${dep.kind}`,
+        span: dep.span,
+        toSpan: dep.to_span,
+        key: `edge:${dep.from}->${dep.to_path}@${dep.span?.offset ?? 0}`,
+        to: dep.to_path,
+      });
+    }
+    items.sort((left, right) => left.label.localeCompare(right.label));
+    return items;
+  }
   for (const edge of module.edge_details || []) {
     if (!edgeFromIsBinding(edge.from, binding)) continue;
     const path = edge.to_path || toPath(edge.to, edge.property);
@@ -648,6 +695,41 @@ function outboundFor(module, bindingName) {
  * @param {string} from
  * @param {string} binding
  */
+function hasBindingNav(module) {
+  const nav = module?.binding_nav;
+  if (!nav || typeof nav !== 'object') return false;
+  return objectHasKeys(nav.inbound) || objectHasKeys(nav.outbound) || objectHasKeys(nav.properties);
+}
+
+function objectHasKeys(value) {
+  return Boolean(value) && typeof value === 'object' && Object.keys(value).length > 0;
+}
+
+function inspectKey(binding, property) {
+  return property ? `${binding}.${property}` : binding;
+}
+
+/**
+ * @param {BindingNavReader} reader
+ */
+function inboundItemFromNav(reader) {
+  if (reader.source === 'template') {
+    return {
+      label: reader.label || `${reader.from} reads ${reader.to_path}`,
+      kind: `template · ${reader.from}`,
+      span: reader.span,
+      key: `template:${reader.to_path}@${reader.from}@${reader.span?.offset ?? 0}`,
+    };
+  }
+  return {
+    label: reader.label || `${reader.from} → ${reader.to_path}`,
+    kind: `reader · ${reader.kind}`,
+    span: reader.span,
+    toSpan: reader.to_span,
+    key: `edge:${reader.from}->${reader.to_path}@${reader.span?.offset ?? 0}`,
+  };
+}
+
 function edgeFromIsBinding(from, binding) {
   if (from === binding) return true;
   const head = from.includes('@') ? from.slice(0, from.lastIndexOf('@')) : from;
@@ -708,6 +790,7 @@ module.exports = {
   utf16OffsetToUtf8,
   inboundFor,
   outboundFor,
+  hasBindingNav,
   edgeFromIsBinding,
   bindingAtOffset,
   isReactiveBagKind,
