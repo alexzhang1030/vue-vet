@@ -9,10 +9,10 @@
     "help": "Keep computed getters pure; move writes into `watch` / event handlers.",
     "file": "fixtures/rules/no-side-effects-in-computed/invalid/hof-map-write.vue",
     "span": {
-      "offset": 130,
+      "offset": 150,
       "length": 7,
       "line": 5,
-      "column": 31
+      "column": 51
     }
   }
 ]
