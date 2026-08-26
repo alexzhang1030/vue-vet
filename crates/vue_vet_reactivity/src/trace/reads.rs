@@ -19,7 +19,8 @@ use super::{
   branch_hygiene,
   context::scope_context,
   follow::{
-    FollowOutside, follow_local_callees, innermost_function_id, local_helper_calls_by_owner,
+    FollowOutside, LocalCallee, follow_local_callees, innermost_function_id,
+    local_helper_calls_by_owner,
   },
   kinds::{reference_resolves_to_binding, resolved_vue_callee, source_span, span_contains},
   writes::function_body_of,
@@ -62,6 +63,10 @@ pub(super) struct RawGuard {
   role: ReactiveGuardRole,
 }
 
+#[expect(
+  clippy::too_many_arguments,
+  reason = "root callee reuse is one extra arg on the collector surface"
+)]
 pub(super) fn collect_scope_reads(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
@@ -70,6 +75,7 @@ pub(super) fn collect_scope_reads(
   imported_bindings: &BTreeMap<String, (String, String)>,
   ambient_call_handles: &AmbientCallHandles,
   script_offset: usize,
+  root_callees: Option<&[LocalCallee]>,
 ) -> Vec<RawReactiveRead> {
   let mut visiting = BTreeSet::new();
   visiting.insert(scope_id);
@@ -83,6 +89,7 @@ pub(super) fn collect_scope_reads(
     script_offset,
     0,
     &mut visiting,
+    root_callees,
   )
 }
 
@@ -97,6 +104,7 @@ pub(super) fn collect_scope_reads_bounded(
   script_offset: usize,
   depth: u32,
   visiting: &mut BTreeSet<NodeId>,
+  root_callees: Option<&[LocalCallee]>,
 ) -> Vec<RawReactiveRead> {
   let mut reads = collect_scope_reads_local(
     semantic,
@@ -117,6 +125,7 @@ pub(super) fn collect_scope_reads_bounded(
     depth,
     visiting,
     FollowOutside::Mark,
+    root_callees,
     |callee_id, call_outside, next_depth, call_sites, visiting| {
       let mut nested = collect_scope_reads_bounded(
         semantic,
@@ -128,6 +137,7 @@ pub(super) fn collect_scope_reads_bounded(
         script_offset,
         next_depth,
         visiting,
+        None,
       );
       for read in &mut nested {
         if call_outside {

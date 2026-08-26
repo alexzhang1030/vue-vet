@@ -8,13 +8,13 @@ use oxc_ast::{
 };
 use oxc_semantic::NodeId;
 use vue_vet_core::{
-  ReactiveBindingFact, ReactiveReadFact, ReactiveReadKind, ScriptKind, TrackingScopeFact,
-  TrackingScopeKind,
+  ReactiveBindingFact, ReactiveReadKind, ScriptKind, TrackingScopeFact, TrackingScopeKind,
 };
 
 use super::{
   ComposableShapeMap,
   bindings::AmbientCallHandles,
+  follow::local_zero_arg_callees_in_scope,
   kinds::{resolved_vue_callee, source_span},
   reads::{classify_scope_reads, collect_scope_reads},
   render,
@@ -55,7 +55,6 @@ pub(super) struct ScopeBuild<'a> {
   kind: TrackingScopeKind,
   callee: String,
   span: vue_vet_core::SourceSpan,
-  reads: Vec<ReactiveReadFact>,
   binding: Option<String>,
   semantic: &'a oxc_semantic::Semantic<'a>,
   scope_id: NodeId,
@@ -63,11 +62,47 @@ pub(super) struct ScopeBuild<'a> {
   reactive_bindings: &'a [ReactiveBindingFact],
   composable_instances: &'a ComposableShapeMap,
   imported_bindings: &'a BTreeMap<String, (String, String)>,
+  ambient_call_handles: &'a AmbientCallHandles,
   sfc_source: &'a str,
   script_offset: usize,
+  force_outside_tracking: bool,
 }
 
 pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
+  let mut visiting = BTreeSet::new();
+  visiting.insert(build.scope_id);
+  let root_callees = local_zero_arg_callees_in_scope(
+    build.semantic,
+    build.scope_id,
+    build.imported_bindings,
+    &visiting,
+  );
+  let raw_reads = collect_scope_reads(
+    build.semantic,
+    build.scope_id,
+    build.reactive_bindings,
+    build.composable_instances,
+    build.imported_bindings,
+    build.ambient_call_handles,
+    build.script_offset,
+    Some(&root_callees),
+  );
+  let mut reads = classify_scope_reads(
+    build.semantic,
+    build.scope_id,
+    build.body,
+    &raw_reads,
+    build.sfc_source,
+    build.script_offset,
+    build.imported_bindings,
+  );
+  if build.force_outside_tracking {
+    for read in &mut reads {
+      read.kind = ReactiveReadKind::OutsideTracking;
+      read.guards.clear();
+      read.guarded_by = None;
+    }
+  }
   let writes = collect_scope_writes(
     build.semantic,
     build.scope_id,
@@ -76,6 +111,7 @@ pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
     build.imported_bindings,
     build.sfc_source,
     build.script_offset,
+    Some(&root_callees),
   );
   let uncertain_accesses = collect_uncertain_scope_accesses(
     build.semantic,
@@ -84,6 +120,7 @@ pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
     build.composable_instances,
     build.imported_bindings,
     build.script_offset,
+    Some(&root_callees),
   );
   let mut assignment_visiting = BTreeSet::new();
   assignment_visiting.insert(build.scope_id);
@@ -91,7 +128,7 @@ pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
     kind: build.kind,
     callee: build.callee,
     span: build.span,
-    reads: build.reads,
+    reads,
     writes,
     assignment_only: is_assignment_only_followed(
       build.semantic,
@@ -104,10 +141,6 @@ pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
   }
 }
 
-#[expect(
-  clippy::too_many_lines,
-  reason = "scope dispatch covers all Vue tracking APIs in one pass"
-)]
 pub(super) fn collect_tracking_scopes(
   semantic: &oxc_semantic::Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
@@ -133,29 +166,10 @@ pub(super) fn collect_tracking_scopes(
       && let Some(argument) = call.arguments.first()
       && let Some((scope_id, body)) = callback_parts(semantic, argument)
     {
-      let raw_reads = collect_scope_reads(
-        semantic,
-        scope_id,
-        reactive_bindings,
-        composable_instances,
-        imported_bindings,
-        ambient_call_handles,
-        script_offset,
-      );
-      let reads = classify_scope_reads(
-        semantic,
-        scope_id,
-        body,
-        &raw_reads,
-        sfc_source,
-        script_offset,
-        imported_bindings,
-      );
       scopes.push(finish_scope(ScopeBuild {
         kind: TrackingScopeKind::EffectScope,
         callee: "effectScope.run".into(),
         span: source_span(sfc_source, script_offset, call.span),
-        reads,
         binding: None,
         semantic,
         scope_id,
@@ -163,8 +177,10 @@ pub(super) fn collect_tracking_scopes(
         reactive_bindings,
         composable_instances,
         imported_bindings,
+        ambient_call_handles,
         sfc_source,
         script_offset,
+        force_outside_tracking: false,
       }));
       continue;
     }
@@ -195,31 +211,6 @@ pub(super) fn collect_tracking_scopes(
         }) else {
           continue;
         };
-        let raw_reads = collect_scope_reads(
-          semantic,
-          scope_id,
-          reactive_bindings,
-          composable_instances,
-          imported_bindings,
-          ambient_call_handles,
-          script_offset,
-        );
-        let mut reads = classify_scope_reads(
-          semantic,
-          scope_id,
-          body,
-          &raw_reads,
-          sfc_source,
-          script_offset,
-          imported_bindings,
-        );
-        if scope_kind == TrackingScopeKind::OnScopeDispose {
-          for read in &mut reads {
-            read.kind = ReactiveReadKind::OutsideTracking;
-            read.guards.clear();
-            read.guarded_by = None;
-          }
-        }
         let binding = if scope_kind == TrackingScopeKind::Computed {
           assigned_binding_name(semantic, call.node_id.get())
         } else {
@@ -229,7 +220,6 @@ pub(super) fn collect_tracking_scopes(
           kind: scope_kind,
           callee,
           span: source_span(sfc_source, script_offset, call.span),
-          reads,
           binding,
           semantic,
           scope_id,
@@ -237,8 +227,10 @@ pub(super) fn collect_tracking_scopes(
           reactive_bindings,
           composable_instances,
           imported_bindings,
+          ambient_call_handles,
           sfc_source,
           script_offset,
+          force_outside_tracking: scope_kind == TrackingScopeKind::OnScopeDispose,
         }));
       }
       TrackingScopeKind::EffectScope => {
@@ -246,29 +238,10 @@ pub(super) fn collect_tracking_scopes(
         if let Some(argument) = call.arguments.first()
           && let Some((scope_id, body)) = callback_parts(semantic, argument)
         {
-          let raw_reads = collect_scope_reads(
-            semantic,
-            scope_id,
-            reactive_bindings,
-            composable_instances,
-            imported_bindings,
-            ambient_call_handles,
-            script_offset,
-          );
-          let reads = classify_scope_reads(
-            semantic,
-            scope_id,
-            body,
-            &raw_reads,
-            sfc_source,
-            script_offset,
-            imported_bindings,
-          );
           scopes.push(finish_scope(ScopeBuild {
             kind: TrackingScopeKind::EffectScope,
             callee: callee.clone(),
             span: source_span(sfc_source, script_offset, call.span),
-            reads,
             binding: assigned_binding_name(semantic, call.node_id.get()),
             semantic,
             scope_id,
@@ -276,8 +249,10 @@ pub(super) fn collect_tracking_scopes(
             reactive_bindings,
             composable_instances,
             imported_bindings,
+            ambient_call_handles,
             sfc_source,
             script_offset,
+            force_outside_tracking: false,
           }));
         }
         // Also capture `.run(callback)` on effectScope instances via member call below.
@@ -319,37 +294,10 @@ pub(super) fn collect_tracking_scopes(
         if let Some(callback_argument) = call.arguments.get(1)
           && let Some((scope_id, body)) = callback_parts(semantic, callback_argument)
         {
-          let raw_reads = collect_scope_reads(
-            semantic,
-            scope_id,
-            reactive_bindings,
-            composable_instances,
-            imported_bindings,
-            ambient_call_handles,
-            script_offset,
-          );
-          let reads = classify_scope_reads(
-            semantic,
-            scope_id,
-            body,
-            &raw_reads,
-            sfc_source,
-            script_offset,
-            imported_bindings,
-          )
-          .into_iter()
-          .map(|mut fact| {
-            fact.kind = ReactiveReadKind::OutsideTracking;
-            fact.guards.clear();
-            fact.guarded_by = None;
-            fact
-          })
-          .collect();
           scopes.push(finish_scope(ScopeBuild {
             kind: TrackingScopeKind::WatchCallback,
             callee,
             span: call_span,
-            reads,
             binding: None,
             semantic,
             scope_id,
@@ -357,8 +305,10 @@ pub(super) fn collect_tracking_scopes(
             reactive_bindings,
             composable_instances,
             imported_bindings,
+            ambient_call_handles,
             sfc_source,
             script_offset,
+            force_outside_tracking: true,
           }));
         }
       }
@@ -392,29 +342,10 @@ pub(super) fn collect_render_scopes(
 ) -> Vec<TrackingScopeFact> {
   let mut scopes = Vec::new();
   for body in render::collect_render_bodies(semantic, imported_bindings) {
-    let raw_reads = collect_scope_reads(
-      semantic,
-      body.scope_id,
-      reactive_bindings,
-      composable_instances,
-      imported_bindings,
-      ambient_call_handles,
-      script_offset,
-    );
-    let reads = classify_scope_reads(
-      semantic,
-      body.scope_id,
-      body.body,
-      &raw_reads,
-      sfc_source,
-      script_offset,
-      imported_bindings,
-    );
     scopes.push(finish_scope(ScopeBuild {
       kind: TrackingScopeKind::Render,
       callee: "render".into(),
       span: source_span(sfc_source, script_offset, body.span),
-      reads,
       binding: None,
       semantic,
       scope_id: body.scope_id,
@@ -422,8 +353,10 @@ pub(super) fn collect_render_scopes(
       reactive_bindings,
       composable_instances,
       imported_bindings,
+      ambient_call_handles,
       sfc_source,
       script_offset,
+      force_outside_tracking: false,
     }));
   }
   scopes
