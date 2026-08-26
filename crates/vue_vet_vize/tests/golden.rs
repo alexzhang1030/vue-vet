@@ -793,6 +793,20 @@ fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
       include_str!("../../../fixtures/snapshots/no-side-effects-in-computed/bag-field-write.json"),
     ),
     (
+      "fixtures/rules/no-side-effects-in-computed/invalid/hof-map-write.vue",
+      include_str!("../../../fixtures/rules/no-side-effects-in-computed/invalid/hof-map-write.vue"),
+      include_str!("../../../fixtures/snapshots/no-side-effects-in-computed/hof-map-write.json"),
+    ),
+    (
+      "fixtures/rules/no-side-effects-in-computed/invalid/to-value-getter-write.vue",
+      include_str!(
+        "../../../fixtures/rules/no-side-effects-in-computed/invalid/to-value-getter-write.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-side-effects-in-computed/to-value-getter-write.json"
+      ),
+    ),
+    (
       "fixtures/rules/prefer-computed/invalid/compound-from-other.vue",
       include_str!("../../../fixtures/rules/prefer-computed/invalid/compound-from-other.vue"),
       include_str!("../../../fixtures/snapshots/prefer-computed/compound-from-other.json"),
@@ -930,6 +944,10 @@ fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
       include_str!(
         "../../../fixtures/rules/no-side-effects-in-computed/valid/bag-field-replace.vue"
       ),
+    ),
+    (
+      "fixtures/rules/no-side-effects-in-computed/valid/then-write.vue",
+      include_str!("../../../fixtures/rules/no-side-effects-in-computed/valid/then-write.vue"),
     ),
   ] {
     assert_diagnostics(path, source, empty);

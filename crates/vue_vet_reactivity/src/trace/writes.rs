@@ -15,7 +15,9 @@ use oxc_span::Span;
 use vue_vet_core::{ReactiveBindingFact, ReactiveWriteFact};
 
 use super::{
-  ComposableShapeMap, expr,
+  ComposableShapeMap,
+  context::sync_tracking_owns_node,
+  expr,
   follow::{
     FollowOutside, MAX_LOCAL_CALLEE_FOLLOW_DEPTH, follow_local_callees,
     is_async_or_generator_function, local_function_id,
@@ -239,6 +241,7 @@ pub(super) fn collect_scope_writes_bounded(
     scope_id,
     reactive_bindings,
     composable_instances,
+    imported_bindings,
     sfc_source,
     script_offset,
   );
@@ -271,6 +274,7 @@ pub(super) fn collect_scope_writes_local(
   scope_id: NodeId,
   reactive_bindings: &[ReactiveBindingFact],
   composable_instances: &ComposableShapeMap,
+  imported_bindings: &BTreeMap<String, (String, String)>,
   sfc_source: &str,
   script_offset: usize,
 ) -> Vec<ReactiveWriteFact> {
@@ -279,23 +283,7 @@ pub(super) fn collect_scope_writes_local(
     let Some((lhs, write_span)) = write_target_from_node(node.kind()) else {
       continue;
     };
-
-    let mut reached_scope = false;
-    let mut nested_function = false;
-    for ancestor_id in semantic.nodes().ancestor_ids(node.id()) {
-      if ancestor_id == scope_id {
-        reached_scope = true;
-        break;
-      }
-      if matches!(
-        semantic.nodes().kind(ancestor_id),
-        AstKind::ArrowFunctionExpression(_) | AstKind::Function(_)
-      ) {
-        nested_function = true;
-        break;
-      }
-    }
-    if !reached_scope || nested_function {
+    if !sync_tracking_owns_node(semantic, scope_id, node.id(), imported_bindings) {
       continue;
     }
 

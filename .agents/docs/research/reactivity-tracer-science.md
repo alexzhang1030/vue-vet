@@ -1,6 +1,6 @@
 # Reactivity tracer science memo
 
-Harvested: 2026-08-25. Graph contract **v33** (composable-instance writes). v32 is render identifier getters; v31 is watch-source peel; v30 is pause inside followed helpers; v29 is compound / update writes.
+Harvested: 2026-08-25. Graph contract **v34** (HOF / `toValue` getter writes). v33 is composable-instance writes; v32 is render identifier getters; v31 is watch-source peel; v30 is pause inside followed helpers; v29 is compound / update writes.
 This is a ranked research record after A0–A7 were marked complete. It is **not** a new completeness axis and it does not authorize Elk/corpus KPI chasing or another `summary/mod.rs` extract.
 
 Related: [reactivity tracer](../reactivity-tracer.md), [literature matrix](./reactivity-tracer-literature.md), [architecture](../architecture.md) (Post-#107), [gotchas](../gotchas.md), issue [#14](https://github.com/alexzhang1030/vue-vet/issues/14).
@@ -50,7 +50,7 @@ Invention is worse than a miss. Charter: missing edges stay quiet; invented *con
 | Helper-followed read ignores caller control flow | **Landed v28.** Follow hops record call sites; classify uses owning-function guards plus call-site proxies so `branch_hygiene` can see both-arm helper calls. | **Invent Unconditional** (fixed) | `cond ? load() : 0` is Conditional; `cond ? load() : load()` stays Unconditional. |
 | Pause / await inside a followed helper | **Landed v30** for pause. Per-function pause IR + caller hops; helper-exit leak onto later sibling reads. Await-in-helper stays quiet (async helpers are unfollowed). | **Invent Unconditional** (pause fixed) | Inline `pauseTracking(); x.value` is OutsideTracking. `load()` that pauses then reads matches. Nested `pause; pause; enable` is still last-event, not a stack. |
 | `+=` / `++` writes | **Landed v29.** All non-logical assignment operators plus `UpdateExpression`. Logical `&&=` / `||=` / `??=` stay quiet. | **Dual-path miss** (fixed) | `a.value += 1` / `a.value++` record writes like `=`. |
-| Writes skip sync HOF / `toValue` getters | Writes treat any nested function as drop. Reads stay inside Array/String/`toValue` callbacks (`context.rs`). | Charter-quiet miss | `list.value.map(() => { t.value = 1 })` inside computed: read of `list`, no write of `t`. |
+| Writes skip sync HOF / `toValue` getters | **Landed v34.** `sync_tracking_owns_node` keeps Array/String/`toValue` callbacks; deferred / first-arg / identifier `map(fn)` stay quiet. | **Dual-path miss** (fixed) | `list.value.map(() => { t.value = 1 })` fires `no-side-effects-in-computed` like an inlined write. |
 | Composable-instance writes | **Landed v33.** `bag.field.value = …` records `binding = field` / `property = "value"` when the field is a known ref-like shape entry. Replace / computed key / unknown bag / non-ref-like stay quiet. | **Dual-path miss** (fixed) | `computed(() => { bag.field.value = 1 })` fires `no-side-effects-in-computed` like a destructured `field.value` write. |
 | `watch((ref))` / TS-wrapped bare sources | **Landed v31.** `collect_watch_source_reads` / `collect_expression_source_reads` peel before classifying. Nested arrays still do not treat inner arrows as getters. | **Dual-path miss** (fixed) | `watch((count))` / `watch(count as any)` / `watch((() => count.value))` match the unwrapped form. |
 | Render identifier callbacks | **Landed v32.** `function_like_body` resolves same-file identifiers via `local_getter_parts`. Imports, methods, and async/generator stay quiet. | **Dual-path miss** (fixed) | `render: renderFn` / `setup() { return renderFn }` match inline `render() { … }`. |
@@ -153,6 +153,8 @@ Stay inside the PCR stop rule. Each row says what evidence already exists and wh
 
 **Composable-instance writes** landed in v33 (same dual-path class as 1–5, not a new measurement item). `bag.field.value = …` records the same write as destructured `field.value`. Replace / computed key / unknown bag stay quiet. Unit + `no-side-effects-in-computed` fixture.
 
+**HOF / `toValue` getter writes** landed in v34. Sync Array/String/`toValue` callbacks record writes; `then` / wrong-index first-arg / `list.map(fn)` stay quiet. Unit + `no-side-effects-in-computed` fixtures.
+
 ### Do next (measurement, no fact change)
 
 6. Oracle case `computed(() => load())` next to `computed-fn-ref`, or document in `oracle/README.md` that graph-vs-graph is the gate for the call form.
@@ -185,7 +187,7 @@ Unstamped. Nothing here is vouched.
 
 **Keep.** Under-approx, static-only, quiet failure, plugin-supplied bags, shared `follow_local_callees`, identifier getters, `ModuleTraceState` plan equality, oracle as the precision ruler.
 
-**The interesting remaining bug class** after v33 is HOF / `toValue` getter writes (charter-quiet: writes still drop nested functions), not another Factory seed. Helper context, `+=` / `++` writes, watch-source peel, render identifier getters, and composable-instance writes are closed.
+**The interesting remaining bug class** after v34 is not another write dual-path. The Do-now contract holes (caller guards, pause-in-helper, `+=`/`++`, watch peel, render ident getters, instance writes, HOF / `toValue` writes) are closed. Remaining charter-quiet rows (NamedApiBag member form, CSS `v-bind` completeness) stay quiet on purpose. Next work is measurement / locality / consumer polish.
 
 **The interesting remaining speed class** is session input breadth and repeated callee discovery, not a new interprocedural framework.
 
