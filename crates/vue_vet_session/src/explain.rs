@@ -131,7 +131,9 @@ fn collect_scope_explains(
   let mut explains = Vec::new();
   for module in modules {
     let module_id = module.id.as_str();
-    if query_module.is_some_and(|prefix| !module_id_matches(module_id, prefix)) {
+    if let Some(prefix) = query_module
+      && !module_id_matches(module_id, prefix)
+    {
       continue;
     }
     let selected = select_tracking_scopes(module_id, module.graph.as_ref(), query);

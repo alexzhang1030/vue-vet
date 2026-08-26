@@ -169,8 +169,6 @@ pub fn dirty_plan_from(
     parse_files,
     diagnostic_files: rule_files.clone(),
     rule_files,
-    // Clone of `module_summaries`, not the A6 linker dirty set. Linking still
-    // chooses seed recomputation from changed surfaces + importers (#108).
     export_closure: module_summaries.clone(),
     module_summaries,
     structural_files,

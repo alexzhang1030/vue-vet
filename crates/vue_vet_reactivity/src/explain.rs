@@ -393,17 +393,20 @@ mod tests {
     let qualified = select_tracking_scopes("src/App.vue", &graph, "App.vue:@25");
     assert_eq!(qualified.first().and_then(|scope| scope.binding.as_deref()), Some("inner"));
 
+    assert!(select_tracking_scopes("App.vue", &graph, "@99").is_empty());
+    assert!(
+      select_tracking_scopes("App.vue", &graph, "computed@25").is_empty(),
+      "callee@offset stays exact-start"
+    );
+  }
+
+  #[test]
+  fn query_module_prefix_only_splits_colon_forms() {
     assert_eq!(query_module_prefix("App.vue:label"), Some("App.vue"));
     assert_eq!(query_module_prefix("src/App.vue:@25"), Some("src/App.vue"));
     assert_eq!(query_module_prefix("App.vue:"), Some("App.vue"));
     assert_eq!(query_module_prefix("@25"), None);
     assert_eq!(query_module_prefix("computed@25"), None);
     assert_eq!(query_module_prefix("label"), None);
-
-    assert!(select_tracking_scopes("App.vue", &graph, "@99").is_empty());
-    assert!(
-      select_tracking_scopes("App.vue", &graph, "computed@25").is_empty(),
-      "callee@offset stays exact-start"
-    );
   }
 }

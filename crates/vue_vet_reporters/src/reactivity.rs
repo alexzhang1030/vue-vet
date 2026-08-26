@@ -143,8 +143,7 @@ impl ReactivityModuleStats {
     Self::from_counts(id, 0, 0, 0, 0)
   }
 
-  /// Totals only. Labels and `*_details` stay empty (CLI `--print-reactivity`
-  /// fills those; MCP scan uses this for "tracer ran" counts).
+  /// Totals only. Labels and `*_details` stay empty.
   #[must_use]
   pub fn from_counts(
     id: impl Into<String>,
@@ -444,12 +443,7 @@ mod tests {
     edges: usize,
     reads: usize,
   ) -> ReactivityModuleStats {
-    let mut stats = ReactivityModuleStats::empty(id);
-    stats.bindings = bindings;
-    stats.scopes = scopes;
-    stats.edges = edges;
-    stats.template_reads = reads;
-    stats
+    ReactivityModuleStats::from_counts(id, bindings, scopes, edges, reads)
   }
 
   #[test]

@@ -443,7 +443,7 @@ server never writes). Hover answers “would Vue re-run?” from the committed
 full snapshot via `--explain-scope` `file:@offset`. The thin MCP adapter
 (`vue-vet --mcp`, `vue_vet_mcp`) exposes scan / explain / explain-scope /
 safe-fix preview tools over stdio JSON-RPC with the same session path bounds;
-scan JSON includes CLI `reactivity` totals. MCP never applies edits.
+MCP never applies edits.
 
 ### Published library crates
 

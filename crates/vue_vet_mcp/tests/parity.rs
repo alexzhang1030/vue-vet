@@ -89,8 +89,7 @@ fn mcp_scan_includes_reactivity_digest_totals() {
     "placeholder computed must contribute a tracking scope: {reactivity}"
   );
   assert!(
-    reactivity.get("modules_detail").is_none()
-      || reactivity["modules_detail"].as_array().is_some_and(Vec::is_empty),
+    reactivity.get("modules_detail").is_none(),
     "MCP scan must not ship --print-reactivity modules_detail: {reactivity}"
   );
 }
