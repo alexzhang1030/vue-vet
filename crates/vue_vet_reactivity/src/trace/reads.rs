@@ -629,10 +629,10 @@ fn pause_state_at(events: &[(u32, bool)], pos: u32, inherit: bool) -> bool {
   paused
 }
 
-fn pause_events_for<'a>(
-  irs: &'a BTreeMap<NodeId, Vec<(u32, bool)>>,
+fn pause_events_for(
+  irs: &BTreeMap<NodeId, Vec<(u32, bool)>>,
   function_id: NodeId,
-) -> &'a [(u32, bool)] {
+) -> &[(u32, bool)] {
   irs.get(&function_id).map_or(&[], Vec::as_slice)
 }
 
