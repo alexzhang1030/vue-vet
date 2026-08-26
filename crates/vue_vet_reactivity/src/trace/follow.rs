@@ -20,7 +20,7 @@ use super::context::scope_context;
 pub(super) const MAX_LOCAL_CALLEE_FOLLOW_DEPTH: u32 = 2;
 
 /// One same-file zero-arg helper reached from a tracking (or helper) scope.
-struct LocalCallee {
+pub(super) struct LocalCallee {
   id: NodeId,
   /// True only when *every* in-scope call site is outside tracking.
   call_outside: bool,
@@ -30,10 +30,11 @@ struct LocalCallee {
 
 /// Same-file zero-arg local helpers called from `scope_id`.
 ///
-/// [`follow_local_callees`] is the only consumer so reads / uncertain / writes
-/// cannot disagree on the callee set. `assignment_only` walks statements but
-/// uses the same [`local_function_id`] + async skip.
-fn local_zero_arg_callees_in_scope(
+/// [`finish_scope`] computes this once for the tracking root and hands the
+/// same slice to reads / uncertain / writes. Nested hops still rediscover.
+/// `assignment_only` walks statements but uses the same [`local_function_id`]
+/// + async skip.
+pub(super) fn local_zero_arg_callees_in_scope(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
   imported_bindings: &BTreeMap<String, (String, String)>,
@@ -87,6 +88,9 @@ pub(super) enum FollowOutside {
 }
 
 /// Shared walk for hard reads, `uncertain_accesses`, and writes.
+///
+/// `root_callees` skips rediscovery at the tracking-scope root. Nested hops
+/// pass `None` and walk nodes again (visiting set differs).
 pub(super) fn follow_local_callees(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
@@ -94,12 +98,19 @@ pub(super) fn follow_local_callees(
   depth: u32,
   visiting: &mut BTreeSet<NodeId>,
   outside: FollowOutside,
+  root_callees: Option<&[LocalCallee]>,
   mut visit: impl FnMut(NodeId, bool, u32, &[NodeId], &mut BTreeSet<NodeId>),
 ) {
   if depth >= MAX_LOCAL_CALLEE_FOLLOW_DEPTH {
     return;
   }
-  let callees = local_zero_arg_callees_in_scope(semantic, scope_id, imported_bindings, visiting);
+  let discovered;
+  let callees = if let Some(ready) = root_callees {
+    ready
+  } else {
+    discovered = local_zero_arg_callees_in_scope(semantic, scope_id, imported_bindings, visiting);
+    &discovered
+  };
   for callee in callees {
     if matches!(outside, FollowOutside::Skip) && callee.call_outside {
       continue;

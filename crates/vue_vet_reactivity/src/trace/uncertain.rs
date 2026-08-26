@@ -15,7 +15,7 @@ use super::{
   bindings::AmbientCallHandles,
   context::{is_sync_hof_callback_param, scope_context},
   expr,
-  follow::{FollowOutside, follow_local_callees},
+  follow::{FollowOutside, LocalCallee, follow_local_callees},
   kinds::{reference_resolves_to_binding, resolved_vue_callee, source_span},
   reads::{classify_scope_reads, collect_scope_reads},
   writes::local_getter_parts,
@@ -33,6 +33,7 @@ pub(super) fn collect_uncertain_scope_accesses(
   composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
   script_offset: usize,
+  root_callees: Option<&[LocalCallee]>,
 ) -> Vec<String> {
   let mut visiting = BTreeSet::new();
   visiting.insert(scope_id);
@@ -45,6 +46,7 @@ pub(super) fn collect_uncertain_scope_accesses(
     script_offset,
     0,
     &mut visiting,
+    root_callees,
   )
   .into_iter()
   .collect()
@@ -60,6 +62,7 @@ pub(super) fn collect_uncertain_scope_accesses_bounded(
   script_offset: usize,
   depth: u32,
   visiting: &mut BTreeSet<NodeId>,
+  root_callees: Option<&[LocalCallee]>,
 ) -> BTreeSet<String> {
   let mut names = collect_uncertain_scope_accesses_local(
     semantic,
@@ -76,6 +79,7 @@ pub(super) fn collect_uncertain_scope_accesses_bounded(
     depth,
     visiting,
     FollowOutside::Skip,
+    root_callees,
     |callee_id, _, next_depth, _, visiting| {
       names.extend(collect_uncertain_scope_accesses_bounded(
         semantic,
@@ -86,6 +90,7 @@ pub(super) fn collect_uncertain_scope_accesses_bounded(
         script_offset,
         next_depth,
         visiting,
+        None,
       ));
     },
   );
@@ -225,6 +230,7 @@ pub(super) fn collect_uncertain_watch_argument(
         composable_instances,
         imported_bindings,
         script_offset,
+        None,
       ));
     }
     Argument::FunctionExpression(callback) => {
@@ -235,6 +241,7 @@ pub(super) fn collect_uncertain_watch_argument(
         composable_instances,
         imported_bindings,
         script_offset,
+        None,
       ));
     }
     Argument::ArrayExpression(array) => {
@@ -287,6 +294,7 @@ pub(super) fn collect_uncertain_watch_expression(
       composable_instances,
       imported_bindings,
       script_offset,
+      None,
     ));
     return;
   }
@@ -299,6 +307,7 @@ pub(super) fn collect_uncertain_watch_expression(
         composable_instances,
         imported_bindings,
         script_offset,
+        None,
       ));
     }
     Expression::FunctionExpression(callback) => {
@@ -309,6 +318,7 @@ pub(super) fn collect_uncertain_watch_expression(
         composable_instances,
         imported_bindings,
         script_offset,
+        None,
       ));
     }
     Expression::Identifier(identifier) => {
@@ -471,6 +481,7 @@ pub(super) fn collect_watch_getter_reads(
     ctx.imported_bindings,
     ctx.ambient_call_handles,
     ctx.script_offset,
+    None,
   );
   classify_scope_reads(
     ctx.semantic,

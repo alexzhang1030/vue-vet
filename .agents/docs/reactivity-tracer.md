@@ -521,6 +521,7 @@ growing prose ledger.
 | 2026-08-26 | Composable-instance writes | `bag.field.value = …` records the same write as destructured `field.value`; replace / computed key / unknown bag quiet; graph **v33** |
 | 2026-08-26 | HOF / toValue getter writes | sync Array/String/`toValue` callbacks record writes like inlined assignments; `then` / first-arg / `map(fn)` quiet; graph **v34** |
 | 2026-08-26 | Helper-call oracle + consumer polish | `computed(() => load())` oracle next to `computed-fn-ref`; module-qualified `--explain-scope` skips other graphs; MCP `vue_vet_scan` ships CLI reactivity totals; ExportState prose is policy algebra. No graph bump. |
+| 2026-08-26 | Root callee index | `finish_scope` computes `local_zero_arg_callees_in_scope` once and hands the slice to reads / uncertain / writes. Nested hops and watch-source getters still discover. No graph version bump (same facts). |
 | 2026-08-21 | Helper-follow walk unify | Reads / uncertain / writes share `follow_local_callees`; drop unused `local_function_id` name arg. No graph version bump (same facts). |
 | 2026-08-21 | CSS `v-bind` join | `<style>` `v-bind(ident)` / quoted ident → `TemplateExpressionFact.surface = "style"`; style-only ident edits refresh without adding style to revisions |
 | 2026-08-10 | Tracer plugins crate | Ecosystem hardcode (Nuxt data bags, vue-i18n `useI18n`) lives in published `vue_vet_plugins`; engine has no Nuxt/i18n names; Oxc/project/session **auto-load** defaults; crates.io order core→reactivity→plugins; docs: crate README + install library table |

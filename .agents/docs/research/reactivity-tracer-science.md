@@ -100,7 +100,7 @@ Three different loops use the number **8** (same-file refine, name-resolve depth
 
 Cold cost is dominated by (1) visiting every module in phase one, (2) cloning maps on the export worklist, (3) full Oxc reparse of every module whose seed plan is non-empty, (4) budgeted external/companion I/O. Incremental reuse *inside* `ModuleTraceState` is real. The session dirty plan still hands the tracer the **full** module set.
 
-**Single-file walks.** Each tracking scope independently walks all nodes for members, idents, ambient reads, zero-arg callees, writes, uncertain, and await/pause IR. Reads / writes / uncertain each call `follow_local_callees`, and that function re-discovers the callee set every time (`follow.rs` `local_zero_arg_callees_in_scope` iterates every node, then `scope_context` on each zero-arg call). The *function* is shared. The *index* is not. #185 made this easier to see and did not add an index.
+**Single-file walks.** Each tracking scope still walks all nodes for members, idents, ambient reads, writes, uncertain, and await/pause IR. `finish_scope` computes `local_zero_arg_callees_in_scope` once (visiting = `{scope_id}`) and passes the same slice to reads / uncertain / writes. Nested hops still rediscover because their visiting set differs. Watch-source getters and watch-source uncertain stay `None` — they do not go through `finish_scope`. Member/ident/write/uncertain *local* walks remain per-collector.
 
 **Phase two is all-or-nothing.** Any non-empty `ModuleSeedPlan` (including only inject or only a typed-callback slot) reparses the whole file. Empty plan reuses `local_graph`.
 
@@ -165,7 +165,7 @@ Stay inside the PCR stop rule. Each row says what evidence already exists and wh
 ### Do when touching locality (faster, already #108)
 
 10. Make `DirtyPlan.export_closure` the linker dirty set. Field docs now say it clones `module_summaries` and does not drive A6. Session should not reconstruct every `ModuleSource` on an independent leaf edit.
-11. Compute `local_zero_arg_callees_in_scope` once per `finish_scope` and pass the set into reads / uncertain / writes. No fact change if the set is identical. Bench `trace_1k_modules` before/after.
+11. ~~Compute `local_zero_arg_callees_in_scope` once per `finish_scope` and pass the set into reads / uncertain / writes.~~ `finish_scope` owns the root set. Nested hops and watch-source getters still discover. No graph bump (same facts). `trace_1k_modules` is mostly unseeded `ref()` modules — no-regression, not the win signal.
 12. Keep `persist_linking_cache` off for one-shot benches. Add one CodSpeed name that *is* a warm `ModuleTraceState` leaf edit if locality work lands.
 
 ### Consumer polish (smarter without AST)
@@ -187,9 +187,9 @@ Unstamped. Nothing here is vouched.
 
 **Keep.** Under-approx, static-only, quiet failure, plugin-supplied bags, shared `follow_local_callees`, identifier getters, `ModuleTraceState` plan equality, oracle as the precision ruler.
 
-**The interesting remaining bug class** after v34 is not another write dual-path. The Do-now contract holes (caller guards, pause-in-helper, `+=`/`++`, watch peel, render ident getters, instance writes, HOF / `toValue` writes) are closed. Helper-call now has an `onTrack` pair. Remaining charter-quiet rows (NamedApiBag member form, CSS `v-bind` completeness) stay quiet on purpose. Next work is locality (#108 export-closure dirty set, callee index) and leftover consumer polish (binding inbound index, VS Code Explain Scope via LSP).
+**The interesting remaining bug class** after v34 is not another write dual-path. The Do-now contract holes (caller guards, pause-in-helper, `+=`/`++`, watch peel, render ident getters, instance writes, HOF / `toValue` writes) are closed. Helper-call now has an `onTrack` pair. Remaining charter-quiet rows (NamedApiBag member form, CSS `v-bind` completeness) stay quiet on purpose. Next work is locality (#108 export-closure dirty set) and leftover consumer polish (binding inbound index, VS Code Explain Scope via LSP). Root callee discovery is shared in `finish_scope`.
 
-**The interesting remaining speed class** is session input breadth and repeated callee discovery, not a new interprocedural framework.
+**The interesting remaining speed class** is session input breadth, not a new interprocedural framework. Nested helper hops still rediscover callees; do not cache those without a visiting-set story.
 
 **The interesting remaining science class** is honesty: oracle covers a slice; `ExportState` is policy; §K of the July harvest was a year of implementation behind.
 
