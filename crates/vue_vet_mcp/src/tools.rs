@@ -9,8 +9,9 @@ use std::{
 use serde_json::{Value, json};
 use vue_vet_core::{EditApplicability, EditPlan, TextEdit};
 use vue_vet_reporters::{
-  ReportContext, ReportFormat, ReportFramework, ReportMode, render, render_finding_explain_json,
-  render_rule_explain_json, render_scope_explains_json,
+  ReactivityDigest, ReactivityModuleStats, ReportContext, ReportFormat, ReportFramework,
+  ReportMode, render, render_finding_explain_json, render_rule_explain_json,
+  render_scope_explains_json,
 };
 use vue_vet_session::{
   AnalysisSnapshot, Explained, ProjectSession, SessionOptions, resolve_under_root, scan_directory,
@@ -25,7 +26,7 @@ pub fn list_tools() -> Vec<Value> {
   vec![
     tool_descriptor(
       "vue_vet_scan",
-      "Scan a path inside the workspace and return the Vue Vet JSON v1 report (same identities as CLI `--format json`).",
+      "Scan a path inside the workspace and return the Vue Vet JSON v1 report (same identities and reactivity totals as CLI `--format json`).",
       &json!({
         "type": "object",
         "properties": {
@@ -246,10 +247,29 @@ fn report_context(path: &Path, snapshot: &AnalysisSnapshot) -> ReportContext {
     analyzed_files: snapshot.analyzed_files.as_ref().to_vec(),
     complete: snapshot.complete(),
     skipped_check_reasons,
-    reactivity: None,
+    reactivity: Some(reactivity_digest(snapshot)),
     component_nav: None,
     color: false,
   }
+}
+
+/// Same totals/hotspots as CLI JSON. No `--print-reactivity` `modules_detail`.
+fn reactivity_digest(snapshot: &AnalysisSnapshot) -> ReactivityDigest {
+  let modules = snapshot
+    .graph
+    .module_reactivity
+    .iter()
+    .map(|module| {
+      ReactivityModuleStats::from_counts(
+        module.id.to_string(),
+        module.graph.bindings.len(),
+        module.graph.scopes.len(),
+        module.graph.edges.len(),
+        module.graph.template_reads.len(),
+      )
+    })
+    .collect::<Vec<_>>();
+  ReactivityDigest::from_modules(&modules, snapshot.graph.reactivity_error.clone())
 }
 
 fn detect_framework(root: &Path) -> ReportFramework {

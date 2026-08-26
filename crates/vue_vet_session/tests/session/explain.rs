@@ -1,3 +1,8 @@
+use std::{
+  fs,
+  sync::atomic::{AtomicUsize, Ordering},
+};
+
 use super::helpers::*;
 
 #[test]
@@ -95,4 +100,57 @@ fn explain_scope_reuses_full_snapshot_after_diagnostics_only() {
   };
   assert_eq!(explain.binding.as_deref(), Some("label"));
   assert!(explain.summary.contains("no known reactive dependency"));
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn explain_scope_module_prefix_selects_one_file() {
+  static NEXT: AtomicUsize = AtomicUsize::new(0);
+  let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
+  let dir =
+    std::env::temp_dir().join(format!("vue-vet-explain-prefix-{}-{sequence}", std::process::id()));
+  let _ignored = fs::remove_dir_all(&dir);
+  assert!(fs::create_dir_all(&dir).is_ok(), "temp dir");
+  let source = |name: &str| {
+    format!(
+      "<script setup>\nimport {{ computed }} from 'vue'\nconst label = computed(() => '{name}')\n</script>\n<template>{{{{ label }}}}</template>\n"
+    )
+  };
+  assert!(fs::write(dir.join("a.vue"), source("a")).is_ok(), "write a.vue");
+  assert!(fs::write(dir.join("b.vue"), source("b")).is_ok(), "write b.vue");
+
+  let session = open_session(&dir);
+  let Ok((qualified, _)) = session.explain_scope("b.vue:label") else {
+    let _ignored = fs::remove_dir_all(&dir);
+    panic!("b.vue:label must match one computed");
+  };
+  assert_eq!(qualified.len(), 1, "module prefix must not return a.vue: {qualified:?}");
+  assert!(
+    qualified.first().is_some_and(|explain| explain.module_id.ends_with("b.vue")),
+    "qualified match must be b.vue: {qualified:?}"
+  );
+  assert_eq!(qualified.first().and_then(|explain| explain.binding.as_deref()), Some("label"));
+
+  let Ok((all, _)) = session.explain_scope("label") else {
+    let _ignored = fs::remove_dir_all(&dir);
+    panic!("bare label must still scan the workspace");
+  };
+  assert_eq!(all.len(), 2, "bare binding still matches both files: {all:?}");
+
+  let Some(matched) = qualified.first() else {
+    let _ignored = fs::remove_dir_all(&dir);
+    panic!("qualified match must exist");
+  };
+  let offset = matched.span.offset;
+  let Ok((at_file, _)) = session.explain_scope(&format!("b.vue:@{offset}")) else {
+    let _ignored = fs::remove_dir_all(&dir);
+    panic!("b.vue:@offset must match the computed in b.vue");
+  };
+  assert_eq!(at_file.len(), 1, "file:@offset must stay in b.vue: {at_file:?}");
+  assert!(
+    at_file.first().is_some_and(|explain| explain.module_id.ends_with("b.vue")),
+    "file:@offset must be b.vue: {at_file:?}"
+  );
+
+  let _ignored = fs::remove_dir_all(&dir);
 }

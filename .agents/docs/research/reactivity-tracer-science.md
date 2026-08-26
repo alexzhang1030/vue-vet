@@ -67,8 +67,9 @@ Accuracy is a **representative CI gate**, not a sample of apps.
 
 | Instrument | What it measures | Size |
 | --- | --- | --- |
-| Runtime oracle | `tracer ⊆ runtime` and pooled recall ≥99% on committed cases | **39** `expected/*.json`. ~61 nonempty `{binding,key}` rows plus 2 empty-runtime cases. `TraceConfig::empty()` (no plugins). |
-| Identifier-getter oracle (v27) | `computed(load)` / `watch(load)` vs `onTrack` | 2 cases. Not `computed(() => load())`. |
+| Runtime oracle | `tracer ⊆ runtime` and pooled recall ≥99% on committed cases | **40** `expected/*.json`. ~62 nonempty `{binding,key}` rows plus 2 empty-runtime cases. `TraceConfig::empty()` (no plugins). |
+| Identifier-getter oracle (v27) | `computed(load)` / `watch(load)` vs `onTrack` | 2 cases. |
+| Helper-call oracle | `computed(() => load())` vs `onTrack` | 1 case (`computed-helper-call`). Graph-vs-graph remains in `tests/follow.rs`. |
 | Caller-guard oracle (v28) | `computed(() => cond ? load() : 0)` vs `onTrack` | 1 case (`computed-helper-ternary`). Kind is unit-tested. |
 | Helper-pause oracle (v30) | `load()` that pauses then reads vs `onTrack` | 1 case (`pause-tracking-helper`). Leak / mixed call sites are unit-tested. |
 | Watch-source peel oracle (v31) | `watch((count))` vs `onTrack` | 1 case (`watch-source-parens`). TS wrappers / array peel are unit-tested. |
@@ -78,13 +79,12 @@ Accuracy is a **representative CI gate**, not a sample of apps.
 
 Pooled recall can hide a one-key miss in a large HOF case and punish a one-key miss in a 1-dep case (~1.75% of 57). The 99% number is a tripwire on a hand-picked JS slice. PCR already says this. Agents keep citing it as if it were app recall. Stop.
 
-`oracle_cases_cover_known_hard_facts` requires the committed hard-fact ids, including `watch-source-reactive-deep` and `watch-source-parens`.
+`oracle_cases_cover_known_hard_facts` requires the committed hard-fact ids, including `watch-source-reactive-deep`, `watch-source-parens`, and `computed-helper-call`.
 
 Shipped facts with **no** `onTrack` pair:
 
 | Capability | Tested how | Why the harness cannot see it today |
 | --- | --- | --- |
-| `computed(() => load())` helper follow | Unit only | v27 oracled the identifier form. The call form is graph-vs-graph. |
 | i18n ambient `t()` | `i18n.rs` + fixture bag | Oracle uses empty plugin catalog. Runtime `wrapWithDeps` is never recorded. |
 | Factory / `.d.ts` bags / companion merge | `factory.rs` | Cross-file + dts. No fair local `onTrack` identity. |
 | CSS `v-bind` | Vize + unused-computed fixture | Template join, not a tracking-scope collector. |
@@ -92,7 +92,7 @@ Shipped facts with **no** `onTrack` pair:
 | JSX Render scopes | `render.rs` `graph_tsx` | No render-effect `onTrack` install. |
 | Static `:prop` flow | Project + quality FP pins | PCR: not an `onTrack` pair. |
 
-`ExportState` is a **named-export policy algebra**, not a mathematical lattice. `merge_local` is not a join: Factory beats Composable, Known beats Factory/Composable, else last write. `merge_published` Replace can overwrite a larger bag with a smaller same-class bag. Conflicting seedable classes become sticky `Ambiguous`. That is product policy and it is fine. Calling it a lattice in the PCR is the unscientific part. Keep the executable checks in `export_lattice.rs`. Rename the *prose* when someone next touches that heading.
+`ExportState` is a **named-export policy algebra**, not a mathematical lattice. `merge_local` is not a join: Factory beats Composable, Known beats Factory/Composable, else last write. `merge_published` Replace can overwrite a larger bag with a smaller same-class bag. Conflicting seedable classes become sticky `Ambiguous`. That is product policy and it is fine. PCR heading is policy algebra; executable checks stay in `export_lattice.rs`.
 
 Three different loops use the number **8** (same-file refine, name-resolve depth, external follow depth). Same digit, three meanings. Do not unify them for numerology.
 
@@ -110,10 +110,10 @@ Cold cost is dominated by (1) visiting every module in phase one, (2) cloning ma
 
 | Question | Already on the graph | Current waste |
 | --- | --- | --- |
-| Would Vue re-run this? | `explain_tracking_scope` | Scan all modules. VS Code `--explain-scope --no-cache`. MCP opens a new `ProjectSession`. |
+| Would Vue re-run this? | `explain_tracking_scope` | Module-qualified queries skip other graphs. Bare `@offset` / binding still scan all. VS Code `--explain-scope --no-cache`. MCP opens a new `ProjectSession`. |
 | Who reads `props.count`? | `edges` + `to_path` | TUI/VS Code filter label strings. |
 | Scope at caret | `scope.span` covering | Linear `min_by_key`. VS Code reimplements it on `scope_details`. |
-| Tracer ran? | CLI `reactivity` totals | MCP `vue_vet_scan` sets `reactivity: None`. |
+| Tracer ran? | CLI / MCP `reactivity` totals | MCP scan now ships the same totals as CLI JSON (no `modules_detail`). |
 
 Stein et al. *Demanded Abstract Interpretation* (PLDI 2021) and *Demanded Summarization* (TOPLAS 2024) are the right *vocabulary* for "query + incrementality." Vue Vet already has a demanded *product* shape (rules walk facts; hover reads a committed snapshot). It does not have a DAIG. Do not build one. Narrow the session input set and add a binding/offset index.
 
@@ -157,21 +157,21 @@ Stay inside the PCR stop rule. Each row says what evidence already exists and wh
 
 ### Do next (measurement, no fact change)
 
-6. Oracle case `computed(() => load())` next to `computed-fn-ref`, or document in `oracle/README.md` that graph-vs-graph is the gate for the call form.
+6. ~~Oracle case `computed(() => load())` next to `computed-fn-ref`.~~ `computed-helper-call`.
 7. ~~Put `watch-source-reactive-deep` in `oracle_cases_cover_known_hard_facts`.~~ Added with the v31 peel case.
 8. ~~Fix `docs/quality-baselines.md` `reactivity-rules` to **4 / 5**.~~ Already matches.
-9. Say "policy algebra" in the ExportState prose the next time that heading is edited.
+9. ~~Say "policy algebra" in the ExportState prose.~~ Heading is policy algebra; `export_lattice.rs` keeps the filename.
 
 ### Do when touching locality (faster, already #108)
 
-10. Make `DirtyPlan.export_closure` the linker dirty set, or stop claiming it is one. Session should not reconstruct every `ModuleSource` on an independent leaf edit.
+10. Make `DirtyPlan.export_closure` the linker dirty set. Field docs now say it clones `module_summaries` and does not drive A6. Session should not reconstruct every `ModuleSource` on an independent leaf edit.
 11. Compute `local_zero_arg_callees_in_scope` once per `finish_scope` and pass the set into reads / uncertain / writes. No fact change if the set is identical. Bench `trace_1k_modules` before/after.
 12. Keep `persist_linking_cache` off for one-shot benches. Add one CodSpeed name that *is* a warm `ModuleTraceState` leaf edit if locality work lands.
 
 ### Consumer polish (smarter without AST)
 
-13. File-scoped explain (`file:@offset` should not walk every `module_reactivity` entry). Binding → inbound edges index for TUI/VS Code.
-14. VS Code Explain Scope should hit the LSP session, not `--no-cache` CLI. MCP `vue_vet_scan` should keep the `reactivity` digest the CLI already ships, or document why agents do not get "tracer ran."
+13. ~~File-scoped explain (`file:@offset` / `module:binding` skip other graphs).~~ Binding → inbound edges index for TUI/VS Code still open.
+14. VS Code Explain Scope should hit the LSP session, not `--no-cache` CLI. ~~MCP `vue_vet_scan` should keep the `reactivity` digest.~~ Scan JSON now ships CLI totals.
 
 ### Stop
 
@@ -187,7 +187,7 @@ Unstamped. Nothing here is vouched.
 
 **Keep.** Under-approx, static-only, quiet failure, plugin-supplied bags, shared `follow_local_callees`, identifier getters, `ModuleTraceState` plan equality, oracle as the precision ruler.
 
-**The interesting remaining bug class** after v34 is not another write dual-path. The Do-now contract holes (caller guards, pause-in-helper, `+=`/`++`, watch peel, render ident getters, instance writes, HOF / `toValue` writes) are closed. Remaining charter-quiet rows (NamedApiBag member form, CSS `v-bind` completeness) stay quiet on purpose. Next work is measurement / locality / consumer polish.
+**The interesting remaining bug class** after v34 is not another write dual-path. The Do-now contract holes (caller guards, pause-in-helper, `+=`/`++`, watch peel, render ident getters, instance writes, HOF / `toValue` writes) are closed. Helper-call now has an `onTrack` pair. Remaining charter-quiet rows (NamedApiBag member form, CSS `v-bind` completeness) stay quiet on purpose. Next work is locality (#108 export-closure dirty set, callee index) and leftover consumer polish (binding inbound index, VS Code Explain Scope via LSP).
 
 **The interesting remaining speed class** is session input breadth and repeated callee discovery, not a new interprocedural framework.
 

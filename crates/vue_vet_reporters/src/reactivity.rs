@@ -140,12 +140,25 @@ pub struct ReactivityModuleStats {
 impl ReactivityModuleStats {
   #[must_use]
   pub fn empty(id: impl Into<String>) -> Self {
+    Self::from_counts(id, 0, 0, 0, 0)
+  }
+
+  /// Totals only. Labels and `*_details` stay empty (CLI `--print-reactivity`
+  /// fills those; MCP scan uses this for "tracer ran" counts).
+  #[must_use]
+  pub fn from_counts(
+    id: impl Into<String>,
+    bindings: usize,
+    scopes: usize,
+    edges: usize,
+    template_reads: usize,
+  ) -> Self {
     Self {
       id: id.into(),
-      bindings: 0,
-      scopes: 0,
-      edges: 0,
-      template_reads: 0,
+      bindings,
+      scopes,
+      edges,
+      template_reads,
       binding_labels: Vec::new(),
       scope_labels: Vec::new(),
       edge_labels: Vec::new(),

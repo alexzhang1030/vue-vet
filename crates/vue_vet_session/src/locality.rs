@@ -52,6 +52,8 @@ pub struct DirtyPlan {
   pub parse_files: BTreeSet<FileId>,
   pub structural_files: BTreeSet<FileId>,
   pub module_summaries: BTreeSet<ModuleId>,
+  /// Planned export/seed module ids. Today this clones [`Self::module_summaries`]
+  /// and does **not** drive A6 seed recomputation (see issue #108).
   pub export_closure: BTreeSet<ModuleId>,
   pub rule_files: BTreeSet<FileId>,
   pub diagnostic_files: BTreeSet<FileId>,
@@ -167,8 +169,8 @@ pub fn dirty_plan_from(
     parse_files,
     diagnostic_files: rule_files.clone(),
     rule_files,
-    // Planned export/seed closure mirrors structural/module dirtiness. Linking
-    // further narrows real seed recomputation to changed surfaces + importers.
+    // Clone of `module_summaries`, not the A6 linker dirty set. Linking still
+    // chooses seed recomputation from changed surfaces + importers (#108).
     export_closure: module_summaries.clone(),
     module_summaries,
     structural_files,

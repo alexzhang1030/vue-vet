@@ -51,7 +51,8 @@ static tracer so consumers can tell a clean score is not the same as “tracer d
 nothing.” Totals cover traced modules, bindings, tracking scopes, dependency
 edges, and template joins. `hotspots` lists up to five busiest modules. When
 tracing fails, `error` is set on this object (and `project.skipped_checks`
-includes `module_reactivity`). `--print-reactivity` also fills
+includes `module_reactivity`). CLI `--format json` and MCP `vue_vet_scan` both
+ship these totals. `--print-reactivity` also fills
 `modules_detail` with per-module binding/scope/edge/template **string labels**
 plus structured span details for editor consumers:
 
@@ -322,7 +323,7 @@ payload as Markdown.
 | Query | Matches |
 | --- | --- |
 | `label` | Scope binding `label` (or callee name) |
-| `App.vue:label` | Binding in modules whose id ends with `App.vue` |
+| `App.vue:label` | Binding in modules whose id ends with `App.vue` (other graphs skipped) |
 | `App.vue:` / `App.vue` | All scopes in matching modules (path-like / extension) |
 | `@42` | Scope whose span **starts** at byte 42; if none, the tightest scope **covering** that byte (same rule as finding `--explain`) |
 | `computed@42` | Callee (or binding / module) + span **start** (exact; no covering fallback) |

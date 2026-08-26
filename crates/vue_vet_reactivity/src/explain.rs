@@ -122,6 +122,19 @@ fn sort_deps(deps: &mut [ScopeExplainDep]) {
   });
 }
 
+/// Module prefix when the query names a file (`App.vue:label`, `App.vue:@20`,
+/// `App.vue:`). Bare `@offset`, `callee@offset`, and binding names stay
+/// workspace-wide.
+#[must_use]
+pub fn query_module_prefix(query: &str) -> Option<&str> {
+  let query = query.trim();
+  let (prefix, _) = query.split_once(':')?;
+  if prefix.is_empty() {
+    return None;
+  }
+  Some(prefix)
+}
+
 /// True when `module_id` equals or ends with `query_module` (path suffix).
 #[must_use]
 pub fn module_id_matches(module_id: &str, query_module: &str) -> bool {
@@ -379,6 +392,13 @@ mod tests {
 
     let qualified = select_tracking_scopes("src/App.vue", &graph, "App.vue:@25");
     assert_eq!(qualified.first().and_then(|scope| scope.binding.as_deref()), Some("inner"));
+
+    assert_eq!(query_module_prefix("App.vue:label"), Some("App.vue"));
+    assert_eq!(query_module_prefix("src/App.vue:@25"), Some("src/App.vue"));
+    assert_eq!(query_module_prefix("App.vue:"), Some("App.vue"));
+    assert_eq!(query_module_prefix("@25"), None);
+    assert_eq!(query_module_prefix("computed@25"), None);
+    assert_eq!(query_module_prefix("label"), None);
 
     assert!(select_tracking_scopes("App.vue", &graph, "@99").is_empty());
     assert!(

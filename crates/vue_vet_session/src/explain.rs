@@ -8,7 +8,8 @@ use vue_vet_core::{
   finding_id as diagnostic_finding_id,
 };
 use vue_vet_reactivity::{
-  explain_tracking_scope, module_id_matches, scope_covering_span, select_tracking_scopes,
+  explain_tracking_scope, module_id_matches, query_module_prefix, scope_covering_span,
+  select_tracking_scopes,
 };
 
 use crate::{ProjectSession, SessionError, registry::resolve_rule_meta};
@@ -126,9 +127,13 @@ fn collect_scope_explains(
   modules: &[vue_vet_reactivity::ModuleReactivity],
   query: &str,
 ) -> Vec<ScopeExplain> {
+  let query_module = query_module_prefix(query);
   let mut explains = Vec::new();
   for module in modules {
     let module_id = module.id.as_str();
+    if query_module.is_some_and(|prefix| !module_id_matches(module_id, prefix)) {
+      continue;
+    }
     let selected = select_tracking_scopes(module_id, module.graph.as_ref(), query);
     if selected.is_empty() {
       // `module:` or bare module path → every scope in matching modules.

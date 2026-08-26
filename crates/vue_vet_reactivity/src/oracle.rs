@@ -172,6 +172,7 @@ fn oracle_cases_cover_known_hard_facts() {
   for required in [
     "baseline-ref-computed",
     "computed-fn-ref",
+    "computed-helper-call",
     "computed-helper-ternary",
     "computed-object-get",
     "pause-tracking-helper",
