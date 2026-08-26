@@ -294,6 +294,10 @@ pub struct ReactivityEffectFact {
 /// (unclassified `.value` / `unref` / `toValue` inside followed callees).
 /// `then()`/`nextTick`-only call sites stay quiet so absence rules do not
 /// invent `(maybe)` for outside-tracking accesses.
+/// v33: `bag.field.value = …` on a known composable instance records the
+/// same write fact as a destructured `field.value = …` (`binding = field`,
+/// `property = "value"`). Replacing the ref (`bag.field = …`), computed
+/// keys, unknown bags, and non-ref-like fields stay quiet.
 /// v32: options `render: renderFn` and `setup() { return renderFn }` use the
 /// same-file function as the Render body (dual-path with inline
 /// `render() { … }`). Imports, methods, and async/generator stay quiet.
@@ -331,7 +335,7 @@ pub struct ReactivityEffectFact {
 /// under-approx hygiene); export linking refinements that change seeded bindings
 /// (`ForwardReturn` bare `#nuxt-imports`, overload Factory≻Composable, ref-like
 /// ternary `Known` exports, empty-path pending composable fields).
-pub const REACTIVITY_GRAPH_VERSION: u32 = 32;
+pub const REACTIVITY_GRAPH_VERSION: u32 = 33;
 
 const fn default_reactivity_graph_version() -> u32 {
   1

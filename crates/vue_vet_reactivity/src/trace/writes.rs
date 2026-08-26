@@ -15,13 +15,25 @@ use oxc_span::Span;
 use vue_vet_core::{ReactiveBindingFact, ReactiveWriteFact};
 
 use super::{
-  expr,
+  ComposableShapeMap, expr,
   follow::{
     FollowOutside, MAX_LOCAL_CALLEE_FOLLOW_DEPTH, follow_local_callees,
     is_async_or_generator_function, local_function_id,
   },
   kinds::{reference_resolves_to_binding, source_span},
 };
+
+enum WriteLhs<'a> {
+  Binding {
+    object: &'a IdentifierReference<'a>,
+    property: Option<String>,
+  },
+  /// `bag.field.value` — dual-path with reads of composable instance fields.
+  InstanceField {
+    instance: &'a IdentifierReference<'a>,
+    field: String,
+  },
+}
 
 pub(super) fn callback_parts<'a>(
   semantic: &'a oxc_semantic::Semantic<'a>,
@@ -188,6 +200,7 @@ pub(super) fn collect_scope_writes(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
   reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
   sfc_source: &str,
   script_offset: usize,
@@ -198,6 +211,7 @@ pub(super) fn collect_scope_writes(
     semantic,
     scope_id,
     reactive_bindings,
+    composable_instances,
     imported_bindings,
     sfc_source,
     script_offset,
@@ -213,14 +227,21 @@ pub(super) fn collect_scope_writes_bounded(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
   reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
   sfc_source: &str,
   script_offset: usize,
   depth: u32,
   visiting: &mut BTreeSet<NodeId>,
 ) -> Vec<ReactiveWriteFact> {
-  let mut writes =
-    collect_scope_writes_local(semantic, scope_id, reactive_bindings, sfc_source, script_offset);
+  let mut writes = collect_scope_writes_local(
+    semantic,
+    scope_id,
+    reactive_bindings,
+    composable_instances,
+    sfc_source,
+    script_offset,
+  );
   follow_local_callees(
     semantic,
     scope_id,
@@ -233,6 +254,7 @@ pub(super) fn collect_scope_writes_bounded(
         semantic,
         callee_id,
         reactive_bindings,
+        composable_instances,
         imported_bindings,
         sfc_source,
         script_offset,
@@ -248,12 +270,13 @@ pub(super) fn collect_scope_writes_local(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
   reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
   sfc_source: &str,
   script_offset: usize,
 ) -> Vec<ReactiveWriteFact> {
   let mut writes = Vec::new();
   for node in semantic.nodes() {
-    let Some((object, property, write_span)) = write_target_from_node(node.kind()) else {
+    let Some((lhs, write_span)) = write_target_from_node(node.kind()) else {
       continue;
     };
 
@@ -276,27 +299,45 @@ pub(super) fn collect_scope_writes_local(
       continue;
     }
 
-    let Some(binding) = reactive_bindings.iter().find(|binding| {
-      binding.name == object.name.as_str()
-        && reference_resolves_to_binding(semantic, object, binding, script_offset)
-        && (!binding.kind.is_ref_like() || property.as_deref() == Some("value"))
-    }) else {
-      continue;
-    };
-    writes.push(ReactiveWriteFact {
-      binding: binding.name.clone(),
-      property,
-      span: source_span(sfc_source, script_offset, write_span),
-    });
+    match lhs {
+      WriteLhs::Binding { object, property } => {
+        let Some(binding) = reactive_bindings.iter().find(|binding| {
+          binding.name == object.name.as_str()
+            && reference_resolves_to_binding(semantic, object, binding, script_offset)
+            && (!binding.kind.is_ref_like() || property.as_deref() == Some("value"))
+        }) else {
+          continue;
+        };
+        writes.push(ReactiveWriteFact {
+          binding: binding.name.clone(),
+          property,
+          span: source_span(sfc_source, script_offset, write_span),
+        });
+      }
+      WriteLhs::InstanceField { instance, field } => {
+        let Some(kind) = composable_instances
+          .get(instance.name.as_str())
+          .and_then(|shape| shape.get(field.as_str()))
+        else {
+          continue;
+        };
+        if !kind.is_ref_like() {
+          continue;
+        }
+        writes.push(ReactiveWriteFact {
+          binding: field,
+          property: Some("value".into()),
+          span: source_span(sfc_source, script_offset, write_span),
+        });
+      }
+    }
   }
   writes
 }
 
 /// `=` / `+=` / `++` member writes. Logical `&&=` / `||=` / `??=` stay quiet
 /// (they may not write).
-fn write_target_from_node(
-  kind: AstKind<'_>,
-) -> Option<(&IdentifierReference<'_>, Option<String>, Span)> {
+fn write_target_from_node(kind: AstKind<'_>) -> Option<(WriteLhs<'_>, Span)> {
   match kind {
     AstKind::AssignmentExpression(assignment) if !assignment.operator.is_logical() => {
       member_write_from_assignment_target(&assignment.left)
@@ -306,18 +347,39 @@ fn write_target_from_node(
   }
 }
 
+fn member_write_lhs<'a>(
+  object: &'a Expression<'a>,
+  property: &str,
+  span: Span,
+) -> Option<(WriteLhs<'a>, Span)> {
+  let object = expr::peel_parens(object);
+  if let Some(ident) = object.get_identifier_reference() {
+    return Some((WriteLhs::Binding { object: ident, property: Some(property.to_string()) }, span));
+  }
+  // Dual-path with `bag.field.value` reads: only the `.value` write on a
+  // known composable field. `bag.field = …` (replacing the ref) stays quiet.
+  if property != "value" {
+    return None;
+  }
+  let Expression::StaticMemberExpression(inner) = object else {
+    return None;
+  };
+  let instance = expr::peel_parens(&inner.object).get_identifier_reference()?;
+  Some((WriteLhs::InstanceField { instance, field: inner.property.name.to_string() }, span))
+}
+
 fn member_write_from_assignment_target<'a>(
   target: &'a AssignmentTarget<'a>,
-) -> Option<(&'a IdentifierReference<'a>, Option<String>, Span)> {
+) -> Option<(WriteLhs<'a>, Span)> {
   match target {
-    AssignmentTarget::StaticMemberExpression(member) => Some((
-      member.object.get_identifier_reference()?,
-      Some(member.property.name.to_string()),
-      member.span,
-    )),
+    AssignmentTarget::StaticMemberExpression(member) => {
+      member_write_lhs(&member.object, member.property.name.as_str(), member.span)
+    }
     AssignmentTarget::ComputedMemberExpression(member) => Some((
-      member.object.get_identifier_reference()?,
-      member.static_property_name().map(|name| name.to_string()),
+      WriteLhs::Binding {
+        object: member.object.get_identifier_reference()?,
+        property: member.static_property_name().map(|name| name.to_string()),
+      },
       member.span,
     )),
     _ => None,
@@ -326,16 +388,16 @@ fn member_write_from_assignment_target<'a>(
 
 fn member_write_from_simple_target<'a>(
   target: &'a SimpleAssignmentTarget<'a>,
-) -> Option<(&'a IdentifierReference<'a>, Option<String>, Span)> {
+) -> Option<(WriteLhs<'a>, Span)> {
   match target {
-    SimpleAssignmentTarget::StaticMemberExpression(member) => Some((
-      member.object.get_identifier_reference()?,
-      Some(member.property.name.to_string()),
-      member.span,
-    )),
+    SimpleAssignmentTarget::StaticMemberExpression(member) => {
+      member_write_lhs(&member.object, member.property.name.as_str(), member.span)
+    }
     SimpleAssignmentTarget::ComputedMemberExpression(member) => Some((
-      member.object.get_identifier_reference()?,
-      member.static_property_name().map(|name| name.to_string()),
+      WriteLhs::Binding {
+        object: member.object.get_identifier_reference()?,
+        property: member.static_property_name().map(|name| name.to_string()),
+      },
       member.span,
     )),
     _ => None,

@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-side-effects-in-computed",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-side-effects-in-computed",
+    "message": "computed getter writes `field.value`, which is a side effect",
+    "help": "Keep computed getters pure; move writes into `watch` / event handlers.",
+    "file": "fixtures/rules/no-side-effects-in-computed/invalid/bag-field-write.vue",
+    "span": {
+      "offset": 186,
+      "length": 15,
+      "line": 9,
+      "column": 28
+    }
+  }
+]

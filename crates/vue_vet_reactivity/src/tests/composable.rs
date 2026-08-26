@@ -158,6 +158,192 @@ fn local_composable_instance_member_access() {
 }
 
 #[test]
+fn records_composable_instance_field_writes() {
+  #[derive(Clone, Copy)]
+  enum Want {
+    FieldValue,
+    Quiet,
+  }
+  struct Case {
+    label: &'static str,
+    source: &'static str,
+    want: Want,
+  }
+  let cases = [
+    Case {
+      label: "computed writes bag.field.value",
+      source: "import { ref, computed } from 'vue';\n\
+               function useX() { const field = ref(0); return { field }; }\n\
+               const a = ref(0); const bag = useX();\n\
+               const c = computed(() => { bag.field.value = a.value; return a.value; });\n\
+               void c.value;",
+      want: Want::FieldValue,
+    },
+    Case {
+      label: "+= writes bag.field.value",
+      source: "import { ref, computed } from 'vue';\n\
+               function useX() { const field = ref(0); return { field }; }\n\
+               const a = ref(0); const bag = useX();\n\
+               const c = computed(() => { bag.field.value += a.value; return a.value; });\n\
+               void c.value;",
+      want: Want::FieldValue,
+    },
+    Case {
+      label: "++ writes bag.field.value",
+      source: "import { ref, computed } from 'vue';\n\
+               function useX() { const field = ref(0); return { field }; }\n\
+               const a = ref(0); const bag = useX();\n\
+               const c = computed(() => { bag.field.value++; return a.value; });\n\
+               void c.value;",
+      want: Want::FieldValue,
+    },
+    Case {
+      label: "peeled (bag.field).value write",
+      source: "import { ref, computed } from 'vue';\n\
+               function useX() { const field = ref(0); return { field }; }\n\
+               const a = ref(0); const bag = useX();\n\
+               const c = computed(() => { (bag.field).value = a.value; return a.value; });\n\
+               void c.value;",
+      want: Want::FieldValue,
+    },
+    Case {
+      label: "TS-wrapped (bag.field as any).value write",
+      source: "import { ref, computed } from 'vue';\n\
+               function useX() { const field = ref(0); return { field }; }\n\
+               const a = ref(0); const bag = useX();\n\
+               const c = computed(() => { (bag.field as any).value = a.value; return a.value; });\n\
+               void c.value;",
+      want: Want::FieldValue,
+    },
+    Case {
+      label: "helper load() writes bag.field.value",
+      source: "import { ref, computed } from 'vue';\n\
+               function useX() { const field = ref(0); return { field }; }\n\
+               const a = ref(0); const bag = useX();\n\
+               function load() { bag.field.value = a.value; return a.value; }\n\
+               const c = computed(() => load());\n\
+               void c.value;",
+      want: Want::FieldValue,
+    },
+    Case {
+      label: "identifier getter writes bag.field.value",
+      source: "import { ref, computed } from 'vue';\n\
+               function useX() { const field = ref(0); return { field }; }\n\
+               const a = ref(0); const bag = useX();\n\
+               function load() { bag.field.value = a.value; return a.value; }\n\
+               const c = computed(load);\n\
+               void c.value;",
+      want: Want::FieldValue,
+    },
+    Case {
+      label: "replacing the ref bag.field = … stays quiet",
+      source: "import { ref, computed } from 'vue';\n\
+               function useX() { const field = ref(0); return { field }; }\n\
+               const a = ref(0); const bag = useX();\n\
+               const c = computed(() => { bag.field = a; return a.value; });\n\
+               void c.value;",
+      want: Want::Quiet,
+    },
+    Case {
+      label: "computed key bag['field'].value stays quiet",
+      source: "import { ref, computed } from 'vue';\n\
+               function useX() { const field = ref(0); return { field }; }\n\
+               const a = ref(0); const bag = useX();\n\
+               const c = computed(() => { bag['field'].value = a.value; return a.value; });\n\
+               void c.value;",
+      want: Want::Quiet,
+    },
+    Case {
+      label: "unknown bag stays quiet",
+      source: "import { ref, computed } from 'vue';\n\
+               const a = ref(0);\n\
+               const other = { field: { value: 0 } };\n\
+               const c = computed(() => { other.field.value = a.value; return a.value; });\n\
+               void c.value;",
+      want: Want::Quiet,
+    },
+    Case {
+      label: "unknown field stays quiet",
+      source: "import { ref, computed } from 'vue';\n\
+               function useX() { const field = ref(0); return { field }; }\n\
+               const bag = useX();\n\
+               const c = computed(() => { bag.missing.value = 1; return 1; });\n\
+               void c.value;",
+      want: Want::Quiet,
+    },
+    Case {
+      label: "logical &&= on bag.field.value stays quiet",
+      source: "import { ref, computed } from 'vue';\n\
+               function useX() { const field = ref(0); return { field }; }\n\
+               const bag = useX();\n\
+               const c = computed(() => { bag.field.value &&= 1; return 1; });\n\
+               void c.value;",
+      want: Want::Quiet,
+    },
+    Case {
+      label: "three-level bag.nested.field.value stays quiet",
+      source: "import { ref, computed } from 'vue';\n\
+               function useX() { const field = ref(0); return { nested: { field } }; }\n\
+               const bag = useX();\n\
+               const c = computed(() => { bag.nested.field.value = 1; return 1; });\n\
+               void c.value;",
+      want: Want::Quiet,
+    },
+  ];
+  for case in cases {
+    let graph = graph(case.source);
+    assert_eq!(graph.version, vue_vet_core::REACTIVITY_GRAPH_VERSION);
+    let scope = helper_follow_scope(&graph, TrackingScopeKind::Computed);
+    match case.want {
+      Want::FieldValue => {
+        assert!(
+          scope.is_some_and(|scope| {
+            scope
+              .writes
+              .iter()
+              .any(|write| write.binding == "field" && write.property.as_deref() == Some("value"))
+          }),
+          "{}: scopes={:?}",
+          case.label,
+          graph.scopes
+        );
+      }
+      Want::Quiet => {
+        assert!(
+          scope.is_none_or(|scope| scope.writes.iter().all(|write| write.binding != "field")),
+          "{}: scopes={:?}",
+          case.label,
+          graph.scopes
+        );
+      }
+    }
+  }
+}
+
+#[test]
+fn composable_instance_field_write_works_with_sfc_script_offset() {
+  let script = "import { ref, computed } from 'vue'\n\
+     function useX() { const field = ref(0); return { field }; }\n\
+     const a = ref(0)\n\
+     const bag = useX()\n\
+     const c = computed(() => { bag.field.value = a.value; return a.value })\n";
+  let prefix = "<script setup lang=\"ts\">\n";
+  let sfc = format!("{prefix}{script}</script>\n<template><p>{{{{ c }}}}</p></template>\n");
+  let graph = trace(&sfc, script, prefix.len(), ScriptKind::Setup);
+  let scope = helper_follow_scope(&graph, TrackingScopeKind::Computed);
+  assert!(
+    scope.is_some_and(|scope| {
+      scope
+        .writes
+        .iter()
+        .any(|write| write.binding == "field" && write.property.as_deref() == Some("value"))
+    }),
+    "SFC-offset bag.field.value write must record; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
 fn local_composable_instance_works_with_sfc_script_offset() {
   let script = "import { ref, watchEffect } from 'vue'\n\
      function useSignal() { const signal = ref(0); return { signal }; }\n\
