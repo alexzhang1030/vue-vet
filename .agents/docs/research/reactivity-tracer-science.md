@@ -1,6 +1,6 @@
 # Reactivity tracer science memo
 
-Harvested: 2026-08-25. Graph contract **v31** (watch-source peel). v30 is pause inside followed helpers; v29 is compound / update writes.
+Harvested: 2026-08-25. Graph contract **v32** (render identifier getters). v31 is watch-source peel; v30 is pause inside followed helpers; v29 is compound / update writes.
 This is a ranked research record after A0–A7 were marked complete. It is **not** a new completeness axis and it does not authorize Elk/corpus KPI chasing or another `summary/mod.rs` extract.
 
 Related: [reactivity tracer](../reactivity-tracer.md), [literature matrix](./reactivity-tracer-literature.md), [architecture](../architecture.md) (Post-#107), [gotchas](../gotchas.md), issue [#14](https://github.com/alexzhang1030/vue-vet/issues/14).
@@ -53,7 +53,7 @@ Invention is worse than a miss. Charter: missing edges stay quiet; invented *con
 | Writes skip sync HOF / `toValue` getters | Writes treat any nested function as drop. Reads stay inside Array/String/`toValue` callbacks (`context.rs`). | Charter-quiet miss | `list.value.map(() => { t.value = 1 })` inside computed: read of `list`, no write of `t`. |
 | Composable-instance writes | Writes match `reactive_bindings` only. Reads have `bag.field.value`. | Dual-path miss | `computed(() => { bag.field.value = 1 })` may miss the write that `no-side-effects-in-computed` needs. |
 | `watch((ref))` / TS-wrapped bare sources | **Landed v31.** `collect_watch_source_reads` / `collect_expression_source_reads` peel before classifying. Nested arrays still do not treat inner arrows as getters. | **Dual-path miss** (fixed) | `watch((count))` / `watch(count as any)` / `watch((() => count.value))` match the unwrapped form. |
-| Render identifier callbacks | `render.rs` `function_like_body` is inline arrow/function only. v27 did not land here. | Dual-path miss | `render: renderFn` / `setup() { return renderFn }` create no Render scope. `computed(load)` does. |
+| Render identifier callbacks | **Landed v32.** `function_like_body` resolves same-file identifiers via `local_getter_parts`. Imports, methods, and async/generator stay quiet. | **Dual-path miss** (fixed) | `render: renderFn` / `setup() { return renderFn }` match inline `render() { … }`. |
 | NamedApiBag member / whole-object / partial ambient | Identifier callee + object-destructure handles. `const i18n = useI18n(); i18n.t()` quiet. Co-destructure of `{ locale, t }` injects only `locale`, not `messages`. | Charter-quiet | Elk PublishWidget was the translator-only path (synthetic bag). Member form was never the evidence. |
 | CSS `v-bind` completeness | Lexical ident / quoted ident in `vue_vet_vize::style`. Members, calls, arithmetic quiet. | Charter-quiet | Prevents unused-computed FP on `v-bind(color)`. Not a Vue dep-key measurement. |
 
@@ -149,7 +149,7 @@ Stay inside the PCR stop rule. Each row says what evidence already exists and wh
 2. **Pause inside a followed helper.** Landed in v30. Owning-function IR + caller hops + helper-exit leak. Oracle: `pause-tracking-helper`.
 3. **`+=` / `++` writes.** Landed in v29. Unit + `no-side-effects-in-computed` / `prefer-computed` fixtures. Logical compounds stay quiet.
 4. **`peel_parens` on watch sources.** Landed in v31. Same peel as `local_getter_parts`. Oracle: `watch-source-parens`. Nested arrays stay identifier-only.
-5. **Render identifier getters.** Apply the v27 idea to `function_like_body` / `setup() { return renderFn }`. Unit in `render.rs`. Graph bump.
+5. **Render identifier getters.** Landed in v32. `function_like_body` + `local_getter_parts`. Units in `tests/render.rs`. Graph-vs-graph (no render `onTrack` in the oracle harness).
 
 ### Do next (measurement, no fact change)
 
@@ -183,7 +183,7 @@ Unstamped. Nothing here is vouched.
 
 **Keep.** Under-approx, static-only, quiet failure, plugin-supplied bags, shared `follow_local_callees`, identifier getters, `ModuleTraceState` plan equality, oracle as the precision ruler.
 
-**The interesting remaining bug class** after v31 is render identifier getters and remaining dual-path writes (composable-instance), not another Factory seed. Helper context (guards + pause), `+=` / `++` writes, and watch-source peel are closed.
+**The interesting remaining bug class** after v32 is remaining dual-path writes (composable-instance / HOF writes), not another Factory seed. Helper context, `+=` / `++` writes, watch-source peel, and render identifier getters are closed.
 
 **The interesting remaining speed class** is session input breadth and repeated callee discovery, not a new interprocedural framework.
 

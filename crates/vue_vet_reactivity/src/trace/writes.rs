@@ -74,7 +74,8 @@ pub(super) fn tracking_callback_parts<'a>(
 
 /// Same-file `function f` / `const f = () =>` passed by reference to a Vue
 /// tracking API (`computed(load)`, `watchEffect(load)`, `watch(load)`,
-/// `computed({ get: load })`). Imports, methods, and async/generator stay quiet.
+/// `computed({ get: load })`) or as a Render body (`render: renderFn`,
+/// `setup() { return renderFn }`). Imports, methods, and async/generator stay quiet.
 pub(super) fn local_getter_parts<'a>(
   semantic: &'a oxc_semantic::Semantic<'a>,
   expression: &'a Expression<'a>,

@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-conditional-dependency-in-render",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-conditional-dependency-in-render",
+    "message": "`count.value` is read only after a control-flow guard inside render, so it is not a reliable dependency",
+    "help": "Read `count.value` synchronously in render, or use explicit `watch` sources.",
+    "file": "fixtures/rules/no-conditional-dependency-in-render/invalid/ident-getter.vue",
+    "span": {
+      "offset": 155,
+      "length": 11,
+      "line": 7,
+      "column": 10
+    }
+  }
+]
