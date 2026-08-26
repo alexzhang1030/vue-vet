@@ -96,3 +96,43 @@ fn explain_scope_reuses_full_snapshot_after_diagnostics_only() {
   assert_eq!(explain.binding.as_deref(), Some("label"));
   assert!(explain.summary.contains("no known reactive dependency"));
 }
+
+#[test]
+#[expect(
+  clippy::indexing_slicing,
+  clippy::panic,
+  reason = "session setup failures must fail the integration test"
+)]
+fn explain_scope_module_prefix_selects_one_file() {
+  let dir = std::env::temp_dir().join(format!("vue-vet-explain-prefix-{}", std::process::id()));
+  std::fs::create_dir_all(&dir).unwrap_or_else(|error| panic!("temp dir: {error}"));
+  let source = |name: &str| {
+    format!(
+      "<script setup>\nimport {{ computed }} from 'vue'\nconst label = computed(() => '{name}')\n</script>\n<template>{{{{ label }}}}</template>\n"
+    )
+  };
+  std::fs::write(dir.join("a.vue"), source("a")).unwrap_or_else(|error| panic!("a.vue: {error}"));
+  std::fs::write(dir.join("b.vue"), source("b")).unwrap_or_else(|error| panic!("b.vue: {error}"));
+
+  let session = open_session(&dir);
+  let (qualified, _) =
+    session.explain_scope("b.vue:label").unwrap_or_else(|error| panic!("b.vue:label: {error}"));
+  assert_eq!(qualified.len(), 1, "module prefix must not return a.vue: {qualified:?}");
+  assert!(
+    qualified[0].module_id.ends_with("b.vue"),
+    "qualified match must be b.vue: {qualified:?}"
+  );
+  assert_eq!(qualified[0].binding.as_deref(), Some("label"));
+
+  let (all, _) = session.explain_scope("label").unwrap_or_else(|error| panic!("label: {error}"));
+  assert_eq!(all.len(), 2, "bare binding still matches both files: {all:?}");
+
+  let offset = qualified[0].span.offset;
+  let (at_file, _) = session
+    .explain_scope(&format!("b.vue:@{offset}"))
+    .unwrap_or_else(|error| panic!("b.vue:@offset: {error}"));
+  assert_eq!(at_file.len(), 1, "file:@offset must stay in b.vue: {at_file:?}");
+  assert!(at_file[0].module_id.ends_with("b.vue"), "file:@offset must be b.vue: {at_file:?}");
+
+  let _ignored = std::fs::remove_dir_all(&dir);
+}

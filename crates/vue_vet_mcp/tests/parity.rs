@@ -61,6 +61,40 @@ fn mcp_scan_finding_ids_match_session() {
 }
 
 #[test]
+#[expect(
+  clippy::indexing_slicing,
+  clippy::panic,
+  reason = "parity test indexes known MCP tool result shape"
+)]
+fn mcp_scan_includes_reactivity_digest_totals() {
+  let root = fixture("rules/no-computed-without-dependency/invalid/placeholder.vue");
+  let workspace = root.parent().map_or_else(|| PathBuf::from("."), Path::to_path_buf);
+  let file_name = root
+    .file_name()
+    .map_or_else(|| "placeholder.vue".into(), |name| name.to_string_lossy().into_owned());
+
+  let result = call_tool(&workspace, "vue_vet_scan", &json!({ "path": file_name }));
+  assert_eq!(result["isError"], false, "{result}");
+  let text = result["content"][0]["text"].as_str().unwrap_or_default();
+  let Ok(report) = serde_json::from_str::<Value>(text) else {
+    panic!("scan tool must return JSON: {text}");
+  };
+  let reactivity = &report["reactivity"];
+  assert!(
+    reactivity["modules"].as_u64().is_some_and(|count| count >= 1),
+    "scan JSON must include reactivity totals so agents can tell the tracer ran: {reactivity}"
+  );
+  assert!(
+    reactivity["scopes"].as_u64().is_some_and(|count| count >= 1),
+    "placeholder computed must contribute a tracking scope: {reactivity}"
+  );
+  assert!(
+    reactivity.get("modules_detail").is_none(),
+    "MCP scan must not ship --print-reactivity modules_detail: {reactivity}"
+  );
+}
+
+#[test]
 #[expect(clippy::indexing_slicing, reason = "parity test indexes known MCP tool result shape")]
 fn mcp_explain_rule_returns_docs() {
   let workspace = fixture("rules/no-v-html");

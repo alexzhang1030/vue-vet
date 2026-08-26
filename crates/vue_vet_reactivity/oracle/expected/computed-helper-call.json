@@ -1,0 +1,10 @@
+{
+  "id": "computed-helper-call",
+  "source": "import { ref, computed } from 'vue'\nconst count = ref(1)\nfunction load() { return count.value * 2 }\nconst doubled = computed(() => load())\nvoid doubled.value\n",
+  "runtime_deps": [
+    {
+      "binding": "count",
+      "key": "value"
+    }
+  ]
+}

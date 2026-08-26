@@ -549,7 +549,9 @@ snapshot keeps the full graph so hover does not re-trace. `vue-vet --mcp`
 (`vue_vet_mcp`) exposes stdio JSON-RPC tools for scan, explain,
 explain-scope (`vue_vet_explain_scope`, same `ScopeExplain` JSON as CLI
 `--explain-scope`), and safe-fix preview with the same workspace path bounds;
-it never applies edits. Request-level cancellation remains later issue #12 work.
+it never applies edits. Scan JSON includes the same `reactivity` totals as CLI
+`--format json` so agents can tell the tracer ran. Request-level cancellation
+remains later issue #12 work.
 
 ## Project intelligence
 
