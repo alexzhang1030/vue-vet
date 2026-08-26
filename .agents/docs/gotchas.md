@@ -378,8 +378,9 @@ must return the last snapshot without re-entering the pipeline.
 **Dirty `FileId` ≠ dirty work.** A small `affected_files()` set only proves parse
 scheduling was narrow. Phase-one may still visit every module summary (cheap when
 already attached). Prove locality with work counters (`files_parsed`,
-`seed_plans_recomputed`, `export_resolve_ran`, layered rebuild, COW clones,
-rules rerun), not with set size alone.
+`seed_plans_recomputed`, `export_resolve_ran`, `seeded_reparses`, layered
+rebuild, COW clones, rules rerun) and `DirtyPlan.export_closure` (the seed-dirty
+set, not `module_summaries`). Do not treat `affected_files()` size as A6 work.
 
 **Linking surface ≠ `ModuleSummary` equality.** Export/seed reuse keys on
 imports/exports/locals/provides/injects + links. A leaf body edit that only

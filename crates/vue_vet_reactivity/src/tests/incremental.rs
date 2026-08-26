@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
@@ -102,6 +104,7 @@ fn incremental_module_trace_reuses_unchanged_seeded_graphs() {
   assert_eq!(second.stats.reused_graphs, 2);
   assert!(!second.stats.export_resolve_ran);
   assert_eq!(second.stats.seed_plans_recomputed, 0);
+  assert!(second.seed_plan_dirty.is_empty());
   assert_eq!(first.modules, second.modules);
 }
 
@@ -164,6 +167,11 @@ fn seed_plans_recompute_only_export_closure() {
   assert_eq!(
     second.stats.seed_plans_recomputed, 2,
     "producer surface + consumer importer; unrelated must keep prior seed plan"
+  );
+  assert_eq!(
+    second.seed_plan_dirty,
+    BTreeSet::from(["producer.ts".into(), "consumer.ts".into()]),
+    "export_closure is the seed-dirty set, not every workspace module"
   );
 }
 

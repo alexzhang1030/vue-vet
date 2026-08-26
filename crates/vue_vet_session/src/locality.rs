@@ -52,8 +52,10 @@ pub struct DirtyPlan {
   pub parse_files: BTreeSet<FileId>,
   pub structural_files: BTreeSet<FileId>,
   pub module_summaries: BTreeSet<ModuleId>,
-  /// Planned export/seed module ids. Today this clones [`Self::module_summaries`]
-  /// and does **not** drive A6 seed recomputation (see issue #108).
+  /// Seed-plan dirty set from the last A6 pass (`TraceModulesReport::seed_plan_dirty`).
+  /// Empty on a warm linking-cache hit. Does not itself drive the next scan —
+  /// the linker still computes this set — but it is no longer a clone of
+  /// [`Self::module_summaries`].
   pub export_closure: BTreeSet<ModuleId>,
   pub rule_files: BTreeSet<FileId>,
   pub diagnostic_files: BTreeSet<FileId>,
@@ -68,6 +70,8 @@ pub struct ScanWorkCounters {
   pub structural_partitions_rebuilt: u64,
   pub module_summaries_visited: u64,
   pub seed_plans_recomputed: u64,
+  pub export_resolve_ran: bool,
+  pub seeded_reparses: u64,
   pub graph_cow_clones: u64,
   pub rules_rerun: u64,
   pub diagnostics_finalized: u64,
@@ -139,6 +143,7 @@ pub fn dirty_plan_from(
   parse_files: BTreeSet<FileId>,
   last_affected: &BTreeSet<FileId>,
   sources: &[SourceInput],
+  export_closure: BTreeSet<ModuleId>,
 ) -> DirtyPlan {
   let all_ids = sources.iter().map(|source| source.file_id.clone()).collect::<BTreeSet<_>>();
   let vue_ids = sources
@@ -169,7 +174,7 @@ pub fn dirty_plan_from(
     parse_files,
     diagnostic_files: rule_files.clone(),
     rule_files,
-    export_closure: module_summaries.clone(),
+    export_closure,
     module_summaries,
     structural_files,
   }
@@ -237,5 +242,20 @@ mod tests {
       &analyzed,
     );
     assert_eq!(impact.parse, dirty);
+  }
+
+  #[test]
+  fn dirty_plan_keeps_export_closure_from_linker() {
+    let sources = vec![source("leaf.ts", SourceKind::Script { language: "ts".into() })];
+    let impact =
+      ChangeImpact { parse: BTreeSet::from([FileId::from("leaf.ts")]), ..ChangeImpact::default() };
+    let parse_files = BTreeSet::from([FileId::from("leaf.ts")]);
+    let last_affected = parse_files.clone();
+    let plan = dirty_plan_from(&impact, parse_files, &last_affected, &sources, BTreeSet::new());
+    assert!(!plan.module_summaries.is_empty(), "parse dirty still expands to module summary ids");
+    assert!(
+      plan.export_closure.is_empty(),
+      "export_closure is the linker seed-dirty set, not a clone of module_summaries"
+    );
   }
 }

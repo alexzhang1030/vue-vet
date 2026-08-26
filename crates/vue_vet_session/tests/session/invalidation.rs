@@ -1,3 +1,5 @@
+use vue_vet_core::ModuleId;
+
 use super::helpers::*;
 
 #[test]
@@ -552,8 +554,76 @@ fn independent_leaf_edit_keeps_affected_set_local() {
     after.work
   );
   assert!(after.work.files_reused >= 39, "unchanged modules must be reused, got {:?}", after.work);
+  assert!(
+    !after.work.export_resolve_ran,
+    "unseeded leaf body edit must not rerun export resolve: {:?}",
+    after.work
+  );
+  assert_eq!(
+    after.work.seed_plans_recomputed, 0,
+    "unseeded leaf body edit must not recompute seed plans: {:?}",
+    after.work
+  );
+  assert_eq!(
+    after.work.seeded_reparses, 0,
+    "unseeded leaf body edit must not reparse seeded consumers: {:?}",
+    after.work
+  );
   let plan = session.last_dirty_plan().unwrap_or_else(|error| panic!("dirty plan: {error}"));
   assert_eq!(plan.parse_files.len(), 1);
+  assert!(
+    plan.export_closure.is_empty(),
+    "export_closure is the A6 seed-dirty set, not every module summary: {:?}",
+    plan.export_closure
+  );
+  let _ignored = std::fs::remove_dir_all(root);
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn producer_export_change_limits_export_closure() {
+  let root = std::env::temp_dir().join(format!("vue-vet-export-closure-{}", std::process::id()));
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+  std::fs::write(
+    root.join("producer.ts"),
+    "import { ref } from 'vue'; export const count = ref(0);\n",
+  )
+  .unwrap_or_else(|error| panic!("producer: {error}"));
+  std::fs::write(
+    root.join("consumer.ts"),
+    "import { watchEffect } from 'vue'; import { count } from './producer'; watchEffect(() => count.value);\n",
+  )
+  .unwrap_or_else(|error| panic!("consumer: {error}"));
+  std::fs::write(
+    root.join("unrelated.ts"),
+    "import { ref } from 'vue'; export const other = ref(1);\n",
+  )
+  .unwrap_or_else(|error| panic!("unrelated: {error}"));
+  let session = open_session_threads(root.clone(), 2);
+  session.analyze().unwrap_or_else(|error| panic!("baseline: {error}"));
+  session
+    .apply_changes(ChangeSet::upsert(
+      root.join("producer.ts"),
+      "import { ref } from 'vue'; export const count = ref(0); export const flag = ref(true);\n"
+        .into(),
+    ))
+    .unwrap_or_else(|error| panic!("edit: {error}"));
+  let after = session.analyze_affected().unwrap_or_else(|error| panic!("affected: {error}"));
+  assert!(
+    after.work.export_resolve_ran,
+    "new named export must rerun export resolve: {:?}",
+    after.work
+  );
+  assert_eq!(after.work.seed_plans_recomputed, 2, "producer + consumer only: {:?}", after.work);
+  let plan = session.last_dirty_plan().unwrap_or_else(|error| panic!("dirty plan: {error}"));
+  assert!(
+    plan.export_closure.contains(&ModuleId::from("producer.ts"))
+      && plan.export_closure.contains(&ModuleId::from("consumer.ts"))
+      && !plan.export_closure.iter().any(|id| id.as_str().contains("unrelated")),
+    "export_closure is the seed-dirty pair, not the whole workspace: {:?}",
+    plan.export_closure
+  );
   let _ignored = std::fs::remove_dir_all(root);
 }
 
