@@ -46,10 +46,9 @@ Stable benchmark names (do not rename without a new baseline rationale):
 
 Commands: `just bench`, `just bench-codspeed-build`, `just bench-codspeed-run`.
 
-`scan_diff_filter_nuxt_graph` repeats `filter_diff` on the `nuxt-graph` summary
-so the timed work sits above CodSpeed's microsecond noise floor. Changing the
-repeat count or putting filesystem teardown back in the measured closure
-establishes a new baseline.
+`scan_diff_filter_nuxt_graph` times one `filter_diff` of the `nuxt-graph`
+summary. Analyze and cache-directory teardown stay outside the measured
+closure. Putting filesystem teardown back in establishes a new baseline.
 
 ### Developer-machine spot check (informational)
 

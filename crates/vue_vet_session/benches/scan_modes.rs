@@ -205,10 +205,6 @@ fn scan_incremental_root_edit_1k_modules(bencher: divan::Bencher) {
   let _ignored = std::fs::remove_dir_all(&cache);
 }
 
-// One `filter_diff` of the nuxt-graph summary is a retain+sort of a handful of
-// diagnostics (~8 µs). Repeat so CodSpeed is not sitting on that noise floor.
-const DIFF_FILTER_REPEATS: usize = 256;
-
 #[divan::bench]
 fn scan_diff_filter_nuxt_graph(bencher: divan::Bencher) {
   let root = nuxt_graph();
@@ -219,14 +215,9 @@ fn scan_diff_filter_nuxt_graph(bencher: divan::Bencher) {
   let summary = snapshot.summary;
   let mut changed = ChangedLines::default();
   changed.files.insert("pages/index.vue".into(), BTreeSet::from([1]));
-  bencher
-    .with_inputs(|| (0..DIFF_FILTER_REPEATS).map(|_| summary.as_ref().clone()).collect::<Vec<_>>())
-    .bench_values(|summaries| {
-      let mut retained = 0;
-      for owned in summaries {
-        retained += filter_diff(owned, &changed).diagnostics.len();
-      }
-      divan::black_box(retained)
-    });
+  bencher.with_inputs(|| summary.as_ref().clone()).bench_values(|owned| {
+    let filtered = filter_diff(owned, &changed);
+    divan::black_box(filtered.diagnostics.len())
+  });
   let _ignored = std::fs::remove_dir_all(&cache);
 }
