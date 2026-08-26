@@ -593,6 +593,11 @@ unfollowed). New dual-path collectors
 must go through `follow_local_callees` (or the same `local_function_id` + async
 skip for statement walks) — do not add a fourth callee enumerator. Parens / TypeScript wrappers peel in `trace/expr.rs`
 (`peel_parens`); do not add another copy in callback or render adapters.
+Watch sources use that peel too (graph v31): `watch((count))` /
+`watch(count as T)` / `watch((() => count.value))` must agree with the
+unwrapped form. Do not match Identifier / Arrow on the raw argument.
+Nested `watch([[() => x]])` still must not treat the inner arrow as a
+source getter.
 Explain-scope module suffix matching is `vue_vet_reactivity::module_id_matches`
 — session must not reimplement path tails. Sync Array/String HOF callback
 params (`OPTIONS.map(o => o.value)`) are not soft evidence — `.value` there is

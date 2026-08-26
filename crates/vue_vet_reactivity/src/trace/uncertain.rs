@@ -393,84 +393,56 @@ pub(super) fn collect_watch_source_reads(
     sfc_source,
     script_offset,
   };
-  match argument {
-    Argument::ArrowFunctionExpression(callback) => {
-      collect_watch_getter_reads(&ctx, callback.node_id.get(), Some(&*callback.body))
-    }
-    Argument::FunctionExpression(callback) => {
-      collect_watch_getter_reads(&ctx, callback.node_id.get(), callback.body.as_deref())
-    }
-    Argument::ArrayExpression(array) => {
-      // `watch([a, () => b.value, () => c.value])` — each element is a source.
-      let mut reads = Vec::new();
-      for element in &array.elements {
-        let Some(expression) = element.as_expression() else {
-          continue;
-        };
-        match expression {
-          Expression::ArrowFunctionExpression(callback) => {
-            reads.extend(collect_watch_getter_reads(
-              &ctx,
-              callback.node_id.get(),
-              Some(&*callback.body),
-            ));
-          }
-          Expression::FunctionExpression(callback) => {
-            reads.extend(collect_watch_getter_reads(
-              &ctx,
-              callback.node_id.get(),
-              callback.body.as_deref(),
-            ));
-          }
-          other => {
-            if let Some((scope_id, body)) = local_getter_parts(ctx.semantic, other) {
-              reads.extend(collect_watch_getter_reads(&ctx, scope_id, body));
-            } else {
-              collect_expression_source_reads(
-                ctx.semantic,
-                other,
-                ctx.reactive_bindings,
-                ctx.sfc_source,
-                ctx.script_offset,
-                &mut reads,
-              );
-            }
-          }
-        }
+  let Some(expression) = argument.as_expression() else {
+    return Vec::new();
+  };
+  // Same peel as `local_getter_parts` / uncertain watch sources so
+  // `watch((count))` / `watch(count as T)` / `watch((() => count.value))`
+  // cannot disagree with the unwrapped form.
+  let expression = expr::peel_parens(expression);
+  if let Expression::ArrayExpression(array) = expression {
+    // Top-level `watch([…])` only. Nested arrays stay identifier-only via
+    // `collect_expression_source_reads` — do not treat inner arrows as getters.
+    let mut reads = Vec::new();
+    for element in &array.elements {
+      if let Some(inner) = element.as_expression() {
+        reads.extend(collect_watch_source_element(&ctx, inner));
       }
-      reads.sort_by_key(|read| read.span.offset);
-      reads
     }
-    argument => {
-      let mut reads = Vec::new();
-      if let Some(expression) = argument.as_expression() {
-        match expression {
-          Expression::ArrowFunctionExpression(callback) => {
-            return collect_watch_getter_reads(&ctx, callback.node_id.get(), Some(&*callback.body));
-          }
-          Expression::FunctionExpression(callback) => {
-            return collect_watch_getter_reads(
-              &ctx,
-              callback.node_id.get(),
-              callback.body.as_deref(),
-            );
-          }
-          other => {
-            if let Some((scope_id, body)) = local_getter_parts(ctx.semantic, other) {
-              return collect_watch_getter_reads(&ctx, scope_id, body);
-            }
-            collect_expression_source_reads(
-              ctx.semantic,
-              other,
-              ctx.reactive_bindings,
-              ctx.sfc_source,
-              ctx.script_offset,
-              &mut reads,
-            );
-          }
-        }
+    reads.sort_by_key(|read| read.span.offset);
+    reads
+  } else {
+    collect_watch_source_element(&ctx, expression)
+  }
+}
+
+fn collect_watch_source_element(
+  ctx: &WatchSourceCtx<'_>,
+  expression: &Expression<'_>,
+) -> Vec<ReactiveReadFact> {
+  let expression = expr::peel_parens(expression);
+  match expression {
+    Expression::ArrowFunctionExpression(callback) => {
+      collect_watch_getter_reads(ctx, callback.node_id.get(), Some(&*callback.body))
+    }
+    Expression::FunctionExpression(callback) => {
+      collect_watch_getter_reads(ctx, callback.node_id.get(), callback.body.as_deref())
+    }
+    other => {
+      if let Some((scope_id, body)) = local_getter_parts(ctx.semantic, other) {
+        collect_watch_getter_reads(ctx, scope_id, body)
+      } else {
+        let mut reads = Vec::new();
+        collect_expression_source_reads(
+          ctx.semantic,
+          other,
+          ctx.reactive_bindings,
+          ctx.sfc_source,
+          ctx.script_offset,
+          &mut reads,
+        );
+        reads
       }
-      reads
     }
   }
 }
@@ -519,6 +491,7 @@ pub(super) fn collect_expression_source_reads(
   script_offset: usize,
   reads: &mut Vec<ReactiveReadFact>,
 ) {
+  let expression = expr::peel_parens(expression);
   match expression {
     Expression::Identifier(identifier) => {
       if let Some(binding) = reactive_bindings.iter().find(|binding| {

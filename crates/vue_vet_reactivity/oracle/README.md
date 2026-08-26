@@ -51,6 +51,7 @@ completeness number — not a 280-case syntax matrix.
 | `watch-source-array` | `watch([a, b])` tracks each ref `.value` |
 | `watch-source-array-getters` | `watch([() => a.value, () => b.value])` each getter body |
 | `watch-source-getter` | `watch(() => value.value)` source getter |
+| `watch-source-parens` | `watch((ref))` tracks the same `.value` as `watch(ref)` |
 | `watch-source-ref` | `watch(ref)` tracks `.value` (not property-less) |
 | `watch-source-reactive-deep` | `watch(reactive)` → static deep-root `*`; runtime has many keys |
 | `runner-run-no-track` | arbitrary `.run` invents nothing at runtime |

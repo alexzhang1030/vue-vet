@@ -727,6 +727,90 @@ fn traces_watch_source_arrays() {
 }
 
 #[test]
+fn watch_source_parens_and_ts_wrappers_agree_with_bare() {
+  fn watch_source_reads(source: &str) -> Vec<(String, Option<String>, ReactiveReadKind)> {
+    let graph = graph(source);
+    assert_eq!(graph.version, vue_vet_core::REACTIVITY_GRAPH_VERSION);
+    graph
+      .scopes
+      .iter()
+      .find(|scope| scope.kind == TrackingScopeKind::WatchSources)
+      .map(|scope| {
+        scope
+          .reads
+          .iter()
+          .map(|read| (read.binding.clone(), read.property.clone(), read.kind))
+          .collect()
+      })
+      .unwrap_or_default()
+  }
+  let cases = [
+    (
+      "paren ref",
+      "import { ref, watch } from 'vue';\nconst count = ref(0);\nwatch(count, () => {});",
+      "import { ref, watch } from 'vue';\nconst count = ref(0);\nwatch((count), () => {});",
+    ),
+    (
+      "ts as ref",
+      "import { ref, watch } from 'vue';\nconst count = ref(0);\nwatch(count, () => {});",
+      "import { ref, watch } from 'vue';\nconst count = ref(0);\nwatch(count as any, () => {});",
+    ),
+    (
+      "paren getter",
+      "import { ref, watch } from 'vue';\nconst count = ref(0);\nwatch(() => count.value, () => {});",
+      "import { ref, watch } from 'vue';\nconst count = ref(0);\nwatch((() => count.value), () => {});",
+    ),
+    (
+      "paren array",
+      "import { ref, watch } from 'vue';\nconst a = ref(0); const b = ref(1);\nwatch([a, b], () => {});",
+      "import { ref, watch } from 'vue';\nconst a = ref(0); const b = ref(1);\nwatch(([a, b]), () => {});",
+    ),
+    (
+      "paren array element",
+      "import { ref, watch } from 'vue';\nconst count = ref(0);\nwatch([count], () => {});",
+      "import { ref, watch } from 'vue';\nconst count = ref(0);\nwatch([(count)], () => {});",
+    ),
+    (
+      "paren array getter",
+      "import { ref, watch } from 'vue';\nconst count = ref(0);\nwatch([() => count.value], () => {});",
+      "import { ref, watch } from 'vue';\nconst count = ref(0);\nwatch([(() => count.value)], () => {});",
+    ),
+    (
+      "paren identifier getter",
+      "import { ref, watch } from 'vue';\nconst count = ref(0);\nfunction load() { return count.value; }\nwatch(load, () => {});",
+      "import { ref, watch } from 'vue';\nconst count = ref(0);\nfunction load() { return count.value; }\nwatch((load), () => {});",
+    ),
+  ];
+  for (label, bare, wrapped) in cases {
+    let expected = watch_source_reads(bare);
+    let actual = watch_source_reads(wrapped);
+    assert_eq!(
+      actual, expected,
+      "{label}: wrapped watch source must match bare; wrapped={actual:?}"
+    );
+    assert!(
+      actual.iter().any(|read| read.0 == "count" || read.0 == "a"),
+      "{label}: expected a known source read; got {actual:?}"
+    );
+  }
+}
+
+#[test]
+fn nested_watch_source_array_does_not_invent_inner_getter() {
+  let graph = graph(
+    "import { ref, watch } from 'vue';\n\
+     const count = ref(0);\n\
+     watch([[() => count.value]], () => {});",
+  );
+  let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchSources);
+  assert!(
+    scope.is_some_and(|scope| { !scope.reads.iter().any(|read| read.binding == "count") }),
+    "nested watch source arrays must not treat inner arrows as getters; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
 fn traces_watch_source_getters() {
   let graph = graph(
     "import { ref, watch } from 'vue';\n\

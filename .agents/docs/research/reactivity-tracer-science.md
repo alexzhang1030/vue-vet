@@ -1,6 +1,6 @@
 # Reactivity tracer science memo
 
-Harvested: 2026-08-25. Graph contract **v30** (pause inside followed helpers). v29 is compound / update writes.
+Harvested: 2026-08-25. Graph contract **v31** (watch-source peel). v30 is pause inside followed helpers; v29 is compound / update writes.
 This is a ranked research record after A0–A7 were marked complete. It is **not** a new completeness axis and it does not authorize Elk/corpus KPI chasing or another `summary/mod.rs` extract.
 
 Related: [reactivity tracer](../reactivity-tracer.md), [literature matrix](./reactivity-tracer-literature.md), [architecture](../architecture.md) (Post-#107), [gotchas](../gotchas.md), issue [#14](https://github.com/alexzhang1030/vue-vet/issues/14).
@@ -52,7 +52,7 @@ Invention is worse than a miss. Charter: missing edges stay quiet; invented *con
 | `+=` / `++` writes | **Landed v29.** All non-logical assignment operators plus `UpdateExpression`. Logical `&&=` / `||=` / `??=` stay quiet. | **Dual-path miss** (fixed) | `a.value += 1` / `a.value++` record writes like `=`. |
 | Writes skip sync HOF / `toValue` getters | Writes treat any nested function as drop. Reads stay inside Array/String/`toValue` callbacks (`context.rs`). | Charter-quiet miss | `list.value.map(() => { t.value = 1 })` inside computed: read of `list`, no write of `t`. |
 | Composable-instance writes | Writes match `reactive_bindings` only. Reads have `bag.field.value`. | Dual-path miss | `computed(() => { bag.field.value = 1 })` may miss the write that `no-side-effects-in-computed` needs. |
-| `watch((ref))` / TS-wrapped bare sources | `uncertain.rs` `collect_expression_source_reads` matches Identifier / member / array. No `peel_parens`. `local_getter_parts` peels. | Dual-path miss | `watch(count)` tracks. `watch((count))` / `watch(count as any)` stay quiet. |
+| `watch((ref))` / TS-wrapped bare sources | **Landed v31.** `collect_watch_source_reads` / `collect_expression_source_reads` peel before classifying. Nested arrays still do not treat inner arrows as getters. | **Dual-path miss** (fixed) | `watch((count))` / `watch(count as any)` / `watch((() => count.value))` match the unwrapped form. |
 | Render identifier callbacks | `render.rs` `function_like_body` is inline arrow/function only. v27 did not land here. | Dual-path miss | `render: renderFn` / `setup() { return renderFn }` create no Render scope. `computed(load)` does. |
 | NamedApiBag member / whole-object / partial ambient | Identifier callee + object-destructure handles. `const i18n = useI18n(); i18n.t()` quiet. Co-destructure of `{ locale, t }` injects only `locale`, not `messages`. | Charter-quiet | Elk PublishWidget was the translator-only path (synthetic bag). Member form was never the evidence. |
 | CSS `v-bind` completeness | Lexical ident / quoted ident in `vue_vet_vize::style`. Members, calls, arithmetic quiet. | Charter-quiet | Prevents unused-computed FP on `v-bind(color)`. Not a Vue dep-key measurement. |
@@ -67,17 +67,18 @@ Accuracy is a **representative CI gate**, not a sample of apps.
 
 | Instrument | What it measures | Size |
 | --- | --- | --- |
-| Runtime oracle | `tracer ⊆ runtime` and pooled recall ≥99% on committed cases | **38** `expected/*.json`. ~60 nonempty `{binding,key}` rows plus 2 empty-runtime cases. `TraceConfig::empty()` (no plugins). |
+| Runtime oracle | `tracer ⊆ runtime` and pooled recall ≥99% on committed cases | **39** `expected/*.json`. ~61 nonempty `{binding,key}` rows plus 2 empty-runtime cases. `TraceConfig::empty()` (no plugins). |
 | Identifier-getter oracle (v27) | `computed(load)` / `watch(load)` vs `onTrack` | 2 cases. Not `computed(() => load())`. |
 | Caller-guard oracle (v28) | `computed(() => cond ? load() : 0)` vs `onTrack` | 1 case (`computed-helper-ternary`). Kind is unit-tested. |
 | Helper-pause oracle (v30) | `load()` that pauses then reads vs `onTrack` | 1 case (`pause-tracking-helper`). Leak / mixed call sites are unit-tested. |
+| Watch-source peel oracle (v31) | `watch((count))` vs `onTrack` | 1 case (`watch-source-parens`). TS wrappers / array peel are unit-tested. |
 | Helper-follow units | Graph-vs-graph inline vs helper | `tests/follow.rs`. No `onTrack`. |
 | 280 local/module corpus | Exact `expected.reads` vs **the tracer** | Self-consistency. Gotchas already forbid treating this as recall. |
 | Quality precision | Exact `(rule_id, file)` TP/FP pins | 12 projects. `reactivity-rules.json` is **4 TP + 5 FP**, matching `docs/quality-baselines.md`. |
 
 Pooled recall can hide a one-key miss in a large HOF case and punish a one-key miss in a 1-dep case (~1.75% of 57). The 99% number is a tripwire on a hand-picked JS slice. PCR already says this. Agents keep citing it as if it were app recall. Stop.
 
-`oracle_cases_cover_known_hard_facts` requires 35 ids and **omits** `watch-source-reactive-deep` even though the file is committed. That is a checklist hole, not a semantics hole.
+`oracle_cases_cover_known_hard_facts` requires the committed hard-fact ids, including `watch-source-reactive-deep` and `watch-source-parens`.
 
 Shipped facts with **no** `onTrack` pair:
 
@@ -147,13 +148,13 @@ Stay inside the PCR stop rule. Each row says what evidence already exists and wh
 1. **Caller guards on followed reads.** Landed in v28. Fixture: `computed(() => cond ? load() : 0)` vs inline ternary. Both-arm `load()` stays Unconditional. Oracle: `computed-helper-ternary`.
 2. **Pause inside a followed helper.** Landed in v30. Owning-function IR + caller hops + helper-exit leak. Oracle: `pause-tracking-helper`.
 3. **`+=` / `++` writes.** Landed in v29. Unit + `no-side-effects-in-computed` / `prefer-computed` fixtures. Logical compounds stay quiet.
-4. **`peel_parens` on watch sources.** Dual-path with `local_getter_parts`. Small. Graph bump only if new reads appear.
+4. **`peel_parens` on watch sources.** Landed in v31. Same peel as `local_getter_parts`. Oracle: `watch-source-parens`. Nested arrays stay identifier-only.
 5. **Render identifier getters.** Apply the v27 idea to `function_like_body` / `setup() { return renderFn }`. Unit in `render.rs`. Graph bump.
 
 ### Do next (measurement, no fact change)
 
 6. Oracle case `computed(() => load())` next to `computed-fn-ref`, or document in `oracle/README.md` that graph-vs-graph is the gate for the call form.
-7. Put `watch-source-reactive-deep` in `oracle_cases_cover_known_hard_facts`.
+7. ~~Put `watch-source-reactive-deep` in `oracle_cases_cover_known_hard_facts`.~~ Added with the v31 peel case.
 8. ~~Fix `docs/quality-baselines.md` `reactivity-rules` to **4 / 5**.~~ Already matches.
 9. Say "policy algebra" in the ExportState prose the next time that heading is edited.
 
@@ -182,7 +183,7 @@ Unstamped. Nothing here is vouched.
 
 **Keep.** Under-approx, static-only, quiet failure, plugin-supplied bags, shared `follow_local_callees`, identifier getters, `ModuleTraceState` plan equality, oracle as the precision ruler.
 
-**The interesting remaining bug class** after v30 is watch `peel_parens` and remaining dual-path writes (composable-instance), not another Factory seed. Helper context (guards + pause) and `+=` / `++` writes are closed.
+**The interesting remaining bug class** after v31 is render identifier getters and remaining dual-path writes (composable-instance), not another Factory seed. Helper context (guards + pause), `+=` / `++` writes, and watch-source peel are closed.
 
 **The interesting remaining speed class** is session input breadth and repeated callee discovery, not a new interprocedural framework.
 
