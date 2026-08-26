@@ -72,6 +72,7 @@ pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
     build.semantic,
     build.scope_id,
     build.reactive_bindings,
+    build.composable_instances,
     build.imported_bindings,
     build.sfc_source,
     build.script_offset,

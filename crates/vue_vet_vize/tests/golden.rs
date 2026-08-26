@@ -786,6 +786,13 @@ fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
       include_str!("../../../fixtures/snapshots/no-side-effects-in-computed/update.json"),
     ),
     (
+      "fixtures/rules/no-side-effects-in-computed/invalid/bag-field-write.vue",
+      include_str!(
+        "../../../fixtures/rules/no-side-effects-in-computed/invalid/bag-field-write.vue"
+      ),
+      include_str!("../../../fixtures/snapshots/no-side-effects-in-computed/bag-field-write.json"),
+    ),
+    (
       "fixtures/rules/prefer-computed/invalid/compound-from-other.vue",
       include_str!("../../../fixtures/rules/prefer-computed/invalid/compound-from-other.vue"),
       include_str!("../../../fixtures/snapshots/prefer-computed/compound-from-other.json"),
@@ -916,6 +923,12 @@ fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
       "fixtures/rules/no-conditional-dependency-in-render/valid/ident-getter.vue",
       include_str!(
         "../../../fixtures/rules/no-conditional-dependency-in-render/valid/ident-getter.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-side-effects-in-computed/valid/bag-field-replace.vue",
+      include_str!(
+        "../../../fixtures/rules/no-side-effects-in-computed/valid/bag-field-replace.vue"
       ),
     ),
   ] {

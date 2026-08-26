@@ -570,6 +570,10 @@ Compound assignment and update write the same targets (graph v29):
 `assignment_only` includes `UpdateExpression`. Logical `&&=` / `||=` / `??=`
 stay quiet — they may not write. Do not treat `operator.is_assign()` (`=`
 only) as the write gate.
+Composable-instance writes are dual-path with reads (graph v33):
+`bag.field.value = …` records `binding = field` / `property = "value"` when
+`field` is a known ref-like shape entry. `bag.field = …` (replacing the ref),
+`bag['field'].value`, unknown bags, and `bag.nested.field.value` stay quiet.
 A local function **reference** is the tracking body (graph v27 / v32):
 `computed(load)` / `watchEffect(load)` / `watch(load)` / `computed({ get: load })`
 / `render: renderFn` / `setup() { return renderFn }`
