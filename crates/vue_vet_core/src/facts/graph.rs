@@ -294,6 +294,10 @@ pub struct ReactivityEffectFact {
 /// (unclassified `.value` / `unref` / `toValue` inside followed callees).
 /// `then()`/`nextTick`-only call sites stay quiet so absence rules do not
 /// invent `(maybe)` for outside-tracking accesses.
+/// v29: compound assignment (`+=` / `-=` / …) and update (`++` / `--`)
+/// record the same write facts as `=`. Logical `&&=` / `||=` / `??=` stay
+/// quiet (they may not write). `assignment_only` includes update expressions
+/// so `watchEffect(() => { n.value++ })` agrees with `n.value += 1`.
 /// v28: followed helper reads inherit caller control-flow guards
 /// (`computed(() => cond ? load() : 0)` is Conditional, dual-path with
 /// `cond ? x.value : 0`). Both-arm helper calls stay Unconditional.
@@ -316,7 +320,7 @@ pub struct ReactivityEffectFact {
 /// under-approx hygiene); export linking refinements that change seeded bindings
 /// (`ForwardReturn` bare `#nuxt-imports`, overload Factory≻Composable, ref-like
 /// ternary `Known` exports, empty-path pending composable fields).
-pub const REACTIVITY_GRAPH_VERSION: u32 = 28;
+pub const REACTIVITY_GRAPH_VERSION: u32 = 29;
 
 const fn default_reactivity_graph_version() -> u32 {
   1

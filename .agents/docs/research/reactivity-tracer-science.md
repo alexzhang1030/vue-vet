@@ -1,6 +1,6 @@
 # Reactivity tracer science memo
 
-Harvested: 2026-08-25. Graph contract **v28** (caller guards on followed reads).  
+Harvested: 2026-08-25. Graph contract **v29** (compound / update writes).  
 This is a ranked research record after A0–A7 were marked complete. It is **not** a new completeness axis and it does not authorize Elk/corpus KPI chasing or another `summary/mod.rs` extract.
 
 Related: [reactivity tracer](../reactivity-tracer.md), [literature matrix](./reactivity-tracer-literature.md), [architecture](../architecture.md) (Post-#107), [gotchas](../gotchas.md), issue [#14](https://github.com/alexzhang1030/vue-vet/issues/14).
@@ -49,7 +49,7 @@ Invention is worse than a miss. Charter: missing edges stay quiet; invented *con
 | --- | --- | --- | --- |
 | Helper-followed read ignores caller control flow | **Landed v28.** Follow hops record call sites; classify uses owning-function guards plus call-site proxies so `branch_hygiene` can see both-arm helper calls. | **Invent Unconditional** (fixed) | `cond ? load() : 0` is Conditional; `cond ? load() : load()` stays Unconditional. |
 | Pause / await inside a followed helper | `scope_owns_pause_call` / `scope_owns_await` return false at the first nested `Function`. IR is built for the caller `scope_id`. | **Invent Unconditional** | Inline `pauseTracking(); x.value` is OutsideTracking. `load()` that pauses then reads is Unconditional. Await-in-helper is mostly moot (async helpers are unfollowed). Pause-in-helper is live. |
-| `+=` / `++` writes | `writes.rs` requires `operator.is_assign()` (`=` only). Reads *do* record `+=` (write-only LHS only triggers on `=`). `assignment_only` matches any `AssignmentExpression`. | **Dual-path miss** on writes; `assignment_only` can still be true | `a.value = a.value + 1` is a computed side effect. `a.value += 1` can look assignment-only with empty `writes`. |
+| `+=` / `++` writes | **Landed v29.** All non-logical assignment operators plus `UpdateExpression`. Logical `&&=` / `||=` / `??=` stay quiet. | **Dual-path miss** (fixed) | `a.value += 1` / `a.value++` record writes like `=`. |
 | Writes skip sync HOF / `toValue` getters | Writes treat any nested function as drop. Reads stay inside Array/String/`toValue` callbacks (`context.rs`). | Charter-quiet miss | `list.value.map(() => { t.value = 1 })` inside computed: read of `list`, no write of `t`. |
 | Composable-instance writes | Writes match `reactive_bindings` only. Reads have `bag.field.value`. | Dual-path miss | `computed(() => { bag.field.value = 1 })` may miss the write that `no-side-effects-in-computed` needs. |
 | `watch((ref))` / TS-wrapped bare sources | `uncertain.rs` `collect_expression_source_reads` matches Identifier / member / array. No `peel_parens`. `local_getter_parts` peels. | Dual-path miss | `watch(count)` tracks. `watch((count))` / `watch(count as any)` stay quiet. |
@@ -145,7 +145,7 @@ Stay inside the PCR stop rule. Each row says what evidence already exists and wh
 
 1. **Caller guards on followed reads.** Landed in v28. Fixture: `computed(() => cond ? load() : 0)` vs inline ternary. Both-arm `load()` stays Unconditional. Oracle: `computed-helper-ternary`.
 2. **Pause inside a followed helper.** Same shape. Graph bump.
-3. **`+=` / `++` writes.** Unit + `no-side-effects-in-computed` fixture. Graph bump if write facts appear where they were empty.
+3. **`+=` / `++` writes.** Landed in v29. Unit + `no-side-effects-in-computed` / `prefer-computed` fixtures. Logical compounds stay quiet.
 4. **`peel_parens` on watch sources.** Dual-path with `local_getter_parts`. Small. Graph bump only if new reads appear.
 5. **Render identifier getters.** Apply the v27 idea to `function_like_body` / `setup() { return renderFn }`. Unit in `render.rs`. Graph bump.
 
@@ -181,7 +181,7 @@ Unstamped. Nothing here is vouched.
 
 **Keep.** Under-approx, static-only, quiet failure, plugin-supplied bags, shared `follow_local_callees`, identifier getters, `ModuleTraceState` plan equality, oracle as the precision ruler.
 
-**The interesting remaining bug class** is "followed helper drops caller context" (guards, pause). That invents Unconditional. It is more important than another Factory seed.
+**The interesting remaining bug class** is "followed helper drops caller context" (guards, pause). `+=` / `++` writes are closed. Pause-in-helper is still live on this branch (see #192).
 
 **The interesting remaining speed class** is session input breadth and repeated callee discovery, not a new interprocedural framework.
 

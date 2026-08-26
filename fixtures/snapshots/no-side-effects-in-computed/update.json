@@ -1,0 +1,34 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-computed-self-trigger",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-computed-self-trigger",
+    "message": "`b.value` is read and written in the same tracking scope, which can self-trigger",
+    "help": "Avoid writing a dependency you also read, or split read/write across scopes.",
+    "file": "fixtures/rules/no-side-effects-in-computed/invalid/update.vue",
+    "span": {
+      "offset": 122,
+      "length": 7,
+      "line": 5,
+      "column": 28
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/no-side-effects-in-computed",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-side-effects-in-computed",
+    "message": "computed getter writes `b.value`, which is a side effect",
+    "help": "Keep computed getters pure; move writes into `watch` / event handlers.",
+    "file": "fixtures/rules/no-side-effects-in-computed/invalid/update.vue",
+    "span": {
+      "offset": 122,
+      "length": 7,
+      "line": 5,
+      "column": 28
+    }
+  }
+]

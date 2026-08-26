@@ -37,7 +37,9 @@ whose body is **assignment-only**, with:
 Same-file zero-arg helpers that are themselves assignment-only count as
 assignment-only (`watchEffect(() => { assign() })` where `assign` only writes
 refs). A local function passed by reference (`watchEffect(assign)`) is the same
-assignment-only body. Side-effecting bodies (logs, DOM, network, multi-statement
+assignment-only body. Compound assignment (`total.value += n.value`) and
+update (`n.value++`) count as assignment-only writes, same as `=`.
+Side-effecting bodies (logs, DOM, network, multi-statement
 control flow) stay quiet. Helpers called only from `then()` / `nextTick`, or
 async / args helpers, stay quiet. Imported or method callbacks stay quiet.
 

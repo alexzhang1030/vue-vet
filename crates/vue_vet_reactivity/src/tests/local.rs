@@ -511,6 +511,39 @@ fn retains_compound_and_update_reads() {
 }
 
 #[test]
+fn records_compound_and_update_writes() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue'; const value = ref(0);\n\
+     watchEffect(() => { value.value += 1; value.value++; });",
+  );
+  assert_eq!(graph.version, vue_vet_core::REACTIVITY_GRAPH_VERSION);
+  let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchEffect);
+  let writes = scope.map(|scope| {
+    scope
+      .writes
+      .iter()
+      .filter(|write| write.binding == "value" && write.property.as_deref() == Some("value"))
+      .count()
+  });
+  assert_eq!(writes, Some(2), "+= and ++ must record writes; scopes={:?}", graph.scopes);
+  assert_eq!(scope.map(|scope| scope.assignment_only), Some(true));
+}
+
+#[test]
+fn logical_compound_assignment_does_not_invent_a_write() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue'; const value = ref(0);\n\
+     watchEffect(() => { value.value &&= 1; });",
+  );
+  let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchEffect);
+  assert!(
+    scope.is_some_and(|scope| scope.writes.iter().all(|write| write.binding != "value")),
+    "logical &&= may not write; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
 fn classifies_reads_after_top_level_await() {
   let graph = graph(
     "import { ref, watchEffect } from 'vue'; const before = ref(0); const after = ref(0);\n\

@@ -320,6 +320,24 @@ fn same_file_zero_arg_helper_follow_writes() {
       want: Want::TargetValue,
     },
     Case {
+      label: "helper += records target.value write",
+      source: "import { ref, computed } from 'vue';\n\
+               const source = ref(0); const target = ref(0);\n\
+               function load() { target.value += source.value; return target.value; }\n\
+               const c = computed(() => load());\n\
+               void c.value;",
+      want: Want::TargetValue,
+    },
+    Case {
+      label: "helper ++ records target.value write",
+      source: "import { ref, computed } from 'vue';\n\
+               const target = ref(0);\n\
+               function load() { target.value++; return target.value; }\n\
+               const c = computed(() => load());\n\
+               void c.value;",
+      want: Want::TargetValue,
+    },
+    Case {
       label: "two-hop helper write is recorded",
       source: "import { ref, computed } from 'vue';\n\
                const source = ref(0); const target = ref(0);\n\
@@ -465,6 +483,24 @@ fn same_file_zero_arg_helper_follow_assignment_only() {
                watchEffect(() => { assign(); });",
       assignment_only: false,
       expect_full_write: false,
+    },
+    Case {
+      label: "helper += is assignment_only with a write",
+      source: "import { ref, watchEffect } from 'vue';\n\
+               const first = ref(1); const full = ref(0);\n\
+               function assign() { full.value += first.value; }\n\
+               watchEffect(() => { assign(); });",
+      assignment_only: true,
+      expect_full_write: true,
+    },
+    Case {
+      label: "helper ++ is assignment_only with a write",
+      source: "import { ref, watchEffect } from 'vue';\n\
+               const full = ref(0);\n\
+               function assign() { full.value++; }\n\
+               watchEffect(() => { assign(); });",
+      assignment_only: true,
+      expect_full_write: true,
     },
   ];
   for case in cases {

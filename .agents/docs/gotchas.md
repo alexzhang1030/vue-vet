@@ -565,6 +565,11 @@ The same helper follow records **writes** and **`assignment_only`** (graph v26):
 `computed(() => load())` where `load` assigns a ref is a computed side effect;
 `watchEffect(() => { assign() })` where `assign` is assignment-only is
 `prefer-computed`. `then()`-only helpers must not invent those facts either.
+Compound assignment and update write the same targets (graph v29):
+`a.value += 1` / `a.value++` must appear in `writes` like `a.value = …`.
+`assignment_only` includes `UpdateExpression`. Logical `&&=` / `||=` / `??=`
+stay quiet — they may not write. Do not treat `operator.is_assign()` (`=`
+only) as the write gate.
 A local function **reference** is the tracking body (graph v27):
 `computed(load)` / `watchEffect(load)` / `watch(load)` / `computed({ get: load })`
 must agree with the `() => load()` form. Resolve through `local_getter_parts`
