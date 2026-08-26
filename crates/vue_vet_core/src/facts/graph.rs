@@ -294,6 +294,9 @@ pub struct ReactivityEffectFact {
 /// (unclassified `.value` / `unref` / `toValue` inside followed callees).
 /// `then()`/`nextTick`-only call sites stay quiet so absence rules do not
 /// invent `(maybe)` for outside-tracking accesses.
+/// v32: options `render: renderFn` and `setup() { return renderFn }` use the
+/// same-file function as the Render body (dual-path with inline
+/// `render() { … }`). Imports, methods, and async/generator stay quiet.
 /// v31: watch-source arguments peel parens / TypeScript wrappers before
 /// classifying a ref, getter, or array (`watch((count))` / `watch(count as T)`
 /// agree with `watch(count)`). Nested arrays still do not treat inner arrows
@@ -328,7 +331,7 @@ pub struct ReactivityEffectFact {
 /// under-approx hygiene); export linking refinements that change seeded bindings
 /// (`ForwardReturn` bare `#nuxt-imports`, overload Factory≻Composable, ref-like
 /// ternary `Known` exports, empty-path pending composable fields).
-pub const REACTIVITY_GRAPH_VERSION: u32 = 31;
+pub const REACTIVITY_GRAPH_VERSION: u32 = 32;
 
 const fn default_reactivity_graph_version() -> u32 {
   1

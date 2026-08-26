@@ -864,6 +864,15 @@ fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
         "../../../fixtures/snapshots/no-reactive-read-during-pause-tracking/caller-pause-helper.json"
       ),
     ),
+    (
+      "fixtures/rules/no-conditional-dependency-in-render/invalid/ident-getter.vue",
+      include_str!(
+        "../../../fixtures/rules/no-conditional-dependency-in-render/invalid/ident-getter.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-conditional-dependency-in-render/ident-getter.json"
+      ),
+    ),
   ] {
     assert_diagnostics(path, source, expected);
   }
@@ -902,6 +911,12 @@ fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
     (
       "fixtures/rules/no-empty-watch-sources/valid/parens-ref.vue",
       include_str!("../../../fixtures/rules/no-empty-watch-sources/valid/parens-ref.vue"),
+    ),
+    (
+      "fixtures/rules/no-conditional-dependency-in-render/valid/ident-getter.vue",
+      include_str!(
+        "../../../fixtures/rules/no-conditional-dependency-in-render/valid/ident-getter.vue"
+      ),
     ),
   ] {
     assert_diagnostics(path, source, empty);

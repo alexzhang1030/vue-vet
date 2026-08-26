@@ -570,9 +570,10 @@ Compound assignment and update write the same targets (graph v29):
 `assignment_only` includes `UpdateExpression`. Logical `&&=` / `||=` / `??=`
 stay quiet — they may not write. Do not treat `operator.is_assign()` (`=`
 only) as the write gate.
-A local function **reference** is the tracking body (graph v27):
+A local function **reference** is the tracking body (graph v27 / v32):
 `computed(load)` / `watchEffect(load)` / `watch(load)` / `computed({ get: load })`
-must agree with the `() => load()` form. Resolve through `local_getter_parts`
+/ `render: renderFn` / `setup() { return renderFn }`
+must agree with the `() => load()` / inline `render()` form. Resolve through `local_getter_parts`
 (`local_function_id` + async/generator skip). Do not treat `load(1)` (args) or
 an imported/method callee as a getter. Unused parameters on `function load(_x)`
 are allowed — Vue invokes the getter with no args. Followed reads inherit

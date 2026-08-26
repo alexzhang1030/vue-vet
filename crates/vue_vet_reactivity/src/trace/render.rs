@@ -12,7 +12,7 @@ use oxc_ast::{
 use oxc_semantic::NodeId;
 use oxc_span::Span;
 
-use super::expr::peel_parens;
+use super::{expr::peel_parens, writes::local_getter_parts};
 
 /// One recognized render function body.
 pub(super) struct RenderBody<'a> {
@@ -33,7 +33,7 @@ pub(super) fn collect_render_bodies<'a>(
   for node in semantic.nodes() {
     match node.kind() {
       AstKind::ObjectExpression(object) => {
-        collect_options_object(object, &mut bodies, &mut seen);
+        collect_options_object(semantic, object, &mut bodies, &mut seen);
       }
       AstKind::CallExpression(call) => {
         let Some(callee) = call.callee.get_identifier_reference() else {
@@ -47,10 +47,10 @@ pub(super) fn collect_render_bodies<'a>(
         };
         match first {
           Expression::ObjectExpression(object) => {
-            collect_options_object(object, &mut bodies, &mut seen);
+            collect_options_object(semantic, object, &mut bodies, &mut seen);
           }
           Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_) => {
-            if let Some(inner) = setup_returned_render(first) {
+            if let Some(inner) = setup_returned_render(semantic, first) {
               push_unique(&mut bodies, &mut seen, inner);
             }
           }
@@ -70,7 +70,7 @@ pub(super) fn collect_render_bodies<'a>(
           continue;
         }
         if let Some(init) = &declarator.init
-          && let Some(body) = functional_component_body(init)
+          && let Some(body) = functional_component_body(semantic, init)
         {
           push_unique(&mut bodies, &mut seen, body);
         }
@@ -83,6 +83,7 @@ pub(super) fn collect_render_bodies<'a>(
 }
 
 fn collect_options_object<'a>(
+  semantic: &'a oxc_semantic::Semantic<'a>,
   object: &'a oxc_ast::ast::ObjectExpression<'a>,
   bodies: &mut Vec<RenderBody<'a>>,
   seen: &mut BTreeSet<u32>,
@@ -95,12 +96,12 @@ fn collect_options_object<'a>(
       continue;
     };
     if name == "render"
-      && let Some(body) = function_like_body(&property.value)
+      && let Some(body) = function_like_body(semantic, &property.value)
     {
       push_unique(bodies, seen, body);
     }
     if name == "setup"
-      && let Some(inner) = setup_returned_render(&property.value)
+      && let Some(inner) = setup_returned_render(semantic, &property.value)
     {
       push_unique(bodies, seen, inner);
     }
@@ -420,20 +421,23 @@ fn is_factory_call_forwarding(
     .is_some_and(|id| id.name.as_str() == param_name)
 }
 
-fn setup_returned_render<'a>(expression: &'a Expression<'a>) -> Option<RenderBody<'a>> {
-  match expression {
+fn setup_returned_render<'a>(
+  semantic: &'a oxc_semantic::Semantic<'a>,
+  expression: &'a Expression<'a>,
+) -> Option<RenderBody<'a>> {
+  match peel_parens(expression) {
     Expression::ArrowFunctionExpression(arrow) => {
       if arrow.expression {
         let Statement::ExpressionStatement(statement) = arrow.body.statements.first()? else {
           return None;
         };
-        return function_like_body(&statement.expression);
+        return function_like_body(semantic, &statement.expression);
       }
       for statement in &arrow.body.statements {
         if let Statement::ReturnStatement(ret) = statement
           && let Some(argument) = &ret.argument
         {
-          return function_like_body(argument);
+          return function_like_body(semantic, argument);
         }
       }
       None
@@ -444,7 +448,7 @@ fn setup_returned_render<'a>(expression: &'a Expression<'a>) -> Option<RenderBod
         if let Statement::ReturnStatement(ret) = statement
           && let Some(argument) = &ret.argument
         {
-          return function_like_body(argument);
+          return function_like_body(semantic, argument);
         }
       }
       None
@@ -453,8 +457,11 @@ fn setup_returned_render<'a>(expression: &'a Expression<'a>) -> Option<RenderBod
   }
 }
 
-fn function_like_body<'a>(expression: &'a Expression<'a>) -> Option<RenderBody<'a>> {
-  match expression {
+fn function_like_body<'a>(
+  semantic: &'a oxc_semantic::Semantic<'a>,
+  expression: &'a Expression<'a>,
+) -> Option<RenderBody<'a>> {
+  match peel_parens(expression) {
     Expression::ArrowFunctionExpression(arrow) => {
       Some(RenderBody { scope_id: arrow.node_id.get(), body: Some(&*arrow.body), span: arrow.span })
     }
@@ -463,12 +470,25 @@ fn function_like_body<'a>(expression: &'a Expression<'a>) -> Option<RenderBody<'
       body: function.body.as_deref(),
       span: function.span,
     }),
-    _ => None,
+    other => {
+      // Dual-path with v27 `computed(load)`: `render: renderFn` /
+      // `setup() { return renderFn }` use the same-file function as the body.
+      let (scope_id, body) = local_getter_parts(semantic, other)?;
+      let span = match semantic.nodes().kind(scope_id) {
+        AstKind::Function(function) => function.span,
+        AstKind::ArrowFunctionExpression(arrow) => arrow.span,
+        _ => return None,
+      };
+      Some(RenderBody { scope_id, body, span })
+    }
   }
 }
 
-fn functional_component_body<'a>(expression: &'a Expression<'a>) -> Option<RenderBody<'a>> {
-  let body = function_like_body(expression)?;
+fn functional_component_body<'a>(
+  semantic: &'a oxc_semantic::Semantic<'a>,
+  expression: &'a Expression<'a>,
+) -> Option<RenderBody<'a>> {
+  let body = function_like_body(semantic, expression)?;
   function_body_returns_jsx(body.body).then_some(body)
 }
 
