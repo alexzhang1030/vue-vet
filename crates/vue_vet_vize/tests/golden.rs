@@ -774,6 +774,23 @@ fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
       ),
     ),
     (
+      "fixtures/rules/no-side-effects-in-computed/invalid/compound-assign.vue",
+      include_str!(
+        "../../../fixtures/rules/no-side-effects-in-computed/invalid/compound-assign.vue"
+      ),
+      include_str!("../../../fixtures/snapshots/no-side-effects-in-computed/compound-assign.json"),
+    ),
+    (
+      "fixtures/rules/no-side-effects-in-computed/invalid/update.vue",
+      include_str!("../../../fixtures/rules/no-side-effects-in-computed/invalid/update.vue"),
+      include_str!("../../../fixtures/snapshots/no-side-effects-in-computed/update.json"),
+    ),
+    (
+      "fixtures/rules/prefer-computed/invalid/compound-from-other.vue",
+      include_str!("../../../fixtures/rules/prefer-computed/invalid/compound-from-other.vue"),
+      include_str!("../../../fixtures/snapshots/prefer-computed/compound-from-other.json"),
+    ),
+    (
       "fixtures/rules/prefer-computed/invalid/helper-assign.vue",
       include_str!("../../../fixtures/rules/prefer-computed/invalid/helper-assign.vue"),
       include_str!("../../../fixtures/snapshots/prefer-computed/helper-assign.json"),

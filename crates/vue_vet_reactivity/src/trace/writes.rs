@@ -5,9 +5,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use oxc_ast::ast::PropertyKind;
 use oxc_ast::{
   AstKind,
-  ast::{Argument, Expression, FunctionBody, ObjectPropertyKind, PropertyKey, Statement},
+  ast::{
+    Argument, AssignmentTarget, Expression, FunctionBody, IdentifierReference, ObjectPropertyKind,
+    PropertyKey, SimpleAssignmentTarget, Statement,
+  },
 };
 use oxc_semantic::NodeId;
+use oxc_span::Span;
 use vue_vet_core::{ReactiveBindingFact, ReactiveWriteFact};
 
 use super::{
@@ -100,7 +104,10 @@ pub(super) fn is_assignment_only_body(body: Option<&FunctionBody<'_>>) -> bool {
   }
   body.statements.iter().all(|statement| match statement {
     Statement::ExpressionStatement(expression) => {
-      matches!(expr::peel_parens(&expression.expression), Expression::AssignmentExpression(_))
+      matches!(
+        expr::peel_parens(&expression.expression),
+        Expression::AssignmentExpression(_) | Expression::UpdateExpression(_)
+      )
     }
     Statement::EmptyStatement(_) => true,
     _ => false,
@@ -152,7 +159,7 @@ pub(super) fn statement_is_assignment_or_followed_helper(
   visiting: &mut BTreeSet<NodeId>,
 ) -> bool {
   match expr::peel_parens(expression) {
-    Expression::AssignmentExpression(_) => true,
+    Expression::AssignmentExpression(_) | Expression::UpdateExpression(_) => true,
     Expression::CallExpression(call) if call.arguments.is_empty() => {
       let Some(identifier) = call.callee.get_identifier_reference() else {
         return false;
@@ -245,26 +252,7 @@ pub(super) fn collect_scope_writes_local(
 ) -> Vec<ReactiveWriteFact> {
   let mut writes = Vec::new();
   for node in semantic.nodes() {
-    let AstKind::AssignmentExpression(assignment) = node.kind() else {
-      continue;
-    };
-    if !assignment.operator.is_assign() {
-      continue;
-    }
-    let (object, property, write_span) = match &assignment.left {
-      oxc_ast::ast::AssignmentTarget::StaticMemberExpression(member) => (
-        member.object.get_identifier_reference(),
-        Some(member.property.name.to_string()),
-        member.span,
-      ),
-      oxc_ast::ast::AssignmentTarget::ComputedMemberExpression(member) => (
-        member.object.get_identifier_reference(),
-        member.static_property_name().map(|name| name.to_string()),
-        member.span,
-      ),
-      _ => continue,
-    };
-    let Some(object) = object else {
+    let Some((object, property, write_span)) = write_target_from_node(node.kind()) else {
       continue;
     };
 
@@ -301,4 +289,54 @@ pub(super) fn collect_scope_writes_local(
     });
   }
   writes
+}
+
+/// `=` / `+=` / `++` member writes. Logical `&&=` / `||=` / `??=` stay quiet
+/// (they may not write).
+fn write_target_from_node(
+  kind: AstKind<'_>,
+) -> Option<(&IdentifierReference<'_>, Option<String>, Span)> {
+  match kind {
+    AstKind::AssignmentExpression(assignment) if !assignment.operator.is_logical() => {
+      member_write_from_assignment_target(&assignment.left)
+    }
+    AstKind::UpdateExpression(update) => member_write_from_simple_target(&update.argument),
+    _ => None,
+  }
+}
+
+fn member_write_from_assignment_target<'a>(
+  target: &'a AssignmentTarget<'a>,
+) -> Option<(&'a IdentifierReference<'a>, Option<String>, Span)> {
+  match target {
+    AssignmentTarget::StaticMemberExpression(member) => Some((
+      member.object.get_identifier_reference()?,
+      Some(member.property.name.to_string()),
+      member.span,
+    )),
+    AssignmentTarget::ComputedMemberExpression(member) => Some((
+      member.object.get_identifier_reference()?,
+      member.static_property_name().map(|name| name.to_string()),
+      member.span,
+    )),
+    _ => None,
+  }
+}
+
+fn member_write_from_simple_target<'a>(
+  target: &'a SimpleAssignmentTarget<'a>,
+) -> Option<(&'a IdentifierReference<'a>, Option<String>, Span)> {
+  match target {
+    SimpleAssignmentTarget::StaticMemberExpression(member) => Some((
+      member.object.get_identifier_reference()?,
+      Some(member.property.name.to_string()),
+      member.span,
+    )),
+    SimpleAssignmentTarget::ComputedMemberExpression(member) => Some((
+      member.object.get_identifier_reference()?,
+      member.static_property_name().map(|name| name.to_string()),
+      member.span,
+    )),
+    _ => None,
+  }
 }
