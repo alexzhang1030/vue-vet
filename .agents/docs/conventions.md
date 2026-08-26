@@ -98,10 +98,12 @@ Do not reintroduce CodeRabbit or other slow third-party review bots.
 CodSpeed's simulated-CPU results are the canonical pull-request performance
 comparison. Benchmarks use committed, representative fixtures and stable names
 so a result remains comparable across revisions. Keep benchmark inputs outside
-the measured closure, pin the CodSpeed compatibility layer and CLI, and run the
-same repository-owned recipes locally and in CI. Renaming a benchmark or
-materially changing its fixture establishes a new baseline and requires an
-explicit rationale in the pull request. Performance checks complement rather
+the measured closure. Do not put cache-directory teardown or other filesystem
+I/O in the measured closure: on micro-benches such as
+`scan_diff_filter_nuxt_graph` that I/O dominates the result. Pin the CodSpeed
+compatibility layer and CLI, and run the same repository-owned recipes locally
+and in CI. Renaming a benchmark or materially changing its fixture establishes
+a new baseline and requires an explicit rationale in the pull request. Performance checks complement rather
 than replace correctness tests. CodSpeed builds use the dedicated `codspeed`
 profile because its instrumentation does not link Oxc reliably under LTO
 (`lto = false`, `panic = "unwind"`). The release profile (`lto = "fat"`,

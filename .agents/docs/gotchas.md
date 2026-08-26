@@ -156,6 +156,15 @@ normalized semantic input changes; raw dependency ASTs must never be persisted.
 Diff filtering keeps every project diagnostic because removing an edge can
 create a finding on a file that has no remaining path back to the changed file.
 
+## Diff-filter CodSpeed work must stay CPU-only
+
+`scan_diff_filter_nuxt_graph` measures `filter_diff` on the `nuxt-graph`
+summary. Analyze once, clone owned summaries in `with_inputs`, and tear down
+the cache directory after the bench. Putting `remove_dir_all` in the measured
+closure next to an ~8 µs retain made CodSpeed bounce ±15% under "Different
+runtime environments" (#181 / #182 / main after #189). That name is not a
+scan-path signal. Do not reintroduce filesystem teardown there.
+
 ## The current score is provisional
 
 Scoring is deterministic but still a product experiment, not a stable health
