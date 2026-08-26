@@ -580,7 +580,16 @@ are allowed — Vue invokes the getter with no args. Followed reads inherit
 Conditional, matching `cond ? x.value : 0`. Both-arm `load()` stays
 Unconditional (`branch_hygiene` sees call-site proxies). Do not classify
 helper-body reads with only the tracking-scope `path_guards` walk — the read
-node is not an AST descendant of the caller ternary. New dual-path collectors
+node is not an AST descendant of the caller ternary. Followed reads also
+inherit **pause/resume** (graph v30): `function load() { pauseTracking(); return x.value }`
+is OutsideTracking, matching inline `pauseTracking(); x.value`. Evaluate pause
+in the owning function's IR plus caller hops; project a helper's last
+pause/resume onto the call end so later sibling reads see the leak (Vue
+`shouldTrack` is process-global). Do not merge helper pause events into the
+caller IR by file byte offset — a helper declared above the effect would
+look like it ran first. Do not "fix" last-event fold to a stack/counter
+without a new oracle case. Await-in-helper stays quiet (async helpers are
+unfollowed). New dual-path collectors
 must go through `follow_local_callees` (or the same `local_function_id` + async
 skip for statement walks) — do not add a fourth callee enumerator. Parens / TypeScript wrappers peel in `trace/expr.rs`
 (`peel_parens`); do not add another copy in callback or render adapters.

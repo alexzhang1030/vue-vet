@@ -11,7 +11,7 @@ use oxc_ast::{
   AstKind,
   ast::{Expression, IdentifierReference},
 };
-use oxc_semantic::NodeId;
+use oxc_semantic::{NodeId, Semantic};
 
 use super::context::scope_context;
 
@@ -147,6 +147,54 @@ pub(super) fn local_function_id(
     }
     _ => None,
   }
+}
+
+/// Innermost `function` / arrow containing `node_id` (or the node itself).
+pub(super) fn innermost_function_id(semantic: &Semantic<'_>, node_id: NodeId) -> Option<NodeId> {
+  if matches!(
+    semantic.nodes().kind(node_id),
+    AstKind::Function(_) | AstKind::ArrowFunctionExpression(_)
+  ) {
+    return Some(node_id);
+  }
+  semantic.nodes().ancestor_ids(node_id).find(|&ancestor_id| {
+    matches!(
+      semantic.nodes().kind(ancestor_id),
+      AstKind::Function(_) | AstKind::ArrowFunctionExpression(_)
+    )
+  })
+}
+
+/// Zero-arg same-file helper calls grouped by the function that contains them.
+///
+/// Pause/resume is process-global in Vue; classify projects a callee's last
+/// pause event onto each call end so later sibling reads in the caller see it.
+pub(super) fn local_helper_calls_by_owner(
+  semantic: &Semantic<'_>,
+) -> BTreeMap<NodeId, Vec<(u32, NodeId)>> {
+  let mut calls: BTreeMap<NodeId, Vec<(u32, NodeId)>> = BTreeMap::new();
+  for (call_id, call_node) in semantic.nodes().iter_enumerated() {
+    let AstKind::CallExpression(call) = call_node.kind() else {
+      continue;
+    };
+    if !call.arguments.is_empty() {
+      continue;
+    }
+    let Some(identifier) = call.callee.get_identifier_reference() else {
+      continue;
+    };
+    let Some(callee_id) = local_function_id(semantic, identifier) else {
+      continue;
+    };
+    if is_async_or_generator_function(semantic, callee_id) {
+      continue;
+    }
+    let Some(owner) = innermost_function_id(semantic, call_id) else {
+      continue;
+    };
+    calls.entry(owner).or_default().push((call.span.end, callee_id));
+  }
+  calls
 }
 
 pub(super) fn is_async_or_generator_function(

@@ -971,3 +971,164 @@ fn followed_helper_inherits_caller_guards() {
     );
   }
 }
+
+fn effect_value_kind(source: &str, binding: &str) -> Option<ReactiveReadKind> {
+  let graph = graph(source);
+  assert_eq!(graph.version, vue_vet_core::REACTIVITY_GRAPH_VERSION);
+  helper_follow_scope(&graph, TrackingScopeKind::WatchEffect).and_then(|scope| {
+    scope
+      .reads
+      .iter()
+      .find(|read| read.binding == binding && read.property.as_deref() == Some("value"))
+      .map(|read| read.kind)
+  })
+}
+
+#[test]
+fn followed_helper_inherits_caller_pause() {
+  struct Case {
+    label: &'static str,
+    source: &'static str,
+    binding: &'static str,
+    kind: ReactiveReadKind,
+  }
+  let cases = [
+    Case {
+      label: "pause inside helper is OutsideTracking",
+      source: "import { ref, watchEffect, pauseTracking } from 'vue';\n\
+               const value = ref(0);\n\
+               function load() { pauseTracking(); return value.value; }\n\
+               watchEffect(() => { void load(); });",
+      binding: "value",
+      kind: ReactiveReadKind::OutsideTracking,
+    },
+    Case {
+      label: "helper declared after the effect still classifies pause",
+      source: "import { ref, watchEffect, pauseTracking } from 'vue';\n\
+               const value = ref(0);\n\
+               watchEffect(() => { void load(); });\n\
+               function load() { pauseTracking(); return value.value; }",
+      binding: "value",
+      kind: ReactiveReadKind::OutsideTracking,
+    },
+    Case {
+      label: "caller pause then load() is OutsideTracking",
+      source: "import { ref, watchEffect, pauseTracking } from 'vue';\n\
+               const value = ref(0);\n\
+               function load() { return value.value; }\n\
+               watchEffect(() => { pauseTracking(); void load(); });",
+      binding: "value",
+      kind: ReactiveReadKind::OutsideTracking,
+    },
+    Case {
+      label: "inline pause stays OutsideTracking",
+      source: "import { ref, watchEffect, pauseTracking } from 'vue';\n\
+               const value = ref(0);\n\
+               watchEffect(() => { pauseTracking(); void value.value; });",
+      binding: "value",
+      kind: ReactiveReadKind::OutsideTracking,
+    },
+    Case {
+      label: "enableTracking inside helper resumes",
+      source: "import { ref, watchEffect, pauseTracking, enableTracking } from 'vue';\n\
+               const resumed = ref(1);\n\
+               function load() { pauseTracking(); enableTracking(); return resumed.value; }\n\
+               watchEffect(() => { void load(); });",
+      binding: "resumed",
+      kind: ReactiveReadKind::Unconditional,
+    },
+    Case {
+      label: "caller pause then helper enableTracking tracks",
+      source: "import { ref, watchEffect, pauseTracking, enableTracking } from 'vue';\n\
+               const value = ref(0);\n\
+               function load() { enableTracking(); return value.value; }\n\
+               watchEffect(() => { pauseTracking(); void load(); });",
+      binding: "value",
+      kind: ReactiveReadKind::Unconditional,
+    },
+    Case {
+      label: "unpaused call plus later paused call stays Unconditional",
+      source: "import { ref, watchEffect, pauseTracking } from 'vue';\n\
+               const value = ref(0);\n\
+               function load() { return value.value; }\n\
+               watchEffect(() => { load(); pauseTracking(); load(); });",
+      binding: "value",
+      kind: ReactiveReadKind::Unconditional,
+    },
+    Case {
+      label: "two-hop pause in inner is OutsideTracking",
+      source: "import { ref, watchEffect, pauseTracking } from 'vue';\n\
+               const value = ref(0);\n\
+               function inner() { pauseTracking(); return value.value; }\n\
+               function outer() { return inner(); }\n\
+               watchEffect(() => { void outer(); });",
+      binding: "value",
+      kind: ReactiveReadKind::OutsideTracking,
+    },
+    Case {
+      label: "two-hop pause in outer before inner() is OutsideTracking",
+      source: "import { ref, watchEffect, pauseTracking } from 'vue';\n\
+               const value = ref(0);\n\
+               function inner() { return value.value; }\n\
+               function outer() { pauseTracking(); return inner(); }\n\
+               watchEffect(() => { void outer(); });",
+      binding: "value",
+      kind: ReactiveReadKind::OutsideTracking,
+    },
+    Case {
+      label: "identifier getter with pause is OutsideTracking",
+      source: "import { ref, watchEffect, pauseTracking } from 'vue';\n\
+               const value = ref(0);\n\
+               function load() { pauseTracking(); return value.value; }\n\
+               watchEffect(load);",
+      binding: "value",
+      kind: ReactiveReadKind::OutsideTracking,
+    },
+    Case {
+      label: "helper pause leaks to a later sibling read",
+      source: "import { ref, watchEffect, pauseTracking } from 'vue';\n\
+               const after = ref(2);\n\
+               function load() { pauseTracking(); return 0; }\n\
+               watchEffect(() => { load(); void after.value; });",
+      binding: "after",
+      kind: ReactiveReadKind::OutsideTracking,
+    },
+    Case {
+      label: "read before a pausing helper still tracks",
+      source: "import { ref, watchEffect, pauseTracking } from 'vue';\n\
+               const before = ref(1);\n\
+               function load() { pauseTracking(); return 0; }\n\
+               watchEffect(() => { void before.value; load(); });",
+      binding: "before",
+      kind: ReactiveReadKind::Unconditional,
+    },
+  ];
+  for case in cases {
+    assert_eq!(
+      effect_value_kind(case.source, case.binding),
+      Some(case.kind),
+      "{}: scopes={:?}",
+      case.label,
+      graph(case.source).scopes
+    );
+  }
+}
+
+#[test]
+fn helper_pause_agrees_with_inline() {
+  let inline = effect_value_kind(
+    "import { ref, watchEffect, pauseTracking } from 'vue';\n\
+     const value = ref(0);\n\
+     watchEffect(() => { pauseTracking(); void value.value; });",
+    "value",
+  );
+  let helper = effect_value_kind(
+    "import { ref, watchEffect, pauseTracking } from 'vue';\n\
+     const value = ref(0);\n\
+     function load() { pauseTracking(); return value.value; }\n\
+     watchEffect(() => { void load(); });",
+    "value",
+  );
+  assert_eq!(inline, Some(ReactiveReadKind::OutsideTracking));
+  assert_eq!(helper, inline, "computed/effect helper pause must agree with the inlined window");
+}

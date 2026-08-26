@@ -1,6 +1,6 @@
 # Reactivity tracer science memo
 
-Harvested: 2026-08-25. Graph contract **v29** (compound / update writes).  
+Harvested: 2026-08-25. Graph contract **v30** (pause inside followed helpers). v29 is compound / update writes.
 This is a ranked research record after A0–A7 were marked complete. It is **not** a new completeness axis and it does not authorize Elk/corpus KPI chasing or another `summary/mod.rs` extract.
 
 Related: [reactivity tracer](../reactivity-tracer.md), [literature matrix](./reactivity-tracer-literature.md), [architecture](../architecture.md) (Post-#107), [gotchas](../gotchas.md), issue [#14](https://github.com/alexzhang1030/vue-vet/issues/14).
@@ -48,7 +48,7 @@ Invention is worse than a miss. Charter: missing edges stay quiet; invented *con
 | Hole | Code | Kind | Why it matters |
 | --- | --- | --- | --- |
 | Helper-followed read ignores caller control flow | **Landed v28.** Follow hops record call sites; classify uses owning-function guards plus call-site proxies so `branch_hygiene` can see both-arm helper calls. | **Invent Unconditional** (fixed) | `cond ? load() : 0` is Conditional; `cond ? load() : load()` stays Unconditional. |
-| Pause / await inside a followed helper | `scope_owns_pause_call` / `scope_owns_await` return false at the first nested `Function`. IR is built for the caller `scope_id`. | **Invent Unconditional** | Inline `pauseTracking(); x.value` is OutsideTracking. `load()` that pauses then reads is Unconditional. Await-in-helper is mostly moot (async helpers are unfollowed). Pause-in-helper is live. |
+| Pause / await inside a followed helper | **Landed v30** for pause. Per-function pause IR + caller hops; helper-exit leak onto later sibling reads. Await-in-helper stays quiet (async helpers are unfollowed). | **Invent Unconditional** (pause fixed) | Inline `pauseTracking(); x.value` is OutsideTracking. `load()` that pauses then reads matches. Nested `pause; pause; enable` is still last-event, not a stack. |
 | `+=` / `++` writes | **Landed v29.** All non-logical assignment operators plus `UpdateExpression`. Logical `&&=` / `||=` / `??=` stay quiet. | **Dual-path miss** (fixed) | `a.value += 1` / `a.value++` record writes like `=`. |
 | Writes skip sync HOF / `toValue` getters | Writes treat any nested function as drop. Reads stay inside Array/String/`toValue` callbacks (`context.rs`). | Charter-quiet miss | `list.value.map(() => { t.value = 1 })` inside computed: read of `list`, no write of `t`. |
 | Composable-instance writes | Writes match `reactive_bindings` only. Reads have `bag.field.value`. | Dual-path miss | `computed(() => { bag.field.value = 1 })` may miss the write that `no-side-effects-in-computed` needs. |
@@ -67,9 +67,10 @@ Accuracy is a **representative CI gate**, not a sample of apps.
 
 | Instrument | What it measures | Size |
 | --- | --- | --- |
-| Runtime oracle | `tracer ⊆ runtime` and pooled recall ≥99% on committed cases | **37** `expected/*.json`. ~59 nonempty `{binding,key}` rows plus 2 empty-runtime cases. `TraceConfig::empty()` (no plugins). |
+| Runtime oracle | `tracer ⊆ runtime` and pooled recall ≥99% on committed cases | **38** `expected/*.json`. ~60 nonempty `{binding,key}` rows plus 2 empty-runtime cases. `TraceConfig::empty()` (no plugins). |
 | Identifier-getter oracle (v27) | `computed(load)` / `watch(load)` vs `onTrack` | 2 cases. Not `computed(() => load())`. |
 | Caller-guard oracle (v28) | `computed(() => cond ? load() : 0)` vs `onTrack` | 1 case (`computed-helper-ternary`). Kind is unit-tested. |
+| Helper-pause oracle (v30) | `load()` that pauses then reads vs `onTrack` | 1 case (`pause-tracking-helper`). Leak / mixed call sites are unit-tested. |
 | Helper-follow units | Graph-vs-graph inline vs helper | `tests/follow.rs`. No `onTrack`. |
 | 280 local/module corpus | Exact `expected.reads` vs **the tracer** | Self-consistency. Gotchas already forbid treating this as recall. |
 | Quality precision | Exact `(rule_id, file)` TP/FP pins | 12 projects. `reactivity-rules.json` is **4 TP + 5 FP**, matching `docs/quality-baselines.md`. |
@@ -144,7 +145,7 @@ Stay inside the PCR stop rule. Each row says what evidence already exists and wh
 ### Do now if someone is already in the file (contract)
 
 1. **Caller guards on followed reads.** Landed in v28. Fixture: `computed(() => cond ? load() : 0)` vs inline ternary. Both-arm `load()` stays Unconditional. Oracle: `computed-helper-ternary`.
-2. **Pause inside a followed helper.** Same shape. Graph bump.
+2. **Pause inside a followed helper.** Landed in v30. Owning-function IR + caller hops + helper-exit leak. Oracle: `pause-tracking-helper`.
 3. **`+=` / `++` writes.** Landed in v29. Unit + `no-side-effects-in-computed` / `prefer-computed` fixtures. Logical compounds stay quiet.
 4. **`peel_parens` on watch sources.** Dual-path with `local_getter_parts`. Small. Graph bump only if new reads appear.
 5. **Render identifier getters.** Apply the v27 idea to `function_like_body` / `setup() { return renderFn }`. Unit in `render.rs`. Graph bump.
@@ -181,7 +182,7 @@ Unstamped. Nothing here is vouched.
 
 **Keep.** Under-approx, static-only, quiet failure, plugin-supplied bags, shared `follow_local_callees`, identifier getters, `ModuleTraceState` plan equality, oracle as the precision ruler.
 
-**The interesting remaining bug class** is "followed helper drops caller context" (guards, pause). `+=` / `++` writes are closed. Pause-in-helper is still live on this branch (see #192).
+**The interesting remaining bug class** after v30 is watch `peel_parens` and remaining dual-path writes (composable-instance), not another Factory seed. Helper context (guards + pause) and `+=` / `++` writes are closed.
 
 **The interesting remaining speed class** is session input breadth and repeated callee discovery, not a new interprocedural framework.
 

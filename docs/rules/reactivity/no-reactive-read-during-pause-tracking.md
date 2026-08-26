@@ -40,6 +40,13 @@ watchEffect(() => {
 </script>
 ```
 
+Same dual-path applies when the pause lives in a same-file zero-arg helper:
+`watchEffect(() => { void load() })` with
+`function load() { pauseTracking(); return value.value }` is OutsideTracking on
+`value`, matching the inlined window. A later `enableTracking()` after `load()`
+returns still tracks sibling reads. `load(); pauseTracking(); load()` stays
+Unconditional — Vue tracks the first call.
+
 ## Detection
 
 Fact-driven: tracking-scope reads classified `OutsideTracking` when the script
@@ -48,3 +55,10 @@ calls `pauseTracking`.
 ## Remediation
 
 Read dependencies before pausing tracking, or list them in explicit `watch` sources.
+
+## Fixtures
+
+- Invalid: `fixtures/rules/no-reactive-read-during-pause-tracking/invalid/`
+  (`paused.vue`, `helper-pause.vue`, `caller-pause-helper.vue`)
+- Valid: `fixtures/rules/no-reactive-read-during-pause-tracking/valid/`
+  (`outside-pause.vue`, `helper-resume.vue`, `unpaused-then-paused-call.vue`)

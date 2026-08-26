@@ -1,0 +1,10 @@
+{
+  "id": "pause-tracking-helper",
+  "source": "import { ref, watchEffect, pauseTracking, enableTracking } from 'vue'\nconst paused = ref(1)\nconst after = ref(2)\nfunction load() {\n  pauseTracking()\n  return paused.value\n}\nwatchEffect(() => {\n  void load()\n  enableTracking()\n  void after.value\n})\n",
+  "runtime_deps": [
+    {
+      "binding": "after",
+      "key": "value"
+    }
+  ]
+}
