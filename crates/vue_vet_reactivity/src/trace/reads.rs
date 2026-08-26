@@ -20,6 +20,7 @@ use super::{
   context::scope_context,
   follow::{FollowOutside, follow_local_callees},
   kinds::{reference_resolves_to_binding, resolved_vue_callee, source_span, span_contains},
+  writes::function_body_of,
 };
 
 #[derive(Clone, Debug)]
@@ -29,6 +30,28 @@ pub(super) struct RawReactiveRead {
   property: Option<String>,
   span: Span,
   outside_tracking: bool,
+  /// Follow hops from this read out to the tracking scope. Each hop is the
+  /// `CallExpression` set in that caller. Empty for reads already in the scope.
+  caller_hops: Vec<Vec<NodeId>>,
+}
+
+impl RawReactiveRead {
+  fn local(
+    node_id: NodeId,
+    binding: impl Into<String>,
+    property: Option<String>,
+    span: Span,
+    outside_tracking: bool,
+  ) -> Self {
+    Self {
+      node_id,
+      binding: binding.into(),
+      property,
+      span,
+      outside_tracking,
+      caller_hops: Vec::new(),
+    }
+  }
 }
 
 #[derive(Debug)]
@@ -92,7 +115,7 @@ pub(super) fn collect_scope_reads_bounded(
     depth,
     visiting,
     FollowOutside::Mark,
-    |callee_id, call_outside, next_depth, visiting| {
+    |callee_id, call_outside, next_depth, call_sites, visiting| {
       let mut nested = collect_scope_reads_bounded(
         semantic,
         callee_id,
@@ -104,10 +127,11 @@ pub(super) fn collect_scope_reads_bounded(
         next_depth,
         visiting,
       );
-      if call_outside {
-        for read in &mut nested {
+      for read in &mut nested {
+        if call_outside {
           read.outside_tracking = true;
         }
+        read.caller_hops.push(call_sites.to_vec());
       }
       reads.extend(nested);
     },
@@ -141,13 +165,13 @@ pub(super) fn collect_scope_reads_local(
       {
         let (_, outside_tracking) =
           scope_context(semantic, scope_id, member_id, outer.span, imported_bindings)?;
-        return Some(RawReactiveRead {
-          node_id: member_id,
-          binding: inner.property.name.to_string(),
-          property: Some("value".into()),
-          span: outer.span,
+        return Some(RawReactiveRead::local(
+          member_id,
+          inner.property.name.to_string(),
+          Some("value".into()),
+          outer.span,
           outside_tracking,
-        });
+        ));
       }
 
       // Nested composable instance: bag.field for non-ref-like kinds
@@ -159,13 +183,13 @@ pub(super) fn collect_scope_reads_local(
       {
         let (_, outside_tracking) =
           scope_context(semantic, scope_id, member_id, member.span, imported_bindings)?;
-        return Some(RawReactiveRead {
-          node_id: member_id,
-          binding: member.property.name.to_string(),
-          property: Some(member.property.name.to_string()),
-          span: member.span,
+        return Some(RawReactiveRead::local(
+          member_id,
+          member.property.name.to_string(),
+          Some(member.property.name.to_string()),
+          member.span,
           outside_tracking,
-        });
+        ));
       }
 
       // `unref(x)` / `toValue(x)` track ref-like bindings (runtime reads `.value`).
@@ -185,13 +209,13 @@ pub(super) fn collect_scope_reads_local(
             && reference_resolves_to_binding(semantic, identifier, binding, script_offset)
             && binding.kind.is_ref_like()
         })?;
-        return Some(RawReactiveRead {
-          node_id: member_id,
-          binding: binding.name.clone(),
-          property: Some("value".into()),
-          span: call.span,
+        return Some(RawReactiveRead::local(
+          member_id,
+          binding.name.clone(),
+          Some("value".into()),
+          call.span,
           outside_tracking,
-        });
+        ));
       }
 
       // vue-i18n `t`/`d`/`n`/`rt`/`te` from `useI18n()` — wrapWithDeps tracks
@@ -219,13 +243,13 @@ pub(super) fn collect_scope_reads_local(
           && reference_resolves_to_binding(semantic, object, binding, script_offset)
           && (!binding.kind.is_ref_like() || property.as_deref() == Some("value"))
       })?;
-      Some(RawReactiveRead {
-        node_id: member_id,
-        binding: binding.name.clone(),
+      Some(RawReactiveRead::local(
+        member_id,
+        binding.name.clone(),
         property,
-        span: member_span,
+        member_span,
         outside_tracking,
-      })
+      ))
     })
     .collect::<Vec<_>>();
 
@@ -252,13 +276,13 @@ pub(super) fn collect_scope_reads_local(
     else {
       continue;
     };
-    reads.push(RawReactiveRead {
-      node_id: ident_id,
-      binding: binding.name.clone(),
-      property: None,
-      span: identifier.span,
+    reads.push(RawReactiveRead::local(
+      ident_id,
+      binding.name.clone(),
+      None,
+      identifier.span,
       outside_tracking,
-    });
+    ));
   }
 
   // Named API bag methods (`const { t } = useI18n()`): inject precomputed ambient reads.
@@ -279,13 +303,13 @@ pub(super) fn collect_scope_reads_local(
       continue;
     };
     for (binding, property) in ambient {
-      reads.push(RawReactiveRead {
-        node_id: call_id,
-        binding: binding.clone(),
-        property: property.clone(),
-        span: call.span,
+      reads.push(RawReactiveRead::local(
+        call_id,
+        binding.clone(),
+        property.clone(),
+        call.span,
         outside_tracking,
-      });
+      ));
     }
   }
 
@@ -695,13 +719,82 @@ pub(super) fn classify_scope_reads(
     .collect()
 }
 
+fn owning_function_id(semantic: &Semantic<'_>, node_id: NodeId) -> Option<NodeId> {
+  if matches!(
+    semantic.nodes().kind(node_id),
+    AstKind::Function(_) | AstKind::ArrowFunctionExpression(_)
+  ) {
+    return Some(node_id);
+  }
+  semantic.nodes().ancestor_ids(node_id).find(|&ancestor_id| {
+    matches!(
+      semantic.nodes().kind(ancestor_id),
+      AstKind::Function(_) | AstKind::ArrowFunctionExpression(_)
+    )
+  })
+}
+
+/// Guards on the read inside its owning function, plus caller guards at each
+/// follow hop. A hop with any unguarded (or both-arm-covered) call site adds
+/// nothing — that hop does not constrain the read.
+fn classify_path_guards(input: &ClassifyRead<'_>) -> Vec<RawGuard> {
+  let local_scope =
+    owning_function_id(input.semantic, input.read.node_id).unwrap_or(input.scope_id);
+  let local_body = function_body_of(input.semantic, local_scope).or(input.body);
+  let mut guards =
+    path_guards(input.semantic, local_scope, local_body, input.raw_reads, input.read);
+  for hop in &input.read.caller_hops {
+    guards.extend(caller_hop_guards(input.semantic, input.raw_reads, input.read, hop));
+  }
+  guards.sort_by_key(|guard| (guard.read.span.start, guard.role as u8));
+  guards.dedup_by(|left, right| {
+    left.role == right.role
+      && left.read.binding == right.read.binding
+      && left.read.property == right.read.property
+      && left.read.span == right.read.span
+  });
+  guards
+}
+
+fn caller_hop_guards(
+  semantic: &Semantic<'_>,
+  raw_reads: &[RawReactiveRead],
+  read: &RawReactiveRead,
+  call_sites: &[NodeId],
+) -> Vec<RawGuard> {
+  let Some(first) = call_sites.first().copied() else {
+    return Vec::new();
+  };
+  let owner = owning_function_id(semantic, first).unwrap_or(first);
+  let body = function_body_of(semantic, owner);
+  let proxies: Vec<RawReactiveRead> = call_sites
+    .iter()
+    .map(|&call_id| {
+      RawReactiveRead::local(
+        call_id,
+        read.binding.clone(),
+        read.property.clone(),
+        semantic.nodes().kind(call_id).span(),
+        false,
+      )
+    })
+    .collect();
+  let mut combined = raw_reads.to_vec();
+  combined.extend(proxies.iter().cloned());
+  let mut merged = Vec::new();
+  for proxy in &proxies {
+    let site = path_guards(semantic, owner, body, &combined, proxy);
+    if site.is_empty() {
+      return Vec::new();
+    }
+    merged.extend(site);
+  }
+  merged
+}
+
 pub(super) fn classify_read(input: &ClassifyRead<'_>) -> ReactiveReadFact {
   let outside = input.read.outside_tracking || is_after_pause_tracking_ir(input.ir, input.read);
-  let guards = if outside {
-    Vec::new()
-  } else {
-    path_guards(input.semantic, input.scope_id, input.body, input.raw_reads, input.read)
-  };
+  let guards = if outside { Vec::new() } else { classify_path_guards(input) };
   let kind = if outside {
     ReactiveReadKind::OutsideTracking
   } else if is_after_top_level_await_ir(input.ir, input.read) {

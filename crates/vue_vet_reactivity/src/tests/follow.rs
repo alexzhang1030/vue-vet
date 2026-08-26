@@ -802,3 +802,136 @@ fn identifier_getter_agrees_with_helper_call() {
     "computed(load) must agree with computed(() => load()) on tracking reads"
   );
 }
+
+#[test]
+fn followed_helper_inherits_caller_guards() {
+  struct Case {
+    label: &'static str,
+    source: &'static str,
+    binding: &'static str,
+    kind: ReactiveReadKind,
+    guard: Option<&'static str>,
+  }
+  let cases = [
+    Case {
+      label: "ternary helper call is Conditional",
+      source: "import { ref, computed } from 'vue';\n\
+               const cond = ref(true);\n\
+               const type = ref('all');\n\
+               function load() { return type.value; }\n\
+               const c = computed(() => (cond.value ? load() : 0));\n\
+               void c.value;",
+      binding: "type",
+      kind: ReactiveReadKind::Conditional,
+      guard: Some("cond"),
+    },
+    Case {
+      label: "inline ternary stays Conditional",
+      source: "import { ref, computed } from 'vue';\n\
+               const cond = ref(true);\n\
+               const type = ref('all');\n\
+               const c = computed(() => (cond.value ? type.value : 0));\n\
+               void c.value;",
+      binding: "type",
+      kind: ReactiveReadKind::Conditional,
+      guard: Some("cond"),
+    },
+    Case {
+      label: "both-arm helper calls stay Unconditional",
+      source: "import { ref, computed } from 'vue';\n\
+               const cond = ref(true);\n\
+               const type = ref('all');\n\
+               function load() { return type.value; }\n\
+               const c = computed(() => (cond.value ? load() : load()));\n\
+               void c.value;",
+      binding: "type",
+      kind: ReactiveReadKind::Unconditional,
+      guard: None,
+    },
+    Case {
+      label: "unguarded call plus ternary call stays Unconditional",
+      source: "import { ref, computed } from 'vue';\n\
+               const cond = ref(true);\n\
+               const type = ref('all');\n\
+               function load() { return type.value; }\n\
+               const c = computed(() => { load(); return cond.value ? load() : 0; });\n\
+               void c.value;",
+      binding: "type",
+      kind: ReactiveReadKind::Unconditional,
+      guard: None,
+    },
+    Case {
+      label: "two-hop outer() in ternary is Conditional",
+      source: "import { ref, computed } from 'vue';\n\
+               const cond = ref(true);\n\
+               const type = ref('all');\n\
+               function inner() { return type.value; }\n\
+               function outer() { return inner(); }\n\
+               const c = computed(() => (cond.value ? outer() : 0));\n\
+               void c.value;",
+      binding: "type",
+      kind: ReactiveReadKind::Conditional,
+      guard: Some("cond"),
+    },
+    Case {
+      label: "inner ternary inside unconditionally called helper is Conditional",
+      source: "import { ref, computed } from 'vue';\n\
+               const cond = ref(true);\n\
+               const type = ref('all');\n\
+               function load() { return type.value; }\n\
+               function outer() { return cond.value ? load() : 0; }\n\
+               const c = computed(() => outer());\n\
+               void c.value;",
+      binding: "type",
+      kind: ReactiveReadKind::Conditional,
+      guard: Some("cond"),
+    },
+    Case {
+      label: "early-exit inside helper is Conditional",
+      source: "import { ref, computed } from 'vue';\n\
+               const ready = ref(true);\n\
+               const type = ref('all');\n\
+               function load() { if (!ready.value) return 0; return type.value; }\n\
+               const c = computed(() => load());\n\
+               void c.value;",
+      binding: "type",
+      kind: ReactiveReadKind::Conditional,
+      guard: Some("ready"),
+    },
+    Case {
+      label: "unconditional helper call stays Unconditional",
+      source: "import { ref, computed } from 'vue';\n\
+               const type = ref('all');\n\
+               function load() { return type.value; }\n\
+               const c = computed(() => load());\n\
+               void c.value;",
+      binding: "type",
+      kind: ReactiveReadKind::Unconditional,
+      guard: None,
+    },
+  ];
+  for case in cases {
+    let graph = graph(case.source);
+    assert_eq!(graph.version, vue_vet_core::REACTIVITY_GRAPH_VERSION);
+    let scope = helper_follow_scope(&graph, TrackingScopeKind::Computed);
+    let read = scope.and_then(|scope| {
+      scope
+        .reads
+        .iter()
+        .find(|read| read.binding == case.binding && read.property.as_deref() == Some("value"))
+    });
+    assert_eq!(
+      read.map(|read| read.kind),
+      Some(case.kind),
+      "{}: kind; scopes={:?}",
+      case.label,
+      graph.scopes
+    );
+    assert_eq!(
+      read.and_then(|read| read.guarded_by.as_deref()),
+      case.guard,
+      "{}: guard; read={read:?}",
+      case.label
+    );
+  }
+}

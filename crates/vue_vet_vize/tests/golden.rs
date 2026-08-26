@@ -802,7 +802,42 @@ fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
         "../../../fixtures/snapshots/no-computed-without-dependency/helper-uncertain.json"
       ),
     ),
+    (
+      "fixtures/rules/no-conditional-dependency-in-computed/invalid/helper-ternary.vue",
+      include_str!(
+        "../../../fixtures/rules/no-conditional-dependency-in-computed/invalid/helper-ternary.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-conditional-dependency-in-computed/helper-ternary.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-conditional-dependency-in-computed/invalid/inline-ternary.vue",
+      include_str!(
+        "../../../fixtures/rules/no-conditional-dependency-in-computed/invalid/inline-ternary.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-conditional-dependency-in-computed/inline-ternary.json"
+      ),
+    ),
   ] {
     assert_diagnostics(path, source, expected);
+  }
+  let empty = "[]";
+  for (path, source) in [
+    (
+      "fixtures/rules/no-conditional-dependency-in-computed/valid/both-arms-helper.vue",
+      include_str!(
+        "../../../fixtures/rules/no-conditional-dependency-in-computed/valid/both-arms-helper.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-conditional-dependency-in-computed/valid/unconditional-helper.vue",
+      include_str!(
+        "../../../fixtures/rules/no-conditional-dependency-in-computed/valid/unconditional-helper.vue"
+      ),
+    ),
+  ] {
+    assert_diagnostics(path, source, empty);
   }
 }

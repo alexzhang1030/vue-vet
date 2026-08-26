@@ -19,6 +19,7 @@ completeness number — not a 280-case syntax matrix.
 | `baseline-ref-computed` | happy path ref → computed |
 | `computed-object-get` | `computed({ get, set })` tracks getter reads |
 | `computed-fn-ref` | `computed(load)` tracks the referenced getter body |
+| `computed-helper-ternary` | `computed(() => cond ? load() : 0)` tracks cond + helper reads |
 | `watch-source-fn-ref` | `watch(load)` treats a local function as a source getter |
 | `pause-tracking-window` | `pauseTracking`/`enableTracking` window drops mid-window reads |
 | `reset-tracking-window` | `pauseTracking`/`resetTracking` window drops mid-window reads |

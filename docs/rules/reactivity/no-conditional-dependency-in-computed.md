@@ -49,7 +49,15 @@ it does not emit separate rule ids for the same Conditional read (#136).
 
 Keep reactive reads synchronous and unconditional inside `computed`, or switch to an API with explicit sources (`watch([...])`).
 
+Same dual-path applies when the guarded read lives in a same-file zero-arg
+helper: `computed(() => enabled.value ? load() : 'off')` with
+`function load() { return String(count.value) }` is Conditional on `count`,
+matching the inlined ternary. Both-arm `load()` / `computed(() => load())`
+stay Unconditional.
+
 ## Fixtures
 
 - Invalid: `fixtures/rules/no-conditional-dependency-in-computed/invalid/`
+  (`inline-ternary.vue`, `helper-ternary.vue`)
 - Valid: `fixtures/rules/no-conditional-dependency-in-computed/valid/`
+  (`unconditional-helper.vue`, `both-arms-helper.vue`)

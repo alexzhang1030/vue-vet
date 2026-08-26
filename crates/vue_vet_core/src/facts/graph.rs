@@ -294,6 +294,9 @@ pub struct ReactivityEffectFact {
 /// (unclassified `.value` / `unref` / `toValue` inside followed callees).
 /// `then()`/`nextTick`-only call sites stay quiet so absence rules do not
 /// invent `(maybe)` for outside-tracking accesses.
+/// v28: followed helper reads inherit caller control-flow guards
+/// (`computed(() => cond ? load() : 0)` is Conditional, dual-path with
+/// `cond ? x.value : 0`). Both-arm helper calls stay Unconditional.
 /// v27: same-file local function *references* used as Vue tracking callbacks
 /// (`computed(load)`, `watchEffect(load)`, `watch(load)`, `computed({ get: load })`)
 /// are the tracking body — dual-path with `computed(() => load())`. Imports,
@@ -313,7 +316,7 @@ pub struct ReactivityEffectFact {
 /// under-approx hygiene); export linking refinements that change seeded bindings
 /// (`ForwardReturn` bare `#nuxt-imports`, overload Factory≻Composable, ref-like
 /// ternary `Known` exports, empty-path pending composable fields).
-pub const REACTIVITY_GRAPH_VERSION: u32 = 27;
+pub const REACTIVITY_GRAPH_VERSION: u32 = 28;
 
 const fn default_reactivity_graph_version() -> u32 {
   1

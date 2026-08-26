@@ -220,7 +220,7 @@ pub(super) fn collect_scope_writes_bounded(
     depth,
     visiting,
     FollowOutside::Skip,
-    |callee_id, _, next_depth, visiting| {
+    |callee_id, _, next_depth, _, visiting| {
       writes.extend(collect_scope_writes_bounded(
         semantic,
         callee_id,

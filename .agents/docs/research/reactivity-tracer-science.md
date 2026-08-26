@@ -1,6 +1,6 @@
 # Reactivity tracer science memo
 
-Harvested: 2026-08-25. Graph contract **v27**.  
+Harvested: 2026-08-25. Graph contract **v28** (caller guards on followed reads).  
 This is a ranked research record after A0–A7 were marked complete. It is **not** a new completeness axis and it does not authorize Elk/corpus KPI chasing or another `summary/mod.rs` extract.
 
 Related: [reactivity tracer](../reactivity-tracer.md), [literature matrix](./reactivity-tracer-literature.md), [architecture](../architecture.md) (Post-#107), [gotchas](../gotchas.md), issue [#14](https://github.com/alexzhang1030/vue-vet/issues/14).
@@ -47,7 +47,7 @@ Invention is worse than a miss. Charter: missing edges stay quiet; invented *con
 
 | Hole | Code | Kind | Why it matters |
 | --- | --- | --- | --- |
-| Helper-followed read ignores caller control flow | `reads.rs` `path_guards` walks ancestors of `read.node_id` up to `scope_id`; a read inside `function load()` never sees `computed(() => cond ? load() : 0)`. `branch_hygiene` compares arm *spans*, so helper spans cannot match. | **Invent Unconditional** | Inline `cond ? x.value : 0` is Conditional (`no-conditional-dependency-in-computed` fires). `cond ? load() : 0` with `load` reading `x` is Unconditional. Same semantic read, two verdicts. This is the v23 class applied to A4, not "further CF depth for recall." |
+| Helper-followed read ignores caller control flow | **Landed v28.** Follow hops record call sites; classify uses owning-function guards plus call-site proxies so `branch_hygiene` can see both-arm helper calls. | **Invent Unconditional** (fixed) | `cond ? load() : 0` is Conditional; `cond ? load() : load()` stays Unconditional. |
 | Pause / await inside a followed helper | `scope_owns_pause_call` / `scope_owns_await` return false at the first nested `Function`. IR is built for the caller `scope_id`. | **Invent Unconditional** | Inline `pauseTracking(); x.value` is OutsideTracking. `load()` that pauses then reads is Unconditional. Await-in-helper is mostly moot (async helpers are unfollowed). Pause-in-helper is live. |
 | `+=` / `++` writes | `writes.rs` requires `operator.is_assign()` (`=` only). Reads *do* record `+=` (write-only LHS only triggers on `=`). `assignment_only` matches any `AssignmentExpression`. | **Dual-path miss** on writes; `assignment_only` can still be true | `a.value = a.value + 1` is a computed side effect. `a.value += 1` can look assignment-only with empty `writes`. |
 | Writes skip sync HOF / `toValue` getters | Writes treat any nested function as drop. Reads stay inside Array/String/`toValue` callbacks (`context.rs`). | Charter-quiet miss | `list.value.map(() => { t.value = 1 })` inside computed: read of `list`, no write of `t`. |
@@ -67,11 +67,12 @@ Accuracy is a **representative CI gate**, not a sample of apps.
 
 | Instrument | What it measures | Size |
 | --- | --- | --- |
-| Runtime oracle | `tracer ⊆ runtime` and pooled recall ≥99% on committed cases | **36** `expected/*.json`. ~57 nonempty `{binding,key}` rows plus 2 empty-runtime cases. `TraceConfig::empty()` (no plugins). |
+| Runtime oracle | `tracer ⊆ runtime` and pooled recall ≥99% on committed cases | **37** `expected/*.json`. ~59 nonempty `{binding,key}` rows plus 2 empty-runtime cases. `TraceConfig::empty()` (no plugins). |
 | Identifier-getter oracle (v27) | `computed(load)` / `watch(load)` vs `onTrack` | 2 cases. Not `computed(() => load())`. |
+| Caller-guard oracle (v28) | `computed(() => cond ? load() : 0)` vs `onTrack` | 1 case (`computed-helper-ternary`). Kind is unit-tested. |
 | Helper-follow units | Graph-vs-graph inline vs helper | `tests/follow.rs`. No `onTrack`. |
 | 280 local/module corpus | Exact `expected.reads` vs **the tracer** | Self-consistency. Gotchas already forbid treating this as recall. |
-| Quality precision | Exact `(rule_id, file)` TP/FP pins | 12 projects. `reactivity-rules.json` is **4 TP + 5 FP**. `docs/quality-baselines.md` still says 3 / 3. |
+| Quality precision | Exact `(rule_id, file)` TP/FP pins | 12 projects. `reactivity-rules.json` is **4 TP + 5 FP**, matching `docs/quality-baselines.md`. |
 
 Pooled recall can hide a one-key miss in a large HOF case and punish a one-key miss in a 1-dep case (~1.75% of 57). The 99% number is a tripwire on a hand-picked JS slice. PCR already says this. Agents keep citing it as if it were app recall. Stop.
 
@@ -142,7 +143,7 @@ Stay inside the PCR stop rule. Each row says what evidence already exists and wh
 
 ### Do now if someone is already in the file (contract)
 
-1. **Caller guards on followed reads.** Fixture: `computed(() => cond ? load() : 0)` vs inline ternary. Expect Conditional (or quiet), not Unconditional. Oracle the inline form if the helper form cannot install `onTrack` on `load` alone. This is a dual-path **invention**. Graph bump.
+1. **Caller guards on followed reads.** Landed in v28. Fixture: `computed(() => cond ? load() : 0)` vs inline ternary. Both-arm `load()` stays Unconditional. Oracle: `computed-helper-ternary`.
 2. **Pause inside a followed helper.** Same shape. Graph bump.
 3. **`+=` / `++` writes.** Unit + `no-side-effects-in-computed` fixture. Graph bump if write facts appear where they were empty.
 4. **`peel_parens` on watch sources.** Dual-path with `local_getter_parts`. Small. Graph bump only if new reads appear.
@@ -152,7 +153,7 @@ Stay inside the PCR stop rule. Each row says what evidence already exists and wh
 
 6. Oracle case `computed(() => load())` next to `computed-fn-ref`, or document in `oracle/README.md` that graph-vs-graph is the gate for the call form.
 7. Put `watch-source-reactive-deep` in `oracle_cases_cover_known_hard_facts`.
-8. Fix `docs/quality-baselines.md` `reactivity-rules` to **4 / 5** so the table matches `fixtures/quality/precision/reactivity-rules.json`.
+8. ~~Fix `docs/quality-baselines.md` `reactivity-rules` to **4 / 5**.~~ Already matches.
 9. Say "policy algebra" in the ExportState prose the next time that heading is edited.
 
 ### Do when touching locality (faster, already #108)
