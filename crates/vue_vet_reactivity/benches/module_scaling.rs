@@ -1,8 +1,11 @@
 #![expect(clippy::expect_used, reason = "benchmark harness aborts on setup failure")]
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use vue_vet_core::ScriptKind;
 use vue_vet_reactivity::{
-  ModuleLink, ModuleSource, TraceModulesOptions, trace_modules_with_options,
+  ModuleLink, ModuleSource, ModuleTraceState, TraceModulesOptions,
+  trace_modules_incremental_with_options, trace_modules_with_options,
 };
 
 fn main() {
@@ -70,6 +73,66 @@ fn reexport_chain(count: usize) -> (Vec<ModuleSource>, Vec<ModuleLink>) {
     })
     .collect();
   (modules, links)
+}
+
+/// Warm `ModuleTraceState` + one independent leaf body edit.
+///
+/// One-shot `trace_*` benches force `persist_linking_cache = false` and do not
+/// measure this path. Keep those names as no-regression; this name is the
+/// locality win signal.
+#[divan::bench(sample_count = 5, sample_size = 1)]
+fn trace_warm_leaf_edit_1k_modules(bencher: divan::Bencher) {
+  let pool = worker_pool();
+  let mut modules = synthetic_modules(1_000);
+  let options = TraceModulesOptions {
+    max_workers: 8,
+    reuse_current_pool: true,
+    persist_linking_cache: true,
+    ..Default::default()
+  };
+  let mut state = ModuleTraceState::default();
+  pool.install(|| {
+    let warmed = trace_modules_incremental_with_options(&modules, &[], &options, &mut state);
+    assert!(warmed.issues.is_empty(), "warm leaf-edit setup must trace: {:?}", warmed.issues);
+  });
+
+  let leaf_id = modules.last().expect("1k synthetic modules").id.clone();
+  let sources = [
+    "import { ref } from 'vue'; export const value999 = ref(1);",
+    "import { ref } from 'vue'; export const value999 = ref(2);",
+  ];
+  let edit = AtomicUsize::new(0);
+  bencher.bench_local(|| {
+    pool.install(|| {
+      let sequence = edit.fetch_add(1, Ordering::Relaxed);
+      let next = sources
+        .get(sequence % sources.len())
+        .copied()
+        .unwrap_or("import { ref } from 'vue'; export const value999 = ref(1);");
+      let next_modules = modules
+        .iter()
+        .map(|module| {
+          if module.id == leaf_id {
+            return ModuleSource::standalone(leaf_id.clone(), next, "ts", ScriptKind::Script);
+          }
+          state.cached_source(&module.id).cloned().unwrap_or_else(|| module.clone())
+        })
+        .collect::<Vec<_>>();
+      let report = trace_modules_incremental_with_options(
+        divan::black_box(&next_modules),
+        &[],
+        &options,
+        &mut state,
+      );
+      modules = next_modules;
+      divan::black_box((
+        report.modules.len(),
+        report.stats.reused_graphs,
+        report.stats.seeded_reparses,
+        report.stats.export_resolve_ran,
+      ))
+    })
+  });
 }
 
 #[divan::bench(sample_count = 5, sample_size = 1)]

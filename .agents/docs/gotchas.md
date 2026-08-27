@@ -450,6 +450,9 @@ source string — otherwise cold `trace_1k_*` / SFC benches regress.
 **One-shot `trace_modules_with_options` must not archive linking state.** Set
 `persist_linking_cache = false` (forced by that API). Archiving sorted links +
 seed-plan maps that are immediately dropped regresses CodSpeed `trace_*`.
+The locality signal is `trace_warm_leaf_edit_1k_modules`, which keeps the
+cache on and edits one independent leaf. Do not treat `trace_1k_modules` as
+that win.
 Build `returns_by_function` lazily — only after a real function/composable
 candidate is found.
 

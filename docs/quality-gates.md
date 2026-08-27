@@ -109,7 +109,9 @@ Canonical PR comparison uses CodSpeed (`just bench` / `just bench-codspeed-*`):
 - SFC micro-benchmarks: `vue_vet_vize` `analyze_sfc`
 - Project scan modes: `vue_vet_session` `scan_modes`
 - Module scaling: multi-sample 1k/5k bounded tracing in
-  `vue_vet_reactivity` `module_scaling`
+  `vue_vet_reactivity` `module_scaling`, including
+  `trace_warm_leaf_edit_1k_modules` (persistent `ModuleTraceState` + one
+  independent leaf). One-shot `trace_*` stay unarchived.
 
 Local timing notes (developer machines) may be recorded in PRs but are not
 release budgets. CodSpeed simulated-CPU results are the comparable signal

@@ -250,6 +250,47 @@ fn incremental_linking_skips_export_resolve_when_only_local_graph_changes() {
 }
 
 #[test]
+fn independent_leaf_body_edit_reuses_other_graphs() {
+  let modules = (0..8)
+    .map(|index| {
+      ModuleSource::standalone(
+        format!("src/module-{index}.ts"),
+        format!("import {{ ref }} from 'vue'; export const value{index} = ref({index});"),
+        "ts",
+        ScriptKind::Script,
+      )
+    })
+    .collect::<Vec<_>>();
+  let mut state = ModuleTraceState::default();
+  let options =
+    TraceModulesOptions { max_workers: 2, persist_linking_cache: true, ..default_trace_options() };
+  let first = trace_modules_incremental_with_options(&modules, &[], &options, &mut state);
+  assert!(first.issues.is_empty(), "warm setup must trace: {:?}", first.issues);
+
+  let leaf_id = vue_vet_core::ModuleId::from("src/module-7.ts");
+  let next_modules = modules
+    .iter()
+    .map(|module| {
+      if module.id == leaf_id {
+        return ModuleSource::standalone(
+          leaf_id.clone(),
+          "import { ref } from 'vue'; export const value7 = ref(70);",
+          "ts",
+          ScriptKind::Script,
+        );
+      }
+      state.cached_source(&module.id).cloned().unwrap_or_else(|| module.clone())
+    })
+    .collect::<Vec<_>>();
+  let second = trace_modules_incremental_with_options(&next_modules, &[], &options, &mut state);
+  assert!(second.issues.is_empty(), "leaf edit must trace: {:?}", second.issues);
+  assert_eq!(second.stats.reused_graphs, 7);
+  assert_eq!(second.stats.seeded_reparses, 0);
+  assert!(!second.stats.export_resolve_ran, "literal-only edit must skip export resolve");
+  assert_eq!(second.stats.seed_plans_recomputed, 0);
+}
+
+#[test]
 fn prepared_phase_one_facts_avoid_an_unseeded_second_parse() {
   let source = "import { ref } from 'vue'; export const count = ref(0);";
   let allocator = Allocator::default();
