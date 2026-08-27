@@ -425,7 +425,11 @@ fn subset_producer_export_pulls_consumer() {
   assert!(subset.stats.export_resolve_ran);
   assert_eq!(subset.stats.seed_plans_recomputed, 2);
   assert_eq!(subset.seed_plan_dirty, BTreeSet::from(["producer.ts".into(), "consumer.ts".into()]),);
-  assert_eq!(subset.modules.len(), 2, "report is this-pass (producer + pulled consumer)");
+  assert_eq!(
+    subset.modules.len(),
+    1,
+    "report is the retraced producer; consumer plan reuse stays in state"
+  );
   let consumer = subset_state.cached_reactivity(&"consumer.ts".into());
   assert!(
     consumer.is_some_and(|module| {
@@ -492,15 +496,9 @@ fn subset_live_ids_drop_deleted_modules() {
   assert!(first.issues.is_empty());
   assert!(state.cached_source(&"gone.ts".into()).is_some());
 
-  let keep = ModuleSource::standalone(
-    "keep.ts",
-    "import { ref } from 'vue'; export const keep = ref(1);",
-    "ts",
-    ScriptKind::Script,
-  );
   let drop = BTreeSet::from([vue_vet_core::ModuleId::from("gone.ts")]);
   let second = trace_modules_incremental_with_options(
-    std::slice::from_ref(&keep),
+    &[],
     &[],
     &TraceModulesOptions {
       max_workers: 2,
@@ -512,7 +510,8 @@ fn subset_live_ids_drop_deleted_modules() {
     &mut state,
   );
   assert!(second.issues.is_empty());
-  assert_eq!(second.modules.len(), 1);
+  assert!(second.modules.is_empty(), "unchanged keep is not cloned into the report");
+  assert_eq!(second.stats.reused_graphs, 1);
   assert!(state.cached_source(&"keep.ts".into()).is_some());
   assert!(state.cached_source(&"gone.ts".into()).is_none());
 }

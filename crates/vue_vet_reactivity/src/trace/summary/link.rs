@@ -426,6 +426,7 @@ fn trace_modules_incremental_in_current_pool(
   // schedule 999 immediate-reuse workers. Subset reports are this-pass
   // traces only; unchanged graphs stay in `state`.
   let mut reused = Vec::new();
+  let mut reused_ids = BTreeSet::new();
   let mut dirty_work = Vec::new();
   for (module, local_graph, plan, summary) in work {
     let source = module.source();
@@ -434,6 +435,7 @@ fn trace_modules_incremental_in_current_pool(
       && cached.plan == plan
     {
       report.stats.reused_graphs += 1;
+      reused_ids.insert(source.id.clone());
       if !subset {
         reused.push(cached.reactivity.clone());
       }
@@ -452,8 +454,8 @@ fn trace_modules_incremental_in_current_pool(
     })
     .collect::<Vec<_>>();
 
-  let mut keep: BTreeSet<ModuleId> =
-    report.modules.iter().map(|module| module.id.clone()).collect();
+  let mut keep = reused_ids;
+  keep.extend(report.modules.iter().map(|module| module.id.clone()));
   for outcome in outcomes {
     match outcome {
       PhaseTwoOutcome::Traced { source, summary, plan, reactivity, seeded } => {

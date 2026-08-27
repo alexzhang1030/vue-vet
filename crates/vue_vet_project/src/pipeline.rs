@@ -115,80 +115,28 @@ pub fn build_project_graph_incremental_with_options<'a>(
     .collect::<BTreeMap<_, _>>();
   let persist_cache = trace_options.persist_linking_cache;
   let subset_input = persist_cache && state.module_trace.has_cached_modules();
-  let mut module_ids = BTreeSet::new();
-  let mut borrowed_sources = Vec::new();
-  let mut owned_sources = Vec::new();
-  for file in &ordered {
-    take_workspace_source(
-      file.module_source.as_ref(),
-      ModuleId::primary(&file.path),
-      &state.module_trace,
-      subset_input,
-      &mut module_ids,
-      &mut borrowed_sources,
-      &mut owned_sources,
-    );
-    take_workspace_source(
-      file.ordinary_module_source.as_ref(),
-      ModuleId::ordinary(&file.path),
-      &state.module_trace,
-      subset_input,
-      &mut module_ids,
-      &mut borrowed_sources,
-      &mut owned_sources,
-    );
-  }
-  if Arc::strong_count(&state.structural) > 1 {
-    state.last_stats.partition_cow_clones += 1;
-  }
-  let structural = Arc::make_mut(&mut state.structural);
-  if !structural_context_matches(
-    structural.context.as_ref(),
+  let (module_ids, borrowed_sources, owned_sources) =
+    collect_workspace_sources(&ordered, &state.module_trace, subset_input);
+  refresh_structural_files(
+    state,
     &root,
-    project_context.revision,
+    project_context,
+    &ordered,
     &nodes,
     &module_ids,
-    &project_context.nuxt_import_names,
-  ) {
-    structural.files.clear();
-    structural.context = Some(StructuralContextKey {
-      root: root.clone(),
-      revision: project_context.revision,
-      nodes: nodes.clone(),
-      module_ids: module_ids.clone(),
-      nuxt_import_names: project_context.nuxt_import_names.clone(),
-    });
-  }
-  let present = ordered.iter().map(|file| &file.path).collect::<BTreeSet<_>>();
-  structural.files.retain(|file_id, _| present.contains(file_id));
-  for file in &ordered {
-    let reuse = structural.files.get(&file.path).is_some_and(|cached| cached.facts == file.facts);
-    if reuse {
-      state.last_stats.structural_files_reused += 1;
-      continue;
-    }
-    state.last_stats.structural_files_rebuilt += 1;
-    let output = Arc::new(analyze_structural_file(
-      file,
-      resolver.as_ref(),
-      &known,
-      &node_by_path,
-      &component_by_name,
-      &composable_by_name,
-      &module_ids,
-      &project_context.nuxt_import_names,
-    ));
-    structural
-      .files
-      .insert(file.path.clone(), StructuralFileCache { facts: Arc::clone(&file.facts), output });
-  }
+    resolver.as_ref(),
+    &known,
+    &node_by_path,
+    &component_by_name,
+    &composable_by_name,
+  );
   let mut module_links = Vec::new();
   let mut external_nodes = BTreeMap::new();
   let mut edges = Vec::new();
   let mut diagnostics = Vec::new();
   let mut external_roots = Vec::new();
   for file in &ordered {
-    let Some(cached) = structural.files.get(&file.path) else {
+    let Some(cached) = state.structural.files.get(&file.path) else {
       continue;
     };
     let output = cached.output.as_ref();
@@ -283,6 +231,100 @@ pub fn build_project_graph_incremental_with_options<'a>(
     module_reactivity,
     reactivity_issues,
     reactivity_error,
+  }
+}
+
+fn collect_workspace_sources<'a>(
+  ordered: &[&'a ProjectFile],
+  state: &ModuleTraceState,
+  subset: bool,
+) -> (BTreeSet<ModuleId>, Vec<&'a ModuleSource>, Vec<ModuleSource>) {
+  let mut module_ids = BTreeSet::new();
+  let mut borrowed_sources = Vec::new();
+  let mut owned_sources = Vec::new();
+  for file in ordered {
+    take_workspace_source(
+      file.module_source.as_ref(),
+      ModuleId::primary(&file.path),
+      state,
+      subset,
+      &mut module_ids,
+      &mut borrowed_sources,
+      &mut owned_sources,
+    );
+    take_workspace_source(
+      file.ordinary_module_source.as_ref(),
+      ModuleId::ordinary(&file.path),
+      state,
+      subset,
+      &mut module_ids,
+      &mut borrowed_sources,
+      &mut owned_sources,
+    );
+  }
+  (module_ids, borrowed_sources, owned_sources)
+}
+
+#[expect(
+  clippy::too_many_arguments,
+  reason = "structural refresh needs graph indexes plus Nuxt maps"
+)]
+fn refresh_structural_files(
+  state: &mut ProjectGraphState,
+  root: &std::path::Path,
+  project_context: &ProjectContext,
+  ordered: &[&ProjectFile],
+  nodes: &[crate::model::GraphNode],
+  module_ids: &BTreeSet<ModuleId>,
+  resolver: &crate::resolve::ProjectResolver,
+  known: &BTreeSet<String>,
+  node_by_path: &BTreeMap<String, String>,
+  component_by_name: &BTreeMap<String, Vec<String>>,
+  composable_by_name: &BTreeMap<String, String>,
+) {
+  if Arc::strong_count(&state.structural) > 1 {
+    state.last_stats.partition_cow_clones += 1;
+  }
+  let structural = Arc::make_mut(&mut state.structural);
+  if !structural_context_matches(
+    structural.context.as_ref(),
+    root,
+    project_context.revision,
+    nodes,
+    module_ids,
+    &project_context.nuxt_import_names,
+  ) {
+    structural.files.clear();
+    structural.context = Some(StructuralContextKey {
+      root: root.to_path_buf(),
+      revision: project_context.revision,
+      nodes: nodes.to_vec(),
+      module_ids: module_ids.clone(),
+      nuxt_import_names: project_context.nuxt_import_names.clone(),
+    });
+  }
+  let present = ordered.iter().map(|file| &file.path).collect::<BTreeSet<_>>();
+  structural.files.retain(|file_id, _| present.contains(file_id));
+  for file in ordered {
+    let reuse = structural.files.get(&file.path).is_some_and(|cached| cached.facts == file.facts);
+    if reuse {
+      state.last_stats.structural_files_reused += 1;
+      continue;
+    }
+    state.last_stats.structural_files_rebuilt += 1;
+    let output = Arc::new(analyze_structural_file(
+      file,
+      resolver,
+      known,
+      node_by_path,
+      component_by_name,
+      composable_by_name,
+      module_ids,
+      &project_context.nuxt_import_names,
+    ));
+    structural
+      .files
+      .insert(file.path.clone(), StructuralFileCache { facts: Arc::clone(&file.facts), output });
   }
 }
 
