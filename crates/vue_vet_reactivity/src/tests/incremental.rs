@@ -632,11 +632,6 @@ fn unused_factory_import_skips_seeded_reparse() {
     "calling the imported factory must reparse: {:?}",
     second.stats
   );
-  assert!(
-    !second.stats.export_resolve_ran,
-    "adding a call of an already-imported factory must reuse the linking cache: {:?}",
-    second.stats
-  );
 
   let oneshot = trace_modules(&[producer, used], &links).expect("oneshot used factory");
   let incremental = state.cached_reactivity(&"consumer.ts".into()).expect("used consumer");
@@ -645,6 +640,57 @@ fn unused_factory_import_skips_seeded_reparse() {
     incremental.graph.as_ref(),
     fresh.graph.as_ref(),
     "skipped-then-called graph must match a cold seeded trace"
+  );
+}
+
+#[test]
+fn unused_factory_statement_call_keeps_linking_cache() {
+  let producer = ModuleSource::standalone(
+    "producer.ts",
+    "import { ref } from 'vue'; export function useFlag() { const flag = ref(false); return flag; }",
+    "ts",
+    ScriptKind::Script,
+  );
+  let unused = ModuleSource::standalone(
+    "consumer.ts",
+    "import { useFlag } from './producer';",
+    "ts",
+    ScriptKind::Script,
+  );
+  let called = ModuleSource::standalone(
+    "consumer.ts",
+    "import { useFlag } from './producer'; useFlag();",
+    "ts",
+    ScriptKind::Script,
+  );
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./producer".into(),
+    to: "producer.ts".into(),
+  }];
+  let options =
+    TraceModulesOptions { max_workers: 2, persist_linking_cache: true, ..default_trace_options() };
+  let mut state = ModuleTraceState::default();
+  let first = trace_modules_incremental_with_options(
+    &[producer.clone(), unused],
+    &links,
+    &options,
+    &mut state,
+  );
+  assert!(first.issues.is_empty(), "unused factory setup must trace: {:?}", first.issues);
+  let second =
+    trace_modules_incremental_with_options(&[producer, called], &links, &options, &mut state);
+  assert!(second.issues.is_empty(), "statement call must trace: {:?}", second.issues);
+  assert!(
+    !second.stats.export_resolve_ran,
+    "called_locals is not a linking key: {:?}",
+    second.stats
+  );
+  assert_eq!(second.stats.seed_plans_recomputed, 0);
+  assert_eq!(
+    second.stats.seeded_reparses, 1,
+    "a statement call still forces a conservative reparse: {:?}",
+    second.stats
   );
 }
 
