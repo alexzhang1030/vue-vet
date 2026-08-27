@@ -574,6 +574,11 @@ fn independent_leaf_edit_keeps_affected_set_local() {
     "phase one must visit only the edited leaf, got {:?}",
     after.work
   );
+  assert_eq!(
+    after.work.cached_modules_merged, 0,
+    "linking hit must not merge cached summaries: {:?}",
+    after.work
+  );
   let plan = session.last_dirty_plan().unwrap_or_else(|error| panic!("dirty plan: {error}"));
   assert_eq!(plan.parse_files.len(), 1);
   assert!(
@@ -624,6 +629,11 @@ fn producer_export_change_limits_export_closure() {
   assert_eq!(
     after.work.module_summaries_visited, 1,
     "only the producer script is source-dirty: {:?}",
+    after.work
+  );
+  assert_eq!(
+    after.work.cached_modules_merged, 2,
+    "linking miss must merge the consumer and the unrelated module: {:?}",
     after.work
   );
   let plan = session.last_dirty_plan().unwrap_or_else(|error| panic!("dirty plan: {error}"));

@@ -94,6 +94,11 @@ fn incremental_leaf_edit_visits_one_module_summary() {
   );
   assert_eq!(after.module_reactivity.len(), 3);
   assert_eq!(state.last_stats().module_summaries_visited, 1);
+  assert_eq!(
+    state.last_stats().cached_modules_merged,
+    0,
+    "an independent leaf body edit must not copy cached summaries into this pass"
+  );
   assert_eq!(state.last_stats().module_graphs_reused, 2);
   assert!(
     !state.last_stats().export_resolve_ran,

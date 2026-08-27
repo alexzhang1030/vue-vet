@@ -364,6 +364,11 @@ fn subset_leaf_edit_matches_full_list_graphs() {
   assert_eq!(subset.stats.reused_graphs, 7);
   assert!(!subset.stats.export_resolve_ran);
   assert_eq!(subset.stats.seed_plans_recomputed, 0);
+  assert_eq!(
+    subset.stats.cached_modules_merged, 0,
+    "linking hit must not merge cached summaries: {:?}",
+    subset.stats
+  );
   assert_eq!(subset.modules.len(), 1);
   assert_eq!(graphs_from_state(&full_state), graphs_from_state(&subset_state));
 }
@@ -424,6 +429,11 @@ fn subset_producer_export_pulls_consumer() {
   assert_eq!(subset.stats.phase_one_succeeded, 1);
   assert!(subset.stats.export_resolve_ran);
   assert_eq!(subset.stats.seed_plans_recomputed, 2);
+  assert_eq!(
+    subset.stats.cached_modules_merged, 2,
+    "linking miss must merge the other live modules: {:?}",
+    subset.stats
+  );
   assert_eq!(subset.seed_plan_dirty, BTreeSet::from(["producer.ts".into(), "consumer.ts".into()]),);
   assert_eq!(
     subset.modules.len(),

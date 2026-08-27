@@ -92,7 +92,8 @@ vue-vet CLI
   module seed plans/final graphs, and the reverse dependency index.   Unrelated
   sources are not re-parsed on a normal edit. After a warm persist scan the
   tracer receives a source-dirty subset of `Arc<ModuleSource>` and
-  `retain_cached_modules`; cached summaries fill linking. Persist is a
+  `retain_cached_modules`. Linking compares live surfaces in place and
+  merges cached summaries only on a miss. Persist is a
   refcount. The report is this-pass only. Unchanged graphs stay in
   `ModuleTraceState`; layers read that cache and store
   `Arc<[Arc<ModuleReactivity>]>` instead of a cloned live-id set or
@@ -147,6 +148,7 @@ export-closure seed recompute + SFC blocks     (shipped)
 warm disk hit stays cache-load cheap           (shipped; no eager IR hydrate)
 returns_by_function + SourceContext            (shipped)
 subset module input / cached universe          (shipped)
+skip cached-summary merge on linking hit       (shipped)
 ```
 
 Do **not** pursue a generalized unified AST IR. Further locality work belongs in
@@ -158,8 +160,9 @@ Execution plan shape (session-owned):
 ChangeImpact { parse, environment, resolution, component_index, membership }
   → DirtyPlan { parse_files, structural_files, module_summaries,
                 export_closure, rule_files, diagnostic_files }
-  → stage work counters (files_parsed, seed_plans_recomputed,
-                         export_resolve_ran, seeded_reparses, COW clones, …)
+  → stage work counters (files_parsed, cached_modules_merged,
+                         seed_plans_recomputed, export_resolve_ran,
+                         seeded_reparses, COW clones, …)
 ```
 
 Batch intent (execution lives in tracker issues, not temporary numbers here):

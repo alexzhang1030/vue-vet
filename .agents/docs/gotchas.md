@@ -379,20 +379,24 @@ must return the last snapshot without re-entering the pipeline.
 scheduling was narrow. After a warm persist scan, phase one visits the
 source-dirty subset; `module_summaries_visited` is that count, not
 `graph.module_reactivity.len()`. Prove locality with work counters
-(`files_parsed`, `module_summaries_visited`, `seed_plans_recomputed`,
-`export_resolve_ran`, `seeded_reparses`, layered rebuild, COW clones, rules
-rerun) and `DirtyPlan.export_closure` (the seed-dirty set, not
-`module_summaries`). Do not treat `affected_files()` size as A6 work.
+(`files_parsed`, `module_summaries_visited`, `cached_modules_merged`,
+`seed_plans_recomputed`, `export_resolve_ran`, `seeded_reparses`, layered
+rebuild, COW clones, rules rerun) and `DirtyPlan.export_closure` (the
+seed-dirty set, not `module_summaries`). Do not treat `affected_files()`
+size as A6 work.
 
 **Subset input without retain or `live_module_ids` drops the workspace.**
 `state.entries.retain` used to keep only this pass's `report.modules`. Passing
 a dirty subset without `retain_cached_modules` or `live_module_ids` still does
 that. Prefer `retain_cached_modules` plus `drop_module_ids` (deleted ids only)
 so a warm scan does not clone the live universe. Explicit `live_module_ids`
-still wins when set. Merge cached summaries into linking, pull seed-dirty
-consumers from `cached_source`, and keep unchanged graphs in `state` — do not
-emit them into `report.modules`. Empty unique + persist + retain must keep the
-cached universe, not `clear()` the state. Do not clone unchanged
+still wins when set. Compare live surfaces in place from `state.entries`;
+merge cached summaries into this-pass facts only on a linking miss (seed
+resolve and consumer pull still need the full live `facts_by_id`). Pull
+seed-dirty consumers from `cached_source`, and keep unchanged graphs in
+`state` — do not emit them into `report.modules`. Empty unique + persist +
+retain must keep the cached universe, not `clear()` the state. Do not clone
+unchanged
 `ModuleSource`s into the tracer input. Persist of a dirty input is an
 `Arc<ModuleSource>` refcount (`trace_modules_incremental_from_arcs`); the
 live set is borrowed from those Arcs. Do not `Arc::new(module.clone())`
