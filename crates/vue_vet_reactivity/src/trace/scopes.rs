@@ -134,6 +134,10 @@ pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
   }
 }
 
+#[expect(
+  clippy::too_many_arguments,
+  reason = "scope assembly threads the file callee index with existing collectors"
+)]
 pub(super) fn collect_tracking_scopes(
   semantic: &oxc_semantic::Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
@@ -331,6 +335,10 @@ pub(super) fn assigned_binding_name(
   }
 }
 
+#[expect(
+  clippy::too_many_arguments,
+  reason = "scope assembly threads the file callee index with existing collectors"
+)]
 pub(super) fn collect_render_scopes(
   semantic: &oxc_semantic::Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
