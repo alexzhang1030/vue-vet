@@ -17,7 +17,7 @@ use super::{
   expr,
   follow::{FileTraceIndex, FollowOutside, follow_local_callees},
   kinds::{reference_resolves_to_binding, resolved_vue_callee, source_span},
-  reads::{classify_scope_reads, collect_scope_reads},
+  reads::{ScopeIrIndex, classify_scope_reads, collect_scope_reads},
   writes::local_getter_parts,
 };
 
@@ -400,6 +400,7 @@ pub(super) fn collect_watch_source_reads(
   sfc_source: &str,
   script_offset: usize,
   index: &FileTraceIndex,
+  ir: &ScopeIrIndex,
 ) -> Vec<ReactiveReadFact> {
   let ctx = WatchSourceCtx {
     semantic,
@@ -410,6 +411,7 @@ pub(super) fn collect_watch_source_reads(
     sfc_source,
     script_offset,
     index,
+    ir,
   };
   let Some(expression) = argument.as_expression() else {
     return Vec::new();
@@ -474,6 +476,7 @@ pub(super) struct WatchSourceCtx<'a> {
   sfc_source: &'a str,
   script_offset: usize,
   index: &'a FileTraceIndex,
+  ir: &'a ScopeIrIndex,
 }
 
 /// Reads collected from a `watch` source getter function body.
@@ -499,7 +502,7 @@ pub(super) fn collect_watch_getter_reads(
     &raw_reads,
     ctx.sfc_source,
     ctx.script_offset,
-    ctx.imported_bindings,
+    ctx.ir,
   )
 }
 

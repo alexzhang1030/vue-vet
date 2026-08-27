@@ -16,7 +16,7 @@ use super::{
   bindings::AmbientCallHandles,
   follow::FileTraceIndex,
   kinds::{resolved_vue_callee, source_span},
-  reads::{classify_scope_reads, collect_scope_reads},
+  reads::{ScopeIrIndex, classify_scope_reads, collect_scope_reads},
   render,
   uncertain::{
     collect_uncertain_scope_accesses, collect_uncertain_watch_sources, collect_watch_source_reads,
@@ -67,6 +67,7 @@ pub(super) struct ScopeBuild<'a> {
   script_offset: usize,
   force_outside_tracking: bool,
   index: &'a FileTraceIndex,
+  ir: &'a ScopeIrIndex,
 }
 
 pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
@@ -87,7 +88,7 @@ pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
     &raw_reads,
     build.sfc_source,
     build.script_offset,
-    build.imported_bindings,
+    build.ir,
   );
   if build.force_outside_tracking {
     for read in &mut reads {
@@ -146,6 +147,7 @@ pub(super) fn collect_tracking_scopes(
   sfc_source: &str,
   script_offset: usize,
   index: &FileTraceIndex,
+  ir: &ScopeIrIndex,
 ) -> Vec<TrackingScopeFact> {
   // Only treat `.run(cb)` as an effect-scope body when the receiver was assigned
   // from Vue's `effectScope()` — never invent edges for arbitrary `.run` APIs.
@@ -179,6 +181,7 @@ pub(super) fn collect_tracking_scopes(
         script_offset,
         force_outside_tracking: false,
         index,
+        ir,
       }));
       continue;
     }
@@ -230,6 +233,7 @@ pub(super) fn collect_tracking_scopes(
           script_offset,
           force_outside_tracking: scope_kind == TrackingScopeKind::OnScopeDispose,
           index,
+          ir,
         }));
       }
       TrackingScopeKind::EffectScope => {
@@ -253,6 +257,7 @@ pub(super) fn collect_tracking_scopes(
             script_offset,
             force_outside_tracking: false,
             index,
+            ir,
           }));
         }
         // Also capture `.run(callback)` on effectScope instances via member call below.
@@ -272,6 +277,7 @@ pub(super) fn collect_tracking_scopes(
           sfc_source,
           script_offset,
           index,
+          ir,
         );
         let uncertain_accesses = collect_uncertain_watch_sources(
           semantic,
@@ -312,6 +318,7 @@ pub(super) fn collect_tracking_scopes(
             script_offset,
             force_outside_tracking: true,
             index,
+            ir,
           }));
         }
       }
@@ -347,6 +354,7 @@ pub(super) fn collect_render_scopes(
   sfc_source: &str,
   script_offset: usize,
   index: &FileTraceIndex,
+  ir: &ScopeIrIndex,
 ) -> Vec<TrackingScopeFact> {
   let mut scopes = Vec::new();
   for body in render::collect_render_bodies(semantic, imported_bindings) {
@@ -366,6 +374,7 @@ pub(super) fn collect_render_scopes(
       script_offset,
       force_outside_tracking: false,
       index,
+      ir,
     }));
   }
   scopes

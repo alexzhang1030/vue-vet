@@ -637,8 +637,13 @@ discovery is the file `FileTraceIndex` (`LocalCalleeIndex` + `ScopeNodeIndex`);
 nested hops and watch-source getters look up `full_callees(F)` and filter
 `visiting`. Local member / ident / write / uncertain collectors look up the
 node index — do not walk `semantic.nodes()` again for ownership. Context and
-sync maps stay separate (deferred is outside vs drop). Do not cache a slice
-keyed only on `scope_id`. Parens / TypeScript wrappers peel in `trace/expr.rs`
+sync maps stay separate (deferred is outside vs drop). Await/pause
+classification looks up file `ScopeIrIndex` (await ends via
+`tracking_await_owner`; pause via `innermost_function_id` + helper leak).
+Do not rebuild that IR per tracking scope. Do not unify await ownership with
+context/sync — `if` / ternary / `&&` drop the await, and there is no
+HOF / `toValue` / deferred skip. Do not cache a slice keyed only on
+`scope_id`. Parens / TypeScript wrappers peel in `trace/expr.rs`
 (`peel_parens`); do not add another copy in callback or render adapters.
 Watch sources use that peel too (graph v31): `watch((count))` /
 `watch(count as T)` / `watch((() => count.value))` must agree with the

@@ -593,13 +593,75 @@ pub(super) fn branch_pair_covers_read(
   )
 }
 
-/// Per-tracking-scope await facts. Pause events live in [`build_function_pause_irs`]
+/// Per-tracking-scope await facts. Pause events live in [`ScopeIrIndex`]
 /// so helper bodies are not compared against the caller by file offset.
 pub(super) struct TrackingScopeIR {
   /// Ends of top-level `await` expressions owned by this scope (sorted ascending).
   await_ends: Vec<u32>,
 }
 
+/// File-level await + pause IR. Built once; [`classify_scope_reads`] looks up.
+///
+/// Await ownership is a third rule — first Function/Arrow, but `if` / ternary /
+/// `&&` drop the await (top-level only). Do not unify with [`super::context::ScopeNodeIndex`].
+pub(super) struct ScopeIrIndex {
+  awaits: BTreeMap<NodeId, Vec<u32>>,
+  pause_irs: BTreeMap<NodeId, Vec<(u32, bool)>>,
+}
+
+impl ScopeIrIndex {
+  pub(super) fn build(
+    semantic: &Semantic<'_>,
+    imported_bindings: &BTreeMap<String, (String, String)>,
+  ) -> Self {
+    Self {
+      awaits: index_await_ends(semantic),
+      pause_irs: build_function_pause_irs(semantic, imported_bindings),
+    }
+  }
+
+  pub(super) fn tracking_ir(&self, scope_id: NodeId) -> TrackingScopeIR {
+    TrackingScopeIR { await_ends: self.awaits.get(&scope_id).cloned().unwrap_or_default() }
+  }
+
+  pub(super) const fn pause_irs(&self) -> &BTreeMap<NodeId, Vec<(u32, bool)>> {
+    &self.pause_irs
+  }
+}
+
+fn index_await_ends(semantic: &Semantic<'_>) -> BTreeMap<NodeId, Vec<u32>> {
+  let mut awaits: BTreeMap<NodeId, Vec<u32>> = BTreeMap::new();
+  for (node_id, node) in semantic.nodes().iter_enumerated() {
+    let AstKind::AwaitExpression(await_expression) = node.kind() else {
+      continue;
+    };
+    let Some(owner) = tracking_await_owner(semantic, node_id) else {
+      continue;
+    };
+    awaits.entry(owner).or_default().push(await_expression.span.end);
+  }
+  for ends in awaits.values_mut() {
+    ends.sort_unstable();
+  }
+  awaits
+}
+
+/// Inverse of [`scope_owns_await`]: first Function/Arrow, unless an `if` /
+/// ternary / logical sits in between.
+fn tracking_await_owner(semantic: &Semantic<'_>, await_id: NodeId) -> Option<NodeId> {
+  for ancestor_id in semantic.nodes().ancestor_ids(await_id) {
+    match semantic.nodes().kind(ancestor_id) {
+      AstKind::ArrowFunctionExpression(_) | AstKind::Function(_) => return Some(ancestor_id),
+      AstKind::IfStatement(_)
+      | AstKind::ConditionalExpression(_)
+      | AstKind::LogicalExpression(_) => return None,
+      _ => {}
+    }
+  }
+  None
+}
+
+#[cfg(test)]
 pub(super) fn build_tracking_scope_ir(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
@@ -616,6 +678,7 @@ pub(super) fn build_tracking_scope_ir(
   TrackingScopeIR { await_ends }
 }
 
+#[cfg(test)]
 pub(super) fn scope_owns_await(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
@@ -765,13 +828,12 @@ pub(super) fn classify_scope_reads(
   raw_reads: &[RawReactiveRead],
   sfc_source: &str,
   script_offset: usize,
-  imported_bindings: &BTreeMap<String, (String, String)>,
+  ir: &ScopeIrIndex,
 ) -> Vec<ReactiveReadFact> {
   if raw_reads.is_empty() {
     return Vec::new();
   }
-  let ir = build_tracking_scope_ir(semantic, scope_id);
-  let pause_irs = build_function_pause_irs(semantic, imported_bindings);
+  let tracking = ir.tracking_ir(scope_id);
   raw_reads
     .iter()
     .map(|read| {
@@ -783,8 +845,8 @@ pub(super) fn classify_scope_reads(
         read,
         sfc_source,
         script_offset,
-        ir: &ir,
-        pause_irs: &pause_irs,
+        ir: &tracking,
+        pause_irs: ir.pause_irs(),
       })
     })
     .collect()
@@ -912,5 +974,105 @@ pub(super) fn classify_read(input: &ClassifyRead<'_>) -> ReactiveReadFact {
       .collect(),
     guarded_by,
     span: source_span(input.sfc_source, input.script_offset, input.read.span),
+  }
+}
+
+#[cfg(test)]
+mod scope_ir_equiv {
+  use oxc_allocator::Allocator;
+  use oxc_ast::AstKind;
+  use oxc_parser::Parser;
+  use oxc_semantic::SemanticBuilder;
+  use oxc_span::SourceType;
+
+  use super::{
+    ScopeIrIndex, build_tracking_scope_ir, is_pause_tracking_call, is_resume_tracking_call,
+  };
+  use crate::trace::follow::innermost_function_id;
+  use crate::trace::kinds::collect_imported_bindings;
+
+  #[test]
+  fn file_scope_ir_matches_await_walk() {
+    let source = "\
+import { ref, computed, watchEffect, toValue, pauseTracking, enableTracking } from 'vue';
+const x = ref(0);
+const items = ref([1]);
+async function inner() { await Promise.resolve(); return x.value; }
+async function load() { return inner(); }
+const c = computed(async () => {
+  const before = x.value;
+  await Promise.resolve();
+  if (before) { await Promise.resolve(); }
+  before ? await Promise.resolve() : 0;
+  before && await Promise.resolve();
+  items.value.map(async () => { await Promise.resolve(); return load(); });
+  Promise.resolve().then(async () => { await Promise.resolve(); });
+  toValue(async () => { await Promise.resolve(); return x.value; });
+  return x.value;
+});
+function paused() { pauseTracking(); return x.value; }
+watchEffect(() => {
+  pauseTracking();
+  void paused();
+  enableTracking();
+  void x.value;
+});
+void c.value;
+";
+    let allocator = Allocator::default();
+    let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let built = SemanticBuilder::new().with_build_nodes(true).build(&parsed.program);
+    assert!(built.diagnostics.is_empty(), "{:?}", built.diagnostics);
+    let semantic = &built.semantic;
+    let imported = collect_imported_bindings(semantic);
+    let index = ScopeIrIndex::build(semantic, &imported);
+
+    let mut function_ids = Vec::new();
+    for (id, node) in semantic.nodes().iter_enumerated() {
+      if matches!(node.kind(), AstKind::Function(_) | AstKind::ArrowFunctionExpression(_)) {
+        function_ids.push(id);
+      }
+    }
+    assert!(
+      function_ids.len() >= 6,
+      "expected helpers + computed/HOF/then/toValue arrows, got {}",
+      function_ids.len()
+    );
+
+    let mut saw_await_owner = false;
+    for &scope_id in &function_ids {
+      let walked = build_tracking_scope_ir(semantic, scope_id);
+      let indexed = index.tracking_ir(scope_id);
+      assert_eq!(walked.await_ends, indexed.await_ends, "await ends scope={scope_id:?}");
+      if !walked.await_ends.is_empty() {
+        saw_await_owner = true;
+      }
+    }
+    assert!(saw_await_owner, "fixture must own at least one top-level await");
+
+    for (_, node) in semantic.nodes().iter_enumerated() {
+      let AstKind::CallExpression(call) = node.kind() else {
+        continue;
+      };
+      let is_pause = if is_pause_tracking_call(semantic, call, &imported) {
+        true
+      } else if is_resume_tracking_call(semantic, call, &imported) {
+        false
+      } else {
+        continue;
+      };
+      let Some(owner) = innermost_function_id(semantic, call.node_id.get()) else {
+        continue;
+      };
+      assert!(
+        index
+          .pause_irs()
+          .get(&owner)
+          .is_some_and(|events| events.contains(&(call.span.end, is_pause))),
+        "pause/resume at {} missing from owner={owner:?}",
+        call.span.end
+      );
+    }
   }
 }
