@@ -74,9 +74,10 @@ vue-vet CLI
   caps both Rayon phases; there is never one native thread per module. Oxc's
   adapter extracts script facts, the local graph, and opaque Vue Vet-owned module
   summaries from one semantic. The coordinator resolves seeds from those
-  summaries. Modules without seeds reuse their local graph; a seeded consumer
-  reparses only when its source or resolved seed plan changed, while unchanged
-  final graphs are reused from `ModuleTraceState`. Oxc arena values never cross
+  summaries. Modules whose seed plan cannot materialize reuse their local graph;
+  a consumer whose plan can materialize reparses only when its source or
+  resolved seed plan changed, while unchanged final graphs are reused from
+  `ModuleTraceState`. Oxc arena values never cross
   a thread or adapter boundary and the workspace still forbids `unsafe_code`.
 - **Dirty-set scheduling (parse locality)** — `apply_changes` retains the returned
   dirty `FileId` set in `PendingChanges`. `analyze_affected` returns the last

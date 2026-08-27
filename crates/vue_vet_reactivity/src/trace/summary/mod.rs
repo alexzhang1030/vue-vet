@@ -401,6 +401,13 @@ pub struct ModuleSummary {
   pub(super) typed_callback_param_slots: BTreeMap<String, typed_callback::TypedCallbackParamSlots>,
   provides: Vec<super::ProvideSite>,
   injects: Vec<super::InjectSite>,
+  /// Identifier callees seen during phase one (`foo()` / `foo<T>()`).
+  ///
+  /// Phase two uses this to skip a reparse when the seed plan is call-site-only
+  /// (Factory / Composable / ValueFactory / callback slots) and none of those
+  /// names are called. Not a linking-surface field — body edits that only
+  /// change call sites must not miss the linking cache.
+  called_locals: BTreeSet<String>,
   local_graph: std::sync::Arc<ReactivityGraph>,
 }
 
@@ -565,6 +572,11 @@ pub fn merge_declaration_implementation_summary(
     typed_callback_param_slots,
     provides: declaration.provides.clone(),
     injects: declaration.injects.clone(),
+    called_locals: declaration
+      .called_locals
+      .union(&implementation.called_locals)
+      .cloned()
+      .collect(),
     local_graph: Arc::clone(&declaration.local_graph),
   }
 }
@@ -643,6 +655,7 @@ pub fn prepare_module_summary_with_config(
     kind,
   );
   let injects = collect_inject_sites(semantic, &imported_bindings, &local_graph.bindings, kind);
+  let called_locals = collect_called_locals(semantic);
   ModuleSummary {
     imports,
     exports,
@@ -651,6 +664,7 @@ pub fn prepare_module_summary_with_config(
     typed_callback_param_slots,
     provides,
     injects,
+    called_locals,
     local_graph,
   }
 }
@@ -790,6 +804,23 @@ pub(super) fn collect_imports(semantic: &oxc_semantic::Semantic<'_>) -> Vec<Impo
   }
   imports.sort_by_key(|import| import.span.start);
   imports
+}
+
+/// Identifier callees in this file. Same `get_identifier_reference` gate as
+/// seed materialize — a conservative superset (every call, not only declarator
+/// inits) so a skip never drops a seed that materialize would apply.
+fn collect_called_locals(semantic: &Semantic<'_>) -> BTreeSet<String> {
+  let mut names = BTreeSet::new();
+  for node in semantic.nodes() {
+    let AstKind::CallExpression(call) = node.kind() else {
+      continue;
+    };
+    let Some(callee) = call.callee.get_identifier_reference() else {
+      continue;
+    };
+    names.insert(callee.name.to_string());
+  }
+  names
 }
 
 fn collect_local_values(

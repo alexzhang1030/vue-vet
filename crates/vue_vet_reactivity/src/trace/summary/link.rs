@@ -170,6 +170,10 @@ struct CachedLinkingSnapshot {
 }
 
 /// Linking-relevant fields only — never clones; prefers [`Arc::ptr_eq`].
+///
+/// `called_locals` is a phase-two skip index, not a linking key. A body edit
+/// that starts calling an already-imported factory must reuse the cached plan
+/// and reparse from source+plan dirtiness, not from a linking-cache miss.
 fn linking_surface_eq(left: &Arc<ModuleSummary>, right: &Arc<ModuleSummary>) -> bool {
   Arc::ptr_eq(left, right)
     || (left.imports == right.imports
@@ -232,7 +236,8 @@ impl ModuleSeedPlan {
 /// Work is bounded by [`TraceModulesOptions::max_workers`]. Phase 1 parses every
 /// module and retains only serializable export facts plus the local graph. The
 /// coordinator resolves cross-module seeds. Phase 2 reuses local graphs for
-/// modules without seeds and reparses only modules that need seed materialization.
+/// modules whose seed plan cannot materialize and reparses only modules that
+/// need seed materialization.
 ///
 /// # Errors
 ///
@@ -477,12 +482,27 @@ fn trace_modules_incremental_in_current_pool(
     report.modules.push(reactivity);
   }
 
-  let outcomes = dirty_work
-    .into_par_iter()
+  // Empty plans and unused call-site-only plans reuse `local_graph`. Do not
+  // Rayon-schedule them: the worker would only `set_module_id`.
+  let mut local_reuse = Vec::new();
+  let mut reparse_work = Vec::new();
+  for (module, local_graph, plan, summary) in dirty_work {
+    if seed_plan_needs_reparse(&plan, summary.as_deref()) {
+      reparse_work.push((module, local_graph, plan, summary));
+    } else {
+      local_reuse.push((module, local_graph, plan, summary));
+    }
+  }
+
+  let mut outcomes = local_reuse
+    .into_iter()
     .map(|(module, local_graph, plan, summary)| {
-      trace_dirty_module(module, local_graph, plan, summary, persist, &options.named_api_bags)
+      finish_unseeded_module(module, local_graph, plan, summary, persist)
     })
     .collect::<Vec<_>>();
+  outcomes.extend(reparse_work.into_par_iter().map(|(module, local_graph, plan, summary)| {
+    trace_dirty_module(module, local_graph, plan, summary, persist, &options.named_api_bags)
+  }));
 
   let mut keep = reused_ids;
   keep.extend(report.modules.iter().map(|module| module.id.clone()));
@@ -856,7 +876,7 @@ fn build_oneshot_seed_work<'a>(
         options_callback_slots,
         typed_callback_param_slots,
       };
-      Some((inputs.work(module), local_graph, plan, None))
+      Some((inputs.work(module), local_graph, plan, Some(Arc::clone(&facts.summary))))
     })
     .collect::<Vec<_>>();
   report.stats.seed_plans_recomputed = work.len();
@@ -1046,6 +1066,60 @@ enum PhaseTwoOutcome {
     reactivity: ModuleReactivity,
     error: TraceModulesError,
   },
+}
+
+/// Whether materialize would produce seeds. Known / ValueBag / ComponentFactory
+/// / inject always can. Factory / Composable / ValueFactory / callback slots
+/// can only when phase-one `called_locals` contains the name. Missing summary
+/// stays conservative (reparse).
+fn seed_plan_needs_reparse(plan: &ModuleSeedPlan, summary: Option<&ModuleSummary>) -> bool {
+  if plan.is_empty() {
+    return false;
+  }
+  let Some(summary) = summary else {
+    return true;
+  };
+  if !plan.injects.is_empty() {
+    return true;
+  }
+  for (local, state) in &plan.imports {
+    match state {
+      ExportState::Known(_) | ExportState::ValueBag(_) | ExportState::ComponentFactory => {
+        return true;
+      }
+      ExportState::Factory(_) | ExportState::Composable(_) | ExportState::ValueFactory(_) => {
+        if summary.called_locals.contains(local) {
+          return true;
+        }
+      }
+      ExportState::ValueFactoryCall(_)
+      | ExportState::GenericMethodInstantiate { .. }
+      | ExportState::ForwardReturn(_)
+      | ExportState::DeclaredPlainObjectFactory
+      | ExportState::BodyUnwrappedState
+      | ExportState::Ambiguous => {}
+    }
+  }
+  plan.options_callback_slots.keys().any(|name| summary.called_locals.contains(name))
+    || plan.typed_callback_param_slots.keys().any(|name| summary.called_locals.contains(name))
+}
+
+fn finish_unseeded_module(
+  module: WorkSource<'_>,
+  mut local_graph: Arc<ReactivityGraph>,
+  plan: ModuleSeedPlan,
+  summary: Option<Arc<ModuleSummary>>,
+  persist: bool,
+) -> PhaseTwoOutcome {
+  let id = module.source().id.clone();
+  Arc::make_mut(&mut local_graph).set_module_id(id.clone());
+  PhaseTwoOutcome::Traced {
+    source: module.into_persist_source(persist),
+    summary,
+    plan: persist.then_some(plan),
+    reactivity: ModuleReactivity { id, graph: local_graph },
+    seeded: false,
+  }
 }
 
 fn trace_dirty_module(

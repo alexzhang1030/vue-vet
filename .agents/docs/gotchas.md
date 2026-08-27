@@ -401,7 +401,13 @@ on a source the caller already shared.
 **Linking surface ≠ `ModuleSummary` equality.** Export/seed reuse keys on
 imports/exports/locals/provides/injects + links. A leaf body edit that only
 changes `local_graph` must not force `resolve_exports`. Do not key linking
-cache on full `ModuleSummary` (it includes the local graph). Never rebuild a
+cache on full `ModuleSummary` (it includes the local graph and `called_locals`).
+`called_locals` is a phase-two skip index: unused Factory / Composable /
+ValueFactory / callback-slot plans reuse `local_graph`. Known / ValueBag /
+ComponentFactory / inject still reparse. Do not filter `ModuleSeedPlan` by
+call sites — the plan stays "what could seed"; skip is "what would
+materialize this pass." Filtering the plan would miss the linking cache when
+a body edit starts calling an already-imported factory. Never rebuild a
 cloned `LinkingSurface` map for every module on each scan — retain
 `Arc<ModuleSummary>` and prefer `Arc::ptr_eq`, then compare linking fields in
 place. O(N) deep clones on cold `trace_modules` / independent leaf edits are a
@@ -489,9 +495,10 @@ candidate is found.
 
 **Phase-two must not Rayon-schedule immediate reuse.** On persistent scans,
 split reused vs dirty modules before `par_iter`. Independent leaf edits with
-many reusable graphs must not pay worker scheduling for no-op reuse. Never clone
-all `ModuleSource` values into a side cache map for phase-one — borrow
-`state.entries` instead.
+many reusable graphs must not pay worker scheduling for no-op reuse. Empty
+plans and unused call-site-only plans finish sequentially (`set_module_id`
+only). Never clone all `ModuleSource` values into a side cache map for
+phase-one — borrow `state.entries` instead.
 
 **First persistent scan must build seed plans once.** Cold session analyzes
 (`scan_overlay_*`, first `analyze`) should use oneshot-style plan construction

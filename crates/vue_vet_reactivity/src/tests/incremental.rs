@@ -572,3 +572,160 @@ fn prepared_phase_one_facts_avoid_an_unseeded_second_parse() {
   let traced = trace_modules(&[module], &[]);
   assert!(traced.is_ok(), "prepared phase-one facts should bypass a second parse");
 }
+
+#[test]
+fn unused_factory_import_skips_seeded_reparse() {
+  let producer = ModuleSource::standalone(
+    "producer.ts",
+    "import { ref } from 'vue'; export function useFlag() { const flag = ref(false); return flag; }",
+    "ts",
+    ScriptKind::Script,
+  );
+  let unused = ModuleSource::standalone(
+    "consumer.ts",
+    "import { useFlag } from './producer';",
+    "ts",
+    ScriptKind::Script,
+  );
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./producer".into(),
+    to: "producer.ts".into(),
+  }];
+  let options =
+    TraceModulesOptions { max_workers: 2, persist_linking_cache: true, ..default_trace_options() };
+  let mut state = ModuleTraceState::default();
+  let first = trace_modules_incremental_with_options(
+    &[producer.clone(), unused],
+    &links,
+    &options,
+    &mut state,
+  );
+  assert!(first.issues.is_empty(), "unused factory setup must trace: {:?}", first.issues);
+  assert_eq!(
+    first.stats.seeded_reparses, 0,
+    "unused Factory import must reuse local_graph: {:?}",
+    first.stats
+  );
+  let unused_graph = state.cached_reactivity(&"consumer.ts".into()).expect("unused consumer");
+  assert!(
+    !unused_graph.graph.bindings.iter().any(|binding| binding.name == "isCoarse"),
+    "unused factory must not invent a seeded binding: {:?}",
+    unused_graph.graph.bindings
+  );
+
+  let used = ModuleSource::standalone(
+    "consumer.ts",
+    "import { computed } from 'vue'; import { useFlag } from './producer'; const isCoarse = useFlag(); const hint = computed(() => isCoarse.value ? 'a' : 'b');",
+    "ts",
+    ScriptKind::Script,
+  );
+  let second = trace_modules_incremental_with_options(
+    &[producer.clone(), used.clone()],
+    &links,
+    &options,
+    &mut state,
+  );
+  assert!(second.issues.is_empty(), "adding a factory call must trace: {:?}", second.issues);
+  assert_eq!(
+    second.stats.seeded_reparses, 1,
+    "calling the imported factory must reparse: {:?}",
+    second.stats
+  );
+  assert!(
+    !second.stats.export_resolve_ran,
+    "adding a call of an already-imported factory must reuse the linking cache: {:?}",
+    second.stats
+  );
+
+  let oneshot = trace_modules(&[producer, used], &links).expect("oneshot used factory");
+  let incremental = state.cached_reactivity(&"consumer.ts".into()).expect("used consumer");
+  let fresh = oneshot.iter().find(|module| module.id == "consumer.ts").expect("oneshot consumer");
+  assert_eq!(
+    incremental.graph.as_ref(),
+    fresh.graph.as_ref(),
+    "skipped-then-called graph must match a cold seeded trace"
+  );
+}
+
+#[test]
+fn unused_known_import_still_reparses() {
+  let modules = [
+    ModuleSource::standalone(
+      "producer.ts",
+      "import { ref } from 'vue'; export const count = ref(0);",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { count } from './producer';",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./producer".into(),
+    to: "producer.ts".into(),
+  }];
+  let mut state = ModuleTraceState::default();
+  let report = trace_modules_incremental_with_options(
+    &modules,
+    &links,
+    &TraceModulesOptions { max_workers: 2, persist_linking_cache: true, ..default_trace_options() },
+    &mut state,
+  );
+  assert!(report.issues.is_empty(), "unused Known setup must trace: {:?}", report.issues);
+  assert_eq!(
+    report.stats.seeded_reparses, 1,
+    "Known imports materialize from the import span even when unused: {:?}",
+    report.stats
+  );
+  let consumer = state.cached_reactivity(&"consumer.ts".into()).expect("known consumer");
+  assert!(
+    consumer
+      .graph
+      .bindings
+      .iter()
+      .any(|binding| binding.name == "count" && binding.kind == ReactiveBindingKind::Ref),
+    "unused Known import must still seed the binding: {:?}",
+    consumer.graph.bindings
+  );
+}
+
+#[test]
+fn unused_factory_does_not_skip_when_known_import_is_present() {
+  let modules = [
+    ModuleSource::standalone(
+      "producer.ts",
+      "import { ref } from 'vue'; export const count = ref(0); export function useFlag() { const flag = ref(false); return flag; }",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "consumer.ts",
+      "import { count, useFlag } from './producer';",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./producer".into(),
+    to: "producer.ts".into(),
+  }];
+  let mut state = ModuleTraceState::default();
+  let report = trace_modules_incremental_with_options(
+    &modules,
+    &links,
+    &TraceModulesOptions { max_workers: 2, persist_linking_cache: true, ..default_trace_options() },
+    &mut state,
+  );
+  assert!(report.issues.is_empty(), "mixed unused seeds must trace: {:?}", report.issues);
+  assert_eq!(
+    report.stats.seeded_reparses, 1,
+    "a Known import in the same plan must still force a reparse: {:?}",
+    report.stats
+  );
+}
