@@ -104,7 +104,7 @@ Cold cost is dominated by (1) visiting every module in phase one, (2) cloning ma
 
 **Phase two is all-or-nothing.** Any non-empty `ModuleSeedPlan` (including only inject or only a typed-callback slot) reparses the whole file. Empty plan reuses `local_graph`.
 
-**Session locality.** `DirtyPlan.export_closure` is the last A6 seed-dirty set (`TraceModulesReport::seed_plan_dirty`), not a clone of `module_summaries`. It does not drive the next scan — the linker still computes the set. `ScanWorkCounters` now ships `export_resolve_ran` and `seeded_reparses` next to `seed_plans_recomputed`. `module_summaries_visited` is still `graph.module_reactivity.len()`. Pipeline reuses `ModuleTraceState::cached_source` when the script body is unchanged. Phase one stays sequential for attached/cached summaries (Rayon only modules that still need a parse). Session still hands the tracer a full module list. One-shot `trace_*` benches force `persist_linking_cache = false` and are mostly unseeded. They do not measure warm `ModuleTraceState`.
+**Session locality.** `DirtyPlan.export_closure` is the last A6 seed-dirty set (`TraceModulesReport::seed_plan_dirty`), not a clone of `module_summaries`. It does not drive the next scan — the linker still computes the set. `ScanWorkCounters` now ships `export_resolve_ran` and `seeded_reparses` next to `seed_plans_recomputed`. `module_summaries_visited` is still `graph.module_reactivity.len()`. Pipeline reuses `ModuleTraceState::cached_source` when the script body is unchanged. Phase one stays sequential for attached/cached summaries (Rayon only modules that still need a parse). Session still hands the tracer a full module list. One-shot `trace_*` benches force `persist_linking_cache = false` and are mostly unseeded. `trace_warm_leaf_edit_1k_modules` is the CodSpeed name that keeps `persist_linking_cache` on and edits one independent leaf.
 
 **Consumers do not need more AST.** They need indexes and session reuse.
 
@@ -166,7 +166,7 @@ Stay inside the PCR stop rule. Each row says what evidence already exists and wh
 
 10. ~~Make `DirtyPlan.export_closure` the linker dirty set.~~ Session reports `seed_plan_dirty` as `export_closure` and surfaces `export_resolve_ran` / `seeded_reparses`. Pipeline reuses cached `ModuleSource` handles. The field still does not *drive* the next A6 pass (linker already computes the set). Session still builds a full module-id list.
 11. ~~Compute `local_zero_arg_callees_in_scope` once per `finish_scope` and pass the set into reads / uncertain / writes.~~ `finish_scope` owns the root set. Nested hops and watch-source getters still discover. No graph bump (same facts). `trace_1k_modules` is mostly unseeded `ref()` modules — no-regression, not the win signal.
-12. Keep `persist_linking_cache` off for one-shot benches. Add one CodSpeed name that *is* a warm `ModuleTraceState` leaf edit if locality work lands.
+12. ~~Keep `persist_linking_cache` off for one-shot benches. Add one CodSpeed name that *is* a warm `ModuleTraceState` leaf edit.~~ One-shot `trace_*` stay unarchived. `trace_warm_leaf_edit_1k_modules` warms `ModuleTraceState` and edits one independent `ref()` leaf. Session still builds a full module-id list.
 
 ### Consumer polish (smarter without AST)
 
@@ -189,7 +189,7 @@ Unstamped. Nothing here is vouched.
 
 **The interesting remaining bug class** after v34 is not another write dual-path. The Do-now contract holes (caller guards, pause-in-helper, `+=`/`++`, watch peel, render ident getters, instance writes, HOF / `toValue` writes) are closed. Helper-call now has an `onTrack` pair. Remaining charter-quiet rows (NamedApiBag member form, CSS `v-bind` completeness) stay quiet on purpose. Next leftover is any later pass that *feeds* `export_closure` into the tracer as a subset input. VS Code Explain Scope now hits the workspace CLI session; a live LSP client stays issue #12.
 
-**The interesting remaining speed class** is session input breadth (still a full module list), not a new interprocedural framework. Nested helper hops still rediscover callees; do not cache those without a visiting-set story.
+**The interesting remaining speed class** is session input breadth (still a full module list), not a new interprocedural framework. Nested helper hops still rediscover callees; do not cache those without a visiting-set story. The warm leaf-edit CodSpeed name is the locality signal; do not treat `trace_1k_modules` as that win.
 
 **The interesting remaining science class** is honesty: oracle covers a slice; `ExportState` is policy; §K of the July harvest was a year of implementation behind.
 

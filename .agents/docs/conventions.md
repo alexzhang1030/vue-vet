@@ -113,7 +113,9 @@ shipped artifacts.
 Project-level cold / warm / overlay / diff-filter benches live in
 `vue_vet_session` (`scan_modes`) on the quality corpus, with an additional
 1k-module repeated-edit case. Bounded module tracing has multi-sample 1k/5k
-cases in `vue_vet_reactivity`; SFC micro-benchmarks remain in `vue_vet_vize`.
+cases in `vue_vet_reactivity` (`trace_warm_leaf_edit_1k_modules` is the
+persistent `ModuleTraceState` leaf-edit name; one-shot `trace_*` stay
+unarchived). SFC micro-benchmarks remain in `vue_vet_vize`.
 Methodology and release checklists:
 [quality gates](../../docs/quality-gates.md).
 
