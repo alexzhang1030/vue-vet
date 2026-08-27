@@ -26,8 +26,9 @@ pub use trace::{
   composable_value_bag_with_index, flatten_named_api_bags, function_return_type_kind,
   function_return_type_shape, is_named_api_bag_callee, merge_declaration_implementation_summary,
   named_api_bag, prepare_module_summary, prepare_module_summary_with_config, prepare_module_trace,
-  prepare_standalone_module_source, trace_modules, trace_modules_incremental_with_options,
-  trace_modules_with_options, trace_reactivity, trace_reactivity_with_config,
+  prepare_standalone_module_source, trace_modules, trace_modules_incremental_from_refs,
+  trace_modules_incremental_with_options, trace_modules_with_options, trace_reactivity,
+  trace_reactivity_with_config,
 };
 
 #[cfg(test)]

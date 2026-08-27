@@ -5,6 +5,7 @@ use std::{
   sync::Arc,
 };
 
+use vue_vet_core::ModuleId;
 use vue_vet_reactivity::{ModuleReactivity, PropFlowSite, join_prop_flows};
 
 use crate::model::{EdgeKind, GraphEdge, ProjectFile};
@@ -12,20 +13,30 @@ use crate::resolve::normalized_path;
 use crate::state::{LayeredInputKey, ModuleLayerKey, ProjectGraphState};
 
 /// Join template reads and prop-flow edges onto base module graphs, with warm reuse.
+///
+/// `this_pass` is the tracer report for this scan (dirty / retraced only when
+/// the caller used subset retain). Unchanged bases are read from
+/// `state.module_trace` so a warm leaf edit does not clone the live universe.
 pub fn apply_template_prop_layers(
   state: &mut ProjectGraphState,
   ordered: &[&ProjectFile],
   edges: &[GraphEdge],
-  base_reactivity: Vec<ModuleReactivity>,
-) -> Vec<ModuleReactivity> {
+  this_pass: Vec<ModuleReactivity>,
+  workspace_ids: &BTreeSet<ModuleId>,
+) -> Arc<[ModuleReactivity]> {
   let facts_by_path = ordered
     .iter()
     .map(|file| (normalized_path(file.path.as_path()), Arc::clone(&file.facts)))
     .collect::<BTreeMap<_, _>>();
+  let mut this_pass_by_id =
+    this_pass.into_iter().map(|module| (module.id.clone(), module)).collect::<BTreeMap<_, _>>();
   let layered_key = LayeredInputKey {
-    modules: base_reactivity
+    modules: workspace_ids
       .iter()
-      .map(|module| module_layer_key(module, &facts_by_path))
+      .filter_map(|id| {
+        base_module(id, &this_pass_by_id, state)
+          .map(|module| module_layer_key(module, &facts_by_path))
+      })
       .collect(),
     prop_edges: edges
       .iter()
@@ -36,7 +47,7 @@ pub fn apply_template_prop_layers(
 
   if state.layered.key.as_ref() == Some(&layered_key) {
     state.last_stats.layered_graphs_rebuilt = false;
-    return state.layered.modules.as_ref().to_vec();
+    return Arc::clone(&state.layered.modules);
   }
 
   state.last_stats.layered_graphs_rebuilt = true;
@@ -81,17 +92,20 @@ pub fn apply_template_prop_layers(
     }
   }
 
-  let layered = Arc::make_mut(&mut state.layered);
   let prev_by_id: BTreeMap<_, _> = prev_modules.iter().map(|module| (&module.id, module)).collect();
-  let mut module_reactivity = Vec::with_capacity(base_reactivity.len());
-  for module in base_reactivity {
-    if !rebuild.contains(&module.id)
-      && let Some(prev) = prev_by_id.get(&module.id)
+  let mut module_reactivity = Vec::with_capacity(workspace_ids.len());
+  for id in workspace_ids {
+    if !rebuild.contains(id)
+      && let Some(prev) = prev_by_id.get(id)
     {
       module_reactivity.push((*prev).clone());
       continue;
     }
-    let mut module = module;
+    let Some(mut module) =
+      this_pass_by_id.remove(id).or_else(|| state.module_trace.cached_reactivity(id).cloned())
+    else {
+      continue;
+    };
     if let Some(facts) = facts_by_path.get(module.id.as_str()) {
       Arc::make_mut(&mut module.graph).join_template_reads(&facts.template);
     }
@@ -121,9 +135,19 @@ pub fn apply_template_prop_layers(
   if should_join_prop_flows(&prop_sites, prop_edges_unchanged, &rebuild) {
     join_prop_flows(&mut module_reactivity, &prop_sites);
   }
+  let modules = Arc::<[ModuleReactivity]>::from(module_reactivity);
+  let layered = Arc::make_mut(&mut state.layered);
   layered.key = Some(layered_key);
-  layered.modules = Arc::from(module_reactivity.as_slice());
-  module_reactivity
+  layered.modules = Arc::clone(&modules);
+  modules
+}
+
+fn base_module<'a>(
+  id: &ModuleId,
+  this_pass: &'a BTreeMap<ModuleId, ModuleReactivity>,
+  state: &'a ProjectGraphState,
+) -> Option<&'a ModuleReactivity> {
+  this_pass.get(id).or_else(|| state.module_trace.cached_reactivity(id))
 }
 
 fn module_layer_key(
@@ -137,7 +161,7 @@ fn module_layer_key(
   }
 }
 
-fn module_edge_key(id: &vue_vet_core::ModuleId) -> &str {
+fn module_edge_key(id: &ModuleId) -> &str {
   id.as_str().strip_suffix("#script").unwrap_or(id.as_str())
 }
 
@@ -148,7 +172,7 @@ fn graph_edge_key(node: &str) -> &str {
 fn should_join_prop_flows(
   prop_sites: &[PropFlowSite<'_>],
   prop_edges_unchanged: bool,
-  rebuild: &BTreeSet<vue_vet_core::ModuleId>,
+  rebuild: &BTreeSet<ModuleId>,
 ) -> bool {
   !prop_sites.is_empty()
     && (!prop_edges_unchanged

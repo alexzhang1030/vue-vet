@@ -159,15 +159,17 @@ a `ModuleSummary` (module semantic IR) from its file parse, so unseeded modules
 are not parsed again; only consumers that receive cross-module seeds reparse for
 symbol materialization. Attach summaries with
 `ModuleSource::with_module_summary`. Long-lived callers should retain
-`ModuleTraceState` and call `trace_modules_incremental_with_options`: unchanged
-source + seed-plan pairs reuse their final graph, and the returned report scopes
-errors per module while preserving healthy cross-module results. After a warm
-scan, callers may pass only source-dirty modules and set
-`TraceModulesOptions::live_module_ids` to the live universe; do not clone
-unchanged `ModuleSource`s to build that set. Cached summaries are merged into
+`ModuleTraceState` and call `trace_modules_incremental_from_refs` (or
+`trace_modules_incremental_with_options`): unchanged source + seed-plan pairs
+reuse their final graph, and the returned report scopes errors per module while
+preserving healthy cross-module results. After a warm scan, callers borrow only
+source-dirty modules and set `TraceModulesOptions::retain_cached_modules`
+(deleted ids in `drop_module_ids`). Do not clone the live universe into
+`live_module_ids` or into the input list. The report is this-pass only; read
+unchanged graphs from `cached_reactivity`. Cached summaries are merged into
 linking and seed-dirty consumers are pulled from `cached_source`. One-shot
-`trace_modules_with_options` leaves `live_module_ids` unset so the input list
-remains the universe.
+`trace_modules_with_options` leaves retain unset so the input list remains the
+universe.
 
 ## What the graph contains
 

@@ -2957,5 +2957,6 @@ mod typed_callback;
 
 pub use link::{
   ModuleTraceState, TraceModulesOptions, TraceModulesReport, TraceModulesStats, trace_modules,
-  trace_modules_incremental_with_options, trace_modules_with_options,
+  trace_modules_incremental_from_refs, trace_modules_incremental_with_options,
+  trace_modules_with_options,
 };

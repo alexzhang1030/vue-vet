@@ -655,7 +655,7 @@ fn publish_product(snapshot: &AnalysisSnapshot, product: AnalysisProduct) -> Ana
         edges: full.edges.clone(),
         diagnostics: Vec::new(),
         invalidation_inputs: full.invalidation_inputs.clone(),
-        module_reactivity: Vec::new(),
+        module_reactivity: Arc::from([]),
         reactivity_issues: full.reactivity_issues.clone(),
         reactivity_error: full.reactivity_error.clone(),
       })
@@ -666,7 +666,7 @@ fn publish_product(snapshot: &AnalysisSnapshot, product: AnalysisProduct) -> Ana
       edges: Vec::new(),
       diagnostics: Vec::new(),
       invalidation_inputs: Vec::new(),
-      module_reactivity: Vec::new(),
+      module_reactivity: Arc::from([]),
       reactivity_issues: Vec::new(),
       reactivity_error: None,
     }),

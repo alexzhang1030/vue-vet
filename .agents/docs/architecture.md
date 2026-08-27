@@ -90,8 +90,10 @@ vue-vet CLI
   per-file Vize/Oxc facts, raw file diagnostics, structural edge partitions,
   module seed plans/final graphs, and the reverse dependency index.   Unrelated
   sources are not re-parsed on a normal edit. After a warm persist scan the
-  tracer receives a source-dirty subset plus a live-id set; cached summaries
-  fill linking and the live universe is still emitted.
+  tracer receives a source-dirty subset and `retain_cached_modules`; cached
+  summaries fill linking. The report is this-pass only. Unchanged graphs stay
+  in `ModuleTraceState`; layers read that cache instead of a cloned live-id
+  set or emitted universe.
 - **Atomic session publication** — the workspace revision, retained input
   snapshot, and committed analysis state share one `SessionCore` synchronization
   domain. Analysis captures `Arc` snapshots under the lock, computes outside it,

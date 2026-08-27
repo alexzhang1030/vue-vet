@@ -83,9 +83,10 @@ fn incremental_leaf_edit_visits_one_module_summary() {
   assert_eq!(state.last_stats().module_summaries_visited, 3);
 
   let edited = standalone_ts("src/b.ts", "import { ref } from 'vue'; export const b = ref(20);");
+  let after_files = [first, edited, third];
   let after = build_project_graph_incremental_with_options(
     project.root(),
-    &[first, edited, third],
+    &after_files,
     &trace_opts_workers(1),
     &context,
     &mut state,
@@ -111,6 +112,26 @@ fn incremental_leaf_edit_visits_one_module_summary() {
       .map(|module| std::sync::Arc::as_ptr(&module.graph));
     assert_eq!(before, kept, "unchanged module {id} must keep its layered graph Arc");
   }
+
+  let again = build_project_graph_incremental_with_options(
+    project.root(),
+    &after_files,
+    &trace_opts_workers(1),
+    &context,
+    &mut state,
+    None,
+  );
+  assert_eq!(again.module_reactivity.len(), 3);
+  assert_eq!(state.last_stats().module_summaries_visited, 0);
+  assert_eq!(state.last_stats().module_graphs_reused, 3);
+  assert!(
+    !state.last_stats().layered_graphs_rebuilt,
+    "unchanged sources must reuse the layered Arc slice"
+  );
+  assert!(
+    std::sync::Arc::ptr_eq(&after.module_reactivity, &again.module_reactivity),
+    "no-op rescan must share the layered module slice"
+  );
 }
 
 #[test]

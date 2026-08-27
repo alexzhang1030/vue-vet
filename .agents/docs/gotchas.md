@@ -384,16 +384,17 @@ source-dirty subset; `module_summaries_visited` is that count, not
 rerun) and `DirtyPlan.export_closure` (the seed-dirty set, not
 `module_summaries`). Do not treat `affected_files()` size as A6 work.
 
-**Subset input without `live_module_ids` drops the workspace.**
+**Subset input without retain or `live_module_ids` drops the workspace.**
 `state.entries.retain` used to keep only this pass's `report.modules`. Passing
-a dirty subset without `TraceModulesOptions::live_module_ids` still does that.
-When `live_module_ids` is set, merge cached summaries into linking, pull
-seed-dirty consumers from `cached_source`, emit the rest of the live universe,
-and retain against the live set — never invent a second export-closure
-algorithm. Empty unique + persist + live ids must emit the cached universe,
-not `clear()` the state. Do not clone unchanged `ModuleSource`s into the
-tracer input just to build the live-id set; ids are enough. Emit of cached
-graphs is `ModuleReactivity` (`id` + `Arc` graph), not a deep graph copy.
+a dirty subset without `retain_cached_modules` or `live_module_ids` still does
+that. Prefer `retain_cached_modules` plus `drop_module_ids` (deleted ids only)
+so a warm scan does not clone the live universe. Explicit `live_module_ids`
+still wins when set. Merge cached summaries into linking, pull seed-dirty
+consumers from `cached_source`, and keep unchanged graphs in `state` — do not
+emit them into `report.modules`. Empty unique + persist + retain must keep the
+cached universe, not `clear()` the state. Do not clone unchanged
+`ModuleSource`s into the tracer input. Persist of a dirty input is one
+`Arc<ModuleSource>` clone into cache; the live set is not cloned.
 
 **Linking surface ≠ `ModuleSummary` equality.** Export/seed reuse keys on
 imports/exports/locals/provides/injects + links. A leaf body edit that only
@@ -408,12 +409,16 @@ with `Arc`, and let companion merge rebuild locals while `Arc::clone`-ing
 
 **Template/prop layers must not `make_mut` reused base graphs on warm scans.**
 Keep base reactivity from module-trace separate from the layered final graphs;
-reuse the layered `Arc<[ModuleReactivity]>` when the whole key matches. When
-only some modules change, reuse each previous layered module whose
+reuse the layered `Arc<[ModuleReactivity]>` when the whole key matches
+(`ProjectGraph.module_reactivity` is that Arc). Assemble the universe from the
+tracer this-pass plus `cached_reactivity` — do not require an emitted N-graph
+report. When only some modules change, reuse each previous layered module whose
 `(base_ptr, facts_ptr)` is unchanged and `prop_edges` did not change. A leaf
 body edit must not `make_mut` the other N-1 graphs (cache still holds those
 base Arcs). Rebuild a prop-flow child from base when its parent or the prop
-edge set changes, then `join_prop_flows`.
+edge set changes, then `join_prop_flows`. Compare `StructuralContextKey` in
+place; allocate a new key only on mismatch. Do not clone `FileId`s just to
+retain the structural file map.
 
 **`ModuleSource` equality ignores `span_source`.** Style-only SFC edits change
 the wrapper file bytes without invalidating script body IR when `source` +

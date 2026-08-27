@@ -15,7 +15,7 @@ use std::{
 use vue_vet_core::ModuleId;
 use vue_vet_plugins::{default_trace_modules_options, ensure_default_plugins};
 use vue_vet_reactivity::{
-  ModuleSource, ModuleTraceState, TraceModulesOptions, trace_modules_incremental_with_options,
+  ModuleSource, ModuleTraceState, TraceModulesOptions, trace_modules_incremental_from_refs,
 };
 
 use crate::context::ProjectContext;
@@ -116,7 +116,8 @@ pub fn build_project_graph_incremental_with_options<'a>(
   let persist_cache = trace_options.persist_linking_cache;
   let subset_input = persist_cache && state.module_trace.has_cached_modules();
   let mut module_ids = BTreeSet::new();
-  let mut module_sources = Vec::new();
+  let mut borrowed_sources = Vec::new();
+  let mut owned_sources = Vec::new();
   for file in &ordered {
     take_workspace_source(
       file.module_source.as_ref(),
@@ -124,7 +125,8 @@ pub fn build_project_graph_incremental_with_options<'a>(
       &state.module_trace,
       subset_input,
       &mut module_ids,
-      &mut module_sources,
+      &mut borrowed_sources,
+      &mut owned_sources,
     );
     take_workspace_source(
       file.ordinary_module_source.as_ref(),
@@ -132,25 +134,32 @@ pub fn build_project_graph_incremental_with_options<'a>(
       &state.module_trace,
       subset_input,
       &mut module_ids,
-      &mut module_sources,
+      &mut borrowed_sources,
+      &mut owned_sources,
     );
   }
-  let context = StructuralContextKey {
-    root: root.clone(),
-    revision: project_context.revision,
-    nodes: nodes.clone(),
-    module_ids: module_ids.clone(),
-    nuxt_import_names: project_context.nuxt_import_names.clone(),
-  };
   if Arc::strong_count(&state.structural) > 1 {
     state.last_stats.partition_cow_clones += 1;
   }
   let structural = Arc::make_mut(&mut state.structural);
-  if structural.context.as_ref() != Some(&context) {
+  if !structural_context_matches(
+    structural.context.as_ref(),
+    &root,
+    project_context.revision,
+    &nodes,
+    &module_ids,
+    &project_context.nuxt_import_names,
+  ) {
     structural.files.clear();
-    structural.context = Some(context);
+    structural.context = Some(StructuralContextKey {
+      root: root.clone(),
+      revision: project_context.revision,
+      nodes: nodes.clone(),
+      module_ids: module_ids.clone(),
+      nuxt_import_names: project_context.nuxt_import_names.clone(),
+    });
   }
-  let present = ordered.iter().map(|file| file.path.clone()).collect::<BTreeSet<_>>();
+  let present = ordered.iter().map(|file| &file.path).collect::<BTreeSet<_>>();
   structural.files.retain(|file_id, _| present.contains(file_id));
   for file in &ordered {
     let reuse = structural.files.get(&file.path).is_some_and(|cached| cached.facts == file.facts);
@@ -209,26 +218,31 @@ pub fn build_project_graph_incremental_with_options<'a>(
   // --- Enrichment: ExternalSummaryLoad (+ per-module SummaryMerge) ---
   let (external_sources, external_links) =
     ExternalSummaryLoadPass::run(&root, resolver.as_ref(), &external_roots, on_external_seeds);
-  let mut live_ids = module_ids.clone();
-  for external in external_sources {
-    live_ids.insert(external.id.clone());
+  let live_externals = external_sources.iter().map(|module| &module.id).collect::<BTreeSet<_>>();
+  if persist_cache && subset_input {
+    trace_options.retain_cached_modules = true;
+    trace_options.drop_module_ids =
+      dropped_cached_ids(&state.module_trace, &module_ids, &live_externals);
+  }
+  let mut borrowed_externals = Vec::new();
+  for external in &external_sources {
     let keep = !subset_input
-      || state.module_trace.cached_source(&external.id).is_none_or(|cached| cached != &external);
+      || state.module_trace.cached_source(&external.id).is_none_or(|cached| cached != external);
     if keep {
-      module_sources.push(external);
+      borrowed_externals.push(external);
     }
   }
   module_links.extend(external_links);
+  let mut module_sources = borrowed_sources;
+  module_sources.extend(owned_sources.iter());
+  module_sources.extend(borrowed_externals);
 
   // --- Trace (reactivity seed fixed point) ---
   if Arc::strong_count(&state.module_trace) > 1 {
     state.last_stats.partition_cow_clones += 1;
   }
-  if persist_cache {
-    trace_options.live_module_ids = Some(live_ids);
-  }
   let module_trace = Arc::make_mut(&mut state.module_trace);
-  let mut trace_report = trace_modules_incremental_with_options(
+  let mut trace_report = trace_modules_incremental_from_refs(
     &module_sources,
     &module_links,
     &trace_options,
@@ -254,7 +268,8 @@ pub fn build_project_graph_incremental_with_options<'a>(
   });
 
   // --- Layers: template joins + prop flow ---
-  let module_reactivity = apply_template_prop_layers(state, &ordered, &edges, trace_report.modules);
+  let module_reactivity =
+    apply_template_prop_layers(state, &ordered, &edges, trace_report.modules, &module_ids);
   let mut invalidation_inputs = known.into_iter().collect::<Vec<_>>();
   invalidation_inputs.extend(project_context.invalidation_inputs.iter().cloned());
   invalidation_inputs.sort();
@@ -271,16 +286,16 @@ pub fn build_project_graph_incremental_with_options<'a>(
   }
 }
 
-/// Record `id` as live. Clone `fresh` into the tracer input only when this
-/// module is source-dirty (or the scan is a full list). `ProjectFile` sources
-/// may not yet carry the primary / ordinary id, so do not use `PartialEq`.
-fn take_workspace_source(
-  fresh: Option<&ModuleSource>,
+/// Record `id` as live. Borrow `fresh` when its id already matches; clone only
+/// to rewrite a mismatched id. Unchanged cached modules are not pushed.
+fn take_workspace_source<'a>(
+  fresh: Option<&'a ModuleSource>,
   id: ModuleId,
   state: &ModuleTraceState,
   subset: bool,
   ids: &mut BTreeSet<ModuleId>,
-  sources: &mut Vec<ModuleSource>,
+  borrowed: &mut Vec<&'a ModuleSource>,
+  owned: &mut Vec<ModuleSource>,
 ) {
   let Some(fresh) = fresh else {
     return;
@@ -289,10 +304,44 @@ fn take_workspace_source(
     ids.insert(id);
     return;
   }
+  if fresh.id == id {
+    borrowed.push(fresh);
+    ids.insert(id);
+    return;
+  }
   let mut module = fresh.clone();
   module.id = id.clone();
   ids.insert(id);
-  sources.push(module);
+  owned.push(module);
+}
+
+fn structural_context_matches(
+  cached: Option<&StructuralContextKey>,
+  root: &std::path::Path,
+  revision: u64,
+  nodes: &[crate::model::GraphNode],
+  module_ids: &BTreeSet<ModuleId>,
+  nuxt_import_names: &BTreeMap<String, crate::conventions::NuxtImportTarget>,
+) -> bool {
+  cached.is_some_and(|key| {
+    key.root == root
+      && key.revision == revision
+      && key.nodes == nodes
+      && key.module_ids == *module_ids
+      && key.nuxt_import_names == *nuxt_import_names
+  })
+}
+
+fn dropped_cached_ids(
+  state: &ModuleTraceState,
+  workspace_ids: &BTreeSet<ModuleId>,
+  live_externals: &BTreeSet<&ModuleId>,
+) -> BTreeSet<ModuleId> {
+  state
+    .cached_module_ids()
+    .filter(|id| !workspace_ids.contains(*id) && !live_externals.contains(id))
+    .cloned()
+    .collect()
 }
 
 fn script_unchanged(cached: &ModuleSource, fresh: &ModuleSource, id: &ModuleId) -> bool {

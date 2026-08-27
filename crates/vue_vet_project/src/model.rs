@@ -76,7 +76,7 @@ pub struct ProjectGraph {
   pub edges: Vec<GraphEdge>,
   pub diagnostics: Vec<Diagnostic>,
   pub invalidation_inputs: Vec<String>,
-  pub module_reactivity: Vec<ModuleReactivity>,
+  pub module_reactivity: Arc<[ModuleReactivity]>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub reactivity_issues: Vec<ReactivityIssue>,
   /// Compatibility summary for reporters that have not adopted structured issues.
