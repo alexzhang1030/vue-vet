@@ -303,6 +303,22 @@ function hoverAtOffset(module, offset) {
  * @param {number} offset
  * @returns {ScopeDetail | null}
  */
+/**
+ * Same `file:@offset` query the LSP hover builds (`explain_scope_query`).
+ * @param {string} relativePath workspace-relative file (`App.vue`, `src/App.vue`)
+ * @param {number} byteOffset UTF-8 byte offset
+ */
+function explainScopeQuery(relativePath, byteOffset) {
+  if (!relativePath || typeof relativePath !== 'string') {
+    return null;
+  }
+  const file = normalizePath(relativePath);
+  if (!file || typeof byteOffset !== 'number' || byteOffset < 0) {
+    return null;
+  }
+  return `${file}:@${byteOffset}`;
+}
+
 function scopeAtOffset(module, offset) {
   if (!module || typeof offset !== 'number') {
     return null;
@@ -783,6 +799,7 @@ module.exports = {
   decorationPlan,
   hoverAtOffset,
   scopeAtOffset,
+  explainScopeQuery,
   markdownFromScopeExplain,
   buildTree,
   isSpan,

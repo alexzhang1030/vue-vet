@@ -72,24 +72,17 @@ describe('cli launcher resolution', () => {
     assert.ok(seen.indexOf(debug) < seen.indexOf(release));
   });
 
-  it('runExplainScope passes --explain-scope and parses JSON', async () => {
+  it('runExplainScope hits the workspace session without --no-cache', async () => {
     const payload = { kind: 'computed', binding: 'label', summary: 'no known' };
     const result = await runExplainScope({
       workspaceRoot: '/repo',
-      scanPath: '/repo/App.vue',
-      query: '@25',
+      query: 'App.vue:@25',
       configuredPath: '/bin/vue-vet',
       resolveLauncherImpl: async () => ({ command: '/bin/vue-vet', argsPrefix: [] }),
       spawnImpl: (command, args) => {
         assert.equal(command, '/bin/vue-vet');
-        assert.deepEqual(args, [
-          '/repo/App.vue',
-          '--explain-scope',
-          '@25',
-          '--format',
-          'json',
-          '--no-cache',
-        ]);
+        assert.deepEqual(args, ['/repo', '--explain-scope', 'App.vue:@25', '--format', 'json']);
+        assert.ok(!args.includes('--no-cache'));
         return fakeProcess(JSON.stringify(payload), '', 0);
       },
     });
