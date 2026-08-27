@@ -11,6 +11,7 @@ const {
   decorationPlan,
   hoverAtOffset,
   scopeAtOffset,
+  explainScopeQuery,
   markdownFromScopeExplain,
   buildTree,
   utf8OffsetToUtf16,
@@ -331,6 +332,14 @@ describe('reactivity model', () => {
     assert.equal(scopeAtOffset(module, 25)?.binding, 'inner');
     assert.equal(scopeAtOffset(module, 15)?.callee, 'watchEffect');
     assert.equal(scopeAtOffset(module, 99), null);
+  });
+
+  it('builds the same file:@offset query as LSP hover', () => {
+    assert.equal(explainScopeQuery('App.vue', 20), 'App.vue:@20');
+    assert.equal(explainScopeQuery('src\\pages\\index.vue', 8), 'src/pages/index.vue:@8');
+    assert.equal(explainScopeQuery('', 0), null);
+    assert.equal(explainScopeQuery(null, 0), null);
+    assert.equal(explainScopeQuery('App.vue', -1), null);
   });
 
   it('renders ScopeExplain JSON as markdown', () => {

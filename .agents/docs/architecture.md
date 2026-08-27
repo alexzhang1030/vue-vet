@@ -535,8 +535,9 @@ spawns the Rust CLI (`--format json --print-reactivity`), maps structured
 `*_details` byte spans onto decorations / hover / a TreeView, and must not grow
 a parallel tracer. Binding inspect prefers `modules_detail[].binding_nav`
 (inbound / outbound / properties) and scans `edge_details` only when that
-index is missing. **Explain Scope** shells `vue-vet --explain-scope @offset`
-(covering fallback) and paints `ScopeExplain`; hover may show
+index is missing. **Explain Scope** shells
+`vue-vet <workspace> --explain-scope file:@offset` (same query as LSP hover)
+and keeps the disk cache. It does not start an LSP client. Hover may show
 `scope_details[].summary` from the digest.
 
 `vue-vet --lsp` is the diagnostics LSP surface (`vue_vet_lsp`). It uses

@@ -11,6 +11,7 @@ const {
   hoverAtOffset,
   scopeAtOffset,
   markdownFromScopeExplain,
+  explainScopeQuery,
   normalizePath,
   utf8OffsetToUtf16,
   utf16OffsetToUtf8,
@@ -358,8 +359,18 @@ async function explainScopeAtCursor() {
     void vscode.window.showWarningMessage('Vue Vet: open a Vue/JS/TS file to explain a tracking scope.');
     return;
   }
+  if (editor.document.uri.scheme !== 'file') {
+    void vscode.window.showWarningMessage('Vue Vet: Explain Scope needs a file on disk.');
+    return;
+  }
+  const relative = workspaceRelativePath(folder.uri.fsPath, editor.document.uri.fsPath);
   const utf16 = editor.document.offsetAt(editor.selection.active);
   const byteOffset = utf16OffsetToUtf8(editor.document.getText(), utf16);
+  const query = explainScopeQuery(relative, byteOffset);
+  if (!query) {
+    void vscode.window.showWarningMessage('Vue Vet: Explain Scope needs a file inside the workspace.');
+    return;
+  }
   const configuredPath = vscode.workspace.getConfiguration('vue-vet').get('path', '');
   try {
     const payload = await vscode.window.withProgress(
@@ -371,8 +382,7 @@ async function explainScopeAtCursor() {
       () =>
         runExplainScope({
           workspaceRoot: folder.uri.fsPath,
-          scanPath: editor.document.uri.fsPath,
-          query: `@${byteOffset}`,
+          query,
           configuredPath: typeof configuredPath === 'string' ? configuredPath : '',
         }),
     );
@@ -490,7 +500,10 @@ function resolveInspectTarget(element) {
   if (!editor || !folder) {
     return null;
   }
-  const relative = normalizePath(path.relative(folder.uri.fsPath, editor.document.uri.fsPath));
+  const relative = workspaceRelativePath(folder.uri.fsPath, editor.document.uri.fsPath);
+  if (!relative) {
+    return null;
+  }
   const module = moduleForFile(modules, relative);
   if (!module) {
     return null;
@@ -502,6 +515,22 @@ function resolveInspectTarget(element) {
     return null;
   }
   return { module, bindingName };
+}
+
+/**
+ * Workspace-relative path with `/` separators, or null when the file is outside.
+ * @param {string} workspaceRoot
+ * @param {string} filePath
+ */
+function workspaceRelativePath(workspaceRoot, filePath) {
+  if (!workspaceRoot || !filePath) {
+    return null;
+  }
+  const relative = path.relative(workspaceRoot, filePath);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    return null;
+  }
+  return normalizePath(relative);
 }
 
 function deactivate() {

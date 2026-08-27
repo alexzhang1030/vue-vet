@@ -137,7 +137,6 @@ async function runReactivityScan(options) {
  * @param {{
  *   workspaceRoot: string,
  *   query: string,
- *   scanPath?: string,
  *   configuredPath?: string,
  *   extraArgs?: string[],
  *   spawnImpl?: typeof spawn,
@@ -148,15 +147,13 @@ async function runExplainScope(options) {
   const spawnImpl = options.spawnImpl || spawn;
   const resolve = options.resolveLauncherImpl || resolveLauncher;
   const launcher = await resolve(options.configuredPath || '', options.workspaceRoot || '');
-  const scanPath = options.scanPath || options.workspaceRoot;
   const args = [
     ...launcher.argsPrefix,
-    scanPath,
+    options.workspaceRoot,
     '--explain-scope',
     options.query,
     '--format',
     'json',
-    '--no-cache',
     ...(options.extraArgs || []),
   ];
 

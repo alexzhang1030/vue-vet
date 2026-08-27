@@ -339,7 +339,9 @@ scope when state changes?** from static tracer facts (not DevTools). With
 multiple scopes match) — not wrapped in `schema_version` / `diagnostics`. The
 MCP tool `vue_vet_explain_scope` returns the same JSON (`query` plus optional
 scan `path`). `vue-vet --lsp` hover uses `file:@offset` and renders the same
-payload as Markdown.
+payload as Markdown. The thin VS Code Explain Scope command uses that same
+query against the workspace path and keeps the disk cache. The thin VS Code Explain Scope command uses that
+same query against the workspace path and keeps the disk cache.
 
 ### Query forms
 
@@ -349,6 +351,7 @@ payload as Markdown.
 | `App.vue:label` | Binding in modules whose id ends with `App.vue` (other graphs skipped) |
 | `App.vue:` / `App.vue` | All scopes in matching modules (path-like / extension) |
 | `@42` | Scope whose span **starts** at byte 42; if none, the tightest scope **covering** that byte (same rule as finding `--explain`) |
+| `App.vue:@42` | Same start-then-covering rule, only in modules whose id ends with `App.vue` (LSP hover and the thin VS Code command) |
 | `computed@42` | Callee (or binding / module) + span **start** (exact; no covering fallback) |
 
 Unknown queries are operational failures (exit 2).
