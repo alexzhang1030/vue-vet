@@ -18,9 +18,10 @@ use ratatui::{
   widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
 use vue_vet_reporters::{
-  ComponentNavDigest, ComponentNavLink, ComponentNavModule, ReactivityModuleStats,
-  ReactivityScopeDetail, humanize_binding, humanize_edge, humanize_scope, humanize_source,
-  humanize_template_read, humanize_template_surface,
+  BindingNav, BindingNavSource, ComponentNavDigest, ComponentNavLink, ComponentNavModule,
+  ReactivityModuleStats, ReactivityScopeDetail, binding_nav_from_details, humanize_binding,
+  humanize_edge, humanize_scope, humanize_source, humanize_template_read,
+  humanize_template_surface,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -59,6 +60,8 @@ pub struct BrowseModule {
   pub template_reads: Vec<String>,
   /// Same `scope_details` as `--print-reactivity` (includes explain-scope `summary`).
   pub scope_details: Vec<ReactivityScopeDetail>,
+  /// Inspect index from `edge_details` + `template_details`. Empty → scan labels.
+  pub binding_nav: BindingNav,
 }
 
 impl BrowseModule {
@@ -76,6 +79,7 @@ impl BrowseModule {
       edges: module.edge_labels.clone(),
       template_reads: module.template_labels.clone(),
       scope_details: module.scope_details.clone(),
+      binding_nav: binding_nav_from_details(&module.edge_details, &module.template_details),
     }
   }
 }
@@ -968,6 +972,9 @@ fn is_reactive_bag_kind(kind: &str) -> bool {
 }
 
 fn properties_for_bag(module: &BrowseModule, bag: &str) -> BTreeSet<String> {
+  if !module.binding_nav.is_empty() {
+    return module.binding_nav.properties_for(bag).iter().cloned().collect();
+  }
   let mut properties = BTreeSet::new();
   let prefix = format!("{bag}.");
   for edge in &module.edges {
@@ -1002,6 +1009,17 @@ fn inbound_readers(
   binding: &str,
   property: Option<&str>,
 ) -> BTreeMap<String, usize> {
+  if !module.binding_nav.is_empty() {
+    let mut readers = BTreeMap::new();
+    for reader in module.binding_nav.inbound_for(binding, property) {
+      let label = match reader.source {
+        BindingNavSource::Template => humanize_template_surface(&reader.from),
+        BindingNavSource::Edge => humanize_source(&reader.from),
+      };
+      *readers.entry(label).or_default() += 1;
+    }
+    return readers;
+  }
   let mut readers = BTreeMap::new();
   for edge in &module.edges {
     if let Some((from, to)) = split_edge(edge)
@@ -1031,6 +1049,12 @@ fn outbound_dependencies(
   let mut deps = BTreeMap::new();
   // Member picks (`props.count`) are inbound-only; outbound uses the bare binding.
   if property.is_some() {
+    return deps;
+  }
+  if !module.binding_nav.is_empty() {
+    for dep in module.binding_nav.outbound_for(binding, None) {
+      *deps.entry(dep.to_path.clone()).or_default() += 1;
+    }
     return deps;
   }
   for edge in &module.edges {
@@ -1450,6 +1474,7 @@ mod tests {
       ],
       template_reads: vec!["count@interpolation".into()],
       scope_details: Vec::new(),
+      binding_nav: BindingNav::default(),
     };
     let count = line_text_join(&inspect_lines(&module, "count"));
     assert!(count.contains("readers (inbound)"));
@@ -1483,6 +1508,7 @@ mod tests {
       edges: vec!["label -> count".into()],
       template_reads: Vec::new(),
       scope_details: vec![scope],
+      binding_nav: BindingNav::default(),
     };
 
     let label = line_text_join(&inspect_lines(&module, "label"));
@@ -1556,6 +1582,7 @@ mod tests {
       ],
       template_reads: vec!["props@if".into()],
       scope_details: Vec::new(),
+      binding_nav: BindingNav::default(),
     };
     let picks = expand_binding_picks(&module);
     assert!(picks.iter().any(|(name, kind)| name == "props" && kind == "reactive"));
@@ -1584,6 +1611,65 @@ mod tests {
 
     let label = line_text_join(&inspect_lines(&module, "label"));
     assert!(label.contains("→ props.count"));
+  }
+
+  #[test]
+  fn binding_nav_matches_label_scan_for_inspect() {
+    let mut stats = ReactivityModuleStats::empty("Child.vue");
+    stats.binding_labels = vec!["props:reactive".into(), "label:computed".into()];
+    stats.edge_details = vec![
+      vue_vet_reporters::edge_detail(
+        "label",
+        "props",
+        None,
+        Some("count".into()),
+        "computed",
+        vue_vet_reporters::ReactivitySpanRef::new(30, 5),
+        None,
+      ),
+      vue_vet_reporters::edge_detail(
+        "watch_sources:watch@1",
+        "props",
+        None,
+        Some("mode".into()),
+        "effect",
+        vue_vet_reporters::ReactivitySpanRef::new(40, 4),
+        None,
+      ),
+      vue_vet_reporters::edge_detail(
+        "template:if@2",
+        "props",
+        None,
+        None,
+        "template",
+        vue_vet_reporters::ReactivitySpanRef::new(50, 2),
+        None,
+      ),
+    ];
+    stats.template_details = vec![vue_vet_reporters::template_read_detail(
+      "props",
+      "if",
+      vue_vet_reporters::ReactivitySpanRef::new(50, 2),
+    )];
+    stats.edge_labels =
+      stats.edge_details.iter().map(|edge| format!("{} -> {}", edge.from, edge.to_path)).collect();
+    stats.template_labels = vec!["props@if".into()];
+
+    let indexed = BrowseModule::from_stats(&stats);
+    assert!(!indexed.binding_nav.is_empty());
+    let mut scanned = indexed.clone();
+    scanned.binding_nav = BindingNav::default();
+
+    assert_eq!(inbound_readers(&indexed, "props", None), inbound_readers(&scanned, "props", None));
+    assert_eq!(
+      inbound_readers(&indexed, "props", Some("count")),
+      inbound_readers(&scanned, "props", Some("count"))
+    );
+    assert_eq!(
+      outbound_dependencies(&indexed, "label", None),
+      outbound_dependencies(&scanned, "label", None)
+    );
+    assert_eq!(properties_for_bag(&indexed, "props"), properties_for_bag(&scanned, "props"));
   }
 
   #[test]
@@ -1621,6 +1707,7 @@ mod tests {
       ],
       template_reads: Vec::new(),
       scope_details: Vec::new(),
+      binding_nav: BindingNav::default(),
     };
     let rendered = graph_lines(&module)
       .into_iter()

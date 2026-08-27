@@ -269,6 +269,22 @@ fn json_print_reactivity_includes_structured_span_details() {
     parsed.pointer("/component_nav/modules").and_then(Value::as_array).is_some(),
     "JSON reports must include structural component_nav: {stdout}"
   );
+  let has_edges_or_templates = details.iter().any(|module| {
+    module.get("edge_details").and_then(Value::as_array).is_some_and(|items| !items.is_empty())
+      || module
+        .get("template_details")
+        .and_then(Value::as_array)
+        .is_some_and(|items| !items.is_empty())
+  });
+  if has_edges_or_templates {
+    assert!(
+      details.iter().any(|module| module
+        .pointer("/binding_nav/inbound")
+        .and_then(Value::as_object)
+        .is_some_and(|inbound| !inbound.is_empty())),
+      "modules with edges/templates must ship binding_nav: {stdout}"
+    );
+  }
 }
 
 #[test]

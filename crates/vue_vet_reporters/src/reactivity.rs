@@ -4,6 +4,7 @@ use std::cmp::Reverse;
 
 use serde::Serialize;
 
+use crate::binding_nav::{BindingNav, binding_nav_from_details};
 use crate::humanize::{
   humanize_binding_parts, humanize_edge_parts_with_property, humanize_scope,
   humanize_template_read_parts, parse_name_offset, to_path,
@@ -117,6 +118,9 @@ pub struct ReactivityModuleDetail {
   pub edge_details: Vec<ReactivityEdgeDetail>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub template_details: Vec<ReactivityTemplateReadDetail>,
+  /// Inspect index folded from `edge_details` + `template_details`.
+  #[serde(default, skip_serializing_if = "BindingNav::is_empty")]
+  pub binding_nav: BindingNav,
 }
 
 /// Per-module counts and optional detail labels supplied by the CLI.
@@ -229,6 +233,7 @@ impl ReactivityDigest {
         scope_details: module.scope_details.clone(),
         edge_details: module.edge_details.clone(),
         template_details: module.template_details.clone(),
+        binding_nav: binding_nav_from_details(&module.edge_details, &module.template_details),
       })
       .collect::<Vec<_>>();
     details.sort_by(|left, right| left.id.cmp(&right.id));
@@ -519,6 +524,9 @@ mod tests {
     let json = serde_json::to_string(&digest).expect("digest must serialize");
     assert!(json.contains("\"edge_details\""));
     assert!(json.contains("\"binding_details\""));
+    assert!(json.contains("\"binding_nav\""));
+    let inbound = detail.and_then(|module| module.binding_nav.inbound.get("error"));
+    assert_eq!(inbound.map(Vec::len), Some(1));
   }
 
   #[test]

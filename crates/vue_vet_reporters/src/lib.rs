@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 use vue_vet_core::ScanSummary;
 
+mod binding_nav;
 mod color;
 mod component_nav;
 mod explain;
@@ -13,6 +14,9 @@ mod reactivity;
 mod sarif;
 mod text;
 
+pub use binding_nav::{
+  BindingNav, BindingNavDep, BindingNavReader, BindingNavSource, binding_nav_from_details,
+};
 pub use component_nav::{
   ComponentNavDigest, ComponentNavEdgeInput, ComponentNavLink, ComponentNavModule,
   component_nav_from_edges,

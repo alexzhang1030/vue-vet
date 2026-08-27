@@ -18,6 +18,7 @@ const {
   inboundFor,
   outboundFor,
   bindingAtOffset,
+  propertiesForBag,
 } = require('../lib/model');
 
 const sample = JSON.parse(
@@ -193,6 +194,54 @@ describe('reactivity model', () => {
     const targets = inbound.children.map((child) => child.label);
     assert.ok(targets.includes('● props.count'));
     assert.ok(targets.includes('● props.mode'));
+  });
+
+  it('prefers binding_nav over a linear edge scan', () => {
+    const module = {
+      id: 'App.vue',
+      edge_details: [
+        {
+          from: 'scanned',
+          to: 'count',
+          to_path: 'count',
+          kind: 'computed',
+          span: { offset: 1, length: 1 },
+          label: 'scanned  →  count',
+        },
+      ],
+      template_details: [],
+      binding_nav: {
+        inbound: {
+          count: [
+            {
+              source: 'edge',
+              from: 'indexed',
+              to_path: 'count',
+              kind: 'computed',
+              span: { offset: 9, length: 1 },
+              label: 'indexed  →  count',
+            },
+          ],
+        },
+        outbound: {
+          indexed: [
+            {
+              from: 'indexed',
+              to_path: 'count',
+              kind: 'computed',
+              span: { offset: 9, length: 1 },
+              label: 'indexed  →  count',
+            },
+          ],
+        },
+        properties: { props: ['count'] },
+      },
+    };
+    const readers = inboundFor(module, 'count');
+    assert.equal(readers.length, 1);
+    assert.equal(readers[0].label, 'indexed  →  count');
+    assert.equal(outboundFor(module, 'indexed')[0].to, 'count');
+    assert.deepEqual(propertiesForBag(module, 'props'), ['count']);
   });
 
   it('attaches structural component uses / used_by without inventing prop dataflow', () => {
