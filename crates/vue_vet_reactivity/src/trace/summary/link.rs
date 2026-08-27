@@ -500,9 +500,14 @@ fn trace_modules_incremental_in_current_pool(
       finish_unseeded_module(module, local_graph, plan, summary, persist)
     })
     .collect::<Vec<_>>();
-  outcomes.extend(reparse_work.into_par_iter().map(|(module, local_graph, plan, summary)| {
-    trace_dirty_module(module, local_graph, plan, summary, persist, &options.named_api_bags)
-  }));
+  outcomes.extend(
+    reparse_work
+      .into_par_iter()
+      .map(|(module, local_graph, plan, summary)| {
+        trace_dirty_module(module, local_graph, plan, summary, persist, &options.named_api_bags)
+      })
+      .collect::<Vec<_>>(),
+  );
 
   let mut keep = reused_ids;
   keep.extend(report.modules.iter().map(|module| module.id.clone()));
