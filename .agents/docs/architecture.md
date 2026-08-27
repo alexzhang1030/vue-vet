@@ -269,7 +269,7 @@ trace/mod.rs       single-file entry + orchestration
 trace/kinds.rs     vue callee / binding kind / import / span helpers
 trace/bindings.rs  reactive binding collectors (typed / props / aliases / route)
 trace/local.rs     same-file composable usage
-trace/context.rs   scope_context + HOF / toValue / deferred
+trace/context.rs   scope_context + HOF / toValue / deferred + `ScopeNodeIndex`
 trace/reads.rs     scope reads + classify + guards
 trace/writes.rs    scope writes + assignment_only + identifier getters
 trace/uncertain.rs uncertain accesses + watch sources

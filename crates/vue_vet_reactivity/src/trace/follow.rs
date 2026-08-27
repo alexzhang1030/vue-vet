@@ -8,6 +8,9 @@
 //! [`LocalCalleeIndex`] walks the file once. Nested hops and watch-source getters
 //! look up `full_callees(F)` and skip ids already in `visiting`. Do not cache a
 //! slice keyed only on `scope_id` — that drops the visiting filter.
+//!
+//! [`FileTraceIndex`] also holds [`super::context::ScopeNodeIndex`] so local
+//! member / ident / write / uncertain walks do not scan every node again.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -16,12 +19,8 @@ use oxc_ast::{
   ast::{Expression, IdentifierReference},
 };
 use oxc_semantic::{NodeId, Semantic};
-use oxc_span::{GetSpan, Span};
 
-use super::{
-  context::{is_deferred_callback_container, is_sync_hof_callback, is_to_value_getter_callback},
-  kinds::span_contains,
-};
+use super::context::{ScopeNodeIndex, tracking_context_owner};
 
 /// Max hops when following same-file zero-arg helpers from a tracking scope.
 /// Vue tracks sync reads inside callees; we under-approx with a small bound.
@@ -73,7 +72,7 @@ impl LocalCalleeIndex {
         continue;
       }
       let Some((owner, call_outside)) =
-        tracking_call_owner(semantic, call_id, call.span, imported_bindings)
+        tracking_context_owner(semantic, call_id, call.span, imported_bindings)
       else {
         continue;
       };
@@ -93,41 +92,33 @@ impl LocalCalleeIndex {
   }
 }
 
-/// First tracking-owner function of `call_id` (inverse of `scope_context`).
-fn tracking_call_owner(
-  semantic: &Semantic<'_>,
-  call_id: NodeId,
-  call_span: Span,
-  imported_bindings: &BTreeMap<String, (String, String)>,
-) -> Option<(NodeId, bool)> {
-  let mut outside_tracking = false;
-  let mut write_only = false;
-  for ancestor_id in semantic.nodes().ancestor_ids(call_id) {
-    match semantic.nodes().kind(ancestor_id) {
-      AstKind::ArrowFunctionExpression(_) | AstKind::Function(_) => {
-        if is_deferred_callback_container(semantic, ancestor_id) {
-          outside_tracking = true;
-          continue;
-        }
-        if is_sync_hof_callback(semantic, ancestor_id)
-          || is_to_value_getter_callback(semantic, ancestor_id, imported_bindings)
-        {
-          continue;
-        }
-        if write_only {
-          return None;
-        }
-        return Some((ancestor_id, outside_tracking));
-      }
-      AstKind::AssignmentExpression(assignment)
-        if assignment.operator.is_assign() && span_contains(assignment.left.span(), call_span) =>
-      {
-        write_only = true;
-      }
-      _ => {}
+/// Callee follow plus local member / ident / write / uncertain buckets.
+///
+/// Built once per file. Collectors look up; they do not walk `semantic.nodes()`
+/// to rediscover ownership.
+pub(super) struct FileTraceIndex {
+  callees: LocalCalleeIndex,
+  nodes: ScopeNodeIndex,
+}
+
+impl FileTraceIndex {
+  pub(super) fn build(
+    semantic: &Semantic<'_>,
+    imported_bindings: &BTreeMap<String, (String, String)>,
+  ) -> Self {
+    Self {
+      callees: LocalCalleeIndex::build(semantic, imported_bindings),
+      nodes: ScopeNodeIndex::build(semantic, imported_bindings),
     }
   }
-  None
+
+  pub(super) const fn callees(&self) -> &LocalCalleeIndex {
+    &self.callees
+  }
+
+  pub(super) const fn nodes(&self) -> &ScopeNodeIndex {
+    &self.nodes
+  }
 }
 
 /// What to do with helpers whose *every* in-scope call is outside tracking
@@ -319,9 +310,9 @@ mod index_equiv {
   use oxc_semantic::{NodeId, Semantic, SemanticBuilder};
   use oxc_span::SourceType;
 
-  use super::{
-    LocalCallee, LocalCalleeIndex, is_deferred_callback_container, is_sync_hof_callback,
-    is_to_value_getter_callback, local_zero_arg_callees_in_scope,
+  use super::{LocalCallee, LocalCalleeIndex, local_zero_arg_callees_in_scope};
+  use crate::trace::context::{
+    is_deferred_callback_container, is_sync_hof_callback, is_to_value_getter_callback,
   };
   use crate::trace::kinds::collect_imported_bindings;
 

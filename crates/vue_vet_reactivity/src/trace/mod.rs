@@ -56,7 +56,7 @@ use bindings::{
   CollectedBindings, collect_component_props_bindings, collect_reactive_bindings,
   collect_typed_reactive_bindings, extend_with_reactive_aliases,
 };
-use follow::LocalCalleeIndex;
+use follow::FileTraceIndex;
 use kinds::{
   clear_trace_line_index, collect_imported_bindings, install_trace_line_index,
   push_binding_by_span, source_may_have_component_props_factory,
@@ -322,7 +322,7 @@ fn trace_reactivity_seeded_inner(
   extend_with_reactive_aliases(semantic, &mut scope_bindings, sfc_source, script_offset);
 
   // Classify scopes with function-local + typed bindings; publish top-level bindings only.
-  let callee_index = LocalCalleeIndex::build(semantic, &imported_bindings);
+  let file_index = FileTraceIndex::build(semantic, &imported_bindings);
   let mut scopes = collect_tracking_scopes(
     semantic,
     &imported_bindings,
@@ -331,7 +331,7 @@ fn trace_reactivity_seeded_inner(
     &ambient_call_handles,
     sfc_source,
     script_offset,
-    &callee_index,
+    &file_index,
   );
   scopes.extend(collect_render_scopes(
     semantic,
@@ -341,7 +341,7 @@ fn trace_reactivity_seeded_inner(
     &ambient_call_handles,
     sfc_source,
     script_offset,
-    &callee_index,
+    &file_index,
   ));
   // Seed/merge order is not source order; stabilize before publishing the graph.
   bindings.sort_by_key(|fact| fact.span.offset);

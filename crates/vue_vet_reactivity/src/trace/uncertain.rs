@@ -13,9 +13,9 @@ use vue_vet_core::{ReactiveBindingFact, ReactiveReadFact, ReactiveReadKind, Scri
 use super::{
   ComposableShapeMap, DEEP_WATCH_PROPERTY,
   bindings::AmbientCallHandles,
-  context::{is_sync_hof_callback_param, scope_context},
+  context::{ScopeNodeIndex, is_sync_hof_callback_param},
   expr,
-  follow::{FollowOutside, LocalCalleeIndex, follow_local_callees},
+  follow::{FileTraceIndex, FollowOutside, follow_local_callees},
   kinds::{reference_resolves_to_binding, resolved_vue_callee, source_span},
   reads::{classify_scope_reads, collect_scope_reads},
   writes::local_getter_parts,
@@ -33,7 +33,7 @@ pub(super) fn collect_uncertain_scope_accesses(
   composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
   script_offset: usize,
-  callees: &LocalCalleeIndex,
+  index: &FileTraceIndex,
 ) -> Vec<String> {
   let mut visiting = BTreeSet::new();
   visiting.insert(scope_id);
@@ -46,7 +46,7 @@ pub(super) fn collect_uncertain_scope_accesses(
     script_offset,
     0,
     &mut visiting,
-    callees,
+    index,
   )
   .into_iter()
   .collect()
@@ -62,7 +62,7 @@ pub(super) fn collect_uncertain_scope_accesses_bounded(
   script_offset: usize,
   depth: u32,
   visiting: &mut BTreeSet<NodeId>,
-  callees: &LocalCalleeIndex,
+  index: &FileTraceIndex,
 ) -> BTreeSet<String> {
   let mut names = collect_uncertain_scope_accesses_local(
     semantic,
@@ -71,9 +71,10 @@ pub(super) fn collect_uncertain_scope_accesses_bounded(
     composable_instances,
     imported_bindings,
     script_offset,
+    index.nodes(),
   );
   follow_local_callees(
-    callees,
+    index.callees(),
     scope_id,
     depth,
     visiting,
@@ -88,7 +89,7 @@ pub(super) fn collect_uncertain_scope_accesses_bounded(
         script_offset,
         next_depth,
         visiting,
-        callees,
+        index,
       ));
     },
   );
@@ -102,12 +103,13 @@ pub(super) fn collect_uncertain_scope_accesses_local(
   composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
   script_offset: usize,
+  nodes: &ScopeNodeIndex,
 ) -> BTreeSet<String> {
   let mut names = BTreeSet::new();
-  for (node_id, node) in semantic.nodes().iter_enumerated() {
-    let Some((name, span)) = uncertain_access_at(
+  for owned in nodes.members(scope_id).iter().chain(nodes.calls(scope_id)) {
+    let Some((name, _)) = uncertain_access_at(
       semantic,
-      node.kind(),
+      semantic.nodes().kind(owned.id),
       reactive_bindings,
       composable_instances,
       imported_bindings,
@@ -115,9 +117,6 @@ pub(super) fn collect_uncertain_scope_accesses_local(
     ) else {
       continue;
     };
-    if scope_context(semantic, scope_id, node_id, span, imported_bindings).is_none() {
-      continue;
-    }
     names.insert(name);
   }
   names
@@ -196,7 +195,7 @@ pub(super) fn collect_uncertain_watch_sources(
   composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
   script_offset: usize,
-  callees: &LocalCalleeIndex,
+  index: &FileTraceIndex,
 ) -> Vec<String> {
   let mut names = BTreeSet::new();
   collect_uncertain_watch_argument(
@@ -206,7 +205,7 @@ pub(super) fn collect_uncertain_watch_sources(
     composable_instances,
     imported_bindings,
     script_offset,
-    callees,
+    index,
     &mut names,
   );
   names.into_iter().collect()
@@ -220,7 +219,7 @@ pub(super) fn collect_uncertain_watch_argument(
   composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
   script_offset: usize,
-  callees: &LocalCalleeIndex,
+  index: &FileTraceIndex,
   names: &mut BTreeSet<String>,
 ) {
   match argument {
@@ -232,7 +231,7 @@ pub(super) fn collect_uncertain_watch_argument(
         composable_instances,
         imported_bindings,
         script_offset,
-        callees,
+        index,
       ));
     }
     Argument::FunctionExpression(callback) => {
@@ -243,7 +242,7 @@ pub(super) fn collect_uncertain_watch_argument(
         composable_instances,
         imported_bindings,
         script_offset,
-        callees,
+        index,
       ));
     }
     Argument::ArrayExpression(array) => {
@@ -258,7 +257,7 @@ pub(super) fn collect_uncertain_watch_argument(
           composable_instances,
           imported_bindings,
           script_offset,
-          callees,
+          index,
           names,
         );
       }
@@ -272,7 +271,7 @@ pub(super) fn collect_uncertain_watch_argument(
           composable_instances,
           imported_bindings,
           script_offset,
-          callees,
+          index,
           names,
         );
       }
@@ -288,7 +287,7 @@ pub(super) fn collect_uncertain_watch_expression(
   composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
   script_offset: usize,
-  callees: &LocalCalleeIndex,
+  index: &FileTraceIndex,
   names: &mut BTreeSet<String>,
 ) {
   let expression = expr::peel_parens(expression);
@@ -300,7 +299,7 @@ pub(super) fn collect_uncertain_watch_expression(
       composable_instances,
       imported_bindings,
       script_offset,
-      callees,
+      index,
     ));
     return;
   }
@@ -313,7 +312,7 @@ pub(super) fn collect_uncertain_watch_expression(
         composable_instances,
         imported_bindings,
         script_offset,
-        callees,
+        index,
       ));
     }
     Expression::FunctionExpression(callback) => {
@@ -324,7 +323,7 @@ pub(super) fn collect_uncertain_watch_expression(
         composable_instances,
         imported_bindings,
         script_offset,
-        callees,
+        index,
       ));
     }
     Expression::Identifier(identifier) => {
@@ -344,7 +343,7 @@ pub(super) fn collect_uncertain_watch_expression(
         composable_instances,
         imported_bindings,
         script_offset,
-        callees,
+        index,
         names,
       );
     }
@@ -400,7 +399,7 @@ pub(super) fn collect_watch_source_reads(
   ambient_call_handles: &AmbientCallHandles,
   sfc_source: &str,
   script_offset: usize,
-  callees: &LocalCalleeIndex,
+  index: &FileTraceIndex,
 ) -> Vec<ReactiveReadFact> {
   let ctx = WatchSourceCtx {
     semantic,
@@ -410,7 +409,7 @@ pub(super) fn collect_watch_source_reads(
     ambient_call_handles,
     sfc_source,
     script_offset,
-    callees,
+    index,
   };
   let Some(expression) = argument.as_expression() else {
     return Vec::new();
@@ -474,7 +473,7 @@ pub(super) struct WatchSourceCtx<'a> {
   ambient_call_handles: &'a AmbientCallHandles,
   sfc_source: &'a str,
   script_offset: usize,
-  callees: &'a LocalCalleeIndex,
+  index: &'a FileTraceIndex,
 }
 
 /// Reads collected from a `watch` source getter function body.
@@ -491,7 +490,7 @@ pub(super) fn collect_watch_getter_reads(
     ctx.imported_bindings,
     ctx.ambient_call_handles,
     ctx.script_offset,
-    ctx.callees,
+    ctx.index,
   );
   classify_scope_reads(
     ctx.semantic,
