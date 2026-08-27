@@ -391,7 +391,9 @@ When `live_module_ids` is set, merge cached summaries into linking, pull
 seed-dirty consumers from `cached_source`, emit the rest of the live universe,
 and retain against the live set — never invent a second export-closure
 algorithm. Empty unique + persist + live ids must emit the cached universe,
-not `clear()` the state.
+not `clear()` the state. Do not clone unchanged `ModuleSource`s into the
+tracer input just to build the live-id set; ids are enough. Emit of cached
+graphs is `ModuleReactivity` (`id` + `Arc` graph), not a deep graph copy.
 
 **Linking surface ≠ `ModuleSummary` equality.** Export/seed reuse keys on
 imports/exports/locals/provides/injects + links. A leaf body edit that only

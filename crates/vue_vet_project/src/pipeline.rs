@@ -113,19 +113,28 @@ pub fn build_project_graph_incremental_with_options<'a>(
     .filter(|node| node.kind == NodeKind::Composable)
     .map(|node| (node.name.clone(), node.id.clone()))
     .collect::<BTreeMap<_, _>>();
-  let mut module_sources = ordered
-    .iter()
-    .flat_map(|file| {
-      let primary = file.module_source.as_ref().map(|fresh| {
-        reuse_cached_module_source(fresh, ModuleId::primary(&file.path), &state.module_trace)
-      });
-      let ordinary = file.ordinary_module_source.as_ref().map(|fresh| {
-        reuse_cached_module_source(fresh, ModuleId::ordinary(&file.path), &state.module_trace)
-      });
-      [primary, ordinary].into_iter().flatten()
-    })
-    .collect::<Vec<_>>();
-  let module_ids = module_sources.iter().map(|module| module.id.clone()).collect::<BTreeSet<_>>();
+  let persist_cache = trace_options.persist_linking_cache;
+  let subset_input = persist_cache && state.module_trace.has_cached_modules();
+  let mut module_ids = BTreeSet::new();
+  let mut module_sources = Vec::new();
+  for file in &ordered {
+    take_workspace_source(
+      file.module_source.as_ref(),
+      ModuleId::primary(&file.path),
+      &state.module_trace,
+      subset_input,
+      &mut module_ids,
+      &mut module_sources,
+    );
+    take_workspace_source(
+      file.ordinary_module_source.as_ref(),
+      ModuleId::ordinary(&file.path),
+      &state.module_trace,
+      subset_input,
+      &mut module_ids,
+      &mut module_sources,
+    );
+  }
   let context = StructuralContextKey {
     root: root.clone(),
     revision: project_context.revision,
@@ -200,33 +209,27 @@ pub fn build_project_graph_incremental_with_options<'a>(
   // --- Enrichment: ExternalSummaryLoad (+ per-module SummaryMerge) ---
   let (external_sources, external_links) =
     ExternalSummaryLoadPass::run(&root, resolver.as_ref(), &external_roots, on_external_seeds);
-  module_sources.extend(external_sources);
+  let mut live_ids = module_ids.clone();
+  for external in external_sources {
+    live_ids.insert(external.id.clone());
+    let keep = !subset_input
+      || state.module_trace.cached_source(&external.id).is_none_or(|cached| cached != &external);
+    if keep {
+      module_sources.push(external);
+    }
+  }
   module_links.extend(external_links);
 
   // --- Trace (reactivity seed fixed point) ---
   if Arc::strong_count(&state.module_trace) > 1 {
     state.last_stats.partition_cow_clones += 1;
   }
-  let live_ids: BTreeSet<ModuleId> =
-    module_sources.iter().map(|module| module.id.clone()).collect();
-  if trace_options.persist_linking_cache {
+  if persist_cache {
     trace_options.live_module_ids = Some(live_ids);
   }
-  let trace_input =
-    if trace_options.persist_linking_cache && state.module_trace.has_cached_modules() {
-      module_sources
-        .iter()
-        .filter(|module| {
-          state.module_trace.cached_source(&module.id).is_none_or(|cached| cached != *module)
-        })
-        .cloned()
-        .collect::<Vec<_>>()
-    } else {
-      module_sources
-    };
   let module_trace = Arc::make_mut(&mut state.module_trace);
   let mut trace_report = trace_modules_incremental_with_options(
-    &trace_input,
+    &module_sources,
     &module_links,
     &trace_options,
     module_trace,
@@ -268,21 +271,36 @@ pub fn build_project_graph_incremental_with_options<'a>(
   }
 }
 
-/// Prefer the cached [`ModuleSource`] when the script body is unchanged so a
-/// leaf edit does not reconstruct every workspace module from `ProjectFile`.
-fn reuse_cached_module_source(
-  fresh: &ModuleSource,
+/// Record `id` as live. Clone `fresh` into the tracer input only when this
+/// module is source-dirty (or the scan is a full list). `ProjectFile` sources
+/// may not yet carry the primary / ordinary id, so do not use `PartialEq`.
+fn take_workspace_source(
+  fresh: Option<&ModuleSource>,
   id: ModuleId,
   state: &ModuleTraceState,
-) -> ModuleSource {
-  if let Some(cached) = state.cached_source(&id)
-    && cached == fresh
-  {
-    return cached.clone();
+  subset: bool,
+  ids: &mut BTreeSet<ModuleId>,
+  sources: &mut Vec<ModuleSource>,
+) {
+  let Some(fresh) = fresh else {
+    return;
+  };
+  if subset && state.cached_source(&id).is_some_and(|cached| script_unchanged(cached, fresh, &id)) {
+    ids.insert(id);
+    return;
   }
   let mut module = fresh.clone();
-  module.id = id;
-  module
+  module.id = id.clone();
+  ids.insert(id);
+  sources.push(module);
+}
+
+fn script_unchanged(cached: &ModuleSource, fresh: &ModuleSource, id: &ModuleId) -> bool {
+  cached.id == *id
+    && cached.source == fresh.source
+    && cached.language == fresh.language
+    && cached.kind == fresh.kind
+    && cached.source_offset == fresh.source_offset
 }
 
 fn retain_project_resolver(
