@@ -63,6 +63,7 @@ use kinds::{
   source_may_have_typed_ref_annotations,
 };
 use local::collect_local_composable_usage;
+use reads::ScopeIrIndex;
 use scopes::{collect_render_scopes, collect_tracking_scopes};
 
 pub use inject::{
@@ -323,6 +324,7 @@ fn trace_reactivity_seeded_inner(
 
   // Classify scopes with function-local + typed bindings; publish top-level bindings only.
   let file_index = FileTraceIndex::build(semantic, &imported_bindings);
+  let scope_ir = ScopeIrIndex::build(semantic, &imported_bindings);
   let mut scopes = collect_tracking_scopes(
     semantic,
     &imported_bindings,
@@ -332,6 +334,7 @@ fn trace_reactivity_seeded_inner(
     sfc_source,
     script_offset,
     &file_index,
+    &scope_ir,
   );
   scopes.extend(collect_render_scopes(
     semantic,
@@ -342,6 +345,7 @@ fn trace_reactivity_seeded_inner(
     sfc_source,
     script_offset,
     &file_index,
+    &scope_ir,
   ));
   // Seed/merge order is not source order; stabilize before publishing the graph.
   bindings.sort_by_key(|fact| fact.span.offset);
