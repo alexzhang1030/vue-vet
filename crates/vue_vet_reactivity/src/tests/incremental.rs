@@ -290,6 +290,217 @@ fn independent_leaf_body_edit_reuses_other_graphs() {
   assert_eq!(second.stats.seed_plans_recomputed, 0);
 }
 
+fn live_ids(modules: &[ModuleSource]) -> BTreeSet<vue_vet_core::ModuleId> {
+  modules.iter().map(|module| module.id.clone()).collect()
+}
+
+fn subset_options(live: BTreeSet<vue_vet_core::ModuleId>) -> TraceModulesOptions {
+  TraceModulesOptions {
+    max_workers: 2,
+    persist_linking_cache: true,
+    live_module_ids: Some(live),
+    ..default_trace_options()
+  }
+}
+
+fn graphs_by_id(
+  modules: &[ModuleReactivity],
+) -> std::collections::BTreeMap<vue_vet_core::ModuleId, &ReactivityGraph> {
+  modules.iter().map(|module| (module.id.clone(), module.graph.as_ref())).collect()
+}
+
+#[test]
+fn subset_leaf_edit_matches_full_list_graphs() {
+  let modules = (0..8)
+    .map(|index| {
+      ModuleSource::standalone(
+        format!("src/module-{index}.ts"),
+        format!("import {{ ref }} from 'vue'; export const value{index} = ref({index});"),
+        "ts",
+        ScriptKind::Script,
+      )
+    })
+    .collect::<Vec<_>>();
+  let leaf_id = vue_vet_core::ModuleId::from("src/module-7.ts");
+  let leaf = ModuleSource::standalone(
+    leaf_id.clone(),
+    "import { ref } from 'vue'; export const value7 = ref(70);",
+    "ts",
+    ScriptKind::Script,
+  );
+  let full_next = modules
+    .iter()
+    .map(|module| if module.id == leaf_id { leaf.clone() } else { module.clone() })
+    .collect::<Vec<_>>();
+
+  let mut full_state = ModuleTraceState::default();
+  let full_options =
+    TraceModulesOptions { max_workers: 2, persist_linking_cache: true, ..default_trace_options() };
+  let _warm = trace_modules_incremental_with_options(&modules, &[], &full_options, &mut full_state);
+  let full =
+    trace_modules_incremental_with_options(&full_next, &[], &full_options, &mut full_state);
+
+  let mut subset_state = ModuleTraceState::default();
+  let _warm =
+    trace_modules_incremental_with_options(&modules, &[], &full_options, &mut subset_state);
+  let subset = trace_modules_incremental_with_options(
+    std::slice::from_ref(&leaf),
+    &[],
+    &subset_options(live_ids(&modules)),
+    &mut subset_state,
+  );
+
+  assert!(full.issues.is_empty() && subset.issues.is_empty());
+  assert_eq!(subset.stats.phase_one_succeeded, 1);
+  assert_eq!(subset.stats.reused_graphs, 7);
+  assert!(!subset.stats.export_resolve_ran);
+  assert_eq!(subset.stats.seed_plans_recomputed, 0);
+  assert_eq!(graphs_by_id(&full.modules), graphs_by_id(&subset.modules));
+}
+
+#[test]
+fn subset_producer_export_pulls_consumer() {
+  let producer_v1 = ModuleSource::standalone(
+    "producer.ts",
+    "import { ref } from 'vue'; export const count = ref(0);",
+    "ts",
+    ScriptKind::Script,
+  );
+  let consumer = ModuleSource::standalone(
+    "consumer.ts",
+    "import { watchEffect } from 'vue'; import { count } from './producer'; watchEffect(() => count.value);",
+    "ts",
+    ScriptKind::Script,
+  );
+  let unrelated = ModuleSource::standalone(
+    "unrelated.ts",
+    "import { ref } from 'vue'; export const other = ref(1);",
+    "ts",
+    ScriptKind::Script,
+  );
+  let links = [ModuleLink {
+    from: "consumer.ts".into(),
+    specifier: "./producer".into(),
+    to: "producer.ts".into(),
+  }];
+  let modules_v1 = [producer_v1, consumer.clone(), unrelated.clone()];
+  let producer_v2 = ModuleSource::standalone(
+    "producer.ts",
+    "import { ref } from 'vue'; export const count = ref(0); export const flag = ref(true);",
+    "ts",
+    ScriptKind::Script,
+  );
+  let full_v2 = [producer_v2.clone(), consumer, unrelated];
+
+  let mut full_state = ModuleTraceState::default();
+  let full_options =
+    TraceModulesOptions { max_workers: 2, persist_linking_cache: true, ..default_trace_options() };
+  let _warm =
+    trace_modules_incremental_with_options(&modules_v1, &links, &full_options, &mut full_state);
+  let full =
+    trace_modules_incremental_with_options(&full_v2, &links, &full_options, &mut full_state);
+
+  let mut subset_state = ModuleTraceState::default();
+  let _warm =
+    trace_modules_incremental_with_options(&modules_v1, &links, &full_options, &mut subset_state);
+  let subset = trace_modules_incremental_with_options(
+    std::slice::from_ref(&producer_v2),
+    &links,
+    &subset_options(live_ids(&modules_v1)),
+    &mut subset_state,
+  );
+
+  assert!(full.issues.is_empty() && subset.issues.is_empty());
+  assert_eq!(subset.stats.phase_one_succeeded, 1);
+  assert!(subset.stats.export_resolve_ran);
+  assert_eq!(subset.stats.seed_plans_recomputed, 2);
+  assert_eq!(subset.seed_plan_dirty, BTreeSet::from(["producer.ts".into(), "consumer.ts".into()]),);
+  assert_eq!(subset.modules.len(), 3);
+  let consumer = subset.modules.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .effects
+        .iter()
+        .any(|effect| effect.reads.iter().any(|read| read.binding == "count"))
+    }),
+    "consumer must stay seeded when only the producer is in the input"
+  );
+  assert_eq!(graphs_by_id(&full.modules), graphs_by_id(&subset.modules));
+}
+
+#[test]
+fn empty_subset_emits_cached_universe() {
+  let modules = [
+    ModuleSource::standalone(
+      "a.ts",
+      "import { ref } from 'vue'; export const a = ref(1);",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "b.ts",
+      "import { ref } from 'vue'; export const b = ref(2);",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let mut state = ModuleTraceState::default();
+  let options = subset_options(live_ids(&modules));
+  let first = trace_modules_incremental_with_options(&modules, &[], &options, &mut state);
+  assert!(first.issues.is_empty());
+  let second = trace_modules_incremental_with_options(&[], &[], &options, &mut state);
+  assert!(second.issues.is_empty());
+  assert_eq!(second.modules.len(), 2);
+  assert_eq!(second.stats.reused_graphs, 2);
+  assert_eq!(second.stats.phase_one_succeeded, 0);
+  assert!(!second.stats.export_resolve_ran);
+  assert!(state.cached_source(&"a.ts".into()).is_some());
+  assert!(state.cached_source(&"b.ts".into()).is_some());
+}
+
+#[test]
+fn subset_live_ids_drop_deleted_modules() {
+  let modules = [
+    ModuleSource::standalone(
+      "keep.ts",
+      "import { ref } from 'vue'; export const keep = ref(1);",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "gone.ts",
+      "import { ref } from 'vue'; export const gone = ref(2);",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let mut state = ModuleTraceState::default();
+  let options = subset_options(live_ids(&modules));
+  let first = trace_modules_incremental_with_options(&modules, &[], &options, &mut state);
+  assert!(first.issues.is_empty());
+  assert!(state.cached_source(&"gone.ts".into()).is_some());
+
+  let keep = ModuleSource::standalone(
+    "keep.ts",
+    "import { ref } from 'vue'; export const keep = ref(1);",
+    "ts",
+    ScriptKind::Script,
+  );
+  let live = BTreeSet::from([keep.id.clone()]);
+  let second = trace_modules_incremental_with_options(
+    std::slice::from_ref(&keep),
+    &[],
+    &subset_options(live),
+    &mut state,
+  );
+  assert!(second.issues.is_empty());
+  assert_eq!(second.modules.len(), 1);
+  assert!(state.cached_source(&"keep.ts".into()).is_some());
+  assert!(state.cached_source(&"gone.ts".into()).is_none());
+}
+
 #[test]
 fn prepared_phase_one_facts_avoid_an_unseeded_second_parse() {
   let source = "import { ref } from 'vue'; export const count = ref(0);";

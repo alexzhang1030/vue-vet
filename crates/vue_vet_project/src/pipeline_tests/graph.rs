@@ -63,6 +63,57 @@ fn incremental_structure_rebuilds_only_changed_file_facts() {
 }
 
 #[test]
+fn incremental_leaf_edit_visits_one_module_summary() {
+  let project = TempProject::new("leaf-subset");
+  let first = standalone_ts("src/a.ts", "import { ref } from 'vue'; export const a = ref(1);");
+  let second = standalone_ts("src/b.ts", "import { ref } from 'vue'; export const b = ref(2);");
+  let third = standalone_ts("src/c.ts", "import { ref } from 'vue'; export const c = ref(3);");
+  materialize(&project, &[first.clone(), second.clone(), third.clone()]);
+  let mut state = ProjectGraphState::default();
+  let context = ProjectContext { revision: 1, ..ProjectContext::default() };
+  let initial = build_project_graph_incremental_with_options(
+    project.root(),
+    &[first.clone(), second, third.clone()],
+    &trace_opts_workers(1),
+    &context,
+    &mut state,
+    None,
+  );
+  assert_eq!(initial.module_reactivity.len(), 3);
+  assert_eq!(state.last_stats().module_summaries_visited, 3);
+
+  let edited = standalone_ts("src/b.ts", "import { ref } from 'vue'; export const b = ref(20);");
+  let after = build_project_graph_incremental_with_options(
+    project.root(),
+    &[first, edited, third],
+    &trace_opts_workers(1),
+    &context,
+    &mut state,
+    None,
+  );
+  assert_eq!(after.module_reactivity.len(), 3);
+  assert_eq!(state.last_stats().module_summaries_visited, 1);
+  assert_eq!(state.last_stats().module_graphs_reused, 2);
+  assert!(
+    !state.last_stats().export_resolve_ran,
+    "literal-only leaf edit must skip export resolve"
+  );
+  for id in ["src/a.ts", "src/c.ts"] {
+    let before = initial
+      .module_reactivity
+      .iter()
+      .find(|module| module.id.as_str() == id)
+      .map(|module| std::sync::Arc::as_ptr(&module.graph));
+    let kept = after
+      .module_reactivity
+      .iter()
+      .find(|module| module.id.as_str() == id)
+      .map(|module| std::sync::Arc::as_ptr(&module.graph));
+    assert_eq!(before, kept, "unchanged module {id} must keep its layered graph Arc");
+  }
+}
+
+#[test]
 fn resolves_aliases_and_nuxt_auto_imports() {
   let project = TempProject::new("aliases");
   let page = file(

@@ -41,6 +41,8 @@ pub struct ProjectGraphStats {
   pub export_resolve_ran: bool,
   /// Whether template/prop layers were recomputed (false = Arc reuse).
   pub layered_graphs_rebuilt: bool,
+  /// Modules that entered phase one this scan (dirty subset, not the live universe).
+  pub module_summaries_visited: usize,
 }
 
 /// Cached post-trace layers: template joins + prop-flow edges.

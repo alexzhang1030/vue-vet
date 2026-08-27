@@ -53,9 +53,9 @@ pub struct DirtyPlan {
   pub structural_files: BTreeSet<FileId>,
   pub module_summaries: BTreeSet<ModuleId>,
   /// Seed-plan dirty set from the last A6 pass (`TraceModulesReport::seed_plan_dirty`).
-  /// Empty on a warm linking-cache hit. Does not itself drive the next scan —
-  /// the linker still computes this set — but it is no longer a clone of
-  /// [`Self::module_summaries`].
+  /// Empty on a warm linking-cache hit. The linker still computes this set.
+  /// The pipeline passes source-dirty modules as a subset; the tracer merges
+  /// cached summaries and pulls seed-dirty consumers that were not in the input.
   pub export_closure: BTreeSet<ModuleId>,
   pub rule_files: BTreeSet<FileId>,
   pub diagnostic_files: BTreeSet<FileId>,
