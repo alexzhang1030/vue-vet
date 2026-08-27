@@ -477,9 +477,11 @@ fn scan_parallel(
     input.sources.iter().map(|source| (source.file_id.clone(), Arc::clone(&source.source)));
   let summary = DiagnosticFinalizer::new(config, sources).finalize(files_scanned, raw_diagnostics);
 
-  // Phase one visits the dirty subset. Cached live modules are merged, not walked.
+  // Phase one visits the dirty subset. Cached live modules merge only on a linking miss.
   let module_summaries_visited =
     u64::try_from(project_stats.module_summaries_visited).unwrap_or(u64::MAX);
+  let cached_modules_merged =
+    u64::try_from(project_stats.cached_modules_merged).unwrap_or(u64::MAX);
   let seed_plans_recomputed =
     u64::try_from(project_stats.seed_plans_recomputed).unwrap_or(u64::MAX);
 
@@ -490,6 +492,7 @@ fn scan_parallel(
     structural_partitions_rebuilt: u64::try_from(project_stats.structural_files_rebuilt)
       .unwrap_or(u64::MAX),
     module_summaries_visited,
+    cached_modules_merged,
     seed_plans_recomputed,
     export_resolve_ran: project_stats.export_resolve_ran,
     seeded_reparses: u64::try_from(project_stats.seeded_module_reparses).unwrap_or(u64::MAX),

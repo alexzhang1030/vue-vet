@@ -181,6 +181,7 @@ pub fn build_project_graph_incremental_with_options<'a>(
   state.last_stats.export_resolve_ran = trace_report.stats.export_resolve_ran;
   state.last_stats.module_summaries_visited =
     trace_report.stats.phase_one_succeeded.saturating_add(trace_report.stats.phase_one_failed);
+  state.last_stats.cached_modules_merged = trace_report.stats.cached_modules_merged;
   state.last_export_closure = trace_report.seed_plan_dirty;
   let reactivity_issues = trace_report
     .issues

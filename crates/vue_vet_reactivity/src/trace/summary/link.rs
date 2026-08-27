@@ -198,6 +198,76 @@ fn linking_cache_reusable(
   })
 }
 
+fn sorted_dedup_links(links: &[ModuleLink]) -> Vec<ModuleLink> {
+  let mut owned = links.to_vec();
+  owned.sort_by(|left, right| {
+    (&left.from, &left.specifier, &left.to).cmp(&(&right.from, &right.specifier, &right.to))
+  });
+  owned.dedup();
+  owned
+}
+
+/// Linking reuse against the live universe without merging cached graphs.
+///
+/// `this_pass` is the dirty subset. Cached modules are compared in place from
+/// `state.entries` so a leaf edit does not rebuild N `facts_by_id` rows.
+fn linking_live_surfaces_match(
+  owned_links: &[ModuleLink],
+  this_pass: &BTreeMap<ModuleId, ModuleExportFacts>,
+  scope: LiveScope<'_>,
+  state: &ModuleTraceState,
+  cached: &CachedLinkingSnapshot,
+) -> bool {
+  if cached.links != owned_links {
+    return false;
+  }
+  let mut seen = 0_usize;
+  for (id, facts) in this_pass {
+    let Some(prev) = cached.summaries.get(id) else {
+      return false;
+    };
+    if !linking_surface_eq(&facts.summary, prev) {
+      return false;
+    }
+    seen += 1;
+  }
+  match scope {
+    LiveScope::InputOnly => {}
+    LiveScope::Explicit(live) => {
+      for id in live {
+        if this_pass.contains_key(id) {
+          continue;
+        }
+        let Some(entry) = state.entries.get(id) else {
+          continue;
+        };
+        let Some(prev) = cached.summaries.get(id) else {
+          return false;
+        };
+        if !linking_surface_eq(&entry.summary, prev) {
+          return false;
+        }
+        seen += 1;
+      }
+    }
+    LiveScope::Retain { drop } => {
+      for (id, entry) in &state.entries {
+        if drop.contains(id) || this_pass.contains_key(id) {
+          continue;
+        }
+        let Some(prev) = cached.summaries.get(id) else {
+          return false;
+        };
+        if !linking_surface_eq(&entry.summary, prev) {
+          return false;
+        }
+        seen += 1;
+      }
+    }
+  }
+  seen == cached.summaries.len()
+}
+
 /// Work counters used by incremental tests and performance instrumentation.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TraceModulesStats {
@@ -209,6 +279,10 @@ pub struct TraceModulesStats {
   pub seed_plans_recomputed: usize,
   /// Whether `resolve_exports` / provide indexing ran this pass.
   pub export_resolve_ran: bool,
+  /// Cached modules copied into this-pass `facts_by_id` for a linking miss.
+  /// Zero on a linking-cache hit — do not merge the live universe just to
+  /// compare surfaces.
+  pub cached_modules_merged: usize,
 }
 
 /// Partial, deterministic result from a module-linking pass.
@@ -393,66 +467,78 @@ fn trace_modules_incremental_in_current_pool(
     }
   }
 
-  if persist_subset(options) {
-    merge_cached_live_modules(scope, state, &mut facts_by_id, &mut local_graphs);
+  let owned_links = sorted_dedup_links(links);
+  let linking_hit = options.persist_linking_cache
+    && state.linking.as_ref().is_some_and(|cached| {
+      linking_live_surfaces_match(&owned_links, &facts_by_id, scope, state, cached)
+    });
+
+  // Linking-cache hit: compare surfaces against `state.entries`. Do not copy
+  // the live universe into `facts_by_id` / `local_graphs` just to check.
+  if persist_subset(options) && !linking_hit {
+    report.stats.cached_modules_merged =
+      merge_cached_live_modules(scope, state, &mut facts_by_id, &mut local_graphs);
   }
 
-  let (resolved_links, mut link_issues) = resolved_links_partial(&facts_by_id, links);
-  report.issues.append(&mut link_issues);
-
   let mut pending_linking_archive = None;
-  let work = if options.persist_linking_cache {
-    if state.linking.is_none() {
-      // First persistent scan: build plans once (like oneshot), archive after phase two.
-      let (work, archive) = build_cold_persistent_seed_work(
+  let work = if linking_hit {
+    build_work_from_cached_plans(inputs, state, &facts_by_id, &mut local_graphs, &mut report)
+  } else {
+    let (resolved_links, mut link_issues) = resolved_links_partial(&facts_by_id, links);
+    report.issues.append(&mut link_issues);
+    if options.persist_linking_cache {
+      if state.linking.is_none() {
+        // First persistent scan: build plans once (like oneshot), archive after phase two.
+        let (work, archive) = build_cold_persistent_seed_work(
+          inputs,
+          links,
+          &resolved_links,
+          &facts_by_id,
+          &mut local_graphs,
+          &mut report,
+        );
+        pending_linking_archive = Some(archive);
+        report.seed_plan_dirty =
+          work.iter().map(|(module, _, _, _)| module.source().id.clone()).collect();
+        work
+      } else {
+        let mut work = build_persistent_seed_work(
+          inputs,
+          &owned_links,
+          &resolved_links,
+          &facts_by_id,
+          &mut local_graphs,
+          state,
+          &mut report,
+        );
+        if persist_subset(options)
+          && let Some(plans) = state.linking.as_ref().map(|cached| Arc::clone(&cached.plans))
+        {
+          work.extend(pull_cached_seed_work(
+            unique,
+            scope,
+            &report.seed_plan_dirty,
+            state,
+            &facts_by_id,
+            &mut local_graphs,
+            &plans,
+          ));
+        }
+        work
+      }
+    } else {
+      // One-shot cold path: no link sort / seed-plan archive.
+      let work = build_oneshot_seed_work(
         inputs,
-        links,
         &resolved_links,
         &facts_by_id,
         &mut local_graphs,
         &mut report,
       );
-      pending_linking_archive = Some(archive);
       report.seed_plan_dirty =
         work.iter().map(|(module, _, _, _)| module.source().id.clone()).collect();
       work
-    } else {
-      let mut work = build_persistent_seed_work(
-        inputs,
-        links,
-        &resolved_links,
-        &facts_by_id,
-        &mut local_graphs,
-        state,
-        &mut report,
-      );
-      if persist_subset(options)
-        && let Some(plans) = state.linking.as_ref().map(|cached| Arc::clone(&cached.plans))
-      {
-        work.extend(pull_cached_seed_work(
-          unique,
-          scope,
-          &report.seed_plan_dirty,
-          state,
-          &facts_by_id,
-          &mut local_graphs,
-          &plans,
-        ));
-      }
-      work
     }
-  } else {
-    // One-shot cold path: no link sort / seed-plan archive.
-    let work = build_oneshot_seed_work(
-      inputs,
-      &resolved_links,
-      &facts_by_id,
-      &mut local_graphs,
-      &mut report,
-    );
-    report.seed_plan_dirty =
-      work.iter().map(|(module, _, _, _)| module.source().id.clone()).collect();
-    work
   };
 
   let persist = options.persist_linking_cache;
@@ -694,13 +780,14 @@ fn merge_cached(
   entry: &CachedModuleTrace,
   facts_by_id: &mut BTreeMap<ModuleId, ModuleExportFacts>,
   local_graphs: &mut BTreeMap<ModuleId, Arc<ReactivityGraph>>,
-) {
+) -> bool {
   if facts_by_id.contains_key(id) {
-    return;
+    return false;
   }
   let analysis = phase_one_from_summary(entry.source.as_ref(), &entry.summary);
   facts_by_id.insert(id.clone(), analysis.facts);
   local_graphs.insert(id.clone(), analysis.local_graph);
+  true
 }
 
 fn merge_cached_live_modules(
@@ -708,7 +795,8 @@ fn merge_cached_live_modules(
   state: &ModuleTraceState,
   facts_by_id: &mut BTreeMap<ModuleId, ModuleExportFacts>,
   local_graphs: &mut BTreeMap<ModuleId, Arc<ReactivityGraph>>,
-) {
+) -> usize {
+  let mut merged = 0_usize;
   match scope {
     LiveScope::InputOnly => {}
     LiveScope::Explicit(live) => {
@@ -716,7 +804,7 @@ fn merge_cached_live_modules(
         let Some(entry) = state.entries.get(id) else {
           continue;
         };
-        merge_cached(id, entry, facts_by_id, local_graphs);
+        merged += usize::from(merge_cached(id, entry, facts_by_id, local_graphs));
       }
     }
     LiveScope::Retain { drop } => {
@@ -724,10 +812,11 @@ fn merge_cached_live_modules(
         if drop.contains(id) {
           continue;
         }
-        merge_cached(id, entry, facts_by_id, local_graphs);
+        merged += usize::from(merge_cached(id, entry, facts_by_id, local_graphs));
       }
     }
   }
+  merged
 }
 
 fn count_cached_silent(
@@ -888,25 +977,42 @@ fn build_oneshot_seed_work<'a>(
   work
 }
 
+fn build_work_from_cached_plans<'a>(
+  inputs: IncrementalInputs<'a>,
+  state: &ModuleTraceState,
+  facts_by_id: &BTreeMap<ModuleId, ModuleExportFacts>,
+  local_graphs: &mut BTreeMap<ModuleId, Arc<ReactivityGraph>>,
+  report: &mut TraceModulesReport,
+) -> Vec<SeedWorkItem<'a>> {
+  report.stats.seed_plans_recomputed = 0;
+  report.stats.export_resolve_ran = false;
+  report.seed_plan_dirty.clear();
+  let Some(plans) = state.linking.as_ref().map(|cached| Arc::clone(&cached.plans)) else {
+    return Vec::new();
+  };
+  inputs
+    .unique
+    .iter()
+    .filter_map(|module| {
+      let facts = facts_by_id.get(&module.id)?;
+      let local_graph = local_graphs.remove(&module.id)?;
+      let plan = plans.get(&module.id)?.clone();
+      Some((inputs.work(module), local_graph, plan, Some(Arc::clone(&facts.summary))))
+    })
+    .collect()
+}
+
 fn build_persistent_seed_work<'a>(
   inputs: IncrementalInputs<'a>,
-  links: &[ModuleLink],
+  owned_links: &[ModuleLink],
   resolved_links: &BTreeMap<(ModuleId, String), ModuleId>,
   facts_by_id: &BTreeMap<ModuleId, ModuleExportFacts>,
   local_graphs: &mut BTreeMap<ModuleId, Arc<ReactivityGraph>>,
   state: &mut ModuleTraceState,
   report: &mut TraceModulesReport,
 ) -> Vec<SeedWorkItem<'a>> {
-  let mut owned_links = links.to_vec();
-  owned_links.sort_by(|left, right| {
-    (&left.from, &left.specifier, &left.to).cmp(&(&right.from, &right.specifier, &right.to))
-  });
-  owned_links.dedup();
-
-  let plans = if let Some(cached) = state
-    .linking
-    .as_ref()
-    .filter(|cached| linking_cache_reusable(&owned_links, facts_by_id, cached))
+  let plans = if let Some(cached) =
+    state.linking.as_ref().filter(|cached| linking_cache_reusable(owned_links, facts_by_id, cached))
   {
     report.stats.seed_plans_recomputed = 0;
     report.stats.export_resolve_ran = false;
@@ -977,7 +1083,7 @@ fn build_persistent_seed_work<'a>(
     let summaries =
       facts_by_id.iter().map(|(id, facts)| (id.clone(), Arc::clone(&facts.summary))).collect();
     state.linking = Some(CachedLinkingSnapshot {
-      links: owned_links,
+      links: owned_links.to_vec(),
       summaries,
       exports,
       provide_index,

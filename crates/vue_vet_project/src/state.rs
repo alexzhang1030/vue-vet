@@ -43,6 +43,8 @@ pub struct ProjectGraphStats {
   pub layered_graphs_rebuilt: bool,
   /// Modules that entered phase one this scan (dirty subset, not the live universe).
   pub module_summaries_visited: usize,
+  /// Cached modules merged into this-pass facts after a linking miss.
+  pub cached_modules_merged: usize,
 }
 
 /// Cached post-trace layers: template joins + prop-flow edges.
