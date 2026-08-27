@@ -1,6 +1,6 @@
 //! Tracking-scope writes and assignment-only body classification.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use oxc_ast::ast::PropertyKind;
 use oxc_ast::{
@@ -16,10 +16,10 @@ use vue_vet_core::{ReactiveBindingFact, ReactiveWriteFact};
 
 use super::{
   ComposableShapeMap,
-  context::sync_tracking_owns_node,
+  context::ScopeNodeIndex,
   expr,
   follow::{
-    FollowOutside, LocalCalleeIndex, MAX_LOCAL_CALLEE_FOLLOW_DEPTH, follow_local_callees,
+    FileTraceIndex, FollowOutside, MAX_LOCAL_CALLEE_FOLLOW_DEPTH, follow_local_callees,
     is_async_or_generator_function, local_function_id,
   },
   kinds::{reference_resolves_to_binding, source_span},
@@ -198,19 +198,14 @@ pub(super) fn statement_is_assignment_or_followed_helper(
   }
 }
 
-#[expect(
-  clippy::too_many_arguments,
-  reason = "file callee index is one extra arg on the collector surface"
-)]
 pub(super) fn collect_scope_writes(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
   reactive_bindings: &[ReactiveBindingFact],
   composable_instances: &ComposableShapeMap,
-  imported_bindings: &BTreeMap<String, (String, String)>,
   sfc_source: &str,
   script_offset: usize,
-  callees: &LocalCalleeIndex,
+  index: &FileTraceIndex,
 ) -> Vec<ReactiveWriteFact> {
   let mut visiting = BTreeSet::new();
   visiting.insert(scope_id);
@@ -219,12 +214,11 @@ pub(super) fn collect_scope_writes(
     scope_id,
     reactive_bindings,
     composable_instances,
-    imported_bindings,
     sfc_source,
     script_offset,
     0,
     &mut visiting,
-    callees,
+    index,
   );
   writes.sort_by_key(|write| write.span.offset);
   writes
@@ -236,24 +230,23 @@ pub(super) fn collect_scope_writes_bounded(
   scope_id: NodeId,
   reactive_bindings: &[ReactiveBindingFact],
   composable_instances: &ComposableShapeMap,
-  imported_bindings: &BTreeMap<String, (String, String)>,
   sfc_source: &str,
   script_offset: usize,
   depth: u32,
   visiting: &mut BTreeSet<NodeId>,
-  callees: &LocalCalleeIndex,
+  index: &FileTraceIndex,
 ) -> Vec<ReactiveWriteFact> {
   let mut writes = collect_scope_writes_local(
     semantic,
     scope_id,
     reactive_bindings,
     composable_instances,
-    imported_bindings,
     sfc_source,
     script_offset,
+    index.nodes(),
   );
   follow_local_callees(
-    callees,
+    index.callees(),
     scope_id,
     depth,
     visiting,
@@ -264,12 +257,11 @@ pub(super) fn collect_scope_writes_bounded(
         callee_id,
         reactive_bindings,
         composable_instances,
-        imported_bindings,
         sfc_source,
         script_offset,
         next_depth,
         visiting,
-        callees,
+        index,
       ));
     },
   );
@@ -281,18 +273,15 @@ pub(super) fn collect_scope_writes_local(
   scope_id: NodeId,
   reactive_bindings: &[ReactiveBindingFact],
   composable_instances: &ComposableShapeMap,
-  imported_bindings: &BTreeMap<String, (String, String)>,
   sfc_source: &str,
   script_offset: usize,
+  nodes: &ScopeNodeIndex,
 ) -> Vec<ReactiveWriteFact> {
   let mut writes = Vec::new();
-  for node in semantic.nodes() {
-    let Some((lhs, write_span)) = write_target_from_node(node.kind()) else {
+  for &node_id in nodes.writes(scope_id) {
+    let Some((lhs, write_span)) = write_target_from_node(semantic.nodes().kind(node_id)) else {
       continue;
     };
-    if !sync_tracking_owns_node(semantic, scope_id, node.id(), imported_bindings) {
-      continue;
-    }
 
     match lhs {
       WriteLhs::Binding { object, property } => {

@@ -14,7 +14,7 @@ use vue_vet_core::{
 use super::{
   ComposableShapeMap,
   bindings::AmbientCallHandles,
-  follow::LocalCalleeIndex,
+  follow::FileTraceIndex,
   kinds::{resolved_vue_callee, source_span},
   reads::{classify_scope_reads, collect_scope_reads},
   render,
@@ -66,7 +66,7 @@ pub(super) struct ScopeBuild<'a> {
   sfc_source: &'a str,
   script_offset: usize,
   force_outside_tracking: bool,
-  callees: &'a LocalCalleeIndex,
+  index: &'a FileTraceIndex,
 }
 
 pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
@@ -78,7 +78,7 @@ pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
     build.imported_bindings,
     build.ambient_call_handles,
     build.script_offset,
-    build.callees,
+    build.index,
   );
   let mut reads = classify_scope_reads(
     build.semantic,
@@ -101,10 +101,9 @@ pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
     build.scope_id,
     build.reactive_bindings,
     build.composable_instances,
-    build.imported_bindings,
     build.sfc_source,
     build.script_offset,
-    build.callees,
+    build.index,
   );
   let uncertain_accesses = collect_uncertain_scope_accesses(
     build.semantic,
@@ -113,7 +112,7 @@ pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
     build.composable_instances,
     build.imported_bindings,
     build.script_offset,
-    build.callees,
+    build.index,
   );
   let mut assignment_visiting = BTreeSet::new();
   assignment_visiting.insert(build.scope_id);
@@ -136,7 +135,7 @@ pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
 
 #[expect(
   clippy::too_many_arguments,
-  reason = "scope assembly threads the file callee index with existing collectors"
+  reason = "scope assembly threads the file trace index with existing collectors"
 )]
 pub(super) fn collect_tracking_scopes(
   semantic: &oxc_semantic::Semantic<'_>,
@@ -146,7 +145,7 @@ pub(super) fn collect_tracking_scopes(
   ambient_call_handles: &AmbientCallHandles,
   sfc_source: &str,
   script_offset: usize,
-  callees: &LocalCalleeIndex,
+  index: &FileTraceIndex,
 ) -> Vec<TrackingScopeFact> {
   // Only treat `.run(cb)` as an effect-scope body when the receiver was assigned
   // from Vue's `effectScope()` — never invent edges for arbitrary `.run` APIs.
@@ -179,7 +178,7 @@ pub(super) fn collect_tracking_scopes(
         sfc_source,
         script_offset,
         force_outside_tracking: false,
-        callees,
+        index,
       }));
       continue;
     }
@@ -230,7 +229,7 @@ pub(super) fn collect_tracking_scopes(
           sfc_source,
           script_offset,
           force_outside_tracking: scope_kind == TrackingScopeKind::OnScopeDispose,
-          callees,
+          index,
         }));
       }
       TrackingScopeKind::EffectScope => {
@@ -253,7 +252,7 @@ pub(super) fn collect_tracking_scopes(
             sfc_source,
             script_offset,
             force_outside_tracking: false,
-            callees,
+            index,
           }));
         }
         // Also capture `.run(callback)` on effectScope instances via member call below.
@@ -272,7 +271,7 @@ pub(super) fn collect_tracking_scopes(
           ambient_call_handles,
           sfc_source,
           script_offset,
-          callees,
+          index,
         );
         let uncertain_accesses = collect_uncertain_watch_sources(
           semantic,
@@ -281,7 +280,7 @@ pub(super) fn collect_tracking_scopes(
           composable_instances,
           imported_bindings,
           script_offset,
-          callees,
+          index,
         );
         scopes.push(TrackingScopeFact {
           kind: TrackingScopeKind::WatchSources,
@@ -312,7 +311,7 @@ pub(super) fn collect_tracking_scopes(
             sfc_source,
             script_offset,
             force_outside_tracking: true,
-            callees,
+            index,
           }));
         }
       }
@@ -337,7 +336,7 @@ pub(super) fn assigned_binding_name(
 
 #[expect(
   clippy::too_many_arguments,
-  reason = "scope assembly threads the file callee index with existing collectors"
+  reason = "scope assembly threads the file trace index with existing collectors"
 )]
 pub(super) fn collect_render_scopes(
   semantic: &oxc_semantic::Semantic<'_>,
@@ -347,7 +346,7 @@ pub(super) fn collect_render_scopes(
   ambient_call_handles: &AmbientCallHandles,
   sfc_source: &str,
   script_offset: usize,
-  callees: &LocalCalleeIndex,
+  index: &FileTraceIndex,
 ) -> Vec<TrackingScopeFact> {
   let mut scopes = Vec::new();
   for body in render::collect_render_bodies(semantic, imported_bindings) {
@@ -366,7 +365,7 @@ pub(super) fn collect_render_scopes(
       sfc_source,
       script_offset,
       force_outside_tracking: false,
-      callees,
+      index,
     }));
   }
   scopes

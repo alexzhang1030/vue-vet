@@ -17,9 +17,9 @@ use super::{
   ComposableShapeMap,
   bindings::AmbientCallHandles,
   branch_hygiene,
-  context::scope_context,
+  context::ScopeNodeIndex,
   follow::{
-    FollowOutside, LocalCalleeIndex, follow_local_callees, innermost_function_id,
+    FileTraceIndex, FollowOutside, follow_local_callees, innermost_function_id,
     local_helper_calls_by_owner,
   },
   kinds::{reference_resolves_to_binding, resolved_vue_callee, source_span, span_contains},
@@ -65,7 +65,7 @@ pub(super) struct RawGuard {
 
 #[expect(
   clippy::too_many_arguments,
-  reason = "file callee index is one extra arg on the collector surface"
+  reason = "file trace index is one extra arg on the collector surface"
 )]
 pub(super) fn collect_scope_reads(
   semantic: &oxc_semantic::Semantic<'_>,
@@ -75,7 +75,7 @@ pub(super) fn collect_scope_reads(
   imported_bindings: &BTreeMap<String, (String, String)>,
   ambient_call_handles: &AmbientCallHandles,
   script_offset: usize,
-  callees: &LocalCalleeIndex,
+  index: &FileTraceIndex,
 ) -> Vec<RawReactiveRead> {
   let mut visiting = BTreeSet::new();
   visiting.insert(scope_id);
@@ -89,7 +89,7 @@ pub(super) fn collect_scope_reads(
     script_offset,
     0,
     &mut visiting,
-    callees,
+    index,
   )
 }
 
@@ -104,7 +104,7 @@ pub(super) fn collect_scope_reads_bounded(
   script_offset: usize,
   depth: u32,
   visiting: &mut BTreeSet<NodeId>,
-  callees: &LocalCalleeIndex,
+  index: &FileTraceIndex,
 ) -> Vec<RawReactiveRead> {
   let mut reads = collect_scope_reads_local(
     semantic,
@@ -114,12 +114,13 @@ pub(super) fn collect_scope_reads_bounded(
     imported_bindings,
     ambient_call_handles,
     script_offset,
+    index.nodes(),
   );
 
   // Same-file zero-arg helpers contribute ambient tracking reads (Vue's
   // activeEffect). `then()` / `nextTick`-only calls stay outside-tracking.
   follow_local_callees(
-    callees,
+    index.callees(),
     scope_id,
     depth,
     visiting,
@@ -135,7 +136,7 @@ pub(super) fn collect_scope_reads_bounded(
         script_offset,
         next_depth,
         visiting,
-        callees,
+        index,
       );
       for read in &mut nested {
         if call_outside {
@@ -151,6 +152,7 @@ pub(super) fn collect_scope_reads_bounded(
   reads
 }
 
+#[expect(clippy::too_many_arguments, reason = "local reads look up the file node index by kind")]
 pub(super) fn collect_scope_reads_local(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
@@ -159,119 +161,43 @@ pub(super) fn collect_scope_reads_local(
   imported_bindings: &BTreeMap<String, (String, String)>,
   ambient_call_handles: &AmbientCallHandles,
   script_offset: usize,
+  nodes: &ScopeNodeIndex,
 ) -> Vec<RawReactiveRead> {
-  let mut reads = semantic
-    .nodes()
-    .iter_enumerated()
-    .filter_map(|(member_id, member_node)| {
-      // Nested composable instance: bag.field.value
-      if let AstKind::StaticMemberExpression(outer) = member_node.kind()
-        && outer.property.name.as_str() == "value"
-        && let Expression::StaticMemberExpression(inner) = &outer.object
-        && let Some(instance) = inner.object.get_identifier_reference()
-        && let Some(shape) = composable_instances.get(instance.name.as_str())
-        && let Some(kind) = shape.get(inner.property.name.as_str())
-        && kind.is_ref_like()
-      {
-        let (_, outside_tracking) =
-          scope_context(semantic, scope_id, member_id, outer.span, imported_bindings)?;
-        return Some(RawReactiveRead::local(
-          member_id,
-          inner.property.name.to_string(),
-          Some("value".into()),
-          outer.span,
-          outside_tracking,
-        ));
-      }
-
-      // Nested composable instance: bag.field for non-ref-like kinds
-      if let AstKind::StaticMemberExpression(member) = member_node.kind()
-        && let Some(instance) = member.object.get_identifier_reference()
-        && let Some(shape) = composable_instances.get(instance.name.as_str())
-        && let Some(kind) = shape.get(member.property.name.as_str())
-        && !kind.is_ref_like()
-      {
-        let (_, outside_tracking) =
-          scope_context(semantic, scope_id, member_id, member.span, imported_bindings)?;
-        return Some(RawReactiveRead::local(
-          member_id,
-          member.property.name.to_string(),
-          Some(member.property.name.to_string()),
-          member.span,
-          outside_tracking,
-        ));
-      }
-
-      // `unref(x)` / `toValue(x)` track ref-like bindings (runtime reads `.value`).
-      // `toValue(() => …)` is handled via `is_to_value_getter_callback` so nested
-      // member reads stay in the parent tracking scope.
-      if let AstKind::CallExpression(call) = member_node.kind()
-        && let Some(callee) =
-          resolved_vue_callee(semantic, &call.callee, imported_bindings, ScriptKind::Setup)
-        && matches!(callee.as_str(), "unref" | "toValue")
-        && let Some(argument) = call.arguments.first().and_then(Argument::as_expression)
-        && let Some(identifier) = argument.get_identifier_reference()
-      {
-        let (_, outside_tracking) =
-          scope_context(semantic, scope_id, member_id, call.span, imported_bindings)?;
-        let binding = reactive_bindings.iter().find(|binding| {
-          binding.name == identifier.name.as_str()
-            && reference_resolves_to_binding(semantic, identifier, binding, script_offset)
-            && binding.kind.is_ref_like()
-        })?;
-        return Some(RawReactiveRead::local(
-          member_id,
-          binding.name.clone(),
-          Some("value".into()),
-          call.span,
-          outside_tracking,
-        ));
-      }
-
-      // vue-i18n `t`/`d`/`n`/`rt`/`te` from `useI18n()` — wrapWithDeps tracks
-      // composer ambient refs. Handled after the member loop (multi-read inject).
-
-      let (object, property, member_span) = match member_node.kind() {
-        AstKind::StaticMemberExpression(member) => (
-          member.object.get_identifier_reference()?,
-          Some(member.property.name.to_string()),
-          member.span,
-        ),
-        AstKind::ComputedMemberExpression(member) => (
-          member.object.get_identifier_reference()?,
-          member.static_property_name().map(|name| name.to_string()),
-          member.span,
-        ),
-        _ => return None,
-      };
-
-      let (_, outside_tracking) =
-        scope_context(semantic, scope_id, member_id, member_span, imported_bindings)?;
-
-      let binding = reactive_bindings.iter().find(|binding| {
-        binding.name == object.name.as_str()
-          && reference_resolves_to_binding(semantic, object, binding, script_offset)
-          && (!binding.kind.is_ref_like() || property.as_deref() == Some("value"))
-      })?;
-      Some(RawReactiveRead::local(
-        member_id,
-        binding.name.clone(),
-        property,
-        member_span,
-        outside_tracking,
-      ))
-    })
-    .collect::<Vec<_>>();
+  let mut reads = Vec::new();
+  for owned in nodes.members(scope_id) {
+    if let Some(read) = local_member_read(
+      semantic,
+      owned.id,
+      owned.outside,
+      reactive_bindings,
+      composable_instances,
+      script_offset,
+    ) {
+      reads.push(read);
+    }
+  }
+  for owned in nodes.calls(scope_id) {
+    if let Some(read) = local_unwrap_read(
+      semantic,
+      owned.id,
+      owned.outside,
+      reactive_bindings,
+      imported_bindings,
+      script_offset,
+    ) {
+      reads.push(read);
+    }
+  }
 
   // Bare identifier reads of Reactive / ShallowReactive bindings (Vue 3.5 props
   // destructure, `reactive()` locals). Ref-like still require `.value` / unref /
   // toValue above. Skip identifiers that are the object of a member expression —
   // those already contributed a member read.
-  for (ident_id, ident_node) in semantic.nodes().iter_enumerated() {
-    let AstKind::IdentifierReference(identifier) = ident_node.kind() else {
+  for owned in nodes.idents(scope_id) {
+    let AstKind::IdentifierReference(identifier) = semantic.nodes().kind(owned.id) else {
       continue;
     };
-    if identifier_is_member_object(semantic, ident_id) {
+    if identifier_is_member_object(semantic, owned.id) {
       continue;
     }
     let Some(binding) = reactive_bindings.iter().find(|binding| {
@@ -281,23 +207,18 @@ pub(super) fn collect_scope_reads_local(
     }) else {
       continue;
     };
-    let Some((_, outside_tracking)) =
-      scope_context(semantic, scope_id, ident_id, identifier.span, imported_bindings)
-    else {
-      continue;
-    };
     reads.push(RawReactiveRead::local(
-      ident_id,
+      owned.id,
       binding.name.clone(),
       None,
       identifier.span,
-      outside_tracking,
+      owned.outside,
     ));
   }
 
   // Named API bag methods (`const { t } = useI18n()`): inject precomputed ambient reads.
-  for (call_id, call_node) in semantic.nodes().iter_enumerated() {
-    let AstKind::CallExpression(call) = call_node.kind() else {
+  for owned in nodes.calls(scope_id) {
+    let AstKind::CallExpression(call) = semantic.nodes().kind(owned.id) else {
       continue;
     };
     let Some(identifier) = call.callee.get_identifier_reference() else {
@@ -307,23 +228,122 @@ pub(super) fn collect_scope_reads_local(
     else {
       continue;
     };
-    let Some((_, outside_tracking)) =
-      scope_context(semantic, scope_id, call_id, call.span, imported_bindings)
-    else {
-      continue;
-    };
     for (binding, property) in ambient {
       reads.push(RawReactiveRead::local(
-        call_id,
+        owned.id,
         binding.clone(),
         property.clone(),
         call.span,
-        outside_tracking,
+        owned.outside,
       ));
     }
   }
 
   reads
+}
+
+fn local_member_read(
+  semantic: &oxc_semantic::Semantic<'_>,
+  member_id: NodeId,
+  outside_tracking: bool,
+  reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
+  script_offset: usize,
+) -> Option<RawReactiveRead> {
+  let kind = semantic.nodes().kind(member_id);
+  // Nested composable instance: bag.field.value
+  if let AstKind::StaticMemberExpression(outer) = kind
+    && outer.property.name.as_str() == "value"
+    && let Expression::StaticMemberExpression(inner) = &outer.object
+    && let Some(instance) = inner.object.get_identifier_reference()
+    && let Some(shape) = composable_instances.get(instance.name.as_str())
+    && let Some(kind) = shape.get(inner.property.name.as_str())
+    && kind.is_ref_like()
+  {
+    return Some(RawReactiveRead::local(
+      member_id,
+      inner.property.name.to_string(),
+      Some("value".into()),
+      outer.span,
+      outside_tracking,
+    ));
+  }
+
+  // Nested composable instance: bag.field for non-ref-like kinds
+  if let AstKind::StaticMemberExpression(member) = kind
+    && let Some(instance) = member.object.get_identifier_reference()
+    && let Some(shape) = composable_instances.get(instance.name.as_str())
+    && let Some(kind) = shape.get(member.property.name.as_str())
+    && !kind.is_ref_like()
+  {
+    return Some(RawReactiveRead::local(
+      member_id,
+      member.property.name.to_string(),
+      Some(member.property.name.to_string()),
+      member.span,
+      outside_tracking,
+    ));
+  }
+
+  let (object, property, member_span) = match kind {
+    AstKind::StaticMemberExpression(member) => (
+      member.object.get_identifier_reference()?,
+      Some(member.property.name.to_string()),
+      member.span,
+    ),
+    AstKind::ComputedMemberExpression(member) => (
+      member.object.get_identifier_reference()?,
+      member.static_property_name().map(|name| name.to_string()),
+      member.span,
+    ),
+    _ => return None,
+  };
+  let binding = reactive_bindings.iter().find(|binding| {
+    binding.name == object.name.as_str()
+      && reference_resolves_to_binding(semantic, object, binding, script_offset)
+      && (!binding.kind.is_ref_like() || property.as_deref() == Some("value"))
+  })?;
+  Some(RawReactiveRead::local(
+    member_id,
+    binding.name.clone(),
+    property,
+    member_span,
+    outside_tracking,
+  ))
+}
+
+fn local_unwrap_read(
+  semantic: &oxc_semantic::Semantic<'_>,
+  call_id: NodeId,
+  outside_tracking: bool,
+  reactive_bindings: &[ReactiveBindingFact],
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  script_offset: usize,
+) -> Option<RawReactiveRead> {
+  // `unref(x)` / `toValue(x)` track ref-like bindings (runtime reads `.value`).
+  // `toValue(() => …)` is handled via `is_to_value_getter_callback` so nested
+  // member reads stay in the parent tracking scope.
+  let AstKind::CallExpression(call) = semantic.nodes().kind(call_id) else {
+    return None;
+  };
+  let callee = resolved_vue_callee(semantic, &call.callee, imported_bindings, ScriptKind::Setup)?;
+  if !matches!(callee.as_str(), "unref" | "toValue") {
+    return None;
+  }
+  let argument = call.arguments.first().and_then(Argument::as_expression)?;
+  let identifier = argument.get_identifier_reference()?;
+  let binding = reactive_bindings.iter().find(|binding| {
+    binding.name == identifier.name.as_str()
+      && reference_resolves_to_binding(semantic, identifier, binding, script_offset)
+      && binding.kind.is_ref_like()
+  })?;
+  Some(RawReactiveRead::local(
+    call_id,
+    binding.name.clone(),
+    Some("value".into()),
+    call.span,
+    outside_tracking,
+  ))
 }
 
 /// Resolve a bare call to a registered ambient-on-call method handle.
