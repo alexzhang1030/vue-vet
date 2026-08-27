@@ -284,13 +284,41 @@ pub fn trace_modules_incremental_with_options(
 ///
 /// Warm callers pass only the source-dirty slice and set
 /// [`TraceModulesOptions::retain_cached_modules`] so unchanged modules stay
-/// in `state` without a `ModuleSource` clone.
+/// in `state` without a `ModuleSource` clone. Prefer
+/// [`trace_modules_incremental_from_arcs`] when the caller already holds
+/// `Arc<ModuleSource>` so persist is a refcount.
 #[must_use]
 pub fn trace_modules_incremental_from_refs(
   modules: &[&ModuleSource],
   links: &[ModuleLink],
   options: &TraceModulesOptions,
   state: &mut ModuleTraceState,
+) -> TraceModulesReport {
+  run_incremental_trace(modules, links, options, state, None)
+}
+
+/// Same as [`trace_modules_incremental_from_refs`] when the caller already
+/// holds `Arc<ModuleSource>`. Persist stores that Arc instead of
+/// `Arc::new(module.clone())`.
+#[must_use]
+pub fn trace_modules_incremental_from_arcs(
+  modules: &[Arc<ModuleSource>],
+  links: &[ModuleLink],
+  options: &TraceModulesOptions,
+  state: &mut ModuleTraceState,
+) -> TraceModulesReport {
+  let unique = modules.iter().map(AsRef::as_ref).collect::<Vec<_>>();
+  let persist_arcs =
+    modules.iter().map(|module| (&module.id, Arc::clone(module))).collect::<BTreeMap<_, _>>();
+  run_incremental_trace(&unique, links, options, state, Some(&persist_arcs))
+}
+
+fn run_incremental_trace(
+  modules: &[&ModuleSource],
+  links: &[ModuleLink],
+  options: &TraceModulesOptions,
+  state: &mut ModuleTraceState,
+  persist_arcs: Option<&BTreeMap<&ModuleId, Arc<ModuleSource>>>,
 ) -> TraceModulesReport {
   let mut report = TraceModulesReport::default();
   let mut seen = BTreeSet::new();
@@ -312,8 +340,9 @@ pub fn trace_modules_incremental_from_refs(
     return report;
   }
 
+  let inputs = IncrementalInputs { unique: &unique, persist_arcs };
   if unique.is_empty() || options.reuse_current_pool {
-    return trace_modules_incremental_in_current_pool(&unique, links, state, report, options);
+    return trace_modules_incremental_in_current_pool(inputs, links, state, report, options);
   }
 
   let Ok(pool) = rayon::ThreadPoolBuilder::new()
@@ -323,16 +352,17 @@ pub fn trace_modules_incremental_from_refs(
     report.issues.push(TraceModulesError::WorkerDisconnected);
     return report;
   };
-  pool.install(|| trace_modules_incremental_in_current_pool(&unique, links, state, report, options))
+  pool.install(|| trace_modules_incremental_in_current_pool(inputs, links, state, report, options))
 }
 
 fn trace_modules_incremental_in_current_pool(
-  unique: &[&ModuleSource],
+  inputs: IncrementalInputs<'_>,
   links: &[ModuleLink],
   state: &mut ModuleTraceState,
   mut report: TraceModulesReport,
   options: &TraceModulesOptions,
 ) -> TraceModulesReport {
+  let unique = inputs.unique;
   let scope = live_scope(options);
   if unique.is_empty() && options.persist_linking_cache && state.linking.is_none() {
     report.stats.reused_graphs += count_cached_silent(scope, unique, &report, state);
@@ -370,7 +400,7 @@ fn trace_modules_incremental_in_current_pool(
     if state.linking.is_none() {
       // First persistent scan: build plans once (like oneshot), archive after phase two.
       let (work, archive) = build_cold_persistent_seed_work(
-        unique,
+        inputs,
         links,
         &resolved_links,
         &facts_by_id,
@@ -383,7 +413,7 @@ fn trace_modules_incremental_in_current_pool(
       work
     } else {
       let mut work = build_persistent_seed_work(
-        unique,
+        inputs,
         links,
         &resolved_links,
         &facts_by_id,
@@ -409,7 +439,7 @@ fn trace_modules_incremental_in_current_pool(
   } else {
     // One-shot cold path: no link sort / seed-plan archive.
     let work = build_oneshot_seed_work(
-      unique,
+      inputs,
       &resolved_links,
       &facts_by_id,
       &mut local_graphs,
@@ -557,10 +587,12 @@ fn reused_phase_one(module: &ModuleSource, state: &ModuleTraceState) -> Option<M
   (entry.source.as_ref() == module).then(|| phase_one_from_summary(module, &entry.summary))
 }
 
-/// Phase-two work source. Input modules are borrowed; seed-dirty modules
-/// missing from this pass share the cached `Arc` (no `ModuleSource` clone).
+/// Phase-two work source. Input modules are borrowed; callers that already
+/// hold `Arc<ModuleSource>` persist that handle. Seed-dirty modules missing
+/// from this pass share the cached `Arc` (no `ModuleSource` clone).
 enum WorkSource<'a> {
   Input(&'a ModuleSource),
+  Shared(Arc<ModuleSource>),
   Cached(Arc<ModuleSource>),
 }
 
@@ -568,7 +600,7 @@ impl WorkSource<'_> {
   fn source(&self) -> &ModuleSource {
     match self {
       Self::Input(module) => module,
-      Self::Cached(module) => module,
+      Self::Shared(module) | Self::Cached(module) => module,
     }
   }
 
@@ -578,8 +610,29 @@ impl WorkSource<'_> {
     }
     match self {
       Self::Input(module) => Some(Arc::new(module.clone())),
-      Self::Cached(module) => Some(module),
+      Self::Shared(module) | Self::Cached(module) => Some(module),
     }
+  }
+}
+
+fn input_work_source<'a>(
+  module: &'a ModuleSource,
+  persist_arcs: Option<&BTreeMap<&ModuleId, Arc<ModuleSource>>>,
+) -> WorkSource<'a> {
+  persist_arcs
+    .and_then(|arcs| arcs.get(&module.id).map(|arc| WorkSource::Shared(Arc::clone(arc))))
+    .unwrap_or(WorkSource::Input(module))
+}
+
+#[derive(Clone, Copy)]
+struct IncrementalInputs<'a> {
+  unique: &'a [&'a ModuleSource],
+  persist_arcs: Option<&'a BTreeMap<&'a ModuleId, Arc<ModuleSource>>>,
+}
+
+impl<'a> IncrementalInputs<'a> {
+  fn work(self, module: &'a ModuleSource) -> WorkSource<'a> {
+    input_work_source(module, self.persist_arcs)
   }
 }
 
@@ -735,7 +788,7 @@ struct PendingLinkingArchive {
 }
 
 fn build_cold_persistent_seed_work<'a>(
-  unique: &[&'a ModuleSource],
+  inputs: IncrementalInputs<'a>,
   links: &[ModuleLink],
   resolved_links: &BTreeMap<(ModuleId, String), ModuleId>,
   facts_by_id: &BTreeMap<ModuleId, ModuleExportFacts>,
@@ -753,7 +806,8 @@ fn build_cold_persistent_seed_work<'a>(
   let typed_callback_exports = resolve_typed_callback_param_exports(facts_by_id, &link_index);
   let provide_index = Arc::new(global_provide_index(facts_by_id));
   report.stats.export_resolve_ran = true;
-  let work = unique
+  let work = inputs
+    .unique
     .iter()
     .filter_map(|module| {
       let facts = facts_by_id.get(&module.id)?;
@@ -766,7 +820,7 @@ fn build_cold_persistent_seed_work<'a>(
         options_callback_slots,
         typed_callback_param_slots,
       };
-      Some((WorkSource::Input(module), local_graph, plan, Some(Arc::clone(&facts.summary))))
+      Some((inputs.work(module), local_graph, plan, Some(Arc::clone(&facts.summary))))
     })
     .collect::<Vec<_>>();
   report.stats.seed_plans_recomputed = work.len();
@@ -776,7 +830,7 @@ fn build_cold_persistent_seed_work<'a>(
 }
 
 fn build_oneshot_seed_work<'a>(
-  unique: &[&'a ModuleSource],
+  inputs: IncrementalInputs<'a>,
   resolved_links: &BTreeMap<(ModuleId, String), ModuleId>,
   facts_by_id: &BTreeMap<ModuleId, ModuleExportFacts>,
   local_graphs: &mut BTreeMap<ModuleId, Arc<ReactivityGraph>>,
@@ -788,7 +842,8 @@ fn build_oneshot_seed_work<'a>(
   let typed_callback_exports = resolve_typed_callback_param_exports(facts_by_id, &link_index);
   let provide_index = global_provide_index(facts_by_id);
   report.stats.export_resolve_ran = true;
-  let work = unique
+  let work = inputs
+    .unique
     .iter()
     .filter_map(|module| {
       let facts = facts_by_id.get(&module.id)?;
@@ -801,7 +856,7 @@ fn build_oneshot_seed_work<'a>(
         options_callback_slots,
         typed_callback_param_slots,
       };
-      Some((WorkSource::Input(module), local_graph, plan, None))
+      Some((inputs.work(module), local_graph, plan, None))
     })
     .collect::<Vec<_>>();
   report.stats.seed_plans_recomputed = work.len();
@@ -809,7 +864,7 @@ fn build_oneshot_seed_work<'a>(
 }
 
 fn build_persistent_seed_work<'a>(
-  unique: &[&'a ModuleSource],
+  inputs: IncrementalInputs<'a>,
   links: &[ModuleLink],
   resolved_links: &BTreeMap<(ModuleId, String), ModuleId>,
   facts_by_id: &BTreeMap<ModuleId, ModuleExportFacts>,
@@ -870,7 +925,7 @@ fn build_persistent_seed_work<'a>(
       dirty_ids.insert(id.clone());
       recomputed += 1;
     }
-    for module in unique {
+    for module in inputs.unique {
       if next_plans.contains_key(&module.id) {
         continue;
       }
@@ -906,13 +961,14 @@ fn build_persistent_seed_work<'a>(
     plans
   };
 
-  unique
+  inputs
+    .unique
     .iter()
     .filter_map(|module| {
       let facts = facts_by_id.get(&module.id)?;
       let local_graph = local_graphs.remove(&module.id)?;
       let plan = plans.get(&module.id)?.clone();
-      Some((WorkSource::Input(module), local_graph, plan, Some(Arc::clone(&facts.summary))))
+      Some((inputs.work(module), local_graph, plan, Some(Arc::clone(&facts.summary))))
     })
     .collect()
 }

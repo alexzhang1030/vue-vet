@@ -8,7 +8,10 @@ pub use std::{collections::BTreeSet, path::Path};
 use std::{
   fs,
   path::PathBuf,
-  sync::atomic::{AtomicUsize, Ordering},
+  sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+  },
 };
 
 use vue_vet_plugins::default_trace_modules_options;
@@ -155,7 +158,7 @@ pub fn standalone_ts(path: &str, source: &str) -> ProjectFile {
     path: path.into(),
     source_len: source.len(),
     facts: SfcFacts { template: TemplateFacts::default(), script: ScriptFacts::default() }.into(),
-    module_source: Some(ModuleSource::standalone(path, source, "ts", ScriptKind::Script)),
+    module_source: Some(Arc::new(ModuleSource::standalone(path, source, "ts", ScriptKind::Script))),
     ordinary_module_source: None,
   }
 }
@@ -209,14 +212,14 @@ pub fn setup_sfc_file(
       },
     }
     .into(),
-    module_source: Some(ModuleSource::sfc_script(
+    module_source: Some(Arc::new(ModuleSource::sfc_script(
       path,
       script,
       "ts",
       ScriptKind::Setup,
       script_offset,
       sfc,
-    )),
+    ))),
     ordinary_module_source: None,
   }
 }

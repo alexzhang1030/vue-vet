@@ -58,11 +58,11 @@ pub fn analyze_candidate(
         facts: Arc::clone(&facts),
         module_source: sfc.module_source.clone().map(|mut module| {
           module.id = ModuleId::primary(&input.file_id);
-          module
+          Arc::new(module)
         }),
         ordinary_module_source: sfc.ordinary_module_source.clone().map(|mut module| {
           module.id = ModuleId::ordinary(&input.file_id);
-          module
+          Arc::new(module)
         }),
       });
       Ok(AnalyzedCandidate::Vue {
@@ -98,7 +98,7 @@ pub fn analyze_candidate(
             template: analysis.template_facts,
             script: ScriptFacts { blocks: vec![analysis.script_facts] },
           }),
-          module_source: Some(
+          module_source: Some(Arc::new(
             ModuleSource::standalone(
               ModuleId::primary(&input.file_id),
               Arc::clone(&input.source),
@@ -106,7 +106,7 @@ pub fn analyze_candidate(
               vue_vet_core::ScriptKind::Script,
             )
             .with_module_summary(analysis.module_trace),
-          ),
+          )),
           ordinary_module_source: None,
         }),
       })

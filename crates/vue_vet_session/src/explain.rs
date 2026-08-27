@@ -1,6 +1,7 @@
 use std::{
   fs,
   path::{Path, PathBuf},
+  sync::Arc,
 };
 
 use vue_vet_core::{
@@ -113,7 +114,7 @@ fn explain_finding_with_status(
 }
 
 fn tracking_for_diagnostic(
-  modules: &[vue_vet_reactivity::ModuleReactivity],
+  modules: &[Arc<vue_vet_reactivity::ModuleReactivity>],
   diagnostic: &Diagnostic,
 ) -> Option<ScopeExplain> {
   let module_id = diagnostic.file.as_str();
@@ -124,7 +125,7 @@ fn tracking_for_diagnostic(
 }
 
 fn collect_scope_explains(
-  modules: &[vue_vet_reactivity::ModuleReactivity],
+  modules: &[Arc<vue_vet_reactivity::ModuleReactivity>],
   query: &str,
 ) -> Vec<ScopeExplain> {
   let query_module = query_module_prefix(query);

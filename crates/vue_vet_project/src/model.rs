@@ -20,10 +20,10 @@ pub struct ProjectFile {
   pub path: FileId,
   pub source_len: usize,
   pub facts: Arc<SfcFacts>,
-  pub module_source: Option<ModuleSource>,
+  pub module_source: Option<Arc<ModuleSource>>,
   /// Ordinary `<script>` companion when dual-script SFCs also have setup
   /// (`id` ends with `#script`).
-  pub ordinary_module_source: Option<ModuleSource>,
+  pub ordinary_module_source: Option<Arc<ModuleSource>>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -76,7 +76,7 @@ pub struct ProjectGraph {
   pub edges: Vec<GraphEdge>,
   pub diagnostics: Vec<Diagnostic>,
   pub invalidation_inputs: Vec<String>,
-  pub module_reactivity: Arc<[ModuleReactivity]>,
+  pub module_reactivity: Arc<[Arc<ModuleReactivity>]>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub reactivity_issues: Vec<ReactivityIssue>,
   /// Compatibility summary for reporters that have not adopted structured issues.

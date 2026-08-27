@@ -343,12 +343,12 @@ fn non_provisional_external_dts_skips_huge_companion_js() {
       },
     }
     .into(),
-    module_source: Some(ModuleSource::standalone(
+    module_source: Some(std::sync::Arc::new(ModuleSource::standalone(
       "consumer.ts",
       "import { heavy } from 'heavy-lib';\nexport const n = heavy();\n",
       "ts",
       ScriptKind::Script,
-    )),
+    ))),
     ordinary_module_source: None,
   };
 

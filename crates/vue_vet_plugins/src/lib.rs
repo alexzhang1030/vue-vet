@@ -51,15 +51,20 @@ pub fn default_trace_modules_options() -> TraceModulesOptions {
   TraceModulesOptions { named_api_bags: default_named_api_bags().to_vec(), ..Default::default() }
 }
 
+/// Fill an empty `named_api_bags` catalog in place.
+pub fn ensure_default_plugins_mut(options: &mut TraceModulesOptions) {
+  if options.named_api_bags.is_empty() {
+    options.named_api_bags = default_named_api_bags().to_vec();
+  }
+}
+
 /// Ensure `options` carries the default plugin catalog when none were set.
 ///
 /// Used by outer analysis entry points so callers get Nuxt / vue-i18n modeling
 /// without constructing the catalog by hand.
 #[must_use]
 pub fn ensure_default_plugins(mut options: TraceModulesOptions) -> TraceModulesOptions {
-  if options.named_api_bags.is_empty() {
-    options.named_api_bags = default_named_api_bags().to_vec();
-  }
+  ensure_default_plugins_mut(&mut options);
   options
 }
 

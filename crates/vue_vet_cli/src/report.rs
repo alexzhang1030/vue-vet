@@ -4,6 +4,7 @@ use std::{
   fs,
   path::Path,
   process::ExitCode,
+  sync::Arc,
 };
 
 use vue_vet_core::{ReactiveBindingKind, ReactiveDependencyKind, ScanSummary, TrackingScopeKind};
@@ -69,7 +70,7 @@ pub fn component_nav_digest(graph: &ProjectGraph) -> ComponentNavDigest {
   component_nav_from_edges(edges)
 }
 
-pub fn reactivity_module_stats(modules: &[ModuleReactivity]) -> Vec<ReactivityModuleStats> {
+pub fn reactivity_module_stats(modules: &[Arc<ModuleReactivity>]) -> Vec<ReactivityModuleStats> {
   let mut stats = modules
     .iter()
     .map(|module| {

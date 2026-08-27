@@ -393,8 +393,10 @@ still wins when set. Merge cached summaries into linking, pull seed-dirty
 consumers from `cached_source`, and keep unchanged graphs in `state` — do not
 emit them into `report.modules`. Empty unique + persist + retain must keep the
 cached universe, not `clear()` the state. Do not clone unchanged
-`ModuleSource`s into the tracer input. Persist of a dirty input is one
-`Arc<ModuleSource>` clone into cache; the live set is not cloned.
+`ModuleSource`s into the tracer input. Persist of a dirty input is an
+`Arc<ModuleSource>` refcount (`trace_modules_incremental_from_arcs`); the
+live set is borrowed from those Arcs. Do not `Arc::new(module.clone())`
+on a source the caller already shared.
 
 **Linking surface ≠ `ModuleSummary` equality.** Export/seed reuse keys on
 imports/exports/locals/provides/injects + links. A leaf body edit that only
@@ -409,16 +411,19 @@ with `Arc`, and let companion merge rebuild locals while `Arc::clone`-ing
 
 **Template/prop layers must not `make_mut` reused base graphs on warm scans.**
 Keep base reactivity from module-trace separate from the layered final graphs;
-reuse the layered `Arc<[ModuleReactivity]>` when the whole key matches
+reuse the layered `Arc<[Arc<ModuleReactivity>]>` when the whole key matches
 (`ProjectGraph.module_reactivity` is that Arc). Assemble the universe from the
 tracer this-pass plus `cached_reactivity` — do not require an emitted N-graph
 report. When only some modules change, reuse each previous layered module whose
-`(base_ptr, facts_ptr)` is unchanged and `prop_edges` did not change. A leaf
-body edit must not `make_mut` the other N-1 graphs (cache still holds those
-base Arcs). Rebuild a prop-flow child from base when its parent or the prop
-edge set changes, then `join_prop_flows`. Compare `StructuralContextKey` in
-place; allocate a new key only on mismatch. Do not clone `FileId`s just to
-retain the structural file map.
+`(base_ptr, facts_ptr)` is unchanged and `prop_edges` did not change (inner
+`Arc` clone, not `ModuleReactivity::clone`). A leaf body edit patches the
+stored layered key in place so the other N-1 `ModuleId`s are not cloned, and
+must not `make_mut` the other N-1 graphs (cache still holds those base Arcs).
+Rebuild a prop-flow child from base when its parent or the prop edge set
+changes, then `join_prop_flows`. Compare `StructuralContextKey` in place;
+allocate a new key only on mismatch. Skip `node_by_path` / composable indexes
+when every structural file reuses; otherwise borrow `&str` maps from the
+current nodes. Do not clone `FileId`s just to retain the structural file map.
 
 **`ModuleSource` equality ignores `span_source`.** Style-only SFC edits change
 the wrapper file bytes without invalidating script body IR when `source` +
