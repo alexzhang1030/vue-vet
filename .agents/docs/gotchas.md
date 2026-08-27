@@ -464,6 +464,10 @@ leaving the session.
 
 Never build the session Rayon pool in `ProjectSession::open` — warm disk-cache
 hits must not pay thread-pool construction. Lazily init on the first real scan.
+Stdio MCP (`vue-vet --mcp`) must not open a new `ProjectSession` for every
+explain after a scan of the same path — keep the bound session and reuse
+`current_snapshot`. Scan / preview replace that session so a later disk edit
+is visible. One-shot `call_tool` helpers (tests) still open throwaway sessions.
 Never eagerly re-scan on a disk-cache hit to hydrate IR: that turns
 `scan_warm_*` / CLI warm re-scans into full analyzes. Keep publishing the
 cached summary/graph as `"hit"`. Empty IR is seeded on the first dirty analyze
