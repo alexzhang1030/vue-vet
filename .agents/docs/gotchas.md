@@ -408,8 +408,12 @@ with `Arc`, and let companion merge rebuild locals while `Arc::clone`-ing
 
 **Template/prop layers must not `make_mut` reused base graphs on warm scans.**
 Keep base reactivity from module-trace separate from the layered final graphs;
-reuse the layered `Arc<[ModuleReactivity]>` when base graph pointers and
-`SfcFacts` pointers are unchanged.
+reuse the layered `Arc<[ModuleReactivity]>` when the whole key matches. When
+only some modules change, reuse each previous layered module whose
+`(base_ptr, facts_ptr)` is unchanged and `prop_edges` did not change. A leaf
+body edit must not `make_mut` the other N-1 graphs (cache still holds those
+base Arcs). Rebuild a prop-flow child from base when its parent or the prop
+edge set changes, then `join_prop_flows`.
 
 **`ModuleSource` equality ignores `span_source`.** Style-only SFC edits change
 the wrapper file bytes without invalidating script body IR when `source` +

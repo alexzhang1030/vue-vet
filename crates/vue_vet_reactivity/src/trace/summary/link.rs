@@ -103,7 +103,7 @@ impl ModuleTraceState {
   /// edit.
   #[must_use]
   pub fn cached_source(&self, id: &ModuleId) -> Option<&ModuleSource> {
-    self.entries.get(id).map(|entry| &entry.source)
+    self.entries.get(id).map(|entry| entry.source.as_ref())
   }
 
   /// Whether a prior persistent scan retained at least one module.
@@ -115,7 +115,7 @@ impl ModuleTraceState {
 
 #[derive(Clone, Debug)]
 struct CachedModuleTrace {
-  source: ModuleSource,
+  source: Arc<ModuleSource>,
   summary: Arc<ModuleSummary>,
   plan: ModuleSeedPlan,
   reactivity: ModuleReactivity,
@@ -391,7 +391,7 @@ fn trace_modules_incremental_in_current_pool(
   for (module, local_graph, plan, summary) in work {
     let source = module.source();
     if let Some(cached) = state.entries.get(&source.id)
-      && cached.source == *source
+      && cached.source.as_ref() == source
       && cached.plan == plan
     {
       reused.push(cached.reactivity.clone());
@@ -406,29 +406,8 @@ fn trace_modules_incremental_in_current_pool(
 
   let outcomes = dirty_work
     .into_par_iter()
-    .map(|(module, mut local_graph, plan, summary)| {
-      let source = module.source();
-      let seeded = !plan.is_empty();
-      match trace_module_phase_two(source, Arc::clone(&local_graph), &plan, &options.named_api_bags)
-      {
-        Ok(reactivity) => PhaseTwoOutcome::Traced {
-          source: persist.then(|| source.clone()),
-          summary,
-          plan: persist.then_some(plan),
-          reactivity,
-          seeded,
-        },
-        Err(error) => {
-          Arc::make_mut(&mut local_graph).set_module_id(source.id.clone());
-          PhaseTwoOutcome::Partial {
-            source: persist.then(|| source.clone()),
-            summary,
-            plan: persist.then_some(plan),
-            reactivity: ModuleReactivity { id: source.id.clone(), graph: local_graph },
-            error,
-          }
-        }
-      }
+    .map(|(module, local_graph, plan, summary)| {
+      trace_dirty_module(module, local_graph, plan, summary, persist, &options.named_api_bags)
     })
     .collect::<Vec<_>>();
 
@@ -503,7 +482,7 @@ fn phase_one_outcomes(
     .copied()
     .filter(|module| {
       module.module_summary().is_none()
-        && !state.entries.get(&module.id).is_some_and(|entry| entry.source == **module)
+        && !state.entries.get(&module.id).is_some_and(|entry| entry.source.as_ref() == *module)
     })
     .collect::<Vec<_>>();
   let mut parsed = need_parse
@@ -513,7 +492,7 @@ fn phase_one_outcomes(
         module.id.clone(),
         analyze_module_phase_one_cached(
           module,
-          state.entries.get(&module.id).map(|entry| (&entry.source, &entry.summary)),
+          state.entries.get(&module.id).map(|entry| (entry.source.as_ref(), &entry.summary)),
           &config,
         ),
       )
@@ -535,21 +514,31 @@ fn reused_phase_one(module: &ModuleSource, state: &ModuleTraceState) -> Option<M
     return Some(phase_one_from_summary(module, &summary));
   }
   let entry = state.entries.get(&module.id)?;
-  (entry.source == *module).then(|| phase_one_from_summary(module, &entry.summary))
+  (entry.source.as_ref() == module).then(|| phase_one_from_summary(module, &entry.summary))
 }
 
 /// Phase-two work source. Input modules are borrowed; seed-dirty modules
-/// missing from this pass are cloned from the linking cache.
+/// missing from this pass share the cached `Arc` (no `ModuleSource` clone).
 enum WorkSource<'a> {
   Input(&'a ModuleSource),
-  Cached(ModuleSource),
+  Cached(Arc<ModuleSource>),
 }
 
 impl WorkSource<'_> {
-  const fn source(&self) -> &ModuleSource {
+  fn source(&self) -> &ModuleSource {
     match self {
       Self::Input(module) => module,
       Self::Cached(module) => module,
+    }
+  }
+
+  fn into_persist_source(self, persist: bool) -> Option<Arc<ModuleSource>> {
+    if !persist {
+      return None;
+    }
+    match self {
+      Self::Input(module) => Some(Arc::new(module.clone())),
+      Self::Cached(module) => Some(module),
     }
   }
 }
@@ -582,7 +571,7 @@ fn merge_cached_live_modules(
     let Some(entry) = state.entries.get(id) else {
       continue;
     };
-    let analysis = phase_one_from_summary(&entry.source, &entry.summary);
+    let analysis = phase_one_from_summary(entry.source.as_ref(), &entry.summary);
     facts_by_id.insert(id.clone(), analysis.facts);
     local_graphs.insert(id.clone(), analysis.local_graph);
   }
@@ -594,7 +583,7 @@ fn emit_cached_live_graphs(
   state: &ModuleTraceState,
   report: &mut TraceModulesReport,
 ) {
-  let input_ids: BTreeSet<ModuleId> = unique.iter().map(|module| module.id.clone()).collect();
+  let input_ids: BTreeSet<&ModuleId> = unique.iter().map(|module| &module.id).collect();
   let present: BTreeSet<ModuleId> = report.modules.iter().map(|module| module.id.clone()).collect();
   for id in live {
     if present.contains(id) || input_ids.contains(id) {
@@ -617,14 +606,14 @@ fn pull_cached_seed_work<'a>(
   local_graphs: &mut BTreeMap<ModuleId, Arc<ReactivityGraph>>,
   plans: &BTreeMap<ModuleId, ModuleSeedPlan>,
 ) -> Vec<SeedWorkItem<'a>> {
-  let input_ids: BTreeSet<ModuleId> = unique.iter().map(|module| module.id.clone()).collect();
+  let input_ids: BTreeSet<&ModuleId> = unique.iter().map(|module| &module.id).collect();
   dirty_seed
     .iter()
     .filter_map(|id| {
       if input_ids.contains(id) || !live.contains(id) {
         return None;
       }
-      let source = state.cached_source(id)?.clone();
+      let source = state.entries.get(id).map(|entry| Arc::clone(&entry.source))?;
       let facts = facts_by_id.get(id)?;
       let local_graph = local_graphs.remove(id)?;
       let plan = plans.get(id)?.clone();
@@ -883,19 +872,50 @@ fn modules_needing_seed_recompute(
 
 enum PhaseTwoOutcome {
   Traced {
-    source: Option<ModuleSource>,
+    source: Option<Arc<ModuleSource>>,
     summary: Option<Arc<ModuleSummary>>,
     plan: Option<ModuleSeedPlan>,
     reactivity: ModuleReactivity,
     seeded: bool,
   },
   Partial {
-    source: Option<ModuleSource>,
+    source: Option<Arc<ModuleSource>>,
     summary: Option<Arc<ModuleSummary>>,
     plan: Option<ModuleSeedPlan>,
     reactivity: ModuleReactivity,
     error: TraceModulesError,
   },
+}
+
+fn trace_dirty_module(
+  module: WorkSource<'_>,
+  mut local_graph: Arc<ReactivityGraph>,
+  plan: ModuleSeedPlan,
+  summary: Option<Arc<ModuleSummary>>,
+  persist: bool,
+  named_api_bags: &[crate::NamedApiBag],
+) -> PhaseTwoOutcome {
+  let seeded = !plan.is_empty();
+  let id = module.source().id.clone();
+  match trace_module_phase_two(module.source(), Arc::clone(&local_graph), &plan, named_api_bags) {
+    Ok(reactivity) => PhaseTwoOutcome::Traced {
+      source: module.into_persist_source(persist),
+      summary,
+      plan: persist.then_some(plan),
+      reactivity,
+      seeded,
+    },
+    Err(error) => {
+      Arc::make_mut(&mut local_graph).set_module_id(id.clone());
+      PhaseTwoOutcome::Partial {
+        source: module.into_persist_source(persist),
+        summary,
+        plan: persist.then_some(plan),
+        reactivity: ModuleReactivity { id, graph: local_graph },
+        error,
+      }
+    }
+  }
 }
 
 fn trace_module_phase_two(

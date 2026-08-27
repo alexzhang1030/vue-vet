@@ -98,6 +98,19 @@ fn incremental_leaf_edit_visits_one_module_summary() {
     !state.last_stats().export_resolve_ran,
     "literal-only leaf edit must skip export resolve"
   );
+  for id in ["src/a.ts", "src/c.ts"] {
+    let before = initial
+      .module_reactivity
+      .iter()
+      .find(|module| module.id.as_str() == id)
+      .map(|module| std::sync::Arc::as_ptr(&module.graph));
+    let kept = after
+      .module_reactivity
+      .iter()
+      .find(|module| module.id.as_str() == id)
+      .map(|module| std::sync::Arc::as_ptr(&module.graph));
+    assert_eq!(before, kept, "unchanged module {id} must keep its layered graph Arc");
+  }
 }
 
 #[test]
