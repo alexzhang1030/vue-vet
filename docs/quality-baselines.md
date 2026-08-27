@@ -43,6 +43,8 @@ Stable benchmark names (do not rename without a new baseline rationale):
 | `vue_vet_session` / `scan_modes` | `scan_warm_nuxt_graph` | Warm cache scan |
 | `vue_vet_session` / `scan_modes` | `scan_overlay_nuxt_graph` | Incremental overlay |
 | `vue_vet_session` / `scan_modes` | `scan_diff_filter_nuxt_graph` | Diff filter (`filter_diff` only; analyze and cache teardown are unmeasured) |
+| `vue_vet_reactivity` / `module_scaling` | `trace_1k_modules` | Cold one-shot (`persist_linking_cache` forced off). No-regression, not the locality win. |
+| `vue_vet_reactivity` / `module_scaling` | `trace_warm_leaf_edit_1k_modules` | Warm `ModuleTraceState` + one independent leaf body edit |
 
 Commands: `just bench`, `just bench-codspeed-build`, `just bench-codspeed-run`.
 
