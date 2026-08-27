@@ -19,7 +19,7 @@ use super::{
   branch_hygiene,
   context::scope_context,
   follow::{
-    FollowOutside, LocalCallee, follow_local_callees, innermost_function_id,
+    FollowOutside, LocalCalleeIndex, follow_local_callees, innermost_function_id,
     local_helper_calls_by_owner,
   },
   kinds::{reference_resolves_to_binding, resolved_vue_callee, source_span, span_contains},
@@ -65,7 +65,7 @@ pub(super) struct RawGuard {
 
 #[expect(
   clippy::too_many_arguments,
-  reason = "root callee reuse is one extra arg on the collector surface"
+  reason = "file callee index is one extra arg on the collector surface"
 )]
 pub(super) fn collect_scope_reads(
   semantic: &oxc_semantic::Semantic<'_>,
@@ -75,7 +75,7 @@ pub(super) fn collect_scope_reads(
   imported_bindings: &BTreeMap<String, (String, String)>,
   ambient_call_handles: &AmbientCallHandles,
   script_offset: usize,
-  root_callees: Option<&[LocalCallee]>,
+  callees: &LocalCalleeIndex,
 ) -> Vec<RawReactiveRead> {
   let mut visiting = BTreeSet::new();
   visiting.insert(scope_id);
@@ -89,7 +89,7 @@ pub(super) fn collect_scope_reads(
     script_offset,
     0,
     &mut visiting,
-    root_callees,
+    callees,
   )
 }
 
@@ -104,7 +104,7 @@ pub(super) fn collect_scope_reads_bounded(
   script_offset: usize,
   depth: u32,
   visiting: &mut BTreeSet<NodeId>,
-  root_callees: Option<&[LocalCallee]>,
+  callees: &LocalCalleeIndex,
 ) -> Vec<RawReactiveRead> {
   let mut reads = collect_scope_reads_local(
     semantic,
@@ -119,13 +119,11 @@ pub(super) fn collect_scope_reads_bounded(
   // Same-file zero-arg helpers contribute ambient tracking reads (Vue's
   // activeEffect). `then()` / `nextTick`-only calls stay outside-tracking.
   follow_local_callees(
-    semantic,
+    callees,
     scope_id,
-    imported_bindings,
     depth,
     visiting,
     FollowOutside::Mark,
-    root_callees,
     |callee_id, call_outside, next_depth, call_sites, visiting| {
       let mut nested = collect_scope_reads_bounded(
         semantic,
@@ -137,7 +135,7 @@ pub(super) fn collect_scope_reads_bounded(
         script_offset,
         next_depth,
         visiting,
-        None,
+        callees,
       );
       for read in &mut nested {
         if call_outside {

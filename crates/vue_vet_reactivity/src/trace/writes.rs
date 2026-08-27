@@ -19,7 +19,7 @@ use super::{
   context::sync_tracking_owns_node,
   expr,
   follow::{
-    FollowOutside, LocalCallee, MAX_LOCAL_CALLEE_FOLLOW_DEPTH, follow_local_callees,
+    FollowOutside, LocalCalleeIndex, MAX_LOCAL_CALLEE_FOLLOW_DEPTH, follow_local_callees,
     is_async_or_generator_function, local_function_id,
   },
   kinds::{reference_resolves_to_binding, source_span},
@@ -200,7 +200,7 @@ pub(super) fn statement_is_assignment_or_followed_helper(
 
 #[expect(
   clippy::too_many_arguments,
-  reason = "root callee reuse is one extra arg on the collector surface"
+  reason = "file callee index is one extra arg on the collector surface"
 )]
 pub(super) fn collect_scope_writes(
   semantic: &oxc_semantic::Semantic<'_>,
@@ -210,7 +210,7 @@ pub(super) fn collect_scope_writes(
   imported_bindings: &BTreeMap<String, (String, String)>,
   sfc_source: &str,
   script_offset: usize,
-  root_callees: Option<&[LocalCallee]>,
+  callees: &LocalCalleeIndex,
 ) -> Vec<ReactiveWriteFact> {
   let mut visiting = BTreeSet::new();
   visiting.insert(scope_id);
@@ -224,7 +224,7 @@ pub(super) fn collect_scope_writes(
     script_offset,
     0,
     &mut visiting,
-    root_callees,
+    callees,
   );
   writes.sort_by_key(|write| write.span.offset);
   writes
@@ -241,7 +241,7 @@ pub(super) fn collect_scope_writes_bounded(
   script_offset: usize,
   depth: u32,
   visiting: &mut BTreeSet<NodeId>,
-  root_callees: Option<&[LocalCallee]>,
+  callees: &LocalCalleeIndex,
 ) -> Vec<ReactiveWriteFact> {
   let mut writes = collect_scope_writes_local(
     semantic,
@@ -253,13 +253,11 @@ pub(super) fn collect_scope_writes_bounded(
     script_offset,
   );
   follow_local_callees(
-    semantic,
+    callees,
     scope_id,
-    imported_bindings,
     depth,
     visiting,
     FollowOutside::Skip,
-    root_callees,
     |callee_id, _, next_depth, _, visiting| {
       writes.extend(collect_scope_writes_bounded(
         semantic,
@@ -271,7 +269,7 @@ pub(super) fn collect_scope_writes_bounded(
         script_offset,
         next_depth,
         visiting,
-        None,
+        callees,
       ));
     },
   );

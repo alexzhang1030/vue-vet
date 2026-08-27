@@ -4,6 +4,10 @@
 //! on which local helpers are in the walk. Identifier getters (`computed(load)`)
 //! are scope discovery in [`super::writes::local_getter_parts`], not a second
 //! follow walk.
+//!
+//! [`LocalCalleeIndex`] walks the file once. Nested hops and watch-source getters
+//! look up `full_callees(F)` and skip ids already in `visiting`. Do not cache a
+//! slice keyed only on `scope_id` — that drops the visiting filter.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -12,8 +16,12 @@ use oxc_ast::{
   ast::{Expression, IdentifierReference},
 };
 use oxc_semantic::{NodeId, Semantic};
+use oxc_span::{GetSpan, Span};
 
-use super::context::scope_context;
+use super::{
+  context::{is_deferred_callback_container, is_sync_hof_callback, is_to_value_getter_callback},
+  kinds::span_contains,
+};
 
 /// Max hops when following same-file zero-arg helpers from a tracking scope.
 /// Vue tracks sync reads inside callees; we under-approx with a small bound.
@@ -28,54 +36,98 @@ pub(super) struct LocalCallee {
   call_sites: Vec<NodeId>,
 }
 
-/// Same-file zero-arg local helpers called from `scope_id`.
+/// File-level `full_callees(F)`: zero-arg local helpers owned by function `F`.
 ///
-/// [`finish_scope`] computes this once for the tracking root and hands the
-/// same slice to reads / uncertain / writes. Nested hops still rediscover.
-/// `assignment_only` walks statements but uses the same [`local_function_id`]
-/// + async skip.
-pub(super) fn local_zero_arg_callees_in_scope(
-  semantic: &oxc_semantic::Semantic<'_>,
-  scope_id: NodeId,
-  imported_bindings: &BTreeMap<String, (String, String)>,
-  visiting: &BTreeSet<NodeId>,
-) -> Vec<LocalCallee> {
-  // Collect callee ids first so callers do not hold a nodes borrow across recursion.
-  // `call_outside` is true only when *every* in-scope call site is outside tracking
-  // (any in-tracking call keeps ambient deps / soft evidence).
-  let mut callees: Vec<LocalCallee> = Vec::new();
-  for (call_id, call_node) in semantic.nodes().iter_enumerated() {
-    let AstKind::CallExpression(call) = call_node.kind() else {
-      continue;
-    };
-    if !call.arguments.is_empty() {
-      continue;
+/// Owner is the inverse of [`super::context::scope_context`]: first ancestor
+/// Function/Arrow that is not a sync HOF / `toValue` getter. Deferred
+/// (`then` / `nextTick`) ancestors set `call_outside` and continue. A call
+/// on an assignment left has no owner.
+///
+/// `effective(F, visiting) = full_callees(F).filter(|c| !visiting.contains(c.id))`.
+/// Apply that filter at use time — do not store a slice keyed only on `F`.
+pub(super) struct LocalCalleeIndex {
+  by_scope: BTreeMap<NodeId, Vec<LocalCallee>>,
+}
+
+impl LocalCalleeIndex {
+  /// One node walk. Call from the single-file tracer before assembling scopes.
+  pub(super) fn build(
+    semantic: &Semantic<'_>,
+    imported_bindings: &BTreeMap<String, (String, String)>,
+  ) -> Self {
+    let mut by_scope: BTreeMap<NodeId, Vec<LocalCallee>> = BTreeMap::new();
+    for (call_id, call_node) in semantic.nodes().iter_enumerated() {
+      let AstKind::CallExpression(call) = call_node.kind() else {
+        continue;
+      };
+      if !call.arguments.is_empty() {
+        continue;
+      }
+      let Some(identifier) = call.callee.get_identifier_reference() else {
+        continue;
+      };
+      let Some(callee_id) = local_function_id(semantic, identifier) else {
+        continue;
+      };
+      if is_async_or_generator_function(semantic, callee_id) {
+        continue;
+      }
+      let Some((owner, call_outside)) =
+        tracking_call_owner(semantic, call_id, call.span, imported_bindings)
+      else {
+        continue;
+      };
+      let callees = by_scope.entry(owner).or_default();
+      if let Some(existing) = callees.iter_mut().find(|callee| callee.id == callee_id) {
+        existing.call_outside = existing.call_outside && call_outside;
+        existing.call_sites.push(call_id);
+        continue;
+      }
+      callees.push(LocalCallee { id: callee_id, call_outside, call_sites: vec![call_id] });
     }
-    let Some(identifier) = call.callee.get_identifier_reference() else {
-      continue;
-    };
-    let Some((_, call_outside)) =
-      scope_context(semantic, scope_id, call_id, call.span, imported_bindings)
-    else {
-      continue;
-    };
-    let Some(callee_id) = local_function_id(semantic, identifier) else {
-      continue;
-    };
-    if is_async_or_generator_function(semantic, callee_id) {
-      continue;
-    }
-    if visiting.contains(&callee_id) {
-      continue;
-    }
-    if let Some(existing) = callees.iter_mut().find(|callee| callee.id == callee_id) {
-      existing.call_outside = existing.call_outside && call_outside;
-      existing.call_sites.push(call_id);
-      continue;
-    }
-    callees.push(LocalCallee { id: callee_id, call_outside, call_sites: vec![call_id] });
+    Self { by_scope }
   }
-  callees
+
+  pub(super) fn for_scope(&self, scope_id: NodeId) -> &[LocalCallee] {
+    self.by_scope.get(&scope_id).map_or(&[], Vec::as_slice)
+  }
+}
+
+/// First tracking-owner function of `call_id` (inverse of `scope_context`).
+fn tracking_call_owner(
+  semantic: &Semantic<'_>,
+  call_id: NodeId,
+  call_span: Span,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> Option<(NodeId, bool)> {
+  let mut outside_tracking = false;
+  let mut write_only = false;
+  for ancestor_id in semantic.nodes().ancestor_ids(call_id) {
+    match semantic.nodes().kind(ancestor_id) {
+      AstKind::ArrowFunctionExpression(_) | AstKind::Function(_) => {
+        if is_deferred_callback_container(semantic, ancestor_id) {
+          outside_tracking = true;
+          continue;
+        }
+        if is_sync_hof_callback(semantic, ancestor_id)
+          || is_to_value_getter_callback(semantic, ancestor_id, imported_bindings)
+        {
+          continue;
+        }
+        if write_only {
+          return None;
+        }
+        return Some((ancestor_id, outside_tracking));
+      }
+      AstKind::AssignmentExpression(assignment)
+        if assignment.operator.is_assign() && span_contains(assignment.left.span(), call_span) =>
+      {
+        write_only = true;
+      }
+      _ => {}
+    }
+  }
+  None
 }
 
 /// What to do with helpers whose *every* in-scope call is outside tracking
@@ -89,33 +141,20 @@ pub(super) enum FollowOutside {
 
 /// Shared walk for hard reads, `uncertain_accesses`, and writes.
 ///
-/// `root_callees` skips rediscovery at the tracking-scope root. Nested hops
-/// pass `None` and walk nodes again (visiting set differs).
-#[expect(
-  clippy::too_many_arguments,
-  reason = "shared walk threads visiting, outside policy, and optional root set"
-)]
+/// Looks up `full_callees(scope_id)` and skips ids already in `visiting`.
+/// Nested hops pass the same index — they do not walk nodes again.
 pub(super) fn follow_local_callees(
-  semantic: &oxc_semantic::Semantic<'_>,
+  callees: &LocalCalleeIndex,
   scope_id: NodeId,
-  imported_bindings: &BTreeMap<String, (String, String)>,
   depth: u32,
   visiting: &mut BTreeSet<NodeId>,
   outside: FollowOutside,
-  root_callees: Option<&[LocalCallee]>,
   mut visit: impl FnMut(NodeId, bool, u32, &[NodeId], &mut BTreeSet<NodeId>),
 ) {
   if depth >= MAX_LOCAL_CALLEE_FOLLOW_DEPTH {
     return;
   }
-  let discovered;
-  let callees = if let Some(ready) = root_callees {
-    ready
-  } else {
-    discovered = local_zero_arg_callees_in_scope(semantic, scope_id, imported_bindings, visiting);
-    &discovered
-  };
-  for callee in callees {
+  for callee in callees.for_scope(scope_id) {
     if matches!(outside, FollowOutside::Skip) && callee.call_outside {
       continue;
     }
@@ -221,5 +260,155 @@ pub(super) fn is_async_or_generator_function(
     AstKind::ArrowFunctionExpression(arrow) => arrow.r#async,
     // Unknown shape: refuse to follow (under-approx).
     _ => true,
+  }
+}
+
+/// Walk-based discovery. Production uses [`LocalCalleeIndex`]. Kept so tests
+/// can prove `for_scope` + a visiting filter matches this walk.
+#[cfg(test)]
+pub(super) fn local_zero_arg_callees_in_scope(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  visiting: &BTreeSet<NodeId>,
+) -> Vec<LocalCallee> {
+  use super::context::scope_context;
+
+  let mut callees: Vec<LocalCallee> = Vec::new();
+  for (call_id, call_node) in semantic.nodes().iter_enumerated() {
+    let AstKind::CallExpression(call) = call_node.kind() else {
+      continue;
+    };
+    if !call.arguments.is_empty() {
+      continue;
+    }
+    let Some(identifier) = call.callee.get_identifier_reference() else {
+      continue;
+    };
+    let Some((_, call_outside)) =
+      scope_context(semantic, scope_id, call_id, call.span, imported_bindings)
+    else {
+      continue;
+    };
+    let Some(callee_id) = local_function_id(semantic, identifier) else {
+      continue;
+    };
+    if is_async_or_generator_function(semantic, callee_id) {
+      continue;
+    }
+    if visiting.contains(&callee_id) {
+      continue;
+    }
+    if let Some(existing) = callees.iter_mut().find(|callee| callee.id == callee_id) {
+      existing.call_outside = existing.call_outside && call_outside;
+      existing.call_sites.push(call_id);
+      continue;
+    }
+    callees.push(LocalCallee { id: callee_id, call_outside, call_sites: vec![call_id] });
+  }
+  callees
+}
+
+#[cfg(test)]
+mod index_equiv {
+  use std::collections::{BTreeMap, BTreeSet};
+
+  use oxc_allocator::Allocator;
+  use oxc_ast::AstKind;
+  use oxc_parser::Parser;
+  use oxc_semantic::{NodeId, Semantic, SemanticBuilder};
+  use oxc_span::SourceType;
+
+  use super::{
+    LocalCallee, LocalCalleeIndex, is_deferred_callback_container, is_sync_hof_callback,
+    is_to_value_getter_callback, local_zero_arg_callees_in_scope,
+  };
+  use crate::trace::kinds::collect_imported_bindings;
+
+  fn callee_snap(callees: &[LocalCallee]) -> Vec<(NodeId, bool, Vec<NodeId>)> {
+    callees
+      .iter()
+      .map(|callee| (callee.id, callee.call_outside, callee.call_sites.clone()))
+      .collect()
+  }
+
+  fn is_transparent_callback(
+    semantic: &Semantic<'_>,
+    function_id: NodeId,
+    imported_bindings: &BTreeMap<String, (String, String)>,
+  ) -> bool {
+    is_deferred_callback_container(semantic, function_id)
+      || is_sync_hof_callback(semantic, function_id)
+      || is_to_value_getter_callback(semantic, function_id, imported_bindings)
+  }
+
+  #[test]
+  fn file_callee_index_matches_scope_walk() {
+    let source = "\
+import { ref, computed, toValue } from 'vue';
+const x = ref(0);
+const items = ref([1]);
+function inner() { return x.value; }
+function load() { return inner(); }
+function cycle() { return cycle(); }
+const c = computed(() => {
+  items.value.map(() => load());
+  Promise.resolve().then(() => load());
+  toValue(() => load());
+  return cycle();
+});
+void c.value;
+";
+    let allocator = Allocator::default();
+    let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let built = SemanticBuilder::new().with_build_nodes(true).build(&parsed.program);
+    assert!(built.diagnostics.is_empty(), "{:?}", built.diagnostics);
+    let semantic = &built.semantic;
+    let imported = collect_imported_bindings(semantic);
+    let index = LocalCalleeIndex::build(semantic, &imported);
+
+    let mut function_ids = Vec::new();
+    for (id, node) in semantic.nodes().iter_enumerated() {
+      if matches!(node.kind(), AstKind::Function(_) | AstKind::ArrowFunctionExpression(_)) {
+        function_ids.push(id);
+      }
+    }
+    assert!(function_ids.len() >= 4, "expected helpers + computed/HOF/then/toValue arrows");
+
+    let mut visiting_sets = vec![BTreeSet::new()];
+    for &id in &function_ids {
+      visiting_sets.push(BTreeSet::from([id]));
+    }
+    if let (Some(&a), Some(&b)) = (function_ids.first(), function_ids.get(1)) {
+      visiting_sets.push(BTreeSet::from([a, b]));
+    }
+
+    for &scope_id in &function_ids {
+      if is_transparent_callback(semantic, scope_id, &imported) {
+        continue;
+      }
+      for visiting in &visiting_sets {
+        let walked = local_zero_arg_callees_in_scope(semantic, scope_id, &imported, visiting);
+        let indexed: Vec<&LocalCallee> = index
+          .for_scope(scope_id)
+          .iter()
+          .filter(|callee| !visiting.contains(&callee.id))
+          .collect();
+        let indexed_owned: Vec<LocalCallee> = indexed
+          .iter()
+          .map(|callee| LocalCallee {
+            id: callee.id,
+            call_outside: callee.call_outside,
+            call_sites: callee.call_sites.clone(),
+          })
+          .collect();
+        assert_eq!(
+          callee_snap(&walked),
+          callee_snap(&indexed_owned),
+          "scope={scope_id:?} visiting={visiting:?}"
+        );
+      }
+    }
   }
 }
