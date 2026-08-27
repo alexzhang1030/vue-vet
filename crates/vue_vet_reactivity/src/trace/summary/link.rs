@@ -1073,10 +1073,10 @@ enum PhaseTwoOutcome {
   },
 }
 
-/// Whether materialize would produce seeds. Known / ValueBag / ComponentFactory
-/// / inject always can. Factory / Composable / ValueFactory / callback slots
-/// can only when phase-one `called_locals` contains the name. Missing summary
-/// stays conservative (reparse).
+/// Whether materialize would produce seeds. `Known` / `ValueBag` /
+/// `ComponentFactory` / inject always can. `Factory` / `Composable` /
+/// `ValueFactory` / callback slots can only when phase-one `called_locals`
+/// contains the name. Missing summary stays conservative (reparse).
 fn seed_plan_needs_reparse(plan: &ModuleSeedPlan, summary: Option<&ModuleSummary>) -> bool {
   if plan.is_empty() {
     return false;

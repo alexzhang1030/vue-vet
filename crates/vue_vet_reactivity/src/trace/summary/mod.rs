@@ -404,8 +404,8 @@ pub struct ModuleSummary {
   /// Identifier callees seen during phase one (`foo()` / `foo<T>()`).
   ///
   /// Phase two uses this to skip a reparse when the seed plan is call-site-only
-  /// (Factory / Composable / ValueFactory / callback slots) and none of those
-  /// names are called. Not a linking-surface field — body edits that only
+  /// (`Factory` / `Composable` / `ValueFactory` / callback slots) and none of
+  /// those names are called. Not a linking-surface field — body edits that only
   /// change call sites must not miss the linking cache.
   called_locals: BTreeSet<String>,
   local_graph: std::sync::Arc<ReactivityGraph>,

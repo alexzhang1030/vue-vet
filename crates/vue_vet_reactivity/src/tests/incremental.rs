@@ -607,11 +607,13 @@ fn unused_factory_import_skips_seeded_reparse() {
     "unused Factory import must reuse local_graph: {:?}",
     first.stats
   );
-  let unused_graph = state.cached_reactivity(&"consumer.ts".into()).expect("unused consumer");
+  let unused_graph = state.cached_reactivity(&"consumer.ts".into());
   assert!(
-    !unused_graph.graph.bindings.iter().any(|binding| binding.name == "isCoarse"),
+    unused_graph.is_some_and(|module| {
+      !module.graph.bindings.iter().any(|binding| binding.name == "isCoarse")
+    }),
     "unused factory must not invent a seeded binding: {:?}",
-    unused_graph.graph.bindings
+    unused_graph.map(|module| &module.graph.bindings)
   );
 
   let used = ModuleSource::standalone(
@@ -633,12 +635,13 @@ fn unused_factory_import_skips_seeded_reparse() {
     second.stats
   );
 
-  let oneshot = trace_modules(&[producer, used], &links).expect("oneshot used factory");
-  let incremental = state.cached_reactivity(&"consumer.ts".into()).expect("used consumer");
-  let fresh = oneshot.iter().find(|module| module.id == "consumer.ts").expect("oneshot consumer");
-  assert_eq!(
-    incremental.graph.as_ref(),
-    fresh.graph.as_ref(),
+  let oneshot = traced_modules(&[producer, used], &links);
+  let incremental = state.cached_reactivity(&"consumer.ts".into());
+  let fresh = oneshot.iter().find(|module| module.id == "consumer.ts");
+  assert!(
+    incremental.is_some_and(|module| {
+      fresh.is_some_and(|oneshot| module.graph.as_ref() == oneshot.graph.as_ref())
+    }),
     "skipped-then-called graph must match a cold seeded trace"
   );
 }
@@ -728,15 +731,17 @@ fn unused_known_import_still_reparses() {
     "Known imports materialize from the import span even when unused: {:?}",
     report.stats
   );
-  let consumer = state.cached_reactivity(&"consumer.ts".into()).expect("known consumer");
+  let consumer = state.cached_reactivity(&"consumer.ts".into());
   assert!(
-    consumer
-      .graph
-      .bindings
-      .iter()
-      .any(|binding| binding.name == "count" && binding.kind == ReactiveBindingKind::Ref),
+    consumer.is_some_and(|module| {
+      module
+        .graph
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "count" && binding.kind == ReactiveBindingKind::Ref)
+    }),
     "unused Known import must still seed the binding: {:?}",
-    consumer.graph.bindings
+    consumer.map(|module| &module.graph.bindings)
   );
 }
 
