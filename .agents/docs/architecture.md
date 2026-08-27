@@ -275,7 +275,7 @@ trace/writes.rs    scope writes + assignment_only + identifier getters
 trace/uncertain.rs uncertain accesses + watch sources
 trace/scopes.rs    tracking / render scope assembly
 trace/inject.rs    provide/inject sites + unique-key resolve
-trace/follow.rs    same-file zero-arg helper walk (reads/uncertain/writes)
+trace/follow.rs    same-file zero-arg helper walk + file `LocalCalleeIndex`
 trace/expr.rs      paren / TS peel shared by assignment-only and factories
 trace/plugin.rs    NamedApiBag / TracerPlugin / TraceConfig
 trace/branch_hygiene.rs  pure A4 all-path coverage

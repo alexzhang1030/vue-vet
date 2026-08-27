@@ -100,7 +100,7 @@ Three different loops use the number **8** (same-file refine, name-resolve depth
 
 Cold cost is dominated by (1) visiting every module in phase one, (2) cloning maps on the export worklist, (3) full Oxc reparse of every module whose seed plan is non-empty, (4) budgeted external/companion I/O. Incremental reuse *inside* `ModuleTraceState` is real. The session dirty plan still hands the tracer the **full** module set.
 
-**Single-file walks.** Each tracking scope still walks all nodes for members, idents, ambient reads, writes, uncertain, and await/pause IR. `finish_scope` computes `local_zero_arg_callees_in_scope` once (visiting = `{scope_id}`) and passes the same slice to reads / uncertain / writes. Nested hops still rediscover because their visiting set differs. Watch-source getters and watch-source uncertain stay `None` — they do not go through `finish_scope`. Member/ident/write/uncertain *local* walks remain per-collector.
+**Single-file walks.** Each tracking scope still walks all nodes for members, idents, ambient reads, writes, uncertain, and await/pause IR. The file builds `LocalCalleeIndex` once (`full_callees(F)` per function). Reads / uncertain / writes, nested hops, and watch-source getters look up that index and skip ids already in `visiting`. Do not cache a slice keyed only on `scope_id`. Member/ident/write/uncertain *local* walks remain per-collector.
 
 **Phase two is all-or-nothing.** Any non-empty `ModuleSeedPlan` (including only inject or only a typed-callback slot) reparses the whole file. Empty plan reuses `local_graph`.
 
@@ -165,7 +165,7 @@ Stay inside the PCR stop rule. Each row says what evidence already exists and wh
 ### Do when touching locality (faster, already #108)
 
 10. ~~Make `DirtyPlan.export_closure` the linker dirty set.~~ Session reports `seed_plan_dirty` as `export_closure`. Pipeline passes source-dirty `Arc<ModuleSource>`s (`from_arcs`) and sets `retain_cached_modules`; persist is a refcount. The tracer merges cached summaries and pulls seed-dirty consumers. The linker still computes the closure — there is no second algorithm. Dual-path: subset state graphs ≡ full-list state graphs. The report is this-pass only. Layers keep `Arc<[Arc<ModuleReactivity>]>` and patch the key in place on a leaf edit.
-11. ~~Compute `local_zero_arg_callees_in_scope` once per `finish_scope` and pass the set into reads / uncertain / writes.~~ `finish_scope` owns the root set. Nested hops and watch-source getters still discover. No graph bump (same facts). `trace_1k_modules` is mostly unseeded `ref()` modules — no-regression, not the win signal.
+11. ~~Compute `local_zero_arg_callees_in_scope` once per `finish_scope` and pass the set into reads / uncertain / writes.~~ File `LocalCalleeIndex` (`full_callees(F)`). Nested hops and watch-source getters look up and filter `visiting`. No graph bump (same facts). `trace_1k_modules` is mostly unseeded `ref()` modules — no-regression, not the win signal.
 12. ~~Keep `persist_linking_cache` off for one-shot benches. Add one CodSpeed name that *is* a warm `ModuleTraceState` leaf edit.~~ One-shot `trace_*` stay unarchived. `trace_warm_leaf_edit_1k_modules` warms `ModuleTraceState`, sets `retain_cached_modules`, and edits one independent `ref()` leaf without cloning the other sources.
 
 ### Consumer polish (smarter without AST)
@@ -189,7 +189,7 @@ Unstamped. Nothing here is vouched.
 
 **The interesting remaining bug class** after v34 is not another write dual-path. The Do-now contract holes (caller guards, pause-in-helper, `+=`/`++`, watch peel, render ident getters, instance writes, HOF / `toValue` writes) are closed. Helper-call now has an `onTrack` pair. Remaining charter-quiet rows (NamedApiBag member form, CSS `v-bind` completeness) stay quiet on purpose. VS Code Explain Scope now hits the workspace CLI session; a live LSP client stays issue #12.
 
-**The interesting remaining speed class** is nested helper hops (they still rediscover callees; do not cache those without a visiting-set story), not session input breadth. Warm scans pass a source-dirty `Arc<ModuleSource>` subset and retain the cached universe without cloning modules. Layers share `Arc<ModuleReactivity>` per unchanged leaf. The warm leaf-edit CodSpeed name is the locality signal; do not treat `trace_1k_modules` as that win. Do not invent a second export-closure algorithm.
+**The interesting remaining speed class** is per-collector member/ident/write/uncertain *local* walks, not helper-callee rediscovery and not session input breadth. Nested hops filter `visiting` on the file callee index. Warm scans pass a source-dirty `Arc<ModuleSource>` subset and retain the cached universe without cloning modules. Layers share `Arc<ModuleReactivity>` per unchanged leaf. The warm leaf-edit CodSpeed name is the locality signal; do not treat `trace_1k_modules` as that win. Do not invent a second export-closure algorithm.
 
 **The interesting remaining science class** is honesty: oracle covers a slice; `ExportState` is policy; §K of the July harvest was a year of implementation behind.
 

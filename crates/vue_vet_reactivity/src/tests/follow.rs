@@ -53,6 +53,41 @@ fn same_file_zero_arg_helper_follow_reads() {
       want: Want::Tracked,
     },
     Case {
+      label: "self-recursive helper still tracks its body read",
+      source: "import { ref, computed } from 'vue';\n\
+               const type = ref('all');\n\
+               function load() { load(); return type.value; }\n\
+               const c = computed(() => load());\n\
+               void c.value;",
+      kind: TrackingScopeKind::Computed,
+      binding: "type",
+      want: Want::Unconditional,
+    },
+    Case {
+      label: "cyclic helpers still track the body read",
+      source: "import { ref, computed } from 'vue';\n\
+               const type = ref('all');\n\
+               function inner() { return load(); }\n\
+               function load() { inner(); return type.value; }\n\
+               const c = computed(() => load());\n\
+               void c.value;",
+      kind: TrackingScopeKind::Computed,
+      binding: "type",
+      want: Want::Unconditional,
+    },
+    Case {
+      label: "map callback load() still belongs to the tracking scope",
+      source: "import { ref, computed } from 'vue';\n\
+               const items = ref([1]);\n\
+               const type = ref('all');\n\
+               function load() { return type.value; }\n\
+               const c = computed(() => items.value.map(() => load()));\n\
+               void c.value;",
+      kind: TrackingScopeKind::Computed,
+      binding: "type",
+      want: Want::Unconditional,
+    },
+    Case {
       label: "then()-only helper stays outside tracking",
       source: "import { ref, watchEffect } from 'vue';\n\
                const count = ref(0);\n\

@@ -14,7 +14,7 @@ use vue_vet_core::{
 use super::{
   ComposableShapeMap,
   bindings::AmbientCallHandles,
-  follow::local_zero_arg_callees_in_scope,
+  follow::LocalCalleeIndex,
   kinds::{resolved_vue_callee, source_span},
   reads::{classify_scope_reads, collect_scope_reads},
   render,
@@ -66,17 +66,10 @@ pub(super) struct ScopeBuild<'a> {
   sfc_source: &'a str,
   script_offset: usize,
   force_outside_tracking: bool,
+  callees: &'a LocalCalleeIndex,
 }
 
 pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
-  let mut visiting = BTreeSet::new();
-  visiting.insert(build.scope_id);
-  let root_callees = local_zero_arg_callees_in_scope(
-    build.semantic,
-    build.scope_id,
-    build.imported_bindings,
-    &visiting,
-  );
   let raw_reads = collect_scope_reads(
     build.semantic,
     build.scope_id,
@@ -85,7 +78,7 @@ pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
     build.imported_bindings,
     build.ambient_call_handles,
     build.script_offset,
-    Some(&root_callees),
+    build.callees,
   );
   let mut reads = classify_scope_reads(
     build.semantic,
@@ -111,7 +104,7 @@ pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
     build.imported_bindings,
     build.sfc_source,
     build.script_offset,
-    Some(&root_callees),
+    build.callees,
   );
   let uncertain_accesses = collect_uncertain_scope_accesses(
     build.semantic,
@@ -120,7 +113,7 @@ pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
     build.composable_instances,
     build.imported_bindings,
     build.script_offset,
-    Some(&root_callees),
+    build.callees,
   );
   let mut assignment_visiting = BTreeSet::new();
   assignment_visiting.insert(build.scope_id);
@@ -149,6 +142,7 @@ pub(super) fn collect_tracking_scopes(
   ambient_call_handles: &AmbientCallHandles,
   sfc_source: &str,
   script_offset: usize,
+  callees: &LocalCalleeIndex,
 ) -> Vec<TrackingScopeFact> {
   // Only treat `.run(cb)` as an effect-scope body when the receiver was assigned
   // from Vue's `effectScope()` — never invent edges for arbitrary `.run` APIs.
@@ -181,6 +175,7 @@ pub(super) fn collect_tracking_scopes(
         sfc_source,
         script_offset,
         force_outside_tracking: false,
+        callees,
       }));
       continue;
     }
@@ -231,6 +226,7 @@ pub(super) fn collect_tracking_scopes(
           sfc_source,
           script_offset,
           force_outside_tracking: scope_kind == TrackingScopeKind::OnScopeDispose,
+          callees,
         }));
       }
       TrackingScopeKind::EffectScope => {
@@ -253,6 +249,7 @@ pub(super) fn collect_tracking_scopes(
             sfc_source,
             script_offset,
             force_outside_tracking: false,
+            callees,
           }));
         }
         // Also capture `.run(callback)` on effectScope instances via member call below.
@@ -271,6 +268,7 @@ pub(super) fn collect_tracking_scopes(
           ambient_call_handles,
           sfc_source,
           script_offset,
+          callees,
         );
         let uncertain_accesses = collect_uncertain_watch_sources(
           semantic,
@@ -279,6 +277,7 @@ pub(super) fn collect_tracking_scopes(
           composable_instances,
           imported_bindings,
           script_offset,
+          callees,
         );
         scopes.push(TrackingScopeFact {
           kind: TrackingScopeKind::WatchSources,
@@ -309,6 +308,7 @@ pub(super) fn collect_tracking_scopes(
             sfc_source,
             script_offset,
             force_outside_tracking: true,
+            callees,
           }));
         }
       }
@@ -339,6 +339,7 @@ pub(super) fn collect_render_scopes(
   ambient_call_handles: &AmbientCallHandles,
   sfc_source: &str,
   script_offset: usize,
+  callees: &LocalCalleeIndex,
 ) -> Vec<TrackingScopeFact> {
   let mut scopes = Vec::new();
   for body in render::collect_render_bodies(semantic, imported_bindings) {
@@ -357,6 +358,7 @@ pub(super) fn collect_render_scopes(
       sfc_source,
       script_offset,
       force_outside_tracking: false,
+      callees,
     }));
   }
   scopes

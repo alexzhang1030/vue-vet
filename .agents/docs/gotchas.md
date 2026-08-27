@@ -633,8 +633,9 @@ without a new oracle case. Await-in-helper stays quiet (async helpers are
 unfollowed). New dual-path collectors
 must go through `follow_local_callees` (or the same `local_function_id` + async
 skip for statement walks) — do not add a fourth callee enumerator. Tracking-root
-discovery lives in `finish_scope`; pass that slice rather than walking nodes
-again at the same `{scope_id}`. Parens / TypeScript wrappers peel in `trace/expr.rs`
+discovery is the file `LocalCalleeIndex`; nested hops and watch-source getters
+look up `full_callees(F)` and filter `visiting`. Do not walk nodes again, and
+do not cache a slice keyed only on `scope_id`. Parens / TypeScript wrappers peel in `trace/expr.rs`
 (`peel_parens`); do not add another copy in callback or render adapters.
 Watch sources use that peel too (graph v31): `watch((count))` /
 `watch(count as T)` / `watch((() => count.value))` must agree with the
