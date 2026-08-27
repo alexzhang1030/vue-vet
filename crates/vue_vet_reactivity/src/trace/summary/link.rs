@@ -591,7 +591,7 @@ enum LiveScope<'a> {
   Retain { drop: &'a BTreeSet<ModuleId> },
 }
 
-fn live_scope(options: &TraceModulesOptions) -> LiveScope<'_> {
+const fn live_scope(options: &TraceModulesOptions) -> LiveScope<'_> {
   if let Some(live) = options.live_module_ids.as_ref() {
     return LiveScope::Explicit(live);
   }
@@ -601,7 +601,7 @@ fn live_scope(options: &TraceModulesOptions) -> LiveScope<'_> {
   LiveScope::InputOnly
 }
 
-fn persist_subset(options: &TraceModulesOptions) -> bool {
+const fn persist_subset(options: &TraceModulesOptions) -> bool {
   options.persist_linking_cache && !matches!(live_scope(options), LiveScope::InputOnly)
 }
 

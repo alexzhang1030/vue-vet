@@ -84,7 +84,7 @@ fn reexport_chain(count: usize) -> (Vec<ModuleSource>, Vec<ModuleLink>) {
 #[divan::bench(sample_count = 5, sample_size = 1)]
 fn trace_warm_leaf_edit_1k_modules(bencher: divan::Bencher) {
   let pool = worker_pool();
-  let mut modules = synthetic_modules(1_000);
+  let modules = synthetic_modules(1_000);
   let options = TraceModulesOptions {
     max_workers: 8,
     reuse_current_pool: true,
