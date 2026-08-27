@@ -376,11 +376,22 @@ pending dirty state. A no-op `analyze_affected` when the revision is unchanged
 must return the last snapshot without re-entering the pipeline.
 
 **Dirty `FileId` ≠ dirty work.** A small `affected_files()` set only proves parse
-scheduling was narrow. Phase-one may still visit every module summary (cheap when
-already attached). Prove locality with work counters (`files_parsed`,
-`seed_plans_recomputed`, `export_resolve_ran`, `seeded_reparses`, layered
-rebuild, COW clones, rules rerun) and `DirtyPlan.export_closure` (the seed-dirty
-set, not `module_summaries`). Do not treat `affected_files()` size as A6 work.
+scheduling was narrow. After a warm persist scan, phase one visits the
+source-dirty subset; `module_summaries_visited` is that count, not
+`graph.module_reactivity.len()`. Prove locality with work counters
+(`files_parsed`, `module_summaries_visited`, `seed_plans_recomputed`,
+`export_resolve_ran`, `seeded_reparses`, layered rebuild, COW clones, rules
+rerun) and `DirtyPlan.export_closure` (the seed-dirty set, not
+`module_summaries`). Do not treat `affected_files()` size as A6 work.
+
+**Subset input without `live_module_ids` drops the workspace.**
+`state.entries.retain` used to keep only this pass's `report.modules`. Passing
+a dirty subset without `TraceModulesOptions::live_module_ids` still does that.
+When `live_module_ids` is set, merge cached summaries into linking, pull
+seed-dirty consumers from `cached_source`, emit the rest of the live universe,
+and retain against the live set — never invent a second export-closure
+algorithm. Empty unique + persist + live ids must emit the cached universe,
+not `clear()` the state.
 
 **Linking surface ≠ `ModuleSummary` equality.** Export/seed reuse keys on
 imports/exports/locals/provides/injects + links. A leaf body edit that only

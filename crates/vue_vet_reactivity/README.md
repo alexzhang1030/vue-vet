@@ -161,7 +161,12 @@ symbol materialization. Attach summaries with
 `ModuleSource::with_module_summary`. Long-lived callers should retain
 `ModuleTraceState` and call `trace_modules_incremental_with_options`: unchanged
 source + seed-plan pairs reuse their final graph, and the returned report scopes
-errors per module while preserving healthy cross-module results.
+errors per module while preserving healthy cross-module results. After a warm
+scan, callers may pass only source-dirty modules and set
+`TraceModulesOptions::live_module_ids` to the live universe; cached summaries
+are merged into linking and seed-dirty consumers are pulled from
+`cached_source`. One-shot `trace_modules_with_options` leaves `live_module_ids`
+unset so the input list remains the universe.
 
 ## What the graph contains
 

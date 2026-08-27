@@ -569,6 +569,11 @@ fn independent_leaf_edit_keeps_affected_set_local() {
     "unseeded leaf body edit must not reparse seeded consumers: {:?}",
     after.work
   );
+  assert_eq!(
+    after.work.module_summaries_visited, 1,
+    "phase one must visit only the edited leaf, got {:?}",
+    after.work
+  );
   let plan = session.last_dirty_plan().unwrap_or_else(|error| panic!("dirty plan: {error}"));
   assert_eq!(plan.parse_files.len(), 1);
   assert!(
@@ -616,6 +621,11 @@ fn producer_export_change_limits_export_closure() {
     after.work
   );
   assert_eq!(after.work.seed_plans_recomputed, 2, "producer + consumer only: {:?}", after.work);
+  assert_eq!(
+    after.work.module_summaries_visited, 1,
+    "only the producer script is source-dirty: {:?}",
+    after.work
+  );
   let plan = session.last_dirty_plan().unwrap_or_else(|error| panic!("dirty plan: {error}"));
   assert!(
     plan.export_closure.contains(&ModuleId::from("producer.ts"))

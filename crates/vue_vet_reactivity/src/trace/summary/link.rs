@@ -46,6 +46,13 @@ pub struct TraceModulesOptions {
   /// Plugin-supplied named API bag contracts (Nuxt / vue-i18n / …). Empty by
   /// default — the analysis boundary installs [`vue_vet_plugins`] defaults.
   pub named_api_bags: Vec<crate::NamedApiBag>,
+  /// When `Some`, `modules` may be a dirty subset. Cached entries whose ids
+  /// are in this set are merged into linking and emitted. Entries not in this
+  /// set are dropped. `None` means `modules` is the universe (one-shot / tests).
+  ///
+  /// Subset mode requires [`Self::persist_linking_cache`]. The linker still
+  /// computes the seed-dirty set — do not invent a second export-closure.
+  pub live_module_ids: Option<BTreeSet<ModuleId>>,
 }
 
 impl Default for TraceModulesOptions {
@@ -55,6 +62,7 @@ impl Default for TraceModulesOptions {
       reuse_current_pool: false,
       persist_linking_cache: true,
       named_api_bags: Vec::new(),
+      live_module_ids: None,
     }
   }
 }
@@ -96,6 +104,12 @@ impl ModuleTraceState {
   #[must_use]
   pub fn cached_source(&self, id: &ModuleId) -> Option<&ModuleSource> {
     self.entries.get(id).map(|entry| &entry.source)
+  }
+
+  /// Whether a prior persistent scan retained at least one module.
+  #[must_use]
+  pub fn has_cached_modules(&self) -> bool {
+    !self.entries.is_empty()
   }
 }
 
@@ -246,18 +260,18 @@ pub fn trace_modules_incremental_with_options(
       }
     })
     .collect::<Vec<_>>();
-  if unique.is_empty() {
+  if unique.is_empty() && !subset_cache_emit(options, state) {
     state.entries.clear();
     state.linking = None;
     return report;
   }
 
-  if options.reuse_current_pool {
+  if unique.is_empty() || options.reuse_current_pool {
     return trace_modules_incremental_in_current_pool(&unique, links, state, report, options);
   }
 
   let Ok(pool) = rayon::ThreadPoolBuilder::new()
-    .num_threads(options.max_workers.max(1).min(unique.len()))
+    .num_threads(options.max_workers.max(1).min(unique.len().max(1)))
     .build()
   else {
     report.issues.push(TraceModulesError::WorkerDisconnected);
@@ -273,6 +287,16 @@ fn trace_modules_incremental_in_current_pool(
   mut report: TraceModulesReport,
   options: &TraceModulesOptions,
 ) -> TraceModulesReport {
+  if unique.is_empty()
+    && options.persist_linking_cache
+    && state.linking.is_none()
+    && let Some(live) = options.live_module_ids.as_ref()
+  {
+    emit_cached_live_graphs(live, unique, state, &mut report);
+    state.entries.retain(|module_id, _| live.contains(module_id));
+    report.modules.sort_by(|left, right| left.id.cmp(&right.id));
+    return report;
+  }
   // Attached / cached summaries stay sequential. Rayon only the modules that
   // still need a parse — independent leaf edits must not schedule N workers.
   let phase_one = phase_one_outcomes(unique, state, &options.named_api_bags);
@@ -292,6 +316,15 @@ fn trace_modules_incremental_in_current_pool(
     }
   }
 
+  if persist_subset(options) {
+    merge_cached_live_modules(
+      options.live_module_ids.as_ref(),
+      state,
+      &mut facts_by_id,
+      &mut local_graphs,
+    );
+  }
+
   let (resolved_links, mut link_issues) = resolved_links_partial(&facts_by_id, links);
   report.issues.append(&mut link_issues);
 
@@ -308,10 +341,11 @@ fn trace_modules_incremental_in_current_pool(
         &mut report,
       );
       pending_linking_archive = Some(archive);
-      report.seed_plan_dirty = work.iter().map(|(module, _, _, _)| module.id.clone()).collect();
+      report.seed_plan_dirty =
+        work.iter().map(|(module, _, _, _)| module.source().id.clone()).collect();
       work
     } else {
-      build_persistent_seed_work(
+      let mut work = build_persistent_seed_work(
         unique,
         links,
         &resolved_links,
@@ -319,7 +353,21 @@ fn trace_modules_incremental_in_current_pool(
         &mut local_graphs,
         state,
         &mut report,
-      )
+      );
+      if let Some(live) = options.live_module_ids.as_ref()
+        && let Some(plans) = state.linking.as_ref().map(|cached| Arc::clone(&cached.plans))
+      {
+        work.extend(pull_cached_seed_work(
+          unique,
+          live,
+          &report.seed_plan_dirty,
+          state,
+          &facts_by_id,
+          &mut local_graphs,
+          &plans,
+        ));
+      }
+      work
     }
   } else {
     // One-shot cold path: no link sort / seed-plan archive.
@@ -330,7 +378,8 @@ fn trace_modules_incremental_in_current_pool(
       &mut local_graphs,
       &mut report,
     );
-    report.seed_plan_dirty = work.iter().map(|(module, _, _, _)| module.id.clone()).collect();
+    report.seed_plan_dirty =
+      work.iter().map(|(module, _, _, _)| module.source().id.clone()).collect();
     work
   };
 
@@ -340,8 +389,9 @@ fn trace_modules_incremental_in_current_pool(
   let mut reused = Vec::new();
   let mut dirty_work = Vec::new();
   for (module, local_graph, plan, summary) in work {
-    if let Some(cached) = state.entries.get(&module.id)
-      && cached.source == *module
+    let source = module.source();
+    if let Some(cached) = state.entries.get(&source.id)
+      && cached.source == *source
       && cached.plan == plan
     {
       reused.push(cached.reactivity.clone());
@@ -357,23 +407,24 @@ fn trace_modules_incremental_in_current_pool(
   let outcomes = dirty_work
     .into_par_iter()
     .map(|(module, mut local_graph, plan, summary)| {
+      let source = module.source();
       let seeded = !plan.is_empty();
-      match trace_module_phase_two(module, Arc::clone(&local_graph), &plan, &options.named_api_bags)
+      match trace_module_phase_two(source, Arc::clone(&local_graph), &plan, &options.named_api_bags)
       {
         Ok(reactivity) => PhaseTwoOutcome::Traced {
-          source: persist.then(|| module.clone()),
+          source: persist.then(|| source.clone()),
           summary,
           plan: persist.then_some(plan),
           reactivity,
           seeded,
         },
         Err(error) => {
-          Arc::make_mut(&mut local_graph).set_module_id(module.id.clone());
+          Arc::make_mut(&mut local_graph).set_module_id(source.id.clone());
           PhaseTwoOutcome::Partial {
-            source: persist.then(|| module.clone()),
+            source: persist.then(|| source.clone()),
             summary,
             plan: persist.then_some(plan),
-            reactivity: ModuleReactivity { id: module.id.clone(), graph: local_graph },
+            reactivity: ModuleReactivity { id: source.id.clone(), graph: local_graph },
             error,
           }
         }
@@ -410,7 +461,15 @@ fn trace_modules_incremental_in_current_pool(
     }
   }
   if persist {
-    state.entries.retain(|module_id, _| keep.contains(module_id));
+    if let Some(live) = options.live_module_ids.as_ref() {
+      emit_cached_live_graphs(live, unique, state, &mut report);
+      let input_ids: BTreeSet<ModuleId> = unique.iter().map(|module| module.id.clone()).collect();
+      state.entries.retain(|module_id, _| {
+        live.contains(module_id) && (!input_ids.contains(module_id) || keep.contains(module_id))
+      });
+    } else {
+      state.entries.retain(|module_id, _| keep.contains(module_id));
+    }
     if let Some(archive) = pending_linking_archive {
       let plans = state
         .entries
@@ -479,8 +538,100 @@ fn reused_phase_one(module: &ModuleSource, state: &ModuleTraceState) -> Option<M
   (entry.source == *module).then(|| phase_one_from_summary(module, &entry.summary))
 }
 
+/// Phase-two work source. Input modules are borrowed; seed-dirty modules
+/// missing from this pass are cloned from the linking cache.
+enum WorkSource<'a> {
+  Input(&'a ModuleSource),
+  Cached(ModuleSource),
+}
+
+impl WorkSource<'_> {
+  const fn source(&self) -> &ModuleSource {
+    match self {
+      Self::Input(module) => module,
+      Self::Cached(module) => module,
+    }
+  }
+}
+
 type SeedWorkItem<'a> =
-  (&'a ModuleSource, Arc<ReactivityGraph>, ModuleSeedPlan, Option<Arc<ModuleSummary>>);
+  (WorkSource<'a>, Arc<ReactivityGraph>, ModuleSeedPlan, Option<Arc<ModuleSummary>>);
+
+fn persist_subset(options: &TraceModulesOptions) -> bool {
+  options.persist_linking_cache
+    && options.live_module_ids.as_ref().is_some_and(|ids| !ids.is_empty())
+}
+
+fn subset_cache_emit(options: &TraceModulesOptions, state: &ModuleTraceState) -> bool {
+  persist_subset(options) && state.has_cached_modules()
+}
+
+fn merge_cached_live_modules(
+  live: Option<&BTreeSet<ModuleId>>,
+  state: &ModuleTraceState,
+  facts_by_id: &mut BTreeMap<ModuleId, ModuleExportFacts>,
+  local_graphs: &mut BTreeMap<ModuleId, Arc<ReactivityGraph>>,
+) {
+  let Some(live) = live else {
+    return;
+  };
+  for id in live {
+    if facts_by_id.contains_key(id) {
+      continue;
+    }
+    let Some(entry) = state.entries.get(id) else {
+      continue;
+    };
+    let analysis = phase_one_from_summary(&entry.source, &entry.summary);
+    facts_by_id.insert(id.clone(), analysis.facts);
+    local_graphs.insert(id.clone(), analysis.local_graph);
+  }
+}
+
+fn emit_cached_live_graphs(
+  live: &BTreeSet<ModuleId>,
+  unique: &[&ModuleSource],
+  state: &ModuleTraceState,
+  report: &mut TraceModulesReport,
+) {
+  let input_ids: BTreeSet<ModuleId> = unique.iter().map(|module| module.id.clone()).collect();
+  let present: BTreeSet<ModuleId> = report.modules.iter().map(|module| module.id.clone()).collect();
+  for id in live {
+    if present.contains(id) || input_ids.contains(id) {
+      continue;
+    }
+    let Some(entry) = state.entries.get(id) else {
+      continue;
+    };
+    report.modules.push(entry.reactivity.clone());
+    report.stats.reused_graphs += 1;
+  }
+}
+
+fn pull_cached_seed_work<'a>(
+  unique: &[&ModuleSource],
+  live: &BTreeSet<ModuleId>,
+  dirty_seed: &BTreeSet<ModuleId>,
+  state: &ModuleTraceState,
+  facts_by_id: &BTreeMap<ModuleId, ModuleExportFacts>,
+  local_graphs: &mut BTreeMap<ModuleId, Arc<ReactivityGraph>>,
+  plans: &BTreeMap<ModuleId, ModuleSeedPlan>,
+) -> Vec<SeedWorkItem<'a>> {
+  let input_ids: BTreeSet<ModuleId> = unique.iter().map(|module| module.id.clone()).collect();
+  dirty_seed
+    .iter()
+    .filter_map(|id| {
+      if input_ids.contains(id) || !live.contains(id) {
+        return None;
+      }
+      let source = state.cached_source(id)?.clone();
+      let facts = facts_by_id.get(id)?;
+      let local_graph = local_graphs.remove(id)?;
+      let plan = plans.get(id)?.clone();
+      Some((WorkSource::Cached(source), local_graph, plan, Some(Arc::clone(&facts.summary))))
+    })
+    .collect()
+}
 
 struct PendingLinkingArchive {
   links: Vec<ModuleLink>,
@@ -521,7 +672,7 @@ fn build_cold_persistent_seed_work<'a>(
         options_callback_slots,
         typed_callback_param_slots,
       };
-      Some((*module, local_graph, plan, Some(Arc::clone(&facts.summary))))
+      Some((WorkSource::Input(module), local_graph, plan, Some(Arc::clone(&facts.summary))))
     })
     .collect::<Vec<_>>();
   report.stats.seed_plans_recomputed = work.len();
@@ -556,7 +707,7 @@ fn build_oneshot_seed_work<'a>(
         options_callback_slots,
         typed_callback_param_slots,
       };
-      Some((*module, local_graph, plan, None))
+      Some((WorkSource::Input(module), local_graph, plan, None))
     })
     .collect::<Vec<_>>();
   report.stats.seed_plans_recomputed = work.len();
@@ -667,7 +818,7 @@ fn build_persistent_seed_work<'a>(
       let facts = facts_by_id.get(&module.id)?;
       let local_graph = local_graphs.remove(&module.id)?;
       let plan = plans.get(&module.id)?.clone();
-      Some((*module, local_graph, plan, Some(Arc::clone(&facts.summary))))
+      Some((WorkSource::Input(module), local_graph, plan, Some(Arc::clone(&facts.summary))))
     })
     .collect()
 }

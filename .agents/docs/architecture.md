@@ -88,9 +88,10 @@ vue-vet CLI
   still incomplete — see **Post-#107 locality gap**.
 - **Incremental project stages** — `ProjectSession` retains the source snapshot,
   per-file Vize/Oxc facts, raw file diagnostics, structural edge partitions,
-  module seed plans/final graphs, and the reverse dependency index. Unrelated
-  sources are not re-parsed on a normal edit, but project linking and summary
-  rebuild may still walk the full retained set until partition updates land.
+  module seed plans/final graphs, and the reverse dependency index.   Unrelated
+  sources are not re-parsed on a normal edit. After a warm persist scan the
+  tracer receives a source-dirty subset plus a live-id set; cached summaries
+  fill linking and the live universe is still emitted.
 - **Atomic session publication** — the workspace revision, retained input
   snapshot, and committed analysis state share one `SessionCore` synchronization
   domain. Analysis captures `Arc` snapshots under the lock, computes outside it,
@@ -140,6 +141,7 @@ TrackingScopeIR / Vize bottom-up               (shipped)
 export-closure seed recompute + SFC blocks     (shipped)
 warm disk hit stays cache-load cheap           (shipped; no eager IR hydrate)
 returns_by_function + SourceContext            (shipped)
+subset module input / cached universe          (shipped)
 ```
 
 Do **not** pursue a generalized unified AST IR. Further locality work belongs in

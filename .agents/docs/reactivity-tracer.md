@@ -526,6 +526,7 @@ growing prose ledger.
 | 2026-08-26 | Binding inspect index | `--print-reactivity` `binding_nav` folds inbound/outbound/properties from `edge_details` + `template_details`. TUI/VS Code look up; scan is fallback. No graph version bump. |
 | 2026-08-27 | Warm leaf-edit bench | `trace_warm_leaf_edit_1k_modules` measures persistent `ModuleTraceState` + one independent leaf body edit. One-shot `trace_*` stay `persist_linking_cache = false`. No graph version bump. |
 | 2026-08-27 | VS Code explain session | Thin host Explain Scope uses workspace `--explain-scope file:@offset` (same query as LSP hover) and keeps the disk cache. No LSP client. No graph version bump. |
+| 2026-08-27 | Subset tracer input | Warm persist scans pass source-dirty `ModuleSource`s plus `live_module_ids`. Tracer merges cached summaries, pulls seed-dirty consumers, emits the live universe. No graph version bump. |
 | 2026-08-21 | Helper-follow walk unify | Reads / uncertain / writes share `follow_local_callees`; drop unused `local_function_id` name arg. No graph version bump (same facts). |
 | 2026-08-21 | CSS `v-bind` join | `<style>` `v-bind(ident)` / quoted ident → `TemplateExpressionFact.surface = "style"`; style-only ident edits refresh without adding style to revisions |
 | 2026-08-10 | Tracer plugins crate | Ecosystem hardcode (Nuxt data bags, vue-i18n `useI18n`) lives in published `vue_vet_plugins`; engine has no Nuxt/i18n names; Oxc/project/session **auto-load** defaults; crates.io order core→reactivity→plugins; docs: crate README + install library table |

@@ -72,8 +72,7 @@ pub fn build_project_graph_incremental_with_options<'a>(
   state: &mut ProjectGraphState,
   on_external_seeds: Option<&dyn Fn(usize)>,
 ) -> ProjectGraph {
-  let trace_options = ensure_default_plugins(trace_options.clone());
-  let trace_options = &trace_options;
+  let mut trace_options = ensure_default_plugins(trace_options.clone());
   state.last_stats = ProjectGraphStats::default();
   state.last_export_closure.clear();
   let root = normalize_project_root(root);
@@ -208,11 +207,28 @@ pub fn build_project_graph_incremental_with_options<'a>(
   if Arc::strong_count(&state.module_trace) > 1 {
     state.last_stats.partition_cow_clones += 1;
   }
+  let live_ids: BTreeSet<ModuleId> =
+    module_sources.iter().map(|module| module.id.clone()).collect();
+  if trace_options.persist_linking_cache {
+    trace_options.live_module_ids = Some(live_ids);
+  }
+  let trace_input =
+    if trace_options.persist_linking_cache && state.module_trace.has_cached_modules() {
+      module_sources
+        .iter()
+        .filter(|module| {
+          state.module_trace.cached_source(&module.id).is_none_or(|cached| cached != *module)
+        })
+        .cloned()
+        .collect::<Vec<_>>()
+    } else {
+      module_sources
+    };
   let module_trace = Arc::make_mut(&mut state.module_trace);
   let mut trace_report = trace_modules_incremental_with_options(
-    &module_sources,
+    &trace_input,
     &module_links,
-    trace_options,
+    &trace_options,
     module_trace,
   );
   // External package summaries seed consumers only — never lint surfaces.
@@ -221,6 +237,8 @@ pub fn build_project_graph_incremental_with_options<'a>(
   state.last_stats.seeded_module_reparses = trace_report.stats.seeded_reparses;
   state.last_stats.seed_plans_recomputed = trace_report.stats.seed_plans_recomputed;
   state.last_stats.export_resolve_ran = trace_report.stats.export_resolve_ran;
+  state.last_stats.module_summaries_visited =
+    trace_report.stats.phase_one_succeeded.saturating_add(trace_report.stats.phase_one_failed);
   state.last_export_closure = trace_report.seed_plan_dirty;
   let reactivity_issues = trace_report
     .issues
