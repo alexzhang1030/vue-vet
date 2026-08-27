@@ -17,6 +17,9 @@ use vue_vet_session::{
   AnalysisSnapshot, Explained, ProjectSession, SessionOptions, resolve_under_root, scan_directory,
 };
 
+/// Bound session for one resolved tool path. Scan/preview replace it; explain reuses.
+pub type McpSessionSlot = Option<(PathBuf, ProjectSession)>;
+
 /// Stable tool names for docs and tests.
 pub const TOOL_NAMES: &[&str] =
   &["vue_vet_scan", "vue_vet_explain", "vue_vet_explain_scope", "vue_vet_preview_safe_fixes"];
@@ -93,46 +96,72 @@ pub fn list_tools() -> Vec<Value> {
   ]
 }
 
-/// Dispatch a tool call into a MCP `tools/call` result object.
+/// Dispatch a one-shot tool call (tests / callers without a live server).
 #[must_use]
 pub fn call_tool(workspace_root: &Path, name: &str, arguments: &Value) -> Value {
+  let mut slot = None;
+  call_tool_on(workspace_root, &mut slot, name, arguments)
+}
+
+/// Dispatch a tool call, optionally reusing the stdio server's bound session.
+#[must_use]
+pub fn call_tool_on(
+  workspace_root: &Path,
+  slot: &mut McpSessionSlot,
+  name: &str,
+  arguments: &Value,
+) -> Value {
   match name {
-    "vue_vet_scan" => match tool_scan(workspace_root, arguments) {
+    "vue_vet_scan" => match tool_scan(workspace_root, slot, arguments) {
       Ok(text) => tool_success(&text),
       Err(error) => tool_error(error),
     },
-    "vue_vet_explain" => match tool_explain(workspace_root, arguments) {
+    "vue_vet_explain" => match tool_explain(workspace_root, slot, arguments) {
       Ok(text) => tool_success(&text),
       Err(error) => tool_error(error),
     },
-    "vue_vet_explain_scope" => match tool_explain_scope(workspace_root, arguments) {
+    "vue_vet_explain_scope" => match tool_explain_scope(workspace_root, slot, arguments) {
       Ok(text) => tool_success(&text),
       Err(error) => tool_error(error),
     },
-    "vue_vet_preview_safe_fixes" => match tool_preview_safe_fixes(workspace_root, arguments) {
-      Ok(text) => tool_success(&text),
-      Err(error) => tool_error(error),
-    },
+    "vue_vet_preview_safe_fixes" => {
+      match tool_preview_safe_fixes(workspace_root, slot, arguments) {
+        Ok(text) => tool_success(&text),
+        Err(error) => tool_error(error),
+      }
+    }
     other => tool_error(format!("unknown tool `{other}`")),
   }
 }
 
-fn tool_scan(workspace_root: &Path, arguments: &Value) -> Result<String, String> {
+pub fn tool_error_message(message: impl Into<String>) -> Value {
+  tool_error(message)
+}
+
+fn tool_scan(
+  workspace_root: &Path,
+  slot: &mut McpSessionSlot,
+  arguments: &Value,
+) -> Result<String, String> {
   let target = resolve_tool_path(workspace_root, arguments)?;
-  let session = open_session(&target)?;
+  let session = bind_session(slot, &target, true)?;
   let snapshot = session.analyze().map_err(|error| error.to_string())?;
   let context = report_context(&target, &snapshot);
   render(&snapshot.summary, ReportFormat::Json, &context).map_err(|error| error.to_string())
 }
 
-fn tool_explain(workspace_root: &Path, arguments: &Value) -> Result<String, String> {
+fn tool_explain(
+  workspace_root: &Path,
+  slot: &mut McpSessionSlot,
+  arguments: &Value,
+) -> Result<String, String> {
   let target = arguments
     .get("target")
     .and_then(Value::as_str)
     .filter(|value| !value.is_empty())
     .ok_or_else(|| "vue_vet_explain requires a non-empty `target`".to_owned())?;
   let path = resolve_tool_path(workspace_root, arguments)?;
-  let session = open_session(&path)?;
+  let session = bind_session(slot, &path, false)?;
   match session.explain(target).map_err(|error| error.to_string())? {
     Explained::Rule(explain) => {
       render_rule_explain_json(&explain).map_err(|error| error.to_string())
@@ -143,21 +172,29 @@ fn tool_explain(workspace_root: &Path, arguments: &Value) -> Result<String, Stri
   }
 }
 
-fn tool_explain_scope(workspace_root: &Path, arguments: &Value) -> Result<String, String> {
+fn tool_explain_scope(
+  workspace_root: &Path,
+  slot: &mut McpSessionSlot,
+  arguments: &Value,
+) -> Result<String, String> {
   let query = arguments
     .get("query")
     .and_then(Value::as_str)
     .filter(|value| !value.is_empty())
     .ok_or_else(|| "vue_vet_explain_scope requires a non-empty `query`".to_owned())?;
   let path = resolve_tool_path(workspace_root, arguments)?;
-  let session = open_session(&path)?;
+  let session = bind_session(slot, &path, false)?;
   let (explains, _) = session.explain_scope(query).map_err(|error| error.to_string())?;
   render_scope_explains_json(&explains).map_err(|error| error.to_string())
 }
 
-fn tool_preview_safe_fixes(workspace_root: &Path, arguments: &Value) -> Result<String, String> {
+fn tool_preview_safe_fixes(
+  workspace_root: &Path,
+  slot: &mut McpSessionSlot,
+  arguments: &Value,
+) -> Result<String, String> {
   let target = resolve_tool_path(workspace_root, arguments)?;
-  let session = open_session(&target)?;
+  let session = bind_session(slot, &target, true)?;
   let snapshot = session.analyze().map_err(|error| error.to_string())?;
   let boundary = session.workspace_root();
   let mut safe_edits = Vec::new();
@@ -224,6 +261,20 @@ fn open_session(root: &Path) -> Result<ProjectSession, String> {
     threads: None,
   })
   .map_err(|error| error.to_string())
+}
+
+fn bind_session<'a>(
+  slot: &'a mut McpSessionSlot,
+  path: &Path,
+  replace: bool,
+) -> Result<&'a ProjectSession, String> {
+  if replace || slot.as_ref().is_none_or(|(root, _)| root != path) {
+    *slot = Some((path.to_path_buf(), open_session(path)?));
+  }
+  slot
+    .as_ref()
+    .map(|(_, session)| session)
+    .ok_or_else(|| "MCP session slot was empty after bind".to_owned())
 }
 
 fn report_context(path: &Path, snapshot: &AnalysisSnapshot) -> ReportContext {

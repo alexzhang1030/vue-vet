@@ -110,7 +110,7 @@ Cold cost is dominated by (1) visiting every module in phase one, (2) cloning ma
 
 | Question | Already on the graph | Current waste |
 | --- | --- | --- |
-| Would Vue re-run this? | `explain_tracking_scope` | Module-qualified queries skip other graphs. Bare `@offset` / binding still scan all. ~~VS Code `--explain-scope --no-cache`.~~ Thin host now uses workspace `file:@offset` and keeps the disk cache. MCP still opens a new `ProjectSession`. |
+| Would Vue re-run this? | `explain_tracking_scope` | Module-qualified queries skip other graphs. Bare `@offset` / binding still scan all. ~~VS Code `--explain-scope --no-cache`.~~ Thin host now uses workspace `file:@offset` and keeps the disk cache. ~~MCP still opens a new `ProjectSession`.~~ Stdio MCP keeps one session per resolved tool path; scan/preview replace it, explain reuses the snapshot. |
 | Who reads `props.count`? | `edges` + `to_path` | ~~TUI/VS Code filter label strings.~~ `binding_nav` looks up inspect targets. Scan is fallback for older JSON. |
 | Scope at caret | `scope.span` covering | Linear `min_by_key`. VS Code reimplements it on `scope_details`. |
 | Tracer ran? | CLI / MCP `reactivity` totals | MCP scan now ships the same totals as CLI JSON (no `modules_detail`). |
@@ -171,7 +171,7 @@ Stay inside the PCR stop rule. Each row says what evidence already exists and wh
 ### Consumer polish (smarter without AST)
 
 13. ~~File-scoped explain (`file:@offset` / `module:binding` skip other graphs).~~ ~~Binding → inbound edges index.~~ `--print-reactivity` `binding_nav` folds `edge_details` + `template_details` once. TUI/VS Code look up inspect targets. Label / `*_details` scan remains the fallback for older JSON.
-14. ~~VS Code Explain Scope should hit the LSP session, not `--no-cache` CLI.~~ Thin host opens the workspace CLI session with `file:@offset` (same query as LSP hover) and drops `--no-cache`. It does not start an LSP client (issue #12). ~~MCP `vue_vet_scan` should keep the `reactivity` digest.~~ Scan JSON now ships CLI totals.
+14. ~~VS Code Explain Scope should hit the LSP session, not `--no-cache` CLI.~~ Thin host opens the workspace CLI session with `file:@offset` (same query as LSP hover) and drops `--no-cache`. It does not start an LSP client (issue #12). ~~MCP `vue_vet_scan` should keep the `reactivity` digest.~~ Scan JSON now ships CLI totals. ~~MCP still opened a new `ProjectSession` per tool.~~ Stdio server reuses the bound session for explain after scan.
 
 ### Stop
 
@@ -187,7 +187,7 @@ Unstamped. Nothing here is vouched.
 
 **Keep.** Under-approx, static-only, quiet failure, plugin-supplied bags, shared `follow_local_callees`, identifier getters, `ModuleTraceState` plan equality, oracle as the precision ruler.
 
-**The interesting remaining bug class** after v34 is not another write dual-path. The Do-now contract holes (caller guards, pause-in-helper, `+=`/`++`, watch peel, render ident getters, instance writes, HOF / `toValue` writes) are closed. Helper-call now has an `onTrack` pair. Remaining charter-quiet rows (NamedApiBag member form, CSS `v-bind` completeness) stay quiet on purpose. VS Code Explain Scope now hits the workspace CLI session; a live LSP client stays issue #12.
+**The interesting remaining bug class** after v34 is not another write dual-path. The Do-now contract holes (caller guards, pause-in-helper, `+=`/`++`, watch peel, render ident getters, instance writes, HOF / `toValue` writes) are closed. Helper-call now has an `onTrack` pair. Remaining charter-quiet rows (NamedApiBag member form, CSS `v-bind` completeness) stay quiet on purpose. VS Code Explain Scope now hits the workspace CLI session; a live LSP client stays issue #12. Stdio MCP reuses the scan session for explain.
 
 **The interesting remaining speed class** is phase-two all-or-nothing reparse, not helper-callee rediscovery, not local member/ident/write/uncertain walks, not await/pause IR rebuilds, and not session input breadth. Nested hops filter `visiting` on the file callee index. Local collectors look up `ScopeNodeIndex`. Classify looks up `ScopeIrIndex`. Warm scans pass a source-dirty `Arc<ModuleSource>` subset and retain the cached universe without cloning modules. Layers share `Arc<ModuleReactivity>` per unchanged leaf. The warm leaf-edit CodSpeed name is the locality signal; do not treat `trace_1k_modules` as that win. Do not invent a second export-closure algorithm. Do not invent a second seed-apply path to avoid the reparse.
 

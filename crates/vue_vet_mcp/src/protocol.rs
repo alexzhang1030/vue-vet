@@ -3,20 +3,26 @@
 use std::{
   io::{BufRead, Write},
   path::PathBuf,
+  sync::Mutex,
 };
 
 use serde_json::{Value, json};
 
-use crate::tools::{call_tool, list_tools};
+use crate::tools::{McpSessionSlot, call_tool_on, list_tools};
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
 const SERVER_NAME: &str = "vue-vet";
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Stateful MCP server bound to one workspace root.
+///
+/// Scan / preview replace the bound [`vue_vet_session::ProjectSession`] so a
+/// later disk edit is visible. Explain / explain-scope reuse that session's
+/// last committed snapshot (same idea as LSP hover after a scan).
 #[derive(Debug)]
 pub struct McpServer {
   workspace_root: PathBuf,
+  session: Mutex<McpSessionSlot>,
 }
 
 impl McpServer {
@@ -33,7 +39,7 @@ impl McpServer {
       }
     };
     let workspace_root = absolute.canonicalize().unwrap_or(absolute);
-    Self { workspace_root }
+    Self { workspace_root, session: Mutex::new(None) }
   }
 
   #[must_use]
@@ -55,7 +61,10 @@ impl McpServer {
         let params = message.get("params").cloned().unwrap_or(Value::Null);
         let name = params.get("name").and_then(Value::as_str).unwrap_or("");
         let arguments = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-        let result = call_tool(&self.workspace_root, name, &arguments);
+        let result = self.session.lock().map_or_else(
+          |_| crate::tools::tool_error_message("session lock poisoned"),
+          |mut slot| call_tool_on(&self.workspace_root, &mut slot, name, &arguments),
+        );
         Some(rpc_result(id.as_ref(), result))
       }
       Some(unknown) => {
@@ -191,5 +200,116 @@ mod tests {
     };
     assert_eq!(response["result"]["protocolVersion"], PROTOCOL_VERSION);
     assert!(response["result"]["capabilities"]["tools"].is_object());
+  }
+
+  fn placeholder_workspace() -> (PathBuf, String) {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+      .join("../../fixtures/rules/no-computed-without-dependency/invalid/placeholder.vue");
+    let workspace = root.parent().map_or_else(|| PathBuf::from("."), PathBuf::from);
+    let file = root
+      .file_name()
+      .map_or_else(|| "placeholder.vue".into(), |name| name.to_string_lossy().into_owned());
+    (workspace, file)
+  }
+
+  fn call_named(server: &McpServer, id: u64, name: &str, arguments: &Value) -> Value {
+    server
+      .handle(&json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "tools/call",
+        "params": { "name": name, "arguments": arguments }
+      }))
+      .unwrap_or_else(|| json!({"error": "no response"}))
+  }
+
+  fn bound_committed_analyses(server: &McpServer) -> u64 {
+    server
+      .session
+      .lock()
+      .ok()
+      .and_then(|slot| slot.as_ref().map(|(_, session)| session.stats().committed_analyses))
+      .unwrap_or(0)
+  }
+
+  #[test]
+  #[expect(clippy::indexing_slicing, reason = "tool result shape is fixed for this unit test")]
+  fn explain_scope_reuses_scan_session() {
+    let (workspace, file) = placeholder_workspace();
+    let server = McpServer::new(workspace);
+    let scan = call_named(&server, 1, "vue_vet_scan", &json!({ "path": file }));
+    assert_eq!(scan["result"]["isError"], false, "{scan}");
+    let explain =
+      call_named(&server, 2, "vue_vet_explain_scope", &json!({ "query": "label", "path": file }));
+    assert_eq!(explain["result"]["isError"], false, "{explain}");
+    assert_eq!(
+      bound_committed_analyses(&server),
+      1,
+      "explain-scope must reuse the scan snapshot instead of opening a new session"
+    );
+  }
+
+  #[test]
+  #[expect(clippy::indexing_slicing, reason = "tool result shape is fixed for this unit test")]
+  fn second_explain_scope_does_not_reanalyze() {
+    let (workspace, file) = placeholder_workspace();
+    let server = McpServer::new(workspace);
+    let first =
+      call_named(&server, 1, "vue_vet_explain_scope", &json!({ "query": "label", "path": file }));
+    assert_eq!(first["result"]["isError"], false, "{first}");
+    let second =
+      call_named(&server, 2, "vue_vet_explain_scope", &json!({ "query": "label", "path": file }));
+    assert_eq!(second["result"]["isError"], false, "{second}");
+    assert_eq!(
+      bound_committed_analyses(&server),
+      1,
+      "a second explain-scope on the same path must not re-enter analyze"
+    );
+  }
+
+  #[test]
+  #[expect(
+    clippy::indexing_slicing,
+    clippy::panic,
+    reason = "tool result shape is fixed for this unit test"
+  )]
+  fn scan_replaces_session_so_disk_edits_are_visible() {
+    let dir = std::env::temp_dir().join(format!(
+      "vue-vet-mcp-session-{}-{}",
+      std::process::id(),
+      std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos())
+    ));
+    let _ignored = std::fs::remove_dir_all(&dir);
+    assert!(std::fs::create_dir_all(&dir).is_ok(), "temp dir");
+    let path = dir.join("App.vue");
+    assert!(
+      std::fs::write(&path, "<template><div v-html=\"x\" /></template>\n").is_ok(),
+      "write dirty"
+    );
+    let server = McpServer::new(dir.clone());
+    let first = call_named(&server, 1, "vue_vet_scan", &json!({ "path": "App.vue" }));
+    assert_eq!(first["result"]["isError"], false, "{first}");
+    let first_text = first["result"]["content"][0]["text"].as_str().unwrap_or_default();
+    let Ok(first_report) = serde_json::from_str::<Value>(first_text) else {
+      let _ignored = std::fs::remove_dir_all(&dir);
+      panic!("first scan must return JSON: {first_text}");
+    };
+    assert!(
+      first_report["diagnostics"].as_array().is_some_and(|items| !items.is_empty()),
+      "v-html fixture must emit a finding: {first_report}"
+    );
+    assert!(std::fs::write(&path, "<template><div /></template>\n").is_ok(), "write clean");
+    let second = call_named(&server, 2, "vue_vet_scan", &json!({ "path": "App.vue" }));
+    assert_eq!(second["result"]["isError"], false, "{second}");
+    let second_text = second["result"]["content"][0]["text"].as_str().unwrap_or_default();
+    let Ok(report) = serde_json::from_str::<Value>(second_text) else {
+      let _ignored = std::fs::remove_dir_all(&dir);
+      panic!("second scan must return JSON: {second_text}");
+    };
+    let diagnostics = report["diagnostics"].as_array().map_or(0, Vec::len);
+    assert_eq!(diagnostics, 0, "replaced session must see the cleaned file: {report}");
+    let _ignored = std::fs::remove_dir_all(&dir);
   }
 }
