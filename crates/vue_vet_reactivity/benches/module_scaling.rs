@@ -5,7 +5,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use vue_vet_core::ScriptKind;
 use vue_vet_reactivity::{
   ModuleLink, ModuleSource, ModuleTraceState, TraceModulesOptions,
-  trace_modules_incremental_with_options, trace_modules_with_options,
+  trace_modules_incremental_from_refs, trace_modules_incremental_with_options,
+  trace_modules_with_options,
 };
 
 fn main() {
@@ -83,11 +84,12 @@ fn reexport_chain(count: usize) -> (Vec<ModuleSource>, Vec<ModuleLink>) {
 #[divan::bench(sample_count = 5, sample_size = 1)]
 fn trace_warm_leaf_edit_1k_modules(bencher: divan::Bencher) {
   let pool = worker_pool();
-  let mut modules = synthetic_modules(1_000);
+  let modules = synthetic_modules(1_000);
   let options = TraceModulesOptions {
     max_workers: 8,
     reuse_current_pool: true,
     persist_linking_cache: true,
+    retain_cached_modules: true,
     ..Default::default()
   };
   let mut state = ModuleTraceState::default();
@@ -97,6 +99,7 @@ fn trace_warm_leaf_edit_1k_modules(bencher: divan::Bencher) {
   });
 
   let leaf_id = modules.last().expect("1k synthetic modules").id.clone();
+  drop(modules);
   let sources = [
     "import { ref } from 'vue'; export const value999 = ref(1);",
     "import { ref } from 'vue'; export const value999 = ref(2);",
@@ -109,22 +112,9 @@ fn trace_warm_leaf_edit_1k_modules(bencher: divan::Bencher) {
         .get(sequence % sources.len())
         .copied()
         .unwrap_or("import { ref } from 'vue'; export const value999 = ref(1);");
-      let next_modules = modules
-        .iter()
-        .map(|module| {
-          if module.id == leaf_id {
-            return ModuleSource::standalone(leaf_id.clone(), next, "ts", ScriptKind::Script);
-          }
-          state.cached_source(&module.id).cloned().unwrap_or_else(|| module.clone())
-        })
-        .collect::<Vec<_>>();
-      let report = trace_modules_incremental_with_options(
-        divan::black_box(&next_modules),
-        &[],
-        &options,
-        &mut state,
-      );
-      modules = next_modules;
+      let leaf = ModuleSource::standalone(leaf_id.clone(), next, "ts", ScriptKind::Script);
+      let report =
+        trace_modules_incremental_from_refs(divan::black_box(&[&leaf]), &[], &options, &mut state);
       divan::black_box((
         report.modules.len(),
         report.stats.reused_graphs,

@@ -90,8 +90,12 @@ vue-vet CLI
   per-file Vize/Oxc facts, raw file diagnostics, structural edge partitions,
   module seed plans/final graphs, and the reverse dependency index.   Unrelated
   sources are not re-parsed on a normal edit. After a warm persist scan the
-  tracer receives a source-dirty subset plus a live-id set; cached summaries
-  fill linking and the live universe is still emitted.
+  tracer receives a source-dirty subset of `Arc<ModuleSource>` and
+  `retain_cached_modules`; cached summaries fill linking. Persist is a
+  refcount. The report is this-pass only. Unchanged graphs stay in
+  `ModuleTraceState`; layers read that cache and store
+  `Arc<[Arc<ModuleReactivity>]>` instead of a cloned live-id set or
+  emitted universe.
 - **Atomic session publication** — the workspace revision, retained input
   snapshot, and committed analysis state share one `SessionCore` synchronization
   domain. Analysis captures `Arc` snapshots under the lock, computes outside it,
@@ -169,8 +173,9 @@ Batch intent (execution lives in tracker issues, not temporary numbers here):
    unchanged; when only some surfaces change, seed plans recompute for the
    export/inject closure. Linking reuse retains `Arc<ModuleSummary>` and prefers
    `Arc::ptr_eq` — never clone a per-module linking-surface map on every scan.
-   Layered cache reuses post-template/prop graphs when base graph Arcs and
-   `SfcFacts` Arcs are unchanged. Disk-cache hits stay cache-load cheap and must
+   Layered cache reuses post-template/prop graphs (`Arc<[Arc<ModuleReactivity>]>`)
+   when base graph Arcs and `SfcFacts` Arcs are unchanged; a leaf edit patches
+   the stored key in place. Disk-cache hits stay cache-load cheap and must
    not eagerly re-scan; empty session IR is seeded on the first dirty analyze
    via `force_full_parse` (`!has_file_facts()`).
 3. **Single-file algorithms** — `TrackingScopeIR`; Vize bottom-up

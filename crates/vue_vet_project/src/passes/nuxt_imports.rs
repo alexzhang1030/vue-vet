@@ -285,14 +285,14 @@ mod tests {
         },
       }
       .into(),
-      module_source: Some(ModuleSource::sfc_script(
+      module_source: Some(std::sync::Arc::new(ModuleSource::sfc_script(
         "components/Demo.vue",
         script,
         "ts",
         ScriptKind::Setup,
         prefix.len(),
         sfc,
-      )),
+      ))),
       ordinary_module_source: None,
     };
 

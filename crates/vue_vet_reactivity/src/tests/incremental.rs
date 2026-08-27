@@ -303,10 +303,19 @@ fn subset_options(live: BTreeSet<vue_vet_core::ModuleId>) -> TraceModulesOptions
   }
 }
 
-fn graphs_by_id(
-  modules: &[ModuleReactivity],
+fn retain_options() -> TraceModulesOptions {
+  TraceModulesOptions {
+    max_workers: 2,
+    persist_linking_cache: true,
+    retain_cached_modules: true,
+    ..default_trace_options()
+  }
+}
+
+fn graphs_from_state(
+  state: &ModuleTraceState,
 ) -> std::collections::BTreeMap<vue_vet_core::ModuleId, &ReactivityGraph> {
-  modules.iter().map(|module| (module.id.clone(), module.graph.as_ref())).collect()
+  state.iter_cached_reactivity().map(|(id, module)| (id.clone(), module.graph.as_ref())).collect()
 }
 
 #[test]
@@ -346,7 +355,7 @@ fn subset_leaf_edit_matches_full_list_graphs() {
   let subset = trace_modules_incremental_with_options(
     std::slice::from_ref(&leaf),
     &[],
-    &subset_options(live_ids(&modules)),
+    &retain_options(),
     &mut subset_state,
   );
 
@@ -355,7 +364,8 @@ fn subset_leaf_edit_matches_full_list_graphs() {
   assert_eq!(subset.stats.reused_graphs, 7);
   assert!(!subset.stats.export_resolve_ran);
   assert_eq!(subset.stats.seed_plans_recomputed, 0);
-  assert_eq!(graphs_by_id(&full.modules), graphs_by_id(&subset.modules));
+  assert_eq!(subset.modules.len(), 1);
+  assert_eq!(graphs_from_state(&full_state), graphs_from_state(&subset_state));
 }
 
 #[test]
@@ -406,7 +416,7 @@ fn subset_producer_export_pulls_consumer() {
   let subset = trace_modules_incremental_with_options(
     std::slice::from_ref(&producer_v2),
     &links,
-    &subset_options(live_ids(&modules_v1)),
+    &retain_options(),
     &mut subset_state,
   );
 
@@ -415,8 +425,12 @@ fn subset_producer_export_pulls_consumer() {
   assert!(subset.stats.export_resolve_ran);
   assert_eq!(subset.stats.seed_plans_recomputed, 2);
   assert_eq!(subset.seed_plan_dirty, BTreeSet::from(["producer.ts".into(), "consumer.ts".into()]),);
-  assert_eq!(subset.modules.len(), 3);
-  let consumer = subset.modules.iter().find(|module| module.id == "consumer.ts");
+  assert_eq!(
+    subset.modules.len(),
+    1,
+    "report is the retraced producer; consumer plan reuse stays in state"
+  );
+  let consumer = subset_state.cached_reactivity(&"consumer.ts".into());
   assert!(
     consumer.is_some_and(|module| {
       module
@@ -427,11 +441,11 @@ fn subset_producer_export_pulls_consumer() {
     }),
     "consumer must stay seeded when only the producer is in the input"
   );
-  assert_eq!(graphs_by_id(&full.modules), graphs_by_id(&subset.modules));
+  assert_eq!(graphs_from_state(&full_state), graphs_from_state(&subset_state));
 }
 
 #[test]
-fn empty_subset_emits_cached_universe() {
+fn empty_subset_keeps_cached_universe() {
   let modules = [
     ModuleSource::standalone(
       "a.ts",
@@ -447,12 +461,12 @@ fn empty_subset_emits_cached_universe() {
     ),
   ];
   let mut state = ModuleTraceState::default();
-  let options = subset_options(live_ids(&modules));
+  let options = retain_options();
   let first = trace_modules_incremental_with_options(&modules, &[], &options, &mut state);
   assert!(first.issues.is_empty());
   let second = trace_modules_incremental_with_options(&[], &[], &options, &mut state);
   assert!(second.issues.is_empty());
-  assert_eq!(second.modules.len(), 2);
+  assert!(second.modules.is_empty(), "empty subset does not clone cached graphs into the report");
   assert_eq!(second.stats.reused_graphs, 2);
   assert_eq!(second.stats.phase_one_succeeded, 0);
   assert!(!second.stats.export_resolve_ran);
@@ -482,23 +496,52 @@ fn subset_live_ids_drop_deleted_modules() {
   assert!(first.issues.is_empty());
   assert!(state.cached_source(&"gone.ts".into()).is_some());
 
-  let keep = ModuleSource::standalone(
-    "keep.ts",
-    "import { ref } from 'vue'; export const keep = ref(1);",
-    "ts",
-    ScriptKind::Script,
-  );
-  let live = BTreeSet::from([keep.id.clone()]);
+  let drop = BTreeSet::from([vue_vet_core::ModuleId::from("gone.ts")]);
   let second = trace_modules_incremental_with_options(
-    std::slice::from_ref(&keep),
     &[],
-    &subset_options(live),
+    &[],
+    &TraceModulesOptions {
+      max_workers: 2,
+      persist_linking_cache: true,
+      retain_cached_modules: true,
+      drop_module_ids: drop,
+      ..default_trace_options()
+    },
     &mut state,
   );
   assert!(second.issues.is_empty());
-  assert_eq!(second.modules.len(), 1);
+  assert!(second.modules.is_empty(), "unchanged keep is not cloned into the report");
+  assert_eq!(second.stats.reused_graphs, 1);
   assert!(state.cached_source(&"keep.ts".into()).is_some());
   assert!(state.cached_source(&"gone.ts".into()).is_none());
+}
+
+#[test]
+fn explicit_live_ids_empty_subset_keeps_cache() {
+  let modules = [
+    ModuleSource::standalone(
+      "a.ts",
+      "import { ref } from 'vue'; export const a = ref(1);",
+      "ts",
+      ScriptKind::Script,
+    ),
+    ModuleSource::standalone(
+      "b.ts",
+      "import { ref } from 'vue'; export const b = ref(2);",
+      "ts",
+      ScriptKind::Script,
+    ),
+  ];
+  let mut state = ModuleTraceState::default();
+  let options = subset_options(live_ids(&modules));
+  let first = trace_modules_incremental_with_options(&modules, &[], &options, &mut state);
+  assert!(first.issues.is_empty());
+  let second = trace_modules_incremental_with_options(&[], &[], &options, &mut state);
+  assert!(second.issues.is_empty());
+  assert!(second.modules.is_empty());
+  assert_eq!(second.stats.reused_graphs, 2);
+  assert!(state.cached_source(&"a.ts".into()).is_some());
+  assert!(state.cached_source(&"b.ts".into()).is_some());
 }
 
 #[test]

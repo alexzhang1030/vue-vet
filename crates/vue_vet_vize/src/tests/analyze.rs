@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use super::super::*;
 use vue_vet_core::{Diagnostic, RuleEnvironment, RuleRegistry};
@@ -523,7 +523,7 @@ watchEffect(() => { void bag.signal.value })
       path: PathBuf::from("LocalBag.vue").into(),
       source_len: sfc.len(),
       facts: analysis.facts.into(),
-      module_source: Some(module),
+      module_source: Some(Arc::new(module)),
       ordinary_module_source: None,
     }];
     let project = build_project_graph(&temp, &files);
@@ -589,19 +589,19 @@ watchEffect(() => { void bag.signal.value })
       path: PathBuf::from("useSignal.ts").into(),
       source_len: producer.len(),
       facts: SfcFacts::default().into(),
-      module_source: Some(ModuleSource::standalone(
+      module_source: Some(Arc::new(ModuleSource::standalone(
         "useSignal.ts",
         producer,
         "ts",
         ScriptKind::Script,
-      )),
+      ))),
       ordinary_module_source: None,
     },
     ProjectFile {
       path: PathBuf::from("App.vue").into(),
       source_len: sfc.len(),
       facts: analysis.facts.into(),
-      module_source: analysis.module_source,
+      module_source: analysis.module_source.map(Arc::new),
       ordinary_module_source: None,
     },
   ];
@@ -700,23 +700,23 @@ fn project_graph_uses_vize_module_source_for_seeds() {
       path: PathBuf::from("App.vue").into(),
       source_len: app.len(),
       facts: analysis.facts.into(),
-      module_source: Some({
+      module_source: Some(Arc::new({
         let mut module = module;
         module.id = "App.vue".into();
         module
-      }),
+      })),
       ordinary_module_source: None,
     },
     ProjectFile {
       path: PathBuf::from("composables/useField.ts").into(),
       source_len: producer.len(),
       facts: SfcFacts::default().into(),
-      module_source: Some(ModuleSource::standalone(
+      module_source: Some(Arc::new(ModuleSource::standalone(
         "composables/useField.ts",
         producer,
         "ts",
         ScriptKind::Script,
-      )),
+      ))),
       ordinary_module_source: None,
     },
   ];
@@ -757,11 +757,11 @@ fn prop_flow_fixture_joins_parent_binding_onto_child_props() {
       path: PathBuf::from(name).into(),
       source_len: source.len(),
       facts: analysis.facts.into(),
-      module_source: Some({
+      module_source: Some(Arc::new({
         let mut module = module;
         module.id = name.into();
         module
-      }),
+      })),
       ordinary_module_source: None,
     });
   }

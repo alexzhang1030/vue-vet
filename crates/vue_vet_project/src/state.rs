@@ -49,7 +49,7 @@ pub struct ProjectGraphStats {
 #[derive(Clone, Debug, Default)]
 pub struct LayeredGraphState {
   pub key: Option<LayeredInputKey>,
-  pub modules: Arc<[ModuleReactivity]>,
+  pub modules: Arc<[Arc<ModuleReactivity>]>,
 }
 
 /// Identity of base graphs + SFC facts + prop-relevant edges that feed layers.

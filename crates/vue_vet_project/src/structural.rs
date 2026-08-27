@@ -28,7 +28,7 @@ pub struct StructuralContextKey {
   pub root: PathBuf,
   pub revision: u64,
   pub nodes: Vec<GraphNode>,
-  pub module_ids: BTreeSet<ModuleId>,
+  pub module_ids: Arc<BTreeSet<ModuleId>>,
   pub nuxt_import_names: BTreeMap<String, NuxtImportTarget>,
 }
 
@@ -77,9 +77,9 @@ pub fn analyze_structural_file(
   file: &ProjectFile,
   resolver: &ProjectResolver,
   known: &BTreeSet<String>,
-  node_by_path: &BTreeMap<String, String>,
+  node_by_path: &BTreeMap<&str, &str>,
   component_by_name: &BTreeMap<String, Vec<String>>,
-  composable_by_name: &BTreeMap<String, String>,
+  composable_by_name: &BTreeMap<&str, &str>,
   module_ids: &BTreeSet<ModuleId>,
   nuxt_import_names: &BTreeMap<String, NuxtImportTarget>,
 ) -> StructuralFileOutput {
@@ -116,17 +116,19 @@ pub fn analyze_structural_file(
     }
     match resolver.resolve(&path, &import.source, known) {
       Resolution::File(target) => {
-        if let Some(to) = node_by_path.get(&target) {
+        if let Some(to) = node_by_path.get(target.as_str()) {
           output.edges.push(edge(&from, to, EdgeKind::Import, &import.source, import.span.clone()));
         }
-        let target_id = ModuleId::primary(&FileId::from(target.as_str()));
-        for module_from in [ModuleId::primary(&file.path), ModuleId::ordinary(&file.path)] {
-          if module_ids.contains(&module_from) && module_ids.contains(&target_id) {
-            output.module_links.push(ModuleLink {
-              from: module_from,
-              specifier: import.source.clone(),
-              to: target_id.clone(),
-            });
+        if module_ids.contains(target.as_str()) {
+          let target_id = ModuleId::from(target.as_str());
+          for module_from in file_module_ids(file) {
+            if module_ids.contains(module_from.as_str()) {
+              output.module_links.push(ModuleLink {
+                from: module_from.clone(),
+                specifier: import.source.clone(),
+                to: target_id.clone(),
+              });
+            }
           }
         }
       }
@@ -146,10 +148,10 @@ pub fn analyze_structural_file(
           import.span.clone(),
         ));
         if let Some(resolved_path) = resolved_path {
-          for module_from in [ModuleId::primary(&file.path), ModuleId::ordinary(&file.path)] {
-            if module_ids.contains(&module_from) {
+          for module_from in file_module_ids(file) {
+            if module_ids.contains(module_from.as_str()) {
               output.external_reactivity_roots.push(ExternalReactivityRoot {
-                from: module_from,
+                from: module_from.clone(),
                 specifier: import.source.clone(),
                 resolved_path: resolved_path.clone(),
               });
@@ -171,7 +173,7 @@ pub fn analyze_structural_file(
     let tag = comparable_name(&element.tag);
     if let Some(import) = imports.iter().find(|import| comparable_name(&import.local) == tag) {
       if let Resolution::File(target) = resolver.resolve(&path, &import.source, known)
-        && let Some(to) = node_by_path.get(&target)
+        && let Some(to) = node_by_path.get(target.as_str())
       {
         output.edges.push(edge(
           &from,
@@ -195,7 +197,7 @@ pub fn analyze_structural_file(
   }
 
   for call in file.facts.script.blocks.iter().flat_map(|block| &block.calls) {
-    if let Some(to) = composable_by_name.get(&call.callee) {
+    if let Some(to) = composable_by_name.get(call.callee.as_str()) {
       output.edges.push(edge(&from, to, EdgeKind::AutoComposable, &call.callee, call.span.clone()));
     }
   }
@@ -205,6 +207,15 @@ pub fn analyze_structural_file(
   output.external_nodes.extend(nuxt_delta.external_nodes);
   output.external_reactivity_roots.extend(nuxt_delta.external_reactivity_roots);
   output
+}
+
+fn file_module_ids(file: &ProjectFile) -> impl Iterator<Item = &ModuleId> {
+  file
+    .module_source
+    .as_ref()
+    .map(|module| &module.id)
+    .into_iter()
+    .chain(file.ordinary_module_source.as_ref().map(|module| &module.id))
 }
 
 fn all_imports(script: &ScriptFacts) -> Vec<&vue_vet_core::ScriptImportFact> {

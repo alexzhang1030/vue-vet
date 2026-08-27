@@ -63,7 +63,8 @@ let graphs = trace_modules_with_options(&modules, &links, options)?;
 ```
 
 `ensure_default_plugins(options)` fills an empty `named_api_bags` vec and leaves
-a non-empty custom catalog unchanged.
+a non-empty custom catalog unchanged. `ensure_default_plugins_mut` is the same
+fill in place.
 
 ## Built-in plugins
 
@@ -103,6 +104,7 @@ Calling a registered translator injects ambient reactive reads:
 | `default_trace_config` | Single-file `TraceConfig` with defaults |
 | `default_trace_modules_options` | Multi-module options with defaults |
 | `ensure_default_plugins` | Fill empty catalog on `TraceModulesOptions` |
+| `ensure_default_plugins_mut` | Same fill, in place |
 | `NuxtDataPlugin` / `VueI18nPlugin` | Individual `TracerPlugin` impls |
 
 Engine types (`NamedApiBag`, `TracerPlugin`, `TraceConfig`,

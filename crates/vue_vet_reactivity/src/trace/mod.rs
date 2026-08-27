@@ -81,7 +81,8 @@ pub use summary::{
   composable_return_shape_with_index, composable_value_bag_with_index, function_return_type_kind,
   function_return_type_shape, merge_declaration_implementation_summary, prepare_module_summary,
   prepare_module_summary_with_config, prepare_module_trace, prepare_standalone_module_source,
-  trace_modules, trace_modules_incremental_with_options, trace_modules_with_options,
+  trace_modules, trace_modules_incremental_from_arcs, trace_modules_incremental_from_refs,
+  trace_modules_incremental_with_options, trace_modules_with_options,
 };
 
 /// Trace Vue reactive bindings and tracking-scope dependencies from an Oxc semantic model.
