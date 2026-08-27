@@ -1030,7 +1030,7 @@ fn build_persistent_seed_work<'a>(
       state.linking.as_ref(),
       &exports,
       &provide_index,
-      &owned_links,
+      owned_links,
       facts_by_id,
     );
     let mut next_plans =
