@@ -3,7 +3,6 @@ use vue_vet_core::Rule;
 mod directives;
 mod graph_extra;
 mod matrix;
-mod support;
 mod tracer_extra;
 
 mod a11y_content;

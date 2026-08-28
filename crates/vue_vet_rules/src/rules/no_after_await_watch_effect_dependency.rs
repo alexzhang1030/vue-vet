@@ -1,6 +1,7 @@
 use vue_vet_core::{
   Confidence, FactKinds, FactRef, ReactiveReadKind, Rule, RuleContext, RuleMeta, Severity,
 };
+use vue_vet_rule_query::binding_path;
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-after-await-watch-effect-dependency",
@@ -32,10 +33,7 @@ impl Rule for NoAfterAwaitWatchEffectDependency {
       if read.kind != ReactiveReadKind::AfterAwait {
         continue;
       }
-      let binding = read
-        .property
-        .as_ref()
-        .map_or_else(|| read.binding.clone(), |property| format!("{}.{property}", read.binding));
+      let binding = binding_path(read);
       context.report(
         self.meta(),
         read.span.clone(),

@@ -2,8 +2,9 @@ use std::collections::BTreeSet;
 
 use vue_vet_core::{
   Confidence, PRACTICE_CATEGORY, ReactiveBindingKind, Recommendation, Rule, RuleContext, RuleMeta,
-  ScriptKind, Severity,
+  Severity,
 };
+use vue_vet_rule_query::setup_blocks;
 
 /// Historical ID keeps the `reactivity` segment for config/suppression stability.
 const META: RuleMeta = RuleMeta {
@@ -40,11 +41,7 @@ impl Rule for PreferUseTemplateRef {
     if template_refs.is_empty() {
       return;
     }
-    let findings: Vec<_> = context
-      .script()
-      .blocks
-      .iter()
-      .filter(|block| block.kind == ScriptKind::Setup)
+    let findings: Vec<_> = setup_blocks(context.script())
       .flat_map(|block| &block.reactivity_graph.bindings)
       .filter(|binding| {
         binding.kind == ReactiveBindingKind::Ref

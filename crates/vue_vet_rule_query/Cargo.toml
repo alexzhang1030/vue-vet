@@ -1,6 +1,6 @@
 [package]
 publish = false
-name = "vue_vet_rules"
+name = "vue_vet_rule_query"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,11 +9,10 @@ rust-version.workspace = true
 readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "Built-in semantic rules for Vue Vet"
+description = "Shared Vue Vet fact queries for built-in and practice rules"
 
 [lints]
 workspace = true
 
 [dependencies]
 vue_vet_core = { path = "../vue_vet_core" }
-vue_vet_rule_query = { path = "../vue_vet_rule_query" }

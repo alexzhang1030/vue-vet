@@ -1,4 +1,5 @@
-use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, ScriptKind, Severity};
+use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, Severity};
+use vue_vet_rule_query::extra_setup_calls;
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/correctness/no-duplicate-define-props",
@@ -18,14 +19,8 @@ impl Rule for NoDuplicateDefineProps {
   }
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
-    let spans: Vec<_> = context
-      .script()
-      .blocks
-      .iter()
-      .filter(|block| block.kind == ScriptKind::Setup)
-      .flat_map(|block| block.calls.iter().filter(|call| call.callee == "defineProps").skip(1))
-      .map(|call| call.span.clone())
-      .collect();
+    let spans: Vec<_> =
+      extra_setup_calls(context.script(), "defineProps").map(|call| call.span.clone()).collect();
     for span in spans {
       context.report(
         self.meta(),

@@ -1,4 +1,5 @@
-use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, ScriptKind, Severity};
+use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, Severity};
+use vue_vet_rule_query::{block_calls, setup_blocks};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/correctness/no-mutating-props",
@@ -18,27 +19,15 @@ impl Rule for NoMutatingProps {
   }
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
-    let prop_bindings: Vec<String> = context
-      .script()
-      .blocks
-      .iter()
-      .filter(|block| block.kind == ScriptKind::Setup)
+    let prop_bindings: Vec<String> = setup_blocks(context.script())
       .flat_map(|block| {
-        block
-          .calls
-          .iter()
-          .filter(|call| call.callee == "defineProps")
-          .filter_map(|call| call.assigned_to.clone())
+        block_calls(block, "defineProps").filter_map(|call| call.assigned_to.clone())
       })
       .collect();
     if prop_bindings.is_empty() {
       return;
     }
-    let spans: Vec<_> = context
-      .script()
-      .blocks
-      .iter()
-      .filter(|block| block.kind == ScriptKind::Setup)
+    let spans: Vec<_> = setup_blocks(context.script())
       .flat_map(|block| &block.member_writes)
       .filter(|write| prop_bindings.iter().any(|name| name == &write.object))
       .map(|write| write.span.clone())

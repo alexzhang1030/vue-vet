@@ -20,8 +20,10 @@
   not affect score or default CI exit. Prefer high-precision fact links (shared
   timer bindings, lifecycle + missing cleanup for timers/listeners/rAF,
   resolved Vue/`#imports` `unref`, and bare auto-import `unref` without a
-  local binding) over broad call presence. Shared practice helpers live in
-  `vue_vet_practice::util` (`is_setup_lifecycle_hook`, `callee_is`). Recipe
+  local binding) over broad call presence.   Shared block-access and control-flow queries live in `vue_vet_rule_query`
+  (setup blocks, after-await calls, prior unconditional reads). Practice-only
+  helpers stay in `vue_vet_practice::util` (`is_setup_lifecycle_hook`,
+  `callee_is`; `is_script_setup_block` re-exports the query crate). Recipe
   metadata may declare `min_vue` / `confidence`; matching stays in thin
   `Rule` code. `practice = "off"` in `vue-vet.toml` drops the whole channel.
 - Rules use the pass API: declare `fact_kinds`, implement `run_on` for per-fact

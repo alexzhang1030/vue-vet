@@ -4,10 +4,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use vue_vet_core::{
   Confidence, FactKinds, FactRef, ReactiveBindingKind, ReactiveDependencyKind, ReactiveReadKind,
-  Rule, RuleContext, RuleMeta, ScriptKind, Severity,
+  Rule, RuleContext, RuleMeta, Severity,
 };
 
-use crate::rules::support::effect_family;
+use vue_vet_rule_query::{
+  effect_family, script_binding, setup_calls_after_first_top_level_await, used_reactive_names,
+};
 
 const MULTI_EFFECT_META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-multiple-effects-same-target",
@@ -247,31 +249,16 @@ impl Rule for NoUnusedComputedBinding {
   fn run_once(&self, context: &mut RuleContext<'_>) {
     let mut findings = Vec::new();
     for block in &context.script().blocks {
-      let mut used = BTreeSet::new();
-      for read in &block.reactivity_graph.template_reads {
-        used.insert(read.binding.as_str());
-      }
-      for scope in &block.reactivity_graph.scopes {
-        for read in &scope.reads {
-          used.insert(read.binding.as_str());
-        }
-        for write in &scope.writes {
-          used.insert(write.binding.as_str());
-        }
-      }
-      for edge in &block.reactivity_graph.edges {
-        used.insert(edge.to.as_str());
-      }
+      let used = used_reactive_names(&block.reactivity_graph);
       for binding in &block.reactivity_graph.bindings {
         if binding.kind != ReactiveBindingKind::Computed || used.contains(binding.name.as_str()) {
           continue;
         }
         // Cross-module / bare auto-import seeds have no local symbol.
-        let Some(script_binding) = block.bindings.iter().find(|item| item.name == binding.name)
-        else {
+        let Some(local) = script_binding(block, &binding.name) else {
           continue;
         };
-        if script_binding.reads != 0 {
+        if local.reads != 0 {
           continue;
         }
         findings.push(binding.span.clone());
@@ -348,20 +335,9 @@ macro_rules! macro_after_await {
       }
 
       fn run_once(&self, context: &mut RuleContext<'_>) {
-        let mut findings = Vec::new();
-        for block in &context.script().blocks {
-          if block.kind != ScriptKind::Setup || block.top_level_await_ends.is_empty() {
-            continue;
-          }
-          let Some(first) = block.top_level_await_ends.first().copied() else {
-            continue;
-          };
-          for call in &block.calls {
-            if call.callee == $callee && call.span.offset >= first {
-              findings.push(call.span.clone());
-            }
-          }
-        }
+        let findings: Vec<_> = setup_calls_after_first_top_level_await(context.script(), $callee)
+          .map(|call| call.span.clone())
+          .collect();
         for span in findings {
           context.report(
             self.meta(),

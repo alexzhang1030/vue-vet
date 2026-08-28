@@ -16,3 +16,4 @@ workspace = true
 
 [dependencies]
 vue_vet_core = { path = "../vue_vet_core" }
+vue_vet_rule_query = { path = "../vue_vet_rule_query" }

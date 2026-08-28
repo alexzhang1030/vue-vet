@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use vue_vet_core::{
   Confidence, ReactiveBindingKind, Rule, RuleContext, RuleMeta, Severity, TemplateElementFact,
 };
+use vue_vet_rule_query::{script_binding, used_reactive_names};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-unused-reactive-binding",
@@ -27,21 +28,7 @@ impl Rule for NoUnusedReactiveBinding {
     let mut findings = Vec::new();
     for block in &context.script().blocks {
       let graph = &block.reactivity_graph;
-      let mut used = BTreeSet::new();
-      for read in &graph.template_reads {
-        used.insert(read.binding.as_str());
-      }
-      for scope in &graph.scopes {
-        for read in &scope.reads {
-          used.insert(read.binding.as_str());
-        }
-        for write in &scope.writes {
-          used.insert(write.binding.as_str());
-        }
-      }
-      for edge in &graph.edges {
-        used.insert(edge.to.as_str());
-      }
+      let mut used = used_reactive_names(graph);
       for name in &template_ref_names {
         used.insert(name.as_str());
       }
@@ -52,12 +39,10 @@ impl Rule for NoUnusedReactiveBinding {
         // Cross-module / bare auto-import seeds have no local symbol — they are
         // not "unused local bindings" (e.g. Nuxt `currentUser` used once at
         // top-level). Only report when Oxc recorded a local binding.
-        let Some(script_binding) =
-          block.bindings.iter().find(|script_binding| script_binding.name == binding.name)
-        else {
+        let Some(local) = script_binding(block, &binding.name) else {
           continue;
         };
-        if script_binding.reads != 0 {
+        if local.reads != 0 {
           continue;
         }
         findings.push((binding.span.clone(), binding.name.clone(), binding.kind));

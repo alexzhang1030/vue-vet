@@ -90,11 +90,12 @@ def main() -> None:
 
 use vue_vet_core::{
   Confidence, FactKinds, FactRef, ReactiveBindingKind, ReactiveReadKind, Rule, RuleContext, RuleMeta,
-  ScriptKind, Severity, TrackingScopeKind,
+  Severity, TrackingScopeKind,
 };
 
-use crate::rules::support::{
-  binding_path, effect_family, is_readonly_kind, unconditional_self_triggers, write_path,
+use vue_vet_rule_query::{
+  binding_path, effect_family, has_prior_unconditional_read, is_readonly_kind, reactive_binding,
+  script_block, setup_calls_after_first_top_level_await, unconditional_self_triggers, write_path,
 };
 
 struct BoundaryRule {
@@ -125,16 +126,10 @@ impl Rule for BoundaryRule {
       if read.kind != self.read_kind {
         continue;
       }
-      if self.read_kind == ReactiveReadKind::Conditional {
-        let already = scope.reads.iter().any(|candidate| {
-          candidate.kind == ReactiveReadKind::Unconditional
-            && candidate.span.offset < read.span.offset
-            && candidate.binding == read.binding
-            && candidate.property == read.property
-        });
-        if already {
-          continue;
-        }
+      if self.read_kind == ReactiveReadKind::Conditional
+        && has_prior_unconditional_read(&scope.reads, read)
+      {
+        continue;
       }
       let path = binding_path(read);
       context.report(
@@ -195,21 +190,9 @@ impl Rule for AfterAwaitCallRule {
   }
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
-    let mut findings = Vec::new();
-    for block in &context.script().blocks {
-      if block.kind != ScriptKind::Setup || block.top_level_await_ends.is_empty() {
-        continue;
-      }
-      let Some(first_await_end) = block.top_level_await_ends.first().copied() else {
-        continue;
-      };
-      for call in &block.calls {
-        if call.callee != self.callee || call.span.offset < first_await_end {
-          continue;
-        }
-        findings.push(call.span.clone());
-      }
-    }
+    let findings: Vec<_> = setup_calls_after_first_top_level_await(context.script(), self.callee)
+      .map(|call| call.span.clone())
+      .collect();
     for span in findings {
       context.report(
         self.meta(),
@@ -602,15 +585,10 @@ impl Rule for RefOperandRule {
     let FactRef::ScriptOperand { block_kind, operand } = fact else {
       return;
     };
-    let Some(block) = context.script().blocks.iter().find(|block| block.kind == block_kind) else {
+    let Some(block) = script_block(context.script(), block_kind) else {
       return;
     };
-    let Some(binding) = block
-      .reactivity_graph
-      .bindings
-      .iter()
-      .find(|binding| binding.name == operand.name)
-    else {
+    let Some(binding) = reactive_binding(block, &operand.name) else {
       return;
     };
     if !self.kinds.contains(&binding.kind) {
@@ -690,12 +668,10 @@ impl Rule for ReadonlyMutationRule {
     let FactRef::ScriptMemberWrite { block_kind, write } = fact else {
       return;
     };
-    let Some(block) = context.script().blocks.iter().find(|block| block.kind == block_kind) else {
+    let Some(block) = script_block(context.script(), block_kind) else {
       return;
     };
-    let Some(binding) =
-      block.reactivity_graph.bindings.iter().find(|binding| binding.name == write.object)
-    else {
+    let Some(binding) = reactive_binding(block, &write.object) else {
       return;
     };
     if !is_readonly_kind(binding.kind) {

@@ -3199,6 +3199,7 @@ name = "vue_vet_practice"
 version = "0.1.20"
 dependencies = [
  "vue_vet_core",
+ "vue_vet_rule_query",
 ]
 
 [[package]]
@@ -3241,10 +3242,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "vue_vet_rule_query"
+version = "0.1.20"
+dependencies = [
+ "vue_vet_core",
+]
+
+[[package]]
 name = "vue_vet_rules"
 version = "0.1.20"
 dependencies = [
  "vue_vet_core",
+ "vue_vet_rule_query",
 ]
 
 [[package]]

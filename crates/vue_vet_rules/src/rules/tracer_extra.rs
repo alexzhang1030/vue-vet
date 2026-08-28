@@ -5,13 +5,11 @@ use vue_vet_core::{
   TrackingScopeKind,
 };
 
-use crate::rules::support::{binding_path, effect_family};
+use vue_vet_rule_query::{
+  binding_path, effect_family, script_has_call, unguarded_conditional_reads,
+};
 
 const DEEP_WATCH_PROPERTY: &str = "*";
-
-fn block_calls_callee(context: &RuleContext<'_>, callee: &str) -> bool {
-  context.script().blocks.iter().any(|block| block.calls.iter().any(|call| call.callee == callee))
-}
 
 // --- deep watch on reactive root -------------------------------------------------
 
@@ -93,7 +91,7 @@ impl Rule for NoReactiveReadDuringPauseTracking {
     if !scope.kind.tracks_dependencies() {
       return;
     }
-    if !block_calls_callee(context, "pauseTracking") {
+    if !script_has_call(context.script(), "pauseTracking") {
       return;
     }
     for read in &scope.reads {
@@ -152,19 +150,7 @@ impl Rule for NoConditionalDependencyInRender {
     if scope.kind != TrackingScopeKind::Render {
       return;
     }
-    for read in &scope.reads {
-      if read.kind != ReactiveReadKind::Conditional {
-        continue;
-      }
-      let already_unconditional = scope.reads.iter().any(|candidate| {
-        candidate.kind == ReactiveReadKind::Unconditional
-          && candidate.span.offset < read.span.offset
-          && candidate.binding == read.binding
-          && candidate.property == read.property
-      });
-      if already_unconditional {
-        continue;
-      }
+    for read in unguarded_conditional_reads(&scope.reads) {
       let path = binding_path(read);
       context.report(
         self.meta(),
@@ -211,7 +197,7 @@ impl Rule for NoDeferredCallbackReactiveReadInEffect {
       return;
     }
     // pauseTracking reads are owned by no-reactive-read-during-pause-tracking.
-    if block_calls_callee(context, "pauseTracking") {
+    if script_has_call(context.script(), "pauseTracking") {
       return;
     }
     for read in &scope.reads {

@@ -4,6 +4,7 @@ use vue_vet_core::{
   Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, ScriptKind, Severity,
   TemplateElementFact,
 };
+use vue_vet_rule_query::setup_blocks;
 
 use super::template_attr::quoted_sync_bind_to_v_model;
 
@@ -571,10 +572,7 @@ impl Rule for NoDuplicateDefineModel {
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
     let mut findings = Vec::new();
-    for block in &context.script().blocks {
-      if block.kind != ScriptKind::Setup {
-        continue;
-      }
+    for block in setup_blocks(context.script()) {
       let mut seen = std::collections::BTreeSet::new();
       for call in &block.calls {
         if call.callee != "defineModel" {

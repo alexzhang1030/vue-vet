@@ -1,6 +1,5 @@
-use vue_vet_core::{
-  Confidence, FactKinds, FactRef, ReactiveReadKind, Rule, RuleContext, RuleMeta, Severity,
-};
+use vue_vet_core::{Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity};
+use vue_vet_rule_query::{binding_path, guard_path, unguarded_conditional_reads};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-conditional-watch-effect-dependency",
@@ -27,34 +26,9 @@ impl Rule for NoConditionalWatchEffectDependency {
     let FactRef::ReactivityEffect { effect, .. } = fact else {
       return;
     };
-    for read in &effect.reads {
-      if read.kind != ReactiveReadKind::Conditional {
-        continue;
-      }
-      let already_unconditional = effect.reads.iter().any(|candidate| {
-        candidate.kind == ReactiveReadKind::Unconditional
-          && candidate.span.offset < read.span.offset
-          && candidate.binding == read.binding
-          && candidate.property == read.property
-      });
-      if already_unconditional {
-        continue;
-      }
-      let binding = read
-        .property
-        .as_ref()
-        .map_or_else(|| read.binding.clone(), |property| format!("{}.{property}", read.binding));
-      let guards = read
-        .guards
-        .iter()
-        .map(|guard| {
-          guard.property.as_ref().map_or_else(
-            || guard.binding.clone(),
-            |property| format!("{}.{property}", guard.binding),
-          )
-        })
-        .collect::<Vec<_>>()
-        .join("`, `");
+    for read in unguarded_conditional_reads(&effect.reads) {
+      let binding = binding_path(read);
+      let guards = read.guards.iter().map(guard_path).collect::<Vec<_>>().join("`, `");
       context.report(
         self.meta(),
         read.span.clone(),
