@@ -133,7 +133,8 @@ vue_vet_reporters    deterministic text, JSON, SARIF, and GitHub rendering
 `vue_vet_core`, `vue_vet_reactivity`, and `vue_vet_plugins` are prepared for
 crates.io. Tagged releases publish them in dependency order via
 `.github/workflows/release.yml` (`CARGO_REGISTRY_TOKEN`). The CLI / session /
-Oxc boundary auto-loads default plugins. See
+Oxc boundary auto-loads default plugins. Per-crate roles:
+[workspace crates](docs/crates.md). Also see
 [vue_vet_reactivity](crates/vue_vet_reactivity/README.md),
 [vue_vet_plugins](crates/vue_vet_plugins/README.md), and
 [install docs](docs/install.md).

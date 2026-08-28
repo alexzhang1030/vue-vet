@@ -1,3 +1,8 @@
+//! `vue-vet` CLI binary — thin clap front-end over [`vue_vet_session`].
+//!
+//! Also dispatches `--lsp` / `--mcp` to the thin adapters. Analysis stays in
+//! session / project / rules crates. See the crate README.
+
 use std::{
   collections::BTreeSet,
   io::{IsTerminal, Write},

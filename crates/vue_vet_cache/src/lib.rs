@@ -1,3 +1,9 @@
+//! Content-addressed scan cache, baselines, and git-diff filtering.
+//!
+//! Persists normalized [`vue_vet_core::ScanSummary`] and
+//! [`vue_vet_project::ProjectGraph`] only — never Vize or Oxc AST. See the
+//! crate README and `docs/cache-baseline-diff.md`.
+
 use std::{
   collections::{BTreeMap, BTreeSet},
   fmt::Write,

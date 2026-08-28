@@ -25,6 +25,11 @@ the Rust API as evolving until Vue Vet hits a stable release.
 vue_vet_core = "0.1"
 ```
 
+## Related docs
+
+- [Workspace crates](../../docs/crates.md)
+- [architecture PCR](../../.agents/docs/architecture.md)
+
 ## License
 
 MIT

@@ -140,6 +140,7 @@ Dry-run publishes all three without waiting.
 - [architecture PCR](../../.agents/docs/architecture.md) — tracer plugins section
 - [reactivity tracer PCR](../../.agents/docs/reactivity-tracer.md) — graph contract
 - [install / release](../../docs/install.md) — crates.io secrets and order
+- [Workspace crates](../../docs/crates.md)
 
 ## License
 

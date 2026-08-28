@@ -1,3 +1,9 @@
+//! Deterministic text and machine-readable reporters.
+//!
+//! Renders [`vue_vet_core::ScanSummary`] and explain models only — no session
+//! ownership, analysis, or file mutation. See the crate README and
+//! `docs/json-output.md`.
+
 use std::collections::BTreeMap;
 
 use serde::Serialize;

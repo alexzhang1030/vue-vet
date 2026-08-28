@@ -1,3 +1,8 @@
+//! Configuration, presets, path filters, and suppressions (`vue-vet.toml`).
+//!
+//! Loaded by the analysis session; rule IDs are validated against the session
+//! registry. See the crate README.
+
 use std::{collections::BTreeMap, path::Path};
 
 use globset::{Glob, GlobSet, GlobSetBuilder};

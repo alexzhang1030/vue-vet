@@ -163,7 +163,8 @@ bump the patch version if a partial publish already succeeded.
 
 Publish order is fixed by dependencies. Product entry points (Oxc adapter,
 project graph, session) **auto-load** `vue_vet_plugins` defaults; see
-[vue_vet_plugins README](../crates/vue_vet_plugins/README.md).
+[vue_vet_plugins README](../crates/vue_vet_plugins/README.md). Full workspace
+crate map: [docs/crates.md](./crates.md).
 5. Local host-only claim (optional before the full matrix release):
 
    ```bash
