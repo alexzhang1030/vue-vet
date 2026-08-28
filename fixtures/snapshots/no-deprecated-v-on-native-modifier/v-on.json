@@ -1,0 +1,30 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/no-deprecated-v-on-native-modifier",
+    "category": "correctness",
+    "severity": "error",
+    "confidence": "high",
+    "documentation": "rules/correctness/no-deprecated-v-on-native-modifier",
+    "message": "the `.native` event modifier was removed in Vue 3",
+    "help": "Remove `.native`; undeclared listeners fall through natively in Vue 3.",
+    "file": "fixtures/rules/no-deprecated-v-on-native-modifier/invalid/v-on.vue",
+    "span": {
+      "offset": 21,
+      "length": 4,
+      "line": 2,
+      "column": 11
+    },
+    "edits": [
+      {
+        "file": "fixtures/rules/no-deprecated-v-on-native-modifier/invalid/v-on.vue",
+        "range": {
+          "offset": 21,
+          "length": 17
+        },
+        "replacement": "v-on:click",
+        "applicability": "safe",
+        "rule_id": "vue-vet/correctness/no-deprecated-v-on-native-modifier"
+      }
+    ]
+  }
+]
