@@ -46,7 +46,6 @@ pub fn has_prior_unconditional_read(reads: &[ReactiveReadFact], read: &ReactiveR
 }
 
 /// Conditional reads that are not preceded by an unconditional same-target read.
-#[must_use]
 pub fn unguarded_conditional_reads(
   reads: &[ReactiveReadFact],
 ) -> impl Iterator<Item = &ReactiveReadFact> {

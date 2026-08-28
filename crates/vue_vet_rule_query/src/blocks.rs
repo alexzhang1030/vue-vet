@@ -16,13 +16,11 @@ pub fn script_block(script: &ScriptFacts, kind: ScriptKind) -> Option<&ScriptBlo
 }
 
 /// `<script setup>` blocks in source order.
-#[must_use]
 pub fn setup_blocks(script: &ScriptFacts) -> impl Iterator<Item = &ScriptBlockFacts> {
   script.blocks.iter().filter(|block| is_setup_block(block))
 }
 
 /// Calls in `block` whose callee name equals `callee`.
-#[must_use]
 pub fn block_calls<'a>(
   block: &'a ScriptBlockFacts,
   callee: &'a str,
@@ -48,7 +46,6 @@ pub fn first_top_level_await_end(block: &ScriptBlockFacts) -> Option<usize> {
 /// Same predicate as the matrix after-await registrar pack and the
 /// `define*` after-await extras: empty `top_level_await_ends` yields nothing;
 /// a call at the await end itself is included (`offset >= first`).
-#[must_use]
 pub fn setup_calls_after_first_top_level_await<'a>(
   script: &'a ScriptFacts,
   callee: &'a str,
@@ -63,7 +60,6 @@ pub fn setup_calls_after_first_top_level_await<'a>(
 ///
 /// Used by the `define*` once-only rules; the first matching call in a setup
 /// block is the allowed declaration.
-#[must_use]
 pub fn extra_setup_calls<'a>(
   script: &'a ScriptFacts,
   callee: &'a str,
