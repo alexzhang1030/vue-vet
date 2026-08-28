@@ -1,8 +1,8 @@
 //! Built-in semantic lint / gate rules (excludes practice suggestions).
 //!
-//! Each rule is a self-contained module under `rules/` with stable metadata.
-//! Shared fact walks live in [`vue_vet_rule_query`]. See the crate README and
-//! `docs/rules/README.md`.
+//! Assembles [`builtin_registry`] from `rules/` modules. Shared fact walks live
+//! in `vue_vet_rule_query`. Practice channel: `vue_vet_practice`. Never import
+//! Vize or Oxc AST.
 
 use vue_vet_core::{Rule, RuleRegistry};
 

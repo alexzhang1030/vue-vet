@@ -1,12 +1,16 @@
 # Cache, baselines, and diff analysis
 
 Vue Vet caches only normalized `ScanSummary` and `ProjectGraph` values. It never
-persists Vize or Oxc AST objects. Cache format version 4 uses a SHA-256 key over:
+persists Vize or Oxc AST objects. Cache format version **5** uses a SHA-256 key
+over:
 
-- cache, graph-convention, and built-in ruleset versions;
-- Vue Vet, Vize, and Oxc versions;
+- cache, graph-convention, ruleset, and reactivity-graph versions;
+- Vue Vet tool version plus Vize / Oxc / oxc_resolver identity fields;
 - the serialized effective configuration;
 - every discovered Vue, JavaScript, TypeScript, JSX, and TSX path and byte body.
+
+See `vue_vet_cache::CACHE_FORMAT_VERSION` / `content_key` for the authoritative
+field list ([crate README](../crates/vue_vet_cache/README.md)).
 
 Discovery produces one immutable `WorkspaceInputSnapshot`. Cache hashing and a
 cache-miss analysis consume the same bytes, so a miss never performs a second
@@ -16,12 +20,16 @@ actually analyzed.
 
 Writes use a temporary file followed by an atomic rename. Invalid JSON and
 unsupported cache versions are deleted and rebuilt without failing the scan.
-Version 2 added rule confidence and documentation metadata to cached
-diagnostics. Version 3 adds optional edit candidates so cold and warm JSON
-reports remain byte-equivalent. Version 4 establishes normalized `FileId`
-identity and source-only analysis coverage. Older entries are left untouched and naturally
-missed under the versioned cache directory. Fix modes bypass cache regardless,
-so mutation always starts from a fresh scan.
+Version history (on-disk schema):
+
+- v2 — rule confidence and documentation metadata on cached diagnostics
+- v3 — optional edit candidates (cold/warm JSON byte-equivalent)
+- v4 — normalized `FileId` identity and source-only analysis coverage
+- v5 — current schema (see crate constant)
+
+Older entries are left untouched and naturally missed under the versioned cache
+directory. Fix modes bypass cache regardless, so mutation always starts from a
+fresh scan.
 
 Use `--no-cache`, `--cache-dir <dir>`, and `--cache-stats` to control or inspect
 the local cache.

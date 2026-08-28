@@ -1,8 +1,8 @@
 //! Deterministic text and machine-readable reporters.
 //!
-//! Renders [`vue_vet_core::ScanSummary`] and explain models only — no session
-//! ownership, analysis, or file mutation. See the crate README and
-//! `docs/json-output.md`.
+//! Renders [`vue_vet_core::ScanSummary`] via [`render`] (`JSON_SCHEMA_VERSION`
+//! for JSON). Does not own session state, run analysis, or mutate files.
+//! Explain domain models stay in core/session; this crate formats them.
 
 use std::collections::BTreeMap;
 

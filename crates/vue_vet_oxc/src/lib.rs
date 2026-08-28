@@ -1,9 +1,9 @@
 //! Oxc-powered JavaScript / TypeScript semantic facts for Vue Vet.
 //!
 //! One parse yields [`ScriptBlockFacts`], optional JSX [`TemplateFacts`], and a
-//! [`ModuleSummary`]. Reactivity uses [`vue_vet_reactivity`] with product
-//! default plugins. Oxc arena values must not leave this crate. See the crate
-//! README.
+//! [`ModuleSummary`]. Product scans auto-load
+//! [`vue_vet_plugins::default_trace_config`]. Oxc arena values must not leave
+//! this crate.
 
 use std::sync::Arc;
 
