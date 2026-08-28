@@ -30,7 +30,7 @@ impl Rule for NoVHtml {
     };
     context.report(
       self.meta(),
-      directive.span.clone(),
+      directive.span,
       "`v-html` can render untrusted HTML into the page".into(),
       Some(
         "Prefer normal template interpolation. If raw HTML is required, sanitize it at the trust boundary."

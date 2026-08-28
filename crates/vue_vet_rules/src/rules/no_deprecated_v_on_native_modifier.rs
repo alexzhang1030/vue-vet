@@ -41,14 +41,14 @@ impl Rule for NoDeprecatedVOnNativeModifier {
       if let Some((range, replacement)) = strip_native_on_modifier(context.source(), directive) {
         context.report_with_safe_edit(
           self.meta(),
-          directive.span.clone(),
+          directive.span,
           message,
           help,
           range,
           replacement,
         );
       } else {
-        context.report(self.meta(), directive.span.clone(), message, help);
+        context.report(self.meta(), directive.span, message, help);
       }
     }
   }

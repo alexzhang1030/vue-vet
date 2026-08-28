@@ -57,7 +57,7 @@ impl Rule for PreferComputed {
     let targets = write_bindings.join("`, `");
     context.report(
       self.meta(),
-      scope.span.clone(),
+      scope.span,
       format!("`watchEffect` only assigns `{targets}` from other reactive reads"),
       Some(
         "Use `computed(() => …)` for pure derived state instead of syncing refs in `watchEffect`."

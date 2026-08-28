@@ -1,4 +1,5 @@
-use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, ScriptKind, Severity};
+use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, Severity};
+use vue_vet_rule_query::extra_setup_calls;
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/correctness/no-duplicate-define-slots",
@@ -18,18 +19,10 @@ impl Rule for NoDuplicateDefineSlots {
   }
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
-    let spans: Vec<_> = context
-      .script()
-      .blocks
-      .iter()
-      .filter(|block| block.kind == ScriptKind::Setup)
-      .flat_map(|block| block.calls.iter().filter(|call| call.callee == "defineSlots").skip(1))
-      .map(|call| call.span.clone())
-      .collect();
-    for span in spans {
+    for call in extra_setup_calls(context.script(), "defineSlots") {
       context.report(
         self.meta(),
-        span,
+        call.span,
         "`defineSlots` may only be called once in `<script setup>`".into(),
         Some("Merge the declarations into a single `defineSlots` call.".into()),
       );

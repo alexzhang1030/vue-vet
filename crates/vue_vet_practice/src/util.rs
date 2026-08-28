@@ -2,9 +2,12 @@
 
 use std::path::Path;
 
-use vue_vet_core::{Recommendation, RuleEnvironment, ScriptBlockFacts, ScriptKind};
+use vue_vet_core::{Recommendation, RuleEnvironment, ScriptBlockFacts};
 
 use crate::recipe::EcosystemApi;
+
+/// Compiler macros (`defineModel`, `defineProps`, …) exist only in `<script setup>`.
+pub use vue_vet_rule_query::is_setup_block as is_script_setup_block;
 
 #[must_use]
 pub fn already_uses_target(block: &ScriptBlockFacts, export: &str) -> bool {
@@ -29,12 +32,6 @@ pub fn is_test_path(path: &Path) -> bool {
   normalized.contains("/__tests__/")
     || normalized.contains(".test.")
     || normalized.contains(".spec.")
-}
-
-/// Compiler macros (`defineModel`, `defineProps`, …) exist only in `<script setup>`.
-#[must_use]
-pub fn is_script_setup_block(block: &ScriptBlockFacts) -> bool {
-  block.kind == ScriptKind::Setup
 }
 
 /// Setup lifecycle hooks that commonly wrap side effects without cleanup.

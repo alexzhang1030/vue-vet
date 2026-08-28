@@ -48,7 +48,7 @@ impl Rule for FormControlHasLabel {
       {
         continue;
       }
-      findings.push(element.span.clone());
+      findings.push(element.span);
     }
 
     for span in findings {

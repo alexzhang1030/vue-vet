@@ -49,9 +49,8 @@ impl Rule for VueuseUseIntersectionObserver {
       .iter()
       .filter(|block| !already_uses_target(block, RECIPE.recommend.export))
       .filter_map(|block| {
-        observer_ctor_without_disconnect(block, "IntersectionObserver").map(|call| {
-          (call.span.clone(), vueuse_help(&environment, block, RECIPE.recommend.export))
-        })
+        observer_ctor_without_disconnect(block, "IntersectionObserver")
+          .map(|call| (call.span, vueuse_help(&environment, block, RECIPE.recommend.export)))
       })
       .collect::<Vec<_>>();
     for (span, help) in findings {

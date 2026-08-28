@@ -33,7 +33,7 @@ impl Rule for ImgHasAlt {
     }
     context.report(
       self.meta(),
-      element.span.clone(),
+      element.span,
       "image is missing an `alt` attribute".into(),
       Some("Describe meaningful images, or use alt=\"\" for decorative images.".into()),
     );

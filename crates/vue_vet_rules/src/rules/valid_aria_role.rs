@@ -122,7 +122,7 @@ impl Rule for ValidAriaRole {
     }
     context.report(
       self.meta(),
-      attribute.span.clone(),
+      attribute.span,
       "role does not contain a recognized concrete ARIA role".into(),
       Some("Use a valid non-abstract ARIA role, or rely on the element's native semantics.".into()),
     );

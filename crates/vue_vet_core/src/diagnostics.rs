@@ -33,7 +33,8 @@ pub struct RuleMeta {
   pub documentation: &'static str,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+/// Byte offset plus derived line/column. Four `usize`s; pass by copy.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct SourceSpan {
   pub offset: usize,
   pub length: usize,

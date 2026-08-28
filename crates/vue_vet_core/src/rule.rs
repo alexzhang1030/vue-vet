@@ -105,22 +105,25 @@ impl<'a> RuleContext<'a> {
   }
 
   #[must_use]
-  pub const fn file(&self) -> &Path {
+  pub const fn file(&self) -> &'a Path {
     self.file
   }
 
   #[must_use]
-  pub const fn source(&self) -> &str {
+  pub const fn source(&self) -> &'a str {
     self.source
   }
 
+  /// Template facts for this file. Same stored lifetime as [`Self::script`].
   #[must_use]
-  pub const fn template(&self) -> &TemplateFacts {
+  pub const fn template(&self) -> &'a TemplateFacts {
     self.template
   }
 
+  /// Script facts for this file. The lifetime is the stored borrow, not `&self`,
+  /// so `run_once` can walk helpers and `report` without collecting clones.
   #[must_use]
-  pub const fn script(&self) -> &ScriptFacts {
+  pub const fn script(&self) -> &'a ScriptFacts {
     self.script
   }
 

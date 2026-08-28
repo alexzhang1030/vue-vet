@@ -4,6 +4,7 @@ use vue_vet_core::{
   Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, ScriptKind, Severity,
   TemplateElementFact,
 };
+use vue_vet_rule_query::setup_blocks;
 
 use super::template_attr::quoted_sync_bind_to_v_model;
 
@@ -33,7 +34,7 @@ impl Rule for MissingExprRule {
     }
     context.report(
       self.meta(),
-      directive.span.clone(),
+      directive.span,
       format!("`v-{}` is missing an expression", self.directive),
       Some(format!("Provide an expression for `v-{}`.", self.directive)),
     );
@@ -122,7 +123,7 @@ impl Rule for ValidVOn {
       }
       context.report(
         self.meta(),
-        directive.span.clone(),
+        directive.span,
         "`v-on` is missing an event name or listeners expression".into(),
         Some("Use `v-on:event` / `@event`, or `v-on=\"listeners\"`.".into()),
       );
@@ -158,7 +159,7 @@ impl Rule for ValidVElse {
     if directive.expression.as_ref().is_some_and(|expression| !expression.trim().is_empty()) {
       context.report(
         self.meta(),
-        directive.span.clone(),
+        directive.span,
         "`v-else` does not accept an expression".into(),
         Some("Use `v-else-if=\"…\"` when a condition is required.".into()),
       );
@@ -200,7 +201,7 @@ impl Rule for ValidVBind {
       }
       context.report(
         self.meta(),
-        directive.span.clone(),
+        directive.span,
         "`v-bind` is missing an attribute name or object expression".into(),
         Some("Use `v-bind:attr` / `:attr`, or `v-bind=\"object\"`.".into()),
       );
@@ -237,7 +238,7 @@ impl Rule for NoChildContent {
       if let Some(directive) = element.directive(name) {
         context.report(
           self.meta(),
-          directive.span.clone(),
+          directive.span,
           format!("`v-{name}` overwrites element children"),
           Some(format!("Remove the children, or drop `v-{name}`.")),
         );
@@ -279,7 +280,7 @@ impl Rule for NoTextareaMustache {
     }
     context.report(
       self.meta(),
-      element.span.clone(),
+      element.span,
       "textarea content should use `v-model` instead of interpolation".into(),
       Some("Bind the value with `v-model` on `<textarea>`.".into()),
     );
@@ -320,7 +321,7 @@ impl Rule for NoTemplateKey {
     }
     context.report(
       self.meta(),
-      element.span.clone(),
+      element.span,
       "`<template>` should not have a `key` unless it also has `v-for`".into(),
       Some("Move `key` onto a real element, or add `v-for` on the template.".into()),
     );
@@ -355,7 +356,7 @@ impl Rule for NoDuplicateAttributes {
       if !seen.insert(key.clone()) {
         context.report(
           self.meta(),
-          attribute.span.clone(),
+          attribute.span,
           format!("duplicate attribute `{}`", attribute.name),
           Some("Remove the duplicate attribute.".into()),
         );
@@ -372,7 +373,7 @@ impl Rule for NoDuplicateAttributes {
       if !seen.insert(key) {
         context.report(
           self.meta(),
-          directive.span.clone(),
+          directive.span,
           format!("duplicate bound attribute `{argument}`"),
           Some("Remove the duplicate `v-bind` / `:` attribute.".into()),
         );
@@ -416,14 +417,14 @@ impl Rule for NoDeprecatedVBindSync {
       if let Some((range, replacement)) = quoted_sync_bind_to_v_model(context.source(), directive) {
         context.report_with_safe_edit(
           self.meta(),
-          directive.span.clone(),
+          directive.span,
           message,
           help,
           range,
           replacement,
         );
       } else {
-        context.report(self.meta(), directive.span.clone(), message, help);
+        context.report(self.meta(), directive.span, message, help);
       }
     }
   }
@@ -454,7 +455,7 @@ impl Rule for NoDeprecatedSlotAttribute {
     if let Some(attribute) = element.attribute("slot") {
       context.report(
         self.meta(),
-        attribute.span.clone(),
+        attribute.span,
         "`slot` attribute is deprecated; use `v-slot` / `#`".into(),
         Some("Replace `slot=\"name\"` with `v-slot:name` or `#name`.".into()),
       );
@@ -491,7 +492,7 @@ impl Rule for NoVTextVHtmlOnComponent {
       if let Some(directive) = element.directive(name) {
         context.report(
           self.meta(),
-          directive.span.clone(),
+          directive.span,
           format!("`v-{name}` should not be used on components"),
           Some("Pass content via slots or props instead.".into()),
         );
@@ -533,7 +534,7 @@ impl Rule for NoImportCompilerMacros {
           continue;
         }
         if MACROS.contains(&import.imported.as_str()) {
-          findings.push((import.span.clone(), import.imported.clone(), block.kind));
+          findings.push((import.span, import.imported.clone(), block.kind));
         }
       }
     }
@@ -570,11 +571,7 @@ impl Rule for NoDuplicateDefineModel {
   }
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
-    let mut findings = Vec::new();
-    for block in &context.script().blocks {
-      if block.kind != ScriptKind::Setup {
-        continue;
-      }
+    for block in setup_blocks(context.script()) {
       let mut seen = std::collections::BTreeSet::new();
       for call in &block.calls {
         if call.callee != "defineModel" {
@@ -582,18 +579,15 @@ impl Rule for NoDuplicateDefineModel {
         }
         // Under-approx identity: assignee name, else empty (default modelValue).
         let key = call.assigned_to.as_deref().unwrap_or("");
-        if !seen.insert(key.to_owned()) {
-          findings.push(call.span.clone());
+        if !seen.insert(key) {
+          context.report(
+            self.meta(),
+            call.span,
+            "duplicate `defineModel` declaration".into(),
+            Some("Keep a single `defineModel` per model name.".into()),
+          );
         }
       }
-    }
-    for span in findings {
-      context.report(
-        self.meta(),
-        span,
-        "duplicate `defineModel` declaration".into(),
-        Some("Keep a single `defineModel` per model name.".into()),
-      );
     }
   }
 }
@@ -630,7 +624,7 @@ impl Rule for ValidVSlot {
     }
     context.report(
       self.meta(),
-      slot.span.clone(),
+      slot.span,
       "`v-slot` cannot be used together with `v-for` on the same element".into(),
       Some("Wrap the `v-for` content in a nested element, or move `v-slot` to the parent `<template>`.".into()),
     );
@@ -681,7 +675,7 @@ impl Rule for NoDupeVElseIf {
         continue;
       }
       if previous_expression.trim() == current_expression.trim() {
-        findings.push((current_directive.span.clone(), current_expression.trim().to_owned()));
+        findings.push((current_directive.span, current_expression.trim().to_owned()));
       }
     }
     for (span, expression) in findings {
@@ -736,7 +730,7 @@ impl Rule for RequireToggleInsideTransition {
       if has_toggle {
         continue;
       }
-      findings.push(element.span.clone());
+      findings.push(element.span);
     }
     for span in findings {
       context.report(
@@ -779,14 +773,14 @@ impl Rule for NoDeprecatedFilter {
             continue;
           };
           if has_filter_pipe(expression) {
-            findings.push(directive.span.clone());
+            findings.push(directive.span);
           }
         }
       }
     } else {
       for expression in &template.expressions {
         if has_filter_pipe(&expression.expression) {
-          findings.push(expression.span.clone());
+          findings.push(expression.span);
         }
       }
     }

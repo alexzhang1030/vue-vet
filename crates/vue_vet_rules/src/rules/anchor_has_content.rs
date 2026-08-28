@@ -38,16 +38,9 @@ impl Rule for AnchorHasContent {
       "Add text content, an img/area with alt, or an aria-label/aria-labelledby binding.".into(),
     );
     if let Some((range, replacement)) = title_to_aria_label_edit(context.source(), element) {
-      context.report_with_safe_edit(
-        self.meta(),
-        element.span.clone(),
-        message,
-        help,
-        range,
-        replacement,
-      );
+      context.report_with_safe_edit(self.meta(), element.span, message, help, range, replacement);
     } else {
-      context.report(self.meta(), element.span.clone(), message, help);
+      context.report(self.meta(), element.span, message, help);
     }
   }
 }
