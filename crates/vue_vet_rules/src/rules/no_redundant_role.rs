@@ -55,14 +55,14 @@ impl Rule for NoRedundantRole {
     if let Some(range) = static_attribute_removal_range(context.source(), attribute) {
       context.report_with_safe_edit(
         self.meta(),
-        attribute.span.clone(),
+        attribute.span,
         message,
         help,
         range,
         String::new(),
       );
     } else {
-      context.report(self.meta(), attribute.span.clone(), message, help);
+      context.report(self.meta(), attribute.span, message, help);
     }
   }
 }

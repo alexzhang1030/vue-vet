@@ -54,9 +54,11 @@ impl Rule for VueuseUseWindowSize {
       .filter(|block| block.calls.iter().any(|call| callee_is(&call.callee, "addEventListener")))
       .filter(|block| has_width_and_height_refs(block))
       .filter_map(|block| {
-        block.calls.iter().find(|call| callee_is(&call.callee, "addEventListener")).map(|call| {
-          (call.span.clone(), vueuse_help(&environment, block, RECIPE.recommend.export))
-        })
+        block
+          .calls
+          .iter()
+          .find(|call| callee_is(&call.callee, "addEventListener"))
+          .map(|call| (call.span, vueuse_help(&environment, block, RECIPE.recommend.export)))
       })
       .collect::<Vec<_>>();
     for (span, help) in findings {

@@ -155,7 +155,7 @@ fn classify_jsx_attribute(
     || raw_name.eq_ignore_ascii_case("domPropsInnerHTML")
   {
     if let Some((surface_span, expression, identifiers)) =
-      expression_payload(expression_text.as_ref(), expression_span, identifiers, &span)
+      expression_payload(expression_text.as_ref(), expression_span, identifiers, span)
     {
       facts.expressions.push(TemplateExpressionFact {
         surface: "html".into(),
@@ -178,7 +178,7 @@ fn classify_jsx_attribute(
   if let Some(rest) = raw_name.strip_prefix("v-") {
     let (name, argument, modifiers) = parse_vue_jsx_directive(rest);
     if let Some((surface_span, expression, identifiers)) =
-      expression_payload(expression_text.as_ref(), expression_span, identifiers, &span)
+      expression_payload(expression_text.as_ref(), expression_span, identifiers, span)
     {
       facts.expressions.push(TemplateExpressionFact {
         surface: name.clone(),
@@ -204,7 +204,7 @@ fn classify_jsx_attribute(
   {
     let event = event.to_ascii_lowercase();
     if let Some((surface_span, expression, identifiers)) =
-      expression_payload(expression_text.as_ref(), expression_span, identifiers, &span)
+      expression_payload(expression_text.as_ref(), expression_span, identifiers, span)
     {
       facts.expressions.push(TemplateExpressionFact {
         surface: "on".into(),
@@ -229,7 +229,7 @@ fn classify_jsx_attribute(
     && !matches!(attribute.value, Some(JSXAttributeValue::StringLiteral(_)))
   {
     if let Some((surface_span, expression, identifiers)) =
-      expression_payload(expression_text.as_ref(), expression_span, identifiers, &span)
+      expression_payload(expression_text.as_ref(), expression_span, identifiers, span)
     {
       facts.expressions.push(TemplateExpressionFact {
         surface: "bind".into(),
@@ -256,10 +256,10 @@ fn expression_payload(
   expression_text: Option<&String>,
   expression_span: Option<vue_vet_core::SourceSpan>,
   identifiers: Vec<String>,
-  fallback_span: &vue_vet_core::SourceSpan,
+  fallback_span: vue_vet_core::SourceSpan,
 ) -> Option<(vue_vet_core::SourceSpan, String, Vec<String>)> {
   let expression = expression_text.cloned()?;
-  Some((expression_span.unwrap_or_else(|| fallback_span.clone()), expression, identifiers))
+  Some((expression_span.unwrap_or(fallback_span), expression, identifiers))
 }
 
 fn parse_vue_jsx_directive(rest: &str) -> (String, Option<String>, Vec<String>) {

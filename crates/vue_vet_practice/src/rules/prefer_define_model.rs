@@ -61,7 +61,7 @@ impl Rule for PreferDefineModel {
             .calls
             .iter()
             .find(|call| call.callee == "defineProps")
-            .map_or_else(|| binding.span.clone(), |call| call.span.clone())
+            .map_or_else(|| binding.span, |call| call.span)
         })
       })
       .collect::<Vec<_>>();

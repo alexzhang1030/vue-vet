@@ -34,7 +34,7 @@ impl Rule for LabelHasFor {
     }
     context.report(
       self.meta(),
-      element.span.clone(),
+      element.span,
       "label has no associated control".into(),
       Some(
         "Add a `for`/`:for` binding that matches a control `id`, or nest an input/select/textarea/button inside the label."

@@ -33,7 +33,7 @@ impl Rule for RequireComponentIs {
     }
     context.report(
       self.meta(),
-      element.span.clone(),
+      element.span,
       "dynamic `<component>` requires an `is` binding".into(),
       Some(
         "Add `:is=\"component\"` with a component definition or registered component name.".into(),

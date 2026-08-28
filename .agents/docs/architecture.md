@@ -14,7 +14,7 @@ vue-vet CLI / --lsp / --mcp
                        context → structural → passes(enrichment)
                        → reactivity Trace → layers → project rules
        reactivity    vue_vet_reactivity (trace / summary / link)
-       rules         vue_vet_rules + vue_vet_practice (RuleRegistry over facts)
+       rules         vue_vet_rule_query → vue_vet_rules + vue_vet_practice
        finalize      DiagnosticFinalizer → vue_vet_core ScanSummary
   -> vue_vet_reporters | vue_vet_lsp | vue_vet_mcp
 ```
@@ -27,7 +27,7 @@ Crate ownership (read before editing that stage):
 | Adapters | `vue_vet_vize`, `vue_vet_oxc` | short-lived AST → facts only; SFC parse is `vize_croquis::sfc`, never `vize_atelier_sfc` |
 | Project graph | `vue_vet_project` | see `vue_vet_project` pipeline below |
 | Cross-file seeds | `vue_vet_reactivity` | `trace` / `summary` / `link`; `ModuleSummary` boundary; under-approx |
-| File rules | `vue_vet_rules`, `vue_vet_practice` | consume facts; practice off score |
+| File rules | `vue_vet_rules`, `vue_vet_practice` | consume facts via `vue_vet_rule_query`; practice off score |
 | Orchestration | `vue_vet_session` | thin façade; `pipeline` stages discovery → facts → project → rules → finalize |
 | Surfaces | `vue_vet_cli`, `vue_vet_lsp`, `vue_vet_mcp`, `vue_vet_reporters` | thin |
 
@@ -219,8 +219,11 @@ cross-module boundary: imports, exports, provides/injects, local reactivity, and
 no Oxc/Vize nodes. Session file-rule reuse is keyed by `FileRuleInputKey`:
 source and `RuleEnvironment` via `content_digest` / `serde_digest`, and final
 primary/ordinary module graphs via in-memory `Arc` content equality (avoid
-re-serializing full graphs on every file). Rule-level semantic views
-(`EffectModel`, …) are deferred until multiple rules repeat the same derivation.
+re-serializing full graphs on every file). Shared block access and
+control-flow queries over those facts live in `vue_vet_rule_query`
+(setup-block walks, after-await call selection, prior unconditional reads).
+A fuller `EffectModel` view is still deferred until a rule needs more than
+those queries.
 
 `no-v-html` remains the reference AST-backed built-in rule. Phase 2 adds the Oxc
 adapter while keeping both dependency ASTs behind Vue Vet-owned facts.
@@ -424,11 +427,22 @@ project discovery and configuration
 ## Crate evolution
 
 Existing crates are `vue_vet_core`, `vue_vet_config`, `vue_vet_vize`,
-`vue_vet_oxc`, `vue_vet_reactivity`, `vue_vet_rules`, `vue_vet_practice`,
-`vue_vet_project`, `vue_vet_reporters`, `vue_vet_session`, and the `vue-vet` CLI.
+`vue_vet_oxc`, `vue_vet_reactivity`, `vue_vet_rule_query`, `vue_vet_rules`,
+`vue_vet_practice`, `vue_vet_project`, `vue_vet_reporters`, `vue_vet_session`,
+and the `vue-vet` CLI.
 New rule capabilities extend these semantic and product boundaries only when a
 working vertical slice exercises them; there is no separate pattern-engine
 boundary in the roadmap.
+
+`vue_vet_rule_query` is the workspace-internal fact-query layer used by
+`vue_vet_rules` and `vue_vet_practice`. It depends only on `vue_vet_core`,
+exposes no Vize or Oxc types, and is not published. Helpers return borrowed
+views (`&T` iterators, `MemberPath`). `RuleContext::script` / `template` /
+`source` / `file` yield the stored lifetime so `run_once` can report while
+walking those views. `SourceSpan` is `Copy` (four `usize`s); pass `call.span`
+into `report`. Put a helper there when two or more rules repeat the same
+block walk or control-flow predicate. Keep `vue_vet_core` as the published
+fact/diagnostic contract.
 
 `vue_vet_session` owns the long-lived project analysis handle: config load,
 cached/fresh scans, unsaved overlays, per-file fact state, reverse dependencies,

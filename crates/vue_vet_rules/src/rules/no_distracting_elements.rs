@@ -30,7 +30,7 @@ impl Rule for NoDistractingElements {
     }
     context.report(
       self.meta(),
-      element.span.clone(),
+      element.span,
       "distracting animated element is obsolete and inaccessible".into(),
       Some(
         "Use normal content and respect the user's reduced-motion preference for animation.".into(),

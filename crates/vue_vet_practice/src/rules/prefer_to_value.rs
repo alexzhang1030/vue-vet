@@ -53,11 +53,7 @@ impl Rule for PreferToValue {
       .blocks
       .iter()
       .flat_map(|block| {
-        block
-          .calls
-          .iter()
-          .filter(move |call| is_vue_unref_call(call, block))
-          .map(|call| call.span.clone())
+        block.calls.iter().filter(move |call| is_vue_unref_call(call, block)).map(|call| call.span)
       })
       .collect::<Vec<_>>();
     for span in findings {

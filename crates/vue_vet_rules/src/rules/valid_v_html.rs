@@ -37,7 +37,7 @@ impl Rule for ValidVHtml {
     }
     context.report(
       self.meta(),
-      directive.span.clone(),
+      directive.span,
       "invalid `v-html` usage".into(),
       Some(
         "Provide exactly one expression, no argument or modifiers, and no child content.".into(),

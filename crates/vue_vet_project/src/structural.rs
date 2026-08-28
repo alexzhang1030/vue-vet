@@ -92,13 +92,7 @@ pub fn analyze_structural_file(
     // while the real component lives beside it — also mark name-matched components.
     for to in auto_component_targets(&import.local, component_by_name) {
       if to != from {
-        output.edges.push(edge(
-          &from,
-          &to,
-          EdgeKind::ComponentUsage,
-          &import.local,
-          import.span.clone(),
-        ));
+        output.edges.push(edge(&from, &to, EdgeKind::ComponentUsage, &import.local, import.span));
       }
     }
     if import.imported != import.local {
@@ -109,7 +103,7 @@ pub fn analyze_structural_file(
             &to,
             EdgeKind::ComponentUsage,
             &import.imported,
-            import.span.clone(),
+            import.span,
           ));
         }
       }
@@ -117,7 +111,7 @@ pub fn analyze_structural_file(
     match resolver.resolve(&path, &import.source, known) {
       Resolution::File(target) => {
         if let Some(to) = node_by_path.get(target.as_str()) {
-          output.edges.push(edge(&from, to, EdgeKind::Import, &import.source, import.span.clone()));
+          output.edges.push(edge(&from, to, EdgeKind::Import, &import.source, import.span));
         }
         if module_ids.contains(target.as_str()) {
           let target_id = ModuleId::from(target.as_str());
@@ -140,13 +134,7 @@ pub fn analyze_structural_file(
           path: package.clone(),
           name: package,
         });
-        output.edges.push(edge(
-          &from,
-          &id,
-          EdgeKind::ExternalImport,
-          &import.source,
-          import.span.clone(),
-        ));
+        output.edges.push(edge(&from, &id, EdgeKind::ExternalImport, &import.source, import.span));
         if let Some(resolved_path) = resolved_path {
           for module_from in file_module_ids(file) {
             if module_ids.contains(module_from.as_str()) {
@@ -163,7 +151,7 @@ pub fn analyze_structural_file(
         output.diagnostics.push(unresolved_diagnostic(
           file.path.as_path(),
           &import.source,
-          import.span.clone(),
+          import.span,
         ));
       }
     }
@@ -175,30 +163,18 @@ pub fn analyze_structural_file(
       if let Resolution::File(target) = resolver.resolve(&path, &import.source, known)
         && let Some(to) = node_by_path.get(target.as_str())
       {
-        output.edges.push(edge(
-          &from,
-          to,
-          EdgeKind::ComponentUsage,
-          &element.tag,
-          element.span.clone(),
-        ));
+        output.edges.push(edge(&from, to, EdgeKind::ComponentUsage, &element.tag, element.span));
       }
     } else {
       for to in auto_component_targets(&element.tag, component_by_name) {
-        output.edges.push(edge(
-          &from,
-          &to,
-          EdgeKind::AutoComponent,
-          &element.tag,
-          element.span.clone(),
-        ));
+        output.edges.push(edge(&from, &to, EdgeKind::AutoComponent, &element.tag, element.span));
       }
     }
   }
 
   for call in file.facts.script.blocks.iter().flat_map(|block| &block.calls) {
     if let Some(to) = composable_by_name.get(call.callee.as_str()) {
-      output.edges.push(edge(&from, to, EdgeKind::AutoComposable, &call.callee, call.span.clone()));
+      output.edges.push(edge(&from, to, EdgeKind::AutoComposable, &call.callee, call.span));
     }
   }
   // Enrichment (`StructuralLink`): bare Nuxt / Vite auto-imports → `#nuxt-imports:` seeds.

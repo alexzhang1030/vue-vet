@@ -4,10 +4,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use vue_vet_core::{
   Confidence, FactKinds, FactRef, ReactiveBindingKind, ReactiveDependencyKind, ReactiveReadKind,
-  Rule, RuleContext, RuleMeta, ScriptKind, Severity,
+  Rule, RuleContext, RuleMeta, Severity,
 };
 
-use crate::rules::support::effect_family;
+use vue_vet_rule_query::{
+  effect_family, member_path, script_binding, setup_calls_after_first_top_level_await,
+  used_reactive_names,
+};
 
 const MULTI_EFFECT_META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-multiple-effects-same-target",
@@ -27,17 +30,16 @@ impl Rule for NoMultipleEffectsSameTarget {
   }
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
-    let mut findings = Vec::new();
     for block in &context.script().blocks {
-      let mut writers: BTreeMap<(String, Option<String>), usize> = BTreeMap::new();
-      let mut counts: BTreeMap<(String, Option<String>), usize> = BTreeMap::new();
+      let mut writers: BTreeMap<(&str, Option<&str>), usize> = BTreeMap::new();
+      let mut counts: BTreeMap<(&str, Option<&str>), usize> = BTreeMap::new();
       for scope in &block.reactivity_graph.scopes {
         if !effect_family(scope.kind) {
           continue;
         }
         for write in &scope.writes {
-          let key = (write.binding.clone(), write.property.clone());
-          *counts.entry(key.clone()).or_insert(0) += 1;
+          let key = (write.binding.as_str(), write.property.as_deref());
+          *counts.entry(key).or_insert(0) += 1;
           writers.entry(key).or_insert(write.span.offset);
         }
       }
@@ -48,29 +50,23 @@ impl Rule for NoMultipleEffectsSameTarget {
         let Some(&offset) = writers.get(&key) else {
           continue;
         };
-        let path = match &key.1 {
-          Some(property) => format!("{}.{property}", key.0),
-          None => key.0.clone(),
-        };
-        if let Some(span) = block
+        let Some(write) = block
           .reactivity_graph
           .scopes
           .iter()
           .flat_map(|scope| scope.writes.iter())
           .find(|write| write.span.offset == offset)
-          .map(|write| write.span.clone())
-        {
-          findings.push((span, path));
-        }
+        else {
+          continue;
+        };
+        let path = member_path(key.0, key.1);
+        context.report(
+          self.meta(),
+          write.span,
+          format!("multiple effects write `{path}`, which races updates to the same target"),
+          Some("Keep a single writer effect, or merge the updates into one scope.".into()),
+        );
       }
-    }
-    for (span, path) in findings {
-      context.report(
-        self.meta(),
-        span,
-        format!("multiple effects write `{path}`, which races updates to the same target"),
-        Some("Keep a single writer effect, or merge the updates into one scope.".into()),
-      );
     }
   }
 }
@@ -107,7 +103,7 @@ impl Rule for NoPropsSnapshotInRef {
     }
     context.report(
       self.meta(),
-      call.span.clone(),
+      call.span,
       format!("`{}(props…)` snapshots props and loses reactivity", call.callee),
       Some(
         "Use `toRef(props, 'field')`, `toRefs(props)`, or read `props.field` inside computed/watch."
@@ -170,7 +166,7 @@ impl Rule for NoVModelNonreactiveSource {
     }
     context.report(
       self.meta(),
-      model.span.clone(),
+      model.span,
       format!("`v-model=\"{name}\"` binds a non-reactive script value"),
       Some(format!("Make `{name}` a `ref` / `computed`, or bind a reactive property.")),
     );
@@ -194,7 +190,6 @@ impl Rule for NoStalePropFlow {
   }
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
-    let mut findings = Vec::new();
     for block in &context.script().blocks {
       let reactive_names: BTreeSet<&str> =
         block.reactivity_graph.bindings.iter().map(|binding| binding.name.as_str()).collect();
@@ -212,18 +207,20 @@ impl Rule for NoStalePropFlow {
         {
           continue;
         }
-        findings.push((edge.span.clone(), edge.from.clone(), edge.to_path()));
+        context.report(
+          self.meta(),
+          edge.span,
+          format!(
+            "prop flow `{}` → `{}` does not start from a reactive binding",
+            edge.from,
+            edge.to_path()
+          ),
+          Some(
+            "Pass a ref/computed/reactive field, or read the source inside a tracking scope."
+              .into(),
+          ),
+        );
       }
-    }
-    for (span, from, to) in findings {
-      context.report(
-        self.meta(),
-        span,
-        format!("prop flow `{from}` → `{to}` does not start from a reactive binding"),
-        Some(
-          "Pass a ref/computed/reactive field, or read the source inside a tracking scope.".into(),
-        ),
-      );
     }
   }
 }
@@ -245,45 +242,26 @@ impl Rule for NoUnusedComputedBinding {
   }
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
-    let mut findings = Vec::new();
     for block in &context.script().blocks {
-      let mut used = BTreeSet::new();
-      for read in &block.reactivity_graph.template_reads {
-        used.insert(read.binding.as_str());
-      }
-      for scope in &block.reactivity_graph.scopes {
-        for read in &scope.reads {
-          used.insert(read.binding.as_str());
-        }
-        for write in &scope.writes {
-          used.insert(write.binding.as_str());
-        }
-      }
-      for edge in &block.reactivity_graph.edges {
-        used.insert(edge.to.as_str());
-      }
+      let used = used_reactive_names(&block.reactivity_graph);
       for binding in &block.reactivity_graph.bindings {
         if binding.kind != ReactiveBindingKind::Computed || used.contains(binding.name.as_str()) {
           continue;
         }
         // Cross-module / bare auto-import seeds have no local symbol.
-        let Some(script_binding) = block.bindings.iter().find(|item| item.name == binding.name)
-        else {
+        let Some(local) = script_binding(block, &binding.name) else {
           continue;
         };
-        if script_binding.reads != 0 {
+        if local.reads != 0 {
           continue;
         }
-        findings.push(binding.span.clone());
+        context.report(
+          self.meta(),
+          binding.span,
+          "computed binding is never read in script or template".into(),
+          Some("Remove the unused computed, or read it from template / another scope.".into()),
+        );
       }
-    }
-    for span in findings {
-      context.report(
-        self.meta(),
-        span,
-        "computed binding is never read in script or template".into(),
-        Some("Remove the unused computed, or read it from template / another scope.".into()),
-      );
     }
   }
 }
@@ -321,7 +299,7 @@ impl Rule for PreferExplicitSourcesForConditionalDeps {
     }
     context.report(
       self.meta(),
-      scope.span.clone(),
+      scope.span,
       format!("`{}` has conditional reactive reads; prefer explicit `watch` sources", scope.callee),
       Some(
         "List every dependency in `watch([...])` / getter sources when control flow guards reads."
@@ -348,24 +326,10 @@ macro_rules! macro_after_await {
       }
 
       fn run_once(&self, context: &mut RuleContext<'_>) {
-        let mut findings = Vec::new();
-        for block in &context.script().blocks {
-          if block.kind != ScriptKind::Setup || block.top_level_await_ends.is_empty() {
-            continue;
-          }
-          let Some(first) = block.top_level_await_ends.first().copied() else {
-            continue;
-          };
-          for call in &block.calls {
-            if call.callee == $callee && call.span.offset >= first {
-              findings.push(call.span.clone());
-            }
-          }
-        }
-        for span in findings {
+        for call in setup_calls_after_first_top_level_await(context.script(), $callee) {
           context.report(
             self.meta(),
-            span,
+            call.span,
             format!("`{}` after top-level `await` is invalid in `<script setup>`", $callee),
             Some(format!("Move `{}` before the first top-level `await`.", $callee)),
           );

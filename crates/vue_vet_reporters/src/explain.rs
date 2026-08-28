@@ -68,7 +68,7 @@ pub fn explain_finding(
   FindingExplain {
     id: id.into(),
     file: file.into(),
-    span: diagnostic.span.clone(),
+    span: diagnostic.span,
     severity: diagnostic.severity,
     confidence: diagnostic.confidence,
     message: diagnostic.message.clone(),

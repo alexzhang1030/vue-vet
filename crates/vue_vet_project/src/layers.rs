@@ -157,7 +157,7 @@ pub fn apply_template_prop_layers(
       let parent_facts = ordered.iter().find(|file| file.path.as_str() == parent_path)?;
       let parent_graph = graph_snapshots.get(parent_path)?;
       Some(PropFlowSite {
-        element_span: edge.evidence.clone(),
+        element_span: edge.evidence,
         parent_template: &parent_facts.facts.template,
         parent_graph,
         child_module: child_path,

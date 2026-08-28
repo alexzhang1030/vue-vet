@@ -55,9 +55,8 @@ impl Rule for VueuseUseDebounceFn {
           callee_is(&call.callee, "clearTimeout")
             && call.argument_identifiers.iter().any(|name| name == timer)
         });
-        linked_clear.then(|| {
-          (set_timeout.span.clone(), vueuse_help(&environment, block, RECIPE.recommend.export))
-        })
+        linked_clear
+          .then(|| (set_timeout.span, vueuse_help(&environment, block, RECIPE.recommend.export)))
       })
       .collect::<Vec<_>>();
     for (span, help) in findings {

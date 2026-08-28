@@ -1,4 +1,5 @@
-use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, ScriptKind, Severity};
+use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, Severity};
+use vue_vet_rule_query::{block_calls, setup_blocks};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/correctness/no-mutating-props",
@@ -18,38 +19,24 @@ impl Rule for NoMutatingProps {
   }
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
-    let prop_bindings: Vec<String> = context
-      .script()
-      .blocks
-      .iter()
-      .filter(|block| block.kind == ScriptKind::Setup)
+    let script = context.script();
+    let prop_bindings: Vec<&str> = setup_blocks(script)
       .flat_map(|block| {
-        block
-          .calls
-          .iter()
-          .filter(|call| call.callee == "defineProps")
-          .filter_map(|call| call.assigned_to.clone())
+        block_calls(block, "defineProps").filter_map(|call| call.assigned_to.as_deref())
       })
       .collect();
     if prop_bindings.is_empty() {
       return;
     }
-    let spans: Vec<_> = context
-      .script()
-      .blocks
-      .iter()
-      .filter(|block| block.kind == ScriptKind::Setup)
-      .flat_map(|block| &block.member_writes)
-      .filter(|write| prop_bindings.iter().any(|name| name == &write.object))
-      .map(|write| write.span.clone())
-      .collect();
-    for span in spans {
-      context.report(
-        self.meta(),
-        span,
-        "props are readonly and must not be mutated".into(),
-        Some("Emit an event or copy the prop into local state owned by this component.".into()),
-      );
+    for write in setup_blocks(script).flat_map(|block| block.member_writes.iter()) {
+      if prop_bindings.iter().any(|name| write.object == *name) {
+        context.report(
+          self.meta(),
+          write.span,
+          "props are readonly and must not be mutated".into(),
+          Some("Emit an event or copy the prop into local state owned by this component.".into()),
+        );
+      }
     }
   }
 }

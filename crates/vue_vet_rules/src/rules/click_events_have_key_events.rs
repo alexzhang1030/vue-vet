@@ -34,8 +34,7 @@ impl Rule for ClickEventsHaveKeyEvents {
     {
       return;
     }
-    let span =
-      element.event("click").map_or_else(|| element.span.clone(), |event| event.span.clone());
+    let span = element.event("click").map_or_else(|| element.span, |event| event.span);
     context.report(
       self.meta(),
       span,

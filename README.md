@@ -123,6 +123,8 @@ vue_vet_project      deterministic Vue/Nuxt graph and cross-file findings
       |
 vue_vet_rules        deterministic high-confidence rule registry
       |
+vue_vet_rule_query   shared fact queries for rules (blocks, after-await, guards)
+      |
 vue_vet_core         diagnostics, spans, scoring, edits, stable public model
       |
 vue_vet_reporters    deterministic text, JSON, SARIF, and GitHub rendering

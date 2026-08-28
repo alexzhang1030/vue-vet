@@ -33,7 +33,7 @@ impl Rule for NoVIfWithVFor {
     }
     context.report(
       self.meta(),
-      directive.span.clone(),
+      directive.span,
       "`v-if` and `v-for` on the same element have surprising precedence".into(),
       Some("Move `v-if` to a wrapping `<template>` or pre-filter the collection.".into()),
     );

@@ -33,7 +33,7 @@ impl Rule for IframeHasTitle {
     }
     context.report(
       self.meta(),
-      element.span.clone(),
+      element.span,
       "iframe is missing a `title` attribute".into(),
       Some("Add a concise title describing the embedded content.".into()),
     );

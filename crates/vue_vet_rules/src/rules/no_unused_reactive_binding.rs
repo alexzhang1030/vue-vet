@@ -1,8 +1,7 @@
 use std::collections::BTreeSet;
 
-use vue_vet_core::{
-  Confidence, ReactiveBindingKind, Rule, RuleContext, RuleMeta, Severity, TemplateElementFact,
-};
+use vue_vet_core::{Confidence, ReactiveBindingKind, Rule, RuleContext, RuleMeta, Severity};
+use vue_vet_rule_query::{script_binding, static_template_ref_names, used_reactive_names};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-unused-reactive-binding",
@@ -23,28 +22,14 @@ impl Rule for NoUnusedReactiveBinding {
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
     // Cross-fact aggregation across template + scopes + edges + script reads.
-    let template_ref_names = static_template_ref_names(context.template().elements.as_slice());
-    let mut findings = Vec::new();
+    let template_ref_names: BTreeSet<&str> =
+      static_template_ref_names(&context.template().elements)
+        .filter(|value| !value.is_empty())
+        .collect();
     for block in &context.script().blocks {
       let graph = &block.reactivity_graph;
-      let mut used = BTreeSet::new();
-      for read in &graph.template_reads {
-        used.insert(read.binding.as_str());
-      }
-      for scope in &graph.scopes {
-        for read in &scope.reads {
-          used.insert(read.binding.as_str());
-        }
-        for write in &scope.writes {
-          used.insert(write.binding.as_str());
-        }
-      }
-      for edge in &graph.edges {
-        used.insert(edge.to.as_str());
-      }
-      for name in &template_ref_names {
-        used.insert(name.as_str());
-      }
+      let mut used = used_reactive_names(graph);
+      used.extend(template_ref_names.iter().copied());
       for binding in &graph.bindings {
         if !is_local_value_binding(binding.kind) || used.contains(binding.name.as_str()) {
           continue;
@@ -52,28 +37,26 @@ impl Rule for NoUnusedReactiveBinding {
         // Cross-module / bare auto-import seeds have no local symbol — they are
         // not "unused local bindings" (e.g. Nuxt `currentUser` used once at
         // top-level). Only report when Oxc recorded a local binding.
-        let Some(script_binding) =
-          block.bindings.iter().find(|script_binding| script_binding.name == binding.name)
-        else {
+        let Some(local) = script_binding(block, &binding.name) else {
           continue;
         };
-        if script_binding.reads != 0 {
+        if local.reads != 0 {
           continue;
         }
-        findings.push((binding.span.clone(), binding.name.clone(), binding.kind));
+        let kind_label = binding_kind_label(binding.kind);
+        context.report(
+          self.meta(),
+          binding.span,
+          format!(
+            "reactive binding `{}` ({kind_label}) is never read in script or template",
+            binding.name
+          ),
+          Some(
+            "Remove the unused binding, or read it from a tracking scope, template expression, or other script use."
+              .into(),
+          ),
+        );
       }
-    }
-    for (span, name, kind) in findings {
-      let kind_label = binding_kind_label(kind);
-      context.report(
-        self.meta(),
-        span,
-        format!("reactive binding `{name}` ({kind_label}) is never read in script or template"),
-        Some(
-          "Remove the unused binding, or read it from a tracking scope, template expression, or other script use."
-            .into(),
-        ),
-      );
     }
   }
 }
@@ -106,13 +89,4 @@ const fn binding_kind_label(kind: ReactiveBindingKind) -> &'static str {
     ReactiveBindingKind::TemplateRef => "useTemplateRef",
     ReactiveBindingKind::ModelRef => "defineModel",
   }
-}
-
-fn static_template_ref_names(elements: &[TemplateElementFact]) -> BTreeSet<String> {
-  elements
-    .iter()
-    .filter_map(|element| element.attribute("ref"))
-    .filter_map(|attribute| attribute.value.clone())
-    .filter(|value| !value.is_empty())
-    .collect()
 }

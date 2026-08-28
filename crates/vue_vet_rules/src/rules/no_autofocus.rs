@@ -36,22 +36,22 @@ impl Rule for NoAutofocus {
         .into(),
     );
     if attribute.value.is_none() {
-      let range = removal_range(context.source(), &attribute.span);
+      let range = removal_range(context.source(), attribute.span);
       context.report_with_safe_edit(
         self.meta(),
-        attribute.span.clone(),
+        attribute.span,
         message,
         help,
         range,
         String::new(),
       );
     } else {
-      context.report(self.meta(), attribute.span.clone(), message, help);
+      context.report(self.meta(), attribute.span, message, help);
     }
   }
 }
 
-fn removal_range(source: &str, span: &SourceSpan) -> ByteRange {
+fn removal_range(source: &str, span: SourceSpan) -> ByteRange {
   let bytes = source.as_bytes();
   let mut offset = span.offset;
   while offset > 0

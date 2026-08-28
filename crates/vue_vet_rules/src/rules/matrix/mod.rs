@@ -4,11 +4,12 @@
 
 use vue_vet_core::{
   Confidence, FactKinds, FactRef, ReactiveBindingKind, ReactiveReadKind, Rule, RuleContext,
-  RuleMeta, ScriptKind, Severity, TrackingScopeKind,
+  RuleMeta, Severity, TrackingScopeKind,
 };
 
-use crate::rules::support::{
-  binding_path, effect_family, is_readonly_kind, unconditional_self_triggers, write_path,
+use vue_vet_rule_query::{
+  binding_path, effect_family, has_prior_unconditional_read, is_readonly_kind, reactive_binding,
+  script_block, setup_calls_after_first_top_level_await, unconditional_self_triggers, write_path,
 };
 
 struct BoundaryRule {
@@ -39,21 +40,15 @@ impl Rule for BoundaryRule {
       if read.kind != self.read_kind {
         continue;
       }
-      if self.read_kind == ReactiveReadKind::Conditional {
-        let already = scope.reads.iter().any(|candidate| {
-          candidate.kind == ReactiveReadKind::Unconditional
-            && candidate.span.offset < read.span.offset
-            && candidate.binding == read.binding
-            && candidate.property == read.property
-        });
-        if already {
-          continue;
-        }
+      if self.read_kind == ReactiveReadKind::Conditional
+        && has_prior_unconditional_read(&scope.reads, read)
+      {
+        continue;
       }
       let path = binding_path(read);
       context.report(
         self.meta(),
-        read.span.clone(),
+        read.span,
         format!(
           "`{path}` is read {reason} inside {label}, so it is not a reliable dependency",
           reason = self.reason,
@@ -179,25 +174,10 @@ impl Rule for AfterAwaitCallRule {
   }
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
-    let mut findings = Vec::new();
-    for block in &context.script().blocks {
-      if block.kind != ScriptKind::Setup || block.top_level_await_ends.is_empty() {
-        continue;
-      }
-      let Some(first_await_end) = block.top_level_await_ends.first().copied() else {
-        continue;
-      };
-      for call in &block.calls {
-        if call.callee != self.callee || call.span.offset < first_await_end {
-          continue;
-        }
-        findings.push(call.span.clone());
-      }
-    }
-    for span in findings {
+    for call in setup_calls_after_first_top_level_await(context.script(), self.callee) {
       context.report(
         self.meta(),
-        span,
+        call.span,
         format!(
           "`{}` is registered after a top-level `await`, so it will not bind to this instance",
           self.callee
@@ -434,7 +414,7 @@ impl Rule for PathologyRule {
           let path = binding_path(read);
           context.report(
             self.meta(),
-            read.span.clone(),
+            read.span,
             format!(
               "`{path}` is read and written in the same tracking scope, which can self-trigger"
             ),
@@ -448,7 +428,7 @@ impl Rule for PathologyRule {
         for write in &scope.writes {
           context.report(
             self.meta(),
-            write.span.clone(),
+            write.span,
             format!("computed getter writes `{}`, which is a side effect", write_path(write)),
             Some("Keep computed getters pure; move writes into `watch` / event handlers.".into()),
           );
@@ -467,7 +447,7 @@ impl Rule for PathologyRule {
           &scope.uncertain_accesses,
           "Effects without reactive reads never re-run; use a plain function or explicit trigger.",
         );
-        context.report(self.meta(), scope.span.clone(), message, help);
+        context.report(self.meta(), scope.span, message, help);
       }
       PathologyKind::NoDependency => {
         if !scope.reads.is_empty() {
@@ -479,26 +459,25 @@ impl Rule for PathologyRule {
           &scope.uncertain_accesses,
           "Return a plain value, or read reactive state inside the getter.",
         );
-        context.report(self.meta(), scope.span.clone(), message, help);
+        context.report(self.meta(), scope.span, message, help);
       }
       PathologyKind::PreferWatchSingle => {
         if !scope.assignment_only {
           return;
         }
-        if scope.reads.iter().any(|read| read.kind != ReactiveReadKind::Unconditional) {
+        if scope.reads.len() != 1 {
           return;
         }
-        let unconditional: Vec<_> = scope.reads.iter().collect();
-        if unconditional.len() != 1 {
-          return;
-        }
-        let Some(read) = unconditional.first() else {
+        let Some(read) = scope.reads.first() else {
           return;
         };
+        if read.kind != ReactiveReadKind::Unconditional {
+          return;
+        }
         let path = binding_path(read);
         context.report(
           self.meta(),
-          scope.span.clone(),
+          scope.span,
           format!(
             "`{}` only tracks `{path}`; prefer `watch` with an explicit source",
             scope.callee
@@ -517,7 +496,7 @@ impl Rule for PathologyRule {
         }
         context.report(
           self.meta(),
-          scope.span.clone(),
+          scope.span,
           format!(
             "`{}` is assignment-only but tracks at least one conditional dependency",
             scope.callee
@@ -532,7 +511,7 @@ impl Rule for PathologyRule {
           let path = binding_path(read);
           context.report(
             self.meta(),
-            read.span.clone(),
+            read.span,
             format!("`{path}` is read in `onScopeDispose`, which is not a tracking scope"),
             Some(
               "Capture values before dispose, or clean up without relying on reactive tracking."
@@ -551,7 +530,7 @@ impl Rule for PathologyRule {
           &scope.uncertain_accesses,
           "Pass a ref, a getter, or an array of sources that read reactive state.",
         );
-        context.report(self.meta(), scope.span.clone(), message, help);
+        context.report(self.meta(), scope.span, message, help);
       }
     }
   }
@@ -696,7 +675,6 @@ impl Rule for WatchCallbackTrackingRule {
   }
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
-    let mut findings = Vec::new();
     for block in &context.script().blocks {
       let scopes = &block.reactivity_graph.scopes;
       let mut index = 0;
@@ -712,19 +690,16 @@ impl Rule for WatchCallbackTrackingRule {
           && sources.reads.is_empty()
           && !callback.reads.is_empty()
         {
-          findings.push((callback.span.clone(), sources.uncertain_accesses.clone()));
+          let (message, help) = absence_finding(
+            "reactive reads in a `watch` callback are not tracked for invalidation",
+            "reactive reads in a `watch` callback may not be tracked for invalidation",
+            &sources.uncertain_accesses,
+            "List dependencies in the `watch` source argument; the callback is a side-effect sink.",
+          );
+          context.report(self.meta(), callback.span, message, help);
         }
         index += 1;
       }
-    }
-    for (span, uncertain) in findings {
-      let (message, help) = absence_finding(
-        "reactive reads in a `watch` callback are not tracked for invalidation",
-        "reactive reads in a `watch` callback may not be tracked for invalidation",
-        &uncertain,
-        "List dependencies in the `watch` source argument; the callback is a side-effect sink.",
-      );
-      context.report(self.meta(), span, message, help);
     }
   }
 }
@@ -761,12 +736,7 @@ impl Rule for DestructureSourceRule {
     if !matched {
       return;
     }
-    context.report(
-      self.meta(),
-      destructure.span.clone(),
-      self.message.into(),
-      Some(self.help.into()),
-    );
+    context.report(self.meta(), destructure.span, self.message.into(), Some(self.help.into()));
   }
 }
 
@@ -853,12 +823,10 @@ impl Rule for RefOperandRule {
     let FactRef::ScriptOperand { block_kind, operand } = fact else {
       return;
     };
-    let Some(block) = context.script().blocks.iter().find(|block| block.kind == block_kind) else {
+    let Some(block) = script_block(context.script(), block_kind) else {
       return;
     };
-    let Some(binding) =
-      block.reactivity_graph.bindings.iter().find(|binding| binding.name == operand.name)
-    else {
+    let Some(binding) = reactive_binding(block, &operand.name) else {
       return;
     };
     if !self.kinds.contains(&binding.kind) {
@@ -866,7 +834,7 @@ impl Rule for RefOperandRule {
     }
     context.report(
       self.meta(),
-      operand.span.clone(),
+      operand.span,
       format!(
         "`{}` is a {} object used as an operand; unwrap with `.value` (or `toValue`)",
         operand.name, self.label
@@ -938,12 +906,10 @@ impl Rule for ReadonlyMutationRule {
     let FactRef::ScriptMemberWrite { block_kind, write } = fact else {
       return;
     };
-    let Some(block) = context.script().blocks.iter().find(|block| block.kind == block_kind) else {
+    let Some(block) = script_block(context.script(), block_kind) else {
       return;
     };
-    let Some(binding) =
-      block.reactivity_graph.bindings.iter().find(|binding| binding.name == write.object)
-    else {
+    let Some(binding) = reactive_binding(block, &write.object) else {
       return;
     };
     if !is_readonly_kind(binding.kind) {
@@ -951,7 +917,7 @@ impl Rule for ReadonlyMutationRule {
     }
     context.report(
       self.meta(),
-      write.span.clone(),
+      write.span,
       format!("`{}` is readonly and should not be mutated", write.object),
       Some("Mutate the source reactive state instead of a readonly projection.".into()),
     );

@@ -132,7 +132,7 @@ fn collect_prop_edges(
       )),
       property: Some(prop_name.to_owned()),
       kind: ReactiveDependencyKind::Prop,
-      span: directive.span.clone(),
+      span: directive.span,
     });
   }
   edges
