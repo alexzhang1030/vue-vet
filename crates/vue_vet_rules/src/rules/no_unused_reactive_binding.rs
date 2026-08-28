@@ -1,9 +1,7 @@
 use std::collections::BTreeSet;
 
-use vue_vet_core::{
-  Confidence, ReactiveBindingKind, Rule, RuleContext, RuleMeta, Severity, TemplateElementFact,
-};
-use vue_vet_rule_query::{script_binding, used_reactive_names};
+use vue_vet_core::{Confidence, ReactiveBindingKind, Rule, RuleContext, RuleMeta, Severity};
+use vue_vet_rule_query::{script_binding, static_template_ref_names, used_reactive_names};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-unused-reactive-binding",
@@ -24,14 +22,14 @@ impl Rule for NoUnusedReactiveBinding {
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
     // Cross-fact aggregation across template + scopes + edges + script reads.
-    let template_ref_names = static_template_ref_names(context.template().elements.as_slice());
-    let mut findings = Vec::new();
+    let template_ref_names: BTreeSet<&str> =
+      static_template_ref_names(&context.template().elements)
+        .filter(|value| !value.is_empty())
+        .collect();
     for block in &context.script().blocks {
       let graph = &block.reactivity_graph;
       let mut used = used_reactive_names(graph);
-      for name in &template_ref_names {
-        used.insert(name.as_str());
-      }
+      used.extend(template_ref_names.iter().copied());
       for binding in &graph.bindings {
         if !is_local_value_binding(binding.kind) || used.contains(binding.name.as_str()) {
           continue;
@@ -45,20 +43,20 @@ impl Rule for NoUnusedReactiveBinding {
         if local.reads != 0 {
           continue;
         }
-        findings.push((binding.span.clone(), binding.name.clone(), binding.kind));
+        let kind_label = binding_kind_label(binding.kind);
+        context.report(
+          self.meta(),
+          binding.span.clone(),
+          format!(
+            "reactive binding `{}` ({kind_label}) is never read in script or template",
+            binding.name
+          ),
+          Some(
+            "Remove the unused binding, or read it from a tracking scope, template expression, or other script use."
+              .into(),
+          ),
+        );
       }
-    }
-    for (span, name, kind) in findings {
-      let kind_label = binding_kind_label(kind);
-      context.report(
-        self.meta(),
-        span,
-        format!("reactive binding `{name}` ({kind_label}) is never read in script or template"),
-        Some(
-          "Remove the unused binding, or read it from a tracking scope, template expression, or other script use."
-            .into(),
-        ),
-      );
     }
   }
 }
@@ -91,13 +89,4 @@ const fn binding_kind_label(kind: ReactiveBindingKind) -> &'static str {
     ReactiveBindingKind::TemplateRef => "useTemplateRef",
     ReactiveBindingKind::ModelRef => "defineModel",
   }
-}
-
-fn static_template_ref_names(elements: &[TemplateElementFact]) -> BTreeSet<String> {
-  elements
-    .iter()
-    .filter_map(|element| element.attribute("ref"))
-    .filter_map(|attribute| attribute.value.clone())
-    .filter(|value| !value.is_empty())
-    .collect()
 }

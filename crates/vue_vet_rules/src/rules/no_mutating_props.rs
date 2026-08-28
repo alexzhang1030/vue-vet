@@ -19,26 +19,24 @@ impl Rule for NoMutatingProps {
   }
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
-    let prop_bindings: Vec<String> = setup_blocks(context.script())
+    let script = context.script();
+    let prop_bindings: Vec<&str> = setup_blocks(script)
       .flat_map(|block| {
-        block_calls(block, "defineProps").filter_map(|call| call.assigned_to.clone())
+        block_calls(block, "defineProps").filter_map(|call| call.assigned_to.as_deref())
       })
       .collect();
     if prop_bindings.is_empty() {
       return;
     }
-    let spans: Vec<_> = setup_blocks(context.script())
-      .flat_map(|block| &block.member_writes)
-      .filter(|write| prop_bindings.iter().any(|name| name == &write.object))
-      .map(|write| write.span.clone())
-      .collect();
-    for span in spans {
-      context.report(
-        self.meta(),
-        span,
-        "props are readonly and must not be mutated".into(),
-        Some("Emit an event or copy the prop into local state owned by this component.".into()),
-      );
+    for write in setup_blocks(script).flat_map(|block| block.member_writes.iter()) {
+      if prop_bindings.iter().any(|name| write.object == *name) {
+        context.report(
+          self.meta(),
+          write.span.clone(),
+          "props are readonly and must not be mutated".into(),
+          Some("Emit an event or copy the prop into local state owned by this component.".into()),
+        );
+      }
     }
   }
 }

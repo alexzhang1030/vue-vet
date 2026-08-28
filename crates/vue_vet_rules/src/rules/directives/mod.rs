@@ -571,7 +571,6 @@ impl Rule for NoDuplicateDefineModel {
   }
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
-    let mut findings = Vec::new();
     for block in setup_blocks(context.script()) {
       let mut seen = std::collections::BTreeSet::new();
       for call in &block.calls {
@@ -580,18 +579,15 @@ impl Rule for NoDuplicateDefineModel {
         }
         // Under-approx identity: assignee name, else empty (default modelValue).
         let key = call.assigned_to.as_deref().unwrap_or("");
-        if !seen.insert(key.to_owned()) {
-          findings.push(call.span.clone());
+        if !seen.insert(key) {
+          context.report(
+            self.meta(),
+            call.span.clone(),
+            "duplicate `defineModel` declaration".into(),
+            Some("Keep a single `defineModel` per model name.".into()),
+          );
         }
       }
-    }
-    for span in findings {
-      context.report(
-        self.meta(),
-        span,
-        "duplicate `defineModel` declaration".into(),
-        Some("Keep a single `defineModel` per model name.".into()),
-      );
     }
   }
 }

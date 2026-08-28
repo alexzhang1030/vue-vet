@@ -19,12 +19,10 @@ impl Rule for NoDuplicateDefineOptions {
   }
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
-    let spans: Vec<_> =
-      extra_setup_calls(context.script(), "defineOptions").map(|call| call.span.clone()).collect();
-    for span in spans {
+    for call in extra_setup_calls(context.script(), "defineOptions") {
       context.report(
         self.meta(),
-        span,
+        call.span.clone(),
         "`defineOptions` may only be called once in `<script setup>`".into(),
         Some("Merge the declarations into a single `defineOptions` call.".into()),
       );

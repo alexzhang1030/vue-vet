@@ -174,13 +174,10 @@ impl Rule for AfterAwaitCallRule {
   }
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
-    let findings: Vec<_> = setup_calls_after_first_top_level_await(context.script(), self.callee)
-      .map(|call| call.span.clone())
-      .collect();
-    for span in findings {
+    for call in setup_calls_after_first_top_level_await(context.script(), self.callee) {
       context.report(
         self.meta(),
-        span,
+        call.span.clone(),
         format!(
           "`{}` is registered after a top-level `await`, so it will not bind to this instance",
           self.callee
@@ -468,16 +465,15 @@ impl Rule for PathologyRule {
         if !scope.assignment_only {
           return;
         }
-        if scope.reads.iter().any(|read| read.kind != ReactiveReadKind::Unconditional) {
+        if scope.reads.len() != 1 {
           return;
         }
-        let unconditional: Vec<_> = scope.reads.iter().collect();
-        if unconditional.len() != 1 {
-          return;
-        }
-        let Some(read) = unconditional.first() else {
+        let Some(read) = scope.reads.first() else {
           return;
         };
+        if read.kind != ReactiveReadKind::Unconditional {
+          return;
+        }
         let path = binding_path(read);
         context.report(
           self.meta(),
@@ -679,7 +675,6 @@ impl Rule for WatchCallbackTrackingRule {
   }
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
-    let mut findings = Vec::new();
     for block in &context.script().blocks {
       let scopes = &block.reactivity_graph.scopes;
       let mut index = 0;
@@ -695,19 +690,16 @@ impl Rule for WatchCallbackTrackingRule {
           && sources.reads.is_empty()
           && !callback.reads.is_empty()
         {
-          findings.push((callback.span.clone(), sources.uncertain_accesses.clone()));
+          let (message, help) = absence_finding(
+            "reactive reads in a `watch` callback are not tracked for invalidation",
+            "reactive reads in a `watch` callback may not be tracked for invalidation",
+            &sources.uncertain_accesses,
+            "List dependencies in the `watch` source argument; the callback is a side-effect sink.",
+          );
+          context.report(self.meta(), callback.span.clone(), message, help);
         }
         index += 1;
       }
-    }
-    for (span, uncertain) in findings {
-      let (message, help) = absence_finding(
-        "reactive reads in a `watch` callback are not tracked for invalidation",
-        "reactive reads in a `watch` callback may not be tracked for invalidation",
-        &uncertain,
-        "List dependencies in the `watch` source argument; the callback is a side-effect sink.",
-      );
-      context.report(self.meta(), span, message, help);
     }
   }
 }

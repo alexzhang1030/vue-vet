@@ -436,9 +436,13 @@ boundary in the roadmap.
 
 `vue_vet_rule_query` is the workspace-internal fact-query layer used by
 `vue_vet_rules` and `vue_vet_practice`. It depends only on `vue_vet_core`,
-exposes no Vize or Oxc types, and is not published. Put a helper there when
-two or more rules repeat the same block walk or control-flow predicate.
-Keep `vue_vet_core` as the published fact/diagnostic contract.
+exposes no Vize or Oxc types, and is not published. Helpers return borrowed
+views (`&T` iterators, `MemberPath`). `RuleContext::script` / `template` /
+`source` / `file` yield the stored lifetime so `run_once` can report while
+walking those views. Own a `SourceSpan` only when `report` takes it. Put a
+helper there when two or more rules repeat the same block walk or
+control-flow predicate. Keep `vue_vet_core` as the published fact/diagnostic
+contract.
 
 `vue_vet_session` owns the long-lived project analysis handle: config load,
 cached/fresh scans, unsaved overlays, per-file fact state, reverse dependencies,

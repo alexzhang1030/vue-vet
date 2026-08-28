@@ -19,12 +19,10 @@ impl Rule for NoDuplicateDefineSlots {
   }
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
-    let spans: Vec<_> =
-      extra_setup_calls(context.script(), "defineSlots").map(|call| call.span.clone()).collect();
-    for span in spans {
+    for call in extra_setup_calls(context.script(), "defineSlots") {
       context.report(
         self.meta(),
-        span,
+        call.span.clone(),
         "`defineSlots` may only be called once in `<script setup>`".into(),
         Some("Merge the declarations into a single `defineSlots` call.".into()),
       );

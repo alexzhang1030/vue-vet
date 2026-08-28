@@ -2,7 +2,9 @@
 
 use std::collections::BTreeSet;
 
-use vue_vet_core::{ReactiveBindingFact, ReactivityGraph, ScriptBindingFact, ScriptBlockFacts};
+use vue_vet_core::{
+  ReactiveBindingFact, ReactivityGraph, ScriptBindingFact, ScriptBlockFacts, TemplateElementFact,
+};
 
 /// Binding / write / edge-target names that count as a use of a reactive local.
 ///
@@ -27,6 +29,14 @@ pub fn used_reactive_names(graph: &ReactivityGraph) -> BTreeSet<&str> {
     used.insert(edge.to.as_str());
   }
   used
+}
+
+/// Static `ref="…"` attribute values in source order.
+pub fn static_template_ref_names(elements: &[TemplateElementFact]) -> impl Iterator<Item = &str> {
+  elements
+    .iter()
+    .filter_map(|element| element.attribute("ref"))
+    .filter_map(|attribute| attribute.value.as_deref())
 }
 
 #[must_use]

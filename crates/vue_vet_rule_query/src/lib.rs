@@ -12,10 +12,11 @@ pub use blocks::{
   block_calls, extra_setup_calls, first_top_level_await_end, is_setup_block, script_block,
   script_has_call, setup_blocks, setup_calls_after_first_top_level_await,
 };
-pub use graph::{reactive_binding, script_binding, used_reactive_names};
+pub use graph::{reactive_binding, script_binding, static_template_ref_names, used_reactive_names};
 pub use reads::{
-  binding_path, effect_family, guard_path, has_prior_unconditional_read, is_readonly_kind,
-  member_path, same_target, unconditional_self_triggers, unguarded_conditional_reads, write_path,
+  MemberPath, binding_path, effect_family, guard_path, has_prior_unconditional_read,
+  is_readonly_kind, join_member_paths, member_path, same_target, unconditional_self_triggers,
+  unguarded_conditional_reads, write_path,
 };
 
 #[cfg(test)]
@@ -143,9 +144,9 @@ mod tests {
     let earlier_conditional = read("count", Some("value"), ReactiveReadKind::Conditional, 1);
     let reads = vec![
       read("count", Some("value"), ReactiveReadKind::Unconditional, 2),
-      same_later.clone(),
-      other.clone(),
-      earlier_conditional.clone(),
+      read("count", Some("value"), ReactiveReadKind::Conditional, 8),
+      read("other", Some("value"), ReactiveReadKind::Conditional, 9),
+      read("count", Some("value"), ReactiveReadKind::Conditional, 1),
     ];
     assert!(has_prior_unconditional_read(&reads, &same_later));
     assert!(!has_prior_unconditional_read(&reads, &other));
@@ -217,6 +218,11 @@ mod tests {
     let read = read("count", Some("value"), ReactiveReadKind::Unconditional, 0);
     assert_eq!(binding_path(&read), "count.value");
     assert_eq!(member_path("count", None), "count");
+    assert_ne!(member_path("ab", Some("c")), "abXc");
+    assert_eq!(
+      join_member_paths([member_path("ready", None), binding_path(&read)], "`, `"),
+      "ready`, `count.value"
+    );
   }
 
   #[test]

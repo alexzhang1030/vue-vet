@@ -20,8 +20,12 @@
   not affect score or default CI exit. Prefer high-precision fact links (shared
   timer bindings, lifecycle + missing cleanup for timers/listeners/rAF,
   resolved Vue/`#imports` `unref`, and bare auto-import `unref` without a
-  local binding) over broad call presence.   Shared block-access and control-flow queries live in `vue_vet_rule_query`
-  (setup blocks, after-await calls, prior unconditional reads). Practice-only
+  local binding) over broad call presence. Shared block-access and control-flow
+  queries live in `vue_vet_rule_query` (setup blocks, after-await calls, prior
+  unconditional reads). Those helpers borrow: path formatters return `MemberPath`,
+  walks yield `&T`. `RuleContext::script` (and `template` / `source` / `file`)
+  use the stored lifetime so `run_once` can `report` without collecting clones.
+  Practice-only
   helpers stay in `vue_vet_practice::util` (`is_setup_lifecycle_hook`,
   `callee_is`; `is_script_setup_block` re-exports the query crate). Recipe
   metadata may declare `min_vue` / `confidence`; matching stays in thin

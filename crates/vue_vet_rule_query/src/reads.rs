@@ -1,29 +1,91 @@
 //! Read / write path formatting and control-flow classification over facts.
 
+use std::fmt;
+
 use vue_vet_core::{
   ReactiveBindingKind, ReactiveGuardFact, ReactiveReadFact, ReactiveReadKind, ReactiveWriteFact,
   TrackingScopeFact, TrackingScopeKind,
 };
 
-/// `binding` or `binding.property`.
-#[must_use]
-pub fn member_path(binding: &str, property: Option<&str>) -> String {
-  property.map_or_else(|| binding.to_owned(), |property| format!("{binding}.{property}"))
+/// `binding` or `binding.property`, borrowed from the fact.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MemberPath<'a> {
+  binding: &'a str,
+  property: Option<&'a str>,
+}
+
+impl MemberPath<'_> {
+  fn push_to(self, out: &mut String) {
+    out.push_str(self.binding);
+    if let Some(property) = self.property {
+      out.push('.');
+      out.push_str(property);
+    }
+  }
+}
+
+impl fmt::Display for MemberPath<'_> {
+  fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    formatter.write_str(self.binding)?;
+    if let Some(property) = self.property {
+      formatter.write_str(".")?;
+      formatter.write_str(property)?;
+    }
+    Ok(())
+  }
+}
+
+impl PartialEq<str> for MemberPath<'_> {
+  fn eq(&self, other: &str) -> bool {
+    self.property.map_or_else(
+      || self.binding == other,
+      |property| {
+        other.len() == self.binding.len() + 1 + property.len()
+          && other.starts_with(self.binding)
+          && other.as_bytes().get(self.binding.len()) == Some(&b'.')
+          && other.ends_with(property)
+      },
+    )
+  }
+}
+
+impl PartialEq<&str> for MemberPath<'_> {
+  fn eq(&self, other: &&str) -> bool {
+    *self == **other
+  }
 }
 
 #[must_use]
-pub fn binding_path(read: &ReactiveReadFact) -> String {
+pub const fn member_path<'a>(binding: &'a str, property: Option<&'a str>) -> MemberPath<'a> {
+  MemberPath { binding, property }
+}
+
+#[must_use]
+pub fn binding_path(read: &ReactiveReadFact) -> MemberPath<'_> {
   member_path(&read.binding, read.property.as_deref())
 }
 
 #[must_use]
-pub fn write_path(write: &ReactiveWriteFact) -> String {
+pub fn write_path(write: &ReactiveWriteFact) -> MemberPath<'_> {
   member_path(&write.binding, write.property.as_deref())
 }
 
 #[must_use]
-pub fn guard_path(guard: &ReactiveGuardFact) -> String {
+pub fn guard_path(guard: &ReactiveGuardFact) -> MemberPath<'_> {
   member_path(&guard.binding, guard.property.as_deref())
+}
+
+/// Join borrowed paths into one owned string (for messages that list several).
+#[must_use]
+pub fn join_member_paths<'a>(paths: impl IntoIterator<Item = MemberPath<'a>>, sep: &str) -> String {
+  let mut out = String::new();
+  for (index, path) in paths.into_iter().enumerate() {
+    if index > 0 {
+      out.push_str(sep);
+    }
+    path.push_to(&mut out);
+  }
+  out
 }
 
 #[must_use]
@@ -54,18 +116,13 @@ pub fn unguarded_conditional_reads(
   })
 }
 
-#[must_use]
-pub fn unconditional_self_triggers(scope: &TrackingScopeFact) -> Vec<&ReactiveReadFact> {
-  let mut hits = Vec::new();
-  for read in &scope.reads {
-    if read.kind != ReactiveReadKind::Unconditional {
-      continue;
-    }
-    if scope.writes.iter().any(|write| same_target(read, write)) {
-      hits.push(read);
-    }
-  }
-  hits
+pub fn unconditional_self_triggers(
+  scope: &TrackingScopeFact,
+) -> impl Iterator<Item = &ReactiveReadFact> {
+  scope.reads.iter().filter(|read| {
+    read.kind == ReactiveReadKind::Unconditional
+      && scope.writes.iter().any(|write| same_target(read, write))
+  })
 }
 
 #[must_use]

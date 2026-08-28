@@ -1,5 +1,7 @@
 use vue_vet_core::{Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity};
-use vue_vet_rule_query::{binding_path, guard_path, unguarded_conditional_reads};
+use vue_vet_rule_query::{
+  binding_path, guard_path, join_member_paths, unguarded_conditional_reads,
+};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-conditional-watch-effect-dependency",
@@ -28,7 +30,7 @@ impl Rule for NoConditionalWatchEffectDependency {
     };
     for read in unguarded_conditional_reads(&effect.reads) {
       let binding = binding_path(read);
-      let guards = read.guards.iter().map(guard_path).collect::<Vec<_>>().join("`, `");
+      let guards = join_member_paths(read.guards.iter().map(guard_path), "`, `");
       context.report(
         self.meta(),
         read.span.clone(),
