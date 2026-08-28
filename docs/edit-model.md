@@ -79,6 +79,11 @@ to `v-model:arg="expr"` when the argument is a static prop name and `.sync` is
 the only modifier. Object `v-bind.sync`, unquoted values, extra modifiers, and
 dynamic `:[name].sync` stay diagnostic-only.
 
+A fourth producer reconstructs `@event.native` / `v-on:event.native` from the
+`@` / `v-on` prefix span and drops `.native`. The handler value is left
+untouched, so extra modifiers stay. A mismatched prefix or a dangling `@` /
+`v-on:` after the strip stays diagnostic-only.
+
 ## Current phase limit
 
 This slice is transactional for one file: content is written to a temporary

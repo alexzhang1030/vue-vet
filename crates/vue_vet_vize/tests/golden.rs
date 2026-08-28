@@ -757,6 +757,69 @@ fn no_deprecated_v_bind_sync_fixtures_match_exact_diagnostics() {
 }
 
 #[test]
+fn no_deprecated_v_on_native_modifier_fixtures_match_exact_diagnostics() {
+  for (path, source, expected) in [
+    (
+      "fixtures/rules/no-deprecated-v-on-native-modifier/invalid/basic.vue",
+      include_str!("../../../fixtures/rules/no-deprecated-v-on-native-modifier/invalid/basic.vue"),
+      include_str!("../../../fixtures/snapshots/no-deprecated-v-on-native-modifier/basic.json"),
+    ),
+    (
+      "fixtures/rules/no-deprecated-v-on-native-modifier/invalid/v-on.vue",
+      include_str!("../../../fixtures/rules/no-deprecated-v-on-native-modifier/invalid/v-on.vue"),
+      include_str!("../../../fixtures/snapshots/no-deprecated-v-on-native-modifier/v-on.json"),
+    ),
+    (
+      "fixtures/rules/no-deprecated-v-on-native-modifier/invalid/extra-modifier.vue",
+      include_str!(
+        "../../../fixtures/rules/no-deprecated-v-on-native-modifier/invalid/extra-modifier.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-deprecated-v-on-native-modifier/extra-modifier.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-deprecated-v-on-native-modifier/invalid/unicode.vue",
+      include_str!(
+        "../../../fixtures/rules/no-deprecated-v-on-native-modifier/invalid/unicode.vue"
+      ),
+      include_str!("../../../fixtures/snapshots/no-deprecated-v-on-native-modifier/unicode.json"),
+    ),
+    (
+      "fixtures/rules/no-deprecated-v-on-native-modifier/invalid/dynamic-arg.vue",
+      include_str!(
+        "../../../fixtures/rules/no-deprecated-v-on-native-modifier/invalid/dynamic-arg.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-deprecated-v-on-native-modifier/dynamic-arg.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-deprecated-v-on-native-modifier/invalid/multiple.vue",
+      include_str!(
+        "../../../fixtures/rules/no-deprecated-v-on-native-modifier/invalid/multiple.vue"
+      ),
+      include_str!("../../../fixtures/snapshots/no-deprecated-v-on-native-modifier/multiple.json"),
+    ),
+  ] {
+    assert_diagnostics(path, source, expected);
+  }
+  let empty = "[]";
+  for (path, source) in [
+    (
+      "fixtures/rules/no-deprecated-v-on-native-modifier/valid/safe.vue",
+      include_str!("../../../fixtures/rules/no-deprecated-v-on-native-modifier/valid/safe.vue"),
+    ),
+    (
+      "fixtures/rules/no-deprecated-v-on-native-modifier/valid/plain-on.vue",
+      include_str!("../../../fixtures/rules/no-deprecated-v-on-native-modifier/valid/plain-on.vue"),
+    ),
+  ] {
+    assert_diagnostics(path, source, empty);
+  }
+}
+
+#[test]
 fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
   for (path, source, expected) in [
     (

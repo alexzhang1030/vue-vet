@@ -366,6 +366,53 @@ fn safe_fix_leaves_unquoted_v_bind_sync_for_manual_review() {
 }
 
 #[test]
+fn safe_fix_strips_native_event_modifier() {
+  let source = "<template>\n  <Widget @click.native=\"activate\" />\n</template>\n";
+  let expected = "<template>\n  <Widget @click=\"activate\" />\n</template>\n";
+  let project = TempProject::new("safe-fix-v-on-native", source);
+  let source_path = project.source_path();
+  let output =
+    run(&[source_path.to_string_lossy().as_ref(), "--fix-safe", "--format", "json", "--no-cache"]);
+  let rewritten = fs::read_to_string(&source_path);
+  let report: Result<Value, _> = serde_json::from_slice(&output.stdout);
+  let stderr = String::from_utf8_lossy(&output.stderr);
+
+  assert!(output.status.success(), "stripping quoted .native should leave a clean file: {stderr}");
+  assert_eq!(rewritten.as_deref().ok(), Some(expected), "@click.native must become @click");
+  assert_eq!(
+    report
+      .as_ref()
+      .ok()
+      .and_then(|value| value.get("diagnostics"))
+      .and_then(Value::as_array)
+      .map(Vec::len),
+    Some(0),
+    "stdout must report the post-fix rescan"
+  );
+  assert!(stderr.contains("applied 1 safe edit"), "stderr must summarize the mutation: {stderr}");
+}
+
+#[test]
+fn safe_fix_strips_v_on_native_and_keeps_other_modifiers() {
+  let source = "<template>\n  <Widget v-on:click.native.stop=\"activate\" />\n</template>\n";
+  let expected = "<template>\n  <Widget v-on:click.stop=\"activate\" />\n</template>\n";
+  let project = TempProject::new("safe-fix-v-on-native-stop", source);
+  let source_path = project.source_path();
+  let output =
+    run(&[source_path.to_string_lossy().as_ref(), "--fix-safe", "--format", "json", "--no-cache"]);
+  let rewritten = fs::read_to_string(&source_path);
+  let stderr = String::from_utf8_lossy(&output.stderr);
+
+  assert!(output.status.success(), "extra modifiers must stay after the strip: {stderr}");
+  assert_eq!(
+    rewritten.as_deref().ok(),
+    Some(expected),
+    "v-on:click.native.stop must become v-on:click.stop"
+  );
+  assert!(stderr.contains("applied 1 safe edit"), "stderr must summarize the mutation: {stderr}");
+}
+
+#[test]
 fn safe_fix_rejects_a_multi_file_plan_without_partial_writes() {
   let source = "<template>\n  <input autofocus aria-label=\"Field\">\n</template>\n";
   let project = TempProject::new("safe-fix-multi-file", source);

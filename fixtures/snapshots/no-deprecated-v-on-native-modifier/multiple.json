@@ -1,0 +1,58 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/no-deprecated-v-on-native-modifier",
+    "category": "correctness",
+    "severity": "error",
+    "confidence": "high",
+    "documentation": "rules/correctness/no-deprecated-v-on-native-modifier",
+    "message": "the `.native` event modifier was removed in Vue 3",
+    "help": "Remove `.native`; undeclared listeners fall through natively in Vue 3.",
+    "file": "fixtures/rules/no-deprecated-v-on-native-modifier/invalid/multiple.vue",
+    "span": {
+      "offset": 21,
+      "length": 1,
+      "line": 2,
+      "column": 11
+    },
+    "edits": [
+      {
+        "file": "fixtures/rules/no-deprecated-v-on-native-modifier/invalid/multiple.vue",
+        "range": {
+          "offset": 21,
+          "length": 13
+        },
+        "replacement": "@click",
+        "applicability": "safe",
+        "rule_id": "vue-vet/correctness/no-deprecated-v-on-native-modifier"
+      }
+    ]
+  },
+  {
+    "rule_id": "vue-vet/correctness/no-deprecated-v-on-native-modifier",
+    "category": "correctness",
+    "severity": "error",
+    "confidence": "high",
+    "documentation": "rules/correctness/no-deprecated-v-on-native-modifier",
+    "message": "the `.native` event modifier was removed in Vue 3",
+    "help": "Remove `.native`; undeclared listeners fall through natively in Vue 3.",
+    "file": "fixtures/rules/no-deprecated-v-on-native-modifier/invalid/multiple.vue",
+    "span": {
+      "offset": 46,
+      "length": 1,
+      "line": 2,
+      "column": 36
+    },
+    "edits": [
+      {
+        "file": "fixtures/rules/no-deprecated-v-on-native-modifier/invalid/multiple.vue",
+        "range": {
+          "offset": 46,
+          "length": 13
+        },
+        "replacement": "@input",
+        "applicability": "safe",
+        "rule_id": "vue-vet/correctness/no-deprecated-v-on-native-modifier"
+      }
+    ]
+  }
+]

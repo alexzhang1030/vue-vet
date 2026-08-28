@@ -134,6 +134,103 @@ pub(super) fn bound_quoted_value_removal_range(
   Some(expand_leading_space(source, directive_span.offset, end))
 }
 
+/// Strip a reconstructable `.native` modifier from `@event` / `v-on:event`.
+///
+/// Vize's directive span is often the `@` / `v-on` prefix, not the full raw
+/// name. Reconstruct the contiguous name (`event`, modifiers, optional
+/// `[arg]`) from that prefix, then drop `.native`. The handler value is left
+/// untouched. Stay incomplete when the prefix does not match `raw_name`, the
+/// suffix is not a contiguous name, `.native` is not a distinct modifier
+/// token, or the leftover name would be a dangling `@` / `v-on:`. Extra
+/// modifiers stay. Bare `v-on` (object listener form) is allowed.
+#[must_use]
+pub(super) fn strip_native_on_modifier(
+  source: &str,
+  directive: &TemplateDirectiveFact,
+) -> Option<(ByteRange, String)> {
+  if directive.name != "on" {
+    return None;
+  }
+  if !directive.modifiers.iter().any(|modifier| modifier == "native") {
+    return None;
+  }
+  let start = directive.span.offset;
+  let prefix_end = start.checked_add(directive.span.length)?;
+  let prefix = source.get(start..prefix_end)?;
+  if prefix != directive.raw_name {
+    return None;
+  }
+  let name_end = scan_on_raw_name_end(source.as_bytes(), prefix_end)?;
+  let full_name = source.get(start..name_end)?;
+  if !suffix_matches_on_argument(source.get(prefix_end..name_end)?, directive.argument.as_deref()) {
+    return None;
+  }
+  let stripped = strip_native_token(full_name)?;
+  if stripped.is_empty() || stripped == full_name {
+    return None;
+  }
+  if !remaining_on_name_is_complete(&stripped) {
+    return None;
+  }
+  Some((ByteRange { offset: start, length: name_end.saturating_sub(start) }, stripped))
+}
+
+fn scan_on_raw_name_end(bytes: &[u8], start: usize) -> Option<usize> {
+  let mut index = start;
+  while let Some(byte) = bytes.get(index) {
+    if matches!(byte, b'=' | b' ' | b'\t' | b'\n' | b'\r' | b'/' | b'>') {
+      break;
+    }
+    if !byte.is_ascii_alphanumeric() && !matches!(byte, b':' | b'.' | b'[' | b']' | b'-' | b'_') {
+      return None;
+    }
+    index = index.saturating_add(1);
+  }
+  Some(index)
+}
+
+fn suffix_matches_on_argument(suffix: &str, argument: Option<&str>) -> bool {
+  let Some(argument) = argument.filter(|name| !name.is_empty()) else {
+    return true;
+  };
+  let trimmed = suffix.strip_prefix(':').unwrap_or(suffix);
+  let trimmed = trimmed.strip_prefix('[').unwrap_or(trimmed);
+  let Some(rest) = trimmed.strip_prefix(argument) else {
+    return false;
+  };
+  rest.is_empty() || rest.starts_with('.') || rest.starts_with(']')
+}
+
+fn strip_native_token(raw: &str) -> Option<String> {
+  let (head, rest) = raw.split_once('.')?;
+  if head.is_empty() {
+    return None;
+  }
+  let mut kept = Vec::new();
+  let mut removed = false;
+  for part in rest.split('.') {
+    if part.is_empty() {
+      return None;
+    }
+    if part == "native" {
+      removed = true;
+      continue;
+    }
+    kept.push(part);
+  }
+  if !removed {
+    return None;
+  }
+  if kept.is_empty() { Some(head.to_string()) } else { Some(format!("{head}.{}", kept.join("."))) }
+}
+
+fn remaining_on_name_is_complete(name: &str) -> bool {
+  if name == "@" || name.ends_with('@') || name.ends_with(':') {
+    return false;
+  }
+  !name.is_empty()
+}
+
 /// Rewrite `:arg.sync="expr"` / `v-bind:arg.sync="expr"` to `v-model:arg="expr"`
 /// when the quoted value reconstructs exactly.
 ///
@@ -246,6 +343,7 @@ fn name_only_removal_range(source: &str, span: SourceSpan) -> ByteRange {
 mod tests {
   use super::{
     bound_quoted_value_removal_range, quoted_name_value_removal_range, quoted_sync_bind_to_v_model,
+    strip_native_on_modifier,
   };
   use vue_vet_core::{SourceSpan, TemplateDirectiveFact};
 
@@ -369,5 +467,103 @@ mod tests {
     let source = r#"<Comp :[name].sync="title" />"#;
     let directive = bind_sync(source, ":", Some("name"), "title", &["sync"]);
     assert!(quoted_sync_bind_to_v_model(source, &directive).is_none());
+  }
+
+  fn on_native(
+    source: &str,
+    raw: &str,
+    argument: Option<&str>,
+    modifiers: &[&str],
+  ) -> TemplateDirectiveFact {
+    let offset = source.find(raw).unwrap_or(0);
+    TemplateDirectiveFact {
+      name: "on".into(),
+      raw_name: raw.into(),
+      argument: argument.map(str::to_string),
+      expression: Some("activate".into()),
+      modifiers: modifiers.iter().map(|modifier| (*modifier).to_string()).collect(),
+      span: SourceSpan { offset, length: raw.len(), line: 1, column: offset.saturating_add(1) },
+    }
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "unit test asserts a reconstructed rewrite exists")]
+  fn shorthand_native_reconstructs_from_at_prefix() {
+    let source = r#"<Widget @click.native="activate" />"#;
+    let directive = on_native(source, "@", Some("click"), &["native"]);
+    let Some((range, replacement)) = strip_native_on_modifier(source, &directive) else {
+      panic!("@click.native must strip from the @ prefix span");
+    };
+    let replaced = source.get(range.offset..range.offset.saturating_add(range.length));
+    assert_eq!(replaced, Some("@click.native"));
+    assert_eq!(replacement, "@click");
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "unit test asserts a reconstructed rewrite exists")]
+  fn v_on_native_reconstructs_from_v_on_prefix() {
+    let source = r#"<Widget v-on:click.native="activate" />"#;
+    let directive = on_native(source, "v-on", Some("click"), &["native"]);
+    let Some((range, replacement)) = strip_native_on_modifier(source, &directive) else {
+      panic!("v-on:click.native must strip from the v-on prefix span");
+    };
+    let replaced = source.get(range.offset..range.offset.saturating_add(range.length));
+    assert_eq!(replaced, Some("v-on:click.native"));
+    assert_eq!(replacement, "v-on:click");
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "unit test asserts a reconstructed rewrite exists")]
+  fn extra_modifiers_stay_after_native_strip() {
+    let source = r#"<Widget @click.native.stop="activate" />"#;
+    let directive = on_native(source, "@", Some("click"), &["native", "stop"]);
+    let Some((range, replacement)) = strip_native_on_modifier(source, &directive) else {
+      panic!("@click.native.stop must keep stop");
+    };
+    let replaced = source.get(range.offset..range.offset.saturating_add(range.length));
+    assert_eq!(replaced, Some("@click.native.stop"));
+    assert_eq!(replacement, "@click.stop");
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "unit test asserts a reconstructed rewrite exists")]
+  fn native_after_other_modifiers_strips() {
+    let source = r#"<Widget @click.prevent.native="activate" />"#;
+    let directive = on_native(source, "@", Some("click"), &["prevent", "native"]);
+    let Some((_, replacement)) = strip_native_on_modifier(source, &directive) else {
+      panic!("@click.prevent.native must strip");
+    };
+    assert_eq!(replacement, "@click.prevent");
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "unit test asserts a reconstructed rewrite exists")]
+  fn dynamic_argument_strips_native() {
+    let source = r#"<Widget @[event].native="activate" />"#;
+    let directive = on_native(source, "@", Some("event"), &["native"]);
+    let Some((range, replacement)) = strip_native_on_modifier(source, &directive) else {
+      panic!("@[event].native must strip");
+    };
+    let replaced = source.get(range.offset..range.offset.saturating_add(range.length));
+    assert_eq!(replaced, Some("@[event].native"));
+    assert_eq!(replacement, "@[event]");
+  }
+
+  #[test]
+  fn mismatched_prefix_stays_incomplete() {
+    let source = r#"<Widget @click.native="activate" />"#;
+    let mut directive = on_native(source, "@", Some("click"), &["native"]);
+    directive.raw_name = "v-on".into();
+    assert!(
+      strip_native_on_modifier(source, &directive).is_none(),
+      "a raw_name that does not match the source prefix must stay report-only"
+    );
+  }
+
+  #[test]
+  fn dangling_at_sign_stays_incomplete() {
+    let source = r#"<Widget @.native="activate" />"#;
+    let directive = on_native(source, "@", None, &["native"]);
+    assert!(strip_native_on_modifier(source, &directive).is_none());
   }
 }

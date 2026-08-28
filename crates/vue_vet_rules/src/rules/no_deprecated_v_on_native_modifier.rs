@@ -1,5 +1,7 @@
 use vue_vet_core::{Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity};
 
+use super::template_attr::strip_native_on_modifier;
+
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/correctness/no-deprecated-v-on-native-modifier",
   category: "correctness",
@@ -25,19 +27,29 @@ impl Rule for NoDeprecatedVOnNativeModifier {
     let FactRef::TemplateElement(element) = fact else {
       return;
     };
-    let Some(directive) = element.directives.iter().find(|directive| {
-      directive.name == "on" && directive.modifiers.iter().any(|modifier| modifier == "native")
-    }) else {
-      return;
-    };
-    context.report(
-      self.meta(),
-      directive.span,
-      "the `.native` event modifier was removed in Vue 3".into(),
-      Some(
-        "Declare emitted events on the child component; undeclared listeners fall through natively."
-          .into(),
-      ),
-    );
+    for directive in &element.directives {
+      if directive.name != "on" || !directive.modifiers.iter().any(|modifier| modifier == "native")
+      {
+        continue;
+      }
+      let message = "the `.native` event modifier was removed in Vue 3".into();
+      let help =
+        Some("Remove `.native`; undeclared listeners fall through natively in Vue 3.".into());
+      // Reconstruct the contiguous `@event.native` / `v-on:event.native` name
+      // from Vize's `@` / `v-on` prefix span. Dangling `@` / `v-on:` stays
+      // report-only.
+      if let Some((range, replacement)) = strip_native_on_modifier(context.source(), directive) {
+        context.report_with_safe_edit(
+          self.meta(),
+          directive.span,
+          message,
+          help,
+          range,
+          replacement,
+        );
+      } else {
+        context.report(self.meta(), directive.span, message, help);
+      }
+    }
   }
 }

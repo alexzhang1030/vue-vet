@@ -540,8 +540,9 @@ first vertical slice fails closed on multi-file plans. Cross-file staging,
 rollback, and further producers remain later issue #9 work. Shipped single-file
 producers: boolean `autofocus` removal, quoted `aria-hidden="true"` /
 `:aria-hidden="true"` removal on focusable elements, static `title` →
-`aria-label` inserts, redundant static `role` removal, and quoted
-`:arg.sync` / `v-bind:arg.sync` → `v-model:arg`.
+`aria-label` inserts, redundant static `role` removal, quoted
+`:arg.sync` / `v-bind:arg.sync` → `v-model:arg`, and `@event.native` /
+`v-on:event.native` reconstructed from the `@` / `v-on` prefix → drop `.native`.
 
 ## Identity and determinism
 
