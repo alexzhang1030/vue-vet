@@ -219,10 +219,11 @@ cross-module boundary: imports, exports, provides/injects, local reactivity, and
 no Oxc/Vize nodes. Session file-rule reuse is keyed by `FileRuleInputKey`:
 source and `RuleEnvironment` via `content_digest` / `serde_digest`, and final
 primary/ordinary module graphs via in-memory `Arc` content equality (avoid
-re-serializing full graphs on every file). Shared block access and control-flow queries over those facts live in
-`vue_vet_rule_query` (setup-block walks, after-await call selection, prior
-unconditional reads). A fuller `EffectModel` view is still deferred until a
-rule needs more than those queries.
+re-serializing full graphs on every file). Shared block access and
+control-flow queries over those facts live in `vue_vet_rule_query`
+(setup-block walks, after-await call selection, prior unconditional reads).
+A fuller `EffectModel` view is still deferred until a rule needs more than
+those queries.
 
 `no-v-html` remains the reference AST-backed built-in rule. Phase 2 adds the Oxc
 adapter while keeping both dependency ASTs behind Vue Vet-owned facts.
