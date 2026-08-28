@@ -16,7 +16,7 @@ pub(super) fn static_attribute_removal_range(
     index = index.saturating_add(1);
   }
   if bytes.get(index) != Some(&b'=') {
-    return Some(name_only_removal_range(source, &attribute.span));
+    return Some(name_only_removal_range(source, attribute.span));
   }
   index = index.saturating_add(1);
   while bytes.get(index).is_some_and(|byte| matches!(byte, b' ' | b'\t')) {
@@ -24,7 +24,7 @@ pub(super) fn static_attribute_removal_range(
   }
   let quote = *bytes.get(index)?;
   if quote != b'"' && quote != b'\'' {
-    return Some(name_only_removal_range(source, &attribute.span));
+    return Some(name_only_removal_range(source, attribute.span));
   }
   index = index.saturating_add(1);
   let value_start = index;
@@ -46,7 +46,7 @@ pub(super) fn static_attribute_removal_range(
 /// value reconstruct exactly. Incomplete coverage returns [`None`].
 pub(super) fn quoted_name_value_removal_range(
   source: &str,
-  name_span: &SourceSpan,
+  name_span: SourceSpan,
   expected_value: &str,
 ) -> Option<ByteRange> {
   let bytes = source.as_bytes();
@@ -85,7 +85,7 @@ pub(super) fn quoted_name_value_removal_range(
 /// only the directive prefix (`:` or `v-bind`) rather than the full raw name.
 pub(super) fn bound_quoted_value_removal_range(
   source: &str,
-  directive_span: &SourceSpan,
+  directive_span: SourceSpan,
   argument: &str,
   expected_value: &str,
 ) -> Option<ByteRange> {
@@ -238,7 +238,7 @@ fn expand_leading_space(source: &str, name_offset: usize, end: usize) -> ByteRan
   ByteRange { offset, length: end.saturating_sub(offset) }
 }
 
-fn name_only_removal_range(source: &str, span: &SourceSpan) -> ByteRange {
+fn name_only_removal_range(source: &str, span: SourceSpan) -> ByteRange {
   expand_leading_space(source, span.offset, span.offset.saturating_add(span.length))
 }
 
@@ -259,7 +259,7 @@ mod tests {
   fn quoted_true_includes_leading_space_and_value() {
     let source = r#"<button aria-hidden="true">Save</button>"#;
     let span = name_span(source, "aria-hidden");
-    let Some(range) = quoted_name_value_removal_range(source, &span, "true") else {
+    let Some(range) = quoted_name_value_removal_range(source, span, "true") else {
       panic!("quoted true must reconstruct");
     };
     let removed = source.get(range.offset..range.offset.saturating_add(range.length));
@@ -272,8 +272,7 @@ mod tests {
     let source = r#"<button :aria-hidden="true">Save</button>"#;
     let colon = name_span(source, ":");
     let colon = SourceSpan { offset: colon.offset, length: 1, line: 1, column: colon.column };
-    let Some(range) = bound_quoted_value_removal_range(source, &colon, "aria-hidden", "true")
-    else {
+    let Some(range) = bound_quoted_value_removal_range(source, colon, "aria-hidden", "true") else {
       panic!("colon-prefix bind must reconstruct");
     };
     let removed = source.get(range.offset..range.offset.saturating_add(range.length));
@@ -285,7 +284,7 @@ mod tests {
   fn v_bind_true_reconstructs_from_v_bind_prefix_span() {
     let source = r#"<button v-bind:aria-hidden="true">Save</button>"#;
     let prefix = name_span(source, "v-bind");
-    let Some(range) = bound_quoted_value_removal_range(source, &prefix, "aria-hidden", "true")
+    let Some(range) = bound_quoted_value_removal_range(source, prefix, "aria-hidden", "true")
     else {
       panic!("v-bind prefix must reconstruct");
     };
@@ -297,7 +296,7 @@ mod tests {
   fn unquoted_value_stays_incomplete() {
     let source = "<button aria-hidden=true>Save</button>";
     let span = name_span(source, "aria-hidden");
-    assert!(quoted_name_value_removal_range(source, &span, "true").is_none());
+    assert!(quoted_name_value_removal_range(source, span, "true").is_none());
   }
 
   fn bind_sync(

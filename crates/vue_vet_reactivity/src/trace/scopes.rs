@@ -291,7 +291,7 @@ pub(super) fn collect_tracking_scopes(
         scopes.push(TrackingScopeFact {
           kind: TrackingScopeKind::WatchSources,
           callee: callee.clone(),
-          span: call_span.clone(),
+          span: call_span,
           reads,
           writes: Vec::new(),
           assignment_only: false,

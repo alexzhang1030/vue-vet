@@ -439,10 +439,10 @@ boundary in the roadmap.
 exposes no Vize or Oxc types, and is not published. Helpers return borrowed
 views (`&T` iterators, `MemberPath`). `RuleContext::script` / `template` /
 `source` / `file` yield the stored lifetime so `run_once` can report while
-walking those views. Own a `SourceSpan` only when `report` takes it. Put a
-helper there when two or more rules repeat the same block walk or
-control-flow predicate. Keep `vue_vet_core` as the published fact/diagnostic
-contract.
+walking those views. `SourceSpan` is `Copy` (four `usize`s); pass `call.span`
+into `report`. Put a helper there when two or more rules repeat the same
+block walk or control-flow predicate. Keep `vue_vet_core` as the published
+fact/diagnostic contract.
 
 `vue_vet_session` owns the long-lived project analysis handle: config load,
 cached/fresh scans, unsaved overlays, per-file fact state, reverse dependencies,

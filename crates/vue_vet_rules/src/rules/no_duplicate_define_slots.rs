@@ -22,7 +22,7 @@ impl Rule for NoDuplicateDefineSlots {
     for call in extra_setup_calls(context.script(), "defineSlots") {
       context.report(
         self.meta(),
-        call.span.clone(),
+        call.span,
         "`defineSlots` may only be called once in `<script setup>`".into(),
         Some("Merge the declarations into a single `defineSlots` call.".into()),
       );

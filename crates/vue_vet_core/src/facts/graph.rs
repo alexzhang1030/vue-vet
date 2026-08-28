@@ -434,7 +434,7 @@ impl ReactivityGraph {
       .filter(|scope| scope.kind.is_effect_family())
       .map(|scope| ReactivityEffectFact {
         callee: scope.callee.clone(),
-        span: scope.span.clone(),
+        span: scope.span,
         reads: scope.reads.clone(),
       })
       .collect();
@@ -480,14 +480,14 @@ impl ReactivityGraph {
             &binding_names,
             &identifiers,
             &surface,
-            &directive.span,
+            directive.span,
           );
           push_instance_template_reads(
             &mut template_reads,
             &self.composable_instances,
             expression,
             &surface,
-            &directive.span,
+            directive.span,
           );
         }
       }
@@ -503,14 +503,14 @@ impl ReactivityGraph {
           &binding_names,
           identifiers,
           &expression.surface,
-          &expression.span,
+          expression.span,
         );
         push_instance_template_reads(
           &mut template_reads,
           &self.composable_instances,
           &expression.expression,
           &expression.surface,
-          &expression.span,
+          expression.span,
         );
       }
     }
@@ -557,7 +557,7 @@ impl ReactivityGraph {
           to_id: Some(qualify_dependency_to_id(&self.module_id, &read.binding, read.span.offset)),
           property: read.property.clone(),
           kind,
-          span: read.span.clone(),
+          span: read.span,
         });
       }
     }
@@ -573,7 +573,7 @@ impl ReactivityGraph {
         )),
         property: None,
         kind: ReactiveDependencyKind::Template,
-        span: template_read.span.clone(),
+        span: template_read.span,
       });
     }
     edges.sort_by(|left, right| {
@@ -602,13 +602,13 @@ fn push_template_reads(
   binding_names: &std::collections::BTreeSet<&str>,
   identifiers: &[String],
   surface: &str,
-  span: &SourceSpan,
+  span: SourceSpan,
 ) {
   for identifier in identifiers {
     if binding_names.contains(identifier.as_str()) {
       template_reads.push(TemplateReactiveReadFact {
         binding: identifier.clone(),
-        span: span.clone(),
+        span,
         surface: surface.into(),
       });
     }
@@ -625,7 +625,7 @@ fn push_instance_template_reads(
   >,
   expression: &str,
   surface: &str,
-  span: &SourceSpan,
+  span: SourceSpan,
 ) {
   let Some(chain) = simple_member_chain(expression) else {
     return;
@@ -650,7 +650,7 @@ fn push_instance_template_reads(
   }
   template_reads.push(TemplateReactiveReadFact {
     binding: field.clone(),
-    span: span.clone(),
+    span,
     surface: surface.into(),
   });
 }

@@ -46,7 +46,7 @@ impl Rule for NoUnusedReactiveBinding {
         let kind_label = binding_kind_label(binding.kind);
         context.report(
           self.meta(),
-          binding.span.clone(),
+          binding.span,
           format!(
             "reactive binding `{}` ({kind_label}) is never read in script or template",
             binding.name

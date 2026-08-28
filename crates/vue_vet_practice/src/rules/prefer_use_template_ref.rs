@@ -46,7 +46,7 @@ impl Rule for PreferUseTemplateRef {
       }
       context.report_with_recommendation(
         self.meta(),
-        binding.span.clone(),
+        binding.span,
         format!("`{}` mirrors a static template ref with `ref(null)`", binding.name),
         Some(format!(
           "Prefer `useTemplateRef('{}')`, available in Vue 3.5 and newer.",

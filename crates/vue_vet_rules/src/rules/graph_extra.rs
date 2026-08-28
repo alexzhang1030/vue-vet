@@ -62,7 +62,7 @@ impl Rule for NoMultipleEffectsSameTarget {
         let path = member_path(key.0, key.1);
         context.report(
           self.meta(),
-          write.span.clone(),
+          write.span,
           format!("multiple effects write `{path}`, which races updates to the same target"),
           Some("Keep a single writer effect, or merge the updates into one scope.".into()),
         );
@@ -103,7 +103,7 @@ impl Rule for NoPropsSnapshotInRef {
     }
     context.report(
       self.meta(),
-      call.span.clone(),
+      call.span,
       format!("`{}(props…)` snapshots props and loses reactivity", call.callee),
       Some(
         "Use `toRef(props, 'field')`, `toRefs(props)`, or read `props.field` inside computed/watch."
@@ -166,7 +166,7 @@ impl Rule for NoVModelNonreactiveSource {
     }
     context.report(
       self.meta(),
-      model.span.clone(),
+      model.span,
       format!("`v-model=\"{name}\"` binds a non-reactive script value"),
       Some(format!("Make `{name}` a `ref` / `computed`, or bind a reactive property.")),
     );
@@ -209,7 +209,7 @@ impl Rule for NoStalePropFlow {
         }
         context.report(
           self.meta(),
-          edge.span.clone(),
+          edge.span,
           format!(
             "prop flow `{}` → `{}` does not start from a reactive binding",
             edge.from,
@@ -257,7 +257,7 @@ impl Rule for NoUnusedComputedBinding {
         }
         context.report(
           self.meta(),
-          binding.span.clone(),
+          binding.span,
           "computed binding is never read in script or template".into(),
           Some("Remove the unused computed, or read it from template / another scope.".into()),
         );
@@ -299,7 +299,7 @@ impl Rule for PreferExplicitSourcesForConditionalDeps {
     }
     context.report(
       self.meta(),
-      scope.span.clone(),
+      scope.span,
       format!("`{}` has conditional reactive reads; prefer explicit `watch` sources", scope.callee),
       Some(
         "List every dependency in `watch([...])` / getter sources when control flow guards reads."
@@ -329,7 +329,7 @@ macro_rules! macro_after_await {
         for call in setup_calls_after_first_top_level_await(context.script(), $callee) {
           context.report(
             self.meta(),
-            call.span.clone(),
+            call.span,
             format!("`{}` after top-level `await` is invalid in `<script setup>`", $callee),
             Some(format!("Move `{}` before the first top-level `await`.", $callee)),
           );

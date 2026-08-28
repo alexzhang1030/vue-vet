@@ -33,7 +33,7 @@ impl Rule for NoDeprecatedSlotScope {
     };
     context.report(
       self.meta(),
-      attribute.span.clone(),
+      attribute.span,
       "slot-scope syntax was removed in Vue 3".into(),
       Some("Use v-slot or the # shorthand on <template> or the receiving component.".into()),
     );

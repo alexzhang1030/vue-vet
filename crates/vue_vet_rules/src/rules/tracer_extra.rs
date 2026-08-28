@@ -47,7 +47,7 @@ impl Rule for NoDeepWatchOnReactiveRoot {
       }
       context.report(
         self.meta(),
-        read.span.clone(),
+        read.span,
         format!(
           "`watch({})` deep-tracks the reactive root; prefer a getter or explicit sources",
           read.binding
@@ -101,7 +101,7 @@ impl Rule for NoReactiveReadDuringPauseTracking {
       let path = binding_path(read);
       context.report(
         self.meta(),
-        read.span.clone(),
+        read.span,
         format!(
           "`{path}` is read while tracking is paused, so `{}` will not track it",
           scope.callee
@@ -154,7 +154,7 @@ impl Rule for NoConditionalDependencyInRender {
       let path = binding_path(read);
       context.report(
         self.meta(),
-        read.span.clone(),
+        read.span,
         format!(
           "`{path}` is read only after a control-flow guard inside render, so it is not a reliable dependency"
         ),
@@ -207,7 +207,7 @@ impl Rule for NoDeferredCallbackReactiveReadInEffect {
       let path = binding_path(read);
       context.report(
         self.meta(),
-        read.span.clone(),
+        read.span,
         format!(
           "`{path}` is read inside a deferred callback in `{}`, so the effect will not track it",
           scope.callee

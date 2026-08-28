@@ -22,7 +22,7 @@ impl Rule for NoDuplicateDefineProps {
     for call in extra_setup_calls(context.script(), "defineProps") {
       context.report(
         self.meta(),
-        call.span.clone(),
+        call.span,
         "`defineProps` may only be called once in `<script setup>`".into(),
         Some("Merge the declarations into a single `defineProps` call.".into()),
       );

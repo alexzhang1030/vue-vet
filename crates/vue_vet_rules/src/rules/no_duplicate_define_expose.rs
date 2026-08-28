@@ -22,7 +22,7 @@ impl Rule for NoDuplicateDefineExpose {
     for call in extra_setup_calls(context.script(), "defineExpose") {
       context.report(
         self.meta(),
-        call.span.clone(),
+        call.span,
         "`defineExpose` may only be called once in `<script setup>`".into(),
         Some("Merge the declarations into a single `defineExpose` call.".into()),
       );

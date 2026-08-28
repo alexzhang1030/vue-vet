@@ -22,7 +22,7 @@ impl Rule for NoDuplicateDefineOptions {
     for call in extra_setup_calls(context.script(), "defineOptions") {
       context.report(
         self.meta(),
-        call.span.clone(),
+        call.span,
         "`defineOptions` may only be called once in `<script setup>`".into(),
         Some("Merge the declarations into a single `defineOptions` call.".into()),
       );

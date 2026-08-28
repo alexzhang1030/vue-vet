@@ -46,7 +46,7 @@ impl Rule for PreferUseSlotsAttrs {
       .flat_map(|block| {
         block.calls.iter().filter(move |call| is_get_current_instance_call(call, block))
       })
-      .map(|call| call.span.clone())
+      .map(|call| call.span)
       .collect::<Vec<_>>();
     for span in findings {
       context.report_with_recommendation(

@@ -25,6 +25,7 @@
   unconditional reads). Those helpers borrow: path formatters return `MemberPath`,
   walks yield `&T`. `RuleContext::script` (and `template` / `source` / `file`)
   use the stored lifetime so `run_once` can `report` without collecting clones.
+  `SourceSpan` is `Copy`; pass `call.span`, do not write `.clone()` on it.
   Practice-only
   helpers stay in `vue_vet_practice::util` (`is_setup_lifecycle_hook`,
   `callee_is`; `is_script_setup_block` re-exports the query crate). Recipe
@@ -42,7 +43,7 @@
 
 ## Source locations
 
-Internal locations are byte offsets into the original SFC source. User-facing line and column values are derived explicitly. Span changes require ASCII, Unicode, multiline, and relevant CRLF fixtures. Never assume a byte offset is a character index.
+Internal locations are byte offsets into the original SFC source. User-facing line and column values are derived explicitly. `SourceSpan` is four `usize`s and is `Copy`, same as `ByteRange`. Span changes require ASCII, Unicode, multiline, and relevant CRLF fixtures. Never assume a byte offset is a character index.
 
 ## Deterministic output
 

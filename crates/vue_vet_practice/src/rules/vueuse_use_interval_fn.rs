@@ -51,9 +51,11 @@ impl Rule for VueuseUseIntervalFn {
       .filter(|block| block.calls.iter().any(|call| is_setup_lifecycle_hook(&call.callee)))
       .filter(|block| !block.calls.iter().any(|call| callee_is(&call.callee, "clearInterval")))
       .filter_map(|block| {
-        block.calls.iter().find(|call| callee_is(&call.callee, "setInterval")).map(|call| {
-          (call.span.clone(), vueuse_help(&environment, block, RECIPE.recommend.export))
-        })
+        block
+          .calls
+          .iter()
+          .find(|call| callee_is(&call.callee, "setInterval"))
+          .map(|call| (call.span, vueuse_help(&environment, block, RECIPE.recommend.export)))
       })
       .collect::<Vec<_>>();
     for (span, help) in findings {

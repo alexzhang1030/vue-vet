@@ -33,7 +33,7 @@ impl Rule for RequireVForKey {
     }
     context.report(
       self.meta(),
-      directive.span.clone(),
+      directive.span,
       "`v-for` requires a stable `:key`".into(),
       Some(
         "Bind a stable identity from the item; do not use the array index when order can change."

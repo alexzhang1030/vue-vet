@@ -134,7 +134,7 @@ impl Rule for BoundaryRule {
       let path = binding_path(read);
       context.report(
         self.meta(),
-        read.span.clone(),
+        read.span,
         format!(
           "`{path}` is read {reason} inside {label}, so it is not a reliable dependency",
           reason = self.reason,
@@ -193,7 +193,7 @@ impl Rule for AfterAwaitCallRule {
     for call in setup_calls_after_first_top_level_await(context.script(), self.callee) {
       context.report(
         self.meta(),
-        call.span.clone(),
+        call.span,
         format!(
           "`{}` is registered after a top-level `await`, so it will not bind to this instance",
           self.callee
@@ -279,7 +279,7 @@ impl Rule for PathologyRule {
           let path = binding_path(read);
           context.report(
             self.meta(),
-            read.span.clone(),
+            read.span,
             format!("`{path}` is read and written in the same tracking scope, which can self-trigger"),
             Some("Avoid writing a dependency you also read, or split read/write across scopes.".into()),
           );
@@ -289,7 +289,7 @@ impl Rule for PathologyRule {
         for write in &scope.writes {
           context.report(
             self.meta(),
-            write.span.clone(),
+            write.span,
             format!("computed getter writes `{}`, which is a side effect", write_path(write)),
             Some("Keep computed getters pure; move writes into `watch` / event handlers.".into()),
           );
@@ -301,7 +301,7 @@ impl Rule for PathologyRule {
         }
         context.report(
           self.meta(),
-          scope.span.clone(),
+          scope.span,
           format!("`{}` writes reactive state but reads no reactive dependency", scope.callee),
           Some("Effects without reactive reads never re-run; use a plain function or explicit trigger.".into()),
         );
@@ -312,7 +312,7 @@ impl Rule for PathologyRule {
         }
         context.report(
           self.meta(),
-          scope.span.clone(),
+          scope.span,
           "`computed` does not read any reactive dependency".into(),
           Some("Return a plain value, or read reactive state inside the getter.".into()),
         );
@@ -333,7 +333,7 @@ impl Rule for PathologyRule {
         let path = binding_path(read);
         context.report(
           self.meta(),
-          scope.span.clone(),
+          scope.span,
           format!("`{}` only tracks `{path}`; prefer `watch` with an explicit source", scope.callee),
           Some(format!(
             "Use `watch(() => {path}, …)` (or `watch({path}, …)` for a ref) for a single source."
@@ -349,7 +349,7 @@ impl Rule for PathologyRule {
         }
         context.report(
           self.meta(),
-          scope.span.clone(),
+          scope.span,
           format!(
             "`{}` is assignment-only but tracks at least one conditional dependency",
             scope.callee
@@ -362,7 +362,7 @@ impl Rule for PathologyRule {
           let path = binding_path(read);
           context.report(
             self.meta(),
-            read.span.clone(),
+            read.span,
             format!("`{path}` is read in `onScopeDispose`, which is not a tracking scope"),
             Some("Capture values before dispose, or clean up without relying on reactive tracking.".into()),
           );
@@ -374,7 +374,7 @@ impl Rule for PathologyRule {
         }
         context.report(
           self.meta(),
-          scope.span.clone(),
+          scope.span,
           "`watch` sources do not read any reactive dependency".into(),
           Some("Pass a ref, a getter, or an array of sources that read reactive state.".into()),
         );
@@ -444,7 +444,7 @@ impl Rule for WatchCallbackTrackingRule {
         {
           context.report(
             self.meta(),
-            callback.span.clone(),
+            callback.span,
             "reactive reads in a `watch` callback are not tracked for invalidation".into(),
             Some(
               "List dependencies in the `watch` source argument; the callback is a side-effect sink."
@@ -490,7 +490,7 @@ impl Rule for DestructureSourceRule {
     if !matched {
       return;
     }
-    context.report(self.meta(), destructure.span.clone(), self.message.into(), Some(self.help.into()));
+    context.report(self.meta(), destructure.span, self.message.into(), Some(self.help.into()));
   }
 }
 
@@ -588,7 +588,7 @@ impl Rule for RefOperandRule {
     }
     context.report(
       self.meta(),
-      operand.span.clone(),
+      operand.span,
       format!(
         "`{}` is a {} object used as an operand; unwrap with `.value` (or `toValue`)",
         operand.name, self.label
@@ -671,7 +671,7 @@ impl Rule for ReadonlyMutationRule {
     }
     context.report(
       self.meta(),
-      write.span.clone(),
+      write.span,
       format!("`{}` is readonly and should not be mutated", write.object),
       Some("Mutate the source reactive state instead of a readonly projection.".into()),
     );

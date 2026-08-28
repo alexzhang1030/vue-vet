@@ -36,7 +36,7 @@ impl Rule for NoAfterAwaitWatchEffectDependency {
       let binding = binding_path(read);
       context.report(
         self.meta(),
-        read.span.clone(),
+        read.span,
         format!("`{binding}` is read after `await`, so `watchEffect` will not track it"),
         Some(
           "Read every dependency before the first `await`, or use explicit `watch` sources for values needed after async work."

@@ -38,7 +38,7 @@ impl Rule for NoPositiveTabindex {
     }
     context.report(
       self.meta(),
-      attribute.span.clone(),
+      attribute.span,
       "positive tabindex creates a surprising keyboard navigation order".into(),
       Some(
         "Use tabindex=\"0\" to join the natural order or tabindex=\"-1\" for programmatic focus."

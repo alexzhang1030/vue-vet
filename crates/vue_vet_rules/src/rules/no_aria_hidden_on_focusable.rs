@@ -44,23 +44,23 @@ impl Rule for NoAriaHiddenOnFocusable {
         bound_quoted_value_removal_range(context.source(), span, "aria-hidden", expected_value)
       })
     {
-      context.report_with_safe_edit(self.meta(), span.clone(), message, help, range, String::new());
+      context.report_with_safe_edit(self.meta(), span, message, help, range, String::new());
     } else {
-      context.report(self.meta(), span.clone(), message, help);
+      context.report(self.meta(), span, message, help);
     }
   }
 }
 
-fn hidden_true_target(element: &TemplateElementFact) -> Option<(&SourceSpan, &str)> {
+fn hidden_true_target(element: &TemplateElementFact) -> Option<(SourceSpan, &str)> {
   if let Some(attribute) = element.attribute("aria-hidden")
     && let Some(value) = attribute.value.as_deref()
     && value.eq_ignore_ascii_case("true")
   {
-    return Some((&attribute.span, value));
+    return Some((attribute.span, value));
   }
   let directive = element.bound_attribute("aria-hidden")?;
   let expression = directive.expression.as_deref()?;
-  (expression == "true").then_some((&directive.span, expression))
+  (expression == "true").then_some((directive.span, expression))
 }
 
 fn element_is_focusable(element: &TemplateElementFact) -> bool {

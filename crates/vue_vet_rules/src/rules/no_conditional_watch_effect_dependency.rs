@@ -33,7 +33,7 @@ impl Rule for NoConditionalWatchEffectDependency {
       let guards = join_member_paths(read.guards.iter().map(guard_path), "`, `");
       context.report(
         self.meta(),
-        read.span.clone(),
+        read.span,
         format!("`{binding}` is only tracked after the `{guards}` guard passes"),
         Some(
           "If every value must invalidate the effect, use explicit watch sources or read each             dependency before the guard."

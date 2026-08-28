@@ -18,14 +18,14 @@ fn builds_computed_dependency_edges() {
 #[test]
 fn joins_template_reads_onto_script_bindings() {
   let mut graph = graph("import { ref } from 'vue'; const count = ref(0);");
-  let Some(binding_span) = graph.bindings.first().map(|binding| binding.span.clone()) else {
+  let Some(binding_span) = graph.bindings.first().map(|binding| binding.span) else {
     assert!(!graph.bindings.is_empty(), "count binding missing");
     return;
   };
   let template = TemplateFacts {
     elements: vec![TemplateElementFact {
       tag: "div".into(),
-      span: binding_span.clone(),
+      span: binding_span,
       attributes: Vec::new(),
       directives: vec![TemplateDirectiveFact {
         name: "if".into(),
@@ -33,7 +33,7 @@ fn joins_template_reads_onto_script_bindings() {
         argument: None,
         expression: Some("count > 0".into()),
         modifiers: Vec::new(),
-        span: binding_span.clone(),
+        span: binding_span,
       }],
       has_children: false,
       has_accessible_content: false,

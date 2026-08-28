@@ -34,7 +34,7 @@ pub fn explain_tracking_scope(module_id: &str, scope: &TrackingScopeFact) -> Sco
     kind: scope_kind_label(scope.kind).into(),
     callee: scope.callee.clone(),
     binding: scope.binding.clone(),
-    span: scope.span.clone(),
+    span: scope.span,
     summary,
     tracks,
     does_not_track,
@@ -210,7 +210,7 @@ fn dep_from_read(read: &vue_vet_core::ReactiveReadFact) -> ScopeExplainDep {
     path,
     reason,
     reason_label: reason_label.into(),
-    span: read.span.clone(),
+    span: read.span,
     guards,
   }
 }

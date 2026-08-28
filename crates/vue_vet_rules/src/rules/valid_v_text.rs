@@ -37,7 +37,7 @@ impl Rule for ValidVText {
     }
     context.report(
       self.meta(),
-      directive.span.clone(),
+      directive.span,
       "invalid `v-text` usage".into(),
       Some(
         "Provide exactly one expression, no argument or modifiers, and no child content.".into(),

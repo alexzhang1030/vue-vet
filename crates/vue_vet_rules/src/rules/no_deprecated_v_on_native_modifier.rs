@@ -32,7 +32,7 @@ impl Rule for NoDeprecatedVOnNativeModifier {
     };
     context.report(
       self.meta(),
-      directive.span.clone(),
+      directive.span,
       "the `.native` event modifier was removed in Vue 3".into(),
       Some(
         "Declare emitted events on the child component; undeclared listeners fall through natively."

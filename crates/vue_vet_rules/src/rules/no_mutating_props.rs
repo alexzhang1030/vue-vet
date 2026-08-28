@@ -32,7 +32,7 @@ impl Rule for NoMutatingProps {
       if prop_bindings.iter().any(|name| write.object == *name) {
         context.report(
           self.meta(),
-          write.span.clone(),
+          write.span,
           "props are readonly and must not be mutated".into(),
           Some("Emit an event or copy the prop into local state owned by this component.".into()),
         );

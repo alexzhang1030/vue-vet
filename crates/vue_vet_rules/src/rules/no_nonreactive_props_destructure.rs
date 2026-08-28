@@ -38,7 +38,7 @@ impl Rule for NoNonreactivePropsDestructure {
     }
     context.report(
       self.meta(),
-      destructure.span.clone(),
+      destructure.span,
       "destructured props are not reactive before Vue 3.5".into(),
       Some(
         "Assign defineProps() to an object, then destructure toRefs(props), or keep property            access through the props object."

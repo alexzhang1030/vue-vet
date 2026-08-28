@@ -22,7 +22,7 @@ impl Rule for NoDuplicateDefineEmits {
     for call in extra_setup_calls(context.script(), "defineEmits") {
       context.report(
         self.meta(),
-        call.span.clone(),
+        call.span,
         "`defineEmits` may only be called once in `<script setup>`".into(),
         Some("Merge the declarations into a single `defineEmits` call.".into()),
       );
