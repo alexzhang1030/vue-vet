@@ -1,3 +1,8 @@
+//! `vue-vet` CLI binary — thin clap front-end over `vue_vet_session`.
+//!
+//! Owns flags, stdout/stderr policy, exit codes, fix apply, and `--lsp` /
+//! `--mcp` handoff. Do not grow analysis logic here.
+
 use std::{
   collections::BTreeSet,
   io::{IsTerminal, Write},

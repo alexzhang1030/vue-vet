@@ -1,3 +1,9 @@
+//! Vize-powered Vue SFC analysis → Vue Vet-owned facts.
+//!
+//! Parses with `vize_croquis::sfc` (never `vize_atelier_sfc`). Script blocks
+//! delegate to [`vue_vet_oxc`]. Prefer [`analyze_sfc_with_facts`] /
+//! [`analyze_sfc_facts_reusing`]; Vize AST must not escape this crate.
+
 use std::path::Path;
 use std::sync::Arc;
 

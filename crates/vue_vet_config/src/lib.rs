@@ -1,3 +1,10 @@
+//! Configuration, presets, path filters, and suppressions (`vue-vet.toml`).
+//!
+//! Owns parse/apply of [`CONFIG_FILE`] and comment suppressions. Does not
+//! discover workspaces or register rules — callers pass `known_rules` into
+//! [`Config::validate_rules`]. Apply order: parse → validate → analyze →
+//! [`Config::apply`] → [`apply_suppressions`].
+
 use std::{collections::BTreeMap, path::Path};
 
 use globset::{Glob, GlobSet, GlobSetBuilder};

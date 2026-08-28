@@ -203,6 +203,12 @@ cases** (not every SFC in the wild). Deep `watch(reactive)` uses static
 (static join; not an `onTrack` pair). Published crates omit those fixtures;
 clone the repository to run them.
 
+## Related docs
+
+- [vue_vet_plugins](../vue_vet_plugins/README.md) — ecosystem API bags
+- [reactivity tracer PCR](../../.agents/docs/reactivity-tracer.md)
+- [Workspace crates](../../docs/crates.md)
+
 ## License
 
 MIT

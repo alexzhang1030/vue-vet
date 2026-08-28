@@ -426,10 +426,12 @@ project discovery and configuration
 
 ## Crate evolution
 
-Existing crates are `vue_vet_core`, `vue_vet_config`, `vue_vet_vize`,
-`vue_vet_oxc`, `vue_vet_reactivity`, `vue_vet_rule_query`, `vue_vet_rules`,
-`vue_vet_practice`, `vue_vet_project`, `vue_vet_reporters`, `vue_vet_session`,
-and the `vue-vet` CLI.
+Every workspace crate ships a `README.md` under `crates/<name>/`. The index is
+[docs/crates.md](../../docs/crates.md). Existing crates are `vue_vet_core`,
+`vue_vet_config`, `vue_vet_vize`, `vue_vet_oxc`, `vue_vet_reactivity`,
+`vue_vet_plugins`, `vue_vet_rule_query`, `vue_vet_rules`, `vue_vet_practice`,
+`vue_vet_project`, `vue_vet_reporters`, `vue_vet_session`, `vue_vet_cache`,
+`vue_vet_lsp`, `vue_vet_mcp`, and the `vue-vet` CLI (`vue_vet_cli`).
 New rule capabilities extend these semantic and product boundaries only when a
 working vertical slice exercises them; there is no separate pattern-engine
 boundary in the roadmap.

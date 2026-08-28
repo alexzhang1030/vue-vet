@@ -276,10 +276,14 @@ After seed linking, project graph re-runs `join_template_reads`. The CLI then
 applies that module graph onto SFC facts and runs rules, so composable seeds
 affect per-file diagnostics—not only `module_reactivity` debug output.
 
-Content cache keys include `CACHE_FORMAT_VERSION`, ruleset version, and
-`REACTIVITY_GRAPH_VERSION`; bump those when analysis behavior changes so local
-caches do not serve stale graphs. Dual ordinary+setup blocks re-trace as setup
-plus `{path}#script` (not a single concatenated module).
+Content cache keys include `CACHE_FORMAT_VERSION`, ruleset version,
+`REACTIVITY_GRAPH_VERSION`, conventions / oxc_resolver identity, and **string
+literals** for `vize-version` / `oxc-version` inside `vue_vet_cache::content_key`
+(not read from `Cargo.toml`). Bump those literals or `CACHE_FORMAT_VERSION`
+when a Vize/Oxc upgrade changes results — otherwise warm caches can serve stale
+graphs after a dep bump. Keep `docs/cache-baseline-diff.md` aligned with
+`CACHE_FORMAT_VERSION`. Dual ordinary+setup blocks re-trace as setup plus
+`{path}#script` (not a single concatenated module).
 
 ## Do not stack per-guard-role Conditional rule ids
 
