@@ -107,7 +107,14 @@ vue-vet CLI
   refcount. The report is this-pass only. Unchanged graphs stay in
   `ModuleTraceState`; layers read that cache and store
   `Arc<[Arc<ModuleReactivity>]>` instead of a cloned live-id set or
-  emitted universe.
+  emitted universe. `LayeredInputKey.modules` is sorted by `ModuleId`
+  (`BTreeSet` construction; warm scans patch pointers only) so a leaf
+  rebuild probes with binary search. Template/prop layers look up files by
+  path and expand prop children from a file-path index. ProjectFile order
+  caches `normalized_path` once per file (`sort_by_cached_key`). Default CLI
+  reports use count-only reactivity stats; `--print-reactivity` attaches
+  `modules_detail`. JSON diagnostics and edits borrow their normalized `FileId`
+  paths; opaque finding IDs use that same path and preserve the wire contract.
 - **Atomic session publication** — the workspace revision, retained input
   snapshot, and committed analysis state share one `SessionCore` synchronization
   domain. Analysis captures `Arc` snapshots under the lock, computes outside it,
@@ -630,10 +637,15 @@ graphs. Extracted `.vue` scripts use Vize block offsets plus the original SFC
 as `span_source` so absolute spans stay exact; template joins are re-applied on
 the module graph after cross-file seed linking.
 
-Cache format version 3 stores only `ScanSummary` and `ProjectGraph`, including
+Cache format version 5 stores `ScanSummary` and `ProjectGraph`, including
 rule confidence, documentation metadata, and optional edit candidates on cached
-diagnostics. Its key includes every source body plus configuration, tool,
-dependency, convention, and ruleset versions. Baseline filtering and diff
+diagnostics. `CacheStore::store_parts` serializes references to the completed
+summary and graph; the existing `store` API forwards to it. Borrowed and owned
+envelopes have byte-identical JSON, covered by cache compatibility tests.
+Discovery validates UTF-8 directly from the retained source bytes and creates
+the analysis `Arc<str>` from that borrowed view. The cache key includes every
+source body plus configuration, tool, dependency, convention, and ruleset
+versions. Baseline filtering and diff
 filtering happen after cache lookup so those presentation choices do not
 fragment semantic cache entries.
 Fix modes still force a fresh scan before planning.

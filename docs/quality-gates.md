@@ -112,6 +112,11 @@ Canonical PR comparison uses CodSpeed (`just bench` / `just bench-codspeed-*`):
   `vue_vet_reactivity` `module_scaling`, including
   `trace_warm_leaf_edit_1k_modules` (persistent `ModuleTraceState` + one
   independent leaf). One-shot `trace_*` stay unarchived.
+- Whole-project modes: `vue_vet_session` `whole_project`, with mixed Vue/TS
+  trees exercising component imports, props, composables, dual scripts, and
+  diagnostics. Covers cold/warm scans, script/dependency edits, JSON rendering
+  at 1k files, and template edits at 5k files. Semantic-count assertions run
+  outside measurement and pin the generated workload.
 
 Local timing notes (developer machines) may be recorded in PRs but are not
 release budgets. CodSpeed simulated-CPU results are the comparable signal

@@ -76,7 +76,8 @@ pub fn build_project_graph_incremental_with_options<'a>(
   state.last_export_closure.clear();
   let root = normalize_project_root(root);
   let mut ordered = files.into_iter().collect::<Vec<_>>();
-  ordered.sort_by_key(|file| normalized_path(file.path.as_path()));
+  // Each file computes `normalized_path` once; stable order matches `sort_by_key`.
+  ordered.sort_by_cached_key(|file| normalized_path(file.path.as_path()));
   let known =
     ordered.iter().map(|file| normalized_path(file.path.as_path())).collect::<BTreeSet<_>>();
   let resolver = retain_project_resolver(state, &root, project_context.revision);

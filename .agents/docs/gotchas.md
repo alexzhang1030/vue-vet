@@ -46,8 +46,11 @@ npm/pnpm install trees often contain directories (or directory symlinks) named
 like packages with a `.js` suffix, for example `node_modules/pixi.js`.
 `Path::extension` reports `js`, and `DirEntry::file_type` may describe a
 symlink rather than a directory, so naive walks try to `fs::read` them and
-fail with EISDIR. Project walks must skip `node_modules` entirely and only
-accept paths where `Path::is_file()` is true after symlink resolution.
+fail with EISDIR. Project walks skip `node_modules` and accept regular files
+using the walk's cached `FileType`. Symlinks and unknown file types resolve
+through `Path::is_file()`. This preserves file-link support and directory-link
+filtering while saving a metadata syscall for each regular entry. Discovery
+tests cover both link types and directories with source-like extensions.
 
 ## crates.io API calls need a User-Agent
 
@@ -167,6 +170,23 @@ the cache directory after the bench. Putting `remove_dir_all` in the measured
 closure next to an ~8 µs retain made CodSpeed bounce ±15% under "Different
 runtime environments" (#181 / #182 / main after #189). That name is not a
 scan-path signal. Do not reintroduce filesystem teardown there.
+
+## CodSpeed benchmark attributes use the pinned compatibility API
+
+`codspeed-divan-compat` 5.0.1 exposes `threads` only in its native wall-time
+runner. Under `cfg(codspeed)`, that attribute fails with missing `IntoThreads`
+and a missing `BenchOptions.threads` field. Use the default single-threaded
+benchmark runner and set analysis concurrency through
+`SessionOptions { threads: Some(1) }`. `whole_project` and `scan_modes` exercise
+this combination; validate additions with `just bench-codspeed-build` as well
+as `just bench` (PR #216).
+
+`cargo-codspeed` 5.0.1 also clears each selected package's staged suite directory
+on every build. Pass all of a package's `--bench` targets in one invocation;
+otherwise the later build replaces earlier suites and the report lists those
+benchmarks as skipped. `bench-codspeed-build` groups `scan_modes` and
+`whole_project` together. Verify all 20 current benchmarks produce results.
+Upstream evidence: [`build_benches` at v5.0.1](https://github.com/CodSpeedHQ/codspeed-rust/blob/v5.0.1/crates/cargo-codspeed/src/build.rs).
 
 ## The current score is provisional
 
@@ -407,6 +427,18 @@ builds `rule_files` from the affected `SourceInput`s that are file-rule kinds.
 Vue FileIds (live or deleted, `.vue` suffix) include the ordinary `#script`
 dirty summary; after linking, plain JS/TS look up the retained primary
 `module_source.id` and language.
+
+Layer rebuild looks up `ModuleLayerKey` by `ModuleId` binary search. The vector
+stays in `BTreeSet<&ModuleId>` order; a missing id or a `base_ptr` / `facts_ptr`
+mismatch rebuilds that module. ProjectFile order computes `normalized_path`
+once per file (`sort_by_cached_key`) and keeps that sort. Template joins and
+prop-site parents use a `FileId` map; prop-child expansion uses ids grouped by
+file path (including `#script`). `join_prop_flows` indexes template elements by
+span offset per parent template.
+
+Default CLI/JSON reactivity digest uses `ReactivityModuleStats::from_counts`.
+`--print-reactivity` (and the TUI via `reactivity_module_stats`) builds labels,
+`*_details`, and `explain_tracking_scope`.
 
 **Dirty `FileId` ≠ dirty work.** A small `affected_files()` set only proves parse
 scheduling was narrow. After a warm persist scan, phase one visits the

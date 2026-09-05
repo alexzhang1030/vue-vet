@@ -56,7 +56,7 @@ struct JsonDiagnostic<'a> {
   message: &'a str,
   help: Option<&'a str>,
   documentation: Option<String>,
-  file: String,
+  file: &'a str,
   span: &'a SourceSpan,
   #[serde(skip_serializing_if = "Vec::is_empty")]
   edits: Vec<JsonTextEdit<'a>>,
@@ -66,7 +66,7 @@ struct JsonDiagnostic<'a> {
 
 #[derive(Serialize)]
 struct JsonTextEdit<'a> {
-  file: String,
+  file: &'a str,
   range: &'a ByteRange,
   replacement: &'a str,
   applicability: EditApplicability,
@@ -108,7 +108,7 @@ pub fn render_json(
     .map(|diagnostic| json_diagnostic(diagnostic, &analyzed_files))
     .collect::<Vec<_>>();
   let affected_file_count =
-    diagnostics.iter().map(|diagnostic| diagnostic.file.as_str()).collect::<BTreeSet<_>>().len();
+    diagnostics.iter().map(|diagnostic| diagnostic.file).collect::<BTreeSet<_>>().len();
   let mut by_severity = SeverityCounts::default();
   for diagnostic in &summary.diagnostics {
     match diagnostic.severity {
@@ -191,9 +191,10 @@ fn json_diagnostic<'a>(
   diagnostic: &'a Diagnostic,
   analyzed_files: &[String],
 ) -> JsonDiagnostic<'a> {
+  // FileId paths are normalized and shared by the report and diagnostic id.
   let file = report_path(&diagnostic.file, analyzed_files);
   JsonDiagnostic {
-    id: report_diagnostic_id(diagnostic, analyzed_files),
+    id: diagnostic_id(diagnostic, file),
     rule_id: &diagnostic.rule_id,
     category: &diagnostic.category,
     severity: diagnostic.severity,
@@ -225,12 +226,11 @@ fn json_diagnostic<'a>(
 /// exactly after a scan of the same path.
 #[must_use]
 pub fn report_diagnostic_id(diagnostic: &Diagnostic, analyzed_files: &[String]) -> String {
-  let file = report_path(&diagnostic.file, analyzed_files);
-  diagnostic_id(diagnostic, &file)
+  diagnostic_id(diagnostic, report_path(&diagnostic.file, analyzed_files))
 }
 
-fn report_path(path: &FileId, _analyzed_files: &[String]) -> String {
-  path.as_str().to_owned()
+fn report_path<'a>(path: &'a FileId, _analyzed_files: &[String]) -> &'a str {
+  path.as_str()
 }
 
 fn normalize_path(path: &str) -> String {

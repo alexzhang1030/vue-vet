@@ -31,12 +31,16 @@ pub fn report_context(cli: &Cli, snapshot: &AnalysisSnapshot) -> ReportContext {
       .entry(format!("analysis_{index}"))
       .or_insert_with(|| issue.message.clone());
   }
-  let module_stats = reactivity_module_stats(&snapshot.graph.module_reactivity);
-  let mut digest =
-    ReactivityDigest::from_modules(&module_stats, snapshot.graph.reactivity_error.clone());
-  if cli.print_reactivity || cli.reactivity_tui {
-    digest = digest.with_modules_detail(&module_stats);
-  }
+  let digest = if cli.print_reactivity {
+    let stats = reactivity_module_stats(&snapshot.graph.module_reactivity);
+    ReactivityDigest::from_modules(&stats, snapshot.graph.reactivity_error.clone())
+      .with_modules_detail(&stats)
+  } else {
+    ReactivityDigest::from_modules(
+      &reactivity_module_counts(&snapshot.graph.module_reactivity),
+      snapshot.graph.reactivity_error.clone(),
+    )
+  };
   // Always expose structural component nav in JSON; cheap and editor-facing.
   let component_nav = Some(component_nav_digest(&snapshot.graph));
   ReportContext {
@@ -70,10 +74,31 @@ pub fn component_nav_digest(graph: &ProjectGraph) -> ComponentNavDigest {
   component_nav_from_edges(edges)
 }
 
+/// Totals only. Default text/JSON/SARIF/GitHub digests use this path.
+#[must_use]
+pub fn reactivity_module_counts(modules: &[Arc<ModuleReactivity>]) -> Vec<ReactivityModuleStats> {
+  let mut stats = modules.iter().map(|module| module_counts(module)).collect::<Vec<_>>();
+  stats.sort_by(|left, right| left.id.cmp(&right.id));
+  stats
+}
+
+fn module_counts(module: &ModuleReactivity) -> ReactivityModuleStats {
+  ReactivityModuleStats::from_counts(
+    module.id.to_string(),
+    module.graph.bindings.len(),
+    module.graph.scopes.len(),
+    module.graph.edges.len(),
+    module.graph.template_reads.len(),
+  )
+}
+
+/// Labels, `*_details`, and per-scope Explain. `--print-reactivity` and the TUI.
+#[must_use]
 pub fn reactivity_module_stats(modules: &[Arc<ModuleReactivity>]) -> Vec<ReactivityModuleStats> {
   let mut stats = modules
     .iter()
     .map(|module| {
+      let mut stats = module_counts(module);
       let binding_len_by_name = module
         .graph
         .bindings
@@ -184,21 +209,15 @@ pub fn reactivity_module_stats(modules: &[Arc<ModuleReactivity>]) -> Vec<Reactiv
         .map(|detail| format!("{}@{}", detail.binding, detail.surface))
         .collect();
 
-      ReactivityModuleStats {
-        id: module.id.to_string(),
-        bindings: module.graph.bindings.len(),
-        scopes: module.graph.scopes.len(),
-        edges: module.graph.edges.len(),
-        template_reads: module.graph.template_reads.len(),
-        binding_labels,
-        scope_labels,
-        edge_labels,
-        template_labels,
-        binding_details,
-        scope_details,
-        edge_details,
-        template_details,
-      }
+      stats.binding_labels = binding_labels;
+      stats.scope_labels = scope_labels;
+      stats.edge_labels = edge_labels;
+      stats.template_labels = template_labels;
+      stats.binding_details = binding_details;
+      stats.scope_details = scope_details;
+      stats.edge_details = edge_details;
+      stats.template_details = template_details;
+      stats
     })
     .collect::<Vec<_>>();
   stats.sort_by(|left, right| left.id.cmp(&right.id));

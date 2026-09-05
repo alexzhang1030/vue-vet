@@ -25,14 +25,16 @@ pub fn apply_template_prop_layers(
   this_pass: Vec<ModuleReactivity>,
   workspace_ids: &BTreeSet<&ModuleId>,
 ) -> Arc<[Arc<ModuleReactivity>]> {
-  if layered_inputs_match(state, ordered, edges, &this_pass, workspace_ids) {
+  let mut this_pass_by_id =
+    this_pass.into_iter().map(|module| (module.id.clone(), module)).collect::<BTreeMap<_, _>>();
+  if layered_inputs_match(state, ordered, edges, &this_pass_by_id, workspace_ids) {
     state.last_stats.layered_graphs_rebuilt = false;
     return Arc::clone(&state.layered.modules);
   }
 
   let facts_ptr = facts_ptrs(ordered);
-  let mut this_pass_by_id =
-    this_pass.into_iter().map(|module| (module.id.clone(), module)).collect::<BTreeMap<_, _>>();
+  let files_by_path: BTreeMap<&str, &ProjectFile> =
+    ordered.iter().map(|file| (file.path.as_str(), *file)).collect();
 
   state.last_stats.layered_graphs_rebuilt = true;
   if Arc::strong_count(&state.layered) > 1 {
@@ -53,27 +55,26 @@ pub fn apply_template_prop_layers(
       };
       let new_base = Arc::as_ptr(&base.graph) as usize;
       let new_facts = facts_ptr_for(id, &facts_ptr);
-      !state.layered.key.as_ref().is_some_and(|prev| {
-        prev
-          .modules
-          .iter()
-          .any(|key| &key.id == *id && key.base_ptr == new_base && key.facts_ptr == new_facts)
-      })
+      !state
+        .layered
+        .key
+        .as_ref()
+        .is_some_and(|prev| previous_layer_matches(&prev.modules, id, new_base, new_facts))
     })
     .collect::<BTreeSet<_>>();
+  let dirty_parents: BTreeSet<&str> = rebuild.iter().copied().map(module_edge_key).collect();
   let expand_prop_children = !prop_edges_unchanged
     || state.layered.key.as_ref().is_some_and(|key| {
-      key
-        .prop_edges
-        .iter()
-        .any(|(from, _, _)| rebuild.iter().any(|id| module_edge_key(id) == graph_edge_key(from)))
+      key.prop_edges.iter().any(|(from, _, _)| dirty_parents.contains(graph_edge_key(from)))
     });
   if expand_prop_children && let Some(key) = state.layered.key.as_ref() {
+    let mut ids_by_file: BTreeMap<&str, Vec<&ModuleId>> = BTreeMap::new();
+    for id in workspace_ids.iter().copied() {
+      ids_by_file.entry(module_edge_key(id)).or_default().push(id);
+    }
     for (_, to, _) in &key.prop_edges {
-      for id in workspace_ids.iter().copied() {
-        if module_edge_key(id) == graph_edge_key(to) {
-          rebuild.insert(id);
-        }
+      if let Some(ids) = ids_by_file.get(graph_edge_key(to)) {
+        rebuild.extend(ids.iter().copied());
       }
     }
   }
@@ -113,6 +114,10 @@ pub fn apply_template_prop_layers(
   });
   let layered = Arc::make_mut(&mut state.layered);
   if let Some(key) = rebuilt_key {
+    debug_assert!(
+      layer_keys_sorted(&key.modules),
+      "LayeredInputKey.modules follows BTreeSet<&ModuleId> order"
+    );
     layered.key = Some(key);
   } else if let (Some(key), Some(ptrs)) = (layered.key.as_mut(), patched_ptrs) {
     for (module_key, (base_ptr, facts_ptr)) in key.modules.iter_mut().zip(ptrs) {
@@ -136,11 +141,8 @@ pub fn apply_template_prop_layers(
     else {
       continue;
     };
-    if let Some(facts) = ordered
-      .iter()
-      .find(|file| file.path.as_str() == id.as_str().strip_suffix("#script").unwrap_or(id.as_str()))
-    {
-      Arc::make_mut(&mut module.graph).join_template_reads(&facts.facts.template);
+    if let Some(file) = files_by_path.get(module_edge_key(id)) {
+      Arc::make_mut(&mut module.graph).join_template_reads(&file.facts.template);
     }
     module_reactivity.push(Arc::new(module));
   }
@@ -154,7 +156,7 @@ pub fn apply_template_prop_layers(
     .filter_map(|edge| {
       let parent_path = edge.from.strip_prefix("file:").unwrap_or(edge.from.as_str());
       let child_path = edge.to.strip_prefix("file:").unwrap_or(edge.to.as_str());
-      let parent_facts = ordered.iter().find(|file| file.path.as_str() == parent_path)?;
+      let parent_facts = files_by_path.get(parent_path)?;
       let parent_graph = graph_snapshots.get(parent_path)?;
       Some(PropFlowSite {
         element_span: edge.evidence,
@@ -164,7 +166,8 @@ pub fn apply_template_prop_layers(
       })
     })
     .collect::<Vec<_>>();
-  if should_join_prop_flows(&prop_sites, prop_edges_unchanged, &rebuild) {
+  let rebuilt_files: BTreeSet<&str> = rebuild.iter().copied().map(module_edge_key).collect();
+  if should_join_prop_flows(&prop_sites, prop_edges_unchanged, &rebuilt_files) {
     join_prop_flows(&mut module_reactivity, &prop_sites);
   }
   let modules = Arc::<[Arc<ModuleReactivity>]>::from(module_reactivity);
@@ -177,7 +180,7 @@ fn layered_inputs_match(
   state: &ProjectGraphState,
   ordered: &[&ProjectFile],
   edges: &[GraphEdge],
-  this_pass: &[ModuleReactivity],
+  this_pass: &BTreeMap<ModuleId, ModuleReactivity>,
   workspace_ids: &BTreeSet<&ModuleId>,
 ) -> bool {
   let Some(cached) = state.layered.key.as_ref() else {
@@ -188,11 +191,7 @@ fn layered_inputs_match(
   }
   let facts_ptr = facts_ptrs(ordered);
   cached.modules.iter().all(|key| {
-    let Some(base) = this_pass
-      .iter()
-      .find(|module| module.id == key.id)
-      .or_else(|| state.module_trace.cached_reactivity(&key.id))
-    else {
+    let Some(base) = base_module(&key.id, this_pass, state) else {
       return false;
     };
     Arc::as_ptr(&base.graph) as usize == key.base_ptr
@@ -203,6 +202,24 @@ fn layered_inputs_match(
 fn workspace_ids_match(cached: &LayeredInputKey, workspace_ids: &BTreeSet<&ModuleId>) -> bool {
   cached.modules.len() == workspace_ids.len()
     && cached.modules.iter().map(|key| &key.id).eq(workspace_ids.iter().copied())
+}
+
+/// `LayeredInputKey.modules` is built from `BTreeSet<&ModuleId>` and stays sorted
+/// by `id`. Warm scans patch `base_ptr` / `facts_ptr` in place, preserving order.
+fn previous_layer_matches(
+  modules: &[ModuleLayerKey],
+  id: &ModuleId,
+  base_ptr: usize,
+  facts_ptr: usize,
+) -> bool {
+  let Ok(index) = modules.binary_search_by(|key| key.id.cmp(id)) else {
+    return false;
+  };
+  modules.get(index).is_some_and(|key| key.base_ptr == base_ptr && key.facts_ptr == facts_ptr)
+}
+
+fn layer_keys_sorted(modules: &[ModuleLayerKey]) -> bool {
+  modules.iter().zip(modules.iter().skip(1)).all(|(left, right)| left.id < right.id)
 }
 
 fn facts_ptrs<'a>(ordered: &[&'a ProjectFile]) -> BTreeMap<&'a str, usize> {
@@ -246,11 +263,31 @@ fn graph_edge_key(node: &str) -> &str {
 fn should_join_prop_flows(
   prop_sites: &[PropFlowSite<'_>],
   prop_edges_unchanged: bool,
-  rebuild: &BTreeSet<&ModuleId>,
+  rebuilt_files: &BTreeSet<&str>,
 ) -> bool {
   !prop_sites.is_empty()
     && (!prop_edges_unchanged
-      || prop_sites
-        .iter()
-        .any(|site| rebuild.iter().any(|id| module_edge_key(id) == site.child_module)))
+      || prop_sites.iter().any(|site| rebuilt_files.contains(site.child_module)))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::{ModuleLayerKey, layer_keys_sorted, previous_layer_matches};
+  use vue_vet_core::ModuleId;
+
+  fn key(id: &str, base_ptr: usize, facts_ptr: usize) -> ModuleLayerKey {
+    ModuleLayerKey { id: ModuleId::from(id), base_ptr, facts_ptr }
+  }
+
+  #[test]
+  fn previous_layer_matches_uses_sorted_ids() {
+    let modules = vec![key("src/a.ts", 1, 2), key("src/a.ts#script", 3, 4), key("src/b.ts", 5, 6)];
+    assert!(layer_keys_sorted(&modules));
+    assert!(previous_layer_matches(&modules, &ModuleId::from("src/b.ts"), 5, 6));
+    assert!(!previous_layer_matches(&modules, &ModuleId::from("src/b.ts"), 0, 6));
+    assert!(!previous_layer_matches(&modules, &ModuleId::from("src/b.ts"), 5, 0));
+    assert!(!previous_layer_matches(&modules, &ModuleId::from("src/c.ts"), 1, 2));
+    assert!(!previous_layer_matches(&[], &ModuleId::from("src/a.ts"), 1, 2));
+    assert!(previous_layer_matches(&modules, &ModuleId::from("src/a.ts#script"), 3, 4));
+  }
 }
