@@ -146,3 +146,82 @@ fn call_only_unref_picks_up_package_vue_version_refresh() {
   assert_analysis_parity(&incremental, &cold);
   let _ignored = std::fs::remove_dir_all(root);
 }
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn package_json_add_replace_remove_matches_clean_scan() {
+  let root = std::env::temp_dir().join(format!("vue-vet-package-lifecycle-{}", std::process::id()));
+  let _ignored = std::fs::remove_dir_all(&root);
+  let demo = root.join("apps").join("demo");
+  std::fs::create_dir_all(&demo).unwrap_or_else(|error| panic!("workspace: {error}"));
+  std::fs::write(
+    root.join("vue-vet.toml"),
+    "version = 1\npreset = \"recommended\"\npractice = \"on\"\n",
+  )
+  .unwrap_or_else(|error| panic!("config: {error}"));
+  std::fs::write(root.join("package.json"), r#"{"dependencies":{"vue":"3.2.0"}}"#)
+    .unwrap_or_else(|error| panic!("root package: {error}"));
+  std::fs::write(
+    demo.join("unwrap.ts"),
+    "import { unref } from 'vue'\nexport function unwrap(x){return unref(x)}\n",
+  )
+  .unwrap_or_else(|error| panic!("unwrap: {error}"));
+  let session = open_session_threads(root.clone(), 1);
+  let initial = session.analyze().unwrap_or_else(|error| panic!("initial: {error}"));
+  assert!(
+    initial
+      .summary
+      .diagnostics
+      .iter()
+      .all(|diagnostic| diagnostic.rule_id != "vue-vet/practice/prefer-to-value"),
+    "root Vue 3.2 must stay quiet; {:?}",
+    initial.summary.diagnostics
+  );
+
+  let nested = demo.join("package.json");
+  let unwrap = FileId::from("apps/demo/unwrap.ts");
+  let vue_32 = r#"{"dependencies":{"vue":"3.2.0"}}"#;
+  let vue_35 = r#"{"dependencies":{"vue":"3.5.40"}}"#;
+  let prefer_to_value = |snapshot: &AnalysisSnapshot| {
+    snapshot.summary.diagnostics.iter().any(|diagnostic| {
+      diagnostic.file == unwrap && diagnostic.rule_id == "vue-vet/practice/prefer-to-value"
+    })
+  };
+
+  for (label, body, expect_prefer) in [
+    ("add3.5", Some(vue_35), true),
+    ("replace3.2", Some(vue_32), false),
+    ("restore3.5", Some(vue_35), true),
+    ("remove", None, false),
+  ] {
+    match body {
+      Some(source) => {
+        std::fs::write(&nested, source).unwrap_or_else(|error| panic!("{label} write: {error}"));
+      }
+      None => {
+        std::fs::remove_file(&nested).unwrap_or_else(|error| panic!("{label} unlink: {error}"));
+      }
+    }
+    session
+      .apply_changes(ChangeSet::remove(nested.clone()))
+      .unwrap_or_else(|error| panic!("{label} refresh: {error}"));
+    let incremental =
+      session.analyze_affected().unwrap_or_else(|error| panic!("{label} incremental: {error}"));
+    assert_eq!(
+      incremental.work.files_parsed, 0,
+      "{label} nested package change must not re-parse: {:?}",
+      incremental.work
+    );
+    assert_eq!(
+      prefer_to_value(&incremental),
+      expect_prefer,
+      "{label} prefer-to-value; {:?}",
+      incremental.summary.diagnostics
+    );
+    let clean = open_session_threads(root.clone(), 1)
+      .analyze()
+      .unwrap_or_else(|error| panic!("{label} clean: {error}"));
+    assert_analysis_parity(&incremental, &clean);
+  }
+  let _ignored = std::fs::remove_dir_all(root);
+}

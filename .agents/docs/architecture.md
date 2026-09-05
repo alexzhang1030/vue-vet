@@ -88,8 +88,15 @@ vue-vet CLI
   is the file-rule invalidation set (Vue SFCs and JS/TS/JSX/TSX), not Vue-only —
   otherwise a TSX `didChange` or a `.ts` seed/call-only file reuses stale diagnostics.
   Execution still filters with `needs_file_rules` after module graphs are applied.
-  Dirty parse is real; dirty linking / graph materialization / diagnostic store
-  updates are still incomplete — see **Post-#107 locality gap**.
+  Cached file `RuleEnvironment` is reused when `force_full_parse` is false and
+  the file is outside `impact.environment`. Cold start, package epoch, and new
+  sources query the current PackageIndex. Plain JS/TS expose one primary module;
+  after linking, eligibility uses `module_source.id` and language. Vue
+  dual-script looks up both surfaces; deleted `.vue` FileIds keep the ordinary
+  dirty summary. `DirtyPlan.rule_files` is the file-rule kinds among the
+  affected `SourceInput`s. Dirty parse is real; dirty linking / graph
+  materialization / diagnostic store updates are still incomplete — see
+  **Post-#107 locality gap**.
 - **Incremental project stages** — `ProjectSession` retains the source snapshot,
   per-file Vize/Oxc facts, raw file diagnostics, structural edge partitions,
   module seed plans/final graphs, and the reverse dependency index.   Unrelated

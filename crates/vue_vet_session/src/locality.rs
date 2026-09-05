@@ -88,13 +88,10 @@ pub fn change_impact_from(
   sources: &[SourceInput],
   previously_analyzed: &BTreeSet<FileId>,
 ) -> ChangeImpact {
-  let all_ids = sources.iter().map(|source| source.file_id.clone()).collect::<BTreeSet<_>>();
-  let file_rule_ids = file_rule_source_ids(sources);
-
   if force_full_parse {
     return ChangeImpact {
-      parse: all_ids,
-      environment: file_rule_ids,
+      parse: sources.iter().map(|source| source.file_id.clone()).collect(),
+      environment: file_rule_source_ids(sources),
       resolution: ResolutionScope::Workspace,
       component_index: true,
       membership: true,
@@ -102,13 +99,8 @@ pub fn change_impact_from(
   }
 
   let mut impact = ChangeImpact::default();
-  for file in dirty_files {
-    if all_ids.contains(file) {
-      impact.parse.insert(file.clone());
-    }
-  }
   for source in sources {
-    if !previously_analyzed.contains(&source.file_id) {
+    if dirty_files.contains(&source.file_id) || !previously_analyzed.contains(&source.file_id) {
       impact.parse.insert(source.file_id.clone());
     }
   }
@@ -165,31 +157,35 @@ pub fn dirty_plan_from(
   sources: &[SourceInput],
   export_closure: BTreeSet<ModuleId>,
 ) -> DirtyPlan {
-  let all_ids = sources.iter().map(|source| source.file_id.clone()).collect::<BTreeSet<_>>();
-  let vue_ids = sources
-    .iter()
-    .filter(|source| matches!(source.kind, SourceKind::Vue))
-    .map(|source| source.file_id.clone())
-    .collect::<BTreeSet<_>>();
-  let file_rule_ids = file_rule_source_ids(sources);
-
   let mut structural_files = last_affected.clone();
   if impact.resolution != ResolutionScope::None || impact.membership || impact.component_index {
     // Linking / indexes still rebuild broadly until Batch 2 partitions land.
-    structural_files.extend(all_ids.iter().cloned());
+    structural_files.extend(sources.iter().map(|source| source.file_id.clone()));
   }
 
-  let mut rule_files =
-    last_affected.iter().filter(|&id| file_rule_ids.contains(id)).cloned().collect::<BTreeSet<_>>();
+  let mut rule_files = BTreeSet::new();
+  for source in sources {
+    if last_affected.contains(&source.file_id) && file_rule_source_kind(&source.kind) {
+      rule_files.insert(source.file_id.clone());
+    }
+  }
   rule_files.extend(impact.environment.iter().cloned());
   if impact.component_index {
-    rule_files.extend(vue_ids.iter().cloned());
+    rule_files.extend(
+      sources
+        .iter()
+        .filter(|source| matches!(source.kind, SourceKind::Vue))
+        .map(|source| source.file_id.clone()),
+    );
   }
 
-  let module_summaries = structural_files
-    .iter()
-    .flat_map(|file| [ModuleId::primary(file), ModuleId::ordinary(file)])
-    .collect::<BTreeSet<_>>();
+  let mut module_summaries = BTreeSet::new();
+  for file in &structural_files {
+    module_summaries.insert(ModuleId::primary(file));
+    if file.as_path().extension().is_some_and(|ext| ext.eq_ignore_ascii_case("vue")) {
+      module_summaries.insert(ModuleId::ordinary(file));
+    }
+  }
 
   DirtyPlan {
     parse_files,
@@ -308,5 +304,66 @@ mod tests {
     assert!(plan.rule_files.contains(&FileId::from("util.ts")));
     assert!(!plan.rule_files.contains(&FileId::from("App.vue")));
     assert_eq!(plan.diagnostic_files, plan.rule_files);
+  }
+
+  #[test]
+  fn script_module_summaries_are_primary_only() {
+    let sources = vec![
+      source("App.vue", SourceKind::Vue),
+      source("util.ts", SourceKind::Script { language: "ts".into() }),
+    ];
+    let parse_files = BTreeSet::from([FileId::from("App.vue"), FileId::from("util.ts")]);
+    let impact = ChangeImpact { parse: parse_files.clone(), ..ChangeImpact::default() };
+    let plan =
+      dirty_plan_from(&impact, parse_files.clone(), &parse_files, &sources, BTreeSet::new());
+    assert!(plan.module_summaries.contains(&ModuleId::primary(&FileId::from("util.ts"))));
+    assert!(!plan.module_summaries.contains(&ModuleId::ordinary(&FileId::from("util.ts"))));
+    assert!(plan.module_summaries.contains(&ModuleId::primary(&FileId::from("App.vue"))));
+    assert!(plan.module_summaries.contains(&ModuleId::ordinary(&FileId::from("App.vue"))));
+  }
+
+  #[test]
+  fn deleted_vue_keeps_ordinary_module_summary() {
+    let sources = vec![source("util.ts", SourceKind::Script { language: "ts".into() })];
+    let last_affected = BTreeSet::from([FileId::from("Gone.vue"), FileId::from("util.ts")]);
+    let impact = ChangeImpact { parse: last_affected.clone(), ..ChangeImpact::default() };
+    let plan =
+      dirty_plan_from(&impact, last_affected.clone(), &last_affected, &sources, BTreeSet::new());
+    assert!(plan.module_summaries.contains(&ModuleId::primary(&FileId::from("Gone.vue"))));
+    assert!(
+      plan.module_summaries.contains(&ModuleId::ordinary(&FileId::from("Gone.vue"))),
+      "deleted dual-script Vue must keep the ordinary #script dirty summary"
+    );
+    assert!(!plan.module_summaries.contains(&ModuleId::ordinary(&FileId::from("util.ts"))));
+  }
+
+  #[test]
+  fn force_full_parse_and_package_epoch_refresh_js_ts_environments() {
+    let sources = vec![
+      source("App.vue", SourceKind::Vue),
+      source("util.ts", SourceKind::Script { language: "ts".into() }),
+    ];
+    let analyzed = sources.iter().map(|source| source.file_id.clone()).collect();
+    let forced = change_impact_from(
+      &BTreeSet::new(),
+      true,
+      &ContextEpochs::default(),
+      &ContextEpochs::default(),
+      &sources,
+      &analyzed,
+    );
+    assert!(forced.environment.contains(&FileId::from("App.vue")));
+    assert!(forced.environment.contains(&FileId::from("util.ts")));
+    let previous = ContextEpochs::default();
+    let mut current = previous;
+    current.package_manifest = 1;
+    let package =
+      change_impact_from(&BTreeSet::new(), false, &previous, &current, &sources, &analyzed);
+    assert!(package.environment.contains(&FileId::from("util.ts")));
+    current.package_manifest = 0;
+    current.tsconfig = 1;
+    let tsconfig =
+      change_impact_from(&BTreeSet::new(), false, &previous, &current, &sources, &analyzed);
+    assert!(tsconfig.environment.is_empty());
   }
 }

@@ -312,13 +312,15 @@ add redundant TrackingScope visitor passes (#136).
 
 ## JSX adaptation must not lint every Script module
 
-Standalone `.jsx`/`.tsx` (and scripts that already lowered non-empty
-`TemplateFacts`) join the Vue file-rule registry. Plain `.js`/`.ts` stay on the
-project-graph / seed path only. Enqueuing every Script into `pending_vue`
-regresses CodSpeed `scan_*` / synthetic 1k–5k module benches. Likewise: skip
-Oxc JSX template collection unless `language` is `jsx`/`tsx`, and skip
-`defineComponent` identity-forwarder fixed-point walks when no Vue factory
-import exists (#134 / #136).
+Vue SFCs and JSX/TSX always join the file-rule registry. Plain `.js`/`.ts`
+join only after linking, when local or seeded facts exist (scopes, bindings,
+calls, operands, member writes). Empty independent TS (`export const valueN =
+N`) must not enter `pending_vue` — that regresses CodSpeed `scan_*` / 1k
+module benches. Eligibility uses the retained `module_source.id` / language
+and the applied primary graph; do not synthesize an ordinary `#script` id for
+plain scripts. Skip Oxc JSX template collection unless `language` is
+`jsx`/`tsx`, and skip `defineComponent` identity-forwarder fixed-point walks
+when no Vue factory import exists (#134 / #136).
 
 ## SFC compiler macros are setup-only
 
@@ -397,6 +399,14 @@ Never discard the dirty `FileId` set returned by
 `PendingChanges` via `ChangeImpact` / `DirtyPlan`. Cancellation must not clear
 pending dirty state. A no-op `analyze_affected` when the revision is unchanged
 must return the last snapshot without re-entering the pipeline.
+
+Cached `RuleEnvironment` is reused on leaf edits. `PackageIndex::environment_for`
+runs for `force_full_parse`, `impact.environment` (package epoch), and new
+sources, including nested package add / replace / remove. `dirty_plan_from`
+builds `rule_files` from the affected `SourceInput`s that are file-rule kinds.
+Vue FileIds (live or deleted, `.vue` suffix) include the ordinary `#script`
+dirty summary; after linking, plain JS/TS look up the retained primary
+`module_source.id` and language.
 
 **Dirty `FileId` ≠ dirty work.** A small `affected_files()` set only proves parse
 scheduling was narrow. After a warm persist scan, phase one visits the

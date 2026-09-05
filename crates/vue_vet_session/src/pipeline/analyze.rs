@@ -72,6 +72,7 @@ pub fn analyze_candidate(
           source: Arc::clone(&input.source),
           environment,
           facts,
+          include_ordinary_graph: true,
         }),
         sfc,
       })
@@ -120,6 +121,8 @@ pub struct PendingVueFile {
   pub source: Arc<str>,
   pub environment: RuleEnvironment,
   pub facts: Arc<SfcFacts>,
+  /// Include the companion ordinary `<script>` module for Vue SFCs.
+  pub include_ordinary_graph: bool,
 }
 
 pub fn run_file_rules(
@@ -143,46 +146,33 @@ pub fn run_file_rules(
   )
 }
 
-/// Whether file rules should run on this source after module graphs are applied.
+/// Whether file rules should run on a script after module graphs are applied.
 ///
-/// Vue SFCs and JSX/TSX always participate. Plain JS/TS participate when local
-/// or seeded facts exist (scopes, bindings, member writes, operands, calls).
-/// Cross-file seeds are visible only on the applied module graph. Call-only
-/// practice rules (`prefer-to-value`, lifecycle listeners) need `block.calls`.
+/// Vue SFCs always participate (queued before this check). JSX/TSX always
+/// participate. Plain JS/TS participate when local or seeded facts exist
+/// (scopes, bindings, member writes, operands, calls). Cross-file seeds are
+/// visible only on the applied primary graph. Call-only practice rules
+/// (`prefer-to-value`, lifecycle listeners) need `block.calls`.
 #[must_use]
 pub fn needs_file_rules(
-  kind: &SourceKind,
+  language: &str,
   facts: &SfcFacts,
   primary_graph: Option<&ReactivityGraph>,
-  ordinary_graph: Option<&ReactivityGraph>,
 ) -> bool {
-  if !crate::locality::file_rule_source_kind(kind) {
+  if !matches!(language, "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" | "mts" | "cts") {
     return false;
   }
-  match kind {
-    SourceKind::Vue => true,
-    SourceKind::Script { language } if matches!(language.as_str(), "jsx" | "tsx") => true,
-    SourceKind::Script { .. } => script_has_rule_facts(facts, primary_graph, ordinary_graph),
+  if matches!(language, "jsx" | "tsx") {
+    return true;
   }
+  script_has_rule_facts(facts, primary_graph)
 }
 
-#[must_use]
-pub fn script_source_kind(path: &Path) -> SourceKind {
-  let language = path.extension().and_then(|extension| extension.to_str()).unwrap_or("js");
-  SourceKind::Script { language: language.to_owned() }
-}
-
-fn script_has_rule_facts(
-  facts: &SfcFacts,
-  primary_graph: Option<&ReactivityGraph>,
-  ordinary_graph: Option<&ReactivityGraph>,
-) -> bool {
+fn script_has_rule_facts(facts: &SfcFacts, primary_graph: Option<&ReactivityGraph>) -> bool {
   if !facts.template.elements.is_empty() || !facts.template.expressions.is_empty() {
     return true;
   }
-  if primary_graph.is_some_and(graph_has_rule_facts)
-    || ordinary_graph.is_some_and(graph_has_rule_facts)
-  {
+  if primary_graph.is_some_and(graph_has_rule_facts) {
     return true;
   }
   facts.script.blocks.iter().any(|block| {
@@ -276,8 +266,7 @@ mod tests {
     });
     let facts =
       SfcFacts { template: TemplateFacts::default(), script: ScriptFacts { blocks: vec![block] } };
-    let kind = SourceKind::Script { language: "ts".into() };
-    assert!(needs_file_rules(&kind, &facts, None, None));
+    assert!(needs_file_rules("ts", &facts, None));
   }
 
   #[test]
@@ -286,8 +275,9 @@ mod tests {
       template: TemplateFacts::default(),
       script: ScriptFacts { blocks: vec![block()] },
     };
-    let kind = SourceKind::Script { language: "ts".into() };
-    assert!(!needs_file_rules(&kind, &facts, None, None));
+    assert!(!needs_file_rules("ts", &facts, None));
+    assert!(needs_file_rules("tsx", &facts, None));
+    assert!(needs_file_rules("jsx", &facts, None));
   }
 
   #[test]
@@ -296,7 +286,6 @@ mod tests {
       template: TemplateFacts::default(),
       script: ScriptFacts { blocks: vec![block()] },
     };
-    let kind = SourceKind::Script { language: "ts".into() };
     let mut graph = ReactivityGraph::default();
     graph.bindings.push(vue_vet_core::ReactiveBindingFact {
       name: "state".into(),
@@ -305,6 +294,7 @@ mod tests {
       alias_of: None,
       span: span(),
     });
-    assert!(needs_file_rules(&kind, &facts, Some(&graph), None));
+    assert!(needs_file_rules("ts", &facts, Some(&graph)));
+    assert!(!needs_file_rules("ts", &facts, None));
   }
 }
