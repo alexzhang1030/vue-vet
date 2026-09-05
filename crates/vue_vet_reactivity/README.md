@@ -2,10 +2,13 @@
 
 Static **Vue reactivity dependency tracing** for [Vue Vet](https://github.com/alexzhang1030/vue-vet).
 
-Given an [Oxc](https://oxc.rs/) semantic model (or a resolved module graph), this
-crate builds a serializable `ReactivityGraph` (`vue_vet_core`) of Vue-resolved
-bindings, tracking scopes, demand reads, guards, and inverted dependency edges —
-without executing components, effects, or Proxies.
+Default consumers pass `ModuleSource` values to `trace_modules` (or
+`trace_modules_with_options` / `prepare_standalone_module_source`) and get a
+serializable `ReactivityGraph` (`vue_vet_core`) of Vue-resolved bindings,
+tracking scopes, demand reads, guards, and inverted dependency edges — without
+executing components, effects, or Proxies. The `oxc` namespace is the
+low-level path when the caller already holds an [Oxc](https://oxc.rs/)
+`Semantic`.
 
 Lint rules are the first consumer. The graph is intended as a multi-consumer
 library surface (project graph, cache, CLI `--explain-scope`, MCP
@@ -16,7 +19,7 @@ library surface (project graph, cache, CLI `--explain-scope`, MCP
 ```rust
 use vue_vet_reactivity::{explain_tracking_scope, select_tracking_scopes};
 
-// After `trace_reactivity` / `trace_modules`:
+// After `trace_modules`:
 for scope in select_tracking_scopes("App.vue", &graph, "doubled") {
   let explain = explain_tracking_scope("App.vue", scope);
   // explain.summary — one-line "would Vue re-run?"
@@ -33,7 +36,7 @@ LSP: `vue-vet --lsp` hover at a caret inside a tracking scope.
 ## Status
 
 Early `0.x`. The fact schema is versioned
-(`REACTIVITY_GRAPH_VERSION = 34` in `vue_vet_core`). See the repository PCR
+(`REACTIVITY_GRAPH_VERSION = 36` in `vue_vet_core`). See the repository PCR
 ([reactivity tracer](https://github.com/alexzhang1030/vue-vet/blob/main/.agents/docs/reactivity-tracer.md))
 for the ExportState policy algebra and axis checklist. In-scope design axes A1–A7
 and Evidence are **complete** — complete means the in-scope checklists, not
@@ -52,18 +55,15 @@ vue_vet_core = "0.1"
 # vue_vet_plugins = "0.1"
 ```
 
-You also need a pinned Oxc semantic stack compatible with this crate's
-`oxc_*` dependencies (see `Cargo.toml`).
+Source / module consumers only need those two crates (`ModuleSource` +
+`trace_modules`). They do not take a dependency on Oxc. The `oxc` namespace
+(below) is for adapters that already own a `Semantic`.
 
 ## Quick start (single script)
 
 ```rust
-use oxc_allocator::Allocator;
-use oxc_parser::Parser;
-use oxc_semantic::SemanticBuilder;
-use oxc_span::SourceType;
 use vue_vet_core::ScriptKind;
-use vue_vet_reactivity::trace_reactivity;
+use vue_vet_reactivity::{ModuleSource, trace_modules};
 
 let source = r#"
 import { ref, computed } from 'vue'
@@ -71,46 +71,32 @@ const count = ref(0)
 const doubled = computed(() => count.value * 2)
 "#;
 
-let allocator = Allocator::default();
-let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
-let semantic = SemanticBuilder::new()
-  .with_check_syntax_error(true)
-  .build(&parsed.program)
-  .semantic;
-
-// Empty plugin catalog: Vue primitives only.
-let graph = trace_reactivity(&semantic, source, 0, ScriptKind::Setup);
-assert!(!graph.bindings.is_empty());
-assert!(!graph.scopes.is_empty());
+let module = ModuleSource::standalone("plain.ts", source, "ts", ScriptKind::Script);
+let graphs = trace_modules(&[module], &[]).expect("trace");
+assert!(!graphs[0].graph.bindings.is_empty());
+assert!(!graphs[0].graph.scopes.is_empty());
 ```
+
+`prepare_standalone_module_source` is the same path when the caller already has
+bytes and a language. Spans are byte offsets into the original file. For Vue
+SFC script blocks use `ModuleSource::sfc_script` with the full SFC text and the
+script body's byte offset so line/column map back to the `.vue` file.
 
 ### Ecosystem plugins (Nuxt / vue-i18n)
 
 This crate does **not** hardcode Nuxt or vue-i18n surfaces. Pass a
-`NamedApiBag` catalog via `TraceConfig`:
+`NamedApiBag` catalog on `TraceModulesOptions`:
 
 ```rust
-use vue_vet_plugins::default_trace_config;
-use vue_vet_reactivity::trace_reactivity_with_config;
+use vue_vet_plugins::default_trace_modules_options;
+use vue_vet_reactivity::trace_modules_with_options;
 
-let graph = trace_reactivity_with_config(
-  &semantic,
-  source,
-  0,
-  ScriptKind::Setup,
-  &default_trace_config(),
-);
+let options = default_trace_modules_options();
+let graphs = trace_modules_with_options(&modules, &links, options)?;
 ```
-
-Multi-module: set `TraceModulesOptions::named_api_bags` (or use
-`vue_vet_plugins::default_trace_modules_options()`).
 
 The Vue Vet CLI / session / Oxc adapter **auto-load** default plugins so product
 scans always include the catalog. See [vue_vet_plugins](../vue_vet_plugins/README.md).
-
-Spans are byte offsets into the original file. For Vue SFC script blocks, pass
-the full SFC text and the script body's byte offset so line/column map back to
-the `.vue` file.
 
 ## Module graph
 
@@ -127,13 +113,13 @@ let modules = vec![
     "producer.ts",
     "import { ref } from 'vue'\nexport function useCounter() {\n  return { count: ref(0) }\n}\n",
     "ts",
-    ScriptKind::Ordinary,
+    ScriptKind::Script,
   ),
   ModuleSource::standalone(
     "consumer.ts",
     "import { computed } from 'vue'\nimport { useCounter } from './producer'\nconst { count } = useCounter()\nconst label = computed(() => count.value)\n",
     "ts",
-    ScriptKind::Ordinary,
+    ScriptKind::Script,
   ),
 ];
 let links = vec![ModuleLink {
@@ -172,6 +158,41 @@ this-pass only; read unchanged graphs from `cached_reactivity`. Cached
 summaries are merged into linking and seed-dirty consumers are pulled from
 `cached_source`. One-shot `trace_modules_with_options` leaves retain unset so
 the input list remains the universe.
+
+## Oxc low-level (`vue_vet_reactivity::oxc`)
+
+Pin `oxc_allocator` / `oxc_parser` / `oxc_semantic` / `oxc_span` to **0.142.0**
+(same as this crate's `oxc_*` workspace pins). Oxc 0.142 `SemanticBuilder`
+does **not** populate `Semantic::nodes` unless `.with_build_nodes(true)` is
+set; without it, imports/calls/scopes are empty.
+
+```rust
+use oxc_allocator::Allocator;
+use oxc_parser::Parser;
+use oxc_semantic::SemanticBuilder;
+use oxc_span::SourceType;
+use vue_vet_core::ScriptKind;
+use vue_vet_reactivity::oxc;
+
+let allocator = Allocator::default();
+let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
+let semantic = SemanticBuilder::new()
+  .with_build_nodes(true)
+  .with_check_syntax_error(true)
+  .build(&parsed.program)
+  .semantic;
+
+let graph = oxc::trace_reactivity(&semantic, source, 0, ScriptKind::Script);
+assert!(graph.scopes.iter().any(|scope| {
+  scope.reads.iter().any(|read| read.binding == "count")
+}));
+```
+
+Product adapters (`vue_vet_oxc`) import from `vue_vet_reactivity::oxc`. Root
+still re-exports the same names (`trace_reactivity`, `prepare_module_trace`, …)
+as `#[doc(hidden)]` compat aliases — not `#[deprecated]`, not a second parser.
+Prefer `ModuleSource` + `trace_modules` unless the caller already holds a
+`Semantic`.
 
 ## What the graph contains
 
