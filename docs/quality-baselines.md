@@ -49,6 +49,20 @@ Stable benchmark names (do not rename without a new baseline rationale):
 | `vue_vet_session` / `scan_modes` | `scan_diff_filter_nuxt_graph` | Diff filter (`filter_diff` only; analyze and cache teardown are unmeasured) |
 | `vue_vet_reactivity` / `module_scaling` | `trace_1k_modules` | Cold one-shot (`persist_linking_cache` forced off). No-regression, not the locality win. |
 | `vue_vet_reactivity` / `module_scaling` | `trace_warm_leaf_edit_1k_modules` | Warm `ModuleTraceState` + one independent leaf body edit |
+| `vue_vet_session` / `whole_project` | `scan_cold_mixed_1k` | Cold analyze of mixed Vue+TS. Setup generates the tree outside the measured closure. |
+| `vue_vet_session` / `whole_project` | `scan_warm_mixed_1k` | New session after a primed on-disk cache (CLI warm). |
+| `vue_vet_session` / `whole_project` | `scan_script_edit_mixed_1k` | Incremental `analyze_affected` after Parent.vue script overlay. |
+| `vue_vet_session` / `whole_project` | `scan_dependency_edit_mixed_1k` | Incremental `analyze_affected` after `useCounter.ts` overlay. |
+| `vue_vet_session` / `whole_project` | `json_render_mixed_1k` | `render(..., Json)` of a completed 1k mixed snapshot. |
+| `vue_vet_session` / `whole_project` | `scan_template_edit_mixed_5k` | Incremental template overlay on a 5k-file mixed tree. |
+
+`whole_project` 1k mixed fixture (250 groups, Parent `:value` + `:label="String(doubled)"`,
+Child `label` prop and `{{ label }}`) must keep the measured baseline: 1000 files,
+≥1000 module graphs, `no-v-html` diagnostics, `ComponentUsage` edges; module-graph
+edges 250 Prop / 750 Computed / 500 Effect / 750 Template; scopes 500 computed /
+500 `watchEffect`; `template_reads` length 750. Generation and cache-directory
+teardown stay outside the timed closure. CodSpeed numbers are filled after the
+first instrumented run.
 
 Commands: `just bench`, `just bench-codspeed-build`, `just bench-codspeed-run`.
 

@@ -62,10 +62,10 @@ impl WorkspaceInputSnapshot {
 
     for entry in project_walk(root) {
       let entry = entry.map_err(|error| SessionError::message(error.to_string()))?;
-      let path = entry.path();
-      if !path.is_file() {
+      if !is_walk_file(&entry) {
         continue;
       }
+      let path = entry.path();
       let file_id = file_id_for_physical(root, &boundary, path);
       if path.file_name().and_then(|name| name.to_str()) == Some("package.json") {
         let bytes = overlay_source(path, overlays)
@@ -89,13 +89,10 @@ impl WorkspaceInputSnapshot {
         .map_or_else(|| read_bytes(path), |source| Ok(Arc::from(source.as_bytes())))?;
       cache_inputs.push((file_id.as_str().to_owned(), Arc::clone(&bytes)));
       if let Some(kind) = kind {
-        let source = String::from_utf8(bytes.as_ref().to_vec()).map_err(|error| {
-          SessionError::message(format!("{} is not valid UTF-8: {error}", path.display()))
-        })?;
         sources.push(SourceInput {
           physical_path: PhysicalPath::new(path),
           file_id: file_id.clone(),
-          source: Arc::from(source),
+          source: source_from_utf8_bytes(path, &bytes)?,
           kind,
         });
       }
@@ -224,13 +221,10 @@ impl WorkspaceInputSnapshot {
 
       let kind = source_kind(&file_id, extension, filter.matches(file_id.as_path()));
       if let (Some(kind), Some(bytes)) = (kind, bytes) {
-        let source = String::from_utf8(bytes.as_ref().to_vec()).map_err(|error| {
-          SessionError::message(format!("{} is not valid UTF-8: {error}", path.display()))
-        })?;
         self.upsert_source(SourceInput {
           physical_path: PhysicalPath::new(&path),
           file_id: file_id.clone(),
-          source: Arc::from(source),
+          source: source_from_utf8_bytes(&path, &bytes)?,
           kind,
         });
       } else {
@@ -348,11 +342,33 @@ fn read_bytes(path: &Path) -> Result<Arc<[u8]>, SessionError> {
     .map_err(|error| SessionError::message(format!("failed to read {}: {error}", path.display())))
 }
 
+fn source_from_utf8_bytes(path: &Path, bytes: &[u8]) -> Result<Arc<str>, SessionError> {
+  let source = std::str::from_utf8(bytes).map_err(|error| {
+    SessionError::message(format!("{} is not valid UTF-8: {error}", path.display()))
+  })?;
+  Ok(Arc::from(source))
+}
+
 fn project_walk(root: &Path) -> ignore::Walk {
   WalkBuilder::new(root)
     .standard_filters(true)
     .filter_entry(|entry| !is_node_modules_entry(entry))
     .build()
+}
+
+/// Regular files reuse the walk's `FileType` and skip a follow-up `stat`.
+/// Symlinks and unknown types still resolve with [`Path::is_file`] so
+/// directory packages (`pixi.js`) and file links keep current semantics.
+#[expect(
+  clippy::filetype_is_file,
+  reason = "walk FileType already distinguishes regular files; Path::is_file would re-stat every entry"
+)]
+fn is_walk_file(entry: &DirEntry) -> bool {
+  match entry.file_type() {
+    Some(file_type) if file_type.is_file() => true,
+    Some(file_type) if file_type.is_dir() => false,
+    _ => entry.path().is_file(),
+  }
 }
 
 fn is_node_modules_entry(entry: &DirEntry) -> bool {
@@ -502,6 +518,74 @@ mod tests {
     assert!(
       snapshot.sources.iter().any(|source| source.file_id.as_str() == "NewComponent.vue"),
       "overlay-only unsaved files must enter the first discovery snapshot"
+    );
+    let _ignored = std::fs::remove_dir_all(root);
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "discovery fixture failures must fail the unit test")]
+  fn discover_skips_directory_with_source_extension() {
+    let root = std::env::temp_dir().join(format!("vue-vet-dir-ext-{}", std::process::id()));
+    let _ignored = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("pixi.js")).unwrap_or_else(|error| panic!("dir: {error}"));
+    std::fs::write(root.join("App.vue"), "<template><main /></template>")
+      .unwrap_or_else(|error| panic!("vue: {error}"));
+    let snapshot = WorkspaceInputSnapshot::discover(&root, &Config::default(), &BTreeMap::new())
+      .unwrap_or_else(|error| panic!("discover: {error}"));
+    assert_eq!(
+      snapshot.sources.iter().map(|source| source.file_id.as_str()).collect::<Vec<_>>(),
+      ["App.vue"],
+      "directories named like source files must not be read"
+    );
+    let _ignored = std::fs::remove_dir_all(root);
+  }
+
+  #[cfg(unix)]
+  #[test]
+  #[expect(clippy::panic, reason = "discovery fixture failures must fail the unit test")]
+  fn discover_resolves_file_symlink_and_skips_directory_symlink() {
+    use std::os::unix::fs::symlink;
+
+    let root = std::env::temp_dir().join(format!("vue-vet-walk-links-{}", std::process::id()));
+    let _ignored = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+    std::fs::write(root.join("real.ts"), "export const ok = 1;\n")
+      .unwrap_or_else(|error| panic!("real: {error}"));
+    symlink(root.join("real.ts"), root.join("alias.ts"))
+      .unwrap_or_else(|error| panic!("file link: {error}"));
+    std::fs::create_dir_all(root.join("pkg.js")).unwrap_or_else(|error| panic!("pkg: {error}"));
+    symlink(root.join("pkg.js"), root.join("alias.js"))
+      .unwrap_or_else(|error| panic!("dir link: {error}"));
+    let snapshot = WorkspaceInputSnapshot::discover(&root, &Config::default(), &BTreeMap::new())
+      .unwrap_or_else(|error| panic!("discover: {error}"));
+    let files = snapshot.sources.iter().map(|source| source.file_id.as_str()).collect::<Vec<_>>();
+    assert_eq!(
+      files,
+      ["alias.ts", "real.ts"],
+      "file symlink must resolve; directory symlink must skip"
+    );
+    let _ignored = std::fs::remove_dir_all(root);
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "discovery fixture failures must fail the unit test")]
+  fn discover_rejects_invalid_utf8_with_stable_message() {
+    let root = std::env::temp_dir().join(format!("vue-vet-utf8-{}", std::process::id()));
+    let _ignored = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+    let bad = root.join("bad.ts");
+    let bytes = [0xff, 0xfe, 0xfd];
+    std::fs::write(&bad, bytes).unwrap_or_else(|error| panic!("bytes: {error}"));
+    let error = WorkspaceInputSnapshot::discover(&root, &Config::default(), &BTreeMap::new())
+      .err()
+      .unwrap_or_else(|| panic!("invalid UTF-8 source must fail discover"));
+    let Err(from_utf8) = String::from_utf8(bytes.to_vec()) else {
+      panic!("fixture must be invalid UTF-8");
+    };
+    assert_eq!(
+      error.to_string(),
+      format!("{} is not valid UTF-8: {from_utf8}", bad.display()),
+      "UTF-8 error must keep path and byte index from String::from_utf8"
     );
     let _ignored = std::fs::remove_dir_all(root);
   }

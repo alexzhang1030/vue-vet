@@ -214,6 +214,60 @@ fn text_report_includes_reactivity_digest() {
 }
 
 #[test]
+#[expect(clippy::panic, reason = "malformed JSON reports must fail the integration test")]
+fn default_digest_matches_print_reactivity_totals() {
+  let project = fixture("projects/module-seeds");
+  let path = project.to_string_lossy();
+  let default = run(&[path.as_ref(), "--format", "json", "--no-cache"]);
+  let detailed = run(&[path.as_ref(), "--format", "json", "--print-reactivity", "--no-cache"]);
+  let default_stdout = String::from_utf8_lossy(&default.stdout);
+  let detailed_stdout = String::from_utf8_lossy(&detailed.stdout);
+  assert!(default.status.success(), "default json: {default_stdout}");
+  assert!(detailed.status.success(), "print-reactivity json: {detailed_stdout}");
+  let default_json: Value = serde_json::from_slice(&default.stdout)
+    .unwrap_or_else(|error| panic!("{error}: {default_stdout}"));
+  let detailed_json: Value = serde_json::from_slice(&detailed.stdout)
+    .unwrap_or_else(|error| panic!("{error}: {detailed_stdout}"));
+  for key in ["modules", "bindings", "scopes", "edges", "template_reads", "hotspots"] {
+    assert_eq!(
+      default_json.pointer(&format!("/reactivity/{key}")),
+      detailed_json.pointer(&format!("/reactivity/{key}")),
+      "default digest {key} must match print-reactivity aggregation"
+    );
+  }
+  let default_detail = default_json.pointer("/reactivity/modules_detail");
+  assert!(
+    default_detail.is_none() || default_detail.and_then(Value::as_array).is_some_and(Vec::is_empty),
+    "default JSON must omit modules_detail: {default_stdout}"
+  );
+  let details = detailed_json
+    .pointer("/reactivity/modules_detail")
+    .and_then(Value::as_array)
+    .unwrap_or_else(|| panic!("print-reactivity must fill modules_detail: {detailed_stdout}"));
+  assert!(
+    details.iter().any(|module| {
+      module.get("binding_details").and_then(Value::as_array).is_some_and(|items| !items.is_empty())
+        || module
+          .get("scope_details")
+          .and_then(Value::as_array)
+          .is_some_and(|items| !items.is_empty())
+    }),
+    "TUI/print-reactivity stats must keep structured details: {detailed_stdout}"
+  );
+  let text = run(&[path.as_ref(), "--no-cache"]);
+  let text_out = String::from_utf8_lossy(&text.stdout);
+  assert!(text.status.success(), "text footer: {text_out}");
+  let bindings = default_json
+    .pointer("/reactivity/bindings")
+    .and_then(Value::as_u64)
+    .unwrap_or_else(|| panic!("bindings total: {default_stdout}"));
+  assert!(
+    text_out.contains(&bindings.to_string()) && text_out.contains("Reactivity"),
+    "text footer must show the same digest totals: {text_out}"
+  );
+}
+
+#[test]
 fn print_reactivity_lists_module_detail() {
   let project = fixture("projects/module-seeds");
   let output = run(&[project.to_string_lossy().as_ref(), "--print-reactivity", "--no-cache"]);

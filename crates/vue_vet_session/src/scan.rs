@@ -4,7 +4,7 @@ use std::{
   sync::Arc,
 };
 
-use vue_vet_cache::{CacheLookup, CachePayload, CacheStore, content_key};
+use vue_vet_cache::{CacheLookup, CacheStore, content_key};
 use vue_vet_config::Config;
 use vue_vet_core::{FileId, ScanSummary};
 use vue_vet_project::ProjectGraph;
@@ -149,7 +149,7 @@ fn fill_cache(
   )?;
   if result.issues.is_empty() {
     store
-      .store(key, &CachePayload { summary: result.summary.clone(), graph: result.graph.clone() })
+      .store_parts(key, &result.summary, &result.graph)
       .map_err(|error| SessionError::message(error.to_string()))?;
   }
   Ok((result.summary, result.graph, status, result.issues, result.work))

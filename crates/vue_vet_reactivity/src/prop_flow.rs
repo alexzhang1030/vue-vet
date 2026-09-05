@@ -30,14 +30,20 @@ pub fn join_prop_flows(children: &mut [Arc<ModuleReactivity>], sites: &[PropFlow
     .enumerate()
     .map(|(index, child)| (child.id.as_str(), index))
     .collect::<BTreeMap<_, _>>();
+  let mut elements_by_template: BTreeMap<
+    *const TemplateFacts,
+    BTreeMap<usize, &TemplateElementFact>,
+  > = BTreeMap::new();
   let mut pending: BTreeMap<usize, Vec<ReactiveDependencyEdge>> = BTreeMap::new();
   for site in sites {
-    let Some(element) = site
-      .parent_template
-      .elements
-      .iter()
-      .find(|element| element.span.offset == site.element_span.offset)
-    else {
+    let template = std::ptr::from_ref(site.parent_template);
+    let elements = elements_by_template.entry(template).or_default();
+    if elements.is_empty() {
+      for element in &site.parent_template.elements {
+        elements.entry(element.span.offset).or_insert(element);
+      }
+    }
+    let Some(element) = elements.get(&site.element_span.offset).copied() else {
       continue;
     };
     let Some(&child_idx) = child_index.get(site.child_module) else {
@@ -255,6 +261,103 @@ mod tests {
         child.graph.edges
       );
     }
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "fixture construction failures must fail the unit test")]
+  fn duplicate_element_spans_keep_the_first_prop_site() {
+    let first = TemplateElementFact {
+      tag: "Child".into(),
+      span: span(10),
+      attributes: Vec::new(),
+      directives: vec![TemplateDirectiveFact {
+        name: "bind".into(),
+        raw_name: ":title".into(),
+        argument: Some("title".into()),
+        expression: Some("label".into()),
+        modifiers: Vec::new(),
+        span: span(12),
+      }],
+      has_children: false,
+      has_accessible_content: false,
+      has_labelable_descendant: false,
+      has_label_ancestor: false,
+      has_accessible_name_ancestor: false,
+    };
+    let second = TemplateElementFact {
+      tag: "Child".into(),
+      span: span(10),
+      attributes: Vec::new(),
+      directives: vec![TemplateDirectiveFact {
+        name: "bind".into(),
+        raw_name: ":title".into(),
+        argument: Some("title".into()),
+        expression: Some("other".into()),
+        modifiers: Vec::new(),
+        span: span(13),
+      }],
+      has_children: false,
+      has_accessible_content: false,
+      has_labelable_descendant: false,
+      has_label_ancestor: false,
+      has_accessible_name_ancestor: false,
+    };
+    let parent_template = TemplateFacts { elements: vec![first, second], expressions: Vec::new() };
+    let mut parent_graph = ReactivityGraph {
+      bindings: vec![
+        ReactiveBindingFact {
+          name: "label".into(),
+          kind: ReactiveBindingKind::Ref,
+          initialized_with_null: false,
+          alias_of: None,
+          span: span(1),
+        },
+        ReactiveBindingFact {
+          name: "other".into(),
+          kind: ReactiveBindingKind::Ref,
+          initialized_with_null: false,
+          alias_of: None,
+          span: span(2),
+        },
+      ],
+      ..ReactivityGraph::default()
+    };
+    parent_graph.set_module_id("Parent.vue");
+    let child_graph = ReactivityGraph {
+      bindings: vec![ReactiveBindingFact {
+        name: "props".into(),
+        kind: ReactiveBindingKind::Reactive,
+        initialized_with_null: false,
+        alias_of: None,
+        span: span(3),
+      }],
+      ..ReactivityGraph::default()
+    };
+    let mut children =
+      vec![Arc::new(ModuleReactivity { id: "Child.vue".into(), graph: Arc::new(child_graph) })];
+    join_prop_flows(
+      &mut children,
+      &[PropFlowSite {
+        element_span: span(10),
+        parent_template: &parent_template,
+        parent_graph: &parent_graph,
+        child_module: "Child.vue",
+      }],
+    );
+    let child = children.first().unwrap_or_else(|| panic!("child missing"));
+    let prop_tos: Vec<&str> = child
+      .graph
+      .edges
+      .iter()
+      .filter(|edge| edge.kind == ReactiveDependencyKind::Prop)
+      .map(|edge| edge.to.as_str())
+      .collect();
+    assert_eq!(
+      prop_tos,
+      ["label"],
+      "duplicate spans must keep the first element: {:?}",
+      child.graph.edges
+    );
   }
 
   #[test]

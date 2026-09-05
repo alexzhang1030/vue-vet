@@ -267,6 +267,118 @@ fn dual_script_leaf_edit_keeps_companion_layered_arc() {
   assert_eq!(after, cold, "dual-script plus leaf edit must match a cold scan");
 }
 
+fn parent_child_files(
+  project: &TempProject,
+  dir: &str,
+  binding: &str,
+  expression: &str,
+) -> (ProjectFile, ProjectFile) {
+  let parent_script = format!(
+    "import {{ ref }} from 'vue'\nimport Child from './Child.vue'\nconst {binding} = ref(1)\n"
+  );
+  let parent_template = format!("<template><Child :value=\"{expression}\" /></template>\n");
+  let parent_path = format!("{dir}/Parent.vue");
+  let (parent_sfc, parent_offset) =
+    write_setup_sfc(project, &parent_path, &parent_script, &parent_template);
+  let mut parent = setup_sfc_file(
+    &parent_path,
+    &parent_script,
+    parent_sfc,
+    parent_offset,
+    &[("./Child.vue", "default", "Child")],
+    &[],
+    Vec::new(),
+  );
+  {
+    let facts = std::sync::Arc::make_mut(&mut parent.facts);
+    facts.template.elements = vec![TemplateElementFact {
+      tag: "Child".into(),
+      span: span(20),
+      attributes: Vec::new(),
+      directives: vec![vue_vet_core::TemplateDirectiveFact {
+        name: "bind".into(),
+        raw_name: "v-bind:value".into(),
+        argument: Some("value".into()),
+        expression: Some(expression.into()),
+        modifiers: Vec::new(),
+        span: span(20),
+      }],
+      has_children: false,
+      has_accessible_content: false,
+      has_labelable_descendant: false,
+      has_label_ancestor: false,
+      has_accessible_name_ancestor: false,
+    }];
+  }
+  let child_script = "const props = defineProps<{ value: number }>()\n";
+  let child_path = format!("{dir}/Child.vue");
+  let (child_sfc, child_offset) = write_setup_sfc(
+    project,
+    &child_path,
+    child_script,
+    "<template><span>{{ props.value }}</span></template>\n",
+  );
+  let child =
+    setup_sfc_file(&child_path, child_script, child_sfc, child_offset, &[], &[], Vec::new());
+  (parent, child)
+}
+
+fn module_has_prop_edge(graph: &ProjectGraph, id: &str) -> bool {
+  graph.module_reactivity.iter().any(|module| {
+    module.id.as_str() == id
+      && module
+        .graph
+        .edges
+        .iter()
+        .any(|edge| edge.kind == vue_vet_core::ReactiveDependencyKind::Prop)
+  })
+}
+
+#[test]
+fn independent_prop_groups_keep_untouched_parent_and_match_cold_children() {
+  let project = TempProject::new("layer-prop-groups");
+  let (parent_a, child_a) = parent_child_files(&project, "src/a", "count", "count");
+  let (parent_b, child_b) = parent_child_files(&project, "src/b", "count", "count");
+  let files = [parent_a, child_a, parent_b.clone(), child_b.clone()];
+  let mut state = ProjectGraphState::default();
+  let context = ProjectContext { revision: 1, ..ProjectContext::default() };
+  let initial = build_project_graph_incremental_with_options(
+    project.root(),
+    &files,
+    &trace_opts_workers(1),
+    &context,
+    &mut state,
+    None,
+  );
+  assert!(module_has_prop_edge(&initial, "src/a/Child.vue"));
+  assert!(module_has_prop_edge(&initial, "src/b/Child.vue"));
+  let parent_b_ptr = graph_ptr(&initial, "src/b/Parent.vue");
+  let (parent_a_edited, child_a_same) = parent_child_files(&project, "src/a", "title", "title");
+  let after_files = [parent_a_edited, child_a_same, parent_b, child_b];
+  let after = build_project_graph_incremental_with_options(
+    project.root(),
+    &after_files,
+    &trace_opts_workers(1),
+    &context,
+    &mut state,
+    None,
+  );
+  assert_eq!(graph_ptr(&after, "src/b/Parent.vue"), parent_b_ptr);
+  assert!(module_has_prop_edge(&after, "src/a/Child.vue"));
+  assert!(module_has_prop_edge(&after, "src/b/Child.vue"));
+  let mut cold_state = ProjectGraphState::default();
+  let cold = build_project_graph_incremental_with_options(
+    project.root(),
+    &after_files,
+    &trace_opts_workers(1),
+    &context,
+    &mut cold_state,
+    None,
+  );
+  assert_eq!(after.module_reactivity, cold.module_reactivity);
+  assert_eq!(after, cold, "prop-group edit must match a cold scan");
+}
+
 #[test]
 fn structural_context_nodes_follow_normalized_path_order() {
   let project = TempProject::new("sort-context-nodes");

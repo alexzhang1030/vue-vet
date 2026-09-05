@@ -37,3 +37,7 @@ vue_vet_reporters = { path = "../vue_vet_reporters" }
 [[bench]]
 name = "scan_modes"
 harness = false
+
+[[bench]]
+name = "whole_project"
+harness = false

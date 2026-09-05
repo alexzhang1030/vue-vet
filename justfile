@@ -73,12 +73,14 @@ bench:
   cargo bench -p vue_vet_reactivity --bench module_scaling --profile codspeed --locked
   cargo bench -p vue_vet_vize --bench analyze_sfc --profile codspeed --locked
   cargo bench -p vue_vet_session --bench scan_modes --profile codspeed --locked
+  cargo bench -p vue_vet_session --bench whole_project --profile codspeed --locked
 
 # Build the representative benchmarks with CodSpeed instrumentation.
 bench-codspeed-build:
   cargo codspeed build -p vue_vet_reactivity --bench module_scaling --profile codspeed --locked
   cargo codspeed build -p vue_vet_vize --bench analyze_sfc --profile codspeed --locked
   cargo codspeed build -p vue_vet_session --bench scan_modes --profile codspeed --locked
+  cargo codspeed build -p vue_vet_session --bench whole_project --profile codspeed --locked
 
 # Run the most recently built CodSpeed benchmark suite.
 bench-codspeed-run:

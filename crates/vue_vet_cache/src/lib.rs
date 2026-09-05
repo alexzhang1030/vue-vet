@@ -88,6 +88,18 @@ struct CacheEnvelope {
   payload: CachePayload,
 }
 
+#[derive(Serialize)]
+struct BorrowedCacheEnvelope<'a> {
+  version: u32,
+  payload: BorrowedCachePayload<'a>,
+}
+
+#[derive(Serialize)]
+struct BorrowedCachePayload<'a> {
+  summary: &'a ScanSummary,
+  graph: &'a ProjectGraph,
+}
+
 pub struct CacheStore {
   root: PathBuf,
 }
@@ -122,19 +134,39 @@ impl CacheStore {
 
   /// Atomically store one normalized scan result.
   ///
+  /// Forwards to [`Self::store_parts`]. Prefer `store_parts` when the caller
+  /// already owns `summary` and `graph` separately.
+  ///
   /// # Errors
   ///
   /// Returns a path-oriented I/O error or deterministic serialization error.
   pub fn store(&self, key: &str, payload: &CachePayload) -> Result<(), CacheError> {
+    self.store_parts(key, &payload.summary, &payload.graph)
+  }
+
+  /// Atomically store one normalized scan result without cloning the payload.
+  ///
+  /// Serializes `summary` and `graph` by reference. On-disk bytes stay v5 JSON
+  /// and match [`Self::store`].
+  ///
+  /// # Errors
+  ///
+  /// Returns a path-oriented I/O error or deterministic serialization error.
+  pub fn store_parts(
+    &self,
+    key: &str,
+    summary: &ScanSummary,
+    graph: &ProjectGraph,
+  ) -> Result<(), CacheError> {
     let path = self.entry_path(key);
     let Some(parent) = path.parent() else {
       return io_error(&path, "cache entry has no parent directory");
     };
     fs::create_dir_all(parent)
       .map_err(|error| CacheError::Io { path: parent.to_path_buf(), message: error.to_string() })?;
-    let bytes = serde_json::to_vec(&CacheEnvelope {
+    let bytes = serde_json::to_vec(&BorrowedCacheEnvelope {
       version: CACHE_FORMAT_VERSION,
-      payload: payload.clone(),
+      payload: BorrowedCachePayload { summary, graph },
     })
     .map_err(|error| CacheError::Serialize(error.to_string()))?;
     let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
@@ -471,6 +503,85 @@ mod tests {
     }
     assert!(fs::write(&path, b"not json").is_ok(), "corrupt fixture must be writable");
     assert_eq!(store.load("broken"), CacheLookup::RecoveredCorruption);
+    let _ignored = fs::remove_dir_all(root);
+  }
+
+  fn sample_payload() -> CachePayload {
+    CachePayload {
+      summary: ScanSummary {
+        files_scanned: 1,
+        diagnostics: vec![diagnostic("rule/a", "src/App.vue", 1, "local")],
+        score: 97,
+      },
+      graph: ProjectGraph::default(),
+    }
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "cache fixture failures must fail the unit test")]
+  fn store_parts_bytes_match_owned_v5_envelope() {
+    let root = std::env::temp_dir().join(format!("vue_vet_cache-parts-{}", std::process::id()));
+    let _ignored = fs::remove_dir_all(&root);
+    let store = CacheStore::new(root.clone());
+    let payload = sample_payload();
+    let owned = serde_json::to_vec(&CacheEnvelope {
+      version: CACHE_FORMAT_VERSION,
+      payload: payload.clone(),
+    })
+    .unwrap_or_else(|error| panic!("owned envelope: {error}"));
+    store
+      .store_parts("key", &payload.summary, &payload.graph)
+      .unwrap_or_else(|error| panic!("store_parts: {error}"));
+    store.store("legacy", &payload).unwrap_or_else(|error| panic!("store: {error}"));
+    let written = fs::read(store.entry_path("key")).unwrap_or_else(|error| panic!("read: {error}"));
+    let via_store =
+      fs::read(store.entry_path("legacy")).unwrap_or_else(|error| panic!("read store: {error}"));
+    assert_eq!(written, owned, "borrowed store_parts must emit the same v5 JSON as owned envelope");
+    assert_eq!(via_store, owned, "store must forward to the same v5 JSON bytes");
+    match store.load("key") {
+      CacheLookup::Hit(loaded) => assert_eq!(*loaded, payload, "round-trip payload must match"),
+      other => panic!("expected hit, got {other:?}"),
+    }
+    let _ignored = fs::remove_dir_all(root);
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "cache fixture failures must fail the unit test")]
+  fn load_reads_existing_v5_envelope_and_rejects_old_version() {
+    let root = std::env::temp_dir().join(format!("vue_vet_cache-v5-{}", std::process::id()));
+    let _ignored = fs::remove_dir_all(&root);
+    let store = CacheStore::new(root.clone());
+    let payload = sample_payload();
+    let v5_path = store.entry_path("current");
+    let parent = v5_path.parent().unwrap_or_else(|| panic!("cache path must have a parent"));
+    fs::create_dir_all(parent).unwrap_or_else(|error| panic!("dir: {error}"));
+    fs::write(
+      &v5_path,
+      serde_json::to_vec(&CacheEnvelope {
+        version: CACHE_FORMAT_VERSION,
+        payload: payload.clone(),
+      })
+      .unwrap_or_else(|error| panic!("v5 json: {error}")),
+    )
+    .unwrap_or_else(|error| panic!("write v5: {error}"));
+    match store.load("current") {
+      CacheLookup::Hit(loaded) => assert_eq!(*loaded, payload, "existing v5 envelope must load"),
+      other => panic!("expected hit, got {other:?}"),
+    }
+
+    let old_path = store.entry_path("old");
+    fs::write(
+      &old_path,
+      serde_json::to_vec(&CacheEnvelope { version: 4, payload })
+        .unwrap_or_else(|error| panic!("v4 json: {error}")),
+    )
+    .unwrap_or_else(|error| panic!("write v4: {error}"));
+    assert_eq!(
+      store.load("old"),
+      CacheLookup::RecoveredCorruption,
+      "unsupported version must recover"
+    );
+    assert!(!old_path.exists(), "corrupt versioned entry must be deleted");
     let _ignored = fs::remove_dir_all(root);
   }
 }

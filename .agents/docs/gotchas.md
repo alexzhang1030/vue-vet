@@ -46,8 +46,11 @@ npm/pnpm install trees often contain directories (or directory symlinks) named
 like packages with a `.js` suffix, for example `node_modules/pixi.js`.
 `Path::extension` reports `js`, and `DirEntry::file_type` may describe a
 symlink rather than a directory, so naive walks try to `fs::read` them and
-fail with EISDIR. Project walks must skip `node_modules` entirely and only
-accept paths where `Path::is_file()` is true after symlink resolution.
+fail with EISDIR. Project walks skip `node_modules` and accept regular files
+using the walk's cached `FileType`. Symlinks and unknown file types resolve
+through `Path::is_file()`. This preserves file-link support and directory-link
+filtering while saving a metadata syscall for each regular entry. Discovery
+tests cover both link types and directories with source-like extensions.
 
 ## crates.io API calls need a User-Agent
 
@@ -411,7 +414,14 @@ dirty summary; after linking, plain JS/TS look up the retained primary
 Layer rebuild looks up `ModuleLayerKey` by `ModuleId` binary search. The vector
 stays in `BTreeSet<&ModuleId>` order; a missing id or a `base_ptr` / `facts_ptr`
 mismatch rebuilds that module. ProjectFile order computes `normalized_path`
-once per file (`sort_by_cached_key`) and keeps that sort.
+once per file (`sort_by_cached_key`) and keeps that sort. Template joins and
+prop-site parents use a `FileId` map; prop-child expansion uses ids grouped by
+file path (including `#script`). `join_prop_flows` indexes template elements by
+span offset per parent template.
+
+Default CLI/JSON reactivity digest uses `ReactivityModuleStats::from_counts`.
+`--print-reactivity` (and the TUI via `reactivity_module_stats`) builds labels,
+`*_details`, and `explain_tracking_scope`.
 
 **Dirty `FileId` ≠ dirty work.** A small `affected_files()` set only proves parse
 scheduling was narrow. After a warm persist scan, phase one visits the
