@@ -53,12 +53,11 @@ pub fn apply_template_prop_layers(
       };
       let new_base = Arc::as_ptr(&base.graph) as usize;
       let new_facts = facts_ptr_for(id, &facts_ptr);
-      !state.layered.key.as_ref().is_some_and(|prev| {
-        prev
-          .modules
-          .iter()
-          .any(|key| &key.id == *id && key.base_ptr == new_base && key.facts_ptr == new_facts)
-      })
+      !state
+        .layered
+        .key
+        .as_ref()
+        .is_some_and(|prev| previous_layer_matches(&prev.modules, id, new_base, new_facts))
     })
     .collect::<BTreeSet<_>>();
   let expand_prop_children = !prop_edges_unchanged
@@ -113,6 +112,10 @@ pub fn apply_template_prop_layers(
   });
   let layered = Arc::make_mut(&mut state.layered);
   if let Some(key) = rebuilt_key {
+    debug_assert!(
+      layer_keys_sorted(&key.modules),
+      "LayeredInputKey.modules follows BTreeSet<&ModuleId> order"
+    );
     layered.key = Some(key);
   } else if let (Some(key), Some(ptrs)) = (layered.key.as_mut(), patched_ptrs) {
     for (module_key, (base_ptr, facts_ptr)) in key.modules.iter_mut().zip(ptrs) {
@@ -205,6 +208,24 @@ fn workspace_ids_match(cached: &LayeredInputKey, workspace_ids: &BTreeSet<&Modul
     && cached.modules.iter().map(|key| &key.id).eq(workspace_ids.iter().copied())
 }
 
+/// `LayeredInputKey.modules` is built from `BTreeSet<&ModuleId>` and stays sorted
+/// by `id`. Warm scans patch `base_ptr` / `facts_ptr` in place, preserving order.
+fn previous_layer_matches(
+  modules: &[ModuleLayerKey],
+  id: &ModuleId,
+  base_ptr: usize,
+  facts_ptr: usize,
+) -> bool {
+  let Ok(index) = modules.binary_search_by(|key| key.id.cmp(id)) else {
+    return false;
+  };
+  modules.get(index).is_some_and(|key| key.base_ptr == base_ptr && key.facts_ptr == facts_ptr)
+}
+
+fn layer_keys_sorted(modules: &[ModuleLayerKey]) -> bool {
+  modules.iter().zip(modules.iter().skip(1)).all(|(left, right)| left.id < right.id)
+}
+
 fn facts_ptrs<'a>(ordered: &[&'a ProjectFile]) -> BTreeMap<&'a str, usize> {
   ordered.iter().map(|file| (file.path.as_str(), Arc::as_ptr(&file.facts) as usize)).collect()
 }
@@ -253,4 +274,26 @@ fn should_join_prop_flows(
       || prop_sites
         .iter()
         .any(|site| rebuild.iter().any(|id| module_edge_key(id) == site.child_module)))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::{ModuleLayerKey, layer_keys_sorted, previous_layer_matches};
+  use vue_vet_core::ModuleId;
+
+  fn key(id: &str, base_ptr: usize, facts_ptr: usize) -> ModuleLayerKey {
+    ModuleLayerKey { id: ModuleId::from(id), base_ptr, facts_ptr }
+  }
+
+  #[test]
+  fn previous_layer_matches_uses_sorted_ids() {
+    let modules = vec![key("src/a.ts", 1, 2), key("src/a.ts#script", 3, 4), key("src/b.ts", 5, 6)];
+    assert!(layer_keys_sorted(&modules));
+    assert!(previous_layer_matches(&modules, &ModuleId::from("src/b.ts"), 5, 6));
+    assert!(!previous_layer_matches(&modules, &ModuleId::from("src/b.ts"), 0, 6));
+    assert!(!previous_layer_matches(&modules, &ModuleId::from("src/b.ts"), 5, 0));
+    assert!(!previous_layer_matches(&modules, &ModuleId::from("src/c.ts"), 1, 2));
+    assert!(!previous_layer_matches(&[], &ModuleId::from("src/a.ts"), 1, 2));
+    assert!(previous_layer_matches(&modules, &ModuleId::from("src/a.ts#script"), 3, 4));
+  }
 }

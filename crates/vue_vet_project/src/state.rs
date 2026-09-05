@@ -57,6 +57,8 @@ pub struct LayeredGraphState {
 /// Identity of base graphs + SFC facts + prop-relevant edges that feed layers.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LayeredInputKey {
+  /// Sorted by [`ModuleLayerKey::id`] (`BTreeSet<&ModuleId>` construction).
+  /// Warm scans update `base_ptr` / `facts_ptr` only and keep this order.
   pub modules: Vec<ModuleLayerKey>,
   pub prop_edges: Vec<(String, String, usize)>,
 }

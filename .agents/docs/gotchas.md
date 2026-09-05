@@ -408,6 +408,11 @@ Vue FileIds (live or deleted, `.vue` suffix) include the ordinary `#script`
 dirty summary; after linking, plain JS/TS look up the retained primary
 `module_source.id` and language.
 
+Layer rebuild looks up `ModuleLayerKey` by `ModuleId` binary search. The vector
+stays in `BTreeSet<&ModuleId>` order; a missing id or a `base_ptr` / `facts_ptr`
+mismatch rebuilds that module. ProjectFile order computes `normalized_path`
+once per file (`sort_by_cached_key`) and keeps that sort.
+
 **Dirty `FileId` ≠ dirty work.** A small `affected_files()` set only proves parse
 scheduling was narrow. After a warm persist scan, phase one visits the
 source-dirty subset; `module_summaries_visited` is that count, not

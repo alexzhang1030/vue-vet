@@ -139,6 +139,158 @@ fn incremental_leaf_edit_visits_one_module_summary() {
   );
 }
 
+fn graph_ptr(graph: &ProjectGraph, id: &str) -> Option<*const vue_vet_core::ReactivityGraph> {
+  graph
+    .module_reactivity
+    .iter()
+    .find(|module| module.id.as_str() == id)
+    .map(|module| std::sync::Arc::as_ptr(&module.graph))
+}
+
+#[test]
+fn incremental_add_and_delete_keep_unchanged_layered_arcs() {
+  let project = TempProject::new("layer-add-delete");
+  let keep = standalone_ts("src/keep.ts", "import { ref } from 'vue'; export const keep = ref(1);");
+  let gone = standalone_ts("src/gone.ts", "import { ref } from 'vue'; export const gone = ref(2);");
+  let extra =
+    standalone_ts("src/extra.ts", "import { ref } from 'vue'; export const extra = ref(3);");
+  materialize(&project, &[keep.clone(), gone.clone(), extra.clone()]);
+  let mut state = ProjectGraphState::default();
+  let context = ProjectContext { revision: 1, ..ProjectContext::default() };
+  let initial = build_project_graph_incremental_with_options(
+    project.root(),
+    &[keep.clone(), gone],
+    &trace_opts_workers(1),
+    &context,
+    &mut state,
+    None,
+  );
+  let keep_ptr = graph_ptr(&initial, "src/keep.ts");
+  assert!(keep_ptr.is_some());
+
+  let after_files = [keep, extra];
+  let after = build_project_graph_incremental_with_options(
+    project.root(),
+    &after_files,
+    &trace_opts_workers(1),
+    &context,
+    &mut state,
+    None,
+  );
+  assert_eq!(graph_ptr(&after, "src/keep.ts"), keep_ptr);
+  assert!(graph_ptr(&after, "src/gone.ts").is_none());
+  assert!(graph_ptr(&after, "src/extra.ts").is_some());
+
+  let mut cold_state = ProjectGraphState::default();
+  let cold = build_project_graph_incremental_with_options(
+    project.root(),
+    &after_files,
+    &trace_opts_workers(1),
+    &context,
+    &mut cold_state,
+    None,
+  );
+  assert_eq!(after, cold, "add/delete incremental graph must match a cold scan");
+}
+
+#[test]
+fn dual_script_leaf_edit_keeps_companion_layered_arc() {
+  let project = TempProject::new("layer-dual-script");
+  let ordinary = "export const n = 1\n";
+  let setup = "import { ref } from 'vue'\nconst count = ref(0)\n";
+  let prefix = "<script lang=\"ts\">\n";
+  let mid = "</script>\n<script setup lang=\"ts\">\n";
+  let sfc = format!("{prefix}{ordinary}{mid}{setup}</script>\n<template>{{ count }}</template>\n");
+  project.write("src/App.vue", &sfc);
+  let file_id = FileId::from("src/App.vue");
+  let vue = ProjectFile {
+    path: "src/App.vue".into(),
+    source_len: sfc.len(),
+    facts: SfcFacts { template: TemplateFacts::default(), script: ScriptFacts::default() }.into(),
+    module_source: Some(std::sync::Arc::new(ModuleSource::sfc_script(
+      "src/App.vue",
+      setup,
+      "ts",
+      ScriptKind::Setup,
+      prefix.len() + ordinary.len() + mid.len(),
+      sfc.clone(),
+    ))),
+    ordinary_module_source: Some(std::sync::Arc::new(ModuleSource::sfc_script(
+      vue_vet_core::ModuleId::ordinary(&file_id),
+      ordinary,
+      "ts",
+      ScriptKind::Script,
+      prefix.len(),
+      sfc,
+    ))),
+  };
+  let leaf = standalone_ts("src/leaf.ts", "import { ref } from 'vue'; export const leaf = ref(1);");
+  materialize(&project, std::slice::from_ref(&leaf));
+  let mut state = ProjectGraphState::default();
+  let context = ProjectContext { revision: 1, ..ProjectContext::default() };
+  let initial_files = [vue.clone(), leaf];
+  let initial = build_project_graph_incremental_with_options(
+    project.root(),
+    &initial_files,
+    &trace_opts_workers(1),
+    &context,
+    &mut state,
+    None,
+  );
+  let primary_ptr = graph_ptr(&initial, "src/App.vue");
+  let ordinary_ptr = graph_ptr(&initial, "src/App.vue#script");
+  assert!(primary_ptr.is_some() && ordinary_ptr.is_some());
+
+  let leaf_edited =
+    standalone_ts("src/leaf.ts", "import { ref } from 'vue'; export const leaf = ref(2);");
+  let after_files = [vue, leaf_edited];
+  let after = build_project_graph_incremental_with_options(
+    project.root(),
+    &after_files,
+    &trace_opts_workers(1),
+    &context,
+    &mut state,
+    None,
+  );
+  assert_eq!(graph_ptr(&after, "src/App.vue"), primary_ptr);
+  assert_eq!(graph_ptr(&after, "src/App.vue#script"), ordinary_ptr);
+
+  let mut cold_state = ProjectGraphState::default();
+  let cold = build_project_graph_incremental_with_options(
+    project.root(),
+    &after_files,
+    &trace_opts_workers(1),
+    &context,
+    &mut cold_state,
+    None,
+  );
+  assert_eq!(after, cold, "dual-script plus leaf edit must match a cold scan");
+}
+
+#[test]
+fn structural_context_nodes_follow_normalized_path_order() {
+  let project = TempProject::new("sort-context-nodes");
+  let z = standalone_ts("/z.ts", "export const z = 1;\n");
+  let a = standalone_ts("a.ts", "export const a = 1;\n");
+  materialize(&project, &[z.clone(), a.clone()]);
+  let mut state = ProjectGraphState::default();
+  let context = ProjectContext { revision: 1, ..ProjectContext::default() };
+  let _graph = build_project_graph_incremental_with_options(
+    project.root(),
+    &[z, a],
+    &trace_opts_workers(1),
+    &context,
+    &mut state,
+    None,
+  );
+  let paths = state
+    .structural
+    .context
+    .as_ref()
+    .map_or_else(Vec::new, |key| key.nodes.iter().map(|node| node.path.as_str()).collect());
+  assert_eq!(paths, ["a.ts", "z.ts"]);
+}
+
 #[test]
 fn resolves_aliases_and_nuxt_auto_imports() {
   let project = TempProject::new("aliases");

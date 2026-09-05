@@ -107,7 +107,11 @@ vue-vet CLI
   refcount. The report is this-pass only. Unchanged graphs stay in
   `ModuleTraceState`; layers read that cache and store
   `Arc<[Arc<ModuleReactivity>]>` instead of a cloned live-id set or
-  emitted universe.
+  emitted universe. `LayeredInputKey.modules` is sorted by `ModuleId`
+  (`BTreeSet` construction; warm scans patch pointers only) so a leaf
+  rebuild probes with binary search. ProjectFile order caches
+  `normalized_path` once per file (`sort_by_cached_key`), preserving the
+  existing normalized-path ordering.
 - **Atomic session publication** — the workspace revision, retained input
   snapshot, and committed analysis state share one `SessionCore` synchronization
   domain. Analysis captures `Arc` snapshots under the lock, computes outside it,
