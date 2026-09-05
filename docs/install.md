@@ -18,10 +18,12 @@ npx vue-vet .
 pnpm exec vue-vet .
 ```
 
-The `@vue-vet/cli` package declares `@vue-vet/{os}-{arch}` packages as
-`optionalDependencies`. Your package manager installs only the host platform
-package. The launcher resolves that package and forwards argv, stdio, signals,
-and exit codes. The CLI binary name remains `vue-vet`.
+The `@vue-vet/cli` package is the only package that declares a `bin` entry
+(`vue-vet`). Platform packages (`@vue-vet/{os}-{arch}`) ship the native binary
+as a private file under `files: ["bin"]`. This preserves
+`node_modules/.bin/vue-vet` while npm 10 prunes incompatible optional platform
+packages. The launcher resolves the host platform package and forwards argv,
+stdio, signals, and exit codes.
 
 ### Supported platforms (initial matrix)
 
@@ -120,15 +122,18 @@ Do not publish mismatched versions across these surfaces.
 4. The workflow runs quality gates, publishes library crates to crates.io in
    dependency order (`vue_vet_core` → `vue_vet_reactivity` →
    `vue_vet_plugins`), builds every matrix target, writes `SHA256SUMS`, creates
-   the GitHub Release, publishes `@vue-vet/*` platform packages, then publishes
-   `@vue-vet/cli`.
+   the GitHub Release, publishes the five `@vue-vet/*` platform packages, waits
+   until each version document and tarball is fetchable on the public registry
+   (`npm/scripts/wait-registry.mjs --mode platforms`, 10 minute bound), then
+   publishes `@vue-vet/cli`.
 5. After a non-dry-run publish, the Release workflow’s `npm-install-smoke` job
-   installs `@vue-vet/cli@X.Y.Z` from the public registry on Linux, macOS, and
-   Windows (`ubuntu-latest`, `macos-15`, `windows-latest`). It checks
-   `vue-vet --version` equals `vue-vet X.Y.Z` and scans
-   `fixtures/projects/basic --no-cache --format json` (asserts `ok`,
+   waits for `@vue-vet/cli@X.Y.Z` (bin + all five `optionalDependencies`) and
+   the runner’s host platform package, then installs from the public registry
+   on Linux, macOS, and Windows (`ubuntu-latest`, `macos-15`,
+   `windows-latest`). It checks `vue-vet --version` equals `vue-vet X.Y.Z` and
+   scans `fixtures/projects/basic --no-cache --format json` (asserts `ok`,
    `tool.version`, and `diagnostics[].rule_id === vue-vet/security/no-v-html`).
-   Bounded retries wait for npm visibility. Manual smoke:
+   Manual smoke:
    `npx --yes --package=@vue-vet/cli@X.Y.Z vue-vet --version`.
 
 **Rollback:** yank a bad npm version with

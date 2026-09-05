@@ -24,7 +24,6 @@ describe('resolveBinary', () => {
         version: '0.1.0',
         os: ['darwin'],
         cpu: ['arm64'],
-        bin: { 'vue-vet': 'bin/vue-vet' },
       }),
     );
     fs.writeFileSync(path.join(pkgDir, 'bin', 'vue-vet'), '#!/bin/sh\necho ok\n', {
