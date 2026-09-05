@@ -159,6 +159,7 @@ mod tests {
         reads: 1,
         writes: 0,
         span: span(),
+        exported: false,
       }],
     );
     assert!(diagnostics.is_empty());

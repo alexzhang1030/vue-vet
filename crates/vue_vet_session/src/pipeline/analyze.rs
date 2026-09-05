@@ -3,7 +3,7 @@ use std::{path::Path, sync::Arc};
 
 use vue_vet_core::{
   Diagnostic, FileId, ModuleId, ReactivityGraph, RuleEnvironment, ScriptFacts, Severity, SfcFacts,
-  SourceSpan, TemplateFacts,
+  SourceSpan,
 };
 use vue_vet_oxc::analyze_module_source;
 use vue_vet_project::ProjectFile;
@@ -72,6 +72,7 @@ pub fn analyze_candidate(
           source: Arc::clone(&input.source),
           environment,
           facts,
+          include_ordinary_graph: true,
         }),
         sfc,
       })
@@ -120,6 +121,8 @@ pub struct PendingVueFile {
   pub source: Arc<str>,
   pub environment: RuleEnvironment,
   pub facts: Arc<SfcFacts>,
+  /// Include the companion ordinary `<script>` module for Vue SFCs.
+  pub include_ordinary_graph: bool,
 }
 
 pub fn run_file_rules(
@@ -143,12 +146,50 @@ pub fn run_file_rules(
   )
 }
 
-pub fn script_needs_file_rules(path: &Path, template: &TemplateFacts) -> bool {
-  let is_jsx = path
-    .extension()
-    .and_then(|extension| extension.to_str())
-    .is_some_and(|extension| matches!(extension, "jsx" | "tsx"));
-  is_jsx || !template.elements.is_empty() || !template.expressions.is_empty()
+/// Whether file rules should run on a script after module graphs are applied.
+///
+/// Vue SFCs always participate (queued before this check). JSX/TSX always
+/// participate. Plain JS/TS participate when local or seeded facts exist
+/// (scopes, bindings, member writes, operands, calls). Cross-file seeds are
+/// visible only on the applied primary graph. Call-only practice rules
+/// (`prefer-to-value`, lifecycle listeners) need `block.calls`.
+#[must_use]
+pub fn needs_file_rules(
+  language: &str,
+  facts: &SfcFacts,
+  primary_graph: Option<&ReactivityGraph>,
+) -> bool {
+  if !matches!(language, "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" | "mts" | "cts") {
+    return false;
+  }
+  if matches!(language, "jsx" | "tsx") {
+    return true;
+  }
+  script_has_rule_facts(facts, primary_graph)
+}
+
+fn script_has_rule_facts(facts: &SfcFacts, primary_graph: Option<&ReactivityGraph>) -> bool {
+  if !facts.template.elements.is_empty() || !facts.template.expressions.is_empty() {
+    return true;
+  }
+  if primary_graph.is_some_and(graph_has_rule_facts) {
+    return true;
+  }
+  facts.script.blocks.iter().any(|block| {
+    graph_has_rule_facts(&block.reactivity_graph)
+      || !block.member_writes.is_empty()
+      || !block.operands.is_empty()
+      || !block.destructures.is_empty()
+      || !block.calls.is_empty()
+  })
+}
+
+const fn graph_has_rule_facts(graph: &ReactivityGraph) -> bool {
+  !graph.scopes.is_empty()
+    || !graph.bindings.is_empty()
+    || !graph.effects.is_empty()
+    || !graph.edges.is_empty()
+    || !graph.template_reads.is_empty()
 }
 
 pub fn source_environment(
@@ -156,7 +197,7 @@ pub fn source_environment(
   boundary: &Path,
   package_index: &PackageIndex,
 ) -> Option<RuleEnvironment> {
-  matches!(&input.kind, SourceKind::Vue)
+  crate::locality::file_rule_source_kind(&input.kind)
     .then(|| package_index.environment_for(input.physical_path.as_path(), boundary))
 }
 
@@ -185,4 +226,75 @@ pub fn issue_diagnostic(issue: &AnalysisIssue) -> Option<Diagnostic> {
     edits: Vec::new(),
     recommendation: None,
   })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use vue_vet_core::{
+    ScriptBlockFacts, ScriptCallFact, ScriptFacts, ScriptKind, SourceSpan, TemplateFacts,
+  };
+
+  fn span() -> SourceSpan {
+    SourceSpan { offset: 0, length: 1, line: 1, column: 1 }
+  }
+
+  fn block() -> ScriptBlockFacts {
+    ScriptBlockFacts {
+      kind: ScriptKind::Script,
+      language: "ts".into(),
+      imports: Vec::new(),
+      bindings: Vec::new(),
+      calls: Vec::new(),
+      member_writes: Vec::new(),
+      destructures: Vec::new(),
+      top_level_await_ends: Vec::new(),
+      operands: Vec::new(),
+      reactivity_graph: std::sync::Arc::new(ReactivityGraph::default()),
+    }
+  }
+
+  #[test]
+  fn call_only_script_needs_file_rules() {
+    let mut block = block();
+    block.calls.push(ScriptCallFact {
+      callee: "unref".into(),
+      assigned_to: None,
+      resolved_import: Some(("vue".into(), "unref".into())),
+      argument_identifiers: vec!["x".into()],
+      span: span(),
+    });
+    let facts =
+      SfcFacts { template: TemplateFacts::default(), script: ScriptFacts { blocks: vec![block] } };
+    assert!(needs_file_rules("ts", &facts, None));
+  }
+
+  #[test]
+  fn empty_script_skips_file_rules() {
+    let facts = SfcFacts {
+      template: TemplateFacts::default(),
+      script: ScriptFacts { blocks: vec![block()] },
+    };
+    assert!(!needs_file_rules("ts", &facts, None));
+    assert!(needs_file_rules("tsx", &facts, None));
+    assert!(needs_file_rules("jsx", &facts, None));
+  }
+
+  #[test]
+  fn seeded_graph_bindings_need_file_rules() {
+    let facts = SfcFacts {
+      template: TemplateFacts::default(),
+      script: ScriptFacts { blocks: vec![block()] },
+    };
+    let mut graph = ReactivityGraph::default();
+    graph.bindings.push(vue_vet_core::ReactiveBindingFact {
+      name: "state".into(),
+      kind: vue_vet_core::ReactiveBindingKind::Readonly,
+      initialized_with_null: false,
+      alias_of: None,
+      span: span(),
+    });
+    assert!(needs_file_rules("ts", &facts, Some(&graph)));
+    assert!(!needs_file_rules("ts", &facts, None));
+  }
 }

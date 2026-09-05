@@ -214,6 +214,7 @@ mod tests {
         name: "label".into(),
         kind: ReactiveBindingKind::Ref,
         initialized_with_null: false,
+        alias_of: None,
         span: span(1),
       }],
       ..ReactivityGraph::default()
@@ -224,6 +225,7 @@ mod tests {
         name: "props".into(),
         kind: ReactiveBindingKind::Reactive,
         initialized_with_null: false,
+        alias_of: None,
         span: span(2),
       }],
       ..ReactivityGraph::default()
@@ -302,12 +304,14 @@ mod tests {
           name: "msg".into(),
           kind: ReactiveBindingKind::Ref,
           initialized_with_null: false,
+          alias_of: None,
           span: span(1),
         },
         ReactiveBindingFact {
           name: "bag".into(),
           kind: ReactiveBindingKind::Reactive,
           initialized_with_null: false,
+          alias_of: None,
           span: span(2),
         },
       ],
@@ -319,6 +323,7 @@ mod tests {
         name: "props".into(),
         kind: ReactiveBindingKind::Reactive,
         initialized_with_null: false,
+        alias_of: None,
         span: span(3),
       }],
       ..ReactivityGraph::default()
@@ -380,6 +385,7 @@ mod tests {
         name: "bag".into(),
         kind: ReactiveBindingKind::Reactive,
         initialized_with_null: false,
+        alias_of: None,
         span: span(1),
       }],
       ..ReactivityGraph::default()
@@ -390,6 +396,7 @@ mod tests {
         name: "props".into(),
         kind: ReactiveBindingKind::Reactive,
         initialized_with_null: false,
+        alias_of: None,
         span: span(2),
       }],
       ..ReactivityGraph::default()
@@ -449,6 +456,7 @@ mod tests {
         name: "bag".into(),
         kind: ReactiveBindingKind::Reactive,
         initialized_with_null: false,
+        alias_of: None,
         span: span(1),
       }],
       ..ReactivityGraph::default()
@@ -459,6 +467,7 @@ mod tests {
         name: "props".into(),
         kind: ReactiveBindingKind::Reactive,
         initialized_with_null: false,
+        alias_of: None,
         span: span(2),
       }],
       ..ReactivityGraph::default()
@@ -525,6 +534,7 @@ mod tests {
         name: "bag".into(),
         kind: ReactiveBindingKind::Reactive,
         initialized_with_null: false,
+        alias_of: None,
         span: span(1),
       }],
       ..ReactivityGraph::default()
@@ -535,6 +545,7 @@ mod tests {
         name: "props".into(),
         kind: ReactiveBindingKind::Reactive,
         initialized_with_null: false,
+        alias_of: None,
         span: span(2),
       }],
       ..ReactivityGraph::default()

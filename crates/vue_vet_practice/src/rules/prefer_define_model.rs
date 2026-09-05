@@ -151,7 +151,13 @@ mod tests {
   fn reports_props_plus_emits_model_value_pattern() {
     let diagnostics = run(
       vec![call("defineProps", 0), call("defineEmits", 20)],
-      vec![ScriptBindingFact { name: "modelValue".into(), reads: 1, writes: 0, span: span(0) }],
+      vec![ScriptBindingFact {
+        name: "modelValue".into(),
+        reads: 1,
+        writes: 0,
+        span: span(0),
+        exported: false,
+      }],
       4,
     );
     assert_eq!(diagnostics.len(), 1);
@@ -166,7 +172,13 @@ mod tests {
   fn stays_quiet_when_define_model_already_used() {
     let diagnostics = run(
       vec![call("defineProps", 0), call("defineEmits", 20), call("defineModel", 40)],
-      vec![ScriptBindingFact { name: "modelValue".into(), reads: 1, writes: 0, span: span(0) }],
+      vec![ScriptBindingFact {
+        name: "modelValue".into(),
+        reads: 1,
+        writes: 0,
+        span: span(0),
+        exported: false,
+      }],
       4,
     );
     assert!(diagnostics.is_empty());
@@ -182,7 +194,13 @@ mod tests {
   fn stays_quiet_before_vue_3_4() {
     let diagnostics = run(
       vec![call("defineProps", 0), call("defineEmits", 20)],
-      vec![ScriptBindingFact { name: "modelValue".into(), reads: 1, writes: 0, span: span(0) }],
+      vec![ScriptBindingFact {
+        name: "modelValue".into(),
+        reads: 1,
+        writes: 0,
+        span: span(0),
+        exported: false,
+      }],
       3,
     );
     assert!(diagnostics.is_empty());
@@ -191,8 +209,13 @@ mod tests {
   #[test]
   fn stays_quiet_on_ordinary_script_and_jsx_modules() {
     let calls = vec![call("defineProps", 0), call("defineEmits", 20)];
-    let bindings =
-      vec![ScriptBindingFact { name: "modelValue".into(), reads: 1, writes: 0, span: span(0) }];
+    let bindings = vec![ScriptBindingFact {
+      name: "modelValue".into(),
+      reads: 1,
+      writes: 0,
+      span: span(0),
+      exported: false,
+    }];
     assert!(
       run_on("src/Toggle.tsx", ScriptKind::Script, calls.clone(), bindings.clone(), 4).is_empty(),
       "standalone JSX must not be told to use defineModel"

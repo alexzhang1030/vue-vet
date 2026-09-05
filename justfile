@@ -40,6 +40,11 @@ oracle-refresh:
 oracle:
   cargo test -p vue_vet_reactivity --lib oracle --locked
 
+# Vue 3.5.40 *run-count* evidence (Node test only; not the onTrack JSON oracle).
+# Uses the oracle package pnpm-lock.yaml v9 with a frozen install.
+oracle-self-trigger:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node self-trigger-runs.mjs
+
 # Run all non-mutating Rust linters.
 lint-rust: fmt-check check clippy
 

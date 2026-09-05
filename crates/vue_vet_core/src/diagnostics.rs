@@ -180,6 +180,16 @@ pub struct ScopeExplain {
   /// Soft roots (`maybe:`) that were not classified as known bindings.
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub uncertain: Vec<String>,
+  /// Identifier / member callees the bounded tracer did not follow.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub unknown_calls: Vec<String>,
+  /// Helper follow stopped at the depth cap or a recursive callee.
+  #[serde(default, skip_serializing_if = "explain_flag_is_false")]
+  pub follow_truncated: bool,
+  /// False when `unknown_calls`, `follow_truncated`, or `uncertain` is set.
+  /// Omitted when true.
+  #[serde(skip_serializing_if = "explain_flag_is_true")]
+  pub analysis_complete: bool,
 }
 
 /// Builds the stable, opaque identity used by machine-readable report consumers.
@@ -208,6 +218,16 @@ pub fn diagnostic_id(diagnostic: &Diagnostic, normalized_file_path: &str) -> Str
 #[must_use]
 pub fn finding_id(diagnostic: &Diagnostic) -> String {
   diagnostic_id(diagnostic, diagnostic.file.as_str())
+}
+
+#[expect(clippy::trivially_copy_pass_by_ref, reason = "serde skip_serializing_if takes &T")]
+const fn explain_flag_is_false(value: &bool) -> bool {
+  !*value
+}
+
+#[expect(clippy::trivially_copy_pass_by_ref, reason = "serde skip_serializing_if takes &T")]
+const fn explain_flag_is_true(value: &bool) -> bool {
+  *value
 }
 
 fn hash_identity_field(hasher: &mut Sha256, name: &[u8], value: &[u8]) {

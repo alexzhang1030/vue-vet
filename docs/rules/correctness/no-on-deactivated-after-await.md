@@ -1,52 +1,25 @@
 # `vue-vet/correctness/no-on-deactivated-after-await`
 
-Category: correctness  
-Default severity: warning  
+Category: correctness
+Default severity: warning
 Confidence: high
 
-In `<script setup>`, calling `onDeactivated` after a top-level `await` runs outside the synchronous setup instance context, so the API will not bind correctly.
+**Retired.** This ID stays registered for config compatibility and never reports.
 
-## Bad
+Vue 3.5 `<script setup>` restores instance context across top-level `await` (`withAsyncContext`). Registering `onDeactivated` after `await` still binds to this instance.
 
-```vue
-<script setup lang="ts">
-import { onDeactivated } from 'vue'
-const data = await fetch('/api').then((response) => response.json())
-onDeactivated(() => {
-  console.log(data)
-})
-</script>
-
-<template>
-  <div />
-</template>
-```
-
-## Good
+Quiet regression (must not report):
 
 ```vue
 <script setup lang="ts">
 import { onDeactivated } from 'vue'
-onDeactivated(() => {
-  console.log('ready')
-})
-const data = await fetch('/api').then((response) => response.json())
+await Promise.resolve()
+onDeactivated(() => {})
+
 </script>
-
-<template>
-  <div>{{ data }}</div>
-</template>
 ```
-
-## Detection
-
-Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
-
-## Remediation
-
-Move `onDeactivated` before the first top-level `await`.
 
 ## Fixtures
 
-- Invalid: `fixtures/rules/no-on-deactivated-after-await/invalid/`
-- Valid: `fixtures/rules/no-on-deactivated-after-await/valid/`
+- `fixtures/rules/no-on-deactivated-after-await/valid/former-invalid-placeholder.vue`
+- `fixtures/rules/no-on-deactivated-after-await/valid/safe.vue`

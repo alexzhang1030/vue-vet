@@ -12,11 +12,14 @@ pub use blocks::{
   block_calls, extra_setup_calls, first_top_level_await_end, is_setup_block, script_block,
   script_has_call, setup_blocks, setup_calls_after_first_top_level_await,
 };
-pub use graph::{reactive_binding, script_binding, static_template_ref_names, used_reactive_names};
+pub use graph::{
+  reactive_binding, script_binding, script_binding_at, static_template_ref_names,
+  used_reactive_names,
+};
 pub use reads::{
   MemberPath, binding_path, effect_family, guard_path, has_prior_unconditional_read,
-  is_readonly_kind, join_member_paths, member_path, same_target, unconditional_self_triggers,
-  unguarded_conditional_reads, write_path,
+  is_readonly_kind, join_member_paths, member_path, same_reactive_target, same_target,
+  unconditional_self_triggers, unguarded_conditional_reads, write_path,
 };
 
 #[cfg(test)]
@@ -177,6 +180,8 @@ mod tests {
       assignment_only: false,
       binding: None,
       uncertain_accesses: Vec::new(),
+      unknown_calls: Vec::new(),
+      follow_truncated: false,
     });
     graph.edges.push(ReactiveDependencyEdge {
       from: "computed".into(),
@@ -201,6 +206,7 @@ mod tests {
       name: "state".into(),
       kind: ReactiveBindingKind::Readonly,
       initialized_with_null: false,
+      alias_of: None,
       span: span_at(1),
     });
     let mut block = setup_block(Vec::new(), Vec::new(), graph);
@@ -209,11 +215,20 @@ mod tests {
       reads: 0,
       writes: 0,
       span: span_at(1),
+      exported: false,
+    });
+    block.bindings.push(ScriptBindingFact {
+      name: "state".into(),
+      reads: 0,
+      writes: 0,
+      span: span_at(9),
+      exported: true,
     });
     assert!(
       reactive_binding(&block, "state").is_some_and(|binding| is_readonly_kind(binding.kind))
     );
-    assert!(script_binding(&block, "state").is_some());
+    assert!(script_binding(&block, "state").is_some_and(|binding| !binding.exported));
+    assert!(script_binding_at(&block, "state", span_at(9)).is_some_and(|binding| binding.exported));
     assert!(reactive_binding(&block, "missing").is_none());
     let read = read("count", Some("value"), ReactiveReadKind::Unconditional, 0);
     assert_eq!(binding_path(&read), "count.value");

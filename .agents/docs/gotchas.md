@@ -277,13 +277,29 @@ applies that module graph onto SFC facts and runs rules, so composable seeds
 affect per-file diagnostics—not only `module_reactivity` debug output.
 
 Content cache keys include `CACHE_FORMAT_VERSION`, ruleset version,
-`REACTIVITY_GRAPH_VERSION`, conventions / oxc_resolver identity, and **string
-literals** for `vize-version` / `oxc-version` inside `vue_vet_cache::content_key`
-(not read from `Cargo.toml`). Bump those literals or `CACHE_FORMAT_VERSION`
-when a Vize/Oxc upgrade changes results — otherwise warm caches can serve stale
-graphs after a dep bump. Keep `docs/cache-baseline-diff.md` aligned with
-`CACHE_FORMAT_VERSION`. Dual ordinary+setup blocks re-trace as setup plus
+`REACTIVITY_GRAPH_VERSION`, conventions, and `AnalysisStackIdentity::current()`
+(`CACHE_VIZE_CROQUIS_VERSION`, `CACHE_OXC_PARSER_VERSION`,
+`OXC_RESOLVER_VERSION`) hashed by `content_key`. Those identity constants must
+match `fixtures/quality/compat-matrix.json`, the workspace pin, and Cargo.lock
+(`just compat-matrix`). Proving a version participates in the hash requires
+mutating `AnalysisStackIdentity` and observing a different `content_key`
+(`content_key_with_identity`) — `assert_ne!` on a stale string plus
+`key.len() == 64` is not enough. Keep `docs/cache-baseline-diff.md` aligned
+with `CACHE_FORMAT_VERSION`. Dual ordinary+setup blocks re-trace as setup plus
 `{path}#script` (not a single concatenated module).
+
+## Effect run counts are not onTrack JSON
+
+`just oracle` compares tracer edges to Vue `onTrack` JSON. That does **not**
+prove how many times an effect or computed getter runs. Vue 3.5.40 coalesces a
+sync self-assign in `watchEffect` / `watchPostEffect` / `watchSyncEffect`
+(`count.value = count.value + 1`, `++`, helper) into one initial run; an
+external change of `count` yields a second. The same write under
+`watch(source, cb, { immediate: true, flush: 'sync' })` retriggers. Computed
+self-write is impurity / cache invalidation (`can invalidate its cached
+value`), not a proven loop. Run-count evidence is `just oracle-self-trigger`
+(Node 22, pnpm 9 frozen lock, Vue 3.5.40). Do not admit a loop diagnostic
+from onTrack fixtures alone.
 
 ## Do not stack per-guard-role Conditional rule ids
 
@@ -296,13 +312,15 @@ add redundant TrackingScope visitor passes (#136).
 
 ## JSX adaptation must not lint every Script module
 
-Standalone `.jsx`/`.tsx` (and scripts that already lowered non-empty
-`TemplateFacts`) join the Vue file-rule registry. Plain `.js`/`.ts` stay on the
-project-graph / seed path only. Enqueuing every Script into `pending_vue`
-regresses CodSpeed `scan_*` / synthetic 1k–5k module benches. Likewise: skip
-Oxc JSX template collection unless `language` is `jsx`/`tsx`, and skip
-`defineComponent` identity-forwarder fixed-point walks when no Vue factory
-import exists (#134 / #136).
+Vue SFCs and JSX/TSX always join the file-rule registry. Plain `.js`/`.ts`
+join only after linking, when local or seeded facts exist (scopes, bindings,
+calls, operands, member writes). Empty independent TS (`export const valueN =
+N`) must not enter `pending_vue` — that regresses CodSpeed `scan_*` / 1k
+module benches. Eligibility uses the retained `module_source.id` / language
+and the applied primary graph; do not synthesize an ordinary `#script` id for
+plain scripts. Skip Oxc JSX template collection unless `language` is
+`jsx`/`tsx`, and skip `defineComponent` identity-forwarder fixed-point walks
+when no Vue factory import exists (#134 / #136).
 
 ## SFC compiler macros are setup-only
 
@@ -381,6 +399,14 @@ Never discard the dirty `FileId` set returned by
 `PendingChanges` via `ChangeImpact` / `DirtyPlan`. Cancellation must not clear
 pending dirty state. A no-op `analyze_affected` when the revision is unchanged
 must return the last snapshot without re-entering the pipeline.
+
+Cached `RuleEnvironment` is reused on leaf edits. `PackageIndex::environment_for`
+runs for `force_full_parse`, `impact.environment` (package epoch), and new
+sources, including nested package add / replace / remove. `dirty_plan_from`
+builds `rule_files` from the affected `SourceInput`s that are file-rule kinds.
+Vue FileIds (live or deleted, `.vue` suffix) include the ordinary `#script`
+dirty summary; after linking, plain JS/TS look up the retained primary
+`module_source.id` and language.
 
 **Dirty `FileId` ≠ dirty work.** A small `affected_files()` set only proves parse
 scheduling was narrow. After a warm persist scan, phase one visits the

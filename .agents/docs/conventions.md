@@ -36,6 +36,16 @@
   immediate `report` inside the visitor. Do not filter the whole fact set into a
   temporary `Vec` and then iterate it again.
 - A rule lands with rationale, bad/good examples, limitations, positive fixtures, common safe patterns, false-positive regressions, exact-span assertions, and reporter snapshots.
+- A diagnostic whose **premise is Vue runtime behavior** (effect run count,
+  loop vs coalesce, first-run / `immediate`, flush `'pre'` / `'post'` /
+  `'sync'`) must ship **rerunnable runtime evidence** at a locked Vue version
+  (`just oracle-self-trigger` or equivalent Node test; not the onTrack JSON
+  `just oracle` gate) plus: a true-positive fixture when the ID still reports,
+  a quiet / false-positive fixture for the coalesced or incomplete-coverage
+  case, a precision pin when the quality corpus is affected, and exact-span
+  snapshots for every remaining finding. Retired IDs kept for config
+  compatibility still need the quiet fixture and the runtime note on the rule
+  page.
 - After adding or renaming rule ids, regenerate the human catalog with
   `just rules-catalog` (`docs/rules/README.md`). Expand stub pages with
   `just rules-docs` (`scripts/expand_rule_docs.py`) before polishing essays.

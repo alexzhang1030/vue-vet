@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-computed-without-dependency",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-computed-without-dependency",
+    "message": "`computed` does not read any reactive dependency",
+    "help": "Return a plain value, or read reactive state inside the getter.",
+    "file": "fixtures/rules/no-computed-without-dependency/invalid/array-literal-map.vue",
+    "span": {
+      "offset": 71,
+      "length": 36,
+      "line": 3,
+      "column": 16
+    }
+  }
+]

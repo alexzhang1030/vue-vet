@@ -141,9 +141,17 @@ graph-version change.
 
 `scope_details[].uncertain_accesses` lists soft under-approx evidence: identifier
 roots of `.value` / `unref` / `toValue` (or bare watch sources) that were analyzed
-but not classified as known bindings. Absence rules report these as
-`(maybe: …)` instead of inventing edges. The field is omitted when empty.
-String `scopes` labels append ` maybe:a,b` when soft evidence is present.
+but not classified as known bindings. The field is omitted when empty.
+`scope_details[].unknown_calls` lists identifier/member callees the bounded
+tracer did not follow. `follow_truncated` is true when helper follow hit the
+depth cap or a recursive callee. Absence rules require complete coverage
+(no unknown calls, no truncation, no uncertain accesses) before reporting
+proven empty dependencies. `--explain-scope` JSON includes the same
+`unknown_calls`, `follow_truncated`, `uncertain` (from `uncertain_accesses`),
+and `analysis_complete` fields. `analysis_complete` is **false** when
+`unknown_calls` is non-empty, `follow_truncated` is true, **or**
+`uncertain` / `uncertain_accesses` is non-empty — omitted from JSON only
+when true.
 `scope_details[].summary` is the same one-line “would Vue re-run?” verdict as
 `--explain-scope` / `ScopeExplain.summary` (omitted when unset).
 

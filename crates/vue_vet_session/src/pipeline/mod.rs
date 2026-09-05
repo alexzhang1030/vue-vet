@@ -29,8 +29,8 @@ use vue_vet_project::{
 mod analyze;
 
 use analyze::{
-  AnalyzedCandidate, PendingVueFile, analyze_candidate, issue_diagnostic, run_file_rules,
-  script_needs_file_rules, source_environment,
+  AnalyzedCandidate, PendingVueFile, analyze_candidate, issue_diagnostic, needs_file_rules,
+  run_file_rules, source_environment,
 };
 
 use crate::{
@@ -218,7 +218,12 @@ fn scan_parallel(
   let mut env_refreshed = BTreeSet::new();
   let mut files_reused = 0_u64;
   for source in &input.sources {
-    let environment = source_environment(source, &input.boundary, &input.package_index);
+    let environment = match previous.files.get(&source.file_id) {
+      Some(cached) if !force_full_parse && !impact.environment.contains(&source.file_id) => {
+        cached.environment.clone()
+      }
+      _ => source_environment(source, &input.boundary, &input.package_index),
+    };
     let must_parse = impact.parse.contains(&source.file_id);
     if let Some(cached) = previous.files.get(&source.file_id)
       && cached.source.as_ref() == source.source.as_ref()
@@ -309,6 +314,7 @@ fn scan_parallel(
   let mut project_files = Vec::new();
   let mut pending_vue = Vec::new();
   // Prefer `state.files` so environment refreshes (no re-parse) reach rules.
+  // Script eligibility waits until module graphs (cross-file seeds) are applied.
   for cached in state.files.values() {
     match cached.analyzed.as_ref() {
       AnalyzedCandidate::Vue { project_file, pending, .. } => {
@@ -322,22 +328,12 @@ fn scan_parallel(
             source: Arc::clone(&pending.source),
             environment,
             facts: Arc::clone(&pending.facts),
+            include_ordinary_graph: pending.include_ordinary_graph,
           }));
         }
       }
       AnalyzedCandidate::Script { project_file } => {
         project_files.push(Arc::clone(project_file));
-        // JSX/TSX (or any script that already lowered TemplateFacts) needs the
-        // Vue file-rule registry. Plain `.js`/`.ts` stay graph/seed-only — do
-        // not pay the full rule pass on every synthetic module (CodSpeed).
-        if script_needs_file_rules(project_file.path.as_path(), &project_file.facts.template) {
-          pending_vue.push(Arc::new(PendingVueFile {
-            file_id: project_file.path.clone(),
-            source: Arc::clone(&cached.source),
-            environment: cached.environment.clone().unwrap_or_default(),
-            facts: Arc::clone(&project_file.facts),
-          }));
-        }
       }
     }
   }
@@ -392,6 +388,26 @@ fn scan_parallel(
     .map(|module| (module.id.clone(), Arc::clone(&module.graph)))
     .collect::<BTreeMap<_, _>>();
 
+  for cached in state.files.values() {
+    let AnalyzedCandidate::Script { project_file } = cached.analyzed.as_ref() else {
+      continue;
+    };
+    let Some(module) = project_file.module_source.as_ref() else {
+      continue;
+    };
+    let primary = modules.get(&module.id).map(AsRef::as_ref);
+    if !needs_file_rules(&module.language, &project_file.facts, primary) {
+      continue;
+    }
+    pending_vue.push(Arc::new(PendingVueFile {
+      file_id: project_file.path.clone(),
+      source: Arc::clone(&cached.source),
+      environment: cached.environment.clone().unwrap_or_default(),
+      facts: Arc::clone(&project_file.facts),
+      include_ordinary_graph: false,
+    }));
+  }
+
   // --- Stage: rules (seed-aware file diagnostics) ---
   let rules_total = pending_vue.len();
   if let Some(progress) = progress {
@@ -403,9 +419,12 @@ fn scan_parallel(
     .map(|pending| {
       let file_id = pending.file_id.clone();
       let module_id = ModuleId::primary(&file_id);
-      let ordinary_id = ModuleId::ordinary(&file_id);
       let primary_graph = modules.get(&module_id).map(Arc::clone);
-      let ordinary_graph = modules.get(&ordinary_id).map(Arc::clone);
+      let ordinary_graph = if pending.include_ordinary_graph {
+        modules.get(&ModuleId::ordinary(&file_id)).map(Arc::clone)
+      } else {
+        None
+      };
       let key = FileRuleInputKey::new(
         &pending.source,
         &pending.environment,

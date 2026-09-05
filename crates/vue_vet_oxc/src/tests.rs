@@ -128,6 +128,53 @@ fn builds_conditional_watch_effect_edges_without_nested_callbacks() {
 }
 
 #[test]
+fn exported_flag_uses_symbol_id_not_name() {
+  let facts = analyze(
+    "export const count = 1;\
+     export function useInner() { const count = 2; return count; }\
+     const local = 3;\
+     const \u{8ba1}\u{6570} = 4; export { \u{8ba1}\u{6570} };\
+     function hide() { const \u{8ba1}\u{6570} = 5; void \u{8ba1}\u{6570}; }",
+    "ts",
+  );
+  let counts = facts
+    .bindings
+    .iter()
+    .filter(|binding| binding.name == "count")
+    .map(|binding| (binding.exported, binding.span.offset))
+    .collect::<Vec<_>>();
+  assert_eq!(counts.iter().filter(|(exported, _)| *exported).count(), 1);
+  assert_eq!(counts.iter().filter(|(exported, _)| !*exported).count(), 1);
+  let inner_offset = counts.iter().find(|(exported, _)| !*exported).map(|(_, offset)| *offset);
+  let outer_offset = counts.iter().find(|(exported, _)| *exported).map(|(_, offset)| *offset);
+  assert!(
+    inner_offset.is_some_and(|inner| outer_offset.is_some_and(|outer| inner > outer)),
+    "inner shadowed count must not inherit the exported outer symbol; {counts:?}"
+  );
+  assert!(facts.bindings.iter().any(|binding| binding.name == "useInner" && binding.exported));
+  assert!(facts.bindings.iter().any(|binding| binding.name == "local" && !binding.exported));
+  let unicode = facts
+    .bindings
+    .iter()
+    .filter(|binding| binding.name == "计数")
+    .map(|binding| binding.exported)
+    .collect::<Vec<_>>();
+  assert_eq!(unicode.iter().filter(|exported| **exported).count(), 1);
+  assert_eq!(unicode.iter().filter(|exported| !**exported).count(), 1);
+}
+
+#[test]
+fn crlf_export_list_marks_root_symbol_only() {
+  let facts = analyze(
+    "const count = 1;\r\nexport { count };\r\nfunction f(){\r\nconst count = 2;\r\nvoid count;\r\n}\r\n",
+    "ts",
+  );
+  let counts = facts.bindings.iter().filter(|binding| binding.name == "count").collect::<Vec<_>>();
+  assert_eq!(counts.iter().filter(|binding| binding.exported).count(), 1);
+  assert_eq!(counts.iter().filter(|binding| !binding.exported).count(), 1);
+}
+
+#[test]
 fn records_props_destructures_and_null_template_refs() {
   let facts = analyze(
     "import { ref } from 'vue'; const { title } = defineProps(); const input = ref(null);",

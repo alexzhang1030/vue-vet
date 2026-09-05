@@ -13,6 +13,11 @@ use crate::humanize::{
 const HOTSPOT_LIMIT: usize = 5;
 const DETAIL_LINE_LIMIT: usize = 12;
 
+#[expect(clippy::trivially_copy_pass_by_ref, reason = "serde skip_serializing_if takes &T")]
+const fn digest_flag_is_false(value: &bool) -> bool {
+  !*value
+}
+
 /// Byte range inside a module source (editor consumers map via `positionAt`).
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct ReactivitySpanRef {
@@ -47,6 +52,11 @@ pub struct ReactivityScopeDetail {
   /// were not classified as known bindings (absence rules surface as `(maybe: …)`).
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub uncertain_accesses: Vec<String>,
+  /// Identifier / member callees the bounded tracer did not follow.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub unknown_calls: Vec<String>,
+  #[serde(default, skip_serializing_if = "digest_flag_is_false")]
+  pub follow_truncated: bool,
   /// Same one-line “would Vue re-run?” verdict as `--explain-scope` / `ScopeExplain.summary`.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub summary: Option<String>,
@@ -306,7 +316,17 @@ pub fn scope_detail_with_uncertain(
   let machine =
     binding.as_ref().map_or_else(|| format!("{kind}({callee})"), |name| format!("{kind}({name})"));
   let label = humanize_scope(&machine);
-  ReactivityScopeDetail { kind, callee, binding, span, label, uncertain_accesses, summary: None }
+  ReactivityScopeDetail {
+    kind,
+    callee,
+    binding,
+    span,
+    label,
+    uncertain_accesses,
+    unknown_calls: Vec::new(),
+    follow_truncated: false,
+    summary: None,
+  }
 }
 
 /// Compact text label for a scope, including soft evidence when present.

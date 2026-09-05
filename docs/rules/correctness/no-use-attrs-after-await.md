@@ -1,48 +1,25 @@
 # `vue-vet/correctness/no-use-attrs-after-await`
 
-Category: correctness  
-Default severity: warning  
+Category: correctness
+Default severity: warning
 Confidence: high
 
-In `<script setup>`, calling `useAttrs` after a top-level `await` runs outside the synchronous setup instance context, so the API will not bind correctly.
+**Retired.** This ID stays registered for config compatibility and never reports.
 
-## Bad
+Vue 3.5 `<script setup>` restores instance context across top-level `await` (`withAsyncContext`). Registering `useAttrs` after `await` still binds to this instance.
 
-```vue
-<script setup lang="ts">
-import { useAttrs } from 'vue'
-const data = await fetch('/api').then((response) => response.json())
-const value = useAttrs()
-</script>
-
-<template>
-  <div>{{ data }} {{ value }}</div>
-</template>
-```
-
-## Good
+Quiet regression (must not report):
 
 ```vue
 <script setup lang="ts">
 import { useAttrs } from 'vue'
-const value = useAttrs()
-const data = await fetch('/api').then((response) => response.json())
+await Promise.resolve()
+useAttrs()
+
 </script>
-
-<template>
-  <div>{{ data }}</div>
-</template>
 ```
-
-## Detection
-
-Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
-
-## Remediation
-
-Move `useAttrs` before the first top-level `await`.
 
 ## Fixtures
 
-- Invalid: `fixtures/rules/no-use-attrs-after-await/invalid/`
-- Valid: `fixtures/rules/no-use-attrs-after-await/valid/`
+- `fixtures/rules/no-use-attrs-after-await/valid/former-invalid-basic.vue`
+- `fixtures/rules/no-use-attrs-after-await/valid/safe.vue`

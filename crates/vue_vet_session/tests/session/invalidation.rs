@@ -121,13 +121,18 @@ fn tsconfig_path_changes_match_a_clean_analysis() {
   std::fs::write(
     root.join("App.vue"),
     "<script setup lang=\"ts\">
-import { watchEffect } from 'vue'
+import { computed, watchEffect } from 'vue'
 import { gate, payload } from '@state'
 watchEffect(() => {
   if (!gate.value) return
   console.log(payload.value)
 })
-</script>",
+const result = computed(() => {
+  payload.value = 1
+  return payload.value
+})
+</script>
+<template>{{ result }}</template>",
   )
   .unwrap_or_else(|error| panic!("app fixture: {error}"));
   let tsconfig = root.join("tsconfig.json");
@@ -153,9 +158,11 @@ watchEffect(() => {
   let clean_session = open_session_threads(root.clone(), 2);
   let clean = clean_session.analyze().unwrap_or_else(|error| panic!("clean analyze: {error}"));
   assert!(
-    clean.summary.diagnostics.iter().any(|diagnostic| {
-      diagnostic.rule_id == "vue-vet/reactivity/no-conditional-watch-effect-dependency"
-    }),
+    clean
+      .summary
+      .diagnostics
+      .iter()
+      .any(|diagnostic| { diagnostic.rule_id == "vue-vet/reactivity/no-side-effects-in-computed" }),
     "the resolved alias must seed the cross-module reactivity diagnostic"
   );
   let affected = session.affected_files().unwrap_or_else(|error| panic!("affected files: {error}"));
@@ -178,13 +185,18 @@ fn package_imports_changes_match_a_clean_analysis() {
   std::fs::write(
     root.join("App.vue"),
     "<script setup lang=\"ts\">
-import { watchEffect } from 'vue'
+import { computed, watchEffect } from 'vue'
 import { gate, payload } from '#state'
 watchEffect(() => {
   if (!gate.value) return
   console.log(payload.value)
 })
-</script>",
+const result = computed(() => {
+  payload.value = 1
+  return payload.value
+})
+</script>
+<template>{{ result }}</template>",
   )
   .unwrap_or_else(|error| panic!("app fixture: {error}"));
   let package = root.join("package.json");
@@ -209,9 +221,11 @@ watchEffect(() => {
   let clean_session = open_session_threads(root.clone(), 2);
   let clean = clean_session.analyze().unwrap_or_else(|error| panic!("clean analyze: {error}"));
   assert!(
-    clean.summary.diagnostics.iter().any(|diagnostic| {
-      diagnostic.rule_id == "vue-vet/reactivity/no-conditional-watch-effect-dependency"
-    }),
+    clean
+      .summary
+      .diagnostics
+      .iter()
+      .any(|diagnostic| { diagnostic.rule_id == "vue-vet/reactivity/no-side-effects-in-computed" }),
     "package imports must seed the cross-module reactivity diagnostic"
   );
   assert_analysis_parity(&incremental, &clean);
@@ -241,14 +255,18 @@ fn consecutive_context_mutations_do_not_drop_prior_epochs() {
   std::fs::write(
     root.join("App.vue"),
     "<script setup lang=\"ts\">
-import { watchEffect } from 'vue'
+import { computed, watchEffect } from 'vue'
 import { gate, payload } from '@state'
 watchEffect(() => {
   if (!gate.value) return
   console.log(payload.value)
 })
+const result = computed(() => {
+  payload.value = 1
+  return payload.value
+})
 </script>
-<template><CustomButton /></template>",
+<template><CustomButton />{{ result }}</template>",
   )
   .unwrap_or_else(|error| panic!("app fixture: {error}"));
   let tsconfig = root.join("tsconfig.json");
@@ -288,9 +306,11 @@ watchEffect(() => {
   let clean_session = open_session_threads(root.clone(), 2);
   let clean = clean_session.analyze().unwrap_or_else(|error| panic!("clean analyze: {error}"));
   assert!(
-    clean.summary.diagnostics.iter().any(|diagnostic| {
-      diagnostic.rule_id == "vue-vet/reactivity/no-conditional-watch-effect-dependency"
-    }),
+    clean
+      .summary
+      .diagnostics
+      .iter()
+      .any(|diagnostic| { diagnostic.rule_id == "vue-vet/reactivity/no-side-effects-in-computed" }),
     "tsconfig epoch must still be consumed after a later Nuxt mutation"
   );
   assert_analysis_parity(&incremental, &clean);
@@ -480,6 +500,44 @@ fn failed_apply_changes_preserves_revision_and_analysis() {
 
 #[test]
 #[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn jsx_tsx_inner_html_edits_match_cold_scan() {
+  for extension in ["jsx", "tsx"] {
+    let root =
+      std::env::temp_dir().join(format!("vue-vet-jsx-incr-{}-{extension}", std::process::id()));
+    let _ignored = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+    let relative = format!("Comp.{extension}");
+    let path = root.join(&relative);
+    let header = "// \u{4e2d}\u{6587}\u{1f680}\r\n";
+    let safe = format!("{header}export const Comp=()=> <div>safe</div>\r\n");
+    let unsafe_source = format!("{header}export const Comp=()=> <div innerHTML=\"unsafe\" />\r\n");
+    std::fs::write(&path, &safe).unwrap_or_else(|error| panic!("write {relative}: {error}"));
+    let session = open_session_threads(root.clone(), 1);
+    session.analyze().unwrap_or_else(|error| panic!("initial {extension}: {error}"));
+    for (index, next) in [&unsafe_source, &safe, &unsafe_source].into_iter().enumerate() {
+      session
+        .apply_changes(ChangeSet::upsert(path.clone(), next.clone()))
+        .unwrap_or_else(|error| panic!("{extension} edit {index}: {error}"));
+      let incremental = session
+        .analyze_affected()
+        .unwrap_or_else(|error| panic!("{extension} incr {index}: {error}"));
+      let cold_session = open_session_threads(root.clone(), 1);
+      let cold = cold_session
+        .analyze_with_overlays(&BTreeMap::from([(path.clone(), next.clone())]))
+        .unwrap_or_else(|error| panic!("{extension} cold {index}: {error}"));
+      assert_analysis_parity(&incremental, &cold);
+      let has_v_html = incremental.summary.diagnostics.iter().any(|diagnostic| {
+        diagnostic.file == FileId::from(relative.as_str())
+          && diagnostic.rule_id == "vue-vet/security/no-v-html"
+      });
+      assert_eq!(has_v_html, *next == unsafe_source, "{extension} edit {index} no-v-html");
+    }
+    let _ignored = std::fs::remove_dir_all(root);
+  }
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
 fn diagnostics_only_product_omits_graph_dto() {
   let session = open_session(fixture("rules/no-v-html/invalid"));
   let full = session.analyze().unwrap_or_else(|error| panic!("full: {error}"));
@@ -662,13 +720,18 @@ fn tsconfig_only_change_parses_zero_source_files() {
   std::fs::write(
     root.join("App.vue"),
     "<script setup lang=\"ts\">
-import { watchEffect } from 'vue'
+import { computed, watchEffect } from 'vue'
 import { gate, payload } from '@state'
 watchEffect(() => {
   if (!gate.value) return
   console.log(payload.value)
 })
-</script>",
+const result = computed(() => {
+  payload.value = 1
+  return payload.value
+})
+</script>
+<template>{{ result }}</template>",
   )
   .unwrap_or_else(|error| panic!("app: {error}"));
   let tsconfig = root.join("tsconfig.json");

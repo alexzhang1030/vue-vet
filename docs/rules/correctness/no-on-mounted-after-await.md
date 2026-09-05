@@ -1,12 +1,16 @@
 # `vue-vet/correctness/no-on-mounted-after-await`
 
-Category: correctness  
-Default severity: warning  
+Category: correctness
+Default severity: warning
 Confidence: high
 
-In `<script setup>`, calling `onMounted` after a top-level `await` runs outside the synchronous setup instance context, so the API will not bind correctly.
+**Retired.** This ID stays registered for config compatibility and never reports.
 
-## Bad
+Vue 3.5 `<script setup>` restores instance context across top-level `await` (`withAsyncContext`). Registering `onMounted` after `await` still binds to this instance.
+
+Still-live related rules: `no-define-expose-after-await` for expose timing, and `no-after-await-watch-effect-dependency` for reactive reads after `await` inside an effect.
+
+Quiet regression (must not report):
 
 ```vue
 <script setup lang="ts">
@@ -15,26 +19,8 @@ await Promise.resolve()
 onMounted(() => {})
 </script>
 ```
-
-## Good
-
-```vue
-<script setup lang="ts">
-import { onMounted } from 'vue'
-onMounted(() => {})
-await Promise.resolve()
-</script>
-```
-
-## Detection
-
-Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
-
-## Remediation
-
-Move `onMounted` before the first top-level `await`.
 
 ## Fixtures
 
-- Invalid: `fixtures/rules/no-on-mounted-after-await/invalid/`
-- Valid: `fixtures/rules/no-on-mounted-after-await/valid/`
+- `fixtures/rules/no-on-mounted-after-await/valid/former-invalid-basic.vue`
+- `fixtures/rules/no-on-mounted-after-await/valid/safe.vue`

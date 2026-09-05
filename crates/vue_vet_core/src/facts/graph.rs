@@ -70,6 +70,10 @@ pub struct ReactiveBindingFact {
   pub kind: ReactiveBindingKind,
   pub initialized_with_null: bool,
   pub span: SourceSpan,
+  /// Root reactive local this name aliases (`const alias = count`).
+  /// None when `name` is the binding introduced by a Vue API / annotation.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub alias_of: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -232,6 +236,14 @@ pub struct TrackingScopeFact {
   /// Rules may surface these as `(maybe: …)` rather than inventing edges.
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub uncertain_accesses: Vec<String>,
+  /// Identifier callees the bounded tracer did not follow (imports, arguments,
+  /// async/generator, unresolved). Absence rules must not treat these as proven
+  /// empty dependency sets.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub unknown_calls: Vec<String>,
+  /// True when helper follow stopped at the depth cap or a recursive callee.
+  #[serde(default, skip_serializing_if = "scope_flag_is_false")]
+  pub follow_truncated: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -290,6 +302,9 @@ pub struct ReactivityEffectFact {
 /// Wire format version for [`ReactivityGraph`]. Bump when consumers must
 /// distinguish shape or semantic changes in serialized facts.
 ///
+/// v36: `ReactiveBindingFact.alias_of` records `const alias = known` so
+/// rules can treat alias writes as the same reactive source.
+///
 /// v25: same-file zero-arg helper follow also fills `uncertain_accesses`
 /// (unclassified `.value` / `unref` / `toValue` inside followed callees).
 /// `then()`/`nextTick`-only call sites stay quiet so absence rules do not
@@ -332,6 +347,10 @@ pub struct ReactivityEffectFact {
 /// v24: `useI18n` translator calls (`t`/`d`/`n`/`rt`/`te`) inject ambient
 /// composer deps (`locale` / `fallbackLocale` / `messages`) per vue-i18n
 /// `wrapWithDeps` / `trackReactivityValues`.
+/// v35: tracking scopes record `unknown_calls` / `follow_truncated` for
+/// unfollowed identifier callees (imports, arguments, async, depth cap).
+/// Absence rules require complete analysis; Explain must not claim Vue will
+/// not re-run when follow is incomplete.
 /// v23: same-file zero-arg local helpers called from a tracking scope contribute
 /// ambient sync reads (bounded depth; skip async/generator) — Vue tracks callee
 /// reads under `activeEffect`.
@@ -339,10 +358,15 @@ pub struct ReactivityEffectFact {
 /// under-approx hygiene); export linking refinements that change seeded bindings
 /// (`ForwardReturn` bare `#nuxt-imports`, overload Factory≻Composable, ref-like
 /// ternary `Known` exports, empty-path pending composable fields).
-pub const REACTIVITY_GRAPH_VERSION: u32 = 34;
+pub const REACTIVITY_GRAPH_VERSION: u32 = 36;
 
 const fn default_reactivity_graph_version() -> u32 {
   1
+}
+
+#[expect(clippy::trivially_copy_pass_by_ref, reason = "serde skip_serializing_if takes &T")]
+const fn scope_flag_is_false(value: &bool) -> bool {
+  !*value
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

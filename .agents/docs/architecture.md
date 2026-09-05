@@ -26,7 +26,7 @@ Crate ownership (read before editing that stage):
 | Stable contracts | `vue_vet_core` | facts / diagnostics / `Rule` — no Oxc/Vize types |
 | Adapters | `vue_vet_vize`, `vue_vet_oxc` | short-lived AST → facts only; SFC parse is `vize_croquis::sfc`, never `vize_atelier_sfc` |
 | Project graph | `vue_vet_project` | see `vue_vet_project` pipeline below |
-| Cross-file seeds | `vue_vet_reactivity` | `trace` / `summary` / `link`; `ModuleSummary` boundary; under-approx |
+| Cross-file seeds | `vue_vet_reactivity` | `ModuleSource` + `trace_modules`; Oxc-taking APIs under `::oxc`; `ModuleSummary` boundary; under-approx |
 | File rules | `vue_vet_rules`, `vue_vet_practice` | consume facts via `vue_vet_rule_query`; practice off score |
 | Orchestration | `vue_vet_session` | thin façade; `pipeline` stages discovery → facts → project → rules → finalize |
 | Surfaces | `vue_vet_cli`, `vue_vet_lsp`, `vue_vet_mcp`, `vue_vet_reporters` | thin |
@@ -84,9 +84,19 @@ vue-vet CLI
   snapshot when the workspace revision is unchanged (refcount-cheap for shared
   `summary`/`graph`; other snapshot fields may still clone). Otherwise a
   `ChangeImpact` + `DirtyPlan` decide which files re-parse, which need
-  environment/rule refresh, and which diagnostics to finalize. Dirty parse is
-  real; dirty linking / graph materialization / diagnostic store updates are
-  still incomplete — see **Post-#107 locality gap**.
+  environment/rule refresh, and which diagnostics to finalize. `DirtyPlan.rule_files`
+  is the file-rule invalidation set (Vue SFCs and JS/TS/JSX/TSX), not Vue-only —
+  otherwise a TSX `didChange` or a `.ts` seed/call-only file reuses stale diagnostics.
+  Execution still filters with `needs_file_rules` after module graphs are applied.
+  Cached file `RuleEnvironment` is reused when `force_full_parse` is false and
+  the file is outside `impact.environment`. Cold start, package epoch, and new
+  sources query the current PackageIndex. Plain JS/TS expose one primary module;
+  after linking, eligibility uses `module_source.id` and language. Vue
+  dual-script looks up both surfaces; deleted `.vue` FileIds keep the ordinary
+  dirty summary. `DirtyPlan.rule_files` is the file-rule kinds among the
+  affected `SourceInput`s. Dirty parse is real; dirty linking / graph
+  materialization / diagnostic store updates are still incomplete — see
+  **Post-#107 locality gap**.
 - **Incremental project stages** — `ProjectSession` retains the source snapshot,
   per-file Vize/Oxc facts, raw file diagnostics, structural edge partitions,
   module seed plans/final graphs, and the reverse dependency index.   Unrelated
@@ -210,8 +220,10 @@ only when the script language is `jsx`/`tsx`; `TrackingScopeKind::Render` and
 JSX expression joins apply inside recognized render bodies (structure-first
 options/`setup`→render / exported functional components, plus same-file
 `defineComponent` alias and one-hop identity forwarders). Session runs the Vue
-file-rule registry on `.jsx`/`.tsx` (or scripts with non-empty lowered template
-facts), not on every plain `.js`/`.ts` module. See issue
+file-rule registry on `.jsx`/`.tsx` always, and on plain `.js`/`.ts` when local
+or seeded facts warrant it (tracking scopes, reactive bindings, member writes,
+operands, destructures, or script calls). Empty modules stay graph/seed-only.
+Package-environment refresh includes those same JS/TS sources. See issue
 [#134](https://github.com/alexzhang1030/vue-vet/issues/134).
 
 `ModuleSummary` (formerly the opaque `PreparedModuleTrace`) is the formal
@@ -265,6 +277,23 @@ unused.
 ## Stable boundary
 
 Vue Vet's normalized facts and diagnostics are the architectural seam. Dependency AST objects must not cross into public rule, reporter, cache, LSP, or agent contracts. Adapters may change with dependency upgrades while downstream product behavior stays versioned and reviewable.
+
+Default `vue_vet_reactivity` consumers use `ModuleSource` plus `trace_modules` /
+`trace_modules_with_options` / `prepare_standalone_module_source`, then
+`explain_tracking_scope`. Those entries take Vue Vet types only. Every function
+that takes Oxc `Semantic`, AST, `Span`, or `NodeId` lives under
+`vue_vet_reactivity::oxc`. Product adapters (`vue_vet_oxc`) import from that
+namespace. The crate root still re-exports the same names as `#[doc(hidden)]`
+compat aliases (no `#[deprecated]`, no second parser). Oxc 0.142
+`SemanticBuilder` must `.with_build_nodes(true)` wherever facts walk
+`semantic.nodes()`.
+
+`ReactiveBindingFact.alias_of` is an existing graph fact (v36), not a new IR:
+`const alias = known` records the root name on the same binding record. Rules
+compare alias-aware targets with `vue_vet_rule_query::same_reactive_target`
+using `FactRef::TrackingScope.block_kind` and `script_block` so ordinary
+script and setup same-name bindings stay distinct. General alias analysis stays
+out of scope.
 
 ## `vue_vet_reactivity` crate layout
 

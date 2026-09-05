@@ -870,11 +870,6 @@ fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
       ),
     ),
     (
-      "fixtures/rules/prefer-computed/invalid/compound-from-other.vue",
-      include_str!("../../../fixtures/rules/prefer-computed/invalid/compound-from-other.vue"),
-      include_str!("../../../fixtures/snapshots/prefer-computed/compound-from-other.json"),
-    ),
-    (
       "fixtures/rules/prefer-computed/invalid/helper-assign.vue",
       include_str!("../../../fixtures/rules/prefer-computed/invalid/helper-assign.vue"),
       include_str!("../../../fixtures/snapshots/prefer-computed/helper-assign.json"),
@@ -893,33 +888,6 @@ fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
       "fixtures/rules/no-unused-computed-binding/valid/style-v-bind.vue",
       include_str!("../../../fixtures/rules/no-unused-computed-binding/valid/style-v-bind.vue"),
       include_str!("../../../fixtures/snapshots/no-unused-computed-binding/style-v-bind.json"),
-    ),
-    (
-      "fixtures/rules/no-computed-without-dependency/invalid/helper-uncertain.vue",
-      include_str!(
-        "../../../fixtures/rules/no-computed-without-dependency/invalid/helper-uncertain.vue"
-      ),
-      include_str!(
-        "../../../fixtures/snapshots/no-computed-without-dependency/helper-uncertain.json"
-      ),
-    ),
-    (
-      "fixtures/rules/no-conditional-dependency-in-computed/invalid/helper-ternary.vue",
-      include_str!(
-        "../../../fixtures/rules/no-conditional-dependency-in-computed/invalid/helper-ternary.vue"
-      ),
-      include_str!(
-        "../../../fixtures/snapshots/no-conditional-dependency-in-computed/helper-ternary.json"
-      ),
-    ),
-    (
-      "fixtures/rules/no-conditional-dependency-in-computed/invalid/inline-ternary.vue",
-      include_str!(
-        "../../../fixtures/rules/no-conditional-dependency-in-computed/invalid/inline-ternary.vue"
-      ),
-      include_str!(
-        "../../../fixtures/snapshots/no-conditional-dependency-in-computed/inline-ternary.json"
-      ),
     ),
     (
       "fixtures/rules/no-reactive-read-during-pause-tracking/invalid/paused.vue",
@@ -948,20 +916,29 @@ fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
         "../../../fixtures/snapshots/no-reactive-read-during-pause-tracking/caller-pause-helper.json"
       ),
     ),
-    (
-      "fixtures/rules/no-conditional-dependency-in-render/invalid/ident-getter.vue",
-      include_str!(
-        "../../../fixtures/rules/no-conditional-dependency-in-render/invalid/ident-getter.vue"
-      ),
-      include_str!(
-        "../../../fixtures/snapshots/no-conditional-dependency-in-render/ident-getter.json"
-      ),
-    ),
   ] {
     assert_diagnostics(path, source, expected);
   }
   let empty = "[]";
   for (path, source) in [
+    (
+      "fixtures/rules/no-computed-without-dependency/valid/helper-uncertain.vue",
+      include_str!(
+        "../../../fixtures/rules/no-computed-without-dependency/valid/helper-uncertain.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-conditional-dependency-in-computed/valid/former-invalid-helper-ternary.vue",
+      include_str!(
+        "../../../fixtures/rules/no-conditional-dependency-in-computed/valid/former-invalid-helper-ternary.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-conditional-dependency-in-computed/valid/former-invalid-inline-ternary.vue",
+      include_str!(
+        "../../../fixtures/rules/no-conditional-dependency-in-computed/valid/former-invalid-inline-ternary.vue"
+      ),
+    ),
     (
       "fixtures/rules/no-conditional-dependency-in-computed/valid/both-arms-helper.vue",
       include_str!(
@@ -1003,6 +980,12 @@ fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
       ),
     ),
     (
+      "fixtures/rules/no-conditional-dependency-in-render/valid/former-invalid-ident-getter.vue",
+      include_str!(
+        "../../../fixtures/rules/no-conditional-dependency-in-render/valid/former-invalid-ident-getter.vue"
+      ),
+    ),
+    (
       "fixtures/rules/no-side-effects-in-computed/valid/bag-field-replace.vue",
       include_str!(
         "../../../fixtures/rules/no-side-effects-in-computed/valid/bag-field-replace.vue"
@@ -1011,6 +994,310 @@ fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
     (
       "fixtures/rules/no-side-effects-in-computed/valid/then-write.vue",
       include_str!("../../../fixtures/rules/no-side-effects-in-computed/valid/then-write.vue"),
+    ),
+    (
+      "fixtures/rules/prefer-computed/valid/compound-from-other.vue",
+      include_str!("../../../fixtures/rules/prefer-computed/valid/compound-from-other.vue"),
+    ),
+  ] {
+    assert_diagnostics(path, source, empty);
+  }
+}
+
+#[test]
+fn computed_without_dependency_hof_coverage_fixtures() {
+  assert_diagnostics(
+    "fixtures/rules/no-computed-without-dependency/valid/lookalike-hof-map.vue",
+    include_str!(
+      "../../../fixtures/rules/no-computed-without-dependency/valid/lookalike-hof-map.vue"
+    ),
+    "[]",
+  );
+  assert_diagnostics(
+    "fixtures/rules/no-computed-without-dependency/invalid/array-literal-map.vue",
+    include_str!(
+      "../../../fixtures/rules/no-computed-without-dependency/invalid/array-literal-map.vue"
+    ),
+    include_str!(
+      "../../../fixtures/snapshots/no-computed-without-dependency/array-literal-map.json"
+    ),
+  );
+}
+
+#[test]
+fn unused_binding_safe_patterns_are_quiet() {
+  let empty = "[]";
+  for (path, source) in [
+    (
+      "fixtures/rules/no-unused-reactive-binding/valid/inner-then-template.vue",
+      include_str!(
+        "../../../fixtures/rules/no-unused-reactive-binding/valid/inner-then-template.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-unused-reactive-binding/valid/ordinary-script-export.vue",
+      include_str!(
+        "../../../fixtures/rules/no-unused-reactive-binding/valid/ordinary-script-export.vue"
+      ),
+    ),
+  ] {
+    assert_diagnostics(path, source, empty);
+  }
+}
+
+/// Withdrawn rule IDs must stay quiet on the former-invalid `.vue` fixtures
+/// moved into `valid/`. Other diagnostics on the same file are allowed.
+/// Computed / render / uncertain exact snapshots stay in the tests above.
+const WITHDRAWN_FORMER_INVALID_VUE: &[(&str, &str)] = &[
+  (
+    "vue-vet/reactivity/no-conditional-dependency-in-computed",
+    "fixtures/rules/no-conditional-dependency-in-computed/valid/former-invalid-helper-ternary.vue",
+  ),
+  (
+    "vue-vet/reactivity/no-conditional-dependency-in-computed",
+    "fixtures/rules/no-conditional-dependency-in-computed/valid/former-invalid-inline-ternary.vue",
+  ),
+  (
+    "vue-vet/reactivity/no-conditional-dependency-in-computed",
+    "fixtures/rules/no-conditional-dependency-in-computed/valid/former-invalid-placeholder.vue",
+  ),
+  (
+    "vue-vet/reactivity/no-conditional-dependency-in-effect-scope",
+    "fixtures/rules/no-conditional-dependency-in-effect-scope/valid/former-invalid-placeholder.vue",
+  ),
+  (
+    "vue-vet/reactivity/no-conditional-dependency-in-render",
+    "fixtures/rules/no-conditional-dependency-in-render/valid/former-invalid-ident-getter.vue",
+  ),
+  (
+    "vue-vet/reactivity/no-conditional-dependency-in-watch-sources",
+    "fixtures/rules/no-conditional-dependency-in-watch-sources/valid/former-invalid-placeholder.vue",
+  ),
+  (
+    "vue-vet/reactivity/no-conditional-watch-effect-dependency",
+    "fixtures/rules/no-conditional-watch-effect-dependency/valid/former-invalid-guarded.vue",
+  ),
+  (
+    "vue-vet/correctness/no-define-emits-after-await",
+    "fixtures/rules/no-define-emits-after-await/valid/former-invalid-basic.vue",
+  ),
+  (
+    "vue-vet/correctness/no-define-model-after-await",
+    "fixtures/rules/no-define-model-after-await/valid/former-invalid-basic.vue",
+  ),
+  (
+    "vue-vet/correctness/no-define-options-after-await",
+    "fixtures/rules/no-define-options-after-await/valid/former-invalid-basic.vue",
+  ),
+  (
+    "vue-vet/correctness/no-define-props-after-await",
+    "fixtures/rules/no-define-props-after-await/valid/former-invalid-basic.vue",
+  ),
+  (
+    "vue-vet/correctness/no-define-slots-after-await",
+    "fixtures/rules/no-define-slots-after-await/valid/former-invalid-basic.vue",
+  ),
+  (
+    "vue-vet/correctness/no-effect-scope-after-await",
+    "fixtures/rules/no-effect-scope-after-await/valid/former-invalid-basic.vue",
+  ),
+  (
+    "vue-vet/correctness/no-get-current-instance-after-await",
+    "fixtures/rules/no-get-current-instance-after-await/valid/former-invalid-basic.vue",
+  ),
+  (
+    "vue-vet/correctness/no-inject-after-await",
+    "fixtures/rules/no-inject-after-await/valid/former-invalid-placeholder.vue",
+  ),
+  (
+    "vue-vet/correctness/no-next-tick-after-await",
+    "fixtures/rules/no-next-tick-after-await/valid/former-invalid-basic.vue",
+  ),
+  (
+    "vue-vet/correctness/no-on-activated-after-await",
+    "fixtures/rules/no-on-activated-after-await/valid/former-invalid-placeholder.vue",
+  ),
+  (
+    "vue-vet/correctness/no-on-before-mount-after-await",
+    "fixtures/rules/no-on-before-mount-after-await/valid/former-invalid-placeholder.vue",
+  ),
+  (
+    "vue-vet/correctness/no-on-before-unmount-after-await",
+    "fixtures/rules/no-on-before-unmount-after-await/valid/former-invalid-placeholder.vue",
+  ),
+  (
+    "vue-vet/correctness/no-on-before-update-after-await",
+    "fixtures/rules/no-on-before-update-after-await/valid/former-invalid-placeholder.vue",
+  ),
+  (
+    "vue-vet/correctness/no-on-deactivated-after-await",
+    "fixtures/rules/no-on-deactivated-after-await/valid/former-invalid-placeholder.vue",
+  ),
+  (
+    "vue-vet/correctness/no-on-error-captured-after-await",
+    "fixtures/rules/no-on-error-captured-after-await/valid/former-invalid-placeholder.vue",
+  ),
+  (
+    "vue-vet/correctness/no-on-mounted-after-await",
+    "fixtures/rules/no-on-mounted-after-await/valid/former-invalid-basic.vue",
+  ),
+  (
+    "vue-vet/correctness/no-on-render-tracked-after-await",
+    "fixtures/rules/no-on-render-tracked-after-await/valid/former-invalid-placeholder.vue",
+  ),
+  (
+    "vue-vet/correctness/no-on-render-triggered-after-await",
+    "fixtures/rules/no-on-render-triggered-after-await/valid/former-invalid-placeholder.vue",
+  ),
+  (
+    "vue-vet/correctness/no-on-server-prefetch-after-await",
+    "fixtures/rules/no-on-server-prefetch-after-await/valid/former-invalid-placeholder.vue",
+  ),
+  (
+    "vue-vet/correctness/no-on-unmounted-after-await",
+    "fixtures/rules/no-on-unmounted-after-await/valid/former-invalid-placeholder.vue",
+  ),
+  (
+    "vue-vet/correctness/no-on-updated-after-await",
+    "fixtures/rules/no-on-updated-after-await/valid/former-invalid-placeholder.vue",
+  ),
+  (
+    "vue-vet/correctness/no-provide-after-await",
+    "fixtures/rules/no-provide-after-await/valid/former-invalid-placeholder.vue",
+  ),
+  (
+    "vue-vet/correctness/no-use-attrs-after-await",
+    "fixtures/rules/no-use-attrs-after-await/valid/former-invalid-basic.vue",
+  ),
+  (
+    "vue-vet/correctness/no-use-css-module-after-await",
+    "fixtures/rules/no-use-css-module-after-await/valid/former-invalid-basic.vue",
+  ),
+  (
+    "vue-vet/correctness/no-use-css-vars-after-await",
+    "fixtures/rules/no-use-css-vars-after-await/valid/former-invalid-basic.vue",
+  ),
+  (
+    "vue-vet/correctness/no-use-slots-after-await",
+    "fixtures/rules/no-use-slots-after-await/valid/former-invalid-basic.vue",
+  ),
+  (
+    "vue-vet/correctness/no-watch-after-await",
+    "fixtures/rules/no-watch-after-await/valid/former-invalid-placeholder.vue",
+  ),
+  (
+    "vue-vet/correctness/no-watch-effect-after-await",
+    "fixtures/rules/no-watch-effect-after-await/valid/former-invalid-placeholder.vue",
+  ),
+  (
+    "vue-vet/correctness/no-watch-post-effect-after-await",
+    "fixtures/rules/no-watch-post-effect-after-await/valid/former-invalid-placeholder.vue",
+  ),
+  (
+    "vue-vet/correctness/no-watch-sync-effect-after-await",
+    "fixtures/rules/no-watch-sync-effect-after-await/valid/former-invalid-placeholder.vue",
+  ),
+  (
+    "vue-vet/correctness/no-with-defaults-after-await",
+    "fixtures/rules/no-with-defaults-after-await/valid/former-invalid-basic.vue",
+  ),
+  (
+    "vue-vet/reactivity/prefer-explicit-sources-for-conditional-deps",
+    "fixtures/rules/prefer-explicit-sources-for-conditional-deps/valid/former-invalid-basic.vue",
+  ),
+];
+
+#[test]
+#[expect(clippy::panic, reason = "missing withdrawn fixtures must fail the golden test")]
+fn withdrawn_rule_former_invalid_vue_fixtures_keep_id_quiet() {
+  let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+  let mut ids = std::collections::BTreeSet::new();
+  for (rule_id, relative) in WITHDRAWN_FORMER_INVALID_VUE {
+    ids.insert(*rule_id);
+    let source = std::fs::read_to_string(root.join(relative))
+      .unwrap_or_else(|error| panic!("read {relative}: {error}"));
+    let diagnostics = match analyze_sfc(Path::new(relative), &source) {
+      Ok(diagnostics) => diagnostics,
+      Err(error) => panic!("analyze {relative}: {error}"),
+    };
+    assert!(
+      diagnostics.iter().all(|diagnostic| diagnostic.rule_id != *rule_id),
+      "{relative} must not emit {rule_id}; got {diagnostics:?}"
+    );
+  }
+  assert_eq!(
+    ids.len(),
+    37,
+    "withdrawn former-invalid table must cover every retired id, got {ids:?}"
+  );
+  assert_eq!(WITHDRAWN_FORMER_INVALID_VUE.len(), 39);
+}
+
+#[test]
+fn self_trigger_and_prefer_watch_fixtures_match_exact_diagnostics() {
+  for (path, source, expected) in [
+    (
+      "fixtures/rules/prefer-watch-over-effect-for-single-source/invalid/single-source.vue",
+      include_str!(
+        "../../../fixtures/rules/prefer-watch-over-effect-for-single-source/invalid/single-source.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/prefer-watch-over-effect-for-single-source/single-source.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-computed-self-trigger/invalid/self-write.vue",
+      include_str!("../../../fixtures/rules/no-computed-self-trigger/invalid/self-write.vue"),
+      include_str!("../../../fixtures/snapshots/no-computed-self-trigger/self-write.json"),
+    ),
+  ] {
+    assert_diagnostics(path, source, expected);
+  }
+  let empty = "[]";
+  for (path, source) in [
+    (
+      "fixtures/rules/no-self-trigger-in-watch-effect/valid/self-assign.vue",
+      include_str!("../../../fixtures/rules/no-self-trigger-in-watch-effect/valid/self-assign.vue"),
+    ),
+    (
+      "fixtures/rules/no-self-trigger-in-watch-post-effect/valid/self-assign.vue",
+      include_str!(
+        "../../../fixtures/rules/no-self-trigger-in-watch-post-effect/valid/self-assign.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-self-trigger-in-watch-sync-effect/valid/self-assign.vue",
+      include_str!(
+        "../../../fixtures/rules/no-self-trigger-in-watch-sync-effect/valid/self-assign.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/prefer-watch-over-effect-for-single-source/valid/self-write.vue",
+      include_str!(
+        "../../../fixtures/rules/prefer-watch-over-effect-for-single-source/valid/self-write.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/prefer-watch-over-effect-for-single-source/valid/alias-self-write.vue",
+      include_str!(
+        "../../../fixtures/rules/prefer-watch-over-effect-for-single-source/valid/alias-self-write.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/prefer-watch-over-effect-for-single-source/valid/incomplete-external.vue",
+      include_str!(
+        "../../../fixtures/rules/prefer-watch-over-effect-for-single-source/valid/incomplete-external.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/prefer-watch-over-effect-for-single-source/valid/dual-script-alias.vue",
+      include_str!(
+        "../../../fixtures/rules/prefer-watch-over-effect-for-single-source/valid/dual-script-alias.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/prefer-computed/valid/compound-from-other.vue",
+      include_str!("../../../fixtures/rules/prefer-computed/valid/compound-from-other.vue"),
     ),
   ] {
     assert_diagnostics(path, source, empty);

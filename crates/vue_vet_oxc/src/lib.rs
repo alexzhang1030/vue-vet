@@ -14,9 +14,8 @@ use oxc_span::SourceType;
 use thiserror::Error;
 use vue_vet_core::{ScriptBlockFacts, ScriptKind, TemplateFacts};
 use vue_vet_plugins::default_trace_config;
-use vue_vet_reactivity::{
-  ModuleSummary, prepare_module_summary_with_config, trace_reactivity_with_config,
-};
+use vue_vet_reactivity::ModuleSummary;
+use vue_vet_reactivity::oxc::{prepare_module_summary_with_config, trace_reactivity_with_config};
 
 mod facts;
 mod jsx;

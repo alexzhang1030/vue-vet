@@ -22,7 +22,44 @@ use vue_vet_project::{CONVENTIONS_VERSION, OXC_RESOLVER_VERSION, ProjectGraph};
 pub const CACHE_FORMAT_VERSION: u32 = 5;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// Bump when built-in rule set or seed-aware analysis behavior changes.
-pub const RULESET_VERSION: u32 = 3;
+///
+/// v6: watch*Effect self-assign is not a loop (Vue 3.5 coalesces one run);
+/// prefer-watch suppresses self-write sources; computed self-write is impure.
+/// v5: conditional-dep premise withdrawn; after-await registrars deprecated
+/// except defineExpose; absence rules require complete follow coverage.
+pub const RULESET_VERSION: u32 = 6;
+
+/// Workspace pin for `vize_croquis` / `vize_atelier_core`.
+///
+/// Must match `fixtures/quality/compat-matrix.json` and Cargo.toml / Cargo.lock
+/// (`just compat-matrix`). Hashed into [`content_key`] via
+/// [`AnalysisStackIdentity::current`].
+pub const CACHE_VIZE_CROQUIS_VERSION: &str = "0.387.0";
+/// Workspace pin for `oxc_parser` / `oxc_semantic`.
+///
+/// Must match the compat matrix and Cargo.toml / Cargo.lock
+/// (`just compat-matrix`).
+pub const CACHE_OXC_PARSER_VERSION: &str = "0.142.0";
+
+/// Analysis-stack fields hashed into [`content_key`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AnalysisStackIdentity {
+  pub vize_croquis: &'static str,
+  pub oxc_parser: &'static str,
+  pub oxc_resolver: &'static str,
+}
+
+impl AnalysisStackIdentity {
+  /// Constants actually passed to [`content_key`].
+  #[must_use]
+  pub const fn current() -> Self {
+    Self {
+      vize_croquis: CACHE_VIZE_CROQUIS_VERSION,
+      oxc_parser: CACHE_OXC_PARSER_VERSION,
+      oxc_resolver: OXC_RESOLVER_VERSION,
+    }
+  }
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CachePayload {
@@ -118,14 +155,23 @@ pub fn default_cache_dir() -> PathBuf {
 
 #[must_use]
 pub fn content_key<T: AsRef<[u8]>>(files: &[(String, T)], config: &[u8]) -> String {
+  content_key_with_identity(files, config, AnalysisStackIdentity::current())
+}
+
+#[must_use]
+pub fn content_key_with_identity<T: AsRef<[u8]>>(
+  files: &[(String, T)],
+  config: &[u8],
+  identity: AnalysisStackIdentity,
+) -> String {
   let mut ordered = files.iter().collect::<Vec<_>>();
   ordered.sort_by(|left, right| left.0.cmp(&right.0));
   let mut hasher = Sha256::new();
   hash_field(&mut hasher, b"cache-format", &CACHE_FORMAT_VERSION.to_le_bytes());
   hash_field(&mut hasher, b"tool-version", env!("CARGO_PKG_VERSION").as_bytes());
-  hash_field(&mut hasher, b"vize-version", b"0.291.0");
-  hash_field(&mut hasher, b"oxc-version", b"0.127.0");
-  hash_field(&mut hasher, b"oxc-resolver-version", OXC_RESOLVER_VERSION.as_bytes());
+  hash_field(&mut hasher, b"vize-version", identity.vize_croquis.as_bytes());
+  hash_field(&mut hasher, b"oxc-version", identity.oxc_parser.as_bytes());
+  hash_field(&mut hasher, b"oxc-resolver-version", identity.oxc_resolver.as_bytes());
   hash_field(&mut hasher, b"conventions-version", &CONVENTIONS_VERSION.to_le_bytes());
   hash_field(&mut hasher, b"ruleset-version", &RULESET_VERSION.to_le_bytes());
   hash_field(&mut hasher, b"reactivity-graph-version", &REACTIVITY_GRAPH_VERSION.to_le_bytes());
@@ -355,6 +401,28 @@ mod tests {
     let second = vec![("a.vue".into(), b"a".to_vec()), ("b.vue".into(), b"b".to_vec())];
     assert_eq!(content_key(&first, b"config"), content_key(&second, b"config"));
     assert_ne!(content_key(&first, b"config"), content_key(&second, b"changed"));
+  }
+
+  #[test]
+  fn content_key_changes_when_analysis_stack_identity_changes() {
+    let files = vec![("a.vue".into(), b"a".as_slice())];
+    let config = b"cfg";
+    let current = AnalysisStackIdentity::current();
+    assert_eq!(current.vize_croquis, CACHE_VIZE_CROQUIS_VERSION);
+    assert_eq!(current.oxc_parser, CACHE_OXC_PARSER_VERSION);
+    assert_eq!(current.oxc_resolver, OXC_RESOLVER_VERSION);
+    let base = content_key(&files, config);
+    assert_eq!(base, content_key_with_identity(&files, config, current));
+    let mut vize = current;
+    vize.vize_croquis = "0.0.0-test";
+    let mut oxc = current;
+    oxc.oxc_parser = "0.0.0-test";
+    assert_ne!(base, content_key_with_identity(&files, config, vize));
+    assert_ne!(base, content_key_with_identity(&files, config, oxc));
+    assert_ne!(
+      content_key_with_identity(&files, config, vize),
+      content_key_with_identity(&files, config, oxc)
+    );
   }
 
   #[test]

@@ -49,3 +49,6 @@ Read the computed in script/template, or delete it.
 - Invalid: `fixtures/rules/no-unused-computed-binding/invalid/`
 - Valid: `fixtures/rules/no-unused-computed-binding/valid/`
   (`safe.vue`; `style-v-bind.vue` computed used only from CSS `v-bind`)
+
+Exported computed APIs (`export const doubled = computed(...)`) are not unused
+locals. Same-name inner bindings are matched by declaration span.

@@ -37,13 +37,25 @@ whose body is **assignment-only**, with:
 Same-file zero-arg helpers that are themselves assignment-only count as
 assignment-only (`watchEffect(() => { assign() })` where `assign` only writes
 refs). A local function passed by reference (`watchEffect(assign)`) is the same
-assignment-only body. Compound assignment (`total.value += n.value`) and
-update (`n.value++`) count as assignment-only writes, same as `=`.
-Side-effecting bodies (logs, DOM, network, multi-statement
-control flow) stay quiet. Helpers called only from `then()` / `nextTick`, or
-async / args helpers, stay quiet. Imported or method callbacks stay quiet.
+assignment-only body. `target.value = count.value` (distinct source and
+destination) is a true positive.
+
+The rule stays quiet when a tracked read and a write resolve to the same
+reactive source after alias resolution (`const alias = count`, including
+ordinary `<script>` / `<script setup>` same-name isolation). Compound
+`total.value += n.value` overlaps `total` and is not a pure derivation.
+Follow coverage must be complete (`unknown_calls` / `uncertain_accesses` /
+`follow_truncated` empty); `target.value = external(count.value)` abstains.
+Side-effecting bodies (logs, DOM, network, multi-statement control flow) stay
+quiet. Helpers called only from `then()` / `nextTick`, or async / args
+helpers, stay quiet. Imported or method callbacks stay quiet.
 
 ## Remediation
 
 Replace the effect with `computed(() => …)` and read the computed value where
 the derived ref was used.
+
+## Fixtures
+
+- Invalid: `fixtures/rules/prefer-computed/invalid/`
+- Valid: `fixtures/rules/prefer-computed/valid/` (includes `compound-from-other.vue`)

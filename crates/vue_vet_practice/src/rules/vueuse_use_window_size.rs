@@ -117,12 +117,14 @@ mod tests {
       name: "width".into(),
       kind: ReactiveBindingKind::Ref,
       initialized_with_null: false,
+      alias_of: None,
       span: span(0),
     });
     graph.bindings.push(ReactiveBindingFact {
       name: "height".into(),
       kind: ReactiveBindingKind::Ref,
       initialized_with_null: false,
+      alias_of: None,
       span: span(0),
     });
     graph

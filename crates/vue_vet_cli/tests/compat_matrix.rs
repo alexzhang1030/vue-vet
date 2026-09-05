@@ -3,6 +3,7 @@
 use std::{collections::BTreeMap, fs, path::PathBuf};
 
 use serde::Deserialize;
+use vue_vet_cache::{AnalysisStackIdentity, CACHE_OXC_PARSER_VERSION, CACHE_VIZE_CROQUIS_VERSION};
 
 #[derive(Debug, Deserialize)]
 struct CompatMatrix {
@@ -143,6 +144,7 @@ fn package_json_vue_range(project: &str) -> String {
 }
 
 #[test]
+#[expect(clippy::panic, reason = "compat gate fails closed when a required pin is missing")]
 fn compat_matrix_matches_toolchain_workspace_and_lockfile() {
   let matrix = load_matrix();
   assert_eq!(matrix.schema_version, 1);
@@ -163,4 +165,27 @@ fn compat_matrix_matches_toolchain_workspace_and_lockfile() {
   for (project, expected) in &matrix.vue_fixture_ranges {
     assert_eq!(package_json_vue_range(project), *expected, "Vue fixture range drift for {project}");
   }
+
+  let identity = AnalysisStackIdentity::current();
+  assert_eq!(identity.vize_croquis, CACHE_VIZE_CROQUIS_VERSION);
+  assert_eq!(identity.oxc_parser, CACHE_OXC_PARSER_VERSION);
+  let Some(matrix_vize) = matrix.workspace_pins.get("vize_croquis") else {
+    panic!("compat-matrix missing vize_croquis");
+  };
+  let Some(matrix_oxc) = matrix.workspace_pins.get("oxc_parser") else {
+    panic!("compat-matrix missing oxc_parser");
+  };
+  assert_eq!(
+    identity.vize_croquis, matrix_vize,
+    "content_key vize identity must match compat-matrix pin"
+  );
+  assert_eq!(
+    identity.oxc_parser, matrix_oxc,
+    "content_key oxc identity must match compat-matrix pin"
+  );
+  assert_eq!(identity.vize_croquis, workspace_pin("vize_croquis"));
+  assert_eq!(identity.oxc_parser, workspace_pin("oxc_parser"));
+  assert_eq!(identity.vize_croquis, lockfile_version("vize_croquis"));
+  assert_eq!(identity.oxc_parser, lockfile_version("oxc_parser"));
+  assert_eq!(identity.oxc_resolver, lockfile_version("oxc_resolver"));
 }

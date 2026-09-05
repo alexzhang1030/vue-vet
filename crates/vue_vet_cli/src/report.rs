@@ -113,6 +113,8 @@ pub fn reactivity_module_stats(modules: &[Arc<ModuleReactivity>]) -> Vec<Reactiv
             ReactivitySpanRef::new(scope.span.offset, scope.span.length.max(1)),
             uncertain,
           );
+          detail.unknown_calls.clone_from(&scope.unknown_calls);
+          detail.follow_truncated = scope.follow_truncated;
           detail.summary = Some(explain_tracking_scope(module.id.as_str(), scope).summary);
           detail
         })

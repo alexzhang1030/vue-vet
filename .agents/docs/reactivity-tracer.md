@@ -15,6 +15,9 @@ Related: [architecture](./architecture.md), [gotchas](./gotchas.md),
 - Approximate Vue's **synchronous tracking semantics** with static facts.
   Do not execute components, effects, or Proxies for product analysis.
 - Prefer **under-approximation + quiet failure** over inventing edges.
+  Tracking scopes record `unknown_calls` / `follow_truncated` /
+  `uncertain_accesses`. Absence rules and Explain `analysis_complete` require
+  those to be empty before claiming Vue will not re-run.
 - Keep Vue Vet-owned serializable contracts independent of Oxc and Vize types.
 - Grow the graph so multiple consumers can share it: rules, project graph,
   cache, future LSP/codemod surfaces.
@@ -50,8 +53,9 @@ Related: [architecture](./architecture.md), [gotchas](./gotchas.md),
 Completeness is coverage of **in-scope** Vue synchronous tracking semantics for
 the product charter — not whole-program JavaScript soundness. An axis is
 `complete` when its checklist below is green under under-approx + oracle gates.
-Long-tail APIs and alias analysis stay **out of scope** and do not block
-complete.
+Long-tail APIs and general alias analysis stay **out of scope** and do not
+block complete. Bare `const alias = known` is recorded on the existing
+`ReactiveBindingFact.alias_of` field (not a parallel alias IR).
 
 | Axis | Question the lib must answer |
 | --- | --- |
@@ -62,12 +66,38 @@ complete.
 | A4 Conditions | Under which control conditions is a read demandable? |
 | A5 Boundaries | Where does synchronous tracking end (await, nested callback, …)? |
 | A6 Modules | How do composables and exports seed consumer bindings? |
-| A7 Contract | Is the graph versioned, deterministic, and multi-consumer stable? |
+| A7 Contract | Is the graph versioned, deterministic, and multi-consumer stable? (v36 `alias_of` on existing binding facts) |
 
 ## Current baseline
 
-Contract version: **`REACTIVITY_GRAPH_VERSION = 34`**.
+Contract version: **`REACTIVITY_GRAPH_VERSION = 36`**. Rule-set identity
+hashed into the scan cache is **`RULESET_VERSION = 6`**.
 
+v36 records **`ReactiveBindingFact.alias_of`** for bare `const alias = known`
+so rules can treat an alias write as the same reactive source
+(`same_reactive_target`, scoped by script `block_kind`). Vue 3.5.40
+`watch*Effect` coalesces a sync self-assign (`count.value = count.value + 1`
+/ `++` / helper) into **one** initial run — those IDs stay quiet (not a
+loop). Computed self-write is impurity: the getter **can invalidate its
+cached value**; it is not a proven infinite loop. `prefer-watch` stays quiet
+on self-write (including alias) and abstains when follow coverage is
+incomplete. Runtime run counts: `just oracle-self-trigger` (not `just
+oracle` onTrack JSON). Prior:
+v35 records **`unknown_calls` / `follow_truncated`** on tracking scopes so
+Explain and absence rules can refuse a proven-empty claim. Unfollowed
+identifier/member callees (imports, argumented helpers, lookalike
+`api.map` even with an inline callback, shadowed `Array.from` /
+`JSON.parse`) become `unknown_calls`. Hitting the helper-follow depth cap
+or a recursive callee sets `follow_truncated`. Proven builtin HOFs stay
+covered: array/string literals, and global `Array.from` / `JSON.parse`
+whose Oxc symbol is unresolved (not a local binding). Inline HOF
+callback **reads** still collect; the unproven receiver stays unknown.
+`analysis_complete` is false when `unknown_calls` is non-empty,
+`follow_truncated` is true, or `uncertain_accesses` is non-empty —
+Explain must not say Vue will not re-run. Absence rules
+(`no-computed-without-dependency`, empty watch sources, write-without-read)
+require that complete coverage. Constant `computed(() => 42)` remains a
+true positive. Prior:
 v34 records **writes inside sync Array/String HOF callbacks and
 `toValue(() => …)` getters**, dual-path with those nested reads.
 `then` / `nextTick` / `setTimeout`, wrong-index first-arg functions, and
@@ -132,12 +162,12 @@ See [vue_vet_plugins README](../../crates/vue_vet_plugins/README.md) and
 | Axis | Status | Covered (in-scope) | Remaining |
 | --- | --- | --- | --- |
 | A1 Bindings | complete | Vue primitives, aliases, `#imports`, bare Nuxt/auto-import allowlist, `defineModel`, **Vue Macros `defineModels` destructure → ModelRef locals**, `defineProps` (whole object **and Vue 3.5+ object-destructure locals → Reactive**), `withDefaults(defineProps())` same, `storeToRefs`, `useRoute`/`useRouter`, `unref`/`toValue`, module seeds, **factory call returns** (`Factory(Ref|Reactive)` from body / `.d.ts`), **`.d.ts` object-bag returns** (`{ field: Ref }` / same-file interface·type alias → destructure seeds), **typed `Ref`/`ComputedRef` parameters & declarators** (scope classification; nested locals span-resolved), **`useI18n` ambient + synthetic composer when only translators destructured** | whole-object `const models = defineModels()` without destructure stays quiet; pre-3.5 props destructure still flagged by `no-nonreactive-props-destructure` |
-| A2 Scopes | complete | effects, computed getter/`{ get, set }`, **identifier getters** (`computed(load)` / `watchEffect(load)` / `watch(load)` / `{ get: load }` / **`render: renderFn`** / **`setup() { return renderFn }`**), watch sources + callback outside, effectScope `.run` + provenance, dispose, **Render** (options `render` / `setup`→render / functional export / same-file `defineComponent` factory+alias+one-hop forwarder); **bounded same-file zero-arg helper follow** into scope reads, **`uncertain_accesses`**, **writes**, and **`assignment_only`** | cross-file / async / args / method callees stay quiet |
+| A2 Scopes | complete | effects, computed getter/`{ get, set }`, **identifier getters** (`computed(load)` / `watchEffect(load)` / `watch(load)` / `{ get: load }` / **`render: renderFn`** / **`setup() { return renderFn }`**), watch sources + callback outside, effectScope `.run` + provenance, dispose, **Render** (options `render` / `setup`→render / functional export / same-file `defineComponent` factory+alias+one-hop forwarder); **bounded same-file zero-arg helper follow** into scope reads, **`uncertain_accesses`**, **writes**, **`assignment_only`**, **`unknown_calls` / `follow_truncated`** | cross-file / async / args / unproven method callees are `unknown_calls`; absence rules abstain |
 | A3 Reads | complete | `.value` / members / bag.field / sync Array·String·`Array.from`·`JSON.parse` HOF / watch ref `.value` / `unref`·`toValue` / bare `watch(reactive)` deep root `*` / **peeled watch sources** (`watch((ref))` / `watch(ref as T)`) / **reads inside followed local helpers** / **uncertain accesses inside followed local helpers** / **writes / assignment-only inside followed local helpers** / **`+=` / `++` writes** / **`bag.field.value` instance writes** / **HOF / `toValue` getter writes** / **`useI18n` translator ambient deps** | — |
 | A4 Conditions | complete | if / early-exit / ternary / short-circuit / switch roles; **all-path same `(binding, property)` on both ternary/if-else arms → no BranchTest** (under-approx hygiene: do not invent Conditional); **followed helper reads inherit caller guards** (`cond ? load() : 0`); pure checks in `trace/branch_hygiene.rs` | further control-flow depth is out of charter |
 | A5 Boundaries | complete | after-await; pause/enable/resetTracking windows; **pause inside followed helpers + leak past the call**; nested `then`/`nextTick` outside; watch callback outside | — |
 | A6 Modules | complete | composable bags + Factory + ValueBag + ComponentFactory + ExternalImport + `#nuxt-imports` seeds; **policy algebra** (below); **`return local = call()` → ForwardReturn**; bare auto-import callee resolve; pending empty-path composable fields | whole-object `v-bind` quiet; `#imports` virtual without body quiet |
-| A7 Contract | complete | **v34** HOF / `toValue` getter writes; v33 composable-instance writes; v32 render identifier getters; v31 watch-source peel; v30 pause-in-helper; v29 compound/update writes; v28 caller guards on followed reads; v27 identifier getters; v26 helper-follow writes / `assignment_only`; v25 helper-follow `uncertain_accesses`; v24 useI18n translator ambient; v23 local zero-arg helper follow; v22…v7 as before; deterministic sort | — |
+| A7 Contract | complete | **v36** `ReactiveBindingFact.alias_of` for `const alias = known`; v35 `unknown_calls` / `follow_truncated` + Explain `analysis_complete` (also false on `uncertain_accesses`); v34 HOF / `toValue` getter writes; v33 composable-instance writes; v32 render identifier getters; v31 watch-source peel; v30 pause-in-helper; v29 compound/update writes; v28 caller guards on followed reads; v27 identifier getters; v26 helper-follow writes / `assignment_only`; v25 helper-follow `uncertain_accesses`; v24 useI18n translator ambient; v23 local zero-arg helper follow; v22…v7 as before; deterministic sort | — |
 | Evidence | complete | Runtime oracle (≥99% recall on committed cases); deep-watch `*`; exhaustive local reads; key SFC E2E | — (prop flow is static unit/project; not an `onTrack` pair) |
 
 ### ExportState policy algebra (A6 linking)

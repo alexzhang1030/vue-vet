@@ -235,6 +235,7 @@ pub fn resolve_inject_links(
         name: inject.local.clone(),
         kind,
         initialized_with_null: false,
+        alias_of: None,
         span: source_span(sfc_source, script_offset, inject.span),
       });
     }

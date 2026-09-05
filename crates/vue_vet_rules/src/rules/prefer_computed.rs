@@ -2,6 +2,7 @@ use vue_vet_core::{
   Confidence, FactKinds, FactRef, ReactiveReadKind, Rule, RuleContext, RuleMeta, Severity,
   TrackingScopeKind,
 };
+use vue_vet_rule_query::{same_reactive_target, script_block};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/prefer-computed",
@@ -25,7 +26,7 @@ impl Rule for PreferComputed {
   }
 
   fn run_on(&self, fact: FactRef<'_>, context: &mut RuleContext<'_>) {
-    let FactRef::TrackingScope { scope, .. } = fact else {
+    let FactRef::TrackingScope { scope, block_kind } = fact else {
       return;
     };
     if !matches!(
@@ -39,8 +40,22 @@ impl Rule for PreferComputed {
     if !scope.assignment_only || scope.writes.is_empty() {
       return;
     }
+    if !scope_coverage_complete(scope) {
+      return;
+    }
     if scope.reads.is_empty()
       || !scope.reads.iter().all(|read| read.kind == ReactiveReadKind::Unconditional)
+    {
+      return;
+    }
+    let Some(block) = script_block(context.script(), block_kind) else {
+      return;
+    };
+    let bindings = &block.reactivity_graph.bindings;
+    if scope
+      .reads
+      .iter()
+      .any(|read| scope.writes.iter().any(|write| same_reactive_target(bindings, read, write)))
     {
       return;
     }
@@ -65,4 +80,8 @@ impl Rule for PreferComputed {
       ),
     );
   }
+}
+
+const fn scope_coverage_complete(scope: &vue_vet_core::TrackingScopeFact) -> bool {
+  scope.unknown_calls.is_empty() && scope.uncertain_accesses.is_empty() && !scope.follow_truncated
 }

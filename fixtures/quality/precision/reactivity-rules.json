@@ -16,14 +16,14 @@
     {
       "rule_id": "vue-vet/reactivity/no-conditional-watch-effect-dependency",
       "file": "ConditionalWatch.vue",
-      "classification": "true_positive",
-      "rationale": "result.value is read only after an early-return guard in watchEffect"
+      "classification": "false_positive",
+      "rationale": "Dynamic deps behind a reactive guard are valid Vue tracking; rule is withdrawn"
     },
     {
       "rule_id": "vue-vet/reactivity/prefer-explicit-sources-for-conditional-deps",
       "file": "ConditionalWatch.vue",
-      "classification": "true_positive",
-      "rationale": "Same guarded watchEffect; recommend explicit watch sources"
+      "classification": "false_positive",
+      "rationale": "Dynamic deps behind a reactive guard are valid Vue tracking; rule is withdrawn"
     },
     {
       "rule_id": "vue-vet/reactivity/no-unused-reactive-binding",

@@ -15,7 +15,9 @@ use super::{
   bindings::AmbientCallHandles,
   context::{ScopeNodeIndex, is_sync_hof_callback_param},
   expr,
-  follow::{FileTraceIndex, FollowOutside, follow_local_callees},
+  follow::{
+    AnalysisGaps, FileTraceIndex, FollowOutside, collect_analysis_gaps, follow_local_callees,
+  },
   kinds::{reference_resolves_to_binding, resolved_vue_callee, source_span},
   reads::{ScopeIrIndex, classify_scope_reads, collect_scope_reads},
   writes::local_getter_parts,
@@ -185,6 +187,53 @@ pub(super) fn member_expression_root_identifier<'a>(
     },
     _ => None,
   }
+}
+
+/// Follow gaps for `watch` sources: same array / peel / local-getter paths as reads.
+pub(super) fn collect_watch_source_gaps(
+  semantic: &oxc_semantic::Semantic<'_>,
+  argument: &Argument<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  index: &FileTraceIndex,
+) -> AnalysisGaps {
+  let Some(expression) = argument.as_expression() else {
+    return AnalysisGaps::default();
+  };
+  let expression = expr::peel_parens(expression);
+  if let Expression::ArrayExpression(array) = expression {
+    let mut gaps = AnalysisGaps::default();
+    for element in &array.elements {
+      if let Some(inner) = element.as_expression() {
+        gaps.merge(collect_watch_source_element_gaps(semantic, inner, imported_bindings, index));
+      }
+    }
+    return gaps;
+  }
+  collect_watch_source_element_gaps(semantic, expression, imported_bindings, index)
+}
+
+fn collect_watch_source_element_gaps(
+  semantic: &oxc_semantic::Semantic<'_>,
+  expression: &Expression<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  index: &FileTraceIndex,
+) -> AnalysisGaps {
+  let expression = expr::peel_parens(expression);
+  let scope_id = match expression {
+    Expression::ArrowFunctionExpression(callback) => Some(callback.node_id.get()),
+    Expression::FunctionExpression(callback) => Some(callback.node_id.get()),
+    other => local_getter_parts(semantic, other).map(|(scope_id, _)| scope_id),
+  };
+  if let Some(scope_id) = scope_id {
+    return collect_analysis_gaps(semantic, index, scope_id, imported_bindings);
+  }
+  if let Some(identifier) = expression.get_identifier_reference() {
+    let name = identifier.name.to_string();
+    if imported_bindings.contains_key(&name) {
+      return AnalysisGaps { unknown_calls: vec![name], truncated: false };
+    }
+  }
+  AnalysisGaps::default()
 }
 
 /// Soft evidence in `watch` sources: unclassified `.value` / bare unknown idents.

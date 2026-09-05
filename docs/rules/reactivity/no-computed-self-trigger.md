@@ -4,7 +4,9 @@ Category: reactivity
 Default severity: warning  
 Confidence: high
 
-`computed` that writes a dependency it reads can self-trigger.
+A `computed` getter that writes a dependency it also reads is impure. The write **can invalidate its cached value**, so a later read of the computed may re-run the getter instead of returning a stable cache. This is a purity / cache issue, not a proven infinite loop. A tautological write such as `count.value = count.value` is still impure; do not treat it as necessarily cache-unstable on every access.
+
+`no-side-effects-in-computed` still reports the write as a side effect. Keep both.
 
 ## Bad
 
@@ -35,7 +37,7 @@ Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel re
 
 ## Remediation
 
-Keep computed getters pure.
+Keep computed getters pure; move the write to `watch` or an event handler.
 
 ## Fixtures
 

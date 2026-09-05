@@ -1300,3 +1300,161 @@ fn helper_pause_agrees_with_inline() {
   assert_eq!(inline, Some(ReactiveReadKind::OutsideTracking));
   assert_eq!(helper, inline, "computed/effect helper pause must agree with the inlined window");
 }
+
+#[test]
+#[expect(clippy::panic, reason = "missing computed scope must fail the unit test")]
+fn analysis_gaps_cover_unfollowed_calls_and_keep_constant_complete() {
+  struct Case {
+    label: &'static str,
+    source: &'static str,
+    incomplete: bool,
+    unknown_contains: &'static str,
+  }
+  let cases = [
+    Case {
+      label: "member call",
+      source: "import { ref, computed } from 'vue';\n\
+               const count = ref(1);\n\
+               const api = { read() { return count.value; } };\n\
+               const result = computed(() => api.read());",
+      incomplete: true,
+      unknown_contains: "api.read",
+    },
+    Case {
+      label: "hof identifier callback",
+      source: "import { computed } from 'vue';\n\
+               import { readCount } from './read-count';\n\
+               const result = computed(() => [1].map(readCount)[0]);",
+      incomplete: true,
+      unknown_contains: "readCount",
+    },
+    Case {
+      label: "hof lookalike method",
+      source: "import { ref, computed } from 'vue';\n\
+               const count = ref(1);\n\
+               const api = { map() { return count.value; } };\n\
+               const result = computed(() => api.map());",
+      incomplete: true,
+      unknown_contains: "api.map",
+    },
+    Case {
+      label: "toValue imported function",
+      source: "import { computed, toValue } from 'vue';\n\
+               import { readCount } from './read-count';\n\
+               const result = computed(() => toValue(readCount));",
+      incomplete: true,
+      unknown_contains: "readCount",
+    },
+    Case {
+      label: "constant getter is complete",
+      source: "import { computed } from 'vue';\n\
+               const result = computed(() => 42);",
+      incomplete: false,
+      unknown_contains: "",
+    },
+    Case {
+      label: "returned closure is complete",
+      source: "import { computed } from 'vue';\n\
+               import { readCount } from './read-count';\n\
+               const result = computed(() => () => readCount());",
+      incomplete: false,
+      unknown_contains: "",
+    },
+    Case {
+      label: "inline map callback imported call is a gap",
+      source: "import { computed } from 'vue';\n\
+               import { readCount } from './read-count';\n\
+               const result = computed(() => [1].map(() => readCount())[0]);",
+      incomplete: true,
+      unknown_contains: "readCount",
+    },
+    Case {
+      label: "lookalike map with inline constant callback",
+      source: "import { ref, computed } from 'vue';\n\
+               const count = ref(1);\n\
+               const api = { map(cb: () => number) { return count.value + cb(); } };\n\
+               const result = computed(() => api.map(() => 42));",
+      incomplete: true,
+      unknown_contains: "api.map",
+    },
+    Case {
+      label: "array literal map with constant callback is complete",
+      source: "import { computed } from 'vue';\n\
+               const result = computed(() => [1].map(() => 42)[0]);",
+      incomplete: false,
+      unknown_contains: "",
+    },
+    Case {
+      label: "string literal replace with constant replacer is complete",
+      source: "import { computed } from 'vue';\n\
+               const result = computed(() => 'ab'.replace(/./g, () => 'x'));",
+      incomplete: false,
+      unknown_contains: "",
+    },
+    Case {
+      label: "global Array.from with constant mapFn is complete",
+      source: "import { computed } from 'vue';\n\
+               const result = computed(() => Array.from([1], () => 42)[0]);",
+      incomplete: false,
+      unknown_contains: "",
+    },
+    Case {
+      label: "global JSON.parse with constant reviver is complete",
+      source: "import { computed } from 'vue';\n\
+               const result = computed(() => JSON.parse('1', () => 42));",
+      incomplete: false,
+      unknown_contains: "",
+    },
+    Case {
+      label: "shadowed Array.from is not modeled",
+      source: "import { computed } from 'vue';\n\
+               const Array = { from(_items: number[], _map?: () => number) { return [1]; } };\n\
+               const result = computed(() => Array.from([1], () => 42)[0]);",
+      incomplete: true,
+      unknown_contains: "Array.from",
+    },
+  ];
+  for case in cases {
+    let graph = graph(case.source);
+    let scope = helper_follow_scope(&graph, TrackingScopeKind::Computed)
+      .unwrap_or_else(|| panic!("{}: missing computed scope", case.label));
+    let incomplete = !scope.unknown_calls.is_empty() || scope.follow_truncated;
+    assert_eq!(incomplete, case.incomplete, "{}: gaps={:?}", case.label, scope.unknown_calls);
+    if !case.unknown_contains.is_empty() {
+      assert!(
+        scope.unknown_calls.iter().any(|name| name.contains(case.unknown_contains)),
+        "{}: expected {} in {:?}",
+        case.label,
+        case.unknown_contains,
+        scope.unknown_calls
+      );
+    }
+  }
+}
+
+#[test]
+#[expect(clippy::panic, reason = "missing computed scope must fail the unit test")]
+fn lookalike_hof_keeps_inline_callback_reads() {
+  let graph = graph(
+    "import { ref, computed } from 'vue';\n\
+     const count = ref(1);\n\
+     const api = { map(cb: () => number) { return cb(); } };\n\
+     const result = computed(() => api.map(() => count.value));\n\
+     void result.value;",
+  );
+  let scope = helper_follow_scope(&graph, TrackingScopeKind::Computed)
+    .unwrap_or_else(|| panic!("missing computed scope"));
+  assert!(
+    scope.unknown_calls.iter().any(|name| name.contains("api.map")),
+    "lookalike map must stay unknown: {:?}",
+    scope.unknown_calls
+  );
+  assert!(
+    scope
+      .reads
+      .iter()
+      .any(|read| { read.binding == "count" && read.property.as_deref() == Some("value") }),
+    "inline callback reads must still be collected: {:?}",
+    scope.reads
+  );
+}
