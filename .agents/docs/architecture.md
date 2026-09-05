@@ -113,7 +113,8 @@ vue-vet CLI
   path and expand prop children from a file-path index. ProjectFile order
   caches `normalized_path` once per file (`sort_by_cached_key`). Default CLI
   reports use count-only reactivity stats; `--print-reactivity` attaches
-  `modules_detail`.
+  `modules_detail`. JSON diagnostics and edits borrow their normalized `FileId`
+  paths; opaque finding IDs use that same path and preserve the wire contract.
 - **Atomic session publication** — the workspace revision, retained input
   snapshot, and committed analysis state share one `SessionCore` synchronization
   domain. Analysis captures `Arc` snapshots under the lock, computes outside it,

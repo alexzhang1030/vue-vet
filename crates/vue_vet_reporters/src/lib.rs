@@ -131,7 +131,9 @@ pub fn render(
 #[cfg(test)]
 mod tests {
   use serde_json::Value;
-  use vue_vet_core::{Confidence, Diagnostic, FileId, Severity, SourceSpan};
+  use vue_vet_core::{
+    ByteRange, Confidence, Diagnostic, EditApplicability, FileId, Severity, SourceSpan, TextEdit,
+  };
 
   use super::*;
 
@@ -224,6 +226,48 @@ mod tests {
         .and_then(Value::as_str),
       Some("src/App.vue"),
       "JSON paths must use the discovery-normalized FileId"
+    );
+  }
+
+  #[test]
+  fn json_edits_keep_an_independent_file_path() {
+    let mut summary = fixture_summary();
+    if let Some(diagnostic) = summary.diagnostics.first_mut() {
+      diagnostic.file = FileId::from(r"src\App.vue");
+      diagnostic.edits = vec![TextEdit {
+        file: FileId::from(r"src\Other.vue"),
+        range: ByteRange { offset: 0, length: 1 },
+        replacement: "ok".into(),
+        applicability: EditApplicability::Safe,
+        rule_id: diagnostic.rule_id.clone(),
+      }];
+    }
+    let context = ReportContext {
+      analyzed_files: vec!["src/App.vue".into(), "src/Other.vue".into()],
+      ..ReportContext::default()
+    };
+    let rendered = render(&summary, ReportFormat::Json, &context);
+    let parsed =
+      rendered.as_ref().ok().and_then(|output| serde_json::from_str::<Value>(output).ok());
+    let diagnostic = parsed
+      .as_ref()
+      .and_then(|report| report.get("diagnostics"))
+      .and_then(Value::as_array)
+      .and_then(|diagnostics| diagnostics.first());
+    assert_eq!(
+      diagnostic.and_then(|item| item.get("file")).and_then(Value::as_str),
+      Some("src/App.vue"),
+      "diagnostic file must stay on the finding path"
+    );
+    assert_eq!(
+      diagnostic
+        .and_then(|item| item.get("edits"))
+        .and_then(Value::as_array)
+        .and_then(|edits| edits.first())
+        .and_then(|edit| edit.get("file"))
+        .and_then(Value::as_str),
+      Some("src/Other.vue"),
+      "edit file must stay independent of the diagnostic path"
     );
   }
 

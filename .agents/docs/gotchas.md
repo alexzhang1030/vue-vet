@@ -171,6 +171,23 @@ closure next to an ~8 µs retain made CodSpeed bounce ±15% under "Different
 runtime environments" (#181 / #182 / main after #189). That name is not a
 scan-path signal. Do not reintroduce filesystem teardown there.
 
+## CodSpeed benchmark attributes use the pinned compatibility API
+
+`codspeed-divan-compat` 5.0.1 exposes `threads` only in its native wall-time
+runner. Under `cfg(codspeed)`, that attribute fails with missing `IntoThreads`
+and a missing `BenchOptions.threads` field. Use the default single-threaded
+benchmark runner and set analysis concurrency through
+`SessionOptions { threads: Some(1) }`. `whole_project` and `scan_modes` exercise
+this combination; validate additions with `just bench-codspeed-build` as well
+as `just bench` (PR #216).
+
+`cargo-codspeed` 5.0.1 also clears each selected package's staged suite directory
+on every build. Pass all of a package's `--bench` targets in one invocation;
+otherwise the later build replaces earlier suites and the report lists those
+benchmarks as skipped. `bench-codspeed-build` groups `scan_modes` and
+`whole_project` together. Verify all 20 current benchmarks produce results.
+Upstream evidence: [`build_benches` at v5.0.1](https://github.com/CodSpeedHQ/codspeed-rust/blob/v5.0.1/crates/cargo-codspeed/src/build.rs).
+
 ## The current score is provisional
 
 Scoring is deterministic but still a product experiment, not a stable health

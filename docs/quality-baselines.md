@@ -61,8 +61,8 @@ Child `label` prop and `{{ label }}`) must keep the measured baseline: 1000 file
 ≥1000 module graphs, `no-v-html` diagnostics, `ComponentUsage` edges; module-graph
 edges 250 Prop / 750 Computed / 500 Effect / 750 Template; scopes 500 computed /
 500 `watchEffect`; `template_reads` length 750. Generation and cache-directory
-teardown stay outside the timed closure. CodSpeed numbers are filled after the
-first instrumented run.
+teardown stay outside the timed closure. Each package's suites must be built in
+one CodSpeed invocation; see [the compatibility notes](../.agents/docs/gotchas.md#codspeed-benchmark-attributes-use-the-pinned-compatibility-api).
 
 Commands: `just bench`, `just bench-codspeed-build`, `just bench-codspeed-run`.
 
@@ -82,6 +82,79 @@ budget):
 | Cold/warm identity | `nuxt-graph` | Same diagnostic ids (enforced in tests) |
 
 Prefer CodSpeed deltas over these wall times when judging regressions.
+
+### Whole-project comparison (2026-09-05, PR #216)
+
+Baseline: merged `main` at `ac055715f56b287a13a06db75634b41dc481e214`.
+Candidate: the graph/discovery/cache/report changes in PR #216, including JSON
+path borrowing. Device: Apple M1 Pro, 10 logical CPUs, 32 GiB RAM, macOS,
+Rust 1.98.0. Both builds use optimization level 3, one codegen unit, LTO off,
+and unwind; CLI builds use the committed `codspeed` profile. Analysis uses one
+thread. Baseline/head execution alternates on the same host, with compilation
+completed before timing. Values below are medians, in milliseconds.
+
+The independent session comparison runs the committed `whole_project` mixed
+fixture at 5,000 files (1,250 groups), with seven fresh processes per revision.
+Each process measures cold analysis, no-op, template/script/dependency edits,
+diagnostics-only analysis, JSON rendering, then fresh and primed disk caches.
+Fixture construction and output hashing are outside the timed calls.
+
+| Shared session operation, 5k files | Main | Candidate | Time reduction |
+| --- | ---: | ---: | ---: |
+| Cold analysis | 463.16 | 430.70 | 7.0% |
+| Template edit | 96.86 | 54.41 | 43.8% |
+| Script edit | 96.80 | 53.37 | 44.9% |
+| Dependency edit | 57.55 | 41.19 | 28.4% |
+| Diagnostics-only edit | 93.84 | 52.16 | 44.4% |
+| JSON rendering | 13.79 | 13.33 | 3.4% |
+| Cold analysis plus cache write | 555.59 | 509.81 | 8.2% |
+| Primed disk cache | 159.40 | 150.27 | 5.7% |
+
+The corresponding 1k session run reduces cold analysis 7.9%, template/script
+edits 17.7-18.3%, dependency edits 22.1%, and diagnostics-only edits 18.8%.
+No-op medians remain below 2 microseconds at both sizes. Graph, diagnostic,
+and file-list hashes match between revisions in every measured mode. Separate
+cold-versus-incremental comparisons also assert full graph/summary equality
+and isolation of previously published snapshots.
+
+CLI checks include process startup, report preparation, rendering, and stdout
+capture (`--threads 1 --format json --progress never --color never`). Cold
+uses `--no-cache`; warm uses a primed `--cache-dir`; detail adds
+`--print-reactivity`. Seven alternating rounds on the 5k fixture and nine on
+Nuxt UI yield:
+
+| CLI workload | Main | Candidate | Time reduction |
+| --- | ---: | ---: | ---: |
+| 5k cold JSON | 681.04 | 613.33 | 9.9% |
+| 5k cold detailed JSON | 806.99 | 684.67 | 15.2% |
+| 5k primed-cache JSON | 237.97 | 215.36 | 9.5% |
+| 5k primed-cache detailed JSON | 338.02 | 319.69 | 5.4% |
+| Nuxt UI cold JSON | 482.87 | 469.21 | 2.8% |
+| Nuxt UI cold detailed JSON | 500.24 | 525.64 | -5.1% |
+| Nuxt UI primed-cache JSON | 110.85 | 88.93 | 19.8% |
+| Nuxt UI primed-cache detailed JSON | 126.03 | 124.20 | 1.5% |
+
+Peak RSS from `/usr/bin/time -l` for primed-cache normal JSON falls from
+82.9 to 74.3 MB at 5k files, and 61.8 to 55.0 MB on Nuxt UI. Normal and detailed
+JSON hashes match across revisions. The external workload is public `nuxt/ui`
+at `fbb9e22032072fb2bb03fb86496809070f54d7b2`, 1,298 scanned files and 7,011
+diagnostics, with package dependencies absent; it measures the fixed source
+tree and resolver fallback behavior. It supplies throughput evidence only.
+
+Cold Nuxt UI timings vary between batches: an earlier seven-round detailed
+run showed a 1.9% reduction, while the nine-round run above showed a 5.1%
+increase. Treat that path as an unresolved small wall-time variation. A
+same-process, same-input, 100-round alternating renderer comparison isolates
+JSON path borrowing: 13.35 to 12.94 ms (3.0%), with byte-identical reports.
+Wall-time measurements are informational; review all 20 current CodSpeed
+benchmarks for the final PR commit before accepting its performance gate.
+
+Reproduce the committed synthetic workloads with `just bench` and
+`just bench-codspeed-build` / `just bench-codspeed-run`. Acceptance also covers
+the release-profile binary, repeated LSP edits, MCP cold/warm scan, finding and
+scope explain, safe-fix preview, and workspace bounds. Local `just roll-rust`
+passes with the reporter regression test included. The release binary is built
+with the unchanged fat-LTO/abort profile and checked separately from timing.
 
 ## Compatibility baselines
 
