@@ -17,16 +17,24 @@ Workspace-internal (`publish = false`).
 | --- | --- | --- |
 | `CACHE_FORMAT_VERSION` | `5` | On-disk entry schema; directory `v5/` |
 | `BASELINE_FORMAT_VERSION` | `1` | Baseline file schema |
-| `RULESET_VERSION` | `3` | Bump when built-in / seed-aware rule behavior changes |
+| `RULESET_VERSION` | `6` | Bump when built-in / seed-aware rule behavior changes |
+| `CACHE_VIZE_CROQUIS_VERSION` | `0.387.0` | Hashed `vize-version` (`AnalysisStackIdentity`) |
+| `CACHE_OXC_PARSER_VERSION` | `0.142.0` | Hashed `oxc-version` (`AnalysisStackIdentity`) |
 
 `content_key` SHA-256 fields (sorted file path+body last):
 
 - `cache-format`, `tool-version` (`CARGO_PKG_VERSION`)
-- `vize-version`, `oxc-version` (string literals in this crate — bump them or
-  `CACHE_FORMAT_VERSION` when a dependency upgrade changes results)
-- `oxc-resolver-version` (`OXC_RESOLVER_VERSION` from `vue_vet_project`)
+- `vize-version`, `oxc-version`, `oxc-resolver-version` from
+  `AnalysisStackIdentity::current()` (`CACHE_VIZE_CROQUIS_VERSION`,
+  `CACHE_OXC_PARSER_VERSION`, `OXC_RESOLVER_VERSION`)
 - `conventions-version`, `ruleset-version`, `reactivity-graph-version`
 - serialized effective config bytes
+
+`just compat-matrix` (`crates/vue_vet_cli/tests/compat_matrix.rs`) asserts those
+identity constants against `fixtures/quality/compat-matrix.json`, the workspace
+Cargo.toml pin, and Cargo.lock. Changing the hashed identity must change
+`content_key` (`content_key_with_identity`); an `assert_ne!` on a stale string
+alone does not prove the field participates in hashing.
 
 ## Public API
 
@@ -35,7 +43,9 @@ Workspace-internal (`publish = false`).
 | `CacheStore::{new, entry_path, load, store}` | Disk lookup / atomic write |
 | `CachePayload` | `{ summary, graph }` |
 | `CacheLookup::{Hit, Miss, RecoveredCorruption}` | Load outcome |
-| `content_key` | Deterministic key over files + config |
+| `content_key` | Deterministic key over files + config + `AnalysisStackIdentity::current()` |
+| `content_key_with_identity` | Same hash with an explicit identity (upgrade / miss tests) |
+| `AnalysisStackIdentity` | `vize_croquis` / `oxc_parser` / `oxc_resolver` actually hashed |
 | `default_cache_dir` | `$XDG_CACHE_HOME/vue-vet` or temp `vue_vet_cache` |
 | `Baseline::{from_summary, filter, read, write}` | Fingerprinted finding set |
 | `diagnostic_fingerprint` | Rule + path + offset + message |
