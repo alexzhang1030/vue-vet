@@ -11,9 +11,6 @@
   "homepage": "https://github.com/alexzhang1030/vue-vet",
   "os": ["__OS__"],
   "cpu": ["__CPU__"],
-  "bin": {
-    "vue-vet": "bin/__BIN__"
-  },
   "files": [
     "bin"
   ],

@@ -304,6 +304,7 @@ jobs:
             echo "Publishing $dir"
             npm publish --access public --provenance "$dir"
           done
+          node npm/scripts/wait-registry.mjs --version "${{ needs.version.outputs.version }}" --mode platforms
 
       - name: Publish npm launcher
         if: needs.version.outputs.dry_run != 'true'
@@ -347,20 +348,7 @@ jobs:
         run: |
           set -euo pipefail
           version="$VERSION"
-          echo "Waiting for @vue-vet/cli@$version on npm…"
-          visible=0
-          for _ in $(seq 1 24); do
-            if npm view "@vue-vet/cli@${version}" version >/dev/null 2>&1; then
-              echo "@vue-vet/cli@$version is visible"
-              visible=1
-              break
-            fi
-            sleep 5
-          done
-          if [[ "$visible" != 1 ]]; then
-            echo "@vue-vet/cli@$version did not appear on npm in time" >&2
-            exit 1
-          fi
+          node npm/scripts/wait-registry.mjs --version "$version" --mode launcher --host
           got="$(npx --yes --package="@vue-vet/cli@${version}" vue-vet --version | tr -d '\r\n')"
           expected="vue-vet ${version}"
           if [[ "$got" != "$expected" ]]; then

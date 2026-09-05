@@ -62,6 +62,29 @@ as missing visibility aborts after `vue_vet_core` uploaded and skips
 `vue_vet_reactivity`, GitHub Release, and npm. Re-runs must skip versions
 already on the registry (`cargo publish` refuses duplicates).
 
+## npm registry processing delays
+
+`npm publish` can print “package is being processed and may take a few minutes
+to become available.” The version document and tarball on
+`registry.npmjs.org` lag the upload. Publishing `@vue-vet/cli` before all five
+platform packages are fetchable can leave the required native package absent
+from the installation. Wait with `npm/scripts/wait-registry.mjs`: `--mode platforms`
+before the launcher publish; `--mode launcher --host` in install smoke.
+Poll the public registry directly, require an exact version
+document plus a reachable `dist.tarball`, and for the launcher require
+`bin.vue-vet` and all five optional deps at that version. Bound the wait
+(10 minutes). A timeout aborts the launcher publish.
+
+## The launcher owns the npm command
+
+Only `@vue-vet/cli` owns the `vue-vet` bin. Platform templates used to declare
+`bin.vue-vet` as well. npm 10 then marked the launcher bin deleted while
+pruning optional deps that did not match the host, leaving
+`node_modules/.bin` empty (`sh: vue-vet: command not found`). npm 11 survived.
+Keep `files: ["bin"]` and the native file; omit `bin` from platform
+`package.json`. Install smoke should keep using `npx` so this regression stays
+visible.
+
 ## `has_children` is not accessible content
 
 Template facts keep `has_children` for structural rules (`valid-v-html`,
