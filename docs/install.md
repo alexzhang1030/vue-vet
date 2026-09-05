@@ -122,8 +122,14 @@ Do not publish mismatched versions across these surfaces.
    `vue_vet_plugins`), builds every matrix target, writes `SHA256SUMS`, creates
    the GitHub Release, publishes `@vue-vet/*` platform packages, then publishes
    `@vue-vet/cli`.
-5. Smoke-install with `npx --package=@vue-vet/cli@X.Y.Z vue-vet --version` on
-   at least one Linux, macOS, and Windows host.
+5. After a non-dry-run publish, the Release workflow’s `npm-install-smoke` job
+   installs `@vue-vet/cli@X.Y.Z` from the public registry on Linux, macOS, and
+   Windows (`ubuntu-latest`, `macos-15`, `windows-latest`). It checks
+   `vue-vet --version` equals `vue-vet X.Y.Z` and scans
+   `fixtures/projects/basic --no-cache --format json` (asserts `ok`,
+   `tool.version`, and `diagnostics[].rule_id === vue-vet/security/no-v-html`).
+   Bounded retries wait for npm visibility. Manual smoke:
+   `npx --yes --package=@vue-vet/cli@X.Y.Z vue-vet --version`.
 
 **Rollback:** yank a bad npm version with
 `npm unpublish @vue-vet/cli@X.Y.Z` only within the npm unpublish window;

@@ -320,3 +320,74 @@ jobs:
           ls -la dist/release
           ls -la dist/npm/@vue-vet
           cat npm/vue-vet/package.json
+
+  npm-install-smoke:
+    name: npm install smoke (${{ matrix.os }})
+    needs: [version, publish]
+    if: needs.version.outputs.dry_run != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15, windows-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Install from npm and smoke
+        env:
+          npm_config_cache: ${{ runner.temp }}/npm-cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$VERSION"
+          echo "Waiting for @vue-vet/cli@$version on npm…"
+          visible=0
+          for _ in $(seq 1 24); do
+            if npm view "@vue-vet/cli@${version}" version >/dev/null 2>&1; then
+              echo "@vue-vet/cli@$version is visible"
+              visible=1
+              break
+            fi
+            sleep 5
+          done
+          if [[ "$visible" != 1 ]]; then
+            echo "@vue-vet/cli@$version did not appear on npm in time" >&2
+            exit 1
+          fi
+          got="$(npx --yes --package="@vue-vet/cli@${version}" vue-vet --version | tr -d '\r\n')"
+          expected="vue-vet ${version}"
+          if [[ "$got" != "$expected" ]]; then
+            echo "expected --version '$expected', got '$got'" >&2
+            exit 1
+          fi
+          scan_file="${RUNNER_TEMP}/vue-vet-smoke.json"
+          npx --yes --package="@vue-vet/cli@${version}" vue-vet fixtures/projects/basic --no-cache --format json --color never >"$scan_file"
+          SCAN_FILE="$scan_file" node -e '
+            const fs = require("fs");
+            const version = process.env.VERSION;
+            const report = JSON.parse(fs.readFileSync(process.env.SCAN_FILE, "utf8"));
+            if (report.ok !== true) {
+              console.error("report.ok must be true");
+              process.exit(1);
+            }
+            if (!report.tool || report.tool.version !== version) {
+              console.error("tool.version mismatch: " + (report.tool && report.tool.version));
+              process.exit(1);
+            }
+            const hit = Array.isArray(report.diagnostics)
+              ? report.diagnostics.find((d) => d.rule_id === "vue-vet/security/no-v-html")
+              : undefined;
+            if (!hit) {
+              console.error("missing rule_id vue-vet/security/no-v-html");
+              process.exit(1);
+            }
+            console.log(report.tool.version);
+            console.log(hit.rule_id);
+          '
