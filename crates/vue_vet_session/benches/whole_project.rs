@@ -140,7 +140,10 @@ fn count_scopes(snapshot: &vue_vet_session::AnalysisSnapshot, kind: TrackingScop
     .count()
 }
 
-#[divan::bench(sample_count = 10, sample_size = 1, threads = Some(1))]
+// `codspeed-divan-compat` 5.0.1 `BenchOptions` has no `threads` (missing
+// `IntoThreads` under `cfg(codspeed)`). Analysis concurrency stays
+// `SessionOptions { threads: Some(1) }`, same as `scan_modes`.
+#[divan::bench(sample_count = 10, sample_size = 1)]
 fn scan_cold_mixed_1k(bencher: divan::Bencher) {
   let root = mixed_workspace(1_000);
   let cache = temp_dir("cold-1k");
@@ -158,7 +161,7 @@ fn scan_cold_mixed_1k(bencher: divan::Bencher) {
   let _ignored = std::fs::remove_dir_all(&root);
 }
 
-#[divan::bench(sample_count = 10, sample_size = 1, threads = Some(1))]
+#[divan::bench(sample_count = 10, sample_size = 1)]
 fn scan_warm_mixed_1k(bencher: divan::Bencher) {
   let root = mixed_workspace(1_000);
   let cache = temp_dir("warm-1k");
@@ -176,7 +179,7 @@ fn scan_warm_mixed_1k(bencher: divan::Bencher) {
   let _ignored = std::fs::remove_dir_all(&root);
 }
 
-#[divan::bench(sample_count = 10, sample_size = 1, threads = Some(1))]
+#[divan::bench(sample_count = 10, sample_size = 1)]
 fn scan_script_edit_mixed_1k(bencher: divan::Bencher) {
   let root = mixed_workspace(1_000);
   let parent = root.join("src/group-0000/Parent.vue");
@@ -199,7 +202,7 @@ fn scan_script_edit_mixed_1k(bencher: divan::Bencher) {
   let _ignored = std::fs::remove_dir_all(&root);
 }
 
-#[divan::bench(sample_count = 10, sample_size = 1, threads = Some(1))]
+#[divan::bench(sample_count = 10, sample_size = 1)]
 fn scan_dependency_edit_mixed_1k(bencher: divan::Bencher) {
   let root = mixed_workspace(1_000);
   let dep = root.join("src/group-0000/useCounter.ts");
@@ -221,7 +224,7 @@ fn scan_dependency_edit_mixed_1k(bencher: divan::Bencher) {
   let _ignored = std::fs::remove_dir_all(&root);
 }
 
-#[divan::bench(sample_count = 10, sample_size = 1, threads = Some(1))]
+#[divan::bench(sample_count = 10, sample_size = 1)]
 fn json_render_mixed_1k(bencher: divan::Bencher) {
   let root = mixed_workspace(1_000);
   let cache = temp_dir("json-1k");
@@ -238,7 +241,7 @@ fn json_render_mixed_1k(bencher: divan::Bencher) {
   let _ignored = std::fs::remove_dir_all(&root);
 }
 
-#[divan::bench(sample_count = 10, sample_size = 1, threads = Some(1))]
+#[divan::bench(sample_count = 10, sample_size = 1)]
 fn scan_template_edit_mixed_5k(bencher: divan::Bencher) {
   let root = mixed_workspace(5_000);
   let parent = root.join("src/group-0000/Parent.vue");
