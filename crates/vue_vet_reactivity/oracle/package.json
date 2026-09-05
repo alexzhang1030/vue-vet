@@ -5,10 +5,12 @@
   "description": "Vue runtime onTrack oracle for static tracer under-approx checks",
   "scripts": {
     "oracle": "node harness.mjs",
-    "oracle:write": "node harness.mjs --write"
+    "oracle:write": "node harness.mjs --write",
+    "self-trigger": "node self-trigger-runs.mjs"
   },
+  "packageManager": "pnpm@9.15.9",
   "dependencies": {
     "@vue/reactivity": "3.5.40",
-    "vue": "^3.5.13"
+    "vue": "3.5.40"
   }
 }

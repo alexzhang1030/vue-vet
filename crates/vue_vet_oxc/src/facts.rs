@@ -1,13 +1,15 @@
 //! Oxc node walks → Vue Vet script facts.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use oxc_ast::{
   AstKind,
   ast::{
-    AssignmentTarget, BindingPattern, Expression, ImportDeclarationSpecifier, ModuleExportName,
+    AssignmentTarget, BindingIdentifier, BindingPattern, Declaration, ExportDefaultDeclarationKind,
+    Expression, IdentifierReference, ImportDeclarationSpecifier, ModuleExportName,
     SimpleAssignmentTarget,
   },
 };
+use oxc_semantic::SymbolId;
 use oxc_span::Span;
 use vue_vet_core::{
   ScriptBindingFact, ScriptCallFact, ScriptDestructureFact, ScriptImportFact,
@@ -130,6 +132,7 @@ pub fn collect_binding_facts(
   sfc_source: &str,
   script_offset: usize,
 ) -> Vec<ScriptBindingFact> {
+  let exported_symbols = collect_exported_symbol_ids(semantic);
   let scoping = semantic.scoping();
   let mut bindings = scoping
     .symbol_ids()
@@ -146,12 +149,142 @@ pub fn collect_binding_facts(
         reads,
         writes,
         span: source_span(line_index, sfc_source, script_offset, scoping.symbol_span(symbol_id)),
+        exported: exported_symbols.contains(&symbol_id),
       }
     })
     .collect::<Vec<_>>();
   // Symbol iteration order is not a source-order contract.
   bindings.sort_by_key(|fact| fact.span.offset);
   bindings
+}
+
+fn collect_exported_symbol_ids(semantic: &oxc_semantic::Semantic<'_>) -> BTreeSet<SymbolId> {
+  let mut symbols = BTreeSet::new();
+  for node in semantic.nodes() {
+    match node.kind() {
+      AstKind::ExportNamedDeclaration(declaration) if declaration.source.is_none() => {
+        if let Some(inner) = &declaration.declaration {
+          collect_declaration_symbol_ids(inner, &mut symbols);
+        }
+        for specifier in &declaration.specifiers {
+          if let Some(symbol_id) = export_local_symbol_id(semantic, &specifier.local) {
+            symbols.insert(symbol_id);
+          }
+        }
+      }
+      AstKind::ExportDefaultDeclaration(declaration) => {
+        collect_default_export_symbol_ids(semantic, &declaration.declaration, &mut symbols);
+      }
+      _ => {}
+    }
+  }
+  symbols
+}
+
+fn collect_declaration_symbol_ids(declaration: &Declaration<'_>, symbols: &mut BTreeSet<SymbolId>) {
+  match declaration {
+    Declaration::VariableDeclaration(variable) => {
+      for declarator in &variable.declarations {
+        collect_pattern_symbol_ids(&declarator.id, symbols);
+      }
+    }
+    Declaration::FunctionDeclaration(function) => {
+      collect_binding_identifier_symbol(function.id.as_ref(), symbols);
+    }
+    Declaration::ClassDeclaration(class) => {
+      collect_binding_identifier_symbol(class.id.as_ref(), symbols);
+    }
+    _ => {}
+  }
+}
+
+fn collect_default_export_symbol_ids(
+  semantic: &oxc_semantic::Semantic<'_>,
+  declaration: &ExportDefaultDeclarationKind<'_>,
+  symbols: &mut BTreeSet<SymbolId>,
+) {
+  match declaration {
+    ExportDefaultDeclarationKind::FunctionDeclaration(function) => {
+      collect_binding_identifier_symbol(function.id.as_ref(), symbols);
+    }
+    ExportDefaultDeclarationKind::ClassDeclaration(class) => {
+      collect_binding_identifier_symbol(class.id.as_ref(), symbols);
+    }
+    other => {
+      if let Some(identifier) = other.as_expression().and_then(Expression::get_identifier_reference)
+      {
+        collect_referenced_symbol_id(semantic, identifier, symbols);
+      }
+    }
+  }
+}
+
+fn collect_pattern_symbol_ids(pattern: &BindingPattern<'_>, symbols: &mut BTreeSet<SymbolId>) {
+  match pattern {
+    BindingPattern::BindingIdentifier(identifier) => {
+      collect_binding_identifier_symbol(Some(identifier), symbols);
+    }
+    BindingPattern::ObjectPattern(object) => {
+      for property in &object.properties {
+        collect_pattern_symbol_ids(&property.value, symbols);
+      }
+      if let Some(rest) = &object.rest {
+        collect_pattern_symbol_ids(&rest.argument, symbols);
+      }
+    }
+    BindingPattern::ArrayPattern(array) => {
+      for element in array.elements.iter().flatten() {
+        collect_pattern_symbol_ids(element, symbols);
+      }
+      if let Some(rest) = &array.rest {
+        collect_pattern_symbol_ids(&rest.argument, symbols);
+      }
+    }
+    BindingPattern::AssignmentPattern(assignment) => {
+      collect_pattern_symbol_ids(&assignment.left, symbols);
+    }
+  }
+}
+
+fn collect_binding_identifier_symbol(
+  identifier: Option<&BindingIdentifier<'_>>,
+  symbols: &mut BTreeSet<SymbolId>,
+) {
+  if let Some(symbol_id) = identifier.and_then(|identifier| identifier.symbol_id.get()) {
+    symbols.insert(symbol_id);
+  }
+}
+
+fn collect_referenced_symbol_id(
+  semantic: &oxc_semantic::Semantic<'_>,
+  identifier: &IdentifierReference<'_>,
+  symbols: &mut BTreeSet<SymbolId>,
+) {
+  let Some(reference_id) = identifier.reference_id.get() else {
+    return;
+  };
+  if let Some(symbol_id) = semantic.scoping().get_reference(reference_id).symbol_id() {
+    symbols.insert(symbol_id);
+  }
+}
+
+fn export_local_symbol_id(
+  semantic: &oxc_semantic::Semantic<'_>,
+  name: &ModuleExportName<'_>,
+) -> Option<SymbolId> {
+  let scoping = semantic.scoping();
+  match name {
+    ModuleExportName::IdentifierReference(identifier) => {
+      let reference_id = identifier.reference_id.get()?;
+      scoping.get_reference(reference_id).symbol_id()
+    }
+    ModuleExportName::IdentifierName(identifier) => {
+      scoping.get_binding(scoping.root_scope_id(), identifier.name)
+    }
+    ModuleExportName::StringLiteral(literal) => {
+      scoping.get_binding(scoping.root_scope_id(), literal.value.as_str().into())
+    }
+  }
 }
 
 pub fn collect_node_facts(

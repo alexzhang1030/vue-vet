@@ -1,0 +1,34 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/prefer-computed",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/prefer-computed",
+    "message": "`watchEffect` only assigns `target` from other reactive reads",
+    "help": "Use `computed(() => …)` for pure derived state instead of syncing refs in `watchEffect`.",
+    "file": "fixtures/rules/prefer-watch-over-effect-for-single-source/invalid/single-source.vue",
+    "span": {
+      "offset": 107,
+      "length": 51,
+      "line": 5,
+      "column": 1
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/prefer-watch-over-effect-for-single-source",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/prefer-watch-over-effect-for-single-source",
+    "message": "`watchEffect` only tracks `count.value`; prefer `watch` with an explicit source",
+    "help": "Use `watch(() => count.value, …)` for a single source.",
+    "file": "fixtures/rules/prefer-watch-over-effect-for-single-source/invalid/single-source.vue",
+    "span": {
+      "offset": 107,
+      "length": 51,
+      "line": 5,
+      "column": 1
+    }
+  }
+]

@@ -3,14 +3,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use vue_vet_core::{
-  Confidence, FactKinds, FactRef, ReactiveBindingKind, ReactiveDependencyKind, ReactiveReadKind,
-  Rule, RuleContext, RuleMeta, Severity,
+  Confidence, FactKinds, FactRef, ReactiveBindingKind, ReactiveDependencyKind, Rule, RuleContext,
+  RuleMeta, Severity,
 };
 
-use vue_vet_rule_query::{
-  effect_family, member_path, script_binding, setup_calls_after_first_top_level_await,
-  used_reactive_names,
-};
+use vue_vet_rule_query::{effect_family, member_path, script_binding_at, used_reactive_names};
 
 const MULTI_EFFECT_META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-multiple-effects-same-target",
@@ -248,10 +245,12 @@ impl Rule for NoUnusedComputedBinding {
         if binding.kind != ReactiveBindingKind::Computed || used.contains(binding.name.as_str()) {
           continue;
         }
-        // Cross-module / bare auto-import seeds have no local symbol.
-        let Some(local) = script_binding(block, &binding.name) else {
+        let Some(local) = script_binding_at(block, &binding.name, binding.span) else {
           continue;
         };
+        if local.exported {
+          continue;
+        }
         if local.reads != 0 {
           continue;
         }
@@ -287,25 +286,9 @@ impl Rule for PreferExplicitSourcesForConditionalDeps {
     FactKinds::TRACKING_SCOPE
   }
 
-  fn run_on(&self, fact: FactRef<'_>, context: &mut RuleContext<'_>) {
-    let FactRef::TrackingScope { scope, .. } = fact else {
-      return;
-    };
-    if !effect_family(scope.kind) {
-      return;
-    }
-    if !scope.reads.iter().any(|read| read.kind == ReactiveReadKind::Conditional) {
-      return;
-    }
-    context.report(
-      self.meta(),
-      scope.span,
-      format!("`{}` has conditional reactive reads; prefer explicit `watch` sources", scope.callee),
-      Some(
-        "List every dependency in `watch([...])` / getter sources when control flow guards reads."
-          .into(),
-      ),
-    );
+  fn run_on(&self, _fact: FactRef<'_>, _context: &mut RuleContext<'_>) {
+    // Same withdrawn premise as the conditional-dependency family: Vue tracks
+    // dynamic deps. ID stays for config compatibility.
   }
 }
 
@@ -325,15 +308,8 @@ macro_rules! macro_after_await {
         }
       }
 
-      fn run_once(&self, context: &mut RuleContext<'_>) {
-        for call in setup_calls_after_first_top_level_await(context.script(), $callee) {
-          context.report(
-            self.meta(),
-            call.span,
-            format!("`{}` after top-level `await` is invalid in `<script setup>`", $callee),
-            Some(format!("Move `{}` before the first top-level `await`.", $callee)),
-          );
-        }
+      fn run_once(&self, _context: &mut RuleContext<'_>) {
+        // Compiler macros are hoisted; source position after await is not a defect.
       }
     }
   };

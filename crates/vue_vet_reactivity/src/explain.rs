@@ -27,6 +27,11 @@ pub fn explain_tracking_scope(module_id: &str, scope: &TrackingScopeFact) -> Sco
   let mut uncertain = scope.uncertain_accesses.clone();
   uncertain.sort();
   uncertain.dedup();
+  let mut unknown_calls = scope.unknown_calls.clone();
+  unknown_calls.sort();
+  unknown_calls.dedup();
+  let follow_truncated = scope.follow_truncated;
+  let analysis_complete = unknown_calls.is_empty() && uncertain.is_empty() && !follow_truncated;
 
   let summary = scope_summary(scope, &tracks, &does_not_track, &uncertain);
   ScopeExplain {
@@ -39,6 +44,9 @@ pub fn explain_tracking_scope(module_id: &str, scope: &TrackingScopeFact) -> Sco
     tracks,
     does_not_track,
     uncertain,
+    unknown_calls,
+    follow_truncated,
+    analysis_complete,
   }
 }
 
@@ -222,6 +230,28 @@ fn scope_summary(
   uncertain: &[String],
 ) -> String {
   let who = scope.binding.as_deref().map_or_else(|| scope.callee.as_str(), |name| name);
+  if scope.follow_truncated
+    || !scope.unknown_calls.is_empty()
+    || !scope.uncertain_accesses.is_empty()
+  {
+    let mut bits = Vec::new();
+    if !scope.unknown_calls.is_empty() {
+      bits.push(format!("unfollowed calls {}", scope.unknown_calls.join(",")));
+    }
+    if !scope.uncertain_accesses.is_empty() {
+      bits.push(format!("unclassified accesses {}", scope.uncertain_accesses.join(",")));
+    }
+    if scope.follow_truncated {
+      bits.push("follow depth or recursion truncated".into());
+    }
+    if bits.is_empty() {
+      bits.push("coverage is incomplete".into());
+    }
+    return format!(
+      "`{who}` analysis is incomplete ({}); Vue may still re-run when unfollowed code reads reactive state",
+      bits.join("; ")
+    );
+  }
   if tracks.is_empty() && uncertain.is_empty() {
     if does_not_track.is_empty() {
       return format!(
@@ -305,10 +335,34 @@ mod tests {
       assignment_only: false,
       binding: Some("label".into()),
       uncertain_accesses: Vec::new(),
+      unknown_calls: Vec::new(),
+      follow_truncated: false,
     };
     let explain = explain_tracking_scope("App.vue", &scope);
     assert!(explain.tracks.is_empty());
     assert!(explain.summary.contains("no known reactive dependency"));
+  }
+
+  #[test]
+  fn incomplete_follow_does_not_claim_vue_will_not_rerun() {
+    let scope = TrackingScopeFact {
+      kind: TrackingScopeKind::Computed,
+      callee: "computed".into(),
+      span: span(10),
+      reads: Vec::new(),
+      writes: Vec::new(),
+      assignment_only: false,
+      binding: Some("result".into()),
+      uncertain_accesses: Vec::new(),
+      unknown_calls: vec!["readCount".into()],
+      follow_truncated: false,
+    };
+    let explain = explain_tracking_scope("App.vue", &scope);
+    assert!(!explain.summary.contains("Vue will not re-run"));
+    assert!(!explain.summary.contains("does not read any reactive dependency"));
+    assert!(explain.summary.contains("incomplete"));
+    assert_eq!(explain.unknown_calls, vec!["readCount".to_string()]);
+    assert!(!explain.analysis_complete);
   }
 
   #[test]
@@ -325,12 +379,15 @@ mod tests {
       assignment_only: false,
       binding: None,
       uncertain_accesses: vec!["maybeRoot".into()],
+      unknown_calls: Vec::new(),
+      follow_truncated: false,
     };
     let explain = explain_tracking_scope("m.ts", &scope);
     assert_eq!(explain.tracks.len(), 1);
     assert_eq!(explain.tracks.first().map(|dep| dep.path.as_str()), Some("count.value"));
     assert_eq!(explain.does_not_track.len(), 1);
-    assert!(explain.summary.contains("tracks 1"));
+    assert!(!explain.analysis_complete);
+    assert!(explain.summary.contains("incomplete"));
     assert_eq!(explain.uncertain, vec!["maybeRoot".to_string()]);
   }
 
@@ -345,6 +402,8 @@ mod tests {
       assignment_only: false,
       binding: Some("doubled".into()),
       uncertain_accesses: Vec::new(),
+      unknown_calls: Vec::new(),
+      follow_truncated: false,
     };
     let graph = ReactivityGraph { scopes: vec![scope], ..ReactivityGraph::default() };
     assert_eq!(select_tracking_scopes("App.vue", &graph, "doubled").len(), 1);
@@ -365,6 +424,8 @@ mod tests {
       assignment_only: false,
       binding: Some("inner".into()),
       uncertain_accesses: Vec::new(),
+      unknown_calls: Vec::new(),
+      follow_truncated: false,
     };
     let outer = TrackingScopeFact {
       kind: TrackingScopeKind::WatchEffect,
@@ -375,6 +436,8 @@ mod tests {
       assignment_only: false,
       binding: None,
       uncertain_accesses: Vec::new(),
+      unknown_calls: Vec::new(),
+      follow_truncated: false,
     };
     let graph = ReactivityGraph { scopes: vec![outer, inner], ..ReactivityGraph::default() };
 

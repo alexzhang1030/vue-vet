@@ -514,6 +514,9 @@ mod tests {
       tracks: Vec::new(),
       does_not_track: Vec::new(),
       uncertain: Vec::new(),
+      unknown_calls: Vec::new(),
+      follow_truncated: false,
+      analysis_complete: true,
     };
     let hover = hover_from_scope_explains(std::slice::from_ref(&explain), source, None);
     let Some(Hover { contents: HoverContents::Markup(markup), range: Some(range) }) = hover else {

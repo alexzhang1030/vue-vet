@@ -30,7 +30,8 @@ Workspace-internal (`publish = false`). Dependents: `vue_vet_rules`,
 
 | Item | Role |
 | --- | --- |
-| `reactive_binding` / `script_binding` | Name → fact |
+| `reactive_binding` / `script_binding` | Name → first fact |
+| `script_binding_at` | Name + declaration span → script symbol |
 | `static_template_ref_names` / `used_reactive_names` | Template / usage sets |
 
 ### `reads` — paths and control-flow

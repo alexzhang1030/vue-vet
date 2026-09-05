@@ -20,7 +20,10 @@ use oxc_ast::{
 };
 use oxc_semantic::{NodeId, Semantic};
 
-use super::context::{ScopeNodeIndex, tracking_context_owner};
+use super::context::{ScopeNodeIndex, is_sync_hof_at_arg, tracking_context_owner};
+use super::expr::peel_parens;
+use super::kinds::{identifier_reference_is_unresolved, resolved_vue_callee};
+use vue_vet_core::ScriptKind;
 
 /// Max hops when following same-file zero-arg helpers from a tracking scope.
 /// Vue tracks sync reads inside callees; we under-approx with a small bound.
@@ -251,6 +254,246 @@ pub(super) fn is_async_or_generator_function(
     AstKind::ArrowFunctionExpression(arrow) => arrow.r#async,
     // Unknown shape: refuse to follow (under-approx).
     _ => true,
+  }
+}
+
+/// Identifier / member callees the bounded tracer did not fully follow.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(super) struct AnalysisGaps {
+  pub unknown_calls: Vec<String>,
+  pub truncated: bool,
+}
+
+impl AnalysisGaps {
+  pub(super) fn merge(&mut self, other: Self) {
+    let mut calls = BTreeSet::from_iter(std::mem::take(&mut self.unknown_calls));
+    calls.extend(other.unknown_calls);
+    self.unknown_calls = calls.into_iter().collect();
+    self.truncated |= other.truncated;
+  }
+}
+
+/// Walk calls owned by `scope_id` (and followed local helpers).
+///
+/// Local zero-arg helpers use [`LocalCalleeIndex`] (one edge per callee, not
+/// per call site). Imports, member/dynamic callees, argumented helpers, and
+/// async/generator become `unknown_calls`. Modeled Vue APIs and proven builtin
+/// HOFs stay covered; lookalike methods (`api.map`) stay unknown even with an
+/// inline callback. Hitting the depth cap or a recursive callee sets `truncated`.
+pub(super) fn collect_analysis_gaps(
+  semantic: &Semantic<'_>,
+  index: &FileTraceIndex,
+  scope_id: NodeId,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> AnalysisGaps {
+  let mut unknown = BTreeSet::new();
+  let mut truncated = false;
+  let mut done = BTreeSet::new();
+  let mut stack = BTreeSet::from([scope_id]);
+  collect_analysis_gaps_walk(
+    semantic,
+    index,
+    imported_bindings,
+    scope_id,
+    0,
+    &mut done,
+    &mut stack,
+    &mut unknown,
+    &mut truncated,
+  );
+  AnalysisGaps { unknown_calls: unknown.into_iter().collect(), truncated }
+}
+
+#[expect(
+  clippy::too_many_arguments,
+  reason = "gap walk threads index, visit sets, and accumulators"
+)]
+fn collect_analysis_gaps_walk(
+  semantic: &Semantic<'_>,
+  index: &FileTraceIndex,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  scope_id: NodeId,
+  depth: u32,
+  done: &mut BTreeSet<NodeId>,
+  stack: &mut BTreeSet<NodeId>,
+  unknown: &mut BTreeSet<String>,
+  truncated: &mut bool,
+) {
+  if !done.insert(scope_id) {
+    return;
+  }
+  for callee in index.callees().for_scope(scope_id) {
+    if callee.call_outside {
+      continue;
+    }
+    if depth >= MAX_LOCAL_CALLEE_FOLLOW_DEPTH || stack.contains(&callee.id) {
+      *truncated = true;
+      continue;
+    }
+    stack.insert(callee.id);
+    collect_analysis_gaps_walk(
+      semantic,
+      index,
+      imported_bindings,
+      callee.id,
+      depth.saturating_add(1),
+      done,
+      stack,
+      unknown,
+      truncated,
+    );
+    stack.remove(&callee.id);
+  }
+  for owned in index.nodes().calls(scope_id) {
+    if owned.outside {
+      continue;
+    }
+    let AstKind::CallExpression(call) = semantic.nodes().kind(owned.id) else {
+      continue;
+    };
+    record_call_gaps(semantic, call, imported_bindings, unknown);
+  }
+}
+
+fn record_call_gaps(
+  semantic: &Semantic<'_>,
+  call: &oxc_ast::ast::CallExpression<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  unknown: &mut BTreeSet<String>,
+) {
+  let vue_api =
+    resolved_vue_callee(semantic, &call.callee, imported_bindings, ScriptKind::Script).is_some();
+  if let Some(identifier) = call.callee.get_identifier_reference() {
+    if let Some(callee_id) = local_function_id(semantic, identifier)
+      && !is_async_or_generator_function(semantic, callee_id)
+      && call.arguments.is_empty()
+    {
+      return;
+    }
+    if !vue_api {
+      unknown.insert(identifier.name.to_string());
+    }
+    record_unfollowed_argument_callees(semantic, call, imported_bindings, unknown);
+    return;
+  }
+  // Proven builtin HOF: keep the callee covered and still scan arguments
+  // (identifier callbacks such as `[1].map(readCount)`). Lookalike
+  // `api.map(() => …)` records the callee as unknown; inline-callback
+  // *reads* still come from tracking ownership, not this gap walk.
+  if vue_api || is_modeled_sync_hof_call(semantic, call) {
+    record_unfollowed_argument_callees(semantic, call, imported_bindings, unknown);
+    return;
+  }
+  unknown.insert(unfollowed_call_label(&call.callee));
+  record_unfollowed_argument_callees(semantic, call, imported_bindings, unknown);
+}
+
+/// Array/string literals, or global `Array.from` / `JSON.parse` whose name is
+/// not a local binding. Ordinary objects (`api.map`) are not modeled.
+fn is_modeled_sync_hof_call(
+  semantic: &Semantic<'_>,
+  call: &oxc_ast::ast::CallExpression<'_>,
+) -> bool {
+  (is_sync_hof_at_arg(&call.callee, 0) || is_sync_hof_at_arg(&call.callee, 1))
+    && is_proven_hof_receiver(semantic, &call.callee)
+}
+
+fn is_proven_hof_receiver(semantic: &Semantic<'_>, callee: &Expression<'_>) -> bool {
+  match peel_parens(callee) {
+    Expression::StaticMemberExpression(member) => {
+      let object = peel_parens(&member.object);
+      if matches!(
+        object,
+        Expression::ArrayExpression(_)
+          | Expression::StringLiteral(_)
+          | Expression::TemplateLiteral(_)
+      ) {
+        return true;
+      }
+      let Expression::Identifier(identifier) = object else {
+        return false;
+      };
+      matches!(
+        (identifier.name.as_str(), member.property.name.as_str()),
+        ("Array", "from") | ("JSON", "parse")
+      ) && identifier_reference_is_unresolved(semantic, identifier)
+    }
+    Expression::ComputedMemberExpression(member) => {
+      matches!(peel_parens(&member.object), Expression::ArrayExpression(_))
+    }
+    _ => false,
+  }
+}
+
+const fn argument_is_inline_function(argument: &oxc_ast::ast::Argument<'_>) -> bool {
+  matches!(
+    argument,
+    oxc_ast::ast::Argument::ArrowFunctionExpression(_)
+      | oxc_ast::ast::Argument::FunctionExpression(_)
+  )
+}
+
+fn record_unfollowed_argument_callees(
+  semantic: &Semantic<'_>,
+  call: &oxc_ast::ast::CallExpression<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  unknown: &mut BTreeSet<String>,
+) {
+  for argument in &call.arguments {
+    if argument_is_inline_function(argument) {
+      continue;
+    }
+    record_expression_callee(semantic, argument, imported_bindings, unknown);
+  }
+}
+
+fn record_expression_callee(
+  semantic: &Semantic<'_>,
+  argument: &oxc_ast::ast::Argument<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  unknown: &mut BTreeSet<String>,
+) {
+  let Some(expression) = argument.as_expression() else {
+    return;
+  };
+  let expression = super::expr::peel_parens(expression);
+  if let Some(identifier) = expression.get_identifier_reference() {
+    let name = identifier.name.to_string();
+    if local_function_id(semantic, identifier).is_some() || imported_bindings.contains_key(&name) {
+      unknown.insert(name);
+    }
+    return;
+  }
+  if !matches!(
+    expression,
+    Expression::StaticMemberExpression(_) | Expression::ComputedMemberExpression(_)
+  ) {
+    return;
+  }
+  unknown.insert(unfollowed_call_label(expression));
+}
+
+fn unfollowed_call_label(callee: &Expression<'_>) -> String {
+  if let Some(identifier) = callee.get_identifier_reference() {
+    return identifier.name.to_string();
+  }
+  match callee {
+    Expression::StaticMemberExpression(member) => {
+      member.object.get_identifier_reference().map_or_else(
+        || member.property.name.to_string(),
+        |object| format!("{}.{}", object.name, member.property.name),
+      )
+    }
+    Expression::ComputedMemberExpression(member) => {
+      let object = member
+        .object
+        .get_identifier_reference()
+        .map_or_else(|| "?".to_owned(), |identifier| identifier.name.to_string());
+      member
+        .static_property_name()
+        .map_or_else(|| format!("{object}.*"), |property| format!("{object}.{property}"))
+    }
+    _ => "<dynamic>".into(),
   }
 }
 

@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use vue_vet_core::{Confidence, ReactiveBindingKind, Rule, RuleContext, RuleMeta, Severity};
-use vue_vet_rule_query::{script_binding, static_template_ref_names, used_reactive_names};
+use vue_vet_rule_query::{script_binding_at, static_template_ref_names, used_reactive_names};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-unused-reactive-binding",
@@ -34,12 +34,14 @@ impl Rule for NoUnusedReactiveBinding {
         if !is_local_value_binding(binding.kind) || used.contains(binding.name.as_str()) {
           continue;
         }
-        // Cross-module / bare auto-import seeds have no local symbol — they are
-        // not "unused local bindings" (e.g. Nuxt `currentUser` used once at
-        // top-level). Only report when Oxc recorded a local binding.
-        let Some(local) = script_binding(block, &binding.name) else {
+        // Span-match so an exported outer `count` cannot hide an inner unused
+        // `count`. Graph/template uses stay name-based (`used_reactive_names`).
+        let Some(local) = script_binding_at(block, &binding.name, binding.span) else {
           continue;
         };
+        if local.exported {
+          continue;
+        }
         if local.reads != 0 {
           continue;
         }
@@ -88,5 +90,129 @@ const fn binding_kind_label(kind: ReactiveBindingKind) -> &'static str {
     ReactiveBindingKind::ToRef => "toRef",
     ReactiveBindingKind::TemplateRef => "useTemplateRef",
     ReactiveBindingKind::ModelRef => "defineModel",
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use std::path::Path;
+  use std::sync::Arc;
+
+  use vue_vet_core::{
+    ReactiveBindingFact, ReactiveBindingKind, ReactivityGraph, RuleRegistry, ScriptBindingFact,
+    ScriptBlockFacts, ScriptFacts, ScriptKind, SourceSpan, TemplateFacts, TemplateReactiveReadFact,
+  };
+
+  use super::RULE;
+
+  fn span(offset: usize) -> SourceSpan {
+    SourceSpan { offset, length: 5, line: 1, column: offset.saturating_add(1) }
+  }
+
+  fn run(script: &ScriptFacts) -> Vec<vue_vet_core::Diagnostic> {
+    RuleRegistry::new(vec![&RULE]).run(
+      Path::new("shadow.ts"),
+      "",
+      &TemplateFacts::default(),
+      script,
+    )
+  }
+
+  fn block(bindings: Vec<ScriptBindingFact>, graph: ReactivityGraph) -> ScriptBlockFacts {
+    ScriptBlockFacts {
+      kind: ScriptKind::Script,
+      language: "ts".into(),
+      imports: Vec::new(),
+      bindings,
+      calls: Vec::new(),
+      member_writes: Vec::new(),
+      destructures: Vec::new(),
+      top_level_await_ends: Vec::new(),
+      operands: Vec::new(),
+      reactivity_graph: Arc::new(graph),
+    }
+  }
+
+  #[test]
+  fn exported_outer_does_not_hide_inner_unused_at_later_span() {
+    let mut graph = ReactivityGraph::default();
+    graph.bindings.push(ReactiveBindingFact {
+      name: "count".into(),
+      kind: ReactiveBindingKind::Ref,
+      initialized_with_null: false,
+      alias_of: None,
+      span: span(1),
+    });
+    graph.bindings.push(ReactiveBindingFact {
+      name: "count".into(),
+      kind: ReactiveBindingKind::Ref,
+      initialized_with_null: false,
+      alias_of: None,
+      span: span(9),
+    });
+    let script = ScriptFacts {
+      blocks: vec![block(
+        vec![
+          ScriptBindingFact {
+            name: "count".into(),
+            reads: 0,
+            writes: 0,
+            span: span(1),
+            exported: true,
+          },
+          ScriptBindingFact {
+            name: "count".into(),
+            reads: 0,
+            writes: 0,
+            span: span(9),
+            exported: false,
+          },
+        ],
+        graph,
+      )],
+    };
+    let diagnostics = run(&script);
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics.first().map(|diagnostic| diagnostic.span.offset), Some(9));
+  }
+
+  #[test]
+  fn template_use_keeps_later_top_level_count_quiet() {
+    let mut graph = ReactivityGraph::default();
+    graph.bindings.push(ReactiveBindingFact {
+      name: "count".into(),
+      kind: ReactiveBindingKind::Ref,
+      initialized_with_null: false,
+      alias_of: None,
+      span: span(9),
+    });
+    graph.template_reads.push(TemplateReactiveReadFact {
+      binding: "count".into(),
+      span: span(20),
+      surface: "text".into(),
+    });
+    let script = ScriptFacts {
+      blocks: vec![block(
+        vec![
+          ScriptBindingFact {
+            name: "count".into(),
+            reads: 0,
+            writes: 0,
+            span: span(1),
+            exported: false,
+          },
+          ScriptBindingFact {
+            name: "count".into(),
+            reads: 0,
+            writes: 0,
+            span: span(9),
+            exported: false,
+          },
+        ],
+        graph,
+      )],
+    };
+    let diagnostics = run(&script);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
   }
 }

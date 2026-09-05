@@ -1,48 +1,25 @@
 # `vue-vet/correctness/no-use-css-vars-after-await`
 
-Category: correctness  
-Default severity: warning  
+Category: correctness
+Default severity: warning
 Confidence: high
 
-In `<script setup>`, calling `useCssVars` after a top-level `await` runs outside the synchronous setup instance context, so the API will not bind correctly.
+**Retired.** This ID stays registered for config compatibility and never reports.
 
-## Bad
+Vue 3.5 `<script setup>` restores instance context across top-level `await` (`withAsyncContext`). Registering `useCssVars` after `await` still binds to this instance.
 
-```vue
-<script setup lang="ts">
-import { useCssVars } from 'vue'
-const data = await fetch('/api').then((response) => response.json())
-const value = useCssVars()
-</script>
-
-<template>
-  <div>{{ data }} {{ value }}</div>
-</template>
-```
-
-## Good
+Quiet regression (must not report):
 
 ```vue
 <script setup lang="ts">
 import { useCssVars } from 'vue'
-const value = useCssVars()
-const data = await fetch('/api').then((response) => response.json())
+await Promise.resolve()
+useCssVars(() => ({}))
+
 </script>
-
-<template>
-  <div>{{ data }}</div>
-</template>
 ```
-
-## Detection
-
-Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
-
-## Remediation
-
-Move `useCssVars` before the first top-level `await`.
 
 ## Fixtures
 
-- Invalid: `fixtures/rules/no-use-css-vars-after-await/invalid/`
-- Valid: `fixtures/rules/no-use-css-vars-after-await/valid/`
+- `fixtures/rules/no-use-css-vars-after-await/valid/former-invalid-basic.vue`
+- `fixtures/rules/no-use-css-vars-after-await/valid/safe.vue`

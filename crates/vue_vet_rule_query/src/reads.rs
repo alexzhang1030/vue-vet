@@ -3,8 +3,8 @@
 use std::fmt;
 
 use vue_vet_core::{
-  ReactiveBindingKind, ReactiveGuardFact, ReactiveReadFact, ReactiveReadKind, ReactiveWriteFact,
-  TrackingScopeFact, TrackingScopeKind,
+  ReactiveBindingFact, ReactiveBindingKind, ReactiveGuardFact, ReactiveReadFact, ReactiveReadKind,
+  ReactiveWriteFact, TrackingScopeFact, TrackingScopeKind,
 };
 
 /// `binding` or `binding.property`, borrowed from the fact.
@@ -91,6 +91,27 @@ pub fn join_member_paths<'a>(paths: impl IntoIterator<Item = MemberPath<'a>>, se
 #[must_use]
 pub fn same_target(read: &ReactiveReadFact, write: &ReactiveWriteFact) -> bool {
   read.binding == write.binding && read.property == write.property
+}
+
+/// Root name for `const alias = known` (`alias_of`), otherwise `name`.
+#[must_use]
+pub fn alias_root<'a>(bindings: &'a [ReactiveBindingFact], name: &'a str) -> &'a str {
+  bindings
+    .iter()
+    .find(|binding| binding.name == name)
+    .and_then(|binding| binding.alias_of.as_deref())
+    .unwrap_or(name)
+}
+
+/// Same reactive source after alias resolution (`const alias = count`).
+#[must_use]
+pub fn same_reactive_target(
+  bindings: &[ReactiveBindingFact],
+  read: &ReactiveReadFact,
+  write: &ReactiveWriteFact,
+) -> bool {
+  alias_root(bindings, &read.binding) == alias_root(bindings, &write.binding)
+    && read.property == write.property
 }
 
 /// Earlier unconditional read of the same `(binding, property)` in `reads`.

@@ -277,13 +277,29 @@ applies that module graph onto SFC facts and runs rules, so composable seeds
 affect per-file diagnostics—not only `module_reactivity` debug output.
 
 Content cache keys include `CACHE_FORMAT_VERSION`, ruleset version,
-`REACTIVITY_GRAPH_VERSION`, conventions / oxc_resolver identity, and **string
-literals** for `vize-version` / `oxc-version` inside `vue_vet_cache::content_key`
-(not read from `Cargo.toml`). Bump those literals or `CACHE_FORMAT_VERSION`
-when a Vize/Oxc upgrade changes results — otherwise warm caches can serve stale
-graphs after a dep bump. Keep `docs/cache-baseline-diff.md` aligned with
-`CACHE_FORMAT_VERSION`. Dual ordinary+setup blocks re-trace as setup plus
+`REACTIVITY_GRAPH_VERSION`, conventions, and `AnalysisStackIdentity::current()`
+(`CACHE_VIZE_CROQUIS_VERSION`, `CACHE_OXC_PARSER_VERSION`,
+`OXC_RESOLVER_VERSION`) hashed by `content_key`. Those identity constants must
+match `fixtures/quality/compat-matrix.json`, the workspace pin, and Cargo.lock
+(`just compat-matrix`). Proving a version participates in the hash requires
+mutating `AnalysisStackIdentity` and observing a different `content_key`
+(`content_key_with_identity`) — `assert_ne!` on a stale string plus
+`key.len() == 64` is not enough. Keep `docs/cache-baseline-diff.md` aligned
+with `CACHE_FORMAT_VERSION`. Dual ordinary+setup blocks re-trace as setup plus
 `{path}#script` (not a single concatenated module).
+
+## Effect run counts are not onTrack JSON
+
+`just oracle` compares tracer edges to Vue `onTrack` JSON. That does **not**
+prove how many times an effect or computed getter runs. Vue 3.5.40 coalesces a
+sync self-assign in `watchEffect` / `watchPostEffect` / `watchSyncEffect`
+(`count.value = count.value + 1`, `++`, helper) into one initial run; an
+external change of `count` yields a second. The same write under
+`watch(source, cb, { immediate: true, flush: 'sync' })` retriggers. Computed
+self-write is impurity / cache invalidation (`can invalidate its cached
+value`), not a proven loop. Run-count evidence is `just oracle-self-trigger`
+(Node 22, pnpm 9 frozen lock, Vue 3.5.40). Do not admit a loop diagnostic
+from onTrack fixtures alone.
 
 ## Do not stack per-guard-role Conditional rule ids
 

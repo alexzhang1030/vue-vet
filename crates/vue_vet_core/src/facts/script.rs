@@ -19,12 +19,21 @@ pub struct ScriptImportFact {
   pub span: SourceSpan,
 }
 
+#[expect(clippy::trivially_copy_pass_by_ref, reason = "serde skip_serializing_if takes &T")]
+const fn is_false(value: &bool) -> bool {
+  !*value
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ScriptBindingFact {
   pub name: String,
   pub reads: usize,
   pub writes: usize,
   pub span: SourceSpan,
+  /// Module export (`export const`, `export function`, `export { name }`, default).
+  /// Absence-of-use rules must not treat exported API as dead locals.
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub exported: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

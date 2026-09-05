@@ -23,13 +23,17 @@ via `just quality-gates`.
 | `suppressed` | 0 | 1 |
 | `module-seeds` | 1 | 0 |
 | `provide-inject` | 0 | 2 |
-| `reactivity-rules` | 4 | 5 |
+| `reactivity-rules` | 2 | 7 |
 
 Expected findings count only `true_positive` / `known_limitation` pairs. FP pins
 must remain absent. Changing either set requires updating the precision JSON and
-explaining the behavior change in the PR. `reactivity-rules` counts (4 TP / 5 FP)
-match `fixtures/quality/precision/reactivity-rules.json`; the table previously
-said 3 / 3 after the JSON grew.
+explaining the behavior change in the PR. `reactivity-rules` counts (2 TP / 7 FP)
+match `fixtures/quality/precision/reactivity-rules.json`. Two former TPs on
+`ConditionalWatch.vue` — `no-conditional-watch-effect-dependency` and
+`prefer-explicit-sources-for-conditional-deps` — are now FP pins: Vue tracks
+dynamic dependencies behind a reactive guard, those rule IDs are withdrawn, and
+the findings must stay absent. Remaining TPs are unused-binding and
+`prefer-computed`. The other five FP pins on `SafePatterns.vue` are unchanged.
 
 ## Performance baselines (CodSpeed suite names)
 

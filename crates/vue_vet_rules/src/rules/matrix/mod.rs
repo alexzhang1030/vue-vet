@@ -8,7 +8,7 @@ use vue_vet_core::{
 };
 
 use vue_vet_rule_query::{
-  binding_path, effect_family, has_prior_unconditional_read, is_readonly_kind, reactive_binding,
+  binding_path, effect_family, is_readonly_kind, reactive_binding, same_reactive_target,
   script_block, setup_calls_after_first_top_level_await, unconditional_self_triggers, write_path,
 };
 
@@ -40,9 +40,9 @@ impl Rule for BoundaryRule {
       if read.kind != self.read_kind {
         continue;
       }
-      if self.read_kind == ReactiveReadKind::Conditional
-        && has_prior_unconditional_read(&scope.reads, read)
-      {
+      if self.read_kind == ReactiveReadKind::Conditional {
+        // Vue tracks dynamic dependencies when the guard is itself reactive.
+        // Premise withdrawn; rule IDs stay for config compatibility.
         continue;
       }
       let path = binding_path(read);
@@ -174,6 +174,12 @@ impl Rule for AfterAwaitCallRule {
   }
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
+    // Only `defineExpose` still has a proven defect after top-level await.
+    // Lifecycle/inject/watch registrars need call-context evidence we do not
+    // have; IDs stay registered for config compatibility.
+    if self.callee != "defineExpose" {
+      return;
+    }
     for call in setup_calls_after_first_top_level_await(context.script(), self.callee) {
       context.report(
         self.meta(),
@@ -397,7 +403,7 @@ impl Rule for PathologyRule {
   }
 
   fn run_on(&self, fact: FactRef<'_>, context: &mut RuleContext<'_>) {
-    let FactRef::TrackingScope { scope, .. } = fact else {
+    let FactRef::TrackingScope { scope, block_kind } = fact else {
       return;
     };
     let matches_scope = if self.effect_family_only {
@@ -410,16 +416,23 @@ impl Rule for PathologyRule {
     }
     match self.kind {
       PathologyKind::SelfTrigger => {
+        // Vue 3.5 watch*Effect coalesces a sync self-assign (`count.value =
+        // count.value + 1` / `count.value++` / helper) into one run. Do not
+        // report those as loops. Computed is different: a self-write can
+        // invalidate its cached value (cache/purity), which this branch keeps.
+        if effect_family(scope.kind) {
+          return;
+        }
         for read in unconditional_self_triggers(scope) {
           let path = binding_path(read);
           context.report(
             self.meta(),
             read.span,
             format!(
-              "`{path}` is read and written in the same tracking scope, which can self-trigger"
+              "`{path}` is read and written in this computed getter, so the result is impure and can invalidate its cached value"
             ),
             Some(
-              "Avoid writing a dependency you also read, or split read/write across scopes.".into(),
+              "Keep computed getters pure; move the write to `watch` or an event handler.".into(),
             ),
           );
         }
@@ -435,7 +448,7 @@ impl Rule for PathologyRule {
         }
       }
       PathologyKind::WriteWithoutRead => {
-        if scope.writes.is_empty() || !scope.reads.is_empty() {
+        if scope.writes.is_empty() || !scope.reads.is_empty() || !scope_coverage_complete(scope) {
           return;
         }
         let (message, help) = absence_finding(
@@ -450,7 +463,7 @@ impl Rule for PathologyRule {
         context.report(self.meta(), scope.span, message, help);
       }
       PathologyKind::NoDependency => {
-        if !scope.reads.is_empty() {
+        if !scope.reads.is_empty() || !scope_coverage_complete(scope) {
           return;
         }
         let (message, help) = absence_finding(
@@ -465,6 +478,9 @@ impl Rule for PathologyRule {
         if !scope.assignment_only {
           return;
         }
+        if !scope_coverage_complete(scope) {
+          return;
+        }
         if scope.reads.len() != 1 {
           return;
         }
@@ -472,6 +488,18 @@ impl Rule for PathologyRule {
           return;
         };
         if read.kind != ReactiveReadKind::Unconditional {
+          return;
+        }
+        // `watch(source)` with immediate+sync retriggers a self-write, including
+        // `const alias = count; alias.value = count.value + 1`.
+        let Some(block) = script_block(context.script(), block_kind) else {
+          return;
+        };
+        if scope
+          .writes
+          .iter()
+          .any(|write| same_reactive_target(&block.reactivity_graph.bindings, read, write))
+        {
           return;
         }
         let path = binding_path(read);
@@ -482,9 +510,7 @@ impl Rule for PathologyRule {
             "`{}` only tracks `{path}`; prefer `watch` with an explicit source",
             scope.callee
           ),
-          Some(format!(
-            "Use `watch(() => {path}, …)` (or `watch({path}, …)` for a ref) for a single source."
-          )),
+          Some(format!("Use `watch(() => {path}, …)` for a single source.")),
         );
       }
       PathologyKind::AssignOnlyConditional => {
@@ -521,7 +547,7 @@ impl Rule for PathologyRule {
         }
       }
       PathologyKind::EmptyWatchSources => {
-        if !scope.reads.is_empty() {
+        if !scope.reads.is_empty() || !scope_coverage_complete(scope) {
           return;
         }
         let (message, help) = absence_finding(
@@ -534,6 +560,10 @@ impl Rule for PathologyRule {
       }
     }
   }
+}
+
+const fn scope_coverage_complete(scope: &vue_vet_core::TrackingScopeFact) -> bool {
+  scope.unknown_calls.is_empty() && scope.uncertain_accesses.is_empty() && !scope.follow_truncated
 }
 
 /// Absence-of-evidence findings: prefer hard edges; if only soft evidence remains, mark `(maybe)`.
@@ -689,6 +719,7 @@ impl Rule for WatchCallbackTrackingRule {
           && callback.kind == TrackingScopeKind::WatchCallback
           && sources.reads.is_empty()
           && !callback.reads.is_empty()
+          && scope_coverage_complete(sources)
         {
           let (message, help) = absence_finding(
             "reactive reads in a `watch` callback are not tracked for invalidation",

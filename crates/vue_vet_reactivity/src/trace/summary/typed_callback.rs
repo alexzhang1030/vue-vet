@@ -124,7 +124,13 @@ pub fn seed_typed_callback_params_at_calls(
         if into.iter().any(|binding| binding.name == name && binding.span.offset == span.offset) {
           continue;
         }
-        into.push(ReactiveBindingFact { name, kind: *kind, initialized_with_null: false, span });
+        into.push(ReactiveBindingFact {
+          name,
+          kind: *kind,
+          initialized_with_null: false,
+          alias_of: None,
+          span,
+        });
       }
     }
   }

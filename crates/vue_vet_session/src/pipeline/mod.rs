@@ -29,8 +29,8 @@ use vue_vet_project::{
 mod analyze;
 
 use analyze::{
-  AnalyzedCandidate, PendingVueFile, analyze_candidate, issue_diagnostic, run_file_rules,
-  script_needs_file_rules, source_environment,
+  AnalyzedCandidate, PendingVueFile, analyze_candidate, issue_diagnostic, needs_file_rules,
+  run_file_rules, script_source_kind, source_environment,
 };
 
 use crate::{
@@ -309,6 +309,7 @@ fn scan_parallel(
   let mut project_files = Vec::new();
   let mut pending_vue = Vec::new();
   // Prefer `state.files` so environment refreshes (no re-parse) reach rules.
+  // Script eligibility waits until module graphs (cross-file seeds) are applied.
   for cached in state.files.values() {
     match cached.analyzed.as_ref() {
       AnalyzedCandidate::Vue { project_file, pending, .. } => {
@@ -327,17 +328,6 @@ fn scan_parallel(
       }
       AnalyzedCandidate::Script { project_file } => {
         project_files.push(Arc::clone(project_file));
-        // JSX/TSX (or any script that already lowered TemplateFacts) needs the
-        // Vue file-rule registry. Plain `.js`/`.ts` stay graph/seed-only — do
-        // not pay the full rule pass on every synthetic module (CodSpeed).
-        if script_needs_file_rules(project_file.path.as_path(), &project_file.facts.template) {
-          pending_vue.push(Arc::new(PendingVueFile {
-            file_id: project_file.path.clone(),
-            source: Arc::clone(&cached.source),
-            environment: cached.environment.clone().unwrap_or_default(),
-            facts: Arc::clone(&project_file.facts),
-          }));
-        }
       }
     }
   }
@@ -391,6 +381,24 @@ fn scan_parallel(
     .iter()
     .map(|module| (module.id.clone(), Arc::clone(&module.graph)))
     .collect::<BTreeMap<_, _>>();
+
+  for cached in state.files.values() {
+    let AnalyzedCandidate::Script { project_file } = cached.analyzed.as_ref() else {
+      continue;
+    };
+    let primary = modules.get(&ModuleId::primary(&project_file.path)).map(AsRef::as_ref);
+    let ordinary = modules.get(&ModuleId::ordinary(&project_file.path)).map(AsRef::as_ref);
+    let kind = script_source_kind(project_file.path.as_path());
+    if !needs_file_rules(&kind, &project_file.facts, primary, ordinary) {
+      continue;
+    }
+    pending_vue.push(Arc::new(PendingVueFile {
+      file_id: project_file.path.clone(),
+      source: Arc::clone(&cached.source),
+      environment: cached.environment.clone().unwrap_or_default(),
+      facts: Arc::clone(&project_file.facts),
+    }));
+  }
 
   // --- Stage: rules (seed-aware file diagnostics) ---
   let rules_total = pending_vue.len();

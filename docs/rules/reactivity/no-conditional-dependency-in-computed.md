@@ -1,63 +1,35 @@
 # `vue-vet/reactivity/no-conditional-dependency-in-computed`
 
-Category: reactivity  
-Default severity: warning  
+Category: reactivity
+Default severity: warning
 Confidence: high
 
-Reports reactive reads inside `computed` that happen only after a control-flow guard. Those reads are not stable dependencies for the tracking scope.
+**Retired.** This ID stays registered for config compatibility and never reports.
 
-## Bad
+Vue tracks dynamic dependencies: `enabled.value ? count.value : 0` re-runs when `enabled` changes and then picks up `count`. A reactive guard is valid tracking.
+
+Quiet regression (must not report):
 
 ```vue
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 const enabled = ref(false)
 const count = ref(0)
-const label = computed(() => {
-  if (!enabled.value) return 'off'
+function load() {
   return String(count.value)
-})
+}
+const label = computed(() => (enabled.value ? load() : 'off'))
 </script>
-
 <template>
   <p>{{ label }}</p>
 </template>
 ```
-
-## Good
-
-```vue
-<script setup lang="ts">
-import { computed, ref } from 'vue'
-const enabled = ref(false)
-const count = ref(0)
-const label = computed(() => (enabled.value ? String(count.value) : 'off'))
-</script>
-
-<template>
-  <p>{{ label }}</p>
-</template>
-```
-
-## Detection
-
-Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
-`ReactiveGuardRole` (early-exit, short-circuit, switch, branch) is fact metadata only —
-it does not emit separate rule ids for the same Conditional read (#136).
-
-## Remediation
-
-Keep reactive reads synchronous and unconditional inside `computed`, or switch to an API with explicit sources (`watch([...])`).
-
-Same dual-path applies when the guarded read lives in a same-file zero-arg
-helper: `computed(() => enabled.value ? load() : 'off')` with
-`function load() { return String(count.value) }` is Conditional on `count`,
-matching the inlined ternary. Both-arm `load()` / `computed(() => load())`
-stay Unconditional.
 
 ## Fixtures
 
-- Invalid: `fixtures/rules/no-conditional-dependency-in-computed/invalid/`
-  (`inline-ternary.vue`, `helper-ternary.vue`)
-- Valid: `fixtures/rules/no-conditional-dependency-in-computed/valid/`
-  (`unconditional-helper.vue`, `both-arms-helper.vue`)
+- `fixtures/rules/no-conditional-dependency-in-computed/valid/both-arms-helper.vue`
+- `fixtures/rules/no-conditional-dependency-in-computed/valid/former-invalid-helper-ternary.vue`
+- `fixtures/rules/no-conditional-dependency-in-computed/valid/former-invalid-inline-ternary.vue`
+- `fixtures/rules/no-conditional-dependency-in-computed/valid/former-invalid-placeholder.vue`
+- `fixtures/rules/no-conditional-dependency-in-computed/valid/safe.vue`
+- `fixtures/rules/no-conditional-dependency-in-computed/valid/unconditional-helper.vue`

@@ -54,3 +54,15 @@ pub fn script_binding<'a>(
 ) -> Option<&'a ScriptBindingFact> {
   block.bindings.iter().find(|binding| binding.name == name)
 }
+
+/// Script symbol whose declaration span matches a reactive binding.
+///
+/// Same-name inner locals must not inherit an outer `exported` flag.
+#[must_use]
+pub fn script_binding_at<'a>(
+  block: &'a ScriptBlockFacts,
+  name: &str,
+  span: vue_vet_core::SourceSpan,
+) -> Option<&'a ScriptBindingFact> {
+  block.bindings.iter().find(|binding| binding.name == name && binding.span.offset == span.offset)
+}

@@ -2263,6 +2263,7 @@ fn materialize_seeds(
           name: local.clone(),
           kind: *kind,
           initialized_with_null: false,
+          alias_of: None,
           span,
         });
       }
@@ -2277,6 +2278,7 @@ fn materialize_seeds(
             name: call.local.clone(),
             kind: *kind,
             initialized_with_null: false,
+            alias_of: None,
             span: source_span(span_source, span_base, call.span),
           });
         }
@@ -2294,6 +2296,7 @@ fn materialize_seeds(
             name: call.local.clone(),
             kind,
             initialized_with_null: false,
+            alias_of: None,
             span: source_span(span_source, span_base, call.span),
           });
         }
@@ -2359,6 +2362,7 @@ fn materialize_seeds(
           name: inject.local.clone(),
           kind,
           initialized_with_null: false,
+          alias_of: None,
           span: source_span(span_source, span_base, inject.span),
         });
       }
@@ -2604,6 +2608,7 @@ fn seed_member_calls_from_value_bags(
               name: local,
               kind,
               initialized_with_null: false,
+              alias_of: None,
               span: source_span(span_source, span_base, span),
             });
           }
@@ -2620,6 +2625,7 @@ fn seed_member_calls_from_value_bags(
           name: identifier.name.to_string(),
           kind: *kind,
           initialized_with_null: false,
+          alias_of: None,
           span: source_span(span_source, span_base, identifier.span),
         });
       }

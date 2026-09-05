@@ -1,7 +1,4 @@
 use vue_vet_core::{Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity};
-use vue_vet_rule_query::{
-  binding_path, guard_path, join_member_paths, unguarded_conditional_reads,
-};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-conditional-watch-effect-dependency",
@@ -24,22 +21,8 @@ impl Rule for NoConditionalWatchEffectDependency {
     FactKinds::REACTIVITY_EFFECT
   }
 
-  fn run_on(&self, fact: FactRef<'_>, context: &mut RuleContext<'_>) {
-    let FactRef::ReactivityEffect { effect, .. } = fact else {
-      return;
-    };
-    for read in unguarded_conditional_reads(&effect.reads) {
-      let binding = binding_path(read);
-      let guards = join_member_paths(read.guards.iter().map(guard_path), "`, `");
-      context.report(
-        self.meta(),
-        read.span,
-        format!("`{binding}` is only tracked after the `{guards}` guard passes"),
-        Some(
-          "If every value must invalidate the effect, use explicit watch sources or read each             dependency before the guard."
-            .into(),
-        ),
-      );
-    }
+  fn run_on(&self, _fact: FactRef<'_>, _context: &mut RuleContext<'_>) {
+    // Vue tracks dynamic dependencies when the guard is itself reactive.
+    // Premise withdrawn; rule ID stays for config compatibility.
   }
 }

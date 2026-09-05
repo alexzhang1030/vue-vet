@@ -46,6 +46,7 @@ pub(super) fn collect_typed_reactive_bindings(
           name: identifier.name.to_string(),
           kind,
           initialized_with_null: false,
+          alias_of: None,
           span: source_span(sfc_source, script_offset, identifier.span),
         });
       }
@@ -76,6 +77,7 @@ pub(super) fn collect_typed_reactive_bindings(
           name: identifier.name.to_string(),
           kind,
           initialized_with_null: false,
+          alias_of: None,
           span: source_span(sfc_source, script_offset, identifier.span),
         });
       }
@@ -201,6 +203,7 @@ pub(super) fn seed_first_formal_as_reactive(
     name: identifier.name.to_string(),
     kind: ReactiveBindingKind::Reactive,
     initialized_with_null: false,
+    alias_of: None,
     span: source_span(sfc_source, script_offset, identifier.span),
   });
 }
@@ -242,6 +245,7 @@ pub(super) fn extend_with_reactive_aliases(
         name: identifier.name.to_string(),
         kind: source.kind,
         initialized_with_null: source.initialized_with_null,
+        alias_of: Some(source.alias_of.clone().unwrap_or_else(|| source.name.clone())),
         span: source_span(sfc_source, script_offset, identifier.span),
       });
     }
@@ -387,6 +391,7 @@ pub(super) fn collect_reactive_bindings(
         name,
         kind: binding_kind,
         initialized_with_null,
+        alias_of: None,
         span: source_span(sfc_source, script_offset, span),
       });
     }
@@ -466,6 +471,7 @@ pub(super) fn seed_named_api_bag_destructure(
         name,
         kind,
         initialized_with_null: false,
+        alias_of: None,
         span: source_span(sfc_source, script_offset, span),
       });
     }
@@ -498,6 +504,7 @@ pub(super) fn seed_named_api_bag_destructure(
         name: site_name.clone(),
         kind: ReactiveBindingKind::Reactive,
         initialized_with_null: false,
+        alias_of: None,
         span: call_span,
       });
     }
@@ -586,6 +593,7 @@ pub(super) fn collect_conditional_init_bindings(
       name: identifier.name.to_string(),
       kind,
       initialized_with_null: false,
+      alias_of: None,
       span,
     });
   }
@@ -754,6 +762,7 @@ pub(super) fn collect_route_slice_bindings(
       name: identifier.name.to_string(),
       kind: ReactiveBindingKind::Reactive,
       initialized_with_null: false,
+      alias_of: None,
       span: source_span(sfc_source, script_offset, identifier.span),
     });
   }

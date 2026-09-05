@@ -1,48 +1,25 @@
 # `vue-vet/correctness/no-get-current-instance-after-await`
 
-Category: correctness  
-Default severity: warning  
+Category: correctness
+Default severity: warning
 Confidence: high
 
-In `<script setup>`, calling `getCurrentInstance` after a top-level `await` runs outside the synchronous setup instance context, so the API will not bind correctly.
+**Retired.** This ID stays registered for config compatibility and never reports.
 
-## Bad
+Vue 3.5 `<script setup>` restores instance context across top-level `await` (`withAsyncContext`). Registering `getCurrentInstance` after `await` still binds to this instance.
 
-```vue
-<script setup lang="ts">
-import { getCurrentInstance } from 'vue'
-const data = await fetch('/api').then((response) => response.json())
-const value = getCurrentInstance()
-</script>
-
-<template>
-  <div>{{ data }} {{ value }}</div>
-</template>
-```
-
-## Good
+Quiet regression (must not report):
 
 ```vue
 <script setup lang="ts">
 import { getCurrentInstance } from 'vue'
-const value = getCurrentInstance()
-const data = await fetch('/api').then((response) => response.json())
+await Promise.resolve()
+getCurrentInstance()
+
 </script>
-
-<template>
-  <div>{{ data }}</div>
-</template>
 ```
-
-## Detection
-
-Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
-
-## Remediation
-
-Move `getCurrentInstance` before the first top-level `await`.
 
 ## Fixtures
 
-- Invalid: `fixtures/rules/no-get-current-instance-after-await/invalid/`
-- Valid: `fixtures/rules/no-get-current-instance-after-await/valid/`
+- `fixtures/rules/no-get-current-instance-after-await/valid/former-invalid-basic.vue`
+- `fixtures/rules/no-get-current-instance-after-await/valid/safe.vue`

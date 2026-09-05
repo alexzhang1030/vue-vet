@@ -19,7 +19,8 @@ use super::{
   reads::{ScopeIrIndex, classify_scope_reads, collect_scope_reads},
   render,
   uncertain::{
-    collect_uncertain_scope_accesses, collect_uncertain_watch_sources, collect_watch_source_reads,
+    collect_uncertain_scope_accesses, collect_uncertain_watch_sources, collect_watch_source_gaps,
+    collect_watch_source_reads,
   },
   writes::{
     callback_parts, collect_scope_writes, is_assignment_only_followed, tracking_callback_parts,
@@ -117,6 +118,12 @@ pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
   );
   let mut assignment_visiting = BTreeSet::new();
   assignment_visiting.insert(build.scope_id);
+  let gaps = super::follow::collect_analysis_gaps(
+    build.semantic,
+    build.index,
+    build.scope_id,
+    build.imported_bindings,
+  );
   TrackingScopeFact {
     kind: build.kind,
     callee: build.callee,
@@ -131,6 +138,8 @@ pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
     ),
     binding: build.binding,
     uncertain_accesses,
+    unknown_calls: gaps.unknown_calls,
+    follow_truncated: gaps.truncated,
   }
 }
 
@@ -288,6 +297,7 @@ pub(super) fn collect_tracking_scopes(
           script_offset,
           index,
         );
+        let gaps = collect_watch_source_gaps(semantic, source_argument, imported_bindings, index);
         scopes.push(TrackingScopeFact {
           kind: TrackingScopeKind::WatchSources,
           callee: callee.clone(),
@@ -297,6 +307,8 @@ pub(super) fn collect_tracking_scopes(
           assignment_only: false,
           binding: None,
           uncertain_accesses,
+          unknown_calls: gaps.unknown_calls,
+          follow_truncated: gaps.truncated,
         });
 
         if let Some(callback_argument) = call.arguments.get(1)

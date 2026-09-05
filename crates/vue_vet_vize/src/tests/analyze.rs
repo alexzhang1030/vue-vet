@@ -100,6 +100,52 @@ fn style_v_bind_ident_joins_computed_binding() {
 }
 
 #[test]
+fn inner_then_template_count_is_not_unused() {
+  let source = concat!(
+    "<script setup lang=\"ts\">\n",
+    "import { ref } from 'vue'\n",
+    "function make() {\n",
+    "  const count = ref(2)\n",
+    "  return count\n",
+    "}\n",
+    "const count = ref(1)\n",
+    "void make\n",
+    "</script>\n",
+    "<template>\n",
+    "  <p>{{ count }}</p>\n",
+    "</template>\n",
+  );
+  let diagnostics = analyze_for_test(Path::new("InnerThenTemplate.vue"), source);
+  assert!(
+    diagnostics
+      .iter()
+      .all(|diagnostic| { diagnostic.rule_id != "vue-vet/reactivity/no-unused-reactive-binding" }),
+    "template use of the later top-level count must not be unused; {diagnostics:?}"
+  );
+}
+
+#[test]
+fn ordinary_script_exports_are_not_unused() {
+  let source = concat!(
+    "<script lang=\"ts\">\n",
+    "import { computed, ref } from 'vue'\n",
+    "export const count = ref(1)\n",
+    "export const doubled = computed(() => count.value * 2)\n",
+    "export function useCount() {\n",
+    "  const local = ref(1)\n",
+    "  return { local }\n",
+    "}\n",
+    "export default { name: 'Exported' }\n",
+    "</script>\n",
+  );
+  let diagnostics = analyze_for_test(Path::new("OrdinaryExport.vue"), source);
+  assert!(
+    diagnostics.iter().all(|diagnostic| !diagnostic.rule_id.contains("unused")),
+    "exported ordinary-script APIs must stay unused-safe; {diagnostics:?}"
+  );
+}
+
+#[test]
 fn style_v_bind_skips_complex_expressions() {
   let source = concat!(
     "<script setup lang=\"ts\">\n",

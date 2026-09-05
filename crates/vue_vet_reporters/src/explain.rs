@@ -532,6 +532,9 @@ mod tests {
         guards: Vec::new(),
       }],
       uncertain: vec!["maybeRoot".into()],
+      unknown_calls: Vec::new(),
+      follow_truncated: false,
+      analysis_complete: true,
     };
     let text = render_scope_explain_text(&explain);
     assert!(text.contains("tracking scope"));

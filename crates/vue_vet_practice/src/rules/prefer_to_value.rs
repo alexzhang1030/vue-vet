@@ -174,7 +174,13 @@ mod tests {
         argument_identifiers: Vec::new(),
         span: span(),
       },
-      vec![ScriptBindingFact { name: "unref".into(), reads: 1, writes: 0, span: span() }],
+      vec![ScriptBindingFact {
+        name: "unref".into(),
+        reads: 1,
+        writes: 0,
+        span: span(),
+        exported: false,
+      }],
       3,
     );
     assert!(diagnostics.is_empty());

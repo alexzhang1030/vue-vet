@@ -5,9 +5,7 @@ use vue_vet_core::{
   TrackingScopeKind,
 };
 
-use vue_vet_rule_query::{
-  binding_path, effect_family, script_has_call, unguarded_conditional_reads,
-};
+use vue_vet_rule_query::{binding_path, effect_family, script_has_call};
 
 const DEEP_WATCH_PROPERTY: &str = "*";
 
@@ -143,26 +141,9 @@ impl Rule for NoConditionalDependencyInRender {
     FactKinds::TRACKING_SCOPE
   }
 
-  fn run_on(&self, fact: FactRef<'_>, context: &mut RuleContext<'_>) {
-    let FactRef::TrackingScope { scope, .. } = fact else {
-      return;
-    };
-    if scope.kind != TrackingScopeKind::Render {
-      return;
-    }
-    for read in unguarded_conditional_reads(&scope.reads) {
-      let path = binding_path(read);
-      context.report(
-        self.meta(),
-        read.span,
-        format!(
-          "`{path}` is read only after a control-flow guard inside render, so it is not a reliable dependency"
-        ),
-        Some(format!(
-          "Read `{path}` synchronously in render, or use explicit `watch` sources."
-        )),
-      );
-    }
+  fn run_on(&self, _fact: FactRef<'_>, _context: &mut RuleContext<'_>) {
+    // Vue tracks dynamic dependencies when the guard is itself reactive.
+    // Premise withdrawn; rule ID stays for config compatibility.
   }
 }
 

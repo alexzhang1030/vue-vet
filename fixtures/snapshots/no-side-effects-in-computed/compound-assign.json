@@ -5,8 +5,8 @@
     "severity": "warning",
     "confidence": "high",
     "documentation": "rules/reactivity/no-computed-self-trigger",
-    "message": "`b.value` is read and written in the same tracking scope, which can self-trigger",
-    "help": "Avoid writing a dependency you also read, or split read/write across scopes.",
+    "message": "`b.value` is read and written in this computed getter, so the result is impure and can invalidate its cached value",
+    "help": "Keep computed getters pure; move the write to `watch` or an event handler.",
     "file": "fixtures/rules/no-side-effects-in-computed/invalid/compound-assign.vue",
     "span": {
       "offset": 122,

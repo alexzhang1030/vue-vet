@@ -1,46 +1,24 @@
 # `vue-vet/correctness/no-define-model-after-await`
 
-Category: correctness  
-Default severity: warning  
+Category: correctness
+Default severity: warning
 Confidence: high
 
-In `<script setup>`, calling `defineModel` after a top-level `await` runs outside the synchronous setup instance context, so the API will not bind correctly.
+**Retired.** This ID stays registered for config compatibility and never reports.
 
-## Bad
+`defineModel` is a compiler macro hoisted by `compileScript`. Source position after top-level `await` is not a runtime defect.
 
-```vue
-<script setup lang="ts">
-const data = await fetch('/api').then((response) => response.json())
-defineModel()
-</script>
-
-<template>
-  <div>{{ data }}</div>
-</template>
-```
-
-## Good
+Quiet regression (must not report):
 
 ```vue
 <script setup lang="ts">
-defineModel()
-const data = await fetch('/api').then((response) => response.json())
+await Promise.resolve()
+defineModel<string>()
+
 </script>
-
-<template>
-  <div>{{ data }}</div>
-</template>
 ```
-
-## Detection
-
-Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
-
-## Remediation
-
-Move `defineModel` before the first top-level `await`.
 
 ## Fixtures
 
-- Invalid: `fixtures/rules/no-define-model-after-await/invalid/`
-- Valid: `fixtures/rules/no-define-model-after-await/valid/`
+- `fixtures/rules/no-define-model-after-await/valid/former-invalid-basic.vue`
+- `fixtures/rules/no-define-model-after-await/valid/safe.vue`

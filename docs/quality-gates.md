@@ -30,7 +30,7 @@ Canonical inventory: [`fixtures/quality/manifest.json`](../fixtures/quality/mani
 | `fixtures/projects/suppressed` | vue, config, precision | Inline disable keeps `no-v-html` quiet (empty expected set). |
 | `fixtures/projects/module-seeds` | vue, reactivity, precision | Cross-file composable `toRef` seed + after-await `watchEffect` dependency. |
 | `fixtures/projects/provide-inject` | vue, reactivity, precision | Unique-key provide→inject seeds quietly; duplicate-key Ambiguous stays under-approx (0 findings). |
-| `fixtures/projects/reactivity-rules` | vue, reactivity, precision | Unused binding / prefer-computed / conditional watchEffect TPs plus safe patterns. |
+| `fixtures/projects/reactivity-rules` | vue, reactivity, precision | Unused binding / prefer-computed TPs; withdrawn conditional-dep IDs and SafePatterns are FP pins. |
 
 Selection rules:
 

@@ -59,3 +59,20 @@ jobs:
         run: just compat-matrix
       - name: Quality corpus integrity and precision
         run: just quality-gates
+
+  oracle-self-trigger:
+    name: Vue self-trigger run counts
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: extractions/setup-just@v3
+      - name: Watch*Effect / watch / computed run-count evidence
+        run: just oracle-self-trigger

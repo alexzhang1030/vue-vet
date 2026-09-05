@@ -1,12 +1,14 @@
 # `vue-vet/reactivity/prefer-explicit-sources-for-conditional-deps`
 
-Category: reactivity  
-Default severity: warning  
+Category: reactivity
+Default severity: warning
 Confidence: high
 
-Conditional reactive reads inside effects are clearer with explicit `watch` sources.
+**Retired.** This ID stays registered for config compatibility and never reports.
 
-## Bad
+Vue tracks dynamic dependencies. A reactive guard still subscribes; later reads are picked up on the next run. That is valid tracking, not a defect.
+
+Quiet regression (must not report):
 
 ```vue
 <script setup lang="ts">
@@ -20,29 +22,7 @@ watchEffect(() => {
 </script>
 ```
 
-## Good
-
-```vue
-<script setup lang="ts">
-import { ref, watch } from 'vue'
-const enabled = ref(false)
-const result = ref(0)
-watch([enabled, result], () => {
-  if (!enabled.value) return
-  console.log(result.value)
-})
-</script>
-```
-
-## Detection
-
-Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
-
-## Remediation
-
-List every dependency in `watch([...])`.
-
 ## Fixtures
 
-- Invalid: `fixtures/rules/prefer-explicit-sources-for-conditional-deps/invalid/`
-- Valid: `fixtures/rules/prefer-explicit-sources-for-conditional-deps/valid/`
+- `fixtures/rules/prefer-explicit-sources-for-conditional-deps/valid/former-invalid-basic.vue`
+- `fixtures/rules/prefer-explicit-sources-for-conditional-deps/valid/safe.vue`
