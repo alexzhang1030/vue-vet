@@ -22,7 +22,7 @@ Related: [architecture](./architecture.md), [gotchas](./gotchas.md),
 - Grow the graph so multiple consumers can share it: rules, project graph,
   cache, future LSP/codemod surfaces.
 - **Rules that need this graph are the product differentiator** (catalog tier
-  `tracer`). Template Essential / a11y / after-await registrars are `parity`
+  `tracer`). Template Essential / a11y / remaining after-await (`defineExpose`) are `parity`
   completeness — valuable, but not what only Vue Vet can do. See
   [`docs/rules/README.md`](../../docs/rules/README.md).
 - The CLI surfaces a **Reactivity** digest after the score line (optional
@@ -71,7 +71,7 @@ block complete. Bare `const alias = known` is recorded on the existing
 ## Current baseline
 
 Contract version: **`REACTIVITY_GRAPH_VERSION = 40`**. Rule-set identity
-hashed into the scan cache is **`RULESET_VERSION = 14`**.
+hashed into the scan cache is **`RULESET_VERSION = 15`**.
 
 v40 records Oxc-resolved `alias_of_span` on alias bindings, treats assignment-pattern
 default initializers and computed keys as reads, links prefer-computed mutable

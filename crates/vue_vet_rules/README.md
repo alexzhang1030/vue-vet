@@ -29,7 +29,7 @@ adding or renaming ids, regenerate the catalog with `just rules-catalog`.
 | Area | Role |
 | --- | --- |
 | `rules/*.rs` | Standalone rules (one file per id family) |
-| `rules/matrix/` | Tracking-graph / after-await registrar packs: shared detection type + unique `RuleMeta` catalog |
+| `rules/matrix/` | Hand-maintained tracking-graph packs plus `defineExpose` after-await (`scripts/gen_matrix_rules.py` is check-only) |
 | `rules/directives/` | Directive validity / pairing helpers |
 | `rules/tracer_extra.rs` / `graph_extra.rs` | Tracer- and graph-backed extras assembled into the registry |
 

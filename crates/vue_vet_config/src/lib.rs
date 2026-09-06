@@ -483,6 +483,19 @@ exclude = ["src/generated/**"]
   }
 
   #[test]
+  fn unknown_rule_overrides_are_rejected() {
+    let config = Config::parse(
+      "version = 1\n[rules]\n\"vue-vet/correctness/no-on-mounted-after-await\" = \"off\"\n",
+    )
+    .unwrap_or_default();
+    let err = config.validate_rules(["vue-vet/security/no-v-html"]);
+    assert!(
+      matches!(err, Err(ConfigError::UnknownRule(ref id)) if id == "vue-vet/correctness/no-on-mounted-after-await"),
+      "retired or unknown rule ids must fail config validation: {err:?}"
+    );
+  }
+
+  #[test]
   fn rejects_unknown_fields_and_versions() {
     assert!(
       matches!(Config::parse("unknown = true"), Err(ConfigError::Invalid { .. })),

@@ -19,13 +19,16 @@ PAIR_RE = re.compile(
 SCAN_DIRS = [
   ROOT / "crates" / "vue_vet_rules" / "src",
   ROOT / "crates" / "vue_vet_practice" / "src",
-  ROOT / "crates" / "vue_vet_project" / "src",
 ]
+
+PROJECT_RULE_IDS = (
+  "vue-vet/project/unresolved-import",
+  "vue-vet/project/unused-component",
+)
 
 # Stable overrides when heuristics would mis-label.
 TRACER_FORCE = {
   "vue-vet/reactivity/prefer-computed",
-  "vue-vet/reactivity/no-conditional-watch-effect-dependency",
   "vue-vet/reactivity/no-after-await-watch-effect-dependency",
   "vue-vet/reactivity/no-unused-reactive-binding",
   "vue-vet/reactivity/no-stale-prop-flow",
@@ -124,7 +127,9 @@ def render(rules: dict[str, str]) -> str:
     f"| `parity` | Template Essential / a11y / macros / after-await registrars — open-box completeness | {tiers['parity']} |",
     f"| `practice` | Ecosystem suggestions (`category: practice`); excluded from score by default | {tiers['practice']} |",
     "",
-    f"Total registered rules: **{len(rules)}**.",
+    f"Total registered **file** rules (builtins + practice): **{len(rules)}**.",
+    "",
+    "Project-graph IDs are listed separately below and are not in this file-ID set.",
     "",
     "| Category | Count |",
     "| --- | ---: |",
@@ -150,6 +155,14 @@ def render(rules: dict[str, str]) -> str:
       "- Fixtures: `fixtures/rules/<name>/{invalid,valid}/`",
       "- Practice suggestions do not affect score by default",
       "- Prefer tracer-tier findings when evaluating Vue Vet against other doctors",
+      "- Removed historical IDs: [`docs/rules/removed-ids.md`](./removed-ids.md)",
+      "",
+      "## Project-graph rules",
+      "",
+      "These IDs belong to the project registry and are listed separately from file rules.",
+      "",
+      f"- `{PROJECT_RULE_IDS[0]}`",
+      f"- `{PROJECT_RULE_IDS[1]}`",
       "",
     ]
   )

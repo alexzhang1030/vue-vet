@@ -113,40 +113,6 @@ impl Rule for NoReactiveReadDuringPauseTracking {
   }
 }
 
-// --- conditional dependency in render --------------------------------------------
-//
-// Scope-aware Conditional reads for computed / watch sources / effectScope live in
-// the matrix family. Effect-family scopes use `no-conditional-watch-effect-dependency`.
-// Per-`ReactiveGuardRole` rule ids were removed (#136): they stacked on the same
-// Conditional fact and inflated finding count without extra precision.
-
-const RENDER_CONDITIONAL_META: RuleMeta = RuleMeta {
-  id: "vue-vet/reactivity/no-conditional-dependency-in-render",
-  category: "reactivity",
-  default_severity: Severity::Warning,
-  confidence: Confidence::High,
-  documentation: "rules/reactivity/no-conditional-dependency-in-render",
-};
-
-pub(super) struct NoConditionalDependencyInRender;
-pub(super) static NO_CONDITIONAL_DEPENDENCY_IN_RENDER: NoConditionalDependencyInRender =
-  NoConditionalDependencyInRender;
-
-impl Rule for NoConditionalDependencyInRender {
-  fn meta(&self) -> &'static RuleMeta {
-    &RENDER_CONDITIONAL_META
-  }
-
-  fn fact_kinds(&self) -> FactKinds {
-    FactKinds::TRACKING_SCOPE
-  }
-
-  fn run_on(&self, _fact: FactRef<'_>, _context: &mut RuleContext<'_>) {
-    // Vue tracks dynamic dependencies when the guard is itself reactive.
-    // Premise withdrawn; rule ID stays for config compatibility.
-  }
-}
-
 // --- deferred OutsideTracking in effects -----------------------------------------
 
 const DEFERRED_META: RuleMeta = RuleMeta {
@@ -207,7 +173,6 @@ pub(super) fn tracer_extra_rules() -> Vec<&'static dyn Rule> {
   vec![
     &NO_DEEP_WATCH_ON_REACTIVE_ROOT,
     &NO_REACTIVE_READ_DURING_PAUSE_TRACKING,
-    &NO_CONDITIONAL_DEPENDENCY_IN_RENDER,
     &NO_DEFERRED_CALLBACK_REACTIVE_READ_IN_EFFECT,
   ]
 }

@@ -14,18 +14,6 @@
       "rationale": "watchEffect only syncs derived fullName from other refs"
     },
     {
-      "rule_id": "vue-vet/reactivity/no-conditional-watch-effect-dependency",
-      "file": "ConditionalWatch.vue",
-      "classification": "false_positive",
-      "rationale": "Dynamic deps behind a reactive guard are valid Vue tracking; rule is withdrawn"
-    },
-    {
-      "rule_id": "vue-vet/reactivity/prefer-explicit-sources-for-conditional-deps",
-      "file": "ConditionalWatch.vue",
-      "classification": "false_positive",
-      "rationale": "Dynamic deps behind a reactive guard are valid Vue tracking; rule is withdrawn"
-    },
-    {
       "rule_id": "vue-vet/reactivity/no-unused-reactive-binding",
       "file": "SafePatterns.vue",
       "classification": "false_positive",
@@ -36,18 +24,6 @@
       "file": "SafePatterns.vue",
       "classification": "false_positive",
       "rationale": "Derived fullName already uses computed"
-    },
-    {
-      "rule_id": "vue-vet/reactivity/no-conditional-watch-effect-dependency",
-      "file": "SafePatterns.vue",
-      "classification": "false_positive",
-      "rationale": "Nested callback after guard is an intentional quiet pattern"
-    },
-    {
-      "rule_id": "vue-vet/reactivity/prefer-explicit-sources-for-conditional-deps",
-      "file": "SafePatterns.vue",
-      "classification": "false_positive",
-      "rationale": "Nested callback after guard is an intentional quiet pattern"
     },
     {
       "rule_id": "vue-vet/reactivity/no-computed-without-dependency",
