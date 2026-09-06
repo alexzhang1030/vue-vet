@@ -28,11 +28,14 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-deferred-callback-reactive-read-in-effect", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-effect-write-without-read", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-empty-watch-sources", RuleGroupId::Tracking),
+  ("vue-vet/reactivity/no-late-scope-dispose", RuleGroupId::Lifetime),
+  ("vue-vet/reactivity/no-late-watcher-cleanup", RuleGroupId::Lifetime),
   ("vue-vet/reactivity/no-lost-shallow-nested-notification", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-model-ref-as-operand", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-multiple-effects-same-target", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-nonreactive-props-destructure", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-on-scope-dispose-reactive-read", RuleGroupId::Lifetime),
+  ("vue-vet/reactivity/no-orphaned-scope-watcher", RuleGroupId::Lifetime),
   ("vue-vet/reactivity/no-outside-tracking-dependency-in-computed", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-outside-tracking-dependency-in-effect-scope", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-outside-tracking-dependency-in-watch-sources", RuleGroupId::Tracking),
@@ -42,6 +45,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-reactive-read-during-pause-tracking", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-readonly-mutation", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-ref-as-operand", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-returned-watcher-cleanup", RuleGroupId::Lifetime),
   ("vue-vet/reactivity/no-route-destructure", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-router-destructure", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-shallow-reactive-destructure", RuleGroupId::SourceContracts),
@@ -204,6 +208,31 @@ mod tests {
     let tracking = rule_inventory(&[RuleGroupId::Tracking, RuleGroupId::Tracking]);
     assert!(tracking.rules.iter().all(|row| row.group == Some(RuleGroupId::Tracking)));
     assert_eq!(tracking.counts.total, tracking.rules.len());
+  }
+
+  #[test]
+  fn lifetime_watcher_and_scope_ids_are_in_lifetime_not_tracking() {
+    const LIFETIME_IDS: &[&str] = &[
+      "vue-vet/reactivity/no-late-scope-dispose",
+      "vue-vet/reactivity/no-late-watcher-cleanup",
+      "vue-vet/reactivity/no-orphaned-scope-watcher",
+      "vue-vet/reactivity/no-returned-watcher-cleanup",
+    ];
+    let inventory = rule_inventory(&[]);
+    assert_eq!(inventory.counts.total, 113, "composed CLI inventory count");
+    let lifetime = rule_inventory(&[RuleGroupId::Lifetime]);
+    let tracking = rule_inventory(&[RuleGroupId::Tracking]);
+    for id in LIFETIME_IDS {
+      assert_eq!(group_of(id), Some(RuleGroupId::Lifetime), "{id}");
+      assert!(
+        lifetime.rules.iter().any(|row| row.id == *id && row.group == Some(RuleGroupId::Lifetime)),
+        "lifetime inventory must include {id}"
+      );
+      assert!(
+        tracking.rules.iter().all(|row| row.id != *id),
+        "tracking inventory must exclude {id}"
+      );
+    }
   }
 
   fn raw_composed_ids() -> Vec<&'static str> {

@@ -506,7 +506,9 @@ cached/fresh scans, unsaved overlays, per-file fact state, reverse dependencies,
 rule/finding explain, workspace path containment, and the **product rule-group
 table**. Canonical groups (`tracking`, `source-contracts`, `lifetime`,
 `derivation`, `project`) map composed registry IDs (built-in + practice +
-project) one-to-one. Core holds only serializable group DTOs — not hardcoded
+project) one-to-one. The four watcher / `effectScope` lifetime IDs
+(`no-returned-watcher-cleanup`, `no-late-watcher-cleanup`,
+`no-orphaned-scope-watcher`, `no-late-scope-dispose`) map to `lifetime`. Core holds only serializable group DTOs — not hardcoded
 rule IDs and not a `RuleMeta` field. `--group` is applied to the effective
 `vue-vet.toml` **before** analysis by setting non-selected known IDs to `off`
 while leaving selected entries untouched, so cache identity, score, exit,
