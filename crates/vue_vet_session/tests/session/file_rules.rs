@@ -355,6 +355,8 @@ obj.nested = { x: 9 }\n\
         || diagnostic.rule_id.contains("primitive-reactive")
         || diagnostic.rule_id.contains("watch-unwrapped")
         || diagnostic.rule_id.contains("watch-replaced")
+        || diagnostic.rule_id.contains("once-immediate")
+        || diagnostic.rule_id.contains("watch-alias-old-new")
     })
     .count();
   assert!(

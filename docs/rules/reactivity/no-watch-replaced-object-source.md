@@ -14,7 +14,9 @@ be a simple `=` of a fresh object/array/`new` collection. Compound assigns
 (`||=`), `reactive(existing)` (cached proxy), `state.p = state.p`, branched
 control flow, `const stop = watch(…); stop()`, readonly/shallow roots, spreads,
 and unknown aliases stay quiet. Mutation *before* subscription and nested-only
-writes (`state.nested.x = …`) are safe. Getter sources stay quiet.
+writes (`state.nested.x = …`) are safe. Same-object destructuring assignment
+(`({ child: state.child } = { child: state.child })`) does not prove a fresh
+member replacement and stays quiet. Getter sources stay quiet.
 
 ## Bad
 

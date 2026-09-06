@@ -93,3 +93,5 @@ jobs:
       - uses: extractions/setup-just@v3
       - name: Source-contract runtime premises
         run: just oracle-source-contracts
+      - name: Watch-callback runtime premises
+        run: just oracle-watch-callback-contracts

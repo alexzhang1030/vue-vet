@@ -19,6 +19,8 @@ pub struct SourceContractFacts {
   pub watch_unwrapped_source: Vec<SourceContractSiteFact>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub watch_replaced_object_source: Vec<WatchReplacedObjectSourceFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub watch_callback_contracts: Vec<WatchCallbackContractFact>,
 }
 
 impl SourceContractFacts {
@@ -29,6 +31,7 @@ impl SourceContractFacts {
       && self.primitive_reactive_target.is_empty()
       && self.watch_unwrapped_source.is_empty()
       && self.watch_replaced_object_source.is_empty()
+      && self.watch_callback_contracts.is_empty()
   }
 }
 
@@ -47,4 +50,22 @@ pub struct WatchReplacedObjectSourceFact {
   pub replacement_span: SourceSpan,
   pub object: String,
   pub property: String,
+}
+
+/// Proven watch-callback contract failure (once/immediate discard or root identity).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct WatchCallbackContractFact {
+  pub watch_span: SourceSpan,
+  pub source_span: SourceSpan,
+  pub guard_span: SourceSpan,
+  pub reason: WatchCallbackContractReason,
+}
+
+/// Why a watch callback is proven useless for later value-dependent work.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[repr(u8)]
+#[serde(rename_all = "kebab-case")]
+pub enum WatchCallbackContractReason {
+  OnceImmediateUndefinedGuard,
+  ReactiveRootIdentityGuard,
 }

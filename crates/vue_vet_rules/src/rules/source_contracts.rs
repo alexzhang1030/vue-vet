@@ -1,6 +1,9 @@
 //! Vue API source-contract rules (issue #224). Consume stable facts only.
 
-use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, Severity, SourceContractSiteFact};
+use vue_vet_core::{
+  Confidence, Rule, RuleContext, RuleMeta, Severity, SourceContractSiteFact,
+  WatchCallbackContractReason,
+};
 
 const TRIGGER_META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-trigger-ref-on-non-ref",
@@ -42,6 +45,22 @@ const REPLACED_META: RuleMeta = RuleMeta {
   documentation: "rules/reactivity/no-watch-replaced-object-source",
 };
 
+const ONCE_IMMEDIATE_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-once-immediate-discard",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-once-immediate-discard",
+};
+
+const ALIAS_OLD_NEW_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-watch-alias-old-new",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-watch-alias-old-new",
+};
+
 pub(super) struct NoTriggerRefOnNonRef;
 pub(super) static NO_TRIGGER_REF_ON_NON_REF: NoTriggerRefOnNonRef = NoTriggerRefOnNonRef;
 
@@ -58,6 +77,12 @@ pub(super) static NO_WATCH_UNWRAPPED_SOURCE: NoWatchUnwrappedSource = NoWatchUnw
 pub(super) struct NoWatchReplacedObjectSource;
 pub(super) static NO_WATCH_REPLACED_OBJECT_SOURCE: NoWatchReplacedObjectSource =
   NoWatchReplacedObjectSource;
+
+pub(super) struct NoOnceImmediateDiscard;
+pub(super) static NO_ONCE_IMMEDIATE_DISCARD: NoOnceImmediateDiscard = NoOnceImmediateDiscard;
+
+pub(super) struct NoWatchAliasOldNew;
+pub(super) static NO_WATCH_ALIAS_OLD_NEW: NoWatchAliasOldNew = NoWatchAliasOldNew;
 
 impl Rule for NoTriggerRefOnNonRef {
   fn meta(&self) -> &'static RuleMeta {
@@ -167,6 +192,56 @@ impl Rule for NoWatchReplacedObjectSource {
   }
 }
 
+impl Rule for NoOnceImmediateDiscard {
+  fn meta(&self) -> &'static RuleMeta {
+    &ONCE_IMMEDIATE_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.watch_callback_contracts {
+        if site.reason != WatchCallbackContractReason::OnceImmediateUndefinedGuard {
+          continue;
+        }
+        context.report(
+          self.meta(),
+          site.guard_span,
+          "`watch` with `{ once: true, immediate: true }` returns before the only invocation can use the new value".into(),
+          Some(
+            "The initial `old` value is `undefined` for a single source, so this guard consumes the callback's only run. Drop `once`, drop the guard, or do the initial work without returning."
+              .into(),
+          ),
+        );
+      }
+    }
+  }
+}
+
+impl Rule for NoWatchAliasOldNew {
+  fn meta(&self) -> &'static RuleMeta {
+    &ALIAS_OLD_NEW_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.watch_callback_contracts {
+        if site.reason != WatchCallbackContractReason::ReactiveRootIdentityGuard {
+          continue;
+        }
+        context.report(
+          self.meta(),
+          site.guard_span,
+          "`watch` on a reactive root compares the same proxy identity, so later new-value work never runs".into(),
+          Some(
+            "Vue reuses the reactive object for `old` and `new` on nested changes. Compare a field, watch a getter, or drop the identity guard."
+              .into(),
+          ),
+        );
+      }
+    }
+  }
+}
+
 fn report_site(
   context: &mut RuleContext<'_>,
   meta: &RuleMeta,
@@ -185,5 +260,7 @@ pub(super) fn source_contract_rules() -> Vec<&'static dyn Rule> {
     &NO_PRIMITIVE_REACTIVE_TARGET,
     &NO_WATCH_UNWRAPPED_SOURCE,
     &NO_WATCH_REPLACED_OBJECT_SOURCE,
+    &NO_ONCE_IMMEDIATE_DISCARD,
+    &NO_WATCH_ALIAS_OLD_NEW,
   ]
 }

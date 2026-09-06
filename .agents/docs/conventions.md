@@ -50,6 +50,23 @@
 - After adding or renaming rule ids, regenerate the human catalog with
   `just rules-catalog` (`docs/rules/README.md`). Expand stub pages with
   `just rules-docs` (`scripts/expand_rule_docs.py`) before polishing essays.
+- Watch-callback contracts (`no-once-immediate-discard`,
+  `no-watch-alias-old-new`) consume `SourceContractFacts.watch_callback_contracts`
+  only. Once-immediate requires a supported single source (ref, getter, or
+  proven actually-reactive root); identity requires a closed plain
+  object/array `reactive`/`shallowReactive` target (Vue marker keys,
+  `__proto__`, spread, and accessor keys stay unknown; constructor-input
+  `Object.freeze` / unknown helpers / spread-sequence-storage argument flow
+  abstain; assignment-pattern marker writes invalidate the watched root;
+  ordinary `state.n` writes do
+  not). Nested later-work blocks abstain. Closed object proofs are
+  precomputed per span. Capability-unknown flow uses a per-root role index
+  (not generic `escaped`/`uncertain`). This base has no canonical
+  tracking-group table; parent integration should map both IDs to the existing
+  watch/reactivity tracking group used by `no-watch-unwrapped-source`. Do not
+  drop `no-deep-watch-on-reactive-root` when the identity-guard rule also
+  fires: one is source-wide tracking, the other is callback dead work.
+  `RULESET_VERSION` is reserved at 16 here; Codex finalizes the number on rebase.
 - Low-confidence heuristics are opt-in and never enter the default preset merely to increase rule count.
 
 ## Source locations

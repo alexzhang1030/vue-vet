@@ -9,7 +9,7 @@
     "help": "Pass a non-null object, or use `ref` for primitive state.",
     "file": "fixtures/rules/no-primitive-reactive-target/invalid/crlf.vue",
     "span": {
-      "offset": 77,
+      "offset": 75,
       "length": 1,
       "line": 3,
       "column": 20

@@ -49,6 +49,10 @@ oracle-self-trigger:
 oracle-source-contracts:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node source-contracts.mjs
 
+# Vue 3.5.40 watch-callback contract premises. Locked oracle Vue pin.
+oracle-watch-callback-contracts:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node watch-callback-contracts.mjs
+
 # Run all non-mutating Rust linters.
 lint-rust: fmt-check check clippy
 
