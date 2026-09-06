@@ -166,6 +166,10 @@ pack-platform:
     --version "$version" \
     --out "dist/npm/@vue-vet/${pkg}"
 
+# Print host release binary file size and gzip-9 proxy (no byte-count assertion).
+native-size:
+  python3 scripts/native_size.py
+
 # Smoke the host release binary (--version + fixture scan).
 release-smoke:
   #!/usr/bin/env bash
