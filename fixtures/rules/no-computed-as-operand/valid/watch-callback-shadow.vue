@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+
 const count = ref(0)
 const doubled = computed(() => count.value * 2)
-const ok = doubled > 0
+watch(doubled, (doubled) => {
+  if (!doubled)
+    return
+})
 </script>
 
 <template>
-  <p>{{ ok }}</p>
+  <p>{{ doubled }}</p>
 </template>

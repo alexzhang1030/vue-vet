@@ -1,7 +1,7 @@
 # Reactivity tracer science memo
 
 Harvested: 2026-08-25. Graph contract **v34** (HOF / `toValue` getter writes). v33 is composable-instance writes; v32 is render identifier getters; v31 is watch-source peel; v30 is pause inside followed helpers; v29 is compound / update writes.
-This is a ranked research record after A0–A7 were marked complete. It is **not** a new completeness axis and it does not authorize Elk/corpus KPI chasing or another `summary/mod.rs` extract.
+This is a ranked research record after A0–A7 were marked complete. It is **not** a new completeness axis and it does not authorize reference-corpus KPI chasing or another `summary/mod.rs` extract.
 
 Related: [reactivity tracer](../reactivity-tracer.md), [literature matrix](./reactivity-tracer-literature.md), [architecture](../architecture.md) (Post-#107), [gotchas](../gotchas.md), issue [#14](https://github.com/alexzhang1030/vue-vet/issues/14).
 
@@ -54,7 +54,7 @@ Invention is worse than a miss. Charter: missing edges stay quiet; invented *con
 | Composable-instance writes | **Landed v33.** `bag.field.value = …` records `binding = field` / `property = "value"` when the field is a known ref-like shape entry. Replace / computed key / unknown bag / non-ref-like stay quiet. | **Dual-path miss** (fixed) | `computed(() => { bag.field.value = 1 })` fires `no-side-effects-in-computed` like a destructured `field.value` write. |
 | `watch((ref))` / TS-wrapped bare sources | **Landed v31.** `collect_watch_source_reads` / `collect_expression_source_reads` peel before classifying. Nested arrays still do not treat inner arrows as getters. | **Dual-path miss** (fixed) | `watch((count))` / `watch(count as any)` / `watch((() => count.value))` match the unwrapped form. |
 | Render identifier callbacks | **Landed v32.** `function_like_body` resolves same-file identifiers via `local_getter_parts`. Imports, methods, and async/generator stay quiet. | **Dual-path miss** (fixed) | `render: renderFn` / `setup() { return renderFn }` match inline `render() { … }`. |
-| NamedApiBag member / whole-object / partial ambient | Identifier callee + object-destructure handles. `const i18n = useI18n(); i18n.t()` quiet. Co-destructure of `{ locale, t }` injects only `locale`, not `messages`. | Charter-quiet | Elk PublishWidget was the translator-only path (synthetic bag). Member form was never the evidence. |
+| NamedApiBag member / whole-object / partial ambient | Identifier callee + object-destructure handles. `const i18n = useI18n(); i18n.t()` quiet. Co-destructure of `{ locale, t }` injects only `locale`, not `messages`. | Charter-quiet | The reference application's translated label exercised the translator-only path (synthetic bag). Member form was never the evidence. |
 | CSS `v-bind` completeness | Lexical ident / quoted ident in `vue_vet_vize::style`. Members, calls, arithmetic quiet. | Charter-quiet | Prevents unused-computed FP on `v-bind(color)`. Not a Vue dep-key measurement. |
 
 **Pause model.** Vue's `pauseTracking` / `enableTracking` / `resetTracking` are a `shouldTrack` *stack* ([`vuejs/core` `effect.ts`](https://github.com/vuejs/core/blob/main/packages/reactivity/src/effect.ts)), not a depth counter. `enableTracking` forces `shouldTrack = true`. The tracer folds events to "last pause/resume before this read" (`is_after_pause_tracking_ir`). That matches the committed `pause-tracking-window` / `reset-tracking-window` cases. Nested `pause; pause; enable` is **not** a confirmed invention. Do not "fix" it to a counter. Write an oracle case first.
@@ -131,13 +131,13 @@ Willow (Wunder, Das, Gaboardi, 2026, [arXiv:2607.27074](https://arxiv.org/abs/26
 
 ng-reactive-lint ([arXiv:2512.00250](https://arxiv.org/abs/2512.00250)) is the closest *product* dual: framework-aware reactivity lint, evaluated on real Angular apps. Their lesson is evaluation methodology (owned corpus + offline real repos), which Vue Vet already has. Their AST anti-pattern list is not a tracer design.
 
-AgentFlow (already in the 2026-07-24 matrix) is still the right methodology paper: framework-induced edges, not host-language dataflow. `NamedApiBag` is that idea made table-driven. Grow the catalog only with oracle or Elk-class evidence.
+AgentFlow (already in the 2026-07-24 matrix) is still the right methodology paper: framework-induced edges, not host-language dataflow. `NamedApiBag` is that idea made table-driven. Grow the catalog only with oracle or reference-application evidence.
 
 Vue 3.6 Vapor is compile-time template wiring. Same *problem class*, different product. Vue Vet must not become a second Vapor IR. Alien-signals is already in Vue 3.5+ ([vuejs/core#12349](https://github.com/vuejs/core/pull/12349), [#12570](https://github.com/vuejs/core/pull/12570)): push dirty flags, linked-list deps, same `onTrack` / `pauseTracking` stack. Refresh the oracle when the product Vue pin moves. Do not model the linked list.
 
 IFDS/IDE would explode a supergraph Vue Vet does not have. A6 is a finite named-export enum + worklist + publish barrier. That is the right complexity for under-approx composable seeds. Literature §K used to say "coarse fixed point" as if IFDS were the unfinished destination. It is not.
 
-Depth-2 helper follow is a bound, not a bug. Cross-file / args / methods stay quiet on purpose. Raise the bound only with a fixture that depth 2 misses *and* an oracle pair. StatusReactedBy was depth 1.
+Helper follow has an explicit depth-2 bound. Cross-file / args / methods stay quiet on purpose. Raise the bound only with a fixture that depth 2 misses *and* an oracle pair. The reference application's helper-backed computed used depth 1.
 
 ## Ranked next work
 

@@ -1040,6 +1040,117 @@ fn unused_binding_safe_patterns_are_quiet() {
         "../../../fixtures/rules/no-unused-reactive-binding/valid/ordinary-script-export.vue"
       ),
     ),
+    (
+      "fixtures/rules/no-unused-reactive-binding/valid/template-style-object.vue",
+      include_str!(
+        "../../../fixtures/rules/no-unused-reactive-binding/valid/template-style-object.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-unused-computed-binding/valid/template-style-binding.vue",
+      include_str!(
+        "../../../fixtures/rules/no-unused-computed-binding/valid/template-style-binding.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-unused-computed-binding/valid/template-style-object.vue",
+      include_str!(
+        "../../../fixtures/rules/no-unused-computed-binding/valid/template-style-object.vue"
+      ),
+    ),
+  ] {
+    assert_diagnostics(path, source, empty);
+  }
+}
+
+#[test]
+fn operand_and_watch_source_identity_fixtures() {
+  for (path, source, expected) in [
+    (
+      "fixtures/rules/no-ref-as-operand/invalid/basic.vue",
+      include_str!("../../../fixtures/rules/no-ref-as-operand/invalid/basic.vue"),
+      include_str!("../../../fixtures/snapshots/no-ref-as-operand/basic.json"),
+    ),
+    (
+      "fixtures/rules/no-ref-as-operand/invalid/unicode.vue",
+      include_str!("../../../fixtures/rules/no-ref-as-operand/invalid/unicode.vue"),
+      include_str!("../../../fixtures/snapshots/no-ref-as-operand/unicode.json"),
+    ),
+    (
+      "fixtures/rules/no-model-ref-as-operand/invalid/basic.vue",
+      include_str!("../../../fixtures/rules/no-model-ref-as-operand/invalid/basic.vue"),
+      include_str!("../../../fixtures/snapshots/no-model-ref-as-operand/basic.json"),
+    ),
+    (
+      "fixtures/rules/no-empty-watch-sources/invalid/constant-getter.vue",
+      include_str!("../../../fixtures/rules/no-empty-watch-sources/invalid/constant-getter.vue"),
+      include_str!("../../../fixtures/snapshots/no-empty-watch-sources/constant-getter.json"),
+    ),
+    (
+      "fixtures/rules/no-empty-watch-sources/invalid/empty-array.vue",
+      include_str!("../../../fixtures/rules/no-empty-watch-sources/invalid/empty-array.vue"),
+      include_str!("../../../fixtures/snapshots/no-empty-watch-sources/empty-array.json"),
+    ),
+    (
+      "fixtures/rules/no-computed-as-operand/invalid/basic.vue",
+      include_str!("../../../fixtures/rules/no-computed-as-operand/invalid/basic.vue"),
+      include_str!("../../../fixtures/snapshots/no-computed-as-operand/basic.json"),
+    ),
+  ] {
+    assert_diagnostics(path, source, expected);
+  }
+  let empty = "[]";
+  for (path, source) in [
+    (
+      "fixtures/rules/no-ref-as-operand/valid/watch-callback-shadow.vue",
+      include_str!("../../../fixtures/rules/no-ref-as-operand/valid/watch-callback-shadow.vue"),
+    ),
+    (
+      "fixtures/rules/no-ref-as-operand/valid/watch-callback-destructure.vue",
+      include_str!(
+        "../../../fixtures/rules/no-ref-as-operand/valid/watch-callback-destructure.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-ref-as-operand/valid/nested-local.vue",
+      include_str!("../../../fixtures/rules/no-ref-as-operand/valid/nested-local.vue"),
+    ),
+    (
+      "fixtures/rules/no-ref-as-operand/valid/same-name-functions.vue",
+      include_str!("../../../fixtures/rules/no-ref-as-operand/valid/same-name-functions.vue"),
+    ),
+    (
+      "fixtures/rules/no-model-ref-as-operand/valid/watch-callback-shadow.vue",
+      include_str!(
+        "../../../fixtures/rules/no-model-ref-as-operand/valid/watch-callback-shadow.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-computed-as-operand/valid/watch-callback-shadow.vue",
+      include_str!(
+        "../../../fixtures/rules/no-computed-as-operand/valid/watch-callback-shadow.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-computed-as-operand/valid/safe.vue",
+      include_str!("../../../fixtures/rules/no-computed-as-operand/valid/safe.vue"),
+    ),
+    (
+      "fixtures/rules/no-empty-watch-sources/valid/computed-member.vue",
+      include_str!("../../../fixtures/rules/no-empty-watch-sources/valid/computed-member.vue"),
+    ),
+    (
+      "fixtures/rules/no-empty-watch-sources/valid/property-source.vue",
+      include_str!("../../../fixtures/rules/no-empty-watch-sources/valid/property-source.vue"),
+    ),
+    (
+      "fixtures/rules/no-empty-watch-sources/valid/helper-call.vue",
+      include_str!("../../../fixtures/rules/no-empty-watch-sources/valid/helper-call.vue"),
+    ),
+    (
+      "fixtures/rules/no-empty-watch-sources/valid/deferred-helper.vue",
+      include_str!("../../../fixtures/rules/no-empty-watch-sources/valid/deferred-helper.vue"),
+    ),
   ] {
     assert_diagnostics(path, source, empty);
   }

@@ -46,9 +46,15 @@ watch([hostWidth, hostHeight], () => {})
 ## Detection
 
 Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
-When a getter source only reaches unclassified `.value` / `unref` / `toValue`
-through a same-file zero-arg helper, the finding is marked `(maybe: …)` instead
-of a confident empty-source absence.
+Incomplete coverage (`unknown_calls`, `follow_truncated`, or `uncertain_accesses`)
+suppresses this finding entirely — the rule does not emit a confident or
+`(maybe: …)` empty-source verdict when analysis is incomplete.
+Unclassified static or computed member sources (`watch(sources['active'])`,
+`watch(() => bag.current)`, and the same access reached through a same-file
+zero-arg helper) mark coverage incomplete, so this rule and Explain abstain.
+Constant getters (`watch(() => 42)`) and empty arrays still report.
+Known refs, peeled parens / `as` wrappers, and destructured `.d.ts` bag fields
+stay classified.
 
 ## Remediation
 
@@ -57,4 +63,8 @@ Pass at least one source.
 ## Fixtures
 
 - Invalid: `fixtures/rules/no-empty-watch-sources/invalid/`
+  (`constant-getter.vue`, `empty-array.vue`)
 - Valid: `fixtures/rules/no-empty-watch-sources/valid/`
+  (`safe.vue`, `parens-ref.vue`, `destructure-dts-bag.vue`,
+  `computed-member.vue`, `property-source.vue`, `helper-call.vue`,
+  `deferred-helper.vue`)

@@ -175,6 +175,65 @@ fn crlf_export_list_marks_root_symbol_only() {
 }
 
 #[test]
+fn operand_binding_span_uses_resolved_symbol_not_name() {
+  let facts = analyze(
+    "import { ref, watch } from 'vue';\n\
+     const count = ref(0);\n\
+     watch(count, (count) => { if (!count) return; });\n\
+     const ok = count > 0;",
+    "ts",
+  );
+  let mut count_bindings: Vec<_> =
+    facts.bindings.iter().filter(|binding| binding.name == "count").collect();
+  count_bindings.sort_by_key(|binding| binding.span.offset);
+  assert_eq!(
+    count_bindings.len(),
+    2,
+    "outer ref and callback param must both bind; {count_bindings:?}"
+  );
+  let mut count_operands: Vec<_> =
+    facts.operands.iter().filter(|operand| operand.name == "count").collect();
+  count_operands.sort_by_key(|operand| operand.span.offset);
+  assert_eq!(
+    count_operands.len(),
+    2,
+    "callback `!count` and outer `count > 0`; {count_operands:?}"
+  );
+  assert_eq!(
+    count_operands.first().and_then(|operand| operand.binding_span.map(|span| span.offset)),
+    count_bindings.get(1).map(|binding| binding.span.offset),
+    "callback operand must resolve to the parameter symbol"
+  );
+  assert_eq!(
+    count_operands.get(1).and_then(|operand| operand.binding_span.map(|span| span.offset)),
+    count_bindings.first().map(|binding| binding.span.offset),
+    "outer operand must resolve to the ref symbol"
+  );
+}
+
+#[test]
+fn operand_binding_span_unicode_and_crlf() {
+  let facts = analyze(
+    "import { ref } from 'vue';\r\n\
+     const \u{8ba1}\u{6570} = ref(0);\r\n\
+     const ok = \u{8ba1}\u{6570} > 0;\r\n",
+    "ts",
+  );
+  let binding = facts.bindings.iter().find(|binding| binding.name == "计数");
+  let operand = facts.operands.iter().find(|operand| operand.name == "计数");
+  assert!(
+    binding.is_some_and(|binding| {
+      operand.is_some_and(|operand| {
+        operand.binding_span.is_some_and(|span| span.offset == binding.span.offset)
+      })
+    }),
+    "CRLF unicode operand must resolve to the ref declaration; bindings={:?} operands={:?}",
+    facts.bindings,
+    facts.operands
+  );
+}
+
+#[test]
 fn records_props_destructures_and_null_template_refs() {
   let facts = analyze(
     "import { ref } from 'vue'; const { title } = defineProps(); const input = ref(null);",

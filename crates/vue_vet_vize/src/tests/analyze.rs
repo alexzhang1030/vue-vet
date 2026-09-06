@@ -70,8 +70,12 @@ fn style_v_bind_ident_joins_computed_binding() {
     "<style>.text { color: v-bind(color); background: v-bind('color'); }</style>\n",
   );
   let facts = facts_for_test(Path::new("StyleBind.vue"), source);
-  let style_exprs: Vec<_> =
-    facts.template.expressions.iter().filter(|expression| expression.surface == "style").collect();
+  let style_exprs: Vec<_> = facts
+    .template
+    .expressions
+    .iter()
+    .filter(|expression| expression.surface == "style-v-bind")
+    .collect();
   assert_eq!(style_exprs.len(), 2, "quoted and unquoted v-bind(color) must both extract");
   assert!(
     style_exprs.iter().all(|expression| {
@@ -85,7 +89,7 @@ fn style_v_bind_ident_joins_computed_binding() {
         .reactivity_graph
         .template_reads
         .iter()
-        .any(|read| read.binding == "color" && read.surface == "style")
+        .any(|read| read.binding == "color" && read.surface == "style-v-bind")
     }),
     "CSS v-bind(color) must join the computed; blocks={:?}",
     facts.script.blocks
@@ -158,7 +162,7 @@ fn style_v_bind_skips_complex_expressions() {
   );
   let facts = facts_for_test(Path::new("StyleComplex.vue"), source);
   assert!(
-    facts.template.expressions.iter().all(|expression| expression.surface != "style"),
+    facts.template.expressions.iter().all(|expression| expression.surface != "style-v-bind"),
     "complex CSS v-bind must stay quiet; got {:?}",
     facts.template.expressions
   );
@@ -188,19 +192,189 @@ fn style_only_v_bind_edit_refreshes_template_reads() {
   let second_graph = second.facts.script.blocks.first().map(|block| &block.reactivity_graph);
   assert!(
     first_graph.is_some_and(|graph| {
-      graph.template_reads.iter().any(|read| read.binding == "color" && read.surface == "style")
+      graph
+        .template_reads
+        .iter()
+        .any(|read| read.binding == "color" && read.surface == "style-v-bind")
     }),
     "first analysis must join color"
   );
   assert!(
     second_graph.is_some_and(|graph| {
-      graph.template_reads.iter().any(|read| read.binding == "size" && read.surface == "style")
+      graph
+        .template_reads
+        .iter()
+        .any(|read| read.binding == "size" && read.surface == "style-v-bind")
         && graph
           .template_reads
           .iter()
-          .all(|read| read.binding != "color" || read.surface != "style")
+          .all(|read| read.binding != "color" || read.surface != "style-v-bind")
     }),
     "style-only v-bind swap must re-join size and drop color; second={second_graph:?}"
+  );
+}
+
+#[test]
+fn template_style_object_with_other_surfaces_joins() {
+  let source = concat!(
+    "<script setup lang=\"ts\">\n",
+    "import { computed, ref } from 'vue'\n",
+    "const width = ref(10)\n",
+    "const shown = ref(true)\n",
+    "const aspectRatio = computed(() => width.value / 2)\n",
+    "const objectPosition = computed(() => '50% 50%')\n",
+    "</script>\n",
+    "<template>\n",
+    "  <div v-if=\"shown\" :style=\"{ aspectRatio, objectPosition }\" />\n",
+    "</template>\n",
+  );
+  let facts = facts_for_test(Path::new("StyleObject.vue"), source);
+  assert!(
+    facts.template.expressions.iter().any(|expression| {
+      expression.surface == "style"
+        && expression.identifiers.as_ref().is_some_and(|idents| {
+          idents.iter().any(|ident| ident == "aspectRatio")
+            && idents.iter().any(|ident| ident == "objectPosition")
+        })
+    }),
+    "template :style object shorthand must keep style expressions; got {:?}",
+    facts.template.expressions
+  );
+  let Some(graph) = facts.script.blocks.first().map(|block| &block.reactivity_graph) else {
+    assert!(!facts.script.blocks.is_empty(), "script setup block must be analyzed");
+    return;
+  };
+  assert!(
+    graph
+      .template_reads
+      .iter()
+      .any(|read| read.binding == "aspectRatio" && read.surface == "style"),
+    "aspectRatio shorthand must join; reads={:?}",
+    graph.template_reads
+  );
+  assert!(
+    graph
+      .template_reads
+      .iter()
+      .any(|read| read.binding == "objectPosition" && read.surface == "style"),
+    "objectPosition shorthand must join; reads={:?}",
+    graph.template_reads
+  );
+  let diagnostics = analyze_for_test(Path::new("StyleObject.vue"), source);
+  assert!(
+    diagnostics.iter().all(|diagnostic| {
+      diagnostic.rule_id != "vue-vet/reactivity/no-unused-computed-binding"
+        && diagnostic.rule_id != "vue-vet/reactivity/no-unused-reactive-binding"
+    }),
+    "template :style uses must not be unused; {diagnostics:?}"
+  );
+}
+
+#[test]
+fn template_style_binding_with_other_surfaces_joins() {
+  let source = concat!(
+    "<script setup lang=\"ts\">\n",
+    "import { computed, ref } from 'vue'\n",
+    "const width = ref(10)\n",
+    "const shown = ref(true)\n",
+    "const imageStyle = computed(() => ({ width: `${width.value}px` }))\n",
+    "</script>\n",
+    "<template>\n",
+    "  <div v-if=\"shown\" :style=\"imageStyle\" />\n",
+    "</template>\n",
+  );
+  let facts = facts_for_test(Path::new("StyleBinding.vue"), source);
+  let Some(graph) = facts.script.blocks.first().map(|block| &block.reactivity_graph) else {
+    assert!(!facts.script.blocks.is_empty(), "script setup block must be analyzed");
+    return;
+  };
+  assert!(
+    graph.template_reads.iter().any(|read| read.binding == "imageStyle" && read.surface == "style"),
+    "direct :style binding must join; reads={:?}",
+    graph.template_reads
+  );
+  let diagnostics = analyze_for_test(Path::new("StyleBinding.vue"), source);
+  assert!(
+    diagnostics.iter().all(|diagnostic| {
+      diagnostic.rule_id != "vue-vet/reactivity/no-unused-computed-binding"
+        && diagnostic.rule_id != "vue-vet/reactivity/no-unused-reactive-binding"
+    }),
+    "direct :style binding must not be unused; {diagnostics:?}"
+  );
+}
+
+#[test]
+fn template_style_reads_survive_css_v_bind_refresh() {
+  let path = Path::new("StyleBoth.vue");
+  let source = concat!(
+    "<script setup lang=\"ts\">\n",
+    "import { computed, ref } from 'vue'\n",
+    "const shown = ref(true)\n",
+    "const color = computed(() => 'red')\n",
+    "const imageStyle = computed(() => ({ color: 'blue' }))\n",
+    "</script>\n",
+    "<template>\n",
+    "  <div v-if=\"shown\" :style=\"imageStyle\">{{ shown }}</div>\n",
+    "</template>\n",
+    "<style>.text { color: v-bind(color); }</style>\n",
+  );
+  let first = analysis_for_test(path, source);
+  let color_only = concat!(
+    "<script setup lang=\"ts\">\n",
+    "import { computed, ref } from 'vue'\n",
+    "const shown = ref(true)\n",
+    "const color = computed(() => 'red')\n",
+    "const imageStyle = computed(() => ({ color: 'blue' }))\n",
+    "</script>\n",
+    "<template>\n",
+    "  <div v-if=\"shown\" :style=\"imageStyle\">{{ shown }}</div>\n",
+    "</template>\n",
+    "<style>.text { color: v-bind(color); background: blue; }</style>\n",
+  );
+  let second = analysis_reusing_for_test(path, color_only, &first);
+  for (label, analysis) in [("first", &first), ("second", &second)] {
+    let graph = analysis.facts.script.blocks.first().map(|block| &block.reactivity_graph);
+    assert!(
+      graph.is_some_and(|graph| {
+        graph
+          .template_reads
+          .iter()
+          .any(|read| read.binding == "imageStyle" && read.surface == "style")
+          && graph
+            .template_reads
+            .iter()
+            .any(|read| read.binding == "color" && read.surface == "style-v-bind")
+      }),
+      "{label} must keep template :style and CSS v-bind; graph={graph:?}"
+    );
+  }
+}
+
+#[test]
+fn shadowed_watch_callback_operand_is_not_the_outer_ref() {
+  let source = concat!(
+    "<script setup lang=\"ts\">\n",
+    "import { ref, watch } from 'vue'\n",
+    "const enabled = ref(false)\n",
+    "watch(enabled, (enabled) => { if (!enabled) return })\n",
+    "const count = ref(0)\n",
+    "const ok = count > 0\n",
+    "</script>\n",
+    "<template><p>{{ enabled }} {{ ok }}</p></template>\n",
+  );
+  let diagnostics = analyze_for_test(Path::new("Shadowed.vue"), source);
+  let operand: Vec<_> = diagnostics
+    .iter()
+    .filter(|diagnostic| diagnostic.rule_id == "vue-vet/reactivity/no-ref-as-operand")
+    .collect();
+  assert_eq!(
+    operand.len(),
+    1,
+    "callback shadow must stay quiet; outer `count > 0` must still report; {diagnostics:?}"
+  );
+  assert!(
+    operand.first().is_some_and(|diagnostic| diagnostic.message.contains("`count`")),
+    "true-positive operand must be the outer count; {operand:?}"
   );
 }
 

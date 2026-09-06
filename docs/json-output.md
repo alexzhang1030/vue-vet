@@ -140,8 +140,9 @@ older JSON. The field is omitted when empty. Same facts as the edge list, not a
 graph-version change.
 
 `scope_details[].uncertain_accesses` lists soft under-approx evidence: identifier
-roots of `.value` / `unref` / `toValue` (or bare watch sources) that were analyzed
-but not classified as known bindings. The field is omitted when empty.
+roots of `.value` / `unref` / `toValue`, bare watch sources, or unclassified
+static / computed member watch sources (`sources['active']`, `bag.current`) that were
+analyzed but not classified as known bindings. The field is omitted when empty.
 `scope_details[].unknown_calls` lists identifier/member callees the bounded
 tracer did not follow. `follow_truncated` is true when helper follow hit the
 depth cap or a recursive callee. Absence rules require complete coverage

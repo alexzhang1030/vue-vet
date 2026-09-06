@@ -13,8 +13,8 @@ pub use blocks::{
   script_has_call, setup_blocks, setup_calls_after_first_top_level_await,
 };
 pub use graph::{
-  reactive_binding, script_binding, script_binding_at, static_template_ref_names,
-  used_reactive_names,
+  reactive_binding, reactive_binding_for_operand, script_binding, script_binding_at,
+  static_template_ref_names, used_reactive_names,
 };
 pub use reads::{
   MemberPath, binding_path, effect_family, guard_path, has_prior_unconditional_read,
@@ -29,7 +29,7 @@ mod tests {
   use vue_vet_core::{
     ReactiveBindingFact, ReactiveBindingKind, ReactiveDependencyEdge, ReactiveDependencyKind,
     ReactiveReadFact, ReactiveReadKind, ReactiveWriteFact, ReactivityGraph, ScriptBindingFact,
-    ScriptBlockFacts, ScriptCallFact, ScriptFacts, ScriptKind, SourceSpan,
+    ScriptBlockFacts, ScriptCallFact, ScriptFacts, ScriptKind, ScriptOperandFact, SourceSpan,
     TemplateReactiveReadFact, TrackingScopeFact, TrackingScopeKind,
   };
 
@@ -209,6 +209,13 @@ mod tests {
       alias_of: None,
       span: span_at(1),
     });
+    graph.bindings.push(ReactiveBindingFact {
+      name: "state".into(),
+      kind: ReactiveBindingKind::Ref,
+      initialized_with_null: false,
+      alias_of: None,
+      span: span_at(9),
+    });
     let mut block = setup_block(Vec::new(), Vec::new(), graph);
     block.bindings.push(ScriptBindingFact {
       name: "state".into(),
@@ -230,6 +237,43 @@ mod tests {
     assert!(script_binding(&block, "state").is_some_and(|binding| !binding.exported));
     assert!(script_binding_at(&block, "state", span_at(9)).is_some_and(|binding| binding.exported));
     assert!(reactive_binding(&block, "missing").is_none());
+    let inner_operand =
+      ScriptOperandFact { name: "state".into(), span: span_at(20), binding_span: Some(span_at(9)) };
+    let outer_operand =
+      ScriptOperandFact { name: "state".into(), span: span_at(4), binding_span: Some(span_at(1)) };
+    assert!(
+      reactive_binding_for_operand(&block, &inner_operand)
+        .is_some_and(|binding| binding.span.offset == 9)
+    );
+    assert!(
+      reactive_binding_for_operand(&block, &outer_operand)
+        .is_some_and(|binding| binding.span.offset == 1)
+    );
+    assert!(
+      reactive_binding_for_operand(
+        &block,
+        &ScriptOperandFact { name: "state".into(), span: span_at(30), binding_span: None },
+      )
+      .is_none(),
+      "unresolved operand must not match when a local symbol of that name exists"
+    );
+    let mut seed_graph = ReactivityGraph::default();
+    seed_graph.bindings.push(ReactiveBindingFact {
+      name: "currentUser".into(),
+      kind: ReactiveBindingKind::Ref,
+      initialized_with_null: false,
+      alias_of: None,
+      span: span_at(40),
+    });
+    let seed_block = setup_block(Vec::new(), Vec::new(), seed_graph);
+    assert!(
+      reactive_binding_for_operand(
+        &seed_block,
+        &ScriptOperandFact { name: "currentUser".into(), span: span_at(50), binding_span: None },
+      )
+      .is_some_and(|binding| binding.kind == ReactiveBindingKind::Ref),
+      "unresolved auto-import operand must match a unique proven seed"
+    );
     let read = read("count", Some("value"), ReactiveReadKind::Unconditional, 0);
     assert_eq!(binding_path(&read), "count.value");
     assert_eq!(member_path("count", None), "count");

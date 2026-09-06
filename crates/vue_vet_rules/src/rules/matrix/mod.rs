@@ -8,8 +8,9 @@ use vue_vet_core::{
 };
 
 use vue_vet_rule_query::{
-  binding_path, effect_family, is_readonly_kind, reactive_binding, same_reactive_target,
-  script_block, setup_calls_after_first_top_level_await, unconditional_self_triggers, write_path,
+  binding_path, effect_family, is_readonly_kind, reactive_binding, reactive_binding_for_operand,
+  same_reactive_target, script_block, setup_calls_after_first_top_level_await,
+  unconditional_self_triggers, write_path,
 };
 
 struct BoundaryRule {
@@ -857,7 +858,7 @@ impl Rule for RefOperandRule {
     let Some(block) = script_block(context.script(), block_kind) else {
       return;
     };
-    let Some(binding) = reactive_binding(block, &operand.name) else {
+    let Some(binding) = reactive_binding_for_operand(block, operand) else {
       return;
     };
     if !self.kinds.contains(&binding.kind) {

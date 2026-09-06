@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-ref-as-operand",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-ref-as-operand",
+    "message": "`count` is a ref object used as an operand; unwrap with `.value` (or `toValue`)",
+    "help": "Use `count.value` (or `toValue(count)`) when reading the inner value.",
+    "file": "fixtures/rules/no-ref-as-operand/invalid/basic.vue",
+    "span": {
+      "offset": 83,
+      "length": 5,
+      "line": 4,
+      "column": 12
+    }
+  }
+]

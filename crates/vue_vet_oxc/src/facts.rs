@@ -370,9 +370,17 @@ pub fn collect_node_facts(
         }
       }
       AstKind::BinaryExpression(binary) => {
-        push_operand_identifier(&mut operands, &binary.left, line_index, sfc_source, script_offset);
         push_operand_identifier(
           &mut operands,
+          semantic,
+          &binary.left,
+          line_index,
+          sfc_source,
+          script_offset,
+        );
+        push_operand_identifier(
+          &mut operands,
+          semantic,
           &binary.right,
           line_index,
           sfc_source,
@@ -382,6 +390,7 @@ pub fn collect_node_facts(
       AstKind::LogicalExpression(logical) => {
         push_operand_identifier(
           &mut operands,
+          semantic,
           &logical.left,
           line_index,
           sfc_source,
@@ -389,6 +398,7 @@ pub fn collect_node_facts(
         );
         push_operand_identifier(
           &mut operands,
+          semantic,
           &logical.right,
           line_index,
           sfc_source,
@@ -398,6 +408,7 @@ pub fn collect_node_facts(
       AstKind::UnaryExpression(unary) => {
         push_operand_identifier(
           &mut operands,
+          semantic,
           &unary.argument,
           line_index,
           sfc_source,
@@ -502,6 +513,7 @@ fn is_module_top_level_await(
 
 fn push_operand_identifier(
   operands: &mut Vec<ScriptOperandFact>,
+  semantic: &oxc_semantic::Semantic<'_>,
   expression: &Expression<'_>,
   line_index: &vue_vet_core::LineIndex,
   sfc_source: &str,
@@ -513,7 +525,31 @@ fn push_operand_identifier(
   operands.push(ScriptOperandFact {
     name: identifier.name.to_string(),
     span: source_span(line_index, sfc_source, script_offset, identifier.span),
+    binding_span: identifier_binding_span(
+      semantic,
+      identifier,
+      line_index,
+      sfc_source,
+      script_offset,
+    ),
   });
+}
+
+fn identifier_binding_span(
+  semantic: &oxc_semantic::Semantic<'_>,
+  identifier: &IdentifierReference<'_>,
+  line_index: &vue_vet_core::LineIndex,
+  sfc_source: &str,
+  script_offset: usize,
+) -> Option<SourceSpan> {
+  let reference_id = identifier.reference_id.get()?;
+  let symbol_id = semantic.scoping().get_reference(reference_id).symbol_id()?;
+  Some(source_span(
+    line_index,
+    sfc_source,
+    script_offset,
+    semantic.scoping().symbol_span(symbol_id),
+  ))
 }
 
 fn call_callee_name(callee: &Expression<'_>) -> Option<String> {

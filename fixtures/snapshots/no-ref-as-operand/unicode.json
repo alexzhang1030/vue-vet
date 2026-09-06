@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-ref-as-operand",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-ref-as-operand",
+    "message": "`计数` is a ref object used as an operand; unwrap with `.value` (or `toValue`)",
+    "help": "Use `计数.value` (or `toValue(计数)`) when reading the inner value.",
+    "file": "fixtures/rules/no-ref-as-operand/invalid/unicode.vue",
+    "span": {
+      "offset": 84,
+      "length": 6,
+      "line": 4,
+      "column": 12
+    }
+  }
+]

@@ -66,6 +66,12 @@ pub struct ScriptDestructureFact {
 pub struct ScriptOperandFact {
   pub name: String,
   pub span: SourceSpan,
+  /// Declaration span of the Oxc symbol this operand resolves to.
+  ///
+  /// Operand rules must match reactive bindings by this identity, not by name.
+  /// `None` when the identifier is unresolved (global / missing).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub binding_span: Option<SourceSpan>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

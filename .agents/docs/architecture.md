@@ -274,8 +274,8 @@ consumers. Its module layer summarizes direct bindings and composable return
 shapes (destructure and instance member seeds), then reaches a deterministic
 fixed point over resolved named/default exports, barrels, multi-hop re-exports,
 and cycles. See [reactivity tracer](./reactivity-tracer.md).
-Template joins include interpolations, directive expressions, and `<style>`
-`v-bind(ident)` (`TemplateExpressionFact.surface = "style"`).
+Template joins include interpolations, directive expressions, template `:style`
+(`surface = "style"`), and `<style>` `v-bind(ident)` (`surface = "style-v-bind"`).
 Configuration changes
 rule enablement and severity after semantic analysis;
 suppressions are applied after diagnostic normalization and emit findings when

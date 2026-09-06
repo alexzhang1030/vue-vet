@@ -23,11 +23,13 @@ pub const CACHE_FORMAT_VERSION: u32 = 5;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// Bump when built-in rule set or seed-aware analysis behavior changes.
 ///
+/// v7: operand rules match Oxc declaration identity; template `:style` reads
+/// survive CSS `v-bind` refresh; unknown watch member sources mark incomplete.
 /// v6: watch*Effect self-assign is not a loop (Vue 3.5 coalesces one run);
 /// prefer-watch suppresses self-write sources; computed self-write is impure.
 /// v5: conditional-dep premise withdrawn; after-await registrars deprecated
 /// except defineExpose; absence rules require complete follow coverage.
-pub const RULESET_VERSION: u32 = 6;
+pub const RULESET_VERSION: u32 = 7;
 
 /// Workspace pin for `vize_croquis` / `vize_atelier_core`.
 ///

@@ -1552,6 +1552,148 @@ fn watch_sources_record_uncertain_bare_identifier() {
 }
 
 #[test]
+fn watch_computed_member_unknown_is_incomplete() {
+  let graph = graph(
+    "import { watch } from 'vue';\n\
+     declare function createUnknownSources(): Record<string, { value: boolean }>;\n\
+     const sources = createUnknownSources();\n\
+     watch(sources['active'], (active) => { if (active) return; });",
+  );
+  let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchSources);
+  assert!(
+    scope.is_some_and(|scope| {
+      scope.reads.is_empty() && scope.uncertain_accesses.iter().any(|name| name == "sources")
+    }),
+    "unknown computed-member watch source must be uncertain; scopes={:?}",
+    graph.scopes
+  );
+  if let Some(scope) = scope {
+    let explain = crate::explain_tracking_scope("UnknownSource.vue", scope);
+    assert!(!explain.analysis_complete, "Explain must not claim Vue will not re-run; {explain:?}");
+    assert!(!explain.summary.contains("Vue will not re-run"), "{}", explain.summary);
+  }
+}
+
+#[test]
+fn watch_property_getter_unknown_is_incomplete() {
+  let graph = graph(
+    "import { watch } from 'vue';\n\
+     declare function createUnknownState(): { current: Set<string> };\n\
+     const state = createUnknownState();\n\
+     watch(() => state.current, () => {}, { deep: true });",
+  );
+  let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchSources);
+  assert!(
+    scope.is_some_and(|scope| {
+      scope.reads.is_empty() && scope.uncertain_accesses.iter().any(|name| name == "state")
+    }),
+    "unknown property getter watch source must be uncertain; scopes={:?}",
+    graph.scopes
+  );
+  if let Some(scope) = scope {
+    let explain = crate::explain_tracking_scope("state.ts", scope);
+    assert!(!explain.analysis_complete, "Explain must abstain; {explain:?}");
+  }
+}
+
+#[test]
+fn watch_constant_getter_stays_empty_and_complete() {
+  let graph = graph("import { watch } from 'vue';\nwatch(() => 42, () => {});");
+  let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchSources);
+  assert!(
+    scope.is_some_and(|scope| {
+      scope.reads.is_empty()
+        && scope.uncertain_accesses.is_empty()
+        && scope.unknown_calls.is_empty()
+        && !scope.follow_truncated
+    }),
+    "constant getter must remain a proven empty source; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn watch_unknown_member_inline_ident_and_helper_agree() {
+  let sources = [
+    (
+      "inline",
+      "import { watch } from 'vue';\n\
+       declare function getUnknownBag(): { current: Set<string> };\n\
+       const bag = getUnknownBag();\n\
+       watch(() => bag.current, () => {}, { deep: true });",
+    ),
+    (
+      "ident-getter",
+      "import { watch } from 'vue';\n\
+       declare function getUnknownBag(): { current: Set<string> };\n\
+       const bag = getUnknownBag();\n\
+       function readCurrent() { return bag.current; }\n\
+       watch(readCurrent, () => {}, { deep: true });",
+    ),
+    (
+      "helper-call",
+      "import { watch } from 'vue';\n\
+       declare function getUnknownBag(): { current: Set<string> };\n\
+       const bag = getUnknownBag();\n\
+       function readCurrent() { return bag.current; }\n\
+       watch(() => readCurrent(), () => {}, { deep: true });",
+    ),
+  ];
+  for (label, source) in sources {
+    let graph = graph(source);
+    let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchSources);
+    assert!(
+      scope.is_some_and(|scope| {
+        scope.reads.is_empty() && scope.uncertain_accesses.iter().any(|name| name == "bag")
+      }),
+      "{label} must expose unclassified bag.current; scopes={:?}",
+      graph.scopes
+    );
+    if let Some(scope) = scope {
+      let explain = crate::explain_tracking_scope("WatchPaths.vue", scope);
+      assert!(!explain.analysis_complete, "{label} Explain must abstain; {explain:?}");
+    }
+  }
+}
+
+#[test]
+fn watch_deferred_helper_member_does_not_invent_uncertain() {
+  let graph = graph(
+    "import { watch } from 'vue';\n\
+     declare function getUnknownBag(): { current: Set<string> };\n\
+     const bag = getUnknownBag();\n\
+     function readCurrent() { return bag.current; }\n\
+     watch(() => { Promise.resolve().then(() => readCurrent()); return 42; }, () => {});",
+  );
+  let scope = graph.scopes.iter().find(|scope| scope.kind == TrackingScopeKind::WatchSources);
+  assert!(
+    scope.is_some_and(|scope| {
+      scope.reads.is_empty() && scope.uncertain_accesses.iter().all(|name| name != "bag")
+    }),
+    "then()-only helper must not invent bag.current as a watch source; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
+fn watch_known_ref_source_stays_complete() {
+  let graph = graph(
+    "import { ref, watch } from 'vue';\n\
+     const count = ref(0);\n\
+     watch(count, () => {});",
+  );
+  assert!(
+    graph.scopes.iter().any(|scope| {
+      scope.kind == TrackingScopeKind::WatchSources
+        && scope.reads.iter().any(|read| read.binding == "count")
+        && scope.uncertain_accesses.is_empty()
+    }),
+    "known ref watch source must stay classified; scopes={:?}",
+    graph.scopes
+  );
+}
+
+#[test]
 fn excludes_shadowed_reactive_symbols() {
   let graph = graph(
     "import { ref, watchEffect } from 'vue'; const payload = ref(0); \

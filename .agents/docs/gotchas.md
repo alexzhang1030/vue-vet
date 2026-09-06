@@ -279,7 +279,10 @@ collection instruction cache.
 Local variable names are never enough for module propagation. Export collection,
 composable returns, imported calls, and effect reads must agree on Oxc symbol
 identity so shadowed parameters and function-local refs do not leak across the
-module boundary. Conflicting star exports, ambiguous links, unresolved imports,
+module boundary. Operand rules use the same contract: resolved identifiers
+match `ScriptOperandFact.binding_span` to a reactive declaration; unresolved
+bare auto-imports match a unique proven seed only when the module has no local
+symbol of that name (`reference_resolves_to_binding`). Conflicting star exports, ambiguous links, unresolved imports,
 dynamic keys, namespace consumers, and unsupported return shapes stay quiet
 instead of inventing certainty. Standalone JavaScript/TypeScript files are wired
 into the project graph today. Template→script join is **not** blocked on Vize:
@@ -294,12 +297,15 @@ not mistaken for bindings; lexical scan is only the empty-list fallback. Handler
 extract time. `TemplateExpressionFact.identifiers` is `Some(…)` when resolved
 (including empty = no free reads); only `None` triggers the lexical join
 fallback—do not treat empty `Some` as unknown.
-`<style>` `v-bind(ident)` / `v-bind('ident')` / `v-bind("ident")` are the same
-join surface (`surface: "style"`). Complex CSS expressions stay quiet.
-`SfcBlockRevisions` still fingerprints only template/script/script_setup:
-style-only color edits reuse facts, but the adapter strips `surface == "style"`
-and re-extracts from current style blocks so a `v-bind` ident swap still
-re-joins. Do not add style to revisions just to catch color-only CSS.
+`<style>` `v-bind(ident)` / `v-bind('ident')` / `v-bind("ident")` use join
+surface `style-v-bind`. Template `:style` keeps `surface: "style"`. Sharing
+`"style"` made `refresh_style_v_bind_expressions` drop template style reads
+whenever other template expressions remained alongside `:style="{ aspectRatio }"`.
+Complex CSS expressions stay quiet. `SfcBlockRevisions` still fingerprints
+only template/script/script_setup: style-only color edits reuse facts, but
+the adapter strips `surface == "style-v-bind"` and re-extracts from current
+style blocks so a `v-bind` ident swap still re-joins. Do not add style to
+revisions just to catch color-only CSS.
 
 Vue JSX is not React JSX and must not be Babel-transformed for analysis: Oxc
 parses source JSX/TSX and lowers Vue-JSX attributes (`v-html`, `innerHTML` /

@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-model-ref-as-operand",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-model-ref-as-operand",
+    "message": "`file` is a defineModel ref object used as an operand; unwrap with `.value` (or `toValue`)",
+    "help": "Use `file.value` (or `toValue(file)`) when reading the inner value.",
+    "file": "fixtures/rules/no-model-ref-as-operand/invalid/basic.vue",
+    "span": {
+      "offset": 102,
+      "length": 4,
+      "line": 3,
+      "column": 13
+    }
+  }
+]

@@ -347,6 +347,10 @@ pub struct ReactivityEffectFact {
 /// v24: `useI18n` translator calls (`t`/`d`/`n`/`rt`/`te`) inject ambient
 /// composer deps (`locale` / `fallbackLocale` / `messages`) per vue-i18n
 /// `wrapWithDeps` / `trackReactivityValues`.
+/// v37: watch sources record unclassified static / computed member provenance
+/// (`sources['active']`, `() => bag.current`) as `uncertain_accesses` so absence rules
+/// and Explain abstain. Ref-like bindings' non-`.value` members stay
+/// proven-empty; reactive objects still track ordinary property reads.
 /// v35: tracking scopes record `unknown_calls` / `follow_truncated` for
 /// unfollowed identifier callees (imports, arguments, async, depth cap).
 /// Absence rules require complete analysis; Explain must not claim Vue will
@@ -358,7 +362,7 @@ pub struct ReactivityEffectFact {
 /// under-approx hygiene); export linking refinements that change seeded bindings
 /// (`ForwardReturn` bare `#nuxt-imports`, overload Factory≻Composable, ref-like
 /// ternary `Known` exports, empty-path pending composable fields).
-pub const REACTIVITY_GRAPH_VERSION: u32 = 36;
+pub const REACTIVITY_GRAPH_VERSION: u32 = 37;
 
 const fn default_reactivity_graph_version() -> u32 {
   1

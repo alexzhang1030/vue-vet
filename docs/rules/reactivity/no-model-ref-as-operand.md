@@ -37,6 +37,9 @@ const ok = count.value > 0
 ## Detection
 
 Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
+Operand identifiers match a `defineModel` binding by Oxc declaration span, not
+by name. A watch callback parameter that shadows the model is not a model-ref
+operand.
 
 ## Remediation
 
@@ -44,5 +47,6 @@ Read `defineModel ref.value` (or `toValue(...)`) at the use site.
 
 ## Fixtures
 
-- Invalid: `fixtures/rules/no-model-ref-as-operand/invalid/`
+- Invalid: `fixtures/rules/no-model-ref-as-operand/invalid/` (`basic.vue`)
 - Valid: `fixtures/rules/no-model-ref-as-operand/valid/`
+  (`safe.vue`, `watch-callback-shadow.vue`)

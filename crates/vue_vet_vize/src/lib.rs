@@ -100,8 +100,8 @@ fn analyze_sfc_facts_inner(
     let ordinary_module_source =
       attach_reused_summaries(ordinary_module_source, previous.ordinary_module_source.as_ref());
     let mut facts = previous.facts.clone();
-    // Style is not in `revisions`. Refresh `v-bind(ident)` expressions so a
-    // style-only ident change still joins, while color-only CSS stays equal.
+    // Style is not in `revisions`. Refresh CSS `v-bind(ident)` only (`style-v-bind`)
+    // so a style-only ident change still joins, while template `:style` stays.
     if style::refresh_style_v_bind_expressions(source, &descriptor, &mut facts.template) {
       let module_id = path.to_string_lossy().replace('\\', "/");
       for block in &mut facts.script.blocks {

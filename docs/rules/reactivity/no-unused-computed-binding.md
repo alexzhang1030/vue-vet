@@ -33,7 +33,9 @@ const doubled = computed(() => count.value * 2)
 ```
 
 A CSS `v-bind(ident)` / `v-bind('ident')` on a simple identifier also counts as
-a use. Complex style expressions (`v-bind("height + 'px'")`, `v-bind(theme.color)`)
+a use. Template `:style="binding"` and object shorthand `:style="{ aspectRatio }"`
+count even when the template has other expressions (`v-if`, interpolations).
+Complex CSS expressions (`v-bind("height + 'px'")`, `v-bind(theme.color)`)
 stay quiet (under-approx).
 
 ## Detection
@@ -48,7 +50,8 @@ Read the computed in script/template, or delete it.
 
 - Invalid: `fixtures/rules/no-unused-computed-binding/invalid/`
 - Valid: `fixtures/rules/no-unused-computed-binding/valid/`
-  (`safe.vue`; `style-v-bind.vue` computed used only from CSS `v-bind`)
+  (`safe.vue`; `style-v-bind.vue` computed used only from CSS `v-bind`;
+  `template-style-binding.vue`; `template-style-object.vue`)
 
 Exported computed APIs (`export const doubled = computed(...)`) are not unused
 locals. Same-name inner bindings are matched by declaration span.

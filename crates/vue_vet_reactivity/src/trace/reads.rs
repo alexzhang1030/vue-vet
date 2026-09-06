@@ -312,6 +312,24 @@ fn local_member_read(
   ))
 }
 
+pub(super) fn member_is_classified_read(
+  semantic: &oxc_semantic::Semantic<'_>,
+  member_id: NodeId,
+  reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
+  script_offset: usize,
+) -> bool {
+  local_member_read(
+    semantic,
+    member_id,
+    false,
+    reactive_bindings,
+    composable_instances,
+    script_offset,
+  )
+  .is_some()
+}
+
 fn local_unwrap_read(
   semantic: &oxc_semantic::Semantic<'_>,
   call_id: NodeId,

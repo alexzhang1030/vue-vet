@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-computed-as-operand",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-computed-as-operand",
+    "message": "`doubled` is a computed ref object used as an operand; unwrap with `.value` (or `toValue`)",
+    "help": "Use `doubled.value` (or `toValue(doubled)`) when reading the inner value.",
+    "file": "fixtures/rules/no-computed-as-operand/invalid/basic.vue",
+    "span": {
+      "offset": 141,
+      "length": 7,
+      "line": 5,
+      "column": 12
+    }
+  }
+]
