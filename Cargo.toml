@@ -124,14 +124,54 @@ unwrap_used = "deny"
 unused_result_ok = "deny"
 
 [profile.release]
+opt-level = 2
 lto = "fat"
 codegen-units = 1
 strip = "symbols"
 panic = "abort"
 
+# Size-optimize cold protocol/UI runtime crates only (issue #223). Analysis,
+# tracer, parsers, resolver, regex, and serde stay on the profile default.
+# Fat LTO still inlines across crates; these overrides change pre-LTO codegen
+# for the named packages. Proc-macros (`clap_derive`, `ratatui-macros`) are
+# not listed: they do not ship in the native binary.
+[profile.release.package.tower-lsp]
+opt-level = "z"
+
+[profile.release.package.lsp-types]
+opt-level = "z"
+
+[profile.release.package.vue_vet_lsp]
+opt-level = "z"
+
+[profile.release.package.vue_vet_mcp]
+opt-level = "z"
+
+[profile.release.package.clap]
+opt-level = "z"
+
+[profile.release.package.clap_builder]
+opt-level = "z"
+
+[profile.release.package.ratatui]
+opt-level = "z"
+
+[profile.release.package.ratatui-core]
+opt-level = "z"
+
+[profile.release.package.ratatui-widgets]
+opt-level = "z"
+
+[profile.release.package.ratatui-crossterm]
+opt-level = "z"
+
+[profile.release.package.crossterm]
+opt-level = "z"
+
 # CodSpeed instrumentation and Oxc's generated code do not link reliably under
 # LTO. Keep release artifacts on fat LTO + abort; isolate benches here.
 [profile.codspeed]
 inherits = "release"
+opt-level = 3
 lto = false
 panic = "unwind"

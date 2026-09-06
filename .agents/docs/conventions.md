@@ -124,9 +124,13 @@ and in CI. Renaming a benchmark or materially changing its fixture establishes
 a new baseline and requires an explicit rationale in the pull request. Performance checks complement rather
 than replace correctness tests. CodSpeed builds use the dedicated `codspeed`
 profile because its instrumentation does not link Oxc reliably under LTO
-(`lto = false`, `panic = "unwind"`). The release profile (`lto = "fat"`,
-`panic = "abort"`, `strip = "symbols"`) remains the source of truth for
-shipped artifacts.
+(`lto = false`, `panic = "unwind"`). The release profile (`opt-level = 2`, `lto = "fat"`,
+`panic = "abort"`, `strip = "symbols"`, protocol/UI runtime packages
+`opt-level = "z"`) remains the source of truth for shipped artifacts.
+`profile.codspeed` keeps `opt-level = 3` and `lto = false` so instrumentation
+benches are not the size profile. Do not bake a local `CARGO_TARGET_DIR` or
+host byte count into pack/smoke scripts; `just native-size` prints the Cargo
+JSON executable for the build it just ran.
 
 Project-level cold / warm / overlay / diff-filter benches live in
 `vue_vet_session` (`scan_modes`) on the quality corpus, with an additional
