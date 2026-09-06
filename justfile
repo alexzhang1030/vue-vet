@@ -53,6 +53,10 @@ oracle-lifetime:
 oracle-source-contracts:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node source-contracts.mjs
 
+# Vue 3.5.40 lost-notification premises (shallow nested + toRaw) and safe controls.
+oracle-lost-notification:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node lost-notification-runs.mjs
+
 # Run all non-mutating Rust linters.
 lint-rust: fmt-check check clippy
 

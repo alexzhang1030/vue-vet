@@ -15,6 +15,35 @@ export function useCount() { const local = ref(1); return { local } }\n";
 
 #[test]
 #[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn lost_notification_rules_run_on_ts_and_vue() {
+  let source = "import { shallowRef, watchSyncEffect } from 'vue'\n\
+const state = shallowRef({ count: 1 })\n\
+watchSyncEffect(() => { void state.value.count })\n\
+state.value.count = 2\n";
+  for (name, body) in [
+    ("lost.ts", source.to_string()),
+    ("Lost.vue", format!("<script setup lang=\"ts\">\n{source}</script>\n<template></template>\n")),
+  ] {
+    let root = std::env::temp_dir().join(format!("vue-vet-lost-{name}-{}", std::process::id()));
+    let _ignored = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+    std::fs::write(root.join(name), &body).unwrap_or_else(|error| panic!("write {name}: {error}"));
+    let session = open_session_threads(root.clone(), 1);
+    let snapshot = session.analyze().unwrap_or_else(|error| panic!("analyze {name}: {error}"));
+    assert!(
+      snapshot.summary.diagnostics.iter().any(|diagnostic| {
+        diagnostic.file == FileId::from(name)
+          && diagnostic.rule_id == "vue-vet/reactivity/no-lost-shallow-nested-notification"
+      }),
+      "{name} must report lost shallow notification; {:?}",
+      snapshot.summary.diagnostics
+    );
+    let _ignored = std::fs::remove_dir_all(root);
+  }
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
 fn js_ts_side_effect_in_computed_is_diagnosed() {
   for extension in ["js", "ts"] {
     let root =
@@ -412,12 +441,18 @@ fn source_contract_findings_keep_incremental_identity() {
   let _ignored = std::fs::remove_dir_all(&root);
   std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
   let source = "<script setup lang=\"ts\">\n\
-import { reactive, ref, triggerRef, toRefs, watch } from 'vue'\n\
+import { reactive, ref, shallowRef, toRaw, triggerRef, toRefs, watch, watchSyncEffect } from 'vue'\n\
 const n = ref(0)\n\
 watch(n.value, () => {})\n\
 triggerRef(reactive({ n: 1 }))\n\
 toRefs({ a: 1 })\n\
 void reactive(0)\n\
+const state = shallowRef({ count: 1 })\n\
+watchSyncEffect(() => { void state.value.count })\n\
+state.value.count = 2\n\
+const proxy = reactive({ n: 1 })\n\
+const raw = toRaw(proxy)\n\
+raw.n = 2\n\
 </script>\n\
 <template><p /></template>\n";
   let replaced = "<script setup lang=\"ts\">\n\
@@ -442,11 +477,13 @@ obj.nested = { x: 9 }\n\
         || diagnostic.rule_id.contains("primitive-reactive")
         || diagnostic.rule_id.contains("watch-unwrapped")
         || diagnostic.rule_id.contains("watch-replaced")
+        || diagnostic.rule_id.contains("lost-shallow")
+        || diagnostic.rule_id.contains("toraw-write")
     })
     .count();
   assert!(
-    contract_count >= 5,
-    "cold scan must emit the five source-contract IDs; {:?}",
+    contract_count >= 7,
+    "cold scan must emit source-contract IDs including lost-notification; {:?}",
     cold.summary.diagnostics
   );
   session
