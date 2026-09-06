@@ -17,7 +17,6 @@ mod label_has_for;
 mod no_after_await_watch_effect_dependency;
 mod no_aria_hidden_on_focusable;
 mod no_autofocus;
-mod no_conditional_watch_effect_dependency;
 mod no_deprecated_slot_scope;
 mod no_deprecated_v_on_native_modifier;
 mod no_distracting_elements;
@@ -54,7 +53,6 @@ pub fn builtins() -> Vec<&'static dyn Rule> {
     &no_after_await_watch_effect_dependency::RULE,
     &no_aria_hidden_on_focusable::RULE,
     &no_autofocus::RULE,
-    &no_conditional_watch_effect_dependency::RULE,
     &no_deprecated_slot_scope::RULE,
     &no_deprecated_v_on_native_modifier::RULE,
     &no_distracting_elements::RULE,

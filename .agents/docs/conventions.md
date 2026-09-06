@@ -11,8 +11,10 @@
   findings do not.
 - Every built-in lint rule keeps stable `RuleMeta` and a `Rule` implementation
   under `vue_vet_rules/src/rules`. Standalone rules use one dedicated file.
-  **Matrix families** (tracking-graph / after-await registrar packs) may share an
-  implementation type plus a catalog of unique ids in `rules/matrix/`; the parent
+  **Matrix families** (tracking-graph packs; live `defineExpose` after-await) may share an
+  implementation type plus a catalog of unique ids in `rules/matrix/`. That
+  module is hand-maintained; `scripts/gen_matrix_rules.py` only validates the
+  live/retired ID inventory and must not overwrite rule bodies. The parent
   registry still only assembles `&'static dyn Rule` and must not become a
   behavior dispatcher. Each matrix id still needs docs and fixtures. Practice
   suggestions live in `vue_vet_practice` with the same per-rule module shape,
@@ -44,12 +46,15 @@
   `just oracle` gate) plus: a true-positive fixture when the ID still reports,
   a quiet / false-positive fixture for the coalesced or incomplete-coverage
   case, a precision pin when the quality corpus is affected, and exact-span
-  snapshots for every remaining finding. Retired IDs kept for config
-  compatibility still need the quiet fixture and the runtime note on the rule
-  page.
+  snapshots for every remaining finding. Removed IDs must leave the runtime
+  catalog; keep Vue behavior evidence as semantic regressions, not as quiet
+  registered rules. Delete those IDs from `[rules]` configuration — unknown
+  IDs fail config validation.
 - After adding or renaming rule ids, regenerate the human catalog with
   `just rules-catalog` (`docs/rules/README.md`). Expand stub pages with
   `just rules-docs` (`scripts/expand_rule_docs.py`) before polishing essays.
+  Session tests assert `file_analysis_registry().metadata` matches that file-ID
+  set (practice included; project IDs stay separate).
 - Low-confidence heuristics are opt-in and never enter the default preset merely to increase rule count.
 
 ## Source locations

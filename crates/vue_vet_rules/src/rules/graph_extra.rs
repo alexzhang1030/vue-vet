@@ -268,92 +268,6 @@ impl Rule for NoUnusedComputedBinding {
   }
 }
 
-const PREFER_EXPLICIT_META: RuleMeta = RuleMeta {
-  id: "vue-vet/reactivity/prefer-explicit-sources-for-conditional-deps",
-  category: "reactivity",
-  default_severity: Severity::Info,
-  confidence: Confidence::High,
-  documentation: "rules/reactivity/prefer-explicit-sources-for-conditional-deps",
-};
-
-pub(super) struct PreferExplicitSourcesForConditionalDeps;
-pub(super) static PREFER_EXPLICIT_SOURCES_FOR_CONDITIONAL_DEPS:
-  PreferExplicitSourcesForConditionalDeps = PreferExplicitSourcesForConditionalDeps;
-
-impl Rule for PreferExplicitSourcesForConditionalDeps {
-  fn meta(&self) -> &'static RuleMeta {
-    &PREFER_EXPLICIT_META
-  }
-
-  fn fact_kinds(&self) -> FactKinds {
-    FactKinds::TRACKING_SCOPE
-  }
-
-  fn run_on(&self, _fact: FactRef<'_>, _context: &mut RuleContext<'_>) {
-    // Same withdrawn premise as the conditional-dependency family: Vue tracks
-    // dynamic deps. ID stays for config compatibility.
-  }
-}
-
-macro_rules! macro_after_await {
-  ($type_name:ident, $static_name:ident, $id:literal, $doc:literal, $callee:literal) => {
-    pub(super) struct $type_name;
-    pub(super) static $static_name: $type_name = $type_name;
-
-    impl Rule for $type_name {
-      fn meta(&self) -> &'static RuleMeta {
-        &RuleMeta {
-          id: $id,
-          category: "correctness",
-          default_severity: Severity::Warning,
-          confidence: Confidence::High,
-          documentation: $doc,
-        }
-      }
-
-      fn run_once(&self, _context: &mut RuleContext<'_>) {
-        // Compiler macros are hoisted; source position after await is not a defect.
-      }
-    }
-  };
-}
-
-macro_after_await!(
-  NoDefinePropsAfterAwait,
-  NO_DEFINE_PROPS_AFTER_AWAIT,
-  "vue-vet/correctness/no-define-props-after-await",
-  "rules/correctness/no-define-props-after-await",
-  "defineProps"
-);
-macro_after_await!(
-  NoDefineEmitsAfterAwait,
-  NO_DEFINE_EMITS_AFTER_AWAIT,
-  "vue-vet/correctness/no-define-emits-after-await",
-  "rules/correctness/no-define-emits-after-await",
-  "defineEmits"
-);
-macro_after_await!(
-  NoDefineModelAfterAwait,
-  NO_DEFINE_MODEL_AFTER_AWAIT,
-  "vue-vet/correctness/no-define-model-after-await",
-  "rules/correctness/no-define-model-after-await",
-  "defineModel"
-);
-macro_after_await!(
-  NoDefineSlotsAfterAwait,
-  NO_DEFINE_SLOTS_AFTER_AWAIT,
-  "vue-vet/correctness/no-define-slots-after-await",
-  "rules/correctness/no-define-slots-after-await",
-  "defineSlots"
-);
-macro_after_await!(
-  NoDefineOptionsAfterAwait,
-  NO_DEFINE_OPTIONS_AFTER_AWAIT,
-  "vue-vet/correctness/no-define-options-after-await",
-  "rules/correctness/no-define-options-after-await",
-  "defineOptions"
-);
-
 fn proven_nonreactive_local(block: &ScriptBlockFacts, name: &str) -> bool {
   block
     .bindings
@@ -379,11 +293,5 @@ pub(super) fn extra_rules() -> Vec<&'static dyn Rule> {
     &NO_V_MODEL_NONREACTIVE_SOURCE,
     &NO_STALE_PROP_FLOW,
     &NO_UNUSED_COMPUTED_BINDING,
-    &PREFER_EXPLICIT_SOURCES_FOR_CONDITIONAL_DEPS,
-    &NO_DEFINE_PROPS_AFTER_AWAIT,
-    &NO_DEFINE_EMITS_AFTER_AWAIT,
-    &NO_DEFINE_MODEL_AFTER_AWAIT,
-    &NO_DEFINE_SLOTS_AFTER_AWAIT,
-    &NO_DEFINE_OPTIONS_AFTER_AWAIT,
   ]
 }

@@ -1,3 +1,6 @@
+use vue_vet_core::TrackingScopeKind;
+use vue_vet_project::PROJECT_RULE_IDS;
+
 use super::helpers::*;
 
 const SIDE_EFFECT: &str = "import { computed, ref } from 'vue'\n\
@@ -315,5 +318,63 @@ fn package_json_add_replace_remove_matches_clean_scan() {
       .unwrap_or_else(|error| panic!("{label} clean: {error}"));
     assert_analysis_parity(&incremental, &clean);
   }
+  let _ignored = std::fs::remove_dir_all(root);
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn jsx_dynamic_dependency_regressions_stay_quiet() {
+  let names = [
+    "former-invalid-guarded-render.tsx",
+    "former-invalid-ident-getter.tsx",
+    "ident-getter.tsx",
+    "read-before-guard.tsx",
+  ];
+  let root = std::env::temp_dir().join(format!("vue-vet-jsx-dynamic-deps-{}", std::process::id()));
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+  install_module_seeds_vue_stub(&root);
+  for name in names {
+    let source =
+      std::fs::read_to_string(fixture(&format!("reactivity-semantics/dynamic-deps/{name}")))
+        .unwrap_or_else(|error| panic!("read {name}: {error}"));
+    std::fs::write(root.join(name), source).unwrap_or_else(|error| panic!("write {name}: {error}"));
+  }
+  let session = open_session_threads(root.clone(), 1);
+  let snapshot = session.analyze().unwrap_or_else(|error| panic!("analyze: {error}"));
+  assert!(snapshot.complete(), "scan issues: {:?}", snapshot.issues);
+  let analyzed: std::collections::BTreeSet<&str> =
+    snapshot.analyzed_files.iter().map(String::as_str).collect();
+  for name in names {
+    assert!(analyzed.contains(name), "fixture {name} must be analyzed; {analyzed:?}");
+    let module = snapshot
+      .graph
+      .module_reactivity
+      .iter()
+      .find(|module| module.id.as_str() == name)
+      .unwrap_or_else(|| panic!("missing module graph for {name}"));
+    let render = module
+      .graph
+      .scopes
+      .iter()
+      .find(|scope| scope.kind == TrackingScopeKind::Render)
+      .unwrap_or_else(|| {
+        panic!("{name} must have a Render tracking scope; {:?}", module.graph.scopes)
+      });
+    assert!(!render.reads.is_empty(), "{name} Render scope must keep reactive reads; {render:?}");
+  }
+  let live_noise = snapshot
+    .summary
+    .diagnostics
+    .iter()
+    .filter(|diagnostic| {
+      names.iter().any(|name| diagnostic.file == FileId::from(*name))
+        && diagnostic.rule_id != PROJECT_RULE_IDS[0]
+    })
+    .collect::<Vec<_>>();
+  assert!(
+    live_noise.is_empty(),
+    "live semantic rules must stay quiet on TSX dynamic-dep fixtures; {live_noise:?}"
+  );
   let _ignored = std::fs::remove_dir_all(root);
 }

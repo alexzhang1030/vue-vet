@@ -94,7 +94,7 @@ Completion evidence:
 
 ## M1 — useful local doctor
 
-Current: 100+ high-confidence built-in lint rules plus practice suggestions
+Current: 100 file rules and recommendations plus 2 project-graph rules
 (see [docs/rules/README.md](docs/rules/README.md)).
 
 Status: complete
@@ -262,7 +262,7 @@ Exit criteria:
 ### Alpha — complete
 
 - [x] M0 complete
-- [x] 100+ documented high-confidence built-in rules (plus practice channel)
+- [x] 100 documented file rules and recommendations plus 2 project-graph rules
 - [x] JSON output declares its initial versioned contract (`schema_version: 1`)
 - [x] the complete reference fixture corpus is covered by a no-crash integration test
 

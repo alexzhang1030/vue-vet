@@ -42,7 +42,8 @@ pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// prefer-watch suppresses self-write sources; computed self-write is impure.
 /// v5: conditional-dep premise withdrawn; after-await registrars deprecated
 /// except defineExpose; absence rules require complete follow coverage.
-pub const RULESET_VERSION: u32 = 14;
+/// v15: retired quiet IDs removed from the runtime catalog (config unknown).
+pub const RULESET_VERSION: u32 = 15;
 
 /// Workspace pin for `vize_croquis` / `vize_atelier_core`.
 ///

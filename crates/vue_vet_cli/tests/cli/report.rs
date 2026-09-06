@@ -148,6 +148,29 @@ fn reporter_json_snapshot_is_stable() {
 }
 
 #[test]
+fn unknown_retired_rule_id_in_config_is_an_operational_failure() {
+  let project = TempProject::new(
+    "retired-rule-config",
+    "<script setup lang=\"ts\">\nconst n = 1\n</script>\n<template>{{ n }}</template>\n",
+  );
+  project.write_source(
+    "vue-vet.toml",
+    "version = 1\n[rules]\n\"vue-vet/correctness/no-on-mounted-after-await\" = \"off\"\n",
+  );
+  let output = run(&[
+    project.root().to_string_lossy().as_ref(),
+    "--config",
+    project.root().join("vue-vet.toml").to_string_lossy().as_ref(),
+  ]);
+  let stderr = String::from_utf8_lossy(&output.stderr);
+  assert_eq!(output.status.code(), Some(2), "unknown rule ids must fail before scanning: {stderr}");
+  assert!(
+    stderr.contains("unknown rule") && stderr.contains("no-on-mounted-after-await"),
+    "stderr must name the removed id: {stderr}"
+  );
+}
+
+#[test]
 fn severity_override_changes_exit_policy() {
   let project = fixture("projects/configured");
   let config = project.join("vue-vet.toml");
