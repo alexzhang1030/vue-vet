@@ -16,8 +16,8 @@ use oxc_syntax::reference::ReferenceFlags;
 use vue_vet_core::{ScriptKind, SourceSpan};
 
 use super::shape::{
-  ShapeHint, VueImport, collect_vue_imports, hint_of, is_fresh_allocation,
-  is_unresolved_collection, resolve_vue_api, span_key,
+  ShapeHint, VueImport, hint_of, is_fresh_allocation, is_unresolved_collection, resolve_vue_api,
+  span_key,
 };
 use super::stats::WorkCounter;
 use crate::facts::source_span;
@@ -107,9 +107,9 @@ impl Indexes {
     sfc_source: &str,
     script_offset: usize,
     kind: ScriptKind,
+    vue_imports: HashMap<SymbolId, VueImport>,
+    work: WorkCounter,
   ) -> Self {
-    let work = WorkCounter::default();
-    let vue_imports = collect_vue_imports(semantic, &work);
     let mut indexes = Self {
       vue_imports,
       alias_root: HashMap::new(),
@@ -152,7 +152,7 @@ impl Indexes {
     indexes
   }
 
-  pub(super) fn stats(&self) -> super::stats::SourceContractStats {
+  pub(super) const fn stats(&self) -> super::stats::SourceContractStats {
     self.work.snapshot()
   }
 

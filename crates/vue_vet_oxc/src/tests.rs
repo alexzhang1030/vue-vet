@@ -6,7 +6,10 @@ use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType;
 
 use super::*;
-use crate::source_contracts::collect_source_contract_facts_with_stats;
+use crate::source_contracts::{
+  SourceContractStats, collect_source_contract_facts_forced_full,
+  collect_source_contract_facts_with_stats,
+};
 use vue_vet_core::ReactiveReadKind;
 
 #[expect(clippy::panic, reason = "unexpected Oxc errors must fail adapter tests")]
@@ -18,19 +21,60 @@ fn analyze(source: &str, language: &str) -> ScriptBlockFacts {
 }
 
 fn contract_stats(source: &str) -> (vue_vet_core::SourceContractFacts, u64) {
+  let (facts, stats) = contract_collect(source, ScriptKind::Setup, false);
+  (facts, stats.work())
+}
+
+fn contract_collect(
+  source: &str,
+  kind: ScriptKind,
+  force_full: bool,
+) -> (vue_vet_core::SourceContractFacts, SourceContractStats) {
   let allocator = Allocator::default();
   let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
   assert!(parsed.diagnostics.is_empty(), "stats fixture failed to parse");
   let built = SemanticBuilder::new().with_build_nodes(true).build(&parsed.program);
   assert!(built.diagnostics.is_empty(), "stats fixture failed semantics");
   let line_index = vue_vet_core::LineIndex::new(source);
-  collect_source_contract_facts_with_stats(
-    &built.semantic,
-    &line_index,
-    source,
-    0,
-    ScriptKind::Setup,
-  )
+  if force_full {
+    collect_source_contract_facts_forced_full(&built.semantic, &line_index, source, 0, kind)
+  } else {
+    collect_source_contract_facts_with_stats(&built.semantic, &line_index, source, 0, kind)
+  }
+}
+
+fn assert_gated_matches_forced(
+  source: &str,
+  kind: ScriptKind,
+) -> vue_vet_core::SourceContractFacts {
+  let (gated, gated_stats) = contract_collect(source, kind, false);
+  let (forced, forced_stats) = contract_collect(source, kind, true);
+  assert_eq!(gated, forced, "gated facts must match forced-full for {source}");
+  assert!(
+    forced_stats.owners > 0,
+    "forced-full must still build owners for {source}: {forced_stats:?}"
+  );
+  assert!(
+    !gated_stats.is_import_preflight_only(),
+    "eligible source must not bypass indexes: {source} {gated_stats:?}"
+  );
+  gated
+}
+
+fn assert_bypass(source: &str, kind: ScriptKind) {
+  let (facts, stats) = contract_collect(source, kind, false);
+  assert!(facts.is_empty(), "expected bypass empty facts for {source}: {facts:?}");
+  assert!(
+    stats.is_import_preflight_only(),
+    "bypass must be import-preflight only for {source}: {stats:?}"
+  );
+  assert!(stats.nodes > 0, "import preflight must visit semantic nodes for {source}");
+  let (forced, forced_stats) = contract_collect(source, kind, true);
+  assert!(forced.is_empty(), "forced-full must also stay empty for {source}: {forced:?}");
+  assert!(
+    forced_stats.owners > 0,
+    "forced-full must still index owners on bypass fixtures: {source} {forced_stats:?}"
+  );
 }
 
 #[test]
@@ -1861,4 +1905,120 @@ fn source_contracts_early_spreads_then_explicit_props_scale_subquadratically() {
     }
     previous = Some((size, work));
   }
+}
+
+#[test]
+fn source_contracts_gated_facts_match_forced_full_for_all_sinks() {
+  let cases = [
+    "import { reactive, triggerRef } from 'vue'; const obj = reactive({ n: 1 }); triggerRef(obj);",
+    "import { toRefs } from 'vue'; toRefs({ a: 1 });",
+    "import { reactive } from 'vue'; reactive(0);",
+    "import { readonly } from 'vue'; readonly(0);",
+    "import { shallowReactive } from 'vue'; shallowReactive(0);",
+    "import { shallowReadonly } from 'vue'; shallowReadonly(0);",
+    "import { ref, watch } from 'vue'; const n = ref(0); watch((n.value) as number, () => {});",
+    "import { reactive, watch } from 'vue'; const obj = reactive({ nested: { x: 1 } }); watch(obj.nested, () => {}); obj.nested = { x: 2 };",
+  ];
+  for source in cases {
+    let facts = assert_gated_matches_forced(source, ScriptKind::Setup);
+    assert!(!facts.is_empty(), "sink fixture must emit a fact: {source}");
+  }
+  let trigger = assert_gated_matches_forced(
+    "import { reactive, triggerRef } from 'vue'; const obj = reactive({ n: 1 }); triggerRef(obj);",
+    ScriptKind::Setup,
+  );
+  assert_eq!(trigger.trigger_ref_non_ref.first().map(|site| site.api.as_str()), Some("triggerRef"));
+  let primitive = assert_gated_matches_forced(
+    "import { shallowReadonly } from 'vue'; shallowReadonly(null);",
+    ScriptKind::Setup,
+  );
+  assert_eq!(
+    primitive.primitive_reactive_target.first().map(|site| site.api.as_str()),
+    Some("shallowReadonly")
+  );
+}
+
+#[test]
+fn source_contracts_identity_table_preserves_named_namespace_and_auto_import() {
+  let runtime_sources =
+    ["vue", "vue-demi", "@vue/runtime-core", "@vue/runtime-dom", "@vue/reactivity"];
+  for source_mod in runtime_sources {
+    let named = format!(
+      "import {{ triggerRef, ref as makeRef }} from '{source_mod}'; triggerRef(makeRef(1)); triggerRef({{ n: 1 }});"
+    );
+    let facts = assert_gated_matches_forced(&named, ScriptKind::Setup);
+    assert_eq!(facts.trigger_ref_non_ref.len(), 1, "{named}");
+    let aliased = format!(
+      "import {{ watch as observe, ref }} from '{source_mod}'; const n = ref(0); observe(n.value, () => {{}});"
+    );
+    let facts = assert_gated_matches_forced(&aliased, ScriptKind::Setup);
+    assert_eq!(facts.watch_unwrapped_source.len(), 1, "{aliased}");
+    let string_name = format!(
+      "import {{ 'watch' as observe, ref }} from '{source_mod}'; const n = ref(0); observe(n.value, () => {{}});"
+    );
+    let facts = assert_gated_matches_forced(&string_name, ScriptKind::Setup);
+    assert_eq!(facts.watch_unwrapped_source.len(), 1, "{string_name}");
+    let namespace = format!("import * as Vue from '{source_mod}'; Vue.triggerRef({{ n: 1 }});");
+    let facts = assert_gated_matches_forced(&namespace, ScriptKind::Setup);
+    assert_eq!(facts.trigger_ref_non_ref.len(), 1, "{namespace}");
+  }
+  let named_auto = "import { triggerRef } from '#imports'; triggerRef({ n: 1 });";
+  let facts = assert_gated_matches_forced(named_auto, ScriptKind::Setup);
+  assert_eq!(facts.trigger_ref_non_ref.len(), 1);
+  let mixed_type = "import { type ref, triggerRef } from 'vue'; triggerRef({ n: 1 });";
+  let facts = assert_gated_matches_forced(mixed_type, ScriptKind::Setup);
+  assert_eq!(facts.trigger_ref_non_ref.len(), 1);
+}
+
+#[test]
+fn source_contracts_macros_need_a_sink_and_setup_kind() {
+  let props_setup = "import { triggerRef } from 'vue'; triggerRef(defineProps());";
+  let props_facts = assert_gated_matches_forced(props_setup, ScriptKind::Setup);
+  assert_eq!(
+    props_facts.trigger_ref_non_ref.len(),
+    1,
+    "defineProps is a proven proxy in setup: {props_facts:?}"
+  );
+  let model_setup = "import { triggerRef } from 'vue'; triggerRef(defineModel());";
+  let model_facts = assert_gated_matches_forced(model_setup, ScriptKind::Setup);
+  assert!(
+    model_facts.trigger_ref_non_ref.is_empty(),
+    "defineModel is a proven ref in setup: {model_facts:?}"
+  );
+  let props_script = assert_gated_matches_forced(props_setup, ScriptKind::Script);
+  assert!(
+    props_script.trigger_ref_non_ref.is_empty(),
+    "ordinary script does not prove defineProps: {props_script:?}"
+  );
+  let model_script = assert_gated_matches_forced(model_setup, ScriptKind::Script);
+  assert!(
+    model_script.trigger_ref_non_ref.is_empty(),
+    "ordinary script does not prove defineModel: {model_script:?}"
+  );
+}
+
+#[test]
+fn source_contracts_bypass_without_fact_producing_sinks() {
+  assert_bypass("", ScriptKind::Setup);
+  assert_bypass("const n = 1;", ScriptKind::Script);
+  assert_bypass(
+    "import { ref, watchEffect } from 'vue'; const n = ref(0); watchEffect(() => { n.value; });",
+    ScriptKind::Setup,
+  );
+  assert_bypass(
+    "import { type triggerRef } from 'vue'; const triggerRef = (_value: unknown) => {}; triggerRef({ n: 1 });",
+    ScriptKind::Setup,
+  );
+  assert_bypass("import Vue from 'vue'; Vue.triggerRef({ n: 1 });", ScriptKind::Setup);
+  assert_bypass("import * as Auto from '#imports'; Auto.triggerRef({ n: 1 });", ScriptKind::Setup);
+  assert_bypass(
+    "import { triggerRef } from '@vue/toolkit'; triggerRef({ n: 1 });",
+    ScriptKind::Setup,
+  );
+  assert_bypass("triggerRef(1); reactive(0); watch(1, () => {});", ScriptKind::Setup);
+  assert_bypass("defineProps<{ title: string }>(); defineModel<number>();", ScriptKind::Setup);
+  assert_bypass(
+    "import { ref } from 'vue'; const o = { a: { x: 1 }, b: [1] }; const r = ref(o); const alias = r; alias.value = { a: { x: 2 } };",
+    ScriptKind::Setup,
+  );
 }
