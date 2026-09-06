@@ -29,6 +29,7 @@ fn lsp_diagnostics_carry_cli_finding_ids() {
     cache_dir: None,
     no_cache: true,
     threads: Some(1),
+    selected_groups: Vec::new(),
   }) else {
     panic!("session must open");
   };
@@ -60,6 +61,7 @@ fn overlay_snapshot_finding_ids_match_cli_identity() {
     cache_dir: None,
     no_cache: true,
     threads: Some(1),
+    selected_groups: Vec::new(),
   }) else {
     panic!("session must open");
   };
@@ -99,6 +101,7 @@ fn safe_code_actions_match_autofocus_producer() {
     cache_dir: None,
     no_cache: true,
     threads: Some(1),
+    selected_groups: Vec::new(),
   }) else {
     panic!("session must open");
   };
@@ -167,6 +170,7 @@ fn hover_mid_span_matches_explain_scope_summary() {
     cache_dir: None,
     no_cache: true,
     threads: Some(1),
+    selected_groups: Vec::new(),
   }) else {
     panic!("session must open");
   };

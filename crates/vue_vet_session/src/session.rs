@@ -132,7 +132,8 @@ impl ProjectSession {
   pub fn open(options: SessionOptions) -> Result<Self, SessionError> {
     let root = options.root.canonicalize().unwrap_or(options.root);
     let boundary = discover_workspace_boundary(&root);
-    let config = load_config(&root, options.config_path.as_deref())?;
+    let mut config = load_config(&root, options.config_path.as_deref())?;
+    crate::groups::apply_selected_groups(&mut config, &options.selected_groups);
     Ok(Self {
       root: WorkspaceRoot::new(root),
       boundary,
@@ -717,6 +718,7 @@ mod tests {
         cache_dir: None,
         no_cache: true,
         threads: Some(1),
+        selected_groups: Vec::new(),
       })
       .unwrap_or_else(|error| panic!("failed to open session: {error}")),
     );

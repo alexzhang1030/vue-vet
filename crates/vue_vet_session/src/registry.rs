@@ -39,13 +39,22 @@ pub fn file_analysis_registry() -> &'static RuleRegistry {
 /// Look up built-in, practice, or project rule metadata by exact id.
 #[must_use]
 pub fn resolve_rule_meta(rule_id: &str) -> Option<&'static RuleMeta> {
-  let mut metas = file_analysis_registry().metadata();
-  metas.extend(PROJECT_RULE_META.iter());
-  metas.into_iter().find(|meta| meta.id == rule_id)
+  composed_rule_metadata().into_iter().find(|meta| meta.id == rule_id)
 }
 
 pub fn known_rule_ids() -> impl Iterator<Item = &'static str> {
-  file_analysis_registry().metadata().into_iter().map(|meta| meta.id).chain(PROJECT_RULE_IDS)
+  composed_rule_metadata().into_iter().map(|meta| meta.id)
+}
+
+/// Built-in, practice, and project metadata sorted by stable ID.
+///
+/// Does not drop duplicate registrations: inventory and tests must see them.
+#[must_use]
+pub fn composed_rule_metadata() -> Vec<&'static RuleMeta> {
+  let mut metas = file_analysis_registry().metadata();
+  metas.extend(PROJECT_RULE_META.iter());
+  metas.sort_by_key(|meta| meta.id);
+  metas
 }
 
 #[cfg(test)]

@@ -37,6 +37,7 @@ pub fn open_session_threads(root: impl Into<PathBuf>, threads: usize) -> Project
     cache_dir: None,
     no_cache: true,
     threads: Some(threads),
+    selected_groups: Vec::new(),
   }) {
     Ok(session) => session,
     Err(error) => panic!("session must open: {error}"),

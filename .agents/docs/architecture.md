@@ -487,7 +487,18 @@ fact/diagnostic contract.
 
 `vue_vet_session` owns the long-lived project analysis handle: config load,
 cached/fresh scans, unsaved overlays, per-file fact state, reverse dependencies,
-rule/finding explain, and workspace path containment. `apply_changes` plus
+rule/finding explain, workspace path containment, and the **product rule-group
+table**. Canonical groups (`tracking`, `source-contracts`, `lifetime`,
+`derivation`, `project`) map composed registry IDs (built-in + practice +
+project) one-to-one. Core holds only serializable group DTOs — not hardcoded
+rule IDs and not a `RuleMeta` field. `--group` is applied to the effective
+`vue-vet.toml` **before** analysis by setting non-selected known IDs to `off`
+while leaving selected entries untouched, so cache identity, score, exit,
+edits, and explain-finding share one config. Empty `--group` is the historical
+scan. `--list-rules` prints the composed registry (including project IDs),
+independent of project configuration; scan-time enabling still follows preset,
+`practice`, and `[rules]`. Unmapped rules (a11y, template parity, and others
+without a group) stay available on the default scan. `apply_changes` plus
 `analyze_affected` schedule from `ChangeImpact`/`DirtyPlan`: reparses only
 parse-dirty files, refreshes environments/rules when context demands it, reuses
 unchanged facts and file-rule results when keys match, and expands graph

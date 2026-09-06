@@ -56,6 +56,13 @@
   Session tests assert `file_analysis_registry().metadata` matches that file-ID
   set (practice included; project IDs stay separate).
 - Low-confidence heuristics are opt-in and never enter the default preset merely to increase rule count.
+- Canonical rule groups are a product inventory overlay, not a per-rule `RuleMeta`
+  field. The mapping table lives with the composed registry in `vue_vet_session`.
+  Each mapped ID belongs to at most one group. `--list-rules` is the live
+  registry (sorted stable IDs, including project rules) and is **not** a scan
+  with the current `vue-vet.toml`. `--group` unions only change which known IDs
+  are `off` in effective config; they must not re-enable `preset = "none"`,
+  `practice = "off"`, or explicit `off` entries.
 
 ## Source locations
 

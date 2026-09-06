@@ -2,7 +2,7 @@
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 
 use thiserror::Error;
-use vue_vet_core::{FileId, ScanSummary};
+use vue_vet_core::{FileId, RuleGroupId, ScanSummary};
 use vue_vet_project::ProjectGraph;
 
 use crate::locality::ScanWorkCounters;
@@ -20,6 +20,8 @@ pub struct SessionOptions {
   pub no_cache: bool,
   /// Analysis worker threads; `None` uses Rayon defaults.
   pub threads: Option<usize>,
+  /// Canonical groups that narrow the effective rule set. Empty means no filter.
+  pub selected_groups: Vec<RuleGroupId>,
 }
 
 /// Deterministic analysis result shared across surfaces.

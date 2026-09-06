@@ -37,6 +37,7 @@ fn collect(no_cache: bool, cache_dir: Option<std::path::PathBuf>) -> Vec<&'stati
     cache_dir,
     no_cache,
     threads: Some(1),
+    selected_groups: Vec::new(),
   }) {
     Ok(session) => session.with_progress(reporter),
     Err(error) => panic!("session must open: {error}"),

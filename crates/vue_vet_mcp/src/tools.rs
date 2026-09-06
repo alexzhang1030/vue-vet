@@ -259,6 +259,7 @@ fn open_session(root: &Path) -> Result<ProjectSession, String> {
     cache_dir: None,
     no_cache: false,
     threads: None,
+    selected_groups: Vec::new(),
   })
   .map_err(|error| error.to_string())
 }

@@ -825,6 +825,7 @@ fn warm_disk_cache_hit_stays_cheap_and_first_edit_seeds_ir() {
     cache_dir: Some(cache_dir.clone()),
     no_cache: false,
     threads: Some(2),
+    selected_groups: Vec::new(),
   })
   .unwrap_or_else(|error| panic!("cold session: {error}"));
   let cold_snap = cold.analyze().unwrap_or_else(|error| panic!("cold analyze: {error}"));
@@ -836,6 +837,7 @@ fn warm_disk_cache_hit_stays_cheap_and_first_edit_seeds_ir() {
     cache_dir: Some(cache_dir),
     no_cache: false,
     threads: Some(2),
+    selected_groups: Vec::new(),
   })
   .unwrap_or_else(|error| panic!("warm session: {error}"));
   let warm_snap = warm.analyze().unwrap_or_else(|error| panic!("warm analyze: {error}"));

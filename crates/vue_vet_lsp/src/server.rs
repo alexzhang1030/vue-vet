@@ -201,6 +201,7 @@ impl LanguageServer for Backend {
       cache_dir: None,
       no_cache: true,
       threads: None,
+      selected_groups: Vec::new(),
     })
     .map_err(|error| tower_lsp::jsonrpc::Error::invalid_params(error.to_string()))?;
     let mut state = self.state.write().await;

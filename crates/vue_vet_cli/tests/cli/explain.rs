@@ -45,6 +45,8 @@ fn lsp_flag_is_advertised_in_help() {
   assert!(output.status.success(), "help must succeed: {stdout}");
   assert!(stdout.contains("--lsp"), "help must advertise the language server flag: {stdout}");
   assert!(stdout.contains("--mcp"), "help must advertise the MCP server flag: {stdout}");
+  assert!(stdout.contains("--list-rules"), "help must advertise rule inventory: {stdout}");
+  assert!(stdout.contains("--group"), "help must advertise group selection: {stdout}");
 }
 
 #[test]
