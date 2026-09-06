@@ -51,6 +51,13 @@
   `just rules-catalog` (`docs/rules/README.md`). Expand stub pages with
   `just rules-docs` (`scripts/expand_rule_docs.py`) before polishing essays.
 - Low-confidence heuristics are opt-in and never enter the default preset merely to increase rule count.
+- Canonical rule groups are a product inventory overlay, not a per-rule `RuleMeta`
+  field. The mapping table lives with the composed registry in `vue_vet_session`.
+  Each mapped ID belongs to at most one group. `--list-rules` is the live
+  registry (sorted stable IDs, including project rules) and is **not** a scan
+  with the current `vue-vet.toml`. `--group` unions only change which known IDs
+  are `off` in effective config; they must not re-enable `preset = "none"`,
+  `practice = "off"`, or explicit `off` entries.
 
 ## Source locations
 

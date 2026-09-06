@@ -114,6 +114,7 @@ fn open_session(root: PathBuf, cache_dir: PathBuf, no_cache: bool) -> ProjectSes
     cache_dir: Some(cache_dir),
     no_cache,
     threads: Some(1),
+    selected_groups: Vec::new(),
   }) {
     Ok(session) => session,
     Err(error) => panic!("session open: {error}"),

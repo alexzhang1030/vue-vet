@@ -276,6 +276,63 @@ operational failures to stderr. Invalid configuration, an unreadable root, and
 other failures that prevent workspace analysis from starting remain operational
 failures.
 
+## `--list-rules` (composed registry inventory)
+
+`--list-rules` prints the **live composed registry** (built-in + practice +
+project IDs), sorted by stable ID. It is an inventory, not a scan: project
+`vue-vet.toml` preset, `practice`, and `[rules]` do not hide rows. Repeatable
+`--group <slug>` may narrow the printed set to the union of those groups.
+Unmapped rules omit `group` / `group_title`. Counts come from that same
+in-memory registry — not from parsing source or Markdown.
+
+JSON (`--format json`) is a versioned additive document (`kind` is
+`rule_inventory`) so it cannot be mistaken for a scan report:
+
+```json
+{
+  "schema_version": 1,
+  "kind": "rule_inventory",
+  "groups": [
+    { "id": "tracking", "title": "Tracking" },
+    { "id": "source-contracts", "title": "Source contracts" },
+    { "id": "lifetime", "title": "Lifetime" },
+    { "id": "derivation", "title": "Derivation" },
+    { "id": "project", "title": "Project" }
+  ],
+  "counts": {
+    "total": "<registry length>",
+    "mapped": "<rows with a group>",
+    "unmapped": "<rows without a group>",
+    "by_group": { "tracking": "<n>", "project": "<n>" }
+  },
+  "rules": [
+    {
+      "id": "vue-vet/project/unresolved-import",
+      "category": "project",
+      "group": "project",
+      "group_title": "Project",
+      "severity": "error"
+    }
+  ]
+}
+```
+
+`counts.*` are taken from the same in-memory registry as `rules` (not from
+docs or source parsing). Do not hardcode a total in consumers.
+Text mode prints dense columns `ID`, `CATEGORY`, `GROUP`, `SEVERITY`. Progress,
+when enabled, stays on stderr so JSON stdout remains a single object.
+
+`--list-rules` conflicts with protocol servers, `--print-config`, `--explain`,
+`--explain-scope`, graph/TUI/fix/baseline/diff modes. `--group` is allowed on
+scans and listing; it does not change `--lsp` / `--mcp` configuration.
+
+Scan-time enabling is separate: `--group` writes `off` for non-selected known
+IDs into the effective config used by analyze, cache identity, score, exit,
+edits, and finding `--explain`. Default scans (no `--group`) are unchanged.
+Finding `--explain` still nests `tracking` (`ScopeExplain`) when the diagnostic
+sits on a tracking scope. Scan JSON does not add a selected-group summary field
+by default.
+
 ## `--explain` (rule or finding documentation)
 
 `--explain <RULE_OR_FINDING>` exits after printing documentation. Lookup and

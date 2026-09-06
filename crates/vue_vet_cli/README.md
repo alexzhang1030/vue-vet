@@ -32,6 +32,8 @@ to `vue_vet_lsp` / `vue_vet_mcp`.
 | `--format text\|json\|sarif\|github` | Reporter selection |
 | `--color` / `--progress` | `auto` / `always` / `never` (progress: stderr only) |
 | `--config` / `--print-config` | Config path / effective JSON |
+| `--list-rules` | Composed registry inventory (not scan-time enabling) |
+| `--group SLUG` | Repeatable; union of `tracking` / `source-contracts` / `lifetime` / `derivation` / `project` |
 | `--lsp` / `--mcp` | Adapter entry (exclusive modes) |
 | `--explain` / `--explain-scope` | Docs / “would Vue re-run?” |
 | `--print-graph` / `--print-reactivity` / `--reactivity-tui` | Graph / tracer surfaces |

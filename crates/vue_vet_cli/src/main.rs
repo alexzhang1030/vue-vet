@@ -7,8 +7,10 @@ use std::{io::IsTerminal, path::PathBuf, process::ExitCode, sync::Arc};
 
 use clap::{Args, Parser, ValueEnum};
 use vue_vet_cache::{Baseline, filter_diff, read_git_diff};
-use vue_vet_reporters::{ReportFormat, render_reactivity_detail};
-use vue_vet_session::{AnalysisSnapshot, ProgressEvent, ProjectSession, SessionOptions};
+use vue_vet_reporters::{ReportFormat, render_reactivity_detail, render_rule_inventory_text};
+use vue_vet_session::{
+  AnalysisSnapshot, ProgressEvent, ProjectSession, RuleGroupId, SessionOptions, rule_inventory,
+};
 
 mod explain;
 mod fixes;
@@ -60,6 +62,36 @@ struct Cli {
 
   #[arg(long, help = "Print the effective configuration as JSON and exit")]
   print_config: bool,
+
+  #[arg(
+    long,
+    conflicts_with_all = [
+      "print_config",
+      "lsp",
+      "mcp",
+      "explain",
+      "explain_scope",
+      "print_graph",
+      "print_reactivity",
+      "reactivity_tui",
+      "fix_dry_run",
+      "fix_safe",
+      "baseline",
+      "write_baseline",
+      "diff"
+    ],
+    help = "Print the composed rule inventory (independent of project configuration) and exit"
+  )]
+  list_rules: bool,
+
+  #[arg(
+    long,
+    value_name = "SLUG",
+    action = clap::ArgAction::Append,
+    conflicts_with_all = ["lsp", "mcp"],
+    help = "Restrict scan or --list-rules to a canonical group (repeatable; union). Slugs: tracking, source-contracts, lifetime, derivation, project"
+  )]
+  group: Vec<String>,
 
   #[arg(
     long,
@@ -265,6 +297,13 @@ impl From<OutputFormat> for ReportFormat {
 )]
 fn main() -> ExitCode {
   let cli = Cli::parse();
+  let selected_groups = match parse_selected_groups(&cli.group) {
+    Ok(groups) => groups,
+    Err(error) => return operational_failure(&cli, &error),
+  };
+  if cli.list_rules {
+    return run_list_rules(&cli, &selected_groups);
+  }
   if cli.lsp {
     return match vue_vet_lsp::run_stdio() {
       Ok(()) => ExitCode::SUCCESS,
@@ -289,7 +328,7 @@ fn main() -> ExitCode {
   if let Some(query) = cli.explain_scope.as_deref() {
     return run_explain_scope(&cli, query);
   }
-  let (session, mut progress) = match open_session(&cli) {
+  let (session, mut progress) = match open_session(&cli, &selected_groups) {
     Ok(opened) => opened,
     Err(error) => return operational_failure(&cli, &error),
   };
@@ -383,13 +422,17 @@ fn main() -> ExitCode {
   }
 }
 
-pub(crate) fn open_session(cli: &Cli) -> Result<(ProjectSession, ProgressController), String> {
+pub(crate) fn open_session(
+  cli: &Cli,
+  selected_groups: &[RuleGroupId],
+) -> Result<(ProjectSession, ProgressController), String> {
   let session = ProjectSession::open(SessionOptions {
     root: cli.path.clone(),
     config_path: cli.config.clone(),
     cache_dir: cli.cache.cache_dir.clone(),
     no_cache: cli.cache.no_cache || cli.fix.mode().is_some(),
     threads: cli.threads,
+    selected_groups: selected_groups.to_vec(),
   })
   .map_err(|error| error.to_string())?;
   let progress = ProgressController::start(detect_style(progress_enabled(cli.progress)));
@@ -398,6 +441,42 @@ pub(crate) fn open_session(cli: &Cli) -> Result<(ProjectSession, ProgressControl
     None => session,
   };
   Ok((session, progress))
+}
+
+pub(crate) fn parse_selected_groups(slugs: &[String]) -> Result<Vec<RuleGroupId>, String> {
+  let mut groups = Vec::with_capacity(slugs.len());
+  for slug in slugs {
+    let Some(group) = RuleGroupId::parse_slug(slug) else {
+      let expected =
+        RuleGroupId::ALL.iter().map(|group| group.slug()).collect::<Vec<_>>().join(", ");
+      return Err(format!("unknown rule group `{slug}`; expected one of {expected}"));
+    };
+    groups.push(group);
+  }
+  Ok(vue_vet_session::normalize_groups(&groups))
+}
+
+#[expect(clippy::print_stdout, reason = "list-rules is an early-exit CLI surface")]
+fn run_list_rules(cli: &Cli, groups: &[RuleGroupId]) -> ExitCode {
+  let inventory = rule_inventory(groups);
+  match cli.format {
+    OutputFormat::Json => match serde_json::to_string_pretty(&inventory) {
+      Ok(output) => {
+        println!("{output}");
+        ExitCode::SUCCESS
+      }
+      Err(error) => {
+        operational_failure(cli, &format!("failed to serialize rule inventory: {error}"))
+      }
+    },
+    OutputFormat::Text => {
+      print!("{}", render_rule_inventory_text(&inventory));
+      ExitCode::SUCCESS
+    }
+    OutputFormat::Sarif | OutputFormat::Github => {
+      operational_failure(cli, "--list-rules supports --format text or json only")
+    }
+  }
 }
 
 fn fail_with_progress(cli: &Cli, progress: &mut ProgressController, message: &str) -> ExitCode {

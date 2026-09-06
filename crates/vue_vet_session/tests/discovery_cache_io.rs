@@ -11,6 +11,7 @@ fn open(root: PathBuf, cache_dir: Option<PathBuf>) -> ProjectSession {
     cache_dir,
     no_cache,
     threads: Some(1),
+    selected_groups: Vec::new(),
   }) {
     Ok(session) => session,
     Err(error) => panic!("session must open: {error}"),
