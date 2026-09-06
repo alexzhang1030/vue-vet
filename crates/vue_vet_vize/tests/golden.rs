@@ -1807,3 +1807,77 @@ fn transition_native_input_import_snapshot() {
     ),
   );
 }
+
+const SOURCE_CONTRACT_RULES: &[&str] = &[
+  "no-trigger-ref-on-non-ref",
+  "no-torefs-on-non-proxy",
+  "no-primitive-reactive-target",
+  "no-watch-unwrapped-source",
+  "no-watch-replaced-object-source",
+];
+
+#[test]
+#[expect(clippy::panic, reason = "fixture IO must fail the golden test")]
+fn source_contract_rule_fixtures() {
+  let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+  for rule in SOURCE_CONTRACT_RULES {
+    let invalid_dir = root.join(format!("fixtures/rules/{rule}/invalid"));
+    let valid_dir = root.join(format!("fixtures/rules/{rule}/valid"));
+    let snap_dir = root.join(format!("fixtures/snapshots/{rule}"));
+    std::fs::create_dir_all(&snap_dir)
+      .unwrap_or_else(|error| panic!("mkdir {snap_dir:?}: {error}"));
+    for entry in
+      std::fs::read_dir(&invalid_dir).unwrap_or_else(|error| panic!("{invalid_dir:?}: {error}"))
+    {
+      let path = entry.unwrap_or_else(|error| panic!("entry: {error}")).path();
+      if path.extension().and_then(|ext| ext.to_str()) != Some("vue") {
+        continue;
+      }
+      let source =
+        std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("read {path:?}: {error}"));
+      let logical = path.strip_prefix(&root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+      let actual = diagnostics_snapshot(&logical, &source);
+      let snap_path = snap_dir.join(format!(
+        "{}.json",
+        path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("fixture")
+      ));
+      if std::env::var_os("UPDATE_SOURCE_CONTRACT_SNAPSHOTS").is_some() {
+        std::fs::write(&snap_path, format!("{actual}\n"))
+          .unwrap_or_else(|error| panic!("write {snap_path:?}: {error}"));
+      }
+      let expected = std::fs::read_to_string(&snap_path)
+        .unwrap_or_else(|error| panic!("missing snapshot {snap_path:?}: {error}"));
+      assert_eq!(actual, expected.trim_end(), "snapshot changed for {logical}");
+      let parsed: Vec<Diagnostic> =
+        serde_json::from_str(&actual).unwrap_or_else(|error| panic!("parse {logical}: {error}"));
+      assert!(
+        parsed.iter().any(|diagnostic| diagnostic.rule_id.ends_with(*rule)),
+        "{logical} must report {rule}; {parsed:?}"
+      );
+      for diagnostic in &parsed {
+        let end = diagnostic.span.offset.saturating_add(diagnostic.span.length);
+        assert!(
+          source.get(diagnostic.span.offset..end).is_some_and(|snippet| !snippet.is_empty()),
+          "{logical} span must be non-empty"
+        );
+      }
+    }
+    for entry in
+      std::fs::read_dir(&valid_dir).unwrap_or_else(|error| panic!("{valid_dir:?}: {error}"))
+    {
+      let path = entry.unwrap_or_else(|error| panic!("entry: {error}")).path();
+      if path.extension().and_then(|ext| ext.to_str()) != Some("vue") {
+        continue;
+      }
+      let source =
+        std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("read {path:?}: {error}"));
+      let logical = path.strip_prefix(&root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+      let diagnostics = analyze_sfc(Path::new(&logical), &source)
+        .unwrap_or_else(|error| panic!("analyze {logical}: {error}"));
+      assert!(
+        diagnostics.iter().all(|diagnostic| !diagnostic.rule_id.ends_with(*rule)),
+        "{logical} must stay quiet for {rule}; {diagnostics:?}"
+      );
+    }
+  }
+}

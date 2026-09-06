@@ -212,7 +212,10 @@ Vue Vet keeps small domain IRs rather than a unified AST:
 Parser IR (Vize AST / Oxc Semantic)     — short-lived, never cached across adapters
         ↓
 File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
-        (`TemplateElementFact::has_key` includes proven object-form `v-bind`
+        (`ScriptBlockFacts::source_contracts` holds proven Vue API source-identity
+        sites from Oxc (`vue_vet_oxc::source_contracts`); lifetime facts are a
+        separate field owned elsewhere.
+        `TemplateElementFact::has_key` includes proven object-form `v-bind`
         keys from Oxc; `is_component` is Vize `ElementType` / JSX
         identifier-reference adapted into stable facts; Vize owns directive extraction)
         ↓

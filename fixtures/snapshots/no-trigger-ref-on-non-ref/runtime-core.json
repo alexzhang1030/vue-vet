@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-trigger-ref-on-non-ref",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-trigger-ref-on-non-ref",
+    "message": "`triggerRef` does not notify watchers unless the argument is a ref",
+    "help": "Pass a `ref` / `shallowRef` / `customRef`, or mutate the reactive object instead.",
+    "file": "fixtures/rules/no-trigger-ref-on-non-ref/invalid/runtime-core.vue",
+    "span": {
+      "offset": 83,
+      "length": 8,
+      "line": 3,
+      "column": 12
+    }
+  }
+]

@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-watch-unwrapped-source",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-watch-unwrapped-source",
+    "message": "`watch` source is an unwrapped primitive, so later writes will not re-run the callback",
+    "help": "Pass the ref itself (`watch(count, …)`) or a getter (`watch(() => state.n, …)`).",
+    "file": "fixtures/rules/no-watch-unwrapped-source/invalid/alias.vue",
+    "span": {
+      "offset": 94,
+      "length": 7,
+      "line": 4,
+      "column": 9
+    }
+  }
+]

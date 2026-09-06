@@ -93,6 +93,8 @@ jobs:
         run: just oracle-self-trigger
       - name: Watcher cleanup and effectScope lifetime evidence
         run: just oracle-lifetime
+      - name: Source-contract runtime premises
+        run: just oracle-source-contracts
 
   vapor-migration-research:
     name: Vapor migration research

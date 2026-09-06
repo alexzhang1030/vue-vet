@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-watch-replaced-object-source",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-watch-replaced-object-source",
+    "message": "`watch(状态.nested)` subscribes to the current object identity; replacing `状态.nested` later bypasses that subscription",
+    "help": "The replacement at 5:17 does not retarget the watcher. Use `watch(() => 状态.nested, …, { deep: true })` if replacement must be observed.",
+    "file": "fixtures/rules/no-watch-replaced-object-source/invalid/unicode.vue",
+    "span": {
+      "offset": 115,
+      "length": 13,
+      "line": 4,
+      "column": 7
+    }
+  }
+]
