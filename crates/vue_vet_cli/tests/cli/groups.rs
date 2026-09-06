@@ -58,6 +58,32 @@ fn list_rules_text_has_dense_columns() {
 }
 
 #[test]
+fn list_rules_source_contracts_includes_five_ids() {
+  let output = run(&["--list-rules", "--format", "json", "--group", "source-contracts"]);
+  assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+  let parsed: Value = serde_json::from_slice(&output.stdout).expect("source-contracts json");
+  let ids: Vec<_> = parsed
+    .get("rules")
+    .and_then(Value::as_array)
+    .map(|rules| {
+      rules
+        .iter()
+        .filter_map(|row| row.get("id").and_then(Value::as_str).map(str::to_owned))
+        .collect()
+    })
+    .unwrap_or_default();
+  for id in [
+    "vue-vet/reactivity/no-primitive-reactive-target",
+    "vue-vet/reactivity/no-torefs-on-non-proxy",
+    "vue-vet/reactivity/no-trigger-ref-on-non-ref",
+    "vue-vet/reactivity/no-watch-replaced-object-source",
+    "vue-vet/reactivity/no-watch-unwrapped-source",
+  ] {
+    assert!(ids.iter().any(|row| row == id), "missing {id} in {ids:?}");
+  }
+}
+
+#[test]
 fn list_rules_group_union_is_idempotent() {
   let once = run(&["--list-rules", "--format", "json", "--group", "tracking"]);
   let twice =
