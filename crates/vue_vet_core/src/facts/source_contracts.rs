@@ -1,6 +1,8 @@
 //! Neutral Vue API source-contract facts (issue #224).
 //!
 //! Produced by `vue_vet_oxc`; consumed by `vue_vet_rules`. No parser AST types.
+//!
+//! This slice adds `toref_ignored_key` and `effect_scope_callback`.
 
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +21,10 @@ pub struct SourceContractFacts {
   pub watch_unwrapped_source: Vec<SourceContractSiteFact>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub watch_replaced_object_source: Vec<WatchReplacedObjectSourceFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub toref_ignored_key: Vec<ToRefIgnoredKeyFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub effect_scope_callback: Vec<SourceContractSiteFact>,
 }
 
 impl SourceContractFacts {
@@ -29,6 +35,8 @@ impl SourceContractFacts {
       && self.primitive_reactive_target.is_empty()
       && self.watch_unwrapped_source.is_empty()
       && self.watch_replaced_object_source.is_empty()
+      && self.toref_ignored_key.is_empty()
+      && self.effect_scope_callback.is_empty()
   }
 }
 
@@ -38,6 +46,22 @@ pub struct SourceContractSiteFact {
   pub span: SourceSpan,
   #[serde(default, skip_serializing_if = "String::is_empty")]
   pub api: String,
+}
+
+/// Proven `toRef(source, key)` overload that ignores a static key.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ToRefIgnoredKeyFact {
+  pub span: SourceSpan,
+  pub reason: ToRefIgnoredKeyReason,
+}
+
+/// Runtime `toRef` branch that discards the key argument.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToRefIgnoredKeyReason {
+  Ref,
+  Function,
+  Primitive,
 }
 
 /// `watch(objectMember)` plus a later same-identity property replacement.

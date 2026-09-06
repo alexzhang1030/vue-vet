@@ -23,6 +23,10 @@ pub const CACHE_FORMAT_VERSION: u32 = 5;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// Bump when built-in rule set or seed-aware analysis behavior changes.
 ///
+/// v18: source-contract additions `no-toref-ignored-key` and
+/// `no-effect-scope-callback-argument` (issue #224). Composed file+practice+project
+/// inventory grows independently of other branches; record parent integration
+/// versions there instead of conflating live counts.
 /// v17: source-contract rules (`no-trigger-ref-on-non-ref`,
 /// `no-torefs-on-non-proxy`, `no-primitive-reactive-target`,
 /// `no-watch-unwrapped-source`, `no-watch-replaced-object-source`) plus
@@ -50,7 +54,7 @@ pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// prefer-watch suppresses self-write sources; computed self-write is impure.
 /// v5: conditional-dep premise withdrawn; after-await registrars deprecated
 /// except defineExpose; absence rules require complete follow coverage.
-pub const RULESET_VERSION: u32 = 17;
+pub const RULESET_VERSION: u32 = 18;
 
 /// Workspace pin for `vize_croquis` / `vize_atelier_core`.
 ///

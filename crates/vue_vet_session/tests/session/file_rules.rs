@@ -412,12 +412,14 @@ fn source_contract_findings_keep_incremental_identity() {
   let _ignored = std::fs::remove_dir_all(&root);
   std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
   let source = "<script setup lang=\"ts\">\n\
-import { reactive, ref, triggerRef, toRefs, watch } from 'vue'\n\
+import { effectScope, reactive, ref, toRef, triggerRef, toRefs, watch } from 'vue'\n\
 const n = ref(0)\n\
 watch(n.value, () => {})\n\
 triggerRef(reactive({ n: 1 }))\n\
 toRefs({ a: 1 })\n\
 void reactive(0)\n\
+void toRef(n, 'k')\n\
+effectScope(() => {})\n\
 </script>\n\
 <template><p /></template>\n";
   let replaced = "<script setup lang=\"ts\">\n\
@@ -432,23 +434,18 @@ obj.nested = { x: 9 }\n\
     .unwrap_or_else(|error| panic!("write replace: {error}"));
   let session = open_session_threads(root.clone(), 1);
   let cold = session.analyze().unwrap_or_else(|error| panic!("cold: {error}"));
-  let contract_count = cold
-    .summary
-    .diagnostics
-    .iter()
-    .filter(|diagnostic| {
-      diagnostic.rule_id.contains("trigger-ref")
-        || diagnostic.rule_id.contains("torefs")
-        || diagnostic.rule_id.contains("primitive-reactive")
-        || diagnostic.rule_id.contains("watch-unwrapped")
-        || diagnostic.rule_id.contains("watch-replaced")
-    })
-    .count();
-  assert!(
-    contract_count >= 5,
-    "cold scan must emit the five source-contract IDs; {:?}",
-    cold.summary.diagnostics
-  );
+  let ids: Vec<_> =
+    cold.summary.diagnostics.iter().map(|diagnostic| diagnostic.rule_id.as_str()).collect();
+  for id in [
+    "vue-vet/reactivity/no-toref-ignored-key",
+    "vue-vet/reactivity/no-effect-scope-callback-argument",
+    "vue-vet/reactivity/no-trigger-ref-on-non-ref",
+    "vue-vet/reactivity/no-torefs-on-non-proxy",
+    "vue-vet/reactivity/no-primitive-reactive-target",
+    "vue-vet/reactivity/no-watch-replaced-object-source",
+  ] {
+    assert!(ids.contains(&id), "cold scan must emit {id}; {ids:?}");
+  }
   session
     .apply_changes(ChangeSet::upsert(root.join("App.vue"), source.into()))
     .unwrap_or_else(|error| panic!("touch: {error}"));

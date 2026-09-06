@@ -7,7 +7,7 @@ use oxc_ast::{
   ast::{
     Argument, AssignmentOperator, AssignmentTarget, AssignmentTargetMaybeDefault,
     AssignmentTargetProperty, CallExpression, Expression, IdentifierReference, ObjectPropertyKind,
-    PropertyKind, SimpleAssignmentTarget,
+    PropertyKind, SimpleAssignmentTarget, UnaryOperator,
   },
 };
 use oxc_semantic::{NodeId, SymbolFlags, SymbolId};
@@ -50,6 +50,7 @@ pub(super) struct MemberWrite {
 pub(super) struct CallInfo {
   pub api: Option<&'static str>,
   pub first_arg: Option<Span>,
+  pub second_arg: Option<Span>,
   pub has_spread: bool,
 }
 
@@ -80,6 +81,8 @@ pub(super) struct Indexes {
   pub uncertain: HashSet<SymbolId>,
   pub reassigned: HashSet<SymbolId>,
   pub unknown_member_touch: HashSet<SymbolId>,
+  pub toref_identity_uncertain: HashSet<SymbolId>,
+  pub toref_helper_escape: HashSet<SymbolId>,
   pub value_writes: HashMap<SymbolId, Vec<ValueWrite>>,
   pub member_writes: HashMap<(SymbolId, String), Vec<MemberWrite>>,
   pub hints: HashMap<u64, ShapeHint>,
@@ -117,6 +120,8 @@ impl Indexes {
       uncertain: HashSet::new(),
       reassigned: HashSet::new(),
       unknown_member_touch: HashSet::new(),
+      toref_identity_uncertain: HashSet::new(),
+      toref_helper_escape: HashSet::new(),
       value_writes: HashMap::new(),
       member_writes: HashMap::new(),
       hints: HashMap::new(),
@@ -166,6 +171,14 @@ impl Indexes {
       || self.escaped.contains(&root)
       || self.reassigned.contains(&root)
       || self.unknown_member_touch.contains(&root)
+  }
+
+  pub(super) fn toref_identity_unproven(&self, symbol_id: SymbolId) -> bool {
+    let root = self.root_of(symbol_id);
+    self.reassigned.contains(&root)
+      || self.unknown_member_touch.contains(&root)
+      || self.toref_identity_uncertain.contains(&root)
+      || self.toref_helper_escape.contains(&root)
   }
 
   pub(super) fn has_event_between(&self, block: NodeId, start: usize, end: usize) -> bool {
@@ -359,7 +372,7 @@ impl Indexes {
           ) && let oxc_ast::ast::BindingPattern::BindingIdentifier(binding) = &declarator.id
             && let Some(symbol_id) = binding.symbol_id.get()
           {
-            self.escaped.insert(self.root_of(symbol_id));
+            self.escape_root(self.root_of(symbol_id), true);
           }
           if let Some(init) = &declarator.init {
             self.record_expr(semantic, kind, init);
@@ -373,12 +386,12 @@ impl Indexes {
                       let root = self.root_of(target);
                       self.alias_root.insert(local, root);
                     } else {
-                      self.escaped.insert(self.root_of(target));
+                      self.escape_root(self.root_of(target), true);
                     }
                   }
                 }
                 _ => {
-                  self.escaped.insert(self.root_of(target));
+                  self.escape_root(self.root_of(target), true);
                 }
               }
             }
@@ -392,7 +405,7 @@ impl Indexes {
         }
         AstKind::AssignmentExpression(assignment) => {
           self.record_expr(semantic, kind, &assignment.right);
-          self.mark_escape_expr(semantic, &assignment.right);
+          self.mark_escape_expr(semantic, &assignment.right, true);
           let offset = mapped(line_index, sfc_source, script_offset, assignment.span).offset;
           self.index_assignment(
             semantic,
@@ -411,12 +424,16 @@ impl Indexes {
             self.reassigned.insert(self.root_of(symbol_id));
           }
         }
+        AstKind::UnaryExpression(unary) if unary.operator == UnaryOperator::Delete => {
+          self.mark_delete_target(semantic, &unary.argument);
+        }
         AstKind::CallExpression(call) => {
           self.record_call(semantic, kind, call);
-          for argument in &call.arguments {
+          let api = self.calls.get(&span_key(call.span)).and_then(|info| info.api);
+          for (index, argument) in call.arguments.iter().enumerate() {
             if let Some(expression) = argument.as_expression() {
               self.record_expr(semantic, kind, expression);
-              self.mark_escape_expr(semantic, expression);
+              self.mark_escape_expr(semantic, expression, !(api == Some("toRef") && index == 0));
             }
           }
           self.record_stmt_site(semantic, line_index, sfc_source, script_offset, node_id);
@@ -437,7 +454,7 @@ impl Indexes {
           for property in &object.properties {
             if let ObjectPropertyKind::ObjectProperty(property) = property {
               self.record_expr(semantic, kind, &property.value);
-              self.mark_escape_expr(semantic, &property.value);
+              self.mark_escape_expr(semantic, &property.value, true);
             }
           }
         }
@@ -445,14 +462,14 @@ impl Indexes {
           for element in &array.elements {
             if let Some(expression) = element.as_expression() {
               self.record_expr(semantic, kind, expression);
-              self.mark_escape_expr(semantic, expression);
+              self.mark_escape_expr(semantic, expression, true);
             }
           }
         }
         AstKind::ReturnStatement(statement) => {
           if let Some(argument) = &statement.argument {
             self.record_expr(semantic, kind, argument);
-            self.mark_escape_expr(semantic, argument);
+            self.mark_escape_expr(semantic, argument, true);
           }
           self.record_event(
             semantic,
@@ -463,7 +480,7 @@ impl Indexes {
             statement.span,
           );
         }
-        AstKind::SpreadElement(spread) => self.mark_escape_expr(semantic, &spread.argument),
+        AstKind::SpreadElement(spread) => self.mark_escape_expr(semantic, &spread.argument, true),
         AstKind::IfStatement(statement) => {
           self.record_event(
             semantic,
@@ -537,6 +554,11 @@ impl Indexes {
           {
             self.uncertain.insert(root);
           }
+          if known_static_member_object_role(semantic, reference.node_id())
+            && self.static_member_chain_toref_uncertain(semantic, reference.node_id())
+          {
+            self.toref_identity_uncertain.insert(root);
+          }
           continue;
         }
         if flags.is_write() {
@@ -547,8 +569,108 @@ impl Indexes {
           continue;
         }
         self.uncertain.insert(root);
+        if !self.known_toref_source_argument_role(semantic, reference.node_id()) {
+          self.toref_identity_uncertain.insert(root);
+        }
       }
     }
+  }
+
+  /// First argument of a proven `toRef` call. Other identifier uses do not prove `__v_isRef`.
+  fn known_toref_source_argument_role(
+    &self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    node_id: NodeId,
+  ) -> bool {
+    self.work.add_queries(1);
+    let ident_span = semantic.nodes().kind(node_id).span();
+    let mut current = node_id;
+    for _ in 0..MAX_ROLE_ANCESTORS {
+      let parent_id = semantic.nodes().parent_id(current);
+      self.work.add_queries(1);
+      match semantic.nodes().kind(parent_id) {
+        AstKind::ParenthesizedExpression(_)
+        | AstKind::TSAsExpression(_)
+        | AstKind::TSSatisfiesExpression(_)
+        | AstKind::TSNonNullExpression(_)
+        | AstKind::TSTypeAssertion(_)
+        | AstKind::ChainExpression(_) => {
+          current = parent_id;
+        }
+        AstKind::CallExpression(call) => {
+          let Some(info) = self.calls.get(&span_key(call.span)).copied() else {
+            return false;
+          };
+          if info.api != Some("toRef") {
+            return false;
+          }
+          let Some(first) = call.arguments.first().and_then(Argument::as_expression) else {
+            return false;
+          };
+          let inner = first.get_inner_expression();
+          return inner.span() == ident_span || first.span() == ident_span;
+        }
+        _ => return false,
+      }
+    }
+    false
+  }
+
+  /// Receiver call / `new` / tagged-template / unknown member-chain of a static member object.
+  /// Ordinary `state.n` and `state.value` reads and writes stay outside this set.
+  fn static_member_chain_toref_uncertain(
+    &self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    node_id: NodeId,
+  ) -> bool {
+    let mut current = node_id;
+    let mut current_span = semantic.nodes().kind(node_id).span();
+    for _ in 0..MAX_ROLE_ANCESTORS {
+      let parent_id = semantic.nodes().parent_id(current);
+      self.work.add_queries(1);
+      match semantic.nodes().kind(parent_id) {
+        AstKind::ParenthesizedExpression(_)
+        | AstKind::TSAsExpression(_)
+        | AstKind::TSSatisfiesExpression(_)
+        | AstKind::TSNonNullExpression(_)
+        | AstKind::TSTypeAssertion(_)
+        | AstKind::ChainExpression(_) => {
+          current = parent_id;
+          current_span = semantic.nodes().kind(parent_id).span();
+        }
+        AstKind::StaticMemberExpression(member) => {
+          let object = member.object.span();
+          let inner = member.object.get_inner_expression().span();
+          if object != current_span && inner != current_span {
+            return false;
+          }
+          current = parent_id;
+          current_span = member.span();
+        }
+        AstKind::ComputedMemberExpression(member) => {
+          let object = member.object.span();
+          let inner = member.object.get_inner_expression().span();
+          return object == current_span || inner == current_span;
+        }
+        AstKind::CallExpression(call) => {
+          let callee = call.callee.span();
+          let inner = call.callee.get_inner_expression().span();
+          return callee == current_span || inner == current_span;
+        }
+        AstKind::NewExpression(expression) => {
+          let callee = expression.callee.span();
+          let inner = expression.callee.get_inner_expression().span();
+          return callee == current_span || inner == current_span;
+        }
+        AstKind::TaggedTemplateExpression(expression) => {
+          let tag = expression.tag.span();
+          let inner = expression.tag.get_inner_expression().span();
+          return tag == current_span || inner == current_span;
+        }
+        _ => return false,
+      }
+    }
+    true
   }
 
   fn has_simple_value_write(&self, root: SymbolId) -> bool {
@@ -596,18 +718,59 @@ impl Indexes {
     } else {
       call.arguments.first().and_then(Argument::as_expression).map(GetSpan::span)
     };
-    self.calls.insert(span_key(call.span), CallInfo { api, first_arg, has_spread });
+    let second_arg = if has_spread {
+      None
+    } else {
+      call.arguments.get(1).and_then(Argument::as_expression).map(GetSpan::span)
+    };
+    self.calls.insert(span_key(call.span), CallInfo { api, first_arg, second_arg, has_spread });
+  }
+
+  fn mark_delete_target(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    argument: &Expression<'_>,
+  ) {
+    match argument.get_inner_expression() {
+      Expression::StaticMemberExpression(member) => {
+        let Some(object) = member.object.get_inner_expression().get_identifier_reference() else {
+          return;
+        };
+        let Some(symbol_id) = reference_symbol(semantic, object) else {
+          return;
+        };
+        if member.property.name.as_str() == TOREF_CAPABILITY_KEY {
+          self.toref_identity_uncertain.insert(self.root_of(symbol_id));
+        }
+      }
+      Expression::ComputedMemberExpression(member) => {
+        if let Some(object) = member.object.get_inner_expression().get_identifier_reference()
+          && let Some(symbol_id) = reference_symbol(semantic, object)
+        {
+          self.toref_identity_uncertain.insert(self.root_of(symbol_id));
+        }
+      }
+      _ => {}
+    }
   }
 
   fn mark_escape_expr(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     expression: &Expression<'_>,
+    for_toref: bool,
   ) {
     if let Some(identifier) = expression.get_inner_expression().get_identifier_reference()
       && let Some(symbol_id) = reference_symbol(semantic, identifier)
     {
-      self.escaped.insert(self.root_of(symbol_id));
+      self.escape_root(self.root_of(symbol_id), for_toref);
+    }
+  }
+
+  fn escape_root(&mut self, root: SymbolId, for_toref: bool) {
+    self.escaped.insert(root);
+    if for_toref {
+      self.toref_helper_escape.insert(root);
     }
   }
 
@@ -640,6 +803,9 @@ impl Indexes {
         };
         let root = self.root_of(symbol_id);
         let property = member.property.name.as_str();
+        if property == TOREF_CAPABILITY_KEY {
+          self.toref_identity_uncertain.insert(root);
+        }
         if property == "value" {
           if simple {
             self.value_write_roots.insert(root);
@@ -685,19 +851,10 @@ impl Indexes {
         }
       }
       AssignmentTarget::StaticMemberExpression(member) => {
-        if let Some(object) = member.object.get_inner_expression().get_identifier_reference()
-          && let Some(symbol_id) = reference_symbol(semantic, object)
-        {
-          self.uncertain.insert(self.root_of(symbol_id));
-        }
+        self.record_pattern_static_member(semantic, &member.object, member.property.name.as_str());
       }
       AssignmentTarget::ComputedMemberExpression(member) => {
-        if let Some(object) = member.object.get_inner_expression().get_identifier_reference()
-          && let Some(symbol_id) = reference_symbol(semantic, object)
-        {
-          self.unknown_member_touch.insert(self.root_of(symbol_id));
-          self.uncertain.insert(self.root_of(symbol_id));
-        }
+        self.record_pattern_dynamic_member(semantic, &member.object);
       }
       AssignmentTarget::ObjectAssignmentTarget(object) => {
         for property in &object.properties {
@@ -740,6 +897,44 @@ impl Indexes {
     }
   }
 
+  /// Patterns do not prove extracted member values. Ordinary `state.n` keeps
+  /// generic uncertainty only; `__v_isRef` and dynamic targets also mark toRef identity.
+  fn record_pattern_static_member(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    object: &Expression<'_>,
+    property: &str,
+  ) {
+    let Some(object) = object.get_inner_expression().get_identifier_reference() else {
+      return;
+    };
+    let Some(symbol_id) = reference_symbol(semantic, object) else {
+      return;
+    };
+    let root = self.root_of(symbol_id);
+    self.uncertain.insert(root);
+    if property == TOREF_CAPABILITY_KEY {
+      self.toref_identity_uncertain.insert(root);
+    }
+  }
+
+  fn record_pattern_dynamic_member(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    object: &Expression<'_>,
+  ) {
+    let Some(object) = object.get_inner_expression().get_identifier_reference() else {
+      return;
+    };
+    let Some(symbol_id) = reference_symbol(semantic, object) else {
+      return;
+    };
+    let root = self.root_of(symbol_id);
+    self.unknown_member_touch.insert(root);
+    self.uncertain.insert(root);
+    self.toref_identity_uncertain.insert(root);
+  }
+
   fn mark_expression_target_uncertain(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
@@ -752,19 +947,10 @@ impl Indexes {
         }
       }
       Expression::StaticMemberExpression(member) => {
-        if let Some(object) = member.object.get_inner_expression().get_identifier_reference()
-          && let Some(symbol_id) = reference_symbol(semantic, object)
-        {
-          self.uncertain.insert(self.root_of(symbol_id));
-        }
+        self.record_pattern_static_member(semantic, &member.object, member.property.name.as_str());
       }
       Expression::ComputedMemberExpression(member) => {
-        if let Some(object) = member.object.get_inner_expression().get_identifier_reference()
-          && let Some(symbol_id) = reference_symbol(semantic, object)
-        {
-          self.unknown_member_touch.insert(self.root_of(symbol_id));
-          self.uncertain.insert(self.root_of(symbol_id));
-        }
+        self.record_pattern_dynamic_member(semantic, &member.object);
       }
       _ => {}
     }
@@ -949,3 +1135,6 @@ fn mapped(
 ) -> SourceSpan {
   source_span(line_index, sfc_source, script_offset, span)
 }
+
+const TOREF_CAPABILITY_KEY: &str = "__v_isRef";
+const MAX_ROLE_ANCESTORS: u8 = 8;

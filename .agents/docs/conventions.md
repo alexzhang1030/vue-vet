@@ -50,6 +50,12 @@
   catalog; keep Vue behavior evidence as semantic regressions, not as quiet
   registered rules. Delete those IDs from `[rules]` configuration — unknown
   IDs fail config validation.
+- Source-contract IDs `vue-vet/reactivity/no-toref-ignored-key` and
+  `vue-vet/reactivity/no-effect-scope-callback-argument` consume Oxc
+  `toRef` / `effectScope` fact sinks. Parent integration should record
+  composed-registry versions independently; do not conflate this branch's
+  `111 → 113` file+practice+project growth with other workers' catalogs.
+  Runtime premises live in `just oracle-source-contracts` (Vue 3.5.40).
 - After adding or renaming rule ids, regenerate the human catalog with
   `just rules-catalog` (`docs/rules/README.md`). Expand stub pages with
   `just rules-docs` (`scripts/expand_rule_docs.py`) before polishing essays.

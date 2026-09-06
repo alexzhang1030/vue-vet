@@ -109,3 +109,9 @@ versus repeating `requestAnimationFrame`, and template host behavior:
 
 Those cases use Vue's `createRenderer` custom host, so they do not need a DOM
 package.
+
+`just oracle-source-contracts` (`source-contracts.mjs`) is the Vue 3.5.40
+runtime pin for issue #224 API contracts, including `toRef` ignored-key
+overloads (immutable ref vs live `__v_isRef` marker, including pattern
+assignment, constructor arguments, and tagged-template receivers) and
+`effectScope` constructor callbacks.

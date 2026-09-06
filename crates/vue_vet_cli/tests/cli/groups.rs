@@ -58,7 +58,7 @@ fn list_rules_text_has_dense_columns() {
 }
 
 #[test]
-fn list_rules_source_contracts_includes_five_ids() {
+fn list_rules_source_contracts_includes_contract_ids() {
   let output = run(&["--list-rules", "--format", "json", "--group", "source-contracts"]);
   assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
   let parsed: Value = serde_json::from_slice(&output.stdout).expect("source-contracts json");
@@ -73,7 +73,9 @@ fn list_rules_source_contracts_includes_five_ids() {
     })
     .unwrap_or_default();
   for id in [
+    "vue-vet/reactivity/no-effect-scope-callback-argument",
     "vue-vet/reactivity/no-primitive-reactive-target",
+    "vue-vet/reactivity/no-toref-ignored-key",
     "vue-vet/reactivity/no-torefs-on-non-proxy",
     "vue-vet/reactivity/no-trigger-ref-on-non-ref",
     "vue-vet/reactivity/no-watch-replaced-object-source",

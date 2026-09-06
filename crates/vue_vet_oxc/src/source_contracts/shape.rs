@@ -7,7 +7,7 @@ use oxc_ast::{
 use oxc_semantic::SymbolId;
 use oxc_span::Span;
 use std::collections::HashMap;
-use vue_vet_core::ScriptKind;
+use vue_vet_core::{ScriptKind, ToRefIgnoredKeyReason};
 
 use super::stats::WorkCounter;
 
@@ -56,6 +56,15 @@ impl Shape {
   pub(super) const fn is_deep_mutable_proxy(self) -> bool {
     matches!(self, Self::DeepProxy)
   }
+
+  pub(super) const fn toref_ignored_key_reason(self) -> Option<ToRefIgnoredKeyReason> {
+    match self {
+      Self::RefLike => Some(ToRefIgnoredKeyReason::Ref),
+      Self::Function => Some(ToRefIgnoredKeyReason::Function),
+      Self::Primitive | Self::Nullish => Some(ToRefIgnoredKeyReason::Primitive),
+      _ => None,
+    }
+  }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -85,6 +94,7 @@ pub(super) fn intern_api(name: &str) -> Option<&'static str> {
     "customRef" => Some("customRef"),
     "computed" => Some("computed"),
     "toRef" => Some("toRef"),
+    "effectScope" => Some("effectScope"),
     "useTemplateRef" => Some("useTemplateRef"),
     "defineModel" => Some("defineModel"),
     _ => None,

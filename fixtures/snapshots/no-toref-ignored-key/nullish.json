@@ -1,0 +1,34 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-toref-ignored-key",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-toref-ignored-key",
+    "message": "`toRef` wraps a primitive or nullish source as a new ref and ignores this key",
+    "help": "Drop the key, or pass an object if a live property binding is intended.",
+    "file": "fixtures/rules/no-toref-ignored-key/invalid/nullish.vue",
+    "span": {
+      "offset": 79,
+      "length": 3,
+      "line": 3,
+      "column": 27
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/no-ref-as-operand",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-ref-as-operand",
+    "message": "`boxed` is a ref object used as an operand; unwrap with `.value` (or `toValue`)",
+    "help": "Use `boxed.value` (or `toValue(boxed)`) when reading the inner value.",
+    "file": "fixtures/rules/no-toref-ignored-key/invalid/nullish.vue",
+    "span": {
+      "offset": 89,
+      "length": 5,
+      "line": 4,
+      "column": 6
+    }
+  }
+]

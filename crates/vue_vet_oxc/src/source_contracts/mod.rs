@@ -10,6 +10,7 @@
 //! built-in collection in the same straight-line block after `watch`.
 
 mod index;
+mod normalization;
 mod shape;
 mod stats;
 
@@ -98,6 +99,8 @@ impl Collector<'_> {
           self.collect_primitive_reactive(info, api);
         }
         "watch" => self.collect_watch(node_id, call, info),
+        "toRef" => self.collect_toref(call, info),
+        "effectScope" => self.collect_effect_scope(info),
         _ => {}
       }
     }
@@ -124,6 +127,14 @@ impl Collector<'_> {
       self.indexes.note_query();
       (left.source_span.offset, left.replacement_span.offset)
         .cmp(&(right.source_span.offset, right.replacement_span.offset))
+    });
+    self.facts.toref_ignored_key.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.effect_scope_callback.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
     });
     let stats = self.indexes.stats();
     (self.facts, stats.work())

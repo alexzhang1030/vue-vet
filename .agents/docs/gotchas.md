@@ -1,5 +1,19 @@
 # Known gotchas
 
+## `toRef` follows a live `__v_isRef` marker
+
+Vue 3.5 `toRef(source, key)` checks `isRef(source)` before the getter and
+object-key overloads. Assigning `source.__v_isRef = false` or deleting the
+marker retargets the call onto the object-property overload even when
+`source` was created by `ref()`. A function tagged `__v_isRef = true` takes
+the existing-ref path. `no-toref-ignored-key` must prove the marker is
+immutable; it must not infer identity from constructor shape. Keep that
+uncertainty on the toRef sink — do not mark the same writes as general
+payload uncertainty for the original five source-contract IDs. Pattern
+assignment (static / computed / default / rest / TS wrappers), constructor
+arguments, and tagged-template receivers are the same capability-role
+escapes; ordinary `.value` / data writes are not.
+
 ## Vize API churn is expected
 
 Vize is not yet production-stable and publishes frequently. Keep the dependency exact-pinned. An upgrade is a compatibility task: compile, inspect API changes, run golden fixtures and diagnostic snapshots, and record behavior differences. Do not change the version range just to unblock dependency resolution.
