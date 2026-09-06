@@ -6,7 +6,11 @@
 //! max-index comparisons, write-owner summary visits, the fact-collection
 //! walk, diagnostic-ordering comparisons, query-time map lookups, and
 //! `partition_point` predicate executions. Shape classification records one
-//! query per `classify_maybe`.
+//! query per `classify_maybe`. Indexed actual-Proxy import-source lookups
+//! (Vue constructor calls only) increment `import_source_steps`. Each
+//! examined `AssignmentTarget` in the native-clone poison walk, plus
+//! `for...in` / `for...of` left classification, increments `queries`.
+//! Assignment-form loop heads also increment `writes` once.
 
 use std::cell::Cell;
 
@@ -19,6 +23,9 @@ pub struct SourceContractStats {
   pub object_entries: u64,
   pub writes: u64,
   pub queries: u64,
+  /// Proven import-source examinations for Vue constructors that can allocate
+  /// a Proxy. Non-Vue and unresolved calls must not increment this.
+  pub import_source_steps: u64,
 }
 
 impl SourceContractStats {
@@ -31,6 +38,7 @@ impl SourceContractStats {
       .saturating_add(self.object_entries)
       .saturating_add(self.writes)
       .saturating_add(self.queries)
+      .saturating_add(self.import_source_steps)
   }
 }
 
@@ -42,6 +50,7 @@ pub(super) struct WorkCounter {
   object_entries: Cell<u64>,
   writes: Cell<u64>,
   queries: Cell<u64>,
+  import_source_steps: Cell<u64>,
 }
 
 impl WorkCounter {
@@ -69,6 +78,10 @@ impl WorkCounter {
     self.queries.set(self.queries.get().saturating_add(n));
   }
 
+  pub(super) fn add_import_source_steps(&self, n: u64) {
+    self.import_source_steps.set(self.import_source_steps.get().saturating_add(n));
+  }
+
   /// Map lookup plus each comparison `slice::partition_point` actually runs.
   pub(super) fn partition_point<T, F>(&self, items: &[T], mut predicate: F) -> usize
   where
@@ -90,6 +103,7 @@ impl WorkCounter {
       object_entries: self.object_entries.get(),
       writes: self.writes.get(),
       queries: self.queries.get(),
+      import_source_steps: self.import_source_steps.get(),
     }
   }
 }

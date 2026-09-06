@@ -13,8 +13,16 @@ use super::stats::WorkCounter;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum VueImport {
-  Named(&'static str),
-  Namespace,
+  Named(&'static str, &'static str),
+  Namespace(&'static str),
+}
+
+impl VueImport {
+  pub(super) const fn source(self) -> &'static str {
+    match self {
+      Self::Named(_, source) | Self::Namespace(source) => source,
+    }
+  }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -91,11 +99,34 @@ pub(super) fn intern_api(name: &str) -> Option<&'static str> {
   }
 }
 
+pub(super) fn intern_tracked_source(source: &str) -> Option<&'static str> {
+  match source {
+    "vue" => Some("vue"),
+    "vue-demi" => Some("vue-demi"),
+    "@vue/runtime-core" => Some("@vue/runtime-core"),
+    "@vue/runtime-dom" => Some("@vue/runtime-dom"),
+    "@vue/reactivity" => Some("@vue/reactivity"),
+    "#imports" => Some("#imports"),
+    _ => None,
+  }
+}
+
 pub(super) fn is_vue_runtime_source(source: &str) -> bool {
   matches!(
     source,
     "vue" | "vue-demi" | "@vue/runtime-core" | "@vue/runtime-dom" | "@vue/reactivity"
   )
+}
+
+pub(super) fn is_proxy_allocating_api(api: &str) -> bool {
+  matches!(api, "reactive" | "readonly" | "shallowReactive" | "shallowReadonly")
+}
+
+/// Packages whose named/namespace constructors allocate an actual Proxy in Vue 3.
+/// `vue-demi` stays out: Vue 2 mode returns an observed plain object.
+/// Named `#imports` stays out until a project-origin fact proves the export.
+pub(super) fn is_actual_proxy_runtime_source(source: &str) -> bool {
+  matches!(source, "vue" | "@vue/runtime-core" | "@vue/runtime-dom" | "@vue/reactivity")
 }
 
 pub(super) fn is_named_auto_import_source(source: &str) -> bool {
@@ -122,7 +153,9 @@ pub(super) fn collect_vue_imports(
     if declaration.import_kind == ImportOrExportKind::Type {
       continue;
     }
-    let source = declaration.source.value.as_str();
+    let Some(source) = intern_tracked_source(declaration.source.value.as_str()) else {
+      continue;
+    };
     let runtime = is_vue_runtime_source(source);
     let auto = is_named_auto_import_source(source);
     if !runtime && !auto {
@@ -146,12 +179,12 @@ pub(super) fn collect_vue_imports(
           if let Some(api) = intern_api(imported)
             && let Some(symbol_id) = specifier.local.symbol_id.get()
           {
-            imports.insert(symbol_id, VueImport::Named(api));
+            imports.insert(symbol_id, VueImport::Named(api, source));
           }
         }
         ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier) if runtime => {
           if let Some(symbol_id) = specifier.local.symbol_id.get() {
-            imports.insert(symbol_id, VueImport::Namespace);
+            imports.insert(symbol_id, VueImport::Namespace(source));
           }
         }
         ImportDeclarationSpecifier::ImportNamespaceSpecifier(_)
@@ -221,7 +254,7 @@ pub(super) fn resolve_vue_api(
   if let Some(identifier) = callee.get_identifier_reference() {
     if let Some(symbol_id) = symbol_of(identifier) {
       return match imports.get(&symbol_id) {
-        Some(VueImport::Named(api)) => Some(*api),
+        Some(VueImport::Named(api, _)) => Some(*api),
         _ => None,
       };
     }
@@ -236,7 +269,7 @@ pub(super) fn resolve_vue_api(
   };
   let object = member.object.get_inner_expression().get_identifier_reference()?;
   let symbol_id = symbol_of(object)?;
-  if !matches!(imports.get(&symbol_id), Some(VueImport::Namespace)) {
+  if !matches!(imports.get(&symbol_id), Some(VueImport::Namespace(_))) {
     return None;
   }
   intern_api(member.property.name.as_str())

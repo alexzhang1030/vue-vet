@@ -32,6 +32,7 @@ mod no_mutating_props;
 mod no_nonreactive_props_destructure;
 mod no_orphaned_scope_watcher;
 mod no_positive_tabindex;
+mod no_proxy_structured_clone;
 mod no_redundant_role;
 mod no_returned_watcher_cleanup;
 mod no_unused_reactive_binding;

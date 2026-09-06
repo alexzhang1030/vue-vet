@@ -74,6 +74,7 @@ fn list_rules_source_contracts_includes_five_ids() {
     .unwrap_or_default();
   for id in [
     "vue-vet/reactivity/no-primitive-reactive-target",
+    "vue-vet/reactivity/no-proxy-structured-clone",
     "vue-vet/reactivity/no-torefs-on-non-proxy",
     "vue-vet/reactivity/no-trigger-ref-on-non-ref",
     "vue-vet/reactivity/no-watch-replaced-object-source",

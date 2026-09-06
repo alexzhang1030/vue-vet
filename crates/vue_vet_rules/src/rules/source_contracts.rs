@@ -185,5 +185,6 @@ pub(super) fn source_contract_rules() -> Vec<&'static dyn Rule> {
     &NO_PRIMITIVE_REACTIVE_TARGET,
     &NO_WATCH_UNWRAPPED_SOURCE,
     &NO_WATCH_REPLACED_OBJECT_SOURCE,
+    &super::no_proxy_structured_clone::NO_PROXY_STRUCTURED_CLONE,
   ]
 }

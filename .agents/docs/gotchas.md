@@ -33,6 +33,25 @@ Oxc spans are relative to the extracted script block. Add the Vize
 Ordinary script and script setup remain separate fact blocks so duplicate names
 and future merge semantics are explicit rather than accidental.
 
+## Vue proxy shape labels are not structured-clone proof
+
+`Shape::DeepProxy` / `ShallowProxy` / `ReadonlyProxy` record Vue API result
+kinds. Vue still returns the raw target for `markRaw`, `__v_skip`, frozen, or
+non-extensible input. `no-proxy-structured-clone` needs an actual Proxy
+allocation proof (`clone_boundary.rs`), not those enum arms alone. Definite
+Proxy origin is only `vue` / `@vue/runtime-core` / `@vue/runtime-dom` /
+`@vue/reactivity`; named `#imports` and `vue-demi` stay unproved. The
+yes/no cache stores terminal proofs only — budget exhaustion is never a
+cached false. Object eligibility charges each property scan. Native
+`structuredClone` identity is poisoned by unresolved global / `globalThis`
+writes (computed string keys, unresolved computed keys, patterns with
+default/rest, TypeScript wrappers, `delete`, updates, and `for...in` /
+`for...of` assignment targets); a shadowed `globalThis` binding is not that
+intrinsic. Declaration-form loop heads keep binding semantics. Definite
+native *calls* still need the static `structuredClone` key. Actual-Proxy
+origin is an indexed import-source lookup on resolved proxy constructors
+only; local calls skip it.
+
 ## Configuration is part of diagnostic identity
 
 Preset expansion happens before explicit rule overrides. Path globs normalize

@@ -213,8 +213,15 @@ Parser IR (Vize AST / Oxc Semantic)     — short-lived, never cached across ada
         ↓
 File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         (`ScriptBlockFacts::source_contracts` holds proven Vue API source-identity
-        sites from Oxc (`vue_vet_oxc::source_contracts`); lifetime facts are a
-        separate field owned elsewhere.
+        sites from Oxc (`vue_vet_oxc::source_contracts`), plus native
+        `structuredClone` uncloneable-proxy data facts that keep the intrinsic
+        separate from the Vue API whitelist; lifetime facts are a
+        separate field owned elsewhere. Shape `DeepProxy` is not actual Proxy
+        allocation proof — see `source_contracts/clone_boundary.rs`. Actual
+        Proxy origin is `vue` / `@vue/runtime-core` / `@vue/runtime-dom` /
+        `@vue/reactivity` only (`#imports` and `vue-demi` unknown here),
+        looked up from the indexed import source of proxy-allocating
+        constructors (not a per-call ancestor walk).
         `TemplateElementFact::has_key` includes proven object-form `v-bind`
         keys from Oxc; `is_component` is Vize `ElementType` / JSX
         identifier-reference adapted into stable facts; Vize owns directive extraction)

@@ -6,8 +6,8 @@ use oxc_ast::{
   AstKind,
   ast::{
     Argument, AssignmentOperator, AssignmentTarget, AssignmentTargetMaybeDefault,
-    AssignmentTargetProperty, CallExpression, Expression, IdentifierReference, ObjectPropertyKind,
-    PropertyKind, SimpleAssignmentTarget,
+    AssignmentTargetProperty, CallExpression, Expression, ForStatementLeft, IdentifierReference,
+    ObjectPropertyKind, PropertyKind, SimpleAssignmentTarget, UnaryOperator,
   },
 };
 use oxc_semantic::{NodeId, SymbolFlags, SymbolId};
@@ -16,8 +16,9 @@ use oxc_syntax::reference::ReferenceFlags;
 use vue_vet_core::{ScriptKind, SourceSpan};
 
 use super::shape::{
-  ShapeHint, VueImport, collect_vue_imports, hint_of, is_fresh_allocation,
-  is_unresolved_collection, resolve_vue_api, span_key,
+  ShapeHint, VueImport, collect_vue_imports, hint_of, is_actual_proxy_runtime_source,
+  is_fresh_allocation, is_proxy_allocating_api, is_unresolved_collection, resolve_vue_api,
+  span_key,
 };
 use super::stats::WorkCounter;
 use crate::facts::source_span;
@@ -51,6 +52,12 @@ pub(super) struct CallInfo {
   pub api: Option<&'static str>,
   pub first_arg: Option<Span>,
   pub has_spread: bool,
+  pub native_structured_clone: bool,
+  /// True when a resolved proxy-allocating Vue API is imported from a Vue 3
+  /// runtime that actually allocates a Proxy. Indexed from `vue_imports`;
+  /// local/unknown calls never walk declaration ancestors.
+  pub actual_proxy_origin: bool,
+  pub arg_count: u8,
 }
 
 #[derive(Clone, Debug)]
@@ -86,7 +93,12 @@ pub(super) struct Indexes {
   pub calls: HashMap<u64, CallInfo>,
   pub objects: HashMap<u64, Vec<ObjectEntry>>,
   pub object_props: HashMap<u64, HashMap<String, ObjectProp>>,
+  /// Inner object/array span for a (possibly asserted) expression span.
+  pub literal_span: HashMap<u64, Span>,
+  /// Array expression spans whose elements include a spread.
+  pub array_spread: HashSet<u64>,
   pub collections: HashSet<u64>,
+  pub clone_intrinsic_poisoned: bool,
   pub stmt_site: HashMap<NodeId, StmtSite>,
   pub events_by_block: HashMap<NodeId, Vec<usize>>,
   pub init_span: HashMap<SymbolId, Span>,
@@ -123,7 +135,10 @@ impl Indexes {
       calls: HashMap::new(),
       objects: HashMap::new(),
       object_props: HashMap::new(),
+      literal_span: HashMap::new(),
+      array_spread: HashSet::new(),
       collections: HashSet::new(),
+      clone_intrinsic_poisoned: false,
       stmt_site: HashMap::new(),
       events_by_block: HashMap::new(),
       init_span: HashMap::new(),
@@ -341,6 +356,27 @@ impl Indexes {
     self.work.add_queries(1);
   }
 
+  pub(super) fn note_object_entries(&self, n: u64) {
+    self.work.add_object_entries(n);
+  }
+
+  /// `for...in` / `for...of` assignment heads write through `ForStatementLeft`.
+  /// Variable-declaration heads keep binding semantics and are not mutations.
+  fn note_loop_assignment_poison(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    left: &ForStatementLeft<'_>,
+  ) {
+    self.work.add_queries(1);
+    let Some(target) = left.as_assignment_target() else {
+      return;
+    };
+    self.work.add_writes(1);
+    if assignment_poisons_clone_intrinsic(semantic, target, &self.work) {
+      self.clone_intrinsic_poisoned = true;
+    }
+  }
+
   fn scan(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
@@ -404,11 +440,25 @@ impl Indexes {
           );
           self.record_stmt_site(semantic, line_index, sfc_source, script_offset, node_id);
         }
+        AstKind::ForInStatement(statement) => {
+          self.note_loop_assignment_poison(semantic, &statement.left);
+        }
+        AstKind::ForOfStatement(statement) => {
+          self.note_loop_assignment_poison(semantic, &statement.left);
+        }
         AstKind::UpdateExpression(update) => {
+          if simple_target_poisons_clone_intrinsic(semantic, &update.argument, &self.work) {
+            self.clone_intrinsic_poisoned = true;
+          }
           if let SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) = &update.argument
             && let Some(symbol_id) = reference_symbol(semantic, identifier)
           {
             self.reassigned.insert(self.root_of(symbol_id));
+          }
+        }
+        AstKind::UnaryExpression(unary) if unary.operator == UnaryOperator::Delete => {
+          if expression_poisons_clone_intrinsic(semantic, &unary.argument, &self.work) {
+            self.clone_intrinsic_poisoned = true;
           }
         }
         AstKind::CallExpression(call) => {
@@ -430,6 +480,7 @@ impl Indexes {
           }
         }
         AstKind::ObjectExpression(object) => {
+          self.literal_span.insert(span_key(object.span), object.span);
           let entries = object_entries(object);
           let props = summarize_object_props(&entries, &self.work);
           self.object_props.insert(span_key(object.span), props);
@@ -442,6 +493,12 @@ impl Indexes {
           }
         }
         AstKind::ArrayExpression(array) => {
+          self.literal_span.insert(span_key(array.span), array.span);
+          if array.elements.iter().any(|element| {
+            matches!(element, oxc_ast::ast::ArrayExpressionElement::SpreadElement(_))
+          }) {
+            self.array_spread.insert(span_key(array.span));
+          }
           for element in &array.elements {
             if let Some(expression) = element.as_expression() {
               self.record_expr(semantic, kind, expression);
@@ -573,6 +630,10 @@ impl Indexes {
       span_key(expression.span()),
       hint_of(inner, |ident| reference_symbol(semantic, ident)),
     );
+    if matches!(inner, Expression::ObjectExpression(_) | Expression::ArrayExpression(_)) {
+      self.literal_span.insert(span_key(expression.span()), inner.span());
+      self.literal_span.insert(span_key(inner.span()), inner.span());
+    }
     if let Expression::CallExpression(call) = inner {
       self.record_call(semantic, kind, call);
     }
@@ -596,7 +657,22 @@ impl Indexes {
     } else {
       call.arguments.first().and_then(Argument::as_expression).map(GetSpan::span)
     };
-    self.calls.insert(span_key(call.span), CallInfo { api, first_arg, has_spread });
+    let native_structured_clone =
+      !call.optional && is_native_structured_clone(&call.callee, semantic);
+    let actual_proxy_origin = api.is_some_and(is_proxy_allocating_api)
+      && callee_has_actual_proxy_origin(&call.callee, &self.vue_imports, semantic, &self.work);
+    let arg_count = u8::try_from(call.arguments.len()).unwrap_or(u8::MAX);
+    self.calls.insert(
+      span_key(call.span),
+      CallInfo {
+        api,
+        first_arg,
+        has_spread,
+        native_structured_clone,
+        actual_proxy_origin,
+        arg_count,
+      },
+    );
   }
 
   fn mark_escape_expr(
@@ -620,6 +696,9 @@ impl Indexes {
     left: &AssignmentTarget<'_>,
     right: &Expression<'_>,
   ) {
+    if assignment_poisons_clone_intrinsic(semantic, left, &self.work) {
+      self.clone_intrinsic_poisoned = true;
+    }
     let simple = operator == AssignmentOperator::Assign;
     let fresh = simple && is_fresh_allocation(right, |ident| reference_symbol(semantic, ident));
     let owner = self.owner(node_id);
@@ -930,6 +1009,268 @@ fn block_is_straight_line(semantic: &oxc_semantic::Semantic<'_>, block_id: NodeI
         | AstKind::Program(_)
     ),
     _ => false,
+  }
+}
+
+fn is_unresolved_global(
+  semantic: &oxc_semantic::Semantic<'_>,
+  identifier: &IdentifierReference<'_>,
+) -> bool {
+  reference_symbol(semantic, identifier).is_none()
+}
+
+#[derive(Clone, Copy)]
+enum CloneKeyProof {
+  Definite,
+  Possible,
+}
+
+fn is_native_structured_clone(
+  callee: &Expression<'_>,
+  semantic: &oxc_semantic::Semantic<'_>,
+) -> bool {
+  expression_matches_clone_intrinsic(semantic, callee, CloneKeyProof::Definite)
+}
+
+fn callee_has_actual_proxy_origin(
+  callee: &Expression<'_>,
+  vue_imports: &HashMap<SymbolId, VueImport>,
+  semantic: &oxc_semantic::Semantic<'_>,
+  work: &WorkCounter,
+) -> bool {
+  let inner = callee.get_inner_expression();
+  if let Some(identifier) = inner.get_identifier_reference() {
+    return indexed_import_is_actual_proxy(vue_imports, semantic, identifier, work);
+  }
+  let Expression::StaticMemberExpression(member) = inner else {
+    return false;
+  };
+  let Some(object) = member.object.get_inner_expression().get_identifier_reference() else {
+    return false;
+  };
+  indexed_import_is_actual_proxy(vue_imports, semantic, object, work)
+}
+
+fn indexed_import_is_actual_proxy(
+  vue_imports: &HashMap<SymbolId, VueImport>,
+  semantic: &oxc_semantic::Semantic<'_>,
+  identifier: &IdentifierReference<'_>,
+  work: &WorkCounter,
+) -> bool {
+  let Some(symbol_id) = reference_symbol(semantic, identifier) else {
+    return false;
+  };
+  if !semantic.scoping().symbol_flags(symbol_id).contains(SymbolFlags::Import) {
+    return false;
+  }
+  work.add_import_source_steps(1);
+  vue_imports.get(&symbol_id).is_some_and(|import| is_actual_proxy_runtime_source(import.source()))
+}
+
+/// Oxc 0.142 flattened `AssignmentTarget` (inherits `SimpleAssignmentTarget` +
+/// `AssignmentTargetPattern`): identifier; static/computed/private members;
+/// object/array patterns; TS as / satisfies / non-null / assertion.
+/// Nested default and rest targets recurse here. `for...in` / `for...of`
+/// assignment heads share this `Possible` classifier; declaration heads do not.
+fn assignment_poisons_clone_intrinsic(
+  semantic: &oxc_semantic::Semantic<'_>,
+  left: &AssignmentTarget<'_>,
+  work: &WorkCounter,
+) -> bool {
+  work.add_queries(1);
+  match left {
+    AssignmentTarget::AssignmentTargetIdentifier(identifier) => {
+      identifier_is_unresolved_clone(semantic, identifier)
+    }
+    AssignmentTarget::StaticMemberExpression(member) => unresolved_global_this_clone_member(
+      semantic,
+      &member.object,
+      Some(member.property.name.as_str()),
+      None,
+      CloneKeyProof::Possible,
+    ),
+    AssignmentTarget::ComputedMemberExpression(member) => unresolved_global_this_clone_member(
+      semantic,
+      &member.object,
+      None,
+      Some(&member.expression),
+      CloneKeyProof::Possible,
+    ),
+    AssignmentTarget::ObjectAssignmentTarget(object) => {
+      object.properties.iter().any(|property| match property {
+        AssignmentTargetProperty::AssignmentTargetPropertyProperty(property) => {
+          maybe_default_poisons_clone_intrinsic(semantic, &property.binding, work)
+        }
+        AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(property) => {
+          identifier_is_unresolved_clone(semantic, &property.binding)
+        }
+      }) || object
+        .rest
+        .as_ref()
+        .is_some_and(|rest| assignment_poisons_clone_intrinsic(semantic, &rest.target, work))
+    }
+    AssignmentTarget::ArrayAssignmentTarget(array) => {
+      array
+        .elements
+        .iter()
+        .flatten()
+        .any(|element| maybe_default_poisons_clone_intrinsic(semantic, element, work))
+        || array
+          .rest
+          .as_ref()
+          .is_some_and(|rest| assignment_poisons_clone_intrinsic(semantic, &rest.target, work))
+    }
+    AssignmentTarget::TSAsExpression(inner) => {
+      expression_poisons_clone_intrinsic(semantic, &inner.expression, work)
+    }
+    AssignmentTarget::TSSatisfiesExpression(inner) => {
+      expression_poisons_clone_intrinsic(semantic, &inner.expression, work)
+    }
+    AssignmentTarget::TSNonNullExpression(inner) => {
+      expression_poisons_clone_intrinsic(semantic, &inner.expression, work)
+    }
+    AssignmentTarget::TSTypeAssertion(inner) => {
+      expression_poisons_clone_intrinsic(semantic, &inner.expression, work)
+    }
+    AssignmentTarget::PrivateFieldExpression(_) => false,
+  }
+}
+
+fn maybe_default_poisons_clone_intrinsic(
+  semantic: &oxc_semantic::Semantic<'_>,
+  target: &AssignmentTargetMaybeDefault<'_>,
+  work: &WorkCounter,
+) -> bool {
+  work.add_queries(1);
+  match target {
+    AssignmentTargetMaybeDefault::AssignmentTargetWithDefault(with_default) => {
+      assignment_poisons_clone_intrinsic(semantic, &with_default.binding, work)
+    }
+    other => other
+      .as_assignment_target()
+      .is_some_and(|assignment| assignment_poisons_clone_intrinsic(semantic, assignment, work)),
+  }
+}
+
+fn simple_target_poisons_clone_intrinsic(
+  semantic: &oxc_semantic::Semantic<'_>,
+  target: &SimpleAssignmentTarget<'_>,
+  work: &WorkCounter,
+) -> bool {
+  work.add_queries(1);
+  match target {
+    SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) => {
+      identifier_is_unresolved_clone(semantic, identifier)
+    }
+    SimpleAssignmentTarget::StaticMemberExpression(member) => unresolved_global_this_clone_member(
+      semantic,
+      &member.object,
+      Some(member.property.name.as_str()),
+      None,
+      CloneKeyProof::Possible,
+    ),
+    SimpleAssignmentTarget::ComputedMemberExpression(member) => {
+      unresolved_global_this_clone_member(
+        semantic,
+        &member.object,
+        None,
+        Some(&member.expression),
+        CloneKeyProof::Possible,
+      )
+    }
+    SimpleAssignmentTarget::TSAsExpression(inner) => {
+      expression_poisons_clone_intrinsic(semantic, &inner.expression, work)
+    }
+    SimpleAssignmentTarget::TSSatisfiesExpression(inner) => {
+      expression_poisons_clone_intrinsic(semantic, &inner.expression, work)
+    }
+    SimpleAssignmentTarget::TSNonNullExpression(inner) => {
+      expression_poisons_clone_intrinsic(semantic, &inner.expression, work)
+    }
+    SimpleAssignmentTarget::TSTypeAssertion(inner) => {
+      expression_poisons_clone_intrinsic(semantic, &inner.expression, work)
+    }
+    SimpleAssignmentTarget::PrivateFieldExpression(_) => false,
+  }
+}
+
+fn expression_poisons_clone_intrinsic(
+  semantic: &oxc_semantic::Semantic<'_>,
+  expression: &Expression<'_>,
+  work: &WorkCounter,
+) -> bool {
+  work.add_queries(1);
+  expression_matches_clone_intrinsic(semantic, expression, CloneKeyProof::Possible)
+}
+
+fn expression_matches_clone_intrinsic(
+  semantic: &oxc_semantic::Semantic<'_>,
+  expression: &Expression<'_>,
+  proof: CloneKeyProof,
+) -> bool {
+  match expression.get_inner_expression() {
+    Expression::Identifier(identifier) => identifier_is_unresolved_clone(semantic, identifier),
+    Expression::StaticMemberExpression(member) => unresolved_global_this_clone_member(
+      semantic,
+      &member.object,
+      Some(member.property.name.as_str()),
+      None,
+      proof,
+    ),
+    Expression::ComputedMemberExpression(member) => unresolved_global_this_clone_member(
+      semantic,
+      &member.object,
+      None,
+      Some(&member.expression),
+      proof,
+    ),
+    _ => false,
+  }
+}
+
+fn identifier_is_unresolved_clone(
+  semantic: &oxc_semantic::Semantic<'_>,
+  identifier: &IdentifierReference<'_>,
+) -> bool {
+  identifier.name.as_str() == "structuredClone" && is_unresolved_global(semantic, identifier)
+}
+
+fn unresolved_global_this_clone_member(
+  semantic: &oxc_semantic::Semantic<'_>,
+  object: &Expression<'_>,
+  static_key: Option<&str>,
+  computed_key: Option<&Expression<'_>>,
+  proof: CloneKeyProof,
+) -> bool {
+  let Some(object) = object.get_inner_expression().get_identifier_reference() else {
+    return false;
+  };
+  if object.name.as_str() != "globalThis" || !is_unresolved_global(semantic, object) {
+    return false;
+  }
+  if let Some(name) = static_key {
+    return name == "structuredClone";
+  }
+  let Some(key) = computed_key else {
+    return false;
+  };
+  match static_string_key(key) {
+    Some("structuredClone") => true,
+    Some(_) => false,
+    None => matches!(proof, CloneKeyProof::Possible),
+  }
+}
+
+fn static_string_key<'a>(expression: &'a Expression<'a>) -> Option<&'a str> {
+  match expression.get_inner_expression() {
+    Expression::StringLiteral(literal) => Some(literal.value.as_str()),
+    Expression::TemplateLiteral(literal)
+      if literal.expressions.is_empty() && literal.quasis.len() == 1 =>
+    {
+      let quasi = literal.quasis.first()?;
+      quasi.value.cooked.as_deref().or(Some(quasi.value.raw.as_str()))
+    }
+    _ => None,
   }
 }
 

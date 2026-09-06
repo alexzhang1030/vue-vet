@@ -19,6 +19,9 @@ pub struct SourceContractFacts {
   pub watch_unwrapped_source: Vec<SourceContractSiteFact>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub watch_replaced_object_source: Vec<WatchReplacedObjectSourceFact>,
+  /// Proven Vue Proxy used as the data argument of native `structuredClone`.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub uncloneable_proxy_data: Vec<SourceContractSiteFact>,
 }
 
 impl SourceContractFacts {
@@ -29,6 +32,7 @@ impl SourceContractFacts {
       && self.primitive_reactive_target.is_empty()
       && self.watch_unwrapped_source.is_empty()
       && self.watch_replaced_object_source.is_empty()
+      && self.uncloneable_proxy_data.is_empty()
   }
 }
 

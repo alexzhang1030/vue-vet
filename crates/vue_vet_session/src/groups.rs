@@ -37,6 +37,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-outside-tracking-dependency-in-watch-sources", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-primitive-reactive-target", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-props-snapshot-in-ref", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-proxy-structured-clone", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-reactive-destructure", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-reactive-read-during-pause-tracking", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-readonly-mutation", RuleGroupId::SourceContracts),

@@ -418,6 +418,7 @@ watch(n.value, () => {})\n\
 triggerRef(reactive({ n: 1 }))\n\
 toRefs({ a: 1 })\n\
 void reactive(0)\n\
+structuredClone(reactive({ n: 1 }))\n\
 </script>\n\
 <template><p /></template>\n";
   let replaced = "<script setup lang=\"ts\">\n\
@@ -442,11 +443,12 @@ obj.nested = { x: 9 }\n\
         || diagnostic.rule_id.contains("primitive-reactive")
         || diagnostic.rule_id.contains("watch-unwrapped")
         || diagnostic.rule_id.contains("watch-replaced")
+        || diagnostic.rule_id.contains("proxy-structured-clone")
     })
     .count();
   assert!(
-    contract_count >= 5,
-    "cold scan must emit the five source-contract IDs; {:?}",
+    contract_count >= 6,
+    "cold scan must emit the source-contract IDs including structuredClone; {:?}",
     cold.summary.diagnostics
   );
   session

@@ -15,6 +15,7 @@ const vue = requireVue("vue");
 assert.equal(vue.version, "3.5.40", `expected Vue 3.5.40, got ${vue.version}`);
 
 const {
+  markRaw,
   nextTick,
   reactive,
   readonly,
@@ -22,6 +23,7 @@ const {
   shallowReactive,
   shallowReadonly,
   shallowRef,
+  toRaw,
   toRefs,
   triggerRef,
   watch,
@@ -152,6 +154,87 @@ function captureWarns(fn) {
   state.nested = { x: 9 };
   await nextTick();
   assert.equal(objRuns, 1, "replacement must not retarget");
+}
+
+function cloneErrorName(value) {
+  try {
+    structuredClone(value);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.name : String(error);
+  }
+}
+
+{
+  assert.equal(
+    cloneErrorName(reactive({ count: 1 })),
+    "DataCloneError",
+    "structuredClone(reactive(plain)) must throw DataCloneError",
+  );
+  assert.equal(
+    cloneErrorName(shallowReactive({ count: 1 })),
+    "DataCloneError",
+    "structuredClone(shallowReactive(plain)) must throw DataCloneError",
+  );
+  assert.equal(
+    cloneErrorName(readonly({ count: 1 })),
+    "DataCloneError",
+    "structuredClone(readonly(plain)) must throw DataCloneError",
+  );
+  assert.equal(
+    cloneErrorName(shallowReadonly({ count: 1 })),
+    "DataCloneError",
+    "structuredClone(shallowReadonly(plain)) must throw DataCloneError",
+  );
+  const mutated = reactive({ count: 1 });
+  mutated.count = 2;
+  assert.equal(
+    cloneErrorName(mutated),
+    "DataCloneError",
+    "later field mutation must keep Proxy identity",
+  );
+
+  assert.equal(cloneErrorName({ count: 1 }), null, "plain object clones");
+  assert.equal(cloneErrorName(toRaw(reactive({ count: 1 }))), null, "toRaw of fresh reactive clones");
+  assert.equal(
+    cloneErrorName(reactive(markRaw({ count: 1 }))),
+    null,
+    "reactive(markRaw(plain)) returns raw and clones",
+  );
+  const frozen = Object.freeze({ count: 1 });
+  assert.equal(cloneErrorName(readonly(frozen)), null, "readonly(frozen) returns raw and clones");
+  assert.equal(
+    cloneErrorName(shallowRef({ count: 1 }).value),
+    null,
+    "shallowRef payload clones",
+  );
+
+  const native = globalThis.structuredClone;
+  assert.equal(
+    cloneErrorName(reactive({ count: 1 })),
+    "DataCloneError",
+    "native structuredClone still fails on a Proxy",
+  );
+  try {
+    const key = "structuredClone";
+    globalThis[key] = (value) => value;
+    const state = reactive({ count: 1 });
+    assert.equal(structuredClone(state), state, "dynamic globalThis write replaces native identity");
+  } finally {
+    globalThis.structuredClone = native;
+  }
+
+  const loopState = reactive({ count: 1 });
+  try {
+    const key = "structuredClone";
+    for (globalThis[key] of [(value) => value]) {}
+    assert.equal(structuredClone(loopState), loopState, "for-of computed write replaces native identity");
+    globalThis.structuredClone = native;
+    for ({ clone: globalThis.structuredClone } of [{ clone: (value) => value }]) {}
+    assert.equal(structuredClone(loopState), loopState, "for-of pattern write replaces native identity");
+  } finally {
+    globalThis.structuredClone = native;
+  }
 }
 
 console.log("source-contracts oracle: ok (Vue 3.5.40)");
