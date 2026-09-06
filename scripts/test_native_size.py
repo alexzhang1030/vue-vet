@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import stat
@@ -30,20 +31,13 @@ def cargo_artifact_line(executable: str) -> str:
 
 
 class GzipRepro(unittest.TestCase):
-    def test_mtime_and_empty_name_are_stable(self) -> None:
-        payload = b"vue-vet-native-size"
-        first = native_size.gzip9_bytes(payload)
-        second = native_size.gzip9_bytes(payload)
-        self.assertEqual(first, second)
-        raw = __import__("io").BytesIO()
-        import gzip
-
-        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, compresslevel=9, mtime=0) as gz:
-            gz.write(payload)
-        blob = raw.getvalue()
-        self.assertEqual(blob[4:8], b"\x00\x00\x00\x00")  # mtime
-        flags = blob[3]
-        self.assertEqual(flags & 0x08, 0)  # no FNAME
+    def test_repeated_payload_compresses_and_matches_stdlib_compress(self) -> None:
+        payload = b"A" * 50_000
+        got = native_size.gzip9_bytes(payload)
+        independent = len(gzip.compress(payload, compresslevel=9, mtime=0))
+        self.assertEqual(got, independent)
+        self.assertLess(got, 128, "50KiB of identical bytes must gzip far below raw length")
+        self.assertEqual(got, native_size.gzip9_bytes(payload))
 
 
 class ArtifactParse(unittest.TestCase):
@@ -89,6 +83,286 @@ class ArtifactParse(unittest.TestCase):
         )
 
 
+class BudgetAndArtifact(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.binary = self.root / "vue-vet.bin"
+        self.binary.write_bytes(b"\x7fELFfake")
+        self.budget_path = self.root / "budget.json"
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def write_budget(self, targets: dict) -> Path:
+        self.budget_path.write_text(json.dumps({"schema_version": 1, "targets": targets}), encoding="utf-8")
+        return self.budget_path
+
+    def run_script(self, extra: list[str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(SCRIPT_DIR / "native_size.py"), *extra],
+            capture_output=True,
+            text=True,
+        )
+
+    def test_baseline_within_budget(self) -> None:
+        measured = native_size.measure_binary(self.binary)
+        self.write_budget(
+            {
+                "aarch64-apple-darwin": {
+                    "file_bytes": measured["file_bytes"] + 100,
+                    "gzip9_bytes": measured["gzip9_bytes"] + 100,
+                }
+            }
+        )
+        proc = self.run_script(
+            [
+                "--binary",
+                str(self.binary),
+                "--target",
+                "aarch64-apple-darwin",
+                "--budget-file",
+                str(self.budget_path),
+                "--json",
+            ]
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["file_bytes"], measured["file_bytes"])
+
+    def test_exact_limit_fits(self) -> None:
+        measured = native_size.measure_binary(self.binary)
+        self.write_budget(
+            {
+                "aarch64-apple-darwin": {
+                    "file_bytes": measured["file_bytes"],
+                    "gzip9_bytes": measured["gzip9_bytes"],
+                }
+            }
+        )
+        proc = self.run_script(
+            [
+                "--binary",
+                str(self.binary),
+                "--target",
+                "aarch64-apple-darwin",
+                "--budget-file",
+                str(self.budget_path),
+            ]
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_file_over_budget_fails(self) -> None:
+        measured = native_size.measure_binary(self.binary)
+        self.write_budget(
+            {
+                "aarch64-apple-darwin": {
+                    "file_bytes": measured["file_bytes"] - 1,
+                    "gzip9_bytes": measured["gzip9_bytes"] + 1000,
+                }
+            }
+        )
+        proc = self.run_script(
+            [
+                "--binary",
+                str(self.binary),
+                "--target",
+                "aarch64-apple-darwin",
+                "--budget-file",
+                str(self.budget_path),
+                "--json",
+            ]
+        )
+        self.assertEqual(proc.returncode, native_size.EXIT_OVER_BUDGET)
+        self.assertIn("file_bytes", proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertFalse(payload["ok"])
+
+    def test_gzip_over_budget_fails(self) -> None:
+        measured = native_size.measure_binary(self.binary)
+        self.write_budget(
+            {
+                "aarch64-apple-darwin": {
+                    "file_bytes": measured["file_bytes"] + 1000,
+                    "gzip9_bytes": measured["gzip9_bytes"] - 1,
+                }
+            }
+        )
+        proc = self.run_script(
+            [
+                "--binary",
+                str(self.binary),
+                "--target",
+                "aarch64-apple-darwin",
+                "--budget-file",
+                str(self.budget_path),
+            ]
+        )
+        self.assertEqual(proc.returncode, native_size.EXIT_OVER_BUDGET)
+        self.assertIn("gzip9_bytes", proc.stderr)
+
+    def test_unknown_target(self) -> None:
+        self.write_budget({"aarch64-apple-darwin": {"file_bytes": 10, "gzip9_bytes": 10}})
+        proc = self.run_script(
+            [
+                "--binary",
+                str(self.binary),
+                "--target",
+                "wasm32-wasi",
+                "--budget-file",
+                str(self.budget_path),
+            ]
+        )
+        self.assertEqual(proc.returncode, native_size.EXIT_OPERATIONAL)
+        self.assertIn("unrecognized target", proc.stderr)
+
+    def test_unknown_budget_entry(self) -> None:
+        self.write_budget({"x86_64-unknown-linux-gnu": {"file_bytes": 10, "gzip9_bytes": 10}})
+        proc = self.run_script(
+            [
+                "--binary",
+                str(self.binary),
+                "--target",
+                "aarch64-apple-darwin",
+                "--budget-file",
+                str(self.budget_path),
+            ]
+        )
+        self.assertEqual(proc.returncode, native_size.EXIT_OPERATIONAL)
+        self.assertIn("unknown target", proc.stderr)
+
+    def test_malformed_budget(self) -> None:
+        self.budget_path.write_text("{not json", encoding="utf-8")
+        proc = self.run_script(
+            [
+                "--binary",
+                str(self.binary),
+                "--target",
+                "aarch64-apple-darwin",
+                "--budget-file",
+                str(self.budget_path),
+            ]
+        )
+        self.assertEqual(proc.returncode, native_size.EXIT_OPERATIONAL)
+        self.assertIn("not valid JSON", proc.stderr)
+
+    def test_invalid_budget_values(self) -> None:
+        self.write_budget({"aarch64-apple-darwin": {"file_bytes": 0, "gzip9_bytes": 12}})
+        proc = self.run_script(
+            [
+                "--binary",
+                str(self.binary),
+                "--target",
+                "aarch64-apple-darwin",
+                "--budget-file",
+                str(self.budget_path),
+            ]
+        )
+        self.assertEqual(proc.returncode, native_size.EXIT_OPERATIONAL)
+        self.assertIn("positive integer", proc.stderr)
+
+    def test_missing_artifact(self) -> None:
+        proc = self.run_script(
+            ["--binary", str(self.root / "missing"), "--target", "aarch64-apple-darwin"]
+        )
+        self.assertEqual(proc.returncode, native_size.EXIT_OPERATIONAL)
+        self.assertIn("not found", proc.stderr)
+
+    def test_empty_artifact(self) -> None:
+        empty = self.root / "empty.bin"
+        empty.write_bytes(b"")
+        proc = self.run_script(["--binary", str(empty), "--target", "aarch64-apple-darwin"])
+        self.assertEqual(proc.returncode, native_size.EXIT_OPERATIONAL)
+        self.assertIn("empty", proc.stderr)
+
+    def test_binary_without_target_does_not_cargo(self) -> None:
+        proc = self.run_script(["--binary", str(self.binary)])
+        self.assertEqual(proc.returncode, native_size.EXIT_OPERATIONAL)
+        self.assertIn("requires both --binary", proc.stderr)
+
+    def test_committed_budget_has_positive_maxima_for_five_targets(self) -> None:
+        budget = SCRIPT_DIR.parent / "fixtures" / "quality" / "native-size-budget.json"
+        payload = json.loads(budget.read_text(encoding="utf-8"))
+        for target in native_size.KNOWN_TARGETS:
+            entry = payload["targets"][target]
+            self.assertIsInstance(entry["file_bytes"], int)
+            self.assertIsInstance(entry["gzip9_bytes"], int)
+            self.assertGreater(entry["file_bytes"], 0)
+            self.assertGreater(entry["gzip9_bytes"], 0)
+            loaded = native_size.load_target_budget(budget, target)
+            self.assertEqual(loaded, {"file_bytes": entry["file_bytes"], "gzip9_bytes": entry["gzip9_bytes"]})
+
+    def test_maxima_are_ceil_103_of_measured_candidates(self) -> None:
+        budget = SCRIPT_DIR.parent / "fixtures" / "quality" / "native-size-budget.json"
+        payload = json.loads(budget.read_text(encoding="utf-8"))
+
+        def ceil_103(n: int) -> int:
+            return (n * 103 + 99) // 100
+
+        for target in native_size.KNOWN_TARGETS:
+            cand = payload["measured_candidate"]["targets"][target]
+            base = payload["measured_baseline"]["targets"][target]
+            maxima = payload["targets"][target]
+            self.assertEqual(maxima["file_bytes"], ceil_103(cand["file_bytes"]))
+            self.assertEqual(maxima["gzip9_bytes"], ceil_103(cand["gzip9_bytes"]))
+            self.assertLessEqual(cand["file_bytes"], maxima["file_bytes"])
+            self.assertLessEqual(cand["gzip9_bytes"], maxima["gzip9_bytes"])
+            self.assertTrue(
+                base["file_bytes"] > maxima["file_bytes"] or base["gzip9_bytes"] > maxima["gzip9_bytes"],
+                target,
+            )
+
+    def test_invalid_utf8_budget_is_operational(self) -> None:
+        self.budget_path.write_bytes(b"\xff\xfe{ not utf-8")
+        proc = self.run_script(
+            [
+                "--binary",
+                str(self.binary),
+                "--target",
+                "aarch64-apple-darwin",
+                "--budget-file",
+                str(self.budget_path),
+            ]
+        )
+        self.assertEqual(proc.returncode, native_size.EXIT_OPERATIONAL)
+        self.assertIn("UTF-8", proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+
+    def test_binary_budget_path_is_operational(self) -> None:
+        ls_path = Path("/bin/ls")
+        if not ls_path.is_file():
+            self.skipTest("/bin/ls not present")
+        proc = self.run_script(
+            [
+                "--binary",
+                str(self.binary),
+                "--target",
+                "aarch64-apple-darwin",
+                "--budget-file",
+                str(ls_path),
+            ]
+        )
+        self.assertEqual(proc.returncode, native_size.EXIT_OPERATIONAL)
+        self.assertTrue("UTF-8" in proc.stderr or "not valid JSON" in proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+
+    def test_unreadable_artifact_is_operational(self) -> None:
+        locked = self.root / "locked.bin"
+        locked.write_bytes(b"\x7fELFfake")
+        locked.chmod(0)
+        try:
+            proc = self.run_script(["--binary", str(locked), "--target", "aarch64-apple-darwin"])
+            if proc.returncode == 0:
+                self.skipTest("owner can still read mode-0 files on this host")
+            self.assertEqual(proc.returncode, native_size.EXIT_OPERATIONAL)
+            self.assertTrue("cannot read" in proc.stderr or "cannot stat" in proc.stderr)
+            self.assertNotIn("Traceback", proc.stderr)
+        finally:
+            locked.chmod(0o644)
+
+
+@unittest.skipIf(sys.platform == "win32", "PATH cargo stubs are covered on Linux CI")
 class ScriptInvocation(unittest.TestCase):
     def _fake_cargo(
         self,
@@ -258,7 +532,7 @@ class ScriptInvocation(unittest.TestCase):
                 text=True,
                 env=env,
             )
-            self.assertEqual(proc.returncode, 1)
+            self.assertEqual(proc.returncode, native_size.EXIT_OPERATIONAL)
             self.assertIn("no vue-vet bin executable", proc.stderr)
 
     def test_missing_cargo_is_operational(self) -> None:

@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "gzip9": "gzip-9 of the stripped native binary with mtime 0 and no stored filename. Comparable compression proxy, not GitHub release-archive bytes and not npm tarball bytes.",
+  "margin": "3%",
+  "baseline": {
+    "commit": "2dabaad3116f59a2c8bd13b2190833c77ff84861",
+    "workflow_run": 34034720314
+  },
+  "candidate": {
+    "commit": "fa2debcc7d3dd9ff24cb9e9b5f90703c9393d048",
+    "workflow_run": 34039577281
+  },
+  "measured_baseline": {
+    "targets": {
+      "aarch64-apple-darwin": { "file_bytes": 7803280, "gzip9_bytes": 3540260 },
+      "x86_64-apple-darwin": { "file_bytes": 9316032, "gzip9_bytes": 4007575 },
+      "aarch64-unknown-linux-gnu": { "file_bytes": 8923248, "gzip9_bytes": 3842313 },
+      "x86_64-unknown-linux-gnu": { "file_bytes": 10505408, "gzip9_bytes": 4210508 },
+      "x86_64-pc-windows-msvc": { "file_bytes": 9284096, "gzip9_bytes": 3944368 }
+    }
+  },
+  "measured_candidate": {
+    "targets": {
+      "aarch64-apple-darwin": { "file_bytes": 6816944, "gzip9_bytes": 3210595 },
+      "x86_64-apple-darwin": { "file_bytes": 8292960, "gzip9_bytes": 3628638 },
+      "aarch64-unknown-linux-gnu": { "file_bytes": 7940216, "gzip9_bytes": 3519833 },
+      "x86_64-unknown-linux-gnu": { "file_bytes": 9560304, "gzip9_bytes": 3865183 },
+      "x86_64-pc-windows-msvc": { "file_bytes": 8179200, "gzip9_bytes": 3531583 }
+    }
+  },
+  "targets": {
+    "aarch64-apple-darwin": { "file_bytes": 7021453, "gzip9_bytes": 3306913 },
+    "x86_64-apple-darwin": { "file_bytes": 8541749, "gzip9_bytes": 3737498 },
+    "aarch64-unknown-linux-gnu": { "file_bytes": 8178423, "gzip9_bytes": 3625428 },
+    "x86_64-unknown-linux-gnu": { "file_bytes": 9847114, "gzip9_bytes": 3981139 },
+    "x86_64-pc-windows-msvc": { "file_bytes": 8424576, "gzip9_bytes": 3637531 }
+  }
+}
