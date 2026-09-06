@@ -51,6 +51,19 @@ pub struct TemplateElementFact {
   /// wrappers around icon-only buttons.
   #[serde(default)]
   pub has_accessible_name_ancestor: bool,
+  /// Proven object-form `v-bind="{ key: … }"` (Oxc object literal, no opaque spread).
+  #[serde(default, skip_serializing_if = "is_false_flag")]
+  pub object_bind_has_key: bool,
+  /// Vize `ElementType::Component` (or JSX identifier-reference / member tag).
+  /// Native HTML/SVG/MathML elements stay false so Transition static-child
+  /// positives are preserved; lowercase imported components stay true.
+  #[serde(default, skip_serializing_if = "is_false_flag")]
+  pub is_component: bool,
+}
+
+#[expect(clippy::trivially_copy_pass_by_ref, reason = "serde skip_serializing_if takes &T")]
+const fn is_false_flag(value: &bool) -> bool {
+  !*value
 }
 
 impl TemplateElementFact {
@@ -82,7 +95,9 @@ impl TemplateElementFact {
 
   #[must_use]
   pub fn has_key(&self) -> bool {
-    self.attribute("key").is_some() || self.bound_attribute("key").is_some()
+    self.attribute("key").is_some()
+      || self.bound_attribute("key").is_some()
+      || self.object_bind_has_key
   }
 }
 

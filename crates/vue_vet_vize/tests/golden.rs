@@ -269,6 +269,14 @@ fn practice_prefer_to_value_fixtures_match_exact_diagnostics() {
       "fixtures/rules/prefer-to-value/valid/local-unref.vue",
       include_str!("../../../fixtures/rules/prefer-to-value/valid/local-unref.vue"),
     ),
+    (
+      "fixtures/rules/prefer-to-value/valid/maybe-ref-number.vue",
+      include_str!("../../../fixtures/rules/prefer-to-value/valid/maybe-ref-number.vue"),
+    ),
+    (
+      "fixtures/rules/prefer-to-value/valid/known-ref.vue",
+      include_str!("../../../fixtures/rules/prefer-to-value/valid/known-ref.vue"),
+    ),
   ] {
     assert!(
       analyze_versioned(path, source, 3).is_empty(),
@@ -301,6 +309,11 @@ fn practice_vueuse_fixtures_match_exact_diagnostics() {
       "fixtures/rules/vueuse-use-timeout-fn/invalid/set-without-clear.vue",
       include_str!("../../../fixtures/rules/vueuse-use-timeout-fn/invalid/set-without-clear.vue"),
       include_str!("../../../fixtures/snapshots/vueuse-use-timeout-fn/set-without-clear.json"),
+    ),
+    (
+      "fixtures/rules/vueuse-use-timeout-fn/invalid/nested-subscribe.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-timeout-fn/invalid/nested-subscribe.vue"),
+      include_str!("../../../fixtures/snapshots/vueuse-use-timeout-fn/nested-subscribe.json"),
     ),
     (
       "fixtures/rules/vueuse-use-raf-fn/invalid/raf-without-cancel.vue",
@@ -406,6 +419,26 @@ fn practice_vueuse_safe_fixtures_produce_no_diagnostics() {
       include_str!("../../../fixtures/rules/vueuse-use-raf-fn/valid/bare-raf.vue"),
     ),
     (
+      "fixtures/rules/vueuse-use-raf-fn/valid/one-shot.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-raf-fn/valid/one-shot.vue"),
+    ),
+    (
+      "fixtures/rules/vueuse-use-raf-fn/valid/named-one-shot.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-raf-fn/valid/named-one-shot.vue"),
+    ),
+    (
+      "fixtures/rules/vueuse-use-raf-fn/valid/two-frame.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-raf-fn/valid/two-frame.vue"),
+    ),
+    (
+      "fixtures/rules/vueuse-use-timeout-fn/valid/watch-callback.vue",
+      include_str!("../../../fixtures/rules/vueuse-use-timeout-fn/valid/watch-callback.vue"),
+    ),
+    (
+      "fixtures/rules/anchor-has-content/valid/title.vue",
+      include_str!("../../../fixtures/rules/anchor-has-content/valid/title.vue"),
+    ),
+    (
       "fixtures/rules/vueuse-use-intersection-observer/valid/use-intersection-observer.vue",
       include_str!(
         "../../../fixtures/rules/vueuse-use-intersection-observer/valid/use-intersection-observer.vue"
@@ -498,6 +531,14 @@ fn anchor_has_content_fixtures_match_exact_diagnostics() {
       "fixtures/rules/anchor-has-content/valid/interpolation.vue",
       include_str!("../../../fixtures/rules/anchor-has-content/valid/interpolation.vue"),
     ),
+    (
+      "fixtures/rules/anchor-has-content/valid/title.vue",
+      include_str!("../../../fixtures/rules/anchor-has-content/valid/title.vue"),
+    ),
+    (
+      "fixtures/rules/anchor-has-content/valid/router-link-title.vue",
+      include_str!("../../../fixtures/rules/anchor-has-content/valid/router-link-title.vue"),
+    ),
   ] {
     assert_diagnostics(path, source, empty);
   }
@@ -513,6 +554,11 @@ fn button_has_content_fixtures_match_exact_diagnostics() {
   assert_diagnostics(
     "fixtures/rules/button-has-content/valid/aria-label.vue",
     include_str!("../../../fixtures/rules/button-has-content/valid/aria-label.vue"),
+    "[]",
+  );
+  assert_diagnostics(
+    "fixtures/rules/button-has-content/valid/title.vue",
+    include_str!("../../../fixtures/rules/button-has-content/valid/title.vue"),
     "[]",
   );
 }
@@ -581,6 +627,11 @@ fn heading_and_label_a11y_fixtures_match_exact_diagnostics() {
   assert_diagnostics(
     "fixtures/rules/heading-has-content/valid/text.vue",
     include_str!("../../../fixtures/rules/heading-has-content/valid/text.vue"),
+    "[]",
+  );
+  assert_diagnostics(
+    "fixtures/rules/heading-has-content/valid/title.vue",
+    include_str!("../../../fixtures/rules/heading-has-content/valid/title.vue"),
     "[]",
   );
   assert_diagnostics(
@@ -870,6 +921,15 @@ fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
       ),
     ),
     (
+      "fixtures/rules/no-side-effects-in-computed/invalid/same-display-distinct.vue",
+      include_str!(
+        "../../../fixtures/rules/no-side-effects-in-computed/invalid/same-display-distinct.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-side-effects-in-computed/same-display-distinct.json"
+      ),
+    ),
+    (
       "fixtures/rules/prefer-computed/invalid/helper-assign.vue",
       include_str!("../../../fixtures/rules/prefer-computed/invalid/helper-assign.vue"),
       include_str!("../../../fixtures/snapshots/prefer-computed/helper-assign.json"),
@@ -878,6 +938,48 @@ fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
       "fixtures/rules/prefer-computed/invalid/ident-getter-assign.vue",
       include_str!("../../../fixtures/rules/prefer-computed/invalid/ident-getter-assign.vue"),
       include_str!("../../../fixtures/snapshots/prefer-computed/ident-getter-assign.json"),
+    ),
+    (
+      "fixtures/rules/prefer-computed/invalid/helper-private.vue",
+      include_str!("../../../fixtures/rules/prefer-computed/invalid/helper-private.vue"),
+      include_str!("../../../fixtures/snapshots/prefer-computed/helper-private.json"),
+    ),
+    (
+      "fixtures/rules/no-multiple-effects-same-target/invalid/two-effects.vue",
+      include_str!(
+        "../../../fixtures/rules/no-multiple-effects-same-target/invalid/two-effects.vue"
+      ),
+      include_str!("../../../fixtures/snapshots/no-multiple-effects-same-target/two-effects.json"),
+    ),
+    (
+      "fixtures/rules/no-multiple-effects-same-target/invalid/shadowed-alias.vue",
+      include_str!(
+        "../../../fixtures/rules/no-multiple-effects-same-target/invalid/shadowed-alias.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-multiple-effects-same-target/shadowed-alias.json"
+      ),
+    ),
+    (
+      "fixtures/rules/prefer-computed/invalid/event-string-literal.vue",
+      include_str!("../../../fixtures/rules/prefer-computed/invalid/event-string-literal.vue"),
+      include_str!("../../../fixtures/snapshots/prefer-computed/event-string-literal.json"),
+    ),
+    (
+      "fixtures/rules/prefer-watch-over-effect-for-single-source/valid/destructuring-write.vue",
+      include_str!(
+        "../../../fixtures/rules/prefer-watch-over-effect-for-single-source/valid/destructuring-write.vue"
+      ),
+      include_str!("../../../fixtures/snapshots/prefer-computed/destructuring-write.json"),
+    ),
+    (
+      "fixtures/rules/no-multiple-effects-same-target/valid/same-name-functions.vue",
+      include_str!(
+        "../../../fixtures/rules/no-multiple-effects-same-target/valid/same-name-functions.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-multiple-effects-same-target/same-name-functions.json"
+      ),
     ),
     (
       "fixtures/rules/no-unused-computed-binding/invalid/unused.vue",
@@ -919,6 +1021,10 @@ fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
   ] {
     assert_diagnostics(path, source, expected);
   }
+}
+
+#[test]
+fn helper_follow_valid_fixtures_are_quiet() {
   let empty = "[]";
   for (path, source) in [
     (
@@ -1005,6 +1111,29 @@ fn helper_follow_and_style_v_bind_fixtures_match_exact_diagnostics() {
 }
 
 #[test]
+#[expect(clippy::panic, reason = "fixture parse failures must fail the golden test")]
+fn prefer_computed_shadowed_ref_parameter_is_quiet() {
+  let diagnostics = analyze_sfc(
+    Path::new("fixtures/rules/prefer-computed/valid/shadowed-ref-parameter.vue"),
+    include_str!("../../../fixtures/rules/prefer-computed/valid/shadowed-ref-parameter.vue"),
+  )
+  .unwrap_or_else(|error| panic!("fixture parse: {error}"));
+  assert!(
+    diagnostics.iter().all(|diagnostic| diagnostic.rule_id != "vue-vet/reactivity/prefer-computed"),
+    "shadowed Ref parameters must not convert: {diagnostics:?}"
+  );
+}
+
+#[test]
+fn prefer_computed_alias_escape_is_quiet() {
+  assert_diagnostics(
+    "fixtures/rules/prefer-computed/valid/alias-container-escape.vue",
+    include_str!("../../../fixtures/rules/prefer-computed/valid/alias-container-escape.vue"),
+    "[]",
+  );
+}
+
+#[test]
 fn computed_without_dependency_hof_coverage_fixtures() {
   assert_diagnostics(
     "fixtures/rules/no-computed-without-dependency/valid/lookalike-hof-map.vue",
@@ -1039,6 +1168,117 @@ fn unused_binding_safe_patterns_are_quiet() {
       include_str!(
         "../../../fixtures/rules/no-unused-reactive-binding/valid/ordinary-script-export.vue"
       ),
+    ),
+    (
+      "fixtures/rules/no-unused-reactive-binding/valid/template-style-object.vue",
+      include_str!(
+        "../../../fixtures/rules/no-unused-reactive-binding/valid/template-style-object.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-unused-computed-binding/valid/template-style-binding.vue",
+      include_str!(
+        "../../../fixtures/rules/no-unused-computed-binding/valid/template-style-binding.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-unused-computed-binding/valid/template-style-object.vue",
+      include_str!(
+        "../../../fixtures/rules/no-unused-computed-binding/valid/template-style-object.vue"
+      ),
+    ),
+  ] {
+    assert_diagnostics(path, source, empty);
+  }
+}
+
+#[test]
+fn operand_and_watch_source_identity_fixtures() {
+  for (path, source, expected) in [
+    (
+      "fixtures/rules/no-ref-as-operand/invalid/basic.vue",
+      include_str!("../../../fixtures/rules/no-ref-as-operand/invalid/basic.vue"),
+      include_str!("../../../fixtures/snapshots/no-ref-as-operand/basic.json"),
+    ),
+    (
+      "fixtures/rules/no-ref-as-operand/invalid/unicode.vue",
+      include_str!("../../../fixtures/rules/no-ref-as-operand/invalid/unicode.vue"),
+      include_str!("../../../fixtures/snapshots/no-ref-as-operand/unicode.json"),
+    ),
+    (
+      "fixtures/rules/no-model-ref-as-operand/invalid/basic.vue",
+      include_str!("../../../fixtures/rules/no-model-ref-as-operand/invalid/basic.vue"),
+      include_str!("../../../fixtures/snapshots/no-model-ref-as-operand/basic.json"),
+    ),
+    (
+      "fixtures/rules/no-empty-watch-sources/invalid/constant-getter.vue",
+      include_str!("../../../fixtures/rules/no-empty-watch-sources/invalid/constant-getter.vue"),
+      include_str!("../../../fixtures/snapshots/no-empty-watch-sources/constant-getter.json"),
+    ),
+    (
+      "fixtures/rules/no-empty-watch-sources/invalid/empty-array.vue",
+      include_str!("../../../fixtures/rules/no-empty-watch-sources/invalid/empty-array.vue"),
+      include_str!("../../../fixtures/snapshots/no-empty-watch-sources/empty-array.json"),
+    ),
+    (
+      "fixtures/rules/no-computed-as-operand/invalid/basic.vue",
+      include_str!("../../../fixtures/rules/no-computed-as-operand/invalid/basic.vue"),
+      include_str!("../../../fixtures/snapshots/no-computed-as-operand/basic.json"),
+    ),
+  ] {
+    assert_diagnostics(path, source, expected);
+  }
+  let empty = "[]";
+  for (path, source) in [
+    (
+      "fixtures/rules/no-ref-as-operand/valid/watch-callback-shadow.vue",
+      include_str!("../../../fixtures/rules/no-ref-as-operand/valid/watch-callback-shadow.vue"),
+    ),
+    (
+      "fixtures/rules/no-ref-as-operand/valid/watch-callback-destructure.vue",
+      include_str!(
+        "../../../fixtures/rules/no-ref-as-operand/valid/watch-callback-destructure.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-ref-as-operand/valid/nested-local.vue",
+      include_str!("../../../fixtures/rules/no-ref-as-operand/valid/nested-local.vue"),
+    ),
+    (
+      "fixtures/rules/no-ref-as-operand/valid/same-name-functions.vue",
+      include_str!("../../../fixtures/rules/no-ref-as-operand/valid/same-name-functions.vue"),
+    ),
+    (
+      "fixtures/rules/no-model-ref-as-operand/valid/watch-callback-shadow.vue",
+      include_str!(
+        "../../../fixtures/rules/no-model-ref-as-operand/valid/watch-callback-shadow.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-computed-as-operand/valid/watch-callback-shadow.vue",
+      include_str!(
+        "../../../fixtures/rules/no-computed-as-operand/valid/watch-callback-shadow.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-computed-as-operand/valid/safe.vue",
+      include_str!("../../../fixtures/rules/no-computed-as-operand/valid/safe.vue"),
+    ),
+    (
+      "fixtures/rules/no-empty-watch-sources/valid/computed-member.vue",
+      include_str!("../../../fixtures/rules/no-empty-watch-sources/valid/computed-member.vue"),
+    ),
+    (
+      "fixtures/rules/no-empty-watch-sources/valid/property-source.vue",
+      include_str!("../../../fixtures/rules/no-empty-watch-sources/valid/property-source.vue"),
+    ),
+    (
+      "fixtures/rules/no-empty-watch-sources/valid/helper-call.vue",
+      include_str!("../../../fixtures/rules/no-empty-watch-sources/valid/helper-call.vue"),
+    ),
+    (
+      "fixtures/rules/no-empty-watch-sources/valid/deferred-helper.vue",
+      include_str!("../../../fixtures/rules/no-empty-watch-sources/valid/deferred-helper.vue"),
     ),
   ] {
     assert_diagnostics(path, source, empty);
@@ -1246,9 +1486,50 @@ fn self_trigger_and_prefer_watch_fixtures_match_exact_diagnostics() {
       ),
     ),
     (
+      "fixtures/rules/prefer-watch-over-effect-for-single-source/invalid/post-source.vue",
+      include_str!(
+        "../../../fixtures/rules/prefer-watch-over-effect-for-single-source/invalid/post-source.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/prefer-watch-over-effect-for-single-source/post-source.json"
+      ),
+    ),
+    (
+      "fixtures/rules/prefer-watch-over-effect-for-single-source/invalid/aliased-sync.vue",
+      include_str!(
+        "../../../fixtures/rules/prefer-watch-over-effect-for-single-source/invalid/aliased-sync.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/prefer-watch-over-effect-for-single-source/aliased-sync.json"
+      ),
+    ),
+    (
+      "fixtures/rules/prefer-watch-over-effect-for-single-source/invalid/flush-option.vue",
+      include_str!(
+        "../../../fixtures/rules/prefer-watch-over-effect-for-single-source/invalid/flush-option.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/prefer-watch-over-effect-for-single-source/flush-option.json"
+      ),
+    ),
+    (
+      "fixtures/rules/prefer-watch-over-effect-for-single-source/invalid/opaque-flush.vue",
+      include_str!(
+        "../../../fixtures/rules/prefer-watch-over-effect-for-single-source/invalid/opaque-flush.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/prefer-watch-over-effect-for-single-source/opaque-flush.json"
+      ),
+    ),
+    (
       "fixtures/rules/no-computed-self-trigger/invalid/self-write.vue",
       include_str!("../../../fixtures/rules/no-computed-self-trigger/invalid/self-write.vue"),
       include_str!("../../../fixtures/snapshots/no-computed-self-trigger/self-write.json"),
+    ),
+    (
+      "fixtures/rules/no-route-destructure/invalid/placeholder.vue",
+      include_str!("../../../fixtures/rules/no-route-destructure/invalid/placeholder.vue"),
+      include_str!("../../../fixtures/snapshots/no-route-destructure/placeholder.json"),
     ),
   ] {
     assert_diagnostics(path, source, expected);
@@ -1299,7 +1580,118 @@ fn self_trigger_and_prefer_watch_fixtures_match_exact_diagnostics() {
       "fixtures/rules/prefer-computed/valid/compound-from-other.vue",
       include_str!("../../../fixtures/rules/prefer-computed/valid/compound-from-other.vue"),
     ),
+    (
+      "fixtures/rules/prefer-computed/valid/mutable-ui-target.vue",
+      include_str!("../../../fixtures/rules/prefer-computed/valid/mutable-ui-target.vue"),
+    ),
+    (
+      "fixtures/rules/prefer-computed/valid/container-escape.vue",
+      include_str!("../../../fixtures/rules/prefer-computed/valid/container-escape.vue"),
+    ),
+    (
+      "fixtures/rules/prefer-computed/valid/custom-event-target.vue",
+      include_str!("../../../fixtures/rules/prefer-computed/valid/custom-event-target.vue"),
+    ),
+    (
+      "fixtures/rules/no-v-model-nonreactive-source/valid/reassigned.vue",
+      include_str!("../../../fixtures/rules/no-v-model-nonreactive-source/valid/reassigned.vue"),
+    ),
+    (
+      "fixtures/rules/no-v-model-nonreactive-source/valid/imported-undefined.vue",
+      include_str!(
+        "../../../fixtures/rules/no-v-model-nonreactive-source/valid/imported-undefined.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/prefer-watch-over-effect-for-single-source/valid/assignment-target.vue",
+      include_str!(
+        "../../../fixtures/rules/prefer-watch-over-effect-for-single-source/valid/assignment-target.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-multiple-effects-same-target/valid/single-writer.vue",
+      include_str!(
+        "../../../fixtures/rules/no-multiple-effects-same-target/valid/single-writer.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-computed-without-dependency/valid/unknown-member.vue",
+      include_str!(
+        "../../../fixtures/rules/no-computed-without-dependency/valid/unknown-member.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-computed-without-dependency/valid/unknown-member-helper.vue",
+      include_str!(
+        "../../../fixtures/rules/no-computed-without-dependency/valid/unknown-member-helper.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-computed-without-dependency/valid/unknown-member-ident-getter.vue",
+      include_str!(
+        "../../../fixtures/rules/no-computed-without-dependency/valid/unknown-member-ident-getter.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-v-model-nonreactive-source/valid/unknown-composable.vue",
+      include_str!(
+        "../../../fixtures/rules/no-v-model-nonreactive-source/valid/unknown-composable.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-v-model-nonreactive-source/valid/unknown-import.vue",
+      include_str!(
+        "../../../fixtures/rules/no-v-model-nonreactive-source/valid/unknown-import.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-v-model-nonreactive-source/valid/unknown-member.vue",
+      include_str!(
+        "../../../fixtures/rules/no-v-model-nonreactive-source/valid/unknown-member.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-v-model-nonreactive-source/valid/unknown-conditional.vue",
+      include_str!(
+        "../../../fixtures/rules/no-v-model-nonreactive-source/valid/unknown-conditional.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/require-v-for-key/valid/numeric-sibling-keys.vue",
+      include_str!("../../../fixtures/rules/require-v-for-key/valid/numeric-sibling-keys.vue"),
+    ),
   ] {
     assert_diagnostics(path, source, empty);
   }
+}
+
+#[test]
+fn object_form_computed_after_key_snapshot() {
+  assert_diagnostics(
+    "fixtures/rules/require-v-for-key/invalid/computed-after-key.vue",
+    include_str!("../../../fixtures/rules/require-v-for-key/invalid/computed-after-key.vue"),
+    include_str!("../../../fixtures/snapshots/require-v-for-key/computed-after-key.json"),
+  );
+}
+
+#[test]
+fn transition_static_native_child_snapshot() {
+  assert_diagnostics(
+    "fixtures/rules/require-toggle-inside-transition/invalid/basic.vue",
+    include_str!("../../../fixtures/rules/require-toggle-inside-transition/invalid/basic.vue"),
+    include_str!("../../../fixtures/snapshots/require-toggle-inside-transition/basic.json"),
+  );
+}
+
+#[test]
+fn transition_native_input_import_snapshot() {
+  assert_diagnostics(
+    "fixtures/rules/require-toggle-inside-transition/invalid/native-input-import.vue",
+    include_str!(
+      "../../../fixtures/rules/require-toggle-inside-transition/invalid/native-input-import.vue"
+    ),
+    include_str!(
+      "../../../fixtures/snapshots/require-toggle-inside-transition/native-input-import.json"
+    ),
+  );
 }

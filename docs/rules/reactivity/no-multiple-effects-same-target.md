@@ -4,7 +4,8 @@ Category: reactivity
 Default severity: warning  
 Confidence: high
 
-Multiple effects writing the same target race updates.
+Multiple independent effects writing the same resolved target can overwrite
+each other. Several assignments inside one effect are a single writer.
 
 ## Bad
 
@@ -33,6 +34,11 @@ watchEffect(() => { out.value = a.value })
 ## Detection
 
 Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
+Writers are distinct tracking scopes, keyed by Oxc binding identity (same-name
+locals in different functions stay distinct). Alias writers join the
+Oxc-resolved root span (`alias_of_span`), not the nearest same-name
+declaration. Several write sites in one effect count as one writer. The
+diagnostic does not claim a data race.
 
 ## Remediation
 
@@ -40,5 +46,5 @@ Keep a single writer, or write distinct targets.
 
 ## Fixtures
 
-- Invalid: `fixtures/rules/no-multiple-effects-same-target/invalid/`
-- Valid: `fixtures/rules/no-multiple-effects-same-target/valid/`
+- Invalid: `fixtures/rules/no-multiple-effects-same-target/invalid/` (`two-effects.vue`, `shadowed-alias.vue`)
+- Valid: `fixtures/rules/no-multiple-effects-same-target/valid/` (`single-writer.vue`, `same-name-functions.vue`)

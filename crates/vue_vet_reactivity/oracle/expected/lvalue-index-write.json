@@ -1,0 +1,14 @@
+{
+  "id": "lvalue-index-write",
+  "source": "import { reactive, ref, watchEffect } from 'vue'\nconst target = reactive({ field: 0 })\nconst key = ref('field')\nconst source = ref(1)\nwatchEffect(() => {\n  target[key.value] = source.value\n})\n",
+  "runtime_deps": [
+    {
+      "binding": "key",
+      "key": "value"
+    },
+    {
+      "binding": "source",
+      "key": "value"
+    }
+  ]
+}

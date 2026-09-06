@@ -272,9 +272,8 @@ mod tests {
             calls: vec![ScriptCallFact {
               callee: "useColorMode".into(),
               assigned_to: Some("colorMode".into()),
-              resolved_import: None,
-              argument_identifiers: Vec::new(),
               span: span(0),
+              ..ScriptCallFact::default()
             }],
             member_writes: Vec::new(),
             destructures: Vec::new(),
@@ -338,14 +337,16 @@ mod tests {
               imported: "useColorMode".into(),
               local: "useColorMode".into(),
               span: span(0),
+              type_only: false,
+              declaration_span: span(0),
             }],
             bindings: Vec::new(),
             calls: vec![ScriptCallFact {
               callee: "useColorMode".into(),
               assigned_to: Some("colorMode".into()),
               resolved_import: Some(("./local".into(), "useColorMode".into())),
-              argument_identifiers: Vec::new(),
               span: span(1),
+              ..ScriptCallFact::default()
             }],
             member_writes: Vec::new(),
             destructures: Vec::new(),

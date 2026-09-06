@@ -2,7 +2,7 @@
 use std::collections::BTreeSet;
 
 use vize_atelier_core::{
-  Allocator, CompoundExpressionChild, ElementNode, ExpressionNode, ForNode, PropNode,
+  Allocator, CompoundExpressionChild, ElementNode, ElementType, ExpressionNode, ForNode, PropNode,
   TemplateChildNode, parse,
 };
 use vue_vet_core::{
@@ -10,7 +10,8 @@ use vue_vet_core::{
   TemplateFacts,
 };
 use vue_vet_oxc::{
-  slot_prop_alias_identifiers, template_expression_identifiers_with_shadow, v_for_alias_identifiers,
+  object_literal_has_own_key, slot_prop_alias_identifiers,
+  template_expression_identifiers_with_shadow, v_for_alias_identifiers,
 };
 
 use crate::AnalyzeError;
@@ -252,6 +253,14 @@ fn collect_element(
   // `CommonTooltip :content` / menu wrappers name their default-slot controls.
   let child_name_depth =
     if component_provides_slot_name(element) { name_depth.saturating_add(1) } else { name_depth };
+  let object_bind_has_key = directives.iter().any(|directive| {
+    directive.name == "bind"
+      && directive.argument.is_none()
+      && directive
+        .expression
+        .as_deref()
+        .is_some_and(|expression| object_literal_has_own_key(expression, "key"))
+  });
   // Preserve parent-before-child element order for deterministic fixtures.
   let element_index = facts.elements.len();
   facts.elements.push(TemplateElementFact {
@@ -264,6 +273,8 @@ fn collect_element(
     has_labelable_descendant: false,
     has_label_ancestor: label_depth > 0,
     has_accessible_name_ancestor: name_depth > 0,
+    object_bind_has_key,
+    is_component: matches!(element.tag_type, ElementType::Component),
   });
   let child_summary = collect_children(
     source,

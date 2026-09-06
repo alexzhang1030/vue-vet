@@ -14,6 +14,16 @@ apps:
 - Extensions: `.vue`, `.tsx`, `.ts`, `.jsx`, `.js`, `.mjs`, `.cjs`, `.json`
 - Conditions: `import`, `module`, `browser`, `default`
 - Main fields: `browser`, `module`, `main`
+- Type-only imports (`import type`, `import { type X }`, `export type`) use a
+  second resolver with TypeScript declaration suffixes (`.d.ts` / `.d.mts` /
+  `.d.cts`), `types`/`typings` main fields, and JS→TS extension substitution.
+  Value imports keep the runtime contract above. Type-only bindings still
+  participate in unresolved-import diagnostics and structural `Import` /
+  `ExternalImport` edges. They do **not** create runtime `ModuleLink` seeds,
+  external reactivity loading roots, or template/component-use evidence.
+  Mixed named declarations keep a runtime edge for each non-`type` binding
+  (`import { type Flag, run }` still links `run`). A type-only alias of a
+  component does not count as usage for `unused-component`.
 - Vite-style aliases: `@` → `<root>/src`, `~` → `<root>`
 - `tsconfig` paths via Auto discovery, preferring `.nuxt/tsconfig.json` when present
 - Yarn PnP when `.pnp.cjs` / `.pnp.data.json` exists
@@ -30,7 +40,9 @@ Classification after a successful resolve:
   size-capped so unrelated multi‑MB packages are not parsed. Those external
   modules are **not** lint targets and do not appear in scored
   `module_reactivity`.
-- Resolve failure → `vue-vet/project/unresolved-import` at the import span
+- Resolve failure → `vue-vet/project/unresolved-import` once per import
+  declaration (named bindings of the same `import { A, B } from '…'` share one
+  diagnostic at the declaration span). Distinct declarations stay distinct.
 
 The following are classified as `ExternalImport` **without** attempting resolve
 (quiet — not `unresolved-import`; no reactivity summary either):
@@ -61,8 +73,8 @@ form so alias joins and resolve results share one path representation.
 Convention recognition covers files under `components`, `composables`,
 `pages`, `layouts`, `plugins`, `middleware`, and `stores`. Component tags and
 composable calls create auto-import edges. Explicit imports shadow convention
-matches. `CONVENTIONS_VERSION` (currently 14) invalidates cached graphs when
-convention or resolver semantics change.
+matches. `CONVENTIONS_VERSION` (currently 18) invalidates cached graphs when
+convention, type-vs-runtime follow, or resolver semantics change.
 
 Component auto-import names follow Nuxt defaults without executing
 `nuxt.config`:
@@ -77,6 +89,38 @@ When `.nuxt/components.d.ts` or `.nuxt/types/components.d.ts` exists, those
 generated name→path maps enrich (and can override) the convention names so
 `pathPrefix: false` and custom `components` dirs stay accurate. Those dts files
 are part of the graph invalidation set.
+
+When `@nuxt/content` is a proven package dependency or a structured `modules`
+entry in `nuxt.config.*` (Oxc AST / serde JSON; the config is never executed),
+files under that **owner's** framework content directory
+(`components/content/`, `app/components/content/`, or `src/components/content/`,
+or `{srcDir}/components/content/` when `srcDir` is a proven string literal)
+use Nuxt Content naming (`pathPrefix: false`, `prefix: ''`) and are treated as
+externally rendered entrypoints. Package.json and `nuxt.config.*` parent
+directories are ownership boundaries: the nearest owner wins, so a parent
+Content registration does not leak into a nearer ordinary package or an
+unrelated sibling path. Ownership candidates are those config files only — a
+directory such as `app/components/content` is not an owner merely because it
+contains `.vue` sources. Module policy comes from the **exported** config value
+(Oxc structure plus bounded immutable local `const` indirection), not from other object
+literals in the file. `let` bindings, member writes, and escapes that can mutate
+the initializer abstain. Parse errors and unknown computed properties or spreads
+that can overwrite `modules`, `srcDir`, or `extends` leave those facts unproven
+until a later explicit literal restores them. Comments, unrelated
+string properties, and malformed package JSON grant no registration. Explicit
+`modules: []` overrides mere installed-dependency evidence. Unresolved
+`modules` expressions are conservative: they do not themselves register Content
+and they do not override dependency evidence. Statically known `extends`
+specifiers resolve through `oxc_resolver` (installed or relative layers) without
+executing configs; cycle-bounded layer `nuxt.config.*` / `package.json` bytes
+are retained in the input snapshot and consumed when deriving project context.
+Layer sources stay outside lint targets.
+Generated `.nuxt/components.d.ts` maps and explicit component directory
+settings still win. An ordinary `…/widgets/content/` folder keeps path-prefixed
+names and unused-component detection. `nuxt.config.*` and `package.json` join
+the resolver invalidation set. Context construction discovers those candidates
+from source ancestors and existing resolver inputs (no extra full-tree walk).
+Filesystem and input-snapshot constructors share that candidate filter.
 
 When `.nuxt/imports.d.ts`, `.nuxt/types/imports.d.ts`, or Vite
 unplugin-auto-import's `auto-imports.d.ts` / `src/auto-imports.d.ts` exists,
@@ -114,3 +158,4 @@ cross-file dataflow work.
   resolution at the import span (after quiet-external classification above).
 - `vue-vet/project/unused-component` reports files under a component directory
   that have no import or template usage edge (after Nuxt auto-import naming).
+  Type-only import aliases are not component-use evidence.

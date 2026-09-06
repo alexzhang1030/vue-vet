@@ -12,7 +12,10 @@ This high-confidence recommended rule reports a concrete Vue correctness, reacti
 
 ```vue
 <li v-for="item in items" :key="item.id">{{ item.name }}</li>
+<slot v-for="item in items" v-bind="{ key: item.id }" :item="item" />
 ```
+
+Proven object-form `v-bind="{ key: … }"` (literal `key` after any spreads, including parentheses and TypeScript `as` / `satisfies` wrappers) counts as a key. Statically known sibling keys such as `1` or `[2]` are distinct and do not unprove `key`. Opaque spreads **or unknown computed properties** after `key` can overwrite it and stay conservative.
 
 ## Limitations
 

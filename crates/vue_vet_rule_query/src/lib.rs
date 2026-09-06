@@ -13,13 +13,14 @@ pub use blocks::{
   script_has_call, setup_blocks, setup_calls_after_first_top_level_await,
 };
 pub use graph::{
-  reactive_binding, script_binding, script_binding_at, static_template_ref_names,
-  used_reactive_names,
+  reactive_binding, reactive_binding_for_operand, script_binding, script_binding_at,
+  static_template_ref_names, used_reactive_names,
 };
 pub use reads::{
-  MemberPath, binding_path, effect_family, guard_path, has_prior_unconditional_read,
-  is_readonly_kind, join_member_paths, member_path, same_reactive_target, same_target,
-  unconditional_self_triggers, unguarded_conditional_reads, write_path,
+  MemberPath, alias_root, binding_path, canonical_write_identity, effect_family, guard_path,
+  has_prior_unconditional_read, is_readonly_kind, join_member_paths, member_path,
+  same_reactive_target, same_target, unconditional_self_triggers, unguarded_conditional_reads,
+  write_path,
 };
 
 #[cfg(test)]
@@ -29,7 +30,7 @@ mod tests {
   use vue_vet_core::{
     ReactiveBindingFact, ReactiveBindingKind, ReactiveDependencyEdge, ReactiveDependencyKind,
     ReactiveReadFact, ReactiveReadKind, ReactiveWriteFact, ReactivityGraph, ScriptBindingFact,
-    ScriptBlockFacts, ScriptCallFact, ScriptFacts, ScriptKind, SourceSpan,
+    ScriptBlockFacts, ScriptCallFact, ScriptFacts, ScriptKind, ScriptOperandFact, SourceSpan,
     TemplateReactiveReadFact, TrackingScopeFact, TrackingScopeKind,
   };
 
@@ -40,13 +41,7 @@ mod tests {
   }
 
   fn call(callee: &str, offset: usize) -> ScriptCallFact {
-    ScriptCallFact {
-      callee: callee.into(),
-      assigned_to: None,
-      resolved_import: None,
-      argument_identifiers: Vec::new(),
-      span: span_at(offset),
-    }
+    ScriptCallFact { callee: callee.into(), span: span_at(offset), ..ScriptCallFact::default() }
   }
 
   fn setup_block(
@@ -176,6 +171,7 @@ mod tests {
         binding: "from_write".into(),
         property: Some("value".into()),
         span: span_at(4),
+        binding_span: None,
       }],
       assignment_only: false,
       binding: None,
@@ -207,7 +203,16 @@ mod tests {
       kind: ReactiveBindingKind::Readonly,
       initialized_with_null: false,
       alias_of: None,
+      alias_of_span: None,
       span: span_at(1),
+    });
+    graph.bindings.push(ReactiveBindingFact {
+      name: "state".into(),
+      kind: ReactiveBindingKind::Ref,
+      initialized_with_null: false,
+      alias_of: None,
+      alias_of_span: None,
+      span: span_at(9),
     });
     let mut block = setup_block(Vec::new(), Vec::new(), graph);
     block.bindings.push(ScriptBindingFact {
@@ -216,6 +221,8 @@ mod tests {
       writes: 0,
       span: span_at(1),
       exported: false,
+      plain_initializer: false,
+      escaped: false,
     });
     block.bindings.push(ScriptBindingFact {
       name: "state".into(),
@@ -223,6 +230,8 @@ mod tests {
       writes: 0,
       span: span_at(9),
       exported: true,
+      plain_initializer: false,
+      escaped: false,
     });
     assert!(
       reactive_binding(&block, "state").is_some_and(|binding| is_readonly_kind(binding.kind))
@@ -230,6 +239,44 @@ mod tests {
     assert!(script_binding(&block, "state").is_some_and(|binding| !binding.exported));
     assert!(script_binding_at(&block, "state", span_at(9)).is_some_and(|binding| binding.exported));
     assert!(reactive_binding(&block, "missing").is_none());
+    let inner_operand =
+      ScriptOperandFact { name: "state".into(), span: span_at(20), binding_span: Some(span_at(9)) };
+    let outer_operand =
+      ScriptOperandFact { name: "state".into(), span: span_at(4), binding_span: Some(span_at(1)) };
+    assert!(
+      reactive_binding_for_operand(&block, &inner_operand)
+        .is_some_and(|binding| binding.span.offset == 9)
+    );
+    assert!(
+      reactive_binding_for_operand(&block, &outer_operand)
+        .is_some_and(|binding| binding.span.offset == 1)
+    );
+    assert!(
+      reactive_binding_for_operand(
+        &block,
+        &ScriptOperandFact { name: "state".into(), span: span_at(30), binding_span: None },
+      )
+      .is_none(),
+      "unresolved operand must not match when a local symbol of that name exists"
+    );
+    let mut seed_graph = ReactivityGraph::default();
+    seed_graph.bindings.push(ReactiveBindingFact {
+      name: "currentUser".into(),
+      kind: ReactiveBindingKind::Ref,
+      initialized_with_null: false,
+      alias_of: None,
+      alias_of_span: None,
+      span: span_at(40),
+    });
+    let seed_block = setup_block(Vec::new(), Vec::new(), seed_graph);
+    assert!(
+      reactive_binding_for_operand(
+        &seed_block,
+        &ScriptOperandFact { name: "currentUser".into(), span: span_at(50), binding_span: None },
+      )
+      .is_some_and(|binding| binding.kind == ReactiveBindingKind::Ref),
+      "unresolved auto-import operand must match a unique proven seed"
+    );
     let read = read("count", Some("value"), ReactiveReadKind::Unconditional, 0);
     assert_eq!(binding_path(&read), "count.value");
     assert_eq!(member_path("count", None), "count");
@@ -237,6 +284,46 @@ mod tests {
     assert_eq!(
       join_member_paths([member_path("ready", None), binding_path(&read)], "`, `"),
       "ready`, `count.value"
+    );
+  }
+
+  #[test]
+  fn canonical_write_identity_uses_alias_root_span_not_nearest_name() {
+    let outer = ReactiveBindingFact {
+      name: "state".into(),
+      kind: ReactiveBindingKind::Ref,
+      initialized_with_null: false,
+      alias_of: None,
+      alias_of_span: None,
+      span: span_at(1),
+    };
+    let inner = ReactiveBindingFact {
+      name: "state".into(),
+      kind: ReactiveBindingKind::Ref,
+      initialized_with_null: false,
+      alias_of: None,
+      alias_of_span: None,
+      span: span_at(20),
+    };
+    let alias = ReactiveBindingFact {
+      name: "alias".into(),
+      kind: ReactiveBindingKind::Ref,
+      initialized_with_null: false,
+      alias_of: Some("state".into()),
+      alias_of_span: Some(span_at(1)),
+      span: span_at(40),
+    };
+    let bindings = vec![outer, inner, alias];
+    let write = ReactiveWriteFact {
+      binding: "alias".into(),
+      property: Some("value".into()),
+      span: span_at(50),
+      binding_span: Some(span_at(40)),
+    };
+    assert_eq!(
+      canonical_write_identity(&bindings, &write),
+      (1, "state", Some("value")),
+      "alias writers must join the Oxc-resolved outer root, not a later same-name declaration"
     );
   }
 

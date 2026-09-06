@@ -68,4 +68,4 @@ scope, or other script read.
 - Invalid: `fixtures/rules/no-unused-reactive-binding/invalid/` (`orphan-ref.vue`)
 - Valid: `fixtures/rules/no-unused-reactive-binding/valid/`
   (`script-read.vue`, `template-read.vue`, `inner-then-template.vue`,
-  `ordinary-script-export.vue`)
+  `ordinary-script-export.vue`, `template-style-object.vue`)

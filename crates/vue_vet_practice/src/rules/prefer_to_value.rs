@@ -53,16 +53,20 @@ impl Rule for PreferToValue {
       .blocks
       .iter()
       .flat_map(|block| {
-        block.calls.iter().filter(move |call| is_vue_unref_call(call, block)).map(|call| call.span)
+        block
+          .calls
+          .iter()
+          .filter(move |call| is_vue_unref_call(call, block) && call.has_function_argument)
+          .map(|call| call.span)
       })
       .collect::<Vec<_>>();
     for span in findings {
       context.report_with_recommendation(
         self.meta(),
         span,
-        "`unref` can be replaced with Vue 3.3+ `toValue`, which also accepts getters.".into(),
+        "`unref` leaves a function payload intact; Vue 3.3+ `toValue` invokes getters.".into(),
         Some(
-          "Prefer `toValue(...)` for values that may be a ref, a plain value, or a getter.".into(),
+          "`toValue` invokes a function payload; `unref` returns the function. Use `toValue` only when getter-or-ref normalization is intended.".into(),
         ),
         recommendation_from(RECIPE.recommend),
       );
@@ -85,8 +89,9 @@ mod tests {
   use std::path::Path;
 
   use vue_vet_core::{
-    ReactivityGraph, RuleEnvironment, ScriptBindingFact, ScriptBlockFacts, ScriptCallFact,
-    ScriptFacts, ScriptKind, SourceSpan, TemplateFacts, VueVersion,
+    ReactiveBindingFact, ReactiveBindingKind, ReactivityGraph, RuleEnvironment, ScriptBindingFact,
+    ScriptBlockFacts, ScriptCallFact, ScriptFacts, ScriptKind, SourceSpan, TemplateFacts,
+    VueVersion,
   };
 
   use super::*;
@@ -96,10 +101,25 @@ mod tests {
     SourceSpan { offset: 0, length: 5, line: 1, column: 1 }
   }
 
+  fn ref_graph(name: &str) -> ReactivityGraph {
+    ReactivityGraph {
+      bindings: vec![ReactiveBindingFact {
+        name: name.into(),
+        kind: ReactiveBindingKind::Ref,
+        initialized_with_null: false,
+        span: span(),
+        alias_of: None,
+        alias_of_span: None,
+      }],
+      ..ReactivityGraph::default()
+    }
+  }
+
   fn run(
     call: ScriptCallFact,
     bindings: Vec<ScriptBindingFact>,
     minor: u64,
+    graph: ReactivityGraph,
   ) -> Vec<vue_vet_core::Diagnostic> {
     let script = ScriptFacts {
       blocks: vec![ScriptBlockFacts {
@@ -112,7 +132,7 @@ mod tests {
         destructures: Vec::new(),
         top_level_await_ends: Vec::new(),
         operands: Vec::new(),
-        reactivity_graph: std::sync::Arc::new(ReactivityGraph::default()),
+        reactivity_graph: std::sync::Arc::new(graph),
       }],
     };
     practice_registry().run_with_environment(
@@ -128,17 +148,18 @@ mod tests {
   }
 
   #[test]
-  fn reports_resolved_vue_unref_on_3_3() {
+  fn reports_resolved_vue_unref_on_function_payload() {
     let diagnostics = run(
       ScriptCallFact {
         callee: "unref".into(),
-        assigned_to: None,
         resolved_import: Some(("vue".into(), "unref".into())),
-        argument_identifiers: vec!["count".into()],
+        has_function_argument: true,
         span: span(),
+        ..ScriptCallFact::default()
       },
       Vec::new(),
       3,
+      ReactivityGraph::default(),
     );
     assert_eq!(diagnostics.len(), 1);
     let Some(diagnostic) = diagnostics.first() else {
@@ -146,58 +167,96 @@ mod tests {
     };
     assert_eq!(diagnostic.rule_id, RECIPE.rule_id);
     assert!(diagnostic.recommendation.is_some());
+    assert!(
+      diagnostic.message.contains("invokes")
+        || diagnostic.help.as_deref().is_some_and(|help| help.contains("invokes")),
+      "{}",
+      diagnostic.message
+    );
   }
 
   #[test]
-  fn reports_bare_auto_import_unref_without_local_binding() {
+  fn reports_bare_auto_import_unref_on_function_payload() {
     let diagnostics = run(
       ScriptCallFact {
         callee: "unref".into(),
-        assigned_to: None,
-        resolved_import: None,
-        argument_identifiers: vec!["count".into()],
+        has_function_argument: true,
         span: span(),
+        ..ScriptCallFact::default()
       },
       Vec::new(),
       3,
+      ReactivityGraph::default(),
     );
     assert_eq!(diagnostics.len(), 1);
   }
 
   #[test]
-  fn stays_quiet_for_local_unref_binding() {
+  fn stays_quiet_for_known_ref_identifier() {
     let diagnostics = run(
       ScriptCallFact {
         callee: "unref".into(),
-        assigned_to: None,
-        resolved_import: None,
-        argument_identifiers: Vec::new(),
+        resolved_import: Some(("vue".into(), "unref".into())),
+        argument_identifiers: vec!["count".into()],
         span: span(),
+        ..ScriptCallFact::default()
       },
+      Vec::new(),
+      3,
+      ref_graph("count"),
+    );
+    assert!(diagnostics.is_empty());
+  }
+
+  #[test]
+  fn stays_quiet_for_maybe_ref_numeric_without_getter_evidence() {
+    let diagnostics = run(
+      ScriptCallFact {
+        callee: "unref".into(),
+        resolved_import: Some(("vue".into(), "unref".into())),
+        argument_identifiers: vec!["input".into()],
+        span: span(),
+        ..ScriptCallFact::default()
+      },
+      Vec::new(),
+      3,
+      ReactivityGraph::default(),
+    );
+    assert!(diagnostics.is_empty());
+  }
+
+  #[test]
+  fn stays_quiet_for_local_unref_binding() {
+    let diagnostics = run(
+      ScriptCallFact { callee: "unref".into(), span: span(), ..ScriptCallFact::default() },
       vec![ScriptBindingFact {
         name: "unref".into(),
         reads: 1,
         writes: 0,
         span: span(),
         exported: false,
+        plain_initializer: false,
+        escaped: false,
       }],
       3,
+      ReactivityGraph::default(),
     );
     assert!(diagnostics.is_empty());
   }
 
   #[test]
-  fn reports_nuxt_imports_unref() {
+  fn reports_nuxt_imports_unref_on_function_payload() {
     let diagnostics = run(
       ScriptCallFact {
         callee: "unref".into(),
-        assigned_to: None,
         resolved_import: Some(("#imports".into(), "unref".into())),
-        argument_identifiers: Vec::new(),
+        has_function_argument: true,
         span: span(),
+        ..ScriptCallFact::default()
       },
       Vec::new(),
       3,
+      ReactivityGraph::default(),
     );
     assert_eq!(diagnostics.len(), 1);
   }
@@ -207,13 +266,14 @@ mod tests {
     let diagnostics = run(
       ScriptCallFact {
         callee: "unref".into(),
-        assigned_to: None,
         resolved_import: Some(("vue".into(), "unref".into())),
-        argument_identifiers: Vec::new(),
+        has_function_argument: true,
         span: span(),
+        ..ScriptCallFact::default()
       },
       Vec::new(),
       2,
+      ReactivityGraph::default(),
     );
     assert!(diagnostics.is_empty());
   }
@@ -223,13 +283,13 @@ mod tests {
     let diagnostics = run(
       ScriptCallFact {
         callee: "toValue".into(),
-        assigned_to: None,
         resolved_import: Some(("vue".into(), "toValue".into())),
-        argument_identifiers: Vec::new(),
         span: span(),
+        ..ScriptCallFact::default()
       },
       Vec::new(),
       3,
+      ReactivityGraph::default(),
     );
     assert!(diagnostics.is_empty());
   }

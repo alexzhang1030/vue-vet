@@ -8,9 +8,16 @@ use vue_vet_reactivity::{ModuleReactivity, ModuleSource};
 
 /// Bump when Nuxt/Vite seed-map or external-summary follow semantics change.
 ///
-/// Invalidates content-addressed project cache. v14: bare `export * from 'pkg'`
-/// follow and widened bare auto-import / `ForwardReturn` seed resolution.
-pub const CONVENTIONS_VERSION: u32 = 14;
+/// Invalidates content-addressed project cache. v18 contract: type-only
+/// declaration resolution (type-vs-runtime split specifiers keep runtime
+/// Import edges and reactive result bindings), grouped unresolved imports,
+/// Nuxt Content nearest-owner naming with literal `srcDir`, retained-snapshot
+/// layer enablement, unknown computed keys unprove `srcDir`/`extends` until a
+/// later literal restores them, and exported Nuxt config follows only
+/// immutable local `const` initializers.
+/// v14: bare `export * from 'pkg'` follow and widened bare auto-import /
+/// `ForwardReturn` seed resolution.
+pub const CONVENTIONS_VERSION: u32 = 18;
 
 pub const PROJECT_RULE_IDS: [&str; 2] =
   ["vue-vet/project/unresolved-import", "vue-vet/project/unused-component"];

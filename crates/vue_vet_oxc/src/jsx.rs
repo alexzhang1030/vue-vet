@@ -100,6 +100,14 @@ fn push_jsx_element(
     }
   }
 
+  let object_bind_has_key = directives.iter().any(|directive| {
+    directive.name == "bind"
+      && directive.argument.is_none()
+      && directive
+        .expression
+        .as_deref()
+        .is_some_and(|expression| super::object_literal_has_own_key(expression, "key"))
+  });
   facts.elements.push(TemplateElementFact {
     tag,
     span: source_span(line_index, sfc_source, script_offset, element.span),
@@ -110,6 +118,8 @@ fn push_jsx_element(
     has_labelable_descendant: false,
     has_label_ancestor: false,
     has_accessible_name_ancestor: false,
+    object_bind_has_key,
+    is_component: jsx_opening_is_component(&element.opening_element.name),
   });
 }
 
@@ -443,6 +453,17 @@ fn jsx_tag_is_vue_component(tag: &str) -> bool {
     return false;
   }
   tag.chars().any(|ch| ch.is_ascii_uppercase()) || tag.contains('-')
+}
+
+/// Bound JSX tags (`widget`, `Foo.Bar`) are components; HTML identifiers are not.
+fn jsx_opening_is_component(name: &JSXElementName<'_>) -> bool {
+  match name {
+    JSXElementName::IdentifierReference(_)
+    | JSXElementName::MemberExpression(_)
+    | JSXElementName::NamespacedName(_)
+    | JSXElementName::ThisExpression(_) => true,
+    JSXElementName::Identifier(identifier) => jsx_tag_is_vue_component(identifier.name.as_str()),
+  }
 }
 
 fn jsx_member_name(member: &JSXMemberExpression<'_>) -> String {

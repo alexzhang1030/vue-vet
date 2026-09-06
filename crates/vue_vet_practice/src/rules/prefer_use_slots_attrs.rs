@@ -116,8 +116,8 @@ mod tests {
         callee: "getCurrentInstance".into(),
         assigned_to: Some("instance".into()),
         resolved_import: Some(("vue".into(), "getCurrentInstance".into())),
-        argument_identifiers: Vec::new(),
         span: span(),
+        ..ScriptCallFact::default()
       },
       Vec::new(),
     );
@@ -134,10 +134,8 @@ mod tests {
     let diagnostics = run(
       ScriptCallFact {
         callee: "getCurrentInstance".into(),
-        assigned_to: None,
-        resolved_import: None,
-        argument_identifiers: Vec::new(),
         span: span(),
+        ..ScriptCallFact::default()
       },
       Vec::new(),
     );
@@ -149,10 +147,8 @@ mod tests {
     let diagnostics = run(
       ScriptCallFact {
         callee: "getCurrentInstance".into(),
-        assigned_to: None,
-        resolved_import: None,
-        argument_identifiers: Vec::new(),
         span: span(),
+        ..ScriptCallFact::default()
       },
       vec![ScriptBindingFact {
         name: "getCurrentInstance".into(),
@@ -160,6 +156,8 @@ mod tests {
         writes: 0,
         span: span(),
         exported: false,
+        plain_initializer: false,
+        escaped: false,
       }],
     );
     assert!(diagnostics.is_empty());
@@ -170,10 +168,9 @@ mod tests {
     let diagnostics = run(
       ScriptCallFact {
         callee: "useSlots".into(),
-        assigned_to: None,
         resolved_import: Some(("vue".into(), "useSlots".into())),
-        argument_identifiers: Vec::new(),
         span: span(),
+        ..ScriptCallFact::default()
       },
       Vec::new(),
     );

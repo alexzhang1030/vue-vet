@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+import { watch } from 'vue'
+
+watch(() => 1 + 2, () => {})
 </script>
-<template>{{ x }}</template>
+
+<template>
+  <p />
+</template>

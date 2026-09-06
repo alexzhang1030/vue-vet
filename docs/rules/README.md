@@ -10,9 +10,9 @@ not Essential/a11y parity with `eslint-plugin-vue`.
 
 | Tier | Meaning | Count |
 | --- | --- | ---: |
-| `tracer` | Needs `vue_vet_reactivity` graph facts (read kinds, guards, scopes, prop edges, binding kinds) | 46 |
+| `tracer` | Needs `vue_vet_reactivity` graph facts (read kinds, guards, scopes, prop edges, binding kinds) | 43 |
 | `parity` | Template Essential / a11y / macros / after-await registrars — open-box completeness | 81 |
-| `practice` | Ecosystem suggestions (`category: practice`); excluded from score by default | 13 |
+| `practice` | Ecosystem suggestions (`category: practice`); excluded from score by default | 16 |
 
 Total registered rules: **140**.
 
@@ -21,8 +21,8 @@ Total registered rules: **140**.
 | `accessibility` | 13 |
 | `correctness` | 67 |
 | `maintainability` | 1 |
-| `practice` | 12 |
-| `reactivity` | 46 |
+| `practice` | 15 |
+| `reactivity` | 43 |
 | `security` | 1 |
 
 Per-rule pages live under `docs/rules/<category>/<name>.md`.
@@ -141,7 +141,7 @@ Per-rule pages live under `docs/rules/<category>/<name>.md`.
 - [`vue-vet/reactivity/no-assignment-only-effect-with-conditional-read`](./reactivity/no-assignment-only-effect-with-conditional-read.md) `tracer`
 - [`vue-vet/reactivity/no-computed-as-operand`](./reactivity/no-computed-as-operand.md) `tracer`
 - [`vue-vet/reactivity/no-computed-self-trigger`](./reactivity/no-computed-self-trigger.md) `tracer`
-- [`vue-vet/reactivity/no-computed-without-dependency`](./reactivity/no-computed-without-dependency.md) `tracer`
+- [`vue-vet/reactivity/no-computed-without-dependency`](./reactivity/no-computed-without-dependency.md) `practice`
 - [`vue-vet/reactivity/no-conditional-dependency-in-computed`](./reactivity/no-conditional-dependency-in-computed.md) `tracer`
 - [`vue-vet/reactivity/no-conditional-dependency-in-effect-scope`](./reactivity/no-conditional-dependency-in-effect-scope.md) `tracer`
 - [`vue-vet/reactivity/no-conditional-dependency-in-render`](./reactivity/no-conditional-dependency-in-render.md) `tracer`
@@ -163,7 +163,7 @@ Per-rule pages live under `docs/rules/<category>/<name>.md`.
 - [`vue-vet/reactivity/no-reactive-read-during-pause-tracking`](./reactivity/no-reactive-read-during-pause-tracking.md) `tracer`
 - [`vue-vet/reactivity/no-readonly-mutation`](./reactivity/no-readonly-mutation.md) `tracer`
 - [`vue-vet/reactivity/no-ref-as-operand`](./reactivity/no-ref-as-operand.md) `tracer`
-- [`vue-vet/reactivity/no-route-destructure`](./reactivity/no-route-destructure.md) `tracer`
+- [`vue-vet/reactivity/no-route-destructure`](./reactivity/no-route-destructure.md) `practice`
 - [`vue-vet/reactivity/no-router-destructure`](./reactivity/no-router-destructure.md) `tracer`
 - [`vue-vet/reactivity/no-self-trigger-in-watch-effect`](./reactivity/no-self-trigger-in-watch-effect.md) `tracer`
 - [`vue-vet/reactivity/no-self-trigger-in-watch-post-effect`](./reactivity/no-self-trigger-in-watch-post-effect.md) `tracer`
@@ -179,7 +179,7 @@ Per-rule pages live under `docs/rules/<category>/<name>.md`.
 - [`vue-vet/reactivity/prefer-explicit-sources-for-conditional-deps`](./reactivity/prefer-explicit-sources-for-conditional-deps.md) `tracer`
 - [`vue-vet/reactivity/prefer-store-to-refs`](./reactivity/prefer-store-to-refs.md) `tracer`
 - [`vue-vet/reactivity/prefer-use-template-ref`](./reactivity/prefer-use-template-ref.md) `practice`
-- [`vue-vet/reactivity/prefer-watch-over-effect-for-single-source`](./reactivity/prefer-watch-over-effect-for-single-source.md) `tracer`
+- [`vue-vet/reactivity/prefer-watch-over-effect-for-single-source`](./reactivity/prefer-watch-over-effect-for-single-source.md) `practice`
 
 ## security
 

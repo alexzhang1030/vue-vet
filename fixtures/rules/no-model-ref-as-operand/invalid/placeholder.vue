@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+const open = defineModel<boolean>({ default: false })
+const shown = open && true
 </script>
-<template>{{ x }}</template>
+
+<template>
+  <p>{{ shown }}</p>
+</template>

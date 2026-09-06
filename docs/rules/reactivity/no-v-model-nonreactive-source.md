@@ -46,6 +46,13 @@ const text = defineModel<string>()
 Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
 `defineModel` and Vue Macros `defineModels` destructured locals seed `ModelRef` bindings in
 `<script setup>` only.
+Absence of a graph classification is **unknown**, not nonreactive. The rule
+reports only when Oxc records a **plain initializer** (`let text = ''`,
+uninitialized `let`) **and** the binding has no later script reassignment.
+`let form; form = createForm()` stays unknown. Global `undefined` is a plain
+initializer only when Oxc resolves it as the unresolved global, not a
+shadowed import. Member copies (`const form = source.form`) and
+conditionals (`condition ? createForm() : otherForm`) stay unknown.
 
 ## Remediation
 

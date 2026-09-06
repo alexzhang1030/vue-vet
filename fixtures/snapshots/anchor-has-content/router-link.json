@@ -10,21 +10,9 @@
     "file": "fixtures/rules/anchor-has-content/invalid/router-link.vue",
     "span": {
       "offset": 13,
-      "length": 32,
+      "length": 19,
       "line": 2,
       "column": 3
-    },
-    "edits": [
-      {
-        "file": "fixtures/rules/anchor-has-content/invalid/router-link.vue",
-        "range": {
-          "offset": 44,
-          "length": 0
-        },
-        "replacement": " aria-label=\"Home\"",
-        "applicability": "safe",
-        "rule_id": "vue-vet/accessibility/anchor-has-content"
-      }
-    ]
+    }
   }
 ]

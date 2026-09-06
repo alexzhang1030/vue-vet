@@ -5,6 +5,13 @@ Default severity: warning
 Confidence: high
 
 `computed` getters should be pure. Side effects belong in `watch` / lifecycle hooks.
+Repeated writes of the same target in one getter are one impurity cause: the
+rule emits a single diagnostic on the earliest write span. Distinct targets stay
+separate. The same write can also match `no-computed-self-trigger`. After
+config and suppressions, session finalizers keep one finding for that overlapping
+pair on the write span (stronger configured severity; self-trigger on a tie).
+A disabled or suppressed partner is retained. Distinct write identities are not
+merged by display name.
 
 ## Bad
 

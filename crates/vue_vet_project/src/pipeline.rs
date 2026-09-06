@@ -19,7 +19,7 @@ use vue_vet_reactivity::{
 };
 
 use crate::context::ProjectContext;
-use crate::conventions::convention_component_name;
+use crate::conventions::{convention_component_name_with_content, is_nuxt_content_component};
 use crate::layers::apply_template_prop_layers;
 use crate::model::{CONVENTIONS_VERSION, NodeKind, ProjectFile, ProjectGraph, ReactivityIssue};
 use crate::passes::ExternalSummaryLoadPass;
@@ -92,7 +92,17 @@ pub fn build_project_graph_incremental_with_options<'a>(
     if let Some(name) = dts_names
       .iter()
       .find_map(|(name, path)| (path == &node.path).then_some(name.clone()))
-      .or_else(|| convention_component_name(&node.path))
+      .or_else(|| {
+        convention_component_name_with_content(
+          &node.path,
+          is_nuxt_content_component(
+            &node.path,
+            &project_context.nuxt_content_roots,
+            &project_context.convention_owners,
+            &project_context.nuxt_src_dirs,
+          ),
+        )
+      })
     {
       node.name = name;
     }
@@ -135,7 +145,14 @@ pub fn build_project_graph_incremental_with_options<'a>(
   edges.dedup();
 
   // --- ProjectRules (unused-component; unresolved already in structural) ---
-  diagnostics.extend(unused_component_diagnostics(&ordered, &nodes, &edges));
+  diagnostics.extend(unused_component_diagnostics(
+    &ordered,
+    &nodes,
+    &edges,
+    &project_context.nuxt_content_roots,
+    &project_context.convention_owners,
+    &project_context.nuxt_src_dirs,
+  ));
   diagnostics.sort_by(|left, right| {
     (&left.file, left.span.offset, &left.rule_id).cmp(&(
       &right.file,

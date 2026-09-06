@@ -175,6 +175,65 @@ fn crlf_export_list_marks_root_symbol_only() {
 }
 
 #[test]
+fn operand_binding_span_uses_resolved_symbol_not_name() {
+  let facts = analyze(
+    "import { ref, watch } from 'vue';\n\
+     const count = ref(0);\n\
+     watch(count, (count) => { if (!count) return; });\n\
+     const ok = count > 0;",
+    "ts",
+  );
+  let mut count_bindings: Vec<_> =
+    facts.bindings.iter().filter(|binding| binding.name == "count").collect();
+  count_bindings.sort_by_key(|binding| binding.span.offset);
+  assert_eq!(
+    count_bindings.len(),
+    2,
+    "outer ref and callback param must both bind; {count_bindings:?}"
+  );
+  let mut count_operands: Vec<_> =
+    facts.operands.iter().filter(|operand| operand.name == "count").collect();
+  count_operands.sort_by_key(|operand| operand.span.offset);
+  assert_eq!(
+    count_operands.len(),
+    2,
+    "callback `!count` and outer `count > 0`; {count_operands:?}"
+  );
+  assert_eq!(
+    count_operands.first().and_then(|operand| operand.binding_span.map(|span| span.offset)),
+    count_bindings.get(1).map(|binding| binding.span.offset),
+    "callback operand must resolve to the parameter symbol"
+  );
+  assert_eq!(
+    count_operands.get(1).and_then(|operand| operand.binding_span.map(|span| span.offset)),
+    count_bindings.first().map(|binding| binding.span.offset),
+    "outer operand must resolve to the ref symbol"
+  );
+}
+
+#[test]
+fn operand_binding_span_unicode_and_crlf() {
+  let facts = analyze(
+    "import { ref } from 'vue';\r\n\
+     const \u{8ba1}\u{6570} = ref(0);\r\n\
+     const ok = \u{8ba1}\u{6570} > 0;\r\n",
+    "ts",
+  );
+  let binding = facts.bindings.iter().find(|binding| binding.name == "计数");
+  let operand = facts.operands.iter().find(|operand| operand.name == "计数");
+  assert!(
+    binding.is_some_and(|binding| {
+      operand.is_some_and(|operand| {
+        operand.binding_span.is_some_and(|span| span.offset == binding.span.offset)
+      })
+    }),
+    "CRLF unicode operand must resolve to the ref declaration; bindings={:?} operands={:?}",
+    facts.bindings,
+    facts.operands
+  );
+}
+
+#[test]
 fn records_props_destructures_and_null_template_refs() {
   let facts = analyze(
     "import { ref } from 'vue'; const { title } = defineProps(); const input = ref(null);",
@@ -216,6 +275,16 @@ fn template_expression_identifiers_use_oxc_ast_not_property_names() {
     template_expression_identifiers("(item) => { const local = item; return local + total }", "on"),
     vec!["total".to_owned()],
     "inner let/const bindings must be filtered from free reads"
+  );
+  assert_eq!(
+    template_expression_identifiers("target = 0", "on"),
+    vec!["target".to_owned()],
+    "event assignment targets must remain identifier facts"
+  );
+  assert_eq!(
+    template_expression_identifiers("'target'", "on"),
+    Vec::<String>::new(),
+    "a string containing a binding name is not an identifier fact"
   );
   assert_eq!(
     v_for_alias_identifiers("item in items"),
@@ -304,5 +373,468 @@ fn retains_side_effect_imports_for_project_edges() {
     facts.imports.first().map(|import| import.source.as_str()),
     Some("./setup"),
     "side-effect imports must remain visible to the project graph"
+  );
+}
+
+#[test]
+fn records_plain_initializer_and_object_escape() {
+  let facts = analyze(
+    "let text = '';\n\
+     const form = source.form;\n\
+     const target = 1;\n\
+     const state = { target };\n\
+     function useIt() { return target; }",
+    "ts",
+  );
+  let text = facts.bindings.iter().find(|binding| binding.name == "text");
+  assert!(
+    text.is_some_and(|binding| binding.plain_initializer && !binding.escaped),
+    "literal local must be a proven plain initializer: {text:?}"
+  );
+  let form = facts.bindings.iter().find(|binding| binding.name == "form");
+  assert!(
+    form.is_some_and(|binding| !binding.plain_initializer),
+    "unknown member provenance must not look plain: {form:?}"
+  );
+  let target = facts.bindings.iter().find(|binding| binding.name == "target");
+  assert!(
+    target.is_some_and(|binding| binding.escaped),
+    "object/return uses must mark the binding escaped: {target:?}"
+  );
+}
+
+#[test]
+fn returned_inner_ref_is_escaped() {
+  let facts = analyze("function firstWriter() { const result = ref(0); return result }", "ts");
+  let result = facts.bindings.iter().find(|binding| binding.name == "result");
+  assert!(
+    result.is_some_and(|binding| binding.escaped),
+    "returned locals must be escaped: {result:?}"
+  );
+}
+
+#[test]
+fn reassigned_binding_is_not_a_proven_plain_local() {
+  let facts = analyze("let form;\nform = createForm();", "ts");
+  let form = facts.bindings.iter().find(|binding| binding.name == "form");
+  assert!(
+    form.is_some_and(|binding| binding.plain_initializer && binding.writes >= 1),
+    "declaration-time empty init plus later assignment must record writes: {form:?}"
+  );
+}
+
+#[test]
+fn global_undefined_is_plain_and_imported_undefined_is_not() {
+  let global = analyze("let form = undefined;", "ts");
+  let form = global.bindings.iter().find(|binding| binding.name == "form");
+  assert!(
+    form.is_some_and(|binding| binding.plain_initializer),
+    "global undefined must remain a plain initializer: {form:?}"
+  );
+  let shadowed =
+    analyze("import { undefined } from 'generic-library';\nlet form = undefined;", "ts");
+  let form = shadowed.bindings.iter().find(|binding| binding.name == "form");
+  assert!(
+    form.is_some_and(|binding| !binding.plain_initializer),
+    "imported undefined must not look plain: {form:?}"
+  );
+}
+
+#[test]
+fn type_only_imports_share_declaration_span() {
+  let facts = analyze(
+    "import type { Item, Other } from './types'\nimport { type Flag } from './flags'\n",
+    "ts",
+  );
+  assert!(
+    facts.imports.iter().all(|import| import.type_only),
+    "import type and inline type specifiers must be type-only: {:?}",
+    facts.imports
+  );
+  let first_span = facts.imports.first().map(|import| import.declaration_span);
+  assert!(
+    facts
+      .imports
+      .iter()
+      .filter(|import| import.source == "./types")
+      .all(
+        |import| Some(import.declaration_span) == first_span && import.declaration_span.length > 0
+      ),
+    "named bindings of one declaration share a declaration span: {:?}",
+    facts.imports
+  );
+}
+
+#[test]
+fn object_literal_key_is_proven_without_trailing_spread() {
+  assert!(object_literal_has_own_key("{ key: item.id, item }", "key"));
+  assert!(object_literal_has_own_key("{ ...extra, key: item.id }", "key"));
+  assert!(object_literal_has_own_key("{ 'key': item.id }", "key"));
+  assert!(object_literal_has_own_key("({ key: item.id })", "key"));
+  assert!(object_literal_has_own_key("({ key: item.id } as const)", "key"));
+  assert!(object_literal_has_own_key(
+    "({ key: item.id }) satisfies Record<string, unknown>",
+    "key"
+  ));
+  assert!(object_literal_has_own_key("{ [field]: undefined, key: item.id }", "key"));
+  assert!(!object_literal_has_own_key("{ key: item.id, [field]: undefined }", "key"));
+  assert!(!object_literal_has_own_key("{ key: item.id, ...extra }", "key"));
+  assert!(!object_literal_has_own_key("extra", "key"));
+  assert!(!object_literal_has_own_key("{ ...extra }", "key"));
+  assert!(object_literal_has_own_key("{ key: item.id, 1: true }", "key"));
+  assert!(object_literal_has_own_key("{ key: item.id, [2]: true }", "key"));
+}
+
+#[test]
+fn mixed_type_and_value_import_specifiers_are_distinct() {
+  let facts = analyze(
+    "import { type Flag, value } from './mod'\nimport { runtime } from './runtime'\n",
+    "ts",
+  );
+  let flag = facts.imports.iter().find(|import| import.local == "Flag");
+  let value = facts.imports.iter().find(|import| import.local == "value");
+  let runtime = facts.imports.iter().find(|import| import.local == "runtime");
+  assert!(flag.is_some_and(|import| import.type_only), "inline type specifier: {flag:?}");
+  assert!(
+    value.is_some_and(|import| !import.type_only),
+    "value specifier stays runtime: {value:?}"
+  );
+  assert!(
+    runtime.is_some_and(|import| !import.type_only),
+    "ordinary runtime import stays runtime: {runtime:?}"
+  );
+  assert_eq!(
+    flag.map(|import| import.declaration_span),
+    value.map(|import| import.declaration_span),
+    "mixed specifiers share one declaration span"
+  );
+  assert_ne!(
+    flag.map(|import| import.declaration_span),
+    runtime.map(|import| import.declaration_span),
+    "distinct declarations keep distinct spans"
+  );
+}
+
+#[test]
+fn nuxt_config_modules_policy_ignores_comments_and_unrelated_strings() {
+  use super::{NuxtContentModulePolicy, parse_nuxt_config};
+  assert_eq!(
+    nuxt_config_content_modules(
+      "nuxt.config.ts",
+      "export default defineNuxtConfig({ modules: ['@nuxt/content'] })\n"
+    ),
+    NuxtContentModulePolicy::IncludesContent
+  );
+  assert_eq!(
+    nuxt_config_content_modules(
+      "nuxt.config.ts",
+      "// modules: ['@nuxt/content']\nexport default defineNuxtConfig({ modules: [] })\n"
+    ),
+    NuxtContentModulePolicy::Empty
+  );
+  assert_eq!(
+    nuxt_config_content_modules(
+      "nuxt.config.ts",
+      "export default defineNuxtConfig({ app: { title: '@nuxt/content' } })\n"
+    ),
+    NuxtContentModulePolicy::Absent
+  );
+  assert_eq!(
+    nuxt_config_content_modules(
+      "nuxt.config.ts",
+      "export default defineNuxtConfig({ modules: extra })\n"
+    ),
+    NuxtContentModulePolicy::Unresolved
+  );
+  assert_eq!(
+    nuxt_config_content_modules(
+      "nuxt.config.ts",
+      "const example = { modules: ['@nuxt/content'] }; export default defineNuxtConfig({ modules: [] })\n"
+    ),
+    NuxtContentModulePolicy::Empty
+  );
+  assert_eq!(
+    nuxt_config_content_modules(
+      "nuxt.config.ts",
+      "const field = 'modules'; export default defineNuxtConfig({ modules: ['@nuxt/content'], [field]: [] })\n"
+    ),
+    NuxtContentModulePolicy::Unresolved
+  );
+  assert_eq!(
+    nuxt_config_content_modules(
+      "nuxt.config.ts",
+      "const config = defineNuxtConfig({ modules: ['@nuxt/content'] }); export default config\n"
+    ),
+    NuxtContentModulePolicy::IncludesContent
+  );
+  assert_eq!(
+    nuxt_config_content_modules("nuxt.config.ts", "export default defineNuxtConfig({ modules: ["),
+    NuxtContentModulePolicy::Unresolved
+  );
+  let src = parse_nuxt_config(
+    "nuxt.config.ts",
+    "export default defineNuxtConfig({ srcDir: 'ui', modules: ['@nuxt/content'] })\n",
+  );
+  assert_eq!(src.src_dir.as_deref(), Some("ui"));
+  let layers = parse_nuxt_config(
+    "nuxt.config.ts",
+    "export default defineNuxtConfig({ extends: ['theme-kit'] })\n",
+  );
+  assert_eq!(layers.extends, ["theme-kit"]);
+  assert_eq!(
+    nuxt_config_content_modules(
+      "nuxt.config.ts",
+      "let config = defineNuxtConfig({ modules: ['@nuxt/content'] }); config = defineNuxtConfig({ modules: [] }); export default config\n"
+    ),
+    NuxtContentModulePolicy::Absent
+  );
+  assert_eq!(
+    nuxt_config_content_modules(
+      "nuxt.config.ts",
+      "const config = defineNuxtConfig({ modules: [] }); config.modules = ['@nuxt/content']; export default config\n"
+    ),
+    NuxtContentModulePolicy::Absent
+  );
+  assert_eq!(
+    parse_nuxt_config(
+      "nuxt.config.ts",
+      "const src = 'ui'; const modules = ['@nuxt/content']; export default defineNuxtConfig({ srcDir: src, modules })\n"
+    )
+    .src_dir
+    .as_deref(),
+    Some("ui")
+  );
+  let computed = parse_nuxt_config(
+    "nuxt.config.ts",
+    "const field = 'srcDir'; export default defineNuxtConfig({ srcDir: 'ui', [field]: 'other', modules: ['@nuxt/content'] })\n",
+  );
+  assert_eq!(computed.src_dir, None);
+  assert_eq!(computed.modules, NuxtContentModulePolicy::IncludesContent);
+  let restored = parse_nuxt_config(
+    "nuxt.config.ts",
+    "const field = 'srcDir'; export default defineNuxtConfig({ srcDir: 'lost', [field]: 'other', srcDir: 'ui', modules: ['@nuxt/content'] })\n",
+  );
+  assert_eq!(restored.src_dir.as_deref(), Some("ui"));
+  assert_eq!(restored.modules, NuxtContentModulePolicy::IncludesContent);
+  assert_eq!(
+    nuxt_config_content_modules(
+      "nuxt.config.cjs",
+      "module.exports = { modules: [] }; module.exports = { modules: ['@nuxt/content'] };\n"
+    ),
+    NuxtContentModulePolicy::Absent
+  );
+  assert_eq!(
+    nuxt_config_content_modules(
+      "nuxt.config.ts",
+      "function defineNuxtConfig(value) { return value }\nexport default defineNuxtConfig({ modules: ['@nuxt/content'] })\n"
+    ),
+    NuxtContentModulePolicy::Unresolved
+  );
+}
+
+#[test]
+fn records_enclosing_callees_and_wrapped_callable_arguments() {
+  let facts = analyze(
+    "function consume(value) { return value }\n\
+     const enabled = consume(computed(() => true));\n\
+     onMounted(() => { requestAnimationFrame(() => {});\n\
+       watch(value, () => { setTimeout(() => {}, 0) }) })\n\
+     unref(input)\n\
+     unref((() => 1))\n\
+     watchEffect(() => {}, { flush: 'post' })",
+    "ts",
+  );
+  assert!(
+    facts.calls.iter().any(|call| {
+      call.callee == "requestAnimationFrame"
+        && call.enclosing_callees.iter().any(|name| name == "onMounted")
+    }),
+    "rAF inside onMounted must record enclosing onMounted; got {:?}",
+    facts.calls
+  );
+  assert!(
+    facts.calls.iter().any(|call| {
+      call.callee == "setTimeout" && call.enclosing_callees.iter().any(|name| name == "watch")
+    }),
+    "setTimeout inside watch must record enclosing watch; got {:?}",
+    facts.calls
+  );
+  assert!(
+    facts.calls.iter().any(|call| call.callee == "unref" && !call.has_function_argument),
+    "identifier unref must not look like a getter argument"
+  );
+  assert!(
+    facts.calls.iter().any(|call| call.callee == "unref" && call.has_function_argument),
+    "parenthesized getter must set has_function_argument; got {:?}",
+    facts.calls
+  );
+  assert!(
+    facts
+      .calls
+      .iter()
+      .any(|call| { call.callee == "watchEffect" && call.flush_option.as_deref() == Some("post") }),
+    "watchEffect flush literal must be recorded; got {:?}",
+    facts.calls
+  );
+}
+
+#[test]
+fn records_self_scheduling_raf_and_preserves_shadowing() {
+  let facts = analyze(
+    "onMounted(() => {\n\
+       const loop = () => { requestAnimationFrame(loop) }\n\
+       requestAnimationFrame(loop)\n\
+       requestAnimationFrame(function tick() { requestAnimationFrame(tick) })\n\
+       function render() {}\n\
+       requestAnimationFrame(render)\n\
+       requestAnimationFrame(() => { requestAnimationFrame(render) })\n\
+       function tick() { requestAnimationFrame(tick) }\n\
+       {\n\
+         function tick() {}\n\
+         requestAnimationFrame(tick)\n\
+       }\n\
+     })",
+    "ts",
+  );
+  let rafs: Vec<_> =
+    facts.calls.iter().filter(|call| call.callee == "requestAnimationFrame").collect();
+  assert!(
+    rafs.iter().any(|call| call.callback_reschedules_self
+      && call.argument_identifiers.iter().any(|name| name == "loop")),
+    "const loop that schedules itself must set callback_reschedules_self; got {:?}",
+    facts.calls
+  );
+  assert!(
+    rafs.iter().any(|call| call.callback_reschedules_self && call.has_function_argument),
+    "named function tick that schedules itself must set callback_reschedules_self; got {:?}",
+    facts.calls
+  );
+  assert!(
+    rafs.iter().any(|call| {
+      call.argument_identifiers.iter().any(|name| name == "render")
+        && !call.callback_reschedules_self
+    }),
+    "one-shot named render must not look like a loop; got {:?}",
+    facts.calls
+  );
+  let shadowed = rafs.iter().filter(|call| {
+    call.argument_identifiers.iter().any(|name| name == "tick") && !call.has_function_argument
+  });
+  assert!(
+    shadowed.clone().any(|call| !call.callback_reschedules_self),
+    "inner shadowed tick must not inherit the outer recursive tick; got {:?}",
+    facts.calls
+  );
+}
+
+#[test]
+fn deferred_nested_raf_is_not_self_scheduling() {
+  let facts = analyze(
+    "function render() {\n\
+       function later() { requestAnimationFrame(render) }\n\
+     }\n\
+     requestAnimationFrame(render)\n\
+     const paint = () => {\n\
+       const later = () => { requestAnimationFrame(paint) }\n\
+     }\n\
+     requestAnimationFrame(paint)\n",
+    "ts",
+  );
+  assert!(
+    facts
+      .calls
+      .iter()
+      .filter(|call| call.callee == "requestAnimationFrame")
+      .all(|call| { !call.callback_reschedules_self }),
+    "an uncalled nested later() that schedules the outer callback is deferred, not a loop; got {:?}",
+    facts.calls
+  );
+}
+
+#[test]
+fn records_watch_effect_flush_certainty_and_resets() {
+  let facts = analyze(
+    "watchEffect(() => {})\n\
+     watchEffect(() => {}, options)\n\
+     watchEffect(() => {}, { flush: 'pre', ...rest })\n\
+     watchEffect(() => {}, { ...rest, flush: 'sync' })\n\
+     watchEffect(() => {}, { flush: 'sync', [key]: true })\n\
+     watch(source, () => {}, { flush: 'post' })\n",
+    "ts",
+  );
+  let effects: Vec<_> = facts.calls.iter().filter(|call| call.callee == "watchEffect").collect();
+  assert_eq!(effects.len(), 5, "got {:?}", facts.calls);
+  let expected = [
+    (None, false, "sole callback is default options"),
+    (None, true, "nonliteral options are unknown"),
+    (None, true, "trailing spread resets known flush"),
+    (Some("sync"), false, "final explicit flush restores certainty"),
+    (None, true, "unknown computed key resets prior flush"),
+  ];
+  for (call, (flush, unresolved, label)) in effects.iter().zip(expected) {
+    assert_eq!(call.flush_option.as_deref(), flush, "{label}; got {:?}", facts.calls);
+    assert_eq!(call.flush_option_unresolved, unresolved, "{label}; got {:?}", facts.calls);
+  }
+  assert!(
+    facts
+      .calls
+      .iter()
+      .any(|call| { call.callee == "watch" && call.flush_option.as_deref() == Some("post") }),
+    "watch options are the third argument; got {:?}",
+    facts.calls
+  );
+}
+
+#[test]
+fn records_aliased_and_namespace_watch_flush() {
+  let facts = analyze(
+    "import { watchEffect as effect, watch as observe } from 'vue'\n\
+     import { watchEffect as nuxtEffect } from '#imports'\n\
+     import * as Vue from 'vue'\n\
+     const rest = {}\n\
+     const options = { flush: 'post' }\n\
+     effect(() => {}, { flush: 'sync' })\n\
+     effect(() => {}, options)\n\
+     effect(() => {}, { flush: 'sync', ...rest })\n\
+     nuxtEffect(() => {}, { flush: 'sync' })\n\
+     Vue.watchEffect(() => {}, { flush: 'post' })\n\
+     observe(source, () => {}, { flush: 'sync' })\n\
+     effect(() => {}, ...spread)\n",
+    "ts",
+  );
+  let effects: Vec<_> = facts.calls.iter().filter(|call| call.callee == "effect").collect();
+  assert_eq!(effects.len(), 4, "got {:?}", facts.calls);
+  let expected = [
+    (Some("sync"), false, "aliased watchEffect records explicit sync"),
+    (None, true, "opaque options stay unresolved"),
+    (None, true, "trailing object spread resets known flush"),
+    (None, true, "spread argument at the options index is unresolved"),
+  ];
+  for (call, (flush, unresolved, label)) in effects.iter().zip(expected) {
+    assert_eq!(call.flush_option.as_deref(), flush, "{label}; got {:?}", facts.calls);
+    assert_eq!(call.flush_option_unresolved, unresolved, "{label}; got {:?}", facts.calls);
+  }
+  assert!(
+    facts
+      .calls
+      .iter()
+      .any(|call| { call.callee == "nuxtEffect" && call.flush_option.as_deref() == Some("sync") }),
+    "#imports alias must use resolved watchEffect identity; got {:?}",
+    facts.calls
+  );
+  assert!(
+    facts.calls.iter().any(|call| {
+      call.callee == "Vue.watchEffect" && call.flush_option.as_deref() == Some("post")
+    }),
+    "namespace Vue.watchEffect must keep supported flush forms; got {:?}",
+    facts.calls
+  );
+  assert!(
+    facts
+      .calls
+      .iter()
+      .any(|call| { call.callee == "observe" && call.flush_option.as_deref() == Some("sync") }),
+    "aliased watch options are the third argument; got {:?}",
+    facts.calls
   );
 }

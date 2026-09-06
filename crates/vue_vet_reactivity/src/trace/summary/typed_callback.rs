@@ -129,6 +129,7 @@ pub fn seed_typed_callback_params_at_calls(
           kind: *kind,
           initialized_with_null: false,
           alias_of: None,
+          alias_of_span: None,
           span,
         });
       }

@@ -202,6 +202,8 @@ fn oracle_cases_cover_known_hard_facts() {
     "to-value-getter",
     "use-route-like",
     "watch-effect-await",
+    "lvalue-index-write",
+    "lvalue-object",
     "watch-effect-ref",
     "watch-source-array",
     "watch-source-array-getters",

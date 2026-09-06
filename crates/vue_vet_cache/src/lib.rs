@@ -23,11 +23,26 @@ pub const CACHE_FORMAT_VERSION: u32 = 5;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// Bump when built-in rule set or seed-aware analysis behavior changes.
 ///
+/// v14 contract: practice-channel policy (Info, excluded from score / default
+/// CI exit) for static computed wrappers, route-field snapshots, single-source
+/// `watchEffect` preferences, and getter-evidence `prefer-to-value`. Native
+/// HTML/SVG/MathML tags stay native despite same-name imports; object-form
+/// keys respect computed overwrite / TS wrappers and do not unprove numeric
+/// `key`. Transition uses Vize/JSX component facts. Prefer-computed matches
+/// owned Ref/shallowRef writes by `binding_span` / `alias_of_span`, `v-on`
+/// identifiers, object/return/export escapes, and private targets; effect
+/// writers use scope identity; unknown computed members mark incomplete;
+/// lvalue object reads stay reads. v-model nonreactive needs positive plain
+/// initializer evidence and no script reassignment. Type-vs-runtime import
+/// resolution keeps reactive result bindings from runtime exports when a
+/// specifier also has type-only declarations (see `CONVENTIONS_VERSION`).
+/// v7: operand rules match Oxc declaration identity; template `:style` reads
+/// survive CSS `v-bind` refresh; unknown watch member sources mark incomplete.
 /// v6: watch*Effect self-assign is not a loop (Vue 3.5 coalesces one run);
 /// prefer-watch suppresses self-write sources; computed self-write is impure.
 /// v5: conditional-dep premise withdrawn; after-await registrars deprecated
 /// except defineExpose; absence rules require complete follow coverage.
-pub const RULESET_VERSION: u32 = 6;
+pub const RULESET_VERSION: u32 = 14;
 
 /// Workspace pin for `vize_croquis` / `vize_atelier_core`.
 ///

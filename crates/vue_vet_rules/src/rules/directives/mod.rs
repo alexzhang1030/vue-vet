@@ -730,6 +730,11 @@ impl Rule for RequireToggleInsideTransition {
       if has_toggle {
         continue;
       }
+      // Vue forwards transition hooks into a component subtree; keyed native
+      // children swap identity. Unresolved component roots stay quiet.
+      if child.has_key() || child.is_component {
+        continue;
+      }
       findings.push(element.span);
     }
     for span in findings {

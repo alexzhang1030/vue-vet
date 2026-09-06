@@ -1,10 +1,17 @@
 # `vue-vet/reactivity/no-route-destructure`
 
-Category: reactivity  
-Default severity: warning  
+Category: **practice** (excluded from score and default CI exit)
+
+Default severity: info
+
 Confidence: high
 
-Destructuring `useRoute()` loses reactivity
+The stable rule id remains `vue-vet/reactivity/no-route-destructure`.
+
+Destructuring `useRoute()` snapshots route fields. That is a live-reactivity
+loss if the values are consumed across navigations, and a valid initialization
+snapshot when the fields are read once. The finding stays in the practice
+channel, which is excluded from scoring.
 
 ## Bad
 

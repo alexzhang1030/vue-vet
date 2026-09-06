@@ -5,12 +5,12 @@
     "severity": "info",
     "confidence": "high",
     "documentation": "rules/practice/prefer-to-value",
-    "message": "`unref` can be replaced with Vue 3.3+ `toValue`, which also accepts getters.",
-    "help": "Prefer `toValue(...)` for values that may be a ref, a plain value, or a getter.",
+    "message": "`unref` leaves a function payload intact; Vue 3.3+ `toValue` invokes getters.",
+    "help": "`toValue` invokes a function payload; `unref` returns the function. Use `toValue` only when getter-or-ref normalization is intended.",
     "file": "fixtures/rules/prefer-to-value/invalid/bare-unref.vue",
     "span": {
       "offset": 56,
-      "length": 12,
+      "length": 24,
       "line": 3,
       "column": 11
     },

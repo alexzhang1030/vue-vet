@@ -70,8 +70,43 @@ block complete. Bare `const alias = known` is recorded on the existing
 
 ## Current baseline
 
-Contract version: **`REACTIVITY_GRAPH_VERSION = 36`**. Rule-set identity
-hashed into the scan cache is **`RULESET_VERSION = 6`**.
+Contract version: **`REACTIVITY_GRAPH_VERSION = 40`**. Rule-set identity
+hashed into the scan cache is **`RULESET_VERSION = 14`**.
+
+v40 records Oxc-resolved `alias_of_span` on alias bindings, treats assignment-pattern
+default initializers and computed keys as reads, links prefer-computed mutable
+roles to `v-on` expression identifiers, and requires no script reassignment
+before a v-model source is a proven plain local. Assignment-pattern members
+are writes; nested lvalue receivers and computed keys contribute reads. Instance
+field writes identify their composable instance. Prefer-computed uses
+object/return/export escape facts and resolved write identity; v-model
+nonreactive requires positive plain-value evidence.
+
+Computed/effect tracking records unclassified **member provenance**
+(the same walk as watch sources), treats nested assignment-target objects/keys
+as reads while `ref.value = …` stays a set, and writes carry `binding_span`
+so same-name locals in different functions stay distinct.
+
+Static computed wrappers, route-field snapshots, and single-source effect
+preferences retain their existing IDs with practice category and Info severity.
+`prefer-to-value` uses getter-argument evidence (function payloads), not every
+successful numeric/`Ref` `unref`.
+They remain configurable and are excluded from score and default CI exit.
+Computed impurity findings use canonical write identities; finalization combines
+the self-trigger/side-effect pair at the same write span after configuration and
+suppression, retaining the stronger severity and the specific finding on ties.
+Runtime premises have rerunnable evidence in `just oracle-self-trigger`.
+Prior:
+v37 records unclassified **static / computed member watch sources**
+(`watch(sources['active'])`, `watch(() => bag.current)`, and the same access through a
+same-file zero-arg helper via `follow_local_callees`) as `uncertain_accesses`
+so absence rules and Explain abstain. Deferred `then` / `nextTick` helpers stay
+unfollowed. Ref-like bindings' non-`.value` members stay proven-empty; reactive
+objects still track ordinary property reads. Operand
+rules match Oxc declaration spans (`ScriptOperandFact.binding_span`); unresolved
+auto-imported seeds match by name only when the module has no local symbol of
+that name. Template `:style` stays `surface: "style"`; CSS `v-bind` is
+`style-v-bind`. Prior:
 
 v36 records **`ReactiveBindingFact.alias_of`** for bare `const alias = known`
 so rules can treat an alias write as the same reactive source
@@ -167,7 +202,7 @@ See [vue_vet_plugins README](../../crates/vue_vet_plugins/README.md) and
 | A4 Conditions | complete | if / early-exit / ternary / short-circuit / switch roles; **all-path same `(binding, property)` on both ternary/if-else arms → no BranchTest** (under-approx hygiene: do not invent Conditional); **followed helper reads inherit caller guards** (`cond ? load() : 0`); pure checks in `trace/branch_hygiene.rs` | further control-flow depth is out of charter |
 | A5 Boundaries | complete | after-await; pause/enable/resetTracking windows; **pause inside followed helpers + leak past the call**; nested `then`/`nextTick` outside; watch callback outside | — |
 | A6 Modules | complete | composable bags + Factory + ValueBag + ComponentFactory + ExternalImport + `#nuxt-imports` seeds; **policy algebra** (below); **`return local = call()` → ForwardReturn**; bare auto-import callee resolve; pending empty-path composable fields | whole-object `v-bind` quiet; `#imports` virtual without body quiet |
-| A7 Contract | complete | **v36** `ReactiveBindingFact.alias_of` for `const alias = known`; v35 `unknown_calls` / `follow_truncated` + Explain `analysis_complete` (also false on `uncertain_accesses`); v34 HOF / `toValue` getter writes; v33 composable-instance writes; v32 render identifier getters; v31 watch-source peel; v30 pause-in-helper; v29 compound/update writes; v28 caller guards on followed reads; v27 identifier getters; v26 helper-follow writes / `assignment_only`; v25 helper-follow `uncertain_accesses`; v24 useI18n translator ambient; v23 local zero-arg helper follow; v22…v7 as before; deterministic sort | — |
+| A7 Contract | complete | **v37** unclassified watch-source members as `uncertain_accesses`; v36 `ReactiveBindingFact.alias_of` for `const alias = known`; v35 `unknown_calls` / `follow_truncated` + Explain `analysis_complete` (also false on `uncertain_accesses`); v34 HOF / `toValue` getter writes; v33 composable-instance writes; v32 render identifier getters; v31 watch-source peel; v30 pause-in-helper; v29 compound/update writes; v28 caller guards on followed reads; v27 identifier getters; v26 helper-follow writes / `assignment_only`; v25 helper-follow `uncertain_accesses`; v24 useI18n translator ambient; v23 local zero-arg helper follow; v22…v7 as before; deterministic sort | — |
 | Evidence | complete | Runtime oracle (≥99% recall on committed cases); deep-watch `*`; exhaustive local reads; key SFC E2E | — (prop flow is static unit/project; not an `onTrack` pair) |
 
 ### ExportState policy algebra (A6 linking)
@@ -259,12 +294,12 @@ None for axis completeness.
 (#168), pure A4 `branch_hygiene` (#169), and multi-consumer
 `uncertain_accesses` on digests (#170). Oracle green.
 
-**2026-08-10 evidence refinement (v23):** Elk `StatusReactedBy` —
+**2026-08-10 evidence refinement (v23):** A reference application's computed getter —
 `computed(() => load())` with reads only in same-file `load` — proved A2/A3
 missed ambient callee tracking. Bounded same-file zero-arg helper follow
 (depth 2, no async/generator/args/import/method).
 
-**2026-08-10 evidence refinement (v24):** Elk `PublishWidget` —
+**2026-08-10 evidence refinement (v24):** A reference application's translated label —
 `const { t } = useI18n(); computed(() => t(…))` is **not** a hard TP. vue-i18n
 `wrapWithDeps` tracks locale/messages. Modeled as table-driven `NamedApiBag`
 ambient-on-call methods (not case-by-case `has_translator` flags): contract row
@@ -356,7 +391,7 @@ classification via `sync_tracking_owns_node`. `then` / `nextTick` /
 stay quiet (same as reads). Graph-vs-graph is the gate — `onTrack` does
 not see writes.
 
-**Do not** auto-continue pure extracts, Elk/corpus KPI chasing, or a11y as
+**Do not** auto-continue pure extracts, reference-corpus KPI chasing, or a11y as
 tracer A0–A7. Next tracer work needs **evidence** first:
 
 1. **Contract refinement** — invent Conditional / blocked seed / dual-path
@@ -537,8 +572,8 @@ growing prose ledger.
 | 2026-08-10 | Pending empty-path field | `const { a } = useX(); return { b: a }` → link-time Composable field on `useX` |
 | 2026-08-10 | All-paths branch reads | Same `(binding, property)` on both ternary/if-else arms → drop BranchTest |
 | 2026-08-10 | Export lattice + versions | Lattice written as A6 contract; graph **v22** / conventions **v14** |
-| 2026-08-10 | Same-file zero-arg helper follow | `collect_scope_reads` follows bare `f()` to local `function`/`const f = () =>` (depth≤2, skip async/generator); graph **v23**; Elk StatusReactedBy-class FP |
-| 2026-08-10 | Named API bag ambient-on-call | Engine consumes plugin-supplied `NamedApiBag` rows (ambient-on-call methods); graph **v24**; Elk PublishWidget without-dep FP |
+| 2026-08-10 | Same-file zero-arg helper follow | `collect_scope_reads` follows bare `f()` to local `function`/`const f = () =>` (depth≤2, skip async/generator); graph **v23**; helper-backed computed false positive |
+| 2026-08-10 | Named API bag ambient-on-call | Engine consumes plugin-supplied `NamedApiBag` rows (ambient-on-call methods); graph **v24**; translator-only computed false positive |
 | 2026-08-21 | Helper-follow uncertain | `uncertain_accesses` follows the same zero-arg helpers as hard reads; `then()`-only stays quiet; graph **v25**; dual-path with inline `(maybe)` |
 | 2026-08-21 | Helper-follow writes | `writes` + `assignment_only` follow the same zero-arg helpers; `then()`-only stays quiet; graph **v26**; dual-path with inlined assignment / `prefer-computed` |
 | 2026-08-25 | Identifier getters | `computed(load)` / `watchEffect(load)` / `watch(load)` / `{ get: load }` use the local function as the tracking body; import/method/async quiet; graph **v27**; dual-path with `computed(() => load())` |

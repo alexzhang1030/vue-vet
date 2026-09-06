@@ -6,7 +6,10 @@
 
 use vue_vet_core::{Rule, RuleRegistry};
 
+mod overlap;
 mod rules;
+
+pub use overlap::consolidate_overlapping_computed_impurity;
 
 /// Built-in lint / gate rules (excludes practice suggestions).
 #[must_use]

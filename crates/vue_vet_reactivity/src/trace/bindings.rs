@@ -47,6 +47,7 @@ pub(super) fn collect_typed_reactive_bindings(
           kind,
           initialized_with_null: false,
           alias_of: None,
+          alias_of_span: None,
           span: source_span(sfc_source, script_offset, identifier.span),
         });
       }
@@ -78,6 +79,7 @@ pub(super) fn collect_typed_reactive_bindings(
           kind,
           initialized_with_null: false,
           alias_of: None,
+          alias_of_span: None,
           span: source_span(sfc_source, script_offset, identifier.span),
         });
       }
@@ -204,6 +206,7 @@ pub(super) fn seed_first_formal_as_reactive(
     kind: ReactiveBindingKind::Reactive,
     initialized_with_null: false,
     alias_of: None,
+    alias_of_span: None,
     span: source_span(sfc_source, script_offset, identifier.span),
   });
 }
@@ -246,6 +249,7 @@ pub(super) fn extend_with_reactive_aliases(
         kind: source.kind,
         initialized_with_null: source.initialized_with_null,
         alias_of: Some(source.alias_of.clone().unwrap_or_else(|| source.name.clone())),
+        alias_of_span: Some(source.alias_of_span.unwrap_or(source.span)),
         span: source_span(sfc_source, script_offset, identifier.span),
       });
     }
@@ -392,6 +396,7 @@ pub(super) fn collect_reactive_bindings(
         kind: binding_kind,
         initialized_with_null,
         alias_of: None,
+        alias_of_span: None,
         span: source_span(sfc_source, script_offset, span),
       });
     }
@@ -472,6 +477,7 @@ pub(super) fn seed_named_api_bag_destructure(
         kind,
         initialized_with_null: false,
         alias_of: None,
+        alias_of_span: None,
         span: source_span(sfc_source, script_offset, span),
       });
     }
@@ -505,6 +511,7 @@ pub(super) fn seed_named_api_bag_destructure(
         kind: ReactiveBindingKind::Reactive,
         initialized_with_null: false,
         alias_of: None,
+        alias_of_span: None,
         span: call_span,
       });
     }
@@ -594,6 +601,7 @@ pub(super) fn collect_conditional_init_bindings(
       kind,
       initialized_with_null: false,
       alias_of: None,
+      alias_of_span: None,
       span,
     });
   }
@@ -763,6 +771,7 @@ pub(super) fn collect_route_slice_bindings(
       kind: ReactiveBindingKind::Reactive,
       initialized_with_null: false,
       alias_of: None,
+      alias_of_span: None,
       span: source_span(sfc_source, script_offset, identifier.span),
     });
   }

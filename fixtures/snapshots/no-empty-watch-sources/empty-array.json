@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-empty-watch-sources",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-empty-watch-sources",
+    "message": "`watch` sources do not read any reactive dependency",
+    "help": "Pass a ref, a getter, or an array of sources that read reactive state.",
+    "file": "fixtures/rules/no-empty-watch-sources/invalid/empty-array.vue",
+    "span": {
+      "offset": 54,
+      "length": 19,
+      "line": 4,
+      "column": 1
+    }
+  }
+]

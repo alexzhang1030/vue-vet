@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+import { computed, ref } from 'vue'
+const count = ref(0)
+const doubled = computed(() => count.value * 2)
+const ok = doubled.value > 0
 </script>
-<template>{{ x }}</template>
+
+<template>
+  <p>{{ ok }}</p>
+</template>

@@ -4,10 +4,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use vue_vet_core::{
   Confidence, FactKinds, FactRef, ReactiveBindingKind, ReactiveDependencyKind, Rule, RuleContext,
-  RuleMeta, Severity,
+  RuleMeta, ScriptBlockFacts, Severity,
 };
 
-use vue_vet_rule_query::{effect_family, member_path, script_binding_at, used_reactive_names};
+use vue_vet_rule_query::{
+  canonical_write_identity, effect_family, member_path, script_binding_at, used_reactive_names,
+};
 
 const MULTI_EFFECT_META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-multiple-effects-same-target",
@@ -28,23 +30,29 @@ impl Rule for NoMultipleEffectsSameTarget {
 
   fn run_once(&self, context: &mut RuleContext<'_>) {
     for block in &context.script().blocks {
-      let mut writers: BTreeMap<(&str, Option<&str>), usize> = BTreeMap::new();
-      let mut counts: BTreeMap<(&str, Option<&str>), usize> = BTreeMap::new();
+      let bindings = &block.reactivity_graph.bindings;
+      let mut scopes_by_target: BTreeMap<(usize, &str, Option<&str>), BTreeSet<usize>> =
+        BTreeMap::new();
+      let mut first_write: BTreeMap<(usize, &str, Option<&str>), usize> = BTreeMap::new();
       for scope in &block.reactivity_graph.scopes {
         if !effect_family(scope.kind) {
           continue;
         }
+        let mut seen_in_scope = BTreeSet::new();
         for write in &scope.writes {
-          let key = (write.binding.as_str(), write.property.as_deref());
-          *counts.entry(key).or_insert(0) += 1;
-          writers.entry(key).or_insert(write.span.offset);
+          let key = canonical_write_identity(bindings, write);
+          if !seen_in_scope.insert(key) {
+            continue;
+          }
+          scopes_by_target.entry(key).or_default().insert(scope.span.offset);
+          first_write.entry(key).or_insert(write.span.offset);
         }
       }
-      for (key, count) in counts {
-        if count < 2 {
+      for (key, scopes) in scopes_by_target {
+        if scopes.len() < 2 {
           continue;
         }
-        let Some(&offset) = writers.get(&key) else {
+        let Some(&offset) = first_write.get(&key) else {
           continue;
         };
         let Some(write) = block
@@ -56,11 +64,11 @@ impl Rule for NoMultipleEffectsSameTarget {
         else {
           continue;
         };
-        let path = member_path(key.0, key.1);
+        let path = member_path(key.1, key.2);
         context.report(
           self.meta(),
           write.span,
-          format!("multiple effects write `{path}`, which races updates to the same target"),
+          format!("multiple effects write `{path}`"),
           Some("Keep a single writer effect, or merge the updates into one scope.".into()),
         );
       }
@@ -153,12 +161,7 @@ impl Rule for NoVModelNonreactiveSource {
     if reactive {
       return;
     }
-    let known_script = context
-      .script()
-      .blocks
-      .iter()
-      .any(|block| block.bindings.iter().any(|binding| binding.name == name));
-    if !known_script {
+    if !context.script().blocks.iter().any(|block| proven_nonreactive_local(block, name)) {
       return;
     }
     context.report(
@@ -350,6 +353,13 @@ macro_after_await!(
   "rules/correctness/no-define-options-after-await",
   "defineOptions"
 );
+
+fn proven_nonreactive_local(block: &ScriptBlockFacts, name: &str) -> bool {
+  block
+    .bindings
+    .iter()
+    .any(|binding| binding.name == name && binding.plain_initializer && binding.writes == 0)
+}
 
 fn is_simple_ident(name: &str) -> bool {
   let mut chars = name.chars();

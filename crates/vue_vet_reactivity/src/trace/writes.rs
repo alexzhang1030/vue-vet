@@ -6,8 +6,9 @@ use oxc_ast::ast::PropertyKind;
 use oxc_ast::{
   AstKind,
   ast::{
-    Argument, AssignmentTarget, Expression, FunctionBody, IdentifierReference, ObjectPropertyKind,
-    PropertyKey, SimpleAssignmentTarget, Statement,
+    Argument, AssignmentTarget, AssignmentTargetMaybeDefault, AssignmentTargetProperty, Expression,
+    FunctionBody, IdentifierReference, ObjectPropertyKind, PropertyKey, SimpleAssignmentTarget,
+    Statement,
   },
 };
 use oxc_semantic::NodeId;
@@ -279,40 +280,47 @@ pub(super) fn collect_scope_writes_local(
 ) -> Vec<ReactiveWriteFact> {
   let mut writes = Vec::new();
   for &node_id in nodes.writes(scope_id) {
-    let Some((lhs, write_span)) = write_target_from_node(semantic.nodes().kind(node_id)) else {
-      continue;
-    };
-
-    match lhs {
-      WriteLhs::Binding { object, property } => {
-        let Some(binding) = reactive_bindings.iter().find(|binding| {
-          binding.name == object.name.as_str()
-            && reference_resolves_to_binding(semantic, object, binding, script_offset)
-            && (!binding.kind.is_ref_like() || property.as_deref() == Some("value"))
-        }) else {
-          continue;
-        };
-        writes.push(ReactiveWriteFact {
-          binding: binding.name.clone(),
-          property,
-          span: source_span(sfc_source, script_offset, write_span),
-        });
-      }
-      WriteLhs::InstanceField { instance, field } => {
-        let Some(kind) = composable_instances
-          .get(instance.name.as_str())
-          .and_then(|shape| shape.get(field.as_str()))
-        else {
-          continue;
-        };
-        if !kind.is_ref_like() {
-          continue;
+    for (lhs, write_span) in write_targets_from_node(semantic.nodes().kind(node_id)) {
+      match lhs {
+        WriteLhs::Binding { object, property } => {
+          let Some(binding) = reactive_bindings.iter().find(|binding| {
+            binding.name == object.name.as_str()
+              && reference_resolves_to_binding(semantic, object, binding, script_offset)
+              && (!binding.kind.is_ref_like() || property.as_deref() == Some("value"))
+          }) else {
+            continue;
+          };
+          writes.push(ReactiveWriteFact {
+            binding: binding.name.clone(),
+            property,
+            span: source_span(sfc_source, script_offset, write_span),
+            binding_span: Some(binding.span),
+          });
         }
-        writes.push(ReactiveWriteFact {
-          binding: field,
-          property: Some("value".into()),
-          span: source_span(sfc_source, script_offset, write_span),
-        });
+        WriteLhs::InstanceField { instance, field } => {
+          let Some(kind) = composable_instances
+            .get(instance.name.as_str())
+            .and_then(|shape| shape.get(field.as_str()))
+          else {
+            continue;
+          };
+          if !kind.is_ref_like() {
+            continue;
+          }
+          let binding_span = reactive_bindings
+            .iter()
+            .find(|binding| {
+              binding.name == instance.name.as_str()
+                && reference_resolves_to_binding(semantic, instance, binding, script_offset)
+            })
+            .map(|binding| binding.span);
+          writes.push(ReactiveWriteFact {
+            binding: field,
+            property: Some("value".into()),
+            span: source_span(sfc_source, script_offset, write_span),
+            binding_span,
+          });
+        }
       }
     }
   }
@@ -320,14 +328,18 @@ pub(super) fn collect_scope_writes_local(
 }
 
 /// `=` / `+=` / `++` member writes. Logical `&&=` / `||=` / `??=` stay quiet
-/// (they may not write).
-fn write_target_from_node(kind: AstKind<'_>) -> Option<(WriteLhs<'_>, Span)> {
+/// (they may not write). Assignment patterns contribute each assigned member.
+fn write_targets_from_node(kind: AstKind<'_>) -> Vec<(WriteLhs<'_>, Span)> {
   match kind {
     AstKind::AssignmentExpression(assignment) if !assignment.operator.is_logical() => {
-      member_write_from_assignment_target(&assignment.left)
+      let mut writes = Vec::new();
+      collect_assignment_target_writes(&assignment.left, &mut writes);
+      writes
     }
-    AstKind::UpdateExpression(update) => member_write_from_simple_target(&update.argument),
-    _ => None,
+    AstKind::UpdateExpression(update) => {
+      member_write_from_simple_target(&update.argument).into_iter().collect()
+    }
+    _ => Vec::new(),
   }
 }
 
@@ -352,21 +364,103 @@ fn member_write_lhs<'a>(
   Some((WriteLhs::InstanceField { instance, field: inner.property.name.to_string() }, span))
 }
 
-fn member_write_from_assignment_target<'a>(
+fn collect_assignment_target_writes<'a>(
   target: &'a AssignmentTarget<'a>,
-) -> Option<(WriteLhs<'a>, Span)> {
+  writes: &mut Vec<(WriteLhs<'a>, Span)>,
+) {
   match target {
     AssignmentTarget::StaticMemberExpression(member) => {
-      member_write_lhs(&member.object, member.property.name.as_str(), member.span)
+      if let Some(write) =
+        member_write_lhs(&member.object, member.property.name.as_str(), member.span)
+      {
+        writes.push(write);
+      }
     }
-    AssignmentTarget::ComputedMemberExpression(member) => Some((
-      WriteLhs::Binding {
-        object: member.object.get_identifier_reference()?,
-        property: member.static_property_name().map(|name| name.to_string()),
-      },
-      member.span,
-    )),
-    _ => None,
+    AssignmentTarget::ComputedMemberExpression(member) => {
+      if let Some(object) = member.object.get_identifier_reference() {
+        writes.push((
+          WriteLhs::Binding {
+            object,
+            property: member.static_property_name().map(|name| name.to_string()),
+          },
+          member.span,
+        ));
+      }
+    }
+    AssignmentTarget::ArrayAssignmentTarget(array) => {
+      for element in array.elements.iter().flatten() {
+        collect_maybe_default_writes(element, writes);
+      }
+      if let Some(rest) = &array.rest {
+        collect_assignment_target_writes(&rest.target, writes);
+      }
+    }
+    AssignmentTarget::ObjectAssignmentTarget(object) => {
+      for property in &object.properties {
+        if let AssignmentTargetProperty::AssignmentTargetPropertyProperty(property) = property {
+          collect_maybe_default_writes(&property.binding, writes);
+        }
+      }
+      if let Some(rest) = &object.rest {
+        collect_assignment_target_writes(&rest.target, writes);
+      }
+    }
+    AssignmentTarget::TSAsExpression(inner) => {
+      collect_expression_member_write(&inner.expression, writes);
+    }
+    AssignmentTarget::TSSatisfiesExpression(inner) => {
+      collect_expression_member_write(&inner.expression, writes);
+    }
+    AssignmentTarget::TSNonNullExpression(inner) => {
+      collect_expression_member_write(&inner.expression, writes);
+    }
+    AssignmentTarget::TSTypeAssertion(inner) => {
+      collect_expression_member_write(&inner.expression, writes);
+    }
+    _ => {}
+  }
+}
+
+fn collect_maybe_default_writes<'a>(
+  target: &'a AssignmentTargetMaybeDefault<'a>,
+  writes: &mut Vec<(WriteLhs<'a>, Span)>,
+) {
+  match target {
+    AssignmentTargetMaybeDefault::AssignmentTargetWithDefault(with_default) => {
+      collect_assignment_target_writes(&with_default.binding, writes);
+    }
+    other => {
+      if let Some(assignment_target) = other.as_assignment_target() {
+        collect_assignment_target_writes(assignment_target, writes);
+      }
+    }
+  }
+}
+
+fn collect_expression_member_write<'a>(
+  expression: &'a Expression<'a>,
+  writes: &mut Vec<(WriteLhs<'a>, Span)>,
+) {
+  match expr::peel_parens(expression) {
+    Expression::StaticMemberExpression(member) => {
+      if let Some(write) =
+        member_write_lhs(&member.object, member.property.name.as_str(), member.span)
+      {
+        writes.push(write);
+      }
+    }
+    Expression::ComputedMemberExpression(member) => {
+      if let Some(object) = member.object.get_identifier_reference() {
+        writes.push((
+          WriteLhs::Binding {
+            object,
+            property: member.static_property_name().map(|name| name.to_string()),
+          },
+          member.span,
+        ));
+      }
+    }
+    _ => {}
   }
 }
 

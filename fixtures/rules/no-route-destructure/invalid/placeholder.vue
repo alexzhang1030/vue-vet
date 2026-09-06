@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+const { path } = useRoute()
 </script>
-<template>{{ x }}</template>
+<template>{{ path }}</template>

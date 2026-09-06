@@ -34,6 +34,11 @@ The workspace tracks the latest stable Rust release and latest stable edition, f
 
 Vize parses Vue SFC structure and is the source of truth for template nodes, directives, bindings, and Vue-specific semantics. Vue Vet adapts Vize output into its own stable facts rather than exposing Vize AST types. Vize is experimental and releases rapidly, so its version is pinned exactly and upgrades require fixtures, snapshots, and compatibility evidence.
 
+The Vize adapter uses `vize_carton::is_native_tag` for HTML/SVG/MathML tag
+classification, including collisions with lowercase script imports. Its direct
+dependency keeps the same exact version as the other Vize crates; the
+compatibility matrix checks that shared pin.
+
 ## Oxc owns JavaScript and TypeScript semantics
 
 Oxc will parse script blocks and provide scopes, symbols, references, imports, and expression facts. Vue Vet is not initially a complete TypeScript type checker; rules requiring unavailable type certainty must remain out of the default preset or explicitly experimental.

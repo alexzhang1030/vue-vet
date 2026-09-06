@@ -302,6 +302,46 @@ fn same_file_zero_arg_helper_follow_uncertain() {
       name: "isCoarse",
       want: Want::Quiet,
     },
+    Case {
+      label: "computed unknown member is maybe",
+      source: "import { computed } from 'vue';\n\
+               declare function createState(): { current: Set<string> };\n\
+               const state = createState();\n\
+               const active = computed(() => state.current.size === 1);",
+      kind: TrackingScopeKind::Computed,
+      name: "state",
+      want: Want::Maybe,
+    },
+    Case {
+      label: "computed helper unknown member is maybe",
+      source: "import { computed } from 'vue';\n\
+               declare function createState(): { current: Set<string> };\n\
+               const state = createState();\n\
+               function load() { return state.current.size === 1; }\n\
+               const active = computed(() => load());",
+      kind: TrackingScopeKind::Computed,
+      name: "state",
+      want: Want::Maybe,
+    },
+    Case {
+      label: "computed ident-getter unknown member is maybe",
+      source: "import { computed } from 'vue';\n\
+               declare function createState(): { current: Set<string> };\n\
+               const state = createState();\n\
+               function load() { return state.current.size === 1; }\n\
+               const active = computed(load);",
+      kind: TrackingScopeKind::Computed,
+      name: "state",
+      want: Want::Maybe,
+    },
+    Case {
+      label: "constant computed stays empty not maybe",
+      source: "import { computed } from 'vue';\n\
+               const label = computed(() => 42);",
+      kind: TrackingScopeKind::Computed,
+      name: "state",
+      want: Want::Quiet,
+    },
   ];
   for case in cases {
     let graph = graph(case.source);

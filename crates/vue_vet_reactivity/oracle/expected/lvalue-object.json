@@ -1,0 +1,14 @@
+{
+  "id": "lvalue-object",
+  "source": "import { ref, watchEffect } from 'vue'\nconst draft = ref({ params: { scheduledAt: '' } })\nconst time = ref('09:00')\nwatchEffect(() => {\n  draft.value.params.scheduledAt = time.value\n})\n",
+  "runtime_deps": [
+    {
+      "binding": "draft",
+      "key": "value"
+    },
+    {
+      "binding": "time",
+      "key": "value"
+    }
+  ]
+}

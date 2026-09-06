@@ -2,7 +2,7 @@
 import { ref, unref } from '#imports'
 
 const count = ref(0)
-const n = unref(count)
+const n = unref(() => count.value)
 void n
 </script>
 

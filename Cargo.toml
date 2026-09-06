@@ -59,6 +59,7 @@ tower-lsp = "0.20"
 # SSR / Vapor compile. Template AST stays on `vize_atelier_core`.
 vize_croquis = "=0.387.0"
 vize_atelier_core = "=0.387.0"
+vize_carton = "=0.387.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

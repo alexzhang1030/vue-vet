@@ -17,12 +17,12 @@
   },
   {
     "rule_id": "vue-vet/reactivity/prefer-watch-over-effect-for-single-source",
-    "category": "reactivity",
-    "severity": "warning",
+    "category": "practice",
+    "severity": "info",
     "confidence": "high",
     "documentation": "rules/reactivity/prefer-watch-over-effect-for-single-source",
     "message": "`watchEffect` only tracks `count.value`; prefer `watch` with an explicit source",
-    "help": "Use `watch(() => count.value, …)` for a single source.",
+    "help": "Use `watch(() => count.value, …, { immediate: true })` to preserve `watchEffect`'s first run (flush `'pre'`).",
     "file": "fixtures/rules/prefer-watch-over-effect-for-single-source/invalid/single-source.vue",
     "span": {
       "offset": 107,

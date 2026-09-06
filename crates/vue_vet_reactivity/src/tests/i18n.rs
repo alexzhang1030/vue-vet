@@ -25,11 +25,11 @@ fn seeds_use_i18n_locale_destructure() {
 
 #[test]
 fn use_i18n_translator_only_tracks_ambient_composer_deps() {
-  // PublishWidget-style: `const { t } = useI18n(); computed(() => t('…'))`.
+  // Translator calls inside computed getters track ambient composer dependencies.
   let graph = graph(
     "const { t } = useI18n();\n\
-     const expiresInOptions = computed(() => [t('time_ago_options.hour_future', 1)]);\n\
-     void expiresInOptions.value;",
+     const labels = computed(() => [t('item.count', 1)]);\n\
+     void labels.value;",
   );
   assert!(
     !graph.bindings.iter().any(|b| b.name == "t"),

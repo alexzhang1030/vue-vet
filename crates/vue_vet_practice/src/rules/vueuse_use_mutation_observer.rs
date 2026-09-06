@@ -82,13 +82,7 @@ mod tests {
   }
 
   fn call(callee: &str, offset: usize) -> ScriptCallFact {
-    ScriptCallFact {
-      callee: callee.into(),
-      assigned_to: None,
-      resolved_import: None,
-      argument_identifiers: Vec::new(),
-      span: span(offset),
-    }
+    ScriptCallFact { callee: callee.into(), span: span(offset), ..ScriptCallFact::default() }
   }
 
   fn run(calls: Vec<ScriptCallFact>) -> Vec<vue_vet_core::Diagnostic> {

@@ -4,19 +4,32 @@ use vue_vet_core::{TemplateExpressionFact, TemplateFacts};
 
 use crate::span::source_span;
 
-/// Replace `surface == "style"` expressions with a fresh under-approx scan of
-/// `<style>` `v-bind(ident)` / quoted ident. Returns whether the style set changed.
+/// CSS `v-bind(ident)` join surface. Distinct from template `:style` (`"style"`)
+/// so a style-block refresh cannot drop template style reads.
+const STYLE_V_BIND_SURFACE: &str = "style-v-bind";
+
+/// Replace CSS `v-bind(ident)` expressions with a fresh under-approx scan of
+/// `<style>` `v-bind(ident)` / quoted ident. Returns whether the CSS v-bind set
+/// changed. Template `:style` expressions keep `surface: "style"` and stay.
 pub fn refresh_style_v_bind_expressions(
   source: &str,
   descriptor: &SfcDescriptor<'_>,
   facts: &mut TemplateFacts,
 ) -> bool {
-  let before: Vec<TemplateExpressionFact> =
-    facts.expressions.iter().filter(|expression| expression.surface == "style").cloned().collect();
-  facts.expressions.retain(|expression| expression.surface != "style");
+  let before: Vec<TemplateExpressionFact> = facts
+    .expressions
+    .iter()
+    .filter(|expression| expression.surface == STYLE_V_BIND_SURFACE)
+    .cloned()
+    .collect();
+  facts.expressions.retain(|expression| expression.surface != STYLE_V_BIND_SURFACE);
   extract_style_v_bind_expressions(source, descriptor, facts);
-  let after: Vec<TemplateExpressionFact> =
-    facts.expressions.iter().filter(|expression| expression.surface == "style").cloned().collect();
+  let after: Vec<TemplateExpressionFact> = facts
+    .expressions
+    .iter()
+    .filter(|expression| expression.surface == STYLE_V_BIND_SURFACE)
+    .cloned()
+    .collect();
   before != after
 }
 
@@ -29,7 +42,7 @@ fn extract_style_v_bind_expressions(
     for found in scan_style_v_bind_idents(style.content.as_ref()) {
       let offset = style.loc.start.saturating_add(found.byte_offset);
       facts.expressions.push(TemplateExpressionFact {
-        surface: "style".into(),
+        surface: STYLE_V_BIND_SURFACE.into(),
         expression: found.ident.clone(),
         span: source_span(source, offset, found.ident.len()),
         identifiers: Some(vec![found.ident]),

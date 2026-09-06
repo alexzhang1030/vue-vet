@@ -55,6 +55,7 @@ mod tests {
       kind: ReactiveBindingKind::Ref,
       initialized_with_null: false,
       alias_of: None,
+      alias_of_span: None,
       span: SourceSpan { offset: 0, length: 5, line: 1, column: 1 },
     });
     assert_eq!(serde_digest(&empty), serde_digest(&ReactivityGraph::default()));

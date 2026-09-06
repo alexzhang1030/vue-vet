@@ -66,6 +66,7 @@ pub fn humanize_template_surface(surface: &str) -> String {
     "html" => "v-html".into(),
     "class" => ":class".into(),
     "style" => ":style".into(),
+    "style-v-bind" => "CSS v-bind".into(),
     "ref" => "ref=".into(),
     other => format!("template:{other}"),
   }
@@ -167,6 +168,8 @@ mod tests {
     assert_eq!(humanize_edge("template:if@11768 -> error"), "v-if  →  error");
     assert_eq!(humanize_edge("template:interpolation@12154 -> hint"), "{{ }}  →  hint");
     assert_eq!(humanize_edge("template:class@14082 -> backend"), ":class  →  backend");
+    assert_eq!(humanize_edge("template:style@10 -> imageStyle"), ":style  →  imageStyle");
+    assert_eq!(humanize_edge("template:style-v-bind@10 -> color"), "CSS v-bind  →  color");
     assert_eq!(humanize_edge("watch_sources:watch@11110 -> backend"), "watch()  →  backend");
   }
 

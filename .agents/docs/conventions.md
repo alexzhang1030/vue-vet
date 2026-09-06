@@ -19,8 +19,9 @@
   `category: "practice"`, and an optional `recommendation` payload; they must
   not affect score or default CI exit. Prefer high-precision fact links (shared
   timer bindings, lifecycle + missing cleanup for timers/listeners/rAF,
-  resolved Vue/`#imports` `unref`, and bare auto-import `unref` without a
-  local binding) over broad call presence. Shared block-access and control-flow
+  resolved Vue/`#imports` `unref` with getter-argument evidence, and bare
+  auto-import `unref` without a local binding) over broad call presence.
+  Routine `unref(ref)` / numeric MaybeRef unwrapping stays quiet. Shared block-access and control-flow
   queries live in `vue_vet_rule_query` (setup blocks, after-await calls, prior
   unconditional reads). Those helpers borrow: path formatters return `MemberPath`,
   walks yield `&T`. `RuleContext::script` (and `template` / `source` / `file`)

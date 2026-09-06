@@ -26,7 +26,8 @@ fn js_ts_side_effect_in_computed_is_diagnosed() {
     assert!(
       snapshot.summary.diagnostics.iter().any(|diagnostic| {
         diagnostic.file == FileId::from(relative.as_str())
-          && diagnostic.rule_id == "vue-vet/reactivity/no-side-effects-in-computed"
+          && (diagnostic.rule_id == "vue-vet/reactivity/no-side-effects-in-computed"
+            || diagnostic.rule_id == "vue-vet/reactivity/no-computed-self-trigger")
       }),
       "{extension} computed side-effect must run file rules; {:?}",
       snapshot.summary.diagnostics
@@ -98,6 +99,97 @@ fn seeded_readonly_mutation_is_diagnosed_on_plain_ts() {
 
 #[test]
 #[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn auto_imported_exported_ref_operand_is_diagnosed() {
+  let root =
+    std::env::temp_dir().join(format!("vue-vet-autoimport-operand-{}", std::process::id()));
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+  std::fs::write(
+    root.join("state.ts"),
+    "import { computed, ref } from 'vue'\n\
+export const currentUser = ref(false)\n\
+export const label = computed(() => 'x')\n",
+  )
+  .unwrap_or_else(|error| panic!("state: {error}"));
+  std::fs::write(
+    root.join("auto-imports.d.ts"),
+    "export {}\n\
+declare global {\n\
+  const currentUser: typeof import('./state')['currentUser']\n\
+  const label: typeof import('./state')['label']\n\
+}\n",
+  )
+  .unwrap_or_else(|error| panic!("auto-imports: {error}"));
+  std::fs::write(
+    root.join("Consumer.vue"),
+    "<script setup lang=\"ts\">\n\
+import { watchEffect } from 'vue'\n\
+watchEffect(() => console.log(currentUser.value, label.value))\n\
+const broken = !currentUser\n\
+const tagged = label && 'x'\n\
+</script>\n\
+<template><div>{{ broken }}{{ tagged }}</div></template>\n",
+  )
+  .unwrap_or_else(|error| panic!("consumer: {error}"));
+  std::fs::write(
+    root.join("Nested.vue"),
+    "<script setup lang=\"ts\">\n\
+function nested() {\n\
+  const currentUser = false\n\
+  const label = 'local'\n\
+  return !currentUser && label.length > 0\n\
+}\n\
+void nested\n\
+</script>\n\
+<template><div /></template>\n",
+  )
+  .unwrap_or_else(|error| panic!("nested: {error}"));
+  let session = open_session_threads(root.clone(), 1);
+  let snapshot = session.analyze().unwrap_or_else(|error| panic!("analyze: {error}"));
+  let operand: Vec<_> = snapshot
+    .summary
+    .diagnostics
+    .iter()
+    .filter(|diagnostic| {
+      diagnostic.file == FileId::from("Consumer.vue")
+        && matches!(
+          diagnostic.rule_id.as_str(),
+          "vue-vet/reactivity/no-ref-as-operand" | "vue-vet/reactivity/no-computed-as-operand"
+        )
+    })
+    .collect();
+  assert!(
+    operand.iter().any(|diagnostic| {
+      diagnostic.rule_id == "vue-vet/reactivity/no-ref-as-operand"
+        && diagnostic.message.contains("`currentUser`")
+    }),
+    "auto-imported exported ref operand must report; {operand:?} all={:?}",
+    snapshot.summary.diagnostics
+  );
+  assert!(
+    operand.iter().any(|diagnostic| {
+      diagnostic.rule_id == "vue-vet/reactivity/no-computed-as-operand"
+        && diagnostic.message.contains("`label`")
+    }),
+    "auto-imported exported computed operand must report; {operand:?}"
+  );
+  assert!(
+    snapshot.summary.diagnostics.iter().all(|diagnostic| {
+      diagnostic.file != FileId::from("Nested.vue")
+        || !matches!(
+          diagnostic.rule_id.as_str(),
+          "vue-vet/reactivity/no-ref-as-operand" | "vue-vet/reactivity/no-computed-as-operand"
+        )
+    }),
+    "nested same-name locals must not inherit auto-import seeds; {:?}",
+    snapshot.summary.diagnostics
+  );
+  assert_eq!(operand.len(), 2, "only the two auto-imported operands must report; {operand:?}");
+  let _ignored = std::fs::remove_dir_all(root);
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
 fn call_only_unref_picks_up_package_vue_version_refresh() {
   let root = std::env::temp_dir().join(format!("vue-vet-p4-unref-{}", std::process::id()));
   let _ignored = std::fs::remove_dir_all(&root);
@@ -109,7 +201,7 @@ fn call_only_unref_picks_up_package_vue_version_refresh() {
   .unwrap_or_else(|error| panic!("config: {error}"));
   std::fs::write(
     root.join("unwrap.ts"),
-    "import { unref } from 'vue'\nexport function unwrap(x){return unref(x)}\n",
+    "import { unref } from 'vue'\nexport function unwrap(x){return unref(() => x)}\n",
   )
   .unwrap_or_else(|error| panic!("unwrap: {error}"));
   let package = root.join("package.json");
@@ -163,7 +255,7 @@ fn package_json_add_replace_remove_matches_clean_scan() {
     .unwrap_or_else(|error| panic!("root package: {error}"));
   std::fs::write(
     demo.join("unwrap.ts"),
-    "import { unref } from 'vue'\nexport function unwrap(x){return unref(x)}\n",
+    "import { unref } from 'vue'\nexport function unwrap(x){return unref(() => x)}\n",
   )
   .unwrap_or_else(|error| panic!("unwrap: {error}"));
   let session = open_session_threads(root.clone(), 1);

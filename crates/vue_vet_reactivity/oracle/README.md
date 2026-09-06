@@ -47,6 +47,8 @@ completeness number — not a 280-case syntax matrix.
 | `toSorted-hof` | Array#toSorted comparator tracks nested reactive reads |
 | `to-value-getter` | `toValue(() => count.value)` tracks getter body |
 | `use-route-like` | reactive route object member (`route.path`) |
+| `lvalue-object` | nested `draft.value.params.x = time.value` gets draft.value |
+| `lvalue-index-write` | `target[key.value] = source.value` tracks key and source, not target |
 | `watch-effect-ref` | `watchEffect` tracks `ref.value` |
 | `watch-effect-await` | post-await read is **not** runtime-tracked (boundary) |
 | `watch-source-array` | `watch([a, b])` tracks each ref `.value` |
@@ -93,3 +95,17 @@ committed expected file, runs `trace_reactivity` on `source`, and asserts:
 This is a recall gate on committed cases — not a claim that every SFC in the
 universe is covered. Static-only joins (e.g. parent `:foo` → child props) stay
 in Rust unit/project tests.
+
+## Run counts and template host
+
+`just oracle-self-trigger` (`self-trigger-runs.mjs`) is separate from onTrack
+JSON. It asserts Vue 3.5.40 execution counts for self-write effects, one-shot
+versus repeating `requestAnimationFrame`, and template host behavior:
+
+- object-form slot `v-bind="{ key: item.id }"` produces VNode keys `first` /
+  `second`
+- `<Transition>` with `css: false` forwards `enter` / `leave` into a child
+  component whose root toggles
+
+Those cases use Vue's `createRenderer` custom host, so they do not need a DOM
+package.

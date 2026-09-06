@@ -3210,6 +3210,7 @@ dependencies = [
  "serde",
  "serde_json",
  "vue_vet_core",
+ "vue_vet_oxc",
  "vue_vet_plugins",
  "vue_vet_reactivity",
 ]
@@ -3286,6 +3287,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "vize_atelier_core",
+ "vize_carton",
  "vize_croquis",
  "vue_vet_core",
  "vue_vet_oxc",

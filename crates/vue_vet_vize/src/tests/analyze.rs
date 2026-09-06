@@ -70,8 +70,12 @@ fn style_v_bind_ident_joins_computed_binding() {
     "<style>.text { color: v-bind(color); background: v-bind('color'); }</style>\n",
   );
   let facts = facts_for_test(Path::new("StyleBind.vue"), source);
-  let style_exprs: Vec<_> =
-    facts.template.expressions.iter().filter(|expression| expression.surface == "style").collect();
+  let style_exprs: Vec<_> = facts
+    .template
+    .expressions
+    .iter()
+    .filter(|expression| expression.surface == "style-v-bind")
+    .collect();
   assert_eq!(style_exprs.len(), 2, "quoted and unquoted v-bind(color) must both extract");
   assert!(
     style_exprs.iter().all(|expression| {
@@ -85,7 +89,7 @@ fn style_v_bind_ident_joins_computed_binding() {
         .reactivity_graph
         .template_reads
         .iter()
-        .any(|read| read.binding == "color" && read.surface == "style")
+        .any(|read| read.binding == "color" && read.surface == "style-v-bind")
     }),
     "CSS v-bind(color) must join the computed; blocks={:?}",
     facts.script.blocks
@@ -158,7 +162,7 @@ fn style_v_bind_skips_complex_expressions() {
   );
   let facts = facts_for_test(Path::new("StyleComplex.vue"), source);
   assert!(
-    facts.template.expressions.iter().all(|expression| expression.surface != "style"),
+    facts.template.expressions.iter().all(|expression| expression.surface != "style-v-bind"),
     "complex CSS v-bind must stay quiet; got {:?}",
     facts.template.expressions
   );
@@ -188,19 +192,189 @@ fn style_only_v_bind_edit_refreshes_template_reads() {
   let second_graph = second.facts.script.blocks.first().map(|block| &block.reactivity_graph);
   assert!(
     first_graph.is_some_and(|graph| {
-      graph.template_reads.iter().any(|read| read.binding == "color" && read.surface == "style")
+      graph
+        .template_reads
+        .iter()
+        .any(|read| read.binding == "color" && read.surface == "style-v-bind")
     }),
     "first analysis must join color"
   );
   assert!(
     second_graph.is_some_and(|graph| {
-      graph.template_reads.iter().any(|read| read.binding == "size" && read.surface == "style")
+      graph
+        .template_reads
+        .iter()
+        .any(|read| read.binding == "size" && read.surface == "style-v-bind")
         && graph
           .template_reads
           .iter()
-          .all(|read| read.binding != "color" || read.surface != "style")
+          .all(|read| read.binding != "color" || read.surface != "style-v-bind")
     }),
     "style-only v-bind swap must re-join size and drop color; second={second_graph:?}"
+  );
+}
+
+#[test]
+fn template_style_object_with_other_surfaces_joins() {
+  let source = concat!(
+    "<script setup lang=\"ts\">\n",
+    "import { computed, ref } from 'vue'\n",
+    "const width = ref(10)\n",
+    "const shown = ref(true)\n",
+    "const aspectRatio = computed(() => width.value / 2)\n",
+    "const objectPosition = computed(() => '50% 50%')\n",
+    "</script>\n",
+    "<template>\n",
+    "  <div v-if=\"shown\" :style=\"{ aspectRatio, objectPosition }\" />\n",
+    "</template>\n",
+  );
+  let facts = facts_for_test(Path::new("StyleObject.vue"), source);
+  assert!(
+    facts.template.expressions.iter().any(|expression| {
+      expression.surface == "style"
+        && expression.identifiers.as_ref().is_some_and(|idents| {
+          idents.iter().any(|ident| ident == "aspectRatio")
+            && idents.iter().any(|ident| ident == "objectPosition")
+        })
+    }),
+    "template :style object shorthand must keep style expressions; got {:?}",
+    facts.template.expressions
+  );
+  let Some(graph) = facts.script.blocks.first().map(|block| &block.reactivity_graph) else {
+    assert!(!facts.script.blocks.is_empty(), "script setup block must be analyzed");
+    return;
+  };
+  assert!(
+    graph
+      .template_reads
+      .iter()
+      .any(|read| read.binding == "aspectRatio" && read.surface == "style"),
+    "aspectRatio shorthand must join; reads={:?}",
+    graph.template_reads
+  );
+  assert!(
+    graph
+      .template_reads
+      .iter()
+      .any(|read| read.binding == "objectPosition" && read.surface == "style"),
+    "objectPosition shorthand must join; reads={:?}",
+    graph.template_reads
+  );
+  let diagnostics = analyze_for_test(Path::new("StyleObject.vue"), source);
+  assert!(
+    diagnostics.iter().all(|diagnostic| {
+      diagnostic.rule_id != "vue-vet/reactivity/no-unused-computed-binding"
+        && diagnostic.rule_id != "vue-vet/reactivity/no-unused-reactive-binding"
+    }),
+    "template :style uses must not be unused; {diagnostics:?}"
+  );
+}
+
+#[test]
+fn template_style_binding_with_other_surfaces_joins() {
+  let source = concat!(
+    "<script setup lang=\"ts\">\n",
+    "import { computed, ref } from 'vue'\n",
+    "const width = ref(10)\n",
+    "const shown = ref(true)\n",
+    "const imageStyle = computed(() => ({ width: `${width.value}px` }))\n",
+    "</script>\n",
+    "<template>\n",
+    "  <div v-if=\"shown\" :style=\"imageStyle\" />\n",
+    "</template>\n",
+  );
+  let facts = facts_for_test(Path::new("StyleBinding.vue"), source);
+  let Some(graph) = facts.script.blocks.first().map(|block| &block.reactivity_graph) else {
+    assert!(!facts.script.blocks.is_empty(), "script setup block must be analyzed");
+    return;
+  };
+  assert!(
+    graph.template_reads.iter().any(|read| read.binding == "imageStyle" && read.surface == "style"),
+    "direct :style binding must join; reads={:?}",
+    graph.template_reads
+  );
+  let diagnostics = analyze_for_test(Path::new("StyleBinding.vue"), source);
+  assert!(
+    diagnostics.iter().all(|diagnostic| {
+      diagnostic.rule_id != "vue-vet/reactivity/no-unused-computed-binding"
+        && diagnostic.rule_id != "vue-vet/reactivity/no-unused-reactive-binding"
+    }),
+    "direct :style binding must not be unused; {diagnostics:?}"
+  );
+}
+
+#[test]
+fn template_style_reads_survive_css_v_bind_refresh() {
+  let path = Path::new("StyleBoth.vue");
+  let source = concat!(
+    "<script setup lang=\"ts\">\n",
+    "import { computed, ref } from 'vue'\n",
+    "const shown = ref(true)\n",
+    "const color = computed(() => 'red')\n",
+    "const imageStyle = computed(() => ({ color: 'blue' }))\n",
+    "</script>\n",
+    "<template>\n",
+    "  <div v-if=\"shown\" :style=\"imageStyle\">{{ shown }}</div>\n",
+    "</template>\n",
+    "<style>.text { color: v-bind(color); }</style>\n",
+  );
+  let first = analysis_for_test(path, source);
+  let color_only = concat!(
+    "<script setup lang=\"ts\">\n",
+    "import { computed, ref } from 'vue'\n",
+    "const shown = ref(true)\n",
+    "const color = computed(() => 'red')\n",
+    "const imageStyle = computed(() => ({ color: 'blue' }))\n",
+    "</script>\n",
+    "<template>\n",
+    "  <div v-if=\"shown\" :style=\"imageStyle\">{{ shown }}</div>\n",
+    "</template>\n",
+    "<style>.text { color: v-bind(color); background: blue; }</style>\n",
+  );
+  let second = analysis_reusing_for_test(path, color_only, &first);
+  for (label, analysis) in [("first", &first), ("second", &second)] {
+    let graph = analysis.facts.script.blocks.first().map(|block| &block.reactivity_graph);
+    assert!(
+      graph.is_some_and(|graph| {
+        graph
+          .template_reads
+          .iter()
+          .any(|read| read.binding == "imageStyle" && read.surface == "style")
+          && graph
+            .template_reads
+            .iter()
+            .any(|read| read.binding == "color" && read.surface == "style-v-bind")
+      }),
+      "{label} must keep template :style and CSS v-bind; graph={graph:?}"
+    );
+  }
+}
+
+#[test]
+fn shadowed_watch_callback_operand_is_not_the_outer_ref() {
+  let source = concat!(
+    "<script setup lang=\"ts\">\n",
+    "import { ref, watch } from 'vue'\n",
+    "const enabled = ref(false)\n",
+    "watch(enabled, (enabled) => { if (!enabled) return })\n",
+    "const count = ref(0)\n",
+    "const ok = count > 0\n",
+    "</script>\n",
+    "<template><p>{{ enabled }} {{ ok }}</p></template>\n",
+  );
+  let diagnostics = analyze_for_test(Path::new("Shadowed.vue"), source);
+  let operand: Vec<_> = diagnostics
+    .iter()
+    .filter(|diagnostic| diagnostic.rule_id == "vue-vet/reactivity/no-ref-as-operand")
+    .collect();
+  assert_eq!(
+    operand.len(),
+    1,
+    "callback shadow must stay quiet; outer `count > 0` must still report; {diagnostics:?}"
+  );
+  assert!(
+    operand.first().is_some_and(|diagnostic| diagnostic.message.contains("`count`")),
+    "true-positive operand must be the outer count; {operand:?}"
   );
 }
 
@@ -852,5 +1026,182 @@ fn prop_flow_fixture_joins_parent_binding_onto_child_props() {
       })
     }),
     "MultiHop.vue optional chain must join root binding onto Child props"
+  );
+}
+
+#[test]
+fn object_form_v_bind_key_is_proven() {
+  let source = include_str!("../../../../fixtures/rules/require-v-for-key/valid/object-bind.vue");
+  let facts = facts_for_test(Path::new("KeyedSlot.vue"), source);
+  assert!(
+    facts.template.elements.iter().any(|element| element.tag == "slot" && element.has_key()),
+    "object-form v-bind key must set has_key; elements={:?}",
+    facts.template.elements
+  );
+  let diagnostics = analyze_for_test(Path::new("KeyedSlot.vue"), source);
+  assert!(
+    diagnostics
+      .iter()
+      .all(|diagnostic| diagnostic.rule_id != "vue-vet/correctness/require-v-for-key"),
+    "keyed object bind must stay quiet: {diagnostics:?}"
+  );
+}
+
+#[test]
+fn object_form_v_bind_spread_after_key_stays_conservative() {
+  let source =
+    include_str!("../../../../fixtures/rules/require-v-for-key/invalid/spread-after-key.vue");
+  let facts = facts_for_test(Path::new("SpreadKey.vue"), source);
+  assert!(
+    facts.template.elements.iter().any(|element| element.tag == "li" && !element.has_key()),
+    "spread after key must not prove has_key; elements={:?}",
+    facts.template.elements
+  );
+}
+
+#[test]
+fn object_form_computed_and_wrapped_keys() {
+  let after =
+    include_str!("../../../../fixtures/rules/require-v-for-key/invalid/computed-after-key.vue");
+  let before =
+    include_str!("../../../../fixtures/rules/require-v-for-key/valid/computed-before-key.vue");
+  let wrapped = include_str!("../../../../fixtures/rules/require-v-for-key/valid/wrapped-keys.vue");
+  let after_facts = facts_for_test(Path::new("ComputedAfter.vue"), after);
+  assert!(
+    after_facts.template.elements.iter().any(|element| element.tag == "div" && !element.has_key()),
+    "computed key after proven key must unprove: {:?}",
+    after_facts.template.elements
+  );
+  let after_diagnostics = analyze_for_test(Path::new("ComputedAfter.vue"), after);
+  assert!(
+    after_diagnostics.iter().any(|diagnostic| {
+      diagnostic.rule_id == "vue-vet/correctness/require-v-for-key" && diagnostic.span.line == 6
+    }),
+    "computed-after-key must report line 6: {after_diagnostics:?}"
+  );
+  let before_facts = facts_for_test(Path::new("ComputedBefore.vue"), before);
+  assert!(
+    before_facts.template.elements.iter().any(|element| element.tag == "div" && element.has_key()),
+    "trailing proven key must remain: {:?}",
+    before_facts.template.elements
+  );
+  let wrapped_facts = facts_for_test(Path::new("WrappedKeys.vue"), wrapped);
+  assert!(
+    wrapped_facts
+      .template
+      .elements
+      .iter()
+      .filter(|element| element.tag == "slot" || element.tag == "div")
+      .all(vue_vet_core::TemplateElementFact::has_key),
+    "as/satisfies wrappers must prove key: {:?}",
+    wrapped_facts.template.elements
+  );
+  let numeric =
+    include_str!("../../../../fixtures/rules/require-v-for-key/valid/numeric-sibling-keys.vue");
+  let numeric_facts = facts_for_test(Path::new("NumericKeys.vue"), numeric);
+  assert!(
+    numeric_facts
+      .template
+      .elements
+      .iter()
+      .filter(|element| element.tag == "div")
+      .all(vue_vet_core::TemplateElementFact::has_key),
+    "numeric sibling keys must keep proven key: {:?}",
+    numeric_facts.template.elements
+  );
+  let numeric_diagnostics = analyze_for_test(Path::new("NumericKeys.vue"), numeric);
+  assert!(
+    numeric_diagnostics
+      .iter()
+      .all(|diagnostic| diagnostic.rule_id != "vue-vet/correctness/require-v-for-key"),
+    "numeric sibling keys must stay quiet: {numeric_diagnostics:?}"
+  );
+}
+
+#[test]
+fn unicode_and_crlf_object_bind_key_spans_stay_byte_accurate() {
+  let source = "<template>\r\n  <li v-for=\"item in items\" v-bind=\"{ key: item.id }\">café</li>\r\n</template>\n";
+  let facts = facts_for_test(Path::new("UnicodeKey.vue"), source);
+  let element = facts.template.elements.iter().find(|element| element.tag == "li");
+  assert!(element.is_some_and(vue_vet_core::TemplateElementFact::has_key), "CRLF object key");
+  let start = element.map_or(0, |element| element.span.offset);
+  assert!(source.is_char_boundary(start), "span offset must be a UTF-8 boundary");
+}
+
+#[test]
+fn transition_component_and_keyed_children_stay_quiet() {
+  let component = include_str!(
+    "../../../../fixtures/rules/require-toggle-inside-transition/valid/component-child.vue"
+  );
+  let keyed = include_str!(
+    "../../../../fixtures/rules/require-toggle-inside-transition/valid/keyed-child.vue"
+  );
+  let static_child =
+    include_str!("../../../../fixtures/rules/require-toggle-inside-transition/invalid/basic.vue");
+  let lowercase = include_str!(
+    "../../../../fixtures/rules/require-toggle-inside-transition/valid/lowercase-widget.vue"
+  );
+  for (path, source) in [
+    ("ComponentChild.vue", component),
+    ("KeyedChild.vue", keyed),
+    ("LowercaseWidget.vue", lowercase),
+  ] {
+    let diagnostics = analyze_for_test(Path::new(path), source);
+    assert!(
+      diagnostics.iter().all(
+        |diagnostic| diagnostic.rule_id != "vue-vet/correctness/require-toggle-inside-transition"
+      ),
+      "{path} must stay quiet: {diagnostics:?}"
+    );
+  }
+  let diagnostics = analyze_for_test(Path::new("StaticChild.vue"), static_child);
+  assert!(
+    diagnostics.iter().any(|diagnostic| {
+      diagnostic.rule_id == "vue-vet/correctness/require-toggle-inside-transition"
+    }),
+    "static native transition child must still report: {diagnostics:?}"
+  );
+  let native_import = include_str!(
+    "../../../../fixtures/rules/require-toggle-inside-transition/invalid/native-input-import.vue"
+  );
+  let diagnostics = analyze_for_test(Path::new("NativeInputImport.vue"), native_import);
+  assert!(
+    diagnostics.iter().any(|diagnostic| {
+      diagnostic.rule_id == "vue-vet/correctness/require-toggle-inside-transition"
+        && diagnostic.span.line == 5
+    }),
+    "imported native HTML tags stay native: {diagnostics:?}"
+  );
+}
+
+#[test]
+fn prefer_computed_requires_ordinary_ref_target() {
+  let reactive =
+    include_str!("../../../../fixtures/rules/prefer-computed/valid/reactive-value-property.vue");
+  let model =
+    include_str!("../../../../fixtures/rules/prefer-computed/valid/managed-model-target.vue");
+  let private =
+    include_str!("../../../../fixtures/rules/prefer-computed/invalid/helper-private.vue");
+  for (path, source) in [("ReactiveValueProperty.vue", reactive), ("ManagedModelTarget.vue", model)]
+  {
+    let diagnostics = analyze_for_test(Path::new(path), source);
+    assert!(
+      diagnostics
+        .iter()
+        .all(|diagnostic| diagnostic.rule_id != "vue-vet/reactivity/prefer-computed"),
+      "{path} must not convert a non-ref `.value` write: {diagnostics:?}"
+    );
+  }
+  let diagnostics = analyze_for_test(Path::new("PrivateDerived.vue"), private);
+  assert!(
+    diagnostics.iter().any(|diagnostic| diagnostic.rule_id == "vue-vet/reactivity/prefer-computed"),
+    "private derived ref must remain a prefer-computed positive: {diagnostics:?}"
+  );
+  let shadowed =
+    include_str!("../../../../fixtures/rules/prefer-computed/valid/shadowed-ref-parameter.vue");
+  let diagnostics = analyze_for_test(Path::new("ShadowedRefParameter.vue"), shadowed);
+  assert!(
+    diagnostics.iter().all(|diagnostic| diagnostic.rule_id != "vue-vet/reactivity/prefer-computed"),
+    "caller-owned Ref parameters must not convert: {diagnostics:?}"
   );
 }

@@ -19,7 +19,7 @@ use super::{
     AnalysisGaps, FileTraceIndex, FollowOutside, collect_analysis_gaps, follow_local_callees,
   },
   kinds::{reference_resolves_to_binding, resolved_vue_callee, source_span},
-  reads::{ScopeIrIndex, classify_scope_reads, collect_scope_reads},
+  reads::{ScopeIrIndex, classify_scope_reads, collect_scope_reads, member_is_classified_read},
   writes::local_getter_parts,
 };
 
@@ -74,6 +74,15 @@ pub(super) fn collect_uncertain_scope_accesses_bounded(
     imported_bindings,
     script_offset,
     index.nodes(),
+  );
+  collect_unclassified_watch_members_local(
+    semantic,
+    scope_id,
+    reactive_bindings,
+    composable_instances,
+    script_offset,
+    index,
+    &mut names,
   );
   follow_local_callees(
     index.callees(),
@@ -173,20 +182,189 @@ pub(super) fn uncertain_access_at(
 pub(super) fn member_expression_root_identifier<'a>(
   expression: &'a Expression<'a>,
 ) -> Option<&'a IdentifierReference<'a>> {
-  match expression {
+  match expr::peel_parens(expression) {
     Expression::Identifier(identifier) => Some(identifier),
-    Expression::ParenthesizedExpression(paren) => {
-      member_expression_root_identifier(&paren.expression)
-    }
     Expression::StaticMemberExpression(member) => member_expression_root_identifier(&member.object),
+    Expression::ComputedMemberExpression(member) => {
+      member_expression_root_identifier(&member.object)
+    }
     Expression::ChainExpression(chain) => match &chain.expression {
       oxc_ast::ast::ChainElement::StaticMemberExpression(member) => {
+        member_expression_root_identifier(&member.object)
+      }
+      oxc_ast::ast::ChainElement::ComputedMemberExpression(member) => {
         member_expression_root_identifier(&member.object)
       }
       _ => None,
     },
     _ => None,
   }
+}
+
+#[expect(
+  clippy::too_many_arguments,
+  reason = "watch getter uncertain threads the file callee index"
+)]
+fn collect_uncertain_watch_getter(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
+  reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  script_offset: usize,
+  index: &FileTraceIndex,
+  names: &mut BTreeSet<String>,
+) {
+  names.extend(collect_uncertain_scope_accesses(
+    semantic,
+    scope_id,
+    reactive_bindings,
+    composable_instances,
+    imported_bindings,
+    script_offset,
+    index,
+  ));
+  collect_unclassified_watch_getter_members(
+    semantic,
+    scope_id,
+    reactive_bindings,
+    composable_instances,
+    script_offset,
+    index,
+    names,
+  );
+}
+
+fn collect_unclassified_watch_getter_members(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
+  reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
+  script_offset: usize,
+  index: &FileTraceIndex,
+  names: &mut BTreeSet<String>,
+) {
+  let mut visiting = BTreeSet::new();
+  visiting.insert(scope_id);
+  collect_unclassified_watch_getter_members_bounded(
+    semantic,
+    scope_id,
+    reactive_bindings,
+    composable_instances,
+    script_offset,
+    0,
+    &mut visiting,
+    index,
+    names,
+  );
+}
+
+#[expect(
+  clippy::too_many_arguments,
+  reason = "bounded watch-member walk matches other follow collectors"
+)]
+fn collect_unclassified_watch_getter_members_bounded(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
+  reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
+  script_offset: usize,
+  depth: u32,
+  visiting: &mut BTreeSet<NodeId>,
+  index: &FileTraceIndex,
+  names: &mut BTreeSet<String>,
+) {
+  collect_unclassified_watch_members_local(
+    semantic,
+    scope_id,
+    reactive_bindings,
+    composable_instances,
+    script_offset,
+    index,
+    names,
+  );
+  follow_local_callees(
+    index.callees(),
+    scope_id,
+    depth,
+    visiting,
+    FollowOutside::Skip,
+    |callee_id, _, next_depth, _, visiting| {
+      collect_unclassified_watch_getter_members_bounded(
+        semantic,
+        callee_id,
+        reactive_bindings,
+        composable_instances,
+        script_offset,
+        next_depth,
+        visiting,
+        index,
+        names,
+      );
+    },
+  );
+}
+
+fn collect_unclassified_watch_members_local(
+  semantic: &oxc_semantic::Semantic<'_>,
+  scope_id: NodeId,
+  reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
+  script_offset: usize,
+  index: &FileTraceIndex,
+  names: &mut BTreeSet<String>,
+) {
+  for owned in index.nodes().members(scope_id) {
+    if owned.outside {
+      continue;
+    }
+    if member_is_classified_read(
+      semantic,
+      owned.id,
+      reactive_bindings,
+      composable_instances,
+      script_offset,
+    ) {
+      continue;
+    }
+    let object = match semantic.nodes().kind(owned.id) {
+      AstKind::StaticMemberExpression(member) => &member.object,
+      AstKind::ComputedMemberExpression(member) => &member.object,
+      _ => continue,
+    };
+    record_unclassified_watch_object(
+      semantic,
+      object,
+      reactive_bindings,
+      composable_instances,
+      script_offset,
+      names,
+    );
+  }
+}
+
+fn record_unclassified_watch_object(
+  semantic: &oxc_semantic::Semantic<'_>,
+  object: &Expression<'_>,
+  reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
+  script_offset: usize,
+  names: &mut BTreeSet<String>,
+) {
+  let Some(root) = member_expression_root_identifier(object) else {
+    return;
+  };
+  let known = reactive_bindings.iter().any(|binding| {
+    binding.name == root.name.as_str()
+      && reference_resolves_to_binding(semantic, root, binding, script_offset)
+  });
+  if known || composable_instances.contains_key(root.name.as_str()) {
+    return;
+  }
+  if is_sync_hof_callback_param(semantic, root) {
+    return;
+  }
+  names.insert(root.name.to_string());
 }
 
 /// Follow gaps for `watch` sources: same array / peel / local-getter paths as reads.
@@ -273,7 +451,7 @@ pub(super) fn collect_uncertain_watch_argument(
 ) {
   match argument {
     Argument::ArrowFunctionExpression(callback) => {
-      names.extend(collect_uncertain_scope_accesses(
+      collect_uncertain_watch_getter(
         semantic,
         callback.node_id.get(),
         reactive_bindings,
@@ -281,10 +459,11 @@ pub(super) fn collect_uncertain_watch_argument(
         imported_bindings,
         script_offset,
         index,
-      ));
+        names,
+      );
     }
     Argument::FunctionExpression(callback) => {
-      names.extend(collect_uncertain_scope_accesses(
+      collect_uncertain_watch_getter(
         semantic,
         callback.node_id.get(),
         reactive_bindings,
@@ -292,7 +471,8 @@ pub(super) fn collect_uncertain_watch_argument(
         imported_bindings,
         script_offset,
         index,
-      ));
+        names,
+      );
     }
     Argument::ArrayExpression(array) => {
       for element in &array.elements {
@@ -341,7 +521,7 @@ pub(super) fn collect_uncertain_watch_expression(
 ) {
   let expression = expr::peel_parens(expression);
   if let Some((scope_id, _)) = local_getter_parts(semantic, expression) {
-    names.extend(collect_uncertain_scope_accesses(
+    collect_uncertain_watch_getter(
       semantic,
       scope_id,
       reactive_bindings,
@@ -349,12 +529,13 @@ pub(super) fn collect_uncertain_watch_expression(
       imported_bindings,
       script_offset,
       index,
-    ));
+      names,
+    );
     return;
   }
   match expression {
     Expression::ArrowFunctionExpression(callback) => {
-      names.extend(collect_uncertain_scope_accesses(
+      collect_uncertain_watch_getter(
         semantic,
         callback.node_id.get(),
         reactive_bindings,
@@ -362,10 +543,11 @@ pub(super) fn collect_uncertain_watch_expression(
         imported_bindings,
         script_offset,
         index,
-      ));
+        names,
+      );
     }
     Expression::FunctionExpression(callback) => {
-      names.extend(collect_uncertain_scope_accesses(
+      collect_uncertain_watch_getter(
         semantic,
         callback.node_id.get(),
         reactive_bindings,
@@ -373,7 +555,8 @@ pub(super) fn collect_uncertain_watch_expression(
         imported_bindings,
         script_offset,
         index,
-      ));
+        names,
+      );
     }
     Expression::Identifier(identifier) => {
       let known = reactive_bindings.iter().any(|binding| {
@@ -409,6 +592,26 @@ pub(super) fn collect_uncertain_watch_expression(
       if !known_ref && !known_bag && !is_sync_hof_callback_param(semantic, root) {
         names.insert(root.name.to_string());
       }
+    }
+    Expression::StaticMemberExpression(member) => {
+      record_unclassified_watch_object(
+        semantic,
+        &member.object,
+        reactive_bindings,
+        composable_instances,
+        script_offset,
+        names,
+      );
+    }
+    Expression::ComputedMemberExpression(member) => {
+      record_unclassified_watch_object(
+        semantic,
+        &member.object,
+        reactive_bindings,
+        composable_instances,
+        script_offset,
+        names,
+      );
     }
     Expression::CallExpression(call) => {
       let Some(callee) =
