@@ -223,3 +223,11 @@ npm-smoke:
 # Publish host platform package + launcher (requires valid npm auth + @vue-vet org).
 npm-publish-host *args:
   node npm/scripts/publish-local-host.mjs {{args}}
+
+# Validate Vue Vapor migration research oracles (Node; no Rust rebuild).
+vapor-migration-research:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd research/vapor-migration
+  npm ci
+  npm run validate
