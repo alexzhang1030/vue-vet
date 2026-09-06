@@ -27,7 +27,7 @@ Workspace-internal (`publish = false`). Dependents: `vue-vet`, `vue_vet_lsp`,
 | `AnalysisProduct` | `DiagnosticsOnly` / `DiagnosticsAndNavigation` / `FullReport` |
 | `Explained::{Rule, Finding}` | Explain outcomes |
 | `explain` / `explain_rule` / `explain_finding` / `explain_scope` | Docs + scope |
-| `ProgressEvent` / `ProgressReporter` | stderr-stage streaming hooks |
+| `ProgressEvent` / `ProgressReporter` | Host-owned stage callbacks (counts only; no diagnostic payloads) |
 | `resolve_under_root` / `discover_workspace_boundary` / `scan_directory` | Paths |
 
 ## Layout

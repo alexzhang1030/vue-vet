@@ -12,14 +12,18 @@ use crate::{Cli, OutputFormat, open_session};
 
 #[expect(clippy::print_stderr, reason = "cache stats for finding explain belong on stderr")]
 pub fn run_explain(cli: &Cli, target: &str) -> ExitCode {
-  let (session, _, _) = match open_session(cli) {
+  let (session, mut progress) = match open_session(cli) {
     Ok(opened) => opened,
     Err(error) => return operational_failure(cli, &error),
   };
   let explained = match session.explain(target) {
     Ok(explained) => explained,
-    Err(error) => return operational_failure(cli, &error.to_string()),
+    Err(error) => {
+      progress.stop();
+      return operational_failure(cli, &error.to_string());
+    }
   };
+  progress.stop();
   if cli.cache.cache_stats
     && let Explained::Finding { cache_status, .. } = &explained
   {
@@ -43,14 +47,18 @@ pub fn run_explain(cli: &Cli, target: &str) -> ExitCode {
 
 #[expect(clippy::print_stderr, reason = "cache stats for scope explain belong on stderr")]
 pub fn run_explain_scope(cli: &Cli, query: &str) -> ExitCode {
-  let (session, _, _) = match open_session(cli) {
+  let (session, mut progress) = match open_session(cli) {
     Ok(opened) => opened,
     Err(error) => return operational_failure(cli, &error),
   };
   let (explains, cache_status) = match session.explain_scope(query) {
     Ok(result) => result,
-    Err(error) => return operational_failure(cli, &error.to_string()),
+    Err(error) => {
+      progress.stop();
+      return operational_failure(cli, &error.to_string());
+    }
   };
+  progress.stop();
   if cli.cache.cache_stats {
     eprintln!("vue-vet cache: {cache_status}");
   }

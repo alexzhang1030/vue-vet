@@ -1,17 +1,18 @@
-//! Scan-stage progress and per-file result streaming for interactive CLI runs.
+//! Scan-stage progress events for host surfaces (CLI, tests).
 
 use std::sync::Arc;
 
-use vue_vet_core::Diagnostic;
-
-/// Pipeline progress / stream events (stderr stages; optional per-file results).
+/// Pipeline progress events. Hosts choose how to present them.
 ///
-/// Stage barriers (`Discovering` … `WritingReport`) mark coarse phases.
-/// [`Self::FileRules`] is the real **stream**: one emission per file when its
-/// rule pass finishes (completion order under parallelism).
+/// Stage barriers mark coarse phases. [`Self::FileRules`] reports a completion
+/// count for eligible rule files (parallel completion order). Callers must keep
+/// displayed counts monotonic and must not treat this as a global percentage.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProgressEvent {
   Discovering,
+  CheckingCache,
+  CacheHit,
+  SavingCache,
   Parsing {
     pending: usize,
     reused: usize,
@@ -23,13 +24,10 @@ pub enum ProgressEvent {
   RunningRules {
     files: usize,
   },
-  /// One file finished the rules stage (`done` of `total`, completion order).
+  /// One eligible rule file finished (`done` of `total`, completion order).
   FileRules {
-    path: String,
     done: usize,
     total: usize,
-    /// Config + suppression finalized diagnostics for this file only.
-    diagnostics: Arc<[Diagnostic]>,
   },
   WritingReport,
 }
@@ -40,23 +38,28 @@ impl ProgressEvent {
   pub fn message(&self) -> String {
     match self {
       Self::Discovering => "discovering workspace".into(),
+      Self::CheckingCache => "checking cache".into(),
+      Self::CacheHit => "cache hit".into(),
+      Self::SavingCache => "saving cache".into(),
       Self::Parsing { pending, reused } => {
         format!("parsing {pending} file(s) ({reused} reused)")
       }
       Self::BuildingGraph => "building project graph".into(),
       Self::LoadingExternalSeeds { roots } => {
-        format!("loading external seeds ({roots} root(s), prefer .d.ts)")
+        format!("resolving dependencies ({roots} root(s))")
       }
-      Self::RunningRules { files } => format!("running rules ({files} file(s))"),
-      Self::FileRules { path, done, total, .. } => {
-        format!("analyzed {path} ({done}/{total})")
+      Self::RunningRules { files } => {
+        format!("checking rules (0/{files} eligible files)")
+      }
+      Self::FileRules { done, total } => {
+        format!("checking rules ({done}/{total} eligible files)")
       }
       Self::WritingReport => "writing report".into(),
     }
   }
 }
 
-/// Callback sink for [`ProgressEvent`] (CLI stderr/stdout stream, tests, etc.).
+/// Callback sink for [`ProgressEvent`] (CLI stderr, tests, etc.).
 #[derive(Clone)]
 pub struct ProgressReporter {
   sink: Arc<dyn Fn(&ProgressEvent) + Send + Sync>,
@@ -92,17 +95,12 @@ mod tests {
     );
     assert_eq!(
       ProgressEvent::LoadingExternalSeeds { roots: 2 }.message(),
-      "loading external seeds (2 root(s), prefer .d.ts)"
+      "resolving dependencies (2 root(s))"
     );
     assert_eq!(
-      ProgressEvent::FileRules {
-        path: "src/App.vue".into(),
-        done: 1,
-        total: 2,
-        diagnostics: Arc::from([]),
-      }
-      .message(),
-      "analyzed src/App.vue (1/2)"
+      ProgressEvent::FileRules { done: 1, total: 2 }.message(),
+      "checking rules (1/2 eligible files)"
     );
+    assert_eq!(ProgressEvent::CacheHit.message(), "cache hit");
   }
 }

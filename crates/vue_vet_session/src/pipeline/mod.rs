@@ -35,7 +35,7 @@ use analyze::{
 
 use crate::{
   AnalysisIssue, AnalysisStage, ProgressEvent, ProgressReporter, Recoverability, SessionError,
-  diagnostics::{DiagnosticFinalizer, finalize_file_diagnostics},
+  diagnostics::DiagnosticFinalizer,
   discovery::{SourceKind, WorkspaceInputSnapshot},
   invalidation::{expand_reverse_dependencies, reverse_dependency_index},
   locality::{ChangeImpact, DirtyPlan, ScanWorkCounters, change_impact_from, dirty_plan_from},
@@ -459,18 +459,7 @@ fn scan_parallel(
       };
       if let Some(progress) = progress {
         let done = rules_done.fetch_add(1, Ordering::Relaxed).saturating_add(1);
-        let streamed = finalize_file_diagnostics(
-          config,
-          &file_id,
-          pending.source.as_ref(),
-          cached.diagnostics.iter().cloned().collect(),
-        );
-        progress.emit(&ProgressEvent::FileRules {
-          path: file_id.as_str().to_owned(),
-          done,
-          total: rules_total,
-          diagnostics: streamed,
-        });
+        progress.emit(&ProgressEvent::FileRules { done, total: rules_total });
       }
       (file_id, cached, reran)
     })

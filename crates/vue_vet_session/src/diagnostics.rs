@@ -36,24 +36,6 @@ impl<'a> DiagnosticFinalizer<'a> {
   }
 }
 
-/// Config + suppression pass for a single file (used while rules complete).
-#[must_use]
-pub fn finalize_file_diagnostics(
-  config: &Config,
-  file: &FileId,
-  source: &str,
-  diagnostics: Vec<Diagnostic>,
-) -> Arc<[Diagnostic]> {
-  let (analysis_issues, configurable): (Vec<_>, Vec<_>) =
-    diagnostics.into_iter().partition(|diagnostic| diagnostic.category == "analysis");
-  let configured = config.apply(configurable);
-  let mut finalized = analysis_issues;
-  finalized.extend(apply_suppressions(file.as_path(), source, configured));
-  consolidate_overlapping_computed_impurity(&mut finalized);
-  sort_and_dedup_diagnostics(&mut finalized);
-  finalized.into()
-}
-
 fn sort_and_dedup_diagnostics(diagnostics: &mut Vec<Diagnostic>) {
   diagnostics.sort_by(|left, right| {
     (&left.file, left.span.offset, &left.rule_id, &left.message).cmp(&(

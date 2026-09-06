@@ -10,7 +10,7 @@ use vue_vet_core::{FileId, ScanSummary};
 use vue_vet_project::ProjectGraph;
 
 use crate::{
-  AnalysisCoverage, AnalysisIssue, AnalysisSnapshot, ProgressReporter, SessionError,
+  AnalysisCoverage, AnalysisIssue, AnalysisSnapshot, ProgressEvent, ProgressReporter, SessionError,
   discovery::WorkspaceInputSnapshot, pipeline::scan_with_threads,
 };
 
@@ -56,6 +56,9 @@ pub fn analyze_snapshot(
     )?;
     (result.summary, result.graph, "disabled", result.issues, result.work)
   } else {
+    if let Some(progress) = progress {
+      progress.emit(&ProgressEvent::CheckingCache);
+    }
     let serialized_config = serde_json::to_vec(config)
       .map_err(|error| SessionError::message(format!("failed to hash config: {error}")))?;
     let key = content_key(&input.cache_inputs, &serialized_config);
@@ -67,6 +70,9 @@ pub fn analyze_snapshot(
       // real dirty analyze uses `force_full_parse` via `!has_file_facts()` and
       // seeds facts then; subsequent edits stay incremental.
       CacheLookup::Hit(payload) => {
+        if let Some(progress) = progress {
+          progress.emit(&ProgressEvent::CacheHit);
+        }
         *state = AnalysisState::share_from(previous);
         (payload.summary, payload.graph, "hit", Vec::new(), state.last_work)
       }
@@ -148,6 +154,9 @@ fn fill_cache(
     progress,
   )?;
   if result.issues.is_empty() {
+    if let Some(progress) = progress {
+      progress.emit(&ProgressEvent::SavingCache);
+    }
     store
       .store_parts(key, &result.summary, &result.graph)
       .map_err(|error| SessionError::message(error.to_string()))?;
