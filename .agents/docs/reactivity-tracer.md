@@ -71,7 +71,10 @@ block complete. Bare `const alias = known` is recorded on the existing
 ## Current baseline
 
 Contract version: **`REACTIVITY_GRAPH_VERSION = 40`**. Rule-set identity
-hashed into the scan cache is **`RULESET_VERSION = 17`**.
+hashed into the scan cache is **`RULESET_VERSION = 17`** on this branch until
+the integrating change assigns the combined watch-API ruleset version.
+`watchEffect` / `watchPostEffect` / `watchSyncEffect` are source-contract sink
+APIs (option/signature facts only; eligibility gating is a separate worktree).
 
 v40 records Oxc-resolved `alias_of_span` on alias bindings, treats assignment-pattern
 default initializers and computed keys as reads, links prefer-computed mutable

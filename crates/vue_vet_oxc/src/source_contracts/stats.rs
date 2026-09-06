@@ -3,10 +3,13 @@
 //! `SourceContractStats::work` is completed collector work: Vue-import
 //! node and specifier visits, per-node owner construction, the main scan,
 //! reference-role indexing, object-entry summary visits and per-property
-//! max-index comparisons, write-owner summary visits, the fact-collection
-//! walk, diagnostic-ordering comparisons, query-time map lookups, and
-//! `partition_point` predicate executions. Shape classification records one
-//! query per `classify_maybe`.
+//! max-index comparisons, watch-option unique-static-key inspections (each
+//! own property, recognized or not), write-owner summary visits, the
+//! fact-collection walk, diagnostic-ordering comparisons, query-time map
+//! lookups, and `partition_point` predicate executions. Shape classification
+//! records one query per `classify_maybe`. Shared object summarization does
+//! not treat computed literal keys as uncertain; watch options check the
+//! original `ObjectProperty::computed` flag instead.
 
 use std::cell::Cell;
 

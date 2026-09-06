@@ -12,6 +12,7 @@
 mod index;
 mod shape;
 mod stats;
+mod watch_api;
 
 use std::collections::HashMap;
 
@@ -25,6 +26,8 @@ use vue_vet_core::{
   ScriptKind, SourceContractFacts, SourceContractSiteFact, SourceSpan,
   WatchReplacedObjectSourceFact,
 };
+
+use watch_api::is_watch_family;
 
 use crate::facts::source_span;
 
@@ -97,7 +100,11 @@ impl Collector<'_> {
         "reactive" | "readonly" | "shallowReactive" | "shallowReadonly" => {
           self.collect_primitive_reactive(info, api);
         }
-        "watch" => self.collect_watch(node_id, call, info),
+        "watch" => {
+          self.collect_watch(node_id, call, info);
+          self.collect_watch_api(call, info);
+        }
+        api if is_watch_family(api) => self.collect_watch_api(call, info),
         _ => {}
       }
     }
@@ -124,6 +131,14 @@ impl Collector<'_> {
       self.indexes.note_query();
       (left.source_span.offset, left.replacement_span.offset)
         .cmp(&(right.source_span.offset, right.replacement_span.offset))
+    });
+    self.facts.watch_ignored_option.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.watch_signature_mismatch.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
     });
     let stats = self.indexes.stats();
     (self.facts, stats.work())

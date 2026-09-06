@@ -430,6 +430,18 @@ obj.nested = { x: 9 }\n\
   std::fs::write(root.join("App.vue"), source).unwrap_or_else(|error| panic!("write: {error}"));
   std::fs::write(root.join("Replace.vue"), replaced)
     .unwrap_or_else(|error| panic!("write replace: {error}"));
+  std::fs::write(
+    root.join("WatchApi.vue"),
+    "<script setup lang=\"ts\">\n\
+import { ref, watch, watchEffect } from 'vue'\n\
+const n = ref(0)\n\
+watch(n, (v) => v, { equals: () => true })\n\
+watch(n, { handler() { void n.value } })\n\
+watchEffect(() => n.value, (x) => x)\n\
+</script>\n\
+<template><p /></template>\n",
+  )
+  .unwrap_or_else(|error| panic!("write watch api: {error}"));
   let session = open_session_threads(root.clone(), 1);
   let cold = session.analyze().unwrap_or_else(|error| panic!("cold: {error}"));
   let contract_count = cold
@@ -442,11 +454,13 @@ obj.nested = { x: 9 }\n\
         || diagnostic.rule_id.contains("primitive-reactive")
         || diagnostic.rule_id.contains("watch-unwrapped")
         || diagnostic.rule_id.contains("watch-replaced")
+        || diagnostic.rule_id.contains("watch-ignored-option")
+        || diagnostic.rule_id.contains("watch-signature-mismatch")
     })
     .count();
   assert!(
     contract_count >= 5,
-    "cold scan must emit the five source-contract IDs; {:?}",
+    "cold scan must emit the source-contract IDs; {:?}",
     cold.summary.diagnostics
   );
   session

@@ -1702,6 +1702,214 @@ fn source_contracts_vue_identity_sources() {
 }
 
 #[test]
+fn source_contracts_watch_api_option_and_signature_sites() {
+  let equals = analyze(
+    "import { ref, watch } from 'vue'; const n = ref(0); watch(n, (v) => v, { equals: (a, b) => a === b });",
+    "ts",
+  );
+  assert_eq!(
+    equals.source_contracts.watch_ignored_option.len(),
+    1,
+    "{:?}",
+    equals.source_contracts
+  );
+  let method = analyze(
+    "import { ref, watch } from 'vue'; const n = ref(0); watch(n, (v) => v, { equals(a, b) { return a === b; } });",
+    "ts",
+  );
+  assert_eq!(
+    method.source_contracts.watch_ignored_option.len(),
+    1,
+    "{:?}",
+    method.source_contracts
+  );
+  let effect = analyze(
+    "import { ref, watchEffect } from 'vue'; const n = ref(0); watchEffect(() => n.value, { once: true, immediate: true });",
+    "ts",
+  );
+  assert_eq!(
+    effect.source_contracts.watch_ignored_option.len(),
+    2,
+    "{:?}",
+    effect.source_contracts
+  );
+  let trailing = analyze(
+    "import { ref, watch } from 'vue'; const n = ref(0); watch(n, (v) => v, { equals: () => true }, 'extra');",
+    "ts",
+  );
+  assert_eq!(
+    trailing.source_contracts.watch_ignored_option.len(),
+    1,
+    "{:?}",
+    trailing.source_contracts
+  );
+  let crlf_src = "import { ref, watch } from 'vue';\r\nconst \u{8ba1}\u{6570} = ref(0);\r\nwatch(\u{8ba1}\u{6570}, (v) => v, { equals: () => true });\r\n";
+  let crlf = analyze(crlf_src, "ts");
+  assert_eq!(crlf.source_contracts.watch_ignored_option.len(), 1, "{:?}", crlf.source_contracts);
+  let ignored = crlf.source_contracts.watch_ignored_option.first();
+  assert!(ignored.is_some_and(|site| site.span.line == 3 && site.span.length == 6), "{ignored:?}");
+  if let Some(site) = ignored {
+    let end = site.span.offset.saturating_add(site.span.length);
+    assert_eq!(crlf_src.get(site.span.offset..end), Some("equals"));
+  }
+  let handler = analyze(
+    "import { ref, watch } from 'vue'; const n = ref(0); watch(n, { handler() { return n.value; }, equals: () => true });",
+    "ts",
+  );
+  assert_eq!(
+    handler.source_contracts.watch_signature_mismatch.len(),
+    1,
+    "{:?}",
+    handler.source_contracts
+  );
+  assert!(
+    handler.source_contracts.watch_ignored_option.is_empty(),
+    "signature must win over ignored-option; {:?}",
+    handler.source_contracts
+  );
+  let array_cb = analyze(
+    "import { ref, watch } from 'vue'; const n = ref(0); watch(n, [() => {}, () => {}]);",
+    "ts",
+  );
+  assert!(
+    array_cb.source_contracts.watch_signature_mismatch.is_empty(),
+    "{:?}",
+    array_cb.source_contracts
+  );
+  let zero = analyze("import { ref, watch } from 'vue'; const n = ref(0); watch(n, 0);", "ts");
+  assert!(zero.source_contracts.watch_signature_mismatch.is_empty(), "{:?}", zero.source_contracts);
+  for zero_bigint in ["0n", "0x0n", "0o0n", "0b0n", "0x0_0n"] {
+    let source =
+      format!("import {{ ref, watch }} from 'vue'; const n = ref(0); watch(n, {zero_bigint});");
+    let facts = analyze(&source, "ts");
+    assert!(
+      facts.source_contracts.watch_signature_mismatch.is_empty(),
+      "zero bigint {zero_bigint} must stay quiet; {:?}",
+      facts.source_contracts
+    );
+  }
+  let one_n = analyze("import { ref, watch } from 'vue'; const n = ref(0); watch(n, 1n);", "ts");
+  assert_eq!(
+    one_n.source_contracts.watch_signature_mismatch.len(),
+    1,
+    "{:?}",
+    one_n.source_contracts
+  );
+  let computed_literal = analyze(
+    "import { ref, watchEffect } from 'vue'; const n = ref(0); watchEffect(() => n.value, { ['once']: true });",
+    "ts",
+  );
+  assert!(
+    computed_literal.source_contracts.watch_ignored_option.is_empty(),
+    "computed literal keys must stay quiet; {:?}",
+    computed_literal.source_contracts
+  );
+  let imported_alias = analyze(
+    "import { ref, watch as observe } from 'vue'; const n = ref(0); observe(n, { handler() { return n.value; } });",
+    "ts",
+  );
+  assert_eq!(
+    imported_alias.source_contracts.watch_signature_mismatch.len(),
+    1,
+    "{:?}",
+    imported_alias.source_contracts
+  );
+  let shadow = analyze(
+    "import { ref } from 'vue'; const n = ref(0); function watch(_a: unknown, _b: unknown) {} watch(n, { handler() {} });",
+    "ts",
+  );
+  assert!(shadow.source_contracts.is_empty(), "{:?}", shadow.source_contracts);
+  let two_fns = analyze(
+    "import { ref, watchEffect } from 'vue'; const n = ref(0); watchEffect(() => n.value, (x) => x);",
+    "ts",
+  );
+  assert_eq!(
+    two_fns.source_contracts.watch_signature_mismatch.len(),
+    1,
+    "{:?}",
+    two_fns.source_contracts
+  );
+  let named_opts = analyze(
+    "import { ref, watchEffect } from 'vue'; const n = ref(0); function opts() {} watchEffect(() => n.value, opts);",
+    "ts",
+  );
+  assert!(named_opts.source_contracts.is_empty(), "{:?}", named_opts.source_contracts);
+  let aliased = analyze(
+    "import { ref, watch } from 'vue'; const n = ref(0); const options = { equals: () => true }; watch(n, (v) => v, options);",
+    "ts",
+  );
+  assert!(
+    aliased.source_contracts.watch_ignored_option.is_empty(),
+    "{:?}",
+    aliased.source_contracts
+  );
+  let auto = analyze(
+    "import { watchEffect } from '#imports'; const n = { value: 0 }; watchEffect(() => n.value, { once: true });",
+    "ts",
+  );
+  assert_eq!(auto.source_contracts.watch_ignored_option.len(), 1, "{:?}", auto.source_contracts);
+  let ns_auto =
+    analyze("import * as Auto from '#imports'; Auto.watchEffect(() => 1, { once: true });", "ts");
+  assert!(ns_auto.source_contracts.is_empty(), "{:?}", ns_auto.source_contracts);
+  let type_only = analyze(
+    "import { type watchEffect } from 'vue'; const watchEffect = (_a: unknown, _b: unknown) => {}; watchEffect(() => 1, () => 2);",
+    "ts",
+  );
+  assert!(type_only.source_contracts.is_empty(), "{:?}", type_only.source_contracts);
+}
+
+#[test]
+fn source_contracts_watch_option_sites_stay_linear() {
+  let mut previous: Option<(u64, u64)> = None;
+  for size in [50_u64, 100, 200] {
+    let mut source = String::from("import { ref, watch } from 'vue'; const n = ref(0);");
+    for _ in 0..size {
+      source.push_str("watch(n, (v) => v, { equals: () => true });");
+    }
+    let (contracts, work) = contract_stats(&source);
+    assert_eq!(contracts.watch_ignored_option.len(), usize::try_from(size).unwrap_or(usize::MAX));
+    if let Some((prev_size, prev_work)) = previous {
+      assert_eq!(size, prev_size * 2, "fixture sizes must double");
+      assert!(
+        work.saturating_mul(10) < prev_work.saturating_mul(30),
+        "watch-option work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
+      );
+    }
+    previous = Some((size, work));
+  }
+}
+
+#[test]
+fn source_contracts_watch_option_literal_width_stays_linear() {
+  let mut previous: Option<(u64, u64)> = None;
+  for size in [50_u64, 100, 200] {
+    let mut keys = Vec::new();
+    for index in 0..size {
+      keys.push(format!("k{index}: 1"));
+    }
+    keys.push("equals: () => true".into());
+    let source = format!(
+      "import {{ ref, watch }} from 'vue'; const n = ref(0); watch(n, (v) => v, {{ {} }});",
+      keys.join(", ")
+    );
+    let (contracts, work) = contract_stats(&source);
+    assert_eq!(
+      contracts.watch_ignored_option.len(),
+      1,
+      "one equals key among {size} fillers; {contracts:?}"
+    );
+    if let Some((prev_size, prev_work)) = previous {
+      assert_eq!(size, prev_size * 2, "fixture sizes must double");
+      assert!(
+        work.saturating_mul(10) < prev_work.saturating_mul(30),
+        "watch-option width work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
+      );
+    }
+    previous = Some((size, work));
+  }
+}
+
+#[test]
 fn source_contracts_destructured_binding_reassignment_is_quiet() {
   let facts = analyze(
     "import { reactive, ref, toRefs, triggerRef, watch } from 'vue';\
