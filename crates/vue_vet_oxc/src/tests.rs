@@ -1,6 +1,12 @@
 use std::collections::BTreeSet;
 
+use oxc_allocator::Allocator;
+use oxc_parser::Parser;
+use oxc_semantic::SemanticBuilder;
+use oxc_span::SourceType;
+
 use super::*;
+use crate::source_contracts::collect_source_contract_facts_with_stats;
 use vue_vet_core::ReactiveReadKind;
 
 #[expect(clippy::panic, reason = "unexpected Oxc errors must fail adapter tests")]
@@ -9,6 +15,22 @@ fn analyze(source: &str, language: &str) -> ScriptBlockFacts {
     Ok(facts) => facts,
     Err(error) => panic!("script analysis unexpectedly failed: {error}"),
   }
+}
+
+fn contract_stats(source: &str) -> (vue_vet_core::SourceContractFacts, u64) {
+  let allocator = Allocator::default();
+  let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
+  assert!(parsed.diagnostics.is_empty(), "stats fixture failed to parse");
+  let built = SemanticBuilder::new().with_build_nodes(true).build(&parsed.program);
+  assert!(built.diagnostics.is_empty(), "stats fixture failed semantics");
+  let line_index = vue_vet_core::LineIndex::new(source);
+  collect_source_contract_facts_with_stats(
+    &built.semantic,
+    &line_index,
+    source,
+    0,
+    ScriptKind::Setup,
+  )
 }
 
 #[test]
@@ -837,4 +859,502 @@ fn records_aliased_and_namespace_watch_flush() {
     "aliased watch options are the third argument; got {:?}",
     facts.calls
   );
+}
+
+#[test]
+fn source_contracts_classify_vue_identity_and_provenance() {
+  let trigger = analyze(
+    "import { reactive, triggerRef } from 'vue'; const obj = reactive({ n: 1 }); triggerRef(obj);",
+    "ts",
+  );
+  assert_eq!(
+    trigger.source_contracts.trigger_ref_non_ref.len(),
+    1,
+    "{:?}",
+    trigger.source_contracts
+  );
+  let torefs = analyze("import { toRefs } from 'vue'; toRefs({ a: 1 });", "ts");
+  assert_eq!(torefs.source_contracts.torefs_non_proxy.len(), 1, "{:?}", torefs.source_contracts);
+  let primitive = analyze("import { reactive } from 'vue'; reactive(0);", "ts");
+  assert_eq!(
+    primitive.source_contracts.primitive_reactive_target.len(),
+    1,
+    "{:?}",
+    primitive.source_contracts
+  );
+  let unwrapped = analyze(
+    "import { ref, watch } from 'vue'; const n = ref(0); watch((n.value) as number, () => {});",
+    "ts",
+  );
+  assert_eq!(
+    unwrapped.source_contracts.watch_unwrapped_source.len(),
+    1,
+    "{:?}",
+    unwrapped.source_contracts
+  );
+  let replaced = analyze(
+    "import { reactive, watch } from 'vue';\
+     const obj = reactive({ nested: { x: 1 } });\
+     watch(obj.nested, () => {});\
+     obj.nested = { x: 2 };",
+    "ts",
+  );
+  assert_eq!(
+    replaced.source_contracts.watch_replaced_object_source.len(),
+    1,
+    "{:?}",
+    replaced.source_contracts
+  );
+}
+
+#[test]
+fn source_contracts_stay_quiet_for_shadowing_and_unknowns() {
+  let facts = analyze(
+    "function triggerRef(_value: unknown) {}\
+     function toRefs(_value: object) { return {}; }\
+     function reactive(_value: unknown) { return _value; }\
+     function watch(_source: unknown, _cb: () => void) {}\
+     triggerRef({ n: 1 });\
+     toRefs({ a: 1 });\
+     reactive(0);\
+     watch(1, () => {});",
+    "ts",
+  );
+  assert!(
+    facts.source_contracts.is_empty(),
+    "local shadows must not match Vue APIs; {:?}",
+    facts.source_contracts
+  );
+}
+
+#[test]
+fn source_contracts_ignore_type_only_default_and_unresolved_vue_spelling() {
+  let type_only = analyze(
+    "import { type triggerRef } from 'vue'; const triggerRef = (_value: unknown) => {}; triggerRef({ n: 1 });",
+    "ts",
+  );
+  assert!(type_only.source_contracts.is_empty(), "{:?}", type_only.source_contracts);
+  let default_ns =
+    analyze("import Vue from 'vue'; const obj = { n: 1 }; Vue.triggerRef(obj);", "ts");
+  assert!(default_ns.source_contracts.is_empty(), "{:?}", default_ns.source_contracts);
+  let toolkit = analyze("import { triggerRef } from '@vue/toolkit'; triggerRef({ n: 1 });", "ts");
+  assert!(toolkit.source_contracts.is_empty(), "{:?}", toolkit.source_contracts);
+  let unresolved = analyze("triggerRef(1); reactive(0); watch(1, () => {});", "ts");
+  assert!(unresolved.source_contracts.is_empty(), "{:?}", unresolved.source_contracts);
+}
+
+#[test]
+fn source_contracts_abstain_on_unknown_wrapper_alias_and_unordered_writes() {
+  let unknown_wrapper = analyze(
+    "import { reactive, triggerRef } from 'vue'; declare const externalRef: { value: number }; triggerRef(reactive(externalRef));",
+    "ts",
+  );
+  assert!(
+    unknown_wrapper.source_contracts.trigger_ref_non_ref.is_empty(),
+    "{:?}",
+    unknown_wrapper.source_contracts
+  );
+  let alias_write = analyze(
+    "import { reactive, ref, watch } from 'vue'; const r = ref(0); const a = r; a.value = reactive({ n: 1 }); watch(r.value, () => {});",
+    "ts",
+  );
+  assert!(
+    alias_write.source_contracts.watch_unwrapped_source.is_empty(),
+    "{:?}",
+    alias_write.source_contracts
+  );
+  let helper = analyze(
+    "import { ref, watch } from 'vue'; const r = ref(0); function initialize(target: { value: unknown }) { target.value = {}; } initialize(r); watch(r.value, () => {});",
+    "ts",
+  );
+  assert!(
+    helper.source_contracts.watch_unwrapped_source.is_empty(),
+    "{:?}",
+    helper.source_contracts
+  );
+  let scan = analyze(
+    "import { reactive, ref, watch } from 'vue'; const r = ref(0); function scan() { watch(r.value, () => {}); } r.value = reactive({ n: 1 }); scan();",
+    "ts",
+  );
+  assert!(scan.source_contracts.watch_unwrapped_source.is_empty(), "{:?}", scan.source_contracts);
+  let let_alias = analyze(
+    "import { reactive, ref, watch } from 'vue'; const r = ref(0); let alias = r; alias.value = reactive({ n: 1 }); watch(r.value, () => {});",
+    "ts",
+  );
+  assert!(
+    let_alias.source_contracts.watch_unwrapped_source.is_empty(),
+    "{:?}",
+    let_alias.source_contracts
+  );
+  let boxed = analyze(
+    "import { reactive, ref, watch } from 'vue'; const r = ref(0); const box = {}; box.ref = r; box.ref.value = reactive({ n: 1 }); watch(r.value, () => {});",
+    "ts",
+  );
+  assert!(boxed.source_contracts.watch_unwrapped_source.is_empty(), "{:?}", boxed.source_contracts);
+  let pattern = analyze(
+    "import { reactive, ref, watch } from 'vue'; const r = ref(0); ({ x: r.value } = { x: reactive({ n: 1 }) }); watch(r.value, () => {});",
+    "ts",
+  );
+  assert!(
+    pattern.source_contracts.watch_unwrapped_source.is_empty(),
+    "{:?}",
+    pattern.source_contracts
+  );
+  let shadowed_map =
+    analyze("import { reactive } from 'vue'; class Map {}; reactive(new Map());", "ts");
+  assert!(
+    shadowed_map.source_contracts.primitive_reactive_target.is_empty(),
+    "{:?}",
+    shadowed_map.source_contracts
+  );
+}
+
+#[test]
+fn source_contracts_replacement_stays_quiet_for_control_flow_and_shallow() {
+  let branched = analyze(
+    "import { reactive, watch } from 'vue'; const state = reactive({ p: { x: 1 } }); const flag = true; if (flag) { watch(state.p, () => {}); } else { state.p = {}; }",
+    "ts",
+  );
+  assert!(
+    branched.source_contracts.watch_replaced_object_source.is_empty(),
+    "{:?}",
+    branched.source_contracts
+  );
+  let same = analyze(
+    "import { reactive, watch } from 'vue'; const state = reactive({ p: { x: 1 } }); watch(state.p, () => {}); state.p = state.p;",
+    "ts",
+  );
+  assert!(
+    same.source_contracts.watch_replaced_object_source.is_empty(),
+    "{:?}",
+    same.source_contracts
+  );
+  let stopped = analyze(
+    "import { reactive, watch } from 'vue'; const state = reactive({ p: { x: 1 } }); const stop = watch(state.p, () => {}); stop(); state.p = {};",
+    "ts",
+  );
+  assert!(
+    stopped.source_contracts.watch_replaced_object_source.is_empty(),
+    "{:?}",
+    stopped.source_contracts
+  );
+  let readonly_wrap = analyze(
+    "import { reactive, readonly, watch } from 'vue'; const state = readonly(reactive({ p: { x: 1 } })); watch(state.p, () => {}); state.p = { x: 2 };",
+    "ts",
+  );
+  assert!(
+    readonly_wrap.source_contracts.watch_replaced_object_source.is_empty(),
+    "{:?}",
+    readonly_wrap.source_contracts
+  );
+  let shallow = analyze(
+    "import { shallowReactive, watch } from 'vue'; const state = shallowReactive({ p: { x: 1 } }); watch(state.p, () => {}); state.p = { x: 2 };",
+    "ts",
+  );
+  assert!(
+    shallow.source_contracts.watch_replaced_object_source.is_empty(),
+    "{:?}",
+    shallow.source_contracts
+  );
+  let spread = analyze(
+    "import { reactive, watch } from 'vue'; declare const input: { p: { x: number } }; const state = reactive({ p: 1, ...input }); watch(state.p, () => {}); state.p = { x: 2 };",
+    "ts",
+  );
+  assert!(
+    spread.source_contracts.watch_replaced_object_source.is_empty(),
+    "{:?}",
+    spread.source_contracts
+  );
+  let compound = analyze(
+    "import { reactive, watch } from 'vue'; const state = reactive({ p: { x: 1 } }); watch(state.p, () => {}); state.p ||= {};",
+    "ts",
+  );
+  assert!(
+    compound.source_contracts.watch_replaced_object_source.is_empty(),
+    "{:?}",
+    compound.source_contracts
+  );
+  let cached = analyze(
+    "import { reactive, watch } from 'vue'; const obj = {}; const state = reactive({ p: reactive(obj) }); watch(state.p, () => {}); state.p = reactive(obj);",
+    "ts",
+  );
+  assert!(
+    cached.source_contracts.watch_replaced_object_source.is_empty(),
+    "{:?}",
+    cached.source_contracts
+  );
+  let spread_args = analyze(
+    "import { watch, ref } from 'vue'; const n = ref(0); const extra = []; watch(n.value, ...extra);",
+    "ts",
+  );
+  assert!(
+    spread_args.source_contracts.watch_unwrapped_source.is_empty(),
+    "{:?}",
+    spread_args.source_contracts
+  );
+}
+
+#[test]
+fn source_contracts_many_watch_sites_stay_linear() {
+  let mut previous: Option<(u64, u64)> = None;
+  for size in [50_u64, 100, 200] {
+    let mut source = String::from("import { ref, watch } from 'vue'; const n = ref(0);");
+    for _ in 0..size {
+      source.push_str("watch(n.value, () => {});");
+    }
+    let (contracts, work) = contract_stats(&source);
+    assert_eq!(contracts.watch_unwrapped_source.len(), usize::try_from(size).unwrap_or(usize::MAX));
+    if let Some((prev_size, prev_work)) = previous {
+      assert_eq!(size, prev_size * 2, "fixture sizes must double");
+      assert!(
+        work.saturating_mul(10) < prev_work.saturating_mul(30),
+        "watch-site work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
+      );
+    }
+    previous = Some((size, work));
+  }
+}
+
+#[test]
+fn source_contracts_assignment_patterns_parse_and_stay_quiet() {
+  let facts = analyze(
+    "import { reactive, ref, watch } from 'vue';\
+     const r = ref(0);\
+     const source = { x: 1, y: 2, z: 3 };\
+     ({ x: r.value = 0, y: r.value, ...rest } = source);\
+     const arr = [1, 2, 3];\
+     ([r.value = 1, ...tail] = arr);\
+     ({ [String('k')]: r.value } = { k: 9 });\
+     watch(r.value, () => {}); void rest; void tail;",
+    "ts",
+  );
+  assert!(facts.source_contracts.watch_unwrapped_source.is_empty(), "{:?}", facts.source_contracts);
+}
+
+#[test]
+fn source_contracts_shadowed_map_is_not_fresh_allocation() {
+  let facts = analyze(
+    "import { reactive, watch } from 'vue';\
+     const state = reactive({ p: { x: 1 } });\
+     watch(state.p, () => {});\
+     function Map() { return state.p; }\
+     state.p = new Map();",
+    "ts",
+  );
+  assert!(
+    facts.source_contracts.watch_replaced_object_source.is_empty(),
+    "{:?}",
+    facts.source_contracts
+  );
+}
+
+#[test]
+#[expect(clippy::panic, reason = "missing span evidence must fail the regression")]
+fn source_contracts_nested_wrapper_budget_does_not_poison_direct_use() {
+  let source = "import { reactive, triggerRef } from 'vue';\
+     const shared = { n: 1 };\
+     triggerRef(reactive(reactive(reactive(reactive(reactive(reactive(reactive(reactive(reactive(shared))))))))));\
+     triggerRef(shared);";
+  let facts = analyze(source, "ts");
+  let needle = "triggerRef(shared)";
+  let Some(call) = source.rfind(needle) else {
+    panic!("direct triggerRef(shared) missing");
+  };
+  let arg = call + "triggerRef(".len();
+  assert_eq!(
+    facts.source_contracts.trigger_ref_non_ref.len(),
+    1,
+    "only the direct shared root must report; {:?}",
+    facts.source_contracts
+  );
+  let Some(site) = facts.source_contracts.trigger_ref_non_ref.first() else {
+    panic!("direct-use finding missing");
+  };
+  assert_eq!(site.span.offset, arg, "{site:?} source={source}");
+  assert_eq!(site.span.length, "shared".len());
+}
+
+#[test]
+fn source_contracts_vue_identity_sources() {
+  let runtime =
+    analyze("import { triggerRef } from '@vue/runtime-core'; triggerRef({ n: 1 });", "ts");
+  assert_eq!(
+    runtime.source_contracts.trigger_ref_non_ref.len(),
+    1,
+    "{:?}",
+    runtime.source_contracts
+  );
+  let named_auto = analyze("import { triggerRef } from '#imports'; triggerRef({ n: 1 });", "ts");
+  assert_eq!(
+    named_auto.source_contracts.trigger_ref_non_ref.len(),
+    1,
+    "{:?}",
+    named_auto.source_contracts
+  );
+  let ns_auto = analyze("import * as Auto from '#imports'; Auto.triggerRef({ n: 1 });", "ts");
+  assert!(ns_auto.source_contracts.is_empty(), "{:?}", ns_auto.source_contracts);
+  let custom = analyze("import { useMagic } from '#imports'; useMagic();", "ts");
+  assert!(custom.source_contracts.is_empty(), "{:?}", custom.source_contracts);
+}
+
+#[test]
+fn source_contracts_destructured_binding_reassignment_is_quiet() {
+  let facts = analyze(
+    "import { reactive, ref, toRefs, triggerRef, watch } from 'vue';\
+     let target = 0;\
+     ({ target } = { target: ref(1) });\
+     triggerRef(target);\
+     let data = 0;\
+     [data] = [reactive({})];\
+     reactive(data);\
+     let plain = {};\
+     ({ plain } = { plain: reactive({ count: 1 }) });\
+     toRefs(plain);\
+     let source = 0;\
+     [source] = [ref(1)];\
+     watch(source, () => {});",
+    "ts",
+  );
+  assert!(
+    facts.source_contracts.trigger_ref_non_ref.is_empty(),
+    "shorthand destructure to Ref must not keep primitive triggerRef; {:?}",
+    facts.source_contracts
+  );
+  assert!(
+    facts.source_contracts.primitive_reactive_target.is_empty(),
+    "array destructure to reactive must not keep primitive reactive(); {:?}",
+    facts.source_contracts
+  );
+  assert!(
+    facts.source_contracts.torefs_non_proxy.is_empty(),
+    "shorthand destructure to reactive must not keep plain toRefs; {:?}",
+    facts.source_contracts
+  );
+  assert!(
+    facts.source_contracts.watch_unwrapped_source.is_empty(),
+    "array destructure to ref must not keep primitive watch source; {:?}",
+    facts.source_contracts
+  );
+}
+
+#[test]
+fn source_contracts_rest_and_default_binding_reassignment_is_quiet() {
+  let facts = analyze(
+    "import { reactive, ref, triggerRef } from 'vue';\
+     let leftover = 0;\
+     [...leftover] = [reactive({})];\
+     reactive(leftover);\
+     let boxed = 0;\
+     ({ boxed = ref(1) } = {});\
+     triggerRef(boxed);",
+    "ts",
+  );
+  assert!(
+    facts.source_contracts.primitive_reactive_target.is_empty(),
+    "rest-to-array must invalidate primitive reactive(); {:?}",
+    facts.source_contracts
+  );
+  assert!(
+    facts.source_contracts.trigger_ref_non_ref.is_empty(),
+    "default-to-Ref must invalidate primitive triggerRef; {:?}",
+    facts.source_contracts
+  );
+}
+
+#[test]
+fn source_contracts_watch_then_writes_scale_subquadratically() {
+  let mut previous: Option<(u64, u64)> = None;
+  for size in [16_u64, 32, 64, 128] {
+    let mut source = String::from("import { ref, watch } from 'vue'; const n = ref(0);");
+    for _ in 0..size {
+      source.push_str("watch(n.value, () => {});");
+    }
+    for _ in 0..size {
+      source.push_str("n.value = 1;");
+    }
+    let (contracts, work) = contract_stats(&source);
+    assert_eq!(contracts.watch_unwrapped_source.len(), usize::try_from(size).unwrap_or(usize::MAX));
+    if let Some((prev_size, prev_work)) = previous {
+      assert_eq!(size, prev_size * 2, "fixture sizes must double");
+      assert!(
+        work.saturating_mul(10) < prev_work.saturating_mul(30),
+        "watch-then-write work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
+      );
+    }
+    previous = Some((size, work));
+  }
+}
+
+#[test]
+fn source_contracts_many_properties_scale_subquadratically() {
+  let mut previous: Option<(u64, u64)> = None;
+  for size in [16_u64, 32, 64] {
+    let mut keys = Vec::new();
+    for index in 0..size {
+      keys.push(format!("p{index}: {{}}"));
+    }
+    let mut source = format!(
+      "import {{ reactive, watch }} from 'vue'; const state = reactive({{ {} }});",
+      keys.join(", ")
+    );
+    for index in 0..size {
+      source.push_str("watch(state.p");
+      source.push_str(&index.to_string());
+      source.push_str(", () => {}); state.p");
+      source.push_str(&index.to_string());
+      source.push_str(" = {};");
+    }
+    let (contracts, work) = contract_stats(&source);
+    assert_eq!(
+      contracts.watch_replaced_object_source.len(),
+      usize::try_from(size).unwrap_or(usize::MAX)
+    );
+    if let Some((prev_size, prev_work)) = previous {
+      assert_eq!(size, prev_size * 2, "fixture sizes must double");
+      assert!(
+        work.saturating_mul(10) < prev_work.saturating_mul(30),
+        "property-object work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
+      );
+    }
+    previous = Some((size, work));
+  }
+}
+
+#[test]
+fn source_contracts_early_spreads_then_explicit_props_scale_subquadratically() {
+  let mut previous: Option<(u64, u64)> = None;
+  for size in [16_u64, 32, 64] {
+    let mut source = String::from("import { toRefs } from 'vue';");
+    for index in 0..size {
+      source.push_str("const s");
+      source.push_str(&index.to_string());
+      source.push_str(" = {};");
+    }
+    source.push_str("toRefs({");
+    for index in 0..size {
+      source.push_str("...s");
+      source.push_str(&index.to_string());
+      source.push(',');
+    }
+    for index in 0..size {
+      source.push('p');
+      source.push_str(&index.to_string());
+      source.push_str(": {},");
+    }
+    source.push_str("});");
+    let (contracts, work) = contract_stats(&source);
+    assert_eq!(
+      contracts.torefs_non_proxy.len(),
+      1,
+      "plain object after early spreads must emit toRefs-on-non-proxy; {contracts:?}"
+    );
+    if let Some((prev_size, prev_work)) = previous {
+      assert_eq!(size, prev_size * 2, "fixture sizes must double");
+      assert!(
+        work.saturating_mul(10) < prev_work.saturating_mul(30),
+        "early-spread then explicit-prop work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
+      );
+    }
+    previous = Some((size, work));
+  }
 }

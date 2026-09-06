@@ -6,6 +6,8 @@ use vue_vet_core::{Diagnostic, FileId};
 
 const SELF_TRIGGER: &str = "vue-vet/reactivity/no-computed-self-trigger";
 const SIDE_EFFECTS: &str = "vue-vet/reactivity/no-side-effects-in-computed";
+const EMPTY_WATCH: &str = "vue-vet/reactivity/no-empty-watch-sources";
+const UNWRAPPED_WATCH: &str = "vue-vet/reactivity/no-watch-unwrapped-source";
 
 /// Drop the overlapping partner of the same write span after config/suppression.
 ///
@@ -76,6 +78,35 @@ fn impurity_specificity(rule_id: &str) -> u8 {
   }
 }
 
+/// Drop `no-empty-watch-sources` when a more specific unwrapped-source finding
+/// sits inside the same `watch(...)` call.
+pub fn consolidate_overlapping_watch_source_sites(diagnostics: &mut Vec<Diagnostic>) {
+  let unwrapped: Vec<(FileId, usize, usize)> = diagnostics
+    .iter()
+    .filter(|diagnostic| diagnostic.rule_id == UNWRAPPED_WATCH)
+    .map(|diagnostic| {
+      (
+        diagnostic.file.clone(),
+        diagnostic.span.offset,
+        diagnostic.span.offset.saturating_add(diagnostic.span.length),
+      )
+    })
+    .collect();
+  if unwrapped.is_empty() {
+    return;
+  }
+  diagnostics.retain(|diagnostic| {
+    if diagnostic.rule_id != EMPTY_WATCH {
+      return true;
+    }
+    let start = diagnostic.span.offset;
+    let end = diagnostic.span.offset.saturating_add(diagnostic.span.length);
+    !unwrapped.iter().any(|(file, inner_start, inner_end)| {
+      file == &diagnostic.file && *inner_start >= start && *inner_end <= end
+    })
+  });
+}
+
 #[cfg(test)]
 mod tests {
   use vue_vet_core::{FileId, Severity, SourceSpan};
@@ -142,5 +173,40 @@ mod tests {
     consolidate_overlapping_computed_impurity(&mut diagnostics);
     assert_eq!(diagnostics.len(), 2);
     assert_eq!(diagnostics.first().map(|row| row.rule_id.as_str()), Some(SELF_TRIGGER));
+  }
+
+  #[test]
+  fn drops_empty_watch_when_unwrapped_source_is_inside_the_call() {
+    let mut diagnostics = vec![
+      Diagnostic {
+        rule_id: EMPTY_WATCH.into(),
+        category: "reactivity".into(),
+        severity: Severity::Warning,
+        confidence: None,
+        documentation: None,
+        message: "empty".into(),
+        help: None,
+        file: FileId::from("Watch.vue"),
+        span: SourceSpan { offset: 10, length: 20, line: 4, column: 1 },
+        edits: Vec::new(),
+        recommendation: None,
+      },
+      Diagnostic {
+        rule_id: UNWRAPPED_WATCH.into(),
+        category: "reactivity".into(),
+        severity: Severity::Warning,
+        confidence: None,
+        documentation: None,
+        message: "unwrapped".into(),
+        help: None,
+        file: FileId::from("Watch.vue"),
+        span: SourceSpan { offset: 16, length: 7, line: 4, column: 7 },
+        edits: Vec::new(),
+        recommendation: None,
+      },
+    ];
+    consolidate_overlapping_watch_source_sites(&mut diagnostics);
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics.first().map(|row| row.rule_id.as_str()), Some(UNWRAPPED_WATCH));
   }
 }

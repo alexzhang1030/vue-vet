@@ -1,0 +1,34 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-torefs-on-non-proxy",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-torefs-on-non-proxy",
+    "message": "`toRefs` expects a reactive object, not a plain object or array",
+    "help": "Wrap the value with `reactive` / `readonly` first, or use `toRef` on a real proxy.",
+    "file": "fixtures/rules/no-torefs-on-non-proxy/invalid/unicode.vue",
+    "span": {
+      "offset": 96,
+      "length": 3,
+      "line": 4,
+      "column": 22
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/no-ref-as-operand",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-ref-as-operand",
+    "message": "`a` is a ref object used as an operand; unwrap with `.value` (or `toValue`)",
+    "help": "Use `a.value` (or `toValue(a)`) when reading the inner value.",
+    "file": "fixtures/rules/no-torefs-on-non-proxy/invalid/unicode.vue",
+    "span": {
+      "offset": 106,
+      "length": 1,
+      "line": 5,
+      "column": 6
+    }
+  }
+]

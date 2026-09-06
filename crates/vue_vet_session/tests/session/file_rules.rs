@@ -317,3 +317,58 @@ fn package_json_add_replace_remove_matches_clean_scan() {
   }
   let _ignored = std::fs::remove_dir_all(root);
 }
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn source_contract_findings_keep_incremental_identity() {
+  let root = std::env::temp_dir().join(format!("vue-vet-source-contracts-{}", std::process::id()));
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+  let source = "<script setup lang=\"ts\">\n\
+import { reactive, ref, triggerRef, toRefs, watch } from 'vue'\n\
+const n = ref(0)\n\
+watch(n.value, () => {})\n\
+triggerRef(reactive({ n: 1 }))\n\
+toRefs({ a: 1 })\n\
+void reactive(0)\n\
+</script>\n\
+<template><p /></template>\n";
+  let replaced = "<script setup lang=\"ts\">\n\
+import { reactive, watch } from 'vue'\n\
+const obj = reactive({ nested: { x: 1 } })\n\
+watch(obj.nested, () => {})\n\
+obj.nested = { x: 9 }\n\
+</script>\n\
+<template><p /></template>\n";
+  std::fs::write(root.join("App.vue"), source).unwrap_or_else(|error| panic!("write: {error}"));
+  std::fs::write(root.join("Replace.vue"), replaced)
+    .unwrap_or_else(|error| panic!("write replace: {error}"));
+  let session = open_session_threads(root.clone(), 1);
+  let cold = session.analyze().unwrap_or_else(|error| panic!("cold: {error}"));
+  let contract_count = cold
+    .summary
+    .diagnostics
+    .iter()
+    .filter(|diagnostic| {
+      diagnostic.rule_id.contains("trigger-ref")
+        || diagnostic.rule_id.contains("torefs")
+        || diagnostic.rule_id.contains("primitive-reactive")
+        || diagnostic.rule_id.contains("watch-unwrapped")
+        || diagnostic.rule_id.contains("watch-replaced")
+    })
+    .count();
+  assert!(
+    contract_count >= 5,
+    "cold scan must emit the five source-contract IDs; {:?}",
+    cold.summary.diagnostics
+  );
+  session
+    .apply_changes(ChangeSet::upsert(root.join("App.vue"), source.into()))
+    .unwrap_or_else(|error| panic!("touch: {error}"));
+  let warm = session.analyze_affected().unwrap_or_else(|error| panic!("warm: {error}"));
+  let clean = open_session_threads(root.clone(), 1)
+    .analyze()
+    .unwrap_or_else(|error| panic!("clean: {error}"));
+  assert_analysis_parity(&warm, &clean);
+  let _ignored = std::fs::remove_dir_all(root);
+}

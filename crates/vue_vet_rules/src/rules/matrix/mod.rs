@@ -571,6 +571,15 @@ impl Rule for PathologyRule {
         if !scope.reads.is_empty() || !scope_coverage_complete(scope) {
           return;
         }
+        if let Some(block) = script_block(context.script(), block_kind)
+          && block
+            .source_contracts
+            .watch_unwrapped_source
+            .iter()
+            .any(|site| span_contains(scope.span, site.span))
+        {
+          return;
+        }
         let (message, help) = absence_finding(
           "`watch` sources do not read any reactive dependency",
           "`watch` sources do not read any known reactive dependency",
@@ -607,6 +616,12 @@ fn primary_writes_by_canonical_target<'a>(
 
 const fn scope_coverage_complete(scope: &TrackingScopeFact) -> bool {
   scope.unknown_calls.is_empty() && scope.uncertain_accesses.is_empty() && !scope.follow_truncated
+}
+
+const fn span_contains(outer: vue_vet_core::SourceSpan, inner: vue_vet_core::SourceSpan) -> bool {
+  let inner_end = inner.offset.saturating_add(inner.length);
+  let outer_end = outer.offset.saturating_add(outer.length);
+  inner.offset >= outer.offset && inner_end <= outer_end
 }
 
 fn prefer_watch_help(scope: &TrackingScopeFact, block: &ScriptBlockFacts, path: &str) -> String {

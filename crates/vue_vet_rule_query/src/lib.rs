@@ -59,6 +59,7 @@ mod tests {
       destructures: Vec::new(),
       top_level_await_ends: await_ends,
       operands: Vec::new(),
+      source_contracts: vue_vet_core::SourceContractFacts::default(),
       reactivity_graph: Arc::new(graph),
     }
   }

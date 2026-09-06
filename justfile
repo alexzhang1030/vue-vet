@@ -45,6 +45,10 @@ oracle:
 oracle-self-trigger:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node self-trigger-runs.mjs
 
+# Vue 3.5.40 source-contract premises (issue #224). Locked oracle Vue pin.
+oracle-source-contracts:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node source-contracts.mjs
+
 # Run all non-mutating Rust linters.
 lint-rust: fmt-check check clippy
 
