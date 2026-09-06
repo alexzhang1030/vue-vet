@@ -57,6 +57,22 @@ backends. Template AST stays on `vize_atelier_core`. Do not depend on
 (ubugeeei-prod/vize#4566). Re-add a CSS-engine crate only if a rule needs
 LightningCSS AST spans.
 
+## Vue Vapor migration research
+
+Vue Vapor component-migration work is research-only at this pin. The public
+record is [docs/research/vapor-migration.md](../../docs/research/vapor-migration.md);
+rerunnable Node oracles live under `research/vapor-migration` and stay out of
+the Rust engine. The audited identity is the exact `vue` /
+`@vue/compiler-sfc` / `@vue/compiler-vapor` / `@vue/runtime-vapor`
+**3.6.0-rc.7** plus `@vitejs/plugin-vue@6.0.8` tuple. Later Vue 3.6 releases
+stay gated on a re-audit of that identity. Published
+`@vue/compiler-sfc@3.5.42` has no Vapor compiler and is a specific blocker for
+that toolchain; other unmatched versions are unsupported or need verification.
+Shipped CLI modes and rules stay at delta 0. Analysis remains on
+`vize_croquis` / `vize_atelier_core` without `vize_atelier_vapor`. The product
+Vue 3.5.40 reactivity oracle is unchanged. Opt-in, completeness, and aggregate
+verdicts are assessment fields.
+
 ## oxc_resolver owns bundler module resolution
 
 Cross-file import edges in `vue_vet_project` resolve through exact-pinned

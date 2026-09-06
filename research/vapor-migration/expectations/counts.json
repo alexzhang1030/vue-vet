@@ -1,0 +1,27 @@
+{
+  "auditedTuple": {
+    "vue": "3.6.0-rc.7",
+    "compilerSfc": "3.6.0-rc.7",
+    "compilerVapor": "3.6.0-rc.7",
+    "runtimeVapor": "3.6.0-rc.7",
+    "pluginVue": "6.0.8",
+    "coreCommit": "4b2f1914e8a6da7218955593b8bc2ba5db2c6dce",
+    "pluginVueCommit": "d8ff7d0e8f557a7c1975c07b30e232c69bdbbc03"
+  },
+  "compile": {
+    "sourceFixtures": 16,
+    "clientModes": 4,
+    "ssrRows": 2,
+    "compileRows": 66
+  },
+  "runtime": {
+    "fixturePairs": 5,
+    "checkpoints": 38,
+    "note": "Each step or teardown in each of vdom and vapor is one checkpoint. Multi-selector expects inside a step stay one checkpoint."
+  },
+  "knownBlocker": {
+    "package": "@vue/compiler-sfc",
+    "version": "3.5.42",
+    "verdict": "blocked"
+  }
+}
