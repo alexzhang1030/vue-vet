@@ -84,8 +84,7 @@ impl ProgressModel {
         self.phase = "Checking rules";
         self.has_counter = true;
         self.total = (*total).max(self.total);
-        let clamped_total = self.total;
-        let next = (*done).min(clamped_total);
+        let next = (*done).min(self.total);
         if next > self.done {
           self.done = next;
         }
@@ -188,42 +187,31 @@ pub const fn spinner_frame(ticks: u64) -> char {
   }
 }
 
-fn compact_phase(phase: &str) -> &str {
+struct PhaseNames<'a> {
+  full: &'a str,
+  compact: &'a str,
+  short: &'a str,
+}
+
+fn phase_names(phase: &str) -> PhaseNames<'_> {
   match phase {
-    "Discovering workspace" => "Discovering",
-    "Parsing files" => "Parsing",
-    "Building project graph" => "Building graph",
-    "Resolving dependencies" => "Resolving",
-    "Checking rules" => "Rules",
-    "Checking cache" => "Cache",
-    "Cache hit" => "Cache hit",
-    "Saving cache" => "Saving",
-    "Writing report" => "Report",
-    other => other,
+    "Discovering workspace" => {
+      PhaseNames { full: "Discovering workspace", compact: "Discovering", short: "Discover" }
+    }
+    "Parsing files" => PhaseNames { full: "Parsing files", compact: "Parsing", short: "Parse" },
+    "Building project graph" => {
+      PhaseNames { full: "Building project graph", compact: "Building graph", short: "Graph" }
+    }
+    "Resolving dependencies" => {
+      PhaseNames { full: "Resolving dependencies", compact: "Resolving", short: "Resolve" }
+    }
+    "Checking rules" => PhaseNames { full: "Checking rules", compact: "Rules", short: "Rules" },
+    "Checking cache" => PhaseNames { full: "Checking cache", compact: "Cache", short: "Cache" },
+    "Cache hit" => PhaseNames { full: "Cache hit", compact: "Cache hit", short: "Hit" },
+    "Saving cache" => PhaseNames { full: "Saving cache", compact: "Saving", short: "Save" },
+    "Writing report" => PhaseNames { full: "Writing report", compact: "Report", short: "Report" },
+    other => PhaseNames { full: other, compact: other, short: other },
   }
-}
-
-fn short_phase(phase: &str) -> &str {
-  match phase {
-    "Discovering workspace" | "Discovering" => "Discover",
-    "Parsing files" | "Parsing" => "Parse",
-    "Building project graph" | "Building graph" => "Graph",
-    "Resolving dependencies" | "Resolving" => "Resolve",
-    "Checking rules" | "Rules" => "Rules",
-    "Checking cache" | "Cache" => "Cache",
-    "Cache hit" => "Hit",
-    "Saving cache" | "Saving" => "Save",
-    "Writing report" | "Report" => "Report",
-    other => other,
-  }
-}
-
-fn join_status(parts: &[&str]) -> String {
-  parts.join(" ")
-}
-
-fn fits(line: &str, budget: usize) -> bool {
-  line.chars().count() <= budget
 }
 
 /// Pack a live status line into `width` columns. Never includes a filename,
@@ -242,70 +230,107 @@ pub fn render_status_line(
   }
   let elapsed = format_elapsed(elapsed);
   let count = counter.map(|(done, total)| format!("{done}/{total}"));
-  let spin = spinner.to_string();
-  let compact = compact_phase(phase);
-  let short = short_phase(phase);
-  let count_ref = count.as_deref();
-
-  let mut candidates = Vec::new();
-  push_candidate(&mut candidates, true, &spin, phase, count_ref, &elapsed);
-  if compact != phase {
-    push_candidate(&mut candidates, true, &spin, compact, count_ref, &elapsed);
+  let count = count.as_deref();
+  let names = phase_names(phase);
+  if let Some(line) = pack(budget, true, spinner, names.full, count, &elapsed) {
+    return line;
   }
-  push_candidate(&mut candidates, false, &spin, compact, count_ref, &elapsed);
-  if short != compact {
-    push_candidate(&mut candidates, false, &spin, short, count_ref, &elapsed);
+  if names.compact != names.full
+    && let Some(line) = pack(budget, true, spinner, names.compact, count, &elapsed)
+  {
+    return line;
   }
-  if count_ref.is_some() {
-    push_candidate(&mut candidates, false, &spin, compact, None, &elapsed);
-    if short != compact {
-      push_candidate(&mut candidates, false, &spin, short, None, &elapsed);
+  if let Some(line) = pack(budget, false, spinner, names.compact, count, &elapsed) {
+    return line;
+  }
+  if names.short != names.compact
+    && let Some(line) = pack(budget, false, spinner, names.short, count, &elapsed)
+  {
+    return line;
+  }
+  if count.is_some() {
+    if let Some(line) = pack(budget, false, spinner, names.compact, None, &elapsed) {
+      return line;
+    }
+    if names.short != names.compact
+      && let Some(line) = pack(budget, false, spinner, names.short, None, &elapsed)
+    {
+      return line;
     }
   }
-  candidates.push(join_status(&[&spin, &elapsed]));
-  candidates.push(spin.clone());
-
-  for candidate in candidates {
-    if fits(&candidate, budget) {
-      return candidate;
-    }
+  let spin_elapsed = format!("{spinner} {elapsed}");
+  if spin_elapsed.chars().count() <= budget {
+    return spin_elapsed;
   }
-  truncate_cols(&spin, budget)
+  spinner.to_string()
 }
 
-fn push_candidate(
-  candidates: &mut Vec<String>,
+fn pack(
+  budget: usize,
   brand: bool,
-  spinner: &str,
+  spinner: char,
   phase: &str,
   count: Option<&str>,
   elapsed: &str,
-) {
+) -> Option<String> {
   let mut parts = Vec::new();
   if brand {
     parts.push("vue-vet");
   }
-  parts.push(spinner);
+  let spin = spinner.to_string();
+  parts.push(spin.as_str());
   parts.push(phase);
   if let Some(count) = count {
     parts.push(count);
   }
   parts.push(elapsed);
-  candidates.push(join_status(&parts));
+  let line = parts.join(" ");
+  (line.chars().count() <= budget).then_some(line)
 }
 
-fn truncate_cols(text: &str, width: usize) -> String {
-  if width == 0 {
-    return String::new();
+trait StatusIo: Send + Sync {
+  fn paint(&self, line: &str) -> bool;
+  fn clear(&self);
+  fn write_line(&self, line: &str);
+}
+
+struct StderrIo;
+
+impl StatusIo for StderrIo {
+  fn paint(&self, line: &str) -> bool {
+    use ratatui::crossterm::{
+      QueueableCommand,
+      cursor::MoveToColumn,
+      terminal::{Clear, ClearType},
+    };
+    let mut stderr = io::stderr();
+    stderr
+      .queue(MoveToColumn(0))
+      .and_then(|out| out.queue(Clear(ClearType::UntilNewLine)))
+      .and_then(|out| out.write_all(line.as_bytes()))
+      .and_then(|()| stderr.flush())
+      .is_ok()
   }
-  let mut output = String::new();
-  for (index, ch) in text.chars().enumerate() {
-    if index >= width {
-      break;
-    }
-    output.push(ch);
+
+  fn clear(&self) {
+    use ratatui::crossterm::{
+      QueueableCommand,
+      cursor::MoveToColumn,
+      terminal::{Clear, ClearType},
+    };
+    let mut stderr = io::stderr();
+    drop(
+      stderr
+        .queue(MoveToColumn(0))
+        .and_then(|out| out.queue(Clear(ClearType::UntilNewLine)))
+        .and_then(Write::flush),
+    );
   }
-  output
+
+  fn write_line(&self, line: &str) {
+    let mut stderr = io::stderr();
+    drop(writeln!(stderr, "{line}"));
+  }
 }
 
 struct LiveState {
@@ -315,11 +340,21 @@ struct LiveState {
   painted: bool,
 }
 
+struct LiveRuntime {
+  shared: Arc<Mutex<LiveState>>,
+  stop: Arc<AtomicBool>,
+  sink: Arc<dyn StatusIo>,
+  width: Option<usize>,
+  delay: Duration,
+  refresh: Duration,
+}
+
 pub struct ProgressController {
   style: ProgressStyle,
   shared: Option<Arc<Mutex<LiveState>>>,
   stop: Arc<AtomicBool>,
   worker: Option<JoinHandle<()>>,
+  sink: Option<Arc<dyn StatusIo>>,
   reporter: Option<ProgressReporter>,
 }
 
@@ -327,54 +362,83 @@ impl ProgressController {
   #[must_use]
   pub fn start(style: ProgressStyle) -> Self {
     match style {
-      ProgressStyle::Silent => Self {
-        style,
-        shared: None,
-        stop: Arc::new(AtomicBool::new(true)),
-        worker: None,
-        reporter: None,
-      },
-      ProgressStyle::Plain => {
-        let model = Arc::new(Mutex::new(ProgressModel::default()));
-        let reporter = ProgressReporter::new(move |event: &ProgressEvent| {
-          let Ok(mut model) = model.lock() else {
-            return;
-          };
-          if let PlainLog::Line(line) = model.apply(event) {
-            write_stderr_line(&line);
-          }
-        });
-        Self {
-          style,
-          shared: None,
-          stop: Arc::new(AtomicBool::new(true)),
-          worker: None,
-          reporter: Some(reporter),
-        }
+      ProgressStyle::Silent => Self::silent(),
+      ProgressStyle::Plain => Self::plain(Arc::new(StderrIo)),
+      ProgressStyle::Live => Self::live(Arc::new(StderrIo), None, INITIAL_DELAY, REFRESH),
+    }
+  }
+
+  fn silent() -> Self {
+    Self {
+      style: ProgressStyle::Silent,
+      shared: None,
+      stop: Arc::new(AtomicBool::new(true)),
+      worker: None,
+      sink: None,
+      reporter: None,
+    }
+  }
+
+  fn plain(sink: Arc<dyn StatusIo>) -> Self {
+    let model = Arc::new(Mutex::new(ProgressModel::default()));
+    let writer = Arc::clone(&sink);
+    let reporter = ProgressReporter::new(move |event: &ProgressEvent| {
+      let Ok(mut model) = model.lock() else {
+        return;
+      };
+      if let PlainLog::Line(line) = model.apply(event) {
+        writer.write_line(&line);
       }
-      ProgressStyle::Live => {
-        let shared = Arc::new(Mutex::new(LiveState {
-          model: ProgressModel::default(),
-          started: Instant::now(),
-          ticks: 0,
-          painted: false,
-        }));
-        let stop = Arc::new(AtomicBool::new(false));
-        let for_reporter = Arc::clone(&shared);
-        let reporter = ProgressReporter::new(move |event: &ProgressEvent| {
-          let Ok(mut state) = for_reporter.lock() else {
-            return;
-          };
-          let _ = state.model.apply(event);
-        });
-        let worker_state = Arc::clone(&shared);
-        let worker_stop = Arc::clone(&stop);
-        let worker = thread::Builder::new()
-          .name("vue-vet-progress".into())
-          .spawn(move || live_refresh_loop(&worker_state, &worker_stop))
-          .ok();
-        Self { style, shared: Some(shared), stop, worker, reporter: Some(reporter) }
-      }
+    });
+    Self {
+      style: ProgressStyle::Plain,
+      shared: None,
+      stop: Arc::new(AtomicBool::new(true)),
+      worker: None,
+      sink: Some(sink),
+      reporter: Some(reporter),
+    }
+  }
+
+  fn live(
+    sink: Arc<dyn StatusIo>,
+    width: Option<usize>,
+    delay: Duration,
+    refresh: Duration,
+  ) -> Self {
+    let shared = Arc::new(Mutex::new(LiveState {
+      model: ProgressModel::default(),
+      started: Instant::now(),
+      ticks: 0,
+      painted: false,
+    }));
+    let stop = Arc::new(AtomicBool::new(false));
+    let for_reporter = Arc::clone(&shared);
+    let reporter = ProgressReporter::new(move |event: &ProgressEvent| {
+      let Ok(mut state) = for_reporter.lock() else {
+        return;
+      };
+      let _ = state.model.apply(event);
+    });
+    let runtime = LiveRuntime {
+      shared: Arc::clone(&shared),
+      stop: Arc::clone(&stop),
+      sink: Arc::clone(&sink),
+      width,
+      delay,
+      refresh,
+    };
+    let worker = thread::Builder::new()
+      .name("vue-vet-progress".into())
+      .spawn(move || live_refresh_loop(&runtime))
+      .ok();
+    Self {
+      style: ProgressStyle::Live,
+      shared: Some(shared),
+      stop,
+      worker,
+      sink: Some(sink),
+      reporter: Some(reporter),
     }
   }
 
@@ -400,7 +464,9 @@ impl ProgressController {
       && let Ok(mut state) = shared.lock()
       && state.painted
     {
-      clear_status_line();
+      if let Some(sink) = &self.sink {
+        sink.clear();
+      }
       state.painted = false;
     }
     self.reporter = None;
@@ -413,21 +479,21 @@ impl Drop for ProgressController {
   }
 }
 
-fn live_refresh_loop(shared: &Arc<Mutex<LiveState>>, stop: &Arc<AtomicBool>) {
+fn live_refresh_loop(runtime: &LiveRuntime) {
   let origin = Instant::now();
-  while !stop.load(Ordering::Relaxed) {
-    park_until(stop, REFRESH);
-    if stop.load(Ordering::Relaxed) {
+  while !runtime.stop.load(Ordering::Relaxed) {
+    park_until(&runtime.stop, runtime.refresh);
+    if runtime.stop.load(Ordering::Relaxed) {
       break;
     }
-    if origin.elapsed() < INITIAL_DELAY {
+    if origin.elapsed() < runtime.delay {
       continue;
     }
-    let Ok(mut state) = shared.lock() else {
+    let Ok(mut state) = runtime.shared.lock() else {
       continue;
     };
     state.ticks = state.ticks.saturating_add(1);
-    let width = terminal_width();
+    let width = runtime.width.unwrap_or_else(terminal_width);
     let line = render_status_line(
       width,
       spinner_frame(state.ticks),
@@ -435,7 +501,7 @@ fn live_refresh_loop(shared: &Arc<Mutex<LiveState>>, stop: &Arc<AtomicBool>) {
       state.model.counter(),
       state.started.elapsed(),
     );
-    if paint_status_line(&line) {
+    if runtime.sink.paint(&line) {
       state.painted = true;
     }
   }
@@ -467,44 +533,89 @@ pub fn resolve_terminal_width(reported_cols: Option<u16>, columns_env: Option<us
   columns_env.filter(|width| *width > 0).unwrap_or(DEFAULT_WIDTH)
 }
 
-fn paint_status_line(line: &str) -> bool {
-  use ratatui::crossterm::{
-    QueueableCommand,
-    cursor::MoveToColumn,
-    terminal::{Clear, ClearType},
-  };
-  let mut stderr = io::stderr();
-  let queued = stderr
-    .queue(MoveToColumn(0))
-    .and_then(|out| out.queue(Clear(ClearType::UntilNewLine)))
-    .and_then(|out| out.write_all(line.as_bytes()))
-    .and_then(|()| stderr.flush());
-  queued.is_ok()
-}
-
-fn clear_status_line() {
-  use ratatui::crossterm::{
-    QueueableCommand,
-    cursor::MoveToColumn,
-    terminal::{Clear, ClearType},
-  };
-  let mut stderr = io::stderr();
-  drop(
-    stderr
-      .queue(MoveToColumn(0))
-      .and_then(|out| out.queue(Clear(ClearType::UntilNewLine)))
-      .and_then(Write::flush),
-  );
-}
-
-fn write_stderr_line(line: &str) {
-  let mut stderr = io::stderr();
-  drop(writeln!(stderr, "{line}"));
-}
-
 #[cfg(test)]
 mod tests {
   use super::*;
+  use std::sync::{Condvar, MutexGuard};
+
+  #[derive(Clone)]
+  struct RecordingIo {
+    ops: Arc<Mutex<Vec<IoOp>>>,
+    paints: Arc<Mutex<usize>>,
+    painted: Arc<Condvar>,
+    paint_ok: bool,
+  }
+
+  #[derive(Clone, Debug, Eq, PartialEq)]
+  enum IoOp {
+    Paint(String),
+    Clear,
+    Line(String),
+  }
+
+  impl RecordingIo {
+    fn new() -> Self {
+      Self::with_paint_ok(true)
+    }
+
+    fn failing() -> Self {
+      Self::with_paint_ok(false)
+    }
+
+    fn with_paint_ok(paint_ok: bool) -> Self {
+      Self {
+        ops: Arc::new(Mutex::new(Vec::new())),
+        paints: Arc::new(Mutex::new(0)),
+        painted: Arc::new(Condvar::new()),
+        paint_ok,
+      }
+    }
+
+    fn ops(&self) -> Vec<IoOp> {
+      lock(&self.ops).clone()
+    }
+
+    fn wait_paints(&self, count: usize) {
+      let deadline = Instant::now() + Duration::from_secs(5);
+      let mut paints = lock(&self.paints);
+      while *paints < count {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        assert!(!remaining.is_zero(), "timed out waiting for {count} paints (have {})", *paints);
+        let (guard, wait) = match self.painted.wait_timeout(paints, remaining) {
+          Ok(result) => result,
+          Err(error) => error.into_inner(),
+        };
+        paints = guard;
+        assert!(
+          !wait.timed_out() || *paints >= count,
+          "timed out waiting for {count} paints (have {})",
+          *paints
+        );
+      }
+      drop(paints);
+    }
+  }
+
+  impl StatusIo for RecordingIo {
+    fn paint(&self, line: &str) -> bool {
+      lock(&self.ops).push(IoOp::Paint(line.to_owned()));
+      *lock(&self.paints) += 1;
+      self.painted.notify_all();
+      self.paint_ok
+    }
+
+    fn clear(&self) {
+      lock(&self.ops).push(IoOp::Clear);
+    }
+
+    fn write_line(&self, line: &str) {
+      lock(&self.ops).push(IoOp::Line(line.to_owned()));
+    }
+  }
+
+  fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+  }
 
   fn assert_status(width: usize, phase: &str, counter: Option<(usize, usize)>, elapsed: Duration) {
     let line = render_status_line(width, '/', phase, counter, elapsed);
@@ -566,6 +677,30 @@ mod tests {
   }
 
   #[test]
+  fn status_line_formats_hours_and_remaining_phases() {
+    let long =
+      render_status_line(80, '|', "Resolving dependencies", None, Duration::from_secs(3661));
+    assert!(long.contains("1:01:01"), "{long}");
+    assert!(long.contains("Resolving dependencies"), "{long}");
+    for phase in [
+      "Discovering workspace",
+      "Parsing files",
+      "Checking cache",
+      "Cache hit",
+      "Saving cache",
+      "Writing report",
+    ] {
+      let line = render_status_line(36, '/', phase, None, Duration::from_secs(5));
+      assert!(line.contains("0:05"), "{phase} -> {line}");
+      assert!(!line.is_empty(), "{phase}");
+    }
+    assert_eq!(spinner_frame(0), '|');
+    assert_eq!(spinner_frame(1), '/');
+    assert_eq!(spinner_frame(2), '-');
+    assert_eq!(spinner_frame(3), '\\');
+  }
+
+  #[test]
   fn terminal_width_prefers_real_nonzero_size_over_columns() {
     assert_eq!(resolve_terminal_width(Some(4), Some(80)), 4);
     assert_eq!(resolve_terminal_width(Some(36), Some(80)), 36);
@@ -603,6 +738,11 @@ mod tests {
     assert!(matches!(model.apply(&ProgressEvent::Discovering), PlainLog::Line(_)));
     assert!(matches!(model.apply(&ProgressEvent::BuildingGraph), PlainLog::Line(_)));
     assert_eq!(model.apply(&ProgressEvent::BuildingGraph), PlainLog::Skip);
+    let _ = model.apply(&ProgressEvent::CheckingCache);
+    let _ = model.apply(&ProgressEvent::CacheHit);
+    let _ = model.apply(&ProgressEvent::SavingCache);
+    let _ = model.apply(&ProgressEvent::LoadingExternalSeeds { roots: 2 });
+    let _ = model.apply(&ProgressEvent::WritingReport);
     let _ = model.apply(&ProgressEvent::RunningRules { files: 50 });
     let mut lines = 0_u32;
     for done in 1..=50 {
@@ -617,5 +757,97 @@ mod tests {
   fn silent_controller_has_no_reporter() {
     let controller = ProgressController::start(ProgressStyle::Silent);
     assert!(controller.reporter().is_none());
+    assert_eq!(detect_style(false), ProgressStyle::Silent);
+  }
+
+  #[test]
+  fn live_heartbeat_repeats_without_new_events_then_clears() {
+    let sink = RecordingIo::new();
+    let mut progress = ProgressController::live(
+      Arc::new(sink.clone()),
+      Some(80),
+      Duration::ZERO,
+      Duration::from_millis(15),
+    );
+    progress.emit(&ProgressEvent::BuildingGraph);
+    sink.wait_paints(2);
+    progress.stop();
+    sink.write_line("vue-vet: writing report");
+    let ops = sink.ops();
+    let paints: Vec<_> = ops
+      .iter()
+      .filter_map(|op| match op {
+        IoOp::Paint(line) => Some(line.as_str()),
+        IoOp::Clear | IoOp::Line(_) => None,
+      })
+      .collect();
+    assert!(paints.len() >= 2, "timer must emit at least two frames: {ops:?}");
+    if let (Some(first), Some(second)) = (paints.first(), paints.get(1)) {
+      assert!(first.contains("Building"), "{first}");
+      assert!(second.contains("Building"), "{second}");
+      assert_ne!(first, second, "spinner or elapsed should advance: {paints:?}");
+    }
+    let clear_at = ops.iter().position(|op| matches!(op, IoOp::Clear));
+    let report_at =
+      ops.iter().position(|op| matches!(op, IoOp::Line(line) if line == "vue-vet: writing report"));
+    assert!(
+      matches!((clear_at, report_at), (Some(clear), Some(report)) if clear < report),
+      "clear must precede the simulated report: {ops:?}"
+    );
+    if let Some(clear) = clear_at {
+      assert!(
+        !ops.iter().skip(clear.saturating_add(1)).any(|op| matches!(op, IoOp::Paint(_))),
+        "no paints after clear: {ops:?}"
+      );
+    }
+  }
+
+  #[test]
+  fn live_stop_joins_without_a_tick() {
+    let sink = RecordingIo::new();
+    let mut progress = ProgressController::live(
+      Arc::new(sink.clone()),
+      Some(80),
+      Duration::ZERO,
+      Duration::from_secs(5),
+    );
+    progress.stop();
+    assert!(sink.ops().is_empty(), "prompt shutdown must not paint: {:?}", sink.ops());
+  }
+
+  #[test]
+  fn live_failed_paints_do_not_clear() {
+    let sink = RecordingIo::failing();
+    let mut progress = ProgressController::live(
+      Arc::new(sink.clone()),
+      Some(80),
+      Duration::ZERO,
+      Duration::from_millis(15),
+    );
+    progress.emit(&ProgressEvent::BuildingGraph);
+    sink.wait_paints(1);
+    progress.stop();
+    let ops = sink.ops();
+    assert!(ops.iter().any(|op| matches!(op, IoOp::Paint(_))), "{ops:?}");
+    assert!(!ops.iter().any(|op| matches!(op, IoOp::Clear)), "{ops:?}");
+  }
+
+  #[test]
+  fn plain_controller_writes_phase_lines_through_sink() {
+    let sink = RecordingIo::new();
+    let mut progress = ProgressController::plain(Arc::new(sink.clone()));
+    progress.emit(&ProgressEvent::Discovering);
+    progress.emit(&ProgressEvent::BuildingGraph);
+    progress.emit(&ProgressEvent::BuildingGraph);
+    progress.emit(&ProgressEvent::CheckingCache);
+    progress.stop();
+    assert_eq!(
+      sink.ops(),
+      vec![
+        IoOp::Line("vue-vet: discovering workspace".into()),
+        IoOp::Line("vue-vet: building project graph".into()),
+        IoOp::Line("vue-vet: checking cache".into()),
+      ]
+    );
   }
 }
