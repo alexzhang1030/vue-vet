@@ -170,6 +170,15 @@ pack-platform:
 native-size:
   python3 scripts/native_size.py
 
+# Artifact-mode budget check. Pass the built binary, Rust triple, and budget file.
+native-size-check binary target budget="fixtures/quality/native-size-budget.json":
+  python3 scripts/native_size.py --binary {{quote(binary)}} --target {{quote(target)}} --budget-file {{quote(budget)}} --json
+
+# Focused native-size script tests (no fat-LTO).
+native-size-test:
+  python3 scripts/native_size.py --help >/dev/null
+  python3 scripts/test_native_size.py
+
 # Smoke the host release binary (--version + fixture scan).
 release-smoke:
   #!/usr/bin/env bash

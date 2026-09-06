@@ -34,6 +34,18 @@ binding, `prefer-computed`, and `no-computed-without-dependency` quiet.
 `ConditionalWatch.vue` is Vue dynamic-dependency evidence only; the withdrawn
 conditional-dep IDs are no longer in the catalog.
 
+## Native binary size budget
+
+CI (`pkg.pr.new` matrix) measures the stripped `vue-vet` file already produced by
+`cargo build --release --target` and compares `file_bytes` plus a gzip-9
+**compression proxy** (mtime 0, no filename) to
+[`fixtures/quality/native-size-budget.json`](../fixtures/quality/native-size-budget.json).
+That gzip figure is not the GitHub `.tar.gz`/`.zip` and not the npm tarball.
+Maxima are ceil(candidate bytes * 1.03) for the `fa2debc` matrix binaries (workflow run 34039577281);
+baseline rows are `2dabaad` (run 34034720314). Budget-only PRs retrigger the matrix
+via path filters on the script and JSON.
+Reproduce locally: `just native-size-check <binary> <rust-triple>`.
+
 ## Performance baselines (CodSpeed suite names)
 
 Stable benchmark names (do not rename without a new baseline rationale):
