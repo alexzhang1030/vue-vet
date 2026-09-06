@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-orphaned-scope-watcher",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-orphaned-scope-watcher",
+    "message": "`watchEffect` created after `await` inside `effectScope().run` is not owned by that scope",
+    "help": "Create the watcher synchronously, re-enter `scope.run` synchronously, or keep the stop handle (owner 4:15, run 11:1, await 6:3).",
+    "file": "fixtures/rules/no-orphaned-scope-watcher/invalid/named-run.vue",
+    "span": {
+      "offset": 179,
+      "length": 41,
+      "line": 7,
+      "column": 3
+    }
+  }
+]

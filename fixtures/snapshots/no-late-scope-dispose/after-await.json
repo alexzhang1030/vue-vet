@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-late-scope-dispose",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-late-scope-dispose",
+    "message": "`onScopeDispose` after `await` inside `effectScope().run` has no active scope",
+    "help": "Register `onScopeDispose` before `await`, or re-enter `scope.run` synchronously. Explicit `failSilently: true` stays quiet because Vue suppresses the runtime warning (callback 4:17, await 5:3, owner 3:15).",
+    "file": "fixtures/rules/no-late-scope-dispose/invalid/after-await.vue",
+    "span": {
+      "offset": 161,
+      "length": 24,
+      "line": 6,
+      "column": 3
+    }
+  }
+]

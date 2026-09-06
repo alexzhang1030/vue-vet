@@ -25,10 +25,14 @@ mod no_duplicate_define_expose;
 mod no_duplicate_define_options;
 mod no_duplicate_define_props;
 mod no_duplicate_define_slots;
+mod no_late_scope_dispose;
+mod no_late_watcher_cleanup;
 mod no_mutating_props;
 mod no_nonreactive_props_destructure;
+mod no_orphaned_scope_watcher;
 mod no_positive_tabindex;
 mod no_redundant_role;
+mod no_returned_watcher_cleanup;
 mod no_unused_reactive_binding;
 mod no_v_html;
 mod no_v_if_with_v_for;
@@ -51,6 +55,10 @@ pub fn builtins() -> Vec<&'static dyn Rule> {
     &img_has_alt::RULE,
     &label_has_for::RULE,
     &no_after_await_watch_effect_dependency::RULE,
+    &no_late_scope_dispose::RULE,
+    &no_late_watcher_cleanup::RULE,
+    &no_orphaned_scope_watcher::RULE,
+    &no_returned_watcher_cleanup::RULE,
     &no_aria_hidden_on_focusable::RULE,
     &no_autofocus::RULE,
     &no_deprecated_slot_scope::RULE,

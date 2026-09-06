@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-late-watcher-cleanup",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-late-watcher-cleanup",
+    "message": "`onWatcherCleanup` inside a deferred callback has no active `watchEffect` to associate with",
+    "help": "Register cleanup synchronously, or use the callback-bound `onCleanup` argument which stays valid after `await` (callback 4:13, boundary 6:3, registration 4:1).",
+    "file": "fixtures/rules/no-late-watcher-cleanup/invalid/promise-then.vue",
+    "span": {
+      "offset": 176,
+      "length": 26,
+      "line": 7,
+      "column": 5
+    }
+  }
+]

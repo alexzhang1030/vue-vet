@@ -19,6 +19,7 @@ use vue_vet_reactivity::oxc::{prepare_module_summary_with_config, trace_reactivi
 
 mod facts;
 mod jsx;
+mod lifetime;
 mod nuxt_config;
 mod template_expr;
 
@@ -144,6 +145,7 @@ pub fn analyze_module_source(
       destructures: node_facts.destructures,
       top_level_await_ends: node_facts.top_level_await_ends,
       operands: node_facts.operands,
+      lifetime: lifetime::collect(&semantic, &line_index, sfc_source, script_offset),
       reactivity_graph,
     },
     template_facts,

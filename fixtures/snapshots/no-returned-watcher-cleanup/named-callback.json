@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-returned-watcher-cleanup",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-returned-watcher-cleanup",
+    "message": "`watchEffect` ignores a returned function; it is not registered as watcher cleanup",
+    "help": "Register cleanup with `onCleanup(...)` or `onWatcherCleanup(...)` instead of returning a function from the callback (callback 4:1, registration 8:1).",
+    "file": "fixtures/rules/no-returned-watcher-cleanup/invalid/named-callback.vue",
+    "span": {
+      "offset": 130,
+      "length": 8,
+      "line": 6,
+      "column": 10
+    }
+  }
+]
