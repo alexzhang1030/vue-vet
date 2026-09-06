@@ -14,10 +14,10 @@ use oxc_ast::{
   ast::{Argument, Expression, IdentifierReference},
 };
 use oxc_semantic::NodeId;
-use oxc_span::{GetSpan, Span};
+use oxc_span::Span;
 use vue_vet_core::ScriptKind;
 
-use super::kinds::{resolved_vue_callee, span_contains};
+use super::{expr, kinds::resolved_vue_callee};
 
 /// True when `function_id` is a callback argument to a known **synchronously**
 /// invoked higher-order method (Array extras, etc.).
@@ -255,7 +255,7 @@ pub(super) fn scope_context(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
   member_id: NodeId,
-  member_span: Span,
+  _member_span: Span,
   imported_bindings: &BTreeMap<String, (String, String)>,
 ) -> Option<(bool, bool)> {
   let mut reached_scope = false;
@@ -283,10 +283,12 @@ pub(super) fn scope_context(
         }
         return None;
       }
-      AstKind::AssignmentExpression(assignment)
-        if assignment.operator.is_assign()
-          && span_contains(assignment.left.span(), member_span) =>
+      AstKind::AssignmentExpression(_)
+        if expr::member_is_write_only_assignment(semantic, member_id) =>
       {
+        // Only the assigned member itself is write-only. Nested objects/keys
+        // on the lvalue (`draft.value.params.x = …`) are gets. Assignment
+        // patterns (`[target.value] = …`) use Oxc target roles, not span equality.
         write_only = true;
       }
       _ => {}
@@ -304,7 +306,7 @@ pub(super) fn scope_context(
 pub(super) fn tracking_context_owner(
   semantic: &oxc_semantic::Semantic<'_>,
   node_id: NodeId,
-  span: Span,
+  _span: Span,
   imported_bindings: &BTreeMap<String, (String, String)>,
 ) -> Option<(NodeId, bool)> {
   let mut outside_tracking = false;
@@ -326,8 +328,8 @@ pub(super) fn tracking_context_owner(
         }
         return Some((ancestor_id, outside_tracking));
       }
-      AstKind::AssignmentExpression(assignment)
-        if assignment.operator.is_assign() && span_contains(assignment.left.span(), span) =>
+      AstKind::AssignmentExpression(_)
+        if expr::member_is_write_only_assignment(semantic, node_id) =>
       {
         write_only = true;
       }

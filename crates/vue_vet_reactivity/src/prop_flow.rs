@@ -212,6 +212,8 @@ mod tests {
         has_labelable_descendant: false,
         has_label_ancestor: false,
         has_accessible_name_ancestor: false,
+        object_bind_has_key: false,
+        is_component: false,
       }],
       expressions: Vec::new(),
     };
@@ -221,6 +223,7 @@ mod tests {
         kind: ReactiveBindingKind::Ref,
         initialized_with_null: false,
         alias_of: None,
+        alias_of_span: None,
         span: span(1),
       }],
       ..ReactivityGraph::default()
@@ -232,6 +235,7 @@ mod tests {
         kind: ReactiveBindingKind::Reactive,
         initialized_with_null: false,
         alias_of: None,
+        alias_of_span: None,
         span: span(2),
       }],
       ..ReactivityGraph::default()
@@ -283,6 +287,8 @@ mod tests {
       has_labelable_descendant: false,
       has_label_ancestor: false,
       has_accessible_name_ancestor: false,
+      object_bind_has_key: false,
+      is_component: false,
     };
     let second = TemplateElementFact {
       tag: "Child".into(),
@@ -301,6 +307,8 @@ mod tests {
       has_labelable_descendant: false,
       has_label_ancestor: false,
       has_accessible_name_ancestor: false,
+      object_bind_has_key: false,
+      is_component: false,
     };
     let parent_template = TemplateFacts { elements: vec![first, second], expressions: Vec::new() };
     let mut parent_graph = ReactivityGraph {
@@ -310,6 +318,7 @@ mod tests {
           kind: ReactiveBindingKind::Ref,
           initialized_with_null: false,
           alias_of: None,
+          alias_of_span: None,
           span: span(1),
         },
         ReactiveBindingFact {
@@ -317,6 +326,7 @@ mod tests {
           kind: ReactiveBindingKind::Ref,
           initialized_with_null: false,
           alias_of: None,
+          alias_of_span: None,
           span: span(2),
         },
       ],
@@ -329,6 +339,7 @@ mod tests {
         kind: ReactiveBindingKind::Reactive,
         initialized_with_null: false,
         alias_of: None,
+        alias_of_span: None,
         span: span(3),
       }],
       ..ReactivityGraph::default()
@@ -398,6 +409,8 @@ mod tests {
         has_labelable_descendant: false,
         has_label_ancestor: false,
         has_accessible_name_ancestor: false,
+        object_bind_has_key: false,
+        is_component: false,
       }],
       expressions: Vec::new(),
     };
@@ -408,6 +421,7 @@ mod tests {
           kind: ReactiveBindingKind::Ref,
           initialized_with_null: false,
           alias_of: None,
+          alias_of_span: None,
           span: span(1),
         },
         ReactiveBindingFact {
@@ -415,6 +429,7 @@ mod tests {
           kind: ReactiveBindingKind::Reactive,
           initialized_with_null: false,
           alias_of: None,
+          alias_of_span: None,
           span: span(2),
         },
       ],
@@ -427,6 +442,7 @@ mod tests {
         kind: ReactiveBindingKind::Reactive,
         initialized_with_null: false,
         alias_of: None,
+        alias_of_span: None,
         span: span(3),
       }],
       ..ReactivityGraph::default()
@@ -480,6 +496,8 @@ mod tests {
         has_labelable_descendant: false,
         has_label_ancestor: false,
         has_accessible_name_ancestor: false,
+        object_bind_has_key: false,
+        is_component: false,
       }],
       expressions: Vec::new(),
     };
@@ -489,6 +507,7 @@ mod tests {
         kind: ReactiveBindingKind::Reactive,
         initialized_with_null: false,
         alias_of: None,
+        alias_of_span: None,
         span: span(1),
       }],
       ..ReactivityGraph::default()
@@ -500,6 +519,7 @@ mod tests {
         kind: ReactiveBindingKind::Reactive,
         initialized_with_null: false,
         alias_of: None,
+        alias_of_span: None,
         span: span(2),
       }],
       ..ReactivityGraph::default()
@@ -551,6 +571,8 @@ mod tests {
         has_labelable_descendant: false,
         has_label_ancestor: false,
         has_accessible_name_ancestor: false,
+        object_bind_has_key: false,
+        is_component: false,
       }],
       expressions: Vec::new(),
     };
@@ -560,6 +582,7 @@ mod tests {
         kind: ReactiveBindingKind::Reactive,
         initialized_with_null: false,
         alias_of: None,
+        alias_of_span: None,
         span: span(1),
       }],
       ..ReactivityGraph::default()
@@ -571,6 +594,7 @@ mod tests {
         kind: ReactiveBindingKind::Reactive,
         initialized_with_null: false,
         alias_of: None,
+        alias_of_span: None,
         span: span(2),
       }],
       ..ReactivityGraph::default()
@@ -629,6 +653,8 @@ mod tests {
         has_labelable_descendant: false,
         has_label_ancestor: false,
         has_accessible_name_ancestor: false,
+        object_bind_has_key: false,
+        is_component: false,
       }],
       expressions: Vec::new(),
     };
@@ -638,6 +664,7 @@ mod tests {
         kind: ReactiveBindingKind::Reactive,
         initialized_with_null: false,
         alias_of: None,
+        alias_of_span: None,
         span: span(1),
       }],
       ..ReactivityGraph::default()
@@ -649,6 +676,7 @@ mod tests {
         kind: ReactiveBindingKind::Reactive,
         initialized_with_null: false,
         alias_of: None,
+        alias_of_span: None,
         span: span(2),
       }],
       ..ReactivityGraph::default()

@@ -10,8 +10,8 @@ use ignore::{DirEntry, WalkBuilder};
 use vue_vet_config::Config;
 use vue_vet_core::{FileId, PhysicalPath};
 use vue_vet_project::{
-  ContextChangeKind, ProjectContext, context_change_kind_for, project_context_from_inputs,
-  resolver_config_inputs,
+  ContextChangeKind, ProjectContext, context_change_kind_for, layer_input_relatives,
+  project_context_from_inputs, resolver_config_inputs,
 };
 
 use crate::{SessionError, discover_workspace_boundary, package_index::PackageIndex};
@@ -135,6 +135,7 @@ impl WorkspaceInputSnapshot {
     );
 
     sources.sort_by(|left, right| left.file_id.cmp(&right.file_id));
+    retain_layer_config_inputs(&boundary, &mut cache_inputs)?;
     cache_inputs.sort_by(|left, right| left.0.cmp(&right.0));
     cache_inputs.dedup_by(|left, right| left.0 == right.0);
     let analyzed_source_files = sources.iter().map(|source| source.file_id.clone()).collect();
@@ -238,6 +239,7 @@ impl WorkspaceInputSnapshot {
       affected_files.insert(file_id);
     }
     self.sources.sort_by(|left, right| left.file_id.cmp(&right.file_id));
+    retain_layer_config_inputs(&self.boundary, &mut self.cache_inputs)?;
     self.analyzed_source_files = self.sources.iter().map(|source| source.file_id.clone()).collect();
     self.cache_inputs.sort_by(|left, right| left.0.cmp(&right.0));
     if context_dirty {
@@ -274,6 +276,34 @@ impl WorkspaceInputSnapshot {
       self.package_index.insert(path, source);
     }
   }
+}
+
+fn retain_layer_config_inputs(
+  boundary: &Path,
+  cache_inputs: &mut Vec<(String, Arc<[u8]>)>,
+) -> Result<(), SessionError> {
+  for _ in 0..=8 {
+    let relatives = layer_input_relatives(
+      boundary,
+      cache_inputs.iter().map(|(path, bytes)| (path.as_str(), bytes.as_ref())),
+    );
+    let mut added = false;
+    for relative in relatives {
+      if cache_inputs.iter().any(|(existing, _)| existing == &relative) {
+        continue;
+      }
+      let path = boundary.join(&relative);
+      if !path.is_file() {
+        continue;
+      }
+      cache_inputs.push((relative, read_bytes(&path)?));
+      added = true;
+    }
+    if !added {
+      break;
+    }
+  }
+  Ok(())
 }
 
 /// Workspace-relative [`FileId`] for a physical path under `root` / `boundary`.
@@ -401,8 +431,12 @@ fn is_generated_resolver_input(file: &FileId) -> bool {
   matches!(file.as_str(), ".nuxt/components.d.ts" | ".nuxt/types/components.d.ts")
 }
 
+fn is_package_install_path(file: &FileId) -> bool {
+  file.as_str().split(['/', '\\']).any(|segment| segment == "node_modules")
+}
+
 fn source_kind(file: &FileId, extension: Option<&str>, include_vue: bool) -> Option<SourceKind> {
-  if is_generated_resolver_input(file) {
+  if is_generated_resolver_input(file) || is_package_install_path(file) {
     return None;
   }
   match extension {
@@ -456,6 +490,40 @@ mod tests {
         .iter()
         .any(|source| source.file_id.as_str() == "Good.vue" && !source.source.contains("v-html")),
       "failed mutation must not install the earlier overlay in the batch"
+    );
+    let _ignored = std::fs::remove_dir_all(root);
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "discovery fixture failures must fail the unit test")]
+  fn discover_enables_nuxt_content_from_package_and_config() {
+    let root =
+      std::env::temp_dir().join(format!("vue-vet-content-discover-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("app/components/content"))
+      .unwrap_or_else(|error| panic!("dirs: {error}"));
+    std::fs::write(
+      root.join("package.json"),
+      r#"{"private":true,"dependencies":{"nuxt":"4.0.0","@nuxt/content":"3.0.0"}}"#,
+    )
+    .unwrap_or_else(|error| panic!("package: {error}"));
+    std::fs::write(
+      root.join("nuxt.config.ts"),
+      "export default defineNuxtConfig({ modules: ['@nuxt/content'] })\n",
+    )
+    .unwrap_or_else(|error| panic!("config: {error}"));
+    std::fs::write(
+      root.join("app/components/content/GuidePanel.vue"),
+      "<template><span>Item</span></template>\n",
+    )
+    .unwrap_or_else(|error| panic!("panel: {error}"));
+    let snapshot = WorkspaceInputSnapshot::discover(&root, &Config::default(), &BTreeMap::new())
+      .unwrap_or_else(|error| panic!("discover: {error}"));
+    assert!(
+      snapshot.project_context.nuxt_content_roots.contains(""),
+      "cache inputs={:?} roots={:?} owners={:?}",
+      snapshot.cache_inputs.iter().map(|(path, _)| path.as_str()).collect::<Vec<_>>(),
+      snapshot.project_context.nuxt_content_roots,
+      snapshot.project_context.convention_owners
     );
     let _ignored = std::fs::remove_dir_all(root);
   }

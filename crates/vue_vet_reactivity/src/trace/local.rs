@@ -132,6 +132,7 @@ pub(super) fn collect_local_composable_usage(
             kind: *kind,
             initialized_with_null: false,
             alias_of: None,
+            alias_of_span: None,
             span: source_span(sfc_source, script_offset, identifier.span),
           });
         }
@@ -159,6 +160,7 @@ pub(super) fn collect_local_composable_usage(
               kind,
               initialized_with_null: false,
               alias_of: None,
+              alias_of_span: None,
               span: source_span(sfc_source, script_offset, span),
             });
           }
@@ -228,6 +230,7 @@ pub(super) fn seed_local_member_calls(
               kind,
               initialized_with_null: false,
               alias_of: None,
+              alias_of_span: None,
               span: source_span(sfc_source, script_offset, span),
             });
           }
@@ -245,6 +248,7 @@ pub(super) fn seed_local_member_calls(
           kind: *kind,
           initialized_with_null: false,
           alias_of: None,
+          alias_of_span: None,
           span: source_span(sfc_source, script_offset, identifier.span),
         });
       }

@@ -1,16 +1,17 @@
 //! Oxc node walks → Vue Vet script facts.
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use oxc_ast::{
   AstKind,
   ast::{
-    AssignmentTarget, BindingIdentifier, BindingPattern, Declaration, ExportDefaultDeclarationKind,
-    Expression, IdentifierReference, ImportDeclarationSpecifier, ModuleExportName,
-    SimpleAssignmentTarget,
+    AssignmentTarget, AssignmentTargetMaybeDefault, AssignmentTargetProperty, BindingIdentifier,
+    BindingPattern, CallExpression, Declaration, ExportDefaultDeclarationKind, Expression,
+    IdentifierReference, ImportDeclarationSpecifier, ImportOrExportKind, ModuleExportName,
+    ObjectPropertyKind, SimpleAssignmentTarget,
   },
 };
-use oxc_semantic::SymbolId;
-use oxc_span::Span;
+use oxc_semantic::{NodeId, SymbolId};
+use oxc_span::{GetSpan, Span};
 use vue_vet_core::{
   ScriptBindingFact, ScriptCallFact, ScriptDestructureFact, ScriptImportFact,
   ScriptMemberWriteFact, ScriptOperandFact, SourceSpan,
@@ -52,27 +53,32 @@ pub fn collect_import_facts(
     match node.kind() {
       AstKind::ImportDeclaration(declaration) => {
         let source = declaration.source.value.to_string();
+        let declaration_span = source_span(line_index, sfc_source, script_offset, declaration.span);
+        let declaration_type_only = declaration.import_kind == ImportOrExportKind::Type;
         let Some(specifiers) = &declaration.specifiers else {
           imports.push(ScriptImportFact {
             source,
             imported: String::new(),
             local: String::new(),
-            span: source_span(line_index, sfc_source, script_offset, declaration.span),
+            span: declaration_span,
+            type_only: declaration_type_only,
+            declaration_span,
           });
           continue;
         };
         for specifier in specifiers {
-          let (imported, local, span) = match specifier {
+          let (imported, local, span, specifier_type_only) = match specifier {
             ImportDeclarationSpecifier::ImportSpecifier(specifier) => (
               module_export_name(&specifier.imported),
               specifier.local.name.to_string(),
               specifier.span,
+              specifier.import_kind == ImportOrExportKind::Type,
             ),
             ImportDeclarationSpecifier::ImportDefaultSpecifier(specifier) => {
-              ("default".into(), specifier.local.name.to_string(), specifier.span)
+              ("default".into(), specifier.local.name.to_string(), specifier.span, false)
             }
             ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier) => {
-              ("*".into(), specifier.local.name.to_string(), specifier.span)
+              ("*".into(), specifier.local.name.to_string(), specifier.span, false)
             }
           };
           imported_bindings.insert(local.clone(), (source.clone(), imported.clone()));
@@ -81,6 +87,8 @@ pub fn collect_import_facts(
             imported,
             local,
             span: source_span(line_index, sfc_source, script_offset, span),
+            type_only: declaration_type_only || specifier_type_only,
+            declaration_span,
           });
         }
       }
@@ -88,11 +96,14 @@ pub fn collect_import_facts(
       // Structural linking treats these like imports so Factory/Composable seeds flow
       // through index barrels (specifier is what ModuleLink resolves).
       AstKind::ExportAllDeclaration(declaration) if declaration.exported.is_none() => {
+        let span = source_span(line_index, sfc_source, script_offset, declaration.span);
         imports.push(ScriptImportFact {
           source: declaration.source.value.to_string(),
           imported: "*".into(),
           local: String::new(),
-          span: source_span(line_index, sfc_source, script_offset, declaration.span),
+          span,
+          type_only: declaration.export_kind == ImportOrExportKind::Type,
+          declaration_span: span,
         });
       }
       AstKind::ExportNamedDeclaration(declaration) => {
@@ -100,12 +111,16 @@ pub fn collect_import_facts(
           continue;
         };
         let source = source.value.to_string();
+        let declaration_span = source_span(line_index, sfc_source, script_offset, declaration.span);
+        let declaration_type_only = declaration.export_kind == ImportOrExportKind::Type;
         if declaration.specifiers.is_empty() {
           imports.push(ScriptImportFact {
             source,
             imported: String::new(),
             local: String::new(),
-            span: source_span(line_index, sfc_source, script_offset, declaration.span),
+            span: declaration_span,
+            type_only: declaration_type_only,
+            declaration_span,
           });
           continue;
         }
@@ -115,6 +130,8 @@ pub fn collect_import_facts(
             imported: module_export_name(&specifier.local),
             local: module_export_name(&specifier.exported),
             span: source_span(line_index, sfc_source, script_offset, specifier.span),
+            type_only: declaration_type_only || specifier.export_kind == ImportOrExportKind::Type,
+            declaration_span,
           });
         }
       }
@@ -133,6 +150,7 @@ pub fn collect_binding_facts(
   script_offset: usize,
 ) -> Vec<ScriptBindingFact> {
   let exported_symbols = collect_exported_symbol_ids(semantic);
+  let escaped_symbols = collect_escaped_symbol_ids(semantic);
   let scoping = semantic.scoping();
   let mut bindings = scoping
     .symbol_ids()
@@ -144,18 +162,104 @@ pub fn collect_binding_facts(
           writes.saturating_add(usize::from(reference.is_write())),
         )
       });
+      let exported = exported_symbols.contains(&symbol_id);
       ScriptBindingFact {
         name: scoping.symbol_name(symbol_id).into(),
         reads,
         writes,
         span: source_span(line_index, sfc_source, script_offset, scoping.symbol_span(symbol_id)),
-        exported: exported_symbols.contains(&symbol_id),
+        exported,
+        plain_initializer: symbol_has_plain_initializer(semantic, symbol_id),
+        escaped: exported || escaped_symbols.contains(&symbol_id),
       }
     })
     .collect::<Vec<_>>();
   // Symbol iteration order is not a source-order contract.
   bindings.sort_by_key(|fact| fact.span.offset);
   bindings
+}
+
+fn collect_escaped_symbol_ids(semantic: &oxc_semantic::Semantic<'_>) -> BTreeSet<SymbolId> {
+  let mut symbols = BTreeSet::new();
+  for node in semantic.nodes() {
+    match node.kind() {
+      AstKind::ObjectProperty(property) => {
+        if let Some(identifier) = property.value.get_identifier_reference() {
+          collect_referenced_symbol_id(semantic, identifier, &mut symbols);
+        }
+      }
+      AstKind::ArrayExpression(array) => {
+        for element in &array.elements {
+          let Some(expression) = element.as_expression() else {
+            continue;
+          };
+          if let Some(identifier) = expression.get_identifier_reference() {
+            collect_referenced_symbol_id(semantic, identifier, &mut symbols);
+          }
+        }
+      }
+      AstKind::ReturnStatement(statement) => {
+        let Some(argument) = &statement.argument else {
+          continue;
+        };
+        if let Some(identifier) = argument.get_identifier_reference() {
+          collect_referenced_symbol_id(semantic, identifier, &mut symbols);
+        }
+      }
+      _ => {}
+    }
+  }
+  symbols
+}
+
+fn symbol_has_plain_initializer(
+  semantic: &oxc_semantic::Semantic<'_>,
+  symbol_id: SymbolId,
+) -> bool {
+  let declaration = semantic.symbol_declaration(symbol_id);
+  let declarator = match declaration.kind() {
+    AstKind::VariableDeclarator(declarator) => declarator,
+    AstKind::BindingIdentifier(_) => match semantic.nodes().parent_kind(declaration.id()) {
+      AstKind::VariableDeclarator(declarator) => declarator,
+      _ => return false,
+    },
+    _ => return false,
+  };
+  declarator
+    .init
+    .as_ref()
+    .is_none_or(|initializer| expression_is_plain_primitive(semantic, initializer))
+}
+
+fn expression_is_plain_primitive(
+  semantic: &oxc_semantic::Semantic<'_>,
+  expression: &Expression<'_>,
+) -> bool {
+  match peel_ts_parens(expression) {
+    Expression::StringLiteral(_)
+    | Expression::NumericLiteral(_)
+    | Expression::BooleanLiteral(_)
+    | Expression::NullLiteral(_)
+    | Expression::BigIntLiteral(_)
+    | Expression::RegExpLiteral(_) => true,
+    Expression::TemplateLiteral(literal) => literal.expressions.is_empty(),
+    Expression::UnaryExpression(unary) => expression_is_plain_primitive(semantic, &unary.argument),
+    Expression::Identifier(identifier) => identifier_is_global_undefined(semantic, identifier),
+    _ => false,
+  }
+}
+
+fn identifier_is_global_undefined(
+  semantic: &oxc_semantic::Semantic<'_>,
+  identifier: &IdentifierReference<'_>,
+) -> bool {
+  if identifier.name.as_str() != "undefined" {
+    return false;
+  }
+  let Some(reference_id) = identifier.reference_id.get() else {
+    return false;
+  };
+  semantic.scoping().get_reference(reference_id).symbol_id().is_none()
 }
 
 fn collect_exported_symbol_ids(semantic: &oxc_semantic::Semantic<'_>) -> BTreeSet<SymbolId> {
@@ -299,6 +403,7 @@ pub fn collect_node_facts(
   let mut destructures = Vec::new();
   let mut top_level_await_ends = Vec::new();
   let mut operands = Vec::new();
+  let self_scheduling = self_scheduling_callback_symbols(semantic);
   for (node_id, node) in semantic.nodes().iter_enumerated() {
     match node.kind() {
       AstKind::CallExpression(call) => {
@@ -307,29 +412,30 @@ pub fn collect_node_facts(
         };
         let parent = semantic.nodes().parent_kind(node_id);
         let assigned_to = call_assigned_to(parent);
-        if matches!(
-          callee.as_str(),
-          "defineProps"
-            | "reactive"
-            | "shallowReactive"
-            | "toRefs"
-            | "storeToRefs"
-            | "useRoute"
-            | "useRouter"
-        ) && let AstKind::VariableDeclarator(declarator) = parent
-          && let BindingPattern::ObjectPattern(pattern) = &declarator.id
+        if let AstKind::VariableDeclarator(declarator) = parent
+          && matches!(
+            &declarator.id,
+            BindingPattern::ObjectPattern(_) | BindingPattern::ArrayPattern(_)
+          )
         {
           destructures.push(ScriptDestructureFact {
             source_call: callee.clone(),
-            span: source_span(line_index, sfc_source, script_offset, pattern.span),
+            span: source_span(line_index, sfc_source, script_offset, declarator.id.span()),
           });
         }
         let resolved_import =
           if callee.contains('.') { None } else { imported_bindings.get(&callee).cloned() };
+        let (flush_option, flush_option_unresolved) = call_flush_option(call, imported_bindings);
         calls.push(ScriptCallFact {
           assigned_to,
           resolved_import,
           argument_identifiers: expression_argument_identifiers(call.arguments.iter()),
+          enclosing_callees: enclosing_call_callees(semantic, node_id),
+          has_function_argument: arguments_include_function(call.arguments.iter()),
+          callback_reschedules_self: first_callback_symbol(semantic, call)
+            .is_some_and(|symbol| self_scheduling.contains(&symbol)),
+          flush_option,
+          flush_option_unresolved,
           callee,
           span: source_span(line_index, sfc_source, script_offset, call.span),
         });
@@ -346,16 +452,23 @@ pub fn collect_node_facts(
           assigned_to,
           resolved_import,
           argument_identifiers: expression_argument_identifiers(expression.arguments.iter()),
+          enclosing_callees: enclosing_call_callees(semantic, node_id),
+          has_function_argument: arguments_include_function(expression.arguments.iter()),
+          callback_reschedules_self: false,
+          flush_option: None,
+          flush_option_unresolved: false,
           callee,
           span: source_span(line_index, sfc_source, script_offset, expression.span),
         });
       }
       AstKind::AssignmentExpression(assignment) => {
-        if let Some(write) =
-          assignment_member(&assignment.left, line_index, sfc_source, script_offset)
-        {
-          member_writes.push(write);
-        }
+        collect_assignment_member_writes(
+          &assignment.left,
+          line_index,
+          sfc_source,
+          script_offset,
+          &mut member_writes,
+        );
       }
       AstKind::UpdateExpression(update) => {
         if let Some(write) = update_member(&update.argument, line_index, sfc_source, script_offset)
@@ -429,31 +542,129 @@ fn module_export_name(name: &ModuleExportName<'_>) -> String {
   }
 }
 
-fn assignment_member(
+fn collect_assignment_member_writes(
   target: &AssignmentTarget<'_>,
   index: &vue_vet_core::LineIndex,
   source: &str,
   offset: usize,
-) -> Option<ScriptMemberWriteFact> {
+  writes: &mut Vec<ScriptMemberWriteFact>,
+) {
   match target {
-    AssignmentTarget::StaticMemberExpression(member) => member_write(
-      &member.object,
-      Some(member.property.name.as_str()),
-      member.span,
-      index,
-      source,
-      offset,
-    ),
-    AssignmentTarget::ComputedMemberExpression(member) => member_write(
-      &member.object,
-      member.static_property_name().as_deref(),
-      member.span,
-      index,
-      source,
-      offset,
-    ),
-    _ => None,
+    AssignmentTarget::StaticMemberExpression(member) => {
+      if let Some(write) = member_write(
+        &member.object,
+        Some(member.property.name.as_str()),
+        member.span,
+        index,
+        source,
+        offset,
+      ) {
+        writes.push(write);
+      }
+    }
+    AssignmentTarget::ComputedMemberExpression(member) => {
+      if let Some(write) = member_write(
+        &member.object,
+        member.static_property_name().as_deref(),
+        member.span,
+        index,
+        source,
+        offset,
+      ) {
+        writes.push(write);
+      }
+    }
+    AssignmentTarget::ArrayAssignmentTarget(array) => {
+      for element in array.elements.iter().flatten() {
+        collect_maybe_default_member_writes(element, index, source, offset, writes);
+      }
+      if let Some(rest) = &array.rest {
+        collect_assignment_member_writes(&rest.target, index, source, offset, writes);
+      }
+    }
+    AssignmentTarget::ObjectAssignmentTarget(object) => {
+      for property in &object.properties {
+        if let AssignmentTargetProperty::AssignmentTargetPropertyProperty(property) = property {
+          collect_maybe_default_member_writes(&property.binding, index, source, offset, writes);
+        }
+      }
+      if let Some(rest) = &object.rest {
+        collect_assignment_member_writes(&rest.target, index, source, offset, writes);
+      }
+    }
+    AssignmentTarget::TSAsExpression(inner) => {
+      collect_expression_member_write(&inner.expression, index, source, offset, writes);
+    }
+    AssignmentTarget::TSSatisfiesExpression(inner) => {
+      collect_expression_member_write(&inner.expression, index, source, offset, writes);
+    }
+    AssignmentTarget::TSNonNullExpression(inner) => {
+      collect_expression_member_write(&inner.expression, index, source, offset, writes);
+    }
+    AssignmentTarget::TSTypeAssertion(inner) => {
+      collect_expression_member_write(&inner.expression, index, source, offset, writes);
+    }
+    _ => {}
   }
+}
+
+fn collect_maybe_default_member_writes(
+  target: &AssignmentTargetMaybeDefault<'_>,
+  index: &vue_vet_core::LineIndex,
+  source: &str,
+  offset: usize,
+  writes: &mut Vec<ScriptMemberWriteFact>,
+) {
+  match target {
+    AssignmentTargetMaybeDefault::AssignmentTargetWithDefault(with_default) => {
+      collect_assignment_member_writes(&with_default.binding, index, source, offset, writes);
+    }
+    other => {
+      if let Some(assignment_target) = other.as_assignment_target() {
+        collect_assignment_member_writes(assignment_target, index, source, offset, writes);
+      }
+    }
+  }
+}
+
+fn collect_expression_member_write(
+  expression: &Expression<'_>,
+  index: &vue_vet_core::LineIndex,
+  source: &str,
+  offset: usize,
+  writes: &mut Vec<ScriptMemberWriteFact>,
+) {
+  match peel_ts_parens(expression) {
+    Expression::StaticMemberExpression(member) => {
+      if let Some(write) = member_write(
+        &member.object,
+        Some(member.property.name.as_str()),
+        member.span,
+        index,
+        source,
+        offset,
+      ) {
+        writes.push(write);
+      }
+    }
+    Expression::ComputedMemberExpression(member) => {
+      if let Some(write) = member_write(
+        &member.object,
+        member.static_property_name().as_deref(),
+        member.span,
+        index,
+        source,
+        offset,
+      ) {
+        writes.push(write);
+      }
+    }
+    _ => {}
+  }
+}
+
+fn peel_ts_parens<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
+  expression.get_inner_expression()
 }
 
 fn update_member(
@@ -553,12 +764,13 @@ fn identifier_binding_span(
 }
 
 fn call_callee_name(callee: &Expression<'_>) -> Option<String> {
+  let callee = callee.get_inner_expression();
   if let Some(identifier) = callee.get_identifier_reference() {
     return Some(identifier.name.to_string());
   }
   match callee {
     Expression::StaticMemberExpression(member) => {
-      let object = member.object.get_identifier_reference()?;
+      let object = member.object.get_inner_expression().get_identifier_reference()?;
       Some(format!("{}.{}", object.name, member.property.name))
     }
     _ => None,
@@ -579,15 +791,259 @@ fn call_assigned_to(parent: AstKind<'_>) -> Option<String> {
   }
 }
 
+fn argument_expression<'a>(argument: &'a oxc_ast::ast::Argument<'a>) -> Option<&'a Expression<'a>> {
+  Some(argument.as_expression()?.get_inner_expression())
+}
+
 fn expression_argument_identifiers<'a, I>(arguments: I) -> Vec<String>
 where
   I: Iterator<Item = &'a oxc_ast::ast::Argument<'a>>,
 {
   arguments
     .filter_map(|argument| {
-      argument.as_expression()?.get_identifier_reference().map(|id| id.name.to_string())
+      argument_expression(argument)?.get_identifier_reference().map(|id| id.name.to_string())
     })
     .collect()
+}
+
+fn arguments_include_function<'a, I>(mut arguments: I) -> bool
+where
+  I: Iterator<Item = &'a oxc_ast::ast::Argument<'a>>,
+{
+  arguments.any(|argument| {
+    matches!(
+      argument_expression(argument),
+      Some(Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_))
+    )
+  })
+}
+
+fn enclosing_call_callees(
+  semantic: &oxc_semantic::Semantic<'_>,
+  node_id: oxc_semantic::NodeId,
+) -> Vec<String> {
+  semantic
+    .nodes()
+    .ancestor_kinds(node_id)
+    .filter_map(|kind| match kind {
+      AstKind::CallExpression(call) => call_callee_name(&call.callee),
+      AstKind::NewExpression(expression) => call_callee_name(&expression.callee),
+      _ => None,
+    })
+    .collect()
+}
+
+fn is_request_animation_frame(callee: &Expression<'_>) -> bool {
+  call_callee_name(callee)
+    .is_some_and(|name| name == "requestAnimationFrame" || name.ends_with(".requestAnimationFrame"))
+}
+
+fn self_scheduling_callback_symbols(semantic: &oxc_semantic::Semantic<'_>) -> HashSet<SymbolId> {
+  let mut symbols = HashSet::new();
+  for (node_id, node) in semantic.nodes().iter_enumerated() {
+    let AstKind::CallExpression(call) = node.kind() else {
+      continue;
+    };
+    if !is_request_animation_frame(&call.callee) {
+      continue;
+    }
+    let Some(argument_symbol) = first_argument_symbol(semantic, call) else {
+      continue;
+    };
+    if nearest_enclosing_callback_symbol(semantic, node_id) == Some(argument_symbol) {
+      symbols.insert(argument_symbol);
+    }
+  }
+  symbols
+}
+
+fn nearest_enclosing_callback_symbol(
+  semantic: &oxc_semantic::Semantic<'_>,
+  node_id: NodeId,
+) -> Option<SymbolId> {
+  for ancestor_id in semantic.nodes().ancestor_ids(node_id) {
+    if ancestor_id == node_id {
+      continue;
+    }
+    match semantic.nodes().kind(ancestor_id) {
+      AstKind::Function(function) => {
+        return function
+          .id
+          .as_ref()
+          .and_then(|id| id.symbol_id.get())
+          .or_else(|| enclosing_assigned_symbol(semantic, ancestor_id));
+      }
+      AstKind::ArrowFunctionExpression(_) => {
+        return enclosing_assigned_symbol(semantic, ancestor_id);
+      }
+      _ => {}
+    }
+  }
+  None
+}
+
+fn first_callback_symbol(
+  semantic: &oxc_semantic::Semantic<'_>,
+  call: &CallExpression<'_>,
+) -> Option<SymbolId> {
+  let argument = argument_expression(call.arguments.first()?)?;
+  match argument {
+    Expression::FunctionExpression(function) => {
+      function.id.as_ref().and_then(|id| id.symbol_id.get())
+    }
+    _ => argument.get_identifier_reference().and_then(|identifier| {
+      let reference_id = identifier.reference_id.get()?;
+      semantic.scoping().get_reference(reference_id).symbol_id()
+    }),
+  }
+}
+
+fn first_argument_symbol(
+  semantic: &oxc_semantic::Semantic<'_>,
+  call: &CallExpression<'_>,
+) -> Option<SymbolId> {
+  let argument = argument_expression(call.arguments.first()?)?;
+  let identifier = argument.get_identifier_reference()?;
+  let reference_id = identifier.reference_id.get()?;
+  semantic.scoping().get_reference(reference_id).symbol_id()
+}
+
+fn enclosing_assigned_symbol(
+  semantic: &oxc_semantic::Semantic<'_>,
+  node_id: NodeId,
+) -> Option<SymbolId> {
+  for ancestor_id in semantic.nodes().ancestor_ids(node_id) {
+    if ancestor_id == node_id {
+      continue;
+    }
+    match semantic.nodes().kind(ancestor_id) {
+      AstKind::VariableDeclarator(declarator) => {
+        return match &declarator.id {
+          BindingPattern::BindingIdentifier(identifier) => identifier.symbol_id.get(),
+          _ => None,
+        };
+      }
+      AstKind::AssignmentExpression(assignment) => {
+        return match &assignment.left {
+          AssignmentTarget::AssignmentTargetIdentifier(identifier) => {
+            let reference_id = identifier.reference_id.get()?;
+            semantic.scoping().get_reference(reference_id).symbol_id()
+          }
+          _ => None,
+        };
+      }
+      AstKind::Function(_) | AstKind::ArrowFunctionExpression(_) | AstKind::Class(_) => {
+        return None;
+      }
+      _ => {}
+    }
+  }
+  None
+}
+
+fn call_flush_option(
+  call: &CallExpression<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> (Option<String>, bool) {
+  let Some(index) = watcher_options_argument_index(&call.callee, imported_bindings) else {
+    return (None, false);
+  };
+  for argument in call.arguments.iter().take(index.saturating_add(1)) {
+    if argument.is_spread() {
+      return (None, true);
+    }
+  }
+  let Some(argument) = call.arguments.get(index).and_then(argument_expression) else {
+    return (None, false);
+  };
+  let Expression::ObjectExpression(object) = argument.get_inner_expression() else {
+    return (None, true);
+  };
+  let mut unresolved = false;
+  let mut flush = None;
+  for property in &object.properties {
+    match property {
+      ObjectPropertyKind::SpreadProperty(_) => {
+        flush = None;
+        unresolved = true;
+      }
+      ObjectPropertyKind::ObjectProperty(property) => {
+        let Some(name) = property.key.static_name() else {
+          flush = None;
+          unresolved = true;
+          continue;
+        };
+        if name != "flush" {
+          continue;
+        }
+        match property.value.get_inner_expression() {
+          Expression::StringLiteral(literal)
+            if matches!(literal.value.as_str(), "pre" | "post" | "sync") =>
+          {
+            flush = Some(literal.value.to_string());
+            unresolved = false;
+          }
+          _ => {
+            flush = None;
+            unresolved = true;
+          }
+        }
+      }
+    }
+  }
+  (flush, unresolved)
+}
+
+fn watcher_options_argument_index(
+  callee: &Expression<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> Option<usize> {
+  match watcher_api_name(callee, imported_bindings)? {
+    "watchEffect" | "watchPostEffect" | "watchSyncEffect" => Some(1),
+    "watch" => Some(2),
+    _ => None,
+  }
+}
+
+fn watcher_api_name(
+  callee: &Expression<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+) -> Option<&'static str> {
+  let callee = callee.get_inner_expression();
+  if let Some(identifier) = callee.get_identifier_reference() {
+    let local = identifier.name.as_str();
+    if let Some((source, imported)) = imported_bindings.get(local) {
+      return if is_vue_watch_source(source) { watcher_export(imported) } else { None };
+    }
+    return watcher_export(local);
+  }
+  let Expression::StaticMemberExpression(member) = callee else {
+    return None;
+  };
+  let object = member.object.get_inner_expression().get_identifier_reference()?;
+  let property = member.property.name.as_str();
+  if let Some((source, imported)) = imported_bindings.get(object.name.as_str()) {
+    return if is_vue_watch_source(source) && matches!(imported.as_str(), "*" | "default") {
+      watcher_export(property)
+    } else {
+      None
+    };
+  }
+  watcher_export(property)
+}
+
+fn is_vue_watch_source(source: &str) -> bool {
+  source == "vue" || source == "vue-demi" || source == "#imports" || source.starts_with("@vue/")
+}
+
+fn watcher_export(name: &str) -> Option<&'static str> {
+  match name {
+    "watchEffect" => Some("watchEffect"),
+    "watchPostEffect" => Some("watchPostEffect"),
+    "watchSyncEffect" => Some("watchSyncEffect"),
+    "watch" => Some("watch"),
+    _ => None,
+  }
 }
 
 pub fn source_span(

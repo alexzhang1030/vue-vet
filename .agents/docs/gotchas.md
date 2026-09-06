@@ -783,7 +783,10 @@ member is optional `value?` is a Ref duck (mock/`as` stand-ins); required
 `{ value: T }` (select options, `{ value: boolean }` returns) stays quiet.
 Function-local `ref()` / `computed()` calls likewise participate in scope
 classification (span-resolved) even though they stay out of the published
-top-level `bindings` list (#140).
+top-level `bindings` list (#140). `prefer-computed` must not treat that
+omission as a private owned local: empty graph alias lookup and missing
+non-escaped script-binding proof both abstain. Typed `Ref` parameters keep
+the caller’s writable contract.
 
 Nuxt (and unplugin-auto-import) often call `ref` / `watchEffect` with **no**
 `import` statement. The tracer treats bare identifiers as Vue APIs only when

@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/prefer-computed",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/prefer-computed",
+    "message": "`watchEffect` only assigns `target` from other reactive reads",
+    "help": "Use `computed(() => …)` for pure derived state instead of syncing refs in `watchEffect`.",
+    "file": "fixtures/rules/prefer-watch-over-effect-for-single-source/valid/destructuring-write.vue",
+    "span": {
+      "offset": 119,
+      "length": 68,
+      "line": 6,
+      "column": 1
+    }
+  }
+]

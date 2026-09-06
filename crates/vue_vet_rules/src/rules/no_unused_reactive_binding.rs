@@ -141,6 +141,7 @@ mod tests {
       kind: ReactiveBindingKind::Ref,
       initialized_with_null: false,
       alias_of: None,
+      alias_of_span: None,
       span: span(1),
     });
     graph.bindings.push(ReactiveBindingFact {
@@ -148,6 +149,7 @@ mod tests {
       kind: ReactiveBindingKind::Ref,
       initialized_with_null: false,
       alias_of: None,
+      alias_of_span: None,
       span: span(9),
     });
     let script = ScriptFacts {
@@ -159,6 +161,8 @@ mod tests {
             writes: 0,
             span: span(1),
             exported: true,
+            plain_initializer: false,
+            escaped: false,
           },
           ScriptBindingFact {
             name: "count".into(),
@@ -166,6 +170,8 @@ mod tests {
             writes: 0,
             span: span(9),
             exported: false,
+            plain_initializer: false,
+            escaped: false,
           },
         ],
         graph,
@@ -184,6 +190,7 @@ mod tests {
       kind: ReactiveBindingKind::Ref,
       initialized_with_null: false,
       alias_of: None,
+      alias_of_span: None,
       span: span(9),
     });
     graph.template_reads.push(TemplateReactiveReadFact {
@@ -200,6 +207,8 @@ mod tests {
             writes: 0,
             span: span(1),
             exported: false,
+            plain_initializer: false,
+            escaped: false,
           },
           ScriptBindingFact {
             name: "count".into(),
@@ -207,6 +216,8 @@ mod tests {
             writes: 0,
             span: span(9),
             exported: false,
+            plain_initializer: false,
+            escaped: false,
           },
         ],
         graph,

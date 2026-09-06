@@ -20,7 +20,7 @@ Workspace-internal (`publish = false`). Product builds auto-load
 
 | Constant | Value | Role |
 | --- | --- | --- |
-| `CONVENTIONS_VERSION` | `14` | Nuxt / Vite map + resolver convention identity |
+| `CONVENTIONS_VERSION` | `18` | Nuxt / Vite map + type-vs-runtime / Content layer identity |
 | `OXC_RESOLVER_VERSION` | `"11.21.0"` | Pinned resolver (cache key field) |
 | `EXTERNAL_COMPANION_MAX_BYTES` | 1 MiB | Cap for companion `.js` body loads |
 | `PROJECT_RULE_IDS` | `unresolved-import`, `unused-component` | Project diagnostics |

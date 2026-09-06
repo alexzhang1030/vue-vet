@@ -5,6 +5,7 @@
   "workspace_pins": {
     "vize_croquis": "0.387.0",
     "vize_atelier_core": "0.387.0",
+    "vize_carton": "0.387.0",
     "oxc_parser": "0.142.0",
     "oxc_semantic": "0.142.0",
     "oxc_resolver": "11.21.0"

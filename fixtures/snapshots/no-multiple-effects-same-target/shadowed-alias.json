@@ -1,0 +1,50 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-multiple-effects-same-target",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-multiple-effects-same-target",
+    "message": "multiple effects write `state.value`",
+    "help": "Keep a single writer effect, or merge the updates into one scope.",
+    "file": "fixtures/rules/no-multiple-effects-same-target/invalid/shadowed-alias.vue",
+    "span": {
+      "offset": 205,
+      "length": 11,
+      "line": 7,
+      "column": 21
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/prefer-watch-over-effect-for-single-source",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/reactivity/prefer-watch-over-effect-for-single-source",
+    "message": "`watchEffect` only tracks `source.value`; prefer `watch` with an explicit source",
+    "help": "Use `watch(() => source.value, …, { immediate: true })` to preserve `watchEffect`'s first run (flush `'pre'`).",
+    "file": "fixtures/rules/no-multiple-effects-same-target/invalid/shadowed-alias.vue",
+    "span": {
+      "offset": 185,
+      "length": 49,
+      "line": 7,
+      "column": 1
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/prefer-watch-over-effect-for-single-source",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/reactivity/prefer-watch-over-effect-for-single-source",
+    "message": "`watchEffect` only tracks `source.value`; prefer `watch` with an explicit source",
+    "help": "Use `watch(() => source.value, …, { immediate: true })` to preserve `watchEffect`'s first run (flush `'pre'`).",
+    "file": "fixtures/rules/no-multiple-effects-same-target/invalid/shadowed-alias.vue",
+    "span": {
+      "offset": 235,
+      "length": 53,
+      "line": 8,
+      "column": 1
+    }
+  }
+]

@@ -1,0 +1,50 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-computed-without-dependency",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-computed-without-dependency",
+    "message": "`computed` does not read any reactive dependency",
+    "help": "Return a plain value, or read reactive state inside the getter.",
+    "file": "fixtures/rules/no-side-effects-in-computed/invalid/same-display-distinct.vue",
+    "span": {
+      "offset": 98,
+      "length": 104,
+      "line": 4,
+      "column": 16
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/no-side-effects-in-computed",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-side-effects-in-computed",
+    "message": "computed getter writes `output.value`, which is a side effect",
+    "help": "Keep computed getters pure; move writes into `watch` / event handlers.",
+    "file": "fixtures/rules/no-side-effects-in-computed/invalid/same-display-distinct.vue",
+    "span": {
+      "offset": 117,
+      "length": 12,
+      "line": 5,
+      "column": 3
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/no-side-effects-in-computed",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-side-effects-in-computed",
+    "message": "computed getter writes `output.value`, which is a side effect",
+    "help": "Keep computed getters pure; move writes into `watch` / event handlers.",
+    "file": "fixtures/rules/no-side-effects-in-computed/invalid/same-display-distinct.vue",
+    "span": {
+      "offset": 168,
+      "length": 12,
+      "line": 8,
+      "column": 5
+    }
+  }
+]

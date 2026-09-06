@@ -87,33 +87,45 @@ pub fn analyze_structural_file(
   let from = file_id(&path);
   let imports = all_imports(&file.facts.script);
   let mut output = StructuralFileOutput::default();
+  let mut unresolved_declarations = BTreeSet::new();
   for import in &imports {
+    let runtime_binding = !import.type_only;
     // Barrel / path-alias imports (`@components`) often resolve to an index file
     // while the real component lives beside it — also mark name-matched components.
-    for to in auto_component_targets(&import.local, component_by_name) {
-      if to != from {
-        output.edges.push(edge(&from, &to, EdgeKind::ComponentUsage, &import.local, import.span));
-      }
-    }
-    if import.imported != import.local {
-      for to in auto_component_targets(&import.imported, component_by_name) {
+    // Type-only aliases are erased at runtime and must not count as component use.
+    if runtime_binding {
+      for to in auto_component_targets(&import.local, component_by_name) {
         if to != from {
-          output.edges.push(edge(
-            &from,
-            &to,
-            EdgeKind::ComponentUsage,
-            &import.imported,
-            import.span,
-          ));
+          output.edges.push(edge(&from, &to, EdgeKind::ComponentUsage, &import.local, import.span));
+        }
+      }
+      if import.imported != import.local {
+        for to in auto_component_targets(&import.imported, component_by_name) {
+          if to != from {
+            output.edges.push(edge(
+              &from,
+              &to,
+              EdgeKind::ComponentUsage,
+              &import.imported,
+              import.span,
+            ));
+          }
         }
       }
     }
-    match resolver.resolve(&path, &import.source, known) {
+    match resolver.resolve_import(&path, &import.source, known, import.type_only) {
       Resolution::File(target) => {
         if let Some(to) = node_by_path.get(target.as_str()) {
-          output.edges.push(edge(&from, to, EdgeKind::Import, &import.source, import.span));
+          // Type-only aliases of Vue components are not runtime usage.
+          // `node_kind` covers `components/` convention; `.vue` covers SFCs outside that folder.
+          let target_path = target.as_str();
+          let component_alias = node_kind(target_path) == NodeKind::Component
+            || Path::new(target_path).extension().and_then(|ext| ext.to_str()) == Some("vue");
+          if runtime_binding || !component_alias {
+            output.edges.push(edge(&from, to, EdgeKind::Import, &import.source, import.span));
+          }
         }
-        if module_ids.contains(target.as_str()) {
+        if runtime_binding && module_ids.contains(target.as_str()) {
           let target_id = ModuleId::from(target.as_str());
           for module_from in file_module_ids(file) {
             if module_ids.contains(module_from.as_str()) {
@@ -135,7 +147,7 @@ pub fn analyze_structural_file(
           name: package,
         });
         output.edges.push(edge(&from, &id, EdgeKind::ExternalImport, &import.source, import.span));
-        if let Some(resolved_path) = resolved_path {
+        if runtime_binding && let Some(resolved_path) = resolved_path {
           for module_from in file_module_ids(file) {
             if module_ids.contains(module_from.as_str()) {
               output.external_reactivity_roots.push(ExternalReactivityRoot {
@@ -148,19 +160,25 @@ pub fn analyze_structural_file(
         }
       }
       Resolution::Unresolved => {
-        output.diagnostics.push(unresolved_diagnostic(
-          file.path.as_path(),
-          &import.source,
-          import.span,
-        ));
+        let group = import_declaration_span(import);
+        if unresolved_declarations.insert((import.source.clone(), group.offset, group.length)) {
+          output.diagnostics.push(unresolved_diagnostic(
+            file.path.as_path(),
+            &import.source,
+            group,
+          ));
+        }
       }
     }
   }
 
   for element in &file.facts.template.elements {
     let tag = comparable_name(&element.tag);
-    if let Some(import) = imports.iter().find(|import| comparable_name(&import.local) == tag) {
-      if let Resolution::File(target) = resolver.resolve(&path, &import.source, known)
+    if let Some(import) =
+      imports.iter().find(|import| !import.type_only && comparable_name(&import.local) == tag)
+    {
+      if let Resolution::File(target) =
+        resolver.resolve_import(&path, &import.source, known, import.type_only)
         && let Some(to) = node_by_path.get(target.as_str())
       {
         output.edges.push(edge(&from, to, EdgeKind::ComponentUsage, &element.tag, element.span));
@@ -196,6 +214,10 @@ fn file_module_ids(file: &ProjectFile) -> impl Iterator<Item = &ModuleId> {
 
 fn all_imports(script: &ScriptFacts) -> Vec<&vue_vet_core::ScriptImportFact> {
   script.blocks.iter().flat_map(|block| &block.imports).collect()
+}
+
+const fn import_declaration_span(import: &vue_vet_core::ScriptImportFact) -> SourceSpan {
+  if import.declaration_span.length > 0 { import.declaration_span } else { import.span }
 }
 
 fn auto_component_targets(tag: &str, map: &BTreeMap<String, Vec<String>>) -> Vec<String> {

@@ -732,6 +732,7 @@ fn push_options_callback_pattern_bindings(
       kind,
       initialized_with_null: false,
       alias_of: None,
+      alias_of_span: None,
       span,
     });
   }

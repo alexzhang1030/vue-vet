@@ -19,11 +19,15 @@ use vue_vet_reactivity::oxc::{prepare_module_summary_with_config, trace_reactivi
 
 mod facts;
 mod jsx;
+mod nuxt_config;
 mod template_expr;
 
 pub(crate) use facts::source_span;
+pub use nuxt_config::{
+  NuxtConfigFacts, NuxtContentModulePolicy, nuxt_config_content_modules, parse_nuxt_config,
+};
 pub use template_expr::{
-  slot_prop_alias_identifiers, template_expression_identifiers,
+  object_literal_has_own_key, slot_prop_alias_identifiers, template_expression_identifiers,
   template_expression_identifiers_with_shadow, v_for_alias_identifiers,
 };
 

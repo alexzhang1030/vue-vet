@@ -1,0 +1,82 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-multiple-effects-same-target",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-multiple-effects-same-target",
+    "message": "multiple effects write `result.value`",
+    "help": "Keep a single writer effect, or merge the updates into one scope.",
+    "file": "fixtures/rules/prefer-watch-over-effect-for-single-source/invalid/opaque-flush.vue",
+    "span": {
+      "offset": 188,
+      "length": 12,
+      "line": 8,
+      "column": 21
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/prefer-watch-over-effect-for-single-source",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/reactivity/prefer-watch-over-effect-for-single-source",
+    "message": "`watchEffect` only tracks `source.value`; prefer `watch` with an explicit source",
+    "help": "Use `watch(() => source.value, …)` and keep the current flush and first-run timing.",
+    "file": "fixtures/rules/prefer-watch-over-effect-for-single-source/invalid/opaque-flush.vue",
+    "span": {
+      "offset": 168,
+      "length": 59,
+      "line": 8,
+      "column": 1
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/prefer-watch-over-effect-for-single-source",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/reactivity/prefer-watch-over-effect-for-single-source",
+    "message": "`watchEffect` only tracks `source.value`; prefer `watch` with an explicit source",
+    "help": "Use `watch(() => source.value, …)` and keep the current flush and first-run timing.",
+    "file": "fixtures/rules/prefer-watch-over-effect-for-single-source/invalid/opaque-flush.vue",
+    "span": {
+      "offset": 228,
+      "length": 77,
+      "line": 9,
+      "column": 1
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/prefer-watch-over-effect-for-single-source",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/reactivity/prefer-watch-over-effect-for-single-source",
+    "message": "`watchEffect` only tracks `source.value`; prefer `watch` with an explicit source",
+    "help": "Use `watch(() => source.value, …, { immediate: true, flush: 'sync' })` to preserve the first run and sync flush.",
+    "file": "fixtures/rules/prefer-watch-over-effect-for-single-source/invalid/opaque-flush.vue",
+    "span": {
+      "offset": 306,
+      "length": 78,
+      "line": 10,
+      "column": 1
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/prefer-watch-over-effect-for-single-source",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/reactivity/prefer-watch-over-effect-for-single-source",
+    "message": "`watchEffect` only tracks `source.value`; prefer `watch` with an explicit source",
+    "help": "Use `watch(() => source.value, …)` and keep the current flush and first-run timing.",
+    "file": "fixtures/rules/prefer-watch-over-effect-for-single-source/invalid/opaque-flush.vue",
+    "span": {
+      "offset": 385,
+      "length": 82,
+      "line": 11,
+      "column": 1
+    }
+  }
+]

@@ -2264,6 +2264,7 @@ fn materialize_seeds(
           kind: *kind,
           initialized_with_null: false,
           alias_of: None,
+          alias_of_span: None,
           span,
         });
       }
@@ -2279,6 +2280,7 @@ fn materialize_seeds(
             kind: *kind,
             initialized_with_null: false,
             alias_of: None,
+            alias_of_span: None,
             span: source_span(span_source, span_base, call.span),
           });
         }
@@ -2297,6 +2299,7 @@ fn materialize_seeds(
             kind,
             initialized_with_null: false,
             alias_of: None,
+            alias_of_span: None,
             span: source_span(span_source, span_base, call.span),
           });
         }
@@ -2363,6 +2366,7 @@ fn materialize_seeds(
           kind,
           initialized_with_null: false,
           alias_of: None,
+          alias_of_span: None,
           span: source_span(span_source, span_base, inject.span),
         });
       }
@@ -2609,6 +2613,7 @@ fn seed_member_calls_from_value_bags(
               kind,
               initialized_with_null: false,
               alias_of: None,
+              alias_of_span: None,
               span: source_span(span_source, span_base, span),
             });
           }
@@ -2626,6 +2631,7 @@ fn seed_member_calls_from_value_bags(
           kind: *kind,
           initialized_with_null: false,
           alias_of: None,
+          alias_of_span: None,
           span: source_span(span_source, span_base, identifier.span),
         });
       }

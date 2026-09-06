@@ -96,9 +96,9 @@ mod tests {
     ScriptCallFact {
       callee: callee.into(),
       assigned_to: assigned_to.map(str::to_owned),
-      resolved_import: None,
       argument_identifiers: argument_identifiers.iter().map(|name| (*name).into()).collect(),
       span: span(offset),
+      ..ScriptCallFact::default()
     }
   }
 

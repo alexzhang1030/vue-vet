@@ -26,7 +26,8 @@ fn js_ts_side_effect_in_computed_is_diagnosed() {
     assert!(
       snapshot.summary.diagnostics.iter().any(|diagnostic| {
         diagnostic.file == FileId::from(relative.as_str())
-          && diagnostic.rule_id == "vue-vet/reactivity/no-side-effects-in-computed"
+          && (diagnostic.rule_id == "vue-vet/reactivity/no-side-effects-in-computed"
+            || diagnostic.rule_id == "vue-vet/reactivity/no-computed-self-trigger")
       }),
       "{extension} computed side-effect must run file rules; {:?}",
       snapshot.summary.diagnostics
@@ -200,7 +201,7 @@ fn call_only_unref_picks_up_package_vue_version_refresh() {
   .unwrap_or_else(|error| panic!("config: {error}"));
   std::fs::write(
     root.join("unwrap.ts"),
-    "import { unref } from 'vue'\nexport function unwrap(x){return unref(x)}\n",
+    "import { unref } from 'vue'\nexport function unwrap(x){return unref(() => x)}\n",
   )
   .unwrap_or_else(|error| panic!("unwrap: {error}"));
   let package = root.join("package.json");
@@ -254,7 +255,7 @@ fn package_json_add_replace_remove_matches_clean_scan() {
     .unwrap_or_else(|error| panic!("root package: {error}"));
   std::fs::write(
     demo.join("unwrap.ts"),
-    "import { unref } from 'vue'\nexport function unwrap(x){return unref(x)}\n",
+    "import { unref } from 'vue'\nexport function unwrap(x){return unref(() => x)}\n",
   )
   .unwrap_or_else(|error| panic!("unwrap: {error}"));
   let session = open_session_threads(root.clone(), 1);

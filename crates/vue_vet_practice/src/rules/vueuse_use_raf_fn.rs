@@ -48,7 +48,6 @@ impl Rule for VueuseUseRafFn {
       .blocks
       .iter()
       .filter(|block| !already_uses_target(block, RECIPE.recommend.export))
-      .filter(|block| block.calls.iter().any(|call| is_setup_lifecycle_hook(&call.callee)))
       .filter(|block| {
         !block.calls.iter().any(|call| callee_is(&call.callee, "cancelAnimationFrame"))
       })
@@ -56,7 +55,11 @@ impl Rule for VueuseUseRafFn {
         block
           .calls
           .iter()
-          .find(|call| callee_is(&call.callee, "requestAnimationFrame"))
+          .find(|call| {
+            callee_is(&call.callee, "requestAnimationFrame")
+              && call.callback_reschedules_self
+              && call.enclosing_callees.iter().any(|name| is_setup_lifecycle_hook(name))
+          })
           .map(|call| (call.span, vueuse_help(&environment, block, RECIPE.recommend.export)))
       })
       .collect::<Vec<_>>();
@@ -64,7 +67,7 @@ impl Rule for VueuseUseRafFn {
       context.report_with_recommendation(
         self.meta(),
         span,
-        "This schedules `requestAnimationFrame` inside a setup lifecycle hook without `cancelAnimationFrame`; consider VueUse `useRafFn` for pause/resume and automatic cleanup.".into(),
+        "This repeats `requestAnimationFrame` inside a setup lifecycle hook without `cancelAnimationFrame`; consider VueUse `useRafFn` for pause/resume and automatic cleanup.".into(),
         Some(help),
         recommendation_from(RECIPE.recommend),
       );
@@ -89,12 +92,17 @@ mod tests {
   }
 
   fn call(callee: &str, offset: usize) -> ScriptCallFact {
+    ScriptCallFact { callee: callee.into(), span: span(offset), ..ScriptCallFact::default() }
+  }
+
+  fn raf_loop(offset: usize) -> ScriptCallFact {
     ScriptCallFact {
-      callee: callee.into(),
-      assigned_to: None,
-      resolved_import: None,
-      argument_identifiers: Vec::new(),
+      callee: "requestAnimationFrame".into(),
       span: span(offset),
+      enclosing_callees: vec!["onMounted".into(), "requestAnimationFrame".into()],
+      argument_identifiers: vec!["loop".into()],
+      callback_reschedules_self: true,
+      ..ScriptCallFact::default()
     }
   }
 
@@ -117,14 +125,60 @@ mod tests {
   }
 
   #[test]
-  fn reports_lifecycle_raf_without_cancel() {
-    let diagnostics = run(vec![call("onMounted", 0), call("requestAnimationFrame", 20)]);
+  fn reports_lifecycle_raf_loop_without_cancel() {
+    let diagnostics = run(vec![call("onMounted", 0), raf_loop(20)]);
     assert_eq!(diagnostics.len(), 1);
     let Some(diagnostic) = diagnostics.first() else {
       return;
     };
     assert_eq!(diagnostic.rule_id, RECIPE.rule_id);
     assert!(diagnostic.recommendation.is_some());
+    assert!(
+      diagnostic.message.contains("repeats"),
+      "loop recipe must not claim one-shot rAF: {}",
+      diagnostic.message
+    );
+  }
+
+  #[test]
+  fn stays_quiet_for_one_shot_lifecycle_raf() {
+    let diagnostics = run(vec![
+      call("onMounted", 0),
+      ScriptCallFact {
+        callee: "requestAnimationFrame".into(),
+        span: span(20),
+        enclosing_callees: vec!["onMounted".into()],
+        has_function_argument: true,
+        ..ScriptCallFact::default()
+      },
+    ]);
+    assert!(diagnostics.is_empty());
+  }
+
+  #[test]
+  fn stays_quiet_for_named_one_shot_and_two_frame_delay() {
+    let named = run(vec![
+      call("onMounted", 0),
+      ScriptCallFact {
+        callee: "requestAnimationFrame".into(),
+        span: span(20),
+        enclosing_callees: vec!["onMounted".into()],
+        argument_identifiers: vec!["render".into()],
+        ..ScriptCallFact::default()
+      },
+    ]);
+    let two_frame = run(vec![
+      call("onMounted", 0),
+      ScriptCallFact {
+        callee: "requestAnimationFrame".into(),
+        span: span(20),
+        enclosing_callees: vec!["onMounted".into(), "requestAnimationFrame".into()],
+        has_function_argument: true,
+        ..ScriptCallFact::default()
+      },
+    ]);
+    assert!(named.is_empty());
+    assert!(two_frame.is_empty());
   }
 
   #[test]

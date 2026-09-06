@@ -17,6 +17,20 @@ pub struct ScriptImportFact {
   pub imported: String,
   pub local: String,
   pub span: SourceSpan,
+  /// `import type` / `export type` / every named specifier is `type`.
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub type_only: bool,
+  /// Full import/export declaration span (named bindings share one diagnostic).
+  #[serde(default = "unset_declaration_span", skip_serializing_if = "is_unset_declaration_span")]
+  pub declaration_span: SourceSpan,
+}
+
+const fn unset_declaration_span() -> SourceSpan {
+  SourceSpan { offset: 0, length: 0, line: 1, column: 1 }
+}
+
+const fn is_unset_declaration_span(span: &SourceSpan) -> bool {
+  span.offset == 0 && span.length == 0
 }
 
 #[expect(clippy::trivially_copy_pass_by_ref, reason = "serde skip_serializing_if takes &T")]
@@ -34,6 +48,13 @@ pub struct ScriptBindingFact {
   /// Absence-of-use rules must not treat exported API as dead locals.
   #[serde(default, skip_serializing_if = "is_false")]
   pub exported: bool,
+  /// Positive primitive initializer evidence (`let text = ''`, uninitialized `let`).
+  /// Absence of a call/import is not proof of a nonreactive value.
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub plain_initializer: bool,
+  /// Binding value is returned, exported, or stored in an object/array literal.
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub escaped: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -45,6 +66,38 @@ pub struct ScriptCallFact {
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub argument_identifiers: Vec<String>,
   pub span: SourceSpan,
+  /// Ancestor call/new callees, innermost first (`watch` wrapping `setTimeout`).
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub enclosing_callees: Vec<String>,
+  /// Any argument is a function/arrow (getter-relevant for `toValue`).
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub has_function_argument: bool,
+  /// First-argument callback (Oxc symbol) schedules this same callee on itself.
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub callback_reschedules_self: bool,
+  /// Literal `flush` option (`pre` / `post` / `sync`) on the last object argument.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub flush_option: Option<String>,
+  /// A `flush` key exists but is not a supported string literal.
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub flush_option_unresolved: bool,
+}
+
+impl Default for ScriptCallFact {
+  fn default() -> Self {
+    Self {
+      callee: String::new(),
+      assigned_to: None,
+      resolved_import: None,
+      argument_identifiers: Vec::new(),
+      span: SourceSpan { offset: 0, length: 0, line: 1, column: 1 },
+      enclosing_callees: Vec::new(),
+      has_function_argument: false,
+      callback_reschedules_self: false,
+      flush_option: None,
+      flush_option_unresolved: false,
+    }
+  }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

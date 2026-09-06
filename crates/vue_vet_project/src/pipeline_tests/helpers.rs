@@ -89,6 +89,8 @@ pub fn file(path: &str, imports: &[(&str, &str)], tags: &[&str], calls: &[&str])
           imported: "default".into(),
           local: (*local).into(),
           span: span(index),
+          type_only: false,
+          declaration_span: span(index),
         })
         .collect(),
       bindings: Vec::new(),
@@ -97,10 +99,8 @@ pub fn file(path: &str, imports: &[(&str, &str)], tags: &[&str], calls: &[&str])
         .enumerate()
         .map(|(index, callee)| ScriptCallFact {
           callee: (*callee).into(),
-          assigned_to: None,
-          resolved_import: None,
-          argument_identifiers: Vec::new(),
           span: span(index.saturating_add(10)),
+          ..ScriptCallFact::default()
         })
         .collect(),
       member_writes: Vec::new(),
@@ -124,6 +124,8 @@ pub fn file(path: &str, imports: &[(&str, &str)], tags: &[&str], calls: &[&str])
         has_labelable_descendant: false,
         has_label_ancestor: false,
         has_accessible_name_ancestor: false,
+        object_bind_has_key: false,
+        is_component: false,
       })
       .collect(),
     expressions: Vec::new(),
@@ -189,6 +191,8 @@ pub fn setup_sfc_file(
               imported: (*imported).into(),
               local: (*local).into(),
               span: span(index),
+              type_only: false,
+              declaration_span: span(index),
             })
             .collect(),
           bindings: Vec::new(),
@@ -198,9 +202,8 @@ pub fn setup_sfc_file(
             .map(|(index, (callee, assigned_to))| ScriptCallFact {
               callee: (*callee).into(),
               assigned_to: assigned_to.map(str::to_string),
-              resolved_import: None,
-              argument_identifiers: Vec::new(),
               span: span(index.saturating_add(1)),
+              ..ScriptCallFact::default()
             })
             .collect(),
           member_writes: Vec::new(),

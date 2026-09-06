@@ -1,6 +1,6 @@
 //! Shared helpers for accessible-name content rules.
 
-use vue_vet_core::{ByteRange, TemplateAttributeFact, TemplateElementFact};
+use vue_vet_core::TemplateElementFact;
 
 #[must_use]
 pub(super) const fn is_anchor_like(tag: &str) -> bool {
@@ -22,8 +22,22 @@ pub(super) fn has_accessible_name_attrs(element: &TemplateElementFact) -> bool {
     || element.bound_attribute("aria-label").is_some()
     || element.attribute("aria-labelledby").is_some()
     || element.bound_attribute("aria-labelledby").is_some()
+    || has_nonempty_title_name(element)
     // Tooltip / menu wrappers that publish a name prop for their default slot.
     || element.has_accessible_name_ancestor
+}
+
+/// HTML-AAM: nonempty `title` / `:title` is an accessible-name fallback.
+fn has_nonempty_title_name(element: &TemplateElementFact) -> bool {
+  if element.bound_attribute("title").is_some_and(|directive| {
+    directive.expression.as_deref().is_some_and(|expression| !expression.trim().is_empty())
+  }) {
+    return true;
+  }
+  element
+    .attribute("title")
+    .and_then(|attribute| attribute.value.as_deref())
+    .is_some_and(|value| !value.trim().is_empty())
 }
 
 #[must_use]
@@ -75,65 +89,4 @@ pub(super) fn association_token<'a>(
     return None;
   }
   Some(AssocToken::Expr(expression))
-}
-
-/// Static `title="…"` → insert matching `aria-label` after the attribute.
-/// Bound `:title` and values containing quotes are left for manual review.
-#[must_use]
-pub(super) fn title_to_aria_label_edit(
-  source: &str,
-  element: &TemplateElementFact,
-) -> Option<(ByteRange, String)> {
-  if element.bound_attribute("title").is_some() {
-    return None;
-  }
-  let title = element.attribute("title")?;
-  let (extent, value) = quoted_attribute_extent(source, title)?;
-  if value.trim().is_empty() || value.contains('"') || value.contains('\'') {
-    return None;
-  }
-  Some((
-    ByteRange { offset: extent.offset.saturating_add(extent.length), length: 0 },
-    format!(" aria-label=\"{value}\""),
-  ))
-}
-
-fn quoted_attribute_extent(
-  source: &str,
-  attribute: &TemplateAttributeFact,
-) -> Option<(ByteRange, String)> {
-  let value = attribute.value.as_ref()?.clone();
-  let bytes = source.as_bytes();
-  let mut index = attribute.span.offset.saturating_add(attribute.span.length);
-  while bytes.get(index).is_some_and(|byte| matches!(byte, b' ' | b'\t')) {
-    index = index.saturating_add(1);
-  }
-  if bytes.get(index) != Some(&b'=') {
-    return None;
-  }
-  index = index.saturating_add(1);
-  while bytes.get(index).is_some_and(|byte| matches!(byte, b' ' | b'\t')) {
-    index = index.saturating_add(1);
-  }
-  let quote = *bytes.get(index)?;
-  if quote != b'"' && quote != b'\'' {
-    return None;
-  }
-  index = index.saturating_add(1);
-  let value_start = index;
-  while bytes.get(index).is_some_and(|byte| *byte != quote) {
-    index = index.saturating_add(1);
-  }
-  if index >= bytes.len() {
-    return None;
-  }
-  let parsed = source.get(value_start..index)?;
-  if parsed != value {
-    return None;
-  }
-  let end = index.saturating_add(1);
-  Some((
-    ByteRange { offset: attribute.span.offset, length: end.saturating_sub(attribute.span.offset) },
-    value,
-  ))
 }

@@ -74,6 +74,10 @@ pub struct ReactiveBindingFact {
   /// None when `name` is the binding introduced by a Vue API / annotation.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub alias_of: Option<String>,
+  /// Declaration span of the aliased root, from Oxc symbol identity.
+  /// Distinguishes same-name locals; span proximity is not a substitute.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub alias_of_span: Option<SourceSpan>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -211,6 +215,10 @@ pub struct ReactiveWriteFact {
   pub binding: String,
   pub property: Option<String>,
   pub span: SourceSpan,
+  /// Declaration span of the written binding (Oxc symbol identity).
+  /// Distinguishes same-name locals in different functions.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub binding_span: Option<SourceSpan>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -347,6 +355,16 @@ pub struct ReactivityEffectFact {
 /// v24: `useI18n` translator calls (`t`/`d`/`n`/`rt`/`te`) inject ambient
 /// composer deps (`locale` / `fallbackLocale` / `messages`) per vue-i18n
 /// `wrapWithDeps` / `trackReactivityValues`.
+/// v40: alias facts carry the Oxc-resolved root span; assignment-pattern
+/// default initializers and computed keys stay reads.
+/// v39: assignment-pattern members (`[target.value] = …`) are write-only;
+/// a reactive receiver is not a tracked get on `obj[key] = source`. Instance
+/// field writes identify the composable instance, not the first same-name field.
+/// v38: computed/effect tracking records unclassified member provenance the
+/// same way watch sources do (`state.current.size` on an unknown factory
+/// result). Simple `ref.value = …` assignment targets are not reads; nested
+/// lvalue objects/keys are. Writes carry `binding_span` so same-name locals
+/// in different functions stay distinct.
 /// v37: watch sources record unclassified static / computed member provenance
 /// (`sources['active']`, `() => bag.current`) as `uncertain_accesses` so absence rules
 /// and Explain abstain. Ref-like bindings' non-`.value` members stay
@@ -362,7 +380,7 @@ pub struct ReactivityEffectFact {
 /// under-approx hygiene); export linking refinements that change seeded bindings
 /// (`ForwardReturn` bare `#nuxt-imports`, overload Factory≻Composable, ref-like
 /// ternary `Known` exports, empty-path pending composable fields).
-pub const REACTIVITY_GRAPH_VERSION: u32 = 37;
+pub const REACTIVITY_GRAPH_VERSION: u32 = 40;
 
 const fn default_reactivity_graph_version() -> u32 {
   1

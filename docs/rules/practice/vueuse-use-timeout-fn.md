@@ -2,7 +2,7 @@
 
 Default severity: **info**. Category: **practice** (excluded from score and default CI exit).
 
-Starting `setTimeout` inside a setup lifecycle hook (`onMounted` / `onBeforeMount` / `onActivated`) without `clearTimeout` often races with unmount. VueUse `useTimeoutFn` pairs the delay with start/stop controls and automatic cleanup.
+Evidence is **lexical enclosing-call ancestors**, not the later invocation site. `setTimeout` nested under a setup lifecycle hook (`onMounted` / `onBeforeMount` / `onActivated`) without `clearTimeout` is reported even when the timer is registered inside a nested subscriber/`afterEach` callback that later runs outside setup. VueUse `useTimeoutFn` should be **constructed during setup** and started from that callback so unmount can cancel it.
 
 ## Bad
 
@@ -32,8 +32,8 @@ useTimeoutFn(() => {
 
 ## Limitations
 
-Reports only when a setup lifecycle hook and a `setTimeout` (including `window.setTimeout`) appear in the same block with no `clearTimeout`. Module-level timeouts, fire-and-forget timers outside lifecycle hooks, and clear+set debounce patterns stay quiet (the latter may be suggested as `useDebounceFn` instead). Already importing or calling `useTimeoutFn` is a safe pattern. Test files are skipped.
+Reports only when `setTimeout` has a setup lifecycle hook in its lexical enclosing-call ancestors, with no `clearTimeout`. A timeout inside `watch` / `watchEffect` is not a lifecycle match merely because `onMounted` exists elsewhere in the same block. Nested subscribe/`afterEach` callbacks that sit under `onMounted` still match; the recipe does not analyze callback invocation time. Module-level timeouts and clear+set debounce patterns stay quiet (the latter may be suggested as `useDebounceFn` instead). Already importing or calling `useTimeoutFn` is a safe pattern. Test files are skipped.
 
 ## Remediation
 
-Optional dependency: install `@vueuse/core` when you want the helper, then replace the manual timeout with `useTimeoutFn`.
+Optional dependency: install `@vueuse/core`. Create `useTimeoutFn` during setup with `{ immediate: false }`, then call `start()` from the callback instead of a bare `setTimeout`.

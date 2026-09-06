@@ -102,13 +102,7 @@ mod tests {
   }
 
   fn call(callee: &str, offset: usize) -> ScriptCallFact {
-    ScriptCallFact {
-      callee: callee.into(),
-      assigned_to: None,
-      resolved_import: None,
-      argument_identifiers: Vec::new(),
-      span: span(offset),
-    }
+    ScriptCallFact { callee: callee.into(), span: span(offset), ..ScriptCallFact::default() }
   }
 
   fn size_refs() -> ReactivityGraph {
@@ -118,6 +112,7 @@ mod tests {
       kind: ReactiveBindingKind::Ref,
       initialized_with_null: false,
       alias_of: None,
+      alias_of_span: None,
       span: span(0),
     });
     graph.bindings.push(ReactiveBindingFact {
@@ -125,6 +120,7 @@ mod tests {
       kind: ReactiveBindingKind::Ref,
       initialized_with_null: false,
       alias_of: None,
+      alias_of_span: None,
       span: span(0),
     });
     graph

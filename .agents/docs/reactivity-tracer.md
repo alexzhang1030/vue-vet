@@ -70,9 +70,33 @@ block complete. Bare `const alias = known` is recorded on the existing
 
 ## Current baseline
 
-Contract version: **`REACTIVITY_GRAPH_VERSION = 37`**. Rule-set identity
-hashed into the scan cache is **`RULESET_VERSION = 7`**.
+Contract version: **`REACTIVITY_GRAPH_VERSION = 40`**. Rule-set identity
+hashed into the scan cache is **`RULESET_VERSION = 14`**.
 
+v40 records Oxc-resolved `alias_of_span` on alias bindings, treats assignment-pattern
+default initializers and computed keys as reads, links prefer-computed mutable
+roles to `v-on` expression identifiers, and requires no script reassignment
+before a v-model source is a proven plain local. Assignment-pattern members
+are writes; nested lvalue receivers and computed keys contribute reads. Instance
+field writes identify their composable instance. Prefer-computed uses
+object/return/export escape facts and resolved write identity; v-model
+nonreactive requires positive plain-value evidence.
+
+Computed/effect tracking records unclassified **member provenance**
+(the same walk as watch sources), treats nested assignment-target objects/keys
+as reads while `ref.value = …` stays a set, and writes carry `binding_span`
+so same-name locals in different functions stay distinct.
+
+Static computed wrappers, route-field snapshots, and single-source effect
+preferences retain their existing IDs with practice category and Info severity.
+`prefer-to-value` uses getter-argument evidence (function payloads), not every
+successful numeric/`Ref` `unref`.
+They remain configurable and are excluded from score and default CI exit.
+Computed impurity findings use canonical write identities; finalization combines
+the self-trigger/side-effect pair at the same write span after configuration and
+suppression, retaining the stronger severity and the specific finding on ties.
+Runtime premises have rerunnable evidence in `just oracle-self-trigger`.
+Prior:
 v37 records unclassified **static / computed member watch sources**
 (`watch(sources['active'])`, `watch(() => bag.current)`, and the same access through a
 same-file zero-arg helper via `follow_local_callees`) as `uncertain_accesses`

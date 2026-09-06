@@ -259,10 +259,10 @@ mod tests {
     let mut block = block();
     block.calls.push(ScriptCallFact {
       callee: "unref".into(),
-      assigned_to: None,
       resolved_import: Some(("vue".into(), "unref".into())),
       argument_identifiers: vec!["x".into()],
       span: span(),
+      ..ScriptCallFact::default()
     });
     let facts =
       SfcFacts { template: TemplateFacts::default(), script: ScriptFacts { blocks: vec![block] } };
@@ -292,6 +292,7 @@ mod tests {
       kind: vue_vet_core::ReactiveBindingKind::Readonly,
       initialized_with_null: false,
       alias_of: None,
+      alias_of_span: None,
       span: span(),
     });
     assert!(needs_file_rules("ts", &facts, Some(&graph)));

@@ -2,7 +2,10 @@
 use std::collections::BTreeSet;
 
 use oxc_allocator::Allocator;
-use oxc_ast::ast::{ArrowFunctionExpression, BindingIdentifier, Function, IdentifierReference};
+use oxc_ast::ast::{
+  ArrowFunctionExpression, BindingIdentifier, Expression, Function, IdentifierReference,
+  ObjectPropertyKind,
+};
 use oxc_ast_visit::{Visit, walk};
 use oxc_parser::Parser;
 use oxc_span::SourceType;
@@ -69,6 +72,45 @@ pub fn v_for_alias_identifiers(expression: &str) -> Vec<String> {
 #[must_use]
 pub fn slot_prop_alias_identifiers(expression: &str) -> Vec<String> {
   binding_pattern_identifiers(expression.trim())
+}
+
+/// Proven own `key` on an object-literal `v-bind` expression.
+///
+/// Parentheses and TypeScript `as` / `satisfies` / non-null wrappers are
+/// stripped with Oxc `get_inner_expression`. Spreads and unknown computed
+/// properties after a proven `key` can overwrite it, so those stay unproven.
+#[must_use]
+pub fn object_literal_has_own_key(expression: &str, key: &str) -> bool {
+  let trimmed = expression.trim();
+  if trimmed.is_empty() {
+    return false;
+  }
+  let allocator = Allocator::default();
+  let Ok(expr) = Parser::new(&allocator, trimmed, SourceType::tsx()).parse_expression() else {
+    return false;
+  };
+  let Expression::ObjectExpression(object) = expr.get_inner_expression() else {
+    return false;
+  };
+  let mut proven = false;
+  for property in &object.properties {
+    match property {
+      ObjectPropertyKind::SpreadProperty(_) => proven = false,
+      ObjectPropertyKind::ObjectProperty(property) => {
+        match property.key.static_name() {
+          Some(name) if name == key => proven = true,
+          Some(_) => {}
+          None => {
+            // Unknown computed key after `key` may overwrite it.
+            if proven {
+              proven = false;
+            }
+          }
+        }
+      }
+    }
+  }
+  proven
 }
 
 fn normalize_template_expression(expression: &str, surface: &str) -> String {

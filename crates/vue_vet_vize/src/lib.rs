@@ -189,6 +189,8 @@ fn analyze_sfc_facts_inner(
     script.blocks.push(script_facts);
   }
 
+  mark_imported_component_elements(&mut template, &script);
+
   // Join when template or any script block was rebuilt; full reuse already joined.
   let needs_join = !reuse_template || script_rebuilt;
   if needs_join {
@@ -226,6 +228,27 @@ fn revisions_from_descriptor(descriptor: &SfcDescriptor<'_>) -> SfcBlockRevision
 
 fn fingerprint(content: &str, start: usize, end: usize) -> BlockFingerprint {
   BlockFingerprint { content_digest: content_digest(content.as_bytes()), start, end }
+}
+
+fn mark_imported_component_elements(template: &mut TemplateFacts, script: &ScriptFacts) {
+  let locals = script
+    .blocks
+    .iter()
+    .flat_map(|block| &block.imports)
+    .filter(|import| !import.type_only && !import.local.is_empty())
+    .map(|import| import.local.as_str())
+    .collect::<std::collections::BTreeSet<_>>();
+  if locals.is_empty() {
+    return;
+  }
+  for element in &mut template.elements {
+    if !element.is_component
+      && locals.contains(element.tag.as_str())
+      && !vize_carton::is_native_tag(&element.tag)
+    {
+      element.is_component = true;
+    }
+  }
 }
 
 fn previous_script_block(facts: &SfcFacts, kind: ScriptKind) -> Option<&ScriptBlockFacts> {

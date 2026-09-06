@@ -52,8 +52,14 @@
     {
       "rule_id": "vue-vet/practice/prefer-to-value",
       "file": "PreferToValue.vue",
+      "classification": "false_positive",
+      "rationale": "Routine numeric/ref unwrapping (`unref(count)`); getter-evidence policy keeps this quiet"
+    },
+    {
+      "rule_id": "vue-vet/practice/prefer-to-value",
+      "file": "PreferToValueGetter.vue",
       "classification": "true_positive",
-      "rationale": "Imported unref on a ref-like binding; prefer toValue"
+      "rationale": "Vue unref on a function payload; toValue invokes getters"
     }
   ]
 }

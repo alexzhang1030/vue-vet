@@ -97,13 +97,7 @@ mod tests {
   }
 
   fn call(callee: &str, offset: usize) -> ScriptCallFact {
-    ScriptCallFact {
-      callee: callee.into(),
-      assigned_to: None,
-      resolved_import: None,
-      argument_identifiers: Vec::new(),
-      span: span(offset),
-    }
+    ScriptCallFact { callee: callee.into(), span: span(offset), ..ScriptCallFact::default() }
   }
 
   fn run_on(
@@ -157,6 +151,8 @@ mod tests {
         writes: 0,
         span: span(0),
         exported: false,
+        plain_initializer: false,
+        escaped: false,
       }],
       4,
     );
@@ -178,6 +174,8 @@ mod tests {
         writes: 0,
         span: span(0),
         exported: false,
+        plain_initializer: false,
+        escaped: false,
       }],
       4,
     );
@@ -200,6 +198,8 @@ mod tests {
         writes: 0,
         span: span(0),
         exported: false,
+        plain_initializer: false,
+        escaped: false,
       }],
       3,
     );
@@ -215,6 +215,8 @@ mod tests {
       writes: 0,
       span: span(0),
       exported: false,
+      plain_initializer: false,
+      escaped: false,
     }];
     assert!(
       run_on("src/Toggle.tsx", ScriptKind::Script, calls.clone(), bindings.clone(), 4).is_empty(),

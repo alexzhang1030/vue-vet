@@ -75,6 +75,15 @@ pub(super) fn collect_uncertain_scope_accesses_bounded(
     script_offset,
     index.nodes(),
   );
+  collect_unclassified_watch_members_local(
+    semantic,
+    scope_id,
+    reactive_bindings,
+    composable_instances,
+    script_offset,
+    index,
+    &mut names,
+  );
   follow_local_callees(
     index.callees(),
     scope_id,
@@ -323,7 +332,14 @@ fn collect_unclassified_watch_members_local(
       AstKind::ComputedMemberExpression(member) => &member.object,
       _ => continue,
     };
-    record_unclassified_watch_object(semantic, object, reactive_bindings, script_offset, names);
+    record_unclassified_watch_object(
+      semantic,
+      object,
+      reactive_bindings,
+      composable_instances,
+      script_offset,
+      names,
+    );
   }
 }
 
@@ -331,6 +347,7 @@ fn record_unclassified_watch_object(
   semantic: &oxc_semantic::Semantic<'_>,
   object: &Expression<'_>,
   reactive_bindings: &[ReactiveBindingFact],
+  composable_instances: &ComposableShapeMap,
   script_offset: usize,
   names: &mut BTreeSet<String>,
 ) {
@@ -341,7 +358,10 @@ fn record_unclassified_watch_object(
     binding.name == root.name.as_str()
       && reference_resolves_to_binding(semantic, root, binding, script_offset)
   });
-  if known {
+  if known || composable_instances.contains_key(root.name.as_str()) {
+    return;
+  }
+  if is_sync_hof_callback_param(semantic, root) {
     return;
   }
   names.insert(root.name.to_string());
@@ -578,6 +598,7 @@ pub(super) fn collect_uncertain_watch_expression(
         semantic,
         &member.object,
         reactive_bindings,
+        composable_instances,
         script_offset,
         names,
       );
@@ -587,6 +608,7 @@ pub(super) fn collect_uncertain_watch_expression(
         semantic,
         &member.object,
         reactive_bindings,
+        composable_instances,
         script_offset,
         names,
       );

@@ -148,6 +148,15 @@ pub(super) fn helper_follow_scope(
   graph.scopes.iter().find(|scope| scope.kind == kind)
 }
 
+#[expect(clippy::panic, reason = "fixture setup failures must fail the unit test")]
+pub(super) fn require_follow_scope<'a>(
+  graph: &'a ReactivityGraph,
+  kind: TrackingScopeKind,
+  label: &str,
+) -> &'a vue_vet_core::TrackingScopeFact {
+  helper_follow_scope(graph, kind).unwrap_or_else(|| panic!("{label}: missing {kind:?} scope"))
+}
+
 pub(super) fn helper_follow_has_value_read(
   graph: &ReactivityGraph,
   kind: TrackingScopeKind,

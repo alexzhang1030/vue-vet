@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/require-toggle-inside-transition",
+    "category": "correctness",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/correctness/require-toggle-inside-transition",
+    "message": "`<transition>` wraps content with no `v-if` / `v-show` / dynamic `:is` toggle",
+    "help": "Add a toggle directive on the transitioned child, or remove the wrapper.",
+    "file": "fixtures/rules/require-toggle-inside-transition/invalid/native-input-import.vue",
+    "span": {
+      "offset": 71,
+      "length": 12,
+      "line": 5,
+      "column": 3
+    }
+  }
+]

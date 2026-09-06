@@ -30,6 +30,7 @@ pub enum Resolution {
 pub struct ProjectResolver {
   root: PathBuf,
   resolver: Resolver,
+  type_resolver: Resolver,
 }
 
 impl std::fmt::Debug for ProjectResolver {
@@ -44,14 +45,39 @@ impl ProjectResolver {
     // On Windows, also strip `\\?\` so aliases match oxc_resolver's non-verbatim paths.
     let root = normalize_project_root(root);
     let options = bundler_resolve_options(&root);
-    Self { root, resolver: Resolver::new(options) }
+    let type_options = type_resolve_options(&root);
+    Self { root, resolver: Resolver::new(options), type_resolver: Resolver::new(type_options) }
   }
 
   pub fn resolve(&self, importer: &str, specifier: &str, known: &BTreeSet<String>) -> Resolution {
+    self.resolve_import(importer, specifier, known, false)
+  }
+
+  pub fn resolve_import(
+    &self,
+    importer: &str,
+    specifier: &str,
+    known: &BTreeSet<String>,
+    type_only: bool,
+  ) -> Resolution {
     if specifier == "#imports" || is_quiet_external_specifier(specifier) {
       return Resolution::External { package: specifier.into(), resolved_path: None };
     }
     let importer_path = absolute_under_root(&self.root, importer);
+    if type_only {
+      match self.type_resolver.resolve_file(&importer_path, specifier) {
+        Ok(resolved) => {
+          return classify_resolved(&self.root, resolved.full_path().as_path(), specifier, known);
+        }
+        Err(ResolveError::Builtin { .. }) => {
+          return Resolution::External { package: specifier.into(), resolved_path: None };
+        }
+        Err(_) if specifier.starts_with('#') => {
+          return Resolution::External { package: specifier.into(), resolved_path: None };
+        }
+        Err(_) => {}
+      }
+    }
     match self.resolver.resolve_file(&importer_path, specifier) {
       Ok(resolved) => {
         classify_resolved(&self.root, resolved.full_path().as_path(), specifier, known)
@@ -157,6 +183,26 @@ fn bundler_resolve_options(root: &Path) -> ResolveOptions {
     yarn_pnp,
     ..ResolveOptions::default()
   }
+}
+
+fn type_resolve_options(root: &Path) -> ResolveOptions {
+  let mut options = bundler_resolve_options(root);
+  options.condition_names =
+    vec!["types".into(), "import".into(), "module".into(), "browser".into(), "default".into()];
+  options.main_fields =
+    vec!["types".into(), "typings".into(), "browser".into(), "module".into(), "main".into()];
+  options.extensions =
+    [".vue", ".tsx", ".ts", ".d.ts", ".d.mts", ".d.cts", ".jsx", ".js", ".mjs", ".cjs", ".json"]
+      .into_iter()
+      .map(str::to_owned)
+      .collect();
+  options.extension_alias = vec![
+    (".js".into(), vec![".ts".into(), ".tsx".into(), ".d.ts".into(), ".js".into()]),
+    (".jsx".into(), vec![".tsx".into(), ".d.ts".into(), ".jsx".into()]),
+    (".mjs".into(), vec![".mts".into(), ".d.mts".into(), ".mjs".into()]),
+    (".cjs".into(), vec![".cts".into(), ".d.cts".into(), ".cjs".into()]),
+  ];
+  options
 }
 
 fn classify_resolved(
@@ -391,6 +437,10 @@ pub fn resolver_config_inputs(root: &Path) -> Vec<String> {
     ".nuxt/types/imports.d.ts",
     "auto-imports.d.ts",
     "src/auto-imports.d.ts",
+    "nuxt.config.ts",
+    "nuxt.config.js",
+    "nuxt.config.mjs",
+    "nuxt.config.mts",
   ];
   let mut inputs = Vec::new();
   for candidate in CANDIDATES {
@@ -567,5 +617,38 @@ mod tests {
       );
       let _ignored = std::fs::remove_dir_all(dir);
     }
+  }
+
+  #[test]
+  #[expect(clippy::expect_used, reason = "unit test asserts temp fixture setup succeeds")]
+  fn type_only_resolution_finds_declaration_suffixes() {
+    use super::{ProjectResolver, Resolution};
+    use std::collections::BTreeSet;
+
+    let dir = std::env::temp_dir().join(format!("vue-vet-types-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    std::fs::write(dir.join("types.d.ts"), "export type Item = { value: string }\n").expect("d.ts");
+    std::fs::write(dir.join("flags.d.mts"), "export type Flag = boolean\n").expect("d.mts");
+    std::fs::write(dir.join("legacy.d.cts"), "export type Legacy = number\n").expect("d.cts");
+    std::fs::write(dir.join("read.ts"), "export {}\n").expect("importer");
+    let resolver = ProjectResolver::new(&dir);
+    let known = BTreeSet::new();
+    for specifier in ["./types", "./flags", "./legacy", "./flags.mjs", "./legacy.cjs"] {
+      assert!(
+        !matches!(
+          resolver.resolve_import("read.ts", specifier, &known, true),
+          Resolution::Unresolved
+        ),
+        "type-only `{specifier}` must resolve a declaration file"
+      );
+    }
+    assert!(
+      matches!(
+        resolver.resolve_import("read.ts", "./types", &known, false),
+        Resolution::Unresolved
+      ),
+      "value imports must not pick up declaration-only modules"
+    );
+    drop(std::fs::remove_dir_all(dir));
   }
 }

@@ -1,8 +1,8 @@
 [
   {
     "rule_id": "vue-vet/reactivity/no-computed-without-dependency",
-    "category": "reactivity",
-    "severity": "warning",
+    "category": "practice",
+    "severity": "info",
     "confidence": "high",
     "documentation": "rules/reactivity/no-computed-without-dependency",
     "message": "`computed` does not read any reactive dependency",

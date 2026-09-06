@@ -307,6 +307,8 @@ fn parent_child_files(
       has_accessible_content: false,
       has_labelable_descendant: false,
       has_label_ancestor: false,
+      object_bind_has_key: false,
+      is_component: false,
       has_accessible_name_ancestor: false,
     }];
   }
@@ -750,5 +752,666 @@ fn vue_modules_receive_composable_seeds_and_template_joins() {
         && module.graph.bindings.iter().any(|binding| binding.span.offset >= script_offset)
     }),
     "SFC modules must seed composable fields with SFC-absolute spans and join template reads"
+  );
+}
+
+#[test]
+fn type_only_relative_declaration_imports_resolve() {
+  let project = TempProject::new("type-import");
+  project.write("src/types.d.ts", "export type Item = { value: string }\n");
+  project.write("src/flags.d.mts", "export type Flag = boolean\n");
+  let mut importer = standalone_ts(
+    "src/read.ts",
+    "import type { Item, Other } from './types'\nimport type { Flag } from './flags'\n",
+  );
+  {
+    let facts = std::sync::Arc::make_mut(&mut importer.facts);
+    facts.script.blocks = vec![ScriptBlockFacts {
+      kind: ScriptKind::Script,
+      language: "ts".into(),
+      imports: vec![
+        ScriptImportFact {
+          source: "./types".into(),
+          imported: "Item".into(),
+          local: "Item".into(),
+          span: span(14),
+          type_only: true,
+          declaration_span: span(0),
+        },
+        ScriptImportFact {
+          source: "./types".into(),
+          imported: "Other".into(),
+          local: "Other".into(),
+          span: span(20),
+          type_only: true,
+          declaration_span: span(0),
+        },
+        ScriptImportFact {
+          source: "./flags".into(),
+          imported: "Flag".into(),
+          local: "Flag".into(),
+          span: span(60),
+          type_only: true,
+          declaration_span: span(50),
+        },
+      ],
+      bindings: Vec::new(),
+      calls: Vec::new(),
+      member_writes: Vec::new(),
+      destructures: Vec::new(),
+      top_level_await_ends: Vec::new(),
+      operands: Vec::new(),
+      reactivity_graph: empty_graph(),
+    }];
+  }
+  let graph = build_project_graph(project.root(), &[importer]);
+  assert!(
+    graph.diagnostics.iter().all(|diagnostic| diagnostic.rule_id != PROJECT_RULE_IDS[0]),
+    "type-only .d.ts / .d.mts imports must resolve: {:?}",
+    graph.diagnostics
+  );
+}
+
+#[test]
+#[expect(clippy::panic, reason = "test assertions must fail the unit test")]
+fn grouped_unresolved_imports_use_declaration_span() {
+  let project = TempProject::new("grouped-unresolved");
+  let mut importer = standalone_ts(
+    "src/read.ts",
+    "import { A, B } from './missing'\nimport { C } from './missing'\n",
+  );
+  {
+    let facts = std::sync::Arc::make_mut(&mut importer.facts);
+    facts.script.blocks = vec![ScriptBlockFacts {
+      kind: ScriptKind::Script,
+      language: "ts".into(),
+      imports: vec![
+        ScriptImportFact {
+          source: "./missing".into(),
+          imported: "A".into(),
+          local: "A".into(),
+          span: span(9),
+          type_only: false,
+          declaration_span: span(0),
+        },
+        ScriptImportFact {
+          source: "./missing".into(),
+          imported: "B".into(),
+          local: "B".into(),
+          span: span(12),
+          type_only: false,
+          declaration_span: span(0),
+        },
+        ScriptImportFact {
+          source: "./missing".into(),
+          imported: "C".into(),
+          local: "C".into(),
+          span: span(40),
+          type_only: false,
+          declaration_span: span(30),
+        },
+      ],
+      bindings: Vec::new(),
+      calls: Vec::new(),
+      member_writes: Vec::new(),
+      destructures: Vec::new(),
+      top_level_await_ends: Vec::new(),
+      operands: Vec::new(),
+      reactivity_graph: empty_graph(),
+    }];
+  }
+  let graph = build_project_graph(project.root(), &[importer]);
+  let unresolved = graph
+    .diagnostics
+    .iter()
+    .filter(|diagnostic| diagnostic.rule_id == PROJECT_RULE_IDS[0])
+    .collect::<Vec<_>>();
+  assert_eq!(unresolved.len(), 2, "one diagnostic per declaration: {unresolved:?}");
+  let Some(first) = unresolved.first() else {
+    panic!("two unresolved diagnostics: {unresolved:?}");
+  };
+  let Some(second) = unresolved.get(1) else {
+    panic!("two unresolved diagnostics: {unresolved:?}");
+  };
+  assert_ne!(first.span.offset, second.span.offset);
+}
+
+#[test]
+fn nuxt_content_components_are_named_and_reachable() {
+  let project = TempProject::new("nuxt-content");
+  project.write("package.json", r#"{"name":"docs","dependencies":{"@nuxt/content":"3.0.0"}}"#);
+  project
+    .write("nuxt.config.ts", "export default defineNuxtConfig({ modules: ['@nuxt/content'] })\n");
+  let panel = file("app/components/content/GuidePanel.vue", &[], &["GuideIcon"], &[]);
+  let icon = file("app/components/content/GuideIcon.vue", &[], &[], &[]);
+  let unused = file("app/components/UnusedBadge.vue", &[], &[], &[]);
+  materialize(&project, &[panel.clone(), icon.clone(), unused.clone()]);
+  let package_json: FileId = "package.json".into();
+  let nuxt_config: FileId = "nuxt.config.ts".into();
+  let context = project_context_from_inputs(
+    project.root(),
+    [&panel.path, &icon.path, &unused.path, &package_json, &nuxt_config],
+    [
+      ("package.json", br#"{"name":"docs","dependencies":{"@nuxt/content":"3.0.0"}}"#.as_slice()),
+      (
+        "nuxt.config.ts",
+        b"export default defineNuxtConfig({ modules: ['@nuxt/content'] })\n".as_slice(),
+      ),
+    ],
+    1,
+  );
+  let mut state = ProjectGraphState::default();
+  let graph = build_project_graph_incremental_with_options(
+    project.root(),
+    &[panel, icon, unused],
+    &trace_opts_workers(1),
+    &context,
+    &mut state,
+    None,
+  );
+  assert!(
+    graph
+      .nodes
+      .iter()
+      .any(|node| node.path.ends_with("GuidePanel.vue") && node.name == "GuidePanel"),
+    "content components drop the Content prefix: {:?}",
+    graph.nodes
+  );
+  let unused_ids = graph
+    .diagnostics
+    .iter()
+    .filter(|diagnostic| diagnostic.rule_id == PROJECT_RULE_IDS[1])
+    .map(|diagnostic| diagnostic.message.as_str())
+    .collect::<Vec<_>>();
+  assert!(
+    unused_ids.iter().any(|message| message.contains("UnusedBadge")),
+    "ordinary components stay unused: {unused_ids:?}"
+  );
+  assert!(
+    unused_ids
+      .iter()
+      .all(|message| !message.contains("GuidePanel") && !message.contains("GuideIcon")),
+    "content components are entrypoints: {unused_ids:?}"
+  );
+}
+
+#[test]
+fn nested_content_component_uses_basename_and_widgets_stay_ordinary() {
+  let project = TempProject::new("nuxt-content-nested");
+  project.write("package.json", r#"{"name":"docs","dependencies":{"@nuxt/content":"3.0.0"}}"#);
+  project
+    .write("nuxt.config.ts", "export default defineNuxtConfig({ modules: ['@nuxt/content'] })\n");
+  let nested = file("app/components/content/nested/GuidePanel.vue", &[], &[], &[]);
+  let widget = file("app/components/widgets/content/GuidePanel.vue", &[], &[], &[]);
+  materialize(&project, &[nested.clone(), widget.clone()]);
+  let package_json: FileId = "package.json".into();
+  let nuxt_config: FileId = "nuxt.config.ts".into();
+  let context = project_context_from_inputs(
+    project.root(),
+    [&nested.path, &widget.path, &package_json, &nuxt_config],
+    [
+      ("package.json", br#"{"name":"docs","dependencies":{"@nuxt/content":"3.0.0"}}"#.as_slice()),
+      (
+        "nuxt.config.ts",
+        b"export default defineNuxtConfig({ modules: ['@nuxt/content'] })\n".as_slice(),
+      ),
+    ],
+    1,
+  );
+  let mut state = ProjectGraphState::default();
+  let graph = build_project_graph_incremental_with_options(
+    project.root(),
+    &[nested, widget],
+    &trace_opts_workers(1),
+    &context,
+    &mut state,
+    None,
+  );
+  assert!(
+    graph
+      .nodes
+      .iter()
+      .any(|node| node.path.contains("/content/nested/") && node.name == "GuidePanel"),
+    "pathPrefix:false uses basename: {:?}",
+    graph.nodes
+  );
+  assert!(
+    graph.nodes.iter().any(
+      |node| node.path.contains("/widgets/content/") && node.name == "WidgetsContentGuidePanel"
+    ),
+    "unrelated content folders keep ordinary names: {:?}",
+    graph.nodes
+  );
+  assert!(
+    graph.diagnostics.iter().any(|diagnostic| {
+      diagnostic.rule_id == PROJECT_RULE_IDS[1]
+        && diagnostic.message.contains("WidgetsContentGuidePanel")
+    }),
+    "widget content components stay unused: {:?}",
+    graph.diagnostics
+  );
+}
+
+#[test]
+fn empty_modules_array_overrides_installed_content_dependency() {
+  let project = TempProject::new("nuxt-content-empty-modules");
+  project.write("package.json", r#"{"name":"docs","dependencies":{"@nuxt/content":"3.0.0"}}"#);
+  project.write("nuxt.config.ts", "export default defineNuxtConfig({ modules: [] })\n");
+  let panel = file("app/components/content/GuidePanel.vue", &[], &[], &[]);
+  materialize(&project, std::slice::from_ref(&panel));
+  let package_json: FileId = "package.json".into();
+  let nuxt_config: FileId = "nuxt.config.ts".into();
+  let context = project_context_from_inputs(
+    project.root(),
+    [&panel.path, &package_json, &nuxt_config],
+    [
+      ("package.json", br#"{"name":"docs","dependencies":{"@nuxt/content":"3.0.0"}}"#.as_slice()),
+      ("nuxt.config.ts", b"export default defineNuxtConfig({ modules: [] })\n".as_slice()),
+    ],
+    1,
+  );
+  assert!(context.nuxt_content_roots.is_empty(), "empty modules must disable content: {context:?}");
+  let mut state = ProjectGraphState::default();
+  let graph = build_project_graph_incremental_with_options(
+    project.root(),
+    &[panel],
+    &trace_opts_workers(1),
+    &context,
+    &mut state,
+    None,
+  );
+  assert!(
+    graph.nodes.iter().any(|node| node.name == "ContentGuidePanel"),
+    "disabled content keeps the path prefix: {:?}",
+    graph.nodes
+  );
+}
+
+#[test]
+fn nearer_ordinary_package_does_not_inherit_parent_content() {
+  let project = TempProject::new("nuxt-content-nested-package");
+  project.write("package.json", r#"{"name":"root","dependencies":{"@nuxt/content":"3.0.0"}}"#);
+  project.write("packages/app/package.json", r#"{"name":"app"}"#);
+  let panel = file("packages/app/app/components/content/GuidePanel.vue", &[], &[], &[]);
+  materialize(&project, std::slice::from_ref(&panel));
+  let known = BTreeSet::from([crate::resolve::normalized_path(panel.path.as_path())]);
+  let fs_context = crate::ProjectContext::from_filesystem(project.root(), &known);
+  assert!(
+    !fs_context.nuxt_content_roots.contains("packages/app"),
+    "nested ordinary package is not a content root: {:?}",
+    fs_context.nuxt_content_roots
+  );
+  assert!(
+    fs_context.convention_owners.contains("packages/app"),
+    "ancestor discovery must find nested package.json: {:?}",
+    fs_context.convention_owners
+  );
+  let mut state = ProjectGraphState::default();
+  let graph = build_project_graph_incremental_with_options(
+    project.root(),
+    &[panel],
+    &trace_opts_workers(1),
+    &fs_context,
+    &mut state,
+    None,
+  );
+  assert!(
+    graph.nodes.iter().any(|node| node.name == "ContentGuidePanel"),
+    "nested ordinary package keeps unused Content-prefixed name: {:?}",
+    graph.nodes
+  );
+}
+
+#[test]
+fn filesystem_context_enables_content_from_ancestor_manifests() {
+  let project = TempProject::new("nuxt-content-fs");
+  project.write(
+    "package.json",
+    r#"{"private":true,"dependencies":{"nuxt":"4.0.0","@nuxt/content":"3.0.0"}}"#,
+  );
+  project
+    .write("nuxt.config.ts", "export default defineNuxtConfig({ modules: ['@nuxt/content'] })\n");
+  let panel = file("app/components/content/GuidePanel.vue", &[], &[], &[]);
+  materialize(&project, std::slice::from_ref(&panel));
+  let known = BTreeSet::from([crate::resolve::normalized_path(panel.path.as_path())]);
+  let context = crate::ProjectContext::from_filesystem(project.root(), &known);
+  assert!(
+    context.nuxt_content_roots.contains(""),
+    "filesystem ancestors plus resolver inputs must enable content: {context:?}"
+  );
+  assert!(
+    crate::conventions::is_nuxt_content_component(
+      "app/components/content/GuidePanel.vue",
+      &context.nuxt_content_roots,
+      &context.convention_owners,
+      &context.nuxt_src_dirs,
+    ),
+    "framework content dir must match: {context:?}"
+  );
+}
+
+#[test]
+fn malformed_package_json_does_not_register_content() {
+  let project = TempProject::new("nuxt-content-malformed");
+  let panel = file("app/components/content/GuidePanel.vue", &[], &[], &[]);
+  materialize(&project, std::slice::from_ref(&panel));
+  let package_json: FileId = "package.json".into();
+  let context = project_context_from_inputs(
+    project.root(),
+    [&panel.path, &package_json],
+    [("package.json", br#"{ "dependencies": { "@nuxt/content": "3.0.0" "#.as_slice())],
+    1,
+  );
+  assert!(
+    context.nuxt_content_roots.is_empty(),
+    "invalid JSON must not enable content: {context:?}"
+  );
+}
+
+#[test]
+fn ordinary_content_folder_is_not_an_entrypoint() {
+  let project = TempProject::new("non-content");
+  project.write("package.json", r#"{"name":"app"}"#);
+  project.write("nuxt.config.ts", "export default defineNuxtConfig({})\n");
+  let panel = file("app/components/content/GuidePanel.vue", &[], &[], &[]);
+  materialize(&project, std::slice::from_ref(&panel));
+  let package_json: FileId = "package.json".into();
+  let context = project_context_from_inputs(
+    project.root(),
+    [&panel.path, &package_json],
+    [("package.json", br#"{"name":"app"}"#.as_slice())],
+    1,
+  );
+  let mut state = ProjectGraphState::default();
+  let graph = build_project_graph_incremental_with_options(
+    project.root(),
+    &[panel],
+    &trace_opts_workers(1),
+    &context,
+    &mut state,
+    None,
+  );
+  assert!(
+    graph.nodes.iter().any(|node| node.name == "ContentGuidePanel"),
+    "without @nuxt/content the path prefix stays: {:?}",
+    graph.nodes
+  );
+  assert!(
+    graph.diagnostics.iter().any(|diagnostic| {
+      diagnostic.rule_id == PROJECT_RULE_IDS[1] && diagnostic.message.contains("ContentGuidePanel")
+    }),
+    "ordinary content folders are unused: {:?}",
+    graph.diagnostics
+  );
+}
+
+#[test]
+#[expect(clippy::panic, reason = "test fixture reads must fail the unit test")]
+fn snapshot_owners_are_config_files_not_source_parents() {
+  let project = TempProject::new("nuxt-content-source-parent");
+  project.write(
+    "package.json",
+    r#"{"private":true,"dependencies":{"nuxt":"4.0.0","@nuxt/content":"3.0.0"}}"#,
+  );
+  project
+    .write("nuxt.config.ts", "export default defineNuxtConfig({ modules: ['@nuxt/content'] })\n");
+  let panel = file("app/components/content/GuidePanel.vue", &[], &[], &[]);
+  materialize(&project, std::slice::from_ref(&panel));
+  let package_json: FileId = "package.json".into();
+  let nuxt_config: FileId = "nuxt.config.ts".into();
+  let vue_source = std::fs::read(project.root().join(panel.path.as_path()))
+    .unwrap_or_else(|error| panic!("input-context vue fixture must exist: {error}"));
+  let context = project_context_from_inputs(
+    project.root(),
+    [&panel.path, &package_json, &nuxt_config],
+    [
+      (
+        "package.json",
+        br#"{"private":true,"dependencies":{"nuxt":"4.0.0","@nuxt/content":"3.0.0"}}"#.as_slice(),
+      ),
+      (
+        "nuxt.config.ts",
+        b"export default defineNuxtConfig({ modules: ['@nuxt/content'] })\n".as_slice(),
+      ),
+      (panel.path.as_str(), vue_source.as_slice()),
+    ],
+    1,
+  );
+  let fs_context = crate::ProjectContext::from_filesystem(
+    project.root(),
+    &BTreeSet::from([crate::resolve::normalized_path(panel.path.as_path())]),
+  );
+  assert!(
+    context.nuxt_content_roots.contains(""),
+    "snapshot must enable root content: {context:?}"
+  );
+  assert_eq!(
+    context.convention_owners, fs_context.convention_owners,
+    "snapshot and filesystem owners must agree: {context:?} vs {fs_context:?}"
+  );
+  assert!(
+    !context.convention_owners.contains("app/components/content"),
+    "source directories are not owners: {:?}",
+    context.convention_owners
+  );
+}
+
+#[test]
+fn literal_src_dir_selects_framework_content_directory() {
+  let project = TempProject::new("nuxt-content-srcdir");
+  project.write(
+    "package.json",
+    r#"{"private":true,"dependencies":{"nuxt":"4.0.0","@nuxt/content":"3.0.0"}}"#,
+  );
+  project.write(
+    "nuxt.config.ts",
+    "export default defineNuxtConfig({ srcDir: 'ui', modules: ['@nuxt/content'] })\n",
+  );
+  let panel = file("ui/components/content/GuidePanel.vue", &[], &[], &[]);
+  let ordinary = file("app/components/content/RegularPanel.vue", &[], &[], &[]);
+  materialize(&project, &[panel.clone(), ordinary.clone()]);
+  let package_json: FileId = "package.json".into();
+  let nuxt_config: FileId = "nuxt.config.ts".into();
+  let context = project_context_from_inputs(
+    project.root(),
+    [&panel.path, &ordinary.path, &package_json, &nuxt_config],
+    [
+      (
+        "package.json",
+        br#"{"private":true,"dependencies":{"nuxt":"4.0.0","@nuxt/content":"3.0.0"}}"#.as_slice(),
+      ),
+      (
+        "nuxt.config.ts",
+        b"export default defineNuxtConfig({ srcDir: 'ui', modules: ['@nuxt/content'] })\n"
+          .as_slice(),
+      ),
+    ],
+    1,
+  );
+  assert_eq!(context.nuxt_src_dirs.get(""), Some(&"ui".to_owned()));
+  let mut state = ProjectGraphState::default();
+  let graph = build_project_graph_incremental_with_options(
+    project.root(),
+    &[panel, ordinary],
+    &trace_opts_workers(1),
+    &context,
+    &mut state,
+    None,
+  );
+  assert!(
+    graph
+      .nodes
+      .iter()
+      .any(|node| node.path.contains("ui/components/content") && node.name == "GuidePanel"),
+    "srcDir content uses basename: {:?}",
+    graph.nodes
+  );
+  assert!(
+    graph.diagnostics.iter().any(|diagnostic| {
+      diagnostic.rule_id == PROJECT_RULE_IDS[1]
+        && diagnostic.message.contains("ContentRegularPanel")
+    }),
+    "unrelated app/components/content stays ordinary: {:?}",
+    graph.diagnostics
+  );
+}
+
+#[test]
+fn nuxt_layer_extends_enables_content_and_records_invalidation() {
+  let project = TempProject::new("nuxt-content-layer");
+  project.write(
+    "package.json",
+    r#"{"private":true,"dependencies":{"nuxt":"4.0.0","theme-kit":"1.0.0"}}"#,
+  );
+  project.write("nuxt.config.ts", "export default defineNuxtConfig({ extends: ['theme-kit'] })\n");
+  project.write(
+    "node_modules/theme-kit/package.json",
+    r#"{"name":"theme-kit","version":"1.0.0","exports":{"./*":"./*"},"dependencies":{"@nuxt/content":"3.0.0"}}"#,
+  );
+  project.write(
+    "node_modules/theme-kit/nuxt.config.ts",
+    "export default defineNuxtConfig({ modules: ['@nuxt/content'] })\n",
+  );
+  let panel = file("app/components/content/GuidePanel.vue", &[], &[], &[]);
+  let unused = file("app/components/UnusedPanel.vue", &[], &[], &[]);
+  materialize(&project, &[panel.clone(), unused.clone()]);
+  let known = BTreeSet::from([
+    crate::resolve::normalized_path(panel.path.as_path()),
+    crate::resolve::normalized_path(unused.path.as_path()),
+  ]);
+  let context = crate::ProjectContext::from_filesystem(project.root(), &known);
+  assert!(
+    context.nuxt_content_roots.contains(""),
+    "layer modules must enable content: {context:?}"
+  );
+  assert!(
+    context.invalidation_inputs.iter().any(|input| input.ends_with("theme-kit/nuxt.config.ts")),
+    "layer config must join invalidation inputs: {:?}",
+    context.invalidation_inputs
+  );
+  let mut state = ProjectGraphState::default();
+  let graph = build_project_graph_incremental_with_options(
+    project.root(),
+    &[panel, unused],
+    &trace_opts_workers(1),
+    &context,
+    &mut state,
+    None,
+  );
+  assert!(
+    graph.diagnostics.iter().any(|diagnostic| {
+      diagnostic.rule_id == PROJECT_RULE_IDS[1] && diagnostic.message.contains("UnusedPanel")
+    }),
+    "ordinary unused stays detectable: {:?}",
+    graph.diagnostics
+  );
+  assert!(
+    graph.diagnostics.iter().all(|diagnostic| !diagnostic.message.contains("GuidePanel")),
+    "layer-enabled content is an entrypoint: {:?}",
+    graph.diagnostics
+  );
+}
+
+#[test]
+fn computed_property_unproves_src_dir_until_later_literal() {
+  let project = TempProject::new("nuxt-content-computed-srcdir");
+  project.write(
+    "package.json",
+    r#"{"private":true,"dependencies":{"nuxt":"4.0.0","@nuxt/content":"3.0.0"}}"#,
+  );
+  project.write(
+    "nuxt.config.ts",
+    "const field = 'srcDir'; export default defineNuxtConfig({ srcDir: 'ui', [field]: 'other', modules: ['@nuxt/content'] })\n",
+  );
+  let panel = file("ui/components/content/GuidePanel.vue", &[], &[], &[]);
+  materialize(&project, std::slice::from_ref(&panel));
+  let package_json: FileId = "package.json".into();
+  let nuxt_config: FileId = "nuxt.config.ts".into();
+  let context = project_context_from_inputs(
+    project.root(),
+    [&panel.path, &package_json, &nuxt_config],
+    [
+      (
+        "package.json",
+        br#"{"private":true,"dependencies":{"nuxt":"4.0.0","@nuxt/content":"3.0.0"}}"#.as_slice(),
+      ),
+      (
+        "nuxt.config.ts",
+        b"const field = 'srcDir'; export default defineNuxtConfig({ srcDir: 'ui', [field]: 'other', modules: ['@nuxt/content'] })\n"
+          .as_slice(),
+      ),
+    ],
+    1,
+  );
+  assert!(
+    !context.nuxt_src_dirs.contains_key(""),
+    "unknown computed key must drop srcDir: {context:?}"
+  );
+}
+
+#[test]
+#[expect(clippy::panic, reason = "test fixture reads must fail the unit test")]
+fn input_context_does_not_read_unretained_layer_bytes() {
+  let project = TempProject::new("nuxt-content-layer-snapshot");
+  project.write(
+    "package.json",
+    r#"{"private":true,"dependencies":{"nuxt":"4.0.0","theme-kit":"1.0.0"}}"#,
+  );
+  project.write("nuxt.config.ts", "export default defineNuxtConfig({ extends: ['theme-kit'] })\n");
+  project.write(
+    "node_modules/theme-kit/package.json",
+    r#"{"name":"theme-kit","version":"1.0.0","exports":{"./*":"./*"},"dependencies":{"@nuxt/content":"3.0.0"}}"#,
+  );
+  project.write(
+    "node_modules/theme-kit/nuxt.config.ts",
+    "export default defineNuxtConfig({ modules: ['@nuxt/content'] })\n",
+  );
+  let panel = file("app/components/content/GuidePanel.vue", &[], &[], &[]);
+  materialize(&project, std::slice::from_ref(&panel));
+  let package_json: FileId = "package.json".into();
+  let nuxt_config: FileId = "nuxt.config.ts".into();
+  let without_layer = project_context_from_inputs(
+    project.root(),
+    [&panel.path, &package_json, &nuxt_config],
+    [
+      (
+        "package.json",
+        br#"{"private":true,"dependencies":{"nuxt":"4.0.0","theme-kit":"1.0.0"}}"#.as_slice(),
+      ),
+      (
+        "nuxt.config.ts",
+        b"export default defineNuxtConfig({ extends: ['theme-kit'] })\n".as_slice(),
+      ),
+    ],
+    1,
+  );
+  assert!(
+    without_layer.nuxt_content_roots.is_empty(),
+    "missing retained layer bytes must not read disk: {without_layer:?}"
+  );
+  let layer_config = std::fs::read(project.root().join("node_modules/theme-kit/nuxt.config.ts"))
+    .unwrap_or_else(|error| panic!("retained layer nuxt.config.ts must exist: {error}"));
+  let layer_package = std::fs::read(project.root().join("node_modules/theme-kit/package.json"))
+    .unwrap_or_else(|error| panic!("retained layer package.json must exist: {error}"));
+  let with_layer = project_context_from_inputs(
+    project.root(),
+    [&panel.path, &package_json, &nuxt_config],
+    [
+      (
+        "package.json",
+        br#"{"private":true,"dependencies":{"nuxt":"4.0.0","theme-kit":"1.0.0"}}"#.as_slice(),
+      ),
+      (
+        "nuxt.config.ts",
+        b"export default defineNuxtConfig({ extends: ['theme-kit'] })\n".as_slice(),
+      ),
+      ("node_modules/theme-kit/package.json", layer_package.as_slice()),
+      ("node_modules/theme-kit/nuxt.config.ts", layer_config.as_slice()),
+    ],
+    1,
+  );
+  assert!(
+    with_layer.nuxt_content_roots.contains(""),
+    "retained layer bytes must enable content: {with_layer:?}"
   );
 }

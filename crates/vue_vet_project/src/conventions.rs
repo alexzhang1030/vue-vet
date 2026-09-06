@@ -5,6 +5,8 @@ use std::{
   path::{Component, Path},
 };
 
+use vue_vet_oxc::{NuxtContentModulePolicy, parse_nuxt_config};
+
 use crate::resolve::{normalize_project_root, normalized_path};
 
 /// Strip Nuxt mode / visibility suffixes from a component file stem.
@@ -36,21 +38,35 @@ pub fn strip_nuxt_component_suffixes(stem: &str) -> String {
 /// `.nuxt/components.d.ts` enrichment.
 #[must_use]
 pub fn convention_component_name(path: &str) -> Option<String> {
+  convention_component_name_with_content(path, false)
+}
+
+/// Like [`convention_component_name`], dropping the Nuxt Content `content/`
+/// path prefix (`pathPrefix: false`, `prefix: ''`) when that module is present.
+#[must_use]
+pub fn convention_component_name_with_content(path: &str, nuxt_content: bool) -> Option<String> {
   let relative = path_under_components(path)?;
   let path = Path::new(relative);
-  let prefix_parts = path
-    .parent()
-    .map(|parent| {
-      parent
-        .components()
-        .filter_map(|component| match component {
-          Component::Normal(part) => part.to_str().map(str::to_owned),
-          _ => None,
-        })
-        .filter(|part| !is_grouping_folder(part))
-        .collect::<Vec<_>>()
-    })
-    .unwrap_or_default();
+  // Nuxt Content `pathPrefix: false` drops every relative directory under the
+  // framework-owned `components/content/` tree. Ordinary `…/widgets/content/`
+  // paths keep their prefixes.
+  let prefix_parts = if nuxt_content {
+    Vec::new()
+  } else {
+    path
+      .parent()
+      .map(|parent| {
+        parent
+          .components()
+          .filter_map(|component| match component {
+            Component::Normal(part) => part.to_str().map(str::to_owned),
+            _ => None,
+          })
+          .filter(|part| !is_grouping_folder(part))
+          .collect::<Vec<_>>()
+      })
+      .unwrap_or_default()
+  };
 
   let mut file_name = path.file_stem().and_then(|name| name.to_str()).unwrap_or("").to_owned();
   file_name = strip_nuxt_component_suffixes(&file_name);
@@ -205,6 +221,212 @@ fn path_under_components(path: &str) -> Option<&str> {
 fn is_grouping_folder(segment: &str) -> bool {
   let trimmed = segment.trim();
   trimmed.starts_with('(') && trimmed.ends_with(')')
+}
+
+/// Framework-owned Content component dirs relative to a package/config owner.
+const NUXT_CONTENT_COMPONENT_PREFIXES: &[&str] =
+  &["components/content/", "app/components/content/", "src/components/content/"];
+
+/// `app/components/content/…` (and srcDir-equivalent) under the nearest owner.
+///
+/// Package/config directories are ownership boundaries. A parent Content
+/// registration does not leak into a nearer ordinary package, and a Content
+/// root never matches an unrelated sibling package path.
+#[must_use]
+pub fn is_nuxt_content_component(
+  path: &str,
+  content_roots: &BTreeSet<String>,
+  owners: &BTreeSet<String>,
+  src_dirs: &BTreeMap<String, String>,
+) -> bool {
+  if content_roots.is_empty() {
+    return false;
+  }
+  let normalized = path.replace('\\', "/");
+  let Some(owner) = nearest_owner(&normalized, owners, content_roots) else {
+    return false;
+  };
+  if !content_roots.contains(owner) {
+    return false;
+  }
+  let relative = relative_to_owner(&normalized, owner);
+  content_component_prefixes(src_dirs.get(owner).map(String::as_str))
+    .iter()
+    .any(|prefix| relative.starts_with(prefix))
+}
+
+fn content_component_prefixes(src_dir: Option<&str>) -> Vec<String> {
+  match src_dir {
+    Some(dir) if !dir.is_empty() && dir != "." => {
+      let trimmed = dir.trim_matches('/');
+      vec![format!("{trimmed}/components/content/")]
+    }
+    _ => NUXT_CONTENT_COMPONENT_PREFIXES.iter().map(|prefix| (*prefix).to_owned()).collect(),
+  }
+}
+
+#[must_use]
+pub fn nearest_owner<'a>(
+  path: &str,
+  owners: &'a BTreeSet<String>,
+  content_roots: &'a BTreeSet<String>,
+) -> Option<&'a str> {
+  owners
+    .iter()
+    .chain(content_roots.iter())
+    .filter(|owner| path_is_under(path, owner))
+    .max_by_key(|owner| owner.len())
+    .map(String::as_str)
+}
+
+fn path_is_under(path: &str, owner: &str) -> bool {
+  if owner.is_empty() {
+    return true;
+  }
+  path == owner || path.starts_with(&format!("{owner}/"))
+}
+
+fn relative_to_owner<'a>(path: &'a str, owner: &str) -> &'a str {
+  if owner.is_empty() {
+    return path;
+  }
+  path.strip_prefix(owner).and_then(|rest| rest.strip_prefix('/')).unwrap_or(path)
+}
+
+/// Combine package-dependency evidence with a structured Nuxt `modules` policy.
+#[must_use]
+pub const fn owner_enables_nuxt_content(
+  package_has_dep: bool,
+  config_policy: NuxtContentModulePolicy,
+) -> bool {
+  match config_policy {
+    NuxtContentModulePolicy::IncludesContent => true,
+    NuxtContentModulePolicy::Empty => false,
+    NuxtContentModulePolicy::Absent | NuxtContentModulePolicy::Unresolved => package_has_dep,
+  }
+}
+
+/// Structured enablement for one package.json or `nuxt.config.*` source.
+#[must_use]
+pub fn source_nuxt_content_evidence(path: &str, source: &str) -> OwnerContentEvidence {
+  let name = Path::new(path).file_name().and_then(|name| name.to_str()).unwrap_or(path);
+  if name == "package.json" {
+    return OwnerContentEvidence {
+      package_has_dep: package_json_has_nuxt_content(source),
+      config_policy: NuxtContentModulePolicy::Absent,
+    };
+  }
+  if is_nuxt_config_file(name) {
+    return OwnerContentEvidence {
+      package_has_dep: false,
+      config_policy: parse_nuxt_config(path, source).modules,
+    };
+  }
+  OwnerContentEvidence::default()
+}
+
+/// Package.json / `nuxt.config.*` facts used while discovering Content owners.
+#[must_use]
+pub fn source_owner_config_facts(path: &str, source: &str) -> OwnerConfigFacts {
+  let name = Path::new(path).file_name().and_then(|name| name.to_str()).unwrap_or(path);
+  if name == "package.json" {
+    return OwnerConfigFacts {
+      evidence: source_nuxt_content_evidence(path, source),
+      src_dir: None,
+      extends: Vec::new(),
+    };
+  }
+  if is_nuxt_config_file(name) {
+    let parsed = parse_nuxt_config(path, source);
+    return OwnerConfigFacts {
+      evidence: OwnerContentEvidence { package_has_dep: false, config_policy: parsed.modules },
+      src_dir: parsed.src_dir,
+      extends: parsed.extends,
+    };
+  }
+  OwnerConfigFacts::default()
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct OwnerConfigFacts {
+  pub evidence: OwnerContentEvidence,
+  pub src_dir: Option<String>,
+  pub extends: Vec<String>,
+}
+
+impl OwnerConfigFacts {
+  pub fn merge(&self, other: Self) -> Self {
+    let mut merged = self.clone();
+    merged.evidence = merged.evidence.merge(other.evidence);
+    if other.src_dir.is_some() {
+      merged.src_dir = other.src_dir;
+    }
+    if !other.extends.is_empty() {
+      merged.extends = other.extends;
+    }
+    merged
+  }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct OwnerContentEvidence {
+  pub package_has_dep: bool,
+  pub config_policy: NuxtContentModulePolicy,
+}
+
+impl OwnerContentEvidence {
+  pub const fn merge(mut self, other: Self) -> Self {
+    self.package_has_dep |= other.package_has_dep;
+    self.config_policy = merge_config_policy(self.config_policy, other.config_policy);
+    self
+  }
+
+  #[must_use]
+  pub const fn enables(self) -> bool {
+    owner_enables_nuxt_content(self.package_has_dep, self.config_policy)
+  }
+}
+
+const fn merge_config_policy(
+  current: NuxtContentModulePolicy,
+  next: NuxtContentModulePolicy,
+) -> NuxtContentModulePolicy {
+  match (current, next) {
+    (NuxtContentModulePolicy::IncludesContent, _)
+    | (_, NuxtContentModulePolicy::IncludesContent) => NuxtContentModulePolicy::IncludesContent,
+    (NuxtContentModulePolicy::Empty, _) | (_, NuxtContentModulePolicy::Empty) => {
+      NuxtContentModulePolicy::Empty
+    }
+    (NuxtContentModulePolicy::Unresolved, _) | (_, NuxtContentModulePolicy::Unresolved) => {
+      NuxtContentModulePolicy::Unresolved
+    }
+    _ => NuxtContentModulePolicy::Absent,
+  }
+}
+
+#[must_use]
+pub fn is_nuxt_config_file(name: &str) -> bool {
+  matches!(
+    name,
+    "nuxt.config.ts" | "nuxt.config.js" | "nuxt.config.mjs" | "nuxt.config.mts" | "nuxt.config.cjs"
+  )
+}
+
+fn package_json_has_nuxt_content(source: &str) -> bool {
+  let Ok(value) = serde_json::from_str::<serde_json::Value>(source) else {
+    return false;
+  };
+  for field in ["dependencies", "devDependencies", "optionalDependencies"] {
+    if value.get(field).and_then(|deps| deps.get("@nuxt/content")).is_some() {
+      return true;
+    }
+  }
+  false
+}
+
+#[must_use]
+pub fn parent_dir_key(relative: &str) -> String {
+  Path::new(relative).parent().map(normalized_path).unwrap_or_default()
 }
 
 fn resolve_component_name_segments(file_name: &str, prefix_parts: &[String]) -> Vec<String> {
@@ -453,6 +675,55 @@ mod tests {
       convention_component_name("components/base/BaseButton.vue").as_deref(),
       Some("BaseButton")
     );
+    assert_eq!(
+      convention_component_name("app/components/content/GuidePanel.vue").as_deref(),
+      Some("ContentGuidePanel")
+    );
+    assert_eq!(
+      convention_component_name_with_content("app/components/content/GuidePanel.vue", true)
+        .as_deref(),
+      Some("GuidePanel")
+    );
+    assert_eq!(
+      convention_component_name_with_content("app/components/content/nested/GuidePanel.vue", true)
+        .as_deref(),
+      Some("GuidePanel")
+    );
+    assert_eq!(
+      convention_component_name("app/components/widgets/content/GuidePanel.vue").as_deref(),
+      Some("WidgetsContentGuidePanel")
+    );
+  }
+
+  #[test]
+  fn content_component_uses_nearest_owner_and_framework_dir() {
+    let content_roots = BTreeSet::from(["packages/docs".into()]);
+    let owners = BTreeSet::from([String::new(), "packages/docs".into(), "packages/app".into()]);
+    let src_dirs = BTreeMap::new();
+    assert!(is_nuxt_content_component(
+      "packages/docs/app/components/content/GuidePanel.vue",
+      &content_roots,
+      &owners,
+      &src_dirs
+    ));
+    assert!(!is_nuxt_content_component(
+      "packages/docs/app/components/widgets/content/GuidePanel.vue",
+      &content_roots,
+      &owners,
+      &src_dirs
+    ));
+    assert!(!is_nuxt_content_component(
+      "packages/app/app/components/content/GuidePanel.vue",
+      &content_roots,
+      &owners,
+      &src_dirs
+    ));
+    assert!(!is_nuxt_content_component(
+      "packages/other/app/components/content/GuidePanel.vue",
+      &content_roots,
+      &owners,
+      &src_dirs
+    ));
   }
 
   #[test]

@@ -17,9 +17,10 @@ pub use graph::{
   static_template_ref_names, used_reactive_names,
 };
 pub use reads::{
-  MemberPath, binding_path, effect_family, guard_path, has_prior_unconditional_read,
-  is_readonly_kind, join_member_paths, member_path, same_reactive_target, same_target,
-  unconditional_self_triggers, unguarded_conditional_reads, write_path,
+  MemberPath, alias_root, binding_path, canonical_write_identity, effect_family, guard_path,
+  has_prior_unconditional_read, is_readonly_kind, join_member_paths, member_path,
+  same_reactive_target, same_target, unconditional_self_triggers, unguarded_conditional_reads,
+  write_path,
 };
 
 #[cfg(test)]
@@ -40,13 +41,7 @@ mod tests {
   }
 
   fn call(callee: &str, offset: usize) -> ScriptCallFact {
-    ScriptCallFact {
-      callee: callee.into(),
-      assigned_to: None,
-      resolved_import: None,
-      argument_identifiers: Vec::new(),
-      span: span_at(offset),
-    }
+    ScriptCallFact { callee: callee.into(), span: span_at(offset), ..ScriptCallFact::default() }
   }
 
   fn setup_block(
@@ -176,6 +171,7 @@ mod tests {
         binding: "from_write".into(),
         property: Some("value".into()),
         span: span_at(4),
+        binding_span: None,
       }],
       assignment_only: false,
       binding: None,
@@ -207,6 +203,7 @@ mod tests {
       kind: ReactiveBindingKind::Readonly,
       initialized_with_null: false,
       alias_of: None,
+      alias_of_span: None,
       span: span_at(1),
     });
     graph.bindings.push(ReactiveBindingFact {
@@ -214,6 +211,7 @@ mod tests {
       kind: ReactiveBindingKind::Ref,
       initialized_with_null: false,
       alias_of: None,
+      alias_of_span: None,
       span: span_at(9),
     });
     let mut block = setup_block(Vec::new(), Vec::new(), graph);
@@ -223,6 +221,8 @@ mod tests {
       writes: 0,
       span: span_at(1),
       exported: false,
+      plain_initializer: false,
+      escaped: false,
     });
     block.bindings.push(ScriptBindingFact {
       name: "state".into(),
@@ -230,6 +230,8 @@ mod tests {
       writes: 0,
       span: span_at(9),
       exported: true,
+      plain_initializer: false,
+      escaped: false,
     });
     assert!(
       reactive_binding(&block, "state").is_some_and(|binding| is_readonly_kind(binding.kind))
@@ -263,6 +265,7 @@ mod tests {
       kind: ReactiveBindingKind::Ref,
       initialized_with_null: false,
       alias_of: None,
+      alias_of_span: None,
       span: span_at(40),
     });
     let seed_block = setup_block(Vec::new(), Vec::new(), seed_graph);
@@ -281,6 +284,46 @@ mod tests {
     assert_eq!(
       join_member_paths([member_path("ready", None), binding_path(&read)], "`, `"),
       "ready`, `count.value"
+    );
+  }
+
+  #[test]
+  fn canonical_write_identity_uses_alias_root_span_not_nearest_name() {
+    let outer = ReactiveBindingFact {
+      name: "state".into(),
+      kind: ReactiveBindingKind::Ref,
+      initialized_with_null: false,
+      alias_of: None,
+      alias_of_span: None,
+      span: span_at(1),
+    };
+    let inner = ReactiveBindingFact {
+      name: "state".into(),
+      kind: ReactiveBindingKind::Ref,
+      initialized_with_null: false,
+      alias_of: None,
+      alias_of_span: None,
+      span: span_at(20),
+    };
+    let alias = ReactiveBindingFact {
+      name: "alias".into(),
+      kind: ReactiveBindingKind::Ref,
+      initialized_with_null: false,
+      alias_of: Some("state".into()),
+      alias_of_span: Some(span_at(1)),
+      span: span_at(40),
+    };
+    let bindings = vec![outer, inner, alias];
+    let write = ReactiveWriteFact {
+      binding: "alias".into(),
+      property: Some("value".into()),
+      span: span_at(50),
+      binding_span: Some(span_at(40)),
+    };
+    assert_eq!(
+      canonical_write_identity(&bindings, &write),
+      (1, "state", Some("value")),
+      "alias writers must join the Oxc-resolved outer root, not a later same-name declaration"
     );
   }
 

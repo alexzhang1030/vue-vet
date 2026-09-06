@@ -158,11 +158,10 @@ const result = computed(() => {
   let clean_session = open_session_threads(root.clone(), 2);
   let clean = clean_session.analyze().unwrap_or_else(|error| panic!("clean analyze: {error}"));
   assert!(
-    clean
-      .summary
-      .diagnostics
-      .iter()
-      .any(|diagnostic| { diagnostic.rule_id == "vue-vet/reactivity/no-side-effects-in-computed" }),
+    clean.summary.diagnostics.iter().any(|diagnostic| {
+      diagnostic.rule_id == "vue-vet/reactivity/no-side-effects-in-computed"
+        || diagnostic.rule_id == "vue-vet/reactivity/no-computed-self-trigger"
+    }),
     "the resolved alias must seed the cross-module reactivity diagnostic"
   );
   let affected = session.affected_files().unwrap_or_else(|error| panic!("affected files: {error}"));
@@ -221,11 +220,10 @@ const result = computed(() => {
   let clean_session = open_session_threads(root.clone(), 2);
   let clean = clean_session.analyze().unwrap_or_else(|error| panic!("clean analyze: {error}"));
   assert!(
-    clean
-      .summary
-      .diagnostics
-      .iter()
-      .any(|diagnostic| { diagnostic.rule_id == "vue-vet/reactivity/no-side-effects-in-computed" }),
+    clean.summary.diagnostics.iter().any(|diagnostic| {
+      diagnostic.rule_id == "vue-vet/reactivity/no-side-effects-in-computed"
+        || diagnostic.rule_id == "vue-vet/reactivity/no-computed-self-trigger"
+    }),
     "package imports must seed the cross-module reactivity diagnostic"
   );
   assert_analysis_parity(&incremental, &clean);
@@ -306,11 +304,10 @@ const result = computed(() => {
   let clean_session = open_session_threads(root.clone(), 2);
   let clean = clean_session.analyze().unwrap_or_else(|error| panic!("clean analyze: {error}"));
   assert!(
-    clean
-      .summary
-      .diagnostics
-      .iter()
-      .any(|diagnostic| { diagnostic.rule_id == "vue-vet/reactivity/no-side-effects-in-computed" }),
+    clean.summary.diagnostics.iter().any(|diagnostic| {
+      diagnostic.rule_id == "vue-vet/reactivity/no-side-effects-in-computed"
+        || diagnostic.rule_id == "vue-vet/reactivity/no-computed-self-trigger"
+    }),
     "tsconfig epoch must still be consumed after a later Nuxt mutation"
   );
   assert_analysis_parity(&incremental, &clean);

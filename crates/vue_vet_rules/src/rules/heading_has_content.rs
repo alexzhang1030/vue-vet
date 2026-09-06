@@ -1,6 +1,6 @@
 use vue_vet_core::{Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity};
 
-use super::a11y_content::{has_accessible_name_attrs, is_heading, title_to_aria_label_edit};
+use super::a11y_content::{has_accessible_name_attrs, is_heading};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/accessibility/heading-has-content",
@@ -37,10 +37,6 @@ impl Rule for HeadingHasContent {
     let help = Some(
       "Add text content, an img/area with alt, or an aria-label/aria-labelledby binding.".into(),
     );
-    if let Some((range, replacement)) = title_to_aria_label_edit(context.source(), element) {
-      context.report_with_safe_edit(self.meta(), element.span, message, help, range, replacement);
-    } else {
-      context.report(self.meta(), element.span, message, help);
-    }
+    context.report(self.meta(), element.span, message, help);
   }
 }

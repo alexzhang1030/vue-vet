@@ -1,5 +1,5 @@
 <template>
-  <RouterLink to="/" title="Home">
+  <RouterLink to="/">
     <div class="i-carbon-campsite" />
   </RouterLink>
 </template>

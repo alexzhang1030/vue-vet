@@ -1,0 +1,34 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/prefer-watch-over-effect-for-single-source",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/reactivity/prefer-watch-over-effect-for-single-source",
+    "message": "`watchEffect` only tracks `input.value`; prefer `watch` with an explicit source",
+    "help": "Use `watch(() => input.value, …, { immediate: true })` to preserve `watchEffect`'s first run (flush `'pre'`).",
+    "file": "fixtures/rules/no-multiple-effects-same-target/valid/same-name-functions.vue",
+    "span": {
+      "offset": 128,
+      "length": 55,
+      "line": 6,
+      "column": 3
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/prefer-watch-over-effect-for-single-source",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/reactivity/prefer-watch-over-effect-for-single-source",
+    "message": "`watchEffect` only tracks `input.value`; prefer `watch` with an explicit source",
+    "help": "Use `watch(() => input.value, …, { immediate: true })` to preserve `watchEffect`'s first run (flush `'pre'`).",
+    "file": "fixtures/rules/no-multiple-effects-same-target/valid/same-name-functions.vue",
+    "span": {
+      "offset": 277,
+      "length": 55,
+      "line": 14,
+      "column": 3
+    }
+  }
+]

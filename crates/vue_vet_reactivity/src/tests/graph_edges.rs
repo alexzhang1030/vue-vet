@@ -40,6 +40,8 @@ fn joins_template_reads_onto_script_bindings() {
       has_labelable_descendant: false,
       has_label_ancestor: false,
       has_accessible_name_ancestor: false,
+      object_bind_has_key: false,
+      is_component: false,
     }],
     expressions: vec![vue_vet_core::TemplateExpressionFact {
       surface: "if".into(),

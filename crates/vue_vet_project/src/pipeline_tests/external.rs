@@ -331,6 +331,8 @@ fn non_provisional_external_dts_skips_huge_companion_js() {
             imported: "heavy".into(),
             local: "heavy".into(),
             span: span(0),
+            type_only: false,
+            declaration_span: span(0),
           }],
           bindings: Vec::new(),
           calls: Vec::new(),

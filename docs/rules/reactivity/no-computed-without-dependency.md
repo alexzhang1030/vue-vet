@@ -1,10 +1,19 @@
 # `vue-vet/reactivity/no-computed-without-dependency`
 
-Category: reactivity  
-Default severity: warning  
+Category: **practice** (excluded from score and default CI exit)
+
+Default severity: info
+
 Confidence: high
 
-A `computed` that never reads reactive state is just a static value.
+The stable rule id remains `vue-vet/reactivity/no-computed-without-dependency` for configuration
+and suppression compatibility.
+
+A `computed` that never reads reactive state is a static wrapper. That is often
+intentional: a `Ref` contract argument, an SSR branch, or a placeholder getter.
+The finding is an API-style preference. Proven empty
+getters still report so callers can replace them with plain values. Unclassified
+member provenance still abstains.
 
 ## Bad
 
@@ -48,11 +57,11 @@ The tracer classifies call-return kinds (`Factory(Ref)` from body analysis or
 declared `.d.ts` return types) so unknown ecosystem callees are not mistaken for
 static computeds when their return is a proven ref.
 
-When the getter has `.value` / `unref` / `toValue` on names that could not be
-classified — including the same accesses inside a same-file zero-arg helper
-called from the getter — the finding is still reported and marked `(maybe: …)`
-— analysis ran, but those accesses were not proven reactive (under-approx miss,
-not silence).
+Unclassified member provenance (`state.current.size` on an unknown factory
+result), including the same access through a same-file zero-arg helper or
+identifier getter, marks tracking coverage incomplete. Absence rules abstain;
+Explain reports unclassified accesses. Proven reactive reads and plain
+constant getters (`computed(() => 42)`) stay distinguishable.
 
 ## Remediation
 
@@ -61,6 +70,7 @@ Return a plain value, or read reactive state inside the getter.
 ## Fixtures
 
 - Invalid: `fixtures/rules/no-computed-without-dependency/invalid/`
-  (`placeholder.vue` static getter; `helper-uncertain.vue` helper-wrapped
-  unclassified `.value` → `(maybe: isCoarse)`)
+  (`placeholder.vue` static getter; `ref-contract.vue` / `ssr-ref-contract.vue`
+  still report as practice when the wrapper satisfies a `Ref` argument)
 - Valid: `fixtures/rules/no-computed-without-dependency/valid/`
+  (`unknown-member.vue`, helper/ident-getter variants, `helper-uncertain.vue`)

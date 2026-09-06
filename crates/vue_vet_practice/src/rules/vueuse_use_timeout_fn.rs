@@ -48,22 +48,26 @@ impl Rule for VueuseUseTimeoutFn {
       .blocks
       .iter()
       .filter(|block| !already_uses_target(block, RECIPE.recommend.export))
-      .filter(|block| block.calls.iter().any(|call| is_setup_lifecycle_hook(&call.callee)))
       .filter(|block| !block.calls.iter().any(|call| callee_is(&call.callee, "clearTimeout")))
-      .filter_map(|block| {
-        block
-          .calls
-          .iter()
-          .find(|call| callee_is(&call.callee, "setTimeout"))
-          .map(|call| (call.span, vueuse_help(&environment, block, RECIPE.recommend.export)))
+      .flat_map(|block| {
+        block.calls.iter().filter(|call| callee_is(&call.callee, "setTimeout")).filter_map(|call| {
+          let enclosing_lifecycle =
+            call.enclosing_callees.iter().any(|name| is_setup_lifecycle_hook(name));
+          if !enclosing_lifecycle {
+            return None;
+          }
+          Some((call.span, vueuse_help(&environment, block, RECIPE.recommend.export)))
+        })
       })
       .collect::<Vec<_>>();
     for (span, help) in findings {
       context.report_with_recommendation(
         self.meta(),
         span,
-        "This starts a timeout inside a setup lifecycle hook without `clearTimeout`; consider VueUse `useTimeoutFn` for cancellable delays and automatic cleanup.".into(),
-        Some(help),
+        "This timeout is declared in code registered by a setup lifecycle hook; consider a setup-owned useTimeoutFn for cancellation and cleanup.".into(),
+        Some(format!(
+          "{help} Create `useTimeoutFn` during setup with `{{ immediate: false }}`, then call `start()` from the callback."
+        )),
         recommendation_from(RECIPE.recommend),
       );
     }
@@ -87,12 +91,15 @@ mod tests {
   }
 
   fn call(callee: &str, offset: usize) -> ScriptCallFact {
+    ScriptCallFact { callee: callee.into(), span: span(offset), ..ScriptCallFact::default() }
+  }
+
+  fn timeout_in_lifecycle(offset: usize) -> ScriptCallFact {
     ScriptCallFact {
-      callee: callee.into(),
-      assigned_to: None,
-      resolved_import: None,
-      argument_identifiers: Vec::new(),
+      callee: "setTimeout".into(),
       span: span(offset),
+      enclosing_callees: vec!["onMounted".into()],
+      ..ScriptCallFact::default()
     }
   }
 
@@ -116,13 +123,54 @@ mod tests {
 
   #[test]
   fn reports_lifecycle_set_timeout_without_clear() {
-    let diagnostics = run(vec![call("onMounted", 0), call("setTimeout", 20)]);
+    let diagnostics = run(vec![call("onMounted", 0), timeout_in_lifecycle(20)]);
     assert_eq!(diagnostics.len(), 1);
     let Some(diagnostic) = diagnostics.first() else {
       return;
     };
     assert_eq!(diagnostic.rule_id, RECIPE.rule_id);
     assert!(diagnostic.recommendation.is_some());
+  }
+
+  #[test]
+  fn reports_timeout_in_nested_subscribe_under_lifecycle() {
+    let diagnostics = run(vec![
+      call("onMounted", 0),
+      ScriptCallFact {
+        callee: "setTimeout".into(),
+        span: span(20),
+        enclosing_callees: vec!["onMounted".into(), "subscribe".into()],
+        ..ScriptCallFact::default()
+      },
+    ]);
+    assert_eq!(diagnostics.len(), 1);
+    let Some(diagnostic) = diagnostics.first() else {
+      return;
+    };
+    assert!(diagnostic.message.contains("setup lifecycle hook"));
+    assert!(diagnostic.message.contains("setup-owned useTimeoutFn"));
+    assert!(
+      diagnostic
+        .help
+        .as_deref()
+        .is_some_and(|help| { help.contains("immediate: false") && help.contains("`start()`") }),
+      "help must tell the caller to construct during setup: {:?}",
+      diagnostic.help
+    );
+  }
+
+  #[test]
+  fn stays_quiet_when_timeout_is_inside_watch_not_lifecycle() {
+    let diagnostics = run(vec![
+      call("onMounted", 0),
+      ScriptCallFact {
+        callee: "setTimeout".into(),
+        span: span(20),
+        enclosing_callees: vec!["watch".into()],
+        ..ScriptCallFact::default()
+      },
+    ]);
+    assert!(diagnostics.is_empty());
   }
 
   #[test]

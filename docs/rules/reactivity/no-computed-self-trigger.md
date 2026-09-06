@@ -6,7 +6,10 @@ Confidence: high
 
 A `computed` getter that writes a dependency it also reads is impure. The write **can invalidate its cached value**, so a later read of the computed may re-run the getter instead of returning a stable cache. This is a purity / cache issue, not a proven infinite loop. A tautological write such as `count.value = count.value` is still impure; do not treat it as necessarily cache-unstable on every access.
 
-`no-side-effects-in-computed` still reports the write as a side effect. Keep both.
+Findings are anchored to the matching semantic write. When the same write is also
+reported by `no-side-effects-in-computed`, session finalizers keep one overlapping
+finding (stronger configured severity; this rule on a severity tie) unless one
+id is disabled or suppressed.
 
 ## Bad
 

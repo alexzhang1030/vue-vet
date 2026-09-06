@@ -1513,11 +1513,13 @@ fn nested_uncertain_value_and_alias_binding_are_handled() {
      const doubled = computed(() => alias.value * 2);",
   );
   assert!(
-    aliased
-      .bindings
-      .iter()
-      .any(|binding| { binding.name == "alias" && binding.kind == ReactiveBindingKind::Ref }),
-    "const alias = knownRef must seed; bindings={:?}",
+    aliased.bindings.iter().any(|binding| {
+      binding.name == "alias"
+        && binding.kind == ReactiveBindingKind::Ref
+        && binding.alias_of.as_deref() == Some("count")
+        && binding.alias_of_span.is_some()
+    }),
+    "const alias = knownRef must seed with Oxc root span; bindings={:?}",
     aliased.bindings
   );
   assert!(
@@ -1530,6 +1532,32 @@ fn nested_uncertain_value_and_alias_binding_are_handled() {
     }),
     "alias.value must be a proven read; scopes={:?}",
     aliased.scopes
+  );
+}
+
+#[test]
+fn alias_root_span_survives_an_unrelated_same_name_declaration() {
+  let graph = graph(
+    "import { ref, watchEffect } from 'vue';\n\
+     const source = ref(1);\n\
+     const state = ref(0);\n\
+     function createIndependent() { const state = ref(0); return state }\n\
+     const alias = state;\n\
+     watchEffect(() => { state.value = source.value });\n\
+     watchEffect(() => { alias.value = source.value + 1 });",
+  );
+  let alias = graph.bindings.iter().find(|binding| binding.name == "alias");
+  let outer = graph.bindings.iter().find(|binding| {
+    binding.name == "state"
+      && binding.alias_of.is_none()
+      && binding.span.offset < alias.map_or(usize::MAX, |binding| binding.span.offset)
+  });
+  assert!(
+    alias.is_some_and(|binding| {
+      binding.alias_of.as_deref() == Some("state")
+        && outer.is_some_and(|root| binding.alias_of_span == Some(root.span))
+    }),
+    "alias must keep the outer Oxc root span; alias={alias:?} outer={outer:?}"
   );
 }
 

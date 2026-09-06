@@ -1028,3 +1028,180 @@ fn prop_flow_fixture_joins_parent_binding_onto_child_props() {
     "MultiHop.vue optional chain must join root binding onto Child props"
   );
 }
+
+#[test]
+fn object_form_v_bind_key_is_proven() {
+  let source = include_str!("../../../../fixtures/rules/require-v-for-key/valid/object-bind.vue");
+  let facts = facts_for_test(Path::new("KeyedSlot.vue"), source);
+  assert!(
+    facts.template.elements.iter().any(|element| element.tag == "slot" && element.has_key()),
+    "object-form v-bind key must set has_key; elements={:?}",
+    facts.template.elements
+  );
+  let diagnostics = analyze_for_test(Path::new("KeyedSlot.vue"), source);
+  assert!(
+    diagnostics
+      .iter()
+      .all(|diagnostic| diagnostic.rule_id != "vue-vet/correctness/require-v-for-key"),
+    "keyed object bind must stay quiet: {diagnostics:?}"
+  );
+}
+
+#[test]
+fn object_form_v_bind_spread_after_key_stays_conservative() {
+  let source =
+    include_str!("../../../../fixtures/rules/require-v-for-key/invalid/spread-after-key.vue");
+  let facts = facts_for_test(Path::new("SpreadKey.vue"), source);
+  assert!(
+    facts.template.elements.iter().any(|element| element.tag == "li" && !element.has_key()),
+    "spread after key must not prove has_key; elements={:?}",
+    facts.template.elements
+  );
+}
+
+#[test]
+fn object_form_computed_and_wrapped_keys() {
+  let after =
+    include_str!("../../../../fixtures/rules/require-v-for-key/invalid/computed-after-key.vue");
+  let before =
+    include_str!("../../../../fixtures/rules/require-v-for-key/valid/computed-before-key.vue");
+  let wrapped = include_str!("../../../../fixtures/rules/require-v-for-key/valid/wrapped-keys.vue");
+  let after_facts = facts_for_test(Path::new("ComputedAfter.vue"), after);
+  assert!(
+    after_facts.template.elements.iter().any(|element| element.tag == "div" && !element.has_key()),
+    "computed key after proven key must unprove: {:?}",
+    after_facts.template.elements
+  );
+  let after_diagnostics = analyze_for_test(Path::new("ComputedAfter.vue"), after);
+  assert!(
+    after_diagnostics.iter().any(|diagnostic| {
+      diagnostic.rule_id == "vue-vet/correctness/require-v-for-key" && diagnostic.span.line == 6
+    }),
+    "computed-after-key must report line 6: {after_diagnostics:?}"
+  );
+  let before_facts = facts_for_test(Path::new("ComputedBefore.vue"), before);
+  assert!(
+    before_facts.template.elements.iter().any(|element| element.tag == "div" && element.has_key()),
+    "trailing proven key must remain: {:?}",
+    before_facts.template.elements
+  );
+  let wrapped_facts = facts_for_test(Path::new("WrappedKeys.vue"), wrapped);
+  assert!(
+    wrapped_facts
+      .template
+      .elements
+      .iter()
+      .filter(|element| element.tag == "slot" || element.tag == "div")
+      .all(vue_vet_core::TemplateElementFact::has_key),
+    "as/satisfies wrappers must prove key: {:?}",
+    wrapped_facts.template.elements
+  );
+  let numeric =
+    include_str!("../../../../fixtures/rules/require-v-for-key/valid/numeric-sibling-keys.vue");
+  let numeric_facts = facts_for_test(Path::new("NumericKeys.vue"), numeric);
+  assert!(
+    numeric_facts
+      .template
+      .elements
+      .iter()
+      .filter(|element| element.tag == "div")
+      .all(vue_vet_core::TemplateElementFact::has_key),
+    "numeric sibling keys must keep proven key: {:?}",
+    numeric_facts.template.elements
+  );
+  let numeric_diagnostics = analyze_for_test(Path::new("NumericKeys.vue"), numeric);
+  assert!(
+    numeric_diagnostics
+      .iter()
+      .all(|diagnostic| diagnostic.rule_id != "vue-vet/correctness/require-v-for-key"),
+    "numeric sibling keys must stay quiet: {numeric_diagnostics:?}"
+  );
+}
+
+#[test]
+fn unicode_and_crlf_object_bind_key_spans_stay_byte_accurate() {
+  let source = "<template>\r\n  <li v-for=\"item in items\" v-bind=\"{ key: item.id }\">café</li>\r\n</template>\n";
+  let facts = facts_for_test(Path::new("UnicodeKey.vue"), source);
+  let element = facts.template.elements.iter().find(|element| element.tag == "li");
+  assert!(element.is_some_and(vue_vet_core::TemplateElementFact::has_key), "CRLF object key");
+  let start = element.map_or(0, |element| element.span.offset);
+  assert!(source.is_char_boundary(start), "span offset must be a UTF-8 boundary");
+}
+
+#[test]
+fn transition_component_and_keyed_children_stay_quiet() {
+  let component = include_str!(
+    "../../../../fixtures/rules/require-toggle-inside-transition/valid/component-child.vue"
+  );
+  let keyed = include_str!(
+    "../../../../fixtures/rules/require-toggle-inside-transition/valid/keyed-child.vue"
+  );
+  let static_child =
+    include_str!("../../../../fixtures/rules/require-toggle-inside-transition/invalid/basic.vue");
+  let lowercase = include_str!(
+    "../../../../fixtures/rules/require-toggle-inside-transition/valid/lowercase-widget.vue"
+  );
+  for (path, source) in [
+    ("ComponentChild.vue", component),
+    ("KeyedChild.vue", keyed),
+    ("LowercaseWidget.vue", lowercase),
+  ] {
+    let diagnostics = analyze_for_test(Path::new(path), source);
+    assert!(
+      diagnostics.iter().all(
+        |diagnostic| diagnostic.rule_id != "vue-vet/correctness/require-toggle-inside-transition"
+      ),
+      "{path} must stay quiet: {diagnostics:?}"
+    );
+  }
+  let diagnostics = analyze_for_test(Path::new("StaticChild.vue"), static_child);
+  assert!(
+    diagnostics.iter().any(|diagnostic| {
+      diagnostic.rule_id == "vue-vet/correctness/require-toggle-inside-transition"
+    }),
+    "static native transition child must still report: {diagnostics:?}"
+  );
+  let native_import = include_str!(
+    "../../../../fixtures/rules/require-toggle-inside-transition/invalid/native-input-import.vue"
+  );
+  let diagnostics = analyze_for_test(Path::new("NativeInputImport.vue"), native_import);
+  assert!(
+    diagnostics.iter().any(|diagnostic| {
+      diagnostic.rule_id == "vue-vet/correctness/require-toggle-inside-transition"
+        && diagnostic.span.line == 5
+    }),
+    "imported native HTML tags stay native: {diagnostics:?}"
+  );
+}
+
+#[test]
+fn prefer_computed_requires_ordinary_ref_target() {
+  let reactive =
+    include_str!("../../../../fixtures/rules/prefer-computed/valid/reactive-value-property.vue");
+  let model =
+    include_str!("../../../../fixtures/rules/prefer-computed/valid/managed-model-target.vue");
+  let private =
+    include_str!("../../../../fixtures/rules/prefer-computed/invalid/helper-private.vue");
+  for (path, source) in [("ReactiveValueProperty.vue", reactive), ("ManagedModelTarget.vue", model)]
+  {
+    let diagnostics = analyze_for_test(Path::new(path), source);
+    assert!(
+      diagnostics
+        .iter()
+        .all(|diagnostic| diagnostic.rule_id != "vue-vet/reactivity/prefer-computed"),
+      "{path} must not convert a non-ref `.value` write: {diagnostics:?}"
+    );
+  }
+  let diagnostics = analyze_for_test(Path::new("PrivateDerived.vue"), private);
+  assert!(
+    diagnostics.iter().any(|diagnostic| diagnostic.rule_id == "vue-vet/reactivity/prefer-computed"),
+    "private derived ref must remain a prefer-computed positive: {diagnostics:?}"
+  );
+  let shadowed =
+    include_str!("../../../../fixtures/rules/prefer-computed/valid/shadowed-ref-parameter.vue");
+  let diagnostics = analyze_for_test(Path::new("ShadowedRefParameter.vue"), shadowed);
+  assert!(
+    diagnostics.iter().all(|diagnostic| diagnostic.rule_id != "vue-vet/reactivity/prefer-computed"),
+    "caller-owned Ref parameters must not convert: {diagnostics:?}"
+  );
+}

@@ -1,0 +1,50 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-multiple-effects-same-target",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-multiple-effects-same-target",
+    "message": "multiple effects write `result.value`",
+    "help": "Keep a single writer effect, or merge the updates into one scope.",
+    "file": "fixtures/rules/no-multiple-effects-same-target/invalid/two-effects.vue",
+    "span": {
+      "offset": 140,
+      "length": 12,
+      "line": 7,
+      "column": 3
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/prefer-watch-over-effect-for-single-source",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/reactivity/prefer-watch-over-effect-for-single-source",
+    "message": "`watchEffect` only tracks `input.value`; prefer `watch` with an explicit source",
+    "help": "Use `watch(() => input.value, …, { immediate: true })` to preserve `watchEffect`'s first run (flush `'pre'`).",
+    "file": "fixtures/rules/no-multiple-effects-same-target/invalid/two-effects.vue",
+    "span": {
+      "offset": 118,
+      "length": 51,
+      "line": 6,
+      "column": 1
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/prefer-watch-over-effect-for-single-source",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/reactivity/prefer-watch-over-effect-for-single-source",
+    "message": "`watchEffect` only tracks `other.value`; prefer `watch` with an explicit source",
+    "help": "Use `watch(() => other.value, …, { immediate: true })` to preserve `watchEffect`'s first run (flush `'pre'`).",
+    "file": "fixtures/rules/no-multiple-effects-same-target/invalid/two-effects.vue",
+    "span": {
+      "offset": 170,
+      "length": 51,
+      "line": 9,
+      "column": 1
+    }
+  }
+]

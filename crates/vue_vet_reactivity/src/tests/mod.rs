@@ -1,5 +1,6 @@
 mod helpers;
 
+mod assignment;
 mod callbacks;
 mod component;
 mod composable;

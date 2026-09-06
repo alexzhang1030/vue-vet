@@ -22,7 +22,7 @@ mod state;
 mod structural;
 
 pub use context::{
-  ContextChangeKind, ContextEpochs, ProjectContext, context_change_kind_for,
+  ContextChangeKind, ContextEpochs, ProjectContext, context_change_kind_for, layer_input_relatives,
   project_context_from_inputs,
 };
 pub use conventions::NuxtImportTarget;

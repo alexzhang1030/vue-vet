@@ -1,12 +1,13 @@
 //! Project-level diagnostics emitted while building the graph.
 
 use std::{
-  collections::{BTreeMap, HashSet},
+  collections::{BTreeMap, BTreeSet, HashSet},
   path::Path,
 };
 
 use vue_vet_core::{Confidence, Diagnostic, Severity, SourceSpan};
 
+use crate::conventions::is_nuxt_content_component;
 use crate::model::{EdgeKind, GraphEdge, GraphNode, NodeKind, PROJECT_RULE_IDS, ProjectFile};
 use crate::resolve::normalized_path;
 
@@ -35,6 +36,9 @@ pub fn unused_component_diagnostics(
   files: &[&ProjectFile],
   nodes: &[GraphNode],
   edges: &[GraphEdge],
+  nuxt_content_roots: &BTreeSet<String>,
+  convention_owners: &BTreeSet<String>,
+  src_dirs: &BTreeMap<String, String>,
 ) -> Vec<Diagnostic> {
   let referenced = edges
     .iter()
@@ -52,6 +56,9 @@ pub fn unused_component_diagnostics(
     .filter(|node| node.kind == NodeKind::Component)
     .filter(|node| !referenced.contains(node.id.as_str()))
     .filter(|node| !is_non_production_component_path(&node.path))
+    .filter(|node| {
+      !is_nuxt_content_component(&node.path, nuxt_content_roots, convention_owners, src_dirs)
+    })
     .filter_map(|node| {
       let file = file_by_path.get(&node.path)?;
       Some(Diagnostic {
