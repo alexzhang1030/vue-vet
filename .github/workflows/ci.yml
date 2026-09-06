@@ -93,3 +93,17 @@ jobs:
         run: just oracle-self-trigger
       - name: Watcher cleanup and effectScope lifetime evidence
         run: just oracle-lifetime
+
+  vapor-migration-research:
+    name: Vapor migration research
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: extractions/setup-just@v3
+      - name: Vapor migration research oracles
+        run: just vapor-migration-research

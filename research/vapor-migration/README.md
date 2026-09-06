@@ -70,6 +70,10 @@ From the repository root (Node required; no Rust rebuild):
 just vapor-migration-research
 ```
 
+CI runs that same recipe on pull requests (`vapor-migration-research` in
+`.github/workflows/ci.yml`). The recipe installs from this directory's
+`package-lock.json` via `npm ci`.
+
 Equivalent:
 
 ```sh
