@@ -23,6 +23,10 @@ pub const CACHE_FORMAT_VERSION: u32 = 5;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// Bump when built-in rule set or seed-aware analysis behavior changes.
 ///
+/// v17: source-contract rules (`no-trigger-ref-on-non-ref`,
+/// `no-torefs-on-non-proxy`, `no-primitive-reactive-target`,
+/// `no-watch-unwrapped-source`, `no-watch-replaced-object-source`) plus
+/// watch-source overlap finalization with `no-empty-watch-sources`.
 /// v16: lifetime watcher/effect-scope facts (`no-returned-watcher-cleanup`,
 /// `no-late-watcher-cleanup`, `no-orphaned-scope-watcher`, `no-late-scope-dispose`)
 /// composed onto the retired quiet-ID catalog (config unknown).
@@ -46,7 +50,7 @@ pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// prefer-watch suppresses self-write sources; computed self-write is impure.
 /// v5: conditional-dep premise withdrawn; after-await registrars deprecated
 /// except defineExpose; absence rules require complete follow coverage.
-pub const RULESET_VERSION: u32 = 16;
+pub const RULESET_VERSION: u32 = 17;
 
 /// Workspace pin for `vize_croquis` / `vize_atelier_core`.
 ///

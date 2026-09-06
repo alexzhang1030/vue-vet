@@ -830,6 +830,7 @@ fn type_only_relative_declaration_imports_resolve() {
       top_level_await_ends: Vec::new(),
       operands: Vec::new(),
       lifetime: vue_vet_core::ReactivityLifetimeFacts::default(),
+      source_contracts: vue_vet_core::SourceContractFacts::default(),
       reactivity_graph: empty_graph(),
     }];
   }
@@ -887,6 +888,7 @@ fn grouped_unresolved_imports_use_declaration_span() {
       top_level_await_ends: Vec::new(),
       operands: Vec::new(),
       lifetime: vue_vet_core::ReactivityLifetimeFacts::default(),
+      source_contracts: vue_vet_core::SourceContractFacts::default(),
       reactivity_graph: empty_graph(),
     }];
   }

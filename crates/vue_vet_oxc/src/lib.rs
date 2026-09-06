@@ -21,6 +21,7 @@ mod facts;
 mod jsx;
 mod lifetime;
 mod nuxt_config;
+mod source_contracts;
 mod template_expr;
 
 pub(crate) use facts::source_span;
@@ -109,6 +110,13 @@ pub fn analyze_module_source(
     script_offset,
   )
   .into_source_order();
+  let source_contracts = source_contracts::collect_source_contract_facts(
+    &semantic,
+    &line_index,
+    sfc_source,
+    script_offset,
+    kind,
+  );
   // Plain JS/TS has no JSX nodes; skip the AST walk on the CodSpeed hot path.
   let template_facts = if matches!(language, "jsx" | "tsx") {
     jsx::collect_jsx_template_facts(&semantic, &line_index, sfc_source, script_offset)
@@ -146,6 +154,7 @@ pub fn analyze_module_source(
       top_level_await_ends: node_facts.top_level_await_ends,
       operands: node_facts.operands,
       lifetime: lifetime::collect(&semantic, &line_index, sfc_source, script_offset),
+      source_contracts,
       reactivity_graph,
     },
     template_facts,

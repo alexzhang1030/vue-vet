@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-watch-replaced-object-source",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-watch-replaced-object-source",
+    "message": "`watch(state.nested)` subscribes to the current object identity; replacing `state.nested` later bypasses that subscription",
+    "help": "The replacement at 5:16 does not retarget the watcher. Use `watch(() => state.nested, …, { deep: true })` if replacement must be observed.",
+    "file": "fixtures/rules/no-watch-replaced-object-source/invalid/basic.vue",
+    "span": {
+      "offset": 114,
+      "length": 12,
+      "line": 4,
+      "column": 7
+    }
+  }
+]
