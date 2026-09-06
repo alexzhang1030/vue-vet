@@ -236,6 +236,19 @@ operands, destructures, or script calls). Empty modules stay graph/seed-only.
 Package-environment refresh includes those same JS/TS sources. See issue
 [#134](https://github.com/alexzhang1030/vue-vet/issues/134).
 
+`ScriptBlockFacts.lifetime` (`ReactivityLifetimeFacts` in `vue_vet_core`) is the
+file-fact owner for watcher/effect-scope cleanup contracts. The Oxc adapter
+extracts those facts; `vue_vet_rules` owns diagnostics. Provenance is **named
+Vue imports and aliases only** — namespace `Vue.watchEffect` is outside this
+slice and stays quiet. Same-invocation `await` and deferred native Promise /
+global scheduler / Vue `nextTick` boundaries are in scope; unknown owner
+arguments and unproven scope identity abstain. See
+[`no-returned-watcher-cleanup`](../../docs/rules/reactivity/no-returned-watcher-cleanup.md),
+[`no-late-watcher-cleanup`](../../docs/rules/reactivity/no-late-watcher-cleanup.md),
+[`no-orphaned-scope-watcher`](../../docs/rules/reactivity/no-orphaned-scope-watcher.md),
+[`no-late-scope-dispose`](../../docs/rules/reactivity/no-late-scope-dispose.md),
+and [`lifetime-runs.mjs`](../../crates/vue_vet_reactivity/oracle/lifetime-runs.mjs).
+
 `ModuleSummary` (formerly the opaque `PreparedModuleTrace`) is the formal
 cross-module boundary: imports, exports, provides/injects, local reactivity, and
 no Oxc/Vize nodes. Session file-rule reuse is keyed by `FileRuleInputKey`:

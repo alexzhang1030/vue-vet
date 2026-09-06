@@ -91,3 +91,5 @@ jobs:
       - uses: extractions/setup-just@v3
       - name: Watch*Effect / watch / computed run-count evidence
         run: just oracle-self-trigger
+      - name: Watcher cleanup and effectScope lifetime evidence
+        run: just oracle-lifetime

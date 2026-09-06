@@ -838,3 +838,507 @@ fn records_aliased_and_namespace_watch_flush() {
     facts.calls
   );
 }
+
+#[test]
+fn extracts_returned_watcher_cleanup_and_skips_unknowns() {
+  let facts = analyze(
+    "import { watch, watchEffect } from 'vue';\
+     const source = { value: 0 };\
+     watchEffect(() => { return () => {}; });\
+     watch(source, () => { const cleanup = () => {}; return cleanup; });\
+     watchEffect(() => { const nested = () => { return () => {}; }; nested(); });\
+     watch(() => { return () => source.value; }, () => {});",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.returned_watcher_cleanups.len(),
+    2,
+    "only proven callback returns; got {:?}",
+    facts.lifetime.returned_watcher_cleanups
+  );
+}
+
+#[test]
+fn extracts_late_cleanup_await_and_keeps_oncleanup_quiet() {
+  let facts = analyze(
+    "import { onWatcherCleanup, watchEffect } from 'vue';\
+     watchEffect(async () => { await Promise.resolve(); onWatcherCleanup(() => {}); });\
+     watchEffect(async (onCleanup) => { await Promise.resolve(); onCleanup(() => {}); });",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.late_watcher_cleanups.len(),
+    1,
+    "callback-bound onCleanup after await must stay quiet; got {:?}",
+    facts.lifetime.late_watcher_cleanups
+  );
+}
+
+#[test]
+fn extracts_orphaned_scope_watcher_and_late_dispose() {
+  let facts = analyze(
+    "import { effectScope, onScopeDispose, watchEffect } from 'vue';\
+     const scope = effectScope();\
+     scope.run(async () => { await Promise.resolve(); watchEffect(() => {}); onScopeDispose(() => {}); });\
+     scope.run(async () => { await Promise.resolve(); onScopeDispose(() => {}, true); });\
+     scope.run(async () => { await Promise.resolve(); scope.run(() => { watchEffect(() => {}); }); });",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.orphaned_scope_watchers.len(),
+    1,
+    "sync re-entry and failSilently must stay quiet; {:?}",
+    facts.lifetime
+  );
+  assert_eq!(
+    facts.lifetime.late_scope_disposes.len(),
+    1,
+    "{:?}",
+    facts.lifetime.late_scope_disposes
+  );
+}
+
+#[test]
+fn lifetime_spans_cover_unicode_and_crlf() {
+  let facts = analyze(
+    "import { watchEffect } from 'vue';\r\n\
+     watchEffect(() => {\r\n\
+       const \u{6e05}\u{7406} = () => {};\r\n\
+       return \u{6e05}\u{7406};\r\n\
+     });\r\n",
+    "ts",
+  );
+  let fact = facts.lifetime.returned_watcher_cleanups.first();
+  assert!(fact.is_some(), "unicode identifier return must be extracted");
+  let Some(fact) = fact else {
+    return;
+  };
+  assert_eq!(fact.returned_span.length, "清理".len());
+  assert!(fact.returned_span.line >= 3);
+}
+
+#[test]
+fn alias_cycle_named_callback_stays_quiet() {
+  let facts = analyze(
+    "import { watchEffect } from 'vue';\
+     const a = b; const b = a; watchEffect(a);",
+    "ts",
+  );
+  assert!(facts.lifetime.is_empty(), "alias cycles must not invent facts: {:?}", facts.lifetime);
+}
+
+#[test]
+fn late_cleanup_skips_explicit_owner_and_fail_silently() {
+  let facts = analyze(
+    "import { getCurrentWatcher, onWatcherCleanup, watchEffect } from 'vue';\
+     watchEffect(async () => {\
+       const owner = getCurrentWatcher();\
+       await Promise.resolve();\
+       onWatcherCleanup(() => {}, false, owner);\
+       onWatcherCleanup(() => {}, true);\
+     });",
+    "ts",
+  );
+  assert!(
+    facts.lifetime.late_watcher_cleanups.is_empty(),
+    "explicit owner / failSilently must stay quiet: {:?}",
+    facts.lifetime.late_watcher_cleanups
+  );
+}
+
+#[test]
+fn custom_then_and_timeout_data_slot_are_not_deferred() {
+  let facts = analyze(
+    "import { onWatcherCleanup, watchEffect } from 'vue';\
+     const immediate = { then(fn) { fn(); } };\
+     watchEffect(() => { immediate.then(() => { onWatcherCleanup(() => {}); }); });\
+     watchEffect(() => { setTimeout(() => {}, 0, () => { onWatcherCleanup(() => {}); }); });",
+    "ts",
+  );
+  assert!(
+    facts.lifetime.late_watcher_cleanups.is_empty(),
+    "unproven then / data-slot timeout must stay quiet: {:?}",
+    facts.lifetime.late_watcher_cleanups
+  );
+}
+
+#[test]
+fn reassigned_and_generator_callbacks_stay_quiet() {
+  let facts = analyze(
+    "import { watchEffect } from 'vue';\
+     function cb() { return () => {}; }\
+     cb = () => {};\
+     watchEffect(cb);\
+     watchEffect(function*() { return () => {}; });",
+    "ts",
+  );
+  assert!(
+    facts.lifetime.returned_watcher_cleanups.is_empty(),
+    "reassigned/generator callbacks must stay quiet: {:?}",
+    facts.lifetime.returned_watcher_cleanups
+  );
+}
+
+#[test]
+fn scope_on_reentry_and_escaped_scope_stay_quiet() {
+  let facts = analyze(
+    "import { effectScope, onScopeDispose, watchEffect } from 'vue';\
+     const scope = effectScope();\
+     scope.run(async () => {\
+       await Promise.resolve();\
+       scope.on();\
+       watchEffect(() => {});\
+       onScopeDispose(() => {});\
+       scope.off();\
+     });\
+     const other = effectScope();\
+     hold(other);\
+     other.run(async () => { await Promise.resolve(); watchEffect(() => {}); });",
+    "ts",
+  );
+  assert!(
+    facts.lifetime.orphaned_scope_watchers.is_empty()
+      && facts.lifetime.late_scope_disposes.is_empty(),
+    "reentry and escaped scopes must stay quiet: {:?}",
+    facts.lifetime
+  );
+}
+
+#[test]
+fn named_effect_scope_run_callback_is_indexed() {
+  let facts = analyze(
+    "import { effectScope, watchEffect } from 'vue';\
+     const scope = effectScope();\
+     async function task() { await Promise.resolve(); watchEffect(() => {}); }\
+     scope.run(task);",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.orphaned_scope_watchers.len(),
+    1,
+    "named run callbacks must be indexed: {:?}",
+    facts.lifetime.orphaned_scope_watchers
+  );
+}
+
+#[test]
+fn lifetime_index_scales_linearly_with_watchers() {
+  fn visits_for(source: &str) -> (usize, usize) {
+    let allocator = oxc_allocator::Allocator::default();
+    let parsed = oxc_parser::Parser::new(&allocator, source, oxc_span::SourceType::ts()).parse();
+    let semantic =
+      oxc_semantic::SemanticBuilder::new().with_build_nodes(true).build(&parsed.program).semantic;
+    let line_index = vue_vet_core::LineIndex::new(source);
+    let (facts, stats) = super::lifetime::collect_with_visits(&semantic, &line_index, source, 0);
+    (facts.late_watcher_cleanups.len(), stats.total())
+  }
+  fn source(count: usize) -> String {
+    let mut out = String::from("import { onWatcherCleanup, watchEffect } from 'vue';\n");
+    for index in 0..count {
+      out.push_str("watchEffect(async () => { await Promise.resolve(); onWatcherCleanup(() => { ");
+      out.push_str(&index.to_string());
+      out.push_str(" }); });\n");
+    }
+    out
+  }
+  let (facts_100, visits_100) = visits_for(&source(100));
+  let (facts_200, visits_200) = visits_for(&source(200));
+  let (facts_400, visits_400) = visits_for(&source(400));
+  assert_eq!((facts_100, facts_200, facts_400), (100, 200, 400));
+  assert!(
+    visits_400 <= visits_100.saturating_mul(6),
+    "node walks must stay near-linear: 100={visits_100} 200={visits_200} 400={visits_400}"
+  );
+  assert!(
+    visits_200 <= visits_100.saturating_mul(3),
+    "200 watchers should be about 2x 100: 100={visits_100} 200={visits_200}"
+  );
+}
+
+#[test]
+fn registered_and_returned_disposer_stays_quiet() {
+  let facts = analyze(
+    "import { onWatcherCleanup, watchEffect } from 'vue';\
+     function attach(onCleanup) {\
+       const dispose = () => {};\
+       onCleanup(dispose);\
+       return dispose;\
+     }\
+     watchEffect(attach);\
+     watchEffect(() => { const dispose = () => {}; onWatcherCleanup(dispose); return dispose; });\
+     watchEffect(() => { const dispose = () => {}; return dispose; });",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.returned_watcher_cleanups.len(),
+    1,
+    "only unregistered returns: {:?}",
+    facts.lifetime.returned_watcher_cleanups
+  );
+}
+
+#[test]
+fn watch_spread_arguments_stay_quiet() {
+  let facts = analyze(
+    "import { watch } from 'vue';\
+     watch(...[], () => () => {}, () => {}, { immediate: true });\
+     const source = { value: 0 };\
+     watch(source, () => () => {});",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.returned_watcher_cleanups.len(),
+    1,
+    "spread watch must stay quiet: {:?}",
+    facts.lifetime.returned_watcher_cleanups
+  );
+}
+
+#[test]
+fn mutated_run_and_helper_escape_stay_quiet() {
+  let facts = analyze(
+    "import { effectScope, onScopeDispose, watchEffect } from 'vue';\
+     const scope = effectScope();\
+     scope['run'] = () => undefined;\
+     scope.run(async () => { await Promise.resolve(); watchEffect(() => {}); onScopeDispose(() => {}); });\
+     const other = effectScope();\
+     const alias = other;\
+     alias.run = () => undefined;\
+     other.run(async () => { await Promise.resolve(); watchEffect(() => {}); });\
+     const third = effectScope();\
+     const helper = { run(owner) { owner.run = () => undefined; } };\
+     helper.run(third);\
+     third.run(async () => { await Promise.resolve(); watchEffect(() => {}); });",
+    "ts",
+  );
+  assert!(
+    facts.lifetime.orphaned_scope_watchers.is_empty()
+      && facts.lifetime.late_scope_disposes.is_empty(),
+    "mutated/escaped run must stay quiet: {:?}",
+    facts.lifetime
+  );
+}
+
+#[test]
+fn named_run_keeps_independent_owner_when_sibling_escapes() {
+  let facts = analyze(
+    "import { effectScope, watchEffect } from 'vue';\
+     const first = effectScope();\
+     const second = effectScope();\
+     async function task() { await Promise.resolve(); watchEffect(() => {}); }\
+     first.run(task);\
+     second.run(task);\
+     hold(second);",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.orphaned_scope_watchers.len(),
+    1,
+    "proven first.run(task) must survive second escaping: {:?}",
+    facts.lifetime.orphaned_scope_watchers
+  );
+}
+
+#[test]
+fn alias_depth_limit_does_not_poison_shorter_alias() {
+  let facts = analyze(
+    "import { watchEffect } from 'vue';\
+     const f0 = () => () => {};\
+     const f1 = f0; const f2 = f1; const f3 = f2; const f4 = f3;\
+     const f5 = f4; const f6 = f5; const f7 = f6; const f8 = f7;\
+     watchEffect(f8);\
+     watchEffect(f1);",
+    "ts",
+  );
+  assert!(
+    facts.lifetime.returned_watcher_cleanups.iter().any(|fact| !fact.async_callback),
+    "f1 must still resolve after a budget miss on f8: {:?}",
+    facts.lifetime.returned_watcher_cleanups
+  );
+}
+
+#[test]
+fn after_await_callback_bound_and_alias_registration_stay_quiet() {
+  let facts = analyze(
+    "import { watch, watchEffect } from 'vue';\
+     const source = { value: 0 };\
+     watchEffect(async (onCleanup) => {\
+       await Promise.resolve();\
+       const dispose = () => {};\
+       onCleanup(dispose);\
+       return dispose;\
+     });\
+     watchEffect((onCleanup) => {\
+       const dispose = () => {};\
+       const alias = dispose;\
+       onCleanup(alias);\
+       return dispose;\
+     });\
+     watch(source, async (_v, _o, onCleanup) => {\
+       await Promise.resolve();\
+       const dispose = () => {};\
+       onCleanup(dispose);\
+       return dispose;\
+     });",
+    "ts",
+  );
+  assert!(
+    facts.lifetime.returned_watcher_cleanups.is_empty(),
+    "bound/aliased registrations must stay quiet: {:?}",
+    facts.lifetime.returned_watcher_cleanups
+  );
+}
+
+#[test]
+fn destructured_watch_parameter_keeps_cleanup_slot() {
+  let facts = analyze(
+    "import { watch, watchEffect } from 'vue';\
+     const source = { value: { x: 0 } };\
+     watch(source, ({ x }, old, onCleanup) => {\
+       const dispose = () => {};\
+       onCleanup(dispose);\
+       return dispose;\
+     });\
+     function shared(onCleanup) {\
+       const dispose = () => {};\
+       onCleanup(dispose);\
+       return dispose;\
+     }\
+     watch(source, shared);\
+     watchEffect(shared);",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.returned_watcher_cleanups.len(),
+    1,
+    "watch(shared) uses value/old/onCleanup slots; watchEffect(shared) stays quiet: {:?}",
+    facts.lifetime.returned_watcher_cleanups
+  );
+  assert_eq!(
+    facts.lifetime.returned_watcher_cleanups.first().map(|fact| fact.api),
+    Some(vue_vet_core::WatcherApiKind::Watch)
+  );
+}
+
+#[test]
+fn assignment_pattern_and_conditional_alias_unprove_scope() {
+  let facts = analyze(
+    "import { effectScope, onScopeDispose, watchEffect } from 'vue';\
+     const scope = effectScope();\
+     ({ run: scope.run } = { run: () => undefined });\
+     scope.run(async () => { await Promise.resolve(); watchEffect(() => {}); onScopeDispose(() => {}); });\
+     const other = effectScope();\
+     const alias = true ? other : effectScope();\
+     alias.run = () => undefined;\
+     other.run(async () => { await Promise.resolve(); watchEffect(() => {}); });\
+     export { other };\
+     const local = effectScope();\
+     local.run(async () => { await Promise.resolve(); watchEffect(() => {}); });",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.orphaned_scope_watchers.len(),
+    1,
+    "only untouched local scope remains proven: {:?}",
+    facts.lifetime.orphaned_scope_watchers
+  );
+}
+
+#[test]
+fn shared_run_callback_selection_scales() {
+  fn source(registrations: usize, watchers: usize) -> String {
+    let mut out = String::from(
+      "import { effectScope, watchEffect } from 'vue';\nasync function task() { await Promise.resolve();\n",
+    );
+    for index in 0..watchers {
+      out.push_str("watchEffect(() => { ");
+      out.push_str(&index.to_string());
+      out.push_str(" });\n");
+    }
+    out.push_str("}\n");
+    for index in 0..registrations {
+      out.push_str("const s");
+      out.push_str(&index.to_string());
+      out.push_str(" = effectScope(); s");
+      out.push_str(&index.to_string());
+      out.push_str(".run(task);\n");
+    }
+    out
+  }
+  fn visits_for(source: &str) -> usize {
+    let allocator = oxc_allocator::Allocator::default();
+    let parsed = oxc_parser::Parser::new(&allocator, source, oxc_span::SourceType::ts()).parse();
+    let semantic =
+      oxc_semantic::SemanticBuilder::new().with_build_nodes(true).build(&parsed.program).semantic;
+    let line_index = vue_vet_core::LineIndex::new(source);
+    super::lifetime::collect_with_visits(&semantic, &line_index, source, 0).1.total()
+  }
+  let visits_small = visits_for(&source(50, 4));
+  let visits_large = visits_for(&source(200, 4));
+  assert!(
+    visits_large <= visits_small.saturating_mul(6),
+    "shared-run selection must stay near-linear: 50x4={visits_small} 200x4={visits_large}"
+  );
+}
+
+#[test]
+fn explicit_owner_after_await_suppresses_returned_cleanup() {
+  let facts = analyze(
+    "import { getCurrentWatcher, onWatcherCleanup, watchEffect } from 'vue';\
+     watchEffect(async () => {\
+       const owner = getCurrentWatcher();\
+       const dispose = () => {};\
+       await Promise.resolve();\
+       onWatcherCleanup(dispose, false, owner);\
+       return dispose;\
+     });",
+    "ts",
+  );
+  assert!(
+    facts.lifetime.returned_watcher_cleanups.is_empty(),
+    "explicit owner must suppress returned-cleanup: {:?}",
+    facts.lifetime.returned_watcher_cleanups
+  );
+}
+
+#[test]
+fn spread_cleanup_registration_stays_quiet_and_bare_return_still_reports() {
+  let facts = analyze(
+    "import { onWatcherCleanup, watchEffect } from 'vue';\
+     watchEffect((onCleanup) => { const dispose = () => {}; onCleanup(...[dispose]); return dispose; });\
+     watchEffect(() => { const dispose = () => {}; onWatcherCleanup(...[dispose]); return dispose; });\
+     watchEffect((onCleanup) => { const dispose = () => {}; onCleanup(...unknown); return dispose; });\
+     watchEffect(() => { const dispose = () => {}; return dispose; });",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.returned_watcher_cleanups.len(),
+    1,
+    "only the unregistered return remains: {:?}",
+    facts.lifetime.returned_watcher_cleanups
+  );
+}
+
+#[test]
+fn exported_scope_declaration_is_unproven_local_stays_positive() {
+  let facts = analyze(
+    "import { effectScope, watchEffect } from 'vue';\
+     export const scope = effectScope();\
+     export function start() { scope.run(async () => { await Promise.resolve(); watchEffect(() => {}); }); }\
+     const local = effectScope();\
+     local.run(async () => { await Promise.resolve(); watchEffect(() => {}); });\
+     const named = effectScope();\
+     export { named };\
+     named.run(async () => { await Promise.resolve(); watchEffect(() => {}); });\
+     const def = effectScope();\
+     export default def;\
+     def.run(async () => { await Promise.resolve(); watchEffect(() => {}); });",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.orphaned_scope_watchers.len(),
+    1,
+    "only unexported local scope remains proven: {:?}",
+    facts.lifetime.orphaned_scope_watchers
+  );
+}

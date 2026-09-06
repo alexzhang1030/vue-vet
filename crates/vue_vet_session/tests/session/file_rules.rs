@@ -378,3 +378,29 @@ fn jsx_dynamic_dependency_regressions_stay_quiet() {
   );
   let _ignored = std::fs::remove_dir_all(root);
 }
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn plain_ts_lifetime_rules_run() {
+  let root = std::env::temp_dir().join(format!("vue-vet-lifetime-ts-{}", std::process::id()));
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+  std::fs::write(
+    root.join("watcher.ts"),
+    "import { watchEffect } from 'vue'\n\
+const source = { value: 0 }\n\
+watchEffect(() => { source.value; return () => {} })\n",
+  )
+  .unwrap_or_else(|error| panic!("write: {error}"));
+  let session = open_session_threads(root.clone(), 1);
+  let snapshot = session.analyze().unwrap_or_else(|error| panic!("analyze: {error}"));
+  assert!(
+    snapshot.summary.diagnostics.iter().any(|diagnostic| {
+      diagnostic.file == FileId::from("watcher.ts")
+        && diagnostic.rule_id == "vue-vet/reactivity/no-returned-watcher-cleanup"
+    }),
+    "plain TS must run lifetime rules; {:?}",
+    snapshot.summary.diagnostics
+  );
+  let _ignored = std::fs::remove_dir_all(root);
+}

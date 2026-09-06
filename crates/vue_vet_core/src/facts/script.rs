@@ -142,6 +142,9 @@ pub struct ScriptBlockFacts {
   /// Identifiers used as binary/unary/logical operands (for ref-as-operand rules).
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub operands: Vec<ScriptOperandFact>,
+  /// Watcher / effect-scope lifetime contracts extracted by the Oxc adapter.
+  #[serde(default, skip_serializing_if = "super::ReactivityLifetimeFacts::is_empty")]
+  pub lifetime: super::ReactivityLifetimeFacts,
   pub reactivity_graph: std::sync::Arc<ReactivityGraph>,
 }
 

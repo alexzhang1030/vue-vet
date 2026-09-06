@@ -45,6 +45,10 @@ oracle:
 oracle-self-trigger:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node self-trigger-runs.mjs
 
+# Vue 3.5.40 watcher cleanup / effectScope lifetime evidence (Node; frozen lock).
+oracle-lifetime:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node lifetime-runs.mjs
+
 # Run all non-mutating Rust linters.
 lint-rust: fmt-check check clippy
 
