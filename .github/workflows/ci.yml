@@ -37,6 +37,21 @@ jobs:
       - uses: extractions/setup-just@v3
       - run: just test
 
+  native-size:
+    name: Native size script (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: native_size.py tests
+        run: python scripts/test_native_size.py
+
   npm:
     name: npm launcher
     runs-on: ubuntu-latest

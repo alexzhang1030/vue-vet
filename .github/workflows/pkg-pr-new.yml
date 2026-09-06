@@ -9,6 +9,9 @@ on:
       - 'rust-toolchain.toml'
       - 'npm/**'
       - '.github/workflows/pkg-pr-new.yml'
+      - 'scripts/native_size.py'
+      - 'scripts/test_native_size.py'
+      - 'fixtures/quality/native-size-budget.json'
   push:
     branches: [main]
     tags: ['!**']
@@ -19,6 +22,9 @@ on:
       - 'rust-toolchain.toml'
       - 'npm/**'
       - '.github/workflows/pkg-pr-new.yml'
+      - 'scripts/native_size.py'
+      - 'scripts/test_native_size.py'
+      - 'fixtures/quality/native-size-budget.json'
 
 concurrency:
   group: pkg-pr-new-${{ github.event.pull_request.number || github.ref }}
@@ -80,6 +86,49 @@ jobs:
       - name: Build release binary
         shell: bash
         run: cargo build -p vue-vet --release --target ${{ matrix.target }} --locked
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check native binary size budget
+        id: native-size
+        shell: bash
+        run: |
+          set -uo pipefail
+          binary="target/${{ matrix.target }}/release/vue-vet"
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            binary="${binary}.exe"
+          fi
+          set +e
+          python scripts/native_size.py \
+            --binary "$binary" \
+            --target "${{ matrix.target }}" \
+            --budget-file fixtures/quality/native-size-budget.json \
+            --json | tee native-size-measurement.json
+          status="${PIPESTATUS[0]}"
+          set -e
+          if python -c "import json; json.load(open('native-size-measurement.json', encoding='utf-8'))" 2>/dev/null; then
+            {
+              echo "### native size \`${{ matrix.target }}\`"
+              python -c "import json; m=json.load(open('native-size-measurement.json', encoding='utf-8')); print(f\"file {m['file_bytes']} / budget {m['budget']['file_bytes']}\"); print(f\"gzip9 {m['gzip9_bytes']} / budget {m['budget']['gzip9_bytes']} (compression proxy, not npm/archive bytes)\")"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            rm -f native-size-measurement.json
+            {
+              echo "### native size \`${{ matrix.target }}\`"
+              echo "No measurement JSON (operational failure, exit ${status})."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "${status}"
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && hashFiles('native-size-measurement.json') != '' }}
+        with:
+          name: native-size-${{ matrix.target }}
+          path: native-size-measurement.json
+          if-no-files-found: ignore
+          retention-days: 1
 
       - name: Pack platform package
         shell: bash

@@ -129,8 +129,9 @@ profile because its instrumentation does not link Oxc reliably under LTO
 `opt-level = "z"`) remains the source of truth for shipped artifacts.
 `profile.codspeed` keeps `opt-level = 3` and `lto = false` so instrumentation
 benches are not the size profile. Do not bake a local `CARGO_TARGET_DIR` or
-host byte count into pack/smoke scripts; `just native-size` prints the Cargo
-JSON executable for the build it just ran.
+host byte count into pack/smoke scripts. `just native-size` prints the Cargo
+JSON executable for the build it just ran. CI size gates use artifact mode on
+the matrix binary plus the committed budget table; they must not rebuild.
 
 Project-level cold / warm / overlay / diff-filter benches live in
 `vue_vet_session` (`scan_modes`) on the quality corpus, with an additional
