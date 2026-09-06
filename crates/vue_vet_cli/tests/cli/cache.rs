@@ -23,6 +23,66 @@ fn cold_and_warm_cache_results_are_byte_equivalent() {
 }
 
 #[test]
+fn progress_cache_events_follow_lookup_and_store_boundaries() {
+  let project = TempProject::new(
+    "progress-cache-events",
+    "<script setup>\nconst n = 1\n</script>\n<template><p>{{ n }}</p></template>\n",
+  );
+  let cache = project.root().join("cache");
+  let root = project.root().to_string_lossy();
+  let cache_dir = cache.to_string_lossy();
+  let disabled = run(&[
+    root.as_ref(),
+    "--format",
+    "json",
+    "--progress",
+    "always",
+    "--no-cache",
+    "--color",
+    "never",
+  ]);
+  let disabled_err = String::from_utf8_lossy(&disabled.stderr);
+  assert!(
+    !disabled_err.contains("checking cache")
+      && !disabled_err.contains("cache hit")
+      && !disabled_err.contains("saving cache"),
+    "{disabled_err}"
+  );
+  let miss = run(&[
+    root.as_ref(),
+    "--format",
+    "json",
+    "--progress",
+    "always",
+    "--cache-dir",
+    cache_dir.as_ref(),
+    "--color",
+    "never",
+  ]);
+  let miss_err = String::from_utf8_lossy(&miss.stderr);
+  let check = miss_err.find("vue-vet: checking cache");
+  let save = miss_err.find("vue-vet: saving cache");
+  assert!(matches!((check, save), (Some(check), Some(save)) if check < save), "{miss_err}");
+  assert!(!miss_err.contains("vue-vet: cache hit"), "{miss_err}");
+  let hit = run(&[
+    root.as_ref(),
+    "--format",
+    "json",
+    "--progress",
+    "always",
+    "--cache-dir",
+    cache_dir.as_ref(),
+    "--color",
+    "never",
+  ]);
+  let hit_err = String::from_utf8_lossy(&hit.stderr);
+  let check = hit_err.find("vue-vet: checking cache");
+  let hit_at = hit_err.find("vue-vet: cache hit");
+  assert!(matches!((check, hit_at), (Some(check), Some(hit_at)) if check < hit_at), "{hit_err}");
+  assert!(!hit_err.contains("vue-vet: saving cache"), "{hit_err}");
+}
+
+#[test]
 #[expect(clippy::panic, reason = "test setup failures must fail the integration test")]
 fn cache_key_ignores_node_modules_package_directories() {
   let project = TempProject::new("nm-pixi-js", "<template><div /></template>\n");

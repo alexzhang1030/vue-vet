@@ -395,22 +395,22 @@ fn progress_always_streams_stages_on_stderr() {
   let stderr = String::from_utf8_lossy(&output.stderr);
   for stage in [
     "vue-vet: discovering workspace",
-    "vue-vet: parsing",
+    "vue-vet: parsing files",
     "vue-vet: building project graph",
-    "vue-vet: running rules",
-    "vue-vet: analyzed",
+    "vue-vet: checking rules",
     "vue-vet: writing report",
   ] {
     assert!(stderr.contains(stage), "stderr must stream `{stage}`: {stderr}");
   }
+  assert!(!stderr.contains("analyzed "), "plain progress must not emit a line per file: {stderr}");
   let parsed: Value = serde_json::from_slice(&output.stdout).expect("stdout must stay JSON");
   assert!(parsed.get("ok").and_then(Value::as_bool).unwrap_or(false));
 }
 
 #[test]
-fn text_streams_findings_as_files_finish() {
+fn text_batches_file_findings_once_after_scan() {
   let project = TempProject::new(
-    "text-stream-a",
+    "text-batch-a",
     "<script setup>\nconst n = 1\n</script>\n<template><div v-html=\"n\" /></template>\n",
   );
   project.write_source(
@@ -434,25 +434,14 @@ fn text_streams_findings_as_files_finish() {
   );
   let stderr = String::from_utf8_lossy(&output.stderr);
   let stdout = String::from_utf8_lossy(&output.stdout);
+  assert!(stderr.contains("vue-vet: checking rules"), "stderr must emit the rules phase: {stderr}");
+  let v_html = stdout.matches("no-v-html").count();
+  assert_eq!(v_html, 2, "each file finding must appear exactly once: {stdout}");
+  let score = stdout.find("Score:").or_else(|| stdout.find("/100"));
+  let first_finding = stdout.find("no-v-html");
   assert!(
-    stderr.contains("vue-vet: analyzed"),
-    "stderr must emit per-file analyzed lines: {stderr}"
-  );
-  assert!(
-    stdout.contains("no-v-html") || stdout.contains("v-html"),
-    "text findings must stream to stdout: {stdout}"
-  );
-  let writing = stderr.find("vue-vet: writing report");
-  let first_finding = stdout.find("v-html").or_else(|| stdout.find("no-v-html"));
-  if let (Some(writing), Some(finding_pos)) = (writing, first_finding) {
-    // Findings are printed during rules (before writing report). We cannot
-    // compare stderr/stdout offsets across streams; require the score footer
-    // after findings instead.
-    let _ = (writing, finding_pos);
-  }
-  assert!(
-    stdout.contains("Score:") || stdout.contains("score:") || stdout.contains("/100"),
-    "footer must still print after streamed findings: {stdout}"
+    matches!((first_finding, score), (Some(finding), Some(footer)) if finding < footer),
+    "final text must print diagnostics before the score footer: {stdout}"
   );
 }
 
@@ -509,4 +498,204 @@ fn progress_auto_stays_quiet_under_ci_env() {
     !stderr.contains("discovering workspace"),
     "CI=1 + --progress auto must stay quiet: {stderr}"
   );
+}
+
+#[test]
+#[expect(clippy::expect_used, reason = "integration test asserts JSON diagnostic ids")]
+fn text_report_includes_project_findings_exactly_once() {
+  let project = fixture("projects/nuxt-graph");
+  let text = run(&[
+    project.to_string_lossy().as_ref(),
+    "--progress",
+    "always",
+    "--color",
+    "never",
+    "--no-cache",
+  ]);
+  let json = run(&[
+    project.to_string_lossy().as_ref(),
+    "--progress",
+    "never",
+    "--format",
+    "json",
+    "--no-cache",
+  ]);
+  assert!(
+    text.status.success() || text.status.code() == Some(1),
+    "text scan must complete: {}",
+    String::from_utf8_lossy(&text.stderr)
+  );
+  assert!(
+    json.status.success() || json.status.code() == Some(1),
+    "json scan must complete: {}",
+    String::from_utf8_lossy(&json.stderr)
+  );
+  let stdout = String::from_utf8_lossy(&text.stdout);
+  let parsed: Value = serde_json::from_slice(&json.stdout).expect("json stdout");
+  let diagnostics =
+    parsed.get("diagnostics").and_then(Value::as_array).cloned().unwrap_or_default();
+  assert!(!diagnostics.is_empty(), "nuxt-graph must produce diagnostics: {parsed}");
+  for diagnostic in &diagnostics {
+    let rule = diagnostic.get("rule_id").and_then(Value::as_str).unwrap_or_default();
+    assert!(stdout.contains(rule), "text must include project finding {rule} from JSON: {stdout}");
+  }
+  assert!(
+    stdout.contains("unused-component") || stdout.contains("unresolved-import"),
+    "generic nuxt-graph project findings must be visible: {stdout}"
+  );
+}
+
+#[test]
+#[expect(clippy::panic, reason = "an unexpected process error must fail the integration test")]
+fn progress_always_stays_plain_under_term_dumb() {
+  let project = TempProject::new(
+    "progress-dumb",
+    "<script setup>\nconst n = 1\n</script>\n<template><p>{{ n }}</p></template>\n",
+  );
+  let path = project.source_path();
+  let output = match Command::new(env!("CARGO_BIN_EXE_vue-vet"))
+    .args([
+      path.to_string_lossy().as_ref(),
+      "--progress",
+      "always",
+      "--format",
+      "json",
+      "--no-cache",
+    ])
+    .env("TERM", "dumb")
+    .output()
+  {
+    Ok(output) => output,
+    Err(error) => panic!("failed to run vue-vet: {error}"),
+  };
+  let stderr = String::from_utf8_lossy(&output.stderr);
+  assert!(output.status.success(), "scan must succeed: {stderr}");
+  assert!(
+    stderr.contains("vue-vet: discovering workspace"),
+    "TERM=dumb --progress always must still log phases: {stderr}"
+  );
+  assert!(!stderr.contains('\u{1b}'), "dumb terminals must not receive ANSI rewrites: {stderr:?}");
+}
+
+#[test]
+fn many_file_plain_progress_stays_bounded() {
+  let project = TempProject::new(
+    "progress-many",
+    "<script setup>\nconst n = 1\n</script>\n<template><p>{{ n }}</p></template>\n",
+  );
+  for index in 0..40 {
+    project.write_source(
+      &format!("File{index}.vue"),
+      "<script setup>\nconst n = 1\n</script>\n<template><p>{{ n }}</p></template>\n",
+    );
+  }
+  let output = run(&[
+    project.root().to_string_lossy().as_ref(),
+    "--progress",
+    "always",
+    "--format",
+    "json",
+    "--no-cache",
+    "--color",
+    "never",
+  ]);
+  let stderr = String::from_utf8_lossy(&output.stderr);
+  assert!(output.status.success(), "scan must succeed: {stderr}");
+  let progress_lines = stderr.lines().filter(|line| line.starts_with("vue-vet:")).count();
+  assert!(
+    progress_lines <= 16,
+    "plain progress must stay bounded for many files ({progress_lines}): {stderr}"
+  );
+}
+
+#[test]
+#[expect(clippy::expect_used, reason = "JSON equality across progress settings")]
+fn json_is_stable_across_progress_settings() {
+  let path = fixture("projects/nuxt-graph");
+  let always = run(&[
+    path.to_string_lossy().as_ref(),
+    "--progress",
+    "always",
+    "--format",
+    "json",
+    "--no-cache",
+  ]);
+  let never = run(&[
+    path.to_string_lossy().as_ref(),
+    "--progress",
+    "never",
+    "--format",
+    "json",
+    "--no-cache",
+  ]);
+  let left: Value = serde_json::from_slice(&always.stdout).expect("always json");
+  let right: Value = serde_json::from_slice(&never.stdout).expect("never json");
+  assert_eq!(
+    left.get("diagnostics"),
+    right.get("diagnostics"),
+    "progress must not change JSON diagnostics"
+  );
+}
+
+#[test]
+fn text_cold_and_warm_cache_keep_project_findings() {
+  let project = fixture("projects/nuxt-graph");
+  let cache = workspace_root().join("target").join(format!(
+    "test-text-cache-{}-{}",
+    std::process::id(),
+    NEXT_TEMP_PROJECT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+  ));
+  let project_argument = project.to_string_lossy();
+  let cache_argument = cache.to_string_lossy();
+  let arguments = [
+    project_argument.as_ref(),
+    "--format",
+    "text",
+    "--color",
+    "never",
+    "--progress",
+    "never",
+    "--cache-dir",
+    cache_argument.as_ref(),
+  ];
+  let cold = run(&arguments);
+  let warm = run(&arguments);
+  let cold_text = String::from_utf8_lossy(&cold.stdout);
+  let _ignored = std::fs::remove_dir_all(cache);
+  assert_eq!(cold.stdout, warm.stdout, "cold and warm text reports must match");
+  assert_eq!(cold_text.matches("vue-vet/project/unused-component").count(), 1, "{cold_text}");
+  assert_eq!(cold_text.matches("vue-vet/project/unresolved-import").count(), 1, "{cold_text}");
+  assert!(cold_text.contains("2 finding(s)"), "{cold_text}");
+}
+
+#[test]
+fn text_safe_fix_rescan_drops_applied_finding() {
+  let project =
+    TempProject::new("safe-fix-text-rescan", "<template>\n  <img autofocus>\n</template>\n");
+  let output = run(&[
+    project.root().to_string_lossy().as_ref(),
+    "--fix-safe",
+    "--format",
+    "text",
+    "--color",
+    "never",
+    "--progress",
+    "never",
+  ]);
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  assert!(
+    output.status.success(),
+    "warning-only residual findings must keep the default exit 0: {}",
+    String::from_utf8_lossy(&output.stderr)
+  );
+  assert!(
+    !stdout.contains("no-autofocus"),
+    "applied finding must not remain after rescan: {stdout}"
+  );
+  assert_eq!(
+    stdout.matches("img-has-alt").count(),
+    1,
+    "residual finding must appear once after rescan: {stdout}"
+  );
+  assert!(stdout.contains("1 finding(s)"), "{stdout}");
 }

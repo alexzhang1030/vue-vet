@@ -18,6 +18,7 @@ to `vue_vet_lsp` / `vue_vet_mcp`.
 | Module | Role |
 | --- | --- |
 | `main.rs` | Clap + scan / format / exit dispatch |
+| `progress.rs` | Live TTY status / compact stderr phase log |
 | `report.rs` | Digests, summaries, operational errors |
 | `explain.rs` | `--explain` / `--explain-scope` |
 | `fixes.rs` | `--fix-dry-run` / `--fix-safe` (atomic apply) |
@@ -44,8 +45,8 @@ Exit codes: `0` pass, `1` diagnostics threshold, `2` operational failure.
 
 ## Constraints
 
-- Progress streams on **stderr** only (`auto` = TTY stderr and not `CI`); never
-  pollute JSON stdout.
+- Progress streams on **stderr** only (`auto` = live TTY stderr and not `CI`);
+  never pollute JSON stdout. Text findings are printed once after the scan.
 - Fix modes fail closed on multi-file plans; see [edit model](../../docs/edit-model.md).
 - Baseline / diff filter after cache lookup so they do not fragment cache keys.
 

@@ -32,7 +32,7 @@ pub fn render_text_diagnostics(diagnostics: &[Diagnostic], color: bool) -> Strin
   output
 }
 
-/// Score / reactivity footer for text reports (after streamed per-file findings).
+/// Score / reactivity footer for text reports.
 #[must_use]
 pub fn render_text_score_footer(summary: &ScanSummary, context: &ReportContext) -> String {
   let color = context.color;

@@ -1,11 +1,5 @@
 //! Report context, reactivity digest, and stdout summary.
-use std::{
-  collections::{BTreeMap, BTreeSet},
-  fs,
-  path::Path,
-  process::ExitCode,
-  sync::Arc,
-};
+use std::{collections::BTreeMap, fs, path::Path, process::ExitCode, sync::Arc};
 
 use vue_vet_core::{ReactiveBindingKind, ReactiveDependencyKind, ScanSummary, TrackingScopeKind};
 use vue_vet_project::{EdgeKind, ProjectGraph};
@@ -13,9 +7,8 @@ use vue_vet_reactivity::{ModuleReactivity, explain_tracking_scope};
 use vue_vet_reporters::{
   ComponentNavDigest, ComponentNavEdgeInput, ReactivityDigest, ReactivityModuleStats,
   ReactivitySpanRef, ReportContext, ReportFramework, ReportMode, binding_detail,
-  component_nav_from_edges, edge_detail, render, render_error, render_text_diagnostics,
-  render_text_score_footer, scope_detail_with_uncertain, scope_label_with_uncertain,
-  template_read_detail, to_span_from_identity,
+  component_nav_from_edges, edge_detail, render, render_error, scope_detail_with_uncertain,
+  scope_label_with_uncertain, template_read_detail, to_span_from_identity,
 };
 use vue_vet_session::{AnalysisSnapshot, scan_directory};
 
@@ -330,26 +323,7 @@ pub fn print_summary(
   summary: &ScanSummary,
   format: OutputFormat,
   context: &ReportContext,
-  text_streamed: bool,
-  streamed_files: &BTreeSet<String>,
 ) -> Result<(), serde_json::Error> {
-  if text_streamed && matches!(format, OutputFormat::Text) {
-    let remaining: Vec<_> = summary
-      .diagnostics
-      .iter()
-      .filter(|diagnostic| !streamed_files.contains(diagnostic.file.as_str()))
-      .cloned()
-      .collect();
-    let leftover = render_text_diagnostics(&remaining, context.color);
-    if !leftover.is_empty() {
-      print!("{leftover}");
-    }
-    if !streamed_files.is_empty() || !leftover.is_empty() {
-      println!();
-    }
-    println!("{}", render_text_score_footer(summary, context));
-    return Ok(());
-  }
   let output = render(summary, format.into(), context)?;
   println!("{output}");
   Ok(())

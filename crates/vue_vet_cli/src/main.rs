@@ -3,28 +3,22 @@
 //! Owns flags, stdout/stderr policy, exit codes, fix apply, and `--lsp` /
 //! `--mcp` handoff. Do not grow analysis logic here.
 
-use std::{
-  collections::BTreeSet,
-  io::{IsTerminal, Write},
-  path::PathBuf,
-  process::ExitCode,
-  sync::{Arc, Mutex},
-};
+use std::{io::IsTerminal, path::PathBuf, process::ExitCode, sync::Arc};
 
 use clap::{Args, Parser, ValueEnum};
 use vue_vet_cache::{Baseline, filter_diff, read_git_diff};
-use vue_vet_reporters::{ReportFormat, render_reactivity_detail, render_text_diagnostics};
-use vue_vet_session::{
-  AnalysisSnapshot, ProgressEvent, ProgressReporter, ProjectSession, SessionOptions,
-};
+use vue_vet_reporters::{ReportFormat, render_reactivity_detail};
+use vue_vet_session::{AnalysisSnapshot, ProgressEvent, ProjectSession, SessionOptions};
 
 mod explain;
 mod fixes;
+mod progress;
 mod reactivity_tui;
 mod report;
 
 use explain::{run_explain, run_explain_scope};
 use fixes::{FixMode, FixOutcome, execute_safe_edits};
+use progress::{ProgressController, detect_style};
 use reactivity_tui::run_reactivity_tui;
 use report::{
   component_nav_digest, operational_failure, print_summary, reactivity_module_stats, report_context,
@@ -54,7 +48,7 @@ struct Cli {
     value_enum,
     default_value = "auto",
     value_name = "WHEN",
-    help = "Stream stages on stderr and per-file analyzed lines; text also streams findings as each file finishes: auto (TTY stderr and not CI), always, or never"
+    help = "Scan progress on stderr: auto (live TTY stderr and not CI), always (TTY status or compact logs), or never"
   )]
   progress: ProgressWhen,
 
@@ -253,49 +247,6 @@ fn progress_enabled(when: ProgressWhen) -> bool {
   }
 }
 
-struct StreamState {
-  /// Files whose rule diagnostics were already printed (text stream).
-  streamed_files: Mutex<BTreeSet<String>>,
-}
-
-#[expect(
-  clippy::print_stderr,
-  clippy::print_stdout,
-  reason = "progress on stderr; text findings stream on stdout by design"
-)]
-fn progress_reporter(
-  stderr_stages: bool,
-  stream_text: bool,
-  color: bool,
-  stream_state: Arc<StreamState>,
-) -> ProgressReporter {
-  ProgressReporter::new(move |event: &ProgressEvent| match event {
-    ProgressEvent::FileRules { path, done, total, diagnostics } => {
-      if stderr_stages {
-        eprintln!("vue-vet: analyzed {path} ({done}/{total})");
-      }
-      if stream_text {
-        if let Ok(mut files) = stream_state.streamed_files.lock() {
-          files.insert(path.clone());
-        }
-        let chunk = render_text_diagnostics(diagnostics, color);
-        if !chunk.is_empty() {
-          print!("{chunk}");
-          #[expect(
-            clippy::let_underscore_must_use,
-            reason = "best-effort flush while streaming text findings"
-          )]
-          let _ = std::io::stdout().flush();
-        }
-      }
-    }
-    other if stderr_stages => {
-      eprintln!("vue-vet: {}", other.message());
-    }
-    _ => {}
-  })
-}
-
 impl From<OutputFormat> for ReportFormat {
   fn from(format: OutputFormat) -> Self {
     match format {
@@ -338,11 +289,12 @@ fn main() -> ExitCode {
   if let Some(query) = cli.explain_scope.as_deref() {
     return run_explain_scope(&cli, query);
   }
-  let (session, stream_state, text_streamed) = match open_session(&cli) {
+  let (session, mut progress) = match open_session(&cli) {
     Ok(opened) => opened,
     Err(error) => return operational_failure(&cli, &error),
   };
   if cli.print_config {
+    progress.stop();
     return match serde_json::to_string_pretty(session.config()) {
       Ok(output) => {
         println!("{output}");
@@ -355,16 +307,16 @@ fn main() -> ExitCode {
   }
   match session.analyze() {
     Ok(mut snapshot) => {
-      if cli.cache.cache_stats {
-        eprintln!("vue-vet cache: {}", snapshot.cache_status);
-      }
-      if let Err(error) = run_requested_fixes(&cli, &session, &mut snapshot) {
-        return operational_failure(&cli, &error);
-      }
+      let fix_outcome = match run_requested_fixes(&cli, &session, &mut snapshot) {
+        Ok(outcome) => outcome,
+        Err(error) => return fail_with_progress(&cli, &mut progress, &error),
+      };
       if let Some(path) = &cli.baseline {
         let baseline = match Baseline::read(path) {
           Ok(baseline) => baseline,
-          Err(error) => return operational_failure(&cli, &error.to_string()),
+          Err(error) => {
+            return fail_with_progress(&cli, &mut progress, &error.to_string());
+          }
         };
         snapshot.summary = Arc::new(baseline.filter(Arc::unwrap_or_clone(snapshot.summary)));
       }
@@ -372,14 +324,24 @@ fn main() -> ExitCode {
         let directory = session.workspace_root();
         let changed = match read_git_diff(directory, reference) {
           Ok(changed) => changed,
-          Err(error) => return operational_failure(&cli, &error.to_string()),
+          Err(error) => {
+            return fail_with_progress(&cli, &mut progress, &error.to_string());
+          }
         };
         snapshot.summary = Arc::new(filter_diff(Arc::unwrap_or_clone(snapshot.summary), &changed));
       }
       if let Some(path) = &cli.write_baseline
         && let Err(error) = Baseline::from_summary(&snapshot.summary).write(path)
       {
-        return operational_failure(&cli, &error.to_string());
+        return fail_with_progress(&cli, &mut progress, &error.to_string());
+      }
+      progress.emit(&ProgressEvent::WritingReport);
+      progress.stop();
+      if cli.cache.cache_stats {
+        eprintln!("vue-vet cache: {}", snapshot.cache_status);
+      }
+      if let Some((mode, outcome)) = fix_outcome {
+        print_fix_outcome(mode, outcome);
       }
       if cli.print_graph {
         return match serde_json::to_string_pretty(&snapshot.graph) {
@@ -396,20 +358,7 @@ fn main() -> ExitCode {
         return operational_failure(&cli, "--reactivity-tui requires --format text");
       }
       let report_context = report_context(&cli, &snapshot);
-      if progress_enabled(cli.progress) {
-        eprintln!("vue-vet: {}", ProgressEvent::WritingReport.message());
-      }
-      let streamed_files = stream_state
-        .as_ref()
-        .and_then(|state| state.streamed_files.lock().ok().map(|files| files.clone()))
-        .unwrap_or_default();
-      if let Err(error) = print_summary(
-        &snapshot.summary,
-        cli.format,
-        &report_context,
-        text_streamed,
-        &streamed_files,
-      ) {
+      if let Err(error) = print_summary(&snapshot.summary, cli.format, &report_context) {
         return operational_failure(&cli, &format!("failed to serialize report: {error}"));
       }
       if cli.print_reactivity
@@ -430,11 +379,11 @@ fn main() -> ExitCode {
       }
       if snapshot.summary.fails(cli.deny_warnings) { ExitCode::from(1) } else { ExitCode::SUCCESS }
     }
-    Err(error) => operational_failure(&cli, &error.to_string()),
+    Err(error) => fail_with_progress(&cli, &mut progress, &error.to_string()),
   }
 }
 
-fn open_session(cli: &Cli) -> Result<(ProjectSession, Option<Arc<StreamState>>, bool), String> {
+pub(crate) fn open_session(cli: &Cli) -> Result<(ProjectSession, ProgressController), String> {
   let session = ProjectSession::open(SessionOptions {
     root: cli.path.clone(),
     config_path: cli.config.clone(),
@@ -443,30 +392,26 @@ fn open_session(cli: &Cli) -> Result<(ProjectSession, Option<Arc<StreamState>>, 
     threads: cli.threads,
   })
   .map_err(|error| error.to_string())?;
-  let stderr_stages = progress_enabled(cli.progress);
-  // Stream text findings as each file finishes unless baseline/diff would hide them.
-  let stream_text =
-    matches!(cli.format, OutputFormat::Text) && cli.baseline.is_none() && cli.diff.is_none();
-  if !stderr_stages && !stream_text {
-    return Ok((session, None, false));
-  }
-  let stream_state = Arc::new(StreamState { streamed_files: Mutex::new(BTreeSet::new()) });
-  let session = session.with_progress(progress_reporter(
-    stderr_stages,
-    stream_text,
-    color_enabled(cli.color),
-    Arc::clone(&stream_state),
-  ));
-  Ok((session, Some(stream_state), stream_text))
+  let progress = ProgressController::start(detect_style(progress_enabled(cli.progress)));
+  let session = match progress.reporter() {
+    Some(reporter) => session.with_progress(reporter),
+    None => session,
+  };
+  Ok((session, progress))
+}
+
+fn fail_with_progress(cli: &Cli, progress: &mut ProgressController, message: &str) -> ExitCode {
+  progress.stop();
+  operational_failure(cli, message)
 }
 
 fn run_requested_fixes(
   cli: &Cli,
   session: &ProjectSession,
   snapshot: &mut AnalysisSnapshot,
-) -> Result<(), String> {
+) -> Result<Option<(FixMode, FixOutcome)>, String> {
   let Some(mode) = cli.fix.mode() else {
-    return Ok(());
+    return Ok(None);
   };
   let edits = snapshot
     .summary
@@ -475,11 +420,10 @@ fn run_requested_fixes(
     .flat_map(|diagnostic| diagnostic.edits.iter().cloned())
     .collect::<Vec<_>>();
   let outcome = execute_safe_edits(&cli.path, edits, mode).map_err(|error| error.to_string())?;
-  print_fix_outcome(mode, outcome);
   if mode == FixMode::Apply && outcome.changed() {
     *snapshot = session.analyze_fresh().map_err(|error| error.to_string())?;
   }
-  Ok(())
+  Ok(Some((mode, outcome)))
 }
 
 #[expect(clippy::print_stderr, reason = "fix summaries belong on CLI stderr")]

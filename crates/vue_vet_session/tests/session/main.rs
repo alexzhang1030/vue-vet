@@ -4,3 +4,4 @@ mod helpers;
 mod invalidation;
 mod misc;
 mod overlays;
+mod progress;

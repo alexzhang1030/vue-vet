@@ -1021,17 +1021,19 @@ GitHub never paint.
 
 ## Scan progress vs per-file stream
 
-`--progress auto|always|never` (default `auto`) emits **stage barriers** on
-**stderr** (`discovering` → `parsing` → `building project graph` → optional
-`loading external seeds (…, prefer .d.ts)` → `running rules` → then per-file
-`analyzed <path> (n/total)` → `writing report`). `auto` enables only when
-stderr is a TTY and `CI` is unset/empty — so GitHub Actions and piped
-JSON/SARIF stay quiet. Never write progress lines to stdout.
+`--progress auto|always|never` (default `auto`) reports scan **phases** on
+**stderr only**. A live TTY (not `TERM=dumb`) uses one bounded status line
+with an ASCII spinner, phase label, elapsed time, and a monotonic eligible-file
+counter when the pipeline supplies one. Heartbeat continues during long
+event-free graph work; a short initial delay avoids flashing on fast scans.
+Redirected stderr, pipes, and `TERM=dumb` with `--progress always` emit a
+compact per-phase log whose line count does not grow with project size.
+`auto` enables only when stderr is a TTY and `CI` is unset/empty. `--progress
+never` is silent. Color (`--color` / `NO_COLOR`) is independent of progress.
 
-**Stream** means: after the project graph is ready, each file that finishes
-the rules pass emits immediately — stderr gets `analyzed …`, and **text**
-format also prints that file's findings on stdout (completion order under
-parallelism). JSON/SARIF/GitHub stay a single final document. Graph/analysis
-diagnostics that are not per-file rules still appear in the final text
-footer pass. Baseline/diff modes keep text batching so filtered findings are
-not streamed early.
+Do not write progress to stdout. JSON/SARIF/GitHub/`--print-graph`/`--explain`
+remain single final documents. Text diagnostics are batched once after the
+scan so file **and** project findings appear exactly once (including
+`--progress never` and cache hits). Never invent a global percentage or ETA;
+never show raw filenames on the status line. Stop and clear the live line
+before stdout reports, cache-stat/fix messages, errors, or the reactivity TUI.
