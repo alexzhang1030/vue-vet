@@ -2,7 +2,8 @@ use crate::resolve::normalized_path;
 
 pub use crate::{
   EdgeKind, PROJECT_RULE_IDS, ProjectContext, ProjectFile, ProjectGraph, ProjectGraphState,
-  build_project_graph, build_project_graph_incremental_with_options, project_context_from_inputs,
+  build_project_graph, build_project_graph_incremental_with_options, layer_input_relatives,
+  project_context_from_inputs,
 };
 pub use std::{collections::BTreeSet, path::Path};
 use std::{

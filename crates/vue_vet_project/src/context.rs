@@ -115,10 +115,9 @@ pub fn project_context_from_inputs<'a>(
   let mut owner_facts = BTreeMap::<String, OwnerConfigFacts>::new();
   let mut invalidation_inputs = Vec::new();
   let input_map = inputs.into_iter().collect::<BTreeMap<_, _>>();
-  let mut candidate_paths = config_candidates_from_known(&known);
-  candidate_paths.extend(
-    input_map.keys().copied().filter(|path| is_ownership_config_path(path)).map(str::to_owned),
-  );
+  // Ownership facts come only from retained snapshot bytes. Do not synthesize
+  // ancestor config paths from every known source — those candidates miss the
+  // input map on ordinary scans and cost O(files × depth).
   for (relative, bytes) in &input_map {
     if is_project_invalidation_input(relative) {
       invalidation_inputs.push((*relative).to_owned());
@@ -140,23 +139,14 @@ pub fn project_context_from_inputs<'a>(
           .or_insert_with(|| NuxtImportTarget { specifier, importer: (*relative).to_owned() });
       }
     }
-  }
-  for relative in candidate_paths {
-    if !is_ownership_config_path(&relative) {
-      continue;
+    if is_ownership_config_path(relative) {
+      let owner = parent_dir_key(relative);
+      let facts = source_owner_config_facts(relative, source);
+      owner_facts
+        .entry(owner)
+        .and_modify(|existing| *existing = existing.merge(facts.clone()))
+        .or_insert(facts);
     }
-    let Some(bytes) = input_map.get(relative.as_str()) else {
-      continue;
-    };
-    let Ok(source) = std::str::from_utf8(bytes) else {
-      continue;
-    };
-    let owner = parent_dir_key(&relative);
-    let facts = source_owner_config_facts(&relative, source);
-    owner_facts
-      .entry(owner)
-      .and_modify(|existing| *existing = existing.merge(facts.clone()))
-      .or_insert(facts);
   }
   let loaded = finish_owner_facts(&root, owner_facts, Some(&input_map));
   invalidation_inputs.extend(loaded.invalidation_inputs);
@@ -268,12 +258,15 @@ fn apply_layer_extends(
   invalidation_inputs: &mut Vec<String>,
   input_map: Option<&BTreeMap<&str, &[u8]>>,
 ) {
-  let resolver = ProjectResolver::new(root);
   let specs = owner_facts
     .iter()
     .filter(|(_, facts)| !facts.extends.is_empty())
     .map(|(owner, facts)| (owner.clone(), facts.extends.clone()))
     .collect::<Vec<_>>();
+  if specs.is_empty() {
+    return;
+  }
+  let resolver = ProjectResolver::new(root);
   for (owner, extends) in specs {
     let importer = if owner.is_empty() {
       "nuxt.config.ts".to_owned()
@@ -438,30 +431,36 @@ pub fn layer_input_relatives<'a>(
   root: &Path,
   inputs: impl IntoIterator<Item = (&'a str, &'a [u8])>,
 ) -> Vec<String> {
-  let root = normalize_project_root(root);
-  let input_map = inputs.into_iter().collect::<BTreeMap<_, _>>();
-  let resolver = ProjectResolver::new(&root);
-  let mut relatives = BTreeSet::new();
-  let mut visited = BTreeSet::new();
+  let input_map = inputs
+    .into_iter()
+    .filter(|(path, _)| {
+      is_nuxt_config_file(
+        Path::new(path).file_name().and_then(|name| name.to_str()).unwrap_or(path),
+      )
+    })
+    .collect::<BTreeMap<_, _>>();
+  if input_map.is_empty() {
+    return Vec::new();
+  }
+  let mut pending = Vec::new();
   for (path, bytes) in &input_map {
-    if !is_nuxt_config_file(
-      Path::new(path).file_name().and_then(|name| name.to_str()).unwrap_or(path),
-    ) {
-      continue;
-    }
     let Ok(source) = std::str::from_utf8(bytes) else {
       continue;
     };
     let facts = source_owner_config_facts(path, source);
-    collect_layer_relatives(
-      &root,
-      &resolver,
-      path,
-      &facts.extends,
-      &mut visited,
-      &mut relatives,
-      0,
-    );
+    if !facts.extends.is_empty() {
+      pending.push((*path, facts.extends));
+    }
+  }
+  if pending.is_empty() {
+    return Vec::new();
+  }
+  let root = normalize_project_root(root);
+  let resolver = ProjectResolver::new(&root);
+  let mut relatives = BTreeSet::new();
+  let mut visited = BTreeSet::new();
+  for (path, extends) in pending {
+    collect_layer_relatives(&root, &resolver, path, &extends, &mut visited, &mut relatives, 0);
   }
   relatives.into_iter().collect()
 }

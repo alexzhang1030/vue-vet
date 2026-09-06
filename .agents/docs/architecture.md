@@ -638,7 +638,15 @@ ownership is config-file based (package.json / `nuxt.config.*` only), with
 exported-config `modules` / literal `srcDir` and cycle-safe statically known
 `extends` layers resolved through the existing resolver — configs are never
 executed. Layer config bytes belong to the retained snapshot; input-based
-context does not re-read them from disk. The project graph
+context does not re-read them from disk. Snapshot context reads ownership
+configs already present in the input map; it does not generate ancestor
+config candidates from every known source. Layer-relative collection filters
+the input iterator to `is_nuxt_config_file` paths before the input map and
+returns without root/resolver work when no config is present or no static
+`extends` remain. Resolver construction for `extends` runs only when those
+retained Nuxt config facts declare a static layer list. Session retain
+reuses that helper; it does not copy Nuxt config filenames. The filesystem
+convention loader still walks known-file ancestors. The project graph
 also supplies resolved module edges (standalone JS/TS **and** preferred SFC
 script blocks) to `vue_vet_reactivity` and publishes the resulting per-module
 graphs. Extracted `.vue` scripts use Vize block offsets plus the original SFC

@@ -707,6 +707,34 @@ fn project_context_uses_already_read_nuxt_declarations() {
 }
 
 #[test]
+fn input_context_reads_retained_configs_without_known_ancestor_walk() {
+  let project = TempProject::new("snapshot-config-only");
+  let known = [FileId::from("src/deep/nested/Panel.vue")];
+  let context = project_context_from_inputs(
+    project.root(),
+    &known,
+    [
+      (
+        "package.json",
+        br#"{"private":true,"dependencies":{"nuxt":"4.0.0","@nuxt/content":"3.0.0"}}"#.as_slice(),
+      ),
+      (
+        "nuxt.config.ts",
+        b"export default defineNuxtConfig({ srcDir: 'ui', modules: ['@nuxt/content'] })\n"
+          .as_slice(),
+      ),
+    ],
+    1,
+  );
+  assert!(
+    context.convention_owners.contains(""),
+    "retained root configs must still own: {context:?}"
+  );
+  assert_eq!(context.nuxt_src_dirs.get("").map(String::as_str), Some("ui"));
+  assert!(context.nuxt_content_roots.contains(""));
+}
+
+#[test]
 fn vue_modules_receive_composable_seeds_and_template_joins() {
   let project = TempProject::new("module-seeds");
   let producer_source = "import { toRef } from 'vue'; export function useField(props) { return { title: toRef(props, 'title') }; }";
@@ -1388,6 +1416,28 @@ fn input_context_does_not_read_unretained_layer_bytes() {
   assert!(
     without_layer.nuxt_content_roots.is_empty(),
     "missing retained layer bytes must not read disk: {without_layer:?}"
+  );
+  let relatives = layer_input_relatives(
+    project.root(),
+    [
+      (
+        "package.json",
+        br#"{"private":true,"dependencies":{"nuxt":"4.0.0","theme-kit":"1.0.0"}}"#.as_slice(),
+      ),
+      (
+        "app/components/content/GuidePanel.vue",
+        b"<template><span>Item</span></template>\n".as_slice(),
+      ),
+      (
+        "nuxt.config.ts",
+        b"export default defineNuxtConfig({ extends: ['theme-kit'] })\n".as_slice(),
+      ),
+    ],
+  );
+  assert!(
+    relatives.iter().any(|path| path == "node_modules/theme-kit/nuxt.config.ts")
+      && relatives.iter().any(|path| path == "node_modules/theme-kit/package.json"),
+    "configured layer files must stay reachable among mixed inputs: {relatives:?}"
   );
   let layer_config = std::fs::read(project.root().join("node_modules/theme-kit/nuxt.config.ts"))
     .unwrap_or_else(|error| panic!("retained layer nuxt.config.ts must exist: {error}"));
