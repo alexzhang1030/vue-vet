@@ -78,7 +78,20 @@ v41 records same-file lost-notification source/view/path facts (`source_views`,
 a proven plain frontier and for `toRaw` writes of a tracked `reactive` path.
 Collection work counters stay trace-internal and must charge remaining loop
 candidates, prefix-range visits, ancestor hops, and BTreeMap lookups (log
-bound) separately from result cardinality. Provenance uses `record_by_symbol`
+bound) separately from result cardinality. Production `WorkCounter` is
+zero-sized (`cfg(test)` `Cell`s only); `LAST_WORK` is test-only. Owner /
+provenance / join indexing runs when a module has a proven Vue/`#imports`
+named or namespace identity for `shallowRef` / `shallowReactive` / `reactive` /
+`toRaw`, or an unresolved auto-import of those APIs. Eligibility is decided from
+the already-built `imported_bindings` map plus the semantic root
+unresolved-reference index. Namespace `vue` / `#imports` stays eligible. Named
+aliases, string-named imports, and type-only specifiers stay eligible because
+`imported_bindings` records them, matching `resolved_vue_callee`. Default
+`import Vue from 'vue'` and non-canonical sources such as `vue-demi` stay
+unproven. Source-view-only modules still emit `source_views`. Force-full versus
+gated parity covers positive, source-view-only,
+negative, `#imports` / namespace / bare auto-import, type-only, plugin-bag, and
+seeded-graph fixtures. Provenance uses `record_by_symbol`
 plus canonical validity; aliases never clone canonical payload maps; prefix
 invalidation uses BTree range rather than whole-map retain; watcher join uses
 call-offset and contained-read indexes; stops visit per-handle active-key

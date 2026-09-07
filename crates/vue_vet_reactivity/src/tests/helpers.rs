@@ -116,6 +116,54 @@ pub(super) fn graph_work(source: &str) -> (ReactivityGraph, crate::NotificationW
   (graph, crate::last_notification_work())
 }
 
+pub(super) fn graph_work_forced(source: &str) -> (ReactivityGraph, crate::NotificationWork) {
+  let graph = crate::with_forced_full_notification(|| graph(source));
+  (graph, crate::last_notification_work())
+}
+
+pub(super) fn graph_seeded(source: &str, seeds: &crate::TraceSeeds) -> ReactivityGraph {
+  let allocator = Allocator::default();
+  let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
+  assert!(
+    parsed.diagnostics.is_empty(),
+    "script parsing unexpectedly failed: {:?}",
+    parsed.diagnostics
+  );
+  let built = SemanticBuilder::new()
+    .with_build_nodes(true)
+    .with_check_syntax_error(true)
+    .build(&parsed.program);
+  assert!(
+    built.diagnostics.is_empty(),
+    "semantic analysis unexpectedly failed: {:?}",
+    built.diagnostics
+  );
+  crate::trace_reactivity_seeded(
+    &built.semantic,
+    source,
+    0,
+    ScriptKind::Setup,
+    seeds,
+    &default_trace_config(),
+  )
+}
+
+pub(super) fn graph_seeded_work(
+  source: &str,
+  seeds: &crate::TraceSeeds,
+) -> (ReactivityGraph, crate::NotificationWork) {
+  let graph = graph_seeded(source, seeds);
+  (graph, crate::last_notification_work())
+}
+
+pub(super) fn graph_seeded_work_forced(
+  source: &str,
+  seeds: &crate::TraceSeeds,
+) -> (ReactivityGraph, crate::NotificationWork) {
+  let graph = crate::with_forced_full_notification(|| graph_seeded(source, seeds));
+  (graph, crate::last_notification_work())
+}
+
 pub(super) fn graph_tsx(source: &str) -> ReactivityGraph {
   let allocator = Allocator::default();
   let parsed = Parser::new(&allocator, source, SourceType::tsx()).parse();

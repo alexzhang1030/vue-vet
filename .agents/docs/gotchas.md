@@ -1011,6 +1011,18 @@ ancestor chain. Rules:
   and `useX` stays unpublished. Only properties that are `MethodGeneric` promote
   (so `useProvide` stays quiet).
 
+## Production notification work counters miss native-size
+
+PR 233 failed all five native-size gates while `NotificationWork`'s 16 `usize`
+fields and the `LAST_WORK` `RefCell` stayed on the production tracer path.
+Keep the collector `WorkCounter` zero-sized in production (`cfg(test)` `Cell`s
+only); write `LAST_WORK` only in tests. Inner-loop charges stay real under
+`cfg(test)`. Prove collector growth in tests; measure size with the stripped CLI.
+
+Import/semantic eligibility uses the canonical `imported_bindings` map (including
+type-only named specifiers) and the semantic root unresolved-reference index.
+Each platform gate uses its own artifact.
+
 ## Text report color is CLI-injected
 
 ANSI styles apply only when `ReportContext.color` is true (CLI `--color`).

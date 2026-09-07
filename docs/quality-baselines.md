@@ -47,8 +47,9 @@ via path filters on the script and JSON.
 Reproduce locally: `just native-size-check <binary> <rust-triple>`.
 Release-profile product-crate overrides are `opt-level = "z"` on
 `vue_vet_rules`, `vue_vet_practice`, and `vue_vet_rule_query`, and
-`opt-level = "s"` on `vue_vet_core`. `vue_vet_reporters` stays on the
-profile default. Those overrides are accepted only with exact scan JSON
+`opt-level = "s"` on `vue_vet_core` and `vue_vet_reactivity`.
+`vue_vet_oxc` and `vue_vet_reporters` stay on the profile default. Each
+platform gate uses its own artifact. Those overrides are accepted only with exact scan JSON
 equality on the same corpus and CLI paths, plus same-tree release-profile
 comparisons of existing `vue_vet_session` / `whole_project` benches
 `whole_project::scan_cold_mixed_1k`, `whole_project::scan_warm_mixed_1k`,
@@ -60,8 +61,7 @@ regression above 5% on those benches requires revising the override set.
 CLI process times (cold `--no-cache` and warm with a primed cache) remain a
 separate user-facing measurement; process startup is part of CLI UX and is
 not dismissed as noise. CodSpeed keeps explicit `opt-level = 3` on the
-same four packages so inherited release `"z"` / `"s"` does not apply to
-instrumentation.
+same five packages so CodSpeed keeps instrumentation `opt-level = 3`.
 
 ## Performance baselines (CodSpeed suite names)
 
