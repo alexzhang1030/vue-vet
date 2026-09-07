@@ -12,5 +12,6 @@ mod i18n;
 mod incremental;
 mod inject;
 mod local;
+mod notification;
 mod render;
 mod value_bag;

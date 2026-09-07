@@ -70,6 +70,20 @@ pub(super) enum ShapeHint {
   New(Span),
 }
 
+/// Fact-producing Vue API sinks collected into `SourceContractFacts`.
+///
+/// Eligibility preflight and the collector walk share this table through
+/// [`contract_sink`]. `watch` still feeds both the ordinary source collector
+/// and watch-family option/signature facts.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ContractSink {
+  TriggerRef,
+  ToRefs,
+  ProxyConstructor,
+  Watch,
+  WatchEffectFamily,
+}
+
 pub(super) fn intern_api(name: &str) -> Option<&'static str> {
   match name {
     "triggerRef" => Some("triggerRef"),
@@ -90,6 +104,19 @@ pub(super) fn intern_api(name: &str) -> Option<&'static str> {
     "toRef" => Some("toRef"),
     "useTemplateRef" => Some("useTemplateRef"),
     "defineModel" => Some("defineModel"),
+    _ => None,
+  }
+}
+
+pub fn contract_sink(api: &str) -> Option<ContractSink> {
+  match api {
+    "triggerRef" => Some(ContractSink::TriggerRef),
+    "toRefs" => Some(ContractSink::ToRefs),
+    "reactive" | "readonly" | "shallowReactive" | "shallowReadonly" => {
+      Some(ContractSink::ProxyConstructor)
+    }
+    "watch" => Some(ContractSink::Watch),
+    "watchEffect" | "watchPostEffect" | "watchSyncEffect" => Some(ContractSink::WatchEffectFamily),
     _ => None,
   }
 }
@@ -115,8 +142,9 @@ pub(super) fn is_ref_api(api: &str) -> bool {
 pub(super) fn collect_vue_imports(
   semantic: &oxc_semantic::Semantic<'_>,
   work: &WorkCounter,
-) -> HashMap<SymbolId, VueImport> {
+) -> (HashMap<SymbolId, VueImport>, bool) {
   let mut imports = HashMap::new();
+  let mut has_contract_sink = false;
   for node in semantic.nodes() {
     work.add_nodes(1);
     let AstKind::ImportDeclaration(declaration) = node.kind() else {
@@ -149,12 +177,16 @@ pub(super) fn collect_vue_imports(
           if let Some(api) = intern_api(imported)
             && let Some(symbol_id) = specifier.local.symbol_id.get()
           {
+            if contract_sink(api).is_some() {
+              has_contract_sink = true;
+            }
             imports.insert(symbol_id, VueImport::Named(api));
           }
         }
         ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier) if runtime => {
           if let Some(symbol_id) = specifier.local.symbol_id.get() {
             imports.insert(symbol_id, VueImport::Namespace);
+            has_contract_sink = true;
           }
         }
         ImportDeclarationSpecifier::ImportNamespaceSpecifier(_)
@@ -162,7 +194,7 @@ pub(super) fn collect_vue_imports(
       }
     }
   }
-  imports
+  (imports, has_contract_sink)
 }
 
 pub(super) fn hint_of(

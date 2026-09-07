@@ -42,6 +42,45 @@ fn list_rules_is_sorted_unique_and_includes_project_ids() {
     parsed.pointer("/counts/total").and_then(Value::as_u64),
     Some(expected.counts.total as u64)
   );
+  assert_eq!(
+    parsed.pointer("/counts/total").and_then(Value::as_u64),
+    Some(115),
+    "composed CLI inventory must be 115 after source-contract, notification, and watch-api rules"
+  );
+}
+
+#[test]
+fn list_rules_lifetime_includes_four_and_tracking_excludes_them() {
+  const LIFETIME_IDS: &[&str] = &[
+    "vue-vet/reactivity/no-late-scope-dispose",
+    "vue-vet/reactivity/no-late-watcher-cleanup",
+    "vue-vet/reactivity/no-orphaned-scope-watcher",
+    "vue-vet/reactivity/no-returned-watcher-cleanup",
+  ];
+  let lifetime = run(&["--list-rules", "--format", "json", "--group", "lifetime"]);
+  let tracking = run(&["--list-rules", "--format", "json", "--group", "tracking"]);
+  assert!(lifetime.status.success(), "{}", String::from_utf8_lossy(&lifetime.stderr));
+  assert!(tracking.status.success(), "{}", String::from_utf8_lossy(&tracking.stderr));
+  let lifetime_json: Value = serde_json::from_slice(&lifetime.stdout).expect("lifetime json");
+  let tracking_json: Value = serde_json::from_slice(&tracking.stdout).expect("tracking json");
+  let lifetime_ids: Vec<_> = lifetime_json
+    .get("rules")
+    .and_then(Value::as_array)
+    .map(|rules| {
+      rules.iter().filter_map(|row| row.get("id").and_then(Value::as_str)).collect::<Vec<_>>()
+    })
+    .unwrap_or_default();
+  let tracking_ids: Vec<_> = tracking_json
+    .get("rules")
+    .and_then(Value::as_array)
+    .map(|rules| {
+      rules.iter().filter_map(|row| row.get("id").and_then(Value::as_str)).collect::<Vec<_>>()
+    })
+    .unwrap_or_default();
+  for id in LIFETIME_IDS {
+    assert!(lifetime_ids.contains(id), "lifetime inventory missing {id}: {lifetime_ids:?}");
+    assert!(!tracking_ids.contains(id), "tracking inventory must exclude {id}");
+  }
 }
 
 #[test]
@@ -73,7 +112,9 @@ fn list_rules_source_contracts_includes_five_ids() {
     })
     .unwrap_or_default();
   for id in [
+    "vue-vet/reactivity/no-lost-shallow-nested-notification",
     "vue-vet/reactivity/no-primitive-reactive-target",
+    "vue-vet/reactivity/no-toraw-write-of-tracked-state",
     "vue-vet/reactivity/no-torefs-on-non-proxy",
     "vue-vet/reactivity/no-trigger-ref-on-non-ref",
     "vue-vet/reactivity/no-watch-ignored-option",

@@ -4,11 +4,11 @@ Category: reactivity
 Default severity: warning  
 Confidence: high
 
-Vue 3.5 `WatchOptions` has no comparator. An `equals` function on `watch` or
-`watchEffect` is never called; change detection uses `hasChanged`. Effect APIs
-also ignore own `immediate` / `deep` / `once` keys (development builds warn;
-production drops those warnings). `flush`, `onTrack`, and `onTrigger` stay
-valid. `once: true` on `watchEffect` does **not** stop later reruns.
+`flush` configures scheduling for `watch` and `watchEffect`. `watchPostEffect`
+always uses post scheduling, and `watchSyncEffect` always uses sync scheduling;
+these wrappers override a supplied `flush`. This rule currently diagnoses
+`equals` and effect-only `immediate` / `deep` / `once` keys. `onTrack` and
+`onTrigger` remain supported.
 
 ## Bad
 

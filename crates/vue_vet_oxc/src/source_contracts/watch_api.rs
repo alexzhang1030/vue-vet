@@ -1,9 +1,9 @@
 //! Watch-family option and signature contracts (issue #224).
 //!
 //! Collection stays linear over proven calls and the already-indexed options
-//! object. `watchEffect` / `watchPostEffect` / `watchSyncEffect` are sink APIs
-//! for a later source-eligibility gate; this module only records option/slot
-//! facts.
+//! object. `watchEffect` / `watchPostEffect` / `watchSyncEffect` are
+//! `ContractSink::WatchEffectFamily` APIs; this module records option/slot
+//! facts after the shared sink table admits the call.
 
 use std::collections::HashSet;
 
@@ -19,10 +19,6 @@ use super::shape::{Shape, span_key};
 use super::stats::WorkCounter;
 use super::{Collector, MAX_DEPTH};
 
-pub(super) fn is_watch_family(api: &str) -> bool {
-  matches!(api, "watch" | "watchEffect" | "watchPostEffect" | "watchSyncEffect")
-}
-
 fn is_effect_api(api: &str) -> bool {
   matches!(api, "watchEffect" | "watchPostEffect" | "watchSyncEffect")
 }
@@ -32,9 +28,6 @@ impl Collector<'_> {
     let Some(api) = info.api else {
       return;
     };
-    if !is_watch_family(api) {
-      return;
-    }
     if self.collect_signature_mismatch(call, api) {
       return;
     }

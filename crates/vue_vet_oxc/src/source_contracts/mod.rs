@@ -27,12 +27,14 @@ use vue_vet_core::{
   WatchReplacedObjectSourceFact,
 };
 
-use watch_api::is_watch_family;
-
 use crate::facts::source_span;
 
 use index::{CallInfo, Indexes, ObjectProp};
-use shape::{Shape, ShapeHint, classify_vue_result, is_ref_api, span_key};
+pub use shape::{ContractSink, contract_sink};
+use shape::{Shape, ShapeHint, classify_vue_result, collect_vue_imports, is_ref_api, span_key};
+use stats::WorkCounter;
+
+pub use stats::SourceContractStats;
 
 const MAX_DEPTH: u8 = 8;
 
@@ -63,13 +65,48 @@ pub fn collect_source_contract_facts_with_stats(
   sfc_source: &str,
   script_offset: usize,
   kind: ScriptKind,
-) -> (SourceContractFacts, u64) {
+) -> (SourceContractFacts, SourceContractStats) {
+  collect_prepared(semantic, line_index, sfc_source, script_offset, kind, false)
+}
+
+#[cfg(test)]
+pub fn collect_source_contract_facts_forced_full(
+  semantic: &oxc_semantic::Semantic<'_>,
+  line_index: &vue_vet_core::LineIndex,
+  sfc_source: &str,
+  script_offset: usize,
+  kind: ScriptKind,
+) -> (SourceContractFacts, SourceContractStats) {
+  collect_prepared(semantic, line_index, sfc_source, script_offset, kind, true)
+}
+
+fn collect_prepared(
+  semantic: &oxc_semantic::Semantic<'_>,
+  line_index: &vue_vet_core::LineIndex,
+  sfc_source: &str,
+  script_offset: usize,
+  kind: ScriptKind,
+  force_full: bool,
+) -> (SourceContractFacts, SourceContractStats) {
+  let work = WorkCounter::default();
+  let (vue_imports, has_contract_sink) = collect_vue_imports(semantic, &work);
+  if !has_contract_sink && !force_full {
+    return (SourceContractFacts::default(), work.snapshot());
+  }
   let mut collector = Collector {
     semantic,
     line_index,
     sfc_source,
     script_offset,
-    indexes: Indexes::build(semantic, line_index, sfc_source, script_offset, kind),
+    indexes: Indexes::build(
+      semantic,
+      line_index,
+      sfc_source,
+      script_offset,
+      kind,
+      vue_imports,
+      work,
+    ),
     shape_cache: HashMap::new(),
     property_shape: HashMap::new(),
     facts: SourceContractFacts::default(),
@@ -94,23 +131,21 @@ impl Collector<'_> {
       if info.has_spread {
         continue;
       }
-      match api {
-        "triggerRef" => self.collect_trigger_ref(info),
-        "toRefs" => self.collect_torefs(info),
-        "reactive" | "readonly" | "shallowReactive" | "shallowReadonly" => {
-          self.collect_primitive_reactive(info, api);
-        }
-        "watch" => {
+      match contract_sink(api) {
+        Some(ContractSink::TriggerRef) => self.collect_trigger_ref(info),
+        Some(ContractSink::ToRefs) => self.collect_torefs(info),
+        Some(ContractSink::ProxyConstructor) => self.collect_primitive_reactive(info, api),
+        Some(ContractSink::Watch) => {
           self.collect_watch(node_id, call, info);
           self.collect_watch_api(call, info);
         }
-        api if is_watch_family(api) => self.collect_watch_api(call, info),
-        _ => {}
+        Some(ContractSink::WatchEffectFamily) => self.collect_watch_api(call, info),
+        None => {}
       }
     }
   }
 
-  fn finish(mut self) -> (SourceContractFacts, u64) {
+  fn finish(mut self) -> (SourceContractFacts, SourceContractStats) {
     self.facts.trigger_ref_non_ref.sort_by(|left, right| {
       self.indexes.note_query();
       left.span.offset.cmp(&right.span.offset)
@@ -140,8 +175,7 @@ impl Collector<'_> {
       self.indexes.note_query();
       left.span.offset.cmp(&right.span.offset)
     });
-    let stats = self.indexes.stats();
-    (self.facts, stats.work())
+    (self.facts, self.indexes.stats())
   }
 
   fn collect_trigger_ref(&mut self, info: CallInfo) {

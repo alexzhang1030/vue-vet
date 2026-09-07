@@ -45,6 +45,23 @@ Maxima are ceil(candidate bytes * 1.03) for the `fa2debc` matrix binaries (workf
 baseline rows are `2dabaad` (run 34034720314). Budget-only PRs retrigger the matrix
 via path filters on the script and JSON.
 Reproduce locally: `just native-size-check <binary> <rust-triple>`.
+Release-profile product-crate overrides are `opt-level = "z"` on
+`vue_vet_rules`, `vue_vet_practice`, and `vue_vet_rule_query`, and
+`opt-level = "s"` on `vue_vet_core`. `vue_vet_reporters` stays on the
+profile default. Those overrides are accepted only with exact scan JSON
+equality on the same corpus and CLI paths, plus same-tree release-profile
+comparisons of existing `vue_vet_session` / `whole_project` benches
+`whole_project::scan_cold_mixed_1k`, `whole_project::scan_warm_mixed_1k`,
+and `whole_project::json_render_mixed_1k` (rules, practice, query, cache,
+and JSON render). Divan `--exact` requires that complete path; `--list`
+leaf names are not the exact filter. `analyze_sfc` does not execute those
+paths and cannot accept the overrides. A clear persistent median
+regression above 5% on those benches requires revising the override set.
+CLI process times (cold `--no-cache` and warm with a primed cache) remain a
+separate user-facing measurement; process startup is part of CLI UX and is
+not dismissed as noise. CodSpeed keeps explicit `opt-level = 3` on the
+same four packages so inherited release `"z"` / `"s"` does not apply to
+instrumentation.
 
 ## Performance baselines (CodSpeed suite names)
 
