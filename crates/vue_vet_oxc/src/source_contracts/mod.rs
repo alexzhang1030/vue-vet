@@ -12,6 +12,7 @@
 mod index;
 mod shape;
 mod stats;
+mod watch_api;
 mod watch_callbacks;
 
 use std::collections::HashMap;
@@ -30,19 +31,23 @@ use vue_vet_core::{
 use crate::facts::source_span;
 
 use index::{CallInfo, Indexes, ObjectProp};
-use shape::{Shape, ShapeHint, classify_vue_result, is_ref_api, span_key};
+pub use shape::{ContractSink, contract_sink};
+use shape::{Shape, ShapeHint, classify_vue_result, collect_vue_imports, is_ref_api, span_key};
+use stats::WorkCounter;
+
+pub use stats::SourceContractStats;
 
 const MAX_DEPTH: u8 = 8;
 
-pub(in crate::source_contracts) struct Collector<'a> {
-  pub(in crate::source_contracts) semantic: &'a oxc_semantic::Semantic<'a>,
-  pub(in crate::source_contracts) line_index: &'a vue_vet_core::LineIndex,
-  pub(in crate::source_contracts) sfc_source: &'a str,
-  pub(in crate::source_contracts) script_offset: usize,
-  pub(in crate::source_contracts) indexes: Indexes,
-  pub(in crate::source_contracts) shape_cache: HashMap<SymbolId, Shape>,
-  pub(in crate::source_contracts) property_shape: HashMap<(SymbolId, String), Shape>,
-  pub(in crate::source_contracts) facts: SourceContractFacts,
+struct Collector<'a> {
+  semantic: &'a oxc_semantic::Semantic<'a>,
+  line_index: &'a vue_vet_core::LineIndex,
+  sfc_source: &'a str,
+  script_offset: usize,
+  indexes: Indexes,
+  shape_cache: HashMap<SymbolId, Shape>,
+  property_shape: HashMap<(SymbolId, String), Shape>,
+  facts: SourceContractFacts,
 }
 
 pub fn collect_source_contract_facts(
@@ -61,13 +66,48 @@ pub fn collect_source_contract_facts_with_stats(
   sfc_source: &str,
   script_offset: usize,
   kind: ScriptKind,
-) -> (SourceContractFacts, u64) {
+) -> (SourceContractFacts, SourceContractStats) {
+  collect_prepared(semantic, line_index, sfc_source, script_offset, kind, false)
+}
+
+#[cfg(test)]
+pub fn collect_source_contract_facts_forced_full(
+  semantic: &oxc_semantic::Semantic<'_>,
+  line_index: &vue_vet_core::LineIndex,
+  sfc_source: &str,
+  script_offset: usize,
+  kind: ScriptKind,
+) -> (SourceContractFacts, SourceContractStats) {
+  collect_prepared(semantic, line_index, sfc_source, script_offset, kind, true)
+}
+
+fn collect_prepared(
+  semantic: &oxc_semantic::Semantic<'_>,
+  line_index: &vue_vet_core::LineIndex,
+  sfc_source: &str,
+  script_offset: usize,
+  kind: ScriptKind,
+  force_full: bool,
+) -> (SourceContractFacts, SourceContractStats) {
+  let work = WorkCounter::default();
+  let (vue_imports, has_contract_sink) = collect_vue_imports(semantic, &work);
+  if !has_contract_sink && !force_full {
+    return (SourceContractFacts::default(), work.snapshot());
+  }
   let mut collector = Collector {
     semantic,
     line_index,
     sfc_source,
     script_offset,
-    indexes: Indexes::build(semantic, line_index, sfc_source, script_offset, kind),
+    indexes: Indexes::build(
+      semantic,
+      line_index,
+      sfc_source,
+      script_offset,
+      kind,
+      vue_imports,
+      work,
+    ),
     shape_cache: HashMap::new(),
     property_shape: HashMap::new(),
     facts: SourceContractFacts::default(),
@@ -92,22 +132,22 @@ impl Collector<'_> {
       if info.has_spread {
         continue;
       }
-      match api {
-        "triggerRef" => self.collect_trigger_ref(info),
-        "toRefs" => self.collect_torefs(info),
-        "reactive" | "readonly" | "shallowReactive" | "shallowReadonly" => {
-          self.collect_primitive_reactive(info, api);
-        }
-        "watch" => {
+      match contract_sink(api) {
+        Some(ContractSink::TriggerRef) => self.collect_trigger_ref(info),
+        Some(ContractSink::ToRefs) => self.collect_torefs(info),
+        Some(ContractSink::ProxyConstructor) => self.collect_primitive_reactive(info, api),
+        Some(ContractSink::Watch) => {
           self.collect_watch(node_id, call, info);
+          self.collect_watch_api(call, info);
           self.collect_watch_callback_contracts(call, info);
         }
-        _ => {}
+        Some(ContractSink::WatchEffectFamily) => self.collect_watch_api(call, info),
+        None => {}
       }
     }
   }
 
-  fn finish(mut self) -> (SourceContractFacts, u64) {
+  fn finish(mut self) -> (SourceContractFacts, SourceContractStats) {
     self.facts.trigger_ref_non_ref.sort_by(|left, right| {
       self.indexes.note_query();
       left.span.offset.cmp(&right.span.offset)
@@ -129,6 +169,14 @@ impl Collector<'_> {
       (left.source_span.offset, left.replacement_span.offset)
         .cmp(&(right.source_span.offset, right.replacement_span.offset))
     });
+    self.facts.watch_ignored_option.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.watch_signature_mismatch.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
     self.facts.watch_callback_contracts.sort_by(|left, right| {
       self.indexes.note_query();
       (left.watch_span.offset, left.guard_span.offset, left.reason as u8).cmp(&(
@@ -137,8 +185,7 @@ impl Collector<'_> {
         right.reason as u8,
       ))
     });
-    let stats = self.indexes.stats();
-    (self.facts, stats.work())
+    (self.facts, self.indexes.stats())
   }
 
   fn collect_trigger_ref(&mut self, info: CallInfo) {
@@ -442,7 +489,7 @@ impl Collector<'_> {
       .unwrap_or(Shape::Unknown)
   }
 
-  pub(in crate::source_contracts) fn classify_span(&mut self, span: Span, remaining: u8) -> Shape {
+  fn classify_span(&mut self, span: Span, remaining: u8) -> Shape {
     self.classify_maybe(span, remaining).unwrap_or(Shape::Unknown)
   }
 
@@ -489,11 +536,7 @@ impl Collector<'_> {
     })
   }
 
-  pub(in crate::source_contracts) fn classify_identifier(
-    &mut self,
-    identifier: &IdentifierReference<'_>,
-    remaining: u8,
-  ) -> Shape {
+  fn classify_identifier(&mut self, identifier: &IdentifierReference<'_>, remaining: u8) -> Shape {
     let Some(symbol_id) = self.reference_symbol(identifier) else {
       return Shape::Unknown;
     };
@@ -525,15 +568,12 @@ impl Collector<'_> {
     Some(shape)
   }
 
-  pub(in crate::source_contracts) fn reference_symbol(
-    &self,
-    identifier: &IdentifierReference<'_>,
-  ) -> Option<SymbolId> {
+  fn reference_symbol(&self, identifier: &IdentifierReference<'_>) -> Option<SymbolId> {
     let reference_id = identifier.reference_id.get()?;
     self.semantic.scoping().get_reference(reference_id).symbol_id()
   }
 
-  pub(in crate::source_contracts) fn span(&self, span: Span) -> SourceSpan {
+  fn span(&self, span: Span) -> SourceSpan {
     source_span(self.line_index, self.sfc_source, self.script_offset, span)
   }
 }

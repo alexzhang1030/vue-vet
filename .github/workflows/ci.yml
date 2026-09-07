@@ -37,6 +37,21 @@ jobs:
       - uses: extractions/setup-just@v3
       - run: just test
 
+  native-size:
+    name: Native size script (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: native_size.py tests
+        run: python scripts/test_native_size.py
+
   npm:
     name: npm launcher
     runs-on: ubuntu-latest
@@ -76,22 +91,23 @@ jobs:
       - uses: extractions/setup-just@v3
       - name: Watch*Effect / watch / computed run-count evidence
         run: just oracle-self-trigger
+      - name: Watcher cleanup and effectScope lifetime evidence
+        run: just oracle-lifetime
+      - name: Source-contract runtime premises
+        run: just oracle-source-contracts
+      - name: Lost-notification Vue 3.5.40 premises
+        run: just oracle-lost-notification
 
-  oracle-source-contracts:
-    name: Vue source-contract premises
+  vapor-migration-research:
+    name: Vapor migration research
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9.15.9
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: '22'
       - uses: extractions/setup-just@v3
-      - name: Source-contract runtime premises
-        run: just oracle-source-contracts
-      - name: Watch-callback runtime premises
-        run: just oracle-watch-callback-contracts
+      - name: Vapor migration research oracles
+        run: just vapor-migration-research

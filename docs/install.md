@@ -16,6 +16,8 @@ npm install -D @vue-vet/cli
 ```bash
 npx vue-vet .
 pnpm exec vue-vet .
+npx vue-vet --list-rules
+npx vue-vet --group tracking .
 ```
 
 The `@vue-vet/cli` package is the only package that declares a `bin` entry

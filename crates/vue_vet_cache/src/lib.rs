@@ -23,12 +23,23 @@ pub const CACHE_FORMAT_VERSION: u32 = 5;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// Bump when built-in rule set or seed-aware analysis behavior changes.
 ///
-/// v16 reserved: watch-callback contracts (`no-once-immediate-discard`,
-/// `no-watch-alias-old-new`). Codex finalizes the bump on integration.
-/// v15 contract: source-contract rules (`no-trigger-ref-on-non-ref`,
+/// v20: watch-callback contracts (`no-once-immediate-discard`,
+/// `no-watch-alias-old-new`) on the ordinary `watch` `ContractSink`, composed
+/// onto the watch-API catalog (v19). Graph version stays 41.
+/// v19: watch-family option/signature rules (`no-watch-ignored-option`,
+/// `no-watch-signature-mismatch`) plus `watch*Effect` `ContractSink`
+/// eligibility on the lost-notification catalog (v18). Graph version stays 41.
+/// v18: lost-notification rules (`no-lost-shallow-nested-notification`,
+/// `no-toraw-write-of-tracked-state`) plus source/view/path graph facts,
+/// composed onto the source-contract catalog (v17).
+/// v17: source-contract rules (`no-trigger-ref-on-non-ref`,
 /// `no-torefs-on-non-proxy`, `no-primitive-reactive-target`,
 /// `no-watch-unwrapped-source`, `no-watch-replaced-object-source`) plus
 /// watch-source overlap finalization with `no-empty-watch-sources`.
+/// v16: lifetime watcher/effect-scope facts (`no-returned-watcher-cleanup`,
+/// `no-late-watcher-cleanup`, `no-orphaned-scope-watcher`, `no-late-scope-dispose`)
+/// composed onto the retired quiet-ID catalog (config unknown).
+/// v15: retired quiet IDs removed from the runtime catalog (config unknown).
 /// v14 contract: practice-channel policy (Info, excluded from score / default
 /// CI exit) for static computed wrappers, route-field snapshots, single-source
 /// `watchEffect` preferences, and getter-evidence `prefer-to-value`. Native
@@ -48,7 +59,7 @@ pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// prefer-watch suppresses self-write sources; computed self-write is impure.
 /// v5: conditional-dep premise withdrawn; after-await registrars deprecated
 /// except defineExpose; absence rules require complete follow coverage.
-pub const RULESET_VERSION: u32 = 16;
+pub const RULESET_VERSION: u32 = 20;
 
 /// Workspace pin for `vize_croquis` / `vize_atelier_core`.
 ///

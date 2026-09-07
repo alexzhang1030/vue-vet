@@ -11,8 +11,10 @@
   findings do not.
 - Every built-in lint rule keeps stable `RuleMeta` and a `Rule` implementation
   under `vue_vet_rules/src/rules`. Standalone rules use one dedicated file.
-  **Matrix families** (tracking-graph / after-await registrar packs) may share an
-  implementation type plus a catalog of unique ids in `rules/matrix/`; the parent
+  **Matrix families** (tracking-graph packs; live `defineExpose` after-await) may share an
+  implementation type plus a catalog of unique ids in `rules/matrix/`. That
+  module is hand-maintained; `scripts/gen_matrix_rules.py` only validates the
+  live/retired ID inventory and must not overwrite rule bodies. The parent
   registry still only assembles `&'static dyn Rule` and must not become a
   behavior dispatcher. Each matrix id still needs docs and fixtures. Practice
   suggestions live in `vue_vet_practice` with the same per-rule module shape,
@@ -44,30 +46,39 @@
   `just oracle` gate) plus: a true-positive fixture when the ID still reports,
   a quiet / false-positive fixture for the coalesced or incomplete-coverage
   case, a precision pin when the quality corpus is affected, and exact-span
-  snapshots for every remaining finding. Retired IDs kept for config
-  compatibility still need the quiet fixture and the runtime note on the rule
-  page.
+  snapshots for every remaining finding. Removed IDs must leave the runtime
+  catalog; keep Vue behavior evidence as semantic regressions, not as quiet
+  registered rules. Delete those IDs from `[rules]` configuration — unknown
+  IDs fail config validation.
 - After adding or renaming rule ids, regenerate the human catalog with
   `just rules-catalog` (`docs/rules/README.md`). Expand stub pages with
   `just rules-docs` (`scripts/expand_rule_docs.py`) before polishing essays.
+  Session tests assert `file_analysis_registry().metadata` matches that file-ID
+  set (practice included; project IDs stay separate).
 - Watch-callback contracts (`no-once-immediate-discard`,
   `no-watch-alias-old-new`) consume `SourceContractFacts.watch_callback_contracts`
-  only. Once-immediate requires a supported single source (ref, getter, or
-  proven actually-reactive root); identity requires a closed plain
-  object/array `reactive`/`shallowReactive` target (Vue marker keys,
-  `__proto__`, spread, and accessor keys stay unknown; constructor-input
-  `Object.freeze` / unknown helpers / spread-sequence-storage argument flow
-  abstain; assignment-pattern marker writes invalidate the watched root;
-  ordinary `state.n` writes do
-  not). Nested later-work blocks abstain. Closed object proofs are
-  precomputed per span. Capability-unknown flow uses a per-root role index
-  (not generic `escaped`/`uncertain`). This base has no canonical
-  tracking-group table; parent integration should map both IDs to the existing
-  watch/reactivity tracking group used by `no-watch-unwrapped-source`. Do not
-  drop `no-deep-watch-on-reactive-root` when the identity-guard rule also
-  fires: one is source-wide tracking, the other is callback dead work.
-  `RULESET_VERSION` is reserved at 16 here; Codex finalizes the number on rebase.
+  only and map to the `source-contracts` group. Once-immediate requires a
+  supported single source (ref, getter, or proven actually-reactive root);
+  identity requires a closed plain object/array `reactive`/`shallowReactive`
+  target. Vue marker keys, `__proto__`, spread, and accessor keys stay unknown;
+  constructor-input `Object.freeze` / unknown helpers / spread-sequence-storage
+  argument flow abstain; assignment-pattern marker writes invalidate the watched
+  root; ordinary `state.n` writes keep the watched root. Nested later-work
+  blocks abstain. Closed object proofs are precomputed per span.
+  Capability-unknown flow uses a per-root role index. Generic `escaped` /
+  `uncertain` remain watch/reactive-argument facts. Static-member receiver
+  roles share one span-identity policy for call / `new` / tagged template.
+  Keep `no-deep-watch-on-reactive-root` when the identity-guard rule also
+  fires: the former reports source-wide tracking, and the latter reports
+  callback dead work.
 - Low-confidence heuristics are opt-in and never enter the default preset merely to increase rule count.
+- Canonical rule groups are a product inventory overlay, not a per-rule `RuleMeta`
+  field. The mapping table lives with the composed registry in `vue_vet_session`.
+  Each mapped ID belongs to at most one group. `--list-rules` is the live
+  registry (sorted stable IDs, including project rules) and is **not** a scan
+  with the current `vue-vet.toml`. `--group` unions only change which known IDs
+  are `off` in effective config; they must not re-enable `preset = "none"`,
+  `practice = "off"`, or explicit `off` entries.
 
 ## Source locations
 
@@ -141,9 +152,22 @@ and in CI. Renaming a benchmark or materially changing its fixture establishes
 a new baseline and requires an explicit rationale in the pull request. Performance checks complement rather
 than replace correctness tests. CodSpeed builds use the dedicated `codspeed`
 profile because its instrumentation does not link Oxc reliably under LTO
-(`lto = false`, `panic = "unwind"`). The release profile (`lto = "fat"`,
-`panic = "abort"`, `strip = "symbols"`) remains the source of truth for
-shipped artifacts.
+(`lto = false`, `panic = "unwind"`). The release profile (`opt-level = 2`, `lto = "fat"`,
+`panic = "abort"`, `strip = "symbols"`, protocol/UI runtime packages
+`opt-level = "z"`, product crates `vue_vet_rules` / `vue_vet_practice` /
+`vue_vet_rule_query` `opt-level = "z"`, `vue_vet_core` `opt-level = "s"`;
+`vue_vet_reporters` stays on the profile default) remains the source of
+truth for shipped artifacts.
+`profile.codspeed` inherits `release`, then sets `opt-level = 3` and
+`lto = false`. That top-level 3 is the default only: named
+`profile.release.package` overrides still win unless restated. Protocol/UI
+release `opt-z` packages stay inherited. Product crates with release `"z"`
+or `"s"` (`vue_vet_rules`, `vue_vet_practice`, `vue_vet_rule_query`,
+`vue_vet_core`) have explicit `profile.codspeed.package.*.opt-level = 3`
+so CodSpeed is not the size profile. Do not bake a local `CARGO_TARGET_DIR` or
+host byte count into pack/smoke scripts. `just native-size` prints the Cargo
+JSON executable for the build it just ran. CI size gates use artifact mode on
+the matrix binary plus the committed budget table; they must not rebuild.
 
 Project-level cold / warm / overlay / diff-filter benches live in
 `vue_vet_session` (`scan_modes`) on the quality corpus, with an additional

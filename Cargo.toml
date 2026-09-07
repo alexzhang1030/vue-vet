@@ -124,14 +124,85 @@ unwrap_used = "deny"
 unused_result_ok = "deny"
 
 [profile.release]
+opt-level = 2
 lto = "fat"
 codegen-units = 1
 strip = "symbols"
 panic = "abort"
 
+# Size-optimize cold protocol/UI runtime crates (issue #223) plus measured
+# product crates: `vue_vet_rules` / `vue_vet_practice` / `vue_vet_rule_query`
+# at `opt-level = "z"`, `vue_vet_core` at `opt-level = "s"`. Tracer, parsers,
+# resolver, regex, serde, and `vue_vet_reporters` stay on the profile default.
+# Fat LTO still inlines across crates; these overrides change pre-LTO codegen
+# for the named packages. Proc-macros (`clap_derive`, `ratatui-macros`) are not
+# listed: they do not ship in the native binary.
+[profile.release.package.tower-lsp]
+opt-level = "z"
+
+[profile.release.package.lsp-types]
+opt-level = "z"
+
+[profile.release.package.vue_vet_lsp]
+opt-level = "z"
+
+[profile.release.package.vue_vet_mcp]
+opt-level = "z"
+
+[profile.release.package.clap]
+opt-level = "z"
+
+[profile.release.package.clap_builder]
+opt-level = "z"
+
+[profile.release.package.ratatui]
+opt-level = "z"
+
+[profile.release.package.ratatui-core]
+opt-level = "z"
+
+[profile.release.package.ratatui-widgets]
+opt-level = "z"
+
+[profile.release.package.ratatui-crossterm]
+opt-level = "z"
+
+[profile.release.package.crossterm]
+opt-level = "z"
+
+[profile.release.package.vue_vet_rules]
+opt-level = "z"
+
+[profile.release.package.vue_vet_practice]
+opt-level = "z"
+
+[profile.release.package.vue_vet_rule_query]
+opt-level = "z"
+
+[profile.release.package.vue_vet_core]
+opt-level = "s"
+
 # CodSpeed instrumentation and Oxc's generated code do not link reliably under
 # LTO. Keep release artifacts on fat LTO + abort; isolate benches here.
+# Top-level `opt-level = 3` is the default only. Named `profile.release.package`
+# overrides still inherit unless restated here. Protocol/UI release `opt-z`
+# stays inherited (issue #223 baseline). Product crates with release `"z"` or
+# `"s"` (`vue_vet_rules`, `vue_vet_practice`, `vue_vet_rule_query`,
+# `vue_vet_core`) restate `opt-level = 3` so CodSpeed is not the size profile.
 [profile.codspeed]
 inherits = "release"
+opt-level = 3
 lto = false
 panic = "unwind"
+
+[profile.codspeed.package.vue_vet_rules]
+opt-level = 3
+
+[profile.codspeed.package.vue_vet_practice]
+opt-level = 3
+
+[profile.codspeed.package.vue_vet_rule_query]
+opt-level = 3
+
+[profile.codspeed.package.vue_vet_core]
+opt-level = 3

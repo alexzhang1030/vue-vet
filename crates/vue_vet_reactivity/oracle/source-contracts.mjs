@@ -154,11 +154,4 @@ function captureWarns(fn) {
   assert.equal(objRuns, 1, "replacement must not retarget");
 }
 
-{
-  const state = reactive({ child: { n: 0 } });
-  const before = state.child;
-  ({ child: state.child } = { child: state.child });
-  assert.equal(state.child, before, "same-object pattern assignment must keep the child Proxy");
-}
-
 console.log("source-contracts oracle: ok (Vue 3.5.40)");

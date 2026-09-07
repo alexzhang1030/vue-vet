@@ -21,7 +21,7 @@ Workspace-internal (`publish = false`). Dependents: `vue-vet`, `vue_vet_lsp`,
 | --- | --- |
 | `ProjectSession::{open, analyze, analyze_fresh, analyze_with_overlays, …}` | Session handle |
 | `apply_changes` / `analyze_affected` / `analyze_affected_product` | Incremental |
-| `SessionOptions` | `root`, `config_path`, `cache_dir`, `no_cache`, `threads` |
+| `SessionOptions` | `root`, `config_path`, `cache_dir`, `no_cache`, `threads`, `selected_groups` |
 | `AnalysisSnapshot` | Arc summary/graph/coverage/issues/work |
 | `ChangeSet` / `ChangeImpact` / `DirtyPlan` / `ScanWorkCounters` | Locality |
 | `AnalysisProduct` | `DiagnosticsOnly` / `DiagnosticsAndNavigation` / `FullReport` |
@@ -39,7 +39,8 @@ Workspace-internal (`publish = false`). Dependents: `vue-vet`, `vue_vet_lsp`,
 | `types.rs` | Snapshot / options / issues |
 | `locality.rs` | DirtyPlan / work counters / product levels |
 | `config.rs` | Discover + validate `vue-vet.toml` |
-| `registry.rs` | File-rule + practice metadata / known ids |
+| `registry.rs` | File-rule + practice + project metadata / known ids |
+| `groups.rs` | Canonical group table, inventory, effective-config `off` filter |
 | `explain.rs` | Rule / finding / scope explain |
 | `discovery.rs` / `package_index.rs` / `scan.rs` | Input snapshot + packages |
 | `diagnostics.rs` | DiagnosticFinalizer |

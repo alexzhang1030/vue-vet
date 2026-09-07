@@ -12,7 +12,11 @@ use crate::{Cli, OutputFormat, open_session};
 
 #[expect(clippy::print_stderr, reason = "cache stats for finding explain belong on stderr")]
 pub fn run_explain(cli: &Cli, target: &str) -> ExitCode {
-  let (session, mut progress) = match open_session(cli) {
+  let selected_groups = match crate::parse_selected_groups(&cli.group) {
+    Ok(groups) => groups,
+    Err(error) => return operational_failure(cli, &error),
+  };
+  let (session, mut progress) = match open_session(cli, &selected_groups) {
     Ok(opened) => opened,
     Err(error) => return operational_failure(cli, &error),
   };
@@ -47,7 +51,11 @@ pub fn run_explain(cli: &Cli, target: &str) -> ExitCode {
 
 #[expect(clippy::print_stderr, reason = "cache stats for scope explain belong on stderr")]
 pub fn run_explain_scope(cli: &Cli, query: &str) -> ExitCode {
-  let (session, mut progress) = match open_session(cli) {
+  let selected_groups = match crate::parse_selected_groups(&cli.group) {
+    Ok(groups) => groups,
+    Err(error) => return operational_failure(cli, &error),
+  };
+  let (session, mut progress) = match open_session(cli, &selected_groups) {
     Ok(opened) => opened,
     Err(error) => return operational_failure(cli, &error),
   };

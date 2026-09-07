@@ -23,7 +23,7 @@ Crate ownership (read before editing that stage):
 
 | Stage | Crate | Notes |
 | --- | --- | --- |
-| Stable contracts | `vue_vet_core` | facts / diagnostics / `Rule` — no Oxc/Vize types |
+| Stable contracts | `vue_vet_core` | facts / diagnostics / `Rule` — no Oxc/Vize types. Graph v41 adds `source_views` / `notification_bypasses` for lost-notification rules; Oxc types stay in `vue_vet_reactivity::trace`. |
 | Adapters | `vue_vet_vize`, `vue_vet_oxc` | short-lived AST → facts only; SFC parse is `vize_croquis::sfc`, never `vize_atelier_sfc` |
 | Project graph | `vue_vet_project` | see `vue_vet_project` pipeline below |
 | Cross-file seeds | `vue_vet_reactivity` | `ModuleSource` + `trace_modules`; Oxc-taking APIs under `::oxc`; `ModuleSummary` boundary; under-approx |
@@ -213,7 +213,18 @@ Parser IR (Vize AST / Oxc Semantic)     — short-lived, never cached across ada
         ↓
 File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         (`ScriptBlockFacts::source_contracts` holds proven Vue API source-identity
-        sites from Oxc (`vue_vet_oxc::source_contracts`); lifetime facts are a
+        sites from Oxc (`vue_vet_oxc::source_contracts`), including watch-family
+        ignored-option and signature-slot facts (`watch_api.rs`). Watch-option
+        collection inspects original `ObjectProperty::computed` flags so
+        computed literal keys stay quiet without changing shared object
+        summarization. Proven
+        `watchEffect` / `watchPostEffect` / `watchSyncEffect` identity is recorded
+        as `ContractSink::WatchEffectFamily`. Eligibility and dispatch share one
+        `contract_sink` table with source5, so named effect imports do not need a
+        second Vue-import pass. `watch` still runs the ordinary source collector,
+        watch-family option/signature facts, and callback-contract collectors
+        (`watch_callbacks.rs`). Combined `RULESET_VERSION` is
+        20; `REACTIVITY_GRAPH_VERSION` stays 41. Lifetime facts are a
         separate field owned elsewhere.
         `TemplateElementFact::has_key` includes proven object-form `v-bind`
         keys from Oxc; `is_component` is Vize `ElementType` / JSX
@@ -238,6 +249,19 @@ or seeded facts warrant it (tracking scopes, reactive bindings, member writes,
 operands, destructures, or script calls). Empty modules stay graph/seed-only.
 Package-environment refresh includes those same JS/TS sources. See issue
 [#134](https://github.com/alexzhang1030/vue-vet/issues/134).
+
+`ScriptBlockFacts.lifetime` (`ReactivityLifetimeFacts` in `vue_vet_core`) is the
+file-fact owner for watcher/effect-scope cleanup contracts. The Oxc adapter
+extracts those facts; `vue_vet_rules` owns diagnostics. Provenance is **named
+Vue imports and aliases only** — namespace `Vue.watchEffect` is outside this
+slice and stays quiet. Same-invocation `await` and deferred native Promise /
+global scheduler / Vue `nextTick` boundaries are in scope; unknown owner
+arguments and unproven scope identity abstain. See
+[`no-returned-watcher-cleanup`](../../docs/rules/reactivity/no-returned-watcher-cleanup.md),
+[`no-late-watcher-cleanup`](../../docs/rules/reactivity/no-late-watcher-cleanup.md),
+[`no-orphaned-scope-watcher`](../../docs/rules/reactivity/no-orphaned-scope-watcher.md),
+[`no-late-scope-dispose`](../../docs/rules/reactivity/no-late-scope-dispose.md),
+and [`lifetime-runs.mjs`](../../crates/vue_vet_reactivity/oracle/lifetime-runs.mjs).
 
 `ModuleSummary` (formerly the opaque `PreparedModuleTrace`) is the formal
 cross-module boundary: imports, exports, provides/injects, local reactivity, and
@@ -490,7 +514,20 @@ fact/diagnostic contract.
 
 `vue_vet_session` owns the long-lived project analysis handle: config load,
 cached/fresh scans, unsaved overlays, per-file fact state, reverse dependencies,
-rule/finding explain, and workspace path containment. `apply_changes` plus
+rule/finding explain, workspace path containment, and the **product rule-group
+table**. Canonical groups (`tracking`, `source-contracts`, `lifetime`,
+`derivation`, `project`) map composed registry IDs (built-in + practice +
+project) one-to-one. The four watcher / `effectScope` lifetime IDs
+(`no-returned-watcher-cleanup`, `no-late-watcher-cleanup`,
+`no-orphaned-scope-watcher`, `no-late-scope-dispose`) map to `lifetime`. Core holds only serializable group DTOs — not hardcoded
+rule IDs and not a `RuleMeta` field. `--group` is applied to the effective
+`vue-vet.toml` **before** analysis by setting non-selected known IDs to `off`
+while leaving selected entries untouched, so cache identity, score, exit,
+edits, and explain-finding share one config. Empty `--group` is the historical
+scan. `--list-rules` prints the composed registry (including project IDs),
+independent of project configuration; scan-time enabling still follows preset,
+`practice`, and `[rules]`. Unmapped rules (a11y, template parity, and others
+without a group) stay available on the default scan. `apply_changes` plus
 `analyze_affected` schedule from `ChangeImpact`/`DirtyPlan`: reparses only
 parse-dirty files, refreshes environments/rules when context demands it, reuses
 unchanged facts and file-rule results when keys match, and expands graph

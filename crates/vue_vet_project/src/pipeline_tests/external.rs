@@ -340,6 +340,7 @@ fn non_provisional_external_dts_skips_huge_companion_js() {
           destructures: Vec::new(),
           top_level_await_ends: Vec::new(),
           operands: Vec::new(),
+          lifetime: vue_vet_core::ReactivityLifetimeFacts::default(),
           source_contracts: vue_vet_core::SourceContractFacts::default(),
           reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
         }],

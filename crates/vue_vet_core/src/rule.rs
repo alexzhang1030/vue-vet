@@ -5,9 +5,10 @@ use std::path::Path;
 use crate::diagnostics::{Diagnostic, Recommendation, RuleMeta, SourceSpan};
 use crate::edits::{ByteRange, EditApplicability, TextEdit};
 use crate::facts::{
-  ReactiveBindingFact, ReactivityEffectFact, RuleEnvironment, ScriptBindingFact, ScriptCallFact,
-  ScriptDestructureFact, ScriptFacts, ScriptKind, ScriptMemberWriteFact, ScriptOperandFact,
-  TemplateElementFact, TemplateFacts, TrackingScopeFact,
+  LateScopeDisposeFact, LateWatcherCleanupFact, NotificationBypassFact, OrphanedScopeWatcherFact,
+  ReactiveBindingFact, ReactivityEffectFact, ReturnedWatcherCleanupFact, RuleEnvironment,
+  ScriptBindingFact, ScriptCallFact, ScriptDestructureFact, ScriptFacts, ScriptKind,
+  ScriptMemberWriteFact, ScriptOperandFact, TemplateElementFact, TemplateFacts, TrackingScopeFact,
 };
 use crate::identity::FileId;
 
@@ -29,6 +30,11 @@ impl FactKinds {
   pub const TRACKING_SCOPE: Self = Self(1 << 6);
   pub const REACTIVITY_EFFECT: Self = Self(1 << 7);
   pub const SCRIPT_OPERAND: Self = Self(1 << 8);
+  pub const RETURNED_WATCHER_CLEANUP: Self = Self(1 << 9);
+  pub const LATE_WATCHER_CLEANUP: Self = Self(1 << 10);
+  pub const ORPHANED_SCOPE_WATCHER: Self = Self(1 << 11);
+  pub const LATE_SCOPE_DISPOSE: Self = Self(1 << 12);
+  pub const NOTIFICATION_BYPASS: Self = Self(1 << 13);
 
   #[must_use]
   pub const fn union(self, other: Self) -> Self {
@@ -58,6 +64,11 @@ pub enum FactRef<'a> {
   TrackingScope { block_kind: ScriptKind, scope: &'a TrackingScopeFact },
   ReactivityEffect { block_kind: ScriptKind, effect: &'a ReactivityEffectFact },
   ScriptOperand { block_kind: ScriptKind, operand: &'a ScriptOperandFact },
+  ReturnedWatcherCleanup { block_kind: ScriptKind, fact: &'a ReturnedWatcherCleanupFact },
+  LateWatcherCleanup { block_kind: ScriptKind, fact: &'a LateWatcherCleanupFact },
+  OrphanedScopeWatcher { block_kind: ScriptKind, fact: &'a OrphanedScopeWatcherFact },
+  LateScopeDispose { block_kind: ScriptKind, fact: &'a LateScopeDisposeFact },
+  NotificationBypass { block_kind: ScriptKind, bypass: &'a NotificationBypassFact },
 }
 
 /// Built-in rule contract (oxlint-style pass hooks over stable facts).
@@ -209,6 +220,11 @@ struct FactBuckets {
   tracking_scope: Vec<&'static dyn Rule>,
   reactivity_effect: Vec<&'static dyn Rule>,
   script_operand: Vec<&'static dyn Rule>,
+  returned_watcher_cleanup: Vec<&'static dyn Rule>,
+  late_watcher_cleanup: Vec<&'static dyn Rule>,
+  orphaned_scope_watcher: Vec<&'static dyn Rule>,
+  late_scope_dispose: Vec<&'static dyn Rule>,
+  notification_bypass: Vec<&'static dyn Rule>,
 }
 
 impl FactBuckets {
@@ -240,6 +256,21 @@ impl FactBuckets {
     if kinds.contains(FactKinds::SCRIPT_OPERAND) {
       self.script_operand.push(rule);
     }
+    if kinds.contains(FactKinds::RETURNED_WATCHER_CLEANUP) {
+      self.returned_watcher_cleanup.push(rule);
+    }
+    if kinds.contains(FactKinds::LATE_WATCHER_CLEANUP) {
+      self.late_watcher_cleanup.push(rule);
+    }
+    if kinds.contains(FactKinds::ORPHANED_SCOPE_WATCHER) {
+      self.orphaned_scope_watcher.push(rule);
+    }
+    if kinds.contains(FactKinds::LATE_SCOPE_DISPOSE) {
+      self.late_scope_dispose.push(rule);
+    }
+    if kinds.contains(FactKinds::NOTIFICATION_BYPASS) {
+      self.notification_bypass.push(rule);
+    }
   }
 
   fn needs_script_pass(&self) -> bool {
@@ -251,6 +282,11 @@ impl FactBuckets {
       || !self.tracking_scope.is_empty()
       || !self.reactivity_effect.is_empty()
       || !self.script_operand.is_empty()
+      || !self.returned_watcher_cleanup.is_empty()
+      || !self.late_watcher_cleanup.is_empty()
+      || !self.orphaned_scope_watcher.is_empty()
+      || !self.late_scope_dispose.is_empty()
+      || !self.notification_bypass.is_empty()
   }
 }
 
@@ -378,6 +414,46 @@ impl RuleRegistry {
           for operand in &block.operands {
             let fact = FactRef::ScriptOperand { block_kind: block.kind, operand };
             for rule in &self.buckets.script_operand {
+              rule.run_on(fact, &mut context);
+            }
+          }
+        }
+        if !self.buckets.returned_watcher_cleanup.is_empty() {
+          for fact in &block.lifetime.returned_watcher_cleanups {
+            let fact = FactRef::ReturnedWatcherCleanup { block_kind: block.kind, fact };
+            for rule in &self.buckets.returned_watcher_cleanup {
+              rule.run_on(fact, &mut context);
+            }
+          }
+        }
+        if !self.buckets.late_watcher_cleanup.is_empty() {
+          for fact in &block.lifetime.late_watcher_cleanups {
+            let fact = FactRef::LateWatcherCleanup { block_kind: block.kind, fact };
+            for rule in &self.buckets.late_watcher_cleanup {
+              rule.run_on(fact, &mut context);
+            }
+          }
+        }
+        if !self.buckets.orphaned_scope_watcher.is_empty() {
+          for fact in &block.lifetime.orphaned_scope_watchers {
+            let fact = FactRef::OrphanedScopeWatcher { block_kind: block.kind, fact };
+            for rule in &self.buckets.orphaned_scope_watcher {
+              rule.run_on(fact, &mut context);
+            }
+          }
+        }
+        if !self.buckets.late_scope_dispose.is_empty() {
+          for fact in &block.lifetime.late_scope_disposes {
+            let fact = FactRef::LateScopeDispose { block_kind: block.kind, fact };
+            for rule in &self.buckets.late_scope_dispose {
+              rule.run_on(fact, &mut context);
+            }
+          }
+        }
+        if !self.buckets.notification_bypass.is_empty() {
+          for bypass in &block.reactivity_graph.notification_bypasses {
+            let fact = FactRef::NotificationBypass { block_kind: block.kind, bypass };
+            for rule in &self.buckets.notification_bypass {
               rule.run_on(fact, &mut context);
             }
           }

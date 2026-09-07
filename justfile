@@ -45,13 +45,25 @@ oracle:
 oracle-self-trigger:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node self-trigger-runs.mjs
 
+# Vue 3.5.40 watcher cleanup / effectScope lifetime evidence (Node; frozen lock).
+oracle-lifetime:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node lifetime-runs.mjs
+
 # Vue 3.5.40 source-contract premises (issue #224). Locked oracle Vue pin.
 oracle-source-contracts:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node source-contracts.mjs
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node source-contracts.mjs && node watch-api.mjs && node watch-callback-contracts.mjs
+
+# Vue 3.5.40 watch-family option/signature premises (issue #224).
+oracle-watch-api:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node watch-api.mjs
 
 # Vue 3.5.40 watch-callback contract premises. Locked oracle Vue pin.
 oracle-watch-callback-contracts:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node watch-callback-contracts.mjs
+
+# Vue 3.5.40 lost-notification premises (shallow nested + toRaw) and safe controls.
+oracle-lost-notification:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node lost-notification-runs.mjs
 
 # Run all non-mutating Rust linters.
 lint-rust: fmt-check check clippy
@@ -174,6 +186,19 @@ pack-platform:
     --version "$version" \
     --out "dist/npm/@vue-vet/${pkg}"
 
+# Print host release binary file size and gzip-9 proxy (no byte-count assertion).
+native-size:
+  python3 scripts/native_size.py
+
+# Artifact-mode budget check. Pass the built binary, Rust triple, and budget file.
+native-size-check binary target budget="fixtures/quality/native-size-budget.json":
+  python3 scripts/native_size.py --binary {{quote(binary)}} --target {{quote(target)}} --budget-file {{quote(budget)}} --json
+
+# Focused native-size script tests (no fat-LTO).
+native-size-test:
+  python3 scripts/native_size.py --help >/dev/null
+  python3 scripts/test_native_size.py
+
 # Smoke the host release binary (--version + fixture scan).
 release-smoke:
   #!/usr/bin/env bash
@@ -214,3 +239,11 @@ npm-smoke:
 # Publish host platform package + launcher (requires valid npm auth + @vue-vet org).
 npm-publish-host *args:
   node npm/scripts/publish-local-host.mjs {{args}}
+
+# Validate Vue Vapor migration research oracles (Node; no Rust rebuild).
+vapor-migration-research:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd research/vapor-migration
+  npm ci
+  npm run validate

@@ -22,9 +22,9 @@ including when that method is a tagged-template tag),
 aggregate storage), and `__v_isReadonly` /
 `__v_raw` keys stay quiet. Spread, accessor, prototype, or other Vue marker
 keys on the reactive target stay unknown. Ordinary nested field writes such
-as `state.n = 2` remain a reactive root. This rule does not suppress
-`no-deep-watch-on-reactive-root`: that finding is about source-wide
-tracking, not callback identity.
+as `state.n = 2` remain a reactive root. Both this rule and
+`no-deep-watch-on-reactive-root` can fire on the same watch: the latter
+reports source-wide tracking, and this rule reports callback identity.
 
 ## Bad
 

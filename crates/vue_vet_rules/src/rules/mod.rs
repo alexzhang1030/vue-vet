@@ -18,7 +18,6 @@ mod label_has_for;
 mod no_after_await_watch_effect_dependency;
 mod no_aria_hidden_on_focusable;
 mod no_autofocus;
-mod no_conditional_watch_effect_dependency;
 mod no_deprecated_slot_scope;
 mod no_deprecated_v_on_native_modifier;
 mod no_distracting_elements;
@@ -27,10 +26,16 @@ mod no_duplicate_define_expose;
 mod no_duplicate_define_options;
 mod no_duplicate_define_props;
 mod no_duplicate_define_slots;
+mod no_late_scope_dispose;
+mod no_late_watcher_cleanup;
+mod no_lost_shallow_nested_notification;
 mod no_mutating_props;
 mod no_nonreactive_props_destructure;
+mod no_orphaned_scope_watcher;
 mod no_positive_tabindex;
 mod no_redundant_role;
+mod no_returned_watcher_cleanup;
+mod no_toraw_write_of_tracked_state;
 mod no_unused_reactive_binding;
 mod no_v_html;
 mod no_v_if_with_v_for;
@@ -53,9 +58,12 @@ pub fn builtins() -> Vec<&'static dyn Rule> {
     &img_has_alt::RULE,
     &label_has_for::RULE,
     &no_after_await_watch_effect_dependency::RULE,
+    &no_late_scope_dispose::RULE,
+    &no_late_watcher_cleanup::RULE,
+    &no_orphaned_scope_watcher::RULE,
+    &no_returned_watcher_cleanup::RULE,
     &no_aria_hidden_on_focusable::RULE,
     &no_autofocus::RULE,
-    &no_conditional_watch_effect_dependency::RULE,
     &no_deprecated_slot_scope::RULE,
     &no_deprecated_v_on_native_modifier::RULE,
     &no_distracting_elements::RULE,
@@ -68,6 +76,8 @@ pub fn builtins() -> Vec<&'static dyn Rule> {
     &no_nonreactive_props_destructure::RULE,
     &no_positive_tabindex::RULE,
     &no_redundant_role::RULE,
+    &no_lost_shallow_nested_notification::RULE,
+    &no_toraw_write_of_tracked_state::RULE,
     &no_unused_reactive_binding::RULE,
     &no_v_html::RULE,
     &no_v_if_with_v_for::RULE,

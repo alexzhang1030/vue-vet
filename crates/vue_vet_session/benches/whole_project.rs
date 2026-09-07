@@ -72,6 +72,7 @@ fn open(root: &std::path::Path, cache: PathBuf, no_cache: bool) -> ProjectSessio
     cache_dir: Some(cache),
     no_cache,
     threads: Some(1),
+    selected_groups: Vec::new(),
   })
   .expect("open session")
 }

@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-late-watcher-cleanup",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-late-watcher-cleanup",
+    "message": "`onWatcherCleanup` after `await` has no active `watch` to associate with",
+    "help": "Register cleanup synchronously, or use the callback-bound `onCleanup` argument which stays valid after `await` (callback 4:15, boundary 5:3, registration 4:1).",
+    "file": "fixtures/rules/no-late-watcher-cleanup/invalid/watch-after-await.vue",
+    "span": {
+      "offset": 154,
+      "length": 26,
+      "line": 6,
+      "column": 3
+    }
+  }
+]

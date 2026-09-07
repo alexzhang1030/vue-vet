@@ -7,7 +7,10 @@ use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType;
 
 use super::*;
-use crate::source_contracts::collect_source_contract_facts_with_stats;
+use crate::source_contracts::{
+  ContractSink, SourceContractStats, collect_source_contract_facts_forced_full,
+  collect_source_contract_facts_with_stats, contract_sink,
+};
 use vue_vet_core::ReactiveReadKind;
 
 #[expect(clippy::panic, reason = "unexpected Oxc errors must fail adapter tests")]
@@ -19,19 +22,60 @@ fn analyze(source: &str, language: &str) -> ScriptBlockFacts {
 }
 
 fn contract_stats(source: &str) -> (vue_vet_core::SourceContractFacts, u64) {
+  let (facts, stats) = contract_collect(source, ScriptKind::Setup, false);
+  (facts, stats.work())
+}
+
+fn contract_collect(
+  source: &str,
+  kind: ScriptKind,
+  force_full: bool,
+) -> (vue_vet_core::SourceContractFacts, SourceContractStats) {
   let allocator = Allocator::default();
   let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
   assert!(parsed.diagnostics.is_empty(), "stats fixture failed to parse");
   let built = SemanticBuilder::new().with_build_nodes(true).build(&parsed.program);
   assert!(built.diagnostics.is_empty(), "stats fixture failed semantics");
   let line_index = vue_vet_core::LineIndex::new(source);
-  collect_source_contract_facts_with_stats(
-    &built.semantic,
-    &line_index,
-    source,
-    0,
-    ScriptKind::Setup,
-  )
+  if force_full {
+    collect_source_contract_facts_forced_full(&built.semantic, &line_index, source, 0, kind)
+  } else {
+    collect_source_contract_facts_with_stats(&built.semantic, &line_index, source, 0, kind)
+  }
+}
+
+fn assert_gated_matches_forced(
+  source: &str,
+  kind: ScriptKind,
+) -> vue_vet_core::SourceContractFacts {
+  let (gated, gated_stats) = contract_collect(source, kind, false);
+  let (forced, forced_stats) = contract_collect(source, kind, true);
+  assert_eq!(gated, forced, "gated facts must match forced-full for {source}");
+  assert!(
+    forced_stats.owners > 0,
+    "forced-full must still build owners for {source}: {forced_stats:?}"
+  );
+  assert!(
+    !gated_stats.is_import_preflight_only(),
+    "eligible source must not bypass indexes: {source} {gated_stats:?}"
+  );
+  gated
+}
+
+fn assert_bypass(source: &str, kind: ScriptKind) {
+  let (facts, stats) = contract_collect(source, kind, false);
+  assert!(facts.is_empty(), "expected bypass empty facts for {source}: {facts:?}");
+  assert!(
+    stats.is_import_preflight_only(),
+    "bypass must be import-preflight only for {source}: {stats:?}"
+  );
+  assert!(stats.nodes > 0, "import preflight must visit semantic nodes for {source}");
+  let (forced, forced_stats) = contract_collect(source, kind, true);
+  assert!(forced.is_empty(), "forced-full must also stay empty for {source}: {forced:?}");
+  assert!(
+    forced_stats.owners > 0,
+    "forced-full must still index owners on bypass fixtures: {source} {forced_stats:?}"
+  );
 }
 
 #[test]
@@ -863,6 +907,510 @@ fn records_aliased_and_namespace_watch_flush() {
 }
 
 #[test]
+fn extracts_returned_watcher_cleanup_and_skips_unknowns() {
+  let facts = analyze(
+    "import { watch, watchEffect } from 'vue';\
+     const source = { value: 0 };\
+     watchEffect(() => { return () => {}; });\
+     watch(source, () => { const cleanup = () => {}; return cleanup; });\
+     watchEffect(() => { const nested = () => { return () => {}; }; nested(); });\
+     watch(() => { return () => source.value; }, () => {});",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.returned_watcher_cleanups.len(),
+    2,
+    "only proven callback returns; got {:?}",
+    facts.lifetime.returned_watcher_cleanups
+  );
+}
+
+#[test]
+fn extracts_late_cleanup_await_and_keeps_oncleanup_quiet() {
+  let facts = analyze(
+    "import { onWatcherCleanup, watchEffect } from 'vue';\
+     watchEffect(async () => { await Promise.resolve(); onWatcherCleanup(() => {}); });\
+     watchEffect(async (onCleanup) => { await Promise.resolve(); onCleanup(() => {}); });",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.late_watcher_cleanups.len(),
+    1,
+    "callback-bound onCleanup after await must stay quiet; got {:?}",
+    facts.lifetime.late_watcher_cleanups
+  );
+}
+
+#[test]
+fn extracts_orphaned_scope_watcher_and_late_dispose() {
+  let facts = analyze(
+    "import { effectScope, onScopeDispose, watchEffect } from 'vue';\
+     const scope = effectScope();\
+     scope.run(async () => { await Promise.resolve(); watchEffect(() => {}); onScopeDispose(() => {}); });\
+     scope.run(async () => { await Promise.resolve(); onScopeDispose(() => {}, true); });\
+     scope.run(async () => { await Promise.resolve(); scope.run(() => { watchEffect(() => {}); }); });",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.orphaned_scope_watchers.len(),
+    1,
+    "sync re-entry and failSilently must stay quiet; {:?}",
+    facts.lifetime
+  );
+  assert_eq!(
+    facts.lifetime.late_scope_disposes.len(),
+    1,
+    "{:?}",
+    facts.lifetime.late_scope_disposes
+  );
+}
+
+#[test]
+fn lifetime_spans_cover_unicode_and_crlf() {
+  let facts = analyze(
+    "import { watchEffect } from 'vue';\r\n\
+     watchEffect(() => {\r\n\
+       const \u{6e05}\u{7406} = () => {};\r\n\
+       return \u{6e05}\u{7406};\r\n\
+     });\r\n",
+    "ts",
+  );
+  let fact = facts.lifetime.returned_watcher_cleanups.first();
+  assert!(fact.is_some(), "unicode identifier return must be extracted");
+  let Some(fact) = fact else {
+    return;
+  };
+  assert_eq!(fact.returned_span.length, "清理".len());
+  assert!(fact.returned_span.line >= 3);
+}
+
+#[test]
+fn alias_cycle_named_callback_stays_quiet() {
+  let facts = analyze(
+    "import { watchEffect } from 'vue';\
+     const a = b; const b = a; watchEffect(a);",
+    "ts",
+  );
+  assert!(facts.lifetime.is_empty(), "alias cycles must not invent facts: {:?}", facts.lifetime);
+}
+
+#[test]
+fn late_cleanup_skips_explicit_owner_and_fail_silently() {
+  let facts = analyze(
+    "import { getCurrentWatcher, onWatcherCleanup, watchEffect } from 'vue';\
+     watchEffect(async () => {\
+       const owner = getCurrentWatcher();\
+       await Promise.resolve();\
+       onWatcherCleanup(() => {}, false, owner);\
+       onWatcherCleanup(() => {}, true);\
+     });",
+    "ts",
+  );
+  assert!(
+    facts.lifetime.late_watcher_cleanups.is_empty(),
+    "explicit owner / failSilently must stay quiet: {:?}",
+    facts.lifetime.late_watcher_cleanups
+  );
+}
+
+#[test]
+fn custom_then_and_timeout_data_slot_are_not_deferred() {
+  let facts = analyze(
+    "import { onWatcherCleanup, watchEffect } from 'vue';\
+     const immediate = { then(fn) { fn(); } };\
+     watchEffect(() => { immediate.then(() => { onWatcherCleanup(() => {}); }); });\
+     watchEffect(() => { setTimeout(() => {}, 0, () => { onWatcherCleanup(() => {}); }); });",
+    "ts",
+  );
+  assert!(
+    facts.lifetime.late_watcher_cleanups.is_empty(),
+    "unproven then / data-slot timeout must stay quiet: {:?}",
+    facts.lifetime.late_watcher_cleanups
+  );
+}
+
+#[test]
+fn reassigned_and_generator_callbacks_stay_quiet() {
+  let facts = analyze(
+    "import { watchEffect } from 'vue';\
+     function cb() { return () => {}; }\
+     cb = () => {};\
+     watchEffect(cb);\
+     watchEffect(function*() { return () => {}; });",
+    "ts",
+  );
+  assert!(
+    facts.lifetime.returned_watcher_cleanups.is_empty(),
+    "reassigned/generator callbacks must stay quiet: {:?}",
+    facts.lifetime.returned_watcher_cleanups
+  );
+}
+
+#[test]
+fn scope_on_reentry_and_escaped_scope_stay_quiet() {
+  let facts = analyze(
+    "import { effectScope, onScopeDispose, watchEffect } from 'vue';\
+     const scope = effectScope();\
+     scope.run(async () => {\
+       await Promise.resolve();\
+       scope.on();\
+       watchEffect(() => {});\
+       onScopeDispose(() => {});\
+       scope.off();\
+     });\
+     const other = effectScope();\
+     hold(other);\
+     other.run(async () => { await Promise.resolve(); watchEffect(() => {}); });",
+    "ts",
+  );
+  assert!(
+    facts.lifetime.orphaned_scope_watchers.is_empty()
+      && facts.lifetime.late_scope_disposes.is_empty(),
+    "reentry and escaped scopes must stay quiet: {:?}",
+    facts.lifetime
+  );
+}
+
+#[test]
+fn named_effect_scope_run_callback_is_indexed() {
+  let facts = analyze(
+    "import { effectScope, watchEffect } from 'vue';\
+     const scope = effectScope();\
+     async function task() { await Promise.resolve(); watchEffect(() => {}); }\
+     scope.run(task);",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.orphaned_scope_watchers.len(),
+    1,
+    "named run callbacks must be indexed: {:?}",
+    facts.lifetime.orphaned_scope_watchers
+  );
+}
+
+#[test]
+fn lifetime_index_scales_linearly_with_watchers() {
+  fn visits_for(source: &str) -> (usize, usize) {
+    let allocator = oxc_allocator::Allocator::default();
+    let parsed = oxc_parser::Parser::new(&allocator, source, oxc_span::SourceType::ts()).parse();
+    let semantic =
+      oxc_semantic::SemanticBuilder::new().with_build_nodes(true).build(&parsed.program).semantic;
+    let line_index = vue_vet_core::LineIndex::new(source);
+    let (facts, stats) = super::lifetime::collect_with_visits(&semantic, &line_index, source, 0);
+    (facts.late_watcher_cleanups.len(), stats.total())
+  }
+  fn source(count: usize) -> String {
+    let mut out = String::from("import { onWatcherCleanup, watchEffect } from 'vue';\n");
+    for index in 0..count {
+      out.push_str("watchEffect(async () => { await Promise.resolve(); onWatcherCleanup(() => { ");
+      out.push_str(&index.to_string());
+      out.push_str(" }); });\n");
+    }
+    out
+  }
+  let (facts_100, visits_100) = visits_for(&source(100));
+  let (facts_200, visits_200) = visits_for(&source(200));
+  let (facts_400, visits_400) = visits_for(&source(400));
+  assert_eq!((facts_100, facts_200, facts_400), (100, 200, 400));
+  assert!(
+    visits_400 <= visits_100.saturating_mul(6),
+    "node walks must stay near-linear: 100={visits_100} 200={visits_200} 400={visits_400}"
+  );
+  assert!(
+    visits_200 <= visits_100.saturating_mul(3),
+    "200 watchers should be about 2x 100: 100={visits_100} 200={visits_200}"
+  );
+}
+
+#[test]
+fn registered_and_returned_disposer_stays_quiet() {
+  let facts = analyze(
+    "import { onWatcherCleanup, watchEffect } from 'vue';\
+     function attach(onCleanup) {\
+       const dispose = () => {};\
+       onCleanup(dispose);\
+       return dispose;\
+     }\
+     watchEffect(attach);\
+     watchEffect(() => { const dispose = () => {}; onWatcherCleanup(dispose); return dispose; });\
+     watchEffect(() => { const dispose = () => {}; return dispose; });",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.returned_watcher_cleanups.len(),
+    1,
+    "only unregistered returns: {:?}",
+    facts.lifetime.returned_watcher_cleanups
+  );
+}
+
+#[test]
+fn watch_spread_arguments_stay_quiet() {
+  let facts = analyze(
+    "import { watch } from 'vue';\
+     watch(...[], () => () => {}, () => {}, { immediate: true });\
+     const source = { value: 0 };\
+     watch(source, () => () => {});",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.returned_watcher_cleanups.len(),
+    1,
+    "spread watch must stay quiet: {:?}",
+    facts.lifetime.returned_watcher_cleanups
+  );
+}
+
+#[test]
+fn mutated_run_and_helper_escape_stay_quiet() {
+  let facts = analyze(
+    "import { effectScope, onScopeDispose, watchEffect } from 'vue';\
+     const scope = effectScope();\
+     scope['run'] = () => undefined;\
+     scope.run(async () => { await Promise.resolve(); watchEffect(() => {}); onScopeDispose(() => {}); });\
+     const other = effectScope();\
+     const alias = other;\
+     alias.run = () => undefined;\
+     other.run(async () => { await Promise.resolve(); watchEffect(() => {}); });\
+     const third = effectScope();\
+     const helper = { run(owner) { owner.run = () => undefined; } };\
+     helper.run(third);\
+     third.run(async () => { await Promise.resolve(); watchEffect(() => {}); });",
+    "ts",
+  );
+  assert!(
+    facts.lifetime.orphaned_scope_watchers.is_empty()
+      && facts.lifetime.late_scope_disposes.is_empty(),
+    "mutated/escaped run must stay quiet: {:?}",
+    facts.lifetime
+  );
+}
+
+#[test]
+fn named_run_keeps_independent_owner_when_sibling_escapes() {
+  let facts = analyze(
+    "import { effectScope, watchEffect } from 'vue';\
+     const first = effectScope();\
+     const second = effectScope();\
+     async function task() { await Promise.resolve(); watchEffect(() => {}); }\
+     first.run(task);\
+     second.run(task);\
+     hold(second);",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.orphaned_scope_watchers.len(),
+    1,
+    "proven first.run(task) must survive second escaping: {:?}",
+    facts.lifetime.orphaned_scope_watchers
+  );
+}
+
+#[test]
+fn alias_depth_limit_does_not_poison_shorter_alias() {
+  let facts = analyze(
+    "import { watchEffect } from 'vue';\
+     const f0 = () => () => {};\
+     const f1 = f0; const f2 = f1; const f3 = f2; const f4 = f3;\
+     const f5 = f4; const f6 = f5; const f7 = f6; const f8 = f7;\
+     watchEffect(f8);\
+     watchEffect(f1);",
+    "ts",
+  );
+  assert!(
+    facts.lifetime.returned_watcher_cleanups.iter().any(|fact| !fact.async_callback),
+    "f1 must still resolve after a budget miss on f8: {:?}",
+    facts.lifetime.returned_watcher_cleanups
+  );
+}
+
+#[test]
+fn after_await_callback_bound_and_alias_registration_stay_quiet() {
+  let facts = analyze(
+    "import { watch, watchEffect } from 'vue';\
+     const source = { value: 0 };\
+     watchEffect(async (onCleanup) => {\
+       await Promise.resolve();\
+       const dispose = () => {};\
+       onCleanup(dispose);\
+       return dispose;\
+     });\
+     watchEffect((onCleanup) => {\
+       const dispose = () => {};\
+       const alias = dispose;\
+       onCleanup(alias);\
+       return dispose;\
+     });\
+     watch(source, async (_v, _o, onCleanup) => {\
+       await Promise.resolve();\
+       const dispose = () => {};\
+       onCleanup(dispose);\
+       return dispose;\
+     });",
+    "ts",
+  );
+  assert!(
+    facts.lifetime.returned_watcher_cleanups.is_empty(),
+    "bound/aliased registrations must stay quiet: {:?}",
+    facts.lifetime.returned_watcher_cleanups
+  );
+}
+
+#[test]
+fn destructured_watch_parameter_keeps_cleanup_slot() {
+  let facts = analyze(
+    "import { watch, watchEffect } from 'vue';\
+     const source = { value: { x: 0 } };\
+     watch(source, ({ x }, old, onCleanup) => {\
+       const dispose = () => {};\
+       onCleanup(dispose);\
+       return dispose;\
+     });\
+     function shared(onCleanup) {\
+       const dispose = () => {};\
+       onCleanup(dispose);\
+       return dispose;\
+     }\
+     watch(source, shared);\
+     watchEffect(shared);",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.returned_watcher_cleanups.len(),
+    1,
+    "watch(shared) uses value/old/onCleanup slots; watchEffect(shared) stays quiet: {:?}",
+    facts.lifetime.returned_watcher_cleanups
+  );
+  assert_eq!(
+    facts.lifetime.returned_watcher_cleanups.first().map(|fact| fact.api),
+    Some(vue_vet_core::WatcherApiKind::Watch)
+  );
+}
+
+#[test]
+fn assignment_pattern_and_conditional_alias_unprove_scope() {
+  let facts = analyze(
+    "import { effectScope, onScopeDispose, watchEffect } from 'vue';\
+     const scope = effectScope();\
+     ({ run: scope.run } = { run: () => undefined });\
+     scope.run(async () => { await Promise.resolve(); watchEffect(() => {}); onScopeDispose(() => {}); });\
+     const other = effectScope();\
+     const alias = true ? other : effectScope();\
+     alias.run = () => undefined;\
+     other.run(async () => { await Promise.resolve(); watchEffect(() => {}); });\
+     export { other };\
+     const local = effectScope();\
+     local.run(async () => { await Promise.resolve(); watchEffect(() => {}); });",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.orphaned_scope_watchers.len(),
+    1,
+    "only untouched local scope remains proven: {:?}",
+    facts.lifetime.orphaned_scope_watchers
+  );
+}
+
+#[test]
+fn shared_run_callback_selection_scales() {
+  fn source(registrations: usize, watchers: usize) -> String {
+    let mut out = String::from(
+      "import { effectScope, watchEffect } from 'vue';\nasync function task() { await Promise.resolve();\n",
+    );
+    for index in 0..watchers {
+      out.push_str("watchEffect(() => { ");
+      out.push_str(&index.to_string());
+      out.push_str(" });\n");
+    }
+    out.push_str("}\n");
+    for index in 0..registrations {
+      out.push_str("const s");
+      out.push_str(&index.to_string());
+      out.push_str(" = effectScope(); s");
+      out.push_str(&index.to_string());
+      out.push_str(".run(task);\n");
+    }
+    out
+  }
+  fn visits_for(source: &str) -> usize {
+    let allocator = oxc_allocator::Allocator::default();
+    let parsed = oxc_parser::Parser::new(&allocator, source, oxc_span::SourceType::ts()).parse();
+    let semantic =
+      oxc_semantic::SemanticBuilder::new().with_build_nodes(true).build(&parsed.program).semantic;
+    let line_index = vue_vet_core::LineIndex::new(source);
+    super::lifetime::collect_with_visits(&semantic, &line_index, source, 0).1.total()
+  }
+  let visits_small = visits_for(&source(50, 4));
+  let visits_large = visits_for(&source(200, 4));
+  assert!(
+    visits_large <= visits_small.saturating_mul(6),
+    "shared-run selection must stay near-linear: 50x4={visits_small} 200x4={visits_large}"
+  );
+}
+
+#[test]
+fn explicit_owner_after_await_suppresses_returned_cleanup() {
+  let facts = analyze(
+    "import { getCurrentWatcher, onWatcherCleanup, watchEffect } from 'vue';\
+     watchEffect(async () => {\
+       const owner = getCurrentWatcher();\
+       const dispose = () => {};\
+       await Promise.resolve();\
+       onWatcherCleanup(dispose, false, owner);\
+       return dispose;\
+     });",
+    "ts",
+  );
+  assert!(
+    facts.lifetime.returned_watcher_cleanups.is_empty(),
+    "explicit owner must suppress returned-cleanup: {:?}",
+    facts.lifetime.returned_watcher_cleanups
+  );
+}
+
+#[test]
+fn spread_cleanup_registration_stays_quiet_and_bare_return_still_reports() {
+  let facts = analyze(
+    "import { onWatcherCleanup, watchEffect } from 'vue';\
+     watchEffect((onCleanup) => { const dispose = () => {}; onCleanup(...[dispose]); return dispose; });\
+     watchEffect(() => { const dispose = () => {}; onWatcherCleanup(...[dispose]); return dispose; });\
+     watchEffect((onCleanup) => { const dispose = () => {}; onCleanup(...unknown); return dispose; });\
+     watchEffect(() => { const dispose = () => {}; return dispose; });",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.returned_watcher_cleanups.len(),
+    1,
+    "only the unregistered return remains: {:?}",
+    facts.lifetime.returned_watcher_cleanups
+  );
+}
+
+#[test]
+fn exported_scope_declaration_is_unproven_local_stays_positive() {
+  let facts = analyze(
+    "import { effectScope, watchEffect } from 'vue';\
+     export const scope = effectScope();\
+     export function start() { scope.run(async () => { await Promise.resolve(); watchEffect(() => {}); }); }\
+     const local = effectScope();\
+     local.run(async () => { await Promise.resolve(); watchEffect(() => {}); });\
+     const named = effectScope();\
+     export { named };\
+     named.run(async () => { await Promise.resolve(); watchEffect(() => {}); });\
+     const def = effectScope();\
+     export default def;\
+     def.run(async () => { await Promise.resolve(); watchEffect(() => {}); });",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.orphaned_scope_watchers.len(),
+    1,
+    "only unexported local scope remains proven: {:?}",
+    facts.lifetime.orphaned_scope_watchers
+  );
+}
+
+#[test]
 fn source_contracts_classify_vue_identity_and_provenance() {
   let trigger = analyze(
     "import { reactive, triggerRef } from 'vue'; const obj = reactive({ n: 1 }); triggerRef(obj);",
@@ -1092,6 +1640,686 @@ fn source_contracts_replacement_stays_quiet_for_control_flow_and_shallow() {
     spread_args.source_contracts.watch_unwrapped_source.is_empty(),
     "{:?}",
     spread_args.source_contracts
+  );
+}
+
+#[test]
+fn source_contracts_many_watch_sites_stay_linear() {
+  let mut previous: Option<(u64, u64)> = None;
+  for size in [50_u64, 100, 200] {
+    let mut source = String::from("import { ref, watch } from 'vue'; const n = ref(0);");
+    for _ in 0..size {
+      source.push_str("watch(n.value, () => {});");
+    }
+    let (contracts, work) = contract_stats(&source);
+    assert_eq!(contracts.watch_unwrapped_source.len(), usize::try_from(size).unwrap_or(usize::MAX));
+    if let Some((prev_size, prev_work)) = previous {
+      assert_eq!(size, prev_size * 2, "fixture sizes must double");
+      assert!(
+        work.saturating_mul(10) < prev_work.saturating_mul(30),
+        "watch-site work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
+      );
+    }
+    previous = Some((size, work));
+  }
+}
+
+#[test]
+fn source_contracts_assignment_patterns_parse_and_stay_quiet() {
+  let facts = analyze(
+    "import { reactive, ref, watch } from 'vue';\
+     const r = ref(0);\
+     const source = { x: 1, y: 2, z: 3 };\
+     ({ x: r.value = 0, y: r.value, ...rest } = source);\
+     const arr = [1, 2, 3];\
+     ([r.value = 1, ...tail] = arr);\
+     ({ [String('k')]: r.value } = { k: 9 });\
+     watch(r.value, () => {}); void rest; void tail;",
+    "ts",
+  );
+  assert!(facts.source_contracts.watch_unwrapped_source.is_empty(), "{:?}", facts.source_contracts);
+}
+
+#[test]
+fn source_contracts_shadowed_map_is_not_fresh_allocation() {
+  let facts = analyze(
+    "import { reactive, watch } from 'vue';\
+     const state = reactive({ p: { x: 1 } });\
+     watch(state.p, () => {});\
+     function Map() { return state.p; }\
+     state.p = new Map();",
+    "ts",
+  );
+  assert!(
+    facts.source_contracts.watch_replaced_object_source.is_empty(),
+    "{:?}",
+    facts.source_contracts
+  );
+}
+
+#[test]
+#[expect(clippy::panic, reason = "missing span evidence must fail the regression")]
+fn source_contracts_nested_wrapper_budget_does_not_poison_direct_use() {
+  let source = "import { reactive, triggerRef } from 'vue';\
+     const shared = { n: 1 };\
+     triggerRef(reactive(reactive(reactive(reactive(reactive(reactive(reactive(reactive(reactive(shared))))))))));\
+     triggerRef(shared);";
+  let facts = analyze(source, "ts");
+  let needle = "triggerRef(shared)";
+  let Some(call) = source.rfind(needle) else {
+    panic!("direct triggerRef(shared) missing");
+  };
+  let arg = call + "triggerRef(".len();
+  assert_eq!(
+    facts.source_contracts.trigger_ref_non_ref.len(),
+    1,
+    "only the direct shared root must report; {:?}",
+    facts.source_contracts
+  );
+  let Some(site) = facts.source_contracts.trigger_ref_non_ref.first() else {
+    panic!("direct-use finding missing");
+  };
+  assert_eq!(site.span.offset, arg, "{site:?} source={source}");
+  assert_eq!(site.span.length, "shared".len());
+}
+
+#[test]
+fn source_contracts_vue_identity_sources() {
+  let runtime =
+    analyze("import { triggerRef } from '@vue/runtime-core'; triggerRef({ n: 1 });", "ts");
+  assert_eq!(
+    runtime.source_contracts.trigger_ref_non_ref.len(),
+    1,
+    "{:?}",
+    runtime.source_contracts
+  );
+  let named_auto = analyze("import { triggerRef } from '#imports'; triggerRef({ n: 1 });", "ts");
+  assert_eq!(
+    named_auto.source_contracts.trigger_ref_non_ref.len(),
+    1,
+    "{:?}",
+    named_auto.source_contracts
+  );
+  let ns_auto = analyze("import * as Auto from '#imports'; Auto.triggerRef({ n: 1 });", "ts");
+  assert!(ns_auto.source_contracts.is_empty(), "{:?}", ns_auto.source_contracts);
+  let custom = analyze("import { useMagic } from '#imports'; useMagic();", "ts");
+  assert!(custom.source_contracts.is_empty(), "{:?}", custom.source_contracts);
+}
+
+#[test]
+fn source_contracts_watch_api_option_and_signature_sites() {
+  let equals = analyze(
+    "import { ref, watch } from 'vue'; const n = ref(0); watch(n, (v) => v, { equals: (a, b) => a === b });",
+    "ts",
+  );
+  assert_eq!(
+    equals.source_contracts.watch_ignored_option.len(),
+    1,
+    "{:?}",
+    equals.source_contracts
+  );
+  let method = analyze(
+    "import { ref, watch } from 'vue'; const n = ref(0); watch(n, (v) => v, { equals(a, b) { return a === b; } });",
+    "ts",
+  );
+  assert_eq!(
+    method.source_contracts.watch_ignored_option.len(),
+    1,
+    "{:?}",
+    method.source_contracts
+  );
+  let effect = analyze(
+    "import { ref, watchEffect } from 'vue'; const n = ref(0); watchEffect(() => n.value, { once: true, immediate: true });",
+    "ts",
+  );
+  assert_eq!(
+    effect.source_contracts.watch_ignored_option.len(),
+    2,
+    "{:?}",
+    effect.source_contracts
+  );
+  let trailing = analyze(
+    "import { ref, watch } from 'vue'; const n = ref(0); watch(n, (v) => v, { equals: () => true }, 'extra');",
+    "ts",
+  );
+  assert_eq!(
+    trailing.source_contracts.watch_ignored_option.len(),
+    1,
+    "{:?}",
+    trailing.source_contracts
+  );
+  let crlf_src = "import { ref, watch } from 'vue';\r\nconst \u{8ba1}\u{6570} = ref(0);\r\nwatch(\u{8ba1}\u{6570}, (v) => v, { equals: () => true });\r\n";
+  let crlf = analyze(crlf_src, "ts");
+  assert_eq!(crlf.source_contracts.watch_ignored_option.len(), 1, "{:?}", crlf.source_contracts);
+  let ignored = crlf.source_contracts.watch_ignored_option.first();
+  assert!(ignored.is_some_and(|site| site.span.line == 3 && site.span.length == 6), "{ignored:?}");
+  if let Some(site) = ignored {
+    let end = site.span.offset.saturating_add(site.span.length);
+    assert_eq!(crlf_src.get(site.span.offset..end), Some("equals"));
+  }
+  let handler = analyze(
+    "import { ref, watch } from 'vue'; const n = ref(0); watch(n, { handler() { return n.value; }, equals: () => true });",
+    "ts",
+  );
+  assert_eq!(
+    handler.source_contracts.watch_signature_mismatch.len(),
+    1,
+    "{:?}",
+    handler.source_contracts
+  );
+  assert!(
+    handler.source_contracts.watch_ignored_option.is_empty(),
+    "signature must win over ignored-option; {:?}",
+    handler.source_contracts
+  );
+  let array_cb = analyze(
+    "import { ref, watch } from 'vue'; const n = ref(0); watch(n, [() => {}, () => {}]);",
+    "ts",
+  );
+  assert!(
+    array_cb.source_contracts.watch_signature_mismatch.is_empty(),
+    "{:?}",
+    array_cb.source_contracts
+  );
+  let zero = analyze("import { ref, watch } from 'vue'; const n = ref(0); watch(n, 0);", "ts");
+  assert!(zero.source_contracts.watch_signature_mismatch.is_empty(), "{:?}", zero.source_contracts);
+  for zero_bigint in ["0n", "0x0n", "0o0n", "0b0n", "0x0_0n"] {
+    let source =
+      format!("import {{ ref, watch }} from 'vue'; const n = ref(0); watch(n, {zero_bigint});");
+    let facts = analyze(&source, "ts");
+    assert!(
+      facts.source_contracts.watch_signature_mismatch.is_empty(),
+      "zero bigint {zero_bigint} must stay quiet; {:?}",
+      facts.source_contracts
+    );
+  }
+  let one_n = analyze("import { ref, watch } from 'vue'; const n = ref(0); watch(n, 1n);", "ts");
+  assert_eq!(
+    one_n.source_contracts.watch_signature_mismatch.len(),
+    1,
+    "{:?}",
+    one_n.source_contracts
+  );
+  let computed_literal = analyze(
+    "import { ref, watchEffect } from 'vue'; const n = ref(0); watchEffect(() => n.value, { ['once']: true });",
+    "ts",
+  );
+  assert!(
+    computed_literal.source_contracts.watch_ignored_option.is_empty(),
+    "computed literal keys must stay quiet; {:?}",
+    computed_literal.source_contracts
+  );
+  let imported_alias = analyze(
+    "import { ref, watch as observe } from 'vue'; const n = ref(0); observe(n, { handler() { return n.value; } });",
+    "ts",
+  );
+  assert_eq!(
+    imported_alias.source_contracts.watch_signature_mismatch.len(),
+    1,
+    "{:?}",
+    imported_alias.source_contracts
+  );
+  let shadow = analyze(
+    "import { ref } from 'vue'; const n = ref(0); function watch(_a: unknown, _b: unknown) {} watch(n, { handler() {} });",
+    "ts",
+  );
+  assert!(shadow.source_contracts.is_empty(), "{:?}", shadow.source_contracts);
+  let two_fns = analyze(
+    "import { ref, watchEffect } from 'vue'; const n = ref(0); watchEffect(() => n.value, (x) => x);",
+    "ts",
+  );
+  assert_eq!(
+    two_fns.source_contracts.watch_signature_mismatch.len(),
+    1,
+    "{:?}",
+    two_fns.source_contracts
+  );
+  let named_opts = analyze(
+    "import { ref, watchEffect } from 'vue'; const n = ref(0); function opts() {} watchEffect(() => n.value, opts);",
+    "ts",
+  );
+  assert!(named_opts.source_contracts.is_empty(), "{:?}", named_opts.source_contracts);
+  let aliased = analyze(
+    "import { ref, watch } from 'vue'; const n = ref(0); const options = { equals: () => true }; watch(n, (v) => v, options);",
+    "ts",
+  );
+  assert!(
+    aliased.source_contracts.watch_ignored_option.is_empty(),
+    "{:?}",
+    aliased.source_contracts
+  );
+  let auto = analyze(
+    "import { watchEffect } from '#imports'; const n = { value: 0 }; watchEffect(() => n.value, { once: true });",
+    "ts",
+  );
+  assert_eq!(auto.source_contracts.watch_ignored_option.len(), 1, "{:?}", auto.source_contracts);
+  let ns_auto =
+    analyze("import * as Auto from '#imports'; Auto.watchEffect(() => 1, { once: true });", "ts");
+  assert!(ns_auto.source_contracts.is_empty(), "{:?}", ns_auto.source_contracts);
+  let type_only = analyze(
+    "import { type watchEffect } from 'vue'; const watchEffect = (_a: unknown, _b: unknown) => {}; watchEffect(() => 1, () => 2);",
+    "ts",
+  );
+  assert!(type_only.source_contracts.is_empty(), "{:?}", type_only.source_contracts);
+}
+
+#[test]
+fn source_contracts_watch_option_sites_stay_linear() {
+  let mut previous: Option<(u64, u64)> = None;
+  for size in [50_u64, 100, 200] {
+    let mut source = String::from("import { ref, watch } from 'vue'; const n = ref(0);");
+    for _ in 0..size {
+      source.push_str("watch(n, (v) => v, { equals: () => true });");
+    }
+    let (contracts, work) = contract_stats(&source);
+    assert_eq!(contracts.watch_ignored_option.len(), usize::try_from(size).unwrap_or(usize::MAX));
+    if let Some((prev_size, prev_work)) = previous {
+      assert_eq!(size, prev_size * 2, "fixture sizes must double");
+      assert!(
+        work.saturating_mul(10) < prev_work.saturating_mul(30),
+        "watch-option work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
+      );
+    }
+    previous = Some((size, work));
+  }
+}
+
+#[test]
+fn source_contracts_watch_option_literal_width_stays_linear() {
+  let mut previous: Option<(u64, u64)> = None;
+  for size in [50_u64, 100, 200] {
+    let mut keys = Vec::new();
+    for index in 0..size {
+      keys.push(format!("k{index}: 1"));
+    }
+    keys.push("equals: () => true".into());
+    let source = format!(
+      "import {{ ref, watch }} from 'vue'; const n = ref(0); watch(n, (v) => v, {{ {} }});",
+      keys.join(", ")
+    );
+    let (contracts, work) = contract_stats(&source);
+    assert_eq!(
+      contracts.watch_ignored_option.len(),
+      1,
+      "one equals key among {size} fillers; {contracts:?}"
+    );
+    if let Some((prev_size, prev_work)) = previous {
+      assert_eq!(size, prev_size * 2, "fixture sizes must double");
+      assert!(
+        work.saturating_mul(10) < prev_work.saturating_mul(30),
+        "watch-option width work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
+      );
+    }
+    previous = Some((size, work));
+  }
+}
+
+#[test]
+fn source_contracts_destructured_binding_reassignment_is_quiet() {
+  let facts = analyze(
+    "import { reactive, ref, toRefs, triggerRef, watch } from 'vue';\
+     let target = 0;\
+     ({ target } = { target: ref(1) });\
+     triggerRef(target);\
+     let data = 0;\
+     [data] = [reactive({})];\
+     reactive(data);\
+     let plain = {};\
+     ({ plain } = { plain: reactive({ count: 1 }) });\
+     toRefs(plain);\
+     let source = 0;\
+     [source] = [ref(1)];\
+     watch(source, () => {});",
+    "ts",
+  );
+  assert!(
+    facts.source_contracts.trigger_ref_non_ref.is_empty(),
+    "shorthand destructure to Ref must not keep primitive triggerRef; {:?}",
+    facts.source_contracts
+  );
+  assert!(
+    facts.source_contracts.primitive_reactive_target.is_empty(),
+    "array destructure to reactive must not keep primitive reactive(); {:?}",
+    facts.source_contracts
+  );
+  assert!(
+    facts.source_contracts.torefs_non_proxy.is_empty(),
+    "shorthand destructure to reactive must not keep plain toRefs; {:?}",
+    facts.source_contracts
+  );
+  assert!(
+    facts.source_contracts.watch_unwrapped_source.is_empty(),
+    "array destructure to ref must not keep primitive watch source; {:?}",
+    facts.source_contracts
+  );
+}
+
+#[test]
+fn source_contracts_rest_and_default_binding_reassignment_is_quiet() {
+  let facts = analyze(
+    "import { reactive, ref, triggerRef } from 'vue';\
+     let leftover = 0;\
+     [...leftover] = [reactive({})];\
+     reactive(leftover);\
+     let boxed = 0;\
+     ({ boxed = ref(1) } = {});\
+     triggerRef(boxed);",
+    "ts",
+  );
+  assert!(
+    facts.source_contracts.primitive_reactive_target.is_empty(),
+    "rest-to-array must invalidate primitive reactive(); {:?}",
+    facts.source_contracts
+  );
+  assert!(
+    facts.source_contracts.trigger_ref_non_ref.is_empty(),
+    "default-to-Ref must invalidate primitive triggerRef; {:?}",
+    facts.source_contracts
+  );
+}
+
+#[test]
+fn source_contracts_watch_then_writes_scale_subquadratically() {
+  let mut previous: Option<(u64, u64)> = None;
+  for size in [16_u64, 32, 64, 128] {
+    let mut source = String::from("import { ref, watch } from 'vue'; const n = ref(0);");
+    for _ in 0..size {
+      source.push_str("watch(n.value, () => {});");
+    }
+    for _ in 0..size {
+      source.push_str("n.value = 1;");
+    }
+    let (contracts, work) = contract_stats(&source);
+    assert_eq!(contracts.watch_unwrapped_source.len(), usize::try_from(size).unwrap_or(usize::MAX));
+    if let Some((prev_size, prev_work)) = previous {
+      assert_eq!(size, prev_size * 2, "fixture sizes must double");
+      assert!(
+        work.saturating_mul(10) < prev_work.saturating_mul(30),
+        "watch-then-write work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
+      );
+    }
+    previous = Some((size, work));
+  }
+}
+
+#[test]
+fn source_contracts_many_properties_scale_subquadratically() {
+  let mut previous: Option<(u64, u64)> = None;
+  for size in [16_u64, 32, 64] {
+    let mut keys = Vec::new();
+    for index in 0..size {
+      keys.push(format!("p{index}: {{}}"));
+    }
+    let mut source = format!(
+      "import {{ reactive, watch }} from 'vue'; const state = reactive({{ {} }});",
+      keys.join(", ")
+    );
+    for index in 0..size {
+      source.push_str("watch(state.p");
+      source.push_str(&index.to_string());
+      source.push_str(", () => {}); state.p");
+      source.push_str(&index.to_string());
+      source.push_str(" = {};");
+    }
+    let (contracts, work) = contract_stats(&source);
+    assert_eq!(
+      contracts.watch_replaced_object_source.len(),
+      usize::try_from(size).unwrap_or(usize::MAX)
+    );
+    if let Some((prev_size, prev_work)) = previous {
+      assert_eq!(size, prev_size * 2, "fixture sizes must double");
+      assert!(
+        work.saturating_mul(10) < prev_work.saturating_mul(30),
+        "property-object work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
+      );
+    }
+    previous = Some((size, work));
+  }
+}
+
+#[test]
+fn source_contracts_early_spreads_then_explicit_props_scale_subquadratically() {
+  let mut previous: Option<(u64, u64)> = None;
+  for size in [16_u64, 32, 64] {
+    let mut source = String::from("import { toRefs } from 'vue';");
+    for index in 0..size {
+      source.push_str("const s");
+      source.push_str(&index.to_string());
+      source.push_str(" = {};");
+    }
+    source.push_str("toRefs({");
+    for index in 0..size {
+      source.push_str("...s");
+      source.push_str(&index.to_string());
+      source.push(',');
+    }
+    for index in 0..size {
+      source.push('p');
+      source.push_str(&index.to_string());
+      source.push_str(": {},");
+    }
+    source.push_str("});");
+    let (contracts, work) = contract_stats(&source);
+    assert_eq!(
+      contracts.torefs_non_proxy.len(),
+      1,
+      "plain object after early spreads must emit toRefs-on-non-proxy; {contracts:?}"
+    );
+    if let Some((prev_size, prev_work)) = previous {
+      assert_eq!(size, prev_size * 2, "fixture sizes must double");
+      assert!(
+        work.saturating_mul(10) < prev_work.saturating_mul(30),
+        "early-spread then explicit-prop work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
+      );
+    }
+    previous = Some((size, work));
+  }
+}
+
+#[test]
+fn source_contracts_gated_facts_match_forced_full_for_all_sinks() {
+  let cases = [
+    "import { reactive, triggerRef } from 'vue'; const obj = reactive({ n: 1 }); triggerRef(obj);",
+    "import { toRefs } from 'vue'; toRefs({ a: 1 });",
+    "import { reactive } from 'vue'; reactive(0);",
+    "import { readonly } from 'vue'; readonly(0);",
+    "import { shallowReactive } from 'vue'; shallowReactive(0);",
+    "import { shallowReadonly } from 'vue'; shallowReadonly(0);",
+    "import { ref, watch } from 'vue'; const n = ref(0); watch((n.value) as number, () => {});",
+    "import { reactive, watch } from 'vue'; const obj = reactive({ nested: { x: 1 } }); watch(obj.nested, () => {}); obj.nested = { x: 2 };",
+    "import { watchEffect } from 'vue'; watchEffect(() => {}, { once: true });",
+    "import { watchPostEffect } from 'vue'; watchPostEffect(() => {}, { immediate: true });",
+    "import { watchSyncEffect } from 'vue'; watchSyncEffect(() => {}, { flush: 'post', once: true });",
+    "import * as Vue from 'vue'; Vue.watchEffect(() => {}, { deep: true });",
+    "import { ref, watch } from 'vue'; const n = ref(0); watch(n, (v) => v, { equals: () => true });",
+    "import { ref, watch } from 'vue'; const n = ref(0); function accept(_value: unknown) {} watch(n, (next, old) => { if (old === undefined) return; accept(next); }, { once: true, immediate: true });",
+    "import { reactive, watch } from 'vue'; const state = reactive({ n: 1 }); function accept(_value: unknown) {} watch(state, (next, old) => { if (next === old) return; accept(next); });",
+  ];
+  for source in cases {
+    let facts = assert_gated_matches_forced(source, ScriptKind::Setup);
+    assert!(!facts.is_empty(), "sink fixture must emit a fact: {source}");
+  }
+  let trigger = assert_gated_matches_forced(
+    "import { reactive, triggerRef } from 'vue'; const obj = reactive({ n: 1 }); triggerRef(obj);",
+    ScriptKind::Setup,
+  );
+  assert_eq!(trigger.trigger_ref_non_ref.first().map(|site| site.api.as_str()), Some("triggerRef"));
+  let primitive = assert_gated_matches_forced(
+    "import { shallowReadonly } from 'vue'; shallowReadonly(null);",
+    ScriptKind::Setup,
+  );
+  assert_eq!(
+    primitive.primitive_reactive_target.first().map(|site| site.api.as_str()),
+    Some("shallowReadonly")
+  );
+}
+
+#[test]
+fn source_contracts_identity_table_preserves_named_namespace_and_auto_import() {
+  let runtime_sources =
+    ["vue", "vue-demi", "@vue/runtime-core", "@vue/runtime-dom", "@vue/reactivity"];
+  for source_mod in runtime_sources {
+    let named = format!(
+      "import {{ triggerRef, ref as makeRef }} from '{source_mod}'; triggerRef(makeRef(1)); triggerRef({{ n: 1 }});"
+    );
+    let facts = assert_gated_matches_forced(&named, ScriptKind::Setup);
+    assert_eq!(facts.trigger_ref_non_ref.len(), 1, "{named}");
+    let aliased = format!(
+      "import {{ watch as observe, ref }} from '{source_mod}'; const n = ref(0); observe(n.value, () => {{}});"
+    );
+    let facts = assert_gated_matches_forced(&aliased, ScriptKind::Setup);
+    assert_eq!(facts.watch_unwrapped_source.len(), 1, "{aliased}");
+    let string_name = format!(
+      "import {{ 'watch' as observe, ref }} from '{source_mod}'; const n = ref(0); observe(n.value, () => {{}});"
+    );
+    let facts = assert_gated_matches_forced(&string_name, ScriptKind::Setup);
+    assert_eq!(facts.watch_unwrapped_source.len(), 1, "{string_name}");
+    let namespace = format!("import * as Vue from '{source_mod}'; Vue.triggerRef({{ n: 1 }});");
+    let facts = assert_gated_matches_forced(&namespace, ScriptKind::Setup);
+    assert_eq!(facts.trigger_ref_non_ref.len(), 1, "{namespace}");
+  }
+  let named_auto = "import { triggerRef } from '#imports'; triggerRef({ n: 1 });";
+  let facts = assert_gated_matches_forced(named_auto, ScriptKind::Setup);
+  assert_eq!(facts.trigger_ref_non_ref.len(), 1);
+  let mixed_type = "import { type ref, triggerRef } from 'vue'; triggerRef({ n: 1 });";
+  let facts = assert_gated_matches_forced(mixed_type, ScriptKind::Setup);
+  assert_eq!(facts.trigger_ref_non_ref.len(), 1);
+}
+
+#[test]
+fn source_contracts_macros_need_a_sink_and_setup_kind() {
+  let props_setup = "import { triggerRef } from 'vue'; triggerRef(defineProps());";
+  let props_facts = assert_gated_matches_forced(props_setup, ScriptKind::Setup);
+  assert_eq!(
+    props_facts.trigger_ref_non_ref.len(),
+    1,
+    "defineProps is a proven proxy in setup: {props_facts:?}"
+  );
+  let model_setup = "import { triggerRef } from 'vue'; triggerRef(defineModel());";
+  let model_facts = assert_gated_matches_forced(model_setup, ScriptKind::Setup);
+  assert!(
+    model_facts.trigger_ref_non_ref.is_empty(),
+    "defineModel is a proven ref in setup: {model_facts:?}"
+  );
+  let props_script = assert_gated_matches_forced(props_setup, ScriptKind::Script);
+  assert!(
+    props_script.trigger_ref_non_ref.is_empty(),
+    "ordinary script does not prove defineProps: {props_script:?}"
+  );
+  let model_script = assert_gated_matches_forced(model_setup, ScriptKind::Script);
+  assert!(
+    model_script.trigger_ref_non_ref.is_empty(),
+    "ordinary script does not prove defineModel: {model_script:?}"
+  );
+}
+
+#[test]
+fn source_contracts_sink_inventory_is_the_eligibility_table() {
+  assert_eq!(contract_sink("triggerRef"), Some(ContractSink::TriggerRef));
+  assert_eq!(contract_sink("toRefs"), Some(ContractSink::ToRefs));
+  for api in ["reactive", "readonly", "shallowReactive", "shallowReadonly"] {
+    assert_eq!(contract_sink(api), Some(ContractSink::ProxyConstructor), "{api}");
+  }
+  assert_eq!(contract_sink("watch"), Some(ContractSink::Watch));
+  for api in ["watchEffect", "watchPostEffect", "watchSyncEffect"] {
+    assert_eq!(contract_sink(api), Some(ContractSink::WatchEffectFamily), "{api}");
+  }
+  for api in ["ref", "computed", "shallowRef", "toRaw", "customRef"] {
+    assert_eq!(contract_sink(api), None, "{api} must not gate collection");
+  }
+}
+
+#[test]
+fn source_contracts_effect_family_named_imports_alone_match_forced_full() {
+  let watch_effect = assert_gated_matches_forced(
+    "import { watchEffect } from 'vue'; watchEffect(() => {}, { once: true });",
+    ScriptKind::Setup,
+  );
+  assert_eq!(watch_effect.watch_ignored_option.len(), 1, "{watch_effect:?}");
+  let post = assert_gated_matches_forced(
+    "import { watchPostEffect } from 'vue'; watchPostEffect(() => {}, { immediate: true });",
+    ScriptKind::Setup,
+  );
+  assert_eq!(post.watch_ignored_option.len(), 1, "{post:?}");
+  let sync = assert_gated_matches_forced(
+    "import { watchSyncEffect } from 'vue'; watchSyncEffect(() => {}, { flush: 'post', once: true });",
+    ScriptKind::Setup,
+  );
+  assert_eq!(
+    sync.watch_ignored_option.len(),
+    1,
+    "named watchSyncEffect with flush:'post' must still report ignored once; {sync:?}"
+  );
+  assert_eq!(
+    sync.watch_ignored_option.first().map(|site| site.api.as_str()),
+    Some("watchSyncEffect")
+  );
+  let namespace = assert_gated_matches_forced(
+    "import * as Vue from 'vue'; Vue.watchSyncEffect(() => {}, { once: true });",
+    ScriptKind::Setup,
+  );
+  assert_eq!(namespace.watch_ignored_option.len(), 1, "{namespace:?}");
+  let ordinary = assert_gated_matches_forced(
+    "import { ref, watch } from 'vue'; const n = ref(0); watch(n, (v) => v, { equals: () => true });",
+    ScriptKind::Setup,
+  );
+  assert_eq!(ordinary.watch_ignored_option.len(), 1, "{ordinary:?}");
+  assert!(ordinary.watch_unwrapped_source.is_empty(), "{ordinary:?}");
+}
+
+#[test]
+fn source_contracts_callback_named_watch_import_alone_match_forced_full() {
+  let once = assert_gated_matches_forced(
+    "import { ref, watch } from 'vue';     const n = ref(0);     function accept(_value: unknown) {}     watch(n, (next, old) => { if (old === undefined) return; accept(next); }, { once: true, immediate: true });",
+    ScriptKind::Setup,
+  );
+  assert_eq!(
+    once.watch_callback_contracts.len(),
+    1,
+    "named watch + ref (non-sink) must report once-immediate; {once:?}"
+  );
+  assert_eq!(
+    once.watch_callback_contracts.first().map(|site| site.reason),
+    Some(vue_vet_core::WatchCallbackContractReason::OnceImmediateUndefinedGuard)
+  );
+  let identity = assert_gated_matches_forced(
+    "import { reactive, watch } from 'vue';     const state = reactive({ n: 1 });     function accept(_value: unknown) {}     watch(state, (next, old) => { if (next === old) return; accept(next); });",
+    ScriptKind::Setup,
+  );
+  assert_eq!(
+    identity.watch_callback_contracts.len(),
+    1,
+    "named watch + reactive must report root identity; {identity:?}"
+  );
+  assert_eq!(
+    identity.watch_callback_contracts.first().map(|site| site.reason),
+    Some(vue_vet_core::WatchCallbackContractReason::ReactiveRootIdentityGuard)
+  );
+}
+
+#[test]
+fn source_contracts_bypass_without_fact_producing_sinks() {
+  assert_bypass("", ScriptKind::Setup);
+  assert_bypass("const n = 1;", ScriptKind::Script);
+  assert_bypass(
+    "import { ref, computed } from 'vue'; const n = ref(0); const d = computed(() => n.value);",
+    ScriptKind::Setup,
+  );
+  assert_bypass(
+    "import { type triggerRef } from 'vue'; const triggerRef = (_value: unknown) => {}; triggerRef({ n: 1 });",
+    ScriptKind::Setup,
+  );
+  assert_bypass("import Vue from 'vue'; Vue.triggerRef({ n: 1 });", ScriptKind::Setup);
+  assert_bypass("import * as Auto from '#imports'; Auto.triggerRef({ n: 1 });", ScriptKind::Setup);
+  assert_bypass(
+    "import { triggerRef } from '@vue/toolkit'; triggerRef({ n: 1 });",
+    ScriptKind::Setup,
+  );
+  assert_bypass("triggerRef(1); reactive(0); watch(1, () => {});", ScriptKind::Setup);
+  assert_bypass("defineProps<{ title: string }>(); defineModel<number>();", ScriptKind::Setup);
+  assert_bypass(
+    "import { ref } from 'vue'; const o = { a: { x: 1 }, b: [1] }; const r = ref(o); const alias = r; alias.value = { a: { x: 2 } };",
+    ScriptKind::Setup,
   );
 }
 
@@ -1663,271 +2891,6 @@ fn source_contracts_watch_callback_sites_stay_linear() {
       assert!(
         work.saturating_mul(10) < prev_work.saturating_mul(30),
         "callback-site work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
-      );
-    }
-    previous = Some((size, work));
-  }
-}
-
-#[test]
-fn source_contracts_many_watch_sites_stay_linear() {
-  let mut previous: Option<(u64, u64)> = None;
-  for size in [50_u64, 100, 200] {
-    let mut source = String::from("import { ref, watch } from 'vue'; const n = ref(0);");
-    for _ in 0..size {
-      source.push_str("watch(n.value, () => {});");
-    }
-    let (contracts, work) = contract_stats(&source);
-    assert_eq!(contracts.watch_unwrapped_source.len(), usize::try_from(size).unwrap_or(usize::MAX));
-    if let Some((prev_size, prev_work)) = previous {
-      assert_eq!(size, prev_size * 2, "fixture sizes must double");
-      assert!(
-        work.saturating_mul(10) < prev_work.saturating_mul(30),
-        "watch-site work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
-      );
-    }
-    previous = Some((size, work));
-  }
-}
-
-#[test]
-fn source_contracts_assignment_patterns_parse_and_stay_quiet() {
-  let facts = analyze(
-    "import { reactive, ref, watch } from 'vue';\
-     const r = ref(0);\
-     const source = { x: 1, y: 2, z: 3 };\
-     ({ x: r.value = 0, y: r.value, ...rest } = source);\
-     const arr = [1, 2, 3];\
-     ([r.value = 1, ...tail] = arr);\
-     ({ [String('k')]: r.value } = { k: 9 });\
-     watch(r.value, () => {}); void rest; void tail;",
-    "ts",
-  );
-  assert!(facts.source_contracts.watch_unwrapped_source.is_empty(), "{:?}", facts.source_contracts);
-}
-
-#[test]
-fn source_contracts_shadowed_map_is_not_fresh_allocation() {
-  let facts = analyze(
-    "import { reactive, watch } from 'vue';\
-     const state = reactive({ p: { x: 1 } });\
-     watch(state.p, () => {});\
-     function Map() { return state.p; }\
-     state.p = new Map();",
-    "ts",
-  );
-  assert!(
-    facts.source_contracts.watch_replaced_object_source.is_empty(),
-    "{:?}",
-    facts.source_contracts
-  );
-}
-
-#[test]
-#[expect(clippy::panic, reason = "missing span evidence must fail the regression")]
-fn source_contracts_nested_wrapper_budget_does_not_poison_direct_use() {
-  let source = "import { reactive, triggerRef } from 'vue';\
-     const shared = { n: 1 };\
-     triggerRef(reactive(reactive(reactive(reactive(reactive(reactive(reactive(reactive(reactive(shared))))))))));\
-     triggerRef(shared);";
-  let facts = analyze(source, "ts");
-  let needle = "triggerRef(shared)";
-  let Some(call) = source.rfind(needle) else {
-    panic!("direct triggerRef(shared) missing");
-  };
-  let arg = call + "triggerRef(".len();
-  assert_eq!(
-    facts.source_contracts.trigger_ref_non_ref.len(),
-    1,
-    "only the direct shared root must report; {:?}",
-    facts.source_contracts
-  );
-  let Some(site) = facts.source_contracts.trigger_ref_non_ref.first() else {
-    panic!("direct-use finding missing");
-  };
-  assert_eq!(site.span.offset, arg, "{site:?} source={source}");
-  assert_eq!(site.span.length, "shared".len());
-}
-
-#[test]
-fn source_contracts_vue_identity_sources() {
-  let runtime =
-    analyze("import { triggerRef } from '@vue/runtime-core'; triggerRef({ n: 1 });", "ts");
-  assert_eq!(
-    runtime.source_contracts.trigger_ref_non_ref.len(),
-    1,
-    "{:?}",
-    runtime.source_contracts
-  );
-  let named_auto = analyze("import { triggerRef } from '#imports'; triggerRef({ n: 1 });", "ts");
-  assert_eq!(
-    named_auto.source_contracts.trigger_ref_non_ref.len(),
-    1,
-    "{:?}",
-    named_auto.source_contracts
-  );
-  let ns_auto = analyze("import * as Auto from '#imports'; Auto.triggerRef({ n: 1 });", "ts");
-  assert!(ns_auto.source_contracts.is_empty(), "{:?}", ns_auto.source_contracts);
-  let custom = analyze("import { useMagic } from '#imports'; useMagic();", "ts");
-  assert!(custom.source_contracts.is_empty(), "{:?}", custom.source_contracts);
-}
-
-#[test]
-fn source_contracts_destructured_binding_reassignment_is_quiet() {
-  let facts = analyze(
-    "import { reactive, ref, toRefs, triggerRef, watch } from 'vue';\
-     let target = 0;\
-     ({ target } = { target: ref(1) });\
-     triggerRef(target);\
-     let data = 0;\
-     [data] = [reactive({})];\
-     reactive(data);\
-     let plain = {};\
-     ({ plain } = { plain: reactive({ count: 1 }) });\
-     toRefs(plain);\
-     let source = 0;\
-     [source] = [ref(1)];\
-     watch(source, () => {});",
-    "ts",
-  );
-  assert!(
-    facts.source_contracts.trigger_ref_non_ref.is_empty(),
-    "shorthand destructure to Ref must not keep primitive triggerRef; {:?}",
-    facts.source_contracts
-  );
-  assert!(
-    facts.source_contracts.primitive_reactive_target.is_empty(),
-    "array destructure to reactive must not keep primitive reactive(); {:?}",
-    facts.source_contracts
-  );
-  assert!(
-    facts.source_contracts.torefs_non_proxy.is_empty(),
-    "shorthand destructure to reactive must not keep plain toRefs; {:?}",
-    facts.source_contracts
-  );
-  assert!(
-    facts.source_contracts.watch_unwrapped_source.is_empty(),
-    "array destructure to ref must not keep primitive watch source; {:?}",
-    facts.source_contracts
-  );
-}
-
-#[test]
-fn source_contracts_rest_and_default_binding_reassignment_is_quiet() {
-  let facts = analyze(
-    "import { reactive, ref, triggerRef } from 'vue';\
-     let leftover = 0;\
-     [...leftover] = [reactive({})];\
-     reactive(leftover);\
-     let boxed = 0;\
-     ({ boxed = ref(1) } = {});\
-     triggerRef(boxed);",
-    "ts",
-  );
-  assert!(
-    facts.source_contracts.primitive_reactive_target.is_empty(),
-    "rest-to-array must invalidate primitive reactive(); {:?}",
-    facts.source_contracts
-  );
-  assert!(
-    facts.source_contracts.trigger_ref_non_ref.is_empty(),
-    "default-to-Ref must invalidate primitive triggerRef; {:?}",
-    facts.source_contracts
-  );
-}
-
-#[test]
-fn source_contracts_watch_then_writes_scale_subquadratically() {
-  let mut previous: Option<(u64, u64)> = None;
-  for size in [16_u64, 32, 64, 128] {
-    let mut source = String::from("import { ref, watch } from 'vue'; const n = ref(0);");
-    for _ in 0..size {
-      source.push_str("watch(n.value, () => {});");
-    }
-    for _ in 0..size {
-      source.push_str("n.value = 1;");
-    }
-    let (contracts, work) = contract_stats(&source);
-    assert_eq!(contracts.watch_unwrapped_source.len(), usize::try_from(size).unwrap_or(usize::MAX));
-    if let Some((prev_size, prev_work)) = previous {
-      assert_eq!(size, prev_size * 2, "fixture sizes must double");
-      assert!(
-        work.saturating_mul(10) < prev_work.saturating_mul(30),
-        "watch-then-write work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
-      );
-    }
-    previous = Some((size, work));
-  }
-}
-
-#[test]
-fn source_contracts_many_properties_scale_subquadratically() {
-  let mut previous: Option<(u64, u64)> = None;
-  for size in [16_u64, 32, 64] {
-    let mut keys = Vec::new();
-    for index in 0..size {
-      keys.push(format!("p{index}: {{}}"));
-    }
-    let mut source = format!(
-      "import {{ reactive, watch }} from 'vue'; const state = reactive({{ {} }});",
-      keys.join(", ")
-    );
-    for index in 0..size {
-      source.push_str("watch(state.p");
-      source.push_str(&index.to_string());
-      source.push_str(", () => {}); state.p");
-      source.push_str(&index.to_string());
-      source.push_str(" = {};");
-    }
-    let (contracts, work) = contract_stats(&source);
-    assert_eq!(
-      contracts.watch_replaced_object_source.len(),
-      usize::try_from(size).unwrap_or(usize::MAX)
-    );
-    if let Some((prev_size, prev_work)) = previous {
-      assert_eq!(size, prev_size * 2, "fixture sizes must double");
-      assert!(
-        work.saturating_mul(10) < prev_work.saturating_mul(30),
-        "property-object work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
-      );
-    }
-    previous = Some((size, work));
-  }
-}
-
-#[test]
-fn source_contracts_early_spreads_then_explicit_props_scale_subquadratically() {
-  let mut previous: Option<(u64, u64)> = None;
-  for size in [16_u64, 32, 64] {
-    let mut source = String::from("import { toRefs } from 'vue';");
-    for index in 0..size {
-      source.push_str("const s");
-      source.push_str(&index.to_string());
-      source.push_str(" = {};");
-    }
-    source.push_str("toRefs({");
-    for index in 0..size {
-      source.push_str("...s");
-      source.push_str(&index.to_string());
-      source.push(',');
-    }
-    for index in 0..size {
-      source.push('p');
-      source.push_str(&index.to_string());
-      source.push_str(": {},");
-    }
-    source.push_str("});");
-    let (contracts, work) = contract_stats(&source);
-    assert_eq!(
-      contracts.torefs_non_proxy.len(),
-      1,
-      "plain object after early spreads must emit toRefs-on-non-proxy; {contracts:?}"
-    );
-    if let Some((prev_size, prev_work)) = previous {
-      assert_eq!(size, prev_size * 2, "fixture sizes must double");
-      assert!(
-        work.saturating_mul(10) < prev_work.saturating_mul(30),
-        "early-spread then explicit-prop work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
       );
     }
     previous = Some((size, work));

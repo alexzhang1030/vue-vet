@@ -29,9 +29,10 @@ mod tests {
 
   use vue_vet_core::{
     ReactiveBindingFact, ReactiveBindingKind, ReactiveDependencyEdge, ReactiveDependencyKind,
-    ReactiveReadFact, ReactiveReadKind, ReactiveWriteFact, ReactivityGraph, ScriptBindingFact,
-    ScriptBlockFacts, ScriptCallFact, ScriptFacts, ScriptKind, ScriptOperandFact, SourceSpan,
-    TemplateReactiveReadFact, TrackingScopeFact, TrackingScopeKind,
+    ReactiveReadFact, ReactiveReadKind, ReactiveWriteFact, ReactivityGraph,
+    ReactivityLifetimeFacts, ScriptBindingFact, ScriptBlockFacts, ScriptCallFact, ScriptFacts,
+    ScriptKind, ScriptOperandFact, SourceSpan, TemplateReactiveReadFact, TrackingScopeFact,
+    TrackingScopeKind,
   };
 
   use super::*;
@@ -59,6 +60,7 @@ mod tests {
       destructures: Vec::new(),
       top_level_await_ends: await_ends,
       operands: Vec::new(),
+      lifetime: ReactivityLifetimeFacts::default(),
       source_contracts: vue_vet_core::SourceContractFacts::default(),
       reactivity_graph: Arc::new(graph),
     }

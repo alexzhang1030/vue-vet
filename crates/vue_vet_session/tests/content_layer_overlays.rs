@@ -13,6 +13,7 @@ fn open(root: &Path) -> Result<ProjectSession, vue_vet_session::SessionError> {
     cache_dir: None,
     no_cache: true,
     threads: Some(1),
+    selected_groups: Vec::new(),
   })
 }
 

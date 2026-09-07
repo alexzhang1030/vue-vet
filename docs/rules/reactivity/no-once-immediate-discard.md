@@ -9,8 +9,8 @@ exactly once during creation. Vue passes `undefined` as `old` for a proven
 single source. A top-level `if (old === undefined) return` (or `void 0`)
 therefore exits before any later call or write that uses `new`.
 
-Reactive arrays are classified as a single reactive root, not as a
-multi-source tuple. A plain array tuple's initial `old` is `[]`, so
+Reactive arrays are classified as a single reactive root. A multi-source
+tuple is a plain array of sources; its initial `old` is `[]`, so
 `old === undefined` is a normal first run and stays quiet.
 
 ## Bad
@@ -58,13 +58,12 @@ duplicate/spread options, a local `undefined` binding, `void` of a call
 (side-effecting), unreachable work after `return`, and later work only
 inside an uncertain/`if (false)` branch or nested `{ return }` block stay
 quiet. Supported single
-sources are a ref, a getter, or an actually-reactive root; plain tuples
-are excluded.
+sources are a ref, a getter, or an actually-reactive root. Plain tuples
+stay quiet.
 
 ## Detection
 
 Fact-driven via Vue Vet source-contract facts from Oxc symbol identity.
-Not generic source-text matching.
 
 ## Remediation
 

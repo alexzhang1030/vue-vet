@@ -62,6 +62,7 @@ fn open(root: &Path, cache_dir: PathBuf, no_cache: bool) -> ProjectSession {
     cache_dir: Some(cache_dir),
     no_cache,
     threads: Some(1),
+    selected_groups: Vec::new(),
   })
   .expect("session opens for quality corpus")
 }

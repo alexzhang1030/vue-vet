@@ -16,8 +16,8 @@ use oxc_syntax::reference::ReferenceFlags;
 use vue_vet_core::{ScriptKind, SourceSpan};
 
 use super::shape::{
-  ShapeHint, VueImport, collect_vue_imports, hint_of, is_fresh_allocation,
-  is_unresolved_collection, resolve_vue_api, span_key,
+  ShapeHint, VueImport, hint_of, is_fresh_allocation, is_unresolved_collection, resolve_vue_api,
+  span_key,
 };
 use super::stats::WorkCounter;
 use crate::facts::source_span;
@@ -46,8 +46,8 @@ pub(super) struct MemberWrite {
   pub fresh_alloc: bool,
 }
 
-/// Direct `obj.prop = rhs` only. Assignment patterns must not reuse this as
-/// each target's extracted value.
+/// Direct `obj.prop = rhs` only. Assignment patterns restore generic
+/// uncertainty on the member object.
 #[derive(Clone, Copy)]
 struct DirectMemberWrite<'a> {
   offset: usize,
@@ -70,7 +70,8 @@ pub(super) enum ObjectEntry {
   Spread,
   Computed,
   Accessor { name: Option<String> },
-  Data { name: String, value: Span },
+  Data { name: String, key: Span, value: Span },
+  Method { name: String, key: Span, value: Span },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -98,8 +99,8 @@ pub(super) struct Indexes {
   pub calls: HashMap<u64, CallInfo>,
   pub objects: HashMap<u64, Vec<ObjectEntry>>,
   pub object_props: HashMap<u64, HashMap<String, ObjectProp>>,
-  pub arrays: HashSet<u64>,
   pub collections: HashSet<u64>,
+  pub arrays: HashSet<u64>,
   pub closed_objects: HashMap<u64, bool>,
   pub capability_uncertain: HashSet<SymbolId>,
   pub stmt_site: HashMap<NodeId, StmtSite>,
@@ -122,9 +123,9 @@ impl Indexes {
     sfc_source: &str,
     script_offset: usize,
     kind: ScriptKind,
+    vue_imports: HashMap<SymbolId, VueImport>,
+    work: WorkCounter,
   ) -> Self {
-    let work = WorkCounter::default();
-    let vue_imports = collect_vue_imports(semantic, &work);
     let mut indexes = Self {
       vue_imports,
       alias_root: HashMap::new(),
@@ -138,8 +139,8 @@ impl Indexes {
       calls: HashMap::new(),
       objects: HashMap::new(),
       object_props: HashMap::new(),
-      arrays: HashSet::new(),
       collections: HashSet::new(),
+      arrays: HashSet::new(),
       closed_objects: HashMap::new(),
       capability_uncertain: HashSet::new(),
       stmt_site: HashMap::new(),
@@ -171,7 +172,7 @@ impl Indexes {
     indexes
   }
 
-  pub(super) fn stats(&self) -> super::stats::SourceContractStats {
+  pub(super) const fn stats(&self) -> super::stats::SourceContractStats {
     self.work.snapshot()
   }
 
@@ -309,10 +310,10 @@ impl Indexes {
   }
 
   /// Capability-changing mutation or unknown helper use of a construction /
-  /// watched root. Ordinary `state.n` writes are not capability keys.
-  /// Does not use generic `escaped` / `uncertain` (watch/reactive arguments).
-  /// `capability_uncertain` is the role index for unknown flow: storage,
-  /// return, unknown call, spread, sequence, receiver, dynamic target.
+  /// watched root. Ordinary `state.n` writes stay ordinary member writes.
+  /// Unknown flow uses the dedicated `capability_uncertain` role index:
+  /// storage, return, unknown call, spread, sequence, receiver, dynamic target.
+  /// Generic `escaped` / `uncertain` remain watch/reactive-argument facts.
   pub(super) fn construction_mutated(&self, root: SymbolId) -> bool {
     self.work.add_queries(1);
     self.reassigned.contains(&root)
@@ -344,28 +345,6 @@ impl Indexes {
         _ => {}
       }
       self.owners.insert(node_id, Owner { callable, block });
-    }
-  }
-
-  fn precompute_closed_objects(&mut self) {
-    for (key, entries) in &self.objects {
-      self.work.add_queries(1);
-      let mut closed = true;
-      for entry in entries {
-        self.work.add_object_entries(1);
-        match entry {
-          ObjectEntry::Spread | ObjectEntry::Computed | ObjectEntry::Accessor { .. } => {
-            closed = false;
-            break;
-          }
-          ObjectEntry::Data { name, .. } if is_capability_key(name) => {
-            closed = false;
-            break;
-          }
-          ObjectEntry::Data { .. } => {}
-        }
-      }
-      self.closed_objects.insert(*key, closed);
     }
   }
 
@@ -402,6 +381,30 @@ impl Indexes {
     }
   }
 
+  fn precompute_closed_objects(&mut self) {
+    for (key, entries) in &self.objects {
+      self.work.add_queries(1);
+      let mut closed = true;
+      for entry in entries {
+        self.work.add_object_entries(1);
+        match entry {
+          ObjectEntry::Spread | ObjectEntry::Computed | ObjectEntry::Accessor { .. } => {
+            closed = false;
+            break;
+          }
+          ObjectEntry::Data { name, .. } | ObjectEntry::Method { name, .. }
+            if is_capability_key(name) =>
+          {
+            closed = false;
+            break;
+          }
+          ObjectEntry::Data { .. } | ObjectEntry::Method { .. } => {}
+        }
+      }
+      self.closed_objects.insert(*key, closed);
+    }
+  }
+
   fn owner(&self, node_id: NodeId) -> Owner {
     self.owners.get(&node_id).copied().unwrap_or(Owner { callable: None, block: None })
   }
@@ -416,6 +419,10 @@ impl Indexes {
 
   pub(super) fn add_queries(&self, n: u64) {
     self.work.add_queries(n);
+  }
+
+  pub(super) const fn work(&self) -> &WorkCounter {
+    &self.work
   }
 
   fn scan(
@@ -684,8 +691,8 @@ impl Indexes {
 
   /// Receiver call / `new` / tagged template / unknown member-chain use of a
   /// static member object. Ordinary `state.n` reads and writes stay outside
-  /// this set. Import sources, JSX member tags, and decorator expressions are
-  /// not JS `this` receivers and stay on the default (proven) branch.
+  /// this set. Import sources, JSX member tags, and decorator expressions stay
+  /// on the default (proven) branch; those positions bind no JS `this` receiver.
   fn static_member_chain_capability_uncertain(
     &self,
     semantic: &oxc_semantic::Semantic<'_>,
@@ -930,9 +937,9 @@ impl Indexes {
     }
   }
 
-  /// Patterns do not prove extracted member values. Ordinary `state.n` keeps
-  /// generic uncertainty only; capability keys/dynamic targets also mark the
-  /// dedicated capability set.
+  /// Patterns restore generic uncertainty on the member object. Ordinary
+  /// `state.n` keeps generic uncertainty only; capability keys/dynamic targets
+  /// also mark the dedicated capability set.
   fn record_pattern_static_member(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
@@ -1071,7 +1078,7 @@ fn summarize_object_props(
             .accessor = true;
         }
       }
-      ObjectEntry::Data { name, value } => {
+      ObjectEntry::Data { name, value, .. } | ObjectEntry::Method { name, value, .. } => {
         tracks
           .entry(name.clone())
           .or_insert(Track { last_data: None, accessor: false })
@@ -1148,16 +1155,23 @@ fn object_entries(object: &oxc_ast::ast::ObjectExpression<'_>) -> Vec<ObjectEntr
     match property_kind {
       ObjectPropertyKind::SpreadProperty(_) => entries.push(ObjectEntry::Spread),
       ObjectPropertyKind::ObjectProperty(prop) => {
-        if prop.kind != PropertyKind::Init || prop.method {
+        if prop.kind != PropertyKind::Init {
           entries.push(ObjectEntry::Accessor {
             name: prop.key.static_name().map(|name| name.to_string()),
           });
           continue;
         }
         match prop.key.static_name() {
-          Some(name) => {
-            entries.push(ObjectEntry::Data { name: name.to_string(), value: prop.value.span() });
-          }
+          Some(name) if prop.method => entries.push(ObjectEntry::Method {
+            name: name.to_string(),
+            key: prop.key.span(),
+            value: prop.value.span(),
+          }),
+          Some(name) => entries.push(ObjectEntry::Data {
+            name: name.to_string(),
+            key: prop.key.span(),
+            value: prop.value.span(),
+          }),
           None => entries.push(ObjectEntry::Computed),
         }
       }

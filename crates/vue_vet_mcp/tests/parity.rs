@@ -31,6 +31,7 @@ fn mcp_scan_finding_ids_match_session() {
     cache_dir: None,
     no_cache: true,
     threads: Some(1),
+    selected_groups: Vec::new(),
   }) else {
     panic!("session must open");
   };

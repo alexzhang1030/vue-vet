@@ -23,17 +23,45 @@ via `just quality-gates`.
 | `suppressed` | 0 | 1 |
 | `module-seeds` | 1 | 0 |
 | `provide-inject` | 0 | 2 |
-| `reactivity-rules` | 2 | 7 |
+| `reactivity-rules` | 2 | 3 |
 
 Expected findings count only `true_positive` / `known_limitation` pairs. FP pins
 must remain absent. Changing either set requires updating the precision JSON and
-explaining the behavior change in the PR. `reactivity-rules` counts (2 TP / 7 FP)
-match `fixtures/quality/precision/reactivity-rules.json`. Two former TPs on
-`ConditionalWatch.vue` — `no-conditional-watch-effect-dependency` and
-`prefer-explicit-sources-for-conditional-deps` — are now FP pins: Vue tracks
-dynamic dependencies behind a reactive guard, those rule IDs are withdrawn, and
-the findings must stay absent. Remaining TPs are unused-binding and
-`prefer-computed`. The other five FP pins on `SafePatterns.vue` are unchanged.
+explaining the behavior change in the PR. `reactivity-rules` counts (2 TP / 3 FP)
+match `fixtures/quality/precision/reactivity-rules.json`. Remaining TPs are
+unused-binding and `prefer-computed`. FP pins on `SafePatterns.vue` keep unused
+binding, `prefer-computed`, and `no-computed-without-dependency` quiet.
+`ConditionalWatch.vue` is Vue dynamic-dependency evidence only; the withdrawn
+conditional-dep IDs are no longer in the catalog.
+
+## Native binary size budget
+
+CI (`pkg.pr.new` matrix) measures the stripped `vue-vet` file already produced by
+`cargo build --release --target` and compares `file_bytes` plus a gzip-9
+**compression proxy** (mtime 0, no filename) to
+[`fixtures/quality/native-size-budget.json`](../fixtures/quality/native-size-budget.json).
+That gzip figure is not the GitHub `.tar.gz`/`.zip` and not the npm tarball.
+Maxima are ceil(candidate bytes * 1.03) for the `fa2debc` matrix binaries (workflow run 34039577281);
+baseline rows are `2dabaad` (run 34034720314). Budget-only PRs retrigger the matrix
+via path filters on the script and JSON.
+Reproduce locally: `just native-size-check <binary> <rust-triple>`.
+Release-profile product-crate overrides are `opt-level = "z"` on
+`vue_vet_rules`, `vue_vet_practice`, and `vue_vet_rule_query`, and
+`opt-level = "s"` on `vue_vet_core`. `vue_vet_reporters` stays on the
+profile default. Those overrides are accepted only with exact scan JSON
+equality on the same corpus and CLI paths, plus same-tree release-profile
+comparisons of existing `vue_vet_session` / `whole_project` benches
+`whole_project::scan_cold_mixed_1k`, `whole_project::scan_warm_mixed_1k`,
+and `whole_project::json_render_mixed_1k` (rules, practice, query, cache,
+and JSON render). Divan `--exact` requires that complete path; `--list`
+leaf names are not the exact filter. `analyze_sfc` does not execute those
+paths and cannot accept the overrides. A clear persistent median
+regression above 5% on those benches requires revising the override set.
+CLI process times (cold `--no-cache` and warm with a primed cache) remain a
+separate user-facing measurement; process startup is part of CLI UX and is
+not dismissed as noise. CodSpeed keeps explicit `opt-level = 3` on the
+same four packages so inherited release `"z"` / `"s"` does not apply to
+instrumentation.
 
 ## Performance baselines (CodSpeed suite names)
 
