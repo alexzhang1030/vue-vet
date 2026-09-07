@@ -49,7 +49,8 @@ pub use oxc::{
 
 #[cfg(test)]
 pub(crate) use trace::{
-  NotificationWork, TraceSeeds, last_notification_work, trace_reactivity_seeded,
+  ComposableUsageWork, NotificationWork, SummaryScanWork, TraceSeeds, last_composable_usage_work,
+  last_notification_work, last_summary_scan_work, trace_reactivity_seeded,
   with_forced_full_notification,
 };
 

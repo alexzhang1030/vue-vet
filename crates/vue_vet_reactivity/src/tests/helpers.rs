@@ -8,8 +8,8 @@ use oxc_span::SourceType;
 pub(super) use crate::{
   ModuleLink, ModuleReactivity, ModuleSource, ModuleTraceState, NamedApiBag, TraceConfig,
   TraceModulesOptions, merge_declaration_implementation_summary, prepare_module_summary,
-  prepare_standalone_module_source, trace_modules, trace_modules_incremental_with_options,
-  trace_reactivity_with_config,
+  prepare_module_summary_with_config, prepare_module_trace, prepare_standalone_module_source,
+  trace_modules, trace_modules_incremental_with_options, trace_reactivity_with_config,
 };
 pub(super) use vue_vet_core::{
   ReactiveBindingKind, ReactiveDependencyKind, ReactiveGuardRole, ReactiveReadKind,
@@ -109,6 +109,61 @@ pub(super) fn trace(
 
 pub(super) fn graph(source: &str) -> ReactivityGraph {
   trace(source, source, 0, ScriptKind::Setup)
+}
+
+/// Trace plus summary for the same semantic, capturing the last test-only scan counters.
+pub(super) fn graph_and_summary(
+  source: &str,
+  kind: ScriptKind,
+) -> (ReactivityGraph, crate::ModuleSummary, crate::SummaryScanWork, crate::ComposableUsageWork) {
+  graph_and_summary_with_seeds(source, kind, &crate::TraceSeeds::default())
+}
+
+/// Normal vs forced-full complete graph and summary equality on one semantic.
+pub(super) fn graph_and_summary_with_seeds(
+  source: &str,
+  kind: ScriptKind,
+  seeds: &crate::TraceSeeds,
+) -> (ReactivityGraph, crate::ModuleSummary, crate::SummaryScanWork, crate::ComposableUsageWork) {
+  let allocator = Allocator::default();
+  let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
+  assert!(
+    parsed.diagnostics.is_empty(),
+    "script parsing unexpectedly failed: {:?}",
+    parsed.diagnostics
+  );
+  let built = SemanticBuilder::new()
+    .with_build_nodes(true)
+    .with_check_syntax_error(true)
+    .build(&parsed.program);
+  assert!(
+    built.diagnostics.is_empty(),
+    "semantic analysis unexpectedly failed: {:?}",
+    built.diagnostics
+  );
+  let config = default_trace_config();
+  let graph = crate::trace_reactivity_seeded(&built.semantic, source, 0, kind, seeds, &config);
+  let usage = crate::last_composable_usage_work();
+  let summary =
+    prepare_module_summary_with_config(&built.semantic, source, 0, kind, graph.clone(), &config);
+  let scan = crate::last_summary_scan_work();
+  let forced_graph = crate::with_forced_full_notification(|| {
+    crate::trace_reactivity_seeded(&built.semantic, source, 0, kind, seeds, &config)
+  });
+  let forced_summary = prepare_module_summary_with_config(
+    &built.semantic,
+    source,
+    0,
+    kind,
+    forced_graph.clone(),
+    &config,
+  );
+  assert_eq!(graph, forced_graph, "normal graph must equal forced-full for {source}");
+  assert_eq!(summary, forced_summary, "normal summary must equal forced-full for {source}");
+  let public = prepare_module_summary(&built.semantic, source, 0, kind, graph.clone());
+  let alias = prepare_module_trace(&built.semantic, source, 0, kind, graph.clone());
+  assert_eq!(public, alias, "prepare_module_trace must match prepare_module_summary for {source}");
+  (graph, summary, scan, usage)
 }
 
 pub(super) fn graph_work(source: &str) -> (ReactivityGraph, crate::NotificationWork) {

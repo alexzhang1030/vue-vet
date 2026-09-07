@@ -1027,7 +1027,7 @@ fn preflight_skips_modules_without_notification_source_identity() {
   assert_preflight_only("const { data } = useAsyncData('x', () => 1);");
 }
 
-fn seeded_count_fact() -> ReactiveBindingFact {
+pub(super) fn seeded_count_fact() -> ReactiveBindingFact {
   ReactiveBindingFact {
     name: "seededCount".into(),
     kind: ReactiveBindingKind::Ref,

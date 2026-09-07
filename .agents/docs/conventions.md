@@ -143,6 +143,10 @@ profile because its instrumentation does not link Oxc reliably under LTO
 `vue_vet_reactivity` `opt-level = "s"`; `vue_vet_oxc` and
 `vue_vet_reporters` stay on the profile default) remains the source of
 truth for shipped artifacts.
+`cargo bench --profile release` forces unwind; those Divan programs measure
+the release-optimization/unwind path. The shipped CLI is `cargo build --release` with
+`panic = "abort"`. See [gotchas](./gotchas.md) (`cargo bench --profile release`
+uses panic=unwind).
 `profile.codspeed` inherits `release`, then sets `opt-level = 3` and
 `lto = false`. That top-level 3 is the default only: named
 `profile.release.package` overrides still win unless restated. Protocol/UI

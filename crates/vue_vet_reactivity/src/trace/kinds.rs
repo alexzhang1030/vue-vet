@@ -2,6 +2,8 @@
 //!
 //! Shared by the single-file tracer, binding collectors, and cross-module prepare.
 
+#[cfg(test)]
+use std::cell::Cell;
 use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
 
 use oxc_ast::{
@@ -48,11 +50,26 @@ pub(super) fn reference_resolves_to_span(
     .is_some_and(|symbol_id| semantic.scoping().symbol_span(symbol_id) == def_span)
 }
 
+#[cfg(test)]
+thread_local! {
+  static IMPORT_BINDING_BUILDS: Cell<u64> = const { Cell::new(0) };
+  static IMPORT_BINDING_NODE_VISITS: Cell<u64> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(super) fn import_binding_collect_snapshot() -> (u64, u64) {
+  (IMPORT_BINDING_BUILDS.with(Cell::get), IMPORT_BINDING_NODE_VISITS.with(Cell::get))
+}
+
 pub(super) fn collect_imported_bindings(
   semantic: &Semantic<'_>,
 ) -> BTreeMap<String, (String, String)> {
+  #[cfg(test)]
+  IMPORT_BINDING_BUILDS.with(|slot| slot.set(slot.get().saturating_add(1)));
   let mut imported_bindings = BTreeMap::new();
   for node in semantic.nodes() {
+    #[cfg(test)]
+    IMPORT_BINDING_NODE_VISITS.with(|slot| slot.set(slot.get().saturating_add(1)));
     let AstKind::ImportDeclaration(declaration) = node.kind() else {
       continue;
     };

@@ -76,6 +76,14 @@ hashed into the scan cache is **`RULESET_VERSION = 18`**.
 v41 records same-file lost-notification source/view/path facts (`source_views`,
 `notification_bypasses`) for `shallowRef` / `shallowReactive` nested writes past
 a proven plain frontier and for `toRaw` writes of a tracked `reactive` path.
+`prepare_module_summary_with_config` builds one summary-local
+`imported_bindings` map and borrows it for shape bindings, local export
+classification (including `defineComponent` wrappers), provide/inject, and
+composable return analysis (including recursive forwarded/value-bag paths).
+Public `composable_return_with_index` still builds its own map and delegates
+to that borrowed-index implementation.
+`collect_local_composable_usage` returns after definition collection when the
+composable definition map is empty, skipping the call-use walk on ref-only modules.
 Collection work counters stay trace-internal and must charge remaining loop
 candidates, prefix-range visits, ancestor hops, and BTreeMap lookups (log
 bound) separately from result cardinality. Production `WorkCounter` is

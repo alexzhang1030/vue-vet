@@ -183,6 +183,8 @@ the release-profile binary, repeated LSP edits, MCP cold/warm scan, finding and
 scope explain, safe-fix preview, and workspace bounds. Local `just roll-rust`
 passes with the reporter regression test included. The release binary is built
 with the unchanged fat-LTO/abort profile and checked separately from timing.
+`cargo bench --profile release` forces unwind; those Divan artifacts measure
+the release-optimization/unwind path. Release CLI timing measures the abort path.
 
 ## Compatibility baselines
 
