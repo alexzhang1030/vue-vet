@@ -42,6 +42,14 @@ const REPLACED_META: RuleMeta = RuleMeta {
   documentation: "rules/reactivity/no-watch-replaced-object-source",
 };
 
+const EXTRACTED_METHOD_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-extracted-reactive-collection-method",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-extracted-reactive-collection-method",
+};
+
 pub(super) struct NoTriggerRefOnNonRef;
 pub(super) static NO_TRIGGER_REF_ON_NON_REF: NoTriggerRefOnNonRef = NoTriggerRefOnNonRef;
 
@@ -58,6 +66,10 @@ pub(super) static NO_WATCH_UNWRAPPED_SOURCE: NoWatchUnwrappedSource = NoWatchUnw
 pub(super) struct NoWatchReplacedObjectSource;
 pub(super) static NO_WATCH_REPLACED_OBJECT_SOURCE: NoWatchReplacedObjectSource =
   NoWatchReplacedObjectSource;
+
+pub(super) struct NoExtractedReactiveCollectionMethod;
+pub(super) static NO_EXTRACTED_REACTIVE_COLLECTION_METHOD: NoExtractedReactiveCollectionMethod =
+  NoExtractedReactiveCollectionMethod;
 
 impl Rule for NoTriggerRefOnNonRef {
   fn meta(&self) -> &'static RuleMeta {
@@ -167,6 +179,41 @@ impl Rule for NoWatchReplacedObjectSource {
   }
 }
 
+impl Rule for NoExtractedReactiveCollectionMethod {
+  fn meta(&self) -> &'static RuleMeta {
+    &EXTRACTED_METHOD_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.extracted_reactive_collection_method {
+        context.report(
+          self.meta(),
+          site.call_span,
+          format!(
+            "Calling extracted `{}.{}` loses the reactive {} receiver and throws TypeError",
+            site.collection, site.method, site.collection
+          ),
+          Some(format!(
+            "`{}` wrapped this {} at {}:{}; `{}` was extracted at {}:{}. Keep the receiver (`{}.{}(...)`) or bind it (`{}.call({}, ...)`).",
+            site.api,
+            site.collection,
+            site.constructor_span.line,
+            site.constructor_span.column,
+            site.method,
+            site.extraction_span.line,
+            site.extraction_span.column,
+            site.object,
+            site.method,
+            site.method,
+            site.object
+          )),
+        );
+      }
+    }
+  }
+}
+
 fn report_site(
   context: &mut RuleContext<'_>,
   meta: &RuleMeta,
@@ -185,5 +232,6 @@ pub(super) fn source_contract_rules() -> Vec<&'static dyn Rule> {
     &NO_PRIMITIVE_REACTIVE_TARGET,
     &NO_WATCH_UNWRAPPED_SOURCE,
     &NO_WATCH_REPLACED_OBJECT_SOURCE,
+    &NO_EXTRACTED_REACTIVE_COLLECTION_METHOD,
   ]
 }

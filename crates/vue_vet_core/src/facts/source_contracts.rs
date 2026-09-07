@@ -19,6 +19,8 @@ pub struct SourceContractFacts {
   pub watch_unwrapped_source: Vec<SourceContractSiteFact>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub watch_replaced_object_source: Vec<WatchReplacedObjectSourceFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub extracted_reactive_collection_method: Vec<ExtractedReactiveCollectionMethodFact>,
 }
 
 impl SourceContractFacts {
@@ -29,6 +31,7 @@ impl SourceContractFacts {
       && self.primitive_reactive_target.is_empty()
       && self.watch_unwrapped_source.is_empty()
       && self.watch_replaced_object_source.is_empty()
+      && self.extracted_reactive_collection_method.is_empty()
   }
 }
 
@@ -47,4 +50,16 @@ pub struct WatchReplacedObjectSourceFact {
   pub replacement_span: SourceSpan,
   pub object: String,
   pub property: String,
+}
+
+/// Bare call of a method extracted from a proven reactive Map/Set/array.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ExtractedReactiveCollectionMethodFact {
+  pub call_span: SourceSpan,
+  pub extraction_span: SourceSpan,
+  pub constructor_span: SourceSpan,
+  pub object: String,
+  pub method: String,
+  pub collection: String,
+  pub api: String,
 }

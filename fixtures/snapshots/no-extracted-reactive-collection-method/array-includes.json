@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-extracted-reactive-collection-method",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-extracted-reactive-collection-method",
+    "message": "Calling extracted `Array.includes` loses the reactive Array receiver and throws TypeError",
+    "help": "`reactive` wrapped this Array at 3:24; `includes` was extracted at 4:9. Keep the receiver (`items.includes(...)`) or bind it (`includes.call(items, ...)`).",
+    "file": "fixtures/rules/no-extracted-reactive-collection-method/invalid/array-includes.vue",
+    "span": {
+      "offset": 114,
+      "length": 11,
+      "line": 5,
+      "column": 1
+    }
+  }
+]

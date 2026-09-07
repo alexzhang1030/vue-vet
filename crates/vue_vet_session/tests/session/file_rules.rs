@@ -418,6 +418,9 @@ watch(n.value, () => {})\n\
 triggerRef(reactive({ n: 1 }))\n\
 toRefs({ a: 1 })\n\
 void reactive(0)\n\
+const map = reactive(new Map([['a', 1]]))\n\
+const { get } = map\n\
+get('a')\n\
 </script>\n\
 <template><p /></template>\n";
   let replaced = "<script setup lang=\"ts\">\n\
@@ -442,11 +445,12 @@ obj.nested = { x: 9 }\n\
         || diagnostic.rule_id.contains("primitive-reactive")
         || diagnostic.rule_id.contains("watch-unwrapped")
         || diagnostic.rule_id.contains("watch-replaced")
+        || diagnostic.rule_id.contains("extracted-reactive-collection-method")
     })
     .count();
   assert!(
-    contract_count >= 5,
-    "cold scan must emit the five source-contract IDs; {:?}",
+    contract_count >= 6,
+    "cold scan must emit the six source-contract IDs; {:?}",
     cold.summary.diagnostics
   );
   session
@@ -457,5 +461,44 @@ obj.nested = { x: 9 }\n\
     .analyze()
     .unwrap_or_else(|error| panic!("clean: {error}"));
   assert_analysis_parity(&warm, &clean);
+  let _ignored = std::fs::remove_dir_all(root);
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn plain_ts_extracted_collection_method_runs() {
+  let root =
+    std::env::temp_dir().join(format!("vue-vet-extracted-collection-ts-{}", std::process::id()));
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+  let source = "import { reactive } from 'vue'\n\
+const map = reactive(new Map([['a', 1]]))\n\
+const { get } = map\n\
+get('a')\n";
+  let path = root.join("store.ts");
+  std::fs::write(&path, source).unwrap_or_else(|error| panic!("write: {error}"));
+  let session = open_session_threads(root.clone(), 1);
+  let cold = session.analyze().unwrap_or_else(|error| panic!("cold: {error}"));
+  assert!(
+    cold.summary.diagnostics.iter().any(|diagnostic| {
+      diagnostic.file == FileId::from("store.ts")
+        && diagnostic.rule_id == "vue-vet/reactivity/no-extracted-reactive-collection-method"
+    }),
+    "plain TS must run extracted collection-method rule; {:?}",
+    cold.summary.diagnostics
+  );
+  session
+    .apply_changes(ChangeSet::upsert(path.clone(), source.into()))
+    .unwrap_or_else(|error| panic!("touch: {error}"));
+  let warm = session.analyze_affected().unwrap_or_else(|error| panic!("warm: {error}"));
+  let mut overlays = BTreeMap::new();
+  overlays.insert(path, source.into());
+  let overlay =
+    session.analyze_with_overlays(&overlays).unwrap_or_else(|error| panic!("overlay: {error}"));
+  let clean = open_session_threads(root.clone(), 1)
+    .analyze()
+    .unwrap_or_else(|error| panic!("clean: {error}"));
+  assert_analysis_parity(&warm, &clean);
+  assert_analysis_parity(&overlay, &clean);
   let _ignored = std::fs::remove_dir_all(root);
 }

@@ -70,6 +70,39 @@ pub(super) enum ShapeHint {
   New(Span),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum CollectionCtor {
+  Map,
+  Set,
+  WeakMap,
+  WeakSet,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum CollectionKind {
+  Map,
+  Set,
+  Array,
+}
+
+impl CollectionKind {
+  pub(super) const fn as_str(self) -> &'static str {
+    match self {
+      Self::Map => "Map",
+      Self::Set => "Set",
+      Self::Array => "Array",
+    }
+  }
+
+  pub(super) fn accepts_method(self, method: &str) -> bool {
+    match self {
+      Self::Map => matches!(method, "get" | "set" | "has"),
+      Self::Set => matches!(method, "has" | "add"),
+      Self::Array => matches!(method, "map" | "includes" | "push"),
+    }
+  }
+}
+
 pub(super) fn intern_api(name: &str) -> Option<&'static str> {
   match name {
     "triggerRef" => Some("triggerRef"),
@@ -98,6 +131,92 @@ pub(super) fn is_vue_runtime_source(source: &str) -> bool {
   )
 }
 
+pub(super) fn is_strict_vue_runtime_source(source: &str) -> bool {
+  matches!(source, "vue" | "@vue/runtime-core" | "@vue/runtime-dom" | "@vue/reactivity")
+}
+
+pub(super) fn intern_vue_source(source: &str) -> Option<&'static str> {
+  match source {
+    "vue" => Some("vue"),
+    "vue-demi" => Some("vue-demi"),
+    "@vue/runtime-core" => Some("@vue/runtime-core"),
+    "@vue/runtime-dom" => Some("@vue/runtime-dom"),
+    "@vue/reactivity" => Some("@vue/reactivity"),
+    "#imports" => Some("#imports"),
+    _ => None,
+  }
+}
+
+pub(super) fn intern_extractable_method(name: &str) -> Option<&'static str> {
+  match name {
+    "get" => Some("get"),
+    "set" => Some("set"),
+    "has" => Some("has"),
+    "add" => Some("add"),
+    "map" => Some("map"),
+    "includes" => Some("includes"),
+    "push" => Some("push"),
+    _ => None,
+  }
+}
+
+pub(super) fn is_known_receiver_method(name: &str) -> bool {
+  matches!(
+    name,
+    "get"
+      | "set"
+      | "has"
+      | "add"
+      | "delete"
+      | "clear"
+      | "forEach"
+      | "keys"
+      | "values"
+      | "entries"
+      | "map"
+      | "includes"
+      | "push"
+      | "pop"
+      | "shift"
+      | "unshift"
+      | "splice"
+      | "slice"
+      | "filter"
+      | "reduce"
+      | "reduceRight"
+      | "find"
+      | "findIndex"
+      | "findLast"
+      | "findLastIndex"
+      | "some"
+      | "every"
+      | "concat"
+      | "join"
+      | "indexOf"
+      | "lastIndexOf"
+      | "at"
+      | "flat"
+      | "flatMap"
+      | "reverse"
+      | "sort"
+      | "fill"
+      | "copyWithin"
+      | "toSorted"
+      | "toReversed"
+      | "toSpliced"
+      | "with"
+  )
+}
+
+pub(super) fn intern_native_ctor(name: &str) -> Option<&'static str> {
+  match name {
+    "Map" => Some("Map"),
+    "Set" => Some("Set"),
+    "Array" => Some("Array"),
+    _ => None,
+  }
+}
+
 pub(super) fn is_named_auto_import_source(source: &str) -> bool {
   source == "#imports"
 }
@@ -112,8 +231,9 @@ pub(super) fn is_ref_api(api: &str) -> bool {
 pub(super) fn collect_vue_imports(
   semantic: &oxc_semantic::Semantic<'_>,
   work: &WorkCounter,
-) -> HashMap<SymbolId, VueImport> {
+) -> (HashMap<SymbolId, VueImport>, HashMap<SymbolId, &'static str>) {
   let mut imports = HashMap::new();
+  let mut import_from = HashMap::new();
   for node in semantic.nodes() {
     work.add_nodes(1);
     let AstKind::ImportDeclaration(declaration) = node.kind() else {
@@ -128,6 +248,9 @@ pub(super) fn collect_vue_imports(
     if !runtime && !auto {
       continue;
     }
+    let Some(from) = intern_vue_source(source) else {
+      continue;
+    };
     let Some(specifiers) = &declaration.specifiers else {
       continue;
     };
@@ -147,11 +270,13 @@ pub(super) fn collect_vue_imports(
             && let Some(symbol_id) = specifier.local.symbol_id.get()
           {
             imports.insert(symbol_id, VueImport::Named(api));
+            import_from.insert(symbol_id, from);
           }
         }
         ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier) if runtime => {
           if let Some(symbol_id) = specifier.local.symbol_id.get() {
             imports.insert(symbol_id, VueImport::Namespace);
+            import_from.insert(symbol_id, from);
           }
         }
         ImportDeclarationSpecifier::ImportNamespaceSpecifier(_)
@@ -159,7 +284,7 @@ pub(super) fn collect_vue_imports(
       }
     }
   }
-  imports
+  (imports, import_from)
 }
 
 pub(super) fn hint_of(
@@ -204,11 +329,24 @@ pub(super) fn is_unresolved_collection(
   callee: &Expression<'_>,
   symbol_of: impl Fn(&IdentifierReference<'_>) -> Option<SymbolId>,
 ) -> bool {
-  let Some(identifier) = callee.get_inner_expression().get_identifier_reference() else {
-    return false;
-  };
-  matches!(identifier.name.as_str(), "Map" | "Set" | "WeakMap" | "WeakSet")
-    && symbol_of(identifier).is_none()
+  unresolved_collection_kind(callee, symbol_of).is_some()
+}
+
+pub(super) fn unresolved_collection_kind(
+  callee: &Expression<'_>,
+  symbol_of: impl Fn(&IdentifierReference<'_>) -> Option<SymbolId>,
+) -> Option<CollectionCtor> {
+  let identifier = callee.get_inner_expression().get_identifier_reference()?;
+  if symbol_of(identifier).is_some() {
+    return None;
+  }
+  match identifier.name.as_str() {
+    "Map" => Some(CollectionCtor::Map),
+    "Set" => Some(CollectionCtor::Set),
+    "WeakMap" => Some(CollectionCtor::WeakMap),
+    "WeakSet" => Some(CollectionCtor::WeakSet),
+    _ => None,
+  }
 }
 
 pub(super) fn resolve_vue_api(

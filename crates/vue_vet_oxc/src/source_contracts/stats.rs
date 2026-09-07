@@ -1,12 +1,15 @@
 //! Adapter-only work counters for source-contract collection.
 //!
 //! `SourceContractStats::work` is completed collector work: Vue-import
-//! node and specifier visits, per-node owner construction, the main scan,
-//! reference-role indexing, object-entry summary visits and per-property
+//! node and specifier visits, per-node owner construction, alias-root
+//! precompute and bounded compression, native constructor/prototype alias
+//! map construction and identity resolution, the main scan, reference-role
+//! indexing, unresolved leftover-escape span copy/sort/merge and covering
+//! `partition_point` checks, unresolved native/global reference covering,
 //! max-index comparisons, write-owner summary visits, the fact-collection
-//! walk, diagnostic-ordering comparisons, query-time map lookups, and
-//! `partition_point` predicate executions. Shape classification records one
-//! query per `classify_maybe`.
+//! walk, diagnostic-ordering comparisons, query-time map lookups, ancestor
+//! eligibility walks, and `partition_point` predicate executions. Shape
+//! classification records one query per `classify_maybe`.
 
 use std::cell::Cell;
 
@@ -79,6 +82,14 @@ impl WorkCounter {
       self.add_queries(1);
       predicate(item)
     })
+  }
+
+  /// Counted leftover-range ordering. `sort_unstable` would hide comparison work.
+  pub(super) fn sort_unstable<T: Ord>(&self, items: &mut [T]) {
+    items.sort_unstable_by(|left, right| {
+      self.add_queries(1);
+      left.cmp(right)
+    });
   }
 
   #[expect(clippy::missing_const_for_fn, reason = "Cell::get is not const")]

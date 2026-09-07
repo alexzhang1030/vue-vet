@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-extracted-reactive-collection-method",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-extracted-reactive-collection-method",
+    "message": "Calling extracted `Array.push` loses the reactive Array receiver and throws TypeError",
+    "help": "`reactive` wrapped this Array at 3:24; `push` was extracted at 4:14. Keep the receiver (`items.push(...)`) or bind it (`push.call(items, ...)`).",
+    "file": "fixtures/rules/no-extracted-reactive-collection-method/invalid/array-push.vue",
+    "span": {
+      "offset": 111,
+      "length": 7,
+      "line": 5,
+      "column": 1
+    }
+  }
+]
