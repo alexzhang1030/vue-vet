@@ -6,8 +6,8 @@ use oxc_ast::{
   AstKind,
   ast::{
     Argument, AssignmentOperator, AssignmentTarget, AssignmentTargetMaybeDefault,
-    AssignmentTargetProperty, CallExpression, Expression, IdentifierReference, ObjectPropertyKind,
-    PropertyKind, SimpleAssignmentTarget,
+    AssignmentTargetProperty, BindingPattern, CallExpression, Expression, IdentifierReference,
+    ObjectPropertyKind, PropertyKind, SimpleAssignmentTarget, StaticMemberExpression,
   },
 };
 use oxc_semantic::{NodeId, SymbolFlags, SymbolId};
@@ -15,6 +15,10 @@ use oxc_span::{GetSpan, Span};
 use oxc_syntax::reference::ReferenceFlags;
 use vue_vet_core::{ScriptKind, SourceSpan};
 
+use super::proof::{
+  ANCESTOR_BUDGET, DemandOrigin, DemandRole, Reach, classify_reach, classify_role,
+  is_custom_prototype_key,
+};
 use super::shape::{
   ShapeHint, VueImport, collect_vue_imports, hint_of, is_fresh_allocation,
   is_unresolved_collection, resolve_vue_api, span_key,
@@ -53,6 +57,23 @@ pub(super) struct CallInfo {
   pub has_spread: bool,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(super) struct MemberUse {
+  pub offset: usize,
+  pub span: Span,
+  pub callable: Option<NodeId>,
+  pub region: NodeId,
+  pub optional: bool,
+  pub reach: Reach,
+  pub role: DemandRole,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct NamedUse {
+  pub key: String,
+  pub site: MemberUse,
+}
+
 #[derive(Clone, Debug)]
 pub(super) enum ObjectEntry {
   Spread,
@@ -68,9 +89,10 @@ pub(super) enum ObjectProp {
 }
 
 #[derive(Clone, Copy)]
-struct Owner {
-  callable: Option<NodeId>,
-  block: Option<NodeId>,
+pub(super) struct Owner {
+  pub callable: Option<NodeId>,
+  pub block: Option<NodeId>,
+  pub region: Option<NodeId>,
 }
 
 pub(super) struct Indexes {
@@ -81,7 +103,14 @@ pub(super) struct Indexes {
   pub reassigned: HashSet<SymbolId>,
   pub unknown_member_touch: HashSet<SymbolId>,
   pub value_writes: HashMap<SymbolId, Vec<ValueWrite>>,
+  pub value_reads: HashMap<SymbolId, Vec<MemberUse>>,
+  pub member_reads_by_root: HashMap<SymbolId, Vec<NamedUse>>,
+  pub chained_value_by_root: HashMap<SymbolId, Vec<NamedUse>>,
+  pub member_calls_by_root: HashMap<SymbolId, Vec<NamedUse>>,
+  pub destructure_by_object: HashMap<SymbolId, Vec<(SymbolId, String)>>,
   pub member_writes: HashMap<(SymbolId, String), Vec<MemberWrite>>,
+  pub capability_touch: HashSet<SymbolId>,
+  pub closed_key_unknown: HashSet<SymbolId>,
   pub hints: HashMap<u64, ShapeHint>,
   pub calls: HashMap<u64, CallInfo>,
   pub objects: HashMap<u64, Vec<ObjectEntry>>,
@@ -96,6 +125,10 @@ pub(super) struct Indexes {
   mixed_member_owners: HashSet<(SymbolId, String)>,
   value_write_owner: HashMap<SymbolId, (Option<NodeId>, NodeId)>,
   member_write_owner: HashMap<(SymbolId, String), (Option<NodeId>, NodeId)>,
+  member_call_by_span: HashMap<u64, NamedUse>,
+  stops_by_region: HashMap<(SymbolId, Option<NodeId>, NodeId), Vec<MemberUse>>,
+  barriers_by_region: HashMap<NodeId, Vec<usize>>,
+  closed_keys: HashMap<u64, HashSet<String>>,
   owners: HashMap<NodeId, Owner>,
   work: WorkCounter,
 }
@@ -118,7 +151,14 @@ impl Indexes {
       reassigned: HashSet::new(),
       unknown_member_touch: HashSet::new(),
       value_writes: HashMap::new(),
+      value_reads: HashMap::new(),
+      member_reads_by_root: HashMap::new(),
+      chained_value_by_root: HashMap::new(),
+      member_calls_by_root: HashMap::new(),
+      destructure_by_object: HashMap::new(),
       member_writes: HashMap::new(),
+      capability_touch: HashSet::new(),
+      closed_key_unknown: HashSet::new(),
       hints: HashMap::new(),
       calls: HashMap::new(),
       objects: HashMap::new(),
@@ -133,6 +173,10 @@ impl Indexes {
       mixed_member_owners: HashSet::new(),
       value_write_owner: HashMap::new(),
       member_write_owner: HashMap::new(),
+      member_call_by_span: HashMap::new(),
+      stops_by_region: HashMap::new(),
+      barriers_by_region: HashMap::new(),
+      closed_keys: HashMap::new(),
       owners: HashMap::new(),
       work,
     };
@@ -140,14 +184,33 @@ impl Indexes {
     indexes.scan(semantic, line_index, sfc_source, script_offset, kind);
     indexes.finish_aliases_and_roles(semantic);
     indexes.summarize_writes();
+    indexes.summarize_closed_keys();
     for events in indexes.events_by_block.values_mut() {
       events.sort_unstable();
+    }
+    for barriers in indexes.barriers_by_region.values_mut() {
+      barriers.sort_unstable();
+    }
+    for stops in indexes.stops_by_region.values_mut() {
+      stops.sort_by_key(|stop| stop.offset);
     }
     for writes in indexes.member_writes.values_mut() {
       writes.sort_by_key(|write| write.offset);
     }
     for writes in indexes.value_writes.values_mut() {
       writes.sort_by_key(|write| write.offset);
+    }
+    for uses in indexes.value_reads.values_mut() {
+      uses.sort_by_key(|use_site| use_site.offset);
+    }
+    for uses in indexes.member_reads_by_root.values_mut() {
+      uses.sort_by_key(|use_site| use_site.site.offset);
+    }
+    for uses in indexes.chained_value_by_root.values_mut() {
+      uses.sort_by_key(|use_site| use_site.site.offset);
+    }
+    for uses in indexes.member_calls_by_root.values_mut() {
+      uses.sort_by_key(|use_site| use_site.site.offset);
     }
     indexes
   }
@@ -277,22 +340,355 @@ impl Indexes {
     self.object_props.get(&span_key(object_span)).and_then(|props| props.get(property)).copied()
   }
 
+  pub(super) fn has_closed_keys(&self, object_span: Span) -> bool {
+    self.work.add_queries(1);
+    self.closed_keys.contains_key(&span_key(object_span))
+  }
+
+  pub(super) fn closed_object_has_key(&self, object_span: Span, key: &str) -> Option<bool> {
+    self.work.add_queries(1);
+    let keys = self.closed_keys.get(&span_key(object_span))?;
+    self.work.add_key_lookups(1);
+    Some(keys.contains(key))
+  }
+
+  pub(super) fn keys_closed(&self, root: SymbolId) -> bool {
+    self.work.add_queries(1);
+    !self.reassigned.contains(&root)
+      && !self.unknown_member_touch.contains(&root)
+      && !self.capability_touch.contains(&root)
+      && !self.closed_key_unknown.contains(&root)
+  }
+
+  pub(super) fn demand_ok(&self, site: &MemberUse) -> bool {
+    self.work.add_queries(1);
+    site.reach.is_straight() && !site.optional
+  }
+
+  pub(super) fn origin_for(&self, node_id: NodeId, offset: usize) -> DemandOrigin {
+    let owner = self.owner(node_id);
+    DemandOrigin { callable: owner.callable, region: region_of(owner, node_id), offset }
+  }
+
+  pub(super) fn has_barrier_between(&self, region: NodeId, start: usize, end: usize) -> bool {
+    if end <= start {
+      self.work.add_queries(1);
+      return false;
+    }
+    let Some(barriers) = self.barriers_by_region.get(&region) else {
+      self.work.add_queries(1);
+      return false;
+    };
+    let index = self.work.partition_point(barriers, |offset| *offset <= start);
+    self.work.add_queries(1);
+    barriers.get(index).is_some_and(|offset| *offset < end)
+  }
+
+  pub(super) fn demand_from(&self, site: &MemberUse, origin: DemandOrigin) -> bool {
+    self.demand_ok(site)
+      && site.callable == origin.callable
+      && site.region == origin.region
+      && !self.has_barrier_between(origin.region, origin.offset, site.offset)
+  }
+
+  pub(super) fn member_call_at(&self, span: Span) -> Option<&NamedUse> {
+    self.work.add_queries(1);
+    self.member_call_by_span.get(&span_key(span))
+  }
+
+  pub(super) fn last_stop_before(
+    &self,
+    root: SymbolId,
+    callable: Option<NodeId>,
+    region: NodeId,
+    offset: usize,
+  ) -> Option<MemberUse> {
+    let Some(stops) = self.stops_by_region.get(&(root, callable, region)) else {
+      self.work.add_queries(1);
+      return None;
+    };
+    let index = self.work.partition_point(stops, |stop| stop.offset < offset);
+    self.work.add_queries(1);
+    index.checked_sub(1).and_then(|index| stops.get(index)).copied()
+  }
+
+  pub(super) fn capability_intact(&self, root: SymbolId) -> bool {
+    self.work.add_queries(1);
+    !self.payload_uncertain(root) && !self.capability_touch.contains(&root)
+  }
+
+  pub(super) fn key_mutated(&self, root: SymbolId, key: &str) -> bool {
+    self.work.add_queries(1);
+    if self.unknown_member_touch.contains(&root) {
+      return true;
+    }
+    self.work.add_key_copies(1);
+    self.work.add_key_lookups(1);
+    self.member_writes.contains_key(&(root, key.to_string()))
+  }
+
+  pub(super) fn copy_key(&self, key: &str) -> String {
+    self.work.add_key_copies(1);
+    key.to_string()
+  }
+
+  pub(super) fn first_straight_value(
+    &self,
+    root: SymbolId,
+    needs: impl Fn(DemandRole) -> bool,
+    origin: DemandOrigin,
+  ) -> Option<MemberUse> {
+    let Some(uses) = self.value_reads.get(&root) else {
+      self.work.add_queries(1);
+      return None;
+    };
+    uses.iter().copied().find(|site| {
+      self.work.add_queries(1);
+      self.demand_from(site, origin) && needs(site.role)
+    })
+  }
+
+  pub(super) fn has_straight_value_before(
+    &self,
+    root: SymbolId,
+    needs: impl Fn(DemandRole) -> bool,
+    origin: DemandOrigin,
+    before: usize,
+  ) -> bool {
+    let Some(uses) = self.value_reads.get(&root) else {
+      self.work.add_queries(1);
+      return false;
+    };
+    let end = self.work.partition_point(uses, |site| site.offset < before);
+    uses.get(..end).is_some_and(|prior| {
+      prior.iter().any(|site| {
+        self.work.add_queries(1);
+        self.demand_from(site, origin) && needs(site.role)
+      })
+    })
+  }
+
+  pub(super) const fn work_counter(&self) -> &WorkCounter {
+    &self.work
+  }
+
+  pub(super) fn member_calls_on(&self, root: SymbolId) -> &[NamedUse] {
+    self.work.add_queries(1);
+    self.member_calls_by_root.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn member_reads_on(&self, root: SymbolId) -> &[NamedUse] {
+    self.work.add_queries(1);
+    self.member_reads_by_root.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn chained_values_on(&self, root: SymbolId) -> &[NamedUse] {
+    self.work.add_queries(1);
+    self.chained_value_by_root.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn destructures_of(&self, root: SymbolId) -> &[(SymbolId, String)] {
+    self.work.add_queries(1);
+    self.destructure_by_object.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  fn record_static_member(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    node_id: NodeId,
+    member: &StaticMemberExpression<'_>,
+  ) {
+    let optional = chain_optional(semantic, node_id, &self.work);
+    let owner = self.owner(node_id);
+    let region = region_of(owner, node_id);
+    let use_site = MemberUse {
+      offset: mapped(line_index, sfc_source, script_offset, member.span).offset,
+      span: member.span,
+      callable: owner.callable,
+      region,
+      optional,
+      reach: classify_reach(semantic, node_id, &self.work),
+      role: classify_role(semantic, node_id, &self.work),
+    };
+    let property = member.property.name.as_str();
+    let object = member.object.get_inner_expression();
+    if let Some(ident) = object.get_identifier_reference()
+      && let Some(symbol_id) = reference_symbol(semantic, ident)
+    {
+      let root = self.root_of(symbol_id);
+      if property == "value" {
+        if use_site.role.needs_get() || use_site.role.needs_set() {
+          self.value_reads.entry(root).or_default().push(use_site);
+        }
+      } else {
+        self
+          .member_reads_by_root
+          .entry(root)
+          .or_default()
+          .push(NamedUse { key: property.to_string(), site: use_site });
+      }
+      return;
+    }
+    if property == "value"
+      && let Expression::StaticMemberExpression(inner) = object
+      && let Some(ident) = inner.object.get_inner_expression().get_identifier_reference()
+      && let Some(symbol_id) = reference_symbol(semantic, ident)
+    {
+      let root = self.root_of(symbol_id);
+      let key = inner.property.name.as_str().to_string();
+      self.chained_value_by_root.entry(root).or_default().push(NamedUse { key, site: use_site });
+    }
+  }
+
+  fn record_member_call(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    node_id: NodeId,
+    call: &CallExpression<'_>,
+  ) {
+    let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() else {
+      return;
+    };
+    let Some(ident) = member.object.get_inner_expression().get_identifier_reference() else {
+      return;
+    };
+    let Some(symbol_id) = reference_symbol(semantic, ident) else {
+      return;
+    };
+    let optional = chain_optional(semantic, node_id, &self.work);
+    let owner = self.owner(node_id);
+    let region = region_of(owner, node_id);
+    let use_site = MemberUse {
+      offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
+      span: call.span,
+      callable: owner.callable,
+      region,
+      optional,
+      reach: classify_reach(semantic, node_id, &self.work),
+      role: DemandRole::Other,
+    };
+    let named = NamedUse { key: member.property.name.as_str().to_string(), site: use_site };
+    let root = self.root_of(symbol_id);
+    if named.key == "stop" && self.demand_ok(&use_site) {
+      self.stops_by_region.entry((root, use_site.callable, region)).or_default().push(use_site);
+    }
+    self.member_call_by_span.insert(span_key(call.span), named.clone());
+    self.member_calls_by_root.entry(root).or_default().push(named);
+  }
+
+  fn record_destructure(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    pattern: &BindingPattern<'_>,
+    init: &Expression<'_>,
+  ) {
+    let Some(ident) = init.get_inner_expression().get_identifier_reference() else {
+      if let BindingPattern::ObjectPattern(object) = pattern
+        && let Expression::CallExpression(_) = init.get_inner_expression()
+      {
+        self.record_object_destructure_from_call(semantic, object);
+      }
+      return;
+    };
+    let Some(object_symbol) = reference_symbol(semantic, ident) else {
+      return;
+    };
+    let root = self.root_of(object_symbol);
+    let BindingPattern::ObjectPattern(object) = pattern else {
+      return;
+    };
+    if object.rest.is_some() {
+      self.uncertain.insert(root);
+      return;
+    }
+    for property in &object.properties {
+      let Some(key) = property.key.static_name() else {
+        self.uncertain.insert(root);
+        return;
+      };
+      if let BindingPattern::BindingIdentifier(binding) = &property.value
+        && let Some(local) = binding.symbol_id.get()
+      {
+        self.destructure_by_object.entry(root).or_default().push((local, key.to_string()));
+      }
+    }
+  }
+
+  fn record_object_destructure_from_call(
+    &mut self,
+    _semantic: &oxc_semantic::Semantic<'_>,
+    object: &oxc_ast::ast::ObjectPattern<'_>,
+  ) {
+    if object.rest.is_some() {
+      return;
+    }
+    for property in &object.properties {
+      let Some(key) = property.key.static_name() else {
+        return;
+      };
+      if let BindingPattern::BindingIdentifier(binding) = &property.value
+        && let Some(local) = binding.symbol_id.get()
+      {
+        self.destructure_by_object.entry(local).or_default().push((local, key.to_string()));
+      }
+    }
+  }
+
   fn build_owners(&mut self, semantic: &oxc_semantic::Semantic<'_>) {
     for (node_id, node) in semantic.nodes().iter_enumerated() {
       self.work.add_owners(1);
       let parent = semantic.nodes().parent_id(node_id);
-      let inherited =
-        self.owners.get(&parent).copied().unwrap_or(Owner { callable: None, block: None });
+      let inherited = self.owners.get(&parent).copied().unwrap_or(Owner {
+        callable: None,
+        block: None,
+        region: None,
+      });
       let mut callable = inherited.callable;
       let mut block = inherited.block;
+      let mut region = inherited.region;
       match node.kind() {
         AstKind::Function(_) | AstKind::ArrowFunctionExpression(_) => callable = Some(node_id),
-        AstKind::Program(_) | AstKind::FunctionBody(_) | AstKind::BlockStatement(_) => {
+        AstKind::Program(_) | AstKind::FunctionBody(_) => {
           block = Some(node_id);
+          region = Some(node_id);
         }
+        AstKind::BlockStatement(_) => block = Some(node_id),
         _ => {}
       }
-      self.owners.insert(node_id, Owner { callable, block });
+      self.owners.insert(node_id, Owner { callable, block, region });
+    }
+  }
+
+  fn summarize_closed_keys(&mut self) {
+    for (key, entries) in &self.objects {
+      let mut keys = HashSet::new();
+      let mut closed = true;
+      for entry in entries {
+        self.work.add_object_entries(1);
+        match entry {
+          ObjectEntry::Data { name, .. } => {
+            if is_custom_prototype_key(name) {
+              closed = false;
+              break;
+            }
+            self.work.add_key_copies(1);
+            keys.insert(name.clone());
+          }
+          ObjectEntry::Spread | ObjectEntry::Computed | ObjectEntry::Accessor { .. } => {
+            closed = false;
+            break;
+          }
+        }
+      }
+      if closed {
+        self.closed_keys.insert(*key, keys);
+      }
     }
   }
 
@@ -329,8 +725,12 @@ impl Indexes {
     }
   }
 
-  fn owner(&self, node_id: NodeId) -> Owner {
-    self.owners.get(&node_id).copied().unwrap_or(Owner { callable: None, block: None })
+  pub(super) fn owner(&self, node_id: NodeId) -> Owner {
+    self.owners.get(&node_id).copied().unwrap_or(Owner {
+      callable: None,
+      block: None,
+      region: None,
+    })
   }
 
   pub(super) fn note_node(&self) {
@@ -341,6 +741,7 @@ impl Indexes {
     self.work.add_queries(1);
   }
 
+  #[expect(clippy::too_many_lines, reason = "one-pass statement kind dispatch")]
   fn scan(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
@@ -352,6 +753,16 @@ impl Indexes {
     for (node_id, node) in semantic.nodes().iter_enumerated() {
       self.work.add_nodes(1);
       match node.kind() {
+        AstKind::StaticMemberExpression(member) => {
+          self.record_static_member(
+            semantic,
+            line_index,
+            sfc_source,
+            script_offset,
+            node_id,
+            member,
+          );
+        }
         AstKind::VariableDeclarator(declarator) => {
           if matches!(
             semantic.nodes().parent_kind(semantic.nodes().parent_id(node_id)),
@@ -359,7 +770,9 @@ impl Indexes {
           ) && let oxc_ast::ast::BindingPattern::BindingIdentifier(binding) = &declarator.id
             && let Some(symbol_id) = binding.symbol_id.get()
           {
-            self.escaped.insert(self.root_of(symbol_id));
+            let root = self.root_of(symbol_id);
+            self.escaped.insert(root);
+            self.closed_key_unknown.insert(root);
           }
           if let Some(init) = &declarator.init {
             self.record_expr(semantic, kind, init);
@@ -388,6 +801,9 @@ impl Indexes {
             && let Some(init) = &declarator.init
           {
             self.init_span.insert(symbol_id, init.span());
+          }
+          if let Some(init) = &declarator.init {
+            self.record_destructure(semantic, &declarator.id, init);
           }
         }
         AstKind::AssignmentExpression(assignment) => {
@@ -421,9 +837,16 @@ impl Indexes {
           }
           self.record_stmt_site(semantic, line_index, sfc_source, script_offset, node_id);
           self.record_event(semantic, line_index, sfc_source, script_offset, node_id, call.span);
+          self.record_member_call(semantic, line_index, sfc_source, script_offset, node_id, call);
         }
         AstKind::NewExpression(expression) => {
           self.record_expr(semantic, kind, &expression.callee);
+          for argument in &expression.arguments {
+            if let Some(arg) = argument.as_expression() {
+              self.record_expr(semantic, kind, arg);
+              self.mark_escape_expr(semantic, arg);
+            }
+          }
           if is_unresolved_collection(&expression.callee, |ident| reference_symbol(semantic, ident))
           {
             self.collections.insert(span_key(expression.span));
@@ -462,6 +885,12 @@ impl Indexes {
             node_id,
             statement.span,
           );
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
+        }
+        AstKind::ThrowStatement(statement) => {
+          self.record_expr(semantic, kind, &statement.argument);
+          self.mark_escape_expr(semantic, &statement.argument);
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
         }
         AstKind::SpreadElement(spread) => self.mark_escape_expr(semantic, &spread.argument),
         AstKind::IfStatement(statement) => {
@@ -473,6 +902,7 @@ impl Indexes {
             node_id,
             statement.span,
           );
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
         }
         AstKind::ForStatement(statement) => {
           self.record_event(
@@ -483,6 +913,13 @@ impl Indexes {
             node_id,
             statement.span,
           );
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
+        }
+        AstKind::ForInStatement(statement) => {
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
+        }
+        AstKind::ForOfStatement(statement) => {
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
         }
         AstKind::WhileStatement(statement) => {
           self.record_event(
@@ -493,6 +930,10 @@ impl Indexes {
             node_id,
             statement.span,
           );
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
+        }
+        AstKind::DoWhileStatement(statement) => {
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
         }
         AstKind::SwitchStatement(statement) => {
           self.record_event(
@@ -503,6 +944,7 @@ impl Indexes {
             node_id,
             statement.span,
           );
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
         }
         AstKind::TryStatement(statement) => {
           self.record_event(
@@ -513,6 +955,13 @@ impl Indexes {
             node_id,
             statement.span,
           );
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
+        }
+        AstKind::WithStatement(statement) => {
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
+        }
+        AstKind::LabeledStatement(statement) => {
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
         }
         AstKind::ExportNamedDeclaration(_) | AstKind::ExportDefaultDeclaration(_) => {
           if let AstKind::VariableDeclaration(_) = semantic.nodes().parent_kind(node_id) {
@@ -530,8 +979,19 @@ impl Indexes {
         self.work.add_references(1);
         let root = self.root_of(symbol_id);
         let flags = reference.flags();
+        let node_id = reference.node_id();
         let member_payload = flags.intersects(ReferenceFlags::MemberWriteTarget)
-          || known_static_member_object_role(semantic, reference.node_id());
+          || known_static_member_object_role(semantic, node_id);
+        if !closed_key_use_is_known(
+          semantic,
+          node_id,
+          flags,
+          member_payload,
+          &self.calls,
+          &self.work,
+        ) {
+          self.closed_key_unknown.insert(root);
+        }
         if member_payload {
           if flags.is_write() && !self.has_simple_value_write(root) && !self.has_member_write(root)
           {
@@ -543,7 +1003,7 @@ impl Indexes {
           self.reassigned.insert(root);
           continue;
         }
-        if known_const_alias_role(semantic, reference.node_id()) {
+        if known_const_alias_role(semantic, node_id) {
           continue;
         }
         self.uncertain.insert(root);
@@ -648,6 +1108,7 @@ impl Indexes {
             self.uncertain.insert(root);
           }
         } else {
+          self.capability_touch.insert(root);
           self.member_write_roots.insert(root);
           self.member_writes.entry((root, property.to_string())).or_default().push(MemberWrite {
             offset,
@@ -663,7 +1124,9 @@ impl Indexes {
         if let Some(object) = member.object.get_inner_expression().get_identifier_reference()
           && let Some(symbol_id) = reference_symbol(semantic, object)
         {
-          self.unknown_member_touch.insert(self.root_of(symbol_id));
+          let root = self.root_of(symbol_id);
+          self.unknown_member_touch.insert(root);
+          self.capability_touch.insert(root);
         }
       }
       AssignmentTarget::ObjectAssignmentTarget(_) | AssignmentTarget::ArrayAssignmentTarget(_) => {
@@ -695,8 +1158,10 @@ impl Indexes {
         if let Some(object) = member.object.get_inner_expression().get_identifier_reference()
           && let Some(symbol_id) = reference_symbol(semantic, object)
         {
-          self.unknown_member_touch.insert(self.root_of(symbol_id));
-          self.uncertain.insert(self.root_of(symbol_id));
+          let root = self.root_of(symbol_id);
+          self.unknown_member_touch.insert(root);
+          self.capability_touch.insert(root);
+          self.uncertain.insert(root);
         }
       }
       AssignmentTarget::ObjectAssignmentTarget(object) => {
@@ -762,8 +1227,10 @@ impl Indexes {
         if let Some(object) = member.object.get_inner_expression().get_identifier_reference()
           && let Some(symbol_id) = reference_symbol(semantic, object)
         {
-          self.unknown_member_touch.insert(self.root_of(symbol_id));
-          self.uncertain.insert(self.root_of(symbol_id));
+          let root = self.root_of(symbol_id);
+          self.unknown_member_touch.insert(root);
+          self.capability_touch.insert(root);
+          self.uncertain.insert(root);
         }
       }
       _ => {}
@@ -825,6 +1292,21 @@ impl Indexes {
     };
     let offset = mapped(line_index, sfc_source, script_offset, span).offset;
     self.events_by_block.entry(block).or_default().push(offset);
+  }
+
+  fn record_barrier(
+    &mut self,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    node_id: NodeId,
+    span: Span,
+  ) {
+    let Some(region) = self.owner(node_id).region else {
+      return;
+    };
+    let offset = mapped(line_index, sfc_source, script_offset, span).offset;
+    self.barriers_by_region.entry(region).or_default().push(offset);
   }
 }
 
@@ -895,6 +1377,119 @@ fn known_const_alias_role(semantic: &oxc_semantic::Semantic<'_>, node_id: NodeId
   })
 }
 
+fn closed_key_use_is_known(
+  semantic: &oxc_semantic::Semantic<'_>,
+  node_id: NodeId,
+  flags: ReferenceFlags,
+  member_payload: bool,
+  calls: &HashMap<u64, CallInfo>,
+  work: &WorkCounter,
+) -> bool {
+  if known_torefs_borrow_role(semantic, node_id, calls, work) {
+    return true;
+  }
+  if known_const_alias_role(semantic, node_id) {
+    return true;
+  }
+  if member_payload {
+    return known_static_member_read_role(semantic, node_id, work);
+  }
+  flags.is_write()
+}
+
+fn known_torefs_borrow_role(
+  semantic: &oxc_semantic::Semantic<'_>,
+  node_id: NodeId,
+  calls: &HashMap<u64, CallInfo>,
+  work: &WorkCounter,
+) -> bool {
+  let ident_span = semantic.nodes().kind(node_id).span();
+  let mut current = node_id;
+  for _ in 0..ANCESTOR_BUDGET {
+    work.add_queries(1);
+    let parent = semantic.nodes().parent_id(current);
+    match semantic.nodes().kind(parent) {
+      AstKind::ParenthesizedExpression(_)
+      | AstKind::TSAsExpression(_)
+      | AstKind::TSSatisfiesExpression(_)
+      | AstKind::TSNonNullExpression(_)
+      | AstKind::TSTypeAssertion(_) => {
+        current = parent;
+      }
+      AstKind::CallExpression(call) => {
+        work.add_queries(1);
+        let Some(info) = calls.get(&span_key(call.span)) else {
+          return false;
+        };
+        if info.api != Some("toRefs") || info.has_spread {
+          return false;
+        }
+        let Some(first) = call.arguments.first().and_then(Argument::as_expression) else {
+          return false;
+        };
+        let inner = first.get_inner_expression().span();
+        return inner == ident_span || first.span() == ident_span;
+      }
+      _ => return false,
+    }
+  }
+  false
+}
+
+fn known_static_member_read_role(
+  semantic: &oxc_semantic::Semantic<'_>,
+  ident_node: NodeId,
+  work: &WorkCounter,
+) -> bool {
+  work.add_queries(1);
+  let parent = semantic.nodes().parent_id(ident_node);
+  if !matches!(semantic.nodes().kind(parent), AstKind::StaticMemberExpression(_)) {
+    return false;
+  }
+  let mut current = parent;
+  for _ in 0..ANCESTOR_BUDGET {
+    work.add_queries(1);
+    let grand = semantic.nodes().parent_id(current);
+    match semantic.nodes().kind(grand) {
+      AstKind::ParenthesizedExpression(_)
+      | AstKind::TSAsExpression(_)
+      | AstKind::TSSatisfiesExpression(_)
+      | AstKind::TSNonNullExpression(_)
+      | AstKind::TSTypeAssertion(_) => {
+        current = grand;
+      }
+      AstKind::CallExpression(_)
+      | AstKind::NewExpression(_)
+      | AstKind::TaggedTemplateExpression(_)
+      | AstKind::UnaryExpression(_)
+      | AstKind::UpdateExpression(_) => return false,
+      _ => return true,
+    }
+  }
+  false
+}
+
+fn chain_optional(
+  semantic: &oxc_semantic::Semantic<'_>,
+  mut node_id: NodeId,
+  work: &WorkCounter,
+) -> bool {
+  for _ in 0..8 {
+    work.add_queries(1);
+    let parent = semantic.nodes().parent_id(node_id);
+    match semantic.nodes().kind(parent) {
+      AstKind::ChainExpression(_) => return true,
+      AstKind::ParenthesizedExpression(_)
+      | AstKind::TSAsExpression(_)
+      | AstKind::TSSatisfiesExpression(_)
+      | AstKind::TSNonNullExpression(_)
+      | AstKind::TSTypeAssertion(_) => node_id = parent,
+      _ => return false,
+    }
+  }
+  true
+}
+
 fn object_entries(object: &oxc_ast::ast::ObjectExpression<'_>) -> Vec<ObjectEntry> {
   let mut entries = Vec::new();
   for property_kind in &object.properties {
@@ -917,6 +1512,10 @@ fn object_entries(object: &oxc_ast::ast::ObjectExpression<'_>) -> Vec<ObjectEntr
     }
   }
   entries
+}
+
+fn region_of(owner: Owner, node_id: NodeId) -> NodeId {
+  owner.region.or(owner.block).unwrap_or(node_id)
 }
 
 fn block_is_straight_line(semantic: &oxc_semantic::Semantic<'_>, block_id: NodeId) -> bool {

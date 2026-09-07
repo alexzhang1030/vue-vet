@@ -79,6 +79,7 @@ pub(super) fn intern_api(name: &str) -> Option<&'static str> {
     "shallowReactive" => Some("shallowReactive"),
     "shallowReadonly" => Some("shallowReadonly"),
     "watch" => Some("watch"),
+    "effectScope" => Some("effectScope"),
     "defineProps" => Some("defineProps"),
     "ref" => Some("ref"),
     "shallowRef" => Some("shallowRef"),

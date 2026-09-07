@@ -412,12 +412,19 @@ fn source_contract_findings_keep_incremental_identity() {
   let _ignored = std::fs::remove_dir_all(&root);
   std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
   let source = "<script setup lang=\"ts\">\n\
-import { reactive, ref, triggerRef, toRefs, watch } from 'vue'\n\
+import { customRef, effectScope, reactive, ref, triggerRef, toRefs, watch } from 'vue'\n\
 const n = ref(0)\n\
 watch(n.value, () => {})\n\
 triggerRef(reactive({ n: 1 }))\n\
 toRefs({ a: 1 })\n\
 void reactive(0)\n\
+const bad = customRef(() => ({ set() {} }))\n\
+void bad.value\n\
+const scope = effectScope()\n\
+scope.stop()\n\
+const result = scope.run(() => ({ count: 1 }))\n\
+void result.count\n\
+void toRefs(reactive({ count: 1 })).missing.value\n\
 </script>\n\
 <template><p /></template>\n";
   let replaced = "<script setup lang=\"ts\">\n\

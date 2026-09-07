@@ -1814,6 +1814,9 @@ const SOURCE_CONTRACT_RULES: &[&str] = &[
   "no-primitive-reactive-target",
   "no-watch-unwrapped-source",
   "no-watch-replaced-object-source",
+  "no-invalid-custom-ref-interface",
+  "no-inactive-scope-result",
+  "no-missing-torefs-key",
 ];
 
 #[test]

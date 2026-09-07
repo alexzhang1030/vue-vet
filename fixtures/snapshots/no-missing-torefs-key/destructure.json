@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-missing-torefs-key",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-missing-torefs-key",
+    "message": "`toRefs` bag has no `missing` on modeled own keys or the result prototype; dereferencing `.value` throws",
+    "help": "`toRefs` at 3:21 does not own `missing`. Use an existing key, or `toRef(object, 'missing')` for a future property.",
+    "file": "fixtures/rules/no-missing-torefs-key/invalid/destructure.vue",
+    "span": {
+      "offset": 120,
+      "length": 13,
+      "line": 4,
+      "column": 6
+    }
+  }
+]

@@ -3,10 +3,13 @@
 //! `SourceContractStats::work` is completed collector work: Vue-import
 //! node and specifier visits, per-node owner construction, the main scan,
 //! reference-role indexing, object-entry summary visits and per-property
-//! max-index comparisons, write-owner summary visits, the fact-collection
-//! walk, diagnostic-ordering comparisons, query-time map lookups, and
-//! `partition_point` predicate executions. Shape classification records one
-//! query per `classify_maybe`.
+//! max-index comparisons, write-owner summary visits, demand ancestor
+//! reach/role steps, per-region barrier lookups, span-keyed member-call
+//! lookups, predecessor stop summaries, memoized closed-key proofs, per-root
+//! named-use lookups, the fact-collection walk, diagnostic-ordering
+//! comparisons, query-time map lookups, `partition_point` predicate
+//! executions, demanded-key contains/hash lookups, and remaining key-string
+//! copies. Shape classification records one query per `classify_maybe`.
 
 use std::cell::Cell;
 
@@ -19,10 +22,16 @@ pub struct SourceContractStats {
   pub object_entries: u64,
   pub writes: u64,
   pub queries: u64,
+  pub key_lookups: u64,
+  pub key_copies: u64,
 }
 
 impl SourceContractStats {
   #[must_use]
+  #[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "adapter tests assert counted work including key copies")
+  )]
   pub const fn work(self) -> u64 {
     self
       .nodes
@@ -31,6 +40,8 @@ impl SourceContractStats {
       .saturating_add(self.object_entries)
       .saturating_add(self.writes)
       .saturating_add(self.queries)
+      .saturating_add(self.key_lookups)
+      .saturating_add(self.key_copies)
   }
 }
 
@@ -42,6 +53,8 @@ pub(super) struct WorkCounter {
   object_entries: Cell<u64>,
   writes: Cell<u64>,
   queries: Cell<u64>,
+  key_lookups: Cell<u64>,
+  key_copies: Cell<u64>,
 }
 
 impl WorkCounter {
@@ -69,6 +82,14 @@ impl WorkCounter {
     self.queries.set(self.queries.get().saturating_add(n));
   }
 
+  pub(super) fn add_key_lookups(&self, n: u64) {
+    self.key_lookups.set(self.key_lookups.get().saturating_add(n));
+  }
+
+  pub(super) fn add_key_copies(&self, n: u64) {
+    self.key_copies.set(self.key_copies.get().saturating_add(n));
+  }
+
   /// Map lookup plus each comparison `slice::partition_point` actually runs.
   pub(super) fn partition_point<T, F>(&self, items: &[T], mut predicate: F) -> usize
   where
@@ -90,6 +111,8 @@ impl WorkCounter {
       object_entries: self.object_entries.get(),
       writes: self.writes.get(),
       queries: self.queries.get(),
+      key_lookups: self.key_lookups.get(),
+      key_copies: self.key_copies.get(),
     }
   }
 }

@@ -213,8 +213,13 @@ Parser IR (Vize AST / Oxc Semantic)     — short-lived, never cached across ada
         ↓
 File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         (`ScriptBlockFacts::source_contracts` holds proven Vue API source-identity
-        sites from Oxc (`vue_vet_oxc::source_contracts`); lifetime facts are a
-        separate field owned elsewhere.
+        sites from Oxc (`vue_vet_oxc::source_contracts`); demand-gated facts use a
+        function-level execution region plus source-order barriers, typed Get/Set
+        capabilities, closed-body receiver-effect proof (including executed object
+        keys), and proven `toRefs` first-arg borrows over memoized closed keys.
+        Generic source5 statement eligibility stays `ExpressionStatement`-parent
+        only, and generic escape/uncertain flags stay intact. Lifetime
+        facts are a separate field owned elsewhere.
         `TemplateElementFact::has_key` includes proven object-form `v-bind`
         keys from Oxc; `is_component` is Vize `ElementType` / JSX
         identifier-reference adapted into stable facts; Vize owns directive extraction)

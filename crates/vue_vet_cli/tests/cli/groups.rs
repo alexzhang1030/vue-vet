@@ -78,6 +78,8 @@ fn list_rules_source_contracts_includes_five_ids() {
     "vue-vet/reactivity/no-trigger-ref-on-non-ref",
     "vue-vet/reactivity/no-watch-replaced-object-source",
     "vue-vet/reactivity/no-watch-unwrapped-source",
+    "vue-vet/reactivity/no-invalid-custom-ref-interface",
+    "vue-vet/reactivity/no-missing-torefs-key",
   ] {
     assert!(ids.iter().any(|row| row == id), "missing {id} in {ids:?}");
   }

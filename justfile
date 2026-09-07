@@ -53,6 +53,10 @@ oracle-lifetime:
 oracle-source-contracts:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node source-contracts.mjs
 
+# Vue 3.5.40 demand-gated value-contract premises (issue #224 batch 3).
+oracle-value-contracts:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node value-contracts.mjs
+
 # Run all non-mutating Rust linters.
 lint-rust: fmt-check check clippy
 
