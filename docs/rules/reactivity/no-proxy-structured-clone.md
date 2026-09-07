@@ -1,7 +1,9 @@
 # `vue-vet/reactivity/no-proxy-structured-clone`
 
-Category: reactivity  
-Default severity: warning  
+Category: reactivity
+
+Default severity: warning
+
 Confidence: high
 
 Native `structuredClone` throws `DataCloneError` when it reaches an actual
@@ -10,9 +12,9 @@ ECMAScript Proxy. Vue `reactive` / `readonly` / `shallowReactive` /
 reports when that proven Proxy is the single data argument of unshadowed
 `structuredClone`.
 
-Existing `DeepProxy` / `ShallowProxy` / `ReadonlyProxy` shape labels are not
-enough: Vue returns the raw target for marked, frozen, or non-extensible
-input.
+Actual Proxy proof accounts for Vue returning the raw target for marked,
+frozen, or non-extensible input. `DeepProxy` / `ShallowProxy` /
+`ReadonlyProxy` describe the constructor's result kind.
 
 ## Bad
 
@@ -39,8 +41,6 @@ const frozen = Object.freeze({ count: 1 })
 structuredClone(readonly(frozen))
 structuredClone(toRaw(reactive({ count: 1 })))
 structuredClone(shallowRef({ count: 1 }).value)
-function structuredClone(_value: unknown) {}
-structuredClone(reactive({ count: 1 }))
 </script>
 ```
 
@@ -52,33 +52,32 @@ optional `structuredClone?.(...)`, constructors imported from `#imports` or
 global or unshadowed `globalThis.structuredClone` (computed string keys,
 unresolved computed keys that could name that intrinsic, destructuring
 default/rest, TypeScript wrappers, `delete`, updates, and `for...in` /
-`for...of` assignment heads). Variable-declaration loop heads are not
-mutations. A computed *call* `globalThis[key](...)` is not a definite native
-intrinsic. Known unrelated static keys (`globalThis['fetch'] = ...`) do not
-poison. Nested
+`for...of` assignment heads). Variable-declaration loop heads retain binding
+semantics. Dynamic computed calls retain unknown native identity. Known
+unrelated static keys (`globalThis['fetch'] = ...`) preserve clone identity. Nested
 object/ref payloads and MessagePort receivers are out of this slice (same ID
 later).
 
 The reported span is the original data argument, including TypeScript
 assertions used only as syntax. Ordinary later mutations of a proven Proxy
-keep Proxy identity. There is no universal `toRaw(...)` autofix.
+keep Proxy identity. Snapshot construction requires an explicit choice of fields.
 
 ## Detection
 
 Fact-driven via `SourceContractFacts.uncloneable_proxy_data`. The callee must
 be an Oxc unresolved global `structuredClone` (or unshadowed
 `globalThis.structuredClone`) with no known writes to that intrinsic in the
-module. Native identity is not a Vue API whitelist entry.
+module. A dedicated native-capability fact records clone identity.
 
 File-rule eligibility currently also runs when any script call exists, so a
-native-only module with no Vue imports is analyzed and stays quiet. A future
-native-only sink must not require a Vue `info.api` to enter the call walk.
+native-only module with no Vue imports is analyzed and stays quiet. Native
+sinks enter the call walk through their own capability classification.
 
 ## Remediation
 
-Build a plain snapshot with explicitly selected cloneable fields. Do not wrap
-the value with `toRaw` as a universal fix: `toRaw` is shallow, and nested
-stored proxies or other uncloneable data can remain.
+Build a plain snapshot with explicitly selected cloneable fields. `toRaw` is
+shallow, so nested stored proxies and other uncloneable data require separate
+handling.
 
 ## Fixtures
 

@@ -1814,6 +1814,14 @@ const SOURCE_CONTRACT_RULES: &[&str] = &[
   "no-primitive-reactive-target",
   "no-watch-unwrapped-source",
   "no-watch-replaced-object-source",
+  "no-once-immediate-discard",
+  "no-watch-alias-old-new",
+  "no-watch-ignored-option",
+  "no-watch-signature-mismatch",
+  "no-lost-shallow-nested-notification",
+  "no-toraw-write-of-tracked-state",
+  "no-toref-ignored-key",
+  "no-effect-scope-callback-argument",
   "no-proxy-structured-clone",
 ];
 
@@ -1880,5 +1888,270 @@ fn source_contract_rule_fixtures() {
         "{logical} must stay quiet for {rule}; {diagnostics:?}"
       );
     }
+  }
+}
+
+#[test]
+fn lost_notification_invalid_fixtures_match_exact_diagnostics() {
+  for (path, source, expected) in [
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/invalid/shallow-ref.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/invalid/shallow-ref.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-lost-shallow-nested-notification/shallow-ref.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/invalid/shallow-reactive.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/invalid/shallow-reactive.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-lost-shallow-nested-notification/shallow-reactive.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/invalid/renamed-import.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/invalid/renamed-import.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-lost-shallow-nested-notification/renamed-import.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/invalid/local-function.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/invalid/local-function.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-lost-shallow-nested-notification/local-function.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/invalid/unicode.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/invalid/unicode.vue"
+      ),
+      include_str!("../../../fixtures/snapshots/no-lost-shallow-nested-notification/unicode.json"),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/invalid/crlf.vue",
+      include_str!("../../../fixtures/rules/no-lost-shallow-nested-notification/invalid/crlf.vue"),
+      include_str!("../../../fixtures/snapshots/no-lost-shallow-nested-notification/crlf.json"),
+    ),
+    (
+      "fixtures/rules/no-toraw-write-of-tracked-state/invalid/toraw.vue",
+      include_str!("../../../fixtures/rules/no-toraw-write-of-tracked-state/invalid/toraw.vue"),
+      include_str!("../../../fixtures/snapshots/no-toraw-write-of-tracked-state/toraw.json"),
+    ),
+    (
+      "fixtures/rules/no-toraw-write-of-tracked-state/invalid/direct.vue",
+      include_str!("../../../fixtures/rules/no-toraw-write-of-tracked-state/invalid/direct.vue"),
+      include_str!("../../../fixtures/snapshots/no-toraw-write-of-tracked-state/direct.json"),
+    ),
+    (
+      "fixtures/rules/no-toraw-write-of-tracked-state/invalid/alias.vue",
+      include_str!("../../../fixtures/rules/no-toraw-write-of-tracked-state/invalid/alias.vue"),
+      include_str!("../../../fixtures/snapshots/no-toraw-write-of-tracked-state/alias.json"),
+    ),
+  ] {
+    assert_diagnostics(path, source, expected);
+  }
+}
+
+#[test]
+#[expect(clippy::panic, reason = "fixture analysis errors must fail golden tests")]
+fn lost_notification_ids_stay_quiet_when_other_rules_fire() {
+  for (path, source) in [
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/valid/async-await.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/valid/async-await.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/valid/write-only.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/valid/write-only.vue"
+      ),
+    ),
+  ] {
+    let diagnostics =
+      analyze_sfc(Path::new(path), source).unwrap_or_else(|error| panic!("{error}"));
+    assert!(
+      diagnostics.iter().all(|diagnostic| {
+        diagnostic.rule_id != "vue-vet/reactivity/no-lost-shallow-nested-notification"
+          && diagnostic.rule_id != "vue-vet/reactivity/no-toraw-write-of-tracked-state"
+      }),
+      "lost-notification IDs must stay quiet on {path}; {diagnostics:?}"
+    );
+  }
+}
+
+#[test]
+fn lost_notification_safe_fixtures_produce_no_diagnostics() {
+  let empty = "[]";
+  for (path, source) in [
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/valid/replace-slot.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/valid/replace-slot.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/valid/nested-reactive.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/valid/nested-reactive.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/valid/trigger-ref.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/valid/trigger-ref.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/valid/computed.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/valid/computed.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/valid/escaped.vue",
+      include_str!("../../../fixtures/rules/no-lost-shallow-nested-notification/valid/escaped.vue"),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/valid/shadowed.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/valid/shadowed.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-toraw-write-of-tracked-state/valid/proxy-write.vue",
+      include_str!("../../../fixtures/rules/no-toraw-write-of-tracked-state/valid/proxy-write.vue"),
+    ),
+    (
+      "fixtures/rules/no-toraw-write-of-tracked-state/valid/raw-consumer.vue",
+      include_str!(
+        "../../../fixtures/rules/no-toraw-write-of-tracked-state/valid/raw-consumer.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-toraw-write-of-tracked-state/valid/unrelated.vue",
+      include_str!("../../../fixtures/rules/no-toraw-write-of-tracked-state/valid/unrelated.vue"),
+    ),
+    (
+      "fixtures/rules/no-toraw-write-of-tracked-state/valid/readonly-plain.vue",
+      include_str!(
+        "../../../fixtures/rules/no-toraw-write-of-tracked-state/valid/readonly-plain.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-toraw-write-of-tracked-state/valid/toraw-read.vue",
+      include_str!("../../../fixtures/rules/no-toraw-write-of-tracked-state/valid/toraw-read.vue"),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/valid/inactive-if.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/valid/inactive-if.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/valid/stopped-handle.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/valid/stopped-handle.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/valid/duplicate-flush-post.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/valid/duplicate-flush-post.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/valid/spread-flush.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/valid/spread-flush.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/valid/spread-args-flush.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/valid/spread-args-flush.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/valid/assignment-pattern-replace.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/valid/assignment-pattern-replace.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/valid/mutable-alias.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/valid/mutable-alias.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/valid/spread-payload.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/valid/spread-payload.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/valid/duplicate-key.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/valid/duplicate-key.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-toraw-write-of-tracked-state/valid/mark-raw.vue",
+      include_str!("../../../fixtures/rules/no-toraw-write-of-tracked-state/valid/mark-raw.vue"),
+    ),
+    (
+      "fixtures/rules/no-toraw-write-of-tracked-state/valid/numeric-skip.vue",
+      include_str!(
+        "../../../fixtures/rules/no-toraw-write-of-tracked-state/valid/numeric-skip.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-toraw-write-of-tracked-state/valid/string-readonly.vue",
+      include_str!(
+        "../../../fixtures/rules/no-toraw-write-of-tracked-state/valid/string-readonly.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/valid/existing-ref.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/valid/existing-ref.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-toraw-write-of-tracked-state/valid/unknown-marker.vue",
+      include_str!(
+        "../../../fixtures/rules/no-toraw-write-of-tracked-state/valid/unknown-marker.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-toraw-write-of-tracked-state/valid/accessor-marker.vue",
+      include_str!(
+        "../../../fixtures/rules/no-toraw-write-of-tracked-state/valid/accessor-marker.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-toraw-write-of-tracked-state/valid/skip-false.vue",
+      include_str!("../../../fixtures/rules/no-toraw-write-of-tracked-state/valid/skip-false.vue"),
+    ),
+    (
+      "fixtures/rules/no-lost-shallow-nested-notification/valid/is-ref-numeric.vue",
+      include_str!(
+        "../../../fixtures/rules/no-lost-shallow-nested-notification/valid/is-ref-numeric.vue"
+      ),
+    ),
+  ] {
+    assert_diagnostics(path, source, empty);
   }
 }

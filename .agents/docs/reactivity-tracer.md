@@ -70,9 +70,35 @@ block complete. Bare `const alias = known` is recorded on the existing
 
 ## Current baseline
 
-Contract version: **`REACTIVITY_GRAPH_VERSION = 40`**. Rule-set identity
-hashed into the scan cache is **`RULESET_VERSION = 17`**.
+Contract version: **`REACTIVITY_GRAPH_VERSION = 41`**. Rule-set identity
+hashed into the scan cache is **`RULESET_VERSION = 22`**.
+`watchEffect` / `watchPostEffect` / `watchSyncEffect` are source-contract sink
+APIs (option/signature facts). Eligibility and dispatch share one `ContractSink`
+table with the source5 collectors; watch-API, watch-callback, and
+normalization facts live in the ruleset / file-fact contract.
+Ordinary `watch` also runs callback-contract collectors
+(`no-once-immediate-discard`, `no-watch-alias-old-new`). Named `toRef` /
+`effectScope` imports admit `no-toref-ignored-key` and
+`no-effect-scope-callback-argument`.
 
+v41 records same-file lost-notification source/view/path facts (`source_views`,
+`notification_bypasses`) for `shallowRef` / `shallowReactive` nested writes past
+a proven plain frontier and for `toRaw` writes of a tracked `reactive` path.
+Collection work counters stay trace-internal and must charge remaining loop
+candidates, prefix-range visits, ancestor hops, and BTreeMap lookups (log
+bound) separately from result cardinality. Provenance uses `record_by_symbol`
+plus canonical validity; aliases never clone canonical payload maps; prefix
+invalidation uses BTree range rather than whole-map retain; watcher join uses
+call-offset and contained-read indexes; stops visit per-handle active-key
+buckets. Root `reactive()` and nested payload objects that carry Vue internal
+marker keys (`__v_skip`, `__v_isReadonly`, `__v_isRef`, `__v_raw`, `__proto__`)
+stay unproven. Marker-key presence is a conservative guard (known-false values
+are not distinguished). `shallowRef` of an existing `__v_isRef` object is not
+treated as a proven new shallow box. Joins sweep activation/stop/write events per `(source, path, region)`.
+Computed consumers, unactivated watchers,
+unknown flush options, `markRaw` / overwritten payloads, templates, collection
+mutations, and cross-call instance identity stay quiet. Runtime premises:
+`just oracle-lost-notification`. Prior:
 v40 records Oxc-resolved `alias_of_span` on alias bindings, treats assignment-pattern
 default initializers and computed keys as reads, links prefer-computed mutable
 roles to `v-on` expression identifiers, and requires no script reassignment

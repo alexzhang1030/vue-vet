@@ -156,7 +156,10 @@ fn eligible_object_entries(entries: &[ObjectEntry], mut note: impl FnMut(u64)) -
     note(1);
     match entry {
       ObjectEntry::Data { name, .. } => !BLOCKED_KEYS.contains(&name.as_str()),
-      ObjectEntry::Spread | ObjectEntry::Computed | ObjectEntry::Accessor { .. } => false,
+      ObjectEntry::Spread
+      | ObjectEntry::Computed
+      | ObjectEntry::Accessor { .. }
+      | ObjectEntry::Method { .. } => false,
     }
   })
 }

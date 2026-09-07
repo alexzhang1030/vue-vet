@@ -1,0 +1,9 @@
+{
+  "package": "@vue/compiler-sfc",
+  "version": "3.5.42",
+  "method": "Published npm tarball scanned for the substring vapor in archive member names and in .js/.mjs/.cjs/.json/.d.ts contents.",
+  "vaporFileNameHits": 0,
+  "vaporContentHits": 0,
+  "verdict": "blocked",
+  "meaning": "This published compiler-sfc identity has no Vapor compiler. It is a specific toolchain blocker for vapor-migration assessment, distinct from unmatched versions that stay unsupported or needs-verification."
+}

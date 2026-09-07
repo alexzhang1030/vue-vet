@@ -37,7 +37,7 @@ is skipped for non-jsx/tsx sources.
 | --- | --- |
 | `lib.rs` | Parse + semantic build + trace handoff |
 | `facts.rs` | Import / binding / call / write collectors |
-| `source_contracts/` | Vue API identity + native `structuredClone` proxy-boundary facts |
+| `source_contracts/` | Vue API identity + proven contract sites, including native `structuredClone` proxy-boundary facts |
 | `jsx.rs` | JSX → `TemplateFacts` (no Babel transform) |
 | `template_expr.rs` | Identifier extraction for template expression strings |
 

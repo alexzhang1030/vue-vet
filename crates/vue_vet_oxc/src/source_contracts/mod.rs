@@ -18,8 +18,11 @@
 
 mod clone_boundary;
 mod index;
+mod normalization;
 mod shape;
 mod stats;
+mod watch_api;
+mod watch_callbacks;
 
 use std::collections::HashMap;
 
@@ -37,7 +40,10 @@ use vue_vet_core::{
 use crate::facts::source_span;
 
 use index::{CallInfo, Indexes, ObjectProp};
-use shape::{Shape, ShapeHint, classify_vue_result, is_ref_api, span_key};
+pub use shape::{ContractSink, contract_sink};
+use shape::{Shape, ShapeHint, classify_vue_result, collect_vue_imports, is_ref_api, span_key};
+use stats::WorkCounter;
+
 pub use stats::SourceContractStats;
 
 const MAX_DEPTH: u8 = 8;
@@ -70,30 +76,48 @@ pub fn collect_source_contract_facts_with_stats(
   sfc_source: &str,
   script_offset: usize,
   kind: ScriptKind,
-) -> (SourceContractFacts, u64) {
-  let (facts, stats) = collect_source_contract_facts_with_full_stats(
-    semantic,
-    line_index,
-    sfc_source,
-    script_offset,
-    kind,
-  );
-  (facts, stats.work())
+) -> (SourceContractFacts, SourceContractStats) {
+  collect_prepared(semantic, line_index, sfc_source, script_offset, kind, false)
 }
 
-pub fn collect_source_contract_facts_with_full_stats(
+#[cfg(test)]
+pub fn collect_source_contract_facts_forced_full(
   semantic: &oxc_semantic::Semantic<'_>,
   line_index: &vue_vet_core::LineIndex,
   sfc_source: &str,
   script_offset: usize,
   kind: ScriptKind,
 ) -> (SourceContractFacts, SourceContractStats) {
+  collect_prepared(semantic, line_index, sfc_source, script_offset, kind, true)
+}
+
+fn collect_prepared(
+  semantic: &oxc_semantic::Semantic<'_>,
+  line_index: &vue_vet_core::LineIndex,
+  sfc_source: &str,
+  script_offset: usize,
+  kind: ScriptKind,
+  force_full: bool,
+) -> (SourceContractFacts, SourceContractStats) {
+  let work = WorkCounter::default();
+  let (vue_imports, has_contract_sink) = collect_vue_imports(semantic, &work);
+  if !has_contract_sink && !force_full {
+    return (SourceContractFacts::default(), work.snapshot());
+  }
   let mut collector = Collector {
     semantic,
     line_index,
     sfc_source,
     script_offset,
-    indexes: Indexes::build(semantic, line_index, sfc_source, script_offset, kind),
+    indexes: Indexes::build(
+      semantic,
+      line_index,
+      sfc_source,
+      script_offset,
+      kind,
+      vue_imports,
+      work,
+    ),
     shape_cache: HashMap::new(),
     property_shape: HashMap::new(),
     proxy_proof: HashMap::new(),
@@ -126,14 +150,19 @@ impl Collector<'_> {
       if info.has_spread {
         continue;
       }
-      match api {
-        "triggerRef" => self.collect_trigger_ref(info),
-        "toRefs" => self.collect_torefs(info),
-        "reactive" | "readonly" | "shallowReactive" | "shallowReadonly" => {
-          self.collect_primitive_reactive(info, api);
+      match contract_sink(api) {
+        Some(ContractSink::TriggerRef) => self.collect_trigger_ref(info),
+        Some(ContractSink::ToRefs) => self.collect_torefs(info),
+        Some(ContractSink::ProxyConstructor) => self.collect_primitive_reactive(info, api),
+        Some(ContractSink::Watch) => {
+          self.collect_watch(node_id, call, info);
+          self.collect_watch_api(call, info);
+          self.collect_watch_callback_contracts(call, info);
         }
-        "watch" => self.collect_watch(node_id, call, info),
-        _ => {}
+        Some(ContractSink::WatchEffectFamily) => self.collect_watch_api(call, info),
+        Some(ContractSink::ToRef) => self.collect_toref(call, info),
+        Some(ContractSink::EffectScope) => self.collect_effect_scope(info),
+        None => {}
       }
     }
   }
@@ -159,6 +188,30 @@ impl Collector<'_> {
       self.indexes.note_query();
       (left.source_span.offset, left.replacement_span.offset)
         .cmp(&(right.source_span.offset, right.replacement_span.offset))
+    });
+    self.facts.watch_ignored_option.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.watch_signature_mismatch.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.watch_callback_contracts.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.watch_span.offset, left.guard_span.offset, left.reason as u8).cmp(&(
+        right.watch_span.offset,
+        right.guard_span.offset,
+        right.reason as u8,
+      ))
+    });
+    self.facts.toref_ignored_key.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.effect_scope_callback.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
     });
     self.facts.uncloneable_proxy_data.sort_by(|left, right| {
       self.indexes.note_query();

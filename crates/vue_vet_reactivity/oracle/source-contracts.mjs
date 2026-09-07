@@ -24,8 +24,10 @@ const {
   shallowReadonly,
   shallowRef,
   toRaw,
+  toRef,
   toRefs,
   triggerRef,
+  effectScope,
   watch,
   watchEffect,
 } = vue;
@@ -235,6 +237,91 @@ function cloneErrorName(value) {
   } finally {
     globalThis.structuredClone = native;
   }
+}
+
+// toRef(existingRef, 'value') writeback; other keys ignored; getter key ignored.
+{
+  const count = ref(0);
+  const same = toRef(count, "value");
+  assert.equal(same, count, "toRef(ref, 'value') must return the same ref");
+  same.value = 1;
+  assert.equal(count.value, 1, "toRef(ref, 'value') must write through");
+  const ignored = toRef(count, "n");
+  assert.equal(ignored, count, "toRef(ref, 'n') must still return the same ref");
+  const missing = toRef(count, undefined);
+  assert.equal(missing, count, "toRef(ref, undefined) must keep the ref");
+  const source = {};
+  const later = toRef(source, "later");
+  source.later = 2;
+  assert.equal(later.value, 2, "absent object property remains a live binding");
+  const getter = toRef(() => 7, "value");
+  assert.equal(getter.value, 7, "function source still ignores the key");
+
+  const state = ref({ count: 0 });
+  state.__v_isRef = false;
+  const property = toRef(state, "count");
+  assert.notEqual(property, state, "cleared marker uses the object-key overload");
+  state.count = 3;
+  assert.equal(property.value, 3, "cleared marker still binds the property");
+
+  const object = ref(1);
+  delete object.__v_isRef;
+  const future = toRef(object, "future");
+  assert.notEqual(future, object, "deleted marker uses the object-key overload");
+
+  const callable = () => 1;
+  callable.__v_isRef = true;
+  callable.value = 2;
+  const tagged = toRef(callable, "value");
+  assert.equal(tagged, callable, "tagged callable with key value stays the same ref");
+
+  const pattern = ref({ count: 1 });
+  pattern.count = 7;
+  ({ flag: pattern.__v_isRef } = { flag: false });
+  const fromPattern = toRef(pattern, "count");
+  assert.notEqual(fromPattern, pattern, "pattern marker write uses the object-key overload");
+  assert.equal(fromPattern.value, 7, "pattern marker write still binds the property");
+
+  const created = ref({ count: 1 });
+  created.count = 7;
+  class ClearMarker {
+    constructor(value) {
+      delete value.__v_isRef;
+    }
+  }
+  new ClearMarker(created);
+  const fromConstructor = toRef(created, "count");
+  assert.notEqual(fromConstructor, created, "constructor argument uses the object-key overload");
+  assert.equal(fromConstructor.value, 7, "constructor argument still binds the property");
+
+  const taggedReceiver = ref({ count: 1 });
+  taggedReceiver.count = 7;
+  taggedReceiver.clear = function () {
+    delete this.__v_isRef;
+  };
+  taggedReceiver.clear``;
+  const fromTagged = toRef(taggedReceiver, "count");
+  assert.notEqual(fromTagged, taggedReceiver, "tagged-template receiver uses the object-key overload");
+  assert.equal(fromTagged.value, 7, "tagged-template receiver still binds the property");
+}
+
+// effectScope(callback) is a truthy detached option; body stays dormant.
+{
+  let ran = 0;
+  const dormant = effectScope(() => {
+    ran += 1;
+  });
+  assert.equal(ran, 0, "constructor callback must stay dormant");
+  dormant.run(() => {
+    ran += 1;
+  });
+  assert.equal(ran, 1, "scope.run must execute the callback");
+  const detached = effectScope(true);
+  let detachedRuns = 0;
+  detached.run(() => {
+    detachedRuns += 1;
+  });
+  assert.equal(detachedRuns, 1, "effectScope(true) must still run callbacks");
 }
 
 console.log("source-contracts oracle: ok (Vue 3.5.40)");
