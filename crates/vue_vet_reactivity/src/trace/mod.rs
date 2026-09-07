@@ -44,6 +44,7 @@ mod follow;
 mod inject;
 mod kinds;
 mod local;
+mod notification;
 mod plugin;
 mod reads;
 mod render;
@@ -63,6 +64,10 @@ use kinds::{
   source_may_have_typed_ref_annotations,
 };
 use local::collect_local_composable_usage;
+use notification::collect_notification_facts;
+
+#[cfg(test)]
+pub use notification::{NotificationWork, last_notification_work};
 use reads::ScopeIrIndex;
 use scopes::{collect_render_scopes, collect_tracking_scopes};
 
@@ -360,7 +365,18 @@ fn trace_reactivity_seeded_inner(
     template_reads: Vec::new(),
     // Retain instance bags so template joins can resolve `bag.field` after tracing.
     composable_instances,
+    source_views: Vec::new(),
+    notification_bypasses: Vec::new(),
   };
+  collect_notification_facts(
+    semantic,
+    &imported_bindings,
+    &file_index,
+    sfc_source,
+    script_offset,
+    script_kind,
+    &mut graph,
+  );
   graph.project_effects_from_scopes();
   graph
 }

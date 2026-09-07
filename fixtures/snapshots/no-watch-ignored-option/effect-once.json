@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-watch-ignored-option",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-watch-ignored-option",
+    "message": "`watchEffect` / `watchPostEffect` / `watchSyncEffect` ignore `once`",
+    "help": "Remove `once`. It does not stop later reruns; stop the handle or use `watch(..., { once: true })`.",
+    "file": "fixtures/rules/no-watch-ignored-option/invalid/effect-once.vue",
+    "span": {
+      "offset": 123,
+      "length": 4,
+      "line": 4,
+      "column": 39
+    }
+  }
+]

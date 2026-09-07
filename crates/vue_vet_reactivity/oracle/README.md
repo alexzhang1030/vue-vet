@@ -113,5 +113,6 @@ package.
 `just oracle-source-contracts` (`source-contracts.mjs`) is the Vue 3.5.40
 runtime pin for issue #224 API contracts, including `toRef` ignored-key
 overloads (immutable ref vs live `__v_isRef` marker, including pattern
-assignment, constructor arguments, and tagged-template receivers) and
+assignment, constructor arguments, and call / tagged-template receivers,
+including TypeScript instantiation wrappers) and
 `effectScope` constructor callbacks.

@@ -7,12 +7,13 @@ object-key overloads. Assigning `source.__v_isRef = false` or deleting the
 marker retargets the call onto the object-property overload even when
 `source` was created by `ref()`. A function tagged `__v_isRef = true` takes
 the existing-ref path. `no-toref-ignored-key` must prove the marker is
-immutable; it must not infer identity from constructor shape. Keep that
-uncertainty on the toRef sink — do not mark the same writes as general
-payload uncertainty for the original five source-contract IDs. Pattern
+immutable through its live capability evidence. Keep that uncertainty on
+the toRef sink and preserve the original five source-contract IDs' payload
+classification. Pattern
 assignment (static / computed / default / rest / TS wrappers), constructor
-arguments, and tagged-template receivers are the same capability-role
-escapes; ordinary `.value` / data writes are not.
+arguments, and call / tagged-template receivers (including TypeScript
+instantiation wrappers) are the same capability-role escapes. Ordinary
+`.value` / data writes keep payload proof.
 
 ## Vize API churn is expected
 
@@ -1051,3 +1052,27 @@ scan so file **and** project findings appear exactly once (including
 `--progress never` and cache hits). Never invent a global percentage or ETA;
 never show raw filenames on the status line. Stop and clear the live line
 before stdout reports, cache-stat/fix messages, errors, or the reactivity TUI.
+
+## Identifier `watch(n)` drops `watch(n.value)` unwrapped proof
+
+Source-contract indexing marks a ref `uncertain`/`escaped` when it is passed
+as a bare identifier (including a second `watch(n, …)`). `watch(n.value)` then
+fails `payload_uncertain` and the unwrapped finding disappears. That is
+source-parent preexisting, not the watch-callback collector. Do not weaken
+unwrapped fixtures to hide it; a parent fix belongs on the escape/uncertain
+role table. The executable repro is
+`source_parent_identifier_watch_use_drops_unwrapped_payload_proof`.
+
+Assignment-pattern member targets restore that same generic `uncertain`
+value fact: the whole destructuring RHS is not each member's extracted
+value. Capability keys and dynamic pattern targets additionally mark
+`capability_uncertain`. Ordinary `state.n` pattern writes stay off that
+dedicated set so `no-watch-alias-old-new` can still fire. Direct
+`state.child = { … }` still records a proven fresh replacement.
+
+Static-member receiver roles share one span-identity policy for
+`CallExpression`, `NewExpression`, and `TaggedTemplateExpression` (a tagged
+template binds `this` like a call). TS wrappers, including instantiation, and
+`ChainExpression` are walked with the same ancestor budget. Import sources,
+JSX member tags, and decorator expressions are not JS `this` receivers and
+stay off this set.

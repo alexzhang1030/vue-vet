@@ -1,7 +1,9 @@
 # `vue-vet/reactivity/no-toref-ignored-key`
 
-Category: reactivity  
-Default severity: warning  
+Category: reactivity
+
+Default severity: warning
+
 Confidence: high
 
 `toRef` checks existing-ref identity, then callable getter normalization, then
@@ -9,8 +11,7 @@ the object-key overload. A static key is ignored on a proven ref, function, or
 primitive/nullish source.
 
 `toRef(existingRef, 'value')` is quiet: Vue returns the same ref, so writes
-still go through. Function sources still ignore `'value'`; that key is not a
-payload selector on a getter ref.
+still go through. Function sources ignore `'value'` and return a getter ref.
 
 ## Bad
 
@@ -46,18 +47,20 @@ void later
 Ordinary plain, reactive, readonly, and props objects stay on the object-key
 overload, including an absent property that becomes a live binding. Unknown
 keys, spreads, shadowed imports, and uncertain sources stay quiet. Type
-assertions do not override a proven runtime source.
+assertions preserve classification from the proven runtime source.
 
-Vue's `toRef` overload follows the live `__v_isRef` marker, not the
-constructor that created the value. After `state.__v_isRef = false` or
+Vue's `toRef` overload follows the live `__v_isRef` marker.
+After `state.__v_isRef = false` or
 `delete state.__v_isRef`, `toRef(state, 'count')` is the object-property
 overload. This rule reports only when the marker is an immutable Vue-ref
 capability: writes or deletes of `__v_isRef`, helper-argument escape, method
-receivers, tagged-template receivers, constructor arguments, pattern
-assignment to the marker (static / computed / default / rest / TS wrappers),
-spreads, reassignment, and aliases through non-const bindings abstain.
-Ordinary `.value` / data writes keep proof. Literal `{ __v_isRef: true }`
-objects are not proven Vue refs.
+receivers, call and tagged-template receivers (including TypeScript
+instantiation wrappers such as `obj.method<T>()` and a parenthesized
+`obj.method<T>` tagged template), constructor arguments, pattern assignment
+to the marker (static / computed / default / rest / TS wrappers), spreads,
+reassignment, and aliases through non-const bindings abstain. Ordinary
+`.value` / data writes keep proof. Literal `{ __v_isRef: true }` objects
+retain unknown Vue-ref provenance.
 
 ## Detection
 

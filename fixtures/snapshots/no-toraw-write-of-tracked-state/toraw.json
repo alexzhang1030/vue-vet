@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-toraw-write-of-tracked-state",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-toraw-write-of-tracked-state",
+    "message": "This raw write bypasses the proxy notification used by the consumer",
+    "help": "Source `raw` at 3:15, path `raw.count`; consumer at 5:8. Write through the reactive proxy instead of `toRaw`.",
+    "file": "fixtures/rules/no-toraw-write-of-tracked-state/invalid/toraw.vue",
+    "span": {
+      "offset": 188,
+      "length": 9,
+      "line": 8,
+      "column": 1
+    }
+  }
+]

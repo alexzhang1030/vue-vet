@@ -29,7 +29,7 @@ types and must not re-implement analysis. The thin MCP adapter (`vue-vet --mcp`)
 `vue_vet_mcp` with a minimal stdio JSON-RPC tools subset (no heavy MCP SDK) over
 the same session; it must not re-implement analysis or silently apply fixes.
 
-The workspace tracks the latest stable Rust release and latest stable edition, following Rolldown's toolchain baseline. The repository pins the exact compiler in `rust-toolchain.toml`; all crates inherit the workspace `rust-version` and edition. Shipped CLI/npm binaries use `profile.release` (`opt-level = 2`, `lto = "fat"`, `panic = "abort"`, `strip = "symbols"`) plus `opt-level = "z"` on runtime protocol/UI packages (`tower-lsp`, `lsp-types`, `vue_vet_lsp`, `vue_vet_mcp`, `clap`, `clap_builder`, `ratatui`, `ratatui-core`, `ratatui-widgets`, `ratatui-crossterm`, `crossterm`). Proc-macros are not overridden. Fat LTO still inlines across crates. Absolute file bytes vary by target. `just native-size` builds then measures via Cargo JSON; CI measures the already-built matrix artifact with `scripts/native_size.py --binary --target --budget-file` and `fixtures/quality/native-size-budget.json` (gzip-9 is a binary compression proxy, not npm/archive bytes). Maxima are ceil(candidate bytes × 1.03) from pkg.pr.new run 34039577281 (`fa2debc`); baseline sizes are run 34034720314 (`2dabaad`). Release-profile changes still require scan-output equivalence plus separate cold and warm scan timing checks; see [quality baselines](../../docs/quality-baselines.md). The remaining mass is still one process (Oxc + Vize + product IR + LSP/MCP/TUI). Unused LightningCSS and ratatui termwiz backends stay out of the lock. Do not add UPX or a second analysis binary. Rolldown's lint policy is a floor: Vue Vet additionally denies the Clippy `all`, `cargo`, `pedantic`, and `nursery` groups, forbids unsafe Rust, and denies panic-prone conveniences such as unchecked indexing, string slicing, `unwrap`, and `expect`. The group-level duplicate-version exception covers the reviewed Vize and atomic-writer dependency graphs; each additional duplicate still requires explicit rationale. `just` is the task runner and the canonical interface for local and CI validation. `prek` manages Git hooks from `.pre-commit-config.yaml` without adding a Python runtime requirement.
+The workspace tracks the latest stable Rust release and latest stable edition, following Rolldown's toolchain baseline. The repository pins the exact compiler in `rust-toolchain.toml`; all crates inherit the workspace `rust-version` and edition. Shipped CLI/npm binaries use `profile.release` (`opt-level = 2`, `lto = "fat"`, `panic = "abort"`, `strip = "symbols"`) plus `opt-level = "z"` on runtime protocol/UI packages (`tower-lsp`, `lsp-types`, `vue_vet_lsp`, `vue_vet_mcp`, `clap`, `clap_builder`, `ratatui`, `ratatui-core`, `ratatui-widgets`, `ratatui-crossterm`, `crossterm`) and on measured product crates (`vue_vet_rules`, `vue_vet_practice`, `vue_vet_rule_query` at `opt-level = "z"`; `vue_vet_core` at `opt-level = "s"`). Parser, tracer, resolver, regex, serde, and `vue_vet_reporters` stay on the profile default. Proc-macros are not overridden. Fat LTO still inlines across crates. Absolute file bytes vary by target. `just native-size` builds then measures via Cargo JSON; CI measures the already-built matrix artifact with `scripts/native_size.py --binary --target --budget-file` and `fixtures/quality/native-size-budget.json` (gzip-9 is a binary compression proxy, not npm/archive bytes). Maxima are ceil(candidate bytes × 1.03) from pkg.pr.new run 34039577281 (`fa2debc`); baseline sizes are run 34034720314 (`2dabaad`). Those product-crate overrides are accepted only with exact scan JSON equality plus same-tree release comparisons of `whole_project::scan_cold_mixed_1k`, `whole_project::scan_warm_mixed_1k`, and `whole_project::json_render_mixed_1k` (not `analyze_sfc` alone); CLI cold/warm process times remain a separate user-facing check. See [quality baselines](../../docs/quality-baselines.md). `profile.codspeed` restates `opt-level = 3` for those four packages so inherited release `"z"` / `"s"` does not apply to instrumentation. The remaining mass is still one process (Oxc + Vize + product IR + LSP/MCP/TUI). Unused LightningCSS and ratatui termwiz backends stay out of the lock. Do not add UPX or a second analysis binary. Rolldown's lint policy is a floor: Vue Vet additionally denies the Clippy `all`, `cargo`, `pedantic`, and `nursery` groups, forbids unsafe Rust, and denies panic-prone conveniences such as unchecked indexing, string slicing, `unwrap`, and `expect`. The group-level duplicate-version exception covers the reviewed Vize and atomic-writer dependency graphs; each additional duplicate still requires explicit rationale. `just` is the task runner and the canonical interface for local and CI validation. `prek` manages Git hooks from `.pre-commit-config.yaml` without adding a Python runtime requirement.
 
 ## Vize owns Vue semantics
 
@@ -56,6 +56,22 @@ backends. Template AST stays on `vize_atelier_core`. Do not depend on
 `vize_atelier_sfc` and do not revive the rejected `compile` feature
 (ubugeeei-prod/vize#4566). Re-add a CSS-engine crate only if a rule needs
 LightningCSS AST spans.
+
+## Vue Vapor migration research
+
+Vue Vapor component-migration work is research-only at this pin. The public
+record is [docs/research/vapor-migration.md](../../docs/research/vapor-migration.md);
+rerunnable Node oracles live under `research/vapor-migration` and stay out of
+the Rust engine. The audited identity is the exact `vue` /
+`@vue/compiler-sfc` / `@vue/compiler-vapor` / `@vue/runtime-vapor`
+**3.6.0-rc.7** plus `@vitejs/plugin-vue@6.0.8` tuple. Later Vue 3.6 releases
+stay gated on a re-audit of that identity. Published
+`@vue/compiler-sfc@3.5.42` has no Vapor compiler and is a specific blocker for
+that toolchain; other unmatched versions are unsupported or need verification.
+Shipped CLI modes and rules stay at delta 0. Analysis remains on
+`vize_croquis` / `vize_atelier_core` without `vize_atelier_vapor`. The product
+Vue 3.5.40 reactivity oracle is unchanged. Opt-in, completeness, and aggregate
+verdicts are assessment fields.
 
 ## oxc_resolver owns bundler module resolution
 

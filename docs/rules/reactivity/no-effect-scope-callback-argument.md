@@ -1,12 +1,14 @@
 # `vue-vet/reactivity/no-effect-scope-callback-argument`
 
-Category: reactivity  
-Default severity: warning  
+Category: reactivity
+
+Default severity: warning
+
 Confidence: high
 
 `effectScope(callback)` stores a truthy first argument as the detached option.
 The function body stays dormant. Detached ownership must be explicit
-(`effectScope(true)`); this rule does not rewrite the call.
+(`effectScope(true)`); this rule provides diagnostic guidance.
 
 This ID is independent of after-await lifetime rules
 (`no-orphaned-scope-watcher`, `no-late-scope-dispose`).
@@ -41,10 +43,10 @@ detached.run(() => {
 ```
 
 `effectScope(true)` / `effectScope(false)` and other proven booleans stay
-quiet: the first argument is the detached option, not a callback. Spreads,
+quiet: the first argument is the detached option. Spreads,
 unknown wrappers, and shadowed imports stay quiet. A closed unchanged function
-binding is followed only with exact identity. This rule does not prove
-detached ownership beyond a function-shaped first argument.
+binding is followed only with exact identity. This rule diagnoses
+function-shaped first arguments; lifetime rules assess detached ownership.
 
 ## Detection
 

@@ -23,7 +23,7 @@ Crate ownership (read before editing that stage):
 
 | Stage | Crate | Notes |
 | --- | --- | --- |
-| Stable contracts | `vue_vet_core` | facts / diagnostics / `Rule` — no Oxc/Vize types |
+| Stable contracts | `vue_vet_core` | facts / diagnostics / `Rule` — no Oxc/Vize types. Graph v41 adds `source_views` / `notification_bypasses` for lost-notification rules; Oxc types stay in `vue_vet_reactivity::trace`. |
 | Adapters | `vue_vet_vize`, `vue_vet_oxc` | short-lived AST → facts only; SFC parse is `vize_croquis::sfc`, never `vize_atelier_sfc` |
 | Project graph | `vue_vet_project` | see `vue_vet_project` pipeline below |
 | Cross-file seeds | `vue_vet_reactivity` | `ModuleSource` + `trace_modules`; Oxc-taking APIs under `::oxc`; `ModuleSummary` boundary; under-approx |
@@ -213,13 +213,30 @@ Parser IR (Vize AST / Oxc Semantic)     — short-lived, never cached across ada
         ↓
 File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         (`ScriptBlockFacts::source_contracts` holds proven Vue API source-identity
-        sites from Oxc (`vue_vet_oxc::source_contracts`), including typed
-        `toRef` ignored-key facts that require an immutable `__v_isRef`
-        capability (not shape alone) and `effectScope` callback-argument sinks.
-        Marker writes/deletes, helper arguments, method receivers, spreads,
-        pattern assignment to the marker, constructor arguments, and
-        tagged-template receivers stay unproven for that overload.
-        Lifetime facts are a separate field owned elsewhere.
+        sites from Oxc (`vue_vet_oxc::source_contracts`), including watch-family
+        ignored-option and signature-slot facts (`watch_api.rs`). Watch-option
+        collection inspects original `ObjectProperty::computed` flags so
+        computed literal keys stay quiet without changing shared object
+        summarization. Proven
+        `watchEffect` / `watchPostEffect` / `watchSyncEffect` identity is recorded
+        as `ContractSink::WatchEffectFamily`. `toRef` and `effectScope` are
+        `ContractSink::ToRef` / `ContractSink::EffectScope` so a named import of
+        either still admits collection. Typed `toRef` ignored-key facts require
+        an immutable `__v_isRef` capability on a dedicated
+        role index; marker writes/deletes, helper arguments, method receivers,
+        spreads, pattern assignment to the marker, constructor arguments, and
+        call / tagged-template receivers (including TypeScript instantiation
+        wrappers) stay unproven for that overload. Call, `new`, and tagged
+        receivers share one wrapper walk; `toref_identity_uncertain` and
+        `capability_uncertain` stay separate from generic source5 `uncertain`
+        / `escaped`. Eligibility
+        and dispatch share one `contract_sink` table with source5, so named
+        effect / toRef / effectScope imports reuse the canonical Vue-import
+        pass. `watch` still runs the ordinary source collector, watch-family
+        option/signature facts, and callback-contract collectors
+        (`watch_callbacks.rs`). Combined `RULESET_VERSION` is
+        21; `REACTIVITY_GRAPH_VERSION` stays 41. Lifetime facts are a
+        separate field owned elsewhere.
         `TemplateElementFact::has_key` includes proven object-form `v-bind`
         keys from Oxc; `is_component` is Vize `ElementType` / JSX
         identifier-reference adapted into stable facts; Vize owns directive extraction)
@@ -511,7 +528,9 @@ cached/fresh scans, unsaved overlays, per-file fact state, reverse dependencies,
 rule/finding explain, workspace path containment, and the **product rule-group
 table**. Canonical groups (`tracking`, `source-contracts`, `lifetime`,
 `derivation`, `project`) map composed registry IDs (built-in + practice +
-project) one-to-one. Core holds only serializable group DTOs — not hardcoded
+project) one-to-one. The four watcher / `effectScope` lifetime IDs
+(`no-returned-watcher-cleanup`, `no-late-watcher-cleanup`,
+`no-orphaned-scope-watcher`, `no-late-scope-dispose`) map to `lifetime`. Core holds only serializable group DTOs — not hardcoded
 rule IDs and not a `RuleMeta` field. `--group` is applied to the effective
 `vue-vet.toml` **before** analysis by setting non-selected known IDs to `off`
 while leaving selected entries untouched, so cache identity, score, exit,

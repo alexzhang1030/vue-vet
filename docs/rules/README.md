@@ -10,11 +10,11 @@ not Essential/a11y parity with `eslint-plugin-vue`.
 
 | Tier | Meaning | Count |
 | --- | --- | ---: |
-| `tracer` | Needs `vue_vet_reactivity` graph facts (read kinds, guards, scopes, prop edges, binding kinds) | 48 |
+| `tracer` | Needs `vue_vet_reactivity` graph facts (read kinds, guards, scopes, prop edges, binding kinds) | 54 |
 | `parity` | Template Essential / a11y / macros / after-await registrars — open-box completeness | 50 |
 | `practice` | Ecosystem suggestions (`category: practice`); excluded from score by default | 13 |
 
-Total registered **file** rules (builtins + practice): **111**.
+Total registered **file** rules (builtins + practice): **117**.
 
 Project-graph IDs are listed separately below and are not in this file-ID set.
 
@@ -24,7 +24,7 @@ Project-graph IDs are listed separately below and are not in this file-ID set.
 | `correctness` | 36 |
 | `maintainability` | 1 |
 | `practice` | 12 |
-| `reactivity` | 48 |
+| `reactivity` | 54 |
 | `security` | 1 |
 
 Per-rule pages live under `docs/rules/<category>/<name>.md`.
@@ -120,10 +120,12 @@ Per-rule pages live under `docs/rules/<category>/<name>.md`.
 - [`vue-vet/reactivity/no-empty-watch-sources`](./reactivity/no-empty-watch-sources.md) `tracer`
 - [`vue-vet/reactivity/no-late-scope-dispose`](./reactivity/no-late-scope-dispose.md) `tracer`
 - [`vue-vet/reactivity/no-late-watcher-cleanup`](./reactivity/no-late-watcher-cleanup.md) `tracer`
+- [`vue-vet/reactivity/no-lost-shallow-nested-notification`](./reactivity/no-lost-shallow-nested-notification.md) `tracer`
 - [`vue-vet/reactivity/no-model-ref-as-operand`](./reactivity/no-model-ref-as-operand.md) `tracer`
 - [`vue-vet/reactivity/no-multiple-effects-same-target`](./reactivity/no-multiple-effects-same-target.md) `tracer`
 - [`vue-vet/reactivity/no-nonreactive-props-destructure`](./reactivity/no-nonreactive-props-destructure.md) `tracer`
 - [`vue-vet/reactivity/no-on-scope-dispose-reactive-read`](./reactivity/no-on-scope-dispose-reactive-read.md) `tracer`
+- [`vue-vet/reactivity/no-once-immediate-discard`](./reactivity/no-once-immediate-discard.md) `tracer`
 - [`vue-vet/reactivity/no-orphaned-scope-watcher`](./reactivity/no-orphaned-scope-watcher.md) `tracer`
 - [`vue-vet/reactivity/no-outside-tracking-dependency-in-computed`](./reactivity/no-outside-tracking-dependency-in-computed.md) `tracer`
 - [`vue-vet/reactivity/no-outside-tracking-dependency-in-effect-scope`](./reactivity/no-outside-tracking-dependency-in-effect-scope.md) `tracer`
@@ -140,14 +142,18 @@ Per-rule pages live under `docs/rules/<category>/<name>.md`.
 - [`vue-vet/reactivity/no-shallow-reactive-destructure`](./reactivity/no-shallow-reactive-destructure.md) `tracer`
 - [`vue-vet/reactivity/no-side-effects-in-computed`](./reactivity/no-side-effects-in-computed.md) `tracer`
 - [`vue-vet/reactivity/no-stale-prop-flow`](./reactivity/no-stale-prop-flow.md) `tracer`
+- [`vue-vet/reactivity/no-toraw-write-of-tracked-state`](./reactivity/no-toraw-write-of-tracked-state.md) `tracer`
 - [`vue-vet/reactivity/no-toref-ignored-key`](./reactivity/no-toref-ignored-key.md) `tracer`
 - [`vue-vet/reactivity/no-torefs-on-non-proxy`](./reactivity/no-torefs-on-non-proxy.md) `tracer`
 - [`vue-vet/reactivity/no-trigger-ref-on-non-ref`](./reactivity/no-trigger-ref-on-non-ref.md) `tracer`
 - [`vue-vet/reactivity/no-unused-computed-binding`](./reactivity/no-unused-computed-binding.md) `tracer`
 - [`vue-vet/reactivity/no-unused-reactive-binding`](./reactivity/no-unused-reactive-binding.md) `tracer`
 - [`vue-vet/reactivity/no-v-model-nonreactive-source`](./reactivity/no-v-model-nonreactive-source.md) `tracer`
+- [`vue-vet/reactivity/no-watch-alias-old-new`](./reactivity/no-watch-alias-old-new.md) `tracer`
 - [`vue-vet/reactivity/no-watch-callback-as-tracking-scope`](./reactivity/no-watch-callback-as-tracking-scope.md) `tracer`
+- [`vue-vet/reactivity/no-watch-ignored-option`](./reactivity/no-watch-ignored-option.md) `tracer`
 - [`vue-vet/reactivity/no-watch-replaced-object-source`](./reactivity/no-watch-replaced-object-source.md) `tracer`
+- [`vue-vet/reactivity/no-watch-signature-mismatch`](./reactivity/no-watch-signature-mismatch.md) `tracer`
 - [`vue-vet/reactivity/no-watch-unwrapped-source`](./reactivity/no-watch-unwrapped-source.md) `tracer`
 - [`vue-vet/reactivity/prefer-computed`](./reactivity/prefer-computed.md) `tracer`
 - [`vue-vet/reactivity/prefer-store-to-refs`](./reactivity/prefer-store-to-refs.md) `tracer`
