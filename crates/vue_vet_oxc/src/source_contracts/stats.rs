@@ -1,14 +1,17 @@
 //! Adapter-only work counters for source-contract collection.
 //!
 //! `SourceContractStats::work` is completed collector work: Vue-import
-//! node and specifier visits, per-node owner construction, the main scan,
-//! reference-role indexing, object-entry summary visits and per-property
-//! max-index comparisons, watch-option unique-static-key inspections (each
-//! own property, recognized or not), write-owner summary visits, the
-//! fact-collection walk, diagnostic-ordering comparisons, query-time map
-//! lookups, and `partition_point` predicate executions. Shape classification
-//! records one query per `classify_maybe`. Shared object summarization does
-//! not treat computed literal keys as uncertain; watch options check the
+//! node and specifier visits, effect-family import-map entries, ancestor
+//! hops, TS/parenthesis wrapper peels, remaining argument-candidate
+//! inspections, resolved-reference eligibility lookups, per-node owner
+//! construction, the main scan, reference-role indexing, object-entry
+//! summary visits and per-property max-index comparisons, watch-option
+//! unique-static-key inspections (each own property, recognized or not),
+//! write-owner summary visits, the fact-collection walk,
+//! diagnostic-ordering comparisons, query-time map lookups, and
+//! `partition_point` predicate executions. Shape classification records
+//! one query per `classify_maybe`. Shared object summarization does not
+//! treat computed literal keys as uncertain; watch options check the
 //! original `ObjectProperty::computed` flag instead.
 //!
 //! Production `WorkCounter` is zero-sized and does not record. Test builds
@@ -41,11 +44,11 @@ impl SourceContractStats {
       .saturating_add(self.queries)
   }
 
-  /// True when only the Vue-import preflight ran (no owners, writes, objects, or queries).
+  /// True when Vue-import preflight ran and owner, object, and write indexes stayed empty.
   #[cfg(test)]
   #[must_use]
   pub const fn is_import_preflight_only(self) -> bool {
-    self.owners == 0 && self.object_entries == 0 && self.writes == 0 && self.queries == 0
+    self.owners == 0 && self.object_entries == 0 && self.writes == 0
   }
 }
 
