@@ -68,6 +68,12 @@ pub(super) struct WorkCounter {
   queries: Cell<u64>,
 }
 
+#[cfg(not(test))]
+const _: () = assert!(
+  core::mem::size_of::<WorkCounter>() == 0,
+  "production source-contract WorkCounter must stay zero-sized"
+);
+
 impl WorkCounter {
   #[cfg(test)]
   pub(super) fn add_nodes(&self, n: u64) {

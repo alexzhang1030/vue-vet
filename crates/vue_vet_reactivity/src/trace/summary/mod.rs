@@ -1,3 +1,5 @@
+#[cfg(test)]
+use std::cell::RefCell;
 use std::{
   collections::{BTreeMap, BTreeSet, btree_map::Entry},
   sync::Arc,
@@ -20,6 +22,8 @@ use vue_vet_core::{ModuleId, ReactiveBindingKind, ReactivityGraph, ScriptKind};
 
 use super::bindings::collect_reactive_bindings;
 use super::follow::local_function_id;
+#[cfg(test)]
+use super::kinds::import_binding_collect_snapshot;
 use super::kinds::{
   collect_binding_identifiers, collect_imported_bindings, module_export_name,
   reactive_binding_kind, reference_resolves_to_binding, resolved_vue_callee,
@@ -616,6 +620,30 @@ pub fn prepare_module_summary(
   )
 }
 
+/// Test-only count of the one summary-local `imported_bindings` index build.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SummaryScanWork {
+  pub import_index_builds: u64,
+  pub import_index_node_visits: u64,
+}
+
+#[cfg(test)]
+thread_local! {
+  static LAST_SUMMARY_SCAN_WORK: RefCell<SummaryScanWork> =
+    const { RefCell::new(SummaryScanWork { import_index_builds: 0, import_index_node_visits: 0 }) };
+}
+
+#[cfg(test)]
+pub fn last_summary_scan_work() -> SummaryScanWork {
+  LAST_SUMMARY_SCAN_WORK.with(|slot| *slot.borrow())
+}
+
+#[cfg(test)]
+fn store_summary_scan_work(work: SummaryScanWork) {
+  LAST_SUMMARY_SCAN_WORK.with(|slot| *slot.borrow_mut() = work);
+}
+
 /// Prepare a module summary with an explicit plugin API-bag catalog.
 pub fn prepare_module_summary_with_config(
   semantic: &Semantic<'_>,
@@ -628,10 +656,14 @@ pub fn prepare_module_summary_with_config(
   let local_graph = local_graph.into();
   let imports = collect_imports(semantic);
   let exports = collect_exports(semantic);
+  // One summary-local canonical import index; helpers and return analysis borrow it.
+  #[cfg(test)]
+  let (builds_before, visits_before) = import_binding_collect_snapshot();
+  let imported_bindings = collect_imported_bindings(semantic);
   let shape_graph = ReactivityGraph {
     bindings: collect_reactive_bindings(
       semantic,
-      &collect_imported_bindings(semantic),
+      &imported_bindings,
       span_source,
       source_offset,
       kind,
@@ -641,11 +673,16 @@ pub fn prepare_module_summary_with_config(
     .bindings,
     ..ReactivityGraph::default()
   };
-  let locals =
-    collect_local_values(semantic, &local_graph, &shape_graph, source_offset, span_source);
+  let locals = collect_local_values(
+    semantic,
+    &local_graph,
+    &shape_graph,
+    source_offset,
+    span_source,
+    &imported_bindings,
+  );
   let options_callback_slots = collect_local_options_callback_slots(semantic);
   let typed_callback_param_slots = collect_local_typed_callback_param_slots(semantic);
-  let imported_bindings = collect_imported_bindings(semantic);
   let provides = collect_provide_sites(
     semantic,
     &imported_bindings,
@@ -656,6 +693,14 @@ pub fn prepare_module_summary_with_config(
   );
   let injects = collect_inject_sites(semantic, &imported_bindings, &local_graph.bindings, kind);
   let called_locals = collect_called_locals(semantic);
+  #[cfg(test)]
+  {
+    let (builds_after, visits_after) = import_binding_collect_snapshot();
+    store_summary_scan_work(SummaryScanWork {
+      import_index_builds: builds_after.saturating_sub(builds_before),
+      import_index_node_visits: visits_after.saturating_sub(visits_before),
+    });
+  }
   ModuleSummary {
     imports,
     exports,
@@ -829,6 +874,7 @@ fn collect_local_values(
   shape_graph: &ReactivityGraph,
   script_offset: usize,
   span_source: &str,
+  imported_bindings: &BTreeMap<String, (String, String)>,
 ) -> BTreeMap<String, ExportState> {
   let mut locals = public_graph
     .bindings
@@ -843,8 +889,7 @@ fn collect_local_values(
   // `defineComponent` setup wrappers → ComponentFactory (before composable Forward).
   // Cheap source gate keeps synthetic 1k modules off the wrapper AST walk.
   if span_source.contains("defineComponent") {
-    let imported_bindings = collect_imported_bindings(semantic);
-    for name in super::render::component_factory_wrapper_locals(semantic, &imported_bindings) {
+    for name in super::render::component_factory_wrapper_locals(semantic, imported_bindings) {
       locals.insert(name, ExportState::ComponentFactory);
     }
   }
@@ -869,6 +914,7 @@ fn collect_local_values(
       shape_graph,
       script_offset,
       index,
+      imported_bindings,
       function_return_type_kind(function),
       || declared_return_for_function(semantic, function),
     ) {
@@ -877,7 +923,6 @@ fn collect_local_values(
   }
 
   // `const useX = () => ({ … })` / `export declare const useX: () => T`
-  let imported_bindings = collect_imported_bindings(semantic);
   for node in semantic.nodes() {
     let AstKind::VariableDeclarator(declarator) = node.kind() else {
       continue;
@@ -899,6 +944,7 @@ fn collect_local_values(
           shape_graph,
           script_offset,
           index,
+          imported_bindings,
           arrow_return_type_kind(arrow),
           || {
             declared_return_for_arrow(semantic, arrow)
@@ -914,6 +960,7 @@ fn collect_local_values(
           shape_graph,
           script_offset,
           index,
+          imported_bindings,
           function_return_type_kind(function),
           || {
             declared_return_for_function(semantic, function)
@@ -935,7 +982,7 @@ fn collect_local_values(
         call,
         shape_graph,
         script_offset,
-        &imported_bindings,
+        imported_bindings,
         &mut returns_by_function,
       )
       .or_else(|| {
@@ -948,7 +995,7 @@ fn collect_local_values(
             return None;
           }
           // Vue / `#imports` primitives seed [`ExportState::Known`] via the graph.
-          if resolved_vue_callee(semantic, &call.callee, &imported_bindings, ScriptKind::Script)
+          if resolved_vue_callee(semantic, &call.callee, imported_bindings, ScriptKind::Script)
             .is_some_and(|name| reactive_binding_kind(&name).is_some())
           {
             return None;
@@ -958,7 +1005,7 @@ fn collect_local_values(
       }),
       // `export const x = cond ? computed(...) : useStorage(...)` — both arms ref-like.
       Some(Expression::ConditionalExpression(cond)) => {
-        known_export_from_ref_like_ternary(semantic, cond, &imported_bindings)
+        known_export_from_ref_like_ternary(semantic, cond, imported_bindings)
       }
       // Keep the `ref()` cold path tiny: never build the return index until a function init.
       Some(_) => continue,
@@ -1092,21 +1139,27 @@ fn insert_local_export_state(
   locals.insert(name, merged);
 }
 
+#[expect(
+  clippy::too_many_arguments,
+  reason = "summary return classification reuses the canonical import index instead of rebuilding it"
+)]
 fn composable_export_state(
   semantic: &oxc_semantic::Semantic<'_>,
   function_id: NodeId,
   shape_graph: &ReactivityGraph,
   script_offset: usize,
   returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
   declared_return_kind: Option<ReactiveBindingKind>,
   declared_return: impl FnOnce() -> Option<DeclaredReturn>,
 ) -> Option<ExportState> {
-  match composable_return_with_index(
+  match composable_return_with_borrowed_index(
     semantic,
     function_id,
     shape_graph,
     script_offset,
     returns_by_function,
+    imported_bindings,
   ) {
     Some(ComposableReturn::Object(shape)) => Some(ExportState::Composable(shape)),
     Some(ComposableReturn::ValueBag(bag)) => Some(ExportState::ValueFactory(bag)),
@@ -1540,13 +1593,33 @@ impl ReturnKindAccum {
 /// Object bag / value bag / scalar factory return for a function/arrow (under-approx).
 ///
 /// Single-pass — callers should prefer this over calling shape + value-bag + factory
-/// helpers separately (each would re-walk returns).
+/// helpers separately (each would re-walk returns). Standalone entry builds one
+/// canonical import index and delegates to the borrowed-index implementation.
 pub fn composable_return_with_index(
   semantic: &oxc_semantic::Semantic<'_>,
   function_id: NodeId,
   graph: &ReactivityGraph,
   script_offset: usize,
   returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
+) -> Option<ComposableReturn> {
+  let imported_bindings = collect_imported_bindings(semantic);
+  composable_return_with_borrowed_index(
+    semantic,
+    function_id,
+    graph,
+    script_offset,
+    returns_by_function,
+    &imported_bindings,
+  )
+}
+
+fn composable_return_with_borrowed_index(
+  semantic: &oxc_semantic::Semantic<'_>,
+  function_id: NodeId,
+  graph: &ReactivityGraph,
+  script_offset: usize,
+  returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
 ) -> Option<ComposableReturn> {
   let mut visiting = BTreeSet::new();
   composable_return_with_index_visiting(
@@ -1555,6 +1628,7 @@ pub fn composable_return_with_index(
     graph,
     script_offset,
     returns_by_function,
+    imported_bindings,
     &mut visiting,
   )
 }
@@ -1565,12 +1639,12 @@ fn composable_return_with_index_visiting(
   graph: &ReactivityGraph,
   script_offset: usize,
   returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
   visiting: &mut BTreeSet<NodeId>,
 ) -> Option<ComposableReturn> {
   if !visiting.insert(function_id) {
     return None;
   }
-  let imported_bindings = collect_imported_bindings(semantic);
   let param_names = function_param_names(semantic, function_id);
   let mut accum = ReturnKindAccum {
     shape: BTreeMap::new(),
@@ -1599,7 +1673,7 @@ fn composable_return_with_index_visiting(
       semantic,
       &expression.expression,
       graph,
-      &imported_bindings,
+      imported_bindings,
       &param_names,
       script_offset,
       function_id,
@@ -1621,7 +1695,7 @@ fn composable_return_with_index_visiting(
         semantic,
         argument,
         graph,
-        &imported_bindings,
+        imported_bindings,
         &param_names,
         script_offset,
         function_id,
@@ -2379,6 +2453,7 @@ fn resolve_call_return_forward(
       graph,
       script_offset,
       returns_by_function,
+      imported_bindings,
       visiting,
     )
     .or_else(|| {
@@ -2451,6 +2526,7 @@ fn vueuse_shared_composable_export_state(
       shape_graph,
       script_offset,
       index,
+      imported_bindings,
       arrow_return_type_kind(arrow),
       || declared_return_for_arrow(semantic, arrow),
     ),
@@ -2460,6 +2536,7 @@ fn vueuse_shared_composable_export_state(
       shape_graph,
       script_offset,
       index,
+      imported_bindings,
       function_return_type_kind(function),
       || declared_return_for_function(semantic, function),
     ),
@@ -2472,6 +2549,7 @@ fn vueuse_shared_composable_export_state(
           shape_graph,
           script_offset,
           index,
+          imported_bindings,
           function_return_type_kind(function),
           || declared_return_for_function(semantic, function),
         ),
@@ -2481,6 +2559,7 @@ fn vueuse_shared_composable_export_state(
           shape_graph,
           script_offset,
           index,
+          imported_bindings,
           arrow_return_type_kind(arrow),
           || declared_return_for_arrow(semantic, arrow),
         ),
@@ -2569,6 +2648,7 @@ fn value_bag_entry_from_expression(
         graph,
         script_offset,
         returns_by_function,
+        imported_bindings,
         visiting,
       )? {
         ComposableReturn::Object(shape) => Some(ValueBagEntry::Method(shape)),
@@ -2616,6 +2696,7 @@ fn value_bag_entry_from_expression(
         graph,
         script_offset,
         returns_by_function,
+        imported_bindings,
         visiting,
       )? {
         ComposableReturn::Object(shape) => Some(ValueBagEntry::Method(shape)),
@@ -2633,6 +2714,7 @@ fn value_bag_entry_from_expression(
         graph,
         script_offset,
         returns_by_function,
+        imported_bindings,
         visiting,
       )? {
         ComposableReturn::Object(shape) => Some(ValueBagEntry::Method(shape)),
