@@ -1820,6 +1820,8 @@ const SOURCE_CONTRACT_RULES: &[&str] = &[
   "no-watch-signature-mismatch",
   "no-lost-shallow-nested-notification",
   "no-toraw-write-of-tracked-state",
+  "no-toref-ignored-key",
+  "no-effect-scope-callback-argument",
 ];
 
 #[test]

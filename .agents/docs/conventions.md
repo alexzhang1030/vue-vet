@@ -50,6 +50,15 @@
   catalog; keep Vue behavior evidence as semantic regressions, not as quiet
   registered rules. Delete those IDs from `[rules]` configuration — unknown
   IDs fail config validation.
+- Source-contract IDs `vue-vet/reactivity/no-toref-ignored-key` and
+  `vue-vet/reactivity/no-effect-scope-callback-argument` consume Oxc
+  `toRef` / `effectScope` fact sinks (`ContractSink::ToRef` /
+  `ContractSink::EffectScope`). Dedicated `toref_identity_uncertain` /
+  `toref_helper_escape` roles stay distinct from generic source5
+  `escaped` / `uncertain` and from callback `capability_uncertain`.
+  Combined inventory is 119 (117 file + 2 project); `RULESET_VERSION` 21;
+  graph stays 41. Runtime premises live in `just oracle-source-contracts`
+  (Vue 3.5.40).
 - After adding or renaming rule ids, regenerate the human catalog with
   `just rules-catalog` (`docs/rules/README.md`). Expand stub pages with
   `just rules-docs` (`scripts/expand_rule_docs.py`) before polishing essays.
@@ -67,7 +76,10 @@
   blocks abstain. Closed object proofs are precomputed per span.
   Capability-unknown flow uses a per-root role index. Generic `escaped` /
   `uncertain` remain watch/reactive-argument facts. Static-member receiver
-  roles share one span-identity policy for call / `new` / tagged template.
+  roles share one wrapper and span-identity walk for call / `new` / tagged
+  template, including TypeScript instantiation expressions. Exhausted ancestor
+  budgets stay unproven. Dedicated toRef and callback result sets stay
+  independent of generic source5 uncertainty.
   Keep `no-deep-watch-on-reactive-root` when the identity-guard rule also
   fires: the former reports source-wide tracking, and the latter reports
   callback dead work.

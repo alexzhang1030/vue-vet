@@ -1,0 +1,34 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-toref-ignored-key",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-toref-ignored-key",
+    "message": "`toRef` already received a ref, so this key is ignored",
+    "help": "`toRef(existingRef, 'value')` keeps writeback to the same ref. Other keys do not select a property.",
+    "file": "fixtures/rules/no-toref-ignored-key/invalid/assertion.vue",
+    "span": {
+      "offset": 118,
+      "length": 3,
+      "line": 4,
+      "column": 40
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/no-ref-as-operand",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-ref-as-operand",
+    "message": "`aliased` is a ref object used as an operand; unwrap with `.value` (or `toValue`)",
+    "help": "Use `aliased.value` (or `toValue(aliased)`) when reading the inner value.",
+    "file": "fixtures/rules/no-toref-ignored-key/invalid/assertion.vue",
+    "span": {
+      "offset": 128,
+      "length": 7,
+      "line": 5,
+      "column": 6
+    }
+  }
+]

@@ -10,11 +10,11 @@ not Essential/a11y parity with `eslint-plugin-vue`.
 
 | Tier | Meaning | Count |
 | --- | --- | ---: |
-| `tracer` | Needs `vue_vet_reactivity` graph facts (read kinds, guards, scopes, prop edges, binding kinds) | 52 |
+| `tracer` | Needs `vue_vet_reactivity` graph facts (read kinds, guards, scopes, prop edges, binding kinds) | 54 |
 | `parity` | Template Essential / a11y / macros / after-await registrars — open-box completeness | 50 |
 | `practice` | Ecosystem suggestions (`category: practice`); excluded from score by default | 13 |
 
-Total registered **file** rules (builtins + practice): **115**.
+Total registered **file** rules (builtins + practice): **117**.
 
 Project-graph IDs are listed separately below and are not in this file-ID set.
 
@@ -24,7 +24,7 @@ Project-graph IDs are listed separately below and are not in this file-ID set.
 | `correctness` | 36 |
 | `maintainability` | 1 |
 | `practice` | 12 |
-| `reactivity` | 52 |
+| `reactivity` | 54 |
 | `security` | 1 |
 
 Per-rule pages live under `docs/rules/<category>/<name>.md`.
@@ -115,6 +115,7 @@ Per-rule pages live under `docs/rules/<category>/<name>.md`.
 - [`vue-vet/reactivity/no-computed-without-dependency`](./reactivity/no-computed-without-dependency.md) `tracer`
 - [`vue-vet/reactivity/no-deep-watch-on-reactive-root`](./reactivity/no-deep-watch-on-reactive-root.md) `tracer`
 - [`vue-vet/reactivity/no-deferred-callback-reactive-read-in-effect`](./reactivity/no-deferred-callback-reactive-read-in-effect.md) `tracer`
+- [`vue-vet/reactivity/no-effect-scope-callback-argument`](./reactivity/no-effect-scope-callback-argument.md) `tracer`
 - [`vue-vet/reactivity/no-effect-write-without-read`](./reactivity/no-effect-write-without-read.md) `tracer`
 - [`vue-vet/reactivity/no-empty-watch-sources`](./reactivity/no-empty-watch-sources.md) `tracer`
 - [`vue-vet/reactivity/no-late-scope-dispose`](./reactivity/no-late-scope-dispose.md) `tracer`
@@ -142,6 +143,7 @@ Per-rule pages live under `docs/rules/<category>/<name>.md`.
 - [`vue-vet/reactivity/no-side-effects-in-computed`](./reactivity/no-side-effects-in-computed.md) `tracer`
 - [`vue-vet/reactivity/no-stale-prop-flow`](./reactivity/no-stale-prop-flow.md) `tracer`
 - [`vue-vet/reactivity/no-toraw-write-of-tracked-state`](./reactivity/no-toraw-write-of-tracked-state.md) `tracer`
+- [`vue-vet/reactivity/no-toref-ignored-key`](./reactivity/no-toref-ignored-key.md) `tracer`
 - [`vue-vet/reactivity/no-torefs-on-non-proxy`](./reactivity/no-torefs-on-non-proxy.md) `tracer`
 - [`vue-vet/reactivity/no-trigger-ref-on-non-ref`](./reactivity/no-trigger-ref-on-non-ref.md) `tracer`
 - [`vue-vet/reactivity/no-unused-computed-binding`](./reactivity/no-unused-computed-binding.md) `tracer`

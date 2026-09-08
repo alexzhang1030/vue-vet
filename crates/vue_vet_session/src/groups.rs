@@ -26,6 +26,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-computed-without-dependency", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-deep-watch-on-reactive-root", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-deferred-callback-reactive-read-in-effect", RuleGroupId::Tracking),
+  ("vue-vet/reactivity/no-effect-scope-callback-argument", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-effect-write-without-read", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-empty-watch-sources", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-late-scope-dispose", RuleGroupId::Lifetime),
@@ -53,6 +54,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-side-effects-in-computed", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-stale-prop-flow", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-toraw-write-of-tracked-state", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-toref-ignored-key", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-torefs-on-non-proxy", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-trigger-ref-on-non-ref", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-unused-computed-binding", RuleGroupId::Derivation),
@@ -223,7 +225,7 @@ mod tests {
       "vue-vet/reactivity/no-returned-watcher-cleanup",
     ];
     let inventory = rule_inventory(&[]);
-    assert_eq!(inventory.counts.total, 117, "composed CLI inventory count");
+    assert_eq!(inventory.counts.total, 119, "composed CLI inventory count");
     let source = rule_inventory(&[RuleGroupId::SourceContracts]);
     for id in [
       "vue-vet/reactivity/no-lost-shallow-nested-notification",
@@ -232,6 +234,8 @@ mod tests {
       "vue-vet/reactivity/no-watch-signature-mismatch",
       "vue-vet/reactivity/no-once-immediate-discard",
       "vue-vet/reactivity/no-watch-alias-old-new",
+      "vue-vet/reactivity/no-toref-ignored-key",
+      "vue-vet/reactivity/no-effect-scope-callback-argument",
     ] {
       assert_eq!(group_of(id), Some(RuleGroupId::SourceContracts), "{id}");
       assert!(

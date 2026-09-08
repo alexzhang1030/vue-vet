@@ -9,7 +9,7 @@ use oxc_ast::{
 use oxc_semantic::{NodeId, Reference, ReferenceFlags, SymbolId};
 use oxc_span::{GetSpan, Span};
 use std::collections::HashMap;
-use vue_vet_core::ScriptKind;
+use vue_vet_core::{ScriptKind, ToRefIgnoredKeyReason};
 
 use super::stats::WorkCounter;
 
@@ -58,6 +58,15 @@ impl Shape {
   pub(super) const fn is_deep_mutable_proxy(self) -> bool {
     matches!(self, Self::DeepProxy)
   }
+
+  pub(super) const fn toref_ignored_key_reason(self) -> Option<ToRefIgnoredKeyReason> {
+    match self {
+      Self::RefLike => Some(ToRefIgnoredKeyReason::Ref),
+      Self::Function => Some(ToRefIgnoredKeyReason::Function),
+      Self::Primitive | Self::Nullish => Some(ToRefIgnoredKeyReason::Primitive),
+      _ => None,
+    }
+  }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -81,6 +90,8 @@ pub(super) enum ShapeHint {
 /// [`ContractSink::WatchEffectFamily`] imports keep source indexes empty when
 /// every resolved reference is a proven call with fewer than two arguments and
 /// no spread. Ordinary sinks and namespace imports keep full indexing.
+/// `toRef` and `effectScope` are additional sinks so a named import of
+/// either still admits collection.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ContractSink {
   TriggerRef,
@@ -88,6 +99,8 @@ pub enum ContractSink {
   ProxyConstructor,
   Watch,
   WatchEffectFamily,
+  ToRef,
+  EffectScope,
 }
 
 impl ContractSink {
@@ -114,6 +127,7 @@ pub(super) fn intern_api(name: &str) -> Option<&'static str> {
     "customRef" => Some("customRef"),
     "computed" => Some("computed"),
     "toRef" => Some("toRef"),
+    "effectScope" => Some("effectScope"),
     "useTemplateRef" => Some("useTemplateRef"),
     "defineModel" => Some("defineModel"),
     _ => None,
@@ -129,6 +143,8 @@ pub fn contract_sink(api: &str) -> Option<ContractSink> {
     }
     "watch" => Some(ContractSink::Watch),
     "watchEffect" | "watchPostEffect" | "watchSyncEffect" => Some(ContractSink::WatchEffectFamily),
+    "toRef" => Some(ContractSink::ToRef),
+    "effectScope" => Some(ContractSink::EffectScope),
     _ => None,
   }
 }
