@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-extracted-reactive-collection-method",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-extracted-reactive-collection-method",
+    "message": "Calling extracted `Set.add` loses the reactive Set receiver and throws TypeError",
+    "help": "`reactive` wrapped this Set at 3:24; `add` was extracted at 4:9. Keep the receiver (`items.add(...)`) or bind it (`add.call(items, ...)`).",
+    "file": "fixtures/rules/no-extracted-reactive-collection-method/invalid/set-add.vue",
+    "span": {
+      "offset": 120,
+      "length": 6,
+      "line": 5,
+      "column": 1
+    }
+  }
+]

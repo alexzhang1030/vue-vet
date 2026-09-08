@@ -101,6 +101,39 @@ pub(super) enum ShapeHint {
 /// `toRef`, `effectScope`, and `customRef` are additional sinks so a named
 /// import of any still admits collection.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum CollectionCtor {
+  Map,
+  Set,
+  WeakMap,
+  WeakSet,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum CollectionKind {
+  Map,
+  Set,
+  Array,
+}
+
+impl CollectionKind {
+  pub(super) const fn as_str(self) -> &'static str {
+    match self {
+      Self::Map => "Map",
+      Self::Set => "Set",
+      Self::Array => "Array",
+    }
+  }
+
+  pub(super) fn accepts_method(self, method: &str) -> bool {
+    match self {
+      Self::Map => matches!(method, "get" | "set" | "has"),
+      Self::Set => matches!(method, "has" | "add"),
+      Self::Array => matches!(method, "map" | "includes" | "push"),
+    }
+  }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ContractSink {
   TriggerRef,
   ToRefs,
@@ -187,6 +220,76 @@ pub(super) fn is_proxy_allocating_api(api: &str) -> bool {
 /// Named `#imports` stays out until a project-origin fact proves the export.
 pub(super) fn is_actual_proxy_runtime_source(source: &str) -> bool {
   matches!(source, "vue" | "@vue/runtime-core" | "@vue/runtime-dom" | "@vue/reactivity")
+}
+
+pub(super) fn intern_extractable_method(name: &str) -> Option<&'static str> {
+  match name {
+    "get" => Some("get"),
+    "set" => Some("set"),
+    "has" => Some("has"),
+    "add" => Some("add"),
+    "map" => Some("map"),
+    "includes" => Some("includes"),
+    "push" => Some("push"),
+    _ => None,
+  }
+}
+
+pub(super) fn is_known_receiver_method(name: &str) -> bool {
+  matches!(
+    name,
+    "get"
+      | "set"
+      | "has"
+      | "add"
+      | "delete"
+      | "clear"
+      | "forEach"
+      | "keys"
+      | "values"
+      | "entries"
+      | "map"
+      | "includes"
+      | "push"
+      | "pop"
+      | "shift"
+      | "unshift"
+      | "splice"
+      | "slice"
+      | "filter"
+      | "reduce"
+      | "reduceRight"
+      | "find"
+      | "findIndex"
+      | "findLast"
+      | "findLastIndex"
+      | "some"
+      | "every"
+      | "concat"
+      | "join"
+      | "indexOf"
+      | "lastIndexOf"
+      | "at"
+      | "flat"
+      | "flatMap"
+      | "reverse"
+      | "sort"
+      | "fill"
+      | "copyWithin"
+      | "toSorted"
+      | "toReversed"
+      | "toSpliced"
+      | "with"
+  )
+}
+
+pub(super) fn intern_native_ctor(name: &str) -> Option<&'static str> {
+  match name {
+    "Map" => Some("Map"),
+    "Set" => Some("Set"),
+    "Array" => Some("Array"),
+    _ => None,
+  }
 }
 
 pub(super) fn is_named_auto_import_source(source: &str) -> bool {
@@ -424,11 +527,24 @@ pub(super) fn is_unresolved_collection(
   callee: &Expression<'_>,
   symbol_of: impl Fn(&IdentifierReference<'_>) -> Option<SymbolId>,
 ) -> bool {
-  let Some(identifier) = callee.get_inner_expression().get_identifier_reference() else {
-    return false;
-  };
-  matches!(identifier.name.as_str(), "Map" | "Set" | "WeakMap" | "WeakSet")
-    && symbol_of(identifier).is_none()
+  unresolved_collection_kind(callee, symbol_of).is_some()
+}
+
+pub(super) fn unresolved_collection_kind(
+  callee: &Expression<'_>,
+  symbol_of: impl Fn(&IdentifierReference<'_>) -> Option<SymbolId>,
+) -> Option<CollectionCtor> {
+  let identifier = callee.get_inner_expression().get_identifier_reference()?;
+  if symbol_of(identifier).is_some() {
+    return None;
+  }
+  match identifier.name.as_str() {
+    "Map" => Some(CollectionCtor::Map),
+    "Set" => Some(CollectionCtor::Set),
+    "WeakMap" => Some(CollectionCtor::WeakMap),
+    "WeakSet" => Some(CollectionCtor::WeakSet),
+    _ => None,
+  }
 }
 
 pub(super) fn resolve_vue_api(

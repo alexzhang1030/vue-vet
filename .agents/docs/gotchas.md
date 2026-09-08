@@ -1081,6 +1081,29 @@ ancestor chain. Rules:
   and `useX` stays unpublished. Only properties that are `MethodGeneric` promote
   (so `useProvide` stays quiet).
 
+## Collection escape-depth exhaustion is Unknown
+
+`poison_expr_bounded` walks helper / `new` / tagged / assignment-result
+arguments through logical, conditional, sequence, and aggregate forms to
+depth 8. Exhaustion on a leftover identifier poisons that collection root.
+Exhaustion on any other leftover expression records the leftover span; the
+existing semantic-reference pass then poisons every symbol whose reference
+sits inside that span (`capability_poisoned` only) and taints canonical
+constructor identity for unresolved native `Map` / `Set` / `Array` (including
+`.prototype`) identifiers in the same span. Const aliases of those
+constructors and `.prototype` objects (`const C = Array`,
+`const P = Array.prototype`, and alias chains) share one precomputed
+native-kind identity (`intern_native_ctor`) queried by both ordinary helper
+escapes and leftover covering. A true `globalThis` alias escape — ordinary
+or unresolved — taints every supported intrinsic because that object can
+replace any constructor; shadowed local globals stay distinct symbols and
+do not taint native identity. Unrelated ordinary collection roots stay
+reportable when global capability is intact. Raising the depth alone would
+still trust a deeper leftover. This is not generic source5 `uncertain` /
+`escaped`. Fallback work is leftover-span copy, counted sort comparisons,
+merge, `partition_point` covering checks, unresolved native/global
+reference covering, and native-alias map construction plus identity
+resolution.
 ## Production notification work counters miss native-size
 
 PR 233 failed all five native-size gates while `NotificationWork`'s 16 `usize`

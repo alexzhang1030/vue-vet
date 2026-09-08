@@ -214,8 +214,11 @@ Parser IR (Vize AST / Oxc Semantic)     — short-lived, never cached across ada
 File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         (`ScriptBlockFacts::source_contracts` holds proven Vue API source-identity
         sites from Oxc (`vue_vet_oxc::source_contracts`), including watch-family
-        ignored-option and signature-slot facts (`watch_api.rs`). Watch-option
-        collection inspects original `ObjectProperty::computed` flags so
+        ignored-option and signature-slot facts (`watch_api.rs`) and extracted
+        reactive collection-method receiver-loss sites. Collection capability is
+        a dedicated poisoned-root query (not generic source5 `uncertain` /
+        `escaped`); const alias roots are compressed before mutation indexing.
+        Watch-option collection inspects original `ObjectProperty::computed` flags so
         computed literal keys stay quiet without changing shared object
         summarization. Proven
         `watchEffect` / `watchPostEffect` / `watchSyncEffect` identity is recorded
@@ -246,7 +249,7 @@ File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         imports reuse the canonical Vue-import pass. `watch` still runs the
         ordinary source collector, watch-family option/signature facts, and
         callback-contract collectors (`watch_callbacks.rs`). Combined
-        `RULESET_VERSION` is 23; `REACTIVITY_GRAPH_VERSION` stays 41.
+        `RULESET_VERSION` is 24; `REACTIVITY_GRAPH_VERSION` stays 41.
         Named effect-family imports keep source indexes empty when every Oxc
         resolved reference is a proven call with fewer than two arguments and
         no spread (current watch-API rules read that second argument). Ordinary

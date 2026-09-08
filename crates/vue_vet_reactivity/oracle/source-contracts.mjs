@@ -5,6 +5,7 @@
  * Run: `just oracle-source-contracts`
  */
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -156,6 +157,139 @@ function captureWarns(fn) {
   state.nested = { x: 9 };
   await nextTick();
   assert.equal(objRuns, 1, "replacement must not retarget");
+}
+
+function assertExtractedReceiverLoss(label, collection, method, args, check) {
+  const extracted = collection[method];
+  assert.throws(() => extracted(...args), TypeError, `${label} bare ${method} must throw TypeError`);
+  check(extracted.call(collection, ...args), `${label} ${method}.call must keep the receiver`);
+  check(extracted.apply(collection, args), `${label} ${method}.apply must keep the receiver`);
+  const bound = extracted.bind(collection);
+  check(bound(...args), `${label} ${method}.bind must keep the receiver`);
+}
+
+{
+  const map = reactive(new Map([["a", 1]]));
+  assertExtractedReceiverLoss("Map.get", map, "get", ["a"], (value, message) => {
+    assert.equal(value, 1, message);
+  });
+  assertExtractedReceiverLoss("Map.has", map, "has", ["a"], (value, message) => {
+    assert.equal(value, true, message);
+  });
+  assertExtractedReceiverLoss("Map.set", map, "set", ["b", 2], (value, message) => {
+    assert.equal(value, map, message);
+  });
+  const set = reactive(new Set([1]));
+  assertExtractedReceiverLoss("Set.has", set, "has", [1], (value, message) => {
+    assert.equal(value, true, message);
+  });
+  assertExtractedReceiverLoss("Set.add", set, "add", [2], (value, message) => {
+    assert.equal(value, set, message);
+  });
+  const array = reactive([1, 2]);
+  assertExtractedReceiverLoss("Array.includes", array, "includes", [1], (value, message) => {
+    assert.equal(value, true, message);
+  });
+  assertExtractedReceiverLoss("Array.map", array, "map", [(n) => n], (value, message) => {
+    assert.deepEqual(Array.from(value), [1, 2], message);
+  });
+  const shallow = shallowReactive(new Map([["a", 1]]));
+  assertExtractedReceiverLoss("shallow Map.get", shallow, "get", ["a"], (value, message) => {
+    assert.equal(value, 1, message);
+  });
+}
+
+{
+  const script = `
+    const { createRequire } = require("node:module");
+    const requireVue = createRequire(${JSON.stringify(oraclePkg)});
+    const { reactive } = requireVue("@vue/reactivity");
+    const array = reactive([1, 2]);
+    const extracted = array.push;
+    let threw = false;
+    try { extracted(3); } catch (error) { threw = error instanceof TypeError; }
+    const ok = reactive([1, 2]);
+    const push = ok.push;
+    const length = push.call(ok, 3);
+    process.stdout.write(JSON.stringify({ threw, length, okLength: ok.length }));
+  `;
+  const isolated = spawnSync(process.execPath, ["-e", script], {
+    encoding: "utf8",
+    timeout: 15_000,
+  });
+  assert.equal(isolated.status, 0, `isolated push oracle failed: ${isolated.stderr}`);
+  const result = JSON.parse(isolated.stdout);
+  assert.equal(result.threw, true, "extracted Array.push must throw TypeError in isolation");
+  assert.equal(result.length, 3, "Array.push.call must keep the receiver in isolation");
+  assert.equal(result.okLength, 3, "successful push.call must mutate length");
+}
+
+{
+  const script = `
+    const { createRequire } = require("node:module");
+    const requireVue = createRequire(${JSON.stringify(oraclePkg)});
+    const { reactive } = requireVue("vue");
+    const chain = (start) => {
+      let current = start;
+      for (let index = 0; index < 32; index++) current = current;
+      return current;
+    };
+    const restoreCtor = (() => {
+      const ctor = chain(Array);
+      const previous = ctor.prototype.map;
+      ctor.prototype.__v_skip = true;
+      ctor.prototype.map = () => [7];
+      const items = reactive([1]);
+      const extracted = items.map;
+      const value = extracted();
+      delete ctor.prototype.__v_skip;
+      ctor.prototype.map = previous;
+      return value;
+    })();
+    const restoreProto = (() => {
+      const proto = chain(Array.prototype);
+      const previous = proto.map;
+      proto.__v_skip = true;
+      proto.map = () => [7];
+      const items = reactive([1]);
+      const extracted = items.map;
+      const value = extracted();
+      delete proto.__v_skip;
+      proto.map = previous;
+      return value;
+    })();
+    function shadowCtor() {
+      const Array = class {};
+      const capability = Array;
+      void capability;
+      const items = reactive([1]);
+      const extracted = items.map;
+      extracted();
+    }
+    function shadowProto() {
+      const Array = { prototype: {} };
+      const capability = Array.prototype;
+      void capability;
+      const items = reactive([1]);
+      const extracted = items.map;
+      extracted();
+    }
+    let ctorThrew = false;
+    let protoThrew = false;
+    try { shadowCtor(); } catch (error) { ctorThrew = error instanceof TypeError; }
+    try { shadowProto(); } catch (error) { protoThrew = error instanceof TypeError; }
+    process.stdout.write(JSON.stringify({ restoreCtor, restoreProto, ctorThrew, protoThrew }));
+  `;
+  const isolated = spawnSync(process.execPath, ["-e", script], {
+    encoding: "utf8",
+    timeout: 15_000,
+  });
+  assert.equal(isolated.status, 0, `isolated native-alias oracle failed: ${isolated.stderr}`);
+  const result = JSON.parse(isolated.stdout);
+  assert.deepEqual(result.restoreCtor, [7], "32-step Array constructor alias must keep native map");
+  assert.deepEqual(result.restoreProto, [7], "32-step Array.prototype alias must keep native map");
+  assert.equal(result.ctorThrew, true, "local Array constructor shadow must throw TypeError");
+  assert.equal(result.protoThrew, true, "local Array.prototype shadow must throw TypeError");
 }
 
 function cloneErrorName(value) {

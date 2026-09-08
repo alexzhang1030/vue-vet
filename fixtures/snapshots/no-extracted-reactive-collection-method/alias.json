@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-extracted-reactive-collection-method",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-extracted-reactive-collection-method",
+    "message": "Calling extracted `Map.get` loses the reactive Map receiver and throws TypeError",
+    "help": "`reactive` wrapped this Map at 3:16; `get` was extracted at 5:13. Keep the receiver (`map.get(...)`) or bind it (`get.call(map, ...)`).",
+    "file": "fixtures/rules/no-extracted-reactive-collection-method/invalid/alias.vue",
+    "span": {
+      "offset": 138,
+      "length": 8,
+      "line": 6,
+      "column": 1
+    }
+  }
+]
