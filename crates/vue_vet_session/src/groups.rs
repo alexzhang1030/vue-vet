@@ -26,33 +26,49 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-computed-without-dependency", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-deep-watch-on-reactive-root", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-deferred-callback-reactive-read-in-effect", RuleGroupId::Tracking),
+  ("vue-vet/reactivity/no-effect-scope-callback-argument", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-effect-write-without-read", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-empty-watch-sources", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-extracted-reactive-collection-method", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-inactive-scope-result", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-invalid-custom-ref-interface", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-late-scope-dispose", RuleGroupId::Lifetime),
+  ("vue-vet/reactivity/no-late-watcher-cleanup", RuleGroupId::Lifetime),
+  ("vue-vet/reactivity/no-lost-shallow-nested-notification", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-missing-torefs-key", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-model-ref-as-operand", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-multiple-effects-same-target", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-nonreactive-props-destructure", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-on-scope-dispose-reactive-read", RuleGroupId::Lifetime),
+  ("vue-vet/reactivity/no-once-immediate-discard", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-orphaned-scope-watcher", RuleGroupId::Lifetime),
   ("vue-vet/reactivity/no-outside-tracking-dependency-in-computed", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-outside-tracking-dependency-in-effect-scope", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-outside-tracking-dependency-in-watch-sources", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-primitive-reactive-target", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-props-snapshot-in-ref", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-proxy-structured-clone", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-reactive-destructure", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-reactive-read-during-pause-tracking", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-readonly-mutation", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-ref-as-operand", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-returned-watcher-cleanup", RuleGroupId::Lifetime),
   ("vue-vet/reactivity/no-route-destructure", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-router-destructure", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-shallow-reactive-destructure", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-side-effects-in-computed", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-stale-prop-flow", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-toraw-write-of-tracked-state", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-toref-ignored-key", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-torefs-on-non-proxy", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-trigger-ref-on-non-ref", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-unused-computed-binding", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-v-model-nonreactive-source", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-watch-alias-old-new", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-watch-callback-as-tracking-scope", RuleGroupId::Tracking),
+  ("vue-vet/reactivity/no-watch-ignored-option", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-watch-replaced-object-source", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-watch-signature-mismatch", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-watch-unwrapped-source", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/prefer-computed", RuleGroupId::Derivation),
   ("vue-vet/reactivity/prefer-store-to-refs", RuleGroupId::SourceContracts),
@@ -203,6 +219,57 @@ mod tests {
     let tracking = rule_inventory(&[RuleGroupId::Tracking, RuleGroupId::Tracking]);
     assert!(tracking.rules.iter().all(|row| row.group == Some(RuleGroupId::Tracking)));
     assert_eq!(tracking.counts.total, tracking.rules.len());
+  }
+
+  #[test]
+  fn lifetime_watcher_and_scope_ids_are_in_lifetime_not_tracking() {
+    const LIFETIME_IDS: &[&str] = &[
+      "vue-vet/reactivity/no-late-scope-dispose",
+      "vue-vet/reactivity/no-late-watcher-cleanup",
+      "vue-vet/reactivity/no-orphaned-scope-watcher",
+      "vue-vet/reactivity/no-returned-watcher-cleanup",
+    ];
+    let inventory = rule_inventory(&[]);
+    assert_eq!(inventory.counts.total, 124, "composed CLI inventory count");
+    let source = rule_inventory(&[RuleGroupId::SourceContracts]);
+    assert_eq!(source.counts.total, 32, "source-contracts group count");
+    for id in [
+      "vue-vet/reactivity/no-extracted-reactive-collection-method",
+      "vue-vet/reactivity/no-lost-shallow-nested-notification",
+      "vue-vet/reactivity/no-proxy-structured-clone",
+      "vue-vet/reactivity/no-toraw-write-of-tracked-state",
+      "vue-vet/reactivity/no-watch-ignored-option",
+      "vue-vet/reactivity/no-watch-signature-mismatch",
+      "vue-vet/reactivity/no-once-immediate-discard",
+      "vue-vet/reactivity/no-watch-alias-old-new",
+      "vue-vet/reactivity/no-toref-ignored-key",
+      "vue-vet/reactivity/no-effect-scope-callback-argument",
+      "vue-vet/reactivity/no-invalid-custom-ref-interface",
+      "vue-vet/reactivity/no-inactive-scope-result",
+      "vue-vet/reactivity/no-missing-torefs-key",
+    ] {
+      assert_eq!(group_of(id), Some(RuleGroupId::SourceContracts), "{id}");
+      assert!(
+        source
+          .rules
+          .iter()
+          .any(|row| row.id == *id && row.group == Some(RuleGroupId::SourceContracts)),
+        "source-contracts inventory must include {id}"
+      );
+    }
+    let lifetime = rule_inventory(&[RuleGroupId::Lifetime]);
+    let tracking = rule_inventory(&[RuleGroupId::Tracking]);
+    for id in LIFETIME_IDS {
+      assert_eq!(group_of(id), Some(RuleGroupId::Lifetime), "{id}");
+      assert!(
+        lifetime.rules.iter().any(|row| row.id == *id && row.group == Some(RuleGroupId::Lifetime)),
+        "lifetime inventory must include {id}"
+      );
+      assert!(
+        tracking.rules.iter().all(|row| row.id != *id),
+        "tracking inventory must exclude {id}"
+      );
+    }
   }
 
   fn raw_composed_ids() -> Vec<&'static str> {

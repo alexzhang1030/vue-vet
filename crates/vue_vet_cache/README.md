@@ -17,7 +17,7 @@ Workspace-internal (`publish = false`).
 | --- | --- | --- |
 | `CACHE_FORMAT_VERSION` | `5` | On-disk entry schema; directory `v5/` |
 | `BASELINE_FORMAT_VERSION` | `1` | Baseline file schema |
-| `RULESET_VERSION` | `21` | Built-in / seed-aware rule identity (extracted reactive collection method locally; v18–v20 reserved for sibling batches; v17 source-contract batch + watch-source overlap) |
+| `RULESET_VERSION` | `24` | Extracted reactive collection-method receiver facts on the demand-gated value catalog (v23) |
 | `CACHE_VIZE_CROQUIS_VERSION` | `0.387.0` | Hashed `vize-version` (`AnalysisStackIdentity`) |
 | `CACHE_OXC_PARSER_VERSION` | `0.142.0` | Hashed `oxc-version` (`AnalysisStackIdentity`) |
 

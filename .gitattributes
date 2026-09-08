@@ -2,3 +2,10 @@
 fixtures/rules/no-primitive-reactive-target/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/no-trigger-ref-on-non-ref/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/no-extracted-reactive-collection-method/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/no-proxy-structured-clone/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/no-lost-shallow-nested-notification/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/no-toref-ignored-key/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/no-effect-scope-callback-argument/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/no-invalid-custom-ref-interface/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/no-inactive-scope-result/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/no-missing-torefs-key/invalid/crlf.vue -text whitespace=cr-at-eol

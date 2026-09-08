@@ -111,6 +111,11 @@ pub(super) fn graph(source: &str) -> ReactivityGraph {
   trace(source, source, 0, ScriptKind::Setup)
 }
 
+pub(super) fn graph_work(source: &str) -> (ReactivityGraph, crate::NotificationWork) {
+  let graph = graph(source);
+  (graph, crate::last_notification_work())
+}
+
 pub(super) fn graph_tsx(source: &str) -> ReactivityGraph {
   let allocator = Allocator::default();
   let parsed = Parser::new(&allocator, source, SourceType::tsx()).parse();

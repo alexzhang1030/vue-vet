@@ -23,13 +23,32 @@ pub const CACHE_FORMAT_VERSION: u32 = 5;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// Bump when built-in rule set or seed-aware analysis behavior changes.
 ///
-/// v21 (local, pending parent integration of sibling worktrees):
-/// `no-extracted-reactive-collection-method`. v18–v20 reserved for sibling
-/// batches on the same base.
+/// v24: extracted reactive collection-method receiver facts
+/// (`no-extracted-reactive-collection-method`) on the demand-gated value
+/// catalog (v23). Graph version stays 41.
+/// v23: demand-gated value contracts (`no-invalid-custom-ref-interface`,
+/// `no-inactive-scope-result`, `no-missing-torefs-key`) on the native-clone
+/// catalog (v22). Graph version stays 41.
+/// v22: native `structuredClone` actual-Proxy facts (`no-proxy-structured-clone`)
+/// on the normalization catalog (v21). Graph version stays 41.
+/// v21: normalization contracts (`no-toref-ignored-key`,
+/// `no-effect-scope-callback-argument`) as `ContractSink::ToRef` /
+/// `ContractSink::EffectScope` on the watch-callback catalog (v20).
+/// Graph version stays 41.
+/// v20: watch-callback contracts (`no-once-immediate-discard`,
+/// `no-watch-alias-old-new`) on the ordinary `watch` `ContractSink`, composed
+/// onto the watch-API catalog (v19). Graph version stays 41.
+/// v19: watch-family option/signature rules (`no-watch-ignored-option`,
+/// `no-watch-signature-mismatch`) plus `watch*Effect` `ContractSink`
+/// eligibility on the lost-notification catalog (v18). Graph version stays 41.
+/// v18: lost-notification rules (`no-lost-shallow-nested-notification`,
+/// `no-toraw-write-of-tracked-state`) plus source/view/path graph facts,
+/// composed onto the source-contract catalog (v17).
 /// v17: source-contract rules (`no-trigger-ref-on-non-ref`,
 /// `no-torefs-on-non-proxy`, `no-primitive-reactive-target`,
 /// `no-watch-unwrapped-source`, `no-watch-replaced-object-source`) plus
 /// watch-source overlap finalization with `no-empty-watch-sources`.
+/// Combined RULESET/graph cache version bumps are owned by the parent merge.
 /// v16: lifetime watcher/effect-scope facts (`no-returned-watcher-cleanup`,
 /// `no-late-watcher-cleanup`, `no-orphaned-scope-watcher`, `no-late-scope-dispose`)
 /// composed onto the retired quiet-ID catalog (config unknown).
@@ -53,7 +72,7 @@ pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// prefer-watch suppresses self-write sources; computed self-write is impure.
 /// v5: conditional-dep premise withdrawn; after-await registrars deprecated
 /// except defineExpose; absence rules require complete follow coverage.
-pub const RULESET_VERSION: u32 = 21;
+pub const RULESET_VERSION: u32 = 24;
 
 /// Workspace pin for `vize_croquis` / `vize_atelier_core`.
 ///

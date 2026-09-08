@@ -24,8 +24,8 @@ namespace imports, const aliases, and TypeScript wrappers are followed.
 Collection identity uses a dedicated capability query (static/computed/pattern
 writes, update/delete, loop assignment targets, helper/`new`/tagged receivers,
 and bounded logical/conditional/sequence/aggregate escapes) with precomputed
-alias roots. Escape-depth exhaustion does not trust a leftover nested
-expression: identifier roots referenced inside that leftover span stay
+alias roots. On escape-depth exhaustion, identifier roots referenced
+inside a leftover nested-expression span stay
 unknown, and unresolved native `Map` / `Set` / `Array` (including
 `.prototype`) identifiers in that span taint constructor identity. Const
 aliases of those constructors and `.prototype` objects share that native-kind
@@ -68,8 +68,8 @@ Receiver-preserving alternatives that stay quiet: `get.call(map, key)`,
 
 ## Detection
 
-Fact-driven via Vue Vet source-contract facts (Oxc symbol identity). Not
-generic call syntax. Native `Map` / `Set` globals must be unshadowed.
+Detection uses Oxc symbol identity and Vue Vet source-contract facts.
+Native `Map` / `Set` globals must be unshadowed.
 
 ## Remediation
 

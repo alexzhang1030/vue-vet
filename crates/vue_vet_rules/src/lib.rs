@@ -131,5 +131,7 @@ mod tests {
     assert!(ids.contains("vue-vet/correctness/no-define-expose-after-await"));
     assert!(ids.contains("vue-vet/reactivity/no-computed-self-trigger"));
     assert!(ids.contains("vue-vet/reactivity/no-after-await-watch-effect-dependency"));
+    assert!(ids.contains("vue-vet/reactivity/no-lost-shallow-nested-notification"));
+    assert!(ids.contains("vue-vet/reactivity/no-toraw-write-of-tracked-state"));
   }
 }

@@ -1,5 +1,20 @@
 # Known gotchas
 
+## `toRef` follows a live `__v_isRef` marker
+
+Vue 3.5 `toRef(source, key)` checks `isRef(source)` before the getter and
+object-key overloads. Assigning `source.__v_isRef = false` or deleting the
+marker retargets the call onto the object-property overload even when
+`source` was created by `ref()`. A function tagged `__v_isRef = true` takes
+the existing-ref path. `no-toref-ignored-key` must prove the marker is
+immutable through its live capability evidence. Keep that uncertainty on
+the toRef sink and preserve the original five source-contract IDs' payload
+classification. Pattern
+assignment (static / computed / default / rest / TS wrappers), constructor
+arguments, and call / tagged-template receivers (including TypeScript
+instantiation wrappers) are the same capability-role escapes. Ordinary
+`.value` / data writes keep payload proof.
+
 ## Vize API churn is expected
 
 Vize is not yet production-stable and publishes frequently. Keep the dependency exact-pinned. An upgrade is a compatibility task: compile, inspect API changes, run golden fixtures and diagnostic snapshots, and record behavior differences. Do not change the version range just to unblock dependency resolution.
@@ -14,6 +29,25 @@ compound expression text is reconstructed from children. Tag/name fields are
 Oxc 0.142 `SemanticBuilder` leaves `Semantic::nodes` empty unless
 `.with_build_nodes(true)` is set; forgetting it makes every node-walk fact
 collector (imports, calls, scopes) succeed with empty results.
+
+## Demand proof is not source5 eligibility
+
+Demand-gated value contracts (`customRef` / stopped `effectScope.run` /
+missing `toRefs` key) own a function-level execution region and source-order
+barriers. Generic source5 still uses immediate `ExpressionStatement` parents
+only. Do not reuse demand reach/barrier proof as source5 execution evidence;
+a later sink preflight may merge collectors, but source5 output must stay
+stable until that merge.
+
+`toRefs(state)` is a generic source5 escape/uncertain use. Demand may discount
+only a proven Vue `toRefs` first-argument borrow; helper arguments, storage,
+export, `new`, tagged templates, and receiver calls — including TypeScript
+instantiation wrappers — keep source keys unknown.
+Object literals execute computed keys (and pattern defaults) during
+construction — walking only `prop.value` misses receiver mutation such as
+`{ [this._set = fn]: 1 }`. Memoized closed-key sets are borrowed and queried
+per demanded key; cloning the `HashSet` per `toRefs` call is quadratic in
+source width.
 
 ## SFC offsets are not plain string positions
 
@@ -32,6 +66,25 @@ Oxc spans are relative to the extracted script block. Add the Vize
 `SfcScriptBlock.loc.start` offset exactly once before deriving line and column.
 Ordinary script and script setup remain separate fact blocks so duplicate names
 and future merge semantics are explicit rather than accidental.
+
+## Structured clone requires actual Proxy allocation proof
+
+`Shape::DeepProxy` / `ShallowProxy` / `ReadonlyProxy` record Vue API result
+kinds. Vue still returns the raw target for `markRaw`, `__v_skip`, frozen, or
+non-extensible input. `no-proxy-structured-clone` uses actual Proxy
+allocation proof from `clone_boundary.rs`. Definite
+Proxy origin is only `vue` / `@vue/runtime-core` / `@vue/runtime-dom` /
+`@vue/reactivity`; named `#imports` and `vue-demi` stay unproved. The
+yes/no cache stores terminal proofs; exhausted queries remain uncached.
+Object eligibility charges each property scan. Native
+`structuredClone` identity is poisoned by unresolved global / `globalThis`
+writes (computed string keys, unresolved computed keys, patterns with
+default/rest, TypeScript wrappers, `delete`, updates, and `for...in` /
+`for...of` assignment targets). A shadowed `globalThis` retains local binding
+identity. Declaration-form loop heads keep binding semantics. Definite
+native *calls* still need the static `structuredClone` key. Actual-Proxy
+origin is an indexed import-source lookup on resolved proxy constructors
+only; local calls skip it.
 
 ## Configuration is part of diagnostic identity
 
@@ -1061,3 +1114,27 @@ scan so file **and** project findings appear exactly once (including
 `--progress never` and cache hits). Never invent a global percentage or ETA;
 never show raw filenames on the status line. Stop and clear the live line
 before stdout reports, cache-stat/fix messages, errors, or the reactivity TUI.
+
+## Identifier `watch(n)` drops `watch(n.value)` unwrapped proof
+
+Source-contract indexing marks a ref `uncertain`/`escaped` when it is passed
+as a bare identifier (including a second `watch(n, …)`). `watch(n.value)` then
+fails `payload_uncertain` and the unwrapped finding disappears. That is
+source-parent preexisting, not the watch-callback collector. Do not weaken
+unwrapped fixtures to hide it; a parent fix belongs on the escape/uncertain
+role table. The executable repro is
+`source_parent_identifier_watch_use_drops_unwrapped_payload_proof`.
+
+Assignment-pattern member targets restore that same generic `uncertain`
+value fact: the whole destructuring RHS is not each member's extracted
+value. Capability keys and dynamic pattern targets additionally mark
+`capability_uncertain`. Ordinary `state.n` pattern writes stay off that
+dedicated set so `no-watch-alias-old-new` can still fire. Direct
+`state.child = { … }` still records a proven fresh replacement.
+
+Static-member receiver roles share one span-identity policy for
+`CallExpression`, `NewExpression`, and `TaggedTemplateExpression` (a tagged
+template binds `this` like a call). TS wrappers, including instantiation, and
+`ChainExpression` are walked with the same ancestor budget. Import sources,
+JSX member tags, and decorator expressions are not JS `this` receivers and
+stay off this set.

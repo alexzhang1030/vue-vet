@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-watch-signature-mismatch",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-watch-signature-mismatch",
+    "message": "`watch` expects a function callback as its second argument; this value is not callable",
+    "help": "Use `watch(source, callback, options)`. Object `{ handler }` is the old Options API shape.",
+    "file": "fixtures/rules/no-watch-signature-mismatch/invalid/number.vue",
+    "span": {
+      "offset": 92,
+      "length": 1,
+      "line": 4,
+      "column": 14
+    }
+  }
+]

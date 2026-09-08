@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-once-immediate-discard",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-once-immediate-discard",
+    "message": "`watch` with `{ once: true, immediate: true }` returns before the only invocation can use the new value",
+    "help": "The initial `old` value is `undefined` for a single source, so this guard consumes the callback's only run. Drop `once`, drop the guard, or do the initial work without returning.",
+    "file": "fixtures/rules/no-once-immediate-discard/invalid/unicode.vue",
+    "span": {
+      "offset": 145,
+      "length": 29,
+      "line": 8,
+      "column": 5
+    }
+  }
+]

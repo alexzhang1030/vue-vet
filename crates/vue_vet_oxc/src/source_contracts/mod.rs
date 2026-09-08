@@ -1,10 +1,17 @@
 //! Neutral Vue source-contract facts from Oxc semantics (issue #224).
 //!
-//! Proven Vue identity is a named or namespace import from `vue`, `vue-demi`,
-//! `@vue/runtime-core`, `@vue/runtime-dom`, or `@vue/reactivity`, plus a
-//! **named** `#imports` specifier whose imported name is a known Vue export.
-//! Namespace `#imports`, type-only specifiers, and unknown auto-import names
-//! stay unproven. Compiler macros `defineProps` / `defineModel` are setup-only.
+//! Proven Vue identity (`info.api`) is a named or namespace import from `vue`,
+//! `vue-demi`, `@vue/runtime-core`, `@vue/runtime-dom`, or `@vue/reactivity`,
+//! plus a **named** `#imports` specifier whose imported name is a known Vue
+//! export. Namespace `#imports`, type-only specifiers, and unknown auto-import
+//! names stay unproven. Compiler macros `defineProps` / `defineModel` are
+//! setup-only. Actual-Proxy proof for native `structuredClone` is a separate
+//! origin discriminator: only `vue` / `@vue/runtime-core` / `@vue/runtime-dom`
+//! / `@vue/reactivity`. Named `#imports` and `vue-demi` stay unproved here.
+//! Origin uses the indexed import source of resolved proxy constructors only;
+//! local and unknown calls skip that lookup. Native `structuredClone` *calls*
+//! require a definite static key; unresolved `globalThis` *writes* with a
+//! non-literal key poison identity.
 //!
 //! Replacement findings require a simple `=` of a fresh object/array/`new`
 //! built-in collection in the same straight-line block after `watch`.
@@ -27,9 +34,15 @@
 //! factories, prototypes, overwritten methods, escaped collections, dynamic
 //! keys, and mutated bindings stay unknown.
 
+mod clone_boundary;
+mod demand;
 mod index;
+mod normalization;
+mod proof;
 mod shape;
 mod stats;
+mod watch_api;
+mod watch_callbacks;
 
 use std::collections::HashMap;
 
@@ -48,21 +61,26 @@ use crate::facts::source_span;
 
 use index::{CallInfo, Indexes, ObjectProp};
 use shape::{
-  CollectionCtor, CollectionKind, Shape, ShapeHint, classify_vue_result, is_ref_api,
-  is_strict_vue_runtime_source, span_key,
+  CollectionCtor, CollectionKind, Shape, ShapeHint, classify_vue_result, collect_vue_imports,
+  is_ref_api, span_key,
 };
+pub use shape::{ContractSink, contract_sink};
+use stats::WorkCounter;
+
+pub use stats::SourceContractStats;
 
 const MAX_DEPTH: u8 = 8;
 
-struct Collector<'a> {
-  semantic: &'a oxc_semantic::Semantic<'a>,
-  line_index: &'a vue_vet_core::LineIndex,
-  sfc_source: &'a str,
-  script_offset: usize,
-  indexes: Indexes,
-  shape_cache: HashMap<SymbolId, Shape>,
-  property_shape: HashMap<(SymbolId, String), Shape>,
-  facts: SourceContractFacts,
+pub(in crate::source_contracts) struct Collector<'a> {
+  pub(in crate::source_contracts) semantic: &'a oxc_semantic::Semantic<'a>,
+  pub(in crate::source_contracts) line_index: &'a vue_vet_core::LineIndex,
+  pub(in crate::source_contracts) sfc_source: &'a str,
+  pub(in crate::source_contracts) script_offset: usize,
+  pub(in crate::source_contracts) indexes: Indexes,
+  pub(in crate::source_contracts) shape_cache: HashMap<SymbolId, Shape>,
+  pub(in crate::source_contracts) property_shape: HashMap<(SymbolId, String), Shape>,
+  pub(in crate::source_contracts) proxy_proof: HashMap<SymbolId, bool>,
+  pub(in crate::source_contracts) facts: SourceContractFacts,
 }
 
 pub fn collect_source_contract_facts(
@@ -81,15 +99,51 @@ pub fn collect_source_contract_facts_with_stats(
   sfc_source: &str,
   script_offset: usize,
   kind: ScriptKind,
-) -> (SourceContractFacts, u64) {
+) -> (SourceContractFacts, SourceContractStats) {
+  collect_prepared(semantic, line_index, sfc_source, script_offset, kind, false)
+}
+
+#[cfg(test)]
+pub fn collect_source_contract_facts_forced_full(
+  semantic: &oxc_semantic::Semantic<'_>,
+  line_index: &vue_vet_core::LineIndex,
+  sfc_source: &str,
+  script_offset: usize,
+  kind: ScriptKind,
+) -> (SourceContractFacts, SourceContractStats) {
+  collect_prepared(semantic, line_index, sfc_source, script_offset, kind, true)
+}
+
+fn collect_prepared(
+  semantic: &oxc_semantic::Semantic<'_>,
+  line_index: &vue_vet_core::LineIndex,
+  sfc_source: &str,
+  script_offset: usize,
+  kind: ScriptKind,
+  force_full: bool,
+) -> (SourceContractFacts, SourceContractStats) {
+  let work = WorkCounter::default();
+  let (vue_imports, has_contract_sink) = collect_vue_imports(semantic, &work);
+  if !has_contract_sink && !force_full {
+    return (SourceContractFacts::default(), work.snapshot());
+  }
   let mut collector = Collector {
     semantic,
     line_index,
     sfc_source,
     script_offset,
-    indexes: Indexes::build(semantic, line_index, sfc_source, script_offset, kind),
+    indexes: Indexes::build(
+      semantic,
+      line_index,
+      sfc_source,
+      script_offset,
+      kind,
+      vue_imports,
+      work,
+    ),
     shape_cache: HashMap::new(),
     property_shape: HashMap::new(),
+    proxy_proof: HashMap::new(),
     facts: SourceContractFacts::default(),
   };
   collector.walk();
@@ -106,24 +160,43 @@ impl Collector<'_> {
       let Some(info) = self.indexes.calls.get(&span_key(call.span)).copied() else {
         continue;
       };
-      if let Some(api) = info.api
-        && !info.has_spread
-      {
-        match api {
-          "triggerRef" => self.collect_trigger_ref(info),
-          "toRefs" => self.collect_torefs(info),
-          "reactive" | "readonly" | "shallowReactive" | "shallowReadonly" => {
-            self.collect_primitive_reactive(info, api);
-          }
-          "watch" => self.collect_watch(node_id, call, info),
-          _ => {}
-        }
-      }
       self.collect_extracted_method_call(node_id, call);
+      // Native `structuredClone` is not a Vue API. Classify it before the Vue-only
+      // sink return so a proven Proxy constructor in the same module can report.
+      // Native-only modules (no Vue imports) stay quiet: there is no actual-Proxy
+      // proof. A future native-only sink must not depend on Vue `info.api`.
+      if info.native_structured_clone {
+        self.collect_structured_clone(info);
+      }
+      self.collect_inactive_scope_run(node_id, call);
+      let Some(api) = info.api else {
+        continue;
+      };
+      if info.has_spread {
+        continue;
+      }
+      match contract_sink(api) {
+        Some(ContractSink::TriggerRef) => self.collect_trigger_ref(info),
+        Some(ContractSink::ToRefs) => {
+          self.collect_torefs(info);
+          self.collect_missing_torefs_key(node_id, call, info);
+        }
+        Some(ContractSink::ProxyConstructor) => self.collect_primitive_reactive(info, api),
+        Some(ContractSink::Watch) => {
+          self.collect_watch(node_id, call, info);
+          self.collect_watch_api(call, info);
+          self.collect_watch_callback_contracts(call, info);
+        }
+        Some(ContractSink::WatchEffectFamily) => self.collect_watch_api(call, info),
+        Some(ContractSink::ToRef) => self.collect_toref(call, info),
+        Some(ContractSink::EffectScope) => self.collect_effect_scope(info),
+        Some(ContractSink::CustomRef) => self.collect_custom_ref(node_id, call, info),
+        None => {}
+      }
     }
   }
 
-  fn finish(mut self) -> (SourceContractFacts, u64) {
+  fn finish(mut self) -> (SourceContractFacts, SourceContractStats) {
     self.facts.trigger_ref_non_ref.sort_by(|left, right| {
       self.indexes.note_query();
       left.span.offset.cmp(&right.span.offset)
@@ -145,6 +218,49 @@ impl Collector<'_> {
       (left.source_span.offset, left.replacement_span.offset)
         .cmp(&(right.source_span.offset, right.replacement_span.offset))
     });
+    self.facts.watch_ignored_option.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.watch_signature_mismatch.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.watch_callback_contracts.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.watch_span.offset, left.guard_span.offset, left.reason as u8).cmp(&(
+        right.watch_span.offset,
+        right.guard_span.offset,
+        right.reason as u8,
+      ))
+    });
+    self.facts.toref_ignored_key.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.effect_scope_callback.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.uncloneable_proxy_data.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.invalid_custom_ref_interface.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.demand_span.offset, left.interface_span.offset)
+        .cmp(&(right.demand_span.offset, right.interface_span.offset))
+    });
+    self.facts.inactive_scope_result.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.consumer_span.offset, left.run_span.offset)
+        .cmp(&(right.consumer_span.offset, right.run_span.offset))
+    });
+    self.facts.missing_torefs_key.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.demand_span.offset, left.torefs_span.offset)
+        .cmp(&(right.demand_span.offset, right.torefs_span.offset))
+    });
     self.facts.extracted_reactive_collection_method.sort_by(|left, right| {
       self.indexes.note_query();
       (
@@ -160,8 +276,7 @@ impl Collector<'_> {
           right.method.as_str(),
         ))
     });
-    let stats = self.indexes.stats();
-    (self.facts, stats.work())
+    (self.facts, self.indexes.stats())
   }
 
   fn collect_trigger_ref(&mut self, info: CallInfo) {
@@ -333,148 +448,6 @@ impl Collector<'_> {
     });
   }
 
-  fn collect_extracted_method_call(&mut self, node_id: NodeId, call: &CallExpression<'_>) {
-    let Some(callee) = call.callee.get_inner_expression().get_identifier_reference() else {
-      return;
-    };
-    let Some(symbol_id) = self.reference_symbol(callee) else {
-      return;
-    };
-    let Some(extracted) = self.indexes.extracted_method(symbol_id) else {
-      return;
-    };
-    if self.indexes.reassigned.contains(&self.indexes.root_of(symbol_id)) {
-      return;
-    }
-    let call_offset = self.span(call.span).offset;
-    if !self.indexes.extracted_call_eligible(self.semantic, node_id, extracted, call_offset) {
-      return;
-    }
-    let collection_root = self.indexes.root_of(extracted.collection);
-    if !self.semantic.scoping().symbol_flags(collection_root).contains(SymbolFlags::ConstVariable)
-      || self.indexes.reassigned.contains(&collection_root)
-      || self.indexes.collection_capability_invalid(collection_root)
-    {
-      return;
-    }
-    if self.indexes.member_writes_mixed(collection_root, extracted.method)
-      || self.indexes.member_write_owner_mismatch(
-        collection_root,
-        extracted.method,
-        extracted.callable,
-        extracted.block,
-      )
-    {
-      return;
-    }
-    if self
-      .indexes
-      .last_member_write_before(
-        collection_root,
-        extracted.method,
-        extracted.callable,
-        extracted.block,
-        extracted.extract_offset,
-      )
-      .is_some()
-    {
-      return;
-    }
-    let Some((kind, constructor_span, api, object)) =
-      self.proven_reactive_collection(collection_root, MAX_DEPTH)
-    else {
-      return;
-    };
-    if !kind.accepts_method(extracted.method) || self.indexes.ctor_tainted(kind.as_str()) {
-      return;
-    }
-    self.facts.extracted_reactive_collection_method.push(ExtractedReactiveCollectionMethodFact {
-      call_span: self.span(call.span),
-      extraction_span: self.span(extracted.extract_span),
-      constructor_span: self.span(constructor_span),
-      object,
-      method: extracted.method.to_string(),
-      collection: kind.as_str().to_string(),
-      api: api.to_string(),
-    });
-  }
-
-  fn proven_reactive_collection(
-    &mut self,
-    root: SymbolId,
-    remaining: u8,
-  ) -> Option<(CollectionKind, Span, &'static str, String)> {
-    if remaining == 0 {
-      return None;
-    }
-    let init_span = *self.indexes.init_span.get(&root)?;
-    let hint = self.indexes.hints.get(&span_key(init_span)).copied()?;
-    let ShapeHint::Call(call_span) = hint else {
-      return None;
-    };
-    let info = self.indexes.calls.get(&span_key(call_span)).copied()?;
-    if info.has_spread {
-      return None;
-    }
-    let api = info.api?;
-    if !matches!(api, "reactive" | "shallowReactive") {
-      return None;
-    }
-    let from = info.api_from?;
-    if !is_strict_vue_runtime_source(from) {
-      return None;
-    }
-    let argument = info.first_arg?;
-    let (kind, constructor_span) =
-      self.collection_kind_of(argument, remaining.saturating_sub(1))?;
-    let name = self.semantic.scoping().symbol_name(root).to_string();
-    Some((kind, constructor_span, api, name))
-  }
-
-  fn collection_kind_of(&mut self, span: Span, remaining: u8) -> Option<(CollectionKind, Span)> {
-    self.indexes.note_query();
-    if remaining == 0 {
-      return None;
-    }
-    let hint = self.indexes.hints.get(&span_key(span)).copied()?;
-    match hint {
-      ShapeHint::New(new_span) => {
-        let ctor = self.indexes.collection_ctor(new_span)?;
-        if self.indexes.ctor_tainted(match ctor {
-          CollectionCtor::Map => "Map",
-          CollectionCtor::Set => "Set",
-          CollectionCtor::WeakMap | CollectionCtor::WeakSet => return None,
-        }) {
-          return None;
-        }
-        let kind = match ctor {
-          CollectionCtor::Map => CollectionKind::Map,
-          CollectionCtor::Set => CollectionKind::Set,
-          CollectionCtor::WeakMap | CollectionCtor::WeakSet => return None,
-        };
-        Some((kind, new_span))
-      }
-      ShapeHint::PlainRecord if self.indexes.is_array_span(span) => {
-        if self.indexes.ctor_tainted("Array") {
-          return None;
-        }
-        Some((CollectionKind::Array, span))
-      }
-      ShapeHint::Identifier(Some(symbol_id), false) => {
-        let root = self.indexes.root_of(symbol_id);
-        if !self.semantic.scoping().symbol_flags(root).contains(SymbolFlags::ConstVariable)
-          || self.indexes.reassigned.contains(&root)
-          || self.indexes.collection_capability_invalid(root)
-        {
-          return None;
-        }
-        let init_span = *self.indexes.init_span.get(&root)?;
-        self.collection_kind_of(init_span, remaining.saturating_sub(1))
-      }
-      _ => None,
-    }
-  }
-
   fn call_is_bound(&self, node_id: NodeId) -> bool {
     matches!(
       self.semantic.nodes().parent_kind(node_id),
@@ -566,7 +539,7 @@ impl Collector<'_> {
     shape
   }
 
-  fn proxy_object_span(&self, init_span: Span) -> Option<Span> {
+  pub(in crate::source_contracts) fn proxy_object_span(&self, init_span: Span) -> Option<Span> {
     let call = self.indexes.calls.get(&span_key(init_span)).copied();
     if let Some(info) = call
       && matches!(info.api, Some("reactive" | "readonly" | "shallowReactive" | "shallowReadonly"))
@@ -607,11 +580,15 @@ impl Collector<'_> {
       .unwrap_or(Shape::Unknown)
   }
 
-  fn classify_span(&mut self, span: Span, remaining: u8) -> Shape {
+  pub(in crate::source_contracts) fn classify_span(&mut self, span: Span, remaining: u8) -> Shape {
     self.classify_maybe(span, remaining).unwrap_or(Shape::Unknown)
   }
 
-  fn classify_maybe(&mut self, span: Span, remaining: u8) -> Option<Shape> {
+  pub(in crate::source_contracts) fn classify_maybe(
+    &mut self,
+    span: Span,
+    remaining: u8,
+  ) -> Option<Shape> {
     self.indexes.note_query();
     if remaining == 0 {
       return None;
@@ -645,13 +622,154 @@ impl Collector<'_> {
         }
       }
       ShapeHint::New(span) => {
-        if self.indexes.collection_ctor(span).is_some() {
+        if self.indexes.collections.contains_key(&span_key(span)) {
           Shape::Collection
         } else {
           Shape::Unknown
         }
       }
     })
+  }
+
+  fn collect_extracted_method_call(&mut self, node_id: NodeId, call: &CallExpression<'_>) {
+    let Some(callee) = call.callee.get_inner_expression().get_identifier_reference() else {
+      return;
+    };
+    let Some(symbol_id) = self.reference_symbol(callee) else {
+      return;
+    };
+    let Some(extracted) = self.indexes.extracted_method(symbol_id) else {
+      return;
+    };
+    if self.indexes.reassigned.contains(&self.indexes.root_of(symbol_id)) {
+      return;
+    }
+    let call_offset = self.span(call.span).offset;
+    if !self.indexes.extracted_call_eligible(self.semantic, node_id, extracted, call_offset) {
+      return;
+    }
+    let collection_root = self.indexes.root_of(extracted.collection);
+    if !self.semantic.scoping().symbol_flags(collection_root).contains(SymbolFlags::ConstVariable)
+      || self.indexes.reassigned.contains(&collection_root)
+      || self.indexes.collection_capability_invalid(collection_root)
+    {
+      return;
+    }
+    if self.indexes.member_writes_mixed(collection_root, extracted.method)
+      || self.indexes.member_write_owner_mismatch(
+        collection_root,
+        extracted.method,
+        extracted.callable,
+        extracted.block,
+      )
+    {
+      return;
+    }
+    if self
+      .indexes
+      .last_member_write_before(
+        collection_root,
+        extracted.method,
+        extracted.callable,
+        extracted.block,
+        extracted.extract_offset,
+      )
+      .is_some()
+    {
+      return;
+    }
+    let Some((kind, constructor_span, api, object)) =
+      self.proven_reactive_collection(collection_root, MAX_DEPTH)
+    else {
+      return;
+    };
+    if !kind.accepts_method(extracted.method) || self.indexes.ctor_tainted(kind.as_str()) {
+      return;
+    }
+    self.facts.extracted_reactive_collection_method.push(ExtractedReactiveCollectionMethodFact {
+      call_span: self.span(call.span),
+      extraction_span: self.span(extracted.extract_span),
+      constructor_span: self.span(constructor_span),
+      object,
+      method: extracted.method.to_string(),
+      collection: kind.as_str().to_string(),
+      api: api.to_string(),
+    });
+  }
+
+  fn proven_reactive_collection(
+    &mut self,
+    root: SymbolId,
+    remaining: u8,
+  ) -> Option<(CollectionKind, Span, &'static str, String)> {
+    if remaining == 0 {
+      return None;
+    }
+    let init_span = *self.indexes.init_span.get(&root)?;
+    let hint = self.indexes.hints.get(&span_key(init_span)).copied()?;
+    let ShapeHint::Call(call_span) = hint else {
+      return None;
+    };
+    let info = self.indexes.calls.get(&span_key(call_span)).copied()?;
+    if info.has_spread {
+      return None;
+    }
+    let api = info.api?;
+    if !matches!(api, "reactive" | "shallowReactive") {
+      return None;
+    }
+    if !info.actual_proxy_origin {
+      return None;
+    }
+    let argument = info.first_arg?;
+    let (kind, constructor_span) =
+      self.collection_kind_of(argument, remaining.saturating_sub(1))?;
+    let name = self.semantic.scoping().symbol_name(root).to_string();
+    Some((kind, constructor_span, api, name))
+  }
+
+  fn collection_kind_of(&mut self, span: Span, remaining: u8) -> Option<(CollectionKind, Span)> {
+    self.indexes.note_query();
+    if remaining == 0 {
+      return None;
+    }
+    let hint = self.indexes.hints.get(&span_key(span)).copied()?;
+    match hint {
+      ShapeHint::New(new_span) => {
+        let ctor = self.indexes.collection_ctor(new_span)?;
+        if self.indexes.ctor_tainted(match ctor {
+          CollectionCtor::Map => "Map",
+          CollectionCtor::Set => "Set",
+          CollectionCtor::WeakMap | CollectionCtor::WeakSet => return None,
+        }) {
+          return None;
+        }
+        let kind = match ctor {
+          CollectionCtor::Map => CollectionKind::Map,
+          CollectionCtor::Set => CollectionKind::Set,
+          CollectionCtor::WeakMap | CollectionCtor::WeakSet => return None,
+        };
+        Some((kind, new_span))
+      }
+      ShapeHint::PlainRecord if self.indexes.is_array_span(span) => {
+        if self.indexes.ctor_tainted("Array") {
+          return None;
+        }
+        Some((CollectionKind::Array, span))
+      }
+      ShapeHint::Identifier(Some(symbol_id), false) => {
+        let root = self.indexes.root_of(symbol_id);
+        if !self.semantic.scoping().symbol_flags(root).contains(SymbolFlags::ConstVariable)
+          || self.indexes.reassigned.contains(&root)
+          || self.indexes.collection_capability_invalid(root)
+        {
+          return None;
+        }
+        let init_span = *self.indexes.init_span.get(&root)?;
+        self.collection_kind_of(init_span, remaining.saturating_sub(1))
+      }
+      _ => None,
+    }
   }
 
   fn classify_identifier(&mut self, identifier: &IdentifierReference<'_>, remaining: u8) -> Shape {
@@ -661,7 +779,11 @@ impl Collector<'_> {
     self.classify_symbol(symbol_id, remaining)
   }
 
-  fn classify_symbol(&mut self, symbol_id: SymbolId, remaining: u8) -> Shape {
+  pub(in crate::source_contracts) fn classify_symbol(
+    &mut self,
+    symbol_id: SymbolId,
+    remaining: u8,
+  ) -> Shape {
     self.classify_symbol_maybe(symbol_id, remaining).unwrap_or(Shape::Unknown)
   }
 
@@ -686,12 +808,15 @@ impl Collector<'_> {
     Some(shape)
   }
 
-  fn reference_symbol(&self, identifier: &IdentifierReference<'_>) -> Option<SymbolId> {
+  pub(in crate::source_contracts) fn reference_symbol(
+    &self,
+    identifier: &IdentifierReference<'_>,
+  ) -> Option<SymbolId> {
     let reference_id = identifier.reference_id.get()?;
     self.semantic.scoping().get_reference(reference_id).symbol_id()
   }
 
-  fn span(&self, span: Span) -> SourceSpan {
+  pub(in crate::source_contracts) fn span(&self, span: Span) -> SourceSpan {
     source_span(self.line_index, self.sfc_source, self.script_offset, span)
   }
 }
