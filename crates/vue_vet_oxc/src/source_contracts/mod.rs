@@ -1,21 +1,30 @@
 //! Neutral Vue source-contract facts from Oxc semantics (issue #224).
 //!
-//! Proven Vue identity is a named or namespace import from `vue`, `vue-demi`,
-//! `@vue/runtime-core`, `@vue/runtime-dom`, or `@vue/reactivity`, plus a
-//! **named** `#imports` specifier whose imported name is a known Vue export.
-//! Namespace `#imports`, type-only specifiers, and unknown auto-import names
-//! stay unproven. Compiler macros `defineProps` / `defineModel` are setup-only.
+//! Proven Vue identity (`info.api`) is a named or namespace import from `vue`,
+//! `vue-demi`, `@vue/runtime-core`, `@vue/runtime-dom`, or `@vue/reactivity`,
+//! plus a **named** `#imports` specifier whose imported name is a known Vue
+//! export. Namespace `#imports`, type-only specifiers, and unknown auto-import
+//! names stay unproven. Compiler macros `defineProps` / `defineModel` are
+//! setup-only. Actual-Proxy proof for native `structuredClone` is a separate
+//! origin discriminator: only `vue` / `@vue/runtime-core` / `@vue/runtime-dom`
+//! / `@vue/reactivity`. Named `#imports` and `vue-demi` stay unproved here.
+//! Origin uses the indexed import source of resolved proxy constructors only;
+//! local and unknown calls skip that lookup. Native `structuredClone` *calls*
+//! require a definite static key; unresolved `globalThis` *writes* with a
+//! non-literal key poison identity.
 //!
 //! Replacement findings require a simple `=` of a fresh object/array/`new`
 //! built-in collection in the same straight-line block after `watch`.
 
+mod clone_boundary;
 mod demand;
 mod index;
+mod normalization;
 mod proof;
 mod shape;
 mod stats;
-
-pub use stats::SourceContractStats;
+mod watch_api;
+mod watch_callbacks;
 
 use std::collections::HashMap;
 
@@ -33,7 +42,11 @@ use vue_vet_core::{
 use crate::facts::source_span;
 
 use index::{CallInfo, Indexes, ObjectProp};
-use shape::{Shape, ShapeHint, classify_vue_result, is_ref_api, span_key};
+pub use shape::{ContractSink, contract_sink};
+use shape::{Shape, ShapeHint, classify_vue_result, collect_vue_imports, is_ref_api, span_key};
+use stats::WorkCounter;
+
+pub use stats::SourceContractStats;
 
 const MAX_DEPTH: u8 = 8;
 
@@ -45,6 +58,7 @@ pub(in crate::source_contracts) struct Collector<'a> {
   pub(in crate::source_contracts) indexes: Indexes,
   pub(in crate::source_contracts) shape_cache: HashMap<SymbolId, Shape>,
   pub(in crate::source_contracts) property_shape: HashMap<(SymbolId, String), Shape>,
+  pub(in crate::source_contracts) proxy_proof: HashMap<SymbolId, bool>,
   pub(in crate::source_contracts) facts: SourceContractFacts,
 }
 
@@ -65,14 +79,50 @@ pub fn collect_source_contract_facts_with_stats(
   script_offset: usize,
   kind: ScriptKind,
 ) -> (SourceContractFacts, SourceContractStats) {
+  collect_prepared(semantic, line_index, sfc_source, script_offset, kind, false)
+}
+
+#[cfg(test)]
+pub fn collect_source_contract_facts_forced_full(
+  semantic: &oxc_semantic::Semantic<'_>,
+  line_index: &vue_vet_core::LineIndex,
+  sfc_source: &str,
+  script_offset: usize,
+  kind: ScriptKind,
+) -> (SourceContractFacts, SourceContractStats) {
+  collect_prepared(semantic, line_index, sfc_source, script_offset, kind, true)
+}
+
+fn collect_prepared(
+  semantic: &oxc_semantic::Semantic<'_>,
+  line_index: &vue_vet_core::LineIndex,
+  sfc_source: &str,
+  script_offset: usize,
+  kind: ScriptKind,
+  force_full: bool,
+) -> (SourceContractFacts, SourceContractStats) {
+  let work = WorkCounter::default();
+  let (vue_imports, has_contract_sink) = collect_vue_imports(semantic, &work);
+  if !has_contract_sink && !force_full {
+    return (SourceContractFacts::default(), work.snapshot());
+  }
   let mut collector = Collector {
     semantic,
     line_index,
     sfc_source,
     script_offset,
-    indexes: Indexes::build(semantic, line_index, sfc_source, script_offset, kind),
+    indexes: Indexes::build(
+      semantic,
+      line_index,
+      sfc_source,
+      script_offset,
+      kind,
+      vue_imports,
+      work,
+    ),
     shape_cache: HashMap::new(),
     property_shape: HashMap::new(),
+    proxy_proof: HashMap::new(),
     facts: SourceContractFacts::default(),
   };
   collector.walk();
@@ -89,6 +139,13 @@ impl Collector<'_> {
       let Some(info) = self.indexes.calls.get(&span_key(call.span)).copied() else {
         continue;
       };
+      // Native `structuredClone` is not a Vue API. Classify it before the Vue-only
+      // sink return so a proven Proxy constructor in the same module can report.
+      // Native-only modules (no Vue imports) stay quiet: there is no actual-Proxy
+      // proof. A future native-only sink must not depend on Vue `info.api`.
+      if info.native_structured_clone {
+        self.collect_structured_clone(info);
+      }
       self.collect_inactive_scope_run(node_id, call);
       let Some(api) = info.api else {
         continue;
@@ -96,18 +153,23 @@ impl Collector<'_> {
       if info.has_spread {
         continue;
       }
-      match api {
-        "triggerRef" => self.collect_trigger_ref(info),
-        "toRefs" => {
+      match contract_sink(api) {
+        Some(ContractSink::TriggerRef) => self.collect_trigger_ref(info),
+        Some(ContractSink::ToRefs) => {
           self.collect_torefs(info);
           self.collect_missing_torefs_key(node_id, call, info);
         }
-        "reactive" | "readonly" | "shallowReactive" | "shallowReadonly" => {
-          self.collect_primitive_reactive(info, api);
+        Some(ContractSink::ProxyConstructor) => self.collect_primitive_reactive(info, api),
+        Some(ContractSink::Watch) => {
+          self.collect_watch(node_id, call, info);
+          self.collect_watch_api(call, info);
+          self.collect_watch_callback_contracts(call, info);
         }
-        "watch" => self.collect_watch(node_id, call, info),
-        "customRef" => self.collect_custom_ref(node_id, call, info),
-        _ => {}
+        Some(ContractSink::WatchEffectFamily) => self.collect_watch_api(call, info),
+        Some(ContractSink::ToRef) => self.collect_toref(call, info),
+        Some(ContractSink::EffectScope) => self.collect_effect_scope(info),
+        Some(ContractSink::CustomRef) => self.collect_custom_ref(node_id, call, info),
+        None => {}
       }
     }
   }
@@ -133,6 +195,34 @@ impl Collector<'_> {
       self.indexes.note_query();
       (left.source_span.offset, left.replacement_span.offset)
         .cmp(&(right.source_span.offset, right.replacement_span.offset))
+    });
+    self.facts.watch_ignored_option.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.watch_signature_mismatch.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.watch_callback_contracts.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.watch_span.offset, left.guard_span.offset, left.reason as u8).cmp(&(
+        right.watch_span.offset,
+        right.guard_span.offset,
+        right.reason as u8,
+      ))
+    });
+    self.facts.toref_ignored_key.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.effect_scope_callback.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.uncloneable_proxy_data.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
     });
     self.facts.invalid_custom_ref_interface.sort_by(|left, right| {
       self.indexes.note_query();
@@ -457,7 +547,11 @@ impl Collector<'_> {
     self.classify_maybe(span, remaining).unwrap_or(Shape::Unknown)
   }
 
-  fn classify_maybe(&mut self, span: Span, remaining: u8) -> Option<Shape> {
+  pub(in crate::source_contracts) fn classify_maybe(
+    &mut self,
+    span: Span,
+    remaining: u8,
+  ) -> Option<Shape> {
     self.indexes.note_query();
     if remaining == 0 {
       return None;
@@ -507,7 +601,11 @@ impl Collector<'_> {
     self.classify_symbol(symbol_id, remaining)
   }
 
-  fn classify_symbol(&mut self, symbol_id: SymbolId, remaining: u8) -> Shape {
+  pub(in crate::source_contracts) fn classify_symbol(
+    &mut self,
+    symbol_id: SymbolId,
+    remaining: u8,
+  ) -> Shape {
     self.classify_symbol_maybe(symbol_id, remaining).unwrap_or(Shape::Unknown)
   }
 

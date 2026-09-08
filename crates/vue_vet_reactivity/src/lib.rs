@@ -48,7 +48,9 @@ pub use oxc::{
 };
 
 #[cfg(test)]
-pub(crate) use trace::{TraceSeeds, trace_reactivity_seeded};
+pub(crate) use trace::{
+  NotificationWork, TraceSeeds, last_notification_work, trace_reactivity_seeded,
+};
 
 #[cfg(test)]
 mod oracle;

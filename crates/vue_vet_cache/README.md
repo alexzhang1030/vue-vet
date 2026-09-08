@@ -17,7 +17,7 @@ Workspace-internal (`publish = false`).
 | --- | --- | --- |
 | `CACHE_FORMAT_VERSION` | `5` | On-disk entry schema; directory `v5/` |
 | `BASELINE_FORMAT_VERSION` | `1` | Baseline file schema |
-| `RULESET_VERSION` | `20` | Local reserved identity for demand-gated value contracts (`customRef` / stopped `effectScope.run` / missing `toRefs` key) with typed Get/Set capability, straight-line source5 statement eligibility, demand region/barrier proof, and closed-body receiver-effect sequencing. Parent resolves the stacked cache identity. |
+| `RULESET_VERSION` | `23` | Demand-gated value contracts (`customRef` / stopped `effectScope.run` / missing `toRefs` key) on the native-clone catalog (v22) |
 | `CACHE_VIZE_CROQUIS_VERSION` | `0.387.0` | Hashed `vize-version` (`AnalysisStackIdentity`) |
 | `CACHE_OXC_PARSER_VERSION` | `0.142.0` | Hashed `oxc-version` (`AnalysisStackIdentity`) |
 

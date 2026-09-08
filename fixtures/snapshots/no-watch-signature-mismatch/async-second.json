@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-watch-signature-mismatch",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-watch-signature-mismatch",
+    "message": "`watchSyncEffect` treats the second argument as options, so this function never runs",
+    "help": "Use `watchEffect(callback, options)` — pass one effect function, then an options object.",
+    "file": "fixtures/rules/no-watch-signature-mismatch/invalid/async-second.vue",
+    "span": {
+      "offset": 124,
+      "length": 32,
+      "line": 4,
+      "column": 36
+    }
+  }
+]

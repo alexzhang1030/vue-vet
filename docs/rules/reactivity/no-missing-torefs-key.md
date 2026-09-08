@@ -33,7 +33,9 @@ between `toRefs` and the demand, spreads, custom prototypes (`__proto__`),
 Object-prototype bag keys, accessors, dynamic keys, and key mutation stay
 quiet. Proven Vue `toRefs` first-argument borrows keep a closed local source;
 helper arguments, aliases passed to helpers, container storage, exports,
-`new`, tagged templates, and receiver calls make source keys unknown. A
+`new`, tagged templates, and receiver calls — including TypeScript
+instantiation wrappers such as ``` (state.install<number>)`` ``` — make source
+keys unknown. A
 method named `toRefs` is not a borrow without Vue identity. Do not warn
 merely because a property is absent.
 

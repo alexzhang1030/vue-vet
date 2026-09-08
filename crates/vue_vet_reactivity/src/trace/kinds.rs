@@ -162,6 +162,9 @@ pub(super) fn known_reactivity_export(source: &str, imported: &str) -> bool {
             | "withDefaults"
             | "provide"
             | "inject"
+            | "toRaw"
+            | "triggerRef"
+            | "markRaw"
         )
     }
     "pinia" => matches!(imported, "storeToRefs"),

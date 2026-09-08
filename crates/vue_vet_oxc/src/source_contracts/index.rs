@@ -6,8 +6,9 @@ use oxc_ast::{
   AstKind,
   ast::{
     Argument, AssignmentOperator, AssignmentTarget, AssignmentTargetMaybeDefault,
-    AssignmentTargetProperty, BindingPattern, CallExpression, Expression, IdentifierReference,
-    ObjectPropertyKind, PropertyKind, SimpleAssignmentTarget, StaticMemberExpression,
+    AssignmentTargetProperty, BindingPattern, CallExpression, Expression, ForStatementLeft,
+    IdentifierReference, ObjectPropertyKind, PropertyKind, SimpleAssignmentTarget,
+    StaticMemberExpression, UnaryOperator,
   },
 };
 use oxc_semantic::{NodeId, SymbolFlags, SymbolId};
@@ -20,8 +21,8 @@ use super::proof::{
   is_custom_prototype_key,
 };
 use super::shape::{
-  ShapeHint, VueImport, collect_vue_imports, hint_of, is_fresh_allocation,
-  is_unresolved_collection, resolve_vue_api, span_key,
+  ShapeHint, VueImport, hint_of, is_actual_proxy_runtime_source, is_fresh_allocation,
+  is_proxy_allocating_api, is_unresolved_collection, resolve_vue_api, span_key,
 };
 use super::stats::WorkCounter;
 use crate::facts::source_span;
@@ -50,11 +51,30 @@ pub(super) struct MemberWrite {
   pub fresh_alloc: bool,
 }
 
+/// Direct `obj.prop = rhs` only. Assignment patterns restore generic
+/// uncertainty on the member object.
+#[derive(Clone, Copy)]
+struct DirectMemberWrite<'a> {
+  offset: usize,
+  callable: Option<NodeId>,
+  block: NodeId,
+  right: &'a Expression<'a>,
+  simple: bool,
+  fresh: bool,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(super) struct CallInfo {
   pub api: Option<&'static str>,
   pub first_arg: Option<Span>,
+  pub second_arg: Option<Span>,
   pub has_spread: bool,
+  pub native_structured_clone: bool,
+  /// True when a resolved proxy-allocating Vue API is imported from a Vue 3
+  /// runtime that actually allocates a Proxy. Indexed from `vue_imports`;
+  /// local/unknown calls never walk declaration ancestors.
+  pub actual_proxy_origin: bool,
+  pub arg_count: u8,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -79,7 +99,8 @@ pub(super) enum ObjectEntry {
   Spread,
   Computed,
   Accessor { name: Option<String> },
-  Data { name: String, value: Span },
+  Data { name: String, key: Span, value: Span },
+  Method { name: String, key: Span, value: Span },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -102,6 +123,8 @@ pub(super) struct Indexes {
   pub uncertain: HashSet<SymbolId>,
   pub reassigned: HashSet<SymbolId>,
   pub unknown_member_touch: HashSet<SymbolId>,
+  pub toref_identity_uncertain: HashSet<SymbolId>,
+  pub toref_helper_escape: HashSet<SymbolId>,
   pub value_writes: HashMap<SymbolId, Vec<ValueWrite>>,
   pub value_reads: HashMap<SymbolId, Vec<MemberUse>>,
   pub member_reads_by_root: HashMap<SymbolId, Vec<NamedUse>>,
@@ -115,7 +138,15 @@ pub(super) struct Indexes {
   pub calls: HashMap<u64, CallInfo>,
   pub objects: HashMap<u64, Vec<ObjectEntry>>,
   pub object_props: HashMap<u64, HashMap<String, ObjectProp>>,
+  /// Inner object/array span for a (possibly asserted) expression span.
+  pub literal_span: HashMap<u64, Span>,
+  /// Array expression spans whose elements include a spread.
+  pub array_spread: HashSet<u64>,
   pub collections: HashSet<u64>,
+  pub clone_intrinsic_poisoned: bool,
+  pub arrays: HashSet<u64>,
+  pub closed_objects: HashMap<u64, bool>,
+  pub capability_uncertain: HashSet<SymbolId>,
   pub stmt_site: HashMap<NodeId, StmtSite>,
   pub events_by_block: HashMap<NodeId, Vec<usize>>,
   pub init_span: HashMap<SymbolId, Span>,
@@ -140,9 +171,9 @@ impl Indexes {
     sfc_source: &str,
     script_offset: usize,
     kind: ScriptKind,
+    vue_imports: HashMap<SymbolId, VueImport>,
+    work: WorkCounter,
   ) -> Self {
-    let work = WorkCounter::default();
-    let vue_imports = collect_vue_imports(semantic, &work);
     let mut indexes = Self {
       vue_imports,
       alias_root: HashMap::new(),
@@ -150,6 +181,8 @@ impl Indexes {
       uncertain: HashSet::new(),
       reassigned: HashSet::new(),
       unknown_member_touch: HashSet::new(),
+      toref_identity_uncertain: HashSet::new(),
+      toref_helper_escape: HashSet::new(),
       value_writes: HashMap::new(),
       value_reads: HashMap::new(),
       member_reads_by_root: HashMap::new(),
@@ -163,7 +196,13 @@ impl Indexes {
       calls: HashMap::new(),
       objects: HashMap::new(),
       object_props: HashMap::new(),
+      literal_span: HashMap::new(),
+      array_spread: HashSet::new(),
       collections: HashSet::new(),
+      clone_intrinsic_poisoned: false,
+      arrays: HashSet::new(),
+      closed_objects: HashMap::new(),
+      capability_uncertain: HashSet::new(),
       stmt_site: HashMap::new(),
       events_by_block: HashMap::new(),
       init_span: HashMap::new(),
@@ -184,6 +223,7 @@ impl Indexes {
     indexes.scan(semantic, line_index, sfc_source, script_offset, kind);
     indexes.finish_aliases_and_roles(semantic);
     indexes.summarize_writes();
+    indexes.precompute_closed_objects();
     indexes.summarize_closed_keys();
     for events in indexes.events_by_block.values_mut() {
       events.sort_unstable();
@@ -215,7 +255,7 @@ impl Indexes {
     indexes
   }
 
-  pub(super) fn stats(&self) -> super::stats::SourceContractStats {
+  pub(super) const fn stats(&self) -> super::stats::SourceContractStats {
     self.work.snapshot()
   }
 
@@ -229,6 +269,14 @@ impl Indexes {
       || self.escaped.contains(&root)
       || self.reassigned.contains(&root)
       || self.unknown_member_touch.contains(&root)
+  }
+
+  pub(super) fn toref_identity_unproven(&self, symbol_id: SymbolId) -> bool {
+    let root = self.root_of(symbol_id);
+    self.reassigned.contains(&root)
+      || self.unknown_member_touch.contains(&root)
+      || self.toref_identity_uncertain.contains(&root)
+      || self.toref_helper_escape.contains(&root)
   }
 
   pub(super) fn has_event_between(&self, block: NodeId, start: usize, end: usize) -> bool {
@@ -338,6 +386,38 @@ impl Indexes {
   pub(super) fn object_prop(&self, object_span: Span, property: &str) -> Option<ObjectProp> {
     self.work.add_queries(1);
     self.object_props.get(&span_key(object_span)).and_then(|props| props.get(property)).copied()
+  }
+
+  /// Proven closed object literal, or `None` when `span` is not an object.
+  /// Precomputed once per object span; lookup charges a query, not a rescan.
+  pub(super) fn closed_object_literal(&self, span: Span) -> Option<bool> {
+    self.work.add_queries(1);
+    self.closed_objects.get(&span_key(span)).copied()
+  }
+
+  pub(super) fn is_array_literal(&self, span: Span) -> bool {
+    self.work.add_queries(1);
+    self.arrays.contains(&span_key(span))
+  }
+
+  /// Capability-changing mutation or unknown helper use of a construction /
+  /// watched root. Ordinary `state.n` writes stay ordinary member writes.
+  /// Unknown flow uses the dedicated `capability_uncertain` role index:
+  /// storage, return, unknown call, spread, sequence, receiver, dynamic target.
+  /// Generic `escaped` / `uncertain` remain watch/reactive-argument facts.
+  pub(super) fn construction_mutated(&self, root: SymbolId) -> bool {
+    self.work.add_queries(1);
+    self.reassigned.contains(&root)
+      || self.unknown_member_touch.contains(&root)
+      || self.capability_uncertain.contains(&root)
+      || self.has_capability_member_write(root)
+  }
+
+  pub(super) fn has_capability_member_write(&self, root: SymbolId) -> bool {
+    CAPABILITY_KEYS.iter().any(|key| {
+      self.work.add_queries(1);
+      self.member_writes.contains_key(&(root, (*key).to_string()))
+    })
   }
 
   pub(super) fn has_closed_keys(&self, object_span: Span) -> bool {
@@ -492,6 +572,924 @@ impl Indexes {
     self.destructure_by_object.get(&root).map_or(&[], Vec::as_slice)
   }
 
+  fn build_owners(&mut self, semantic: &oxc_semantic::Semantic<'_>) {
+    for (node_id, node) in semantic.nodes().iter_enumerated() {
+      self.work.add_owners(1);
+      let parent = semantic.nodes().parent_id(node_id);
+      let inherited = self.owners.get(&parent).copied().unwrap_or(Owner {
+        callable: None,
+        block: None,
+        region: None,
+      });
+      let mut callable = inherited.callable;
+      let mut block = inherited.block;
+      let mut region = inherited.region;
+      match node.kind() {
+        AstKind::Function(_) | AstKind::ArrowFunctionExpression(_) => callable = Some(node_id),
+        AstKind::Program(_) | AstKind::FunctionBody(_) => {
+          block = Some(node_id);
+          region = Some(node_id);
+        }
+        AstKind::BlockStatement(_) => block = Some(node_id),
+        _ => {}
+      }
+      self.owners.insert(node_id, Owner { callable, block, region });
+    }
+  }
+
+  fn summarize_writes(&mut self) {
+    for (root, writes) in &self.value_writes {
+      let Some(first) = writes.first() else {
+        continue;
+      };
+      self.work.add_writes(1);
+      let mixed = writes.iter().skip(1).any(|write| {
+        self.work.add_writes(1);
+        write.callable != first.callable || write.block != first.block
+      });
+      if mixed {
+        self.mixed_value_owners.insert(*root);
+      } else {
+        self.value_write_owner.insert(*root, (first.callable, first.block));
+      }
+    }
+    for (key, writes) in &self.member_writes {
+      let Some(first) = writes.first() else {
+        continue;
+      };
+      self.work.add_writes(1);
+      let mixed = writes.iter().skip(1).any(|write| {
+        self.work.add_writes(1);
+        write.callable != first.callable || write.block != first.block
+      });
+      if mixed {
+        self.mixed_member_owners.insert(key.clone());
+      } else {
+        self.member_write_owner.insert(key.clone(), (first.callable, first.block));
+      }
+    }
+  }
+
+  fn precompute_closed_objects(&mut self) {
+    for (key, entries) in &self.objects {
+      self.work.add_queries(1);
+      let mut closed = true;
+      for entry in entries {
+        self.work.add_object_entries(1);
+        match entry {
+          ObjectEntry::Spread | ObjectEntry::Computed | ObjectEntry::Accessor { .. } => {
+            closed = false;
+            break;
+          }
+          ObjectEntry::Data { name, .. } | ObjectEntry::Method { name, .. }
+            if is_capability_key(name) =>
+          {
+            closed = false;
+            break;
+          }
+          ObjectEntry::Data { .. } | ObjectEntry::Method { .. } => {}
+        }
+      }
+      self.closed_objects.insert(*key, closed);
+    }
+  }
+
+  pub(super) fn owner(&self, node_id: NodeId) -> Owner {
+    self.owners.get(&node_id).copied().unwrap_or(Owner {
+      callable: None,
+      block: None,
+      region: None,
+    })
+  }
+
+  pub(super) fn note_node(&self) {
+    self.work.add_nodes(1);
+  }
+
+  pub(super) fn note_query(&self) {
+    self.work.add_queries(1);
+  }
+
+  pub(super) fn note_object_entries(&self, n: u64) {
+    self.work.add_object_entries(n);
+  }
+
+  pub(super) fn add_queries(&self, n: u64) {
+    self.work.add_queries(n);
+  }
+
+  pub(super) const fn work(&self) -> &WorkCounter {
+    &self.work
+  }
+
+  /// `for...in` / `for...of` assignment heads write through `ForStatementLeft`.
+  /// Variable-declaration heads keep binding semantics and are not mutations.
+  fn note_loop_assignment_poison(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    left: &ForStatementLeft<'_>,
+  ) {
+    self.work.add_queries(1);
+    let Some(target) = left.as_assignment_target() else {
+      return;
+    };
+    self.work.add_writes(1);
+    if assignment_poisons_clone_intrinsic(semantic, target, &self.work) {
+      self.clone_intrinsic_poisoned = true;
+    }
+  }
+
+  #[expect(clippy::too_many_lines, reason = "one-pass statement kind dispatch")]
+  fn scan(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    kind: ScriptKind,
+  ) {
+    for (node_id, node) in semantic.nodes().iter_enumerated() {
+      self.work.add_nodes(1);
+      match node.kind() {
+        AstKind::StaticMemberExpression(member) => {
+          self.record_static_member(
+            semantic,
+            line_index,
+            sfc_source,
+            script_offset,
+            node_id,
+            member,
+          );
+        }
+        AstKind::VariableDeclarator(declarator) => {
+          if matches!(
+            semantic.nodes().parent_kind(semantic.nodes().parent_id(node_id)),
+            AstKind::ExportNamedDeclaration(_) | AstKind::ExportDefaultDeclaration(_)
+          ) && let oxc_ast::ast::BindingPattern::BindingIdentifier(binding) = &declarator.id
+            && let Some(symbol_id) = binding.symbol_id.get()
+          {
+            let root = self.root_of(symbol_id);
+            self.escape_root(root, true);
+            self.closed_key_unknown.insert(root);
+          }
+          if let Some(init) = &declarator.init {
+            self.record_expr(semantic, kind, init);
+            if let Some(ident) = init.get_inner_expression().get_identifier_reference()
+              && let Some(target) = reference_symbol(semantic, ident)
+            {
+              match &declarator.id {
+                oxc_ast::ast::BindingPattern::BindingIdentifier(binding) => {
+                  if let Some(local) = binding.symbol_id.get() {
+                    if semantic.scoping().symbol_flags(local).contains(SymbolFlags::ConstVariable) {
+                      let root = self.root_of(target);
+                      self.alias_root.insert(local, root);
+                    } else {
+                      self.escape_root(self.root_of(target), true);
+                    }
+                  }
+                }
+                _ => {
+                  self.escape_root(self.root_of(target), true);
+                }
+              }
+            }
+          }
+          if let oxc_ast::ast::BindingPattern::BindingIdentifier(binding) = &declarator.id
+            && let Some(symbol_id) = binding.symbol_id.get()
+            && let Some(init) = &declarator.init
+          {
+            self.init_span.insert(symbol_id, init.span());
+          }
+          if let Some(init) = &declarator.init {
+            self.record_destructure(semantic, &declarator.id, init);
+          }
+        }
+        AstKind::AssignmentExpression(assignment) => {
+          self.record_expr(semantic, kind, &assignment.right);
+          self.mark_escape_expr(semantic, &assignment.right, true);
+          let offset = mapped(line_index, sfc_source, script_offset, assignment.span).offset;
+          self.index_assignment(
+            semantic,
+            node_id,
+            offset,
+            assignment.operator,
+            &assignment.left,
+            &assignment.right,
+          );
+          self.record_stmt_site(semantic, line_index, sfc_source, script_offset, node_id);
+        }
+        AstKind::ForInStatement(statement) => {
+          self.note_loop_assignment_poison(semantic, &statement.left);
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
+        }
+        AstKind::ForOfStatement(statement) => {
+          self.note_loop_assignment_poison(semantic, &statement.left);
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
+        }
+        AstKind::UpdateExpression(update) => {
+          if simple_target_poisons_clone_intrinsic(semantic, &update.argument, &self.work) {
+            self.clone_intrinsic_poisoned = true;
+          }
+          if let SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) = &update.argument
+            && let Some(symbol_id) = reference_symbol(semantic, identifier)
+          {
+            self.reassigned.insert(self.root_of(symbol_id));
+          }
+        }
+        AstKind::UnaryExpression(unary) if unary.operator == UnaryOperator::Delete => {
+          self.note_delete(semantic, &unary.argument);
+        }
+        AstKind::CallExpression(call) => {
+          self.record_call(semantic, kind, call);
+          let api = self.calls.get(&span_key(call.span)).and_then(|info| info.api);
+          for (index, argument) in call.arguments.iter().enumerate() {
+            if let Some(expression) = argument.as_expression() {
+              self.record_expr(semantic, kind, expression);
+              self.mark_escape_expr(semantic, expression, !(api == Some("toRef") && index == 0));
+            }
+          }
+          self.record_stmt_site(semantic, line_index, sfc_source, script_offset, node_id);
+          self.record_event(semantic, line_index, sfc_source, script_offset, node_id, call.span);
+          self.record_member_call(semantic, line_index, sfc_source, script_offset, node_id, call);
+        }
+        AstKind::NewExpression(expression) => {
+          self.record_expr(semantic, kind, &expression.callee);
+          for argument in &expression.arguments {
+            if let Some(arg) = argument.as_expression() {
+              self.record_expr(semantic, kind, arg);
+              self.mark_escape_expr(semantic, arg, true);
+            }
+          }
+          if is_unresolved_collection(&expression.callee, |ident| reference_symbol(semantic, ident))
+          {
+            self.collections.insert(span_key(expression.span));
+          }
+        }
+        AstKind::ObjectExpression(object) => {
+          self.literal_span.insert(span_key(object.span), object.span);
+          let entries = object_entries(object);
+          let props = summarize_object_props(&entries, &self.work);
+          self.object_props.insert(span_key(object.span), props);
+          self.objects.insert(span_key(object.span), entries);
+          for property in &object.properties {
+            if let ObjectPropertyKind::ObjectProperty(property) = property {
+              self.record_expr(semantic, kind, &property.value);
+              self.mark_escape_expr(semantic, &property.value, true);
+            }
+          }
+        }
+        AstKind::ArrayExpression(array) => self.index_array_expression(semantic, kind, array),
+        AstKind::ReturnStatement(statement) => {
+          if let Some(argument) = &statement.argument {
+            self.record_expr(semantic, kind, argument);
+            self.mark_escape_expr(semantic, argument, true);
+          }
+          self.record_event(
+            semantic,
+            line_index,
+            sfc_source,
+            script_offset,
+            node_id,
+            statement.span,
+          );
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
+        }
+        AstKind::ThrowStatement(statement) => {
+          self.record_expr(semantic, kind, &statement.argument);
+          self.mark_escape_expr(semantic, &statement.argument, true);
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
+        }
+        AstKind::SpreadElement(spread) => self.mark_escape_expr(semantic, &spread.argument, true),
+        AstKind::IfStatement(statement) => {
+          self.record_event(
+            semantic,
+            line_index,
+            sfc_source,
+            script_offset,
+            node_id,
+            statement.span,
+          );
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
+        }
+        AstKind::ForStatement(statement) => {
+          self.record_event(
+            semantic,
+            line_index,
+            sfc_source,
+            script_offset,
+            node_id,
+            statement.span,
+          );
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
+        }
+        AstKind::WhileStatement(statement) => {
+          self.record_event(
+            semantic,
+            line_index,
+            sfc_source,
+            script_offset,
+            node_id,
+            statement.span,
+          );
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
+        }
+        AstKind::SwitchStatement(statement) => {
+          self.record_event(
+            semantic,
+            line_index,
+            sfc_source,
+            script_offset,
+            node_id,
+            statement.span,
+          );
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
+        }
+        AstKind::TryStatement(statement) => {
+          self.record_event(
+            semantic,
+            line_index,
+            sfc_source,
+            script_offset,
+            node_id,
+            statement.span,
+          );
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
+        }
+        AstKind::ExportNamedDeclaration(_) | AstKind::ExportDefaultDeclaration(_) => {
+          if let AstKind::VariableDeclaration(_) = semantic.nodes().parent_kind(node_id) {
+            // handled via BindingIdentifier export flags below
+          }
+        }
+        _ => {}
+      }
+    }
+  }
+
+  fn finish_aliases_and_roles(&mut self, semantic: &oxc_semantic::Semantic<'_>) {
+    for symbol_id in semantic.scoping().symbol_ids() {
+      for reference in semantic.symbol_references(symbol_id) {
+        self.work.add_references(1);
+        let root = self.root_of(symbol_id);
+        let flags = reference.flags();
+        let node_id = reference.node_id();
+        let member_payload = flags.intersects(ReferenceFlags::MemberWriteTarget)
+          || known_static_member_object_role(semantic, node_id);
+        if !closed_key_use_is_known(
+          semantic,
+          node_id,
+          flags,
+          member_payload,
+          &self.calls,
+          &self.work,
+        ) {
+          self.closed_key_unknown.insert(root);
+        }
+        if member_payload {
+          if flags.is_write() && !self.has_simple_value_write(root) && !self.has_member_write(root)
+          {
+            self.uncertain.insert(root);
+          }
+          if known_static_member_object_role(semantic, reference.node_id())
+            && self.static_member_chain_receiver_uncertain(semantic, reference.node_id())
+          {
+            self.toref_identity_uncertain.insert(root);
+            self.capability_uncertain.insert(root);
+            self.closed_key_unknown.insert(root);
+          }
+          continue;
+        }
+        if flags.is_write() {
+          self.reassigned.insert(root);
+          continue;
+        }
+        if known_const_alias_role(semantic, reference.node_id()) {
+          continue;
+        }
+        self.uncertain.insert(root);
+        if !self.known_toref_source_argument_role(semantic, reference.node_id()) {
+          self.toref_identity_uncertain.insert(root);
+        }
+        if !self.known_vue_source_argument_role(semantic, reference.node_id()) {
+          self.capability_uncertain.insert(root);
+        }
+      }
+    }
+  }
+
+  /// First argument of a proven `toRef` call. Other identifier uses do not prove `__v_isRef`.
+  fn known_toref_source_argument_role(
+    &self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    node_id: NodeId,
+  ) -> bool {
+    self.work.add_queries(1);
+    let ident_span = semantic.nodes().kind(node_id).span();
+    let mut current = node_id;
+    for _ in 0..MAX_ROLE_ANCESTORS {
+      let parent_id = semantic.nodes().parent_id(current);
+      self.work.add_queries(1);
+      match semantic.nodes().kind(parent_id) {
+        AstKind::ParenthesizedExpression(_)
+        | AstKind::TSAsExpression(_)
+        | AstKind::TSSatisfiesExpression(_)
+        | AstKind::TSNonNullExpression(_)
+        | AstKind::TSTypeAssertion(_)
+        | AstKind::ChainExpression(_) => {
+          current = parent_id;
+        }
+        AstKind::CallExpression(call) => {
+          let Some(info) = self.calls.get(&span_key(call.span)).copied() else {
+            return false;
+          };
+          if info.api != Some("toRef") {
+            return false;
+          }
+          let Some(first) = call.arguments.first().and_then(Argument::as_expression) else {
+            return false;
+          };
+          let inner = first.get_inner_expression();
+          return inner.span() == ident_span || first.span() == ident_span;
+        }
+        _ => return false,
+      }
+    }
+    false
+  }
+
+  /// Receiver call / `new` / tagged template / unknown member-chain of a static
+  /// member object, including TypeScript instantiation wrappers. Ordinary
+  /// assigned-property reads and writes stay outside this set. Import sources,
+  /// JSX member tags, and decorator expressions stay on the default (proven)
+  /// branch; those positions bind no JS `this` receiver. Exhausted ancestor
+  /// budgets stay unproven.
+  fn static_member_chain_receiver_uncertain(
+    &self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    node_id: NodeId,
+  ) -> bool {
+    let mut current = node_id;
+    let mut current_span = semantic.nodes().kind(node_id).span();
+    for _ in 0..MAX_ROLE_ANCESTORS {
+      let parent_id = semantic.nodes().parent_id(current);
+      self.work.add_queries(1);
+      match semantic.nodes().kind(parent_id) {
+        AstKind::ParenthesizedExpression(_)
+        | AstKind::TSAsExpression(_)
+        | AstKind::TSSatisfiesExpression(_)
+        | AstKind::TSNonNullExpression(_)
+        | AstKind::TSTypeAssertion(_)
+        | AstKind::TSInstantiationExpression(_)
+        | AstKind::ChainExpression(_) => {
+          current = parent_id;
+          current_span = semantic.nodes().kind(parent_id).span();
+        }
+        AstKind::StaticMemberExpression(member) => {
+          if !callee_span_matches(&member.object, current_span) {
+            return false;
+          }
+          current = parent_id;
+          current_span = member.span();
+        }
+        AstKind::ComputedMemberExpression(member) => {
+          return callee_span_matches(&member.object, current_span);
+        }
+        AstKind::CallExpression(call) => {
+          return callee_span_matches(&call.callee, current_span);
+        }
+        AstKind::NewExpression(expression) => {
+          return callee_span_matches(&expression.callee, current_span);
+        }
+        AstKind::TaggedTemplateExpression(tagged) => {
+          return callee_span_matches(&tagged.tag, current_span);
+        }
+        _ => return false,
+      }
+    }
+    true
+  }
+
+  fn known_vue_source_argument_role(
+    &self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    node_id: NodeId,
+  ) -> bool {
+    self.work.add_queries(1);
+    let ident_span = semantic.nodes().kind(node_id).span();
+    let mut current = node_id;
+    for _ in 0..MAX_ROLE_ANCESTORS {
+      let parent_id = semantic.nodes().parent_id(current);
+      self.work.add_queries(1);
+      match semantic.nodes().kind(parent_id) {
+        AstKind::ParenthesizedExpression(_)
+        | AstKind::TSAsExpression(_)
+        | AstKind::TSSatisfiesExpression(_)
+        | AstKind::TSNonNullExpression(_)
+        | AstKind::TSTypeAssertion(_)
+        | AstKind::ChainExpression(_) => {
+          current = parent_id;
+        }
+        AstKind::CallExpression(call) => {
+          let Some(info) = self.calls.get(&span_key(call.span)).copied() else {
+            return false;
+          };
+          if !is_known_constructor_or_watch(info.api) {
+            return false;
+          }
+          let Some(first) = call.arguments.first().and_then(Argument::as_expression) else {
+            return false;
+          };
+          let inner = first.get_inner_expression();
+          return inner.span() == ident_span || first.span() == ident_span;
+        }
+        _ => return false,
+      }
+    }
+    false
+  }
+
+  fn has_simple_value_write(&self, root: SymbolId) -> bool {
+    self.value_write_roots.contains(&root)
+  }
+
+  fn has_member_write(&self, root: SymbolId) -> bool {
+    self.member_write_roots.contains(&root)
+  }
+
+  fn record_expr(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    kind: ScriptKind,
+    expression: &Expression<'_>,
+  ) {
+    let inner = expression.get_inner_expression();
+    self
+      .hints
+      .insert(span_key(inner.span()), hint_of(inner, |ident| reference_symbol(semantic, ident)));
+    self.hints.insert(
+      span_key(expression.span()),
+      hint_of(inner, |ident| reference_symbol(semantic, ident)),
+    );
+    if matches!(inner, Expression::ObjectExpression(_) | Expression::ArrayExpression(_)) {
+      self.literal_span.insert(span_key(expression.span()), inner.span());
+      self.literal_span.insert(span_key(inner.span()), inner.span());
+    }
+    if let Expression::CallExpression(call) = inner {
+      self.record_call(semantic, kind, call);
+    }
+  }
+
+  fn record_call(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    kind: ScriptKind,
+    call: &CallExpression<'_>,
+  ) {
+    let has_spread = call.arguments.iter().any(Argument::is_spread);
+    let api = resolve_vue_api(
+      &call.callee,
+      &self.vue_imports,
+      |ident| reference_symbol(semantic, ident),
+      kind,
+    );
+    let first_arg = if has_spread {
+      None
+    } else {
+      call.arguments.first().and_then(Argument::as_expression).map(GetSpan::span)
+    };
+    let second_arg = if has_spread {
+      None
+    } else {
+      call.arguments.get(1).and_then(Argument::as_expression).map(GetSpan::span)
+    };
+    let native_structured_clone =
+      !call.optional && is_native_structured_clone(&call.callee, semantic);
+    let actual_proxy_origin = api.is_some_and(is_proxy_allocating_api)
+      && callee_has_actual_proxy_origin(&call.callee, &self.vue_imports, semantic, &self.work);
+    let arg_count = u8::try_from(call.arguments.len()).unwrap_or(u8::MAX);
+    self.calls.insert(
+      span_key(call.span),
+      CallInfo {
+        api,
+        first_arg,
+        second_arg,
+        has_spread,
+        native_structured_clone,
+        actual_proxy_origin,
+        arg_count,
+      },
+    );
+  }
+
+  fn note_delete(&mut self, semantic: &oxc_semantic::Semantic<'_>, argument: &Expression<'_>) {
+    if expression_poisons_clone_intrinsic(semantic, argument, &self.work) {
+      self.clone_intrinsic_poisoned = true;
+    }
+    self.mark_delete_target(semantic, argument);
+  }
+
+  fn index_array_expression(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    kind: ScriptKind,
+    array: &oxc_ast::ast::ArrayExpression<'_>,
+  ) {
+    self.arrays.insert(span_key(array.span));
+    self.literal_span.insert(span_key(array.span), array.span);
+    if array
+      .elements
+      .iter()
+      .any(|element| matches!(element, oxc_ast::ast::ArrayExpressionElement::SpreadElement(_)))
+    {
+      self.array_spread.insert(span_key(array.span));
+    }
+    for element in &array.elements {
+      if let Some(expression) = element.as_expression() {
+        self.record_expr(semantic, kind, expression);
+        self.mark_escape_expr(semantic, expression, true);
+      }
+    }
+  }
+
+  fn mark_delete_target(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    argument: &Expression<'_>,
+  ) {
+    match argument.get_inner_expression() {
+      Expression::StaticMemberExpression(member) => {
+        let Some(object) = member.object.get_inner_expression().get_identifier_reference() else {
+          return;
+        };
+        let Some(symbol_id) = reference_symbol(semantic, object) else {
+          return;
+        };
+        if member.property.name.as_str() == TOREF_CAPABILITY_KEY {
+          self.toref_identity_uncertain.insert(self.root_of(symbol_id));
+        }
+      }
+      Expression::ComputedMemberExpression(member) => {
+        if let Some(object) = member.object.get_inner_expression().get_identifier_reference()
+          && let Some(symbol_id) = reference_symbol(semantic, object)
+        {
+          self.toref_identity_uncertain.insert(self.root_of(symbol_id));
+        }
+      }
+      _ => {}
+    }
+  }
+
+  fn mark_escape_expr(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    expression: &Expression<'_>,
+    for_toref: bool,
+  ) {
+    if let Some(identifier) = expression.get_inner_expression().get_identifier_reference()
+      && let Some(symbol_id) = reference_symbol(semantic, identifier)
+    {
+      self.escape_root(self.root_of(symbol_id), for_toref);
+    }
+  }
+
+  fn escape_root(&mut self, root: SymbolId, for_toref: bool) {
+    self.escaped.insert(root);
+    if for_toref {
+      self.toref_helper_escape.insert(root);
+    }
+  }
+
+  fn index_assignment(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    node_id: NodeId,
+    offset: usize,
+    operator: AssignmentOperator,
+    left: &AssignmentTarget<'_>,
+    right: &Expression<'_>,
+  ) {
+    if assignment_poisons_clone_intrinsic(semantic, left, &self.work) {
+      self.clone_intrinsic_poisoned = true;
+    }
+    let simple = operator == AssignmentOperator::Assign;
+    let fresh = simple && is_fresh_allocation(right, |ident| reference_symbol(semantic, ident));
+    let owner = self.owner(node_id);
+    let callable = owner.callable;
+    let block = owner.block.unwrap_or(node_id);
+    match left {
+      AssignmentTarget::AssignmentTargetIdentifier(identifier) => {
+        if let Some(symbol_id) = reference_symbol(semantic, identifier) {
+          self.reassigned.insert(self.root_of(symbol_id));
+        }
+      }
+      AssignmentTarget::StaticMemberExpression(member) => {
+        self.record_static_member_assignment(
+          semantic,
+          &member.object,
+          member.property.name.as_str(),
+          DirectMemberWrite { offset, callable, block, right, simple, fresh },
+        );
+      }
+      AssignmentTarget::ComputedMemberExpression(member) => {
+        if let Some(object) = member.object.get_inner_expression().get_identifier_reference()
+          && let Some(symbol_id) = reference_symbol(semantic, object)
+        {
+          let root = self.root_of(symbol_id);
+          self.unknown_member_touch.insert(root);
+          self.capability_touch.insert(root);
+        }
+      }
+      AssignmentTarget::ObjectAssignmentTarget(_) | AssignmentTarget::ArrayAssignmentTarget(_) => {
+        self.mark_pattern_uncertain(semantic, left);
+      }
+      _ => {}
+    }
+  }
+
+  fn record_static_member_assignment(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    object: &Expression<'_>,
+    property: &str,
+    write: DirectMemberWrite<'_>,
+  ) {
+    let Some(object) = object.get_inner_expression().get_identifier_reference() else {
+      return;
+    };
+    let Some(symbol_id) = reference_symbol(semantic, object) else {
+      return;
+    };
+    let root = self.root_of(symbol_id);
+    if property == TOREF_CAPABILITY_KEY {
+      self.toref_identity_uncertain.insert(root);
+    }
+    if property != "value" {
+      self.capability_touch.insert(root);
+    }
+    if property == "value" {
+      if write.simple {
+        self.value_write_roots.insert(root);
+        self.value_writes.entry(root).or_default().push(ValueWrite {
+          offset: write.offset,
+          callable: write.callable,
+          block: write.block,
+        });
+      } else {
+        self.uncertain.insert(root);
+      }
+    } else {
+      self.member_write_roots.insert(root);
+      self.member_writes.entry((root, property.to_string())).or_default().push(MemberWrite {
+        offset: write.offset,
+        callable: write.callable,
+        block: write.block,
+        rhs: write.right.span(),
+        simple_assign: write.simple,
+        fresh_alloc: write.fresh,
+      });
+    }
+  }
+
+  fn mark_pattern_uncertain(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    target: &AssignmentTarget<'_>,
+  ) {
+    match target {
+      AssignmentTarget::AssignmentTargetIdentifier(identifier) => {
+        if let Some(symbol_id) = reference_symbol(semantic, identifier) {
+          self.reassigned.insert(self.root_of(symbol_id));
+        }
+      }
+      AssignmentTarget::StaticMemberExpression(member) => {
+        self.record_pattern_static_member(semantic, &member.object, member.property.name.as_str());
+      }
+      AssignmentTarget::ComputedMemberExpression(member) => {
+        self.record_pattern_dynamic_member(semantic, &member.object);
+      }
+      AssignmentTarget::ObjectAssignmentTarget(object) => {
+        for property in &object.properties {
+          match property {
+            AssignmentTargetProperty::AssignmentTargetPropertyProperty(property) => {
+              self.mark_maybe_default_uncertain(semantic, &property.binding);
+            }
+            AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(property) => {
+              if let Some(symbol_id) = reference_symbol(semantic, &property.binding) {
+                self.reassigned.insert(self.root_of(symbol_id));
+              }
+            }
+          }
+        }
+        if let Some(rest) = &object.rest {
+          self.mark_pattern_uncertain(semantic, &rest.target);
+        }
+      }
+      AssignmentTarget::ArrayAssignmentTarget(array) => {
+        for element in array.elements.iter().flatten() {
+          self.mark_maybe_default_uncertain(semantic, element);
+        }
+        if let Some(rest) = &array.rest {
+          self.mark_pattern_uncertain(semantic, &rest.target);
+        }
+      }
+      AssignmentTarget::TSAsExpression(inner) => {
+        self.mark_expression_target_uncertain(semantic, &inner.expression);
+      }
+      AssignmentTarget::TSSatisfiesExpression(inner) => {
+        self.mark_expression_target_uncertain(semantic, &inner.expression);
+      }
+      AssignmentTarget::TSNonNullExpression(inner) => {
+        self.mark_expression_target_uncertain(semantic, &inner.expression);
+      }
+      AssignmentTarget::TSTypeAssertion(inner) => {
+        self.mark_expression_target_uncertain(semantic, &inner.expression);
+      }
+      AssignmentTarget::PrivateFieldExpression(_) => {}
+    }
+  }
+
+  /// Patterns restore generic uncertainty on the member object. Ordinary
+  /// `state.n` keeps generic uncertainty only; `__v_isRef` and dynamic targets
+  /// also mark toRef identity, and capability keys mark the dedicated
+  /// capability set.
+  fn record_pattern_static_member(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    object: &Expression<'_>,
+    property: &str,
+  ) {
+    let Some(object) = object.get_inner_expression().get_identifier_reference() else {
+      return;
+    };
+    let Some(symbol_id) = reference_symbol(semantic, object) else {
+      return;
+    };
+    let root = self.root_of(symbol_id);
+    self.uncertain.insert(root);
+    if property == TOREF_CAPABILITY_KEY {
+      self.toref_identity_uncertain.insert(root);
+    }
+    if is_capability_key(property) {
+      self.capability_uncertain.insert(root);
+    }
+  }
+
+  fn record_pattern_dynamic_member(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    object: &Expression<'_>,
+  ) {
+    let Some(object) = object.get_inner_expression().get_identifier_reference() else {
+      return;
+    };
+    let Some(symbol_id) = reference_symbol(semantic, object) else {
+      return;
+    };
+    let root = self.root_of(symbol_id);
+    self.unknown_member_touch.insert(root);
+    self.uncertain.insert(root);
+    self.toref_identity_uncertain.insert(root);
+    self.capability_uncertain.insert(root);
+    self.capability_touch.insert(root);
+  }
+
+  fn mark_expression_target_uncertain(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    expression: &Expression<'_>,
+  ) {
+    match expression.get_inner_expression() {
+      Expression::Identifier(identifier) => {
+        if let Some(symbol_id) = reference_symbol(semantic, identifier) {
+          self.reassigned.insert(self.root_of(symbol_id));
+        }
+      }
+      Expression::StaticMemberExpression(member) => {
+        self.record_pattern_static_member(semantic, &member.object, member.property.name.as_str());
+      }
+      Expression::ComputedMemberExpression(member) => {
+        self.record_pattern_dynamic_member(semantic, &member.object);
+      }
+      _ => {}
+    }
+  }
+
+  fn mark_maybe_default_uncertain(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    target: &AssignmentTargetMaybeDefault<'_>,
+  ) {
+    match target {
+      AssignmentTargetMaybeDefault::AssignmentTargetWithDefault(with_default) => {
+        self.mark_pattern_uncertain(semantic, &with_default.binding);
+      }
+      other => {
+        if let Some(assignment_target) = other.as_assignment_target() {
+          self.mark_pattern_uncertain(semantic, assignment_target);
+        }
+      }
+    }
+  }
+
   fn record_static_member(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
@@ -640,31 +1638,6 @@ impl Indexes {
     }
   }
 
-  fn build_owners(&mut self, semantic: &oxc_semantic::Semantic<'_>) {
-    for (node_id, node) in semantic.nodes().iter_enumerated() {
-      self.work.add_owners(1);
-      let parent = semantic.nodes().parent_id(node_id);
-      let inherited = self.owners.get(&parent).copied().unwrap_or(Owner {
-        callable: None,
-        block: None,
-        region: None,
-      });
-      let mut callable = inherited.callable;
-      let mut block = inherited.block;
-      let mut region = inherited.region;
-      match node.kind() {
-        AstKind::Function(_) | AstKind::ArrowFunctionExpression(_) => callable = Some(node_id),
-        AstKind::Program(_) | AstKind::FunctionBody(_) => {
-          block = Some(node_id);
-          region = Some(node_id);
-        }
-        AstKind::BlockStatement(_) => block = Some(node_id),
-        _ => {}
-      }
-      self.owners.insert(node_id, Owner { callable, block, region });
-    }
-  }
-
   fn summarize_closed_keys(&mut self) {
     for (key, entries) in &self.objects {
       let mut keys = HashSet::new();
@@ -680,7 +1653,10 @@ impl Indexes {
             self.work.add_key_copies(1);
             keys.insert(name.clone());
           }
-          ObjectEntry::Spread | ObjectEntry::Computed | ObjectEntry::Accessor { .. } => {
+          ObjectEntry::Spread
+          | ObjectEntry::Computed
+          | ObjectEntry::Accessor { .. }
+          | ObjectEntry::Method { .. } => {
             closed = false;
             break;
           }
@@ -692,568 +1668,20 @@ impl Indexes {
     }
   }
 
-  fn summarize_writes(&mut self) {
-    for (root, writes) in &self.value_writes {
-      let Some(first) = writes.first() else {
-        continue;
-      };
-      self.work.add_writes(1);
-      let mixed = writes.iter().skip(1).any(|write| {
-        self.work.add_writes(1);
-        write.callable != first.callable || write.block != first.block
-      });
-      if mixed {
-        self.mixed_value_owners.insert(*root);
-      } else {
-        self.value_write_owner.insert(*root, (first.callable, first.block));
-      }
-    }
-    for (key, writes) in &self.member_writes {
-      let Some(first) = writes.first() else {
-        continue;
-      };
-      self.work.add_writes(1);
-      let mixed = writes.iter().skip(1).any(|write| {
-        self.work.add_writes(1);
-        write.callable != first.callable || write.block != first.block
-      });
-      if mixed {
-        self.mixed_member_owners.insert(key.clone());
-      } else {
-        self.member_write_owner.insert(key.clone(), (first.callable, first.block));
-      }
-    }
-  }
-
-  pub(super) fn owner(&self, node_id: NodeId) -> Owner {
-    self.owners.get(&node_id).copied().unwrap_or(Owner {
-      callable: None,
-      block: None,
-      region: None,
-    })
-  }
-
-  pub(super) fn note_node(&self) {
-    self.work.add_nodes(1);
-  }
-
-  pub(super) fn note_query(&self) {
-    self.work.add_queries(1);
-  }
-
-  #[expect(clippy::too_many_lines, reason = "one-pass statement kind dispatch")]
-  fn scan(
+  fn record_barrier(
     &mut self,
-    semantic: &oxc_semantic::Semantic<'_>,
     line_index: &vue_vet_core::LineIndex,
     sfc_source: &str,
     script_offset: usize,
-    kind: ScriptKind,
-  ) {
-    for (node_id, node) in semantic.nodes().iter_enumerated() {
-      self.work.add_nodes(1);
-      match node.kind() {
-        AstKind::StaticMemberExpression(member) => {
-          self.record_static_member(
-            semantic,
-            line_index,
-            sfc_source,
-            script_offset,
-            node_id,
-            member,
-          );
-        }
-        AstKind::VariableDeclarator(declarator) => {
-          if matches!(
-            semantic.nodes().parent_kind(semantic.nodes().parent_id(node_id)),
-            AstKind::ExportNamedDeclaration(_) | AstKind::ExportDefaultDeclaration(_)
-          ) && let oxc_ast::ast::BindingPattern::BindingIdentifier(binding) = &declarator.id
-            && let Some(symbol_id) = binding.symbol_id.get()
-          {
-            let root = self.root_of(symbol_id);
-            self.escaped.insert(root);
-            self.closed_key_unknown.insert(root);
-          }
-          if let Some(init) = &declarator.init {
-            self.record_expr(semantic, kind, init);
-            if let Some(ident) = init.get_inner_expression().get_identifier_reference()
-              && let Some(target) = reference_symbol(semantic, ident)
-            {
-              match &declarator.id {
-                oxc_ast::ast::BindingPattern::BindingIdentifier(binding) => {
-                  if let Some(local) = binding.symbol_id.get() {
-                    if semantic.scoping().symbol_flags(local).contains(SymbolFlags::ConstVariable) {
-                      let root = self.root_of(target);
-                      self.alias_root.insert(local, root);
-                    } else {
-                      self.escaped.insert(self.root_of(target));
-                    }
-                  }
-                }
-                _ => {
-                  self.escaped.insert(self.root_of(target));
-                }
-              }
-            }
-          }
-          if let oxc_ast::ast::BindingPattern::BindingIdentifier(binding) = &declarator.id
-            && let Some(symbol_id) = binding.symbol_id.get()
-            && let Some(init) = &declarator.init
-          {
-            self.init_span.insert(symbol_id, init.span());
-          }
-          if let Some(init) = &declarator.init {
-            self.record_destructure(semantic, &declarator.id, init);
-          }
-        }
-        AstKind::AssignmentExpression(assignment) => {
-          self.record_expr(semantic, kind, &assignment.right);
-          self.mark_escape_expr(semantic, &assignment.right);
-          let offset = mapped(line_index, sfc_source, script_offset, assignment.span).offset;
-          self.index_assignment(
-            semantic,
-            node_id,
-            offset,
-            assignment.operator,
-            &assignment.left,
-            &assignment.right,
-          );
-          self.record_stmt_site(semantic, line_index, sfc_source, script_offset, node_id);
-        }
-        AstKind::UpdateExpression(update) => {
-          if let SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) = &update.argument
-            && let Some(symbol_id) = reference_symbol(semantic, identifier)
-          {
-            self.reassigned.insert(self.root_of(symbol_id));
-          }
-        }
-        AstKind::CallExpression(call) => {
-          self.record_call(semantic, kind, call);
-          for argument in &call.arguments {
-            if let Some(expression) = argument.as_expression() {
-              self.record_expr(semantic, kind, expression);
-              self.mark_escape_expr(semantic, expression);
-            }
-          }
-          self.record_stmt_site(semantic, line_index, sfc_source, script_offset, node_id);
-          self.record_event(semantic, line_index, sfc_source, script_offset, node_id, call.span);
-          self.record_member_call(semantic, line_index, sfc_source, script_offset, node_id, call);
-        }
-        AstKind::NewExpression(expression) => {
-          self.record_expr(semantic, kind, &expression.callee);
-          for argument in &expression.arguments {
-            if let Some(arg) = argument.as_expression() {
-              self.record_expr(semantic, kind, arg);
-              self.mark_escape_expr(semantic, arg);
-            }
-          }
-          if is_unresolved_collection(&expression.callee, |ident| reference_symbol(semantic, ident))
-          {
-            self.collections.insert(span_key(expression.span));
-          }
-        }
-        AstKind::ObjectExpression(object) => {
-          let entries = object_entries(object);
-          let props = summarize_object_props(&entries, &self.work);
-          self.object_props.insert(span_key(object.span), props);
-          self.objects.insert(span_key(object.span), entries);
-          for property in &object.properties {
-            if let ObjectPropertyKind::ObjectProperty(property) = property {
-              self.record_expr(semantic, kind, &property.value);
-              self.mark_escape_expr(semantic, &property.value);
-            }
-          }
-        }
-        AstKind::ArrayExpression(array) => {
-          for element in &array.elements {
-            if let Some(expression) = element.as_expression() {
-              self.record_expr(semantic, kind, expression);
-              self.mark_escape_expr(semantic, expression);
-            }
-          }
-        }
-        AstKind::ReturnStatement(statement) => {
-          if let Some(argument) = &statement.argument {
-            self.record_expr(semantic, kind, argument);
-            self.mark_escape_expr(semantic, argument);
-          }
-          self.record_event(
-            semantic,
-            line_index,
-            sfc_source,
-            script_offset,
-            node_id,
-            statement.span,
-          );
-          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
-        }
-        AstKind::ThrowStatement(statement) => {
-          self.record_expr(semantic, kind, &statement.argument);
-          self.mark_escape_expr(semantic, &statement.argument);
-          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
-        }
-        AstKind::SpreadElement(spread) => self.mark_escape_expr(semantic, &spread.argument),
-        AstKind::IfStatement(statement) => {
-          self.record_event(
-            semantic,
-            line_index,
-            sfc_source,
-            script_offset,
-            node_id,
-            statement.span,
-          );
-          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
-        }
-        AstKind::ForStatement(statement) => {
-          self.record_event(
-            semantic,
-            line_index,
-            sfc_source,
-            script_offset,
-            node_id,
-            statement.span,
-          );
-          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
-        }
-        AstKind::ForInStatement(statement) => {
-          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
-        }
-        AstKind::ForOfStatement(statement) => {
-          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
-        }
-        AstKind::WhileStatement(statement) => {
-          self.record_event(
-            semantic,
-            line_index,
-            sfc_source,
-            script_offset,
-            node_id,
-            statement.span,
-          );
-          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
-        }
-        AstKind::DoWhileStatement(statement) => {
-          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
-        }
-        AstKind::SwitchStatement(statement) => {
-          self.record_event(
-            semantic,
-            line_index,
-            sfc_source,
-            script_offset,
-            node_id,
-            statement.span,
-          );
-          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
-        }
-        AstKind::TryStatement(statement) => {
-          self.record_event(
-            semantic,
-            line_index,
-            sfc_source,
-            script_offset,
-            node_id,
-            statement.span,
-          );
-          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
-        }
-        AstKind::WithStatement(statement) => {
-          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
-        }
-        AstKind::LabeledStatement(statement) => {
-          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
-        }
-        AstKind::ExportNamedDeclaration(_) | AstKind::ExportDefaultDeclaration(_) => {
-          if let AstKind::VariableDeclaration(_) = semantic.nodes().parent_kind(node_id) {
-            // handled via BindingIdentifier export flags below
-          }
-        }
-        _ => {}
-      }
-    }
-  }
-
-  fn finish_aliases_and_roles(&mut self, semantic: &oxc_semantic::Semantic<'_>) {
-    for symbol_id in semantic.scoping().symbol_ids() {
-      for reference in semantic.symbol_references(symbol_id) {
-        self.work.add_references(1);
-        let root = self.root_of(symbol_id);
-        let flags = reference.flags();
-        let node_id = reference.node_id();
-        let member_payload = flags.intersects(ReferenceFlags::MemberWriteTarget)
-          || known_static_member_object_role(semantic, node_id);
-        if !closed_key_use_is_known(
-          semantic,
-          node_id,
-          flags,
-          member_payload,
-          &self.calls,
-          &self.work,
-        ) {
-          self.closed_key_unknown.insert(root);
-        }
-        if member_payload {
-          if flags.is_write() && !self.has_simple_value_write(root) && !self.has_member_write(root)
-          {
-            self.uncertain.insert(root);
-          }
-          continue;
-        }
-        if flags.is_write() {
-          self.reassigned.insert(root);
-          continue;
-        }
-        if known_const_alias_role(semantic, node_id) {
-          continue;
-        }
-        self.uncertain.insert(root);
-      }
-    }
-  }
-
-  fn has_simple_value_write(&self, root: SymbolId) -> bool {
-    self.value_write_roots.contains(&root)
-  }
-
-  fn has_member_write(&self, root: SymbolId) -> bool {
-    self.member_write_roots.contains(&root)
-  }
-
-  fn record_expr(
-    &mut self,
-    semantic: &oxc_semantic::Semantic<'_>,
-    kind: ScriptKind,
-    expression: &Expression<'_>,
-  ) {
-    let inner = expression.get_inner_expression();
-    self
-      .hints
-      .insert(span_key(inner.span()), hint_of(inner, |ident| reference_symbol(semantic, ident)));
-    self.hints.insert(
-      span_key(expression.span()),
-      hint_of(inner, |ident| reference_symbol(semantic, ident)),
-    );
-    if let Expression::CallExpression(call) = inner {
-      self.record_call(semantic, kind, call);
-    }
-  }
-
-  fn record_call(
-    &mut self,
-    semantic: &oxc_semantic::Semantic<'_>,
-    kind: ScriptKind,
-    call: &CallExpression<'_>,
-  ) {
-    let has_spread = call.arguments.iter().any(Argument::is_spread);
-    let api = resolve_vue_api(
-      &call.callee,
-      &self.vue_imports,
-      |ident| reference_symbol(semantic, ident),
-      kind,
-    );
-    let first_arg = if has_spread {
-      None
-    } else {
-      call.arguments.first().and_then(Argument::as_expression).map(GetSpan::span)
-    };
-    self.calls.insert(span_key(call.span), CallInfo { api, first_arg, has_spread });
-  }
-
-  fn mark_escape_expr(
-    &mut self,
-    semantic: &oxc_semantic::Semantic<'_>,
-    expression: &Expression<'_>,
-  ) {
-    if let Some(identifier) = expression.get_inner_expression().get_identifier_reference()
-      && let Some(symbol_id) = reference_symbol(semantic, identifier)
-    {
-      self.escaped.insert(self.root_of(symbol_id));
-    }
-  }
-
-  fn index_assignment(
-    &mut self,
-    semantic: &oxc_semantic::Semantic<'_>,
     node_id: NodeId,
-    offset: usize,
-    operator: AssignmentOperator,
-    left: &AssignmentTarget<'_>,
-    right: &Expression<'_>,
+    span: Span,
   ) {
-    let simple = operator == AssignmentOperator::Assign;
-    let fresh = simple && is_fresh_allocation(right, |ident| reference_symbol(semantic, ident));
-    let owner = self.owner(node_id);
-    let callable = owner.callable;
-    let block = owner.block.unwrap_or(node_id);
-    match left {
-      AssignmentTarget::AssignmentTargetIdentifier(identifier) => {
-        if let Some(symbol_id) = reference_symbol(semantic, identifier) {
-          self.reassigned.insert(self.root_of(symbol_id));
-        }
-      }
-      AssignmentTarget::StaticMemberExpression(member) => {
-        let Some(object) = member.object.get_inner_expression().get_identifier_reference() else {
-          return;
-        };
-        let Some(symbol_id) = reference_symbol(semantic, object) else {
-          return;
-        };
-        let root = self.root_of(symbol_id);
-        let property = member.property.name.as_str();
-        if property == "value" {
-          if simple {
-            self.value_write_roots.insert(root);
-            self.value_writes.entry(root).or_default().push(ValueWrite { offset, callable, block });
-          } else {
-            self.uncertain.insert(root);
-          }
-        } else {
-          self.capability_touch.insert(root);
-          self.member_write_roots.insert(root);
-          self.member_writes.entry((root, property.to_string())).or_default().push(MemberWrite {
-            offset,
-            callable,
-            block,
-            rhs: right.span(),
-            simple_assign: simple,
-            fresh_alloc: fresh,
-          });
-        }
-      }
-      AssignmentTarget::ComputedMemberExpression(member) => {
-        if let Some(object) = member.object.get_inner_expression().get_identifier_reference()
-          && let Some(symbol_id) = reference_symbol(semantic, object)
-        {
-          let root = self.root_of(symbol_id);
-          self.unknown_member_touch.insert(root);
-          self.capability_touch.insert(root);
-        }
-      }
-      AssignmentTarget::ObjectAssignmentTarget(_) | AssignmentTarget::ArrayAssignmentTarget(_) => {
-        self.mark_pattern_uncertain(semantic, left);
-      }
-      _ => {}
-    }
+    let Some(region) = self.owner(node_id).region else {
+      return;
+    };
+    let offset = mapped(line_index, sfc_source, script_offset, span).offset;
+    self.barriers_by_region.entry(region).or_default().push(offset);
   }
-
-  fn mark_pattern_uncertain(
-    &mut self,
-    semantic: &oxc_semantic::Semantic<'_>,
-    target: &AssignmentTarget<'_>,
-  ) {
-    match target {
-      AssignmentTarget::AssignmentTargetIdentifier(identifier) => {
-        if let Some(symbol_id) = reference_symbol(semantic, identifier) {
-          self.reassigned.insert(self.root_of(symbol_id));
-        }
-      }
-      AssignmentTarget::StaticMemberExpression(member) => {
-        if let Some(object) = member.object.get_inner_expression().get_identifier_reference()
-          && let Some(symbol_id) = reference_symbol(semantic, object)
-        {
-          self.uncertain.insert(self.root_of(symbol_id));
-        }
-      }
-      AssignmentTarget::ComputedMemberExpression(member) => {
-        if let Some(object) = member.object.get_inner_expression().get_identifier_reference()
-          && let Some(symbol_id) = reference_symbol(semantic, object)
-        {
-          let root = self.root_of(symbol_id);
-          self.unknown_member_touch.insert(root);
-          self.capability_touch.insert(root);
-          self.uncertain.insert(root);
-        }
-      }
-      AssignmentTarget::ObjectAssignmentTarget(object) => {
-        for property in &object.properties {
-          match property {
-            AssignmentTargetProperty::AssignmentTargetPropertyProperty(property) => {
-              self.mark_maybe_default_uncertain(semantic, &property.binding);
-            }
-            AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(property) => {
-              if let Some(symbol_id) = reference_symbol(semantic, &property.binding) {
-                self.reassigned.insert(self.root_of(symbol_id));
-              }
-            }
-          }
-        }
-        if let Some(rest) = &object.rest {
-          self.mark_pattern_uncertain(semantic, &rest.target);
-        }
-      }
-      AssignmentTarget::ArrayAssignmentTarget(array) => {
-        for element in array.elements.iter().flatten() {
-          self.mark_maybe_default_uncertain(semantic, element);
-        }
-        if let Some(rest) = &array.rest {
-          self.mark_pattern_uncertain(semantic, &rest.target);
-        }
-      }
-      AssignmentTarget::TSAsExpression(inner) => {
-        self.mark_expression_target_uncertain(semantic, &inner.expression);
-      }
-      AssignmentTarget::TSSatisfiesExpression(inner) => {
-        self.mark_expression_target_uncertain(semantic, &inner.expression);
-      }
-      AssignmentTarget::TSNonNullExpression(inner) => {
-        self.mark_expression_target_uncertain(semantic, &inner.expression);
-      }
-      AssignmentTarget::TSTypeAssertion(inner) => {
-        self.mark_expression_target_uncertain(semantic, &inner.expression);
-      }
-      AssignmentTarget::PrivateFieldExpression(_) => {}
-    }
-  }
-
-  fn mark_expression_target_uncertain(
-    &mut self,
-    semantic: &oxc_semantic::Semantic<'_>,
-    expression: &Expression<'_>,
-  ) {
-    match expression.get_inner_expression() {
-      Expression::Identifier(identifier) => {
-        if let Some(symbol_id) = reference_symbol(semantic, identifier) {
-          self.reassigned.insert(self.root_of(symbol_id));
-        }
-      }
-      Expression::StaticMemberExpression(member) => {
-        if let Some(object) = member.object.get_inner_expression().get_identifier_reference()
-          && let Some(symbol_id) = reference_symbol(semantic, object)
-        {
-          self.uncertain.insert(self.root_of(symbol_id));
-        }
-      }
-      Expression::ComputedMemberExpression(member) => {
-        if let Some(object) = member.object.get_inner_expression().get_identifier_reference()
-          && let Some(symbol_id) = reference_symbol(semantic, object)
-        {
-          let root = self.root_of(symbol_id);
-          self.unknown_member_touch.insert(root);
-          self.capability_touch.insert(root);
-          self.uncertain.insert(root);
-        }
-      }
-      _ => {}
-    }
-  }
-
-  fn mark_maybe_default_uncertain(
-    &mut self,
-    semantic: &oxc_semantic::Semantic<'_>,
-    target: &AssignmentTargetMaybeDefault<'_>,
-  ) {
-    match target {
-      AssignmentTargetMaybeDefault::AssignmentTargetWithDefault(with_default) => {
-        self.mark_pattern_uncertain(semantic, &with_default.binding);
-      }
-      other => {
-        if let Some(assignment_target) = other.as_assignment_target() {
-          self.mark_pattern_uncertain(semantic, assignment_target);
-        }
-      }
-    }
-  }
-
   fn record_stmt_site(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
@@ -1293,21 +1721,6 @@ impl Indexes {
     let offset = mapped(line_index, sfc_source, script_offset, span).offset;
     self.events_by_block.entry(block).or_default().push(offset);
   }
-
-  fn record_barrier(
-    &mut self,
-    line_index: &vue_vet_core::LineIndex,
-    sfc_source: &str,
-    script_offset: usize,
-    node_id: NodeId,
-    span: Span,
-  ) {
-    let Some(region) = self.owner(node_id).region else {
-      return;
-    };
-    let offset = mapped(line_index, sfc_source, script_offset, span).offset;
-    self.barriers_by_region.entry(region).or_default().push(offset);
-  }
 }
 
 fn summarize_object_props(
@@ -1333,7 +1746,7 @@ fn summarize_object_props(
             .accessor = true;
         }
       }
-      ObjectEntry::Data { name, value } => {
+      ObjectEntry::Data { name, value, .. } | ObjectEntry::Method { name, value, .. } => {
         tracks
           .entry(name.clone())
           .or_insert(Track { last_data: None, accessor: false })
@@ -1360,6 +1773,34 @@ fn summarize_object_props(
     }
   }
   props
+}
+
+const CAPABILITY_KEYS: &[&str] = &[
+  "__v_isRef",
+  "__v_skip",
+  "__v_isReadonly",
+  "__v_raw",
+  "__v_isReactive",
+  "__v_isShallow",
+  "__proto__",
+  "prototype",
+];
+
+fn is_capability_key(name: &str) -> bool {
+  CAPABILITY_KEYS.contains(&name)
+}
+
+const TOREF_CAPABILITY_KEY: &str = "__v_isRef";
+const MAX_ROLE_ANCESTORS: u8 = 8;
+
+/// Exact span identity for a callee / tag / member object, including the
+/// inner expression after TS and parenthesis wrappers.
+fn callee_span_matches(expression: &Expression<'_>, current_span: Span) -> bool {
+  expression.span() == current_span || expression.get_inner_expression().span() == current_span
+}
+
+fn is_known_constructor_or_watch(api: Option<&str>) -> bool {
+  matches!(api, Some("reactive" | "shallowReactive" | "readonly" | "shallowReadonly" | "watch"))
 }
 
 fn known_static_member_object_role(semantic: &oxc_semantic::Semantic<'_>, node_id: NodeId) -> bool {
@@ -1455,7 +1896,8 @@ fn known_static_member_read_role(
       | AstKind::TSAsExpression(_)
       | AstKind::TSSatisfiesExpression(_)
       | AstKind::TSNonNullExpression(_)
-      | AstKind::TSTypeAssertion(_) => {
+      | AstKind::TSTypeAssertion(_)
+      | AstKind::TSInstantiationExpression(_) => {
         current = grand;
       }
       AstKind::CallExpression(_)
@@ -1490,32 +1932,39 @@ fn chain_optional(
   true
 }
 
+fn region_of(owner: Owner, node_id: NodeId) -> NodeId {
+  owner.region.or(owner.block).unwrap_or(node_id)
+}
+
 fn object_entries(object: &oxc_ast::ast::ObjectExpression<'_>) -> Vec<ObjectEntry> {
   let mut entries = Vec::new();
   for property_kind in &object.properties {
     match property_kind {
       ObjectPropertyKind::SpreadProperty(_) => entries.push(ObjectEntry::Spread),
       ObjectPropertyKind::ObjectProperty(prop) => {
-        if prop.kind != PropertyKind::Init || prop.method {
+        if prop.kind != PropertyKind::Init {
           entries.push(ObjectEntry::Accessor {
             name: prop.key.static_name().map(|name| name.to_string()),
           });
           continue;
         }
         match prop.key.static_name() {
-          Some(name) => {
-            entries.push(ObjectEntry::Data { name: name.to_string(), value: prop.value.span() });
-          }
+          Some(name) if prop.method => entries.push(ObjectEntry::Method {
+            name: name.to_string(),
+            key: prop.key.span(),
+            value: prop.value.span(),
+          }),
+          Some(name) => entries.push(ObjectEntry::Data {
+            name: name.to_string(),
+            key: prop.key.span(),
+            value: prop.value.span(),
+          }),
           None => entries.push(ObjectEntry::Computed),
         }
       }
     }
   }
   entries
-}
-
-fn region_of(owner: Owner, node_id: NodeId) -> NodeId {
-  owner.region.or(owner.block).unwrap_or(node_id)
 }
 
 fn block_is_straight_line(semantic: &oxc_semantic::Semantic<'_>, block_id: NodeId) -> bool {
@@ -1529,6 +1978,268 @@ fn block_is_straight_line(semantic: &oxc_semantic::Semantic<'_>, block_id: NodeI
         | AstKind::Program(_)
     ),
     _ => false,
+  }
+}
+
+fn is_unresolved_global(
+  semantic: &oxc_semantic::Semantic<'_>,
+  identifier: &IdentifierReference<'_>,
+) -> bool {
+  reference_symbol(semantic, identifier).is_none()
+}
+
+#[derive(Clone, Copy)]
+enum CloneKeyProof {
+  Definite,
+  Possible,
+}
+
+fn is_native_structured_clone(
+  callee: &Expression<'_>,
+  semantic: &oxc_semantic::Semantic<'_>,
+) -> bool {
+  expression_matches_clone_intrinsic(semantic, callee, CloneKeyProof::Definite)
+}
+
+fn callee_has_actual_proxy_origin(
+  callee: &Expression<'_>,
+  vue_imports: &HashMap<SymbolId, VueImport>,
+  semantic: &oxc_semantic::Semantic<'_>,
+  work: &WorkCounter,
+) -> bool {
+  let inner = callee.get_inner_expression();
+  if let Some(identifier) = inner.get_identifier_reference() {
+    return indexed_import_is_actual_proxy(vue_imports, semantic, identifier, work);
+  }
+  let Expression::StaticMemberExpression(member) = inner else {
+    return false;
+  };
+  let Some(object) = member.object.get_inner_expression().get_identifier_reference() else {
+    return false;
+  };
+  indexed_import_is_actual_proxy(vue_imports, semantic, object, work)
+}
+
+fn indexed_import_is_actual_proxy(
+  vue_imports: &HashMap<SymbolId, VueImport>,
+  semantic: &oxc_semantic::Semantic<'_>,
+  identifier: &IdentifierReference<'_>,
+  work: &WorkCounter,
+) -> bool {
+  let Some(symbol_id) = reference_symbol(semantic, identifier) else {
+    return false;
+  };
+  if !semantic.scoping().symbol_flags(symbol_id).contains(SymbolFlags::Import) {
+    return false;
+  }
+  work.add_import_source_steps(1);
+  vue_imports.get(&symbol_id).is_some_and(|import| is_actual_proxy_runtime_source(import.source()))
+}
+
+/// Oxc 0.142 flattened `AssignmentTarget` (inherits `SimpleAssignmentTarget` +
+/// `AssignmentTargetPattern`): identifier; static/computed/private members;
+/// object/array patterns; TS as / satisfies / non-null / assertion.
+/// Nested default and rest targets recurse here. `for...in` / `for...of`
+/// assignment heads share this `Possible` classifier; declaration heads do not.
+fn assignment_poisons_clone_intrinsic(
+  semantic: &oxc_semantic::Semantic<'_>,
+  left: &AssignmentTarget<'_>,
+  work: &WorkCounter,
+) -> bool {
+  work.add_queries(1);
+  match left {
+    AssignmentTarget::AssignmentTargetIdentifier(identifier) => {
+      identifier_is_unresolved_clone(semantic, identifier)
+    }
+    AssignmentTarget::StaticMemberExpression(member) => unresolved_global_this_clone_member(
+      semantic,
+      &member.object,
+      Some(member.property.name.as_str()),
+      None,
+      CloneKeyProof::Possible,
+    ),
+    AssignmentTarget::ComputedMemberExpression(member) => unresolved_global_this_clone_member(
+      semantic,
+      &member.object,
+      None,
+      Some(&member.expression),
+      CloneKeyProof::Possible,
+    ),
+    AssignmentTarget::ObjectAssignmentTarget(object) => {
+      object.properties.iter().any(|property| match property {
+        AssignmentTargetProperty::AssignmentTargetPropertyProperty(property) => {
+          maybe_default_poisons_clone_intrinsic(semantic, &property.binding, work)
+        }
+        AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(property) => {
+          identifier_is_unresolved_clone(semantic, &property.binding)
+        }
+      }) || object
+        .rest
+        .as_ref()
+        .is_some_and(|rest| assignment_poisons_clone_intrinsic(semantic, &rest.target, work))
+    }
+    AssignmentTarget::ArrayAssignmentTarget(array) => {
+      array
+        .elements
+        .iter()
+        .flatten()
+        .any(|element| maybe_default_poisons_clone_intrinsic(semantic, element, work))
+        || array
+          .rest
+          .as_ref()
+          .is_some_and(|rest| assignment_poisons_clone_intrinsic(semantic, &rest.target, work))
+    }
+    AssignmentTarget::TSAsExpression(inner) => {
+      expression_poisons_clone_intrinsic(semantic, &inner.expression, work)
+    }
+    AssignmentTarget::TSSatisfiesExpression(inner) => {
+      expression_poisons_clone_intrinsic(semantic, &inner.expression, work)
+    }
+    AssignmentTarget::TSNonNullExpression(inner) => {
+      expression_poisons_clone_intrinsic(semantic, &inner.expression, work)
+    }
+    AssignmentTarget::TSTypeAssertion(inner) => {
+      expression_poisons_clone_intrinsic(semantic, &inner.expression, work)
+    }
+    AssignmentTarget::PrivateFieldExpression(_) => false,
+  }
+}
+
+fn maybe_default_poisons_clone_intrinsic(
+  semantic: &oxc_semantic::Semantic<'_>,
+  target: &AssignmentTargetMaybeDefault<'_>,
+  work: &WorkCounter,
+) -> bool {
+  work.add_queries(1);
+  match target {
+    AssignmentTargetMaybeDefault::AssignmentTargetWithDefault(with_default) => {
+      assignment_poisons_clone_intrinsic(semantic, &with_default.binding, work)
+    }
+    other => other
+      .as_assignment_target()
+      .is_some_and(|assignment| assignment_poisons_clone_intrinsic(semantic, assignment, work)),
+  }
+}
+
+fn simple_target_poisons_clone_intrinsic(
+  semantic: &oxc_semantic::Semantic<'_>,
+  target: &SimpleAssignmentTarget<'_>,
+  work: &WorkCounter,
+) -> bool {
+  work.add_queries(1);
+  match target {
+    SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) => {
+      identifier_is_unresolved_clone(semantic, identifier)
+    }
+    SimpleAssignmentTarget::StaticMemberExpression(member) => unresolved_global_this_clone_member(
+      semantic,
+      &member.object,
+      Some(member.property.name.as_str()),
+      None,
+      CloneKeyProof::Possible,
+    ),
+    SimpleAssignmentTarget::ComputedMemberExpression(member) => {
+      unresolved_global_this_clone_member(
+        semantic,
+        &member.object,
+        None,
+        Some(&member.expression),
+        CloneKeyProof::Possible,
+      )
+    }
+    SimpleAssignmentTarget::TSAsExpression(inner) => {
+      expression_poisons_clone_intrinsic(semantic, &inner.expression, work)
+    }
+    SimpleAssignmentTarget::TSSatisfiesExpression(inner) => {
+      expression_poisons_clone_intrinsic(semantic, &inner.expression, work)
+    }
+    SimpleAssignmentTarget::TSNonNullExpression(inner) => {
+      expression_poisons_clone_intrinsic(semantic, &inner.expression, work)
+    }
+    SimpleAssignmentTarget::TSTypeAssertion(inner) => {
+      expression_poisons_clone_intrinsic(semantic, &inner.expression, work)
+    }
+    SimpleAssignmentTarget::PrivateFieldExpression(_) => false,
+  }
+}
+
+fn expression_poisons_clone_intrinsic(
+  semantic: &oxc_semantic::Semantic<'_>,
+  expression: &Expression<'_>,
+  work: &WorkCounter,
+) -> bool {
+  work.add_queries(1);
+  expression_matches_clone_intrinsic(semantic, expression, CloneKeyProof::Possible)
+}
+
+fn expression_matches_clone_intrinsic(
+  semantic: &oxc_semantic::Semantic<'_>,
+  expression: &Expression<'_>,
+  proof: CloneKeyProof,
+) -> bool {
+  match expression.get_inner_expression() {
+    Expression::Identifier(identifier) => identifier_is_unresolved_clone(semantic, identifier),
+    Expression::StaticMemberExpression(member) => unresolved_global_this_clone_member(
+      semantic,
+      &member.object,
+      Some(member.property.name.as_str()),
+      None,
+      proof,
+    ),
+    Expression::ComputedMemberExpression(member) => unresolved_global_this_clone_member(
+      semantic,
+      &member.object,
+      None,
+      Some(&member.expression),
+      proof,
+    ),
+    _ => false,
+  }
+}
+
+fn identifier_is_unresolved_clone(
+  semantic: &oxc_semantic::Semantic<'_>,
+  identifier: &IdentifierReference<'_>,
+) -> bool {
+  identifier.name.as_str() == "structuredClone" && is_unresolved_global(semantic, identifier)
+}
+
+fn unresolved_global_this_clone_member(
+  semantic: &oxc_semantic::Semantic<'_>,
+  object: &Expression<'_>,
+  static_key: Option<&str>,
+  computed_key: Option<&Expression<'_>>,
+  proof: CloneKeyProof,
+) -> bool {
+  let Some(object) = object.get_inner_expression().get_identifier_reference() else {
+    return false;
+  };
+  if object.name.as_str() != "globalThis" || !is_unresolved_global(semantic, object) {
+    return false;
+  }
+  if let Some(name) = static_key {
+    return name == "structuredClone";
+  }
+  let Some(key) = computed_key else {
+    return false;
+  };
+  match static_string_key(key) {
+    Some("structuredClone") => true,
+    Some(_) => false,
+    None => matches!(proof, CloneKeyProof::Possible),
+  }
+}
+
+fn static_string_key<'a>(expression: &'a Expression<'a>) -> Option<&'a str> {
+  match expression.get_inner_expression() {
+    Expression::StringLiteral(literal) => Some(literal.value.as_str()),
+    Expression::TemplateLiteral(literal)
+      if literal.expressions.is_empty() && literal.quasis.len() == 1 =>
+    {
+      let quasi = literal.quasis.first()?;
+      quasi.value.cooked.as_deref().or(Some(quasi.value.raw.as_str()))
+    }
+    _ => None,
   }
 }
 
