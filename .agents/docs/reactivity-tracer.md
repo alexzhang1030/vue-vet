@@ -71,7 +71,14 @@ block complete. Bare `const alias = known` is recorded on the existing
 ## Current baseline
 
 Contract version: **`REACTIVITY_GRAPH_VERSION = 41`**. Rule-set identity
-hashed into the scan cache is **`RULESET_VERSION = 18`**.
+hashed into the scan cache is **`RULESET_VERSION = 19`**.
+`watchEffect` / `watchPostEffect` / `watchSyncEffect` are source-contract sink
+APIs (option/signature facts). Eligibility and dispatch share one `ContractSink`
+table with the source5 collectors; watch-API facts live in the ruleset /
+file-fact contract, not the reactivity graph. Named effect-family imports keep
+source-contract indexes empty when every resolved reference is a proven call
+without a second argument; that is equivalent collection for the current
+predicates.
 
 v41 records same-file lost-notification source/view/path facts (`source_views`,
 `notification_bypasses`) for `shallowRef` / `shallowReactive` nested writes past
@@ -83,7 +90,8 @@ composable return analysis (including recursive forwarded/value-bag paths).
 Public `composable_return_with_index` still builds its own map and delegates
 to that borrowed-index implementation.
 `collect_local_composable_usage` returns after definition collection when the
-composable definition map is empty, skipping the call-use walk on ref-only modules.
+composable definition map is empty, so the call-use walk stays unused on
+ref-only modules.
 Collection work counters stay trace-internal and must charge remaining loop
 candidates, prefix-range visits, ancestor hops, and BTreeMap lookups (log
 bound) separately from result cardinality. Production `WorkCounter` is

@@ -1,6 +1,9 @@
 //! Vue API source-contract rules (issue #224). Consume stable facts only.
 
-use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, Severity, SourceContractSiteFact};
+use vue_vet_core::{
+  Confidence, Rule, RuleContext, RuleMeta, Severity, SourceContractSiteFact,
+  WatchIgnoredOptionReason, WatchSignatureMismatchReason,
+};
 
 const TRIGGER_META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-trigger-ref-on-non-ref",
@@ -42,6 +45,22 @@ const REPLACED_META: RuleMeta = RuleMeta {
   documentation: "rules/reactivity/no-watch-replaced-object-source",
 };
 
+const IGNORED_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-watch-ignored-option",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-watch-ignored-option",
+};
+
+const SIGNATURE_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-watch-signature-mismatch",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-watch-signature-mismatch",
+};
+
 pub(super) struct NoTriggerRefOnNonRef;
 pub(super) static NO_TRIGGER_REF_ON_NON_REF: NoTriggerRefOnNonRef = NoTriggerRefOnNonRef;
 
@@ -58,6 +77,12 @@ pub(super) static NO_WATCH_UNWRAPPED_SOURCE: NoWatchUnwrappedSource = NoWatchUnw
 pub(super) struct NoWatchReplacedObjectSource;
 pub(super) static NO_WATCH_REPLACED_OBJECT_SOURCE: NoWatchReplacedObjectSource =
   NoWatchReplacedObjectSource;
+
+pub(super) struct NoWatchIgnoredOption;
+pub(super) static NO_WATCH_IGNORED_OPTION: NoWatchIgnoredOption = NoWatchIgnoredOption;
+
+pub(super) struct NoWatchSignatureMismatch;
+pub(super) static NO_WATCH_SIGNATURE_MISMATCH: NoWatchSignatureMismatch = NoWatchSignatureMismatch;
 
 impl Rule for NoTriggerRefOnNonRef {
   fn meta(&self) -> &'static RuleMeta {
@@ -167,6 +192,78 @@ impl Rule for NoWatchReplacedObjectSource {
   }
 }
 
+impl Rule for NoWatchIgnoredOption {
+  fn meta(&self) -> &'static RuleMeta {
+    &IGNORED_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.watch_ignored_option {
+        let (message, help) = ignored_copy(site.reason);
+        context.report(self.meta(), site.span, message.into(), Some(help.into()));
+      }
+    }
+  }
+}
+
+impl Rule for NoWatchSignatureMismatch {
+  fn meta(&self) -> &'static RuleMeta {
+    &SIGNATURE_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.watch_signature_mismatch {
+        let (message, help) = signature_copy(site.api.as_str(), site.reason);
+        context.report(self.meta(), site.span, message, Some(help.into()));
+      }
+    }
+  }
+}
+
+const fn ignored_copy(reason: WatchIgnoredOptionReason) -> (&'static str, &'static str) {
+  match reason {
+    WatchIgnoredOptionReason::Equals => (
+      "Vue ignores `equals` on `watch` / `watchEffect`; change detection uses `hasChanged`",
+      "Drop `equals`. Project a primitive/getter, or compare a cloned snapshot inside the callback.",
+    ),
+    WatchIgnoredOptionReason::Immediate => (
+      "`watchEffect` / `watchPostEffect` / `watchSyncEffect` ignore `immediate`",
+      "Remove `immediate`. Effects already run immediately; use `watch` if you need a source callback.",
+    ),
+    WatchIgnoredOptionReason::Deep => (
+      "`watchEffect` / `watchPostEffect` / `watchSyncEffect` ignore `deep`",
+      "Remove `deep`. Deep tracking is automatic for reactive reads inside the effect.",
+    ),
+    WatchIgnoredOptionReason::Once => (
+      "`watchEffect` / `watchPostEffect` / `watchSyncEffect` ignore `once`",
+      "Remove `once`. It does not stop later reruns; stop the handle or use `watch(..., { once: true })`.",
+    ),
+  }
+}
+
+fn signature_copy(api: &str, reason: WatchSignatureMismatchReason) -> (String, &'static str) {
+  match reason {
+    WatchSignatureMismatchReason::WatchNonFunctionCallback => (
+      format!(
+        "`{api}` expects a function callback as its second argument; this value is not callable"
+      ),
+      "Use `watch(source, callback, options)`. Object `{ handler }` is the old Options API shape.",
+    ),
+    WatchSignatureMismatchReason::EffectFunctionAsOptions => (
+      format!("`{api}` treats the second argument as options, so this function never runs"),
+      "Use `watchEffect(callback, options)` — pass one effect function, then an options object.",
+    ),
+    WatchSignatureMismatchReason::EffectRefWithCallback => (
+      format!(
+        "`{api}` treats the first argument as the effect and the second as options; the callback never runs"
+      ),
+      "Pass a getter/effect as the first argument (`watchEffect(() => source.value)`), or use `watch(source, callback)`.",
+    ),
+  }
+}
+
 fn report_site(
   context: &mut RuleContext<'_>,
   meta: &RuleMeta,
@@ -185,5 +282,7 @@ pub(super) fn source_contract_rules() -> Vec<&'static dyn Rule> {
     &NO_PRIMITIVE_REACTIVE_TARGET,
     &NO_WATCH_UNWRAPPED_SOURCE,
     &NO_WATCH_REPLACED_OBJECT_SOURCE,
+    &NO_WATCH_IGNORED_OPTION,
+    &NO_WATCH_SIGNATURE_MISMATCH,
   ]
 }

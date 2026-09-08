@@ -2,10 +2,12 @@
 
 use oxc_ast::{
   AstKind,
-  ast::{Expression, IdentifierReference, ImportDeclarationSpecifier, ImportOrExportKind},
+  ast::{
+    CallExpression, Expression, IdentifierReference, ImportDeclarationSpecifier, ImportOrExportKind,
+  },
 };
-use oxc_semantic::SymbolId;
-use oxc_span::Span;
+use oxc_semantic::{NodeId, Reference, ReferenceFlags, SymbolId};
+use oxc_span::{GetSpan, Span};
 use std::collections::HashMap;
 use vue_vet_core::ScriptKind;
 
@@ -71,12 +73,26 @@ pub(super) enum ShapeHint {
 }
 
 /// Fact-producing Vue API sinks collected into `SourceContractFacts`.
+///
+/// Eligibility preflight and the collector walk share this table through
+/// [`contract_sink`]. `watch` feeds both the ordinary source collector and
+/// watch-family option/signature facts. Named
+/// [`ContractSink::WatchEffectFamily`] imports keep source indexes empty when
+/// every resolved reference is a proven call with fewer than two arguments and
+/// no spread. Ordinary sinks and namespace imports keep full indexing.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum ContractSink {
+pub enum ContractSink {
   TriggerRef,
   ToRefs,
   ProxyConstructor,
   Watch,
+  WatchEffectFamily,
+}
+
+impl ContractSink {
+  const fn requires_full_index(self) -> bool {
+    !matches!(self, Self::WatchEffectFamily)
+  }
 }
 
 pub(super) fn intern_api(name: &str) -> Option<&'static str> {
@@ -88,6 +104,9 @@ pub(super) fn intern_api(name: &str) -> Option<&'static str> {
     "shallowReactive" => Some("shallowReactive"),
     "shallowReadonly" => Some("shallowReadonly"),
     "watch" => Some("watch"),
+    "watchEffect" => Some("watchEffect"),
+    "watchPostEffect" => Some("watchPostEffect"),
+    "watchSyncEffect" => Some("watchSyncEffect"),
     "defineProps" => Some("defineProps"),
     "ref" => Some("ref"),
     "shallowRef" => Some("shallowRef"),
@@ -100,7 +119,7 @@ pub(super) fn intern_api(name: &str) -> Option<&'static str> {
   }
 }
 
-pub(super) fn contract_sink(api: &str) -> Option<ContractSink> {
+pub fn contract_sink(api: &str) -> Option<ContractSink> {
   match api {
     "triggerRef" => Some(ContractSink::TriggerRef),
     "toRefs" => Some(ContractSink::ToRefs),
@@ -108,6 +127,7 @@ pub(super) fn contract_sink(api: &str) -> Option<ContractSink> {
       Some(ContractSink::ProxyConstructor)
     }
     "watch" => Some(ContractSink::Watch),
+    "watchEffect" | "watchPostEffect" | "watchSyncEffect" => Some(ContractSink::WatchEffectFamily),
     _ => None,
   }
 }
@@ -135,7 +155,8 @@ pub(super) fn collect_vue_imports(
   work: &WorkCounter,
 ) -> (HashMap<SymbolId, VueImport>, bool) {
   let mut imports = HashMap::new();
-  let mut has_contract_sink = false;
+  let mut requires_full_index = false;
+  let mut has_effect_family = false;
   for node in semantic.nodes() {
     work.add_nodes(1);
     let AstKind::ImportDeclaration(declaration) = node.kind() else {
@@ -168,8 +189,10 @@ pub(super) fn collect_vue_imports(
           if let Some(api) = intern_api(imported)
             && let Some(symbol_id) = specifier.local.symbol_id.get()
           {
-            if contract_sink(api).is_some() {
-              has_contract_sink = true;
+            match contract_sink(api) {
+              Some(sink) if !sink.requires_full_index() => has_effect_family = true,
+              Some(_) => requires_full_index = true,
+              None => {}
             }
             imports.insert(symbol_id, VueImport::Named(api));
           }
@@ -177,7 +200,7 @@ pub(super) fn collect_vue_imports(
         ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier) if runtime => {
           if let Some(symbol_id) = specifier.local.symbol_id.get() {
             imports.insert(symbol_id, VueImport::Namespace);
-            has_contract_sink = true;
+            requires_full_index = true;
           }
         }
         ImportDeclarationSpecifier::ImportNamespaceSpecifier(_)
@@ -185,7 +208,126 @@ pub(super) fn collect_vue_imports(
       }
     }
   }
-  (imports, has_contract_sink)
+  let needs_index =
+    requires_full_index || (has_effect_family && effect_family_may_emit(semantic, &imports, work));
+  (imports, needs_index)
+}
+
+fn effect_family_may_emit(
+  semantic: &oxc_semantic::Semantic<'_>,
+  imports: &HashMap<SymbolId, VueImport>,
+  work: &WorkCounter,
+) -> bool {
+  for (symbol_id, import) in imports {
+    work.add_queries(1);
+    let VueImport::Named(api) = *import else {
+      continue;
+    };
+    if contract_sink(api) != Some(ContractSink::WatchEffectFamily) {
+      continue;
+    }
+    for reference in semantic.symbol_references(*symbol_id) {
+      work.add_references(1);
+      if effect_reference_may_emit(semantic, reference, work) {
+        return true;
+      }
+    }
+  }
+  false
+}
+
+fn effect_reference_may_emit(
+  semantic: &oxc_semantic::Semantic<'_>,
+  reference: &Reference,
+  work: &WorkCounter,
+) -> bool {
+  let flags = reference.flags();
+  if flags.contains(ReferenceFlags::Type) && !flags.is_value() {
+    return false;
+  }
+  let ident_id = reference.node_id();
+  for ancestor in semantic.nodes().ancestors(ident_id) {
+    work.add_nodes(1);
+    if let AstKind::CallExpression(call) = ancestor.kind() {
+      return effect_call_may_emit(semantic, call, ident_id, work);
+    }
+    if !is_identity_wrapper(ancestor.kind()) {
+      return true;
+    }
+  }
+  true
+}
+
+const fn is_identity_wrapper(kind: AstKind<'_>) -> bool {
+  matches!(
+    kind,
+    AstKind::ParenthesizedExpression(_)
+      | AstKind::TSAsExpression(_)
+      | AstKind::TSSatisfiesExpression(_)
+      | AstKind::TSInstantiationExpression(_)
+      | AstKind::TSNonNullExpression(_)
+      | AstKind::TSTypeAssertion(_)
+  )
+}
+
+fn effect_call_may_emit(
+  semantic: &oxc_semantic::Semantic<'_>,
+  call: &CallExpression<'_>,
+  ident_id: NodeId,
+  work: &WorkCounter,
+) -> bool {
+  let Expression::Identifier(callee) = inner_expression(&call.callee, work) else {
+    return true;
+  };
+  let AstKind::IdentifierReference(ident) = semantic.nodes().kind(ident_id) else {
+    return true;
+  };
+  if callee.span() != ident.span() {
+    return true;
+  }
+  if call.arguments.len() >= 2 {
+    return true;
+  }
+  for argument in &call.arguments {
+    work.add_queries(1);
+    if argument.is_spread() {
+      return true;
+    }
+  }
+  false
+}
+
+fn inner_expression<'a>(expression: &'a Expression<'a>, work: &WorkCounter) -> &'a Expression<'a> {
+  let mut current = expression;
+  loop {
+    current = match current {
+      Expression::ParenthesizedExpression(inner) => {
+        work.add_nodes(1);
+        &inner.expression
+      }
+      Expression::TSAsExpression(inner) => {
+        work.add_nodes(1);
+        &inner.expression
+      }
+      Expression::TSSatisfiesExpression(inner) => {
+        work.add_nodes(1);
+        &inner.expression
+      }
+      Expression::TSInstantiationExpression(inner) => {
+        work.add_nodes(1);
+        &inner.expression
+      }
+      Expression::TSNonNullExpression(inner) => {
+        work.add_nodes(1);
+        &inner.expression
+      }
+      Expression::TSTypeAssertion(inner) => {
+        work.add_nodes(1);
+        &inner.expression
+      }
+      _ => return current,
+    };
+  }
 }
 
 pub(super) fn hint_of(

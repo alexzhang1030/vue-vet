@@ -58,7 +58,8 @@ pub(super) enum ObjectEntry {
   Spread,
   Computed,
   Accessor { name: Option<String> },
-  Data { name: String, value: Span },
+  Data { name: String, key: Span, value: Span },
+  Method { name: String, key: Span, value: Span },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -339,6 +340,10 @@ impl Indexes {
 
   pub(super) fn note_query(&self) {
     self.work.add_queries(1);
+  }
+
+  pub(super) const fn work(&self) -> &WorkCounter {
+    &self.work
   }
 
   fn scan(
@@ -851,7 +856,7 @@ fn summarize_object_props(
             .accessor = true;
         }
       }
-      ObjectEntry::Data { name, value } => {
+      ObjectEntry::Data { name, value, .. } | ObjectEntry::Method { name, value, .. } => {
         tracks
           .entry(name.clone())
           .or_insert(Track { last_data: None, accessor: false })
@@ -901,16 +906,23 @@ fn object_entries(object: &oxc_ast::ast::ObjectExpression<'_>) -> Vec<ObjectEntr
     match property_kind {
       ObjectPropertyKind::SpreadProperty(_) => entries.push(ObjectEntry::Spread),
       ObjectPropertyKind::ObjectProperty(prop) => {
-        if prop.kind != PropertyKind::Init || prop.method {
+        if prop.kind != PropertyKind::Init {
           entries.push(ObjectEntry::Accessor {
             name: prop.key.static_name().map(|name| name.to_string()),
           });
           continue;
         }
         match prop.key.static_name() {
-          Some(name) => {
-            entries.push(ObjectEntry::Data { name: name.to_string(), value: prop.value.span() });
-          }
+          Some(name) if prop.method => entries.push(ObjectEntry::Method {
+            name: name.to_string(),
+            key: prop.key.span(),
+            value: prop.value.span(),
+          }),
+          Some(name) => entries.push(ObjectEntry::Data {
+            name: name.to_string(),
+            key: prop.key.span(),
+            value: prop.value.span(),
+          }),
           None => entries.push(ObjectEntry::Computed),
         }
       }

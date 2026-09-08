@@ -57,7 +57,9 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-unused-computed-binding", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-v-model-nonreactive-source", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-watch-callback-as-tracking-scope", RuleGroupId::Tracking),
+  ("vue-vet/reactivity/no-watch-ignored-option", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-watch-replaced-object-source", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-watch-signature-mismatch", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-watch-unwrapped-source", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/prefer-computed", RuleGroupId::Derivation),
   ("vue-vet/reactivity/prefer-store-to-refs", RuleGroupId::SourceContracts),
@@ -219,7 +221,23 @@ mod tests {
       "vue-vet/reactivity/no-returned-watcher-cleanup",
     ];
     let inventory = rule_inventory(&[]);
-    assert_eq!(inventory.counts.total, 113, "composed CLI inventory count");
+    assert_eq!(inventory.counts.total, 115, "composed CLI inventory count");
+    let source = rule_inventory(&[RuleGroupId::SourceContracts]);
+    for id in [
+      "vue-vet/reactivity/no-lost-shallow-nested-notification",
+      "vue-vet/reactivity/no-toraw-write-of-tracked-state",
+      "vue-vet/reactivity/no-watch-ignored-option",
+      "vue-vet/reactivity/no-watch-signature-mismatch",
+    ] {
+      assert_eq!(group_of(id), Some(RuleGroupId::SourceContracts), "{id}");
+      assert!(
+        source
+          .rules
+          .iter()
+          .any(|row| row.id == *id && row.group == Some(RuleGroupId::SourceContracts)),
+        "source-contracts inventory must include {id}"
+      );
+    }
     let lifetime = rule_inventory(&[RuleGroupId::Lifetime]);
     let tracking = rule_inventory(&[RuleGroupId::Tracking]);
     for id in LIFETIME_IDS {

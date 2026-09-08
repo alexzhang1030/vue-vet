@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-watch-signature-mismatch",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-watch-signature-mismatch",
+    "message": "`watchEffect` treats the first argument as the effect and the second as options; the callback never runs",
+    "help": "Pass a getter/effect as the first argument (`watchEffect(() => source.value)`), or use `watch(source, callback)`.",
+    "file": "fixtures/rules/no-watch-signature-mismatch/invalid/effect-ref-cb.vue",
+    "span": {
+      "offset": 104,
+      "length": 13,
+      "line": 4,
+      "column": 20
+    }
+  }
+]

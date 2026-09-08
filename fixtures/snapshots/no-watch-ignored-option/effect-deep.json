@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-watch-ignored-option",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-watch-ignored-option",
+    "message": "`watchEffect` / `watchPostEffect` / `watchSyncEffect` ignore `deep`",
+    "help": "Remove `deep`. Deep tracking is automatic for reactive reads inside the effect.",
+    "file": "fixtures/rules/no-watch-ignored-option/invalid/effect-deep.vue",
+    "span": {
+      "offset": 131,
+      "length": 4,
+      "line": 4,
+      "column": 43
+    }
+  }
+]
