@@ -57,9 +57,15 @@
   `toref_helper_escape` roles stay distinct from generic source5
   `escaped` / `uncertain` and from callback `capability_uncertain`.
   Native `structuredClone` facts (`no-proxy-structured-clone`) stay a
-  separate capability from Vue import identity. Combined inventory is
-  120 (118 file + 2 project); `RULESET_VERSION` 22; graph stays 41.
-  Runtime premises live in `just oracle-source-contracts` (Vue 3.5.40).
+  separate capability from Vue import identity. Demand-gated value contracts
+  (`no-invalid-custom-ref-interface`, `no-inactive-scope-result`,
+  `no-missing-torefs-key`) stay distinct from callback/toRef receiver sets
+  and clone native identity. Combined inventory is 123 (121 file + 2
+  project); `RULESET_VERSION` 23; graph stays 41.
+  Runtime premises live in `just oracle-source-contracts` (Vue 3.5.40), which
+  runs `source-contracts.mjs`, `watch-api.mjs`, `watch-callback-contracts.mjs`,
+  and `value-contracts.mjs`. Dedicated `just oracle-value-contracts` remains
+  available.
 - After adding or renaming rule ids, regenerate the human catalog with
   `just rules-catalog` (`docs/rules/README.md`). Expand stub pages with
   `just rules-docs` (`scripts/expand_rule_docs.py`) before polishing essays.
@@ -169,7 +175,8 @@ profile because its instrumentation does not link Oxc reliably under LTO
 `panic = "abort"`, `strip = "symbols"`, protocol/UI runtime packages
 `opt-level = "z"`, product crates `vue_vet_rules` / `vue_vet_practice` /
 `vue_vet_rule_query` `opt-level = "z"`, `vue_vet_core` /
-`vue_vet_reactivity` / `vue_vet_session` / `vue_vet_project`
+`vue_vet_reactivity` / `vue_vet_session` / `vue_vet_project` /
+`vue_vet_cache`
 `opt-level = "s"`; `vue_vet_oxc` and
 `vue_vet_reporters` stay on the profile default) remains the source of
 truth for shipped artifacts.
@@ -182,7 +189,8 @@ uses panic=unwind).
 `profile.release.package` overrides still win unless restated. Protocol/UI
 release `opt-z` packages stay inherited. Product crates with release `"z"`
 or `"s"` (`vue_vet_rules`, `vue_vet_practice`, `vue_vet_rule_query`,
-`vue_vet_core`, `vue_vet_reactivity`, `vue_vet_session`, `vue_vet_project`) have explicit
+`vue_vet_core`, `vue_vet_reactivity`, `vue_vet_session`, `vue_vet_project`,
+`vue_vet_cache`) have explicit
 `profile.codspeed.package.*.opt-level = 3`
 so CodSpeed keeps instrumentation `opt-level = 3`. Do not bake a local `CARGO_TARGET_DIR` or
 host byte count into pack/smoke scripts. `just native-size` prints the Cargo

@@ -18,6 +18,8 @@
 //! native-clone poison walk, plus `for...in` / `for...of` left classification,
 //! increments `queries`. Assignment-form loop heads also increment `writes`
 //! once.
+//! Demanded-key contains/hash lookups increment `key_lookups`; remaining
+//! key-string copies increment `key_copies`.
 //!
 //! Production `WorkCounter` is zero-sized and does not record. Test builds
 //! keep saturating `Cell` counters so inner-work growth tests stay real.
@@ -37,6 +39,8 @@ pub struct SourceContractStats {
   /// Proven import-source examinations for Vue constructors that can allocate
   /// a Proxy. Non-Vue and unresolved calls must not increment this.
   pub import_source_steps: u64,
+  pub key_lookups: u64,
+  pub key_copies: u64,
 }
 
 impl SourceContractStats {
@@ -51,6 +55,8 @@ impl SourceContractStats {
       .saturating_add(self.writes)
       .saturating_add(self.queries)
       .saturating_add(self.import_source_steps)
+      .saturating_add(self.key_lookups)
+      .saturating_add(self.key_copies)
   }
 
   /// True when Vue-import preflight ran and owner, object, and write indexes stayed empty.
@@ -77,6 +83,10 @@ pub(super) struct WorkCounter {
   queries: Cell<u64>,
   #[cfg(test)]
   import_source_steps: Cell<u64>,
+  #[cfg(test)]
+  key_lookups: Cell<u64>,
+  #[cfg(test)]
+  key_copies: Cell<u64>,
 }
 
 #[cfg(not(test))]
@@ -192,6 +202,36 @@ impl WorkCounter {
   }
 
   #[cfg(test)]
+  pub(super) fn add_key_lookups(&self, n: u64) {
+    self.key_lookups.set(self.key_lookups.get().saturating_add(n));
+  }
+
+  #[cfg(not(test))]
+  #[expect(
+    clippy::unused_self,
+    clippy::missing_const_for_fn,
+    reason = "zero-sized production counter keeps the test method shape"
+  )]
+  pub(super) fn add_key_lookups(&self, n: u64) {
+    let _ = n;
+  }
+
+  #[cfg(test)]
+  pub(super) fn add_key_copies(&self, n: u64) {
+    self.key_copies.set(self.key_copies.get().saturating_add(n));
+  }
+
+  #[cfg(not(test))]
+  #[expect(
+    clippy::unused_self,
+    clippy::missing_const_for_fn,
+    reason = "zero-sized production counter keeps the test method shape"
+  )]
+  pub(super) fn add_key_copies(&self, n: u64) {
+    let _ = n;
+  }
+
+  #[cfg(test)]
   pub(super) fn partition_point<T, F>(&self, items: &[T], mut predicate: F) -> usize
   where
     F: FnMut(&T) -> bool,
@@ -225,6 +265,8 @@ impl WorkCounter {
       writes: self.writes.get(),
       queries: self.queries.get(),
       import_source_steps: self.import_source_steps.get(),
+      key_lookups: self.key_lookups.get(),
+      key_copies: self.key_copies.get(),
     }
   }
 
@@ -239,6 +281,8 @@ impl WorkCounter {
       writes: 0,
       queries: 0,
       import_source_steps: 0,
+      key_lookups: 0,
+      key_copies: 0,
     }
   }
 }

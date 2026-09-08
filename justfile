@@ -51,7 +51,7 @@ oracle-lifetime:
 
 # Vue 3.5.40 source-contract premises (issue #224). Locked oracle Vue pin.
 oracle-source-contracts:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node source-contracts.mjs && node watch-api.mjs && node watch-callback-contracts.mjs
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node source-contracts.mjs && node watch-api.mjs && node watch-callback-contracts.mjs && node value-contracts.mjs
 
 # Vue 3.5.40 watch-family option/signature premises (issue #224).
 oracle-watch-api:
@@ -64,6 +64,10 @@ oracle-watch-callback-contracts:
 # Vue 3.5.40 lost-notification premises (shallow nested + toRaw) and safe controls.
 oracle-lost-notification:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node lost-notification-runs.mjs
+
+# Vue 3.5.40 demand-gated value-contract premises (issue #224 batch 3).
+oracle-value-contracts:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node value-contracts.mjs
 
 # Run all non-mutating Rust linters.
 lint-rust: fmt-check check clippy

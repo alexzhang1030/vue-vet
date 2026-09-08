@@ -30,6 +30,25 @@ Oxc 0.142 `SemanticBuilder` leaves `Semantic::nodes` empty unless
 `.with_build_nodes(true)` is set; forgetting it makes every node-walk fact
 collector (imports, calls, scopes) succeed with empty results.
 
+## Demand proof is not source5 eligibility
+
+Demand-gated value contracts (`customRef` / stopped `effectScope.run` /
+missing `toRefs` key) own a function-level execution region and source-order
+barriers. Generic source5 still uses immediate `ExpressionStatement` parents
+only. Do not reuse demand reach/barrier proof as source5 execution evidence;
+a later sink preflight may merge collectors, but source5 output must stay
+stable until that merge.
+
+`toRefs(state)` is a generic source5 escape/uncertain use. Demand may discount
+only a proven Vue `toRefs` first-argument borrow; helper arguments, storage,
+export, `new`, tagged templates, and receiver calls — including TypeScript
+instantiation wrappers — keep source keys unknown.
+Object literals execute computed keys (and pattern defaults) during
+construction — walking only `prop.value` misses receiver mutation such as
+`{ [this._set = fn]: 1 }`. Memoized closed-key sets are borrowed and queried
+per demanded key; cloning the `HashSet` per `toRefs` call is quadratic in
+source width.
+
 ## SFC offsets are not plain string positions
 
 Vize block locations are offsets into the original SFC, while downstream parsers may operate on extracted script or template content. Every extraction needs an explicit offset map back to the original source. Unicode makes byte/character confusion visible; CRLF makes line calculations visible.
@@ -1124,3 +1143,18 @@ template binds `this` like a call). TS wrappers, including instantiation, and
 `ChainExpression` are walked with the same ancestor budget. Import sources,
 JSX member tags, and decorator expressions are not JS `this` receivers and
 stay off this set.
+
+## Keep Cargo targets local to one worktree
+
+Give each worktree its own `CARGO_TARGET_DIR`. Reusing a target directory
+across stacked checkouts can retain an older local-crate artifact marked
+`Fresh`, while a downstream crate compiles against a newer fact schema.
+A native-build review reproduced this as an unresolved fact import and
+missing struct fields after a rule was added in the child checkout.
+
+Freeze comparison binaries outside the mutable target directory together
+with their source commit, manifest hash, build command and binary hash.
+After an adoption build, compare the full `--list-rules --format json`
+inventory and fixture outputs with the accepted artifact. A size measurement
+belongs to that verified executable. Keep separate worktree targets during
+`just roll-rust` and release builds, including local profile experiments.

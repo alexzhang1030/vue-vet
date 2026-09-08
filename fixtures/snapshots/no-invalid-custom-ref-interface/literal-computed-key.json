@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-invalid-custom-ref-interface",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-invalid-custom-ref-interface",
+    "message": "`customRef` factory is missing a callable `set`; demanded `.value` will throw at runtime",
+    "help": "Factory at 3:25 and demand at 10:1. Return a plain object with callable `get` and `set`, or drop the unused capability.",
+    "file": "fixtures/rules/no-invalid-custom-ref-interface/invalid/literal-computed-key.vue",
+    "span": {
+      "offset": 88,
+      "length": 66,
+      "line": 3,
+      "column": 32
+    }
+  }
+]

@@ -1823,6 +1823,9 @@ const SOURCE_CONTRACT_RULES: &[&str] = &[
   "no-toref-ignored-key",
   "no-effect-scope-callback-argument",
   "no-proxy-structured-clone",
+  "no-invalid-custom-ref-interface",
+  "no-inactive-scope-result",
+  "no-missing-torefs-key",
 ];
 
 #[test]
