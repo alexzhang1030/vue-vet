@@ -3,7 +3,10 @@
 //! Collection stays linear over proven calls and the already-indexed options
 //! object. `watchEffect` / `watchPostEffect` / `watchSyncEffect` are
 //! `ContractSink::WatchEffectFamily` APIs; this module records option/slot
-//! facts after the shared sink table admits the call.
+//! facts after the shared sink table admits the call. Both predicates read a
+//! second argument (`nth_expr(..., 1)` for signature mismatch, options slot 1
+//! for effect ignored keys). Effect-only files whose proven calls have fewer
+//! than two arguments keep source indexes empty.
 
 use std::collections::HashSet;
 

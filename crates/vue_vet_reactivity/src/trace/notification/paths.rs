@@ -286,11 +286,11 @@ pub(super) fn member_node_chain<'a>(
 pub(super) fn is_outermost_member(
   semantic: &Semantic<'_>,
   node_id: NodeId,
-  work: &mut super::uses::NotificationWork,
+  work: &super::uses::WorkCounter,
 ) -> bool {
   let span = semantic.nodes().kind(node_id).span();
   for ancestor_id in semantic.nodes().ancestor_ids(node_id) {
-    work.ancestor_hops = work.ancestor_hops.saturating_add(1);
+    work.add_ancestor_hops(1);
     match semantic.nodes().kind(ancestor_id) {
       AstKind::ParenthesizedExpression(_)
       | AstKind::TSAsExpression(_)
