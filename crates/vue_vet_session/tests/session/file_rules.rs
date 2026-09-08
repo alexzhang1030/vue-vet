@@ -434,7 +434,7 @@ watchEffect(() => { source.value; return () => {} })\n",
   let _ignored = std::fs::remove_dir_all(root);
 }
 
-const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 13] = [
+const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 14] = [
   "vue-vet/reactivity/no-watch-unwrapped-source",
   "vue-vet/reactivity/no-trigger-ref-on-non-ref",
   "vue-vet/reactivity/no-torefs-on-non-proxy",
@@ -448,6 +448,7 @@ const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 13] = [
   "vue-vet/reactivity/no-watch-alias-old-new",
   "vue-vet/reactivity/no-toref-ignored-key",
   "vue-vet/reactivity/no-effect-scope-callback-argument",
+  "vue-vet/reactivity/no-proxy-structured-clone",
 ];
 
 #[test]
@@ -463,6 +464,7 @@ watch(n.value, () => {})\n\
 triggerRef(reactive({ n: 1 }))\n\
 toRefs({ a: 1 })\n\
 void reactive(0)\n\
+structuredClone(reactive({ n: 1 }))\n\
 const ignored = ref(0)\n\
 void toRef(ignored, 'k')\n\
 effectScope(() => {})\n\
@@ -529,7 +531,7 @@ watch(state, (next, old) => { if (next === old) return; accept(next) })\n\
   assert_eq!(
     contract_ids(&cold),
     expected,
-    "cold scan must emit source-contract, watch-api, notification, callback, and normalization IDs; {:?}",
+    "cold scan must emit source-contract, watch-api, notification, callback, normalization, and clone IDs; {:?}",
     cold.summary.diagnostics
   );
   let toraw = "vue-vet/reactivity/no-toraw-write-of-tracked-state";

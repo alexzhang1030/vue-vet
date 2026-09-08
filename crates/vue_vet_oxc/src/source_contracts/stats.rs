@@ -13,6 +13,11 @@
 //! one query per `classify_maybe`. Shared object summarization does not
 //! treat computed literal keys as uncertain; watch options check the
 //! original `ObjectProperty::computed` flag instead.
+//! Indexed actual-Proxy import-source lookups (Vue constructor calls only)
+//! increment `import_source_steps`. Each examined `AssignmentTarget` in the
+//! native-clone poison walk, plus `for...in` / `for...of` left classification,
+//! increments `queries`. Assignment-form loop heads also increment `writes`
+//! once.
 //!
 //! Production `WorkCounter` is zero-sized and does not record. Test builds
 //! keep saturating `Cell` counters so inner-work growth tests stay real.
@@ -29,6 +34,9 @@ pub struct SourceContractStats {
   pub object_entries: u64,
   pub writes: u64,
   pub queries: u64,
+  /// Proven import-source examinations for Vue constructors that can allocate
+  /// a Proxy. Non-Vue and unresolved calls must not increment this.
+  pub import_source_steps: u64,
 }
 
 impl SourceContractStats {
@@ -42,6 +50,7 @@ impl SourceContractStats {
       .saturating_add(self.object_entries)
       .saturating_add(self.writes)
       .saturating_add(self.queries)
+      .saturating_add(self.import_source_steps)
   }
 
   /// True when Vue-import preflight ran and owner, object, and write indexes stayed empty.
@@ -66,6 +75,8 @@ pub(super) struct WorkCounter {
   writes: Cell<u64>,
   #[cfg(test)]
   queries: Cell<u64>,
+  #[cfg(test)]
+  import_source_steps: Cell<u64>,
 }
 
 #[cfg(not(test))]
@@ -166,6 +177,21 @@ impl WorkCounter {
   }
 
   #[cfg(test)]
+  pub(super) fn add_import_source_steps(&self, n: u64) {
+    self.import_source_steps.set(self.import_source_steps.get().saturating_add(n));
+  }
+
+  #[cfg(not(test))]
+  #[expect(
+    clippy::unused_self,
+    clippy::missing_const_for_fn,
+    reason = "zero-sized production counter keeps the test method shape"
+  )]
+  pub(super) fn add_import_source_steps(&self, n: u64) {
+    let _ = n;
+  }
+
+  #[cfg(test)]
   pub(super) fn partition_point<T, F>(&self, items: &[T], mut predicate: F) -> usize
   where
     F: FnMut(&T) -> bool,
@@ -198,6 +224,7 @@ impl WorkCounter {
       object_entries: self.object_entries.get(),
       writes: self.writes.get(),
       queries: self.queries.get(),
+      import_source_steps: self.import_source_steps.get(),
     }
   }
 
@@ -211,6 +238,7 @@ impl WorkCounter {
       object_entries: 0,
       writes: 0,
       queries: 0,
+      import_source_steps: 0,
     }
   }
 }

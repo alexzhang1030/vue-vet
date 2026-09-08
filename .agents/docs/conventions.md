@@ -56,9 +56,10 @@
   `ContractSink::EffectScope`). Dedicated `toref_identity_uncertain` /
   `toref_helper_escape` roles stay distinct from generic source5
   `escaped` / `uncertain` and from callback `capability_uncertain`.
-  Combined inventory is 119 (117 file + 2 project); `RULESET_VERSION` 21;
-  graph stays 41. Runtime premises live in `just oracle-source-contracts`
-  (Vue 3.5.40).
+  Native `structuredClone` facts (`no-proxy-structured-clone`) stay a
+  separate capability from Vue import identity. Combined inventory is
+  120 (118 file + 2 project); `RULESET_VERSION` 22; graph stays 41.
+  Runtime premises live in `just oracle-source-contracts` (Vue 3.5.40).
 - After adding or renaming rule ids, regenerate the human catalog with
   `just rules-catalog` (`docs/rules/README.md`). Expand stub pages with
   `just rules-docs` (`scripts/expand_rule_docs.py`) before polishing essays.

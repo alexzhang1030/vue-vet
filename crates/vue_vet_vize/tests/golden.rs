@@ -1822,6 +1822,7 @@ const SOURCE_CONTRACT_RULES: &[&str] = &[
   "no-toraw-write-of-tracked-state",
   "no-toref-ignored-key",
   "no-effect-scope-callback-argument",
+  "no-proxy-structured-clone",
 ];
 
 #[test]

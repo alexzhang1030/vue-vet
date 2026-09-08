@@ -26,6 +26,10 @@ fn contract_stats(source: &str) -> (vue_vet_core::SourceContractFacts, u64) {
   (facts, stats.work())
 }
 
+fn contract_full_stats(source: &str) -> (vue_vet_core::SourceContractFacts, SourceContractStats) {
+  contract_collect(source, ScriptKind::Setup, false)
+}
+
 fn contract_collect(
   source: &str,
   kind: ScriptKind,
@@ -2443,6 +2447,7 @@ fn source_contracts_gated_facts_match_forced_full_for_all_sinks() {
     "import { reactive, watch } from 'vue'; const state = reactive({ n: 1 }); function accept(_value: unknown) {} watch(state, (next, old) => { if (next === old) return; accept(next); });",
     "import { toRef } from 'vue'; toRef(1, 'k');",
     "import { effectScope } from 'vue'; effectScope(() => {});",
+    "import { reactive } from 'vue'; structuredClone(reactive({ count: 1 }));",
   ];
   for source in cases {
     let facts = assert_gated_matches_forced(source, ScriptKind::Setup);
@@ -3255,6 +3260,592 @@ fn source_contracts_watch_callback_sites_stay_linear() {
       );
     }
     previous = Some((size, work));
+  }
+}
+
+#[test]
+#[expect(clippy::panic, reason = "missing span evidence must fail the regression")]
+fn source_contracts_structured_clone_reports_proven_proxy() {
+  let direct =
+    analyze("import { reactive } from 'vue'; structuredClone(reactive({ count: 1 }));", "ts");
+  assert_eq!(
+    direct.source_contracts.uncloneable_proxy_data.len(),
+    1,
+    "{:?}",
+    direct.source_contracts
+  );
+  let alias = analyze(
+    "import { reactive } from 'vue'; const state = reactive({ count: 1 }); const alias = state; structuredClone(alias);",
+    "ts",
+  );
+  assert_eq!(
+    alias.source_contracts.uncloneable_proxy_data.len(),
+    1,
+    "{:?}",
+    alias.source_contracts
+  );
+  let mutated = analyze(
+    "import { reactive } from 'vue'; const state = reactive({ count: 1 }); state.count = 2; structuredClone(state);",
+    "ts",
+  );
+  assert_eq!(
+    mutated.source_contracts.uncloneable_proxy_data.len(),
+    1,
+    "{:?}",
+    mutated.source_contracts
+  );
+  let asserted = analyze(
+    "import { reactive } from 'vue'; structuredClone(reactive({ count: 1 }) as { count: number });",
+    "ts",
+  );
+  assert_eq!(
+    asserted.source_contracts.uncloneable_proxy_data.len(),
+    1,
+    "{:?}",
+    asserted.source_contracts
+  );
+  let Some(site) = asserted.source_contracts.uncloneable_proxy_data.first() else {
+    panic!("assertion span missing");
+  };
+  let source =
+    "import { reactive } from 'vue'; structuredClone(reactive({ count: 1 }) as { count: number });";
+  let Some(arg) = source.find("reactive({ count: 1 }) as { count: number }") else {
+    panic!("assertion argument missing");
+  };
+  assert_eq!(site.span.offset, arg);
+  assert_eq!(site.span.length, "reactive({ count: 1 }) as { count: number }".len());
+}
+
+#[test]
+fn source_contracts_structured_clone_named_imports_alone_match_forced_full() {
+  let facts = assert_gated_matches_forced(
+    "import { reactive } from 'vue'; structuredClone(reactive({ count: 1 }));",
+    ScriptKind::Setup,
+  );
+  assert_eq!(
+    facts.uncloneable_proxy_data.len(),
+    1,
+    "named clone positive must yield a clone fact; {facts:?}"
+  );
+}
+
+#[test]
+fn source_contracts_structured_clone_stays_quiet_for_controls() {
+  let native_only = analyze("structuredClone({ count: 1 });", "ts");
+  assert!(
+    native_only.source_contracts.uncloneable_proxy_data.is_empty(),
+    "{:?}",
+    native_only.source_contracts
+  );
+  let raw = analyze(
+    "import { markRaw, reactive } from 'vue'; const raw = { count: 1 }; markRaw(raw); const value = reactive(raw); structuredClone(value);",
+    "ts",
+  );
+  assert!(raw.source_contracts.uncloneable_proxy_data.is_empty(), "{:?}", raw.source_contracts);
+  let to_raw = analyze(
+    "import { reactive, toRaw } from 'vue'; structuredClone(toRaw(reactive({ count: 1 })));",
+    "ts",
+  );
+  assert!(
+    to_raw.source_contracts.uncloneable_proxy_data.is_empty(),
+    "{:?}",
+    to_raw.source_contracts
+  );
+  let marker = analyze(
+    "import { reactive } from 'vue'; structuredClone(reactive({ __v_skip: true, count: 1 }));",
+    "ts",
+  );
+  assert!(
+    marker.source_contracts.uncloneable_proxy_data.is_empty(),
+    "{:?}",
+    marker.source_contracts
+  );
+  let shadow = analyze(
+    "import { reactive } from 'vue'; function structuredClone(_value: unknown) {} structuredClone(reactive({ count: 1 }));",
+    "ts",
+  );
+  assert!(
+    shadow.source_contracts.uncloneable_proxy_data.is_empty(),
+    "{:?}",
+    shadow.source_contracts
+  );
+  let two =
+    analyze("import { reactive } from 'vue'; structuredClone(reactive({ count: 1 }), {});", "ts");
+  assert!(two.source_contracts.uncloneable_proxy_data.is_empty(), "{:?}", two.source_contracts);
+  let nested = analyze(
+    "import { reactive } from 'vue'; const state = reactive({ count: 1 }); structuredClone({ state });",
+    "ts",
+  );
+  assert!(
+    nested.source_contracts.uncloneable_proxy_data.is_empty(),
+    "{:?}",
+    nested.source_contracts
+  );
+}
+
+#[test]
+#[expect(clippy::panic, reason = "missing span evidence must fail the regression")]
+fn source_contracts_structured_clone_unicode_and_crlf_span_the_data_argument() {
+  let unicode = "import { reactive } from 'vue'; structuredClone(reactive({ 计数: 1 }));";
+  let facts = analyze(unicode, "ts");
+  let needle = "reactive({ 计数: 1 })";
+  let Some(arg) = unicode.find(needle) else {
+    panic!("unicode argument missing");
+  };
+  let Some(site) = facts.source_contracts.uncloneable_proxy_data.first() else {
+    panic!("unicode finding missing: {:?}", facts.source_contracts);
+  };
+  assert_eq!(site.span.offset, arg);
+  assert_eq!(site.span.length, needle.len());
+
+  let crlf = "import { reactive } from 'vue';\r\nstructuredClone(reactive({ count: 1 }));";
+  let facts = analyze(crlf, "ts");
+  let needle = "reactive({ count: 1 })";
+  let Some(arg) = crlf.find(needle) else {
+    panic!("crlf argument missing");
+  };
+  let Some(site) = facts.source_contracts.uncloneable_proxy_data.first() else {
+    panic!("crlf finding missing: {:?}", facts.source_contracts);
+  };
+  assert_eq!(site.span.offset, arg);
+  assert_eq!(site.span.length, needle.len());
+  assert_eq!(site.span.line, 2);
+}
+
+#[test]
+fn source_contracts_structured_clone_sites_scale_sublinear_per_doubling() {
+  let mut previous: Option<(u64, u64)> = None;
+  for size in [32_u64, 64, 128] {
+    let mut source = String::from("import { reactive } from 'vue';");
+    for index in 0..size {
+      source.push_str("const s");
+      source.push_str(&index.to_string());
+      source.push_str(" = reactive({ n: 1 }); structuredClone(s");
+      source.push_str(&index.to_string());
+      source.push_str(");");
+    }
+    let (contracts, work) = contract_stats(&source);
+    assert_eq!(
+      contracts.uncloneable_proxy_data.len(),
+      usize::try_from(size).unwrap_or(usize::MAX),
+      "size {size} findings; {contracts:?}"
+    );
+    if let Some((prev_size, prev_work)) = previous {
+      assert_eq!(size, prev_size * 2, "fixture sizes must double");
+      assert!(
+        work.saturating_mul(10) < prev_work.saturating_mul(30),
+        "structured-clone work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
+      );
+    }
+    previous = Some((size, work));
+  }
+}
+
+#[test]
+fn source_contracts_structured_clone_poisons_equivalent_native_writes() {
+  let computed = analyze(
+    "import { reactive } from 'vue'; globalThis['structuredClone'] = ((value: unknown) => value) as typeof structuredClone; structuredClone(reactive({ count: 1 }));",
+    "ts",
+  );
+  assert!(
+    computed.source_contracts.uncloneable_proxy_data.is_empty(),
+    "{:?}",
+    computed.source_contracts
+  );
+  let pattern_member = analyze(
+    "import { reactive } from 'vue'; ({ clone: globalThis.structuredClone } = { clone: ((value: unknown) => value) as typeof structuredClone }); structuredClone(reactive({ count: 1 }));",
+    "ts",
+  );
+  assert!(
+    pattern_member.source_contracts.uncloneable_proxy_data.is_empty(),
+    "{:?}",
+    pattern_member.source_contracts
+  );
+  let pattern_global = analyze(
+    "import { reactive } from 'vue'; [structuredClone] = [((value: unknown) => value) as typeof structuredClone]; structuredClone(reactive({ count: 1 }));",
+    "ts",
+  );
+  assert!(
+    pattern_global.source_contracts.uncloneable_proxy_data.is_empty(),
+    "{:?}",
+    pattern_global.source_contracts
+  );
+  let asserted = analyze(
+    "import { reactive } from 'vue'; (globalThis.structuredClone as typeof structuredClone) = ((value: unknown) => value) as typeof structuredClone; structuredClone(reactive({ count: 1 }));",
+    "ts",
+  );
+  assert!(
+    asserted.source_contracts.uncloneable_proxy_data.is_empty(),
+    "{:?}",
+    asserted.source_contracts
+  );
+  let deleted = analyze(
+    "import { reactive } from 'vue'; delete globalThis.structuredClone; structuredClone(reactive({ count: 1 }));",
+    "ts",
+  );
+  assert!(
+    deleted.source_contracts.uncloneable_proxy_data.is_empty(),
+    "{:?}",
+    deleted.source_contracts
+  );
+  let rest = analyze(
+    "import { reactive } from 'vue'; ({ ...structuredClone } = { structuredClone: ((value: unknown) => value) as typeof structuredClone }); structuredClone(reactive({ count: 1 }));",
+    "ts",
+  );
+  assert!(rest.source_contracts.uncloneable_proxy_data.is_empty(), "{:?}", rest.source_contracts);
+  let defaulted = analyze(
+    "import { reactive } from 'vue'; ({ structuredClone = ((value: unknown) => value) as typeof structuredClone } = {}); structuredClone(reactive({ count: 1 }));",
+    "ts",
+  );
+  assert!(
+    defaulted.source_contracts.uncloneable_proxy_data.is_empty(),
+    "{:?}",
+    defaulted.source_contracts
+  );
+  let updated = analyze(
+    "import { reactive } from 'vue'; structuredClone++; structuredClone(reactive({ count: 1 }));",
+    "ts",
+  );
+  assert!(
+    updated.source_contracts.uncloneable_proxy_data.is_empty(),
+    "{:?}",
+    updated.source_contracts
+  );
+  let dormant = analyze(
+    "import { reactive } from 'vue'; function replace() { structuredClone = ((value: unknown) => value) as typeof structuredClone; } structuredClone(reactive({ count: 1 }));",
+    "ts",
+  );
+  assert!(
+    dormant.source_contracts.uncloneable_proxy_data.is_empty(),
+    "{:?}",
+    dormant.source_contracts
+  );
+  let dynamic_ident = analyze(
+    "import { reactive } from 'vue'; const key = 'structuredClone'; globalThis[key] = ((value: unknown) => value) as typeof structuredClone; structuredClone(reactive({ count: 1 }));",
+    "ts",
+  );
+  assert!(
+    dynamic_ident.source_contracts.uncloneable_proxy_data.is_empty(),
+    "unresolved computed globalThis write must poison; {:?}",
+    dynamic_ident.source_contracts
+  );
+}
+
+#[test]
+fn source_contracts_structured_clone_poisons_loop_assignment_targets() {
+  const PREFIX: &str = "import { reactive } from 'vue'; ";
+  const SUFFIX: &str = " structuredClone(reactive({ count: 1 }));";
+  let identity = "((value: unknown) => value) as typeof structuredClone";
+  let cases = [
+    (
+      "for-of dynamic",
+      format!("const key = 'structuredClone'; for (globalThis[key] of [{identity}]) {{}}"),
+    ),
+    ("for-of static", format!("for (globalThis.structuredClone of [{identity}]) {{}}")),
+    ("for-of ident", format!("for (structuredClone of [{identity}]) {{}}")),
+    (
+      "for-of member pattern",
+      format!("for ({{ clone: globalThis.structuredClone }} of [{{ clone: {identity} }}]) {{}}"),
+    ),
+    ("for-of default", format!("for ({{ structuredClone = {identity} }} of [{{}}]) {{}}")),
+    (
+      "for-of rest",
+      format!("for ({{ ...structuredClone }} of [{{ structuredClone: {identity} }}]) {{}}"),
+    ),
+    ("for-of array", format!("for ([structuredClone] of [[{identity}]]) {{}}")),
+    (
+      "for-of ts",
+      format!("for ((globalThis.structuredClone as typeof structuredClone) of [{identity}]) {{}}"),
+    ),
+    (
+      "for-in dynamic",
+      "const key = 'structuredClone'; for (globalThis[key] in { x: 1 }) {}".to_string(),
+    ),
+    ("for-in static", "for (globalThis.structuredClone in { x: 1 }) {}".to_string()),
+    (
+      "for-await-of",
+      format!(
+        "async function replace() {{ for await (globalThis.structuredClone of [{identity}]) {{}} }}"
+      ),
+    ),
+  ];
+  for (label, head) in cases {
+    let source = format!("{PREFIX}{head}{SUFFIX}");
+    let facts = analyze(&source, "ts");
+    assert!(
+      facts.source_contracts.uncloneable_proxy_data.is_empty(),
+      "{label} must poison native identity; {:?}",
+      facts.source_contracts
+    );
+  }
+
+  let unrelated = analyze(
+    "import { reactive } from 'vue'; for (globalThis['fetch'] of [((value: unknown) => value) as typeof fetch]) {} structuredClone(reactive({ count: 1 }));",
+    "ts",
+  );
+  assert_eq!(
+    unrelated.source_contracts.uncloneable_proxy_data.len(),
+    1,
+    "unrelated loop key must not poison; {:?}",
+    unrelated.source_contracts
+  );
+  let shadowed = analyze(
+    "import { reactive } from 'vue'; const globalThis = { structuredClone: ((value: unknown) => value) as typeof structuredClone }; for (globalThis.structuredClone of [((value: unknown) => value) as typeof structuredClone]) {} structuredClone(reactive({ count: 1 }));",
+    "ts",
+  );
+  assert_eq!(
+    shadowed.source_contracts.uncloneable_proxy_data.len(),
+    1,
+    "shadowed globalThis loop write must not poison; {:?}",
+    shadowed.source_contracts
+  );
+  let declared = analyze(
+    "import { reactive } from 'vue'; for (const structuredClone of [((value: unknown) => value) as typeof structuredClone]) {} structuredClone(reactive({ count: 1 }));",
+    "ts",
+  );
+  assert_eq!(
+    declared.source_contracts.uncloneable_proxy_data.len(),
+    1,
+    "declaration loop heads keep binding semantics; {:?}",
+    declared.source_contracts
+  );
+}
+
+#[test]
+fn source_contracts_structured_clone_loop_assignment_targets_count_work() {
+  let base = "import { reactive } from 'vue'; structuredClone(reactive({ count: 1 }));";
+  let (_, base_stats) = contract_full_stats(base);
+  let mut loops = String::from("import { reactive } from 'vue';");
+  for index in 0..8 {
+    loops.push_str("for (globalThis['fetch'] of [0]) {} // ");
+    loops.push_str(&index.to_string());
+    loops.push('\n');
+  }
+  loops.push_str("structuredClone(reactive({ count: 1 }));");
+  let (facts, stats) = contract_full_stats(&loops);
+  assert_eq!(
+    facts.uncloneable_proxy_data.len(),
+    1,
+    "unrelated loop keys must keep the clone positive; {facts:?}"
+  );
+  assert_eq!(
+    stats.writes,
+    base_stats.writes.saturating_add(8),
+    "each assignment-form loop head charges one write visit; base={base_stats:?} loops={stats:?}"
+  );
+  assert_eq!(
+    stats.import_source_steps, 2,
+    "loop poison must not extra-walk import sources; {stats:?}"
+  );
+  let declared = "import { reactive } from 'vue'; for (const x of [0]) {} structuredClone(reactive({ count: 1 }));";
+  let (_, declared_stats) = contract_full_stats(declared);
+  assert_eq!(
+    declared_stats.writes, base_stats.writes,
+    "declaration loop heads must not charge assignment-target writes; {declared_stats:?}"
+  );
+}
+
+#[test]
+fn source_contracts_structured_clone_keeps_unrelated_static_globalthis_key_eligible() {
+  let facts = analyze(
+    "import { reactive } from 'vue'; globalThis['fetch'] = ((value: unknown) => value) as typeof fetch; structuredClone(reactive({ count: 1 }));",
+    "ts",
+  );
+  assert_eq!(
+    facts.source_contracts.uncloneable_proxy_data.len(),
+    1,
+    "known unrelated static key must not poison; {:?}",
+    facts.source_contracts
+  );
+}
+
+#[test]
+fn source_contracts_structured_clone_requires_definite_call_key() {
+  let dynamic_call = analyze(
+    "import { reactive } from 'vue'; const key = 'structuredClone'; globalThis[key](reactive({ count: 1 }));",
+    "ts",
+  );
+  assert!(
+    dynamic_call.source_contracts.uncloneable_proxy_data.is_empty(),
+    "computed call is not a definite native intrinsic; {:?}",
+    dynamic_call.source_contracts
+  );
+  let identity_call = analyze(
+    "import { reactive } from 'vue'; const key = 'identity'; globalThis[key](reactive({ count: 1 }));",
+    "ts",
+  );
+  assert!(
+    identity_call.source_contracts.uncloneable_proxy_data.is_empty(),
+    "{:?}",
+    identity_call.source_contracts
+  );
+}
+
+#[test]
+fn source_contracts_structured_clone_keeps_shadowed_global_this_eligible() {
+  let facts = analyze(
+    "import { reactive } from 'vue'; const globalThis = { structuredClone: ((value: unknown) => value) as typeof structuredClone }; globalThis.structuredClone = ((value: unknown) => value) as typeof structuredClone; structuredClone(reactive({ count: 1 }));",
+    "ts",
+  );
+  assert_eq!(
+    facts.source_contracts.uncloneable_proxy_data.len(),
+    1,
+    "{:?}",
+    facts.source_contracts
+  );
+}
+
+#[test]
+fn source_contracts_structured_clone_excludes_optional_native_calls() {
+  let facts =
+    analyze("import { reactive } from 'vue'; structuredClone?.(reactive({ count: 1 }));", "ts");
+  assert!(facts.source_contracts.uncloneable_proxy_data.is_empty(), "{:?}", facts.source_contracts);
+}
+
+#[test]
+#[expect(clippy::panic, reason = "missing span evidence must fail the regression")]
+fn source_contracts_structured_clone_budget_does_not_cache_exhaustion() {
+  let deep_first = "import { reactive, readonly } from 'vue'; const state = reactive({ count: 1 }); function deep() { return structuredClone(readonly(readonly(readonly(readonly(readonly(readonly(readonly(state)))))))); } function direct() { return structuredClone(state); }";
+  let facts = analyze(deep_first, "ts");
+  let Some(direct_at) = deep_first.rfind("structuredClone(state)") else {
+    panic!("direct call missing");
+  };
+  let arg = direct_at + "structuredClone(".len();
+  assert!(
+    facts.source_contracts.uncloneable_proxy_data.iter().any(|site| site.span.offset == arg),
+    "direct state argument must report after a deeper exhausted query; {:?}",
+    facts.source_contracts
+  );
+
+  let direct_first = "import { reactive, readonly } from 'vue'; const state = reactive({ count: 1 }); function direct() { return structuredClone(state); } function deep() { return structuredClone(readonly(readonly(readonly(readonly(readonly(readonly(readonly(state)))))))); }";
+  let facts = analyze(direct_first, "ts");
+  let Some(direct_at) = direct_first.find("structuredClone(state)") else {
+    panic!("direct call missing");
+  };
+  let arg = direct_at + "structuredClone(".len();
+  assert!(
+    facts.source_contracts.uncloneable_proxy_data.iter().any(|site| site.span.offset == arg),
+    "direct state argument must report when declared first; {:?}",
+    facts.source_contracts
+  );
+}
+
+#[test]
+fn source_contracts_structured_clone_requires_vue3_proxy_origin() {
+  let auto =
+    analyze("import { reactive } from '#imports'; structuredClone(reactive({ count: 1 }));", "ts");
+  assert!(auto.source_contracts.uncloneable_proxy_data.is_empty(), "{:?}", auto.source_contracts);
+  let demi =
+    analyze("import { reactive } from 'vue-demi'; structuredClone(reactive({ count: 1 }));", "ts");
+  assert!(demi.source_contracts.uncloneable_proxy_data.is_empty(), "{:?}", demi.source_contracts);
+  let namespace =
+    analyze("import * as Vue from 'vue'; structuredClone(Vue.reactive({ count: 1 }));", "ts");
+  assert_eq!(
+    namespace.source_contracts.uncloneable_proxy_data.len(),
+    1,
+    "{:?}",
+    namespace.source_contracts
+  );
+  let runtime_core = analyze(
+    "import { reactive } from '@vue/runtime-core'; structuredClone(reactive({ count: 1 }));",
+    "ts",
+  );
+  assert_eq!(
+    runtime_core.source_contracts.uncloneable_proxy_data.len(),
+    1,
+    "{:?}",
+    runtime_core.source_contracts
+  );
+  let primitive_auto = analyze("import { reactive } from '#imports'; void reactive(0);", "ts");
+  assert_eq!(
+    primitive_auto.source_contracts.primitive_reactive_target.len(),
+    1,
+    "named #imports must still feed the other source-contract rules; {:?}",
+    primitive_auto.source_contracts
+  );
+}
+
+#[test]
+fn source_contracts_structured_clone_wide_negative_cache_and_property_width() {
+  let mut previous: Option<(u64, u64)> = None;
+  for width in [32_u64, 64, 128] {
+    let mut source = String::from("import { reactive } from 'vue'; const state = reactive({");
+    for index in 0..width {
+      source.push_str(" p");
+      source.push_str(&index.to_string());
+      source.push_str(": 1,");
+    }
+    source.push_str(" __v_skip: true });");
+    for index in 0..width {
+      source.push_str(" structuredClone(state); // q");
+      source.push_str(&index.to_string());
+    }
+    let (contracts, work) = contract_stats(&source);
+    assert!(
+      contracts.uncloneable_proxy_data.is_empty(),
+      "ineligible wide target must stay quiet at width {width}; {contracts:?}"
+    );
+    if let Some((prev_width, prev_work)) = previous {
+      assert_eq!(width, prev_width * 2, "widths must double");
+      assert!(
+        work.saturating_mul(10) < prev_work.saturating_mul(30),
+        "wide negative clone work grew from {prev_work} to {work} on {prev_width}->{width} (must stay <3x per doubling)"
+      );
+    }
+    previous = Some((width, work));
+  }
+}
+
+#[test]
+fn source_contracts_import_source_steps_bypass_nested_local_calls() {
+  fn nest(depth: u32, with_positive: bool) -> String {
+    let mut source = String::from("import { reactive } from 'vue';\n");
+    for index in 0..depth {
+      source.push_str("function local");
+      source.push_str(&index.to_string());
+      source.push_str("() {\n");
+    }
+    source.push_str("void 0;\n");
+    for index in (0..depth).rev() {
+      source.push_str("}\nlocal");
+      source.push_str(&index.to_string());
+      source.push_str("();\n");
+    }
+    if with_positive {
+      source.push_str("structuredClone(reactive({ count: 1 }));\n");
+    }
+    source
+  }
+
+  let (quiet, quiet_stats) = contract_full_stats(&nest(64, false));
+  assert!(quiet.uncloneable_proxy_data.is_empty(), "{quiet:?}");
+  assert_eq!(
+    quiet_stats.import_source_steps, 0,
+    "nested local calls must not examine import sources; {quiet_stats:?}"
+  );
+
+  let mut previous: Option<(u32, u64, u64)> = None;
+  for depth in [32_u32, 64, 128] {
+    let (contracts, stats) = contract_full_stats(&nest(depth, true));
+    assert_eq!(
+      contracts.uncloneable_proxy_data.len(),
+      1,
+      "depth {depth} must keep the constructor/clone positive; {contracts:?}"
+    );
+    assert_eq!(
+      stats.import_source_steps, 2,
+      "only the nested Vue constructor (call node + argument record) may examine import source at depth {depth}; {stats:?}"
+    );
+    if let Some((prev_depth, prev_work, prev_steps)) = previous {
+      assert_eq!(depth, prev_depth * 2, "depths must double");
+      assert_eq!(stats.import_source_steps, prev_steps);
+      assert!(
+        stats.work().saturating_mul(10) < prev_work.saturating_mul(30),
+        "nested-local clone work grew from {prev_work} to {} on {prev_depth}->{depth}",
+        stats.work()
+      );
+    }
+    previous = Some((depth, stats.work(), stats.import_source_steps));
   }
 }
 

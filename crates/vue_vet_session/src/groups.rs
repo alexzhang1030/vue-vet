@@ -43,6 +43,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-outside-tracking-dependency-in-watch-sources", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-primitive-reactive-target", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-props-snapshot-in-ref", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-proxy-structured-clone", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-reactive-destructure", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-reactive-read-during-pause-tracking", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-readonly-mutation", RuleGroupId::SourceContracts),
@@ -225,10 +226,12 @@ mod tests {
       "vue-vet/reactivity/no-returned-watcher-cleanup",
     ];
     let inventory = rule_inventory(&[]);
-    assert_eq!(inventory.counts.total, 119, "composed CLI inventory count");
+    assert_eq!(inventory.counts.total, 120, "composed CLI inventory count");
     let source = rule_inventory(&[RuleGroupId::SourceContracts]);
+    assert_eq!(source.counts.total, 28, "source-contracts group count");
     for id in [
       "vue-vet/reactivity/no-lost-shallow-nested-notification",
+      "vue-vet/reactivity/no-proxy-structured-clone",
       "vue-vet/reactivity/no-toraw-write-of-tracked-state",
       "vue-vet/reactivity/no-watch-ignored-option",
       "vue-vet/reactivity/no-watch-signature-mismatch",

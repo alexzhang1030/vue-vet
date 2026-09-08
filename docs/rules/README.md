@@ -132,6 +132,7 @@ Per-rule pages live under `docs/rules/<category>/<name>.md`.
 - [`vue-vet/reactivity/no-outside-tracking-dependency-in-watch-sources`](./reactivity/no-outside-tracking-dependency-in-watch-sources.md) `tracer`
 - [`vue-vet/reactivity/no-primitive-reactive-target`](./reactivity/no-primitive-reactive-target.md) `tracer`
 - [`vue-vet/reactivity/no-props-snapshot-in-ref`](./reactivity/no-props-snapshot-in-ref.md) `tracer`
+- [`vue-vet/reactivity/no-proxy-structured-clone`](./reactivity/no-proxy-structured-clone.md) `tracer`
 - [`vue-vet/reactivity/no-reactive-destructure`](./reactivity/no-reactive-destructure.md) `tracer`
 - [`vue-vet/reactivity/no-reactive-read-during-pause-tracking`](./reactivity/no-reactive-read-during-pause-tracking.md) `tracer`
 - [`vue-vet/reactivity/no-readonly-mutation`](./reactivity/no-readonly-mutation.md) `tracer`

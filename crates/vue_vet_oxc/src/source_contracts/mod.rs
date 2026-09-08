@@ -1,10 +1,17 @@
 //! Neutral Vue source-contract facts from Oxc semantics (issue #224).
 //!
-//! Proven Vue identity is a named or namespace import from `vue`, `vue-demi`,
-//! `@vue/runtime-core`, `@vue/runtime-dom`, or `@vue/reactivity`, plus a
-//! **named** `#imports` specifier whose imported name is a known Vue export.
-//! Namespace `#imports`, type-only specifiers, and unknown auto-import names
-//! stay unproven. Compiler macros `defineProps` / `defineModel` are setup-only.
+//! Proven Vue identity (`info.api`) is a named or namespace import from `vue`,
+//! `vue-demi`, `@vue/runtime-core`, `@vue/runtime-dom`, or `@vue/reactivity`,
+//! plus a **named** `#imports` specifier whose imported name is a known Vue
+//! export. Namespace `#imports`, type-only specifiers, and unknown auto-import
+//! names stay unproven. Compiler macros `defineProps` / `defineModel` are
+//! setup-only. Actual-Proxy proof for native `structuredClone` is a separate
+//! origin discriminator: only `vue` / `@vue/runtime-core` / `@vue/runtime-dom`
+//! / `@vue/reactivity`. Named `#imports` and `vue-demi` stay unproved here.
+//! Origin uses the indexed import source of resolved proxy constructors only;
+//! local and unknown calls skip that lookup. Native `structuredClone` *calls*
+//! require a definite static key; unresolved `globalThis` *writes* with a
+//! non-literal key poison identity.
 //!
 //! Replacement findings require a simple `=` of a fresh object/array/`new`
 //! built-in collection in the same straight-line block after `watch`.
@@ -13,6 +20,7 @@
 //! fewer than two arguments and no spread. Ordinary sinks and namespace
 //! imports keep full indexing.
 
+mod clone_boundary;
 mod index;
 mod normalization;
 mod shape;
@@ -52,6 +60,7 @@ struct Collector<'a> {
   indexes: Indexes,
   shape_cache: HashMap<SymbolId, Shape>,
   property_shape: HashMap<(SymbolId, String), Shape>,
+  proxy_proof: HashMap<SymbolId, bool>,
   facts: SourceContractFacts,
 }
 
@@ -115,6 +124,7 @@ fn collect_prepared(
     ),
     shape_cache: HashMap::new(),
     property_shape: HashMap::new(),
+    proxy_proof: HashMap::new(),
     facts: SourceContractFacts::default(),
   };
   collector.walk();
@@ -131,6 +141,13 @@ impl Collector<'_> {
       let Some(info) = self.indexes.calls.get(&span_key(call.span)).copied() else {
         continue;
       };
+      // Native `structuredClone` is not a Vue API. Classify it before the Vue-only
+      // sink return so a proven Proxy constructor in the same module can report.
+      // Native-only modules (no Vue imports) stay quiet: there is no actual-Proxy
+      // proof. A future native-only sink must not depend on Vue `info.api`.
+      if info.native_structured_clone {
+        self.collect_structured_clone(info);
+      }
       let Some(api) = info.api else {
         continue;
       };
@@ -197,6 +214,10 @@ impl Collector<'_> {
       left.span.offset.cmp(&right.span.offset)
     });
     self.facts.effect_scope_callback.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.uncloneable_proxy_data.sort_by(|left, right| {
       self.indexes.note_query();
       left.span.offset.cmp(&right.span.offset)
     });
