@@ -67,9 +67,13 @@ use local::collect_local_composable_usage;
 use notification::collect_notification_facts;
 
 #[cfg(test)]
-pub use notification::{NotificationWork, last_notification_work};
+pub use local::{ComposableUsageWork, last_composable_usage_work};
+#[cfg(test)]
+pub use notification::{NotificationWork, last_notification_work, with_forced_full_notification};
 use reads::ScopeIrIndex;
 use scopes::{collect_render_scopes, collect_tracking_scopes};
+#[cfg(test)]
+pub use summary::{SummaryScanWork, last_summary_scan_work};
 
 pub use inject::{
   InjectSite, InjectionKey, ProvideOffer, ProvideSite, collect_inject_sites, collect_provide_sites,
@@ -164,6 +168,14 @@ pub struct TraceSeeds {
   value_bags: BTreeMap<String, summary::ValueBag>,
   /// Import locals that wrap Vue `defineComponent` (cross-module `ComponentFactory`).
   component_factories: BTreeSet<String>,
+}
+
+impl TraceSeeds {
+  /// Test helper: cross-module binding seeds without composable/value-bag facts.
+  #[cfg(test)]
+  pub(crate) fn with_bindings(bindings: Vec<ReactiveBindingFact>) -> Self {
+    Self { bindings, ..Self::default() }
+  }
 }
 
 pub fn trace_reactivity_seeded(
