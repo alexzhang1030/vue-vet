@@ -14,7 +14,7 @@ use vue_vet_core::{
 use super::super::kinds::{resolved_vue_callee, source_span};
 use super::paths::{peel, static_key_name};
 use super::uses::{
-  NotificationWork, OwnerIndex, UseRole, binding_symbol_at, enclosing_region, identifier_symbol,
+  OwnerIndex, UseRole, WorkCounter, binding_symbol_at, enclosing_region, identifier_symbol,
 };
 
 pub(super) const ALIAS_BUDGET: u32 = 16;
@@ -88,20 +88,20 @@ impl ProvenanceIndex {
     self.records.get(canonical).map(|record| &record.payload)
   }
 
-  fn lookup_record(&self, symbol_id: SymbolId, work: &mut NotificationWork) -> Option<usize> {
-    work.lookups = work.lookups.saturating_add(1);
+  fn lookup_record(&self, symbol_id: SymbolId, work: &WorkCounter) -> Option<usize> {
+    work.add_lookups(1);
     self.record_by_symbol.get(&symbol_id).copied()
   }
 
-  fn push_record(&mut self, record: SourceRecord, work: &mut NotificationWork) {
+  fn push_record(&mut self, record: SourceRecord, work: &WorkCounter) {
     let symbol_id = record.symbol_id;
     let index = self.records.len();
     self.records.push(record);
-    work.lookups = work.lookups.saturating_add(1);
+    work.add_lookups(1);
     self.record_by_symbol.insert(symbol_id, index);
   }
 
-  pub(super) fn invalidate_symbol(&mut self, symbol_id: SymbolId, work: &mut NotificationWork) {
+  pub(super) fn invalidate_symbol(&mut self, symbol_id: SymbolId, work: &WorkCounter) {
     let Some(index) = self.lookup_record(symbol_id, work) else {
       return;
     };
@@ -121,7 +121,7 @@ impl ProvenanceIndex {
     &mut self,
     symbol_id: SymbolId,
     path: &[String],
-    work: &mut NotificationWork,
+    work: &WorkCounter,
   ) {
     let Some(index) = self.lookup_record(symbol_id, work) else {
       return;
@@ -148,11 +148,11 @@ pub(super) fn collect_provenance(
   sfc_source: &str,
   script_offset: usize,
   script_kind: ScriptKind,
-  work: &mut NotificationWork,
+  work: &WorkCounter,
 ) -> ProvenanceIndex {
   let mut records = Vec::new();
   for node in semantic.nodes() {
-    work.node_visits += 1;
+    work.add_node_visits(1);
     let AstKind::VariableDeclarator(declarator) = node.kind() else {
       continue;
     };
@@ -191,7 +191,7 @@ pub(super) fn collect_provenance(
           .map_or_else(unknown_payload, |expression| {
             classify_payload(semantic, imported_bindings, script_kind, expression, work)
           });
-        work.payload_entries += payload.len();
+        work.add_payload_entries(payload.len());
         let kind = if callee == "shallowRef" {
           ReactiveBindingKind::ShallowRef
         } else {
@@ -225,7 +225,7 @@ pub(super) fn collect_provenance(
         if payload.get(&Vec::new()) != Some(&PayloadBranch::Plain) {
           continue;
         }
-        work.payload_entries += payload.len();
+        work.add_payload_entries(payload.len());
         let canonical = records.len();
         records.push(SourceRecord {
           symbol_id: decl_symbol,
@@ -248,7 +248,7 @@ pub(super) fn collect_provenance(
 
   let mut record_by_symbol = BTreeMap::new();
   for (idx, record) in records.iter().enumerate() {
-    work.lookups = work.lookups.saturating_add(1);
+    work.add_lookups(1);
     record_by_symbol.insert(record.symbol_id, idx);
   }
   let mut index = ProvenanceIndex { records, record_by_symbol, by_symbol: BTreeMap::new() };
@@ -275,10 +275,10 @@ fn collect_raw_and_aliases(
   script_offset: usize,
   script_kind: ScriptKind,
   index: &mut ProvenanceIndex,
-  work: &mut NotificationWork,
+  work: &WorkCounter,
 ) {
   for node in semantic.nodes() {
-    work.node_visits += 1;
+    work.add_node_visits(1);
     let AstKind::VariableDeclarator(declarator) = node.kind() else {
       continue;
     };
@@ -328,7 +328,7 @@ fn collect_raw_and_aliases(
       {
         continue;
       }
-      work.aliases += 1;
+      work.add_aliases(1);
       let creation_span = source.creation_span;
       let source_kind = source.source_kind;
       let canonical = source.canonical;
@@ -365,9 +365,9 @@ fn collect_raw_and_aliases(
       if !index.is_effectively_valid(source_idx) {
         continue;
       }
-      work.aliases += 1;
+      work.add_aliases(1);
       if !source.path.is_empty() {
-        work.copies = work.copies.saturating_add(source.path.len());
+        work.add_copies(source.path.len());
       }
       let alias = SourceRecord {
         symbol_id: decl_symbol,
@@ -388,32 +388,28 @@ fn collect_raw_and_aliases(
   }
 }
 
-fn apply_use_invalidation(
-  index: &mut ProvenanceIndex,
-  owners: &OwnerIndex,
-  work: &mut NotificationWork,
-) {
+fn apply_use_invalidation(index: &mut ProvenanceIndex, owners: &OwnerIndex, work: &WorkCounter) {
   let watched: BTreeSet<SymbolId> = index.record_by_symbol.keys().copied().collect();
   let mut invalid = BTreeSet::new();
   let mut replacements = Vec::new();
   for symbol_id in &watched {
-    work.lookups = work.lookups.saturating_add(1);
+    work.add_lookups(1);
     if owners.exported.contains(symbol_id) {
       invalid.insert(*symbol_id);
     }
-    work.lookups = work.lookups.saturating_add(1);
+    work.add_lookups(1);
     let Some(sites) = owners.by_symbol.get(symbol_id) else {
       continue;
     };
-    work.use_sites = work.use_sites.saturating_add(sites.len());
+    work.add_use_sites(sites.len());
     for site in sites {
-      work.candidate_visits = work.candidate_visits.saturating_add(1);
+      work.add_candidate_visits(1);
       match &site.role {
         UseRole::Invalid => {
           invalid.insert(*symbol_id);
         }
         UseRole::PayloadReplace { path } => {
-          work.copies = work.copies.saturating_add(path.len().max(1));
+          work.add_copies(path.len().max(1));
           replacements.push((*symbol_id, path.clone()));
         }
         UseRole::ClosedAlias
@@ -436,12 +432,12 @@ pub(super) fn resolve_view(
   index: &mut ProvenanceIndex,
   symbol_id: SymbolId,
   budget: u32,
-  work: &mut NotificationWork,
+  work: &WorkCounter,
 ) -> Option<usize> {
   if budget == 0 {
     return None;
   }
-  work.lookups = work.lookups.saturating_add(1);
+  work.add_lookups(1);
   if let Some(outcome) = index.by_symbol.get(&(symbol_id, budget)) {
     return match *outcome {
       AliasOutcome::Hit(idx) => Some(idx),
@@ -450,7 +446,7 @@ pub(super) fn resolve_view(
   }
   let found = index.lookup_record(symbol_id, work);
   let outcome = found.map_or(AliasOutcome::Uncertain, AliasOutcome::Hit);
-  work.lookups = work.lookups.saturating_add(1);
+  work.add_lookups(1);
   index.by_symbol.insert((symbol_id, budget), outcome);
   found
 }
@@ -490,7 +486,7 @@ fn classify_payload(
   imported_bindings: &BTreeMap<String, (String, String)>,
   script_kind: ScriptKind,
   expression: &Expression<'_>,
-  work: &mut NotificationWork,
+  work: &WorkCounter,
 ) -> BTreeMap<Vec<String>, PayloadBranch> {
   let mut map = BTreeMap::new();
   classify_payload_into(
@@ -515,9 +511,9 @@ fn classify_payload_into(
   path: Vec<String>,
   map: &mut BTreeMap<Vec<String>, PayloadBranch>,
   depth: u32,
-  work: &mut NotificationWork,
+  work: &WorkCounter,
 ) {
-  work.payload_entries = work.payload_entries.saturating_add(1);
+  work.add_payload_entries(1);
   if depth > ALIAS_BUDGET {
     wipe_prefix(map, &path, work);
     map.insert(path, PayloadBranch::Unknown);
@@ -548,7 +544,7 @@ fn classify_payload_into(
               branch = PayloadBranch::Unknown;
               continue;
             };
-            work.copies = work.copies.saturating_add(path.len().saturating_add(1));
+            work.add_copies(path.len().saturating_add(1));
             let mut child = path.clone();
             child.push(key);
             wipe_prefix(map, &child, work);
@@ -608,27 +604,27 @@ fn classify_payload_into(
 fn wipe_prefix(
   map: &mut BTreeMap<Vec<String>, PayloadBranch>,
   prefix: &[String],
-  work: &mut NotificationWork,
+  work: &WorkCounter,
 ) {
   if prefix.is_empty() {
-    work.payload_prefix_removals = work.payload_prefix_removals.saturating_add(map.len());
+    work.add_payload_prefix_removals(map.len());
     map.clear();
     return;
   }
-  work.lookups = work.lookups.saturating_add(1);
+  work.add_lookups(1);
   let start = prefix.to_vec();
   let mut keys = Vec::new();
   for (key, _) in map.range(start..) {
-    work.payload_prefix_visits = work.payload_prefix_visits.saturating_add(1);
+    work.add_payload_prefix_visits(1);
     if !key.starts_with(prefix) {
       break;
     }
-    work.copies = work.copies.saturating_add(key.len().max(1));
+    work.add_copies(key.len().max(1));
     keys.push(key.clone());
   }
   for key in keys {
-    work.lookups = work.lookups.saturating_add(1);
-    work.payload_prefix_removals = work.payload_prefix_removals.saturating_add(1);
+    work.add_lookups(1);
+    work.add_payload_prefix_removals(1);
     map.remove(&key);
   }
 }
@@ -644,10 +640,13 @@ fn payload_relative(kind: ReactiveBindingKind, path: &[String]) -> Vec<String> {
 pub(super) fn payload_path_has_wrapped(
   payload: &BTreeMap<Vec<String>, PayloadBranch>,
   path: &[String],
+  work: &WorkCounter,
 ) -> bool {
   let mut prefix = Vec::new();
   for segment in path {
+    work.add_candidate_visits(1);
     prefix.push(segment.clone());
+    work.add_lookups(1);
     if payload.get(&prefix) == Some(&PayloadBranch::Wrapped) {
       return true;
     }
@@ -659,17 +658,21 @@ pub(super) fn payload_allows_nested_write(
   payload: &BTreeMap<Vec<String>, PayloadBranch>,
   write_path: &[String],
   kind: ReactiveBindingKind,
+  work: &WorkCounter,
 ) -> bool {
   let inner = payload_relative(kind, write_path);
   if inner.is_empty() {
     return false;
   }
   let mut prefix = Vec::new();
+  work.add_lookups(1);
   if payload.get(&prefix) != Some(&PayloadBranch::Plain) {
     return false;
   }
   for segment in inner.iter().take(inner.len().saturating_sub(1)) {
+    work.add_candidate_visits(1);
     prefix.push(segment.clone());
+    work.add_lookups(1);
     if payload.get(&prefix) != Some(&PayloadBranch::Plain) {
       return false;
     }

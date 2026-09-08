@@ -67,8 +67,14 @@ fn assert_bypass(source: &str, kind: ScriptKind) {
   assert!(facts.is_empty(), "expected bypass empty facts for {source}: {facts:?}");
   assert!(
     stats.is_import_preflight_only(),
-    "bypass must be import-preflight only for {source}: {stats:?}"
+    "bypass keeps source indexes empty for {source}: {stats:?}"
   );
+  assert_eq!(stats.owners, 0, "bypass must leave owner indexes empty for {source}: {stats:?}");
+  assert_eq!(
+    stats.object_entries, 0,
+    "bypass must leave object indexes empty for {source}: {stats:?}"
+  );
+  assert_eq!(stats.writes, 0, "bypass must leave write indexes empty for {source}: {stats:?}");
   assert!(stats.nodes > 0, "import preflight must visit semantic nodes for {source}");
   let (forced, forced_stats) = contract_collect(source, kind, true);
   assert!(forced.is_empty(), "forced-full must also stay empty for {source}: {forced:?}");
@@ -76,6 +82,15 @@ fn assert_bypass(source: &str, kind: ScriptKind) {
     forced_stats.owners > 0,
     "forced-full must still index owners on bypass fixtures: {source} {forced_stats:?}"
   );
+}
+
+fn semantic_node_count(source: &str) -> u64 {
+  let allocator = Allocator::default();
+  let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
+  assert!(parsed.diagnostics.is_empty(), "node-count fixture failed to parse");
+  let built = SemanticBuilder::new().with_build_nodes(true).build(&parsed.program);
+  assert!(built.diagnostics.is_empty(), "node-count fixture failed semantics");
+  u64::try_from(built.semantic.nodes().len()).unwrap_or(u64::MAX)
 }
 
 #[test]
@@ -2894,5 +2909,394 @@ fn source_contracts_watch_callback_sites_stay_linear() {
       );
     }
     previous = Some((size, work));
+  }
+}
+
+fn script_setup_from_sfc(sfc: &str) -> &str {
+  const OPEN: &str = "<script setup lang=\"ts\">";
+  let start = sfc.find(OPEN).map_or(0, |index| index.saturating_add(OPEN.len()));
+  let rest = sfc.get(start..).unwrap_or("");
+  let end = rest.find("</script>").map_or(sfc.len(), |index| start.saturating_add(index));
+  sfc.get(start..end).unwrap_or(sfc).trim()
+}
+
+fn effect_only_source(api: &str, size: u64, second_arg: Option<&str>) -> String {
+  let mut source = format!("import {{ {api} }} from 'vue';");
+  for index in 0..size {
+    source.push_str("const n");
+    source.push_str(&index.to_string());
+    source.push_str(" = { a: 1, b: 2, c: 3 }; ");
+    source.push_str(api);
+    source.push_str("(() => { n");
+    source.push_str(&index.to_string());
+    source.push_str(".a; }");
+    if let Some(options) = second_arg {
+      source.push_str(", ");
+      source.push_str(options);
+    }
+    source.push_str(");");
+  }
+  source
+}
+
+fn effect_wrapper_source(depth: u64) -> String {
+  let wrappers = " as any".repeat(usize::try_from(depth).unwrap_or(0));
+  format!("import {{ watchEffect }} from 'vue'; (watchEffect{wrappers})(() => {{}});")
+}
+
+fn effect_import_width_source(width: usize) -> String {
+  const NAMES: [&str; 8] = [
+    "watchEffect",
+    "ref",
+    "computed",
+    "shallowRef",
+    "customRef",
+    "toRef",
+    "useTemplateRef",
+    "defineModel",
+  ];
+  assert!(width >= 1 && width <= NAMES.len(), "width={width}");
+  let mut names = String::new();
+  for (index, name) in NAMES.iter().enumerate() {
+    if index >= width {
+      break;
+    }
+    if index > 0 {
+      names.push_str(", ");
+    }
+    names.push_str(name);
+  }
+  format!("import {{ {names} }} from 'vue'; watchEffect(() => {{}});")
+}
+
+#[test]
+fn source_contracts_effect_family_one_arg_and_no_args_bypass_indexes() {
+  for api in ["watchEffect", "watchPostEffect", "watchSyncEffect"] {
+    assert_bypass(&format!("import {{ {api} }} from 'vue'; {api}(() => {{}});"), ScriptKind::Setup);
+    assert_bypass(&format!("import {{ {api} }} from 'vue'; {api}();"), ScriptKind::Setup);
+    assert_bypass(
+      &format!("import {{ {api} as run }} from 'vue'; run(() => {{}});"),
+      ScriptKind::Setup,
+    );
+    assert_bypass(
+      &format!("import {{ {api} }} from 'vue'; {api}?.(() => {{}});"),
+      ScriptKind::Setup,
+    );
+    assert_bypass(
+      &format!("import {{ {api} }} from 'vue'; ({api} as any)(() => {{}});"),
+      ScriptKind::Setup,
+    );
+    assert_bypass(
+      &format!("import {{ {api} }} from 'vue'; {api}!(() => {{}});"),
+      ScriptKind::Setup,
+    );
+    assert_bypass(
+      &format!("import {{ {api} }} from '#imports'; {api}(() => {{}});"),
+      ScriptKind::Setup,
+    );
+  }
+}
+
+#[test]
+fn source_contracts_effect_family_second_arg_and_spreads_match_forced_full() {
+  for api in ["watchEffect", "watchPostEffect", "watchSyncEffect"] {
+    let ignored = assert_gated_matches_forced(
+      &format!("import {{ {api} }} from 'vue'; {api}(() => {{}}, {{ once: true }});"),
+      ScriptKind::Setup,
+    );
+    assert_eq!(ignored.watch_ignored_option.len(), 1, "{api} ignored once");
+    let valid = assert_gated_matches_forced(
+      &format!("import {{ {api} }} from 'vue'; {api}(() => {{}}, {{ flush: 'pre' }});"),
+      ScriptKind::Setup,
+    );
+    assert!(valid.is_empty(), "{api} flush-only options must stay quiet: {valid:?}");
+    let invalid_immediate = assert_gated_matches_forced(
+      &format!("import {{ {api} }} from 'vue'; {api}(() => {{}}, {{ immediate: true }});"),
+      ScriptKind::Setup,
+    );
+    assert_eq!(invalid_immediate.watch_ignored_option.len(), 1, "{api} ignored immediate");
+    let signature = assert_gated_matches_forced(
+      &format!("import {{ {api} }} from 'vue'; {api}(() => {{}}, () => {{}});"),
+      ScriptKind::Setup,
+    );
+    assert_eq!(signature.watch_signature_mismatch.len(), 1, "{api} function-as-options");
+    let spread = assert_gated_matches_forced(
+      &format!("import {{ {api} }} from 'vue'; const args = [() => {{}}]; {api}(...args);"),
+      ScriptKind::Setup,
+    );
+    assert!(spread.is_empty(), "{api} spread must stay equivalent: {spread:?}");
+    let trailing_spread = assert_gated_matches_forced(
+      &format!("import {{ {api} }} from 'vue'; {api}(() => {{}}, ...[{{ once: true }}]);"),
+      ScriptKind::Setup,
+    );
+    assert!(
+      trailing_spread.is_empty(),
+      "{api} trailing spread must stay equivalent: {trailing_spread:?}"
+    );
+    let alias = assert_gated_matches_forced(
+      &format!("import {{ {api} as run }} from 'vue'; run(() => {{}}, {{ once: true }});"),
+      ScriptKind::Setup,
+    );
+    assert_eq!(alias.watch_ignored_option.len(), 1, "{api} alias");
+    let optional = assert_gated_matches_forced(
+      &format!("import {{ {api} }} from 'vue'; {api}?.(() => {{}}, {{ once: true }});"),
+      ScriptKind::Setup,
+    );
+    assert_eq!(optional.watch_ignored_option.len(), 1, "{api} optional call");
+    let wrapped = assert_gated_matches_forced(
+      &format!("import {{ {api} }} from 'vue'; ({api} as any)(() => {{}}, {{ once: true }});"),
+      ScriptKind::Setup,
+    );
+    assert_eq!(wrapped.watch_ignored_option.len(), 1, "{api} ts wrapper");
+  }
+}
+
+#[test]
+fn source_contracts_effect_family_namespace_aliases_and_unsupported_match_forced_full() {
+  let namespace_one = assert_gated_matches_forced(
+    "import * as Vue from 'vue'; Vue.watchEffect(() => {});",
+    ScriptKind::Setup,
+  );
+  assert!(namespace_one.is_empty(), "{namespace_one:?}");
+  let namespace_two = assert_gated_matches_forced(
+    "import * as Vue from 'vue'; Vue.watchPostEffect(() => {}, { deep: true });",
+    ScriptKind::Setup,
+  );
+  assert_eq!(namespace_two.watch_ignored_option.len(), 1, "{namespace_two:?}");
+  let namespace_sync = assert_gated_matches_forced(
+    "import * as Vue from 'vue'; Vue.watchSyncEffect(() => {}, { once: true });",
+    ScriptKind::Setup,
+  );
+  assert_eq!(namespace_sync.watch_ignored_option.len(), 1, "{namespace_sync:?}");
+  let binding = assert_gated_matches_forced(
+    "import { watchEffect } from 'vue'; const fx = watchEffect; fx(() => {}, { once: true });",
+    ScriptKind::Setup,
+  );
+  assert!(binding.is_empty(), "imported binding is not followed as a call: {binding:?}");
+  assert_bypass(
+    "import { watchEffect } from 'vue'; function inner() { const watchEffect = (_a: unknown, _b: unknown) => {}; watchEffect(() => {}, { once: true }); }",
+    ScriptKind::Setup,
+  );
+  let dynamic = assert_gated_matches_forced(
+    "import { watchEffect } from 'vue'; watchEffect.call(null, () => {}, { once: true });",
+    ScriptKind::Setup,
+  );
+  assert!(dynamic.is_empty(), "dynamic .call stays unproven: {dynamic:?}");
+  assert_bypass(
+    "import { type watchEffect } from 'vue'; const watchEffect = (_a: unknown, _b: unknown) => {}; watchEffect(() => {}, { once: true });",
+    ScriptKind::Setup,
+  );
+}
+
+#[test]
+fn source_contracts_mixed_and_ordinary_watch_keep_full_index() {
+  let mixed = assert_gated_matches_forced(
+    "import { ref, watch, watchEffect } from 'vue'; const n = ref(0); watch(n, (v) => v, { equals: () => true }); watchEffect(() => {});",
+    ScriptKind::Setup,
+  );
+  assert_eq!(mixed.watch_ignored_option.len(), 1, "{mixed:?}");
+  let ordinary = assert_gated_matches_forced(
+    "import { ref, watch } from 'vue'; const n = ref(0); watch(n.value as number, () => {});",
+    ScriptKind::Setup,
+  );
+  assert_eq!(ordinary.watch_unwrapped_source.len(), 1, "{ordinary:?}");
+  let unused_watch = assert_gated_matches_forced(
+    "import { watch, watchEffect } from 'vue'; watchEffect(() => {});",
+    ScriptKind::Setup,
+  );
+  assert!(unused_watch.is_empty(), "{unused_watch:?}");
+}
+
+#[test]
+fn source_contracts_recommended_invalid_fixture_bypasses_indexes() {
+  let sfc = include_str!("../../../fixtures/rules/recommended/invalid.vue");
+  let source = script_setup_from_sfc(sfc);
+  assert!(
+    source.contains("import { ref, watchEffect } from 'vue'"),
+    "committed recommended-invalid fixture must import ref/watchEffect: {source}"
+  );
+  assert_eq!(
+    source.matches("watchEffect(").count(),
+    3,
+    "committed fixture must keep three watchEffect calls: {source}"
+  );
+  assert_bypass(source, ScriptKind::Setup);
+  let (facts, stats) = contract_collect(source, ScriptKind::Setup, false);
+  let (forced, forced_stats) = contract_collect(source, ScriptKind::Setup, true);
+  assert!(facts.is_empty(), "{facts:?}");
+  assert_eq!(facts, forced);
+  assert!(stats.is_import_preflight_only(), "gated={stats:?}");
+  assert_eq!(stats.owners, 0, "{stats:?}");
+  assert!(stats.queries >= 5, "two import-map entries plus three argument candidates: {stats:?}");
+  assert!(
+    stats.nodes > semantic_node_count(source),
+    "ancestor hops must add nodes beyond the import pass: {stats:?}"
+  );
+  assert!(forced_stats.owners > 0, "{forced_stats:?}");
+  assert!(
+    stats.work() < forced_stats.work(),
+    "bypass work {} must be below forced-full {}",
+    stats.work(),
+    forced_stats.work()
+  );
+}
+
+#[test]
+fn source_contracts_effect_only_one_arg_work_stays_preflight_while_forced_grows() {
+  let mut previous: Option<(u64, u64, u64, u64)> = None;
+  for size in [32_u64, 64, 128] {
+    let source = effect_only_source("watchEffect", size, None);
+    let (facts, stats) = contract_collect(&source, ScriptKind::Setup, false);
+    let (forced, forced_stats) = contract_collect(&source, ScriptKind::Setup, true);
+    assert!(facts.is_empty(), "{facts:?}");
+    assert_eq!(facts, forced);
+    assert!(stats.is_import_preflight_only(), "size={size} gated={stats:?}");
+    assert_eq!(stats.owners, 0, "bypass must not build owners: {stats:?}");
+    assert!(
+      stats.queries > size,
+      "one import-map entry plus {size} argument candidates: {stats:?}"
+    );
+    assert!(forced_stats.owners > 0, "size={size} forced={forced_stats:?}");
+    assert!(
+      stats.work() < forced_stats.work(),
+      "size={size} gated {} vs forced {}",
+      stats.work(),
+      forced_stats.work()
+    );
+    if let Some((prev_size, prev_gated, prev_forced, prev_queries)) = previous {
+      assert_eq!(size, prev_size * 2, "fixture sizes must double");
+      assert!(
+        forced_stats.work() > prev_forced,
+        "forced-full work must grow from {prev_forced} to {} on {prev_size}->{size}",
+        forced_stats.work()
+      );
+      assert!(
+        stats.work() > prev_gated,
+        "gated preflight work must grow from {prev_gated} to {} on {prev_size}->{size}",
+        stats.work()
+      );
+      assert!(
+        stats.queries > prev_queries,
+        "argument-candidate queries must grow from {prev_queries} to {} on {prev_size}->{size}",
+        stats.queries
+      );
+      assert!(
+        stats.work().saturating_mul(10) < prev_gated.saturating_mul(30),
+        "gated preflight work grew from {prev_gated} to {} on {prev_size}->{size}",
+        stats.work()
+      );
+    }
+    previous = Some((size, stats.work(), forced_stats.work(), stats.queries));
+  }
+  let emitting = effect_only_source("watchSyncEffect", 16, Some("{ once: true }"));
+  let facts = assert_gated_matches_forced(&emitting, ScriptKind::Setup);
+  assert_eq!(facts.watch_ignored_option.len(), 16, "{facts:?}");
+}
+
+#[test]
+fn source_contracts_effect_wrapper_depth_counts_preflight_work() {
+  let mut previous: Option<(u64, u64, u64)> = None;
+  for depth in [0_u64, 8, 16, 32] {
+    let source = effect_wrapper_source(depth);
+    let (facts, stats) = contract_collect(&source, ScriptKind::Setup, false);
+    let nodes = semantic_node_count(&source);
+    assert!(facts.is_empty(), "depth={depth} {facts:?}");
+    assert!(stats.is_import_preflight_only(), "depth={depth} {stats:?}");
+    assert_eq!(stats.owners, 0, "depth={depth} {stats:?}");
+    assert!(
+      stats.work() > nodes,
+      "depth={depth} counted work {} must include eligibility traversal beyond {nodes} import-pass nodes: {stats:?}",
+      stats.work()
+    );
+    let extra = stats.work().saturating_sub(nodes);
+    if let Some((prev_depth, prev_work, prev_extra)) = previous {
+      assert!(
+        stats.work() > prev_work,
+        "wrapper-depth work must grow from {prev_work} to {} on {prev_depth}->{depth}: {stats:?}",
+        stats.work()
+      );
+      assert!(
+        extra > prev_extra,
+        "wrapper ancestor/peel extra work must grow from {prev_extra} to {extra} on {prev_depth}->{depth}: {stats:?}"
+      );
+      if prev_depth > 0 {
+        assert_eq!(depth, prev_depth * 2, "wrapper depths must double after the empty wrap");
+        assert!(
+          stats.work().saturating_mul(10) < prev_work.saturating_mul(30),
+          "wrapper-depth work grew from {prev_work} to {} on {prev_depth}->{depth}",
+          stats.work()
+        );
+      }
+    }
+    previous = Some((depth, stats.work(), extra));
+  }
+}
+
+#[test]
+fn source_contracts_effect_candidate_width_counts_preflight_work() {
+  let mut previous_calls: Option<(u64, u64, u64)> = None;
+  for width in [8_u64, 16, 32] {
+    let source = effect_only_source("watchEffect", width, None);
+    let (facts, stats) = contract_collect(&source, ScriptKind::Setup, false);
+    assert!(facts.is_empty(), "calls={width} {facts:?}");
+    assert!(stats.is_import_preflight_only(), "calls={width} {stats:?}");
+    assert_eq!(stats.owners, 0, "calls={width} {stats:?}");
+    assert!(
+      stats.queries > width,
+      "one import-map entry plus {width} remaining argument candidates: {stats:?}"
+    );
+    assert!(stats.references > width, "one specifier plus {width} resolved references: {stats:?}");
+    if let Some((prev_width, prev_work, prev_queries)) = previous_calls {
+      assert_eq!(width, prev_width * 2, "call widths must double");
+      assert!(
+        stats.work() > prev_work,
+        "call-width work must grow from {prev_work} to {} on {prev_width}->{width}",
+        stats.work()
+      );
+      assert!(
+        stats.queries > prev_queries,
+        "call-width queries must grow from {prev_queries} to {} on {prev_width}->{width}",
+        stats.queries
+      );
+      assert!(
+        stats.work().saturating_mul(10) < prev_work.saturating_mul(30),
+        "call-width work grew from {prev_work} to {} on {prev_width}->{width}",
+        stats.work()
+      );
+    }
+    previous_calls = Some((width, stats.work(), stats.queries));
+  }
+
+  let mut previous_imports: Option<(usize, u64, u64)> = None;
+  for width in [2_usize, 4, 8] {
+    let source = effect_import_width_source(width);
+    let (facts, stats) = contract_collect(&source, ScriptKind::Setup, false);
+    assert!(facts.is_empty(), "imports={width} {facts:?}");
+    assert!(stats.is_import_preflight_only(), "imports={width} {stats:?}");
+    assert_eq!(stats.owners, 0, "imports={width} {stats:?}");
+    let width_u64 = u64::try_from(width).unwrap_or(u64::MAX);
+    assert!(
+      stats.queries > width_u64,
+      "{width} import-map entries plus one argument candidate: {stats:?}"
+    );
+    if let Some((prev_width, prev_work, prev_queries)) = previous_imports {
+      assert_eq!(width, prev_width * 2, "import widths must double");
+      assert!(
+        stats.queries > prev_queries,
+        "import-map queries must grow from {prev_queries} to {} on {prev_width}->{width}",
+        stats.queries
+      );
+      assert!(
+        stats.work() >= prev_work,
+        "import-map work must not shrink from {prev_work} to {} on {prev_width}->{width}",
+        stats.work()
+      );
+      assert!(
+        stats.work().saturating_mul(10) < prev_work.saturating_mul(30).max(10),
+        "import-map work grew from {prev_work} to {} on {prev_width}->{width}",
+        stats.work()
+      );
+    }
+    previous_imports = Some((width, stats.work(), stats.queries));
   }
 }
