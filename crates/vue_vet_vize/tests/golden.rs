@@ -1814,6 +1814,8 @@ const SOURCE_CONTRACT_RULES: &[&str] = &[
   "no-primitive-reactive-target",
   "no-watch-unwrapped-source",
   "no-watch-replaced-object-source",
+  "no-once-immediate-discard",
+  "no-watch-alias-old-new",
   "no-watch-ignored-option",
   "no-watch-signature-mismatch",
   "no-lost-shallow-nested-notification",

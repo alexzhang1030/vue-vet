@@ -55,6 +55,22 @@
   `just rules-docs` (`scripts/expand_rule_docs.py`) before polishing essays.
   Session tests assert `file_analysis_registry().metadata` matches that file-ID
   set (practice included; project IDs stay separate).
+- Watch-callback contracts (`no-once-immediate-discard`,
+  `no-watch-alias-old-new`) consume `SourceContractFacts.watch_callback_contracts`
+  only and map to the `source-contracts` group. Once-immediate requires a
+  supported single source (ref, getter, or proven actually-reactive root);
+  identity requires a closed plain object/array `reactive`/`shallowReactive`
+  target. Vue marker keys, `__proto__`, spread, and accessor keys stay unknown;
+  constructor-input `Object.freeze` / unknown helpers / spread-sequence-storage
+  argument flow abstain; assignment-pattern marker writes invalidate the watched
+  root; ordinary `state.n` writes keep the watched root. Nested later-work
+  blocks abstain. Closed object proofs are precomputed per span.
+  Capability-unknown flow uses a per-root role index. Generic `escaped` /
+  `uncertain` remain watch/reactive-argument facts. Static-member receiver
+  roles share one span-identity policy for call / `new` / tagged template.
+  Keep `no-deep-watch-on-reactive-root` when the identity-guard rule also
+  fires: the former reports source-wide tracking, and the latter reports
+  callback dead work.
 - Low-confidence heuristics are opt-in and never enter the default preset merely to increase rule count.
 - Canonical rule groups are a product inventory overlay, not a per-rule `RuleMeta`
   field. The mapping table lives with the composed registry in `vue_vet_session`.

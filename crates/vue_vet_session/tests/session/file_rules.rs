@@ -434,7 +434,7 @@ watchEffect(() => { source.value; return () => {} })\n",
   let _ignored = std::fs::remove_dir_all(root);
 }
 
-const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 9] = [
+const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 11] = [
   "vue-vet/reactivity/no-watch-unwrapped-source",
   "vue-vet/reactivity/no-trigger-ref-on-non-ref",
   "vue-vet/reactivity/no-torefs-on-non-proxy",
@@ -444,6 +444,8 @@ const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 9] = [
   "vue-vet/reactivity/no-toraw-write-of-tracked-state",
   "vue-vet/reactivity/no-watch-ignored-option",
   "vue-vet/reactivity/no-watch-signature-mismatch",
+  "vue-vet/reactivity/no-once-immediate-discard",
+  "vue-vet/reactivity/no-watch-alias-old-new",
 ];
 
 #[test]
@@ -493,6 +495,19 @@ watchEffect(() => n.value, (x) => x)\n\
 <template><p /></template>\n",
   )
   .unwrap_or_else(|error| panic!("write watch api: {error}"));
+  std::fs::write(
+    root.join("Callback.vue"),
+    "<script setup lang=\"ts\">\n\
+import { reactive, ref, watch } from 'vue'\n\
+function accept(_value: unknown) {}\n\
+const n = ref(0)\n\
+watch(n, (next, old) => { if (old === undefined) return; accept(next) }, { once: true, immediate: true })\n\
+const state = reactive({ n: 1 })\n\
+watch(state, (next, old) => { if (next === old) return; accept(next) })\n\
+</script>\n\
+<template><p /></template>\n",
+  )
+  .unwrap_or_else(|error| panic!("write callback: {error}"));
   let session = open_session_threads(root.clone(), 1);
   let cold = session.analyze().unwrap_or_else(|error| panic!("cold: {error}"));
   let expected: std::collections::BTreeSet<String> =
@@ -509,7 +524,7 @@ watchEffect(() => n.value, (x) => x)\n\
   assert_eq!(
     contract_ids(&cold),
     expected,
-    "cold scan must emit source-contract, watch-api, and notification IDs; {:?}",
+    "cold scan must emit source-contract, watch-api, notification, and callback IDs; {:?}",
     cold.summary.diagnostics
   );
   let toraw = "vue-vet/reactivity/no-toraw-write-of-tracked-state";

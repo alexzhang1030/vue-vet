@@ -17,6 +17,7 @@ mod index;
 mod shape;
 mod stats;
 mod watch_api;
+mod watch_callbacks;
 
 use std::collections::HashMap;
 
@@ -142,6 +143,7 @@ impl Collector<'_> {
         Some(ContractSink::Watch) => {
           self.collect_watch(node_id, call, info);
           self.collect_watch_api(call, info);
+          self.collect_watch_callback_contracts(call, info);
         }
         Some(ContractSink::WatchEffectFamily) => self.collect_watch_api(call, info),
         None => {}
@@ -178,6 +180,14 @@ impl Collector<'_> {
     self.facts.watch_signature_mismatch.sort_by(|left, right| {
       self.indexes.note_query();
       left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.watch_callback_contracts.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.watch_span.offset, left.guard_span.offset, left.reason as u8).cmp(&(
+        right.watch_span.offset,
+        right.guard_span.offset,
+        right.reason as u8,
+      ))
     });
     (self.facts, self.indexes.stats())
   }
