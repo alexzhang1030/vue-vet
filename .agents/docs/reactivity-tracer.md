@@ -70,9 +70,48 @@ block complete. Bare `const alias = known` is recorded on the existing
 
 ## Current baseline
 
-Contract version: **`REACTIVITY_GRAPH_VERSION = 40`**. Rule-set identity
-hashed into the scan cache is **`RULESET_VERSION = 17`**.
+Contract version: **`REACTIVITY_GRAPH_VERSION = 41`**. Rule-set identity
+hashed into the scan cache is **`RULESET_VERSION = 18`**.
 
+v41 records same-file lost-notification source/view/path facts (`source_views`,
+`notification_bypasses`) for `shallowRef` / `shallowReactive` nested writes past
+a proven plain frontier and for `toRaw` writes of a tracked `reactive` path.
+`prepare_module_summary_with_config` builds one summary-local
+`imported_bindings` map and borrows it for shape bindings, local export
+classification (including `defineComponent` wrappers), provide/inject, and
+composable return analysis (including recursive forwarded/value-bag paths).
+Public `composable_return_with_index` still builds its own map and delegates
+to that borrowed-index implementation.
+`collect_local_composable_usage` returns after definition collection when the
+composable definition map is empty, skipping the call-use walk on ref-only modules.
+Collection work counters stay trace-internal and must charge remaining loop
+candidates, prefix-range visits, ancestor hops, and BTreeMap lookups (log
+bound) separately from result cardinality. Production `WorkCounter` is
+zero-sized (`cfg(test)` `Cell`s only); `LAST_WORK` is test-only. Owner /
+provenance / join indexing runs when a module has a proven Vue/`#imports`
+named or namespace identity for `shallowRef` / `shallowReactive` / `reactive` /
+`toRaw`, or an unresolved auto-import of those APIs. Eligibility is decided from
+the already-built `imported_bindings` map plus the semantic root
+unresolved-reference index. Namespace `vue` / `#imports` stays eligible. Named
+aliases, string-named imports, and type-only specifiers stay eligible because
+`imported_bindings` records them, matching `resolved_vue_callee`. Default
+`import Vue from 'vue'` and non-canonical sources such as `vue-demi` stay
+unproven. Source-view-only modules still emit `source_views`. Force-full versus
+gated parity covers positive, source-view-only,
+negative, `#imports` / namespace / bare auto-import, type-only, plugin-bag, and
+seeded-graph fixtures. Provenance uses `record_by_symbol`
+plus canonical validity; aliases never clone canonical payload maps; prefix
+invalidation uses BTree range rather than whole-map retain; watcher join uses
+call-offset and contained-read indexes; stops visit per-handle active-key
+buckets. Root `reactive()` and nested payload objects that carry Vue internal
+marker keys (`__v_skip`, `__v_isReadonly`, `__v_isRef`, `__v_raw`, `__proto__`)
+stay unproven. Marker-key presence is a conservative guard (known-false values
+are not distinguished). `shallowRef` of an existing `__v_isRef` object is not
+treated as a proven new shallow box. Joins sweep activation/stop/write events per `(source, path, region)`.
+Computed consumers, unactivated watchers,
+unknown flush options, `markRaw` / overwritten payloads, templates, collection
+mutations, and cross-call instance identity stay quiet. Runtime premises:
+`just oracle-lost-notification`. Prior:
 v40 records Oxc-resolved `alias_of_span` on alias bindings, treats assignment-pattern
 default initializers and computed keys as reads, links prefer-computed mutable
 roles to `v-on` expression identifiers, and requires no script reassignment
