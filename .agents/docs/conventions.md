@@ -156,7 +156,8 @@ profile because its instrumentation does not link Oxc reliably under LTO
 `panic = "abort"`, `strip = "symbols"`, protocol/UI runtime packages
 `opt-level = "z"`, product crates `vue_vet_rules` / `vue_vet_practice` /
 `vue_vet_rule_query` `opt-level = "z"`, `vue_vet_core` /
-`vue_vet_reactivity` `opt-level = "s"`; `vue_vet_oxc` and
+`vue_vet_reactivity` / `vue_vet_session` / `vue_vet_project`
+`opt-level = "s"`; `vue_vet_oxc` and
 `vue_vet_reporters` stay on the profile default) remains the source of
 truth for shipped artifacts.
 `cargo bench --profile release` forces unwind; those Divan programs measure
@@ -168,7 +169,7 @@ uses panic=unwind).
 `profile.release.package` overrides still win unless restated. Protocol/UI
 release `opt-z` packages stay inherited. Product crates with release `"z"`
 or `"s"` (`vue_vet_rules`, `vue_vet_practice`, `vue_vet_rule_query`,
-`vue_vet_core`, `vue_vet_reactivity`) have explicit
+`vue_vet_core`, `vue_vet_reactivity`, `vue_vet_session`, `vue_vet_project`) have explicit
 `profile.codspeed.package.*.opt-level = 3`
 so CodSpeed keeps instrumentation `opt-level = 3`. Do not bake a local `CARGO_TARGET_DIR` or
 host byte count into pack/smoke scripts. `just native-size` prints the Cargo
