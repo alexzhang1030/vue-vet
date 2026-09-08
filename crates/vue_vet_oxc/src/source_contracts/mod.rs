@@ -33,6 +33,10 @@
 //! Generic `uncertain` / `escaped` stay source5. `vue-demi`, `#imports`,
 //! factories, prototypes, overwritten methods, escaped collections, dynamic
 //! keys, and mutated bindings stay unknown.
+//! Named `watchEffect` / `watchPostEffect` / `watchSyncEffect` imports keep
+//! source indexes empty when every resolved reference is a proven call with
+//! fewer than two arguments and no spread. Ordinary sinks and namespace
+//! imports keep full indexing.
 
 mod clone_boundary;
 mod demand;
@@ -123,8 +127,8 @@ fn collect_prepared(
   force_full: bool,
 ) -> (SourceContractFacts, SourceContractStats) {
   let work = WorkCounter::default();
-  let (vue_imports, has_contract_sink) = collect_vue_imports(semantic, &work);
-  if !has_contract_sink && !force_full {
+  let (vue_imports, needs_index) = collect_vue_imports(semantic, &work);
+  if !needs_index && !force_full {
     return (SourceContractFacts::default(), work.snapshot());
   }
   let mut collector = Collector {

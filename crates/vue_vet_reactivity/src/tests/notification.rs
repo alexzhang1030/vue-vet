@@ -6,7 +6,9 @@
 )]
 
 use super::helpers::*;
-use vue_vet_core::{NotificationBypassKind, ReactiveViewKind};
+use vue_vet_core::{
+  NotificationBypassKind, ReactiveBindingFact, ReactiveBindingKind, ReactiveViewKind,
+};
 
 #[test]
 fn shallow_ref_nested_write_emits_bypass() {
@@ -875,4 +877,240 @@ fn named_exports_module_scope_lookup() {
   assert!(g128.notification_bypasses.is_empty());
   assert_indexed_growth(w32.indexed_work(), w64.indexed_work());
   assert_indexed_growth(w64.indexed_work(), w128.indexed_work());
+}
+
+fn assert_gated_matches_forced(source: &str) -> ReactivityGraph {
+  let (gated, gated_work) = graph_work(source);
+  let (forced, forced_work) = graph_work_forced(source);
+  assert_eq!(
+    gated.source_views, forced.source_views,
+    "gated source_views must match forced-full for {source}"
+  );
+  assert_eq!(
+    gated.notification_bypasses, forced.notification_bypasses,
+    "gated bypasses must match forced-full for {source}"
+  );
+  assert!(
+    !gated_work.is_import_preflight_only(),
+    "eligible source must not bypass indexes: {source} {gated_work:?}"
+  );
+  assert!(
+    forced_work.owners > 0,
+    "forced-full must still build owners for {source}: {forced_work:?}"
+  );
+  gated
+}
+
+fn assert_preflight_only(source: &str) {
+  let (gated, gated_work) = graph_work(source);
+  assert!(
+    gated.source_views.is_empty(),
+    "expected empty source_views for {source}: {:?}",
+    gated.source_views
+  );
+  assert!(
+    gated.notification_bypasses.is_empty(),
+    "expected empty bypasses for {source}: {:?}",
+    gated.notification_bypasses
+  );
+  assert!(
+    gated_work.is_import_preflight_only(),
+    "bypass must be import-preflight only for {source}: {gated_work:?}"
+  );
+  assert_eq!(
+    gated_work.node_visits, 0,
+    "canonical preflight must not walk the AST for {source}: {gated_work:?}"
+  );
+  assert!(
+    gated_work.lookups > 0,
+    "import preflight must consult imported_bindings or the unresolved-reference index for {source}"
+  );
+  let (forced, forced_work) = graph_work_forced(source);
+  assert_eq!(
+    gated.source_views, forced.source_views,
+    "forced-full source_views must stay empty for {source}"
+  );
+  assert_eq!(
+    gated.notification_bypasses, forced.notification_bypasses,
+    "forced-full bypasses must stay empty for {source}"
+  );
+  assert!(
+    forced_work.owners > 0 || source.trim().is_empty(),
+    "forced-full must still index owners on bypass fixtures: {source} {forced_work:?}"
+  );
+}
+
+#[test]
+fn gated_facts_match_forced_full_for_positive_and_source_view_only() {
+  let positive = r#"
+import { shallowRef, watchSyncEffect } from 'vue'
+const state = shallowRef({ count: 1 })
+watchSyncEffect(() => { void state.value.count })
+state.value.count = 2
+"#;
+  let graph = assert_gated_matches_forced(positive);
+  assert_eq!(graph.notification_bypasses.len(), 1);
+  assert!(graph.source_views.iter().any(|view| view.view == ReactiveViewKind::ShallowContainer));
+
+  let view_only = "import { shallowRef } from 'vue'; const state = shallowRef({ n: 1 });";
+  let graph = assert_gated_matches_forced(view_only);
+  assert!(graph.notification_bypasses.is_empty(), "source-view-only must not invent a bypass");
+  assert_eq!(graph.source_views.len(), 1);
+  assert_eq!(
+    graph.source_views.first().map(|view| view.view),
+    Some(ReactiveViewKind::ShallowContainer)
+  );
+
+  let reactive_view = "import { reactive } from 'vue'; const state = reactive({ n: 1 });";
+  let graph = assert_gated_matches_forced(reactive_view);
+  assert!(graph.notification_bypasses.is_empty());
+  assert_eq!(graph.source_views.len(), 1);
+  assert_eq!(graph.source_views.first().map(|view| view.view), Some(ReactiveViewKind::Proxy));
+}
+
+#[test]
+fn identity_table_preserves_named_namespace_auto_import_and_plugin_coverage() {
+  let named = "import { shallowRef as box } from 'vue'; const state = box({ n: 1 });";
+  let graph = assert_gated_matches_forced(named);
+  assert_eq!(graph.source_views.len(), 1);
+
+  let string_name = "import { 'reactive' as rx } from 'vue'; const state = rx({ n: 1 });";
+  let graph = assert_gated_matches_forced(string_name);
+  assert_eq!(graph.source_views.len(), 1);
+
+  let namespace = "import * as Vue from 'vue'; const state = Vue.shallowRef({ n: 1 });";
+  let graph = assert_gated_matches_forced(namespace);
+  assert_eq!(graph.source_views.len(), 1);
+
+  let named_auto = "import { shallowRef } from '#imports'; const state = shallowRef({ n: 1 });";
+  let graph = assert_gated_matches_forced(named_auto);
+  assert_eq!(graph.source_views.len(), 1);
+
+  let ns_auto = "import * as Auto from '#imports'; const state = Auto.reactive({ n: 1 });";
+  let graph = assert_gated_matches_forced(ns_auto);
+  assert_eq!(graph.source_views.len(), 1);
+
+  let nuxt_bare = "const state = shallowRef({ n: 1 });";
+  let graph = assert_gated_matches_forced(nuxt_bare);
+  assert_eq!(graph.source_views.len(), 1, "unresolved auto-import must keep source_views");
+
+  let plugin_and_source = r#"
+import { shallowRef } from 'vue'
+const { data } = useAsyncData('x', () => 1)
+const state = shallowRef({ n: 1 })
+"#;
+  let graph = assert_gated_matches_forced(plugin_and_source);
+  assert_eq!(graph.source_views.len(), 1);
+  assert!(graph.bindings.iter().any(|binding| binding.name == "data"));
+
+  let type_only = "import { type shallowRef } from 'vue'; const state = shallowRef({ n: 1 });";
+  let graph = assert_gated_matches_forced(type_only);
+  assert_eq!(
+    graph.source_views.len(),
+    1,
+    "imported_bindings still prove type-only named specifiers"
+  );
+}
+
+#[test]
+fn preflight_skips_modules_without_notification_source_identity() {
+  assert_preflight_only("");
+  assert_preflight_only("const n = 1;");
+  assert_preflight_only(
+    "import { ref, watchEffect } from 'vue'; const n = ref(0); watchEffect(() => { n.value; });",
+  );
+  assert_preflight_only("import Vue from 'vue'; const state = Vue.shallowRef({ n: 1 });");
+  assert_preflight_only(
+    "import { shallowRef } from 'vue-demi'; const state = shallowRef({ n: 1 });",
+  );
+  assert_preflight_only("import { triggerRef } from 'vue'; triggerRef({ n: 1 });");
+  assert_preflight_only("const { data } = useAsyncData('x', () => 1);");
+}
+
+pub(super) fn seeded_count_fact() -> ReactiveBindingFact {
+  ReactiveBindingFact {
+    name: "seededCount".into(),
+    kind: ReactiveBindingKind::Ref,
+    initialized_with_null: false,
+    span: test_span(9_001),
+    alias_of: None,
+    alias_of_span: None,
+  }
+}
+
+#[test]
+fn seeded_local_source_matches_forced_full_graph() {
+  let seeds = crate::TraceSeeds::with_bindings(vec![seeded_count_fact()]);
+  let source = r#"
+import { shallowRef, watchSyncEffect } from 'vue'
+const state = shallowRef({ count: 1 })
+watchSyncEffect(() => { void state.value.count; void seededCount.value })
+state.value.count = 2
+"#;
+  let (gated, gated_work) = graph_seeded_work(source, &seeds);
+  let (forced, forced_work) = graph_seeded_work_forced(source, &seeds);
+  assert_eq!(gated, forced, "seeded gated graph must equal forced-full");
+  assert_eq!(gated.source_views.len(), 1);
+  assert_eq!(
+    gated.source_views.first().map(|view| view.view),
+    Some(ReactiveViewKind::ShallowContainer)
+  );
+  assert_eq!(gated.notification_bypasses.len(), 1);
+  assert_eq!(
+    gated.notification_bypasses.first().map(|bypass| bypass.kind),
+    Some(NotificationBypassKind::ShallowNested)
+  );
+  assert!(
+    gated
+      .bindings
+      .iter()
+      .any(|binding| binding.name == "seededCount" && binding.kind == ReactiveBindingKind::Ref),
+    "seeded binding must remain on the graph: {:?}",
+    gated.bindings
+  );
+  assert!(
+    helper_follow_has_value_read(&gated, TrackingScopeKind::WatchSyncEffect, "seededCount"),
+    "local notification consumer must read the seeded ref"
+  );
+  assert!(
+    helper_follow_has_value_read(&gated, TrackingScopeKind::WatchSyncEffect, "state"),
+    "local notification consumer must still read the local shallowRef"
+  );
+  assert!(
+    !gated_work.is_import_preflight_only(),
+    "local constructor must still index: {gated_work:?}"
+  );
+  assert!(forced_work.owners > 0, "forced-full must still build owners: {forced_work:?}");
+}
+
+#[test]
+fn seed_only_keeps_seeded_facts_without_notification_results() {
+  let seeds = crate::TraceSeeds::with_bindings(vec![seeded_count_fact()]);
+  let source = r#"
+import { watchEffect } from 'vue'
+watchEffect(() => { void seededCount.value })
+"#;
+  let (gated, gated_work) = graph_seeded_work(source, &seeds);
+  let (forced, forced_work) = graph_seeded_work_forced(source, &seeds);
+  assert_eq!(gated, forced, "seed-only gated graph must equal forced-full");
+  assert!(gated.source_views.is_empty(), "seed-only must not invent source_views");
+  assert!(gated.notification_bypasses.is_empty(), "seed-only must not invent bypasses");
+  assert!(
+    gated
+      .bindings
+      .iter()
+      .any(|binding| binding.name == "seededCount" && binding.kind == ReactiveBindingKind::Ref),
+    "seed-only must retain the seeded binding: {:?}",
+    gated.bindings
+  );
+  assert!(
+    helper_follow_has_value_read(&gated, TrackingScopeKind::WatchEffect, "seededCount"),
+    "seed-only must retain the seeded consumer read"
+  );
+  assert!(
+    gated_work.is_import_preflight_only(),
+    "seed-only must skip local indexing: {gated_work:?}"
+  );
+  assert_eq!(gated_work.node_visits, 0, "seed-only preflight must not walk the AST");
+  assert!(forced_work.owners > 0, "forced-full seed-only must still index owners: {forced_work:?}");
 }

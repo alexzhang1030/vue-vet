@@ -20,7 +20,7 @@ use super::provenance::{
   ProvenanceIndex, payload_allows_nested_write, payload_path_has_wrapped, resolve_view,
 };
 use super::uses::{
-  FlushKind, NotificationWork, OwnerIndex, UseRole, binding_symbol_at, call_is_unconditional,
+  FlushKind, OwnerIndex, UseRole, WorkCounter, binding_symbol_at, call_is_unconditional,
   enclosing_region, identifier_symbol, watch_effect_flush,
 };
 
@@ -115,7 +115,7 @@ pub(super) fn join_bypasses(
   sfc_source: &str,
   script_offset: usize,
   script_kind: ScriptKind,
-  work: &mut NotificationWork,
+  work: &WorkCounter,
 ) -> Vec<NotificationBypassFact> {
   let mut events = Vec::new();
   collect_activation_events(
@@ -145,7 +145,7 @@ pub(super) fn join_bypasses(
     work,
   );
   events.sort_by_key(|event| (event.at(), event.order()));
-  work.events += events.len();
+  work.add_events(events.len());
 
   let mut active: BTreeMap<(usize, NodeId, Vec<String>), ActiveConsumer> = BTreeMap::new();
   let mut active_keys_by_handle: BTreeMap<SymbolId, Vec<(usize, NodeId, Vec<String>)>> =
@@ -156,12 +156,12 @@ pub(super) fn join_bypasses(
   for event in events {
     match event {
       Event::Activate { origin, path, region, consumer_span, view, handle, at, .. } => {
-        work.lookups = work.lookups.saturating_add(1);
+        work.add_lookups(1);
         if handle.is_some_and(|handle| stopped.contains(&handle)) {
           continue;
         }
-        work.lookups = work.lookups.saturating_add(1);
-        work.copies = work.copies.saturating_add(path.len().max(1));
+        work.add_lookups(1);
+        work.add_copies(path.len().max(1));
         let key = (origin, region, path);
         let vacant = !active.contains_key(&key);
         active.entry(key.clone()).or_insert(ActiveConsumer {
@@ -171,26 +171,26 @@ pub(super) fn join_bypasses(
           activate: at,
         });
         if vacant && let Some(handle) = handle {
-          work.lookups = work.lookups.saturating_add(1);
+          work.add_lookups(1);
           active_keys_by_handle.entry(handle).or_default().push(key);
         }
       }
       Event::Stop { handle, .. } => {
         stopped.insert(handle);
-        work.lookups = work.lookups.saturating_add(1);
+        work.add_lookups(1);
         let Some(keys) = active_keys_by_handle.remove(&handle) else {
           continue;
         };
         for key in keys {
-          work.stop_bucket_visits = work.stop_bucket_visits.saturating_add(1);
-          work.lookups = work.lookups.saturating_add(1);
+          work.add_stop_bucket_visits(1);
+          work.add_lookups(1);
           if active.get(&key).is_some_and(|consumer| consumer.handle == Some(handle)) {
             active.remove(&key);
           }
         }
       }
       Event::Write { origin, path, region, write_span, view, source_idx, at, .. } => {
-        work.lookups = work.lookups.saturating_add(1);
+        work.add_lookups(1);
         let Some(source) = provenance.record(source_idx) else {
           continue;
         };
@@ -200,8 +200,8 @@ pub(super) fn join_bypasses(
         if source.region != region {
           continue;
         }
-        work.copies = work.copies.saturating_add(path.len().max(1));
-        work.lookups = work.lookups.saturating_add(1);
+        work.add_copies(path.len().max(1));
+        work.add_lookups(1);
         let Some(consumer) = active.get(&(origin, region, path.clone())) else {
           continue;
         };
@@ -214,8 +214,8 @@ pub(super) fn join_bypasses(
         let Some(payload) = provenance.canonical_payload(source_idx) else {
           continue;
         };
-        if !payload_allows_nested_write(payload, &path, source.source_kind)
-          || payload_path_has_wrapped(payload, &path)
+        if !payload_allows_nested_write(payload, &path, source.source_kind, work)
+          || payload_path_has_wrapped(payload, &path, work)
         {
           continue;
         }
@@ -237,7 +237,7 @@ pub(super) fn join_bypasses(
     }
   }
   bypasses.sort_by_key(|fact| (fact.write_span.offset, fact.kind as u8));
-  work.emissions = bypasses.len();
+  work.set_emissions(bypasses.len());
   bypasses
 }
 
@@ -253,19 +253,19 @@ fn collect_activation_events(
   script_offset: usize,
   script_kind: ScriptKind,
   events: &mut Vec<Event>,
-  work: &mut NotificationWork,
+  work: &WorkCounter,
 ) {
   let mut scope_by_call_offset = BTreeMap::new();
   for (idx, scope) in scopes.iter().enumerate() {
     if matches!(scope.kind, TrackingScopeKind::WatchSyncEffect | TrackingScopeKind::WatchEffect) {
-      work.lookups = work.lookups.saturating_add(1);
+      work.add_lookups(1);
       scope_by_call_offset.insert(scope.span.offset, idx);
     }
   }
   let read_indexes: Vec<ReadIndex> =
     scopes.iter().map(|scope| ReadIndex::from_scope(scope, work)).collect();
   for (node_id, node) in semantic.nodes().iter_enumerated() {
-    work.node_visits += 1;
+    work.add_node_visits(1);
     let AstKind::CallExpression(call) = node.kind() else {
       continue;
     };
@@ -275,7 +275,7 @@ fn collect_activation_events(
     };
     let sync = match callee.as_str() {
       "watchSyncEffect" => true,
-      "watchEffect" => watch_effect_flush(call) == FlushKind::Sync,
+      "watchEffect" => watch_effect_flush(call, work) == FlushKind::Sync,
       _ => false,
     };
     if !sync {
@@ -290,7 +290,7 @@ fn collect_activation_events(
     let Some(scope_id) = callback_node_id(callback) else {
       continue;
     };
-    work.lookups = work.lookups.saturating_add(1);
+    work.add_lookups(1);
     let call_offset = script_offset.saturating_add(usize::try_from(call.span.start).unwrap_or(0));
     let Some(&scope_idx) = scope_by_call_offset.get(&call_offset) else {
       continue;
@@ -308,7 +308,7 @@ fn collect_activation_events(
     let region = enclosing_region(semantic, node_id, work);
     let reads = read_indexes.get(scope_idx);
     for owned in file_index.nodes().members(scope_id) {
-      work.queries += 1;
+      work.add_queries(1);
       if owned.outside || !is_outermost_member(semantic, owned.id, work) {
         continue;
       }
@@ -330,7 +330,7 @@ fn collect_activation_events(
       let Some(symbol_id) = identifier_symbol(semantic, root) else {
         continue;
       };
-      work.lookups = work.lookups.saturating_add(1);
+      work.add_lookups(1);
       let Some(source_idx) = resolve_view(provenance, symbol_id, ALIAS_BUDGET_JOIN, work) else {
         continue;
       };
@@ -363,14 +363,14 @@ struct ReadIndex {
 }
 
 impl ReadIndex {
-  fn from_scope(scope: &TrackingScopeFact, work: &mut NotificationWork) -> Self {
+  fn from_scope(scope: &TrackingScopeFact, work: &WorkCounter) -> Self {
     let mut grouped: BTreeMap<String, Vec<(usize, usize)>> = BTreeMap::new();
     for read in &scope.reads {
-      work.candidate_visits = work.candidate_visits.saturating_add(1);
+      work.add_candidate_visits(1);
       if read.kind != ReactiveReadKind::Unconditional {
         continue;
       }
-      work.lookups = work.lookups.saturating_add(1);
+      work.add_lookups(1);
       grouped
         .entry(read.binding.clone())
         .or_default()
@@ -404,19 +404,19 @@ fn unconditional_scope_read_indexed(
   binding: &str,
   member_span: Span,
   script_offset: usize,
-  work: &mut NotificationWork,
+  work: &WorkCounter,
 ) -> bool {
   let Some(index) = reads else {
     return false;
   };
-  work.lookups = work.lookups.saturating_add(1);
+  work.add_lookups(1);
   let Some(bucket) = index.by_binding.get(binding) else {
     return false;
   };
   let member_start = script_offset.saturating_add(usize::try_from(member_span.start).unwrap_or(0));
   let member_end = script_offset.saturating_add(usize::try_from(member_span.end).unwrap_or(0));
-  work.lookups = work.lookups.saturating_add(1);
-  let pos = bucket.starts.partition_point(|start| *start < member_start);
+  work.add_lookups(1);
+  let pos = work.partition_point(&bucket.starts, |start| *start < member_start);
   bucket.suffix_min_end.get(pos).is_some_and(|min_end| *min_end <= member_end)
 }
 
@@ -432,7 +432,7 @@ fn assigned_handle(
   semantic: &Semantic<'_>,
   owners: &OwnerIndex,
   call_id: NodeId,
-  work: &mut NotificationWork,
+  work: &WorkCounter,
 ) -> Option<SymbolId> {
   let parent = semantic.nodes().parent_kind(call_id);
   let AstKind::VariableDeclarator(declarator) = parent else {
@@ -444,12 +444,12 @@ fn assigned_handle(
   binding_symbol_at(owners, identifier.span, work)
 }
 
-fn handle_escaped(owners: &OwnerIndex, handle: SymbolId, work: &mut NotificationWork) -> bool {
-  work.lookups = work.lookups.saturating_add(1);
+fn handle_escaped(owners: &OwnerIndex, handle: SymbolId, work: &WorkCounter) -> bool {
+  work.add_lookups(1);
   let Some(sites) = owners.by_symbol.get(&handle) else {
     return false;
   };
-  work.use_sites = work.use_sites.saturating_add(sites.len());
+  work.add_use_sites(sites.len());
   sites.iter().any(|site| {
     matches!(
       site.role,
@@ -462,12 +462,12 @@ fn handle_escaped(owners: &OwnerIndex, handle: SymbolId, work: &mut Notification
   })
 }
 
-fn collect_stop_events(owners: &OwnerIndex, events: &mut Vec<Event>, work: &mut NotificationWork) {
+fn collect_stop_events(owners: &OwnerIndex, events: &mut Vec<Event>, work: &WorkCounter) {
   for (symbol_id, sites) in &owners.by_symbol {
-    work.lookups = work.lookups.saturating_add(1);
-    work.use_sites = work.use_sites.saturating_add(sites.len());
+    work.add_lookups(1);
+    work.add_use_sites(sites.len());
     for site in sites {
-      work.candidate_visits = work.candidate_visits.saturating_add(1);
+      work.add_candidate_visits(1);
       if matches!(site.role, UseRole::HandleStop) {
         events.push(Event::Stop { at: site.span.start, handle: *symbol_id });
       }
@@ -480,11 +480,11 @@ fn collect_trigger_events(
   imported_bindings: &BTreeMap<String, (String, String)>,
   provenance: &mut ProvenanceIndex,
   script_kind: ScriptKind,
-  work: &mut NotificationWork,
+  work: &WorkCounter,
 ) -> BTreeSet<(NodeId, usize)> {
   let mut triggered = BTreeSet::new();
   for node in semantic.nodes() {
-    work.node_visits += 1;
+    work.add_node_visits(1);
     let AstKind::CallExpression(call) = node.kind() else {
       continue;
     };
@@ -494,6 +494,7 @@ fn collect_trigger_events(
       continue;
     }
     for argument in &call.arguments {
+      work.add_candidate_visits(1);
       let Some(expression) = argument.as_expression() else {
         continue;
       };
@@ -503,7 +504,7 @@ fn collect_trigger_events(
       let Some(symbol_id) = identifier_symbol(semantic, identifier) else {
         continue;
       };
-      work.lookups = work.lookups.saturating_add(1);
+      work.add_lookups(1);
       let Some(source_idx) = resolve_view(provenance, symbol_id, ALIAS_BUDGET_JOIN, work) else {
         continue;
       };
@@ -528,10 +529,10 @@ fn collect_write_events(
   script_offset: usize,
   script_kind: ScriptKind,
   events: &mut Vec<Event>,
-  work: &mut NotificationWork,
+  work: &WorkCounter,
 ) {
   for (node_id, node) in semantic.nodes().iter_enumerated() {
-    work.node_visits += 1;
+    work.add_node_visits(1);
     let chain = match node.kind() {
       AstKind::AssignmentExpression(assignment) if !assignment.operator.is_logical() => {
         assignment_member_chain(&assignment.left)
@@ -556,7 +557,7 @@ fn collect_write_events(
     if path.is_empty() {
       continue;
     }
-    work.lookups = work.lookups.saturating_add(1);
+    work.add_lookups(1);
     let Some(source_idx) = resolve_view(provenance, symbol_id, ALIAS_BUDGET_JOIN, work) else {
       continue;
     };

@@ -247,6 +247,23 @@ closure next to an ~8 µs retain made CodSpeed bounce ±15% under "Different
 runtime environments" (#181 / #182 / main after #189). That name is not a
 scan-path signal. Do not reintroduce filesystem teardown there.
 
+## `cargo bench --profile release` uses panic=unwind
+
+Cargo forces the benchmark panic strategy to unwind even when the selected
+profile is `release` (`panic = "abort"`). Saved `module_scaling` /
+`whole_project` comparison programs built with `cargo bench --no-run --profile
+release` therefore import `__Unwind_RaiseException` / `__Unwind_DeleteException`.
+The shipped CLI (`cargo build --release`) keeps `profile.release` `panic =
+"abort"` and omits those two imports. Label those Divan artifacts as
+release-optimization/unwind. The recorded +7.04% and +13.20% `trace_5k`
+medians remain evidence for those exact unwind binaries; CLI abort timing is a
+separate measurement. CodSpeed uses `profile.codspeed` (`panic = "unwind"`,
+`lto = false`, product crates `opt-level = 3`). Accepted abort in-process timing
+uses the same 5,000-module / eight-worker
+workload as `module_scaling::trace_5k_modules`, compiled with
+`cargo build --release` (`panic = abort`). `cargo bench --profile release`
+stays unwind. A one-module executable provides smoke-test evidence.
+
 ## CodSpeed benchmark attributes use the pinned compatibility API
 
 `codspeed-divan-compat` 5.0.1 exposes `threads` only in its native wall-time
@@ -1087,6 +1104,17 @@ still trust a deeper leftover. This is not generic source5 `uncertain` /
 merge, `partition_point` covering checks, unresolved native/global
 reference covering, and native-alias map construction plus identity
 resolution.
+## Production notification work counters miss native-size
+
+PR 233 failed all five native-size gates while `NotificationWork`'s 16 `usize`
+fields and the `LAST_WORK` `RefCell` stayed on the production tracer path.
+Keep the collector `WorkCounter` zero-sized in production (`cfg(test)` `Cell`s
+only); write `LAST_WORK` only in tests. Inner-loop charges stay real under
+`cfg(test)`. Prove collector growth in tests; measure size with the stripped CLI.
+
+Import/semantic eligibility uses the canonical `imported_bindings` map (including
+type-only named specifiers) and the semantic root unresolved-reference index.
+Each platform gate uses its own artifact.
 
 ## Text report color is CLI-injected
 
