@@ -1,8 +1,9 @@
 //! Vue API source-contract rules (issue #224). Consume stable facts only.
 
 use vue_vet_core::{
-  Confidence, Rule, RuleContext, RuleMeta, Severity, SourceContractSiteFact, ToRefIgnoredKeyReason,
-  WatchCallbackContractReason, WatchIgnoredOptionReason, WatchSignatureMismatchReason,
+  Confidence, CustomRefLostNotificationReason, Rule, RuleContext, RuleMeta, Severity,
+  SourceContractSiteFact, ToRefIgnoredKeyReason, WatchCallbackContractReason,
+  WatchIgnoredOptionReason, WatchSignatureMismatchReason,
 };
 
 const TRIGGER_META: RuleMeta = RuleMeta {
@@ -133,6 +134,14 @@ const RAW_PROXY_MAP_KEY_META: RuleMeta = RuleMeta {
   documentation: "rules/reactivity/no-raw-proxy-map-key",
 };
 
+const CUSTOM_REF_LOST_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-custom-ref-lost-notification",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-custom-ref-lost-notification",
+};
+
 pub(super) struct NoTriggerRefOnNonRef;
 pub(super) static NO_TRIGGER_REF_ON_NON_REF: NoTriggerRefOnNonRef = NoTriggerRefOnNonRef;
 
@@ -185,6 +194,10 @@ pub(super) static NO_EXTRACTED_REACTIVE_COLLECTION_METHOD: NoExtractedReactiveCo
 
 pub(super) struct NoRawProxyMapKey;
 pub(super) static NO_RAW_PROXY_MAP_KEY: NoRawProxyMapKey = NoRawProxyMapKey;
+
+pub(super) struct NoCustomRefLostNotification;
+pub(super) static NO_CUSTOM_REF_LOST_NOTIFICATION: NoCustomRefLostNotification =
+  NoCustomRefLostNotification;
 
 impl Rule for NoTriggerRefOnNonRef {
   fn meta(&self) -> &'static RuleMeta {
@@ -615,6 +628,43 @@ impl Rule for NoRawProxyMapKey {
   }
 }
 
+impl Rule for NoCustomRefLostNotification {
+  fn meta(&self) -> &'static RuleMeta {
+    &CUSTOM_REF_LOST_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.custom_ref_lost_notification {
+        let (message, missing) = match site.reason {
+          CustomRefLostNotificationReason::GetTracking => (
+            "This customRef getter never tracks, so subscribed consumers will not re-run after writes",
+            "getter tracking (`track()` during get)",
+          ),
+          CustomRefLostNotificationReason::SetNotification => (
+            "This customRef setter never notifies, so subscribed consumers will not re-run after writes",
+            "setter notification (`trigger()` during set)",
+          ),
+        };
+        context.report(
+          self.meta(),
+          site.span,
+          message.into(),
+          Some(format!(
+            "Missing {missing}. customRef at {}:{}, consumer at {}:{}, changed write at {}:{}. Call `track()` in get and `trigger()` in set, or store the value in a backing `ref` / `reactive`.",
+            site.source_span.line,
+            site.source_span.column,
+            site.consumer_span.line,
+            site.consumer_span.column,
+            site.write_span.line,
+            site.write_span.column
+          )),
+        );
+      }
+    }
+  }
+}
+
 fn report_site(
   context: &mut RuleContext<'_>,
   meta: &RuleMeta,
@@ -645,5 +695,6 @@ pub(super) fn source_contract_rules() -> Vec<&'static dyn Rule> {
     &NO_EXTRACTED_REACTIVE_COLLECTION_METHOD,
     &super::no_proxy_structured_clone::NO_PROXY_STRUCTURED_CLONE,
     &NO_RAW_PROXY_MAP_KEY,
+    &NO_CUSTOM_REF_LOST_NOTIFICATION,
   ]
 }

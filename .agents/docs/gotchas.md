@@ -1173,6 +1173,33 @@ Import/semantic eligibility uses the canonical `imported_bindings` map (includin
 type-only named specifiers) and the semantic root unresolved-reference index.
 Each platform gate uses its own artifact.
 
+## customRef lost-notification needs an executed, still-active consumer
+
+`no-custom-ref-lost-notification` is a closed-local chain, not a mention of
+`watch`. Post-flush first runs (`watchPostEffect`, `watchEffect({ flush: 'post' })`)
+are not subscribed at the call site. `false && watch(...)` installs nothing.
+`{ once: true, immediate: true }` stops before a later write. An effect that
+returns before the `.value` read never tracked. An earlier executed `await` or
+`yield` in that callback (including initializers and sequences) ends the
+subscribed synchronous prefix; a read after that is not a pre-write consumer.
+Member/IIFE/holder-alias capability forwarding, a setter that does not store
+its unchanged first parameter with simple `=`, getter or factory extra storage
+writes (object keys and values execute; only a proven conditional/logical arm
+is taken), factory destructuring defaults that a supplied non-`undefined` property
+keeps dormant (a proven `undefined` value still activates the default;
+an activated default object is the nested source; own-property absence is
+not proven missing when the standard prototype or a `__proto__` setter may
+supply the key; language `undefined` is the unbound identifier), generator/async accessors
+(the generator body is dormant on call), class expressions (eager static
+initialization), coercing `==`, and
+replacing `_get`/`_set` after construction are unknown paths. An executed `await` in a computed
+object key, binding default, or assignment target ends the subscribed prefix;
+so does a nested block `return`/`throw`. Unsupported evaluation shapes fail
+closed as Unknown rather than dropping evaluated children. One `watch(r)` argument must not clear unrelated
+object/export/helper/member escapes. Handle `stop`/`pause` queries are indexed
+by handle and block; do not rescan every foreign-block call per write. Alias
+members of a root are indexed once; do not scan the whole alias map per root.
+
 ## Text report color is CLI-injected
 
 ANSI styles apply only when `ReportContext.color` is true (CLI `--color`).

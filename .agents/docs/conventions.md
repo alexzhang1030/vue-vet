@@ -68,8 +68,8 @@
   separate capability from Vue import identity. Demand-gated value contracts
   (`no-invalid-custom-ref-interface`, `no-inactive-scope-result`,
   `no-missing-torefs-key`) stay distinct from callback/toRef receiver sets
-  and clone native identity. Combined inventory is 127 (125 file + 2
-  project); source-contract group 33; lifetime group 6; `RULESET_VERSION` 26; graph stays 41.
+  and clone native identity. Combined inventory is 128 (126 file + 2
+  project); source-contract group 34; lifetime group 6; `RULESET_VERSION` 27; graph stays 41.
   Runtime premises live in `just oracle-source-contracts` (Vue 3.5.40), which
   runs `source-contracts.mjs`, `watch-api.mjs`, `watch-callback-contracts.mjs`,
   and `value-contracts.mjs`. Dedicated `just oracle-value-contracts` remains

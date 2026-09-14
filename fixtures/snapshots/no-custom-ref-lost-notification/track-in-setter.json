@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-custom-ref-lost-notification",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-custom-ref-lost-notification",
+    "message": "This customRef getter never tracks, so subscribed consumers will not re-run after writes",
+    "help": "Missing getter tracking (`track()` during get). customRef at 3:15, consumer at 16:1, changed write at 17:1. Call `track()` in get and `trigger()` in set, or store the value in a backing `ref` / `reactive`.",
+    "file": "fixtures/rules/no-custom-ref-lost-notification/invalid/track-in-setter.vue",
+    "span": {
+      "offset": 144,
+      "length": 29,
+      "line": 6,
+      "column": 8
+    }
+  }
+]

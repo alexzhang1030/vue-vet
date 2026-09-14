@@ -71,6 +71,9 @@ oracle-value-contracts:
 # Vue 3.5.40 EventTarget watch cleanup identity (issue #224). Locked oracle Vue pin.
 oracle-cleanup-identity:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node cleanup-identity-runs.mjs
+# Vue 3.5.40 customRef track/trigger notification-chain premises.
+oracle-custom-ref-notification:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node custom-ref-notification-runs.mjs
 
 # Run all non-mutating Rust linters.
 lint-rust: fmt-check check clippy

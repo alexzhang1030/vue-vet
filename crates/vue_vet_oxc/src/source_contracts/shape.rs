@@ -163,6 +163,7 @@ pub(super) fn intern_api(name: &str) -> Option<&'static str> {
     "watchEffect" => Some("watchEffect"),
     "watchPostEffect" => Some("watchPostEffect"),
     "watchSyncEffect" => Some("watchSyncEffect"),
+    "effect" => Some("effect"),
     "defineProps" => Some("defineProps"),
     "ref" => Some("ref"),
     "shallowRef" => Some("shallowRef"),
@@ -202,6 +203,10 @@ pub fn contract_sink(api: &str) -> Option<ContractSink> {
     "customRef" => Some(ContractSink::CustomRef),
     _ => None,
   }
+}
+
+pub(super) fn is_watch_effect_api(api: &str) -> bool {
+  matches!(api, "watchEffect" | "watchSyncEffect" | "watchPostEffect" | "effect")
 }
 
 pub(super) fn is_vue_runtime_source(source: &str) -> bool {

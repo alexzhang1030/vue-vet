@@ -103,6 +103,14 @@ in Rust unit/project tests.
 
 ## Run counts and template host
 
+`just oracle-custom-ref-notification` (`custom-ref-notification-runs.mjs`)
+asserts Vue 3.5.40 `customRef` run counts for lost `track`, lost `trigger`,
+track-in-setter, standard, backing ref/reactive, deferred trigger, `triggerRef`,
+same-value write, no consumer, stop/pause, helper/unknown factories, post-flush
+first runs, guarded registration, `once`+`immediate`, unread effect paths,
+prior same-value writes, constant setters, coercing `==`, member/IIFE
+capability forwarding, and later accessor replacement.
+
 `just oracle-self-trigger` (`self-trigger-runs.mjs`) is separate from onTrack
 JSON. It asserts Vue 3.5.40 execution counts for self-write effects, one-shot
 versus repeating `requestAnimationFrame`, and template host behavior:

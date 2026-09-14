@@ -71,7 +71,7 @@ block complete. Bare `const alias = known` is recorded on the existing
 ## Current baseline
 
 Contract version: **`REACTIVITY_GRAPH_VERSION = 41`**. Rule-set identity
-hashed into the scan cache is **`RULESET_VERSION = 26`**.
+hashed into the scan cache is **`RULESET_VERSION = 27`**.
 `watchEffect` / `watchPostEffect` / `watchSyncEffect` are source-contract sink
 APIs (option/signature facts). Eligibility and dispatch share one `ContractSink`
 table with the source5 collectors; watch-API, watch-callback, and
@@ -92,6 +92,9 @@ collection for the current predicates.
 lifetime catalog without changing graph v41. Cleanup-identity work counters charge
 actual write/listener comparisons, cleanup registration-site visits, and alias
 hops, including shared-source / shared-callback / multi-resource shapes.
+Closed-local customRef track/trigger notification (`no-custom-ref-lost-notification`)
+joins the source-contract catalog without changing graph version.
+
 
 v41 records same-file lost-notification source/view/path facts (`source_views`,
 `notification_bypasses`) for `shallowRef` / `shallowReactive` nested writes past

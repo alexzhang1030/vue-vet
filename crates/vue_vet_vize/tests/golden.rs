@@ -1820,6 +1820,7 @@ const SOURCE_CONTRACT_RULES: &[&str] = &[
   "no-watch-ignored-option",
   "no-watch-signature-mismatch",
   "no-lost-shallow-nested-notification",
+  "no-custom-ref-lost-notification",
   "no-toraw-write-of-tracked-state",
   "no-toref-ignored-key",
   "no-effect-scope-callback-argument",
