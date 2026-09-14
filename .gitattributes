@@ -1,1 +1,3 @@
 * text=auto eol=lf
+fixtures/rules/no-primitive-reactive-target/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/no-trigger-ref-on-non-ref/invalid/crlf.vue -text whitespace=cr-at-eol

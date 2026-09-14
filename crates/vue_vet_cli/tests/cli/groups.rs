@@ -44,8 +44,8 @@ fn list_rules_is_sorted_unique_and_includes_project_ids() {
   );
   assert_eq!(
     parsed.pointer("/counts/total").and_then(Value::as_u64),
-    Some(106),
-    "composed CLI inventory must be 106 after lifetime rules"
+    Some(111),
+    "composed CLI inventory must be 111 after source-contract and lifetime rules"
   );
 }
 
@@ -94,6 +94,32 @@ fn list_rules_text_has_dense_columns() {
   assert!(stdout.contains("SEVERITY"));
   assert!(stdout.contains("vue-vet/project/unresolved-import"));
   assert!(stdout.contains("tracking") || stdout.contains("source-contracts"));
+}
+
+#[test]
+fn list_rules_source_contracts_includes_five_ids() {
+  let output = run(&["--list-rules", "--format", "json", "--group", "source-contracts"]);
+  assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+  let parsed: Value = serde_json::from_slice(&output.stdout).expect("source-contracts json");
+  let ids: Vec<_> = parsed
+    .get("rules")
+    .and_then(Value::as_array)
+    .map(|rules| {
+      rules
+        .iter()
+        .filter_map(|row| row.get("id").and_then(Value::as_str).map(str::to_owned))
+        .collect()
+    })
+    .unwrap_or_default();
+  for id in [
+    "vue-vet/reactivity/no-primitive-reactive-target",
+    "vue-vet/reactivity/no-torefs-on-non-proxy",
+    "vue-vet/reactivity/no-trigger-ref-on-non-ref",
+    "vue-vet/reactivity/no-watch-replaced-object-source",
+    "vue-vet/reactivity/no-watch-unwrapped-source",
+  ] {
+    assert!(ids.iter().any(|row| row == id), "missing {id} in {ids:?}");
+  }
 }
 
 #[test]

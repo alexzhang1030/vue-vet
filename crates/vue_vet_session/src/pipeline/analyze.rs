@@ -181,6 +181,7 @@ fn script_has_rule_facts(facts: &SfcFacts, primary_graph: Option<&ReactivityGrap
       || !block.operands.is_empty()
       || !block.destructures.is_empty()
       || !block.calls.is_empty()
+      || !block.source_contracts.is_empty()
   })
 }
 
@@ -251,6 +252,7 @@ mod tests {
       top_level_await_ends: Vec::new(),
       operands: Vec::new(),
       lifetime: vue_vet_core::ReactivityLifetimeFacts::default(),
+      source_contracts: vue_vet_core::SourceContractFacts::default(),
       reactivity_graph: std::sync::Arc::new(ReactivityGraph::default()),
     }
   }

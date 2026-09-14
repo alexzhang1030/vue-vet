@@ -38,6 +38,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-outside-tracking-dependency-in-computed", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-outside-tracking-dependency-in-effect-scope", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-outside-tracking-dependency-in-watch-sources", RuleGroupId::Tracking),
+  ("vue-vet/reactivity/no-primitive-reactive-target", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-props-snapshot-in-ref", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-reactive-destructure", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-reactive-read-during-pause-tracking", RuleGroupId::Tracking),
@@ -49,9 +50,13 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-shallow-reactive-destructure", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-side-effects-in-computed", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-stale-prop-flow", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-torefs-on-non-proxy", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-trigger-ref-on-non-ref", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-unused-computed-binding", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-v-model-nonreactive-source", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-watch-callback-as-tracking-scope", RuleGroupId::Tracking),
+  ("vue-vet/reactivity/no-watch-replaced-object-source", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-watch-unwrapped-source", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/prefer-computed", RuleGroupId::Derivation),
   ("vue-vet/reactivity/prefer-store-to-refs", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/prefer-watch-over-effect-for-single-source", RuleGroupId::Derivation),
@@ -212,7 +217,7 @@ mod tests {
       "vue-vet/reactivity/no-returned-watcher-cleanup",
     ];
     let inventory = rule_inventory(&[]);
-    assert_eq!(inventory.counts.total, 106, "composed CLI inventory count");
+    assert_eq!(inventory.counts.total, 111, "composed CLI inventory count");
     let lifetime = rule_inventory(&[RuleGroupId::Lifetime]);
     let tracking = rule_inventory(&[RuleGroupId::Tracking]);
     for id in LIFETIME_IDS {

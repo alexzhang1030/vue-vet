@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-primitive-reactive-target",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-primitive-reactive-target",
+    "message": "`reactive` cannot make a primitive or null value reactive",
+    "help": "Pass a non-null object, or use `ref` for primitive state.",
+    "file": "fixtures/rules/no-primitive-reactive-target/invalid/unicode.vue",
+    "span": {
+      "offset": 93,
+      "length": 3,
+      "line": 4,
+      "column": 24
+    }
+  }
+]

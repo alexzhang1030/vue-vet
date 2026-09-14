@@ -2,7 +2,9 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use vue_vet_config::{Config, apply_suppressions};
 use vue_vet_core::{Diagnostic, FileId, ScanSummary};
-use vue_vet_rules::consolidate_overlapping_computed_impurity;
+use vue_vet_rules::{
+  consolidate_overlapping_computed_impurity, consolidate_overlapping_watch_source_sites,
+};
 
 /// Applies every diagnostic policy in one deterministic final pass.
 pub struct DiagnosticFinalizer<'a> {
@@ -31,6 +33,7 @@ impl<'a> DiagnosticFinalizer<'a> {
     }
     finalized.extend(by_file.into_values().flatten());
     consolidate_overlapping_computed_impurity(&mut finalized);
+    consolidate_overlapping_watch_source_sites(&mut finalized);
     sort_and_dedup_diagnostics(&mut finalized);
     ScanSummary { files_scanned, diagnostics: finalized, score: 0 }.finish()
   }

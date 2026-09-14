@@ -130,6 +130,7 @@ mod tests {
       top_level_await_ends: Vec::new(),
       operands: Vec::new(),
       lifetime: vue_vet_core::ReactivityLifetimeFacts::default(),
+      source_contracts: vue_vet_core::SourceContractFacts::default(),
       reactivity_graph: Arc::new(graph),
     }
   }

@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-torefs-on-non-proxy",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-torefs-on-non-proxy",
+    "message": "`toRefs` expects a reactive object, not a plain object or array",
+    "help": "Wrap the value with `reactive` / `readonly` first, or use `toRef` on a real proxy.",
+    "file": "fixtures/rules/no-torefs-on-non-proxy/invalid/array-literal.vue",
+    "span": {
+      "offset": 74,
+      "length": 6,
+      "line": 3,
+      "column": 21
+    }
+  }
+]
