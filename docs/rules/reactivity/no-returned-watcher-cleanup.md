@@ -49,17 +49,21 @@ watchEffect(() => {
 
 Oxc-backed lifetime facts: the watch/watchEffect-family callback (second
 argument for `watch`, first for the effect family) directly returns an arrow or
-function, or a same-scope identifier proven to be a function. Alias imports
-count; shadowed locals, alias cycles, reassigned function declarations, and
-generator callbacks stay quiet. Returning a function that is also registered
-with the callback `onCleanup` parameter (including after `await`) or with
-synchronous `onWatcherCleanup` stays quiet. Aliases of the same function
-identity are equivalent. Watch's cleanup parameter remains slot 2 even when
-earlier parameters are destructured. `onCleanup(...[dispose])` and an explicit
+function, a same-scope identifier proven to be a function, or a same-file
+`watch` / `watchEffect` call (the inner stop handle). Vue 3.5 ignores that
+returned handle; it is not registered as cleanup. Alias imports count; shadowed
+locals, alias cycles, reassigned function declarations, and generator callbacks
+stay quiet. Returning a function that is also registered with the callback
+`onCleanup` parameter (including after `await`) or with synchronous
+`onWatcherCleanup` stays quiet. Aliases of the same function identity are
+equivalent. Watch's cleanup parameter remains slot 2 even when earlier
+parameters are destructured. `onCleanup(...[dispose])` and an explicit
 `onWatcherCleanup(dispose, false, owner)` captured before `await` stay quiet.
 Unknown registrar spreads abstain rather than claiming a missing registration. Watch calls that contain spread arguments stay quiet because the
 callback slot is no longer certain. Watch source getters are not callbacks.
-Nested returns inside unrelated inner functions stay quiet.
+Nested returns inside unrelated inner functions stay quiet. A `return
+watch(...)` finding uses the returned expression span and stays on this id
+even when nested-watch is also enabled.
 
 ## Applicability
 

@@ -44,16 +44,19 @@ fn list_rules_is_sorted_unique_and_includes_project_ids() {
   );
   assert_eq!(
     parsed.pointer("/counts/total").and_then(Value::as_u64),
-    Some(128),
-    "composed CLI inventory must be 128 after customRef notification, cleanup-identity, collection-lookup, extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
+    Some(130),
+    "composed CLI inventory must be 130 after lifetime ownership, customRef notification, cleanup-identity, collection-lookup, extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
   );
 }
 
 #[test]
 fn list_rules_lifetime_includes_four_and_tracking_excludes_them() {
   const LIFETIME_IDS: &[&str] = &[
+    "vue-vet/reactivity/no-detached-effect-scope-without-stop",
     "vue-vet/reactivity/no-late-scope-dispose",
     "vue-vet/reactivity/no-late-watcher-cleanup",
+    "vue-vet/reactivity/no-nested-watch-without-cleanup",
+    "vue-vet/reactivity/no-on-scope-dispose-reactive-read",
     "vue-vet/reactivity/no-orphaned-scope-watcher",
     "vue-vet/reactivity/no-returned-watcher-cleanup",
     "vue-vet/reactivity/no-watch-cleanup-current-source",
@@ -95,6 +98,31 @@ fn list_rules_text_has_dense_columns() {
   assert!(stdout.contains("SEVERITY"));
   assert!(stdout.contains("vue-vet/project/unresolved-import"));
   assert!(stdout.contains("tracking") || stdout.contains("source-contracts"));
+}
+
+#[test]
+fn list_rules_lifetime_includes_ownership_ids() {
+  let output = run(&["--list-rules", "--format", "json", "--group", "lifetime"]);
+  assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+  let parsed: Value = serde_json::from_slice(&output.stdout).expect("lifetime json");
+  let ids: Vec<_> = parsed
+    .get("rules")
+    .and_then(Value::as_array)
+    .map(|rules| {
+      rules
+        .iter()
+        .filter_map(|row| row.get("id").and_then(Value::as_str).map(str::to_owned))
+        .collect()
+    })
+    .unwrap_or_default();
+  for id in [
+    "vue-vet/reactivity/no-detached-effect-scope-without-stop",
+    "vue-vet/reactivity/no-nested-watch-without-cleanup",
+    "vue-vet/reactivity/no-orphaned-scope-watcher",
+    "vue-vet/reactivity/no-returned-watcher-cleanup",
+  ] {
+    assert!(ids.iter().any(|row| row == id), "missing {id} in {ids:?}");
+  }
 }
 
 #[test]

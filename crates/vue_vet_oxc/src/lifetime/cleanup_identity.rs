@@ -806,7 +806,7 @@ fn fact_for_watcher(
   let Some(callback) = watcher.callback else {
     return Vec::new();
   };
-  let Some(source_symbol) = watcher.source_symbol else {
+  let Some(source_symbol) = watcher.identity_source_symbol else {
     return Vec::new();
   };
   if resolver.symbol_has_write(source_symbol) {

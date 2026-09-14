@@ -459,4 +459,156 @@ for (const mode of ["destructure-target", "conditional-alias"]) {
   scope.stop();
 }
 
+for (const detachedScope of [false, true]) {
+  const owner = effectScope();
+  const a = ref(0);
+  const b = ref(0);
+  let hits = 0;
+  owner.run(() =>
+    watch(
+      a,
+      () => {
+        if (detachedScope) {
+          const orphan = effectScope(true);
+          orphan.run(() =>
+            watch(
+              b,
+              () => {
+                hits += 1;
+              },
+              { flush: "sync" },
+            ),
+          );
+        } else {
+          watch(
+            b,
+            () => {
+              hits += 1;
+            },
+            { flush: "sync" },
+          );
+        }
+      },
+      { flush: "sync" },
+    ),
+  );
+  a.value = 1;
+  a.value = 2;
+  owner.stop();
+  b.value = 1;
+  assert.equal(hits, 2);
+  results.push({
+    case: `discarded-inner-detached-scope-${detachedScope}`,
+    hitsAfterOwnerStop: hits,
+  });
+}
+
+{
+  const source = ref(0);
+  let hits = 0;
+  function makeOwnedListener() {
+    const scope = effectScope(true);
+    scope.run(() =>
+      watch(
+        source,
+        () => {
+          hits += 1;
+        },
+        { flush: "sync" },
+      ),
+    );
+    return () => scope.stop();
+  }
+  const dispose = makeOwnedListener();
+  source.value = 1;
+  dispose();
+  source.value = 2;
+  assert.equal(hits, 1);
+  results.push({ case: "returned-disposer-owns-detached-scope", hits });
+}
+
+{
+  const owner = effectScope();
+  const a = ref(0);
+  const b = ref(0);
+  let hits = 0;
+  owner.run(() =>
+    watch(
+      a,
+      () => {
+        owner.run(() =>
+          watch(
+            b,
+            () => {
+              hits += 1;
+            },
+            { flush: "sync" },
+          ),
+        );
+      },
+      { flush: "sync" },
+    ),
+  );
+  a.value = 1;
+  a.value = 2;
+  owner.stop();
+  b.value = 1;
+  assert.equal(hits, 0);
+  results.push({ case: "explicit-scope-run-reentry-owns-inner", hitsAfterOwnerStop: hits });
+}
+
+{
+  const owner = effectScope();
+  const a = ref(0);
+  const b = ref(0);
+  let hits = 0;
+  owner.run(() =>
+    watch(
+      a,
+      (_value, _old, onCleanup) => {
+        const stopInner = watch(
+          b,
+          () => {
+            hits += 1;
+          },
+          { flush: "sync" },
+        );
+        onCleanup(stopInner);
+      },
+      { flush: "sync" },
+    ),
+  );
+  a.value = 1;
+  a.value = 2;
+  owner.stop();
+  b.value = 1;
+  assert.equal(hits, 0);
+  results.push({ case: "on-cleanup-owns-inner-handle", hitsAfterOwnerStop: hits });
+}
+
+{
+  const a = ref(0);
+  const b = ref(0);
+  let hits = 0;
+  const stop = watch(
+    a,
+    () => {
+      watch(
+        b,
+        () => {
+          hits += 1;
+        },
+        { flush: "sync" },
+      );
+    },
+    { flush: "sync", once: true },
+  );
+  a.value = 1;
+  a.value = 2;
+  stop();
+  b.value = 1;
+  assert.equal(hits, 1);
+  results.push({ case: "outer-once-creates-single-inner", hits });
+}
+
 console.log(JSON.stringify({ vue: vue.version, results }, null, 2));

@@ -1,0 +1,34 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-watch-ignored-option",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-watch-ignored-option",
+    "message": "`watchEffect` / `watchPostEffect` / `watchSyncEffect` ignore `once`",
+    "help": "Remove `once`. It does not stop later reruns; stop the handle or use `watch(..., { once: true })`.",
+    "file": "fixtures/rules/no-nested-watch-without-cleanup/invalid/effect-family-once-ignored.vue",
+    "span": {
+      "offset": 178,
+      "length": 4,
+      "line": 6,
+      "column": 45
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/no-nested-watch-without-cleanup",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-nested-watch-without-cleanup",
+    "message": "`watchEffect` created inside a repeating watcher callback is not stopped when that callback ends",
+    "help": "Keep the inner stop handle, register it with `onCleanup` / `onWatcherCleanup`, or re-enter an owner `scope.run` (outer 5:1, source 6:28). The first immediate run may be scope-owned; later callbacks still leak.",
+    "file": "fixtures/rules/no-nested-watch-without-cleanup/invalid/effect-family-once-ignored.vue",
+    "span": {
+      "offset": 136,
+      "length": 70,
+      "line": 6,
+      "column": 3
+    }
+  }
+]

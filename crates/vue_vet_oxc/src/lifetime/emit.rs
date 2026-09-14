@@ -9,6 +9,7 @@ use vue_vet_core::{
 };
 
 use super::index::LifetimeIndex;
+use super::ownership;
 use super::resolve::{
   FunctionResolver, callback_parameter_at, cleanup_parameter_index, enclosing_function,
   referenced_symbol, uncertain_to_function,
@@ -37,7 +38,7 @@ pub(super) fn emit_all(
     }
     let returned = returned_cache
       .entry(callback.node_id)
-      .or_insert_with(|| function_returned_values(semantic, resolver, callback.node_id));
+      .or_insert_with(|| function_returned_values(semantic, resolver, index, callback.node_id));
     candidates =
       candidates.saturating_add(index.registers_by_fn.get(&callback.node_id).map_or(0, Vec::len));
     let registered = registered_cache
@@ -98,6 +99,7 @@ pub(super) fn emit_all(
   }
 
   let mut enclosing = index.enclosing.clone();
+  let mut orphaned_watchers = HashSet::new();
   for watcher in &index.watchers {
     if !watcher.unused {
       continue;
@@ -123,6 +125,7 @@ pub(super) fn emit_all(
     {
       continue;
     }
+    orphaned_watchers.insert(watcher.node_id);
     facts.orphaned_scope_watchers.push(OrphanedScopeWatcherFact {
       api: watcher.api,
       watcher_span: span_of(line_index, sfc_source, script_offset, watcher.span),
@@ -168,7 +171,16 @@ pub(super) fn emit_all(
     }
   }
 
-  candidates
+  let ownership_candidates = ownership::emit_ownership(
+    semantic,
+    index,
+    line_index,
+    sfc_source,
+    script_offset,
+    &orphaned_watchers,
+    facts,
+  );
+  candidates.saturating_add(ownership_candidates)
 }
 
 #[derive(Clone, Copy)]
@@ -180,6 +192,7 @@ struct ReturnedValue {
 fn function_returned_values(
   semantic: &oxc_semantic::Semantic<'_>,
   resolver: &mut FunctionResolver<'_, '_>,
+  index: &LifetimeIndex,
   function_id: NodeId,
 ) -> Vec<ReturnedValue> {
   let mut values = Vec::new();
@@ -189,14 +202,15 @@ fn function_returned_values(
         match statement {
           Statement::ReturnStatement(ret) => {
             if let Some(argument) = &ret.argument
-              && let Some(value) = proven_function_value(semantic, resolver, argument, function_id)
+              && let Some(value) =
+                proven_function_value(semantic, resolver, index, argument, function_id)
             {
               values.push(value);
             }
           }
           Statement::ExpressionStatement(expression) => {
             if let Some(value) =
-              proven_function_value(semantic, resolver, &expression.expression, function_id)
+              proven_function_value(semantic, resolver, index, &expression.expression, function_id)
             {
               values.push(value);
             }
@@ -206,14 +220,28 @@ fn function_returned_values(
       }
     }
     AstKind::ArrowFunctionExpression(arrow) => {
-      collect_block_returns(semantic, resolver, &arrow.body.statements, function_id, &mut values);
+      collect_block_returns(
+        semantic,
+        resolver,
+        index,
+        &arrow.body.statements,
+        function_id,
+        &mut values,
+      );
     }
     AstKind::Function(function) => {
       if function.generator {
         return values;
       }
       if let Some(body) = &function.body {
-        collect_block_returns(semantic, resolver, &body.statements, function_id, &mut values);
+        collect_block_returns(
+          semantic,
+          resolver,
+          index,
+          &body.statements,
+          function_id,
+          &mut values,
+        );
       }
     }
     _ => {}
@@ -224,6 +252,7 @@ fn function_returned_values(
 fn collect_block_returns(
   semantic: &oxc_semantic::Semantic<'_>,
   resolver: &mut FunctionResolver<'_, '_>,
+  index: &LifetimeIndex,
   statements: &[Statement<'_>],
   function_id: NodeId,
   values: &mut Vec<ReturnedValue>,
@@ -232,24 +261,26 @@ fn collect_block_returns(
     match statement {
       Statement::ReturnStatement(ret) => {
         if let Some(argument) = &ret.argument
-          && let Some(value) = proven_function_value(semantic, resolver, argument, function_id)
+          && let Some(value) =
+            proven_function_value(semantic, resolver, index, argument, function_id)
         {
           values.push(value);
         }
       }
       Statement::BlockStatement(block) => {
-        collect_block_returns(semantic, resolver, &block.body, function_id, values);
+        collect_block_returns(semantic, resolver, index, &block.body, function_id, values);
       }
       Statement::IfStatement(if_statement) => {
         collect_statement_returns(
           semantic,
           resolver,
+          index,
           &if_statement.consequent,
           function_id,
           values,
         );
         if let Some(alternate) = &if_statement.alternate {
-          collect_statement_returns(semantic, resolver, alternate, function_id, values);
+          collect_statement_returns(semantic, resolver, index, alternate, function_id, values);
         }
       }
       _ => {}
@@ -260,17 +291,18 @@ fn collect_block_returns(
 fn collect_statement_returns(
   semantic: &oxc_semantic::Semantic<'_>,
   resolver: &mut FunctionResolver<'_, '_>,
+  index: &LifetimeIndex,
   statement: &Statement<'_>,
   function_id: NodeId,
   values: &mut Vec<ReturnedValue>,
 ) {
   match statement {
     Statement::BlockStatement(block) => {
-      collect_block_returns(semantic, resolver, &block.body, function_id, values);
+      collect_block_returns(semantic, resolver, index, &block.body, function_id, values);
     }
     Statement::ReturnStatement(ret) => {
       if let Some(argument) = &ret.argument
-        && let Some(value) = proven_function_value(semantic, resolver, argument, function_id)
+        && let Some(value) = proven_function_value(semantic, resolver, index, argument, function_id)
       {
         values.push(value);
       }
@@ -282,6 +314,7 @@ fn collect_statement_returns(
 fn proven_function_value(
   semantic: &oxc_semantic::Semantic<'_>,
   resolver: &mut FunctionResolver<'_, '_>,
+  index: &LifetimeIndex,
   expression: &Expression<'_>,
   callback_id: NodeId,
 ) -> Option<ReturnedValue> {
@@ -299,6 +332,9 @@ fn proven_function_value(
         return None;
       }
       Some(ReturnedValue { span: identifier.span, identity: Some(function.node_id) })
+    }
+    Expression::CallExpression(call) => {
+      index.watcher_for_call(call).map(|_| ReturnedValue { span: call.span, identity: None })
     }
     _ => None,
   }

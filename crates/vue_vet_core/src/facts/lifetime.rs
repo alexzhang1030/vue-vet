@@ -99,6 +99,27 @@ pub struct WatchCleanupCurrentSourceFact {
   pub registration_span: SourceSpan,
 }
 
+/// Inner watcher created by a repeating outer callback with a discarded stop handle.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct NestedWatchWithoutCleanupFact {
+  pub api: WatcherApiKind,
+  pub inner_span: SourceSpan,
+  pub outer_span: SourceSpan,
+  pub outer_callback_span: SourceSpan,
+  pub source_span: SourceSpan,
+}
+
+/// Detached `effectScope(true)` that created a live watcher and was discarded.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[expect(clippy::struct_field_names, reason = "each field is a distinct causal span")]
+pub struct DetachedEffectScopeWithoutStopFact {
+  pub scope_span: SourceSpan,
+  pub run_span: SourceSpan,
+  pub watcher_span: SourceSpan,
+  pub source_span: SourceSpan,
+  pub outer_span: SourceSpan,
+}
+
 /// Domain facts for watcher/effect-scope lifetime contracts.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ReactivityLifetimeFacts {
@@ -112,6 +133,10 @@ pub struct ReactivityLifetimeFacts {
   pub late_scope_disposes: Vec<LateScopeDisposeFact>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub watch_cleanup_current_sources: Vec<WatchCleanupCurrentSourceFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub nested_watch_without_cleanups: Vec<NestedWatchWithoutCleanupFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub detached_effect_scopes_without_stop: Vec<DetachedEffectScopeWithoutStopFact>,
 }
 
 impl ReactivityLifetimeFacts {
@@ -122,6 +147,8 @@ impl ReactivityLifetimeFacts {
       && self.orphaned_scope_watchers.is_empty()
       && self.late_scope_disposes.is_empty()
       && self.watch_cleanup_current_sources.is_empty()
+      && self.nested_watch_without_cleanups.is_empty()
+      && self.detached_effect_scopes_without_stop.is_empty()
   }
 
   pub fn sort_by_source_order(&mut self) {
@@ -132,6 +159,8 @@ impl ReactivityLifetimeFacts {
     self.watch_cleanup_current_sources.sort_by_key(|fact| {
       (fact.release_span.offset, fact.acquisition_span.offset, fact.replacement_span.offset)
     });
+    self.nested_watch_without_cleanups.sort_by_key(|fact| fact.inner_span.offset);
+    self.detached_effect_scopes_without_stop.sort_by_key(|fact| fact.scope_span.offset);
   }
 }
 

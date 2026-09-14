@@ -8,6 +8,8 @@ const SELF_TRIGGER: &str = "vue-vet/reactivity/no-computed-self-trigger";
 const SIDE_EFFECTS: &str = "vue-vet/reactivity/no-side-effects-in-computed";
 const EMPTY_WATCH: &str = "vue-vet/reactivity/no-empty-watch-sources";
 const UNWRAPPED_WATCH: &str = "vue-vet/reactivity/no-watch-unwrapped-source";
+const NESTED_WATCH: &str = "vue-vet/reactivity/no-nested-watch-without-cleanup";
+const RETURNED_CLEANUP: &str = "vue-vet/reactivity/no-returned-watcher-cleanup";
 
 /// Drop the overlapping partner of the same write span after config/suppression.
 ///
@@ -103,6 +105,28 @@ pub fn consolidate_overlapping_watch_source_sites(diagnostics: &mut Vec<Diagnost
     let end = diagnostic.span.offset.saturating_add(diagnostic.span.length);
     !unwrapped.iter().any(|(file, inner_start, inner_end)| {
       file == &diagnostic.file && *inner_start >= start && *inner_end <= end
+    })
+  });
+}
+
+/// Keep `no-returned-watcher-cleanup` when it shares a span with nested-watch.
+pub fn consolidate_overlapping_nested_watch_returns(diagnostics: &mut Vec<Diagnostic>) {
+  let returned: Vec<(FileId, usize, usize)> = diagnostics
+    .iter()
+    .filter(|diagnostic| diagnostic.rule_id == RETURNED_CLEANUP)
+    .map(|diagnostic| (diagnostic.file.clone(), diagnostic.span.offset, diagnostic.span.length))
+    .collect();
+  if returned.is_empty() {
+    return;
+  }
+  diagnostics.retain(|diagnostic| {
+    if diagnostic.rule_id != NESTED_WATCH {
+      return true;
+    }
+    !returned.iter().any(|(file, offset, length)| {
+      file == &diagnostic.file
+        && *offset == diagnostic.span.offset
+        && *length == diagnostic.span.length
     })
   });
 }
@@ -208,5 +232,16 @@ mod tests {
     consolidate_overlapping_watch_source_sites(&mut diagnostics);
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics.first().map(|row| row.rule_id.as_str()), Some(UNWRAPPED_WATCH));
+  }
+
+  #[test]
+  fn returned_cleanup_wins_shared_span_over_nested_watch() {
+    let mut diagnostics = vec![
+      diagnostic(NESTED_WATCH, 4, 12, Severity::Warning),
+      diagnostic(RETURNED_CLEANUP, 4, 12, Severity::Warning),
+    ];
+    consolidate_overlapping_nested_watch_returns(&mut diagnostics);
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics.first().map(|row| row.rule_id.as_str()), Some(RETURNED_CLEANUP));
   }
 }

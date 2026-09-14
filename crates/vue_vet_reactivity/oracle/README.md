@@ -129,3 +129,14 @@ overloads (immutable ref vs live `__v_isRef` marker, including pattern
 assignment, constructor arguments, and call / tagged-template receivers,
 including TypeScript instantiation wrappers) and
 `effectScope` constructor callbacks.
+
+`just oracle-lifetime` (`lifetime-runs.mjs` plus `lifetime-ownership-runs.mjs`)
+pins Vue 3.5.40 and includes discarded nested-watch / detached-scope ownership:
+outer callbacks fire at least twice after the original `scope.run` returns, the
+owner is stopped, the inner source is mutated, and residual callbacks are
+asserted. Returned disposers and explicit `scope.run` re-entry stay owned.
+Defined object/array assignment defaults skip the initializer;
+`ref(customRef(...))` preserves the custom getter; a mutual computed cycle
+evaluates to `undefined` and terminates; synchronous conditional
+`getCurrentScope()` capture can retain the owner. Bounded hits are not
+infinite-execution claims.

@@ -252,7 +252,7 @@ File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         imports reuse the canonical Vue-import pass. `watch` still runs the
         ordinary source collector, watch-family option/signature facts, and
         callback-contract collectors (`watch_callbacks.rs`). Combined
-        `RULESET_VERSION` is 27; `REACTIVITY_GRAPH_VERSION` stays 41.
+        `RULESET_VERSION` is 28; `REACTIVITY_GRAPH_VERSION` stays 41.
         Named effect-family imports keep source indexes empty when every Oxc
         resolved reference is a proven call with fewer than two arguments and
         no spread (current watch-API rules read that second argument). Ordinary
@@ -294,6 +294,8 @@ arguments and unproven scope identity abstain. See
 [`no-orphaned-scope-watcher`](../../docs/rules/reactivity/no-orphaned-scope-watcher.md),
 [`no-late-scope-dispose`](../../docs/rules/reactivity/no-late-scope-dispose.md),
 [`no-watch-cleanup-current-source`](../../docs/rules/reactivity/no-watch-cleanup-current-source.md),
+[`no-nested-watch-without-cleanup`](../../docs/rules/reactivity/no-nested-watch-without-cleanup.md),
+[`no-detached-effect-scope-without-stop`](../../docs/rules/reactivity/no-detached-effect-scope-without-stop.md),
 [`lifetime-runs.mjs`](../../crates/vue_vet_reactivity/oracle/lifetime-runs.mjs),
 and [`cleanup-identity-runs.mjs`](../../crates/vue_vet_reactivity/oracle/cleanup-identity-runs.mjs).
 Cleanup-identity facts reuse the same lifetime index (one walk, per-root
@@ -320,6 +322,43 @@ from semantic reference roles and reused. Local/import poisoning, method
 mutation, helper escapes, completed/paused watchers, inactive watch creation,
 and discharged captured releases stay unproven. Serialized reactivity graphs
 are unchanged, so `REACTIVITY_GRAPH_VERSION` stays 41.
+Nested-watch and detached-scope facts share that lifetime index: one semantic
+walk plus root/owner keyed queries. Expression-statement / `void` handle
+discards, proven repeating outer callbacks whose *source result* can still
+change, ordered stop state (literals or proven *fresh plain* Vue `ref.value`
+reads only; `ref(existingRef)` / `ref(customRef(...))` and arbitrary getters
+cannot prove an early stop), and
+externally alive sources are in scope. Inner eligibility uses classified
+tracked operand roles (read / write / delete / update) on an actual execution
+prefix — assignment defaults record a read only when activation is proven
+(missing/undefined activate, defined skip, unknown abstain) — plus effective
+options under the exact Vue API (`once` is ignored on the effect family;
+ordinary `watch` `once`+`immediate` exhausts). A getter / computed result is
+Changing only after an eligible synchronous subscribing read; after-await and
+async Promise results stay Unknown. Computed getter graphs insert Visiting
+before following an edge (a back edge is Unknown; completed results stay
+memoized; acyclic chains are depth-bounded). A constant
+computed used as an *inner* source may still retain subscribers; a constant
+computed or stable-result getter — including `() => source.value` wrapping a
+constant computed — used as the *outer* source does not repeat.
+Scope ownership is per invocation (a function may run under `scope.run` and
+later as a watcher callback), including precomputed `on`/`off` intervals.
+Constructor arguments, tagged templates, capability mutation (computed keys,
+`delete`, loops), and `getCurrentScope()` escaping from a proven synchronous
+`run` unprove detached scopes. A synchronous *conditional* capture is
+`MayEscape` and leaves owner proof incomplete. After-await `getCurrentScope()`
+is `undefined` and does not transfer ownership. Known unreachable lookups stay
+inert. Unknown helpers, retained handles, unreachable
+creation, unknown evaluation forms, and incomplete ownership abstain.
+`return watch(...)` stays on `no-returned-watcher-cleanup` with the returned
+expression span. A discarded detached `effectScope(true)` suppresses
+nested-watch for watchers created inside that `run`. After-await orphans stay
+on `no-orphaned-scope-watcher`. Do not fold these predicates into
+source-contract uncertainty. Statement ordinals, preceding exits, watcher
+identity by `NodeId`, and scope-active intervals are built once. Shared
+outer/getter/scope proofs stay memoized. Statement / reference / watcher /
+toggle / computed-edge inspections use a test-only counter; production
+`WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 28.
 
 `ModuleSummary` (formerly the opaque `PreparedModuleTrace`) is the formal
 cross-module boundary: imports, exports, provides/injects, local reactivity, and

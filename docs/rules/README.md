@@ -10,11 +10,11 @@ not Essential/a11y parity with `eslint-plugin-vue`.
 
 | Tier | Meaning | Count |
 | --- | --- | ---: |
-| `tracer` | Needs `vue_vet_reactivity` graph facts (read kinds, guards, scopes, prop edges, binding kinds) | 62 |
+| `tracer` | Needs `vue_vet_reactivity` graph facts (read kinds, guards, scopes, prop edges, binding kinds) | 64 |
 | `parity` | Template Essential / a11y / macros / after-await registrars — open-box completeness | 50 |
 | `practice` | Ecosystem suggestions (`category: practice`); excluded from score by default | 14 |
 
-Total registered **file** rules (builtins + practice): **126**.
+Total registered **file** rules (builtins + practice): **128**.
 
 Project-graph IDs are listed separately below and are not in this file-ID set.
 
@@ -24,7 +24,7 @@ Project-graph IDs are listed separately below and are not in this file-ID set.
 | `correctness` | 36 |
 | `maintainability` | 1 |
 | `practice` | 13 |
-| `reactivity` | 62 |
+| `reactivity` | 64 |
 | `security` | 1 |
 
 Per-rule pages live under `docs/rules/<category>/<name>.md`.
@@ -117,6 +117,7 @@ Per-rule pages live under `docs/rules/<category>/<name>.md`.
 - [`vue-vet/reactivity/no-custom-ref-lost-notification`](./reactivity/no-custom-ref-lost-notification.md) `tracer`
 - [`vue-vet/reactivity/no-deep-watch-on-reactive-root`](./reactivity/no-deep-watch-on-reactive-root.md) `tracer`
 - [`vue-vet/reactivity/no-deferred-callback-reactive-read-in-effect`](./reactivity/no-deferred-callback-reactive-read-in-effect.md) `tracer`
+- [`vue-vet/reactivity/no-detached-effect-scope-without-stop`](./reactivity/no-detached-effect-scope-without-stop.md) `tracer`
 - [`vue-vet/reactivity/no-effect-scope-callback-argument`](./reactivity/no-effect-scope-callback-argument.md) `tracer`
 - [`vue-vet/reactivity/no-effect-write-without-read`](./reactivity/no-effect-write-without-read.md) `tracer`
 - [`vue-vet/reactivity/no-empty-watch-sources`](./reactivity/no-empty-watch-sources.md) `tracer`
@@ -129,6 +130,7 @@ Per-rule pages live under `docs/rules/<category>/<name>.md`.
 - [`vue-vet/reactivity/no-missing-torefs-key`](./reactivity/no-missing-torefs-key.md) `tracer`
 - [`vue-vet/reactivity/no-model-ref-as-operand`](./reactivity/no-model-ref-as-operand.md) `tracer`
 - [`vue-vet/reactivity/no-multiple-effects-same-target`](./reactivity/no-multiple-effects-same-target.md) `tracer`
+- [`vue-vet/reactivity/no-nested-watch-without-cleanup`](./reactivity/no-nested-watch-without-cleanup.md) `tracer`
 - [`vue-vet/reactivity/no-nonreactive-props-destructure`](./reactivity/no-nonreactive-props-destructure.md) `tracer`
 - [`vue-vet/reactivity/no-on-scope-dispose-reactive-read`](./reactivity/no-on-scope-dispose-reactive-read.md) `tracer`
 - [`vue-vet/reactivity/no-once-immediate-discard`](./reactivity/no-once-immediate-discard.md) `tracer`

@@ -17,7 +17,7 @@ Workspace-internal (`publish = false`).
 | --- | --- | --- |
 | `CACHE_FORMAT_VERSION` | `5` | On-disk entry schema; directory `v5/` |
 | `BASELINE_FORMAT_VERSION` | `1` | Baseline file schema |
-| `RULESET_VERSION` | `27` | customRef track/trigger notification chain (`no-custom-ref-lost-notification`) on the cleanup-identity catalog (v26) |
+| `RULESET_VERSION` | `28` | lifetime ownership (`no-nested-watch-without-cleanup`, `no-detached-effect-scope-without-stop`) on the customRef catalog (v27) |
 | `CACHE_VIZE_CROQUIS_VERSION` | `0.387.0` | Hashed `vize-version` (`AnalysisStackIdentity`) |
 | `CACHE_OXC_PARSER_VERSION` | `0.142.0` | Hashed `oxc-version` (`AnalysisStackIdentity`) |
 
