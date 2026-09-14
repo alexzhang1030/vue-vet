@@ -3033,3 +3033,132 @@ fn practice_stable_computed_identity_fixtures_match_exact_diagnostics() {
     );
   }
 }
+
+#[test]
+fn no_late_cancellation_guard_fixtures_match_exact_diagnostics() {
+  for (path, source, expected) in [
+    (
+      "fixtures/rules/no-late-cancellation-guard/invalid/basic.vue",
+      include_str!("../../../fixtures/rules/no-late-cancellation-guard/invalid/basic.vue"),
+      include_str!("../../../fixtures/snapshots/no-late-cancellation-guard/basic.json"),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/invalid/alias.vue",
+      include_str!("../../../fixtures/rules/no-late-cancellation-guard/invalid/alias.vue"),
+      include_str!("../../../fixtures/snapshots/no-late-cancellation-guard/alias.json"),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/invalid/named-callback.vue",
+      include_str!("../../../fixtures/rules/no-late-cancellation-guard/invalid/named-callback.vue"),
+      include_str!("../../../fixtures/snapshots/no-late-cancellation-guard/named-callback.json"),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/invalid/watch-effect.vue",
+      include_str!("../../../fixtures/rules/no-late-cancellation-guard/invalid/watch-effect.vue"),
+      include_str!("../../../fixtures/snapshots/no-late-cancellation-guard/watch-effect.json"),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/invalid/unicode.vue",
+      include_str!("../../../fixtures/rules/no-late-cancellation-guard/invalid/unicode.vue"),
+      include_str!("../../../fixtures/snapshots/no-late-cancellation-guard/unicode.json"),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/invalid/crlf.vue",
+      include_str!("../../../fixtures/rules/no-late-cancellation-guard/invalid/crlf.vue"),
+      include_str!("../../../fixtures/snapshots/no-late-cancellation-guard/crlf.json"),
+    ),
+  ] {
+    assert_diagnostics(path, source, expected);
+  }
+  let empty = "[]";
+  for (path, source) in [
+    (
+      "fixtures/rules/no-late-cancellation-guard/valid/before-await.vue",
+      include_str!("../../../fixtures/rules/no-late-cancellation-guard/valid/before-await.vue"),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/valid/generation.vue",
+      include_str!("../../../fixtures/rules/no-late-cancellation-guard/valid/generation.vue"),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/valid/source-equality.vue",
+      include_str!("../../../fixtures/rules/no-late-cancellation-guard/valid/source-equality.vue"),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/valid/keyed-cache.vue",
+      include_str!("../../../fixtures/rules/no-late-cancellation-guard/valid/keyed-cache.vue"),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/valid/abort-controller.vue",
+      include_str!("../../../fixtures/rules/no-late-cancellation-guard/valid/abort-controller.vue"),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/valid/escaped-flag.vue",
+      include_str!("../../../fixtures/rules/no-late-cancellation-guard/valid/escaped-flag.vue"),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/valid/helper-delegation.vue",
+      include_str!(
+        "../../../fixtures/rules/no-late-cancellation-guard/valid/helper-delegation.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/valid/loop.vue",
+      include_str!("../../../fixtures/rules/no-late-cancellation-guard/valid/loop.vue"),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/valid/unknown-if.vue",
+      include_str!("../../../fixtures/rules/no-late-cancellation-guard/valid/unknown-if.vue"),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/valid/try-finally.vue",
+      include_str!("../../../fixtures/rules/no-late-cancellation-guard/valid/try-finally.vue"),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/valid/multiple-await.vue",
+      include_str!("../../../fixtures/rules/no-late-cancellation-guard/valid/multiple-await.vue"),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/valid/sync-async.vue",
+      include_str!("../../../fixtures/rules/no-late-cancellation-guard/valid/sync-async.vue"),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/valid/serialized.vue",
+      include_str!("../../../fixtures/rules/no-late-cancellation-guard/valid/serialized.vue"),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/valid/on-watcher-cleanup-sync.vue",
+      include_str!(
+        "../../../fixtures/rules/no-late-cancellation-guard/valid/on-watcher-cleanup-sync.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/valid/sync-onwatchercleanup-plus-late.vue",
+      include_str!(
+        "../../../fixtures/rules/no-late-cancellation-guard/valid/sync-onwatchercleanup-plus-late.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/valid/once.vue",
+      include_str!("../../../fixtures/rules/no-late-cancellation-guard/valid/once.vue"),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/valid/once-options-identifier.vue",
+      include_str!(
+        "../../../fixtures/rules/no-late-cancellation-guard/valid/once-options-identifier.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/valid/if-cancelled-return.vue",
+      include_str!(
+        "../../../fixtures/rules/no-late-cancellation-guard/valid/if-cancelled-return.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-late-cancellation-guard/valid/no-write.vue",
+      include_str!("../../../fixtures/rules/no-late-cancellation-guard/valid/no-write.vue"),
+    ),
+  ] {
+    assert_diagnostics(path, source, empty);
+  }
+}

@@ -49,6 +49,10 @@ oracle-self-trigger:
 oracle-lifetime:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node lifetime-runs.mjs && node lifetime-ownership-runs.mjs
 
+# Vue 3.5.40 late cancellation-guard / stale-settlement evidence (Node; frozen lock).
+oracle-stale-settlement:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node stale-settlement-runs.mjs
+
 # Vue 3.5.40 source-contract premises (issue #224). Locked oracle Vue pin.
 oracle-source-contracts:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node source-contracts.mjs && node watch-api.mjs && node watch-callback-contracts.mjs && node value-contracts.mjs

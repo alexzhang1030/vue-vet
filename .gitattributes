@@ -24,3 +24,4 @@ fixtures/rules/prefer-conditional-watch-source/invalid/crlf.vue -text whitespace
 fixtures/rules/prefer-queued-watch-flush/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/prefer-attached-effect-scope/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/prefer-lazy-computed-async/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/no-late-cancellation-guard/invalid/crlf.vue -text whitespace=cr-at-eol

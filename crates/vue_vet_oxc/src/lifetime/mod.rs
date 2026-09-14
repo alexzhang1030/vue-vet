@@ -5,6 +5,7 @@ mod emit;
 mod index;
 mod ownership;
 mod resolve;
+mod stale_settlement;
 mod stats;
 
 use vue_vet_core::ReactivityLifetimeFacts;
@@ -19,11 +20,21 @@ pub const fn counter_layout() -> (usize, usize) {
   (std::mem::size_of::<cleanup_identity::IdentityWork>(), std::mem::size_of::<CollectStats>())
 }
 
+#[cfg(test)]
+#[must_use]
+pub const fn settlement_counter_layout() -> usize {
+  std::mem::size_of::<stale_settlement::SettlementWork>()
+}
+
 #[cfg(not(test))]
 const _: () = {
   let layout = counter_layout();
   assert!(layout.0 == 0, "production IdentityWork is a ZST");
   assert!(layout.1 == 0, "production CollectStats is a ZST");
+  assert!(
+    std::mem::size_of::<stale_settlement::SettlementWork>() == 0,
+    "production SettlementWork is a ZST"
+  );
 };
 
 pub fn collect(
@@ -36,7 +47,10 @@ pub fn collect(
   let inner_work = stats.identity_inner_work();
   let ownership_work = stats.work();
   debug_assert!(
-    stats.total() < usize::MAX && inner_work < usize::MAX && ownership_work < usize::MAX,
+    stats.total() < usize::MAX
+      && inner_work < usize::MAX
+      && ownership_work < usize::MAX
+      && stats.settlement_inner_work() < usize::MAX,
     "lifetime index+emit work is counted for scaling tests"
   );
   facts
@@ -81,6 +95,15 @@ pub fn collect_with_visits(
     script_offset,
     &mut facts,
   ));
+  let settlement = stale_settlement::emit(
+    semantic,
+    &mut index,
+    &mut resolver,
+    &vue_exports,
+    stale_settlement::SpanOut { line_index, sfc_source, script_offset },
+    &mut facts,
+  );
+  debug_assert!(settlement.total() < usize::MAX, "settlement inner work is counted");
   facts.sort_by_source_order();
   #[cfg(test)]
   let stats = {
@@ -97,11 +120,18 @@ pub fn collect_with_visits(
     stats.identity_queries = identity_work.queries;
     stats.identity_copies = identity_work.copies;
     stats.identity_reference_visits = identity_work.reference_visits;
+    stats.settlement_ast = settlement.ast.get();
+    stats.settlement_references = settlement.references.get();
+    stats.settlement_wrappers = settlement.wrappers.get();
+    stats.settlement_aliases = settlement.aliases.get();
+    stats.settlement_joins = settlement.joins.get();
+    stats.settlement_sorts = settlement.sorts.get();
+    stats.settlement_queries = settlement.queries.get();
     stats
   };
   #[cfg(not(test))]
   let stats = {
-    let _ = (emit_all, selection_work, identity_index_work, identity_work);
+    let _ = (emit_all, selection_work, identity_index_work, identity_work, settlement);
     index.work.snapshot()
   };
   (facts, stats)

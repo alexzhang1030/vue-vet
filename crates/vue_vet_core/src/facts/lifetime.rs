@@ -120,6 +120,30 @@ pub struct DetachedEffectScopeWithoutStopFact {
   pub outer_span: SourceSpan,
 }
 
+/// Why a run-local cancellation guard still leaves an invalidation window.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LateCancellationGuardKind {
+  /// Bound `onCleanup` that sets the flag is registered after the source-dependent await.
+  AfterSourceDependentAwait,
+}
+
+/// A cancellation flag is registered after source-dependent suspension, so an
+/// earlier invalidation can still write this run's result.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct LateCancellationGuardFact {
+  pub kind: LateCancellationGuardKind,
+  pub api: WatcherApiKind,
+  /// Late bound `onCleanup(...)` registration.
+  pub registration_span: SourceSpan,
+  pub await_span: SourceSpan,
+  /// `if (!cancelled)` sink write of the awaited result.
+  pub write_span: SourceSpan,
+  pub callback_span: SourceSpan,
+  pub watcher_span: SourceSpan,
+  pub flag_span: SourceSpan,
+}
+
 /// Domain facts for watcher/effect-scope lifetime contracts.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ReactivityLifetimeFacts {
@@ -137,6 +161,8 @@ pub struct ReactivityLifetimeFacts {
   pub nested_watch_without_cleanups: Vec<NestedWatchWithoutCleanupFact>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub detached_effect_scopes_without_stop: Vec<DetachedEffectScopeWithoutStopFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub late_cancellation_guards: Vec<LateCancellationGuardFact>,
 }
 
 impl ReactivityLifetimeFacts {
@@ -149,6 +175,7 @@ impl ReactivityLifetimeFacts {
       && self.watch_cleanup_current_sources.is_empty()
       && self.nested_watch_without_cleanups.is_empty()
       && self.detached_effect_scopes_without_stop.is_empty()
+      && self.late_cancellation_guards.is_empty()
   }
 
   pub fn sort_by_source_order(&mut self) {
@@ -161,6 +188,9 @@ impl ReactivityLifetimeFacts {
     });
     self.nested_watch_without_cleanups.sort_by_key(|fact| fact.inner_span.offset);
     self.detached_effect_scopes_without_stop.sort_by_key(|fact| fact.scope_span.offset);
+    self.late_cancellation_guards.sort_by_key(|fact| {
+      (fact.registration_span.offset, fact.await_span.offset, fact.write_span.offset)
+    });
   }
 }
 

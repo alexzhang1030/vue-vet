@@ -1246,6 +1246,21 @@ scan so file **and** project findings appear exactly once (including
 never show raw filenames on the status line. Stop and clear the live line
 before stdout reports, cache-stat/fix messages, errors, or the reactivity TUI.
 
+## `once: true` is not a late cancellation-guard window
+
+Vue 3.5 wraps a `watch(..., { once: true })` callback as
+`_cb(...args); watchHandle()`. The async callback returns at its first
+`await`, then `effect.stop()` runs every cleanup registered so far — before
+that await settles. There is never a competing run, so a late bound
+`onCleanup` flag still yields a correct single write. The usual remediation
+(register the flag before `await`) makes `stop()` set the flag first and
+drops the only result. `no-late-cancellation-guard` abstains when `once` is
+literally `true` on a closed options object, and stays Unknown when options
+are an identifier, spread, computed key, or non-literal `once`.
+`watchEffect` / `watchPostEffect` / `watchSyncEffect` have no `once`.
+Runtime pin: `just oracle-stale-settlement` (`onceLate` writes `"one"`;
+`onceSync` writes nothing).
+
 ## Identifier `watch(n)` drops `watch(n.value)` unwrapped proof
 
 Source-contract indexing marks a ref `uncertain`/`escaped` when it is passed

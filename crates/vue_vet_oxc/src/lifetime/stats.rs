@@ -46,6 +46,20 @@ pub struct CollectStats {
   pub identity_copies: usize,
   #[cfg(test)]
   pub identity_reference_visits: usize,
+  #[cfg(test)]
+  pub settlement_ast: usize,
+  #[cfg(test)]
+  pub settlement_references: usize,
+  #[cfg(test)]
+  pub settlement_wrappers: usize,
+  #[cfg(test)]
+  pub settlement_aliases: usize,
+  #[cfg(test)]
+  pub settlement_joins: usize,
+  #[cfg(test)]
+  pub settlement_sorts: usize,
+  #[cfg(test)]
+  pub settlement_queries: usize,
 }
 
 impl CollectStats {
@@ -93,6 +107,26 @@ impl CollectStats {
         .saturating_add(self.identity_queries)
         .saturating_add(self.identity_copies)
         .saturating_add(self.identity_reference_visits)
+    }
+    #[cfg(not(test))]
+    {
+      let _ = self;
+      0
+    }
+  }
+
+  #[must_use]
+  pub const fn settlement_inner_work(self) -> usize {
+    #[cfg(test)]
+    {
+      self
+        .settlement_ast
+        .saturating_add(self.settlement_references)
+        .saturating_add(self.settlement_wrappers)
+        .saturating_add(self.settlement_aliases)
+        .saturating_add(self.settlement_joins)
+        .saturating_add(self.settlement_sorts)
+        .saturating_add(self.settlement_queries)
     }
     #[cfg(not(test))]
     {
@@ -268,6 +302,13 @@ impl WorkCounter {
       identity_queries: 0,
       identity_copies: 0,
       identity_reference_visits: 0,
+      settlement_ast: 0,
+      settlement_references: 0,
+      settlement_wrappers: 0,
+      settlement_aliases: 0,
+      settlement_joins: 0,
+      settlement_sorts: 0,
+      settlement_queries: 0,
     }
   }
 

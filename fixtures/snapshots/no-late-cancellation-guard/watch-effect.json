@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-late-cancellation-guard",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-late-cancellation-guard",
+    "message": "Cancellation guard for `watchEffect` is registered after a source-dependent `await`, so an earlier invalidation can still write this run's result",
+    "help": "Register the callback-bound `onCleanup` that sets the flag before `await`, then write only if the flag is clear (await 6:16, write 11:19, flag 7:7).",
+    "file": "fixtures/rules/no-late-cancellation-guard/invalid/watch-effect.vue",
+    "span": {
+      "offset": 242,
+      "length": 43,
+      "line": 8,
+      "column": 3
+    }
+  }
+]

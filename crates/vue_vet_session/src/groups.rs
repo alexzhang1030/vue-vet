@@ -42,6 +42,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-extracted-reactive-collection-method", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-inactive-scope-result", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-invalid-custom-ref-interface", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-late-cancellation-guard", RuleGroupId::Lifetime),
   ("vue-vet/reactivity/no-late-scope-dispose", RuleGroupId::Lifetime),
   ("vue-vet/reactivity/no-late-watcher-cleanup", RuleGroupId::Lifetime),
   ("vue-vet/reactivity/no-lost-shallow-nested-notification", RuleGroupId::SourceContracts),
@@ -294,6 +295,7 @@ mod tests {
   fn lifetime_watcher_and_scope_ids_are_in_lifetime_not_tracking() {
     const LIFETIME_IDS: &[&str] = &[
       "vue-vet/reactivity/no-detached-effect-scope-without-stop",
+      "vue-vet/reactivity/no-late-cancellation-guard",
       "vue-vet/reactivity/no-late-scope-dispose",
       "vue-vet/reactivity/no-late-watcher-cleanup",
       "vue-vet/reactivity/no-nested-watch-without-cleanup",
@@ -303,7 +305,7 @@ mod tests {
       "vue-vet/reactivity/no-watch-cleanup-current-source",
     ];
     let inventory = rule_inventory(&[]);
-    assert_eq!(inventory.counts.total, 138, "composed CLI inventory count");
+    assert_eq!(inventory.counts.total, 139, "composed CLI inventory count");
     assert_eq!(
       group_of("vue-vet/practice/prefer-stable-computed-identity"),
       Some(RuleGroupId::Derivation)
@@ -341,7 +343,7 @@ mod tests {
       );
     }
     let lifetime = rule_inventory(&[RuleGroupId::Lifetime]);
-    assert_eq!(lifetime.counts.total, 9, "lifetime group count");
+    assert_eq!(lifetime.counts.total, 10, "lifetime group count");
     let tracking = rule_inventory(&[RuleGroupId::Tracking]);
     for id in LIFETIME_IDS {
       assert_eq!(group_of(id), Some(RuleGroupId::Lifetime), "{id}");

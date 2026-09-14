@@ -266,7 +266,7 @@ File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         imports reuse the canonical Vue-import pass. `watch` still runs the
         ordinary source collector, watch-family option/signature facts, and
         callback-contract collectors (`watch_callbacks.rs`). Combined
-        `RULESET_VERSION` is 32; `REACTIVITY_GRAPH_VERSION` stays 41.
+        `RULESET_VERSION` is 33; `REACTIVITY_GRAPH_VERSION` stays 41.
         Scheduling-practice facts (`queued_watch_flush`, `attached_effect_scope`,
         `lazy_computed_async`) live on `SourceContractFacts.scheduling_practice`.
         Named effect-family imports keep source indexes empty when every Oxc
@@ -307,13 +307,18 @@ global scheduler / Vue `nextTick` boundaries are in scope; unknown owner
 arguments and unproven scope identity abstain. See
 [`no-returned-watcher-cleanup`](../../docs/rules/reactivity/no-returned-watcher-cleanup.md),
 [`no-late-watcher-cleanup`](../../docs/rules/reactivity/no-late-watcher-cleanup.md),
+[`no-late-cancellation-guard`](../../docs/rules/reactivity/no-late-cancellation-guard.md),
 [`no-orphaned-scope-watcher`](../../docs/rules/reactivity/no-orphaned-scope-watcher.md),
 [`no-late-scope-dispose`](../../docs/rules/reactivity/no-late-scope-dispose.md),
 [`no-watch-cleanup-current-source`](../../docs/rules/reactivity/no-watch-cleanup-current-source.md),
 [`no-nested-watch-without-cleanup`](../../docs/rules/reactivity/no-nested-watch-without-cleanup.md),
 [`no-detached-effect-scope-without-stop`](../../docs/rules/reactivity/no-detached-effect-scope-without-stop.md),
 [`lifetime-runs.mjs`](../../crates/vue_vet_reactivity/oracle/lifetime-runs.mjs),
+[`stale-settlement-runs.mjs`](../../crates/vue_vet_reactivity/oracle/stale-settlement-runs.mjs),
 and [`cleanup-identity-runs.mjs`](../../crates/vue_vet_reactivity/oracle/cleanup-identity-runs.mjs).
+Bound `onCleanup` registered after a source-dependent `await` is a sibling
+lifetime fact (`late_cancellation_guards`): the registrar still attaches for
+later invalidation, so it is not `no-late-watcher-cleanup` owner loss.
 Cleanup-identity facts reuse the same lifetime index (one walk, per-root
 ordered listener/write queries, indexed shared-source/cleanup joins). Native
 `EventTarget` is a baseline intrinsic; replacement requires allocation identity
@@ -374,7 +379,7 @@ source-contract uncertainty. Statement ordinals, preceding exits, watcher
 identity by `NodeId`, and scope-active intervals are built once. Shared
 outer/getter/scope proofs stay memoized. Statement / reference / watcher /
 toggle / computed-edge inspections use a test-only counter; production
-`WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 32.
+`WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 33.
 
 `ModuleSummary` (formerly the opaque `PreparedModuleTrace`) is the formal
 cross-module boundary: imports, exports, provides/injects, local reactivity, and
@@ -636,9 +641,12 @@ cached/fresh scans, unsaved overlays, per-file fact state, reverse dependencies,
 rule/finding explain, workspace path containment, and the **product rule-group
 table**. Canonical groups (`tracking`, `source-contracts`, `lifetime`,
 `derivation`, `project`) map composed registry IDs (built-in + practice +
-project) one-to-one. The four watcher / `effectScope` lifetime IDs
-(`no-returned-watcher-cleanup`, `no-late-watcher-cleanup`,
-`no-orphaned-scope-watcher`, `no-late-scope-dispose`) map to `lifetime`. Core holds only serializable group DTOs — not hardcoded
+project) one-to-one. The ten lifetime IDs (`prefer-attached-effect-scope`,
+`no-detached-effect-scope-without-stop`, `no-late-cancellation-guard`,
+`no-late-scope-dispose`, `no-late-watcher-cleanup`,
+`no-nested-watch-without-cleanup`, `no-on-scope-dispose-reactive-read`,
+`no-orphaned-scope-watcher`, `no-returned-watcher-cleanup`,
+`no-watch-cleanup-current-source`) map to `lifetime`. Core holds only serializable group DTOs — not hardcoded
 rule IDs and not a `RuleMeta` field. `--group` is applied to the effective
 `vue-vet.toml` **before** analysis by setting non-selected known IDs to `off`
 while leaving selected entries untouched, so cache identity, score, exit,

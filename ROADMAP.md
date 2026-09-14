@@ -94,7 +94,7 @@ Completion evidence:
 
 ## M1 — useful local doctor
 
-Current: 136 file rules and recommendations plus 2 project-graph rules (138 composed)
+Current: 137 file rules and recommendations plus 2 project-graph rules (139 composed)
 (see [docs/rules/README.md](docs/rules/README.md)).
 
 Status: complete
@@ -262,7 +262,7 @@ Exit criteria:
 ### Alpha — complete
 
 - [x] M0 complete
-- [x] 136 documented file rules and recommendations plus 2 project-graph rules (138 composed)
+- [x] 137 documented file rules and recommendations plus 2 project-graph rules (139 composed)
 - [x] JSON output declares its initial versioned contract (`schema_version: 1`)
 - [x] the complete reference fixture corpus is covered by a no-crash integration test
 
