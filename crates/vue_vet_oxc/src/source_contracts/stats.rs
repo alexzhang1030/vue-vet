@@ -3,23 +3,26 @@
 //! `SourceContractStats::work` is completed collector work: Vue-import
 //! node and specifier visits, effect-family import-map entries, ancestor
 //! hops, TS/parenthesis wrapper peels, remaining argument-candidate
-//! inspections, resolved-reference eligibility lookups, per-node owner
-//! construction, the main scan, reference-role indexing, object-entry
-//! summary visits and per-property max-index comparisons, watch-option
-//! unique-static-key inspections (each own property, recognized or not),
-//! write-owner summary visits, the fact-collection walk,
-//! diagnostic-ordering comparisons, query-time map lookups, and
-//! `partition_point` predicate executions. Shape classification records
-//! one query per `classify_maybe`. Shared object summarization does not
-//! treat computed literal keys as uncertain; watch options check the
-//! original `ObjectProperty::computed` flag instead.
-//! Indexed actual-Proxy import-source lookups (Vue constructor calls only)
-//! increment `import_source_steps`. Each examined `AssignmentTarget` in the
-//! native-clone poison walk, plus `for...in` / `for...of` left classification,
-//! increments `queries`. Assignment-form loop heads also increment `writes`
-//! once.
-//! Demanded-key contains/hash lookups increment `key_lookups`; remaining
-//! key-string copies increment `key_copies`.
+//! inspections, resolved-reference eligibility lookups, per-node owner construction, alias-root
+//! precompute and bounded compression, native constructor/prototype alias
+//! map construction and identity resolution, the main scan,
+//! reference-role indexing, unresolved leftover-escape span copy/sort/merge
+//! and covering `partition_point` checks, unresolved native/global reference
+//! covering, object-entry summary visits and per-property
+//! max-index comparisons, watch-option unique-static-key inspections (each
+//! own property, recognized or not), write-owner summary visits, the
+//! fact-collection walk, diagnostic-ordering comparisons, query-time map
+//! lookups, ancestor eligibility walks, and `partition_point` predicate
+//! executions. Shape classification records one query per `classify_maybe`.
+//! Shared object summarization treats computed literal keys as known;
+//! watch options check the
+//! original `ObjectProperty::computed` flag instead. Indexed actual-Proxy
+//! import-source lookups (Vue constructor calls only) increment
+//! `import_source_steps`. Demanded-key contains/hash lookups increment
+//! `key_lookups`; remaining key-string copies increment `key_copies`.
+//! Each examined `AssignmentTarget` in the native-clone poison walk, plus
+//! `for...in` / `for...of` left classification, increments `queries`.
+//! Assignment-form loop heads also increment `writes` once.
 //!
 //! Production `WorkCounter` is zero-sized and does not record. Test builds
 //! keep saturating `Cell` counters so inner-work growth tests stay real.
@@ -253,6 +256,24 @@ impl WorkCounter {
     F: FnMut(&T) -> bool,
   {
     items.partition_point(predicate)
+  }
+
+  /// Counted leftover-range ordering. `sort_unstable` would hide comparison work.
+  #[cfg(test)]
+  pub(super) fn sort_unstable<T: Ord>(&self, items: &mut [T]) {
+    items.sort_unstable_by(|left, right| {
+      self.add_queries(1);
+      left.cmp(right)
+    });
+  }
+
+  #[cfg(not(test))]
+  #[expect(
+    clippy::unused_self,
+    reason = "production path forwards to slice::sort_unstable without counting"
+  )]
+  pub(super) fn sort_unstable<T: Ord>(&self, items: &mut [T]) {
+    items.sort_unstable();
   }
 
   #[cfg(test)]

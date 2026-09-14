@@ -44,8 +44,8 @@ fn list_rules_is_sorted_unique_and_includes_project_ids() {
   );
   assert_eq!(
     parsed.pointer("/counts/total").and_then(Value::as_u64),
-    Some(123),
-    "composed CLI inventory must be 123 after source-contract, notification, watch-api, callback, normalization, clone, and value rules"
+    Some(124),
+    "composed CLI inventory must be 124 after extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
   );
 }
 
@@ -113,6 +113,7 @@ fn list_rules_source_contracts_includes_contract_ids() {
     .unwrap_or_default();
   for id in [
     "vue-vet/reactivity/no-effect-scope-callback-argument",
+    "vue-vet/reactivity/no-extracted-reactive-collection-method",
     "vue-vet/reactivity/no-lost-shallow-nested-notification",
     "vue-vet/reactivity/no-once-immediate-discard",
     "vue-vet/reactivity/no-primitive-reactive-target",

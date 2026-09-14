@@ -195,11 +195,132 @@ opt-level = "s"
 [profile.release.package.vue_vet_cache]
 opt-level = "s"
 
+# LSP/TUI-only runtime closure (issue #241). None of these packages is reachable
+# from the CLI scan path or from any Divan bench closure (`cargo tree -p
+# vue_vet_session --edges normal,build,dev` contains none of them): Tokio,
+# tower and futures serve only `vue-vet --lsp`; `url`/`idna`/`icu_*` come only
+# from `lsp-types`; `mio`/`signal-hook*` come only from `crossterm`. Tokio at
+# `"s"`, the rest at `"z"`. Measured on the 124-rule source: Linux ARM64 file
+# bytes 8,202,480 -> 8,136,952 (one 64 KiB ELF page), macOS ARM64 6,984,128 ->
+# 6,934,944; LSP workflow median -0.05%, CLI 5k gates within noise, LSP/MCP
+# protocol output byte-identical.
+[profile.release.package.tokio]
+opt-level = "s"
+
+[profile.release.package.tokio-util]
+opt-level = "z"
+
+[profile.release.package.tower]
+opt-level = "z"
+
+[profile.release.package.tower-layer]
+opt-level = "z"
+
+[profile.release.package.tower-service]
+opt-level = "z"
+
+[profile.release.package.futures]
+opt-level = "z"
+
+[profile.release.package.futures-util]
+opt-level = "z"
+
+[profile.release.package.futures-channel]
+opt-level = "z"
+
+[profile.release.package.futures-core]
+opt-level = "z"
+
+[profile.release.package.futures-task]
+opt-level = "z"
+
+[profile.release.package.futures-sink]
+opt-level = "z"
+
+[profile.release.package.futures-io]
+opt-level = "z"
+
+[profile.release.package.httparse]
+opt-level = "z"
+
+[profile.release.package.url]
+opt-level = "z"
+
+[profile.release.package.idna]
+opt-level = "z"
+
+[profile.release.package.idna_adapter]
+opt-level = "z"
+
+[profile.release.package.icu_normalizer]
+opt-level = "z"
+
+[profile.release.package.icu_properties]
+opt-level = "z"
+
+[profile.release.package.icu_collections]
+opt-level = "z"
+
+[profile.release.package.icu_provider]
+opt-level = "z"
+
+[profile.release.package.icu_locale_core]
+opt-level = "z"
+
+[profile.release.package.form_urlencoded]
+opt-level = "z"
+
+[profile.release.package.bytes]
+opt-level = "z"
+
+[profile.release.package.pin-project]
+opt-level = "z"
+
+[profile.release.package.slab]
+opt-level = "z"
+
+[profile.release.package.zerovec]
+opt-level = "z"
+
+[profile.release.package.yoke]
+opt-level = "z"
+
+[profile.release.package.tinystr]
+opt-level = "z"
+
+[profile.release.package.litemap]
+opt-level = "z"
+
+[profile.release.package.zerotrie]
+opt-level = "z"
+
+[profile.release.package.writeable]
+opt-level = "z"
+
+[profile.release.package.potential_utf]
+opt-level = "z"
+
+[profile.release.package.utf8_iter]
+opt-level = "z"
+
+[profile.release.package.mio]
+opt-level = "z"
+
+[profile.release.package.signal-hook]
+opt-level = "z"
+
+[profile.release.package.signal-hook-mio]
+opt-level = "z"
+
+[profile.release.package.signal-hook-registry]
+opt-level = "z"
+
 # CodSpeed instrumentation and Oxc's generated code do not link reliably under
 # LTO. Keep release artifacts on fat LTO + abort; isolate benches here.
 # Top-level `opt-level = 3` is the default only. Named `profile.release.package`
 # overrides still inherit unless restated here. Protocol/UI release `opt-z`
-# stays inherited (issue #223 baseline). Product crates with release `"z"` or
+# and the LSP/TUI-only runtime closure above stay inherited (issue #223
+# baseline; no bench closure links them). Product crates with release `"z"` or
 # `"s"` (`vue_vet_rules`, `vue_vet_practice`, `vue_vet_rule_query`,
 # `vue_vet_core`, `vue_vet_reactivity`, `vue_vet_session`, `vue_vet_project`,
 # `vue_vet_cache`)

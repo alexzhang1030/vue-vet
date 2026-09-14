@@ -41,6 +41,8 @@ pub struct SourceContractFacts {
   pub inactive_scope_result: Vec<InactiveScopeResultFact>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub missing_torefs_key: Vec<MissingToRefsKeyFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub extracted_reactive_collection_method: Vec<ExtractedReactiveCollectionMethodFact>,
 }
 
 impl SourceContractFacts {
@@ -60,6 +62,7 @@ impl SourceContractFacts {
       && self.invalid_custom_ref_interface.is_empty()
       && self.inactive_scope_result.is_empty()
       && self.missing_torefs_key.is_empty()
+      && self.extracted_reactive_collection_method.is_empty()
   }
 }
 
@@ -190,4 +193,16 @@ pub struct MissingToRefsKeyFact {
   pub demand_span: SourceSpan,
   pub torefs_span: SourceSpan,
   pub key: String,
+}
+
+/// Bare call of a method extracted from a proven reactive Map/Set/array.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ExtractedReactiveCollectionMethodFact {
+  pub call_span: SourceSpan,
+  pub extraction_span: SourceSpan,
+  pub constructor_span: SourceSpan,
+  pub object: String,
+  pub method: String,
+  pub collection: String,
+  pub api: String,
 }

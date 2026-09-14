@@ -60,8 +60,8 @@
   separate capability from Vue import identity. Demand-gated value contracts
   (`no-invalid-custom-ref-interface`, `no-inactive-scope-result`,
   `no-missing-torefs-key`) stay distinct from callback/toRef receiver sets
-  and clone native identity. Combined inventory is 123 (121 file + 2
-  project); `RULESET_VERSION` 23; graph stays 41.
+  and clone native identity. Combined inventory is 124 (122 file + 2
+  project); source-contract group 32; `RULESET_VERSION` 24; graph stays 41.
   Runtime premises live in `just oracle-source-contracts` (Vue 3.5.40), which
   runs `source-contracts.mjs`, `watch-api.mjs`, `watch-callback-contracts.mjs`,
   and `value-contracts.mjs`. Dedicated `just oracle-value-contracts` remains
@@ -142,7 +142,10 @@ Rolldown layout. The CLI package remains `vue-vet` so the installed binary stays
 
 JavaScript under `npm/` may only select a native binary and forward process
 I/O. Do not move analysis, parsing, or rule logic into Node. Prefer repository
-`just` recipes (`npm-test`, `pack-platform`, `npm-smoke`) for launcher work.
+`just` recipes (`npm-test`, `pack-platform`, `npm-smoke`, `npm-consumer-check`)
+for launcher work. `npm-test` also runs the `node:test` suites under
+`npm/scripts/test/`, and `npm-consumer-check` accepts an already-built binary
+without invoking Cargo or editing `npm/vue-vet/package.json`.
 
 ## Dependency boundaries
 
@@ -177,9 +180,13 @@ profile because its instrumentation does not link Oxc reliably under LTO
 `vue_vet_rule_query` `opt-level = "z"`, `vue_vet_core` /
 `vue_vet_reactivity` / `vue_vet_session` / `vue_vet_project` /
 `vue_vet_cache`
-`opt-level = "s"`; `vue_vet_oxc` and
+`opt-level = "s"`; the LSP/TUI-only runtime closure `tokio` `"s"` and
+`tokio-util` / `tower*` / `futures*` / `httparse` / `bytes` / `url` / `idna` /
+`icu_*` / `mio` / `signal-hook*` `"z"`; `vue_vet_oxc` and
 `vue_vet_reporters` stay on the profile default) remains the source of
-truth for shipped artifacts.
+truth for shipped artifacts. Package overrides outside the analysis closure
+are accepted on an LSP workflow gate plus LSP/MCP protocol equality, not on
+the analysis benches; see [technology stack](./technology-stack.md).
 `cargo bench --profile release` forces unwind; those Divan programs measure
 the release-optimization/unwind path. The shipped CLI is `cargo build --release` with
 `panic = "abort"`. See [gotchas](./gotchas.md) (`cargo bench --profile release`
@@ -187,7 +194,8 @@ uses panic=unwind).
 `profile.codspeed` inherits `release`, then sets `opt-level = 3` and
 `lto = false`. That top-level 3 is the default only: named
 `profile.release.package` overrides still win unless restated. Protocol/UI
-release `opt-z` packages stay inherited. Product crates with release `"z"`
+release `opt-z` packages and the LSP/TUI-only runtime closure stay inherited
+(no bench links them). Product crates with release `"z"`
 or `"s"` (`vue_vet_rules`, `vue_vet_practice`, `vue_vet_rule_query`,
 `vue_vet_core`, `vue_vet_reactivity`, `vue_vet_session`, `vue_vet_project`,
 `vue_vet_cache`) have explicit

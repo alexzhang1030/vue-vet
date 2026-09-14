@@ -65,6 +65,23 @@ are unwind; the shipped CLI is `panic = "abort"`. CodSpeed keeps explicit
 `opt-level = 3` on the same eight packages so CodSpeed keeps
 instrumentation `opt-level = 3`.
 
+The LSP/TUI-only runtime closure (`tokio` `"s"`; `tokio-util`, `tower*`,
+`futures*`, `httparse`, `bytes`, `pin-project`, `slab`, `url` / `idna` /
+`icu_*` / `zerovec` family, `mio`, `signal-hook*` `"z"`; issue #241) is not on
+the CLI scan path and not in any bench closure, so its gate is different:
+exact CLI/cache output equality and the two 5k CLI gates as controls, plus a
+real LSP workflow (initialize, `initialized`, `didOpen` diagnostics,
+`didChange` diagnostics, two `--explain-scope` hovers, `shutdown`, clean
+exit; one warmup then 8 ABBA cycles = 16 samples per side; candidate median
+at most 105% of baseline; complete protocol transcript parity) and
+byte-identical MCP `initialize` / `tools/list` / `vue_vet_scan` output.
+Accepted on the 124-rule source `7be6798`: Linux ARM64 8,202,480 ->
+8,136,952 file bytes (gzip-9 3,594,030 -> 3,581,683), macOS ARM64 6,984,128
+-> 6,934,944 (3,279,748 -> 3,258,506), LSP workflow median 119.32 ms ->
+119.26 ms (-0.05%), 5k no-cache +1.78%, 5k fresh-cache -3.76%. Linux ARM64
+file bytes only move in 64 KiB ELF page steps; a Tokio-only `"s"` override
+shrank `.text` by 16,064 bytes and left the file size unchanged.
+
 Record CLI startup and warm-cache process times separately from the
 in-process benchmark measurements.
 

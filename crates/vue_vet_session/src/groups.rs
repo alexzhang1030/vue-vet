@@ -29,6 +29,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-effect-scope-callback-argument", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-effect-write-without-read", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-empty-watch-sources", RuleGroupId::Tracking),
+  ("vue-vet/reactivity/no-extracted-reactive-collection-method", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-inactive-scope-result", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-invalid-custom-ref-interface", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-late-scope-dispose", RuleGroupId::Lifetime),
@@ -229,10 +230,11 @@ mod tests {
       "vue-vet/reactivity/no-returned-watcher-cleanup",
     ];
     let inventory = rule_inventory(&[]);
-    assert_eq!(inventory.counts.total, 123, "composed CLI inventory count");
+    assert_eq!(inventory.counts.total, 124, "composed CLI inventory count");
     let source = rule_inventory(&[RuleGroupId::SourceContracts]);
-    assert_eq!(source.counts.total, 31, "source-contracts group count");
+    assert_eq!(source.counts.total, 32, "source-contracts group count");
     for id in [
+      "vue-vet/reactivity/no-extracted-reactive-collection-method",
       "vue-vet/reactivity/no-lost-shallow-nested-notification",
       "vue-vet/reactivity/no-proxy-structured-clone",
       "vue-vet/reactivity/no-toraw-write-of-tracked-state",

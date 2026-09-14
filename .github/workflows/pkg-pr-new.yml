@@ -159,6 +159,34 @@ jobs:
             echo "skip host smoke for ${{ matrix.target }} on $host"
           fi
 
+      # Existing-artifact npm consumer check (issue #242): pack + launcher,
+      # offline install into an isolated consumer, installed-vs-direct parity.
+      - name: npm consumer check on native host
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="target/${{ matrix.target }}/release/vue-vet"
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            binary="${binary}.exe"
+          fi
+          host="$(rustc -vV | sed -n 's/^host: //p')"
+          if [[ "$host" == "${{ matrix.target }}" ]]; then
+            node npm/scripts/consumer-check.mjs \
+              --binary "$binary" \
+              --target "${{ matrix.target }}" \
+              --out consumer-check
+          else
+            echo "skip consumer check for ${{ matrix.target }} on $host"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && hashFiles('consumer-check/result.json') != '' }}
+        with:
+          name: consumer-check-${{ matrix.target }}
+          path: consumer-check/result.json
+          if-no-files-found: ignore
+          retention-days: 1
+
       - uses: actions/upload-artifact@v4
         with:
           name: npm-${{ matrix.npm_pkg }}

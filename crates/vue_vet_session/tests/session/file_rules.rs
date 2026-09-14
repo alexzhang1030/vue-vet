@@ -434,7 +434,7 @@ watchEffect(() => { source.value; return () => {} })\n",
   let _ignored = std::fs::remove_dir_all(root);
 }
 
-const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 17] = [
+const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 18] = [
   "vue-vet/reactivity/no-watch-unwrapped-source",
   "vue-vet/reactivity/no-trigger-ref-on-non-ref",
   "vue-vet/reactivity/no-torefs-on-non-proxy",
@@ -452,6 +452,7 @@ const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 17] = [
   "vue-vet/reactivity/no-invalid-custom-ref-interface",
   "vue-vet/reactivity/no-inactive-scope-result",
   "vue-vet/reactivity/no-missing-torefs-key",
+  "vue-vet/reactivity/no-extracted-reactive-collection-method",
 ];
 
 #[test]
@@ -467,6 +468,9 @@ watch(n.value, () => {})\n\
 triggerRef(reactive({ n: 1 }))\n\
 toRefs({ a: 1 })\n\
 void reactive(0)\n\
+const map = reactive(new Map([['a', 1]]))\n\
+const { get } = map\n\
+get('a')\n\
 const bad = customRef(() => ({ set() {} }))\n\
 void bad.value\n\
 const scope = effectScope()\n\
@@ -541,7 +545,7 @@ watch(state, (next, old) => { if (next === old) return; accept(next) })\n\
   assert_eq!(
     contract_ids(&cold),
     expected,
-    "cold scan must emit source-contract, watch-api, notification, callback, normalization, and clone IDs; {:?}",
+    "cold scan must emit source-contract, watch-api, notification, callback, normalization, clone, and extracted-method IDs; {:?}",
     cold.summary.diagnostics
   );
   let toraw = "vue-vet/reactivity/no-toraw-write-of-tracked-state";
@@ -575,6 +579,45 @@ watch(state, (next, old) => { if (next === old) return; accept(next) })\n\
     .analyze()
     .unwrap_or_else(|error| panic!("clean: {error}"));
   assert_analysis_parity(&warm, &clean);
+  let _ignored = std::fs::remove_dir_all(root);
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn plain_ts_extracted_collection_method_runs() {
+  let root =
+    std::env::temp_dir().join(format!("vue-vet-extracted-collection-ts-{}", std::process::id()));
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+  let source = "import { reactive } from 'vue'\n\
+const map = reactive(new Map([['a', 1]]))\n\
+const { get } = map\n\
+get('a')\n";
+  let path = root.join("store.ts");
+  std::fs::write(&path, source).unwrap_or_else(|error| panic!("write: {error}"));
+  let session = open_session_threads(root.clone(), 1);
+  let cold = session.analyze().unwrap_or_else(|error| panic!("cold: {error}"));
+  assert!(
+    cold.summary.diagnostics.iter().any(|diagnostic| {
+      diagnostic.file == FileId::from("store.ts")
+        && diagnostic.rule_id == "vue-vet/reactivity/no-extracted-reactive-collection-method"
+    }),
+    "plain TS must run extracted collection-method rule; {:?}",
+    cold.summary.diagnostics
+  );
+  session
+    .apply_changes(ChangeSet::upsert(path.clone(), source.into()))
+    .unwrap_or_else(|error| panic!("touch: {error}"));
+  let warm = session.analyze_affected().unwrap_or_else(|error| panic!("warm: {error}"));
+  let mut overlays = BTreeMap::new();
+  overlays.insert(path, source.into());
+  let overlay =
+    session.analyze_with_overlays(&overlays).unwrap_or_else(|error| panic!("overlay: {error}"));
+  let clean = open_session_threads(root.clone(), 1)
+    .analyze()
+    .unwrap_or_else(|error| panic!("clean: {error}"));
+  assert_analysis_parity(&warm, &clean);
+  assert_analysis_parity(&overlay, &clean);
   let _ignored = std::fs::remove_dir_all(root);
 }
 
