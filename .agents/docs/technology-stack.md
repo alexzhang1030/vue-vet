@@ -11,6 +11,15 @@ copy the launcher into `dist/`, then
 `npm exec pkg-pr-new publish --bin --previewVersion --no-template` from the
 locked install under `npm/pkg-pr-new/`. Requires the
 [pkg-pr-new GitHub App](https://github.com/apps/pkg-pr-new) on the repository.
+The same matrix job runs the existing-artifact consumer check
+(`npm/scripts/consumer-check.mjs`, `just npm-consumer-check <binary> <triple> <out>`)
+on every native-host target: it packs the just-built binary plus a copy of the
+launcher, `npm pack`s both, installs the tarballs offline into an isolated
+consumer, and requires installed-versus-direct parity for `--version`,
+`--list-rules --format json`, and the basic fixture scan (stdout, stderr,
+exit), the installed binary SHA-256, `.bin/vue-vet` launcher ownership, and
+`resolveBinary` through the consumer's own `node_modules`. It never runs
+Cargo and never mutates `npm/vue-vet/package.json` (issue #242).
 
 Interactive reactivity browsing uses exact-pinned `ratatui` (crossterm backend only)
 inside the CLI crate. Analysis logic stays out of the TUI; it only presents

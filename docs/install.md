@@ -106,6 +106,20 @@ just pack-platform   # packs the host release binary into dist/npm/@vue-vet/...
 just release-smoke   # --version + fixture scan with the host release binary
 ```
 
+## Existing-artifact consumer check
+
+Given an already-built `vue-vet` binary,
+`just npm-consumer-check <binary> <rust-triple> <out>` stages the platform
+package and a copy of the launcher, packs both as local tarballs, and
+`npm install`s them offline into an isolated consumer. It checks package
+versions, `.bin/vue-vet` ownership, the installed native binary checksum,
+resolver output, and that `--version`, `--list-rules`, and a basic fixture
+scan match the direct binary (stdout, stderr, and exit code). The recipe
+never runs Cargo and never mutates `npm/vue-vet/package.json`. `<out>` must
+not already exist; `result.json` and raw stdout/stderr captures are written
+there. The `pkg.pr.new` matrix runs the same check on every native-host
+target and uploads `consumer-check-<target>` with the `result.json`.
+
 ## Version alignment
 
 | Surface | Version source |

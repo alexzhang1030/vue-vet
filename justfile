@@ -159,6 +159,7 @@ install-hooks:
 # Run npm launcher unit tests (Node >= 18).
 npm-test:
   cd npm/vue-vet && npm test
+  node --test npm/scripts/test/*.test.mjs
 
 # Sync npm/vue-vet package.json version + optionalDependencies.
 npm-sync-version version:
@@ -239,6 +240,10 @@ npm-smoke:
     npx --package=@vue-vet/cli vue-vet --version
     npx --package=@vue-vet/cli vue-vet "$OLDPWD/fixtures/projects/basic"
   )
+
+# Existing-artifact npm consumer check: pack the given binary + launcher, install offline into an isolated consumer, and compare installed vs direct behavior.
+npm-consumer-check binary target out:
+  node npm/scripts/consumer-check.mjs --binary {{binary}} --target {{target}} --out {{out}}
 
 # Publish host platform package + launcher (requires valid npm auth + @vue-vet org).
 npm-publish-host *args:
