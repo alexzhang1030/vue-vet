@@ -11,7 +11,7 @@ use crate::source_contracts::{
   ContractSink, SourceContractStats, collect_source_contract_facts_forced_full,
   collect_source_contract_facts_with_stats, contract_sink,
 };
-use vue_vet_core::ReactiveReadKind;
+use vue_vet_core::{ReactiveReadKind, ToRefIgnoredKeyReason};
 
 #[expect(clippy::panic, reason = "unexpected Oxc errors must fail adapter tests")]
 fn analyze(source: &str, language: &str) -> ScriptBlockFacts {
@@ -1469,6 +1469,298 @@ fn source_contracts_classify_vue_identity_and_provenance() {
     "{:?}",
     replaced.source_contracts
   );
+  let ignored =
+    analyze("import { ref, toRef } from 'vue'; const n = ref(0); toRef(n as object, 'k');", "ts");
+  assert_eq!(ignored.source_contracts.toref_ignored_key.len(), 1, "{:?}", ignored.source_contracts);
+  assert_eq!(
+    ignored.source_contracts.toref_ignored_key.first().map(|site| site.reason),
+    Some(ToRefIgnoredKeyReason::Ref),
+    "{:?}",
+    ignored.source_contracts
+  );
+  let writeback =
+    analyze("import { ref, toRef } from 'vue'; const n = ref(0); toRef(n, 'value');", "ts");
+  assert!(
+    writeback.source_contracts.toref_ignored_key.is_empty(),
+    "{:?}",
+    writeback.source_contracts
+  );
+  let cleared = analyze(
+    "import { ref, toRef } from 'vue'; const state = ref({ count: 0 }); state.__v_isRef = false; toRef(state, 'count');",
+    "ts",
+  );
+  assert!(
+    cleared.source_contracts.toref_ignored_key.is_empty(),
+    "cleared __v_isRef must abstain; {:?}",
+    cleared.source_contracts
+  );
+  let deleted = analyze(
+    "import { ref, toRef } from 'vue'; const object = ref(1); delete object.__v_isRef; toRef(object, 'future');",
+    "ts",
+  );
+  assert!(
+    deleted.source_contracts.toref_ignored_key.is_empty(),
+    "deleted __v_isRef must abstain; {:?}",
+    deleted.source_contracts
+  );
+  let tagged = analyze(
+    "import { toRef } from 'vue'; const callable = () => 1; callable.__v_isRef = true; callable.value = 2; toRef(callable, 'value');",
+    "ts",
+  );
+  assert!(
+    tagged.source_contracts.toref_ignored_key.is_empty(),
+    "tagged callable must abstain; {:?}",
+    tagged.source_contracts
+  );
+  let receiver = analyze(
+    "import { ref, toRef } from 'vue'; const n = ref(0); n.toString(); toRef(n, 'k');",
+    "ts",
+  );
+  assert!(
+    receiver.source_contracts.toref_ignored_key.is_empty(),
+    "method receiver must abstain; {:?}",
+    receiver.source_contracts
+  );
+  let helper = analyze(
+    "import { ref, toRef } from 'vue'; const n = ref(0); opaque(n); toRef(n, 'k'); function opaque(_value: unknown) {}",
+    "ts",
+  );
+  assert!(
+    helper.source_contracts.toref_ignored_key.is_empty(),
+    "helper argument must abstain; {:?}",
+    helper.source_contracts
+  );
+  let scope =
+    analyze("import { effectScope } from 'vue'; const run = () => {}; effectScope(run);", "ts");
+  assert_eq!(scope.source_contracts.effect_scope_callback.len(), 1, "{:?}", scope.source_contracts);
+  let detached = analyze("import { effectScope } from 'vue'; effectScope(true);", "ts");
+  assert!(
+    detached.source_contracts.effect_scope_callback.is_empty(),
+    "{:?}",
+    detached.source_contracts
+  );
+}
+
+#[test]
+fn source_contracts_toref_capability_escape_routes_stay_quiet() {
+  let pattern = analyze(
+    "import { ref, toRef } from 'vue';\
+     const pattern = ref({ count: 1 });\
+     ({ flag: pattern.__v_isRef } = { flag: false });\
+     toRef(pattern, 'count');",
+    "ts",
+  );
+  assert!(
+    pattern.source_contracts.toref_ignored_key.is_empty(),
+    "static pattern __v_isRef write must abstain; {:?}",
+    pattern.source_contracts
+  );
+  let nested_default_rest = analyze(
+    "import { ref, toRef } from 'vue';\
+     const pattern = ref({ count: 1 });\
+     ({ nested: { flag: pattern.__v_isRef = false } = {}, ..._rest } = { nested: {} });\
+     toRef(pattern, 'count');",
+    "ts",
+  );
+  assert!(
+    nested_default_rest.source_contracts.toref_ignored_key.is_empty(),
+    "nested default/rest __v_isRef pattern must abstain; {:?}",
+    nested_default_rest.source_contracts
+  );
+  let ts_wrapper = analyze(
+    "import { ref, toRef } from 'vue';\
+     const pattern = ref({ count: 1 });\
+     ({ flag: (pattern.__v_isRef as boolean) } = { flag: false });\
+     toRef(pattern, 'count');",
+    "ts",
+  );
+  assert!(
+    ts_wrapper.source_contracts.toref_ignored_key.is_empty(),
+    "TS-wrapped pattern __v_isRef write must abstain; {:?}",
+    ts_wrapper.source_contracts
+  );
+  let computed = analyze(
+    "import { ref, toRef } from 'vue';\
+     const pattern = ref({ count: 1 });\
+     const key = '__v_isRef';\
+     ({ flag: pattern[key] } = { flag: false });\
+     toRef(pattern, 'count');",
+    "ts",
+  );
+  assert!(
+    computed.source_contracts.toref_ignored_key.is_empty(),
+    "computed pattern marker write must abstain; {:?}",
+    computed.source_contracts
+  );
+  let constructor = analyze(
+    "import { ref, toRef } from 'vue';\
+     const created = ref({ count: 1 });\
+     class ClearMarker { constructor(value: object) { delete (value as { __v_isRef?: boolean }).__v_isRef } }\
+     new ClearMarker(created);\
+     toRef(created, 'count');",
+    "ts",
+  );
+  assert!(
+    constructor.source_contracts.toref_ignored_key.is_empty(),
+    "constructor argument must abstain; {:?}",
+    constructor.source_contracts
+  );
+  let tagged = analyze(
+    "import { ref, toRef } from 'vue';\
+     const tagged = ref({ count: 1 });\
+     tagged.clear = function () { delete this.__v_isRef };\
+     tagged.clear``;\
+     toRef(tagged, 'count');",
+    "ts",
+  );
+  assert!(
+    tagged.source_contracts.toref_ignored_key.is_empty(),
+    "tagged-template receiver must abstain; {:?}",
+    tagged.source_contracts
+  );
+  let instantiated_tagged = analyze(
+    "import { ref, toRef } from 'vue';\
+     const tagged = ref({ count: 1 });\
+     tagged.clear = function () { delete this.__v_isRef };\
+     (tagged.clear<number>)``;\
+     toRef(tagged, 'count');",
+    "ts",
+  );
+  assert!(
+    instantiated_tagged.source_contracts.toref_ignored_key.is_empty(),
+    "TS instantiation tagged-template receiver must abstain; {:?}",
+    instantiated_tagged.source_contracts
+  );
+  let instantiated_call = analyze(
+    "import { ref, toRef } from 'vue';\
+     const tagged = ref({ count: 1 });\
+     tagged.clear = function () { delete this.__v_isRef };\
+     tagged.clear<number>();\
+     toRef(tagged, 'count');",
+    "ts",
+  );
+  assert!(
+    instantiated_call.source_contracts.toref_ignored_key.is_empty(),
+    "TS instantiation call receiver must abstain; {:?}",
+    instantiated_call.source_contracts
+  );
+  let positive = analyze(
+    "import { ref, toRef } from 'vue'; const native = ref({ count: 1 }); toRef(native, 'count');",
+    "ts",
+  );
+  assert_eq!(
+    positive.source_contracts.toref_ignored_key.len(),
+    1,
+    "direct toRef(existingRef, staticKey) must stay positive; {:?}",
+    positive.source_contracts
+  );
+  let value_write = analyze(
+    "import { ref, toRef } from 'vue';\
+     const native = ref({ count: 1 });\
+     native.value = { count: 2 };\
+     native.count = 3;\
+     toRef(native, 'count');",
+    "ts",
+  );
+  assert_eq!(
+    value_write.source_contracts.toref_ignored_key.len(),
+    1,
+    "direct .value/.count writes must keep ignored-key; {:?}",
+    value_write.source_contracts
+  );
+  let writeback =
+    analyze("import { ref, toRef } from 'vue'; const n = ref(0); toRef(n, 'value');", "ts");
+  assert!(
+    writeback.source_contracts.toref_ignored_key.is_empty(),
+    "value writeback must stay quiet; {:?}",
+    writeback.source_contracts
+  );
+  let shadow = analyze(
+    "function toRef(_source: unknown, _key: string) { return { value: 0 } }\
+     const count = { value: 0 };\
+     toRef(count, 'n');",
+    "ts",
+  );
+  assert!(
+    shadow.source_contracts.toref_ignored_key.is_empty(),
+    "local toRef shadow must stay quiet; {:?}",
+    shadow.source_contracts
+  );
+  let source5 =
+    analyze("import { ref, watch } from 'vue'; const n = ref(0); watch(n.value, () => {});", "ts");
+  assert_eq!(
+    source5.source_contracts.watch_unwrapped_source.len(),
+    1,
+    "direct .value reads must keep source5 unwrapped-watch; {:?}",
+    source5.source_contracts
+  );
+  let source5_data = analyze(
+    "import { reactive, watch } from 'vue';\
+     const state = reactive({ nested: { x: 1 } });\
+     watch(state.nested, () => {});\
+     state.nested = { x: 2 };",
+    "ts",
+  );
+  assert_eq!(
+    source5_data.source_contracts.watch_replaced_object_source.len(),
+    1,
+    "direct data writes must keep source5 replaced-object; {:?}",
+    source5_data.source_contracts
+  );
+  let mixed = analyze(
+    "import { ref, toRef, watch } from 'vue';\
+     const tagged = ref({ count: 1 });\
+     tagged.clear = function () { delete this.__v_isRef };\
+     (tagged.clear<number>)``;\
+     toRef(tagged, 'count');\
+     const n = ref(0);\
+     watch(n.value, () => {});",
+    "ts",
+  );
+  assert!(
+    mixed.source_contracts.toref_ignored_key.is_empty(),
+    "instantiated tagged receiver must quiet toRef identity; {:?}",
+    mixed.source_contracts
+  );
+  assert_eq!(
+    mixed.source_contracts.watch_unwrapped_source.len(),
+    1,
+    "direct .value source5 must stay positive beside instantiated receiver; {:?}",
+    mixed.source_contracts
+  );
+}
+
+#[test]
+fn source_contracts_toref_capability_roles_scale_subquadratically() {
+  let mut previous: Option<(u64, u64)> = None;
+  for size in [16_u64, 32, 64] {
+    let mut source = String::from(
+      "import { ref, toRef } from 'vue'; class Clear { constructor(value: object) { delete (value as { __v_isRef?: boolean }).__v_isRef } }",
+    );
+    for index in 0..size {
+      source.push_str("const n");
+      source.push_str(&index.to_string());
+      source.push_str(" = ref({ count: 1 }); new Clear(n");
+      source.push_str(&index.to_string());
+      source.push_str("); toRef(n");
+      source.push_str(&index.to_string());
+      source.push_str(", 'count');");
+    }
+    let (contracts, work) = contract_stats(&source);
+    assert!(
+      contracts.toref_ignored_key.is_empty(),
+      "constructor-arg toRef sites must abstain; {contracts:?}"
+    );
+    assert!(work > 0, "capability-role walks must count work");
+    if let Some((prev_size, prev_work)) = previous {
+      assert_eq!(size, prev_size * 2, "fixture sizes must double");
+      assert!(
+        work.saturating_mul(10) < prev_work.saturating_mul(30),
+        "toref capability-role work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
+      );
+    }
+    previous = Some((size, work));
+  }
 }
 
 #[test]
@@ -2149,6 +2441,8 @@ fn source_contracts_gated_facts_match_forced_full_for_all_sinks() {
     "import { ref, watch } from 'vue'; const n = ref(0); watch(n, (v) => v, { equals: () => true });",
     "import { ref, watch } from 'vue'; const n = ref(0); function accept(_value: unknown) {} watch(n, (next, old) => { if (old === undefined) return; accept(next); }, { once: true, immediate: true });",
     "import { reactive, watch } from 'vue'; const state = reactive({ n: 1 }); function accept(_value: unknown) {} watch(state, (next, old) => { if (next === old) return; accept(next); });",
+    "import { toRef } from 'vue'; toRef(1, 'k');",
+    "import { effectScope } from 'vue'; effectScope(() => {});",
   ];
   for source in cases {
     let facts = assert_gated_matches_forced(source, ScriptKind::Setup);
@@ -2239,6 +2533,8 @@ fn source_contracts_sink_inventory_is_the_eligibility_table() {
   for api in ["watchEffect", "watchPostEffect", "watchSyncEffect"] {
     assert_eq!(contract_sink(api), Some(ContractSink::WatchEffectFamily), "{api}");
   }
+  assert_eq!(contract_sink("toRef"), Some(ContractSink::ToRef));
+  assert_eq!(contract_sink("effectScope"), Some(ContractSink::EffectScope));
   for api in ["ref", "computed", "shallowRef", "toRaw", "customRef"] {
     assert_eq!(contract_sink(api), None, "{api} must not gate collection");
   }
@@ -2309,6 +2605,30 @@ fn source_contracts_callback_named_watch_import_alone_match_forced_full() {
   assert_eq!(
     identity.watch_callback_contracts.first().map(|site| site.reason),
     Some(vue_vet_core::WatchCallbackContractReason::ReactiveRootIdentityGuard)
+  );
+}
+
+#[test]
+fn source_contracts_normalization_named_imports_alone_match_forced_full() {
+  let toref =
+    assert_gated_matches_forced("import { toRef } from 'vue'; toRef(1, 'k');", ScriptKind::Setup);
+  assert_eq!(
+    toref.toref_ignored_key.len(),
+    1,
+    "named toRef alone must report ignored-key; {toref:?}"
+  );
+  assert_eq!(
+    toref.toref_ignored_key.first().map(|site| site.reason),
+    Some(ToRefIgnoredKeyReason::Primitive)
+  );
+  let scope = assert_gated_matches_forced(
+    "import { effectScope } from 'vue'; effectScope(() => {});",
+    ScriptKind::Setup,
+  );
+  assert_eq!(
+    scope.effect_scope_callback.len(),
+    1,
+    "named effectScope alone must report callback argument; {scope:?}"
   );
 }
 
@@ -2791,6 +3111,32 @@ fn source_contracts_fourth_review_pattern_values_and_receiver() {
     "{:?}",
     tagged_template_args.source_contracts
   );
+  let instantiated_tagged = analyze(
+    "import { reactive, watch } from 'vue';\
+     const tagged = reactive({ value: 0, tag: function () { this.__v_isRef = true } });\
+     (tagged.tag<number>)``;\
+     function accept(_value: unknown) {}\
+     watch(tagged, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert!(
+    instantiated_tagged.source_contracts.watch_callback_contracts.is_empty(),
+    "TS instantiation tagged-template receiver must abstain; {:?}",
+    instantiated_tagged.source_contracts
+  );
+  let instantiated_call = analyze(
+    "import { reactive, watch } from 'vue';\
+     const tagged = reactive({ value: 0, tag: function () { this.__v_isRef = true } });\
+     tagged.tag<number>();\
+     function accept(_value: unknown) {}\
+     watch(tagged, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert!(
+    instantiated_call.source_contracts.watch_callback_contracts.is_empty(),
+    "TS instantiation call receiver must abstain; {:?}",
+    instantiated_call.source_contracts
+  );
   let receiver_freeze = analyze(
     "import { reactive, watch } from 'vue';\
      const raw = { n: 0, lock: function () { Object.freeze(this) } };\
@@ -2951,7 +3297,7 @@ fn effect_import_width_source(width: usize) -> String {
     "computed",
     "shallowRef",
     "customRef",
-    "toRef",
+    "defineProps",
     "useTemplateRef",
     "defineModel",
   ];

@@ -434,7 +434,7 @@ watchEffect(() => { source.value; return () => {} })\n",
   let _ignored = std::fs::remove_dir_all(root);
 }
 
-const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 11] = [
+const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 13] = [
   "vue-vet/reactivity/no-watch-unwrapped-source",
   "vue-vet/reactivity/no-trigger-ref-on-non-ref",
   "vue-vet/reactivity/no-torefs-on-non-proxy",
@@ -446,6 +446,8 @@ const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 11] = [
   "vue-vet/reactivity/no-watch-signature-mismatch",
   "vue-vet/reactivity/no-once-immediate-discard",
   "vue-vet/reactivity/no-watch-alias-old-new",
+  "vue-vet/reactivity/no-toref-ignored-key",
+  "vue-vet/reactivity/no-effect-scope-callback-argument",
 ];
 
 #[test]
@@ -455,12 +457,15 @@ fn source_contract_findings_keep_incremental_identity() {
   let _ignored = std::fs::remove_dir_all(&root);
   std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
   let source = "<script setup lang=\"ts\">\n\
-import { reactive, ref, shallowRef, toRaw, triggerRef, toRefs, watch, watchSyncEffect } from 'vue'\n\
+import { effectScope, reactive, ref, shallowRef, toRaw, toRef, triggerRef, toRefs, watch, watchSyncEffect } from 'vue'\n\
 const n = ref(0)\n\
 watch(n.value, () => {})\n\
 triggerRef(reactive({ n: 1 }))\n\
 toRefs({ a: 1 })\n\
 void reactive(0)\n\
+const ignored = ref(0)\n\
+void toRef(ignored, 'k')\n\
+effectScope(() => {})\n\
 const state = shallowRef({ count: 1 })\n\
 watchSyncEffect(() => { void state.value.count })\n\
 state.value.count = 2\n\
@@ -524,7 +529,7 @@ watch(state, (next, old) => { if (next === old) return; accept(next) })\n\
   assert_eq!(
     contract_ids(&cold),
     expected,
-    "cold scan must emit source-contract, watch-api, notification, and callback IDs; {:?}",
+    "cold scan must emit source-contract, watch-api, notification, callback, and normalization IDs; {:?}",
     cold.summary.diagnostics
   );
   let toraw = "vue-vet/reactivity/no-toraw-write-of-tracked-state";

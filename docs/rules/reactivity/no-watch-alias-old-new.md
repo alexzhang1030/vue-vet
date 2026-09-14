@@ -17,7 +17,7 @@ reassignment, and shadowing stay quiet. `reactive(ref(…))` and
 check, so `new`/`old` can differ; those stay quiet. Writing `__v_isRef` after
 construction (including assignment-pattern / destructuring targets),
 method receivers that mutate `this` (for example `tag() { this.__v_isRef = true }`,
-including when that method is a tagged-template tag),
+including call and tagged-template tags with TypeScript instantiation wrappers),
 `Object.freeze` of constructor input (direct, spread, sequence, or
 aggregate storage), and `__v_isReadonly` /
 `__v_raw` keys stay quiet. Spread, accessor, prototype, or other Vue marker

@@ -219,15 +219,26 @@ File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         computed literal keys stay quiet without changing shared object
         summarization. Proven
         `watchEffect` / `watchPostEffect` / `watchSyncEffect` identity is recorded
-        as `ContractSink::WatchEffectFamily`. Eligibility and dispatch share one
-        `contract_sink` table with source5, so named effect imports use that same
-        Vue-import pass. Named effect-family imports keep source indexes empty
+        as `ContractSink::WatchEffectFamily`. `toRef` and `effectScope` are
+        `ContractSink::ToRef` / `ContractSink::EffectScope` so a named import of
+        either still admits collection. Typed `toRef` ignored-key facts require
+        an immutable `__v_isRef` capability on a dedicated
+        role index; marker writes/deletes, helper arguments, method receivers,
+        spreads, pattern assignment to the marker, constructor arguments, and
+        call / tagged-template receivers (including TypeScript instantiation
+        wrappers) stay unproven for that overload. Call, `new`, and tagged
+        receivers share one wrapper walk; `toref_identity_uncertain` and
+        `capability_uncertain` stay separate from generic source5 `uncertain`
+        / `escaped`. Eligibility
+        and dispatch share one `contract_sink` table with source5, so named
+        effect / toRef / effectScope imports reuse the canonical Vue-import
+        pass. `watch` still runs the ordinary source collector, watch-family
+        option/signature facts, and callback-contract collectors
+        (`watch_callbacks.rs`). Named effect-family imports keep source indexes empty
         when every Oxc resolved reference is a proven call with fewer than two
         arguments and no spread (current watch-API rules read that second
-        argument). Ordinary sinks and namespace imports keep full indexing. `watch`
-        still runs the ordinary source collector, watch-family option/signature
-        facts, and callback-contract collectors (`watch_callbacks.rs`). Combined
-        `RULESET_VERSION` is 20; `REACTIVITY_GRAPH_VERSION` stays 41. Lifetime facts are a
+        argument). Ordinary sinks and namespace imports keep full indexing. Combined
+        `RULESET_VERSION` is 21; `REACTIVITY_GRAPH_VERSION` stays 41. Lifetime facts are a
         separate field owned elsewhere.
         `TemplateElementFact::has_key` includes proven object-form `v-bind`
         keys from Oxc; `is_component` is Vize `ElementType` / JSX

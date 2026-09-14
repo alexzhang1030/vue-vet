@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-effect-scope-callback-argument",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-effect-scope-callback-argument",
+    "message": "`effectScope` treats a function first argument as a truthy detached option; the callback body never runs",
+    "help": "Call `effectScope()` or `effectScope(true)` for detached ownership, then `scope.run(callback)`. Do not pass the callback to the constructor.",
+    "file": "fixtures/rules/no-effect-scope-callback-argument/invalid/binding.vue",
+    "span": {
+      "offset": 127,
+      "length": 3,
+      "line": 7,
+      "column": 13
+    }
+  }
+]

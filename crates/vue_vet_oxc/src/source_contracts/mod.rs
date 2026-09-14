@@ -14,6 +14,7 @@
 //! imports keep full indexing.
 
 mod index;
+mod normalization;
 mod shape;
 mod stats;
 mod watch_api;
@@ -146,6 +147,8 @@ impl Collector<'_> {
           self.collect_watch_callback_contracts(call, info);
         }
         Some(ContractSink::WatchEffectFamily) => self.collect_watch_api(call, info),
+        Some(ContractSink::ToRef) => self.collect_toref(call, info),
+        Some(ContractSink::EffectScope) => self.collect_effect_scope(info),
         None => {}
       }
     }
@@ -188,6 +191,14 @@ impl Collector<'_> {
         right.guard_span.offset,
         right.reason as u8,
       ))
+    });
+    self.facts.toref_ignored_key.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.effect_scope_callback.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
     });
     (self.facts, self.indexes.stats())
   }

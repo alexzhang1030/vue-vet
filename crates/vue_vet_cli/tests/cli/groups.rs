@@ -44,8 +44,8 @@ fn list_rules_is_sorted_unique_and_includes_project_ids() {
   );
   assert_eq!(
     parsed.pointer("/counts/total").and_then(Value::as_u64),
-    Some(117),
-    "composed CLI inventory must be 117 after source-contract, notification, watch-api, and callback rules"
+    Some(119),
+    "composed CLI inventory must be 119 after source-contract, notification, watch-api, callback, and normalization rules"
   );
 }
 
@@ -97,7 +97,7 @@ fn list_rules_text_has_dense_columns() {
 }
 
 #[test]
-fn list_rules_source_contracts_includes_five_ids() {
+fn list_rules_source_contracts_includes_contract_ids() {
   let output = run(&["--list-rules", "--format", "json", "--group", "source-contracts"]);
   assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
   let parsed: Value = serde_json::from_slice(&output.stdout).expect("source-contracts json");
@@ -112,8 +112,10 @@ fn list_rules_source_contracts_includes_five_ids() {
     })
     .unwrap_or_default();
   for id in [
+    "vue-vet/reactivity/no-effect-scope-callback-argument",
     "vue-vet/reactivity/no-lost-shallow-nested-notification",
     "vue-vet/reactivity/no-primitive-reactive-target",
+    "vue-vet/reactivity/no-toref-ignored-key",
     "vue-vet/reactivity/no-toraw-write-of-tracked-state",
     "vue-vet/reactivity/no-torefs-on-non-proxy",
     "vue-vet/reactivity/no-trigger-ref-on-non-ref",

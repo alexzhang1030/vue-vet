@@ -23,6 +23,10 @@ pub const CACHE_FORMAT_VERSION: u32 = 5;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// Bump when built-in rule set or seed-aware analysis behavior changes.
 ///
+/// v21: normalization contracts (`no-toref-ignored-key`,
+/// `no-effect-scope-callback-argument`) as `ContractSink::ToRef` /
+/// `ContractSink::EffectScope` on the watch-callback catalog (v20).
+/// Graph version stays 41.
 /// v20: watch-callback contracts (`no-once-immediate-discard`,
 /// `no-watch-alias-old-new`) on the ordinary `watch` `ContractSink`, composed
 /// onto the watch-API catalog (v19). Graph version stays 41.
@@ -59,7 +63,7 @@ pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// prefer-watch suppresses self-write sources; computed self-write is impure.
 /// v5: conditional-dep premise withdrawn; after-await registrars deprecated
 /// except defineExpose; absence rules require complete follow coverage.
-pub const RULESET_VERSION: u32 = 20;
+pub const RULESET_VERSION: u32 = 21;
 
 /// Workspace pin for `vize_croquis` / `vize_atelier_core`.
 ///

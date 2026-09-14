@@ -71,15 +71,18 @@ block complete. Bare `const alias = known` is recorded on the existing
 ## Current baseline
 
 Contract version: **`REACTIVITY_GRAPH_VERSION = 41`**. Rule-set identity
-hashed into the scan cache is **`RULESET_VERSION = 20`**.
+hashed into the scan cache is **`RULESET_VERSION = 21`**.
 `watchEffect` / `watchPostEffect` / `watchSyncEffect` are source-contract sink
 APIs (option/signature facts). Eligibility and dispatch share one `ContractSink`
-table with the source5 collectors; watch-API and watch-callback facts live in
-the ruleset / file-fact contract, not the reactivity graph. Named effect-family
+table with the source5 collectors; watch-API, watch-callback, and
+normalization facts live in the ruleset / file-fact contract.
+Ordinary `watch` also runs callback-contract collectors
+(`no-once-immediate-discard`, `no-watch-alias-old-new`). Named `toRef` /
+`effectScope` imports admit `no-toref-ignored-key` and
+`no-effect-scope-callback-argument`. Named effect-family
 imports keep source-contract indexes empty when every resolved reference is a
 proven call without a second argument; that is equivalent collection for the
-current predicates. Ordinary `watch` also runs callback-contract collectors
-(`no-once-immediate-discard`, `no-watch-alias-old-new`).
+current predicates.
 
 v41 records same-file lost-notification source/view/path facts (`source_views`,
 `notification_bypasses`) for `shallowRef` / `shallowReactive` nested writes past

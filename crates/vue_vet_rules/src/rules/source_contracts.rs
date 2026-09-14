@@ -1,7 +1,7 @@
 //! Vue API source-contract rules (issue #224). Consume stable facts only.
 
 use vue_vet_core::{
-  Confidence, Rule, RuleContext, RuleMeta, Severity, SourceContractSiteFact,
+  Confidence, Rule, RuleContext, RuleMeta, Severity, SourceContractSiteFact, ToRefIgnoredKeyReason,
   WatchCallbackContractReason, WatchIgnoredOptionReason, WatchSignatureMismatchReason,
 };
 
@@ -77,6 +77,22 @@ const ALIAS_OLD_NEW_META: RuleMeta = RuleMeta {
   documentation: "rules/reactivity/no-watch-alias-old-new",
 };
 
+const TOREF_KEY_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-toref-ignored-key",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-toref-ignored-key",
+};
+
+const EFFECT_SCOPE_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-effect-scope-callback-argument",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-effect-scope-callback-argument",
+};
+
 pub(super) struct NoTriggerRefOnNonRef;
 pub(super) static NO_TRIGGER_REF_ON_NON_REF: NoTriggerRefOnNonRef = NoTriggerRefOnNonRef;
 
@@ -105,6 +121,13 @@ pub(super) static NO_ONCE_IMMEDIATE_DISCARD: NoOnceImmediateDiscard = NoOnceImme
 
 pub(super) struct NoWatchAliasOldNew;
 pub(super) static NO_WATCH_ALIAS_OLD_NEW: NoWatchAliasOldNew = NoWatchAliasOldNew;
+
+pub(super) struct NoToRefIgnoredKey;
+pub(super) static NO_TOREF_IGNORED_KEY: NoToRefIgnoredKey = NoToRefIgnoredKey;
+
+pub(super) struct NoEffectScopeCallbackArgument;
+pub(super) static NO_EFFECT_SCOPE_CALLBACK_ARGUMENT: NoEffectScopeCallbackArgument =
+  NoEffectScopeCallbackArgument;
 
 impl Rule for NoTriggerRefOnNonRef {
   fn meta(&self) -> &'static RuleMeta {
@@ -294,6 +317,56 @@ impl Rule for NoWatchAliasOldNew {
   }
 }
 
+impl Rule for NoToRefIgnoredKey {
+  fn meta(&self) -> &'static RuleMeta {
+    &TOREF_KEY_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.toref_ignored_key {
+        let (message, help) = match site.reason {
+          ToRefIgnoredKeyReason::Function => (
+            "`toRef` treats a function source as a getter ref and ignores this key",
+            "The `'value'` key is also ignored on getters. Pass the function alone, or bind a property on an object source.",
+          ),
+          ToRefIgnoredKeyReason::Primitive => (
+            "`toRef` wraps a primitive or nullish source as a new ref and ignores this key",
+            "Drop the key, or pass an object if a live property binding is intended.",
+          ),
+          ToRefIgnoredKeyReason::Ref => (
+            "`toRef` already received a ref, so this key is ignored",
+            "`toRef(existingRef, 'value')` keeps writeback to the same ref. Other keys do not select a property.",
+          ),
+        };
+        context.report(self.meta(), site.span, message.into(), Some(help.into()));
+      }
+    }
+  }
+}
+
+impl Rule for NoEffectScopeCallbackArgument {
+  fn meta(&self) -> &'static RuleMeta {
+    &EFFECT_SCOPE_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.effect_scope_callback {
+        context.report(
+          self.meta(),
+          site.span,
+          "`effectScope` treats a function first argument as a truthy detached option; the callback body never runs".into(),
+          Some(
+            "Call `effectScope()` or `effectScope(true)` for detached ownership, then `scope.run(callback)`. Do not pass the callback to the constructor."
+              .into(),
+          ),
+        );
+      }
+    }
+  }
+}
+
 const fn ignored_copy(reason: WatchIgnoredOptionReason) -> (&'static str, &'static str) {
   match reason {
     WatchIgnoredOptionReason::Equals => (
@@ -358,5 +431,7 @@ pub(super) fn source_contract_rules() -> Vec<&'static dyn Rule> {
     &NO_WATCH_SIGNATURE_MISMATCH,
     &NO_ONCE_IMMEDIATE_DISCARD,
     &NO_WATCH_ALIAS_OLD_NEW,
+    &NO_TOREF_IGNORED_KEY,
+    &NO_EFFECT_SCOPE_CALLBACK_ARGUMENT,
   ]
 }
