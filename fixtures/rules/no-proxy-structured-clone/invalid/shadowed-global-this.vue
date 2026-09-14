@@ -1,0 +1,12 @@
+<script setup lang="ts">
+import { reactive } from 'vue'
+const globalThis = {
+  structuredClone: ((value: unknown) => value) as typeof structuredClone,
+}
+globalThis.structuredClone = ((value: unknown) => value) as typeof structuredClone
+structuredClone(reactive({ count: 1 }))
+</script>
+
+<template>
+  <p />
+</template>

@@ -32,6 +32,9 @@ pub struct SourceContractFacts {
   pub toref_ignored_key: Vec<ToRefIgnoredKeyFact>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub effect_scope_callback: Vec<SourceContractSiteFact>,
+  /// Proven Vue Proxy used as the data argument of native `structuredClone`.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub uncloneable_proxy_data: Vec<SourceContractSiteFact>,
 }
 
 impl SourceContractFacts {
@@ -47,6 +50,7 @@ impl SourceContractFacts {
       && self.watch_callback_contracts.is_empty()
       && self.toref_ignored_key.is_empty()
       && self.effect_scope_callback.is_empty()
+      && self.uncloneable_proxy_data.is_empty()
   }
 }
 

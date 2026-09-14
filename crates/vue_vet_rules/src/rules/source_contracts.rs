@@ -433,5 +433,6 @@ pub(super) fn source_contract_rules() -> Vec<&'static dyn Rule> {
     &NO_WATCH_ALIAS_OLD_NEW,
     &NO_TOREF_IGNORED_KEY,
     &NO_EFFECT_SCOPE_CALLBACK_ARGUMENT,
+    &super::no_proxy_structured_clone::NO_PROXY_STRUCTURED_CLONE,
   ]
 }

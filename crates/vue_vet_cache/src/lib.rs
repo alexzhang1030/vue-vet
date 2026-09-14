@@ -23,6 +23,8 @@ pub const CACHE_FORMAT_VERSION: u32 = 5;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// Bump when built-in rule set or seed-aware analysis behavior changes.
 ///
+/// v22: native `structuredClone` actual-Proxy facts (`no-proxy-structured-clone`)
+/// on the normalization catalog (v21). Graph version stays 41.
 /// v21: normalization contracts (`no-toref-ignored-key`,
 /// `no-effect-scope-callback-argument`) as `ContractSink::ToRef` /
 /// `ContractSink::EffectScope` on the watch-callback catalog (v20).
@@ -40,6 +42,7 @@ pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// `no-torefs-on-non-proxy`, `no-primitive-reactive-target`,
 /// `no-watch-unwrapped-source`, `no-watch-replaced-object-source`) plus
 /// watch-source overlap finalization with `no-empty-watch-sources`.
+/// Combined RULESET/graph cache version bumps are owned by the parent merge.
 /// v16: lifetime watcher/effect-scope facts (`no-returned-watcher-cleanup`,
 /// `no-late-watcher-cleanup`, `no-orphaned-scope-watcher`, `no-late-scope-dispose`)
 /// composed onto the retired quiet-ID catalog (config unknown).
@@ -63,7 +66,7 @@ pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// prefer-watch suppresses self-write sources; computed self-write is impure.
 /// v5: conditional-dep premise withdrawn; after-await registrars deprecated
 /// except defineExpose; absence rules require complete follow coverage.
-pub const RULESET_VERSION: u32 = 21;
+pub const RULESET_VERSION: u32 = 22;
 
 /// Workspace pin for `vize_croquis` / `vize_atelier_core`.
 ///

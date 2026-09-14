@@ -44,8 +44,8 @@ fn list_rules_is_sorted_unique_and_includes_project_ids() {
   );
   assert_eq!(
     parsed.pointer("/counts/total").and_then(Value::as_u64),
-    Some(119),
-    "composed CLI inventory must be 119 after source-contract, notification, watch-api, callback, and normalization rules"
+    Some(120),
+    "composed CLI inventory must be 120 after source-contract, notification, watch-api, callback, normalization, and clone rules"
   );
 }
 
@@ -114,11 +114,14 @@ fn list_rules_source_contracts_includes_contract_ids() {
   for id in [
     "vue-vet/reactivity/no-effect-scope-callback-argument",
     "vue-vet/reactivity/no-lost-shallow-nested-notification",
+    "vue-vet/reactivity/no-once-immediate-discard",
     "vue-vet/reactivity/no-primitive-reactive-target",
+    "vue-vet/reactivity/no-proxy-structured-clone",
     "vue-vet/reactivity/no-toref-ignored-key",
     "vue-vet/reactivity/no-toraw-write-of-tracked-state",
     "vue-vet/reactivity/no-torefs-on-non-proxy",
     "vue-vet/reactivity/no-trigger-ref-on-non-ref",
+    "vue-vet/reactivity/no-watch-alias-old-new",
     "vue-vet/reactivity/no-watch-ignored-option",
     "vue-vet/reactivity/no-watch-replaced-object-source",
     "vue-vet/reactivity/no-watch-signature-mismatch",

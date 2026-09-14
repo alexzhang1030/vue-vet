@@ -229,16 +229,22 @@ File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         wrappers) stay unproven for that overload. Call, `new`, and tagged
         receivers share one wrapper walk; `toref_identity_uncertain` and
         `capability_uncertain` stay separate from generic source5 `uncertain`
-        / `escaped`. Eligibility
-        and dispatch share one `contract_sink` table with source5, so named
-        effect / toRef / effectScope imports reuse the canonical Vue-import
-        pass. `watch` still runs the ordinary source collector, watch-family
-        option/signature facts, and callback-contract collectors
-        (`watch_callbacks.rs`). Named effect-family imports keep source indexes empty
-        when every Oxc resolved reference is a proven call with fewer than two
-        arguments and no spread (current watch-API rules read that second
-        argument). Ordinary sinks and namespace imports keep full indexing. Combined
-        `RULESET_VERSION` is 21; `REACTIVITY_GRAPH_VERSION` stays 41. Lifetime facts are a
+        / `escaped`. Native `structuredClone` facts keep the intrinsic
+        separate from the Vue API whitelist; actual Proxy allocation proof
+        lives in `source_contracts/clone_boundary.rs`. Actual
+        Proxy origin is `vue` / `@vue/runtime-core` / `@vue/runtime-dom` /
+        `@vue/reactivity` only (`#imports` and `vue-demi` unknown here),
+        looked up from the indexed import source of proxy-allocating
+        constructors. Eligibility and dispatch share one `contract_sink`
+        table with source5, so named effect / toRef / effectScope imports
+        reuse the canonical Vue-import pass. `watch` still runs the ordinary
+        source collector, watch-family option/signature facts, and
+        callback-contract collectors (`watch_callbacks.rs`). Combined
+        `RULESET_VERSION` is 22; `REACTIVITY_GRAPH_VERSION` stays 41.
+        Named effect-family imports keep source indexes empty when every Oxc
+        resolved reference is a proven call with fewer than two arguments and
+        no spread (current watch-API rules read that second argument). Ordinary
+        sinks and namespace imports keep full indexing. Lifetime facts are a
         separate field owned elsewhere.
         `TemplateElementFact::has_key` includes proven object-form `v-bind`
         keys from Oxc; `is_component` is Vize `ElementType` / JSX

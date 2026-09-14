@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-proxy-structured-clone",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-proxy-structured-clone",
+    "message": "`structuredClone` cannot clone a Vue reactive Proxy",
+    "help": "Pass a plain snapshot of cloneable fields. Do not wrap with `toRaw` as a universal fix — nested stored proxies and other uncloneable values can remain.",
+    "file": "fixtures/rules/no-proxy-structured-clone/invalid/shallow-readonly.vue",
+    "span": {
+      "offset": 79,
+      "length": 29,
+      "line": 3,
+      "column": 17
+    }
+  }
+]

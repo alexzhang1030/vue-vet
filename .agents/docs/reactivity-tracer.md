@@ -71,7 +71,7 @@ block complete. Bare `const alias = known` is recorded on the existing
 ## Current baseline
 
 Contract version: **`REACTIVITY_GRAPH_VERSION = 41`**. Rule-set identity
-hashed into the scan cache is **`RULESET_VERSION = 21`**.
+hashed into the scan cache is **`RULESET_VERSION = 22`**.
 `watchEffect` / `watchPostEffect` / `watchSyncEffect` are source-contract sink
 APIs (option/signature facts). Eligibility and dispatch share one `ContractSink`
 table with the source5 collectors; watch-API, watch-callback, and
