@@ -142,7 +142,10 @@ Rolldown layout. The CLI package remains `vue-vet` so the installed binary stays
 
 JavaScript under `npm/` may only select a native binary and forward process
 I/O. Do not move analysis, parsing, or rule logic into Node. Prefer repository
-`just` recipes (`npm-test`, `pack-platform`, `npm-smoke`) for launcher work.
+`just` recipes (`npm-test`, `pack-platform`, `npm-smoke`, `npm-consumer-check`)
+for launcher work. `npm-test` also runs the `node:test` suites under
+`npm/scripts/test/`, and `npm-consumer-check` accepts an already-built binary
+without invoking Cargo or editing `npm/vue-vet/package.json`.
 
 ## Dependency boundaries
 
