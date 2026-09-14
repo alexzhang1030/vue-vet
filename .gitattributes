@@ -21,3 +21,6 @@ fixtures/rules/no-controlled-computed-stale-result-demand/invalid/crlf.vue -text
 fixtures/rules/prefer-stable-computed-identity/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/prefer-sync-ref-one-way/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/prefer-conditional-watch-source/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/prefer-queued-watch-flush/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/prefer-attached-effect-scope/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/prefer-lazy-computed-async/invalid/crlf.vue -text whitespace=cr-at-eol

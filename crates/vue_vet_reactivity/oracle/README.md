@@ -111,6 +111,10 @@ first runs, guarded registration, `once`+`immediate`, unread effect paths,
 prior same-value writes, constant setters, coercing `==`, member/IIFE
 capability forwarding, and later accessor replacement.
 
+`just oracle-scheduling-practice` (`scheduling-practice.mjs`) pins Vue 3.5.40
+and VueUse core 13.9.0 for queued `watch` flush, attached child `effectScope`,
+and lazy `computedAsync` startup. Independent round-7 probes remain read-only.
+
 `just oracle-self-trigger` (`self-trigger-runs.mjs`) is separate from onTrack
 JSON. It asserts Vue 3.5.40 execution counts for self-write effects, one-shot
 versus repeating `requestAnimationFrame`, and template host behavior:

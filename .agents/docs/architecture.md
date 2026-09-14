@@ -266,7 +266,9 @@ File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         imports reuse the canonical Vue-import pass. `watch` still runs the
         ordinary source collector, watch-family option/signature facts, and
         callback-contract collectors (`watch_callbacks.rs`). Combined
-        `RULESET_VERSION` is 31; `REACTIVITY_GRAPH_VERSION` stays 41.
+        `RULESET_VERSION` is 32; `REACTIVITY_GRAPH_VERSION` stays 41.
+        Scheduling-practice facts (`queued_watch_flush`, `attached_effect_scope`,
+        `lazy_computed_async`) live on `SourceContractFacts.scheduling_practice`.
         Named effect-family imports keep source indexes empty when every Oxc
         resolved reference is a proven call with fewer than two arguments and
         no spread (current watch-API rules read that second argument). Ordinary
@@ -372,7 +374,7 @@ source-contract uncertainty. Statement ordinals, preceding exits, watcher
 identity by `NodeId`, and scope-active intervals are built once. Shared
 outer/getter/scope proofs stay memoized. Statement / reference / watcher /
 toggle / computed-edge inspections use a test-only counter; production
-`WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 31.
+`WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 32.
 
 `ModuleSummary` (formerly the opaque `PreparedModuleTrace`) is the formal
 cross-module boundary: imports, exports, provides/injects, local reactivity, and
@@ -400,7 +402,9 @@ exit path. Some practice rules keep a historical rule id segment (for example
 Derivation-practice facts (`sync_ref_one_way`, `conditional_watch_source`) are
 collected in the Oxc adapter beside source contracts, gated by the shared
 `ContractSink` table. VueUse `syncRef` is admitted only from `@vueuse/shared` /
-`@vueuse/core`. Thin rules read those facts; Oxc AST stays in the adapter.
+`@vueuse/core`. Scheduling-practice facts (`queued_watch_flush`,
+`attached_effect_scope`, `lazy_computed_async`) live on
+`SourceContractFacts.scheduling_practice`. Thin rules read those facts; Oxc AST stays in the adapter.
 Tracking-graph / after-await registrar packs may live as a **matrix family** under
 `vue_vet_rules/src/rules/matrix` (shared detection type + unique `RuleMeta` catalog);
 standalone rules remain one file each. Matrix ids still ship docs and fixtures.

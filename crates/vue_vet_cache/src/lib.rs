@@ -23,6 +23,9 @@ pub const CACHE_FORMAT_VERSION: u32 = 5;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// Bump when built-in rule set or seed-aware analysis behavior changes.
 ///
+/// v32: scheduling practice (`prefer-queued-watch-flush`,
+/// `prefer-lazy-computed-async`, `prefer-attached-effect-scope`) on the
+/// derivation-practice catalog (v31). Graph version stays 41.
 /// v31: derivation practice (`prefer-sync-ref-one-way`,
 /// `prefer-conditional-watch-source`) on the stable-computed-identity
 /// catalog (v30). Graph version stays 41.
@@ -92,7 +95,7 @@ pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// prefer-watch suppresses self-write sources; computed self-write is impure.
 /// v5: conditional-dep premise withdrawn; after-await registrars deprecated
 /// except defineExpose; absence rules require complete follow coverage.
-pub const RULESET_VERSION: u32 = 31;
+pub const RULESET_VERSION: u32 = 32;
 
 /// Workspace pin for `vize_croquis` / `vize_atelier_core`.
 ///

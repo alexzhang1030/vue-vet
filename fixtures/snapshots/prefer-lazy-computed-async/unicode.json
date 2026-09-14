@@ -1,0 +1,25 @@
+[
+  {
+    "rule_id": "vue-vet/practice/prefer-lazy-computed-async",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/practice/prefer-lazy-computed-async",
+    "message": "Eager `computedAsync` starts work before any consumer reads the result",
+    "help": "Pass `{ lazy: true }` as the third argument. Startup evaluations are skipped until the first read, that read sees `initialState`, and the output is readonly. The producer stays started after the first demand. The earlier source write and later loading-tolerant consumer are the causal spans.",
+    "file": "fixtures/rules/prefer-lazy-computed-async/invalid/unicode.vue",
+    "span": {
+      "offset": 154,
+      "length": 45,
+      "line": 7,
+      "column": 13
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "@vueuse/core",
+      "export": "computedAsync",
+      "docs_url": "https://vueuse.org/core/computedAsync/",
+      "import_example": "import { computedAsync } from '@vueuse/core'"
+    }
+  }
+]

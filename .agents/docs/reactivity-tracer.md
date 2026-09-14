@@ -71,7 +71,7 @@ block complete. Bare `const alias = known` is recorded on the existing
 ## Current baseline
 
 Contract version: **`REACTIVITY_GRAPH_VERSION = 41`**. Rule-set identity
-hashed into the scan cache is **`RULESET_VERSION = 31`**.
+hashed into the scan cache is **`RULESET_VERSION = 32`**.
 `watchEffect` / `watchPostEffect` / `watchSyncEffect` are source-contract sink
 APIs (option/signature facts). `computed` is a source-contract sink for
 stable-identity practice facts. Eligibility and dispatch share one `ContractSink`
@@ -111,6 +111,10 @@ index: discarded inner watches, repeating outer callbacks whose source can
 still change, and detached `effectScope(true)` sites without stop.
 VueUse `syncRef` from `@vueuse/shared` / `@vueuse/core` is an additional sink
 for derivation-practice facts; graph identity stays v41.
+Scheduling-practice facts (`prefer-queued-watch-flush`,
+`prefer-attached-effect-scope`, `prefer-lazy-computed-async`) live on
+`SourceContractFacts.scheduling_practice` and compose onto that catalog
+without changing graph version. Runtime premises: `just oracle-scheduling-practice`.
 
 
 v41 records same-file lost-notification source/view/path facts (`source_views`,

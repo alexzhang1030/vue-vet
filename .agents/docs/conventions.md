@@ -68,8 +68,8 @@
   separate capability from Vue import identity. Demand-gated value contracts
   (`no-invalid-custom-ref-interface`, `no-inactive-scope-result`,
   `no-missing-torefs-key`) stay distinct from callback/toRef receiver sets
-  and clone native identity. Combined inventory is 135 (133 file + 2
-  project); source-contract group 36; lifetime group 8; `RULESET_VERSION` 31; graph stays 41.
+  and clone native identity. Combined inventory is 138 (136 file + 2
+  project); source-contract group 36; lifetime group 9; `RULESET_VERSION` 32; graph stays 41.
   Runtime premises live in `just oracle-source-contracts` (Vue 3.5.40), which
   runs `source-contracts.mjs`, `watch-api.mjs`, `watch-callback-contracts.mjs`,
   and `value-contracts.mjs`. Dedicated `just oracle-value-contracts` remains
@@ -77,6 +77,15 @@
   (`cached-result-contracts.mjs`). Stable computed-identity premises live in
   `just oracle-computed-identity` (`computed-identity.mjs`). Derivation-practice
   premises live in `just oracle-derivation-practice` (`derivation-practice.mjs`).
+  Scheduling-practice facts (`prefer-queued-watch-flush`,
+  `prefer-attached-effect-scope`, `prefer-lazy-computed-async`) compare queued
+  or attached delivery against the watcher's retained baseline with `Object.is`,
+  keep omitted / known / Unknown option states distinct, intern exact primitive
+  atoms for loading guards (`===` / `!==`), and require a proven executed
+  region plus a live owner through settlement. Assignment RHS `.value` is a
+  read. Owner-indexed disposals, result-indexed watch consumers, and
+  callable/block-indexed awaits live in the shared semantic pass. Runtime
+  premises live in `just oracle-scheduling-practice` (`scheduling-practice.mjs`).
 - After adding or renaming rule ids, regenerate the human catalog with
   `just rules-catalog` (`docs/rules/README.md`). Expand stub pages with
   `just rules-docs` (`scripts/expand_rule_docs.py`) before polishing essays.
@@ -100,7 +109,14 @@
   independent of generic source5 uncertainty.
   Keep `no-deep-watch-on-reactive-root` when the identity-guard rule also
   fires: the former reports source-wide tracking, and the latter reports
-  callback dead work.
+  callback dead work. Scheduling-practice facts (`prefer-queued-watch-flush`,
+  `prefer-attached-effect-scope`, `prefer-lazy-computed-async`) compare queued
+  or attached delivery against the watcher's retained baseline with `Object.is`,
+  keep omitted / known / Unknown option states distinct, intern exact primitive
+  atoms for loading guards (`===` / `!==`), and require a proven executed
+  region plus a live owner through settlement. Assignment RHS `.value` is a
+  read. Owner-indexed disposals, result-indexed watch consumers, and
+  callable/block-indexed awaits live in the shared semantic pass.
 - Low-confidence heuristics are opt-in and never enter the default preset merely to increase rule count.
 - Canonical rule groups are a product inventory overlay, not a per-rule `RuleMeta`
   field. The mapping table lives with the composed registry in `vue_vet_session`.

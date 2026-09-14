@@ -107,7 +107,8 @@ jobs:
         run: just oracle-computed-identity
       - name: Derivation-practice Vue 3.5.40 / VueUse premises
         run: just oracle-derivation-practice
-
+      - name: Scheduling-practice Vue 3.5.40 / VueUse 13.9.0 premises
+        run: just oracle-scheduling-practice
 
   vapor-migration-research:
     name: Vapor migration research

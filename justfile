@@ -65,6 +65,10 @@ oracle-watch-callback-contracts:
 oracle-derivation-practice:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node derivation-practice.mjs
 
+# Vue 3.5.40 / VueUse 13.9.0 scheduling-practice premises (queued flush, attached scope, lazy async).
+oracle-scheduling-practice:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node scheduling-practice.mjs
+
 # Vue 3.5.40 lost-notification premises (shallow nested + toRaw) and safe controls.
 oracle-lost-notification:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node lost-notification-runs.mjs

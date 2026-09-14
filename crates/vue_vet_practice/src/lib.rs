@@ -37,8 +37,8 @@ mod tests {
     let metadata = practice_registry().metadata();
     assert_eq!(
       metadata.len(),
-      17,
-      "practice ships VueUse recipes, prefer-to-value, prefer-keyed-map-dependency, prefer-stable-computed-identity, prefer-use-template-ref, prefer-define-model, prefer-use-slots-attrs, and two derivation-practice IDs"
+      20,
+      "practice ships VueUse recipes, prefer-to-value, prefer-keyed-map-dependency, prefer-stable-computed-identity, prefer-use-template-ref, prefer-define-model, prefer-use-slots-attrs, two derivation-practice IDs, and three scheduling-practice IDs"
     );
     assert!(
       metadata.windows(2).all(|pair| matches!(pair, [first, second] if first.id < second.id)),
