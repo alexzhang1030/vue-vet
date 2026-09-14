@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-memoize-stale-result-demand",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-memoize-stale-result-demand",
+    "message": "`useMemoize` returned a cached number, so calling `toUpperCase` throws after the source became a string",
+    "help": "Cache fill at 6:1, source write at 7:1, producer at 5:17. Include the source in the memo key, or call `load`/`delete` after the write.",
+    "file": "fixtures/rules/no-memoize-stale-result-demand/invalid/basic.vue",
+    "span": {
+      "offset": 194,
+      "length": 23,
+      "line": 8,
+      "column": 1
+    }
+  }
+]

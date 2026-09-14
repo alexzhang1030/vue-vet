@@ -2461,6 +2461,8 @@ const SOURCE_CONTRACT_RULES: &[&str] = &[
   "no-missing-torefs-key",
   "no-raw-proxy-map-key",
   "prefer-keyed-map-dependency",
+  "no-memoize-stale-result-demand",
+  "no-controlled-computed-stale-result-demand",
 ];
 
 const CLEANUP_IDENTITY_RULES: &[&str] = &["no-watch-cleanup-current-source"];

@@ -470,7 +470,7 @@ watchEffect(() => { source.value; return () => {} })\n",
   let _ignored = std::fs::remove_dir_all(root);
 }
 
-const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 19] = [
+const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 21] = [
   "vue-vet/reactivity/no-watch-unwrapped-source",
   "vue-vet/reactivity/no-trigger-ref-on-non-ref",
   "vue-vet/reactivity/no-torefs-on-non-proxy",
@@ -490,6 +490,8 @@ const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 19] = [
   "vue-vet/reactivity/no-missing-torefs-key",
   "vue-vet/reactivity/no-extracted-reactive-collection-method",
   "vue-vet/reactivity/no-custom-ref-lost-notification",
+  "vue-vet/reactivity/no-memoize-stale-result-demand",
+  "vue-vet/reactivity/no-controlled-computed-stale-result-demand",
 ];
 
 #[test]
@@ -500,6 +502,8 @@ fn source_contract_findings_keep_incremental_identity() {
   std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
   let source = "<script setup lang=\"ts\">\n\
 import { customRef, effectScope, reactive, ref, shallowRef, toRaw, toRef, triggerRef, toRefs, watch, watchSyncEffect } from 'vue'\n\
+import { useMemoize } from '@vueuse/core'\n\
+import { computedWithControl } from '@vueuse/shared'\n\
 const n = ref(0)\n\
 watch(n.value, () => {})\n\
 triggerRef(reactive({ n: 1 }))\n\
@@ -532,6 +536,17 @@ quietRaw.n = 2\n\
 const lost = customRef((_track, trigger) => { let value = 0; return { get() { return value }, set(next: number) { value = next; trigger() } } })\n\
 watch(lost, () => {})\n\
 lost.value = 1\n\
+const memoSource = ref(1)\n\
+const resolve = useMemoize(() => memoSource.value)\n\
+resolve()\n\
+memoSource.value = 'text'\n\
+resolve().toUpperCase()\n\
+const revision = ref(0)\n\
+const controlledSource = ref(1)\n\
+const controlled = computedWithControl(revision, () => controlledSource.value)\n\
+void controlled.value\n\
+controlledSource.value = 'text'\n\
+controlled.value.toUpperCase()\n\
 </script>\n\
 <template><p /></template>\n";
   let replaced = "<script setup lang=\"ts\">\n\

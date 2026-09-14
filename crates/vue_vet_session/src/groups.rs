@@ -25,6 +25,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-computed-as-operand", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-computed-self-trigger", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-computed-without-dependency", RuleGroupId::Tracking),
+  ("vue-vet/reactivity/no-controlled-computed-stale-result-demand", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-custom-ref-lost-notification", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-deep-watch-on-reactive-root", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-deferred-callback-reactive-read-in-effect", RuleGroupId::Tracking),
@@ -38,6 +39,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-late-scope-dispose", RuleGroupId::Lifetime),
   ("vue-vet/reactivity/no-late-watcher-cleanup", RuleGroupId::Lifetime),
   ("vue-vet/reactivity/no-lost-shallow-nested-notification", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-memoize-stale-result-demand", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-missing-torefs-key", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-model-ref-as-operand", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-multiple-effects-same-target", RuleGroupId::Derivation),
@@ -240,12 +242,13 @@ mod tests {
       "vue-vet/reactivity/no-watch-cleanup-current-source",
     ];
     let inventory = rule_inventory(&[]);
-    assert_eq!(inventory.counts.total, 130, "composed CLI inventory count");
+    assert_eq!(inventory.counts.total, 132, "composed CLI inventory count");
     let source = rule_inventory(&[RuleGroupId::SourceContracts]);
-    assert_eq!(source.counts.total, 34, "source-contracts group count");
+    assert_eq!(source.counts.total, 36, "source-contracts group count");
     let derivation = rule_inventory(&[RuleGroupId::Derivation]);
     assert_eq!(derivation.counts.total, 8, "derivation group count");
     for id in [
+      "vue-vet/reactivity/no-controlled-computed-stale-result-demand",
       "vue-vet/reactivity/no-custom-ref-lost-notification",
       "vue-vet/reactivity/no-extracted-reactive-collection-method",
       "vue-vet/reactivity/no-lost-shallow-nested-notification",
@@ -260,6 +263,7 @@ mod tests {
       "vue-vet/reactivity/no-effect-scope-callback-argument",
       "vue-vet/reactivity/no-invalid-custom-ref-interface",
       "vue-vet/reactivity/no-inactive-scope-result",
+      "vue-vet/reactivity/no-memoize-stale-result-demand",
       "vue-vet/reactivity/no-missing-torefs-key",
     ] {
       assert_eq!(group_of(id), Some(RuleGroupId::SourceContracts), "{id}");

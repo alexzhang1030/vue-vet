@@ -34,10 +34,29 @@ collector (imports, calls, scopes) succeed with empty results.
 
 Demand-gated value contracts (`customRef` / stopped `effectScope.run` /
 missing `toRefs` key) own a function-level execution region and source-order
-barriers. Generic source5 still uses immediate `ExpressionStatement` parents
-only. Do not reuse demand reach/barrier proof as source5 execution evidence;
-a later sink preflight may merge collectors, but source5 output must stay
-stable until that merge.
+barriers. Cached-result demand (`useMemoize` / `computedWithControl`) reuses
+that region plus a per-result ordered event fold; VueUse identity requires
+exact `@vueuse/core` / `@vueuse/shared` provenance, not a named API bag.
+A populated cache keeps its first filled kind and fill span through later
+hits; only proven `load` / `delete` / `clear` / `trigger` / listed-source
+writes refill. Native prototype assignments (`Number.prototype.m` and
+`Number['prototype']['m']`) must be collected before identifier-root early
+returns. Foreign events use exclusive `(start, end)` `partition_point`
+queries over unique event and allowed-offset indexes — do not rescan calls
+or producer suffixes per demand. "Unique" is load-bearing: nested calls such
+as `r0().toUpperCase()` record two events at one start offset, so
+`events_by_block` must be sorted **and** deduped in `Indexes::build`;
+without the dedup the foreign-event count exceeds the (deduped) allowed
+count and every demand after the first in a block is silently dropped
+(`cached_result_shared_source_producers_grow_subquadratically` pins this).
+Generic source5 still uses immediate
+`ExpressionStatement` parents only. Do not reuse demand reach/barrier proof
+as source5 execution evidence; a later sink preflight may merge collectors,
+but source5 output must stay stable until that merge.
+
+Production `WorkCounter` is a zero-sized type (`cfg(not(test))`); test builds
+keep `Cell` counters. `SourceContractStats` is a separate snapshot DTO of
+nine `u64` fields (72 bytes) in both layouts; `stats.rs` pins the size.
 
 `toRefs(state)` is a generic source5 escape/uncertain use. Demand may discount
 only a proven Vue `toRefs` first-argument borrow; helper arguments, storage,

@@ -23,6 +23,9 @@ pub const CACHE_FORMAT_VERSION: u32 = 5;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// Bump when built-in rule set or seed-aware analysis behavior changes.
 ///
+/// v29: cached-result demand (`no-memoize-stale-result-demand`,
+/// `no-controlled-computed-stale-result-demand`) on the lifetime-ownership
+/// catalog (v28). Graph version stays 41.
 /// v28: lifetime ownership (`no-nested-watch-without-cleanup`,
 /// `no-detached-effect-scope-without-stop`) on the customRef catalog (v27).
 /// Graph version stays 41.
@@ -83,7 +86,7 @@ pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// prefer-watch suppresses self-write sources; computed self-write is impure.
 /// v5: conditional-dep premise withdrawn; after-await registrars deprecated
 /// except defineExpose; absence rules require complete follow coverage.
-pub const RULESET_VERSION: u32 = 28;
+pub const RULESET_VERSION: u32 = 29;
 
 /// Workspace pin for `vize_croquis` / `vize_atelier_core`.
 ///

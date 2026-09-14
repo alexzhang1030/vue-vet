@@ -131,7 +131,7 @@ impl Collector<'_> {
   fn value_is_proven_non_undefined(&self, span: Span) -> bool {
     matches!(
       self.indexes.hints.get(&span_key(span)),
-      Some(super::shape::ShapeHint::Primitive | super::shape::ShapeHint::Nullish)
+      Some(super::shape::ShapeHint::Primitive(_) | super::shape::ShapeHint::Nullish)
     )
   }
 }

@@ -34,9 +34,10 @@ use super::proof::{
   is_custom_prototype_key,
 };
 use super::shape::{
-  CollectionCtor, ShapeHint, VueImport, hint_of, intern_extractable_method, intern_native_ctor,
-  is_actual_proxy_runtime_source, is_fresh_allocation, is_known_receiver_method,
-  is_proxy_allocating_api, resolve_vue_api, span_key, unresolved_collection_kind,
+  CollectionCtor, ShapeHint, VueImport, VueUseImport, hint_of, intern_extractable_method,
+  intern_native_ctor, is_actual_proxy_runtime_source, is_fresh_allocation,
+  is_known_receiver_method, is_proxy_allocating_api, resolve_vue_api, resolve_vueuse_api, span_key,
+  unresolved_collection_kind,
 };
 use super::stats::WorkCounter;
 use crate::facts::source_span;
@@ -68,7 +69,6 @@ pub(super) struct ValueWrite {
   pub callable: Option<NodeId>,
   pub block: NodeId,
   pub span: Span,
-  #[expect(dead_code, reason = "RHS span is stored for write-site identity")]
   pub rhs: Span,
   pub literal: WriteLiteral,
 }
@@ -100,6 +100,7 @@ struct DirectMemberWrite<'a> {
 pub(super) struct CallInfo {
   pub span: Span,
   pub api: Option<&'static str>,
+  pub vueuse: Option<&'static str>,
   pub first_arg: Option<Span>,
   pub second_arg: Option<Span>,
   pub has_spread: bool,
@@ -216,6 +217,35 @@ pub(super) struct MemberUse {
 pub(super) struct NamedUse {
   pub key: String,
   pub site: MemberUse,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct CallUse {
+  pub offset: usize,
+  pub span: Span,
+  pub callable: Option<NodeId>,
+  pub region: NodeId,
+  pub block: NodeId,
+  pub optional: bool,
+  pub reach: Reach,
+  pub argc: u8,
+  pub has_spread: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct ResultDemand {
+  pub member: String,
+  pub site: MemberUse,
+  pub inner: CallUse,
+  pub block: NodeId,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct ValueDemand {
+  pub member: String,
+  pub site: MemberUse,
+  pub value_read: MemberUse,
+  pub block: NodeId,
 }
 
 #[derive(Clone, Debug)]
@@ -342,8 +372,13 @@ pub(super) struct ValueRead {
   pub block: NodeId,
 }
 
+#[expect(
+  clippy::struct_excessive_bools,
+  reason = "clone/map intrinsic poison, prototype mutation, and unresolved origin touch are independent whole-file proofs"
+)]
 pub(super) struct Indexes {
   pub vue_imports: HashMap<SymbolId, VueImport>,
+  pub vueuse_imports: HashMap<SymbolId, VueUseImport>,
   pub alias_root: HashMap<SymbolId, SymbolId>,
   pub escaped: HashSet<SymbolId>,
   pub uncertain: HashSet<SymbolId>,
@@ -361,6 +396,9 @@ pub(super) struct Indexes {
   pub member_reads_by_root: HashMap<SymbolId, Vec<NamedUse>>,
   pub chained_value_by_root: HashMap<SymbolId, Vec<NamedUse>>,
   pub member_calls_by_root: HashMap<SymbolId, Vec<NamedUse>>,
+  pub identifier_calls: HashMap<SymbolId, Vec<CallUse>>,
+  pub result_demands: HashMap<SymbolId, Vec<ResultDemand>>,
+  pub value_demands: HashMap<SymbolId, Vec<ValueDemand>>,
   pub destructure_by_object: HashMap<SymbolId, Vec<(SymbolId, String)>>,
   pub member_writes: HashMap<(SymbolId, String), Vec<MemberWrite>>,
   pub capability_touch: HashSet<SymbolId>,
@@ -383,6 +421,11 @@ pub(super) struct Indexes {
   pub init_span: HashMap<SymbolId, Span>,
   pub value_write_roots: HashSet<SymbolId>,
   pub member_write_roots: HashSet<SymbolId>,
+  pub prototype_mutated: bool,
+  pub shadowed_ctors: HashSet<&'static str>,
+  pub stop_offsets: Vec<usize>,
+  pub producer_call_offsets: Vec<usize>,
+  pub allowed_offsets: Vec<usize>,
   pub functions: HashMap<u64, FunctionInfo>,
   pub function_by_node: HashMap<NodeId, Span>,
   pub effect_calls: HashMap<u64, ArgUse>,
@@ -435,6 +478,10 @@ pub(super) struct Indexes {
 }
 
 impl Indexes {
+  #[expect(
+    clippy::too_many_arguments,
+    reason = "the caller already resolved both import tables for its early exit; threading them avoids a second import pass"
+  )]
   pub(super) fn build(
     semantic: &oxc_semantic::Semantic<'_>,
     line_index: &vue_vet_core::LineIndex,
@@ -442,10 +489,12 @@ impl Indexes {
     script_offset: usize,
     kind: ScriptKind,
     vue_imports: HashMap<SymbolId, VueImport>,
+    vueuse_imports: HashMap<SymbolId, VueUseImport>,
     work: WorkCounter,
   ) -> Self {
     let mut indexes = Self {
       vue_imports,
+      vueuse_imports,
       alias_root: HashMap::new(),
       escaped: HashSet::new(),
       uncertain: HashSet::new(),
@@ -463,6 +512,9 @@ impl Indexes {
       member_reads_by_root: HashMap::new(),
       chained_value_by_root: HashMap::new(),
       member_calls_by_root: HashMap::new(),
+      identifier_calls: HashMap::new(),
+      result_demands: HashMap::new(),
+      value_demands: HashMap::new(),
       destructure_by_object: HashMap::new(),
       member_writes: HashMap::new(),
       capability_touch: HashSet::new(),
@@ -483,6 +535,11 @@ impl Indexes {
       init_span: HashMap::new(),
       value_write_roots: HashSet::new(),
       member_write_roots: HashSet::new(),
+      prototype_mutated: false,
+      shadowed_ctors: HashSet::new(),
+      stop_offsets: Vec::new(),
+      producer_call_offsets: Vec::new(),
+      allowed_offsets: Vec::new(),
       functions: HashMap::new(),
       function_by_node: HashMap::new(),
       effect_calls: HashMap::new(),
@@ -535,6 +592,7 @@ impl Indexes {
     };
     indexes.build_owners(semantic);
     indexes.precompute_aliases(semantic);
+    indexes.note_ctor_shadows(semantic);
     indexes.record_region_starts(semantic, line_index, sfc_source, script_offset);
     indexes.scan(semantic, line_index, sfc_source, script_offset, kind);
     indexes.finish_aliases_and_roles(semantic);
@@ -544,8 +602,12 @@ impl Indexes {
     indexes.precompute_closed_objects();
     indexes.summarize_closed_keys();
     indexes.summarize_inactivity();
-    for events in indexes.events_by_block.values_mut() {
-      events.sort_unstable();
+    {
+      let work = &indexes.work;
+      for events in indexes.events_by_block.values_mut() {
+        work.sort_by_key(events, |offset| *offset);
+        events.dedup();
+      }
     }
     for offsets in indexes.terminations_by_callable.values_mut() {
       offsets.sort_unstable();
@@ -574,6 +636,20 @@ impl Indexes {
     for uses in indexes.member_calls_by_root.values_mut() {
       uses.sort_by_key(|use_site| use_site.site.offset);
     }
+    for uses in indexes.identifier_calls.values_mut() {
+      uses.sort_by_key(|use_site| use_site.offset);
+    }
+    for uses in indexes.result_demands.values_mut() {
+      uses.sort_by_key(|use_site| use_site.site.offset);
+    }
+    for uses in indexes.value_demands.values_mut() {
+      uses.sort_by_key(|use_site| use_site.site.offset);
+    }
+    indexes.work.sort_by_key(&mut indexes.stop_offsets, |offset| *offset);
+    indexes.stop_offsets.dedup();
+    indexes.work.sort_by_key(&mut indexes.producer_call_offsets, |offset| *offset);
+    indexes.producer_call_offsets.dedup();
+    indexes.finish_allowed_offsets();
     for uses in indexes.arg_uses.values_mut() {
       uses.sort_by_key(|use_site| use_site.offset);
     }
@@ -593,6 +669,105 @@ impl Indexes {
 
   pub(super) const fn work_counter(&self) -> &WorkCounter {
     &self.work
+  }
+
+  fn finish_allowed_offsets(&mut self) {
+    let demand_len = self
+      .result_demands
+      .values()
+      .map(Vec::len)
+      .chain(self.value_demands.values().map(Vec::len))
+      .sum::<usize>();
+    let mut allowed = Vec::with_capacity(
+      self
+        .producer_call_offsets
+        .len()
+        .saturating_add(self.stop_offsets.len())
+        .saturating_add(demand_len),
+    );
+    allowed.extend_from_slice(&self.producer_call_offsets);
+    allowed.extend_from_slice(&self.stop_offsets);
+    for uses in self.result_demands.values() {
+      for demand in uses {
+        allowed.push(demand.site.offset);
+      }
+    }
+    for uses in self.value_demands.values() {
+      for demand in uses {
+        allowed.push(demand.site.offset);
+      }
+    }
+    self.work.add_queries(u64::try_from(allowed.len()).unwrap_or(u64::MAX));
+    self.work.sort_by_key(&mut allowed, |offset| *offset);
+    allowed.dedup();
+    self.allowed_offsets = allowed;
+  }
+
+  pub(super) fn has_foreign_event_between(&self, block: NodeId, start: usize, end: usize) -> bool {
+    let Some(events) = self.events_by_block.get(&block) else {
+      self.work.add_queries(1);
+      return false;
+    };
+    let event_count = self.work.exclusive_offsets(events, start, end).len();
+    self.work.add_queries(1);
+    let allowed_count = self.work.exclusive_offsets(&self.allowed_offsets, start, end).len();
+    self.work.add_queries(1);
+    event_count > allowed_count
+  }
+
+  pub(super) fn sort_timeline<T, K, F>(&self, items: &mut [T], key: F)
+  where
+    K: Ord,
+    F: FnMut(&T) -> K,
+  {
+    self.work.sort_by_key(items, key);
+  }
+
+  pub(super) fn identifier_calls_on(&self, root: SymbolId) -> &[CallUse] {
+    self.work.add_queries(1);
+    self.identifier_calls.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn result_demands_on(&self, root: SymbolId) -> &[ResultDemand] {
+    self.work.add_queries(1);
+    self.result_demands.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn value_demands_on(&self, root: SymbolId) -> &[ValueDemand] {
+    self.work.add_queries(1);
+    self.value_demands.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn value_writes_on(&self, root: SymbolId) -> &[ValueWrite] {
+    self.value_writes_of(root)
+  }
+
+  pub(super) fn value_reads_on(&self, root: SymbolId) -> &[MemberUse] {
+    self.work.add_queries(1);
+    self.value_reads.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn ctor_shadowed(&self, name: &str) -> bool {
+    self.work.add_queries(1);
+    self.shadowed_ctors.contains(name)
+  }
+
+  pub(super) fn native_capability_intact(&self) -> bool {
+    self.work.add_queries(1);
+    !self.prototype_mutated
+      && !self.ctor_shadowed("String")
+      && !self.ctor_shadowed("Number")
+      && !self.ctor_shadowed("Boolean")
+      && !self.ctor_shadowed("BigInt")
+      && !self.ctor_shadowed("Object")
+  }
+
+  pub(super) fn result_binding_intact(&self, root: SymbolId) -> bool {
+    self.work.add_queries(1);
+    !self.reassigned.contains(&root)
+      && !self.escaped.contains(&root)
+      && !self.unknown_member_touch.contains(&root)
+      && !self.capability_touch.contains(&root)
   }
 
   pub(super) fn function(&self, span: Span) -> Option<&FunctionInfo> {
@@ -1369,10 +1544,33 @@ impl Indexes {
           if simple_target_poisons_clone_intrinsic(semantic, &update.argument, &self.work) {
             self.clone_intrinsic_poisoned = true;
           }
-          if let SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) = &update.argument
-            && let Some(symbol_id) = reference_symbol(semantic, identifier)
-          {
-            self.reassigned.insert(self.root_of(symbol_id));
+          match &update.argument {
+            SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) => {
+              if let Some(symbol_id) = reference_symbol(semantic, identifier) {
+                self.reassigned.insert(self.root_of(symbol_id));
+              }
+            }
+            SimpleAssignmentTarget::StaticMemberExpression(member) => {
+              if member.property.name.as_str() == "value"
+                && let Some(object) =
+                  member.object.get_inner_expression().get_identifier_reference()
+                && let Some(symbol_id) = reference_symbol(semantic, object)
+              {
+                let root = self.root_of(symbol_id);
+                let owner = self.owner(node_id);
+                let offset = mapped(line_index, sfc_source, script_offset, update.span).offset;
+                self.value_write_roots.insert(root);
+                self.value_writes.entry(root).or_default().push(ValueWrite {
+                  offset,
+                  callable: owner.callable,
+                  block: owner.block.unwrap_or(node_id),
+                  span: update.span,
+                  rhs: update.span,
+                  literal: WriteLiteral::Other,
+                });
+              }
+            }
+            _ => {}
           }
         }
         AstKind::UnaryExpression(unary) if unary.operator == UnaryOperator::Delete => {
@@ -1400,11 +1598,19 @@ impl Indexes {
             call,
           );
           self.record_call_uses(semantic, line_index, sfc_source, script_offset, node_id, call);
-          let api = self.calls.get(&span_key(call.span)).and_then(|info| info.api);
+          let info = self.calls.get(&span_key(call.span)).copied();
+          if info.is_some_and(|call_info| call_info.vueuse.is_some()) {
+            self
+              .producer_call_offsets
+              .push(mapped(line_index, sfc_source, script_offset, call.span).offset);
+          }
+          let api = info.and_then(|call_info| call_info.api);
           for (index, argument) in call.arguments.iter().enumerate() {
             if let Some(expression) = argument.as_expression() {
               self.record_expr(semantic, kind, expression);
-              self.mark_escape_expr(semantic, expression, !(api == Some("toRef") && index == 0));
+              if !is_retained_vueuse_source_arg(info, index) {
+                self.mark_escape_expr(semantic, expression, !(api == Some("toRef") && index == 0));
+              }
               if capability_mutating_callee(semantic, &call.callee) {
                 self.poison_expr(semantic, expression);
                 self.mark_helper_escape_expr(semantic, expression);
@@ -1413,7 +1619,7 @@ impl Indexes {
                   self.pending_native_map_key_arg(semantic, call, index, expression)
                 {
                   self.pending_map_key_args.push(pending);
-                } else {
+                } else if !is_retained_vueuse_source_arg(info, index) {
                   self.poison_expr(semantic, expression);
                   self.mark_helper_escape_expr(semantic, expression);
                 }
@@ -1426,6 +1632,15 @@ impl Indexes {
           self.record_stmt_site(semantic, line_index, sfc_source, script_offset, node_id);
           self.record_event(semantic, line_index, sfc_source, script_offset, node_id, call.span);
           self.record_member_call(semantic, line_index, sfc_source, script_offset, node_id, call);
+          self.record_identifier_call(
+            semantic,
+            line_index,
+            sfc_source,
+            script_offset,
+            node_id,
+            call,
+          );
+          self.record_result_demand(semantic, line_index, sfc_source, script_offset, node_id, call);
         }
         AstKind::NewExpression(expression) => {
           self.record_expr(semantic, kind, &expression.callee);
@@ -1856,6 +2071,9 @@ impl Indexes {
       |ident| reference_symbol(semantic, ident),
       kind,
     );
+    let vueuse = resolve_vueuse_api(&call.callee, &self.vueuse_imports, |ident| {
+      reference_symbol(semantic, ident)
+    });
     let first_arg = if has_spread {
       None
     } else {
@@ -1876,6 +2094,7 @@ impl Indexes {
       CallInfo {
         span: call.span,
         api,
+        vueuse,
         first_arg,
         second_arg,
         has_spread,
@@ -1884,6 +2103,9 @@ impl Indexes {
         arg_count,
       },
     );
+    if is_object_define_property(&call.callee) {
+      self.prototype_mutated = true;
+    }
   }
 
   fn note_delete(&mut self, semantic: &oxc_semantic::Semantic<'_>, argument: &Expression<'_>) {
@@ -1911,13 +2133,14 @@ impl Indexes {
     }
     let map_entry = array_is_map_entry(semantic, node_id);
     let map_iterable = array_is_map_iterable(semantic, node_id);
+    let retain = array_is_controlled_source(semantic, node_id, &self.calls, &self.work);
     for (index, element) in array.elements.iter().enumerate() {
       if let Some(expression) = element.as_expression() {
         self.record_expr(semantic, kind, expression);
         if map_entry && index == 0 {
           continue;
         }
-        if map_iterable {
+        if map_iterable || retain {
           continue;
         }
         self.mark_escape_expr(semantic, expression, true);
@@ -2204,6 +2427,7 @@ impl Indexes {
     if assignment_poisons_clone_intrinsic(semantic, left, &self.work) {
       self.clone_intrinsic_poisoned = true;
     }
+    self.note_native_prototype_assignment(semantic, left);
     let simple = operator == AssignmentOperator::Assign;
     let fresh = simple && is_fresh_allocation(right, |ident| reference_symbol(semantic, ident));
     let owner = self.owner(node_id);
@@ -2516,9 +2740,209 @@ impl Indexes {
     let root = self.root_of(symbol_id);
     if named.key == "stop" && self.demand_ok(&use_site) {
       self.stops_by_region.entry((root, use_site.callable, region)).or_default().push(use_site);
+      self.stop_offsets.push(use_site.offset);
     }
     self.member_call_by_span.insert(span_key(call.span), named.clone());
     self.member_calls_by_root.entry(root).or_default().push(named);
+  }
+
+  fn record_identifier_call(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    node_id: NodeId,
+    call: &CallExpression<'_>,
+  ) {
+    let Some(ident) = call.callee.get_inner_expression().get_identifier_reference() else {
+      return;
+    };
+    let Some(symbol_id) = reference_symbol(semantic, ident) else {
+      return;
+    };
+    let optional = chain_optional(semantic, node_id, &self.work);
+    let owner = self.owner(node_id);
+    let region = region_of(owner, node_id);
+    let block = owner.block.unwrap_or(node_id);
+    let has_spread = call.arguments.iter().any(Argument::is_spread);
+    let argc = u8::try_from(call.arguments.len()).unwrap_or(u8::MAX);
+    let use_site = CallUse {
+      offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
+      span: call.span,
+      callable: owner.callable,
+      region,
+      block,
+      optional,
+      reach: classify_reach(semantic, node_id, &self.work),
+      argc,
+      has_spread,
+    };
+    let root = self.root_of(symbol_id);
+    if self.symbol_is_vueuse_producer(root) {
+      self.producer_call_offsets.push(use_site.offset);
+    }
+    self.identifier_calls.entry(root).or_default().push(use_site);
+    self.record_wrapped_result_demand(
+      semantic,
+      line_index,
+      sfc_source,
+      script_offset,
+      node_id,
+      root,
+      use_site,
+    );
+  }
+
+  #[expect(clippy::too_many_arguments, reason = "span mapping matches other record helpers")]
+  fn record_wrapped_result_demand(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    node_id: NodeId,
+    root: SymbolId,
+    inner: CallUse,
+  ) {
+    let parent = super::proof::skip_ts_parent(semantic, node_id, &self.work);
+    let AstKind::StaticMemberExpression(member) = semantic.nodes().kind(parent) else {
+      return;
+    };
+    let grand = super::proof::skip_ts_parent(semantic, parent, &self.work);
+    let AstKind::CallExpression(outer) = semantic.nodes().kind(grand) else {
+      return;
+    };
+    let optional = chain_optional(semantic, grand, &self.work);
+    let owner = self.owner(grand);
+    let region = region_of(owner, grand);
+    let block = owner.block.unwrap_or(grand);
+    let site = MemberUse {
+      offset: mapped(line_index, sfc_source, script_offset, outer.span).offset,
+      span: outer.span,
+      callable: owner.callable,
+      region,
+      optional,
+      reach: classify_reach(semantic, grand, &self.work),
+      role: DemandRole::Other,
+    };
+    self.result_demands.entry(root).or_default().push(ResultDemand {
+      member: member.property.name.as_str().to_string(),
+      site,
+      inner,
+      block,
+    });
+  }
+
+  fn symbol_is_vueuse_producer(&self, root: SymbolId) -> bool {
+    let Some(init) = self.init_span.get(&root).copied() else {
+      return false;
+    };
+    let info = self.calls.get(&span_key(init)).copied().or_else(|| {
+      let super::shape::ShapeHint::Call(span) = self.hints.get(&span_key(init)).copied()? else {
+        return None;
+      };
+      self.calls.get(&span_key(span)).copied()
+    });
+    info.is_some_and(|call| call.vueuse.is_some() && !call.has_spread)
+  }
+
+  fn record_result_demand(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    node_id: NodeId,
+    call: &CallExpression<'_>,
+  ) {
+    let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() else {
+      return;
+    };
+    let optional = chain_optional(semantic, node_id, &self.work);
+    let owner = self.owner(node_id);
+    let region = region_of(owner, node_id);
+    let block = owner.block.unwrap_or(node_id);
+    let site = MemberUse {
+      offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
+      span: call.span,
+      callable: owner.callable,
+      region,
+      optional,
+      reach: classify_reach(semantic, node_id, &self.work),
+      role: DemandRole::Other,
+    };
+    let object = peel_ts(&member.object);
+    let Expression::StaticMemberExpression(inner) = object else {
+      return;
+    };
+    if inner.property.name.as_str() != "value" {
+      return;
+    }
+    let Some(ident) = inner.object.get_inner_expression().get_identifier_reference() else {
+      return;
+    };
+    let Some(symbol_id) = reference_symbol(semantic, ident) else {
+      return;
+    };
+    let value_read = MemberUse {
+      offset: mapped(line_index, sfc_source, script_offset, inner.span).offset,
+      span: inner.span,
+      callable: owner.callable,
+      region,
+      optional,
+      reach: classify_reach(semantic, node_id, &self.work),
+      role: DemandRole::Read,
+    };
+    self.value_demands.entry(self.root_of(symbol_id)).or_default().push(ValueDemand {
+      member: member.property.name.as_str().to_string(),
+      site,
+      value_read,
+      block,
+    });
+  }
+
+  fn note_ctor_shadows(&mut self, semantic: &oxc_semantic::Semantic<'_>) {
+    for symbol_id in semantic.scoping().symbol_ids() {
+      self.work.add_references(1);
+      match semantic.scoping().symbol_name(symbol_id) {
+        "String" => {
+          self.shadowed_ctors.insert("String");
+        }
+        "Number" => {
+          self.shadowed_ctors.insert("Number");
+        }
+        "Boolean" => {
+          self.shadowed_ctors.insert("Boolean");
+        }
+        "BigInt" => {
+          self.shadowed_ctors.insert("BigInt");
+        }
+        "Object" => {
+          self.shadowed_ctors.insert("Object");
+        }
+        _ => {}
+      }
+    }
+  }
+
+  fn note_native_prototype_assignment(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    left: &AssignmentTarget<'_>,
+  ) {
+    let (object, last_key) = match left {
+      AssignmentTarget::StaticMemberExpression(member) => {
+        (&member.object, Some(member.property.name.as_str()))
+      }
+      AssignmentTarget::ComputedMemberExpression(member) => {
+        (&member.object, expression_static_key(&member.expression))
+      }
+      _ => return,
+    };
+    if prototype_receiver_is_native_ctor(semantic, object, last_key) {
+      self.prototype_mutated = true;
+    }
   }
 
   fn record_destructure(
@@ -4085,6 +4509,123 @@ fn mapped(
   span: Span,
 ) -> SourceSpan {
   source_span(line_index, sfc_source, script_offset, span)
+}
+
+fn is_retained_vueuse_source_arg(info: Option<CallInfo>, index: usize) -> bool {
+  index == 0
+    && info.is_some_and(|call| {
+      matches!(call.vueuse, Some("computedWithControl" | "controlledComputed")) && !call.has_spread
+    })
+}
+
+fn array_is_controlled_source(
+  semantic: &oxc_semantic::Semantic<'_>,
+  mut node_id: NodeId,
+  calls: &HashMap<u64, CallInfo>,
+  work: &WorkCounter,
+) -> bool {
+  let array_span = semantic.nodes().kind(node_id).span();
+  for _ in 0..ANCESTOR_BUDGET {
+    work.add_queries(1);
+    let parent = semantic.nodes().parent_id(node_id);
+    match semantic.nodes().kind(parent) {
+      AstKind::ParenthesizedExpression(_)
+      | AstKind::TSAsExpression(_)
+      | AstKind::TSSatisfiesExpression(_)
+      | AstKind::TSNonNullExpression(_)
+      | AstKind::TSTypeAssertion(_) => {
+        node_id = parent;
+      }
+      AstKind::CallExpression(call) => {
+        work.add_queries(1);
+        let Some(info) = calls.get(&span_key(call.span)).copied() else {
+          return false;
+        };
+        if !is_retained_vueuse_source_arg(Some(info), 0) {
+          return false;
+        }
+        let Some(first) = call.arguments.first().and_then(Argument::as_expression) else {
+          return false;
+        };
+        let inner = first.get_inner_expression().span();
+        return inner == array_span || first.span() == array_span;
+      }
+      _ => return false,
+    }
+  }
+  false
+}
+
+fn expression_static_key<'a>(expression: &'a Expression<'a>) -> Option<&'a str> {
+  match expression.get_inner_expression() {
+    Expression::StringLiteral(literal) => Some(literal.value.as_str()),
+    Expression::TemplateLiteral(literal) if literal.expressions.is_empty() => {
+      literal.quasis.first().and_then(|quasi| quasi.value.cooked.as_deref())
+    }
+    _ => None,
+  }
+}
+
+fn unresolved_native_ctor(
+  semantic: &oxc_semantic::Semantic<'_>,
+  expression: &Expression<'_>,
+) -> bool {
+  let Some(identifier) = expression.get_inner_expression().get_identifier_reference() else {
+    return false;
+  };
+  matches!(identifier.name.as_str(), "Number" | "String" | "Boolean" | "BigInt" | "Object")
+    && reference_symbol(semantic, identifier).is_none()
+}
+
+fn prototype_receiver_is_native_ctor(
+  semantic: &oxc_semantic::Semantic<'_>,
+  object: &Expression<'_>,
+  last_key: Option<&str>,
+) -> bool {
+  let inner = object.get_inner_expression();
+  match inner {
+    Expression::StaticMemberExpression(member) => {
+      member.property.name.as_str() == "prototype"
+        && unresolved_native_ctor(semantic, &member.object)
+    }
+    Expression::ComputedMemberExpression(member) => {
+      expression_static_key(&member.expression) == Some("prototype")
+        && unresolved_native_ctor(semantic, &member.object)
+    }
+    Expression::Identifier(_) => {
+      last_key == Some("prototype") && unresolved_native_ctor(semantic, inner)
+    }
+    _ => false,
+  }
+}
+
+fn peel_ts<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
+  let mut current = expression.get_inner_expression();
+  for _ in 0..64 {
+    current = match current {
+      Expression::ParenthesizedExpression(inner) => inner.expression.get_inner_expression(),
+      Expression::TSAsExpression(inner) => inner.expression.get_inner_expression(),
+      Expression::TSSatisfiesExpression(inner) => inner.expression.get_inner_expression(),
+      Expression::TSNonNullExpression(inner) => inner.expression.get_inner_expression(),
+      Expression::TSTypeAssertion(inner) => inner.expression.get_inner_expression(),
+      other => return other,
+    };
+  }
+  current
+}
+
+fn is_object_define_property(callee: &Expression<'_>) -> bool {
+  let Expression::StaticMemberExpression(member) = callee.get_inner_expression() else {
+    return false;
+  };
+  if member.property.name.as_str() != "defineProperty" {
+    return false;
+  }
+  member
+    .object
+    .get_inner_expression()
+    .get_identifier_reference()
+    .is_some_and(|identifier| identifier.name.as_str() == "Object")
 }
 
 mod map_index;

@@ -28,6 +28,36 @@ impl VueImport {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum VueUseImport {
+  Named(&'static str),
+  NamespaceCore,
+  NamespaceShared,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum PrimitiveKind {
+  Unknown,
+  Number,
+  String,
+  Boolean,
+  BigInt,
+  Nullish,
+}
+
+impl PrimitiveKind {
+  pub(super) const fn to_fact(self) -> Option<vue_vet_core::PrimitiveValueKind> {
+    match self {
+      Self::Unknown => None,
+      Self::Number => Some(vue_vet_core::PrimitiveValueKind::Number),
+      Self::String => Some(vue_vet_core::PrimitiveValueKind::String),
+      Self::Boolean => Some(vue_vet_core::PrimitiveValueKind::Boolean),
+      Self::BigInt => Some(vue_vet_core::PrimitiveValueKind::Bigint),
+      Self::Nullish => Some(vue_vet_core::PrimitiveValueKind::Nullish),
+    }
+  }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Shape {
   Unknown,
   Primitive,
@@ -80,7 +110,7 @@ impl Shape {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ShapeHint {
   Unknown,
-  Primitive,
+  Primitive(PrimitiveKind),
   Nullish,
   PlainRecord,
   Function,
@@ -301,6 +331,40 @@ pub(super) fn is_named_auto_import_source(source: &str) -> bool {
   source == "#imports"
 }
 
+pub(super) fn is_vueuse_core_source(source: &str) -> bool {
+  source == "@vueuse/core"
+}
+
+pub(super) fn is_vueuse_shared_source(source: &str) -> bool {
+  source == "@vueuse/shared"
+}
+
+pub(super) fn intern_vueuse_api(name: &str, core: bool, shared: bool) -> Option<&'static str> {
+  match name {
+    "useMemoize" if core => Some("useMemoize"),
+    "computedWithControl" if core || shared => Some("computedWithControl"),
+    "controlledComputed" if core || shared => Some("controlledComputed"),
+    _ => None,
+  }
+}
+
+pub(super) fn native_callable(kind: PrimitiveKind, method: &str) -> Option<bool> {
+  if kind == PrimitiveKind::Unknown {
+    return None;
+  }
+  match method {
+    "toUpperCase" | "toLowerCase" | "charAt" | "charCodeAt" | "concat" | "includes" | "indexOf"
+    | "lastIndexOf" | "slice" | "substring" | "split" | "trim" | "trimStart" | "trimEnd"
+    | "padStart" | "padEnd" | "repeat" | "startsWith" | "endsWith" | "match" | "replace"
+    | "search" | "localeCompare" | "normalize" | "at" | "codePointAt" | "replaceAll"
+    | "matchAll" | "isWellFormed" | "toWellFormed" | "trimLeft" | "trimRight" | "substr" => {
+      Some(kind == PrimitiveKind::String)
+    }
+    "toFixed" | "toExponential" | "toPrecision" => Some(kind == PrimitiveKind::Number),
+    _ => None,
+  }
+}
+
 pub(super) fn is_ref_api(api: &str) -> bool {
   matches!(
     api,
@@ -490,16 +554,73 @@ fn inner_expression<'a>(expression: &'a Expression<'a>, work: &WorkCounter) -> &
   }
 }
 
+pub(super) fn collect_vueuse_imports(
+  semantic: &oxc_semantic::Semantic<'_>,
+  work: &WorkCounter,
+) -> HashMap<SymbolId, VueUseImport> {
+  let mut imports = HashMap::new();
+  for node in semantic.nodes() {
+    work.add_nodes(1);
+    let AstKind::ImportDeclaration(declaration) = node.kind() else {
+      continue;
+    };
+    if declaration.import_kind == ImportOrExportKind::Type {
+      continue;
+    }
+    let source = declaration.source.value.as_str();
+    let core = is_vueuse_core_source(source);
+    let shared = is_vueuse_shared_source(source);
+    if !core && !shared {
+      continue;
+    }
+    let Some(specifiers) = &declaration.specifiers else {
+      continue;
+    };
+    for specifier in specifiers {
+      work.add_references(1);
+      match specifier {
+        ImportDeclarationSpecifier::ImportSpecifier(specifier) => {
+          if specifier.import_kind == ImportOrExportKind::Type {
+            continue;
+          }
+          let imported = match &specifier.imported {
+            oxc_ast::ast::ModuleExportName::IdentifierName(name) => name.name.as_str(),
+            oxc_ast::ast::ModuleExportName::IdentifierReference(name) => name.name.as_str(),
+            oxc_ast::ast::ModuleExportName::StringLiteral(name) => name.value.as_str(),
+          };
+          if let Some(api) = intern_vueuse_api(imported, core, shared)
+            && let Some(symbol_id) = specifier.local.symbol_id.get()
+          {
+            imports.insert(symbol_id, VueUseImport::Named(api));
+          }
+        }
+        ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier) => {
+          if let Some(symbol_id) = specifier.local.symbol_id.get() {
+            imports.insert(
+              symbol_id,
+              if core { VueUseImport::NamespaceCore } else { VueUseImport::NamespaceShared },
+            );
+          }
+        }
+        ImportDeclarationSpecifier::ImportDefaultSpecifier(_) => {}
+      }
+    }
+  }
+  imports
+}
+
 pub(super) fn hint_of(
   expression: &Expression<'_>,
   symbol_of: impl Fn(&IdentifierReference<'_>) -> Option<SymbolId>,
 ) -> ShapeHint {
   match expression.get_inner_expression() {
-    Expression::BooleanLiteral(_)
-    | Expression::NumericLiteral(_)
-    | Expression::StringLiteral(_)
-    | Expression::BigIntLiteral(_) => ShapeHint::Primitive,
-    Expression::TemplateLiteral(literal) if literal.expressions.is_empty() => ShapeHint::Primitive,
+    Expression::BooleanLiteral(_) => ShapeHint::Primitive(PrimitiveKind::Boolean),
+    Expression::NumericLiteral(_) => ShapeHint::Primitive(PrimitiveKind::Number),
+    Expression::StringLiteral(_) => ShapeHint::Primitive(PrimitiveKind::String),
+    Expression::BigIntLiteral(_) => ShapeHint::Primitive(PrimitiveKind::BigInt),
+    Expression::TemplateLiteral(literal) if literal.expressions.is_empty() => {
+      ShapeHint::Primitive(PrimitiveKind::String)
+    }
     Expression::NullLiteral(_) => ShapeHint::Nullish,
     Expression::Identifier(identifier) => {
       let symbol = symbol_of(identifier);
@@ -581,6 +702,35 @@ pub(super) fn resolve_vue_api(
     return None;
   }
   intern_api(member.property.name.as_str())
+}
+
+pub(super) fn resolve_vueuse_api(
+  callee: &Expression<'_>,
+  imports: &HashMap<SymbolId, VueUseImport>,
+  symbol_of: impl Fn(&IdentifierReference<'_>) -> Option<SymbolId>,
+) -> Option<&'static str> {
+  let callee = callee.get_inner_expression();
+  if let Some(identifier) = callee.get_identifier_reference() {
+    let symbol_id = symbol_of(identifier)?;
+    return match imports.get(&symbol_id) {
+      Some(VueUseImport::Named(api)) => Some(*api),
+      _ => None,
+    };
+  }
+  let Expression::StaticMemberExpression(member) = callee else {
+    return None;
+  };
+  let object = member.object.get_inner_expression().get_identifier_reference()?;
+  let symbol_id = symbol_of(object)?;
+  match imports.get(&symbol_id) {
+    Some(VueUseImport::NamespaceCore) => {
+      intern_vueuse_api(member.property.name.as_str(), true, false)
+    }
+    Some(VueUseImport::NamespaceShared) => {
+      intern_vueuse_api(member.property.name.as_str(), false, true)
+    }
+    _ => None,
+  }
 }
 
 pub(super) fn span_key(span: Span) -> u64 {

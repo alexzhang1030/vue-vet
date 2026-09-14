@@ -205,7 +205,7 @@ const fn span_covers(outer: Span, inner: Span) -> bool {
   outer.start <= inner.start && inner.end <= outer.end
 }
 
-fn skip_ts_parent(
+pub(super) fn skip_ts_parent(
   semantic: &oxc_semantic::Semantic<'_>,
   mut node_id: NodeId,
   work: &WorkCounter,

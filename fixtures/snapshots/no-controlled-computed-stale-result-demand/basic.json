@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-controlled-computed-stale-result-demand",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-controlled-computed-stale-result-demand",
+    "message": "`computedWithControl` retained a cached number, so calling `toUpperCase` throws after an unlisted source became a string",
+    "help": "Cache fill at 7:6, unlisted write at 8:1, producer at 6:15. List the source, call `trigger()`, or use Vue `computed` when every input should invalidate.",
+    "file": "fixtures/rules/no-controlled-computed-stale-result-demand/invalid/basic.vue",
+    "span": {
+      "offset": 253,
+      "length": 25,
+      "line": 9,
+      "column": 1
+    }
+  }
+]

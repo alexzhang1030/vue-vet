@@ -44,8 +44,8 @@ fn list_rules_is_sorted_unique_and_includes_project_ids() {
   );
   assert_eq!(
     parsed.pointer("/counts/total").and_then(Value::as_u64),
-    Some(130),
-    "composed CLI inventory must be 130 after lifetime ownership, customRef notification, cleanup-identity, collection-lookup, extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
+    Some(132),
+    "composed CLI inventory must be 132 after cached-result demand, lifetime ownership, customRef notification, cleanup-identity, collection-lookup, extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
   );
 }
 
@@ -161,6 +161,8 @@ fn list_rules_source_contracts_includes_contract_ids() {
     "vue-vet/reactivity/no-inactive-scope-result",
     "vue-vet/reactivity/no-missing-torefs-key",
     "vue-vet/reactivity/no-raw-proxy-map-key",
+    "vue-vet/reactivity/no-memoize-stale-result-demand",
+    "vue-vet/reactivity/no-controlled-computed-stale-result-demand",
   ] {
     assert!(ids.iter().any(|row| row == id), "missing {id} in {ids:?}");
   }
