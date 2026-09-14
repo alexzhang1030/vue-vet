@@ -177,9 +177,13 @@ profile because its instrumentation does not link Oxc reliably under LTO
 `vue_vet_rule_query` `opt-level = "z"`, `vue_vet_core` /
 `vue_vet_reactivity` / `vue_vet_session` / `vue_vet_project` /
 `vue_vet_cache`
-`opt-level = "s"`; `vue_vet_oxc` and
+`opt-level = "s"`; the LSP/TUI-only runtime closure `tokio` `"s"` and
+`tokio-util` / `tower*` / `futures*` / `httparse` / `bytes` / `url` / `idna` /
+`icu_*` / `mio` / `signal-hook*` `"z"`; `vue_vet_oxc` and
 `vue_vet_reporters` stay on the profile default) remains the source of
-truth for shipped artifacts.
+truth for shipped artifacts. Package overrides outside the analysis closure
+are accepted on an LSP workflow gate plus LSP/MCP protocol equality, not on
+the analysis benches; see [technology stack](./technology-stack.md).
 `cargo bench --profile release` forces unwind; those Divan programs measure
 the release-optimization/unwind path. The shipped CLI is `cargo build --release` with
 `panic = "abort"`. See [gotchas](./gotchas.md) (`cargo bench --profile release`
@@ -187,7 +191,8 @@ uses panic=unwind).
 `profile.codspeed` inherits `release`, then sets `opt-level = 3` and
 `lto = false`. That top-level 3 is the default only: named
 `profile.release.package` overrides still win unless restated. Protocol/UI
-release `opt-z` packages stay inherited. Product crates with release `"z"`
+release `opt-z` packages and the LSP/TUI-only runtime closure stay inherited
+(no bench links them). Product crates with release `"z"`
 or `"s"` (`vue_vet_rules`, `vue_vet_practice`, `vue_vet_rule_query`,
 `vue_vet_core`, `vue_vet_reactivity`, `vue_vet_session`, `vue_vet_project`,
 `vue_vet_cache`) have explicit
