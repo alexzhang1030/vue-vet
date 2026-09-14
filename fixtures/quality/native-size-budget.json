@@ -7,8 +7,8 @@
     "workflow_run": 34034720314
   },
   "candidate": {
-    "commit": "5f97222061b93c13f00eda616f650dd817d421b9",
-    "workflow_run": 34828558719
+    "commit": "b0b0d8bfcdec8fb3892bb0bfc5fb987926f02361",
+    "workflow_run": 34831626360
   },
   "measured_baseline": {
     "targets": {
@@ -21,18 +21,18 @@
   },
   "measured_candidate": {
     "targets": {
-      "aarch64-apple-darwin": { "file_bytes": 7067280, "gzip9_bytes": 3306451 },
-      "x86_64-apple-darwin": { "file_bytes": 8348456, "gzip9_bytes": 3674659 },
-      "aarch64-unknown-linux-gnu": { "file_bytes": 8268024, "gzip9_bytes": 3630726 },
-      "x86_64-unknown-linux-gnu": { "file_bytes": 9633920, "gzip9_bytes": 3904911 },
-      "x86_64-pc-windows-msvc": { "file_bytes": 8155136, "gzip9_bytes": 3543430 }
+      "aarch64-apple-darwin": { "file_bytes": 7265824, "gzip9_bytes": 3378635 },
+      "x86_64-apple-darwin": { "file_bytes": 8578200, "gzip9_bytes": 3763512 },
+      "aarch64-unknown-linux-gnu": { "file_bytes": 8530192, "gzip9_bytes": 3705706 },
+      "x86_64-unknown-linux-gnu": { "file_bytes": 9873384, "gzip9_bytes": 3992541 },
+      "x86_64-pc-windows-msvc": { "file_bytes": 8360960, "gzip9_bytes": 3622041 }
     }
   },
   "targets": {
-    "aarch64-apple-darwin": { "file_bytes": 7279299, "gzip9_bytes": 3405645 },
-    "x86_64-apple-darwin": { "file_bytes": 8598910, "gzip9_bytes": 3784899 },
-    "aarch64-unknown-linux-gnu": { "file_bytes": 8516065, "gzip9_bytes": 3739648 },
-    "x86_64-unknown-linux-gnu": { "file_bytes": 9922938, "gzip9_bytes": 4022059 },
-    "x86_64-pc-windows-msvc": { "file_bytes": 8399791, "gzip9_bytes": 3649733 }
+    "aarch64-apple-darwin": { "file_bytes": 7483799, "gzip9_bytes": 3479995 },
+    "x86_64-apple-darwin": { "file_bytes": 8835546, "gzip9_bytes": 3876418 },
+    "aarch64-unknown-linux-gnu": { "file_bytes": 8786098, "gzip9_bytes": 3816878 },
+    "x86_64-unknown-linux-gnu": { "file_bytes": 10169586, "gzip9_bytes": 4112318 },
+    "x86_64-pc-windows-msvc": { "file_bytes": 8611789, "gzip9_bytes": 3730703 }
   }
 }
