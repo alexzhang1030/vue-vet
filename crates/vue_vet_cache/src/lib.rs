@@ -23,6 +23,8 @@ pub const CACHE_FORMAT_VERSION: u32 = 5;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// Bump when built-in rule set or seed-aware analysis behavior changes.
 ///
+/// v34: reactive private-field receiver (`no-reactive-private-field-access`)
+/// on the late-cancellation-guard catalog (v33). Graph version stays 41.
 /// v33: late cancellation-guard lifetime owner
 /// (`no-late-cancellation-guard`) on the scheduling-practice catalog (v32).
 /// Graph version stays 41.
@@ -98,7 +100,7 @@ pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// prefer-watch suppresses self-write sources; computed self-write is impure.
 /// v5: conditional-dep premise withdrawn; after-await registrars deprecated
 /// except defineExpose; absence rules require complete follow coverage.
-pub const RULESET_VERSION: u32 = 33;
+pub const RULESET_VERSION: u32 = 34;
 
 /// Workspace pin for `vize_croquis` / `vize_atelier_core`.
 ///

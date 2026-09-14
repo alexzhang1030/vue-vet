@@ -30,7 +30,9 @@
 //! constructor classification once, each mutating operation once, and each
 //! read query once. Cached-result producer/fill/write/repair/demand joins,
 //! exclusive-interval iterator visits, counted `binary_search` comparisons,
-//! and counted sort comparisons also increment `queries`.
+//! and counted sort comparisons also increment `queries`. Class-body elements
+//! count as object-entry scans; member-name and private-field lookups count
+//! as key lookups.
 //!
 //! Production `WorkCounter` is zero-sized and does not record. Test builds
 //! keep saturating `Cell` counters so inner-work growth tests stay real.

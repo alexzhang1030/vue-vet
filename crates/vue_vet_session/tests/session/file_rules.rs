@@ -470,7 +470,7 @@ watchEffect(() => { source.value; return () => {} })\n",
   let _ignored = std::fs::remove_dir_all(root);
 }
 
-const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 21] = [
+const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 22] = [
   "vue-vet/reactivity/no-watch-unwrapped-source",
   "vue-vet/reactivity/no-trigger-ref-on-non-ref",
   "vue-vet/reactivity/no-torefs-on-non-proxy",
@@ -492,6 +492,7 @@ const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 21] = [
   "vue-vet/reactivity/no-custom-ref-lost-notification",
   "vue-vet/reactivity/no-memoize-stale-result-demand",
   "vue-vet/reactivity/no-controlled-computed-stale-result-demand",
+  "vue-vet/reactivity/no-reactive-private-field-access",
 ];
 
 #[test]
@@ -547,6 +548,9 @@ const controlled = computedWithControl(revision, () => controlledSource.value)\n
 void controlled.value\n\
 controlledSource.value = 'text'\n\
 controlled.value.toUpperCase()\n\
+class Counter { #n = 1; read() { return this.#n } }\n\
+const branded = reactive(new Counter())\n\
+void branded.read()\n\
 </script>\n\
 <template><p /></template>\n";
   let replaced = "<script setup lang=\"ts\">\n\

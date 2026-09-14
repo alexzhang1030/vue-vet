@@ -30,6 +30,26 @@ Oxc 0.142 `SemanticBuilder` leaves `Semantic::nodes` empty unless
 `.with_build_nodes(true)` is set; forgetting it makes every node-walk fact
 collector (imports, calls, scopes) succeed with empty results.
 
+## Native private fields brand the raw instance
+
+Vue `reactive` / `readonly` / `shallowReactive` / `shallowReadonly` proxies
+are not in a class's private brand. An ordinary prototype method or getter
+that reads `this.#field` throws `TypeError` on that proxy. Constructor-bound
+methods and arrow fields capture the raw instance; `toRaw` / `markRaw` keep
+the brand. Those raw receivers are not Proxy traps, so `#field` writes do
+not notify Vue. A class that only contains private fields is not a finding —
+the later executed member access is. Index classes by symbol and members by
+name; join per-object operations. Do not scan class-by-instance-by-method.
+Native `#private` and TypeScript `private` are different runtime contracts.
+
+`reactive()` is not always a Proxy. Vue's `getTargetType` leaves the target
+raw when it sees `__v_skip` (markRaw semantics), `__v_raw`, a non-extensible
+object, or `Object.prototype.toString` whose `toRawType` is not
+`Object`/`Array`/`Map`/`Set`/`WeakMap`/`WeakSet`. A class field or getter
+named `__v_skip` / `__v_raw`, or `[Symbol.toStringTag]`, therefore makes
+`reactive(new C())` a no-op — reporting a private-receiver `TypeError` there
+is a false positive. Treat those own members as unproven.
+
 ## Demand proof is not source5 eligibility
 
 Demand-gated value contracts (`customRef` / stopped `effectScope.run` /

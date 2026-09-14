@@ -241,12 +241,15 @@ File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         receiver-effect proof (including executed object keys), proven
         `toRefs` first-arg borrows over memoized closed keys, and cached-result
         demand facts for exact VueUse `useMemoize` / `computedWithControl`
-        origins. A per-result ordered event fold retains first-fill kind and
-        span through later hits; only proven invalidation or refill advances
-        that state. Native prototype mutations are collected before
-        identifier-root early returns. Foreign-event intervals are exclusive
-        both-endpoint queries over unique allowed offsets. Generic source5
-        statement eligibility stays `ExpressionStatement`-parent only.
+        origins. A class-symbol/member index joins per-object operations for
+        native `#private` access through `reactive` / `readonly` /
+        `shallowReactive` / `shallowReadonly` proxies. A per-result ordered
+        event fold retains first-fill kind and span through later hits; only
+        proven invalidation or refill advances that state. Native prototype
+        mutations are collected before identifier-root early returns.
+        Foreign-event intervals are exclusive both-endpoint queries over unique
+        allowed offsets. Generic source5 statement eligibility stays
+        `ExpressionStatement`-parent only.
         Typed `toRef` ignored-key facts require an immutable `__v_isRef`
         capability on a dedicated role index; marker writes/deletes, helper
         arguments, method receivers, spreads, pattern assignment to the marker,
@@ -266,7 +269,7 @@ File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         imports reuse the canonical Vue-import pass. `watch` still runs the
         ordinary source collector, watch-family option/signature facts, and
         callback-contract collectors (`watch_callbacks.rs`). Combined
-        `RULESET_VERSION` is 33; `REACTIVITY_GRAPH_VERSION` stays 41.
+        `RULESET_VERSION` is 34; `REACTIVITY_GRAPH_VERSION` stays 41.
         Scheduling-practice facts (`queued_watch_flush`, `attached_effect_scope`,
         `lazy_computed_async`) live on `SourceContractFacts.scheduling_practice`.
         Named effect-family imports keep source indexes empty when every Oxc
@@ -379,7 +382,7 @@ source-contract uncertainty. Statement ordinals, preceding exits, watcher
 identity by `NodeId`, and scope-active intervals are built once. Shared
 outer/getter/scope proofs stay memoized. Statement / reference / watcher /
 toggle / computed-edge inspections use a test-only counter; production
-`WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 33.
+`WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 34.
 
 `ModuleSummary` (formerly the opaque `PreparedModuleTrace`) is the formal
 cross-module boundary: imports, exports, provides/injects, local reactivity, and
