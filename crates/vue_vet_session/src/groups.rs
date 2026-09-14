@@ -29,9 +29,12 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-effect-scope-callback-argument", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-effect-write-without-read", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-empty-watch-sources", RuleGroupId::Tracking),
+  ("vue-vet/reactivity/no-inactive-scope-result", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-invalid-custom-ref-interface", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-late-scope-dispose", RuleGroupId::Lifetime),
   ("vue-vet/reactivity/no-late-watcher-cleanup", RuleGroupId::Lifetime),
   ("vue-vet/reactivity/no-lost-shallow-nested-notification", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-missing-torefs-key", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-model-ref-as-operand", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-multiple-effects-same-target", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-nonreactive-props-destructure", RuleGroupId::SourceContracts),
@@ -226,9 +229,9 @@ mod tests {
       "vue-vet/reactivity/no-returned-watcher-cleanup",
     ];
     let inventory = rule_inventory(&[]);
-    assert_eq!(inventory.counts.total, 120, "composed CLI inventory count");
+    assert_eq!(inventory.counts.total, 123, "composed CLI inventory count");
     let source = rule_inventory(&[RuleGroupId::SourceContracts]);
-    assert_eq!(source.counts.total, 28, "source-contracts group count");
+    assert_eq!(source.counts.total, 31, "source-contracts group count");
     for id in [
       "vue-vet/reactivity/no-lost-shallow-nested-notification",
       "vue-vet/reactivity/no-proxy-structured-clone",
@@ -239,6 +242,9 @@ mod tests {
       "vue-vet/reactivity/no-watch-alias-old-new",
       "vue-vet/reactivity/no-toref-ignored-key",
       "vue-vet/reactivity/no-effect-scope-callback-argument",
+      "vue-vet/reactivity/no-invalid-custom-ref-interface",
+      "vue-vet/reactivity/no-inactive-scope-result",
+      "vue-vet/reactivity/no-missing-torefs-key",
     ] {
       assert_eq!(group_of(id), Some(RuleGroupId::SourceContracts), "{id}");
       assert!(

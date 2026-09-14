@@ -221,26 +221,32 @@ File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         `watchEffect` / `watchPostEffect` / `watchSyncEffect` identity is recorded
         as `ContractSink::WatchEffectFamily`. `toRef` and `effectScope` are
         `ContractSink::ToRef` / `ContractSink::EffectScope` so a named import of
-        either still admits collection. Typed `toRef` ignored-key facts require
-        an immutable `__v_isRef` capability on a dedicated
-        role index; marker writes/deletes, helper arguments, method receivers,
-        spreads, pattern assignment to the marker, constructor arguments, and
-        call / tagged-template receivers (including TypeScript instantiation
-        wrappers) stay unproven for that overload. Call, `new`, and tagged
-        receivers share one wrapper walk; `toref_identity_uncertain` and
-        `capability_uncertain` stay separate from generic source5 `uncertain`
-        / `escaped`. Native `structuredClone` facts keep the intrinsic
+        either still admits collection. `customRef` is `ContractSink::CustomRef`.
+        Demand-gated facts use a function-level execution region plus
+        source-order barriers, typed Get/Set capabilities, closed-body
+        receiver-effect proof (including executed object keys), and proven
+        `toRefs` first-arg borrows over memoized closed keys. Generic source5
+        statement eligibility stays `ExpressionStatement`-parent only.
+        Typed `toRef` ignored-key facts require an immutable `__v_isRef`
+        capability on a dedicated role index; marker writes/deletes, helper
+        arguments, method receivers, spreads, pattern assignment to the marker,
+        constructor arguments, and call / tagged-template receivers (including
+        TypeScript instantiation wrappers) stay unproven for that overload.
+        Call, `new`, and tagged receivers share one wrapper walk;
+        `toref_identity_uncertain` and `capability_uncertain` stay separate from
+        generic source5 `uncertain` / `escaped` and from demand
+        `closed_key_unknown`. Native `structuredClone` facts keep the intrinsic
         separate from the Vue API whitelist; actual Proxy allocation proof
         lives in `source_contracts/clone_boundary.rs`. Actual
         Proxy origin is `vue` / `@vue/runtime-core` / `@vue/runtime-dom` /
         `@vue/reactivity` only (`#imports` and `vue-demi` unknown here),
         looked up from the indexed import source of proxy-allocating
         constructors. Eligibility and dispatch share one `contract_sink`
-        table with source5, so named effect / toRef / effectScope imports
-        reuse the canonical Vue-import pass. `watch` still runs the ordinary
-        source collector, watch-family option/signature facts, and
+        table with source5, so named effect / toRef / effectScope / customRef
+        imports reuse the canonical Vue-import pass. `watch` still runs the
+        ordinary source collector, watch-family option/signature facts, and
         callback-contract collectors (`watch_callbacks.rs`). Combined
-        `RULESET_VERSION` is 22; `REACTIVITY_GRAPH_VERSION` stays 41.
+        `RULESET_VERSION` is 23; `REACTIVITY_GRAPH_VERSION` stays 41.
         Named effect-family imports keep source indexes empty when every Oxc
         resolved reference is a proven call with fewer than two arguments and
         no spread (current watch-API rules read that second argument). Ordinary

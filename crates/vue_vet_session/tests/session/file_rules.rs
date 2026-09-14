@@ -434,7 +434,7 @@ watchEffect(() => { source.value; return () => {} })\n",
   let _ignored = std::fs::remove_dir_all(root);
 }
 
-const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 14] = [
+const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 17] = [
   "vue-vet/reactivity/no-watch-unwrapped-source",
   "vue-vet/reactivity/no-trigger-ref-on-non-ref",
   "vue-vet/reactivity/no-torefs-on-non-proxy",
@@ -449,6 +449,9 @@ const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 14] = [
   "vue-vet/reactivity/no-toref-ignored-key",
   "vue-vet/reactivity/no-effect-scope-callback-argument",
   "vue-vet/reactivity/no-proxy-structured-clone",
+  "vue-vet/reactivity/no-invalid-custom-ref-interface",
+  "vue-vet/reactivity/no-inactive-scope-result",
+  "vue-vet/reactivity/no-missing-torefs-key",
 ];
 
 #[test]
@@ -458,12 +461,19 @@ fn source_contract_findings_keep_incremental_identity() {
   let _ignored = std::fs::remove_dir_all(&root);
   std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
   let source = "<script setup lang=\"ts\">\n\
-import { effectScope, reactive, ref, shallowRef, toRaw, toRef, triggerRef, toRefs, watch, watchSyncEffect } from 'vue'\n\
+import { customRef, effectScope, reactive, ref, shallowRef, toRaw, toRef, triggerRef, toRefs, watch, watchSyncEffect } from 'vue'\n\
 const n = ref(0)\n\
 watch(n.value, () => {})\n\
 triggerRef(reactive({ n: 1 }))\n\
 toRefs({ a: 1 })\n\
 void reactive(0)\n\
+const bad = customRef(() => ({ set() {} }))\n\
+void bad.value\n\
+const scope = effectScope()\n\
+scope.stop()\n\
+const result = scope.run(() => ({ count: 1 }))\n\
+void result.count\n\
+void toRefs(reactive({ count: 1 })).missing.value\n\
 structuredClone(reactive({ n: 1 }))\n\
 const ignored = ref(0)\n\
 void toRef(ignored, 'k')\n\

@@ -47,21 +47,26 @@ via path filters on the script and JSON.
 Reproduce locally: `just native-size-check <binary> <rust-triple>`.
 Release-profile product-crate overrides are `opt-level = "z"` on
 `vue_vet_rules`, `vue_vet_practice`, and `vue_vet_rule_query`, and
-`opt-level = "s"` on `vue_vet_core` and `vue_vet_reactivity`.
+`opt-level = "s"` on `vue_vet_core`, `vue_vet_reactivity`,
+`vue_vet_session`, `vue_vet_project`, and `vue_vet_cache`.
 `vue_vet_oxc` and `vue_vet_reporters` stay on the profile default. Each
-platform gate uses its own artifact. Those overrides are accepted only with exact scan JSON
-equality on the same corpus and CLI paths, plus same-tree release-profile
-comparisons of existing `vue_vet_session` / `whole_project` benches
+platform gate uses its own artifact. Those overrides are accepted only with
+exact CLI and cache output equality plus five separate same-tree median 5%
+gates: 5k no-cache CLI; 5k fresh-cache CLI that performs serialization,
+write, and rename then observes a cache hit; and the existing
+`vue_vet_session` / `whole_project` benches
 `whole_project::scan_cold_mixed_1k`, `whole_project::scan_warm_mixed_1k`,
-and `whole_project::json_render_mixed_1k` (rules, practice, query, cache,
-and JSON render). Divan `--exact` requires that complete path; `--list`
-leaf names are not the exact filter. `analyze_sfc` does not execute those
-paths and cannot accept the overrides. A clear persistent median
-regression above 5% on those benches requires revising the override set.
-CLI process times (cold `--no-cache` and warm with a primed cache) remain a
-separate user-facing measurement; process startup is part of CLI UX and is
-not dismissed as noise. CodSpeed keeps explicit `opt-level = 3` on the
-same five packages so CodSpeed keeps instrumentation `opt-level = 3`.
+and `whole_project::json_render_mixed_1k`. Divan `--exact` requires that
+complete path; `--list` leaf names are not the exact filter. `analyze_sfc`
+does not execute those paths and cannot accept the overrides. A clear
+persistent median regression above 5% on any of those five gates requires
+revising the override set. `cargo bench --profile release` Divan programs
+are unwind; the shipped CLI is `panic = "abort"`. CodSpeed keeps explicit
+`opt-level = 3` on the same eight packages so CodSpeed keeps
+instrumentation `opt-level = 3`.
+
+Record CLI startup and warm-cache process times separately from the
+in-process benchmark measurements.
 
 ## Performance baselines (CodSpeed suite names)
 

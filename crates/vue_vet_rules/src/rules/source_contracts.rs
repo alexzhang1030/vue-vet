@@ -93,6 +93,30 @@ const EFFECT_SCOPE_META: RuleMeta = RuleMeta {
   documentation: "rules/reactivity/no-effect-scope-callback-argument",
 };
 
+const CUSTOM_REF_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-invalid-custom-ref-interface",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-invalid-custom-ref-interface",
+};
+
+const INACTIVE_SCOPE_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-inactive-scope-result",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-inactive-scope-result",
+};
+
+const MISSING_TOREFS_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-missing-torefs-key",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-missing-torefs-key",
+};
+
 pub(super) struct NoTriggerRefOnNonRef;
 pub(super) static NO_TRIGGER_REF_ON_NON_REF: NoTriggerRefOnNonRef = NoTriggerRefOnNonRef;
 
@@ -128,6 +152,16 @@ pub(super) static NO_TOREF_IGNORED_KEY: NoToRefIgnoredKey = NoToRefIgnoredKey;
 pub(super) struct NoEffectScopeCallbackArgument;
 pub(super) static NO_EFFECT_SCOPE_CALLBACK_ARGUMENT: NoEffectScopeCallbackArgument =
   NoEffectScopeCallbackArgument;
+
+pub(super) struct NoInvalidCustomRefInterface;
+pub(super) static NO_INVALID_CUSTOM_REF_INTERFACE: NoInvalidCustomRefInterface =
+  NoInvalidCustomRefInterface;
+
+pub(super) struct NoInactiveScopeResult;
+pub(super) static NO_INACTIVE_SCOPE_RESULT: NoInactiveScopeResult = NoInactiveScopeResult;
+
+pub(super) struct NoMissingToRefsKey;
+pub(super) static NO_MISSING_TOREFS_KEY: NoMissingToRefsKey = NoMissingToRefsKey;
 
 impl Rule for NoTriggerRefOnNonRef {
   fn meta(&self) -> &'static RuleMeta {
@@ -409,6 +443,87 @@ fn signature_copy(api: &str, reason: WatchSignatureMismatchReason) -> (String, &
   }
 }
 
+impl Rule for NoInvalidCustomRefInterface {
+  fn meta(&self) -> &'static RuleMeta {
+    &CUSTOM_REF_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.invalid_custom_ref_interface {
+        context.report(
+          self.meta(),
+          site.interface_span,
+          format!(
+            "`customRef` factory is missing a callable `{}`; demanded `.value` will throw at runtime",
+            site.missing.as_str()
+          ),
+          Some(format!(
+            "Factory at {}:{} and demand at {}:{}. Return a plain object with callable `get` and `set`, or drop the unused capability.",
+            site.factory_span.line,
+            site.factory_span.column,
+            site.demand_span.line,
+            site.demand_span.column
+          )),
+        );
+      }
+    }
+  }
+}
+
+impl Rule for NoInactiveScopeResult {
+  fn meta(&self) -> &'static RuleMeta {
+    &INACTIVE_SCOPE_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.inactive_scope_result {
+        context.report(
+          self.meta(),
+          site.consumer_span,
+          "`effectScope.run` after `stop()` returns undefined, so this object use throws".into(),
+          Some(format!(
+            "`stop()` at {}:{} and `run()` at {}:{}. Use the result before stopping, or skip the consumer.",
+            site.stop_span.line,
+            site.stop_span.column,
+            site.run_span.line,
+            site.run_span.column
+          )),
+        );
+      }
+    }
+  }
+}
+
+impl Rule for NoMissingToRefsKey {
+  fn meta(&self) -> &'static RuleMeta {
+    &MISSING_TOREFS_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.missing_torefs_key {
+        context.report(
+          self.meta(),
+          site.demand_span,
+          format!(
+            "`toRefs` bag has no `{}` on modeled own keys or the result prototype; dereferencing `.value` throws",
+            site.key
+          ),
+          Some(format!(
+            "`toRefs` at {}:{} does not own `{}`. Use an existing key, or `toRef(object, '{}')` for a future property.",
+            site.torefs_span.line,
+            site.torefs_span.column,
+            site.key,
+            site.key
+          )),
+        );
+      }
+    }
+  }
+}
+
 fn report_site(
   context: &mut RuleContext<'_>,
   meta: &RuleMeta,
@@ -433,6 +548,9 @@ pub(super) fn source_contract_rules() -> Vec<&'static dyn Rule> {
     &NO_WATCH_ALIAS_OLD_NEW,
     &NO_TOREF_IGNORED_KEY,
     &NO_EFFECT_SCOPE_CALLBACK_ARGUMENT,
+    &NO_INVALID_CUSTOM_REF_INTERFACE,
+    &NO_INACTIVE_SCOPE_RESULT,
+    &NO_MISSING_TOREFS_KEY,
     &super::no_proxy_structured_clone::NO_PROXY_STRUCTURED_CLONE,
   ]
 }

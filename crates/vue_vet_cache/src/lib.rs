@@ -23,6 +23,9 @@ pub const CACHE_FORMAT_VERSION: u32 = 5;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// Bump when built-in rule set or seed-aware analysis behavior changes.
 ///
+/// v23: demand-gated value contracts (`no-invalid-custom-ref-interface`,
+/// `no-inactive-scope-result`, `no-missing-torefs-key`) on the native-clone
+/// catalog (v22). Graph version stays 41.
 /// v22: native `structuredClone` actual-Proxy facts (`no-proxy-structured-clone`)
 /// on the normalization catalog (v21). Graph version stays 41.
 /// v21: normalization contracts (`no-toref-ignored-key`,
@@ -66,7 +69,7 @@ pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// prefer-watch suppresses self-write sources; computed self-write is impure.
 /// v5: conditional-dep premise withdrawn; after-await registrars deprecated
 /// except defineExpose; absence rules require complete follow coverage.
-pub const RULESET_VERSION: u32 = 22;
+pub const RULESET_VERSION: u32 = 23;
 
 /// Workspace pin for `vize_croquis` / `vize_atelier_core`.
 ///

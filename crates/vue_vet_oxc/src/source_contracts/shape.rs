@@ -98,8 +98,8 @@ pub(super) enum ShapeHint {
 /// [`ContractSink::WatchEffectFamily`] imports keep source indexes empty when
 /// every resolved reference is a proven call with fewer than two arguments and
 /// no spread. Ordinary sinks and namespace imports keep full indexing.
-/// `toRef` and `effectScope` are additional sinks so a named import of
-/// either still admits collection.
+/// `toRef`, `effectScope`, and `customRef` are additional sinks so a named
+/// import of any still admits collection.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ContractSink {
   TriggerRef,
@@ -109,6 +109,7 @@ pub enum ContractSink {
   WatchEffectFamily,
   ToRef,
   EffectScope,
+  CustomRef,
 }
 
 impl ContractSink {
@@ -165,6 +166,7 @@ pub fn contract_sink(api: &str) -> Option<ContractSink> {
     "watchEffect" | "watchPostEffect" | "watchSyncEffect" => Some(ContractSink::WatchEffectFamily),
     "toRef" => Some(ContractSink::ToRef),
     "effectScope" => Some(ContractSink::EffectScope),
+    "customRef" => Some(ContractSink::CustomRef),
     _ => None,
   }
 }

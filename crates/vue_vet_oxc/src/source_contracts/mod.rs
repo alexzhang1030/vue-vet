@@ -21,8 +21,10 @@
 //! imports keep full indexing.
 
 mod clone_boundary;
+mod demand;
 mod index;
 mod normalization;
+mod proof;
 mod shape;
 mod stats;
 mod watch_api;
@@ -52,16 +54,16 @@ pub use stats::SourceContractStats;
 
 const MAX_DEPTH: u8 = 8;
 
-struct Collector<'a> {
-  semantic: &'a oxc_semantic::Semantic<'a>,
-  line_index: &'a vue_vet_core::LineIndex,
-  sfc_source: &'a str,
-  script_offset: usize,
-  indexes: Indexes,
-  shape_cache: HashMap<SymbolId, Shape>,
-  property_shape: HashMap<(SymbolId, String), Shape>,
-  proxy_proof: HashMap<SymbolId, bool>,
-  facts: SourceContractFacts,
+pub(in crate::source_contracts) struct Collector<'a> {
+  pub(in crate::source_contracts) semantic: &'a oxc_semantic::Semantic<'a>,
+  pub(in crate::source_contracts) line_index: &'a vue_vet_core::LineIndex,
+  pub(in crate::source_contracts) sfc_source: &'a str,
+  pub(in crate::source_contracts) script_offset: usize,
+  pub(in crate::source_contracts) indexes: Indexes,
+  pub(in crate::source_contracts) shape_cache: HashMap<SymbolId, Shape>,
+  pub(in crate::source_contracts) property_shape: HashMap<(SymbolId, String), Shape>,
+  pub(in crate::source_contracts) proxy_proof: HashMap<SymbolId, bool>,
+  pub(in crate::source_contracts) facts: SourceContractFacts,
 }
 
 pub fn collect_source_contract_facts(
@@ -148,6 +150,7 @@ impl Collector<'_> {
       if info.native_structured_clone {
         self.collect_structured_clone(info);
       }
+      self.collect_inactive_scope_run(node_id, call);
       let Some(api) = info.api else {
         continue;
       };
@@ -156,7 +159,10 @@ impl Collector<'_> {
       }
       match contract_sink(api) {
         Some(ContractSink::TriggerRef) => self.collect_trigger_ref(info),
-        Some(ContractSink::ToRefs) => self.collect_torefs(info),
+        Some(ContractSink::ToRefs) => {
+          self.collect_torefs(info);
+          self.collect_missing_torefs_key(node_id, call, info);
+        }
         Some(ContractSink::ProxyConstructor) => self.collect_primitive_reactive(info, api),
         Some(ContractSink::Watch) => {
           self.collect_watch(node_id, call, info);
@@ -166,6 +172,7 @@ impl Collector<'_> {
         Some(ContractSink::WatchEffectFamily) => self.collect_watch_api(call, info),
         Some(ContractSink::ToRef) => self.collect_toref(call, info),
         Some(ContractSink::EffectScope) => self.collect_effect_scope(info),
+        Some(ContractSink::CustomRef) => self.collect_custom_ref(node_id, call, info),
         None => {}
       }
     }
@@ -220,6 +227,21 @@ impl Collector<'_> {
     self.facts.uncloneable_proxy_data.sort_by(|left, right| {
       self.indexes.note_query();
       left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.invalid_custom_ref_interface.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.demand_span.offset, left.interface_span.offset)
+        .cmp(&(right.demand_span.offset, right.interface_span.offset))
+    });
+    self.facts.inactive_scope_result.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.consumer_span.offset, left.run_span.offset)
+        .cmp(&(right.consumer_span.offset, right.run_span.offset))
+    });
+    self.facts.missing_torefs_key.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.demand_span.offset, left.torefs_span.offset)
+        .cmp(&(right.demand_span.offset, right.torefs_span.offset))
     });
     (self.facts, self.indexes.stats())
   }
@@ -484,7 +506,7 @@ impl Collector<'_> {
     shape
   }
 
-  fn proxy_object_span(&self, init_span: Span) -> Option<Span> {
+  pub(in crate::source_contracts) fn proxy_object_span(&self, init_span: Span) -> Option<Span> {
     let call = self.indexes.calls.get(&span_key(init_span)).copied();
     if let Some(info) = call
       && matches!(info.api, Some("reactive" | "readonly" | "shallowReactive" | "shallowReadonly"))
@@ -525,11 +547,15 @@ impl Collector<'_> {
       .unwrap_or(Shape::Unknown)
   }
 
-  fn classify_span(&mut self, span: Span, remaining: u8) -> Shape {
+  pub(in crate::source_contracts) fn classify_span(&mut self, span: Span, remaining: u8) -> Shape {
     self.classify_maybe(span, remaining).unwrap_or(Shape::Unknown)
   }
 
-  fn classify_maybe(&mut self, span: Span, remaining: u8) -> Option<Shape> {
+  pub(in crate::source_contracts) fn classify_maybe(
+    &mut self,
+    span: Span,
+    remaining: u8,
+  ) -> Option<Shape> {
     self.indexes.note_query();
     if remaining == 0 {
       return None;
@@ -579,7 +605,11 @@ impl Collector<'_> {
     self.classify_symbol(symbol_id, remaining)
   }
 
-  fn classify_symbol(&mut self, symbol_id: SymbolId, remaining: u8) -> Shape {
+  pub(in crate::source_contracts) fn classify_symbol(
+    &mut self,
+    symbol_id: SymbolId,
+    remaining: u8,
+  ) -> Shape {
     self.classify_symbol_maybe(symbol_id, remaining).unwrap_or(Shape::Unknown)
   }
 
@@ -604,12 +634,15 @@ impl Collector<'_> {
     Some(shape)
   }
 
-  fn reference_symbol(&self, identifier: &IdentifierReference<'_>) -> Option<SymbolId> {
+  pub(in crate::source_contracts) fn reference_symbol(
+    &self,
+    identifier: &IdentifierReference<'_>,
+  ) -> Option<SymbolId> {
     let reference_id = identifier.reference_id.get()?;
     self.semantic.scoping().get_reference(reference_id).symbol_id()
   }
 
-  fn span(&self, span: Span) -> SourceSpan {
+  pub(in crate::source_contracts) fn span(&self, span: Span) -> SourceSpan {
     source_span(self.line_index, self.sfc_source, self.script_offset, span)
   }
 }
