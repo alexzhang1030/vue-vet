@@ -30,6 +30,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-empty-watch-sources", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-late-scope-dispose", RuleGroupId::Lifetime),
   ("vue-vet/reactivity/no-late-watcher-cleanup", RuleGroupId::Lifetime),
+  ("vue-vet/reactivity/no-lost-shallow-nested-notification", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-model-ref-as-operand", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-multiple-effects-same-target", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-nonreactive-props-destructure", RuleGroupId::SourceContracts),
@@ -50,6 +51,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-shallow-reactive-destructure", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-side-effects-in-computed", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-stale-prop-flow", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-toraw-write-of-tracked-state", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-torefs-on-non-proxy", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-trigger-ref-on-non-ref", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-unused-computed-binding", RuleGroupId::Derivation),
@@ -217,7 +219,7 @@ mod tests {
       "vue-vet/reactivity/no-returned-watcher-cleanup",
     ];
     let inventory = rule_inventory(&[]);
-    assert_eq!(inventory.counts.total, 111, "composed CLI inventory count");
+    assert_eq!(inventory.counts.total, 113, "composed CLI inventory count");
     let lifetime = rule_inventory(&[RuleGroupId::Lifetime]);
     let tracking = rule_inventory(&[RuleGroupId::Tracking]);
     for id in LIFETIME_IDS {

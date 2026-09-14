@@ -139,16 +139,23 @@ profile because its instrumentation does not link Oxc reliably under LTO
 (`lto = false`, `panic = "unwind"`). The release profile (`opt-level = 2`, `lto = "fat"`,
 `panic = "abort"`, `strip = "symbols"`, protocol/UI runtime packages
 `opt-level = "z"`, product crates `vue_vet_rules` / `vue_vet_practice` /
-`vue_vet_rule_query` `opt-level = "z"`, `vue_vet_core` `opt-level = "s"`;
-`vue_vet_reporters` stays on the profile default) remains the source of
+`vue_vet_rule_query` `opt-level = "z"`, `vue_vet_core` /
+`vue_vet_reactivity` / `vue_vet_session` / `vue_vet_project`
+`opt-level = "s"`; `vue_vet_oxc` and
+`vue_vet_reporters` stay on the profile default) remains the source of
 truth for shipped artifacts.
+`cargo bench --profile release` forces unwind; those Divan programs measure
+the release-optimization/unwind path. The shipped CLI is `cargo build --release` with
+`panic = "abort"`. See [gotchas](./gotchas.md) (`cargo bench --profile release`
+uses panic=unwind).
 `profile.codspeed` inherits `release`, then sets `opt-level = 3` and
 `lto = false`. That top-level 3 is the default only: named
 `profile.release.package` overrides still win unless restated. Protocol/UI
 release `opt-z` packages stay inherited. Product crates with release `"z"`
 or `"s"` (`vue_vet_rules`, `vue_vet_practice`, `vue_vet_rule_query`,
-`vue_vet_core`) have explicit `profile.codspeed.package.*.opt-level = 3`
-so CodSpeed is not the size profile. Do not bake a local `CARGO_TARGET_DIR` or
+`vue_vet_core`, `vue_vet_reactivity`, `vue_vet_session`, `vue_vet_project`) have explicit
+`profile.codspeed.package.*.opt-level = 3`
+so CodSpeed keeps instrumentation `opt-level = 3`. Do not bake a local `CARGO_TARGET_DIR` or
 host byte count into pack/smoke scripts. `just native-size` prints the Cargo
 JSON executable for the build it just ran. CI size gates use artifact mode on
 the matrix binary plus the committed budget table; they must not rebuild.

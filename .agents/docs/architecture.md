@@ -23,7 +23,7 @@ Crate ownership (read before editing that stage):
 
 | Stage | Crate | Notes |
 | --- | --- | --- |
-| Stable contracts | `vue_vet_core` | facts / diagnostics / `Rule` — no Oxc/Vize types |
+| Stable contracts | `vue_vet_core` | facts / diagnostics / `Rule` — no Oxc/Vize types. Graph v41 adds `source_views` / `notification_bypasses` for lost-notification rules; Oxc types stay in `vue_vet_reactivity::trace`. |
 | Adapters | `vue_vet_vize`, `vue_vet_oxc` | short-lived AST → facts only; SFC parse is `vize_croquis::sfc`, never `vize_atelier_sfc` |
 | Project graph | `vue_vet_project` | see `vue_vet_project` pipeline below |
 | Cross-file seeds | `vue_vet_reactivity` | `ModuleSource` + `trace_modules`; Oxc-taking APIs under `::oxc`; `ModuleSummary` boundary; under-approx |

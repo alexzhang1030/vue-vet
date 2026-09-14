@@ -15,6 +15,35 @@ export function useCount() { const local = ref(1); return { local } }\n";
 
 #[test]
 #[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn lost_notification_rules_run_on_ts_and_vue() {
+  let source = "import { shallowRef, watchSyncEffect } from 'vue'\n\
+const state = shallowRef({ count: 1 })\n\
+watchSyncEffect(() => { void state.value.count })\n\
+state.value.count = 2\n";
+  for (name, body) in [
+    ("lost.ts", source.to_string()),
+    ("Lost.vue", format!("<script setup lang=\"ts\">\n{source}</script>\n<template></template>\n")),
+  ] {
+    let root = std::env::temp_dir().join(format!("vue-vet-lost-{name}-{}", std::process::id()));
+    let _ignored = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+    std::fs::write(root.join(name), &body).unwrap_or_else(|error| panic!("write {name}: {error}"));
+    let session = open_session_threads(root.clone(), 1);
+    let snapshot = session.analyze().unwrap_or_else(|error| panic!("analyze {name}: {error}"));
+    assert!(
+      snapshot.summary.diagnostics.iter().any(|diagnostic| {
+        diagnostic.file == FileId::from(name)
+          && diagnostic.rule_id == "vue-vet/reactivity/no-lost-shallow-nested-notification"
+      }),
+      "{name} must report lost shallow notification; {:?}",
+      snapshot.summary.diagnostics
+    );
+    let _ignored = std::fs::remove_dir_all(root);
+  }
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
 fn js_ts_side_effect_in_computed_is_diagnosed() {
   for extension in ["js", "ts"] {
     let root =
@@ -405,6 +434,16 @@ watchEffect(() => { source.value; return () => {} })\n",
   let _ignored = std::fs::remove_dir_all(root);
 }
 
+const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 7] = [
+  "vue-vet/reactivity/no-watch-unwrapped-source",
+  "vue-vet/reactivity/no-trigger-ref-on-non-ref",
+  "vue-vet/reactivity/no-torefs-on-non-proxy",
+  "vue-vet/reactivity/no-primitive-reactive-target",
+  "vue-vet/reactivity/no-watch-replaced-object-source",
+  "vue-vet/reactivity/no-lost-shallow-nested-notification",
+  "vue-vet/reactivity/no-toraw-write-of-tracked-state",
+];
+
 #[test]
 #[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
 fn source_contract_findings_keep_incremental_identity() {
@@ -412,12 +451,22 @@ fn source_contract_findings_keep_incremental_identity() {
   let _ignored = std::fs::remove_dir_all(&root);
   std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
   let source = "<script setup lang=\"ts\">\n\
-import { reactive, ref, triggerRef, toRefs, watch } from 'vue'\n\
+import { reactive, ref, shallowRef, toRaw, triggerRef, toRefs, watch, watchSyncEffect } from 'vue'\n\
 const n = ref(0)\n\
 watch(n.value, () => {})\n\
 triggerRef(reactive({ n: 1 }))\n\
 toRefs({ a: 1 })\n\
 void reactive(0)\n\
+const state = shallowRef({ count: 1 })\n\
+watchSyncEffect(() => { void state.value.count })\n\
+state.value.count = 2\n\
+const proxy = reactive({ n: 1 })\n\
+watchSyncEffect(() => { void proxy.n })\n\
+const raw = toRaw(proxy)\n\
+raw.n = 2\n\
+const quiet = reactive({ n: 1 })\n\
+const quietRaw = toRaw(quiet)\n\
+quietRaw.n = 2\n\
 </script>\n\
 <template><p /></template>\n";
   let replaced = "<script setup lang=\"ts\">\n\
@@ -432,27 +481,50 @@ obj.nested = { x: 9 }\n\
     .unwrap_or_else(|error| panic!("write replace: {error}"));
   let session = open_session_threads(root.clone(), 1);
   let cold = session.analyze().unwrap_or_else(|error| panic!("cold: {error}"));
-  let contract_count = cold
-    .summary
-    .diagnostics
-    .iter()
-    .filter(|diagnostic| {
-      diagnostic.rule_id.contains("trigger-ref")
-        || diagnostic.rule_id.contains("torefs")
-        || diagnostic.rule_id.contains("primitive-reactive")
-        || diagnostic.rule_id.contains("watch-unwrapped")
-        || diagnostic.rule_id.contains("watch-replaced")
-    })
-    .count();
-  assert!(
-    contract_count >= 5,
-    "cold scan must emit the five source-contract IDs; {:?}",
+  let expected: std::collections::BTreeSet<String> =
+    SOURCE_CONTRACT_AND_NOTIFICATION_IDS.into_iter().map(str::to_owned).collect();
+  let contract_ids = |snapshot: &AnalysisSnapshot| -> std::collections::BTreeSet<String> {
+    snapshot
+      .summary
+      .diagnostics
+      .iter()
+      .map(|diagnostic| diagnostic.rule_id.clone())
+      .filter(|rule_id| SOURCE_CONTRACT_AND_NOTIFICATION_IDS.contains(&rule_id.as_str()))
+      .collect()
+  };
+  assert_eq!(
+    contract_ids(&cold),
+    expected,
+    "cold scan must emit the five source-contract IDs and two notification IDs; {:?}",
     cold.summary.diagnostics
+  );
+  let toraw = "vue-vet/reactivity/no-toraw-write-of-tracked-state";
+  let toraw_hits: Vec<_> =
+    cold.summary.diagnostics.iter().filter(|diagnostic| diagnostic.rule_id == toraw).collect();
+  assert_eq!(
+    toraw_hits.len(),
+    1,
+    "tracked toRaw write must emit once; quiet no-consumer control must stay silent; {toraw_hits:?}"
+  );
+  assert!(
+    toraw_hits.iter().all(|diagnostic| {
+      diagnostic.file == FileId::from("App.vue")
+        && source.get(
+          diagnostic.span.offset..diagnostic.span.offset.saturating_add(diagnostic.span.length),
+        ) == Some("raw.n")
+    }),
+    "the toRaw finding must highlight the subscribed proxy write; {toraw_hits:?}"
   );
   session
     .apply_changes(ChangeSet::upsert(root.join("App.vue"), source.into()))
     .unwrap_or_else(|error| panic!("touch: {error}"));
   let warm = session.analyze_affected().unwrap_or_else(|error| panic!("warm: {error}"));
+  assert_eq!(
+    contract_ids(&warm),
+    expected,
+    "warm scan must keep the same source-contract and notification IDs; {:?}",
+    warm.summary.diagnostics
+  );
   let clean = open_session_threads(root.clone(), 1)
     .analyze()
     .unwrap_or_else(|error| panic!("clean: {error}"));

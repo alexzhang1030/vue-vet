@@ -44,8 +44,8 @@ fn list_rules_is_sorted_unique_and_includes_project_ids() {
   );
   assert_eq!(
     parsed.pointer("/counts/total").and_then(Value::as_u64),
-    Some(111),
-    "composed CLI inventory must be 111 after source-contract and lifetime rules"
+    Some(113),
+    "composed CLI inventory must be 113 after source-contract and notification rules"
   );
 }
 
@@ -112,7 +112,9 @@ fn list_rules_source_contracts_includes_five_ids() {
     })
     .unwrap_or_default();
   for id in [
+    "vue-vet/reactivity/no-lost-shallow-nested-notification",
     "vue-vet/reactivity/no-primitive-reactive-target",
+    "vue-vet/reactivity/no-toraw-write-of-tracked-state",
     "vue-vet/reactivity/no-torefs-on-non-proxy",
     "vue-vet/reactivity/no-trigger-ref-on-non-ref",
     "vue-vet/reactivity/no-watch-replaced-object-source",

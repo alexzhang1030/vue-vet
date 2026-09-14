@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-lost-shallow-nested-notification",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-lost-shallow-nested-notification",
+    "message": "This nested write bypasses the shallow container notification used by the consumer",
+    "help": "Source `state` at 3:15, path `state.details.count`; consumer at 5:8. Replace the tracked slot or keep the nested value reactive.",
+    "file": "fixtures/rules/no-lost-shallow-nested-notification/invalid/shallow-reactive.vue",
+    "span": {
+      "offset": 191,
+      "length": 19,
+      "line": 7,
+      "column": 1
+    }
+  }
+]

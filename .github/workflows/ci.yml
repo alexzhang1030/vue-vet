@@ -95,6 +95,8 @@ jobs:
         run: just oracle-lifetime
       - name: Source-contract runtime premises
         run: just oracle-source-contracts
+      - name: Lost-notification Vue 3.5.40 premises
+        run: just oracle-lost-notification
 
   vapor-migration-research:
     name: Vapor migration research

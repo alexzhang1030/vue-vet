@@ -380,7 +380,9 @@ pub struct ReactivityEffectFact {
 /// under-approx hygiene); export linking refinements that change seeded bindings
 /// (`ForwardReturn` bare `#nuxt-imports`, overload Factory≻Composable, ref-like
 /// ternary `Known` exports, empty-path pending composable fields).
-pub const REACTIVITY_GRAPH_VERSION: u32 = 40;
+/// v41: same-file lost-notification source/view/path facts (`source_views`,
+/// `notification_bypasses`) for shallow nested writes and `toRaw` proxy bypasses.
+pub const REACTIVITY_GRAPH_VERSION: u32 = 41;
 
 const fn default_reactivity_graph_version() -> u32 {
   1
@@ -389,6 +391,45 @@ const fn default_reactivity_graph_version() -> u32 {
 #[expect(clippy::trivially_copy_pass_by_ref, reason = "serde skip_serializing_if takes &T")]
 const fn scope_flag_is_false(value: &bool) -> bool {
   !*value
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReactiveViewKind {
+  Proxy,
+  ShallowContainer,
+  Raw,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReactiveSourceViewFact {
+  pub name: String,
+  pub binding_span: SourceSpan,
+  pub creation_span: SourceSpan,
+  pub source_kind: ReactiveBindingKind,
+  pub view: ReactiveViewKind,
+  /// Static path from the source root this view names (`[]` at the root).
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub path: Vec<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub raw_conversion_span: Option<SourceSpan>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationBypassKind {
+  ShallowNested,
+  ToRawWrite,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct NotificationBypassFact {
+  pub kind: NotificationBypassKind,
+  pub write_span: SourceSpan,
+  pub source_span: SourceSpan,
+  pub consumer_span: SourceSpan,
+  pub path: Vec<String>,
+  pub source_name: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -417,6 +458,12 @@ pub struct ReactivityGraph {
   #[serde(default)]
   pub composable_instances:
     std::collections::BTreeMap<String, std::collections::BTreeMap<String, ReactiveBindingKind>>,
+  /// Proven Vue source/view identities for lost-notification rules.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub source_views: Vec<ReactiveSourceViewFact>,
+  /// Closed write→consumer bypasses collected once per file.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub notification_bypasses: Vec<NotificationBypassFact>,
 }
 
 impl Default for ReactivityGraph {
@@ -430,6 +477,8 @@ impl Default for ReactivityGraph {
       edges: Vec::new(),
       template_reads: Vec::new(),
       composable_instances: std::collections::BTreeMap::new(),
+      source_views: Vec::new(),
+      notification_bypasses: Vec::new(),
     }
   }
 }
