@@ -213,7 +213,21 @@ Parser IR (Vize AST / Oxc Semantic)     — short-lived, never cached across ada
         ↓
 File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         (`ScriptBlockFacts::source_contracts` holds proven Vue API source-identity
-        sites from Oxc (`vue_vet_oxc::source_contracts`); lifetime facts are a
+        sites from Oxc (`vue_vet_oxc::source_contracts`), including watch-family
+        ignored-option and signature-slot facts (`watch_api.rs`). Watch-option
+        collection inspects original `ObjectProperty::computed` flags so
+        computed literal keys stay quiet without changing shared object
+        summarization. Proven
+        `watchEffect` / `watchPostEffect` / `watchSyncEffect` identity is recorded
+        as `ContractSink::WatchEffectFamily`. Eligibility and dispatch share one
+        `contract_sink` table with source5, so named effect imports use that same
+        Vue-import pass. Named effect-family imports keep source indexes empty
+        when every Oxc resolved reference is a proven call with fewer than two
+        arguments and no spread (current watch-API rules read that second
+        argument). Ordinary sinks and namespace imports keep full indexing. `watch`
+        still runs the ordinary source collector and watch-family option/signature
+        facts. Combined `RULESET_VERSION` is
+        19; `REACTIVITY_GRAPH_VERSION` stays 41. Lifetime facts are a
         separate field owned elsewhere.
         `TemplateElementFact::has_key` includes proven object-form `v-bind`
         keys from Oxc; `is_component` is Vize `ElementType` / JSX

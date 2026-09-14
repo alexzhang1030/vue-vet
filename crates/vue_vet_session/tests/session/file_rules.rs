@@ -434,7 +434,7 @@ watchEffect(() => { source.value; return () => {} })\n",
   let _ignored = std::fs::remove_dir_all(root);
 }
 
-const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 7] = [
+const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 9] = [
   "vue-vet/reactivity/no-watch-unwrapped-source",
   "vue-vet/reactivity/no-trigger-ref-on-non-ref",
   "vue-vet/reactivity/no-torefs-on-non-proxy",
@@ -442,6 +442,8 @@ const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 7] = [
   "vue-vet/reactivity/no-watch-replaced-object-source",
   "vue-vet/reactivity/no-lost-shallow-nested-notification",
   "vue-vet/reactivity/no-toraw-write-of-tracked-state",
+  "vue-vet/reactivity/no-watch-ignored-option",
+  "vue-vet/reactivity/no-watch-signature-mismatch",
 ];
 
 #[test]
@@ -479,6 +481,18 @@ obj.nested = { x: 9 }\n\
   std::fs::write(root.join("App.vue"), source).unwrap_or_else(|error| panic!("write: {error}"));
   std::fs::write(root.join("Replace.vue"), replaced)
     .unwrap_or_else(|error| panic!("write replace: {error}"));
+  std::fs::write(
+    root.join("WatchApi.vue"),
+    "<script setup lang=\"ts\">\n\
+import { ref, watch, watchEffect } from 'vue'\n\
+const n = ref(0)\n\
+watch(n, (v) => v, { equals: () => true })\n\
+watch(n, { handler() { void n.value } })\n\
+watchEffect(() => n.value, (x) => x)\n\
+</script>\n\
+<template><p /></template>\n",
+  )
+  .unwrap_or_else(|error| panic!("write watch api: {error}"));
   let session = open_session_threads(root.clone(), 1);
   let cold = session.analyze().unwrap_or_else(|error| panic!("cold: {error}"));
   let expected: std::collections::BTreeSet<String> =
@@ -495,7 +509,7 @@ obj.nested = { x: 9 }\n\
   assert_eq!(
     contract_ids(&cold),
     expected,
-    "cold scan must emit the five source-contract IDs and two notification IDs; {:?}",
+    "cold scan must emit source-contract, watch-api, and notification IDs; {:?}",
     cold.summary.diagnostics
   );
   let toraw = "vue-vet/reactivity/no-toraw-write-of-tracked-state";
@@ -529,5 +543,116 @@ obj.nested = { x: 9 }\n\
     .analyze()
     .unwrap_or_else(|error| panic!("clean: {error}"));
   assert_analysis_parity(&warm, &clean);
+  let _ignored = std::fs::remove_dir_all(root);
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn source_contract_findings_keep_disk_cache_identity() {
+  let root =
+    std::env::temp_dir().join(format!("vue-vet-source-contracts-cache-{}", std::process::id()));
+  let cache_dir = root.join(".vue-vet-cache");
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+  std::fs::write(
+    root.join("WatchApi.vue"),
+    "<script setup lang=\"ts\">\n\
+import { watchSyncEffect } from 'vue'\n\
+watchSyncEffect(() => {}, { flush: 'post', once: true })\n\
+</script>\n\
+<template><p /></template>\n",
+  )
+  .unwrap_or_else(|error| panic!("write: {error}"));
+  let open = |cache: std::path::PathBuf| {
+    ProjectSession::open(SessionOptions {
+      root: root.clone(),
+      config_path: None,
+      cache_dir: Some(cache),
+      no_cache: false,
+      threads: Some(1),
+      selected_groups: Vec::new(),
+    })
+    .unwrap_or_else(|error| panic!("session: {error}"))
+  };
+  let cold = open(cache_dir.clone()).analyze().unwrap_or_else(|error| panic!("cold: {error}"));
+  assert_eq!(cold.cache_status, "miss", "first scan must miss");
+  assert!(
+    cold
+      .summary
+      .diagnostics
+      .iter()
+      .any(|diagnostic| { diagnostic.rule_id == "vue-vet/reactivity/no-watch-ignored-option" }),
+    "named watchSyncEffect without source5 APIs must report ignored once; {:?}",
+    cold.summary.diagnostics
+  );
+  let warm = open(cache_dir).analyze().unwrap_or_else(|error| panic!("warm: {error}"));
+  assert_eq!(warm.cache_status, "hit", "second scan must hit");
+  assert_eq!(warm.summary, cold.summary, "warm diagnostics must equal cold");
+  let _ignored = std::fs::remove_dir_all(root);
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn source_contracts_group_keeps_watch_api_and_drops_tracking() {
+  let root =
+    std::env::temp_dir().join(format!("vue-vet-source-contracts-group-{}", std::process::id()));
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+  std::fs::write(
+    root.join("App.vue"),
+    "<script setup lang=\"ts\">\n\
+import { ref, watchEffect } from 'vue'\n\
+const n = ref(0)\n\
+watchEffect(() => n.value, { once: true })\n\
+const unused = 1\n\
+</script>\n\
+<template><img></template>\n",
+  )
+  .unwrap_or_else(|error| panic!("write: {error}"));
+  let source = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+    selected_groups: vec![vue_vet_session::RuleGroupId::SourceContracts],
+  })
+  .unwrap_or_else(|error| panic!("open source-contracts: {error}"));
+  let snapshot = source.analyze().unwrap_or_else(|error| panic!("analyze: {error}"));
+  assert!(
+    snapshot
+      .summary
+      .diagnostics
+      .iter()
+      .any(|diagnostic| { diagnostic.rule_id == "vue-vet/reactivity/no-watch-ignored-option" }),
+    "source-contracts group must keep watch-api; {:?}",
+    snapshot.summary.diagnostics
+  );
+  assert!(
+    snapshot.summary.diagnostics.iter().all(|diagnostic| {
+      !diagnostic.rule_id.contains("img-has-alt") && !diagnostic.rule_id.contains("empty-watch")
+    }),
+    "source-contracts group must drop unmapped a11y and tracking IDs; {:?}",
+    snapshot.summary.diagnostics
+  );
+  let tracking = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+    selected_groups: vec![vue_vet_session::RuleGroupId::Tracking],
+  })
+  .unwrap_or_else(|error| panic!("open tracking: {error}"));
+  let tracking_snap = tracking.analyze().unwrap_or_else(|error| panic!("tracking: {error}"));
+  assert!(
+    tracking_snap
+      .summary
+      .diagnostics
+      .iter()
+      .all(|diagnostic| { diagnostic.rule_id != "vue-vet/reactivity/no-watch-ignored-option" }),
+    "tracking group must drop watch-api; {:?}",
+    tracking_snap.summary.diagnostics
+  );
   let _ignored = std::fs::remove_dir_all(root);
 }

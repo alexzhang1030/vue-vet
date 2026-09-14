@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-watch-ignored-option",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-watch-ignored-option",
+    "message": "Vue ignores `equals` on `watch` / `watchEffect`; change detection uses `hasChanged`",
+    "help": "Drop `equals`. Project a primitive/getter, or compare a cloned snapshot inside the callback.",
+    "file": "fixtures/rules/no-watch-ignored-option/invalid/namespace.vue",
+    "span": {
+      "offset": 111,
+      "length": 6,
+      "line": 4,
+      "column": 35
+    }
+  }
+]

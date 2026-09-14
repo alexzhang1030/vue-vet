@@ -8,10 +8,15 @@
 //!
 //! Replacement findings require a simple `=` of a fresh object/array/`new`
 //! built-in collection in the same straight-line block after `watch`.
+//! Named `watchEffect` / `watchPostEffect` / `watchSyncEffect` imports keep
+//! source indexes empty when every resolved reference is a proven call with
+//! fewer than two arguments and no spread. Ordinary sinks and namespace
+//! imports keep full indexing.
 
 mod index;
 mod shape;
 mod stats;
+mod watch_api;
 
 use std::collections::HashMap;
 
@@ -29,10 +34,8 @@ use vue_vet_core::{
 use crate::facts::source_span;
 
 use index::{CallInfo, Indexes, ObjectProp};
-use shape::{
-  ContractSink, Shape, ShapeHint, classify_vue_result, collect_vue_imports, contract_sink,
-  is_ref_api, span_key,
-};
+pub use shape::{ContractSink, contract_sink};
+use shape::{Shape, ShapeHint, classify_vue_result, collect_vue_imports, is_ref_api, span_key};
 use stats::WorkCounter;
 
 pub use stats::SourceContractStats;
@@ -90,8 +93,8 @@ fn collect_prepared(
   force_full: bool,
 ) -> (SourceContractFacts, SourceContractStats) {
   let work = WorkCounter::default();
-  let (vue_imports, has_contract_sink) = collect_vue_imports(semantic, &work);
-  if !has_contract_sink && !force_full {
+  let (vue_imports, needs_index) = collect_vue_imports(semantic, &work);
+  if !needs_index && !force_full {
     return (SourceContractFacts::default(), work.snapshot());
   }
   let mut collector = Collector {
@@ -136,7 +139,11 @@ impl Collector<'_> {
         Some(ContractSink::TriggerRef) => self.collect_trigger_ref(info),
         Some(ContractSink::ToRefs) => self.collect_torefs(info),
         Some(ContractSink::ProxyConstructor) => self.collect_primitive_reactive(info, api),
-        Some(ContractSink::Watch) => self.collect_watch(node_id, call, info),
+        Some(ContractSink::Watch) => {
+          self.collect_watch(node_id, call, info);
+          self.collect_watch_api(call, info);
+        }
+        Some(ContractSink::WatchEffectFamily) => self.collect_watch_api(call, info),
         None => {}
       }
     }
@@ -163,6 +170,14 @@ impl Collector<'_> {
       self.indexes.note_query();
       (left.source_span.offset, left.replacement_span.offset)
         .cmp(&(right.source_span.offset, right.replacement_span.offset))
+    });
+    self.facts.watch_ignored_option.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.watch_signature_mismatch.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
     });
     (self.facts, self.indexes.stats())
   }

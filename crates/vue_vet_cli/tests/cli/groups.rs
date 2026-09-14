@@ -44,8 +44,8 @@ fn list_rules_is_sorted_unique_and_includes_project_ids() {
   );
   assert_eq!(
     parsed.pointer("/counts/total").and_then(Value::as_u64),
-    Some(113),
-    "composed CLI inventory must be 113 after source-contract and notification rules"
+    Some(115),
+    "composed CLI inventory must be 115 after source-contract, notification, and watch-api rules"
   );
 }
 
@@ -117,7 +117,9 @@ fn list_rules_source_contracts_includes_five_ids() {
     "vue-vet/reactivity/no-toraw-write-of-tracked-state",
     "vue-vet/reactivity/no-torefs-on-non-proxy",
     "vue-vet/reactivity/no-trigger-ref-on-non-ref",
+    "vue-vet/reactivity/no-watch-ignored-option",
     "vue-vet/reactivity/no-watch-replaced-object-source",
+    "vue-vet/reactivity/no-watch-signature-mismatch",
     "vue-vet/reactivity/no-watch-unwrapped-source",
   ] {
     assert!(ids.iter().any(|row| row == id), "missing {id} in {ids:?}");
