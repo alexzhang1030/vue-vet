@@ -410,6 +410,42 @@ fn jsx_dynamic_dependency_regressions_stay_quiet() {
 
 #[test]
 #[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn cleanup_identity_runs_on_ts_and_vue() {
+  let source = "import { ref, watch } from 'vue'\n\
+const handler = () => {}\n\
+const source = ref(new EventTarget())\n\
+watch(source, (target, _prev, onCleanup) => {\n\
+  target.addEventListener('click', handler)\n\
+  onCleanup(() => { source.value.removeEventListener('click', handler) })\n\
+}, { immediate: true, flush: 'sync' })\n\
+source.value = new EventTarget()\n";
+  for (name, body) in [
+    ("cleanup.ts", source.to_string()),
+    (
+      "Cleanup.vue",
+      format!("<script setup lang=\"ts\">\n{source}</script>\n<template></template>\n"),
+    ),
+  ] {
+    let root = std::env::temp_dir().join(format!("vue-vet-cleanup-{name}-{}", std::process::id()));
+    let _ignored = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+    std::fs::write(root.join(name), &body).unwrap_or_else(|error| panic!("write {name}: {error}"));
+    let session = open_session_threads(root.clone(), 1);
+    let snapshot = session.analyze().unwrap_or_else(|error| panic!("analyze {name}: {error}"));
+    assert!(
+      snapshot.summary.diagnostics.iter().any(|diagnostic| {
+        diagnostic.file == FileId::from(name)
+          && diagnostic.rule_id == "vue-vet/reactivity/no-watch-cleanup-current-source"
+      }),
+      "{name} must report cleanup identity; {:?}",
+      snapshot.summary.diagnostics
+    );
+    let _ignored = std::fs::remove_dir_all(root);
+  }
+}
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
 fn plain_ts_lifetime_rules_run() {
   let root = std::env::temp_dir().join(format!("vue-vet-lifetime-ts-{}", std::process::id()));
   let _ignored = std::fs::remove_dir_all(&root);

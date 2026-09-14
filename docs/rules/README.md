@@ -10,11 +10,11 @@ not Essential/a11y parity with `eslint-plugin-vue`.
 
 | Tier | Meaning | Count |
 | --- | --- | ---: |
-| `tracer` | Needs `vue_vet_reactivity` graph facts (read kinds, guards, scopes, prop edges, binding kinds) | 60 |
+| `tracer` | Needs `vue_vet_reactivity` graph facts (read kinds, guards, scopes, prop edges, binding kinds) | 61 |
 | `parity` | Template Essential / a11y / macros / after-await registrars — open-box completeness | 50 |
 | `practice` | Ecosystem suggestions (`category: practice`); excluded from score by default | 14 |
 
-Total registered **file** rules (builtins + practice): **124**.
+Total registered **file** rules (builtins + practice): **125**.
 
 Project-graph IDs are listed separately below and are not in this file-ID set.
 
@@ -24,7 +24,7 @@ Project-graph IDs are listed separately below and are not in this file-ID set.
 | `correctness` | 36 |
 | `maintainability` | 1 |
 | `practice` | 13 |
-| `reactivity` | 60 |
+| `reactivity` | 61 |
 | `security` | 1 |
 
 Per-rule pages live under `docs/rules/<category>/<name>.md`.
@@ -158,6 +158,7 @@ Per-rule pages live under `docs/rules/<category>/<name>.md`.
 - [`vue-vet/reactivity/no-v-model-nonreactive-source`](./reactivity/no-v-model-nonreactive-source.md) `tracer`
 - [`vue-vet/reactivity/no-watch-alias-old-new`](./reactivity/no-watch-alias-old-new.md) `tracer`
 - [`vue-vet/reactivity/no-watch-callback-as-tracking-scope`](./reactivity/no-watch-callback-as-tracking-scope.md) `tracer`
+- [`vue-vet/reactivity/no-watch-cleanup-current-source`](./reactivity/no-watch-cleanup-current-source.md) `tracer`
 - [`vue-vet/reactivity/no-watch-ignored-option`](./reactivity/no-watch-ignored-option.md) `tracer`
 - [`vue-vet/reactivity/no-watch-replaced-object-source`](./reactivity/no-watch-replaced-object-source.md) `tracer`
 - [`vue-vet/reactivity/no-watch-signature-mismatch`](./reactivity/no-watch-signature-mismatch.md) `tracer`

@@ -23,6 +23,8 @@ pub const CACHE_FORMAT_VERSION: u32 = 5;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// Bump when built-in rule set or seed-aware analysis behavior changes.
 ///
+/// v26: `EventTarget` watch cleanup identity (`no-watch-cleanup-current-source`)
+/// on the Map key catalog (v25). Graph version stays 41.
 /// v25: native Map raw/proxy key demand (`no-raw-proxy-map-key`) and keyed
 /// Map `forEach`→`get` practice (`prefer-keyed-map-dependency`) on the
 /// extracted collection-method catalog (v24). Graph version stays 41.
@@ -75,7 +77,7 @@ pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// prefer-watch suppresses self-write sources; computed self-write is impure.
 /// v5: conditional-dep premise withdrawn; after-await registrars deprecated
 /// except defineExpose; absence rules require complete follow coverage.
-pub const RULESET_VERSION: u32 = 25;
+pub const RULESET_VERSION: u32 = 26;
 
 /// Workspace pin for `vize_croquis` / `vize_atelier_core`.
 ///

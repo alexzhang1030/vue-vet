@@ -9,6 +9,7 @@ use crate::facts::{
   ReactiveBindingFact, ReactivityEffectFact, ReturnedWatcherCleanupFact, RuleEnvironment,
   ScriptBindingFact, ScriptCallFact, ScriptDestructureFact, ScriptFacts, ScriptKind,
   ScriptMemberWriteFact, ScriptOperandFact, TemplateElementFact, TemplateFacts, TrackingScopeFact,
+  WatchCleanupCurrentSourceFact,
 };
 use crate::identity::FileId;
 
@@ -35,6 +36,7 @@ impl FactKinds {
   pub const ORPHANED_SCOPE_WATCHER: Self = Self(1 << 11);
   pub const LATE_SCOPE_DISPOSE: Self = Self(1 << 12);
   pub const NOTIFICATION_BYPASS: Self = Self(1 << 13);
+  pub const WATCH_CLEANUP_CURRENT_SOURCE: Self = Self(1 << 14);
 
   #[must_use]
   pub const fn union(self, other: Self) -> Self {
@@ -69,6 +71,7 @@ pub enum FactRef<'a> {
   OrphanedScopeWatcher { block_kind: ScriptKind, fact: &'a OrphanedScopeWatcherFact },
   LateScopeDispose { block_kind: ScriptKind, fact: &'a LateScopeDisposeFact },
   NotificationBypass { block_kind: ScriptKind, bypass: &'a NotificationBypassFact },
+  WatchCleanupCurrentSource { block_kind: ScriptKind, fact: &'a WatchCleanupCurrentSourceFact },
 }
 
 /// Built-in rule contract (oxlint-style pass hooks over stable facts).
@@ -225,6 +228,7 @@ struct FactBuckets {
   orphaned_scope_watcher: Vec<&'static dyn Rule>,
   late_scope_dispose: Vec<&'static dyn Rule>,
   notification_bypass: Vec<&'static dyn Rule>,
+  watch_cleanup_current_source: Vec<&'static dyn Rule>,
 }
 
 impl FactBuckets {
@@ -271,6 +275,9 @@ impl FactBuckets {
     if kinds.contains(FactKinds::NOTIFICATION_BYPASS) {
       self.notification_bypass.push(rule);
     }
+    if kinds.contains(FactKinds::WATCH_CLEANUP_CURRENT_SOURCE) {
+      self.watch_cleanup_current_source.push(rule);
+    }
   }
 
   fn needs_script_pass(&self) -> bool {
@@ -287,6 +294,7 @@ impl FactBuckets {
       || !self.orphaned_scope_watcher.is_empty()
       || !self.late_scope_dispose.is_empty()
       || !self.notification_bypass.is_empty()
+      || !self.watch_cleanup_current_source.is_empty()
   }
 }
 
@@ -454,6 +462,14 @@ impl RuleRegistry {
           for bypass in &block.reactivity_graph.notification_bypasses {
             let fact = FactRef::NotificationBypass { block_kind: block.kind, bypass };
             for rule in &self.buckets.notification_bypass {
+              rule.run_on(fact, &mut context);
+            }
+          }
+        }
+        if !self.buckets.watch_cleanup_current_source.is_empty() {
+          for fact in &block.lifetime.watch_cleanup_current_sources {
+            let fact = FactRef::WatchCleanupCurrentSource { block_kind: block.kind, fact };
+            for rule in &self.buckets.watch_cleanup_current_source {
               rule.run_on(fact, &mut context);
             }
           }

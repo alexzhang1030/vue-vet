@@ -1831,11 +1831,13 @@ const SOURCE_CONTRACT_RULES: &[&str] = &[
   "prefer-keyed-map-dependency",
 ];
 
+const CLEANUP_IDENTITY_RULES: &[&str] = &["no-watch-cleanup-current-source"];
+
 #[test]
 #[expect(clippy::panic, reason = "fixture IO must fail the golden test")]
 fn source_contract_rule_fixtures() {
   let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-  for rule in SOURCE_CONTRACT_RULES {
+  for rule in SOURCE_CONTRACT_RULES.iter().chain(CLEANUP_IDENTITY_RULES) {
     let invalid_dir = root.join(format!("fixtures/rules/{rule}/invalid"));
     let valid_dir = root.join(format!("fixtures/rules/{rule}/valid"));
     let snap_dir = root.join(format!("fixtures/snapshots/{rule}"));
