@@ -23,6 +23,9 @@ pub const CACHE_FORMAT_VERSION: u32 = 5;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// Bump when built-in rule set or seed-aware analysis behavior changes.
 ///
+/// v30: stable computed-identity practice
+/// (`prefer-stable-computed-identity`) on the cached-result catalog (v29).
+/// Graph version stays 41.
 /// v29: cached-result demand (`no-memoize-stale-result-demand`,
 /// `no-controlled-computed-stale-result-demand`) on the lifetime-ownership
 /// catalog (v28). Graph version stays 41.
@@ -86,7 +89,7 @@ pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// prefer-watch suppresses self-write sources; computed self-write is impure.
 /// v5: conditional-dep premise withdrawn; after-await registrars deprecated
 /// except defineExpose; absence rules require complete follow coverage.
-pub const RULESET_VERSION: u32 = 29;
+pub const RULESET_VERSION: u32 = 30;
 
 /// Workspace pin for `vize_croquis` / `vize_atelier_core`.
 ///

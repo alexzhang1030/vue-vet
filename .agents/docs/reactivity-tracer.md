@@ -71,11 +71,16 @@ block complete. Bare `const alias = known` is recorded on the existing
 ## Current baseline
 
 Contract version: **`REACTIVITY_GRAPH_VERSION = 41`**. Rule-set identity
-hashed into the scan cache is **`RULESET_VERSION = 29`**.
+hashed into the scan cache is **`RULESET_VERSION = 30`**.
 `watchEffect` / `watchPostEffect` / `watchSyncEffect` are source-contract sink
-APIs (option/signature facts). Eligibility and dispatch share one `ContractSink`
-table with the source5 collectors; watch-API, watch-callback, and
-normalization facts live in the ruleset / file-fact contract.
+APIs (option/signature facts). `computed` is a source-contract sink for
+stable-identity practice facts. Eligibility and dispatch share one `ContractSink`
+table with the source5 collectors; watch-API, watch-callback, normalization,
+and computed-identity facts live in the ruleset / file-fact contract.
+Identity matching uses one-time source/producer/consumer indexes, the source
+value at consumer population, and a proven delivery interval (later computed
+demand; watch flush plus stop/pause). Unresolved-global `undefined`/`NaN`/
+`Infinity` are not spelling-only atoms; fallible comparisons stay Unknown.
 Ordinary `watch` also runs callback-contract collectors
 (`no-once-immediate-discard`, `no-watch-alias-old-new`). Named `toRef` /
 `effectScope` imports admit `no-toref-ignored-key` and
@@ -104,6 +109,7 @@ Lifetime ownership (`no-nested-watch-without-cleanup`,
 changing graph v41. Nested-watch and detached-scope facts share the lifetime
 index: discarded inner watches, repeating outer callbacks whose source can
 still change, and detached `effectScope(true)` sites without stop.
+
 
 
 v41 records same-file lost-notification source/view/path facts (`source_views`,

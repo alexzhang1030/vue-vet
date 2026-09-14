@@ -12,26 +12,25 @@
 //! max-index comparisons, watch-option unique-static-key inspections (each
 //! own property, recognized or not), write-owner summary visits, the
 //! fact-collection walk, diagnostic-ordering comparisons, query-time map
-//! lookups, ancestor eligibility walks, and `partition_point` predicate
-//! executions. Shape classification records one query per `classify_maybe`.
-//! Shared object summarization treats computed literal keys as known;
-//! watch options check the
-//! original `ObjectProperty::computed` flag instead. Indexed actual-Proxy
-//! import-source lookups (Vue constructor calls only) increment
-//! `import_source_steps`. Demanded-key contains/hash lookups increment
-//! `key_lookups`; remaining key-string copies increment `key_copies`.
-//! Each examined `AssignmentTarget` in the native-clone poison walk, plus
-//! `for...in` / `for...of` left classification, increments `queries`.
-//! Assignment-form loop heads also increment `writes` once.
-//! Map-op / member-call / root / barrier index sort comparisons,
-//! constructor-entry visits, keyed identity lookups, and mutation visits also
-//! increment those counters. `key_copies` counts remaining cloned constructor-key
-//! or mutation-op vector elements on the per-root replay path (currently none:
-//! replay indexes in place). Per-root Map replay counts constructor
-//! classification once, each mutating operation once, and each read query once.
-//! Cached-result producer/fill/write/repair/demand joins, exclusive-interval
-//! iterator visits, counted `binary_search` comparisons, and counted sort
-//! comparisons also increment `queries`.
+//! lookups, ancestor eligibility walks, computed-identity projection queries,
+//! and `partition_point` predicate executions. Shape classification records
+//! one query per `classify_maybe`. Shared object summarization treats computed
+//! literal keys as known; watch options check the original
+//! `ObjectProperty::computed` flag instead. Indexed actual-Proxy import-source
+//! lookups (Vue constructor calls only) increment `import_source_steps`.
+//! Demanded-key contains/hash lookups increment `key_lookups`; remaining
+//! key-string copies increment `key_copies`. Each examined `AssignmentTarget`
+//! in the native-clone poison walk, plus `for...in` / `for...of` left
+//! classification, increments `queries`. Assignment-form loop heads also
+//! increment `writes` once. Map-op / member-call / root / barrier index sort
+//! comparisons, constructor-entry visits, keyed identity lookups, and mutation
+//! visits also increment those counters. `key_copies` counts remaining cloned
+//! constructor-key or mutation-op vector elements on the per-root replay path
+//! (currently none: replay indexes in place). Per-root Map replay counts
+//! constructor classification once, each mutating operation once, and each
+//! read query once. Cached-result producer/fill/write/repair/demand joins,
+//! exclusive-interval iterator visits, counted `binary_search` comparisons,
+//! and counted sort comparisons also increment `queries`.
 //!
 //! Production `WorkCounter` is zero-sized and does not record. Test builds
 //! keep saturating `Cell` counters so inner-work growth tests stay real.

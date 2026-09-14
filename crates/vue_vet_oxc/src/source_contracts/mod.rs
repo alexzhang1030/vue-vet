@@ -52,8 +52,10 @@
 //! Closed-local customRef track/trigger reachability records executed consumer,
 //! identity setter transfer, and per-handle inactivity queries.
 
+mod atom;
 mod cached;
 mod clone_boundary;
+mod computed_identity;
 mod custom_ref;
 mod custom_ref_proof;
 mod demand;
@@ -104,6 +106,8 @@ pub(in crate::source_contracts) struct Collector<'a> {
   pub(in crate::source_contracts) proxy_proof: HashMap<SymbolId, bool>,
   pub(in crate::source_contracts) facts: SourceContractFacts,
   pub(in crate::source_contracts) factory_summaries: HashMap<u64, custom_ref::FactorySummary>,
+  pub(in crate::source_contracts) computed_calls: Vec<NodeId>,
+  pub(in crate::source_contracts) watch_calls: Vec<NodeId>,
 }
 
 pub fn collect_source_contract_facts(
@@ -171,6 +175,8 @@ fn collect_prepared(
     proxy_proof: HashMap::new(),
     facts: SourceContractFacts::default(),
     factory_summaries: HashMap::new(),
+    computed_calls: Vec::new(),
+    watch_calls: Vec::new(),
   };
   collector.walk();
   collector.finish()
@@ -214,6 +220,7 @@ impl Collector<'_> {
           self.collect_watch(node_id, call, info);
           self.collect_watch_api(call, info);
           self.collect_watch_callback_contracts(call, info);
+          self.watch_calls.push(node_id);
         }
         Some(ContractSink::WatchEffectFamily) => self.collect_watch_api(call, info),
         Some(ContractSink::ToRef) => self.collect_toref(call, info),
@@ -222,6 +229,7 @@ impl Collector<'_> {
           self.collect_custom_ref(node_id, call, info);
           self.collect_custom_ref_lost_notification(node_id, call, info);
         }
+        Some(ContractSink::Computed) => self.computed_calls.push(node_id),
         None => {}
       }
     }
@@ -344,6 +352,22 @@ impl Collector<'_> {
       self.indexes.note_query();
       (left.demand_span.offset, left.producer_span.offset)
         .cmp(&(right.demand_span.offset, right.producer_span.offset))
+    });
+    self.collect_stable_computed_identity();
+    self.facts.stable_computed_identity.sort_by(|left, right| {
+      self.indexes.note_query();
+      (
+        left.computed_span.offset,
+        left.consumer_span.offset,
+        left.replacement_span.offset,
+        left.reason as u8,
+      )
+        .cmp(&(
+          right.computed_span.offset,
+          right.consumer_span.offset,
+          right.replacement_span.offset,
+          right.reason as u8,
+        ))
     });
     (self.facts, self.indexes.stats())
   }

@@ -29,6 +29,7 @@ use oxc_span::{GetSpan, Span};
 use oxc_syntax::reference::ReferenceFlags;
 use vue_vet_core::{ScriptKind, SourceSpan};
 
+use super::atom::{PrimitiveAtom, atom_of_expression};
 use super::proof::{
   ANCESTOR_BUDGET, DemandOrigin, DemandRole, Reach, classify_reach, classify_role,
   is_custom_prototype_key,
@@ -71,6 +72,8 @@ pub(super) struct ValueWrite {
   pub span: Span,
   pub rhs: Span,
   pub literal: WriteLiteral,
+  pub simple_assign: bool,
+  pub fresh_alloc: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -94,6 +97,13 @@ struct DirectMemberWrite<'a> {
   simple: bool,
   fresh: bool,
   span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct MemberInfo {
+  pub object: Span,
+  pub property: String,
+  pub span: Span,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -418,6 +428,8 @@ pub(super) struct Indexes {
   pub capability_uncertain: HashSet<SymbolId>,
   pub stmt_site: HashMap<NodeId, StmtSite>,
   pub events_by_block: HashMap<NodeId, Vec<usize>>,
+  pub control_events_by_block: HashMap<NodeId, Vec<usize>>,
+  pub pause_events_by_block: HashMap<NodeId, Vec<usize>>,
   pub init_span: HashMap<SymbolId, Span>,
   pub value_write_roots: HashSet<SymbolId>,
   pub member_write_roots: HashSet<SymbolId>,
@@ -438,6 +450,9 @@ pub(super) struct Indexes {
   pub custom_ref_value_reads: HashMap<SymbolId, Vec<ValueRead>>,
   root_members: HashMap<SymbolId, Vec<SymbolId>>,
   inactivity_by_handle_block: HashMap<(SymbolId, NodeId), Vec<IdentCall>>,
+  pub atoms: HashMap<u64, PrimitiveAtom>,
+  pub array_elements: HashMap<u64, Vec<Span>>,
+  pub members: HashMap<u64, MemberInfo>,
   mixed_value_owners: HashSet<SymbolId>,
   mixed_member_owners: HashSet<(SymbolId, String)>,
   value_write_owner: HashMap<SymbolId, (Option<NodeId>, NodeId)>,
@@ -532,6 +547,8 @@ impl Indexes {
       capability_uncertain: HashSet::new(),
       stmt_site: HashMap::new(),
       events_by_block: HashMap::new(),
+      control_events_by_block: HashMap::new(),
+      pause_events_by_block: HashMap::new(),
       init_span: HashMap::new(),
       value_write_roots: HashSet::new(),
       member_write_roots: HashSet::new(),
@@ -552,6 +569,9 @@ impl Indexes {
       custom_ref_value_reads: HashMap::new(),
       root_members: HashMap::new(),
       inactivity_by_handle_block: HashMap::new(),
+      atoms: HashMap::new(),
+      array_elements: HashMap::new(),
+      members: HashMap::new(),
       mixed_value_owners: HashSet::new(),
       mixed_member_owners: HashSet::new(),
       value_write_owner: HashMap::new(),
@@ -617,6 +637,12 @@ impl Indexes {
     }
     for stops in indexes.stops_by_region.values_mut() {
       stops.sort_by_key(|stop| stop.offset);
+    }
+    for events in indexes.control_events_by_block.values_mut() {
+      events.sort_unstable();
+    }
+    for events in indexes.pause_events_by_block.values_mut() {
+      events.sort_unstable();
     }
     for writes in indexes.member_writes.values_mut() {
       writes.sort_by_key(|write| write.offset);
@@ -857,6 +883,36 @@ impl Indexes {
       || self.toref_helper_escape.contains(&root)
   }
 
+  pub(super) fn has_pause_between(&self, block: NodeId, start: usize, end: usize) -> bool {
+    let Some(events) = self.pause_events_by_block.get(&block) else {
+      self.work.add_queries(1);
+      return false;
+    };
+    let index = self.work.partition_point(events, |offset| *offset <= start);
+    self.work.add_queries(1);
+    events.get(index).is_some_and(|offset| *offset < end)
+  }
+
+  pub(super) fn next_control_after(&self, block: NodeId, offset: usize) -> usize {
+    let Some(events) = self.control_events_by_block.get(&block) else {
+      self.work.add_queries(1);
+      return usize::MAX;
+    };
+    let index = self.work.partition_point(events, |event| *event <= offset);
+    self.work.add_queries(1);
+    events.get(index).copied().unwrap_or(usize::MAX)
+  }
+
+  pub(super) fn has_control_event_between(&self, block: NodeId, start: usize, end: usize) -> bool {
+    let Some(events) = self.control_events_by_block.get(&block) else {
+      self.work.add_queries(1);
+      return false;
+    };
+    let index = self.work.partition_point(events, |offset| *offset <= start);
+    self.work.add_queries(1);
+    events.get(index).is_some_and(|offset| *offset < end)
+  }
+
   pub(super) fn has_event_between(&self, block: NodeId, start: usize, end: usize) -> bool {
     let Some(events) = self.events_by_block.get(&block) else {
       self.work.add_queries(1);
@@ -865,6 +921,28 @@ impl Indexes {
     let index = self.work.partition_point(events, |offset| *offset <= start);
     self.work.add_queries(1);
     events.get(index).is_some_and(|offset| *offset < end)
+  }
+
+  pub(super) fn first_value_write_after(
+    &self,
+    root: SymbolId,
+    callable: Option<NodeId>,
+    block: NodeId,
+    offset: usize,
+  ) -> Option<ValueWrite> {
+    if self.mixed_value_owners.contains(&root) {
+      self.work.add_queries(1);
+      return None;
+    }
+    let Some(writes) = self.value_writes.get(&root) else {
+      self.work.add_queries(1);
+      return None;
+    };
+    let index = self.work.partition_point(writes, |write| write.offset <= offset);
+    self.work.add_queries(1);
+    let next = writes.get(index).copied()?;
+    (next.simple_assign && next.fresh_alloc && next.callable == callable && next.block == block)
+      .then_some(next)
   }
 
   pub(super) fn last_value_write_before(
@@ -1360,6 +1438,12 @@ impl Indexes {
     }
   }
 
+  pub(super) fn owner_callable_block(&self, node_id: NodeId) -> (Option<NodeId>, Option<NodeId>) {
+    self.work.add_queries(1);
+    let owner = self.owner(node_id);
+    (owner.callable, owner.block)
+  }
+
   pub(super) fn note_node(&self) {
     self.work.add_nodes(1);
   }
@@ -1433,6 +1517,7 @@ impl Indexes {
             member,
           );
           self.record_value_read(semantic, line_index, sfc_source, script_offset, node_id, member);
+          self.index_static_member(semantic, kind, member);
         }
         AstKind::VariableDeclarator(declarator) => {
           if matches!(
@@ -1567,6 +1652,8 @@ impl Indexes {
                   span: update.span,
                   rhs: update.span,
                   literal: WriteLiteral::Other,
+                  simple_assign: false,
+                  fresh_alloc: false,
                 });
               }
             }
@@ -1641,6 +1728,9 @@ impl Indexes {
             call,
           );
           self.record_result_demand(semantic, line_index, sfc_source, script_offset, node_id, call);
+          if callee_is_pause(call) {
+            self.record_pause_event(node_id, line_index, sfc_source, script_offset, call.span);
+          }
         }
         AstKind::NewExpression(expression) => {
           self.record_expr(semantic, kind, &expression.callee);
@@ -1705,7 +1795,7 @@ impl Indexes {
             node_id,
             statement.span,
           );
-          self.record_event(
+          self.record_flow(
             semantic,
             line_index,
             sfc_source,
@@ -1734,7 +1824,7 @@ impl Indexes {
           self.poison_expr(semantic, &spread.argument);
         }
         AstKind::IfStatement(statement) => {
-          self.record_event(
+          self.record_flow(
             semantic,
             line_index,
             sfc_source,
@@ -1745,7 +1835,7 @@ impl Indexes {
           self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
         }
         AstKind::ForStatement(statement) => {
-          self.record_event(
+          self.record_flow(
             semantic,
             line_index,
             sfc_source,
@@ -1756,7 +1846,7 @@ impl Indexes {
           self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
         }
         AstKind::WhileStatement(statement) => {
-          self.record_event(
+          self.record_flow(
             semantic,
             line_index,
             sfc_source,
@@ -1767,7 +1857,7 @@ impl Indexes {
           self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
         }
         AstKind::SwitchStatement(statement) => {
-          self.record_event(
+          self.record_flow(
             semantic,
             line_index,
             sfc_source,
@@ -1778,7 +1868,7 @@ impl Indexes {
           self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
         }
         AstKind::TryStatement(statement) => {
-          self.record_event(
+          self.record_flow(
             semantic,
             line_index,
             sfc_source,
@@ -2023,6 +2113,23 @@ impl Indexes {
     self.member_write_roots.contains(&root)
   }
 
+  fn index_static_member(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    kind: ScriptKind,
+    member: &StaticMemberExpression<'_>,
+  ) {
+    self.record_expr(semantic, kind, &member.object);
+    self.members.insert(
+      span_key(member.span),
+      MemberInfo {
+        object: member.object.get_inner_expression().span(),
+        property: member.property.name.to_string(),
+        span: member.span,
+      },
+    );
+  }
+
   fn record_expr(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
@@ -2033,6 +2140,15 @@ impl Indexes {
     self
       .hints
       .insert(span_key(inner.span()), hint_of(inner, |ident| reference_symbol(semantic, ident)));
+    if let Some(atom) = atom_of_expression(inner, &self.work, super::MAX_DEPTH) {
+      self.atoms.insert(span_key(inner.span()), atom);
+    } else if let Expression::Identifier(identifier) = inner
+      && reference_symbol(semantic, identifier).is_none()
+      && let Some(atom) = PrimitiveAtom::unresolved_global(identifier.name.as_str())
+    {
+      self.work.add_queries(1);
+      self.atoms.insert(span_key(inner.span()), atom);
+    }
     self.hints.insert(
       span_key(expression.span()),
       hint_of(inner, |ident| reference_symbol(semantic, ident)),
@@ -2134,18 +2250,29 @@ impl Indexes {
     let map_entry = array_is_map_entry(semantic, node_id);
     let map_iterable = array_is_map_iterable(semantic, node_id);
     let retain = array_is_controlled_source(semantic, node_id, &self.calls, &self.work);
+    let mut elements = Vec::new();
+    let mut closed = true;
     for (index, element) in array.elements.iter().enumerate() {
-      if let Some(expression) = element.as_expression() {
-        self.record_expr(semantic, kind, expression);
-        if map_entry && index == 0 {
-          continue;
-        }
-        if map_iterable || retain {
-          continue;
-        }
-        self.mark_escape_expr(semantic, expression, true);
-        self.poison_expr(semantic, expression);
+      self.work.add_object_entries(1);
+      let Some(expression) = element.as_expression() else {
+        closed = false;
+        continue;
+      };
+      self.record_expr(semantic, kind, expression);
+      if closed {
+        elements.push(expression.get_inner_expression().span());
       }
+      if map_entry && index == 0 {
+        continue;
+      }
+      if map_iterable || retain {
+        continue;
+      }
+      self.mark_escape_expr(semantic, expression, true);
+      self.poison_expr(semantic, expression);
+    }
+    if closed {
+      self.array_elements.insert(span_key(array.span), elements);
     }
   }
 
@@ -2495,6 +2622,8 @@ impl Indexes {
           span: write.span,
           rhs: write.right.span(),
           literal: write_literal(semantic, write.right),
+          simple_assign: write.simple,
+          fresh_alloc: write.fresh,
         });
       } else {
         self.uncertain.insert(root);
@@ -2744,6 +2873,49 @@ impl Indexes {
     }
     self.member_call_by_span.insert(span_key(call.span), named.clone());
     self.member_calls_by_root.entry(root).or_default().push(named);
+  }
+
+  fn record_flow(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    node_id: NodeId,
+    span: Span,
+  ) {
+    self.record_event(semantic, line_index, sfc_source, script_offset, node_id, span);
+    self.record_control_event(node_id, line_index, sfc_source, script_offset, span);
+  }
+
+  fn record_control_event(
+    &mut self,
+    node_id: NodeId,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    span: Span,
+  ) {
+    let Some(block) = self.owner(node_id).block else {
+      return;
+    };
+    let offset = mapped(line_index, sfc_source, script_offset, span).offset;
+    self.control_events_by_block.entry(block).or_default().push(offset);
+  }
+
+  fn record_pause_event(
+    &mut self,
+    node_id: NodeId,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    span: Span,
+  ) {
+    let Some(block) = self.owner(node_id).block else {
+      return;
+    };
+    let offset = mapped(line_index, sfc_source, script_offset, span).offset;
+    self.pause_events_by_block.entry(block).or_default().push(offset);
   }
 
   fn record_identifier_call(
@@ -3924,6 +4096,13 @@ const TOREF_CAPABILITY_KEY: &str = "__v_isRef";
 /// inner expression after TS and parenthesis wrappers.
 fn callee_span_matches(expression: &Expression<'_>, current_span: Span) -> bool {
   expression.span() == current_span || expression.get_inner_expression().span() == current_span
+}
+
+fn callee_is_pause(call: &CallExpression<'_>) -> bool {
+  matches!(
+    call.callee.get_inner_expression(),
+    Expression::StaticMemberExpression(member) if member.property.name.as_str() == "pause"
+  )
 }
 
 fn is_known_constructor_or_watch(api: Option<&str>) -> bool {

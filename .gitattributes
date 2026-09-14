@@ -18,3 +18,4 @@ fixtures/rules/no-nested-watch-without-cleanup/invalid/wrapped-custom-ref-getter
 fixtures/rules/no-detached-effect-scope-without-stop/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/no-memoize-stale-result-demand/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/no-controlled-computed-stale-result-demand/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/prefer-stable-computed-identity/invalid/crlf.vue -text whitespace=cr-at-eol

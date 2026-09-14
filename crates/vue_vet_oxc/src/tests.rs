@@ -3911,7 +3911,8 @@ fn source_contracts_sink_inventory_is_the_eligibility_table() {
   assert_eq!(contract_sink("toRef"), Some(ContractSink::ToRef));
   assert_eq!(contract_sink("effectScope"), Some(ContractSink::EffectScope));
   assert_eq!(contract_sink("customRef"), Some(ContractSink::CustomRef));
-  for api in ["ref", "computed", "shallowRef", "toRaw"] {
+  assert_eq!(contract_sink("computed"), Some(ContractSink::Computed));
+  for api in ["ref", "shallowRef", "toRaw"] {
     assert_eq!(contract_sink(api), None, "{api} must not gate collection");
   }
 }
@@ -4013,7 +4014,7 @@ fn source_contracts_bypass_without_fact_producing_sinks() {
   assert_bypass("", ScriptKind::Setup);
   assert_bypass("const n = 1;", ScriptKind::Script);
   assert_bypass(
-    "import { ref, computed } from 'vue'; const n = ref(0); const d = computed(() => n.value);",
+    "import { ref, toRaw } from 'vue'; const n = ref(0); const d = toRaw(n);",
     ScriptKind::Setup,
   );
   assert_bypass(
@@ -6450,7 +6451,7 @@ fn effect_import_width_source(width: usize) -> String {
   const NAMES: [&str; 8] = [
     "watchEffect",
     "ref",
-    "computed",
+    "effect",
     "shallowRef",
     "watchPostEffect",
     "defineProps",
@@ -8811,5 +8812,263 @@ fn watch_cleanup_current_source_review_shapes_scale() {
       total80 <= total20.saturating_mul(6),
       "{label} 80/20 must stay <= 6: 20={total20} 80={total80}"
     );
+  }
+}
+
+#[test]
+fn source_contracts_computed_only_imports_match_forced_full() {
+  let source = "import { computed, ref } from 'vue';\
+     const items = ref([1, 2]);\
+     const doubled = computed(() => items.value.map((n: number) => n * 2));\
+     const first = computed(() => doubled.value[0]);\
+     void first.value;\
+     items.value = [1, 2];\
+     void first.value;";
+  let facts = assert_gated_matches_forced(source, ScriptKind::Setup);
+  assert_eq!(
+    facts.stable_computed_identity.len(),
+    1,
+    "computed-only imports must still collect identity facts: {facts:?}"
+  );
+}
+
+#[test]
+fn source_contracts_stable_computed_identity_positive_and_controls() {
+  let positive = assert_gated_matches_forced(
+    "import { computed, ref, watch } from 'vue';\
+     const items = ref([1, 2]);\
+     const doubled = computed(() => items.value.map((n: number) => n * 2));\
+     watch(doubled, (value) => { void value; });\
+     items.value = [1, 2];",
+    ScriptKind::Setup,
+  );
+  assert_eq!(positive.stable_computed_identity.len(), 1, "{positive:?}");
+
+  let previous = assert_gated_matches_forced(
+    "import { computed, ref, watch } from 'vue';\
+     const items = ref([1, 2]);\
+     const doubled = computed((previous: number[] | undefined) => {\
+       const next = items.value.map((n: number) => n * 2);\
+       if (previous) return previous;\
+       return next;\
+     });\
+     watch(doubled, (value) => { void value; });\
+     items.value = [1, 2];",
+    ScriptKind::Setup,
+  );
+  assert!(previous.stable_computed_identity.is_empty(), "{previous:?}");
+
+  let primitive = assert_gated_matches_forced(
+    "import { computed, ref, watch } from 'vue';\
+     const count = ref(2);\
+     const doubled = computed(() => count.value * 2);\
+     watch(doubled, (value) => { void value; });\
+     count.value = 2;",
+    ScriptKind::Setup,
+  );
+  assert!(primitive.stable_computed_identity.is_empty(), "{primitive:?}");
+
+  let changed = assert_gated_matches_forced(
+    "import { computed, ref, watch } from 'vue';\
+     const items = ref([1, 2]);\
+     const doubled = computed(() => items.value.map((n: number) => n * 2));\
+     watch(doubled, (value) => { void value; });\
+     items.value = [1, 3];",
+    ScriptKind::Setup,
+  );
+  assert!(changed.stable_computed_identity.is_empty(), "{changed:?}");
+
+  let lazy = assert_gated_matches_forced(
+    "import { computed, ref } from 'vue';\
+     const items = ref([1, 2]);\
+     const doubled = computed(() => items.value.map((n: number) => n * 2));\
+     const first = computed(() => doubled.value[0]);\
+     void first.value;\
+     items.value = [1, 2];",
+    ScriptKind::Setup,
+  );
+  assert!(lazy.stable_computed_identity.is_empty(), "lazy child without later demand: {lazy:?}");
+
+  let queued = assert_gated_matches_forced(
+    "import { computed, ref, watch } from 'vue';\
+     const items = ref([1, 2]);\
+     const doubled = computed(() => items.value.map((n: number) => n * 2));\
+     const stop = watch(doubled, (value) => { void value; }, { flush: 'pre' });\
+     items.value = [1, 2];\
+     stop();",
+    ScriptKind::Setup,
+  );
+  assert!(
+    queued.stable_computed_identity.is_empty(),
+    "queued pre watch stopped after replace: {queued:?}"
+  );
+
+  let shadowed = assert_gated_matches_forced(
+    "import { computed, ref, watch } from 'vue';\
+     function run(undefined: number) {\
+       const items = ref([undefined]);\
+       const copy = computed(() => items.value.map((n: number) => n));\
+       watch(copy, (value) => { void value; }, { flush: 'sync' });\
+       items.value = [void 0];\
+     }\
+     run(1);",
+    ScriptKind::Setup,
+  );
+  assert!(shadowed.stable_computed_identity.is_empty(), "shadowed undefined: {shadowed:?}");
+
+  let strings = assert_gated_matches_forced(
+    "import { computed, ref, watch } from 'vue';\
+     const items = ref(['a']);\
+     const selected = computed(() => items.value.filter((n: string) => n < 'm'));\
+     watch(selected, (value) => { void value; }, { flush: 'sync' });\
+     items.value = ['b'];",
+    ScriptKind::Setup,
+  );
+  assert!(strings.stable_computed_identity.is_empty(), "string relational filter: {strings:?}");
+
+  let prior = assert_gated_matches_forced(
+    "import { computed, ref, watch } from 'vue';\
+     const items = ref([1]);\
+     items.value = [2];\
+     const doubled = computed(() => items.value.map((n: number) => n * 2));\
+     void doubled.value;\
+     watch(doubled, (value) => { void value; }, { flush: 'sync' });\
+     items.value = [1];",
+    ScriptKind::Setup,
+  );
+  assert!(prior.stable_computed_identity.is_empty(), "prior replacement baseline: {prior:?}");
+}
+
+#[test]
+#[expect(clippy::panic, reason = "independent computed fixture construction must fail the test")]
+fn source_contracts_many_independent_computeds_stay_linear() {
+  let mut previous: Option<(u64, u64)> = None;
+  for size in [40_u64, 80, 160] {
+    let mut source = String::from("import { computed, ref, watch } from 'vue';");
+    for index in 0..size {
+      write!(
+        source,
+        "const items{index} = ref([1, 2]);\
+         const doubled{index} = computed(() => items{index}.value.map((n: number) => n * 2));\
+         watch(doubled{index}, (value) => {{ void value; }});\
+         items{index}.value = [1, 2];"
+      )
+      .unwrap_or_else(|error| panic!("independent computed fixture write: {error}"));
+    }
+    let (contracts, work) = contract_stats(&source);
+    assert_eq!(
+      contracts.stable_computed_identity.len(),
+      usize::try_from(size).unwrap_or(usize::MAX),
+      "size {size}"
+    );
+    if let Some((prev_size, prev_work)) = previous {
+      assert_eq!(size, prev_size * 2, "fixture sizes must double");
+      assert!(
+        work.saturating_mul(10) < prev_work.saturating_mul(30),
+        "independent computed work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
+      );
+    }
+    previous = Some((size, work));
+  }
+}
+
+#[test]
+#[expect(clippy::panic, reason = "shared-source computed fixture construction must fail the test")]
+fn source_contracts_shared_source_many_consumers_and_wide_projections_stay_linear() {
+  let mut previous: Option<(u64, u64)> = None;
+  for size in [20_u64, 40, 80] {
+    let mut source = String::from(
+      "import { computed, ref, watch } from 'vue'; const items = ref([1, 2, 3, 4, 5, 6, 7, 8]);",
+    );
+    for index in 0..size {
+      write!(
+        source,
+        "const doubled{index} = computed(() => items.value.map((n: number) => n * 2).filter((n: number) => n > 0).slice(0, 8).concat([9]));\
+         watch(doubled{index}, (value) => {{ void value; }});"
+      )
+      .unwrap_or_else(|error| panic!("shared-source computed fixture write: {error}"));
+    }
+    source.push_str("items.value = [1, 2, 3, 4, 5, 6, 7, 8];");
+    let (contracts, work) = contract_stats(&source);
+    assert_eq!(
+      contracts.stable_computed_identity.len(),
+      usize::try_from(size).unwrap_or(usize::MAX),
+      "size {size} facts {contracts:?}"
+    );
+    if let Some((prev_size, prev_work)) = previous {
+      assert_eq!(size, prev_size * 2, "fixture sizes must double");
+      assert!(
+        work.saturating_mul(10) < prev_work.saturating_mul(30),
+        "shared-source work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
+      );
+    }
+    previous = Some((size, work));
+  }
+}
+
+#[test]
+fn source_contracts_projection_width_grows_inner_work() {
+  let mut previous: Option<(usize, u64)> = None;
+  for width in [8_usize, 16, 32] {
+    let mut values = Vec::with_capacity(width);
+    for index in 0..width {
+      values.push(index.to_string());
+    }
+    let literal = values.join(", ");
+    let source = format!(
+      "import {{ computed, ref, watch }} from 'vue';\
+       const items = ref([{literal}]);\
+       const doubled = computed(() => items.value.map((n: number) => n * 2));\
+       watch(doubled, (value) => {{ void value; }}, {{ flush: 'sync' }});\
+       items.value = [{literal}];"
+    );
+    let (contracts, work) = contract_stats(&source);
+    assert_eq!(contracts.stable_computed_identity.len(), 1, "width {width} {contracts:?}");
+    if let Some((prev_width, prev_work)) = previous {
+      assert_eq!(width, prev_width * 2, "widths must double");
+      assert!(
+        work > prev_work,
+        "projection width work must grow: {prev_work} -> {work} on {prev_width}->{width}"
+      );
+    }
+    previous = Some((width, work));
+  }
+}
+
+#[test]
+#[expect(clippy::panic, reason = "joint-shape fixture construction must fail the test")]
+fn source_contracts_joint_producer_consumer_source_shapes_stay_linear() {
+  let mut previous: Option<(u64, u64)> = None;
+  for size in [4_u64, 8, 16] {
+    let mut source =
+      String::from("import { computed, ref, watch } from 'vue'; const shared = ref([1, 2]);");
+    for index in 0..size {
+      write!(
+        source,
+        "const items{index} = ref([1, 2]);\
+         const doubled{index} = computed(() => items{index}.value.map((n: number) => n * 2));\
+         const shared{index} = computed(() => shared.value.map((n: number) => n * 2));\
+         watch(doubled{index}, (value) => {{ void value; }}, {{ flush: 'sync' }});\
+         watch(shared{index}, (value) => {{ void value; }}, {{ flush: 'sync' }});\
+         items{index}.value = [1, 2];"
+      )
+      .unwrap_or_else(|error| panic!("joint shape write: {error}"));
+    }
+    source.push_str("shared.value = [1, 2];");
+    let (contracts, work) = contract_stats(&source);
+    let expected = usize::try_from(size.saturating_mul(2)).unwrap_or(usize::MAX);
+    assert_eq!(
+      contracts.stable_computed_identity.len(),
+      expected,
+      "size {size} facts {contracts:?}"
+    );
+    if let Some((prev_size, prev_work)) = previous {
+      assert_eq!(size, prev_size * 2, "fixture sizes must double");
+      assert!(
+        work.saturating_mul(10) < prev_work.saturating_mul(30),
+        "joint shape work grew from {prev_work} to {work} on {prev_size}->{size}"
+      );
+    }
+    previous = Some((size, work));
   }
 }

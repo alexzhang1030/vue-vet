@@ -79,6 +79,10 @@ oracle-custom-ref-notification:
 oracle-cached-result:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node cached-result-contracts.mjs
 
+# Vue 3.5.40 stable computed-identity premises (issue #224).
+oracle-computed-identity:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node computed-identity.mjs
+
 # Run all non-mutating Rust linters.
 lint-rust: fmt-check check clippy
 

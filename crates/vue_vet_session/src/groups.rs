@@ -16,6 +16,7 @@ use crate::registry::{composed_rule_metadata, known_rule_ids};
 pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/correctness/no-mutating-props", RuleGroupId::SourceContracts),
   ("vue-vet/practice/prefer-keyed-map-dependency", RuleGroupId::Derivation),
+  ("vue-vet/practice/prefer-stable-computed-identity", RuleGroupId::Derivation),
   ("vue-vet/project/unresolved-import", RuleGroupId::Project),
   ("vue-vet/project/unused-component", RuleGroupId::Project),
   ("vue-vet/reactivity/no-after-await-dependency-in-computed", RuleGroupId::Tracking),
@@ -242,11 +243,15 @@ mod tests {
       "vue-vet/reactivity/no-watch-cleanup-current-source",
     ];
     let inventory = rule_inventory(&[]);
-    assert_eq!(inventory.counts.total, 132, "composed CLI inventory count");
+    assert_eq!(inventory.counts.total, 133, "composed CLI inventory count");
+    assert_eq!(
+      group_of("vue-vet/practice/prefer-stable-computed-identity"),
+      Some(RuleGroupId::Derivation)
+    );
     let source = rule_inventory(&[RuleGroupId::SourceContracts]);
     assert_eq!(source.counts.total, 36, "source-contracts group count");
     let derivation = rule_inventory(&[RuleGroupId::Derivation]);
-    assert_eq!(derivation.counts.total, 8, "derivation group count");
+    assert_eq!(derivation.counts.total, 9, "derivation group count");
     for id in [
       "vue-vet/reactivity/no-controlled-computed-stale-result-demand",
       "vue-vet/reactivity/no-custom-ref-lost-notification",

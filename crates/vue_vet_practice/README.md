@@ -14,7 +14,7 @@ practice rule IDs remain toggleable under `[rules]` when the channel is on.
 ## Status
 
 Workspace-internal (`publish = false`). Registered beside builtins by
-`vue_vet_session`. Current pack: **13** rules (asserted in-crate).
+`vue_vet_session`. Current pack: **14** rules (asserted in-crate).
 
 ## Public API
 
@@ -36,6 +36,8 @@ Workspace-internal (`publish = false`). Registered beside builtins by
 | Id segment | Notes |
 | --- | --- |
 | `prefer-define-model` | `defineProps` + `defineEmits` → `defineModel` (Vue ≥ 3.4) |
+| `prefer-keyed-map-dependency` | Keyed reactive-Map `forEach`→`get` (derivation / practice) |
+| `prefer-stable-computed-identity` | Fresh primitive projections that churn identity (Vue ≥ 3.4 previous-value reuse) |
 | `prefer-to-value` | Prefer `toValue` over manual unref patterns |
 | `prefer-use-slots-attrs` | Prefer `useSlots` / `useAttrs` |
 | `prefer-use-template-ref` | Historical id under `vue-vet/reactivity/…` for config stability |

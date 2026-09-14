@@ -44,8 +44,8 @@ fn list_rules_is_sorted_unique_and_includes_project_ids() {
   );
   assert_eq!(
     parsed.pointer("/counts/total").and_then(Value::as_u64),
-    Some(132),
-    "composed CLI inventory must be 132 after cached-result demand, lifetime ownership, customRef notification, cleanup-identity, collection-lookup, extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
+    Some(133),
+    "composed CLI inventory must be 133 after stable-computed-identity practice, cached-result demand, lifetime ownership, customRef notification, cleanup-identity, collection-lookup, extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
   );
 }
 
@@ -740,6 +740,116 @@ watchEffect(() => {
   assert!(explained.status.success(), "{stdout}");
   let parsed: Value = serde_json::from_str(&stdout).unwrap_or_else(|_| panic!("{stdout}"));
   assert!(parsed.get("tracking").is_some(), "finding explain must retain tracking: {stdout}");
+}
+
+#[test]
+fn list_rules_derivation_includes_stable_computed_identity() {
+  const ID: &str = "vue-vet/practice/prefer-stable-computed-identity";
+  let derivation = run(&["--list-rules", "--format", "json", "--group", "derivation"]);
+  let tracking = run(&["--list-rules", "--format", "json", "--group", "tracking"]);
+  let source = run(&["--list-rules", "--format", "json", "--group", "source-contracts"]);
+  let lifetime = run(&["--list-rules", "--format", "json", "--group", "lifetime"]);
+  assert!(derivation.status.success(), "{}", String::from_utf8_lossy(&derivation.stderr));
+  let derivation_json: Value = serde_json::from_slice(&derivation.stdout).expect("derivation json");
+  let tracking_json: Value = serde_json::from_slice(&tracking.stdout).expect("tracking json");
+  let source_json: Value = serde_json::from_slice(&source.stdout).expect("source json");
+  let lifetime_json: Value = serde_json::from_slice(&lifetime.stdout).expect("lifetime json");
+  let ids = |report: &Value| -> Vec<String> {
+    report
+      .get("rules")
+      .and_then(Value::as_array)
+      .map(|rules| {
+        rules
+          .iter()
+          .filter_map(|row| row.get("id").and_then(Value::as_str).map(str::to_owned))
+          .collect()
+      })
+      .unwrap_or_default()
+  };
+  let derivation_ids = ids(&derivation_json);
+  let tracking_ids = ids(&tracking_json);
+  let source_ids = ids(&source_json);
+  let lifetime_ids = ids(&lifetime_json);
+  assert!(derivation_ids.iter().any(|id| id == ID), "{derivation_ids:?}");
+  assert!(tracking_ids.iter().all(|id| id != ID), "{tracking_ids:?}");
+  assert!(source_ids.iter().all(|id| id != ID), "{source_ids:?}");
+  assert!(lifetime_ids.iter().all(|id| id != ID), "{lifetime_ids:?}");
+  for id in [
+    "vue-vet/reactivity/no-late-scope-dispose",
+    "vue-vet/reactivity/no-late-watcher-cleanup",
+    "vue-vet/reactivity/no-orphaned-scope-watcher",
+    "vue-vet/reactivity/no-returned-watcher-cleanup",
+  ] {
+    assert!(
+      lifetime_ids.iter().any(|existing| existing == id),
+      "lifetime missing {id}: {lifetime_ids:?}"
+    );
+  }
+}
+
+#[test]
+fn stable_computed_identity_is_off_score_and_default_exit() {
+  const ID: &str = "vue-vet/practice/prefer-stable-computed-identity";
+  let source =
+    include_str!("../../../../fixtures/rules/prefer-stable-computed-identity/invalid/map.vue");
+  let unset = TempProject::new("stable-computed-unset", source);
+  let unset_root = unset.root().to_string_lossy();
+  let unset_scan = parse_scan(&run(&[unset_root.as_ref(), "--format", "json", "--no-cache"]));
+  assert!(
+    diagnostic_ids(&unset_scan).iter().all(|id| id != ID),
+    "unset Vue version must stay quiet: {:?}",
+    diagnostic_ids(&unset_scan)
+  );
+
+  let project = TempProject::new("stable-computed-score", source);
+  project.write_source("package.json", r#"{"dependencies":{"vue":"3.5.40"}}"#);
+  let root = project.root().to_string_lossy();
+  let cache = project.root().join("cache");
+  let cache_dir = cache.to_string_lossy();
+  let output = run(&[
+    root.as_ref(),
+    "--format",
+    "json",
+    "--cache-dir",
+    cache_dir.as_ref(),
+    "--cache-stats",
+    "--group",
+    "derivation",
+  ]);
+  assert!(
+    output.status.success(),
+    "practice findings must keep default exit 0: {}",
+    String::from_utf8_lossy(&output.stderr)
+  );
+  let parsed = parse_scan(&output);
+  assert!(
+    diagnostic_ids(&parsed).iter().any(|id| id == ID),
+    "Vue 3.5 map fixture must report: {:?}",
+    diagnostic_ids(&parsed)
+  );
+  assert_eq!(parsed.pointer("/summary/score").and_then(Value::as_u64), Some(100));
+  assert!(String::from_utf8_lossy(&output.stderr).contains("cache: miss"));
+
+  let warm = run(&[
+    root.as_ref(),
+    "--format",
+    "json",
+    "--cache-dir",
+    cache_dir.as_ref(),
+    "--cache-stats",
+    "--group",
+    "derivation",
+  ]);
+  assert_eq!(warm.stdout, output.stdout, "warm cache must match cold diagnostics");
+  assert!(String::from_utf8_lossy(&warm.stderr).contains("cache: hit"));
+
+  let tracking =
+    parse_scan(&run(&[root.as_ref(), "--format", "json", "--no-cache", "--group", "tracking"]));
+  assert!(
+    diagnostic_ids(&tracking).iter().all(|id| id != ID),
+    "tracking group must suppress the practice id: {:?}",
+    diagnostic_ids(&tracking)
+  );
 }
 
 fn parse_scan(output: &std::process::Output) -> Value {

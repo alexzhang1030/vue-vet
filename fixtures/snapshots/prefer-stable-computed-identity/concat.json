@@ -1,0 +1,25 @@
+[
+  {
+    "rule_id": "vue-vet/practice/prefer-stable-computed-identity",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/practice/prefer-stable-computed-identity",
+    "message": "This computed returns a new object with the same primitive contents when its source is replaced, so a downstream identity consumer repeats work",
+    "help": "Equal-content replacement at 9:15 still allocates a new result; the consumer at 6:7 reruns on the new identity. Vue 3.4+ `computed` getters receive the previous value — finish every reactive read, then reuse that identity when Object.is-equal primitive contents match. Keep a fresh identity when the consumer needs every allocation.",
+    "file": "fixtures/rules/prefer-stable-computed-identity/invalid/concat.vue",
+    "span": {
+      "offset": 110,
+      "length": 39,
+      "line": 5,
+      "column": 16
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "vue",
+      "export": "computed",
+      "docs_url": "https://vuejs.org/api/reactivity-core.html#computed",
+      "import_example": "computed((previous) => { const next = /* projection */; return same(previous, next) ? previous : next })"
+    }
+  }
+]

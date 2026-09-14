@@ -103,6 +103,8 @@ jobs:
         run: just oracle-custom-ref-notification
       - name: Cached-result demand VueUse premises
         run: just oracle-cached-result
+      - name: Stable computed-identity Vue 3.5.40 premises
+        run: just oracle-computed-identity
 
   vapor-migration-research:
     name: Vapor migration research

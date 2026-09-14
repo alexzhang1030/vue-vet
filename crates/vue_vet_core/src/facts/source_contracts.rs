@@ -53,6 +53,8 @@ pub struct SourceContractFacts {
   pub memoize_stale_result_demand: Vec<CachedResultDemandFact>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub controlled_computed_stale_result_demand: Vec<CachedResultDemandFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub stable_computed_identity: Vec<StableComputedIdentityFact>,
 }
 
 impl SourceContractFacts {
@@ -78,6 +80,7 @@ impl SourceContractFacts {
       && self.custom_ref_lost_notification.is_empty()
       && self.memoize_stale_result_demand.is_empty()
       && self.controlled_computed_stale_result_demand.is_empty()
+      && self.stable_computed_identity.is_empty()
   }
 }
 
@@ -166,6 +169,7 @@ pub enum WatchCallbackContractReason {
   OnceImmediateUndefinedGuard,
   ReactiveRootIdentityGuard,
 }
+
 /// Demanded `customRef` factory capability.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -298,4 +302,22 @@ pub struct CachedResultDemandFact {
   pub current_kind: PrimitiveValueKind,
   pub member: String,
   pub api: String,
+}
+
+/// Proven computed identity churn with an established identity consumer.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StableComputedIdentityFact {
+  pub computed_span: SourceSpan,
+  pub source_span: SourceSpan,
+  pub replacement_span: SourceSpan,
+  pub consumer_span: SourceSpan,
+  pub reason: StableComputedIdentityReason,
+}
+
+/// Why a computed result is a measured identity-stability opportunity.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[repr(u8)]
+#[serde(rename_all = "kebab-case")]
+pub enum StableComputedIdentityReason {
+  FreshPrimitiveProjection,
 }

@@ -129,7 +129,9 @@ pub(super) enum ShapeHint {
 /// every resolved reference is a proven call with fewer than two arguments and
 /// no spread. Ordinary sinks and namespace imports keep full indexing.
 /// `toRef`, `effectScope`, and `customRef` are additional sinks so a named
-/// import of any still admits collection.
+/// import of any still admits collection. `computed` admits computed-only
+/// imports so identity facts keep forced-full parity without a second
+/// Vue-import pass.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum CollectionCtor {
   Map,
@@ -173,6 +175,7 @@ pub enum ContractSink {
   ToRef,
   EffectScope,
   CustomRef,
+  Computed,
 }
 
 impl ContractSink {
@@ -231,6 +234,7 @@ pub fn contract_sink(api: &str) -> Option<ContractSink> {
     "toRef" => Some(ContractSink::ToRef),
     "effectScope" => Some(ContractSink::EffectScope),
     "customRef" => Some(ContractSink::CustomRef),
+    "computed" => Some(ContractSink::Computed),
     _ => None,
   }
 }
