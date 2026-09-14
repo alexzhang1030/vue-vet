@@ -61,6 +61,10 @@ oracle-watch-api:
 oracle-watch-callback-contracts:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node watch-callback-contracts.mjs
 
+# Vue 3.5.40 / VueUse 13.9.0 derivation-practice premises (one-way syncRef, conditional sources).
+oracle-derivation-practice:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node derivation-practice.mjs
+
 # Vue 3.5.40 lost-notification premises (shallow nested + toRaw) and safe controls.
 oracle-lost-notification:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node lost-notification-runs.mjs

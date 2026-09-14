@@ -59,6 +59,8 @@ mod computed_identity;
 mod custom_ref;
 mod custom_ref_proof;
 mod demand;
+mod derivation_practice;
+
 mod index;
 mod map_lookup;
 mod normalization;
@@ -83,6 +85,7 @@ use vue_vet_core::{
 
 use crate::facts::source_span;
 
+use derivation_practice::{ProducerDemand, SinkOwnership};
 use index::{CallInfo, Indexes, ObjectProp};
 use shape::{
   CollectionCtor, CollectionKind, Shape, ShapeHint, classify_vue_result, collect_vue_imports,
@@ -104,6 +107,8 @@ pub(in crate::source_contracts) struct Collector<'a> {
   pub(in crate::source_contracts) shape_cache: HashMap<SymbolId, Shape>,
   pub(in crate::source_contracts) property_shape: HashMap<(SymbolId, String), Shape>,
   pub(in crate::source_contracts) proxy_proof: HashMap<SymbolId, bool>,
+  pub(in crate::source_contracts) producer_demand: HashMap<SymbolId, ProducerDemand>,
+  pub(in crate::source_contracts) sink_use: HashMap<SymbolId, SinkOwnership>,
   pub(in crate::source_contracts) facts: SourceContractFacts,
   pub(in crate::source_contracts) factory_summaries: HashMap<u64, custom_ref::FactorySummary>,
   pub(in crate::source_contracts) computed_calls: Vec<NodeId>,
@@ -173,6 +178,9 @@ fn collect_prepared(
     shape_cache: HashMap::new(),
     property_shape: HashMap::new(),
     proxy_proof: HashMap::new(),
+    producer_demand: HashMap::new(),
+    sink_use: HashMap::new(),
+
     facts: SourceContractFacts::default(),
     factory_summaries: HashMap::new(),
     computed_calls: Vec::new(),
@@ -221,6 +229,7 @@ impl Collector<'_> {
           self.collect_watch_api(call, info);
           self.collect_watch_callback_contracts(call, info);
           self.watch_calls.push(node_id);
+          self.collect_conditional_watch_source(node_id, call, info);
         }
         Some(ContractSink::WatchEffectFamily) => self.collect_watch_api(call, info),
         Some(ContractSink::ToRef) => self.collect_toref(call, info),
@@ -230,6 +239,8 @@ impl Collector<'_> {
           self.collect_custom_ref_lost_notification(node_id, call, info);
         }
         Some(ContractSink::Computed) => self.computed_calls.push(node_id),
+        Some(ContractSink::SyncRef) => self.collect_sync_ref_one_way(node_id, call, info),
+
         None => {}
       }
     }
@@ -367,6 +378,36 @@ impl Collector<'_> {
           right.consumer_span.offset,
           right.replacement_span.offset,
           right.reason as u8,
+        ))
+    });
+    self.facts.derivation_practice.sync_ref_one_way.sort_by(|left, right| {
+      self.indexes.note_query();
+      (
+        left.call_span.offset,
+        left.source_span.offset,
+        left.sink_span.offset,
+        left.demand_span.offset,
+      )
+        .cmp(&(
+          right.call_span.offset,
+          right.source_span.offset,
+          right.sink_span.offset,
+          right.demand_span.offset,
+        ))
+    });
+    self.facts.derivation_practice.conditional_watch_source.sort_by(|left, right| {
+      self.indexes.note_query();
+      (
+        left.source_array_span.offset,
+        left.guard_span.offset,
+        left.producer_span.offset,
+        left.idle_write_span.offset,
+      )
+        .cmp(&(
+          right.source_array_span.offset,
+          right.guard_span.offset,
+          right.producer_span.offset,
+          right.idle_write_span.offset,
         ))
     });
     (self.facts, self.indexes.stats())

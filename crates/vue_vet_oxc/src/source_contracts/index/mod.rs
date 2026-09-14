@@ -35,10 +35,10 @@ use super::proof::{
   is_custom_prototype_key,
 };
 use super::shape::{
-  CollectionCtor, ShapeHint, VueImport, VueUseImport, hint_of, intern_extractable_method,
-  intern_native_ctor, is_actual_proxy_runtime_source, is_fresh_allocation,
-  is_known_receiver_method, is_proxy_allocating_api, resolve_vue_api, resolve_vueuse_api, span_key,
-  unresolved_collection_kind,
+  CollectionCtor, PrimitiveAtom as ShapePrimitiveAtom, ShapeHint, VueImport, VueUseImport, hint_of,
+  intern_extractable_method, intern_native_ctor, is_actual_proxy_runtime_source,
+  is_fresh_allocation, is_known_receiver_method, is_proxy_allocating_api, primitive_atom,
+  resolve_vue_api, resolve_vueuse_api, span_key, unresolved_collection_kind,
 };
 use super::stats::WorkCounter;
 use crate::facts::source_span;
@@ -74,6 +74,7 @@ pub(super) struct ValueWrite {
   pub literal: WriteLiteral,
   pub simple_assign: bool,
   pub fresh_alloc: bool,
+  pub node_id: NodeId,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -97,6 +98,7 @@ struct DirectMemberWrite<'a> {
   simple: bool,
   fresh: bool,
   span: Span,
+  node_id: NodeId,
 }
 
 #[derive(Clone, Debug)]
@@ -166,6 +168,10 @@ pub(super) struct NewInfo {
   pub first_arg: Option<Span>,
   #[expect(dead_code, reason = "constructor arity is recorded with key extraction")]
   pub has_spread: bool,
+  #[expect(dead_code, reason = "constructor arity is recorded with key extraction")]
+  pub second_arg: Option<Span>,
+  #[expect(dead_code, reason = "constructor arity is recorded with key extraction")]
+  pub arg_count: u8,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -378,7 +384,6 @@ pub(super) struct ValueRead {
   pub offset: usize,
   pub span: Span,
   pub callable: Option<NodeId>,
-  #[expect(dead_code, reason = "block is stored for same-block consumer proof")]
   pub block: NodeId,
 }
 
@@ -390,6 +395,7 @@ pub(super) struct Indexes {
   pub vue_imports: HashMap<SymbolId, VueImport>,
   pub vueuse_imports: HashMap<SymbolId, VueUseImport>,
   pub alias_root: HashMap<SymbolId, SymbolId>,
+  pub aliases_of: HashMap<SymbolId, Vec<SymbolId>>,
   pub escaped: HashSet<SymbolId>,
   pub uncertain: HashSet<SymbolId>,
   pub reassigned: HashSet<SymbolId>,
@@ -403,6 +409,7 @@ pub(super) struct Indexes {
   pub toref_helper_escape: HashSet<SymbolId>,
   pub value_writes: HashMap<SymbolId, Vec<ValueWrite>>,
   pub value_reads: HashMap<SymbolId, Vec<MemberUse>>,
+  pub derivation_value_reads: HashMap<SymbolId, Vec<ValueRead>>,
   pub member_reads_by_root: HashMap<SymbolId, Vec<NamedUse>>,
   pub chained_value_by_root: HashMap<SymbolId, Vec<NamedUse>>,
   pub member_calls_by_root: HashMap<SymbolId, Vec<NamedUse>>,
@@ -410,10 +417,13 @@ pub(super) struct Indexes {
   pub result_demands: HashMap<SymbolId, Vec<ResultDemand>>,
   pub value_demands: HashMap<SymbolId, Vec<ValueDemand>>,
   pub destructure_by_object: HashMap<SymbolId, Vec<(SymbolId, String)>>,
+
   pub member_writes: HashMap<(SymbolId, String), Vec<MemberWrite>>,
   pub capability_touch: HashSet<SymbolId>,
   pub closed_key_unknown: HashSet<SymbolId>,
   pub hints: HashMap<u64, ShapeHint>,
+  pub primitives: HashMap<u64, ShapePrimitiveAtom>,
+  pub callables: HashMap<u64, NodeId>,
   pub calls: HashMap<u64, CallInfo>,
   pub objects: HashMap<u64, Vec<ObjectEntry>>,
   pub object_props: HashMap<u64, HashMap<String, ObjectProp>>,
@@ -511,6 +521,7 @@ impl Indexes {
       vue_imports,
       vueuse_imports,
       alias_root: HashMap::new(),
+      aliases_of: HashMap::new(),
       escaped: HashSet::new(),
       uncertain: HashSet::new(),
       reassigned: HashSet::new(),
@@ -524,6 +535,7 @@ impl Indexes {
       toref_helper_escape: HashSet::new(),
       value_writes: HashMap::new(),
       value_reads: HashMap::new(),
+      derivation_value_reads: HashMap::new(),
       member_reads_by_root: HashMap::new(),
       chained_value_by_root: HashMap::new(),
       member_calls_by_root: HashMap::new(),
@@ -531,10 +543,13 @@ impl Indexes {
       result_demands: HashMap::new(),
       value_demands: HashMap::new(),
       destructure_by_object: HashMap::new(),
+
       member_writes: HashMap::new(),
       capability_touch: HashSet::new(),
       closed_key_unknown: HashSet::new(),
       hints: HashMap::new(),
+      primitives: HashMap::new(),
+      callables: HashMap::new(),
       calls: HashMap::new(),
       objects: HashMap::new(),
       object_props: HashMap::new(),
@@ -618,6 +633,8 @@ impl Indexes {
     indexes.finish_aliases_and_roles(semantic);
     indexes.remap_symbol_maps();
     indexes.summarize_root_members();
+    indexes.build_alias_members();
+
     indexes.summarize_writes();
     indexes.precompute_closed_objects();
     indexes.summarize_closed_keys();
@@ -653,6 +670,14 @@ impl Indexes {
     for uses in indexes.value_reads.values_mut() {
       uses.sort_by_key(|use_site| use_site.offset);
     }
+    let mut derivation_reads = std::mem::take(&mut indexes.derivation_value_reads);
+    for bucket in derivation_reads.values_mut() {
+      bucket.sort_by(|left, right| {
+        indexes.work.add_queries(1);
+        left.offset.cmp(&right.offset)
+      });
+    }
+    indexes.derivation_value_reads = derivation_reads;
     for uses in indexes.member_reads_by_root.values_mut() {
       uses.sort_by_key(|use_site| use_site.site.offset);
     }
@@ -690,6 +715,7 @@ impl Indexes {
     }
     indexes.finish_pending_map_key_args(semantic);
     indexes.finish_map_indexes();
+
     indexes
   }
 
@@ -867,6 +893,11 @@ impl Indexes {
     self.alias_root.get(&symbol_id).copied().unwrap_or(symbol_id)
   }
 
+  pub(super) fn alias_members(&self, root: SymbolId) -> &[SymbolId] {
+    self.work.add_queries(1);
+    self.aliases_of.get(&root).map_or(&[], Vec::as_slice)
+  }
+
   pub(super) fn payload_uncertain(&self, symbol_id: SymbolId) -> bool {
     let root = self.root_of(symbol_id);
     self.uncertain.contains(&root)
@@ -969,6 +1000,38 @@ impl Indexes {
   pub(super) fn value_writes_mixed(&self, root: SymbolId) -> bool {
     self.work.add_queries(1);
     self.mixed_value_owners.contains(&root)
+  }
+
+  pub(super) fn first_value_read_after(
+    &self,
+    root: SymbolId,
+    callable: Option<NodeId>,
+    block: NodeId,
+    offset: usize,
+  ) -> Option<ValueRead> {
+    self.work.add_queries(1);
+    let reads = self.derivation_value_reads.get(&root).map_or(&[][..], Vec::as_slice);
+    let index = self.work.partition_point(reads, |read| read.offset <= offset);
+    reads.get(index..).into_iter().flatten().copied().find(|read| {
+      self.work.add_queries(1);
+      read.callable == callable && read.block == block
+    })
+  }
+
+  pub(super) fn site_owner(&self, node_id: NodeId) -> (Option<NodeId>, Option<NodeId>) {
+    self.work.add_queries(1);
+    let owner = self.owner(node_id);
+    (owner.callable, owner.block)
+  }
+
+  pub(super) fn primitive_at(&self, span: Span) -> Option<ShapePrimitiveAtom> {
+    self.work.add_queries(1);
+    self.primitives.get(&span_key(span)).copied()
+  }
+
+  pub(super) fn callable_node(&self, span: Span) -> Option<NodeId> {
+    self.work.add_queries(1);
+    self.callables.get(&span_key(span)).copied()
   }
 
   pub(super) fn value_write_owner_mismatch(
@@ -1305,6 +1368,27 @@ impl Indexes {
     }
   }
 
+  fn build_alias_members(&mut self) {
+    for (local, root) in &self.alias_root {
+      self.work.add_queries(1);
+      if *local == *root {
+        continue;
+      }
+      self.aliases_of.entry(*root).or_default().push(*local);
+    }
+    let mut aliases = std::mem::take(&mut self.aliases_of);
+    for members in aliases.values_mut() {
+      members.sort_by(|left, right| {
+        self.work.add_queries(1);
+        left.cmp(right)
+      });
+      let before = members.len();
+      members.dedup();
+      self.work.add_queries(before as u64);
+    }
+    self.aliases_of = aliases;
+  }
+
   fn summarize_writes(&mut self) {
     for (root, writes) in &self.value_writes {
       let Some(first) = writes.first() else {
@@ -1412,6 +1496,11 @@ impl Indexes {
       self.work.add_queries(1);
       self.custom_ref_value_reads.entry(self.root_of(symbol_id)).or_default().append(&mut reads);
     }
+    let derivation_value_reads = std::mem::take(&mut self.derivation_value_reads);
+    for (symbol_id, mut reads) in derivation_value_reads {
+      self.work.add_queries(1);
+      self.derivation_value_reads.entry(self.root_of(symbol_id)).or_default().append(&mut reads);
+    }
     let handle_member_calls = std::mem::take(&mut self.handle_member_calls);
     for ((symbol_id, property), mut calls) in handle_member_calls {
       self.work.add_queries(1);
@@ -1468,6 +1557,18 @@ impl Indexes {
     self.work.add_writes(1);
   }
 
+  pub(super) fn add_references(&self, n: u64) {
+    self.work.add_references(n);
+  }
+
+  pub(super) fn add_writes(&self, n: u64) {
+    self.work.add_writes(n);
+  }
+
+  pub(super) fn add_object_entries(&self, n: u64) {
+    self.work.add_object_entries(n);
+  }
+
   pub(super) fn add_queries(&self, n: u64) {
     self.work.add_queries(n);
   }
@@ -1517,6 +1618,14 @@ impl Indexes {
             member,
           );
           self.record_value_read(semantic, line_index, sfc_source, script_offset, node_id, member);
+          self.record_derivation_value_read(
+            semantic,
+            line_index,
+            sfc_source,
+            script_offset,
+            node_id,
+            member,
+          );
           self.index_static_member(semantic, kind, member);
         }
         AstKind::VariableDeclarator(declarator) => {
@@ -1654,6 +1763,7 @@ impl Indexes {
                   literal: WriteLiteral::Other,
                   simple_assign: false,
                   fresh_alloc: false,
+                  node_id,
                 });
               }
             }
@@ -2169,9 +2279,46 @@ impl Indexes {
       self.object_literals.insert(span_key(inner.span()));
       self.object_literals.insert(span_key(expression.span()));
     }
+    if let Some(atom) = primitive_atom(inner) {
+      self.primitives.insert(span_key(inner.span()), atom);
+      self.primitives.insert(span_key(expression.span()), atom);
+    }
     if let Expression::CallExpression(call) = inner {
       self.record_call(semantic, kind, call);
     }
+  }
+
+  fn record_derivation_value_read(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    node_id: NodeId,
+    member: &oxc_ast::ast::StaticMemberExpression<'_>,
+  ) {
+    if member.property.name.as_str() != "value" {
+      return;
+    }
+    match semantic.nodes().parent_kind(node_id) {
+      AstKind::AssignmentExpression(_) | AstKind::UpdateExpression(_) => return,
+      _ => {}
+    }
+    let Some(object) = member.object.get_inner_expression().get_identifier_reference() else {
+      return;
+    };
+    let Some(symbol_id) = reference_symbol(semantic, object) else {
+      return;
+    };
+    self.work.add_writes(1);
+    let owner = self.owner(node_id);
+    self.derivation_value_reads.entry(self.root_of(symbol_id)).or_default().push(ValueRead {
+      offset: mapped(line_index, sfc_source, script_offset, member.span).offset,
+      span: member.span,
+      callable: owner.callable,
+      block: owner.block.unwrap_or(node_id),
+      node_id,
+    });
   }
 
   fn record_call(
@@ -2321,6 +2468,7 @@ impl Indexes {
         simple.push(None);
       }
     }
+    self.callables.insert(span_key(span), node_id);
     self.function_by_node.insert(node_id, span);
     self.functions.insert(
       span_key(span),
@@ -2571,7 +2719,16 @@ impl Indexes {
           semantic,
           &member.object,
           member.property.name.as_str(),
-          DirectMemberWrite { offset, callable, block, right, simple, fresh, span: member.span },
+          DirectMemberWrite {
+            offset,
+            callable,
+            block,
+            right,
+            simple,
+            fresh,
+            span: member.span,
+            node_id,
+          },
         );
       }
       AssignmentTarget::ComputedMemberExpression(member) => {
@@ -2624,6 +2781,7 @@ impl Indexes {
           literal: write_literal(semantic, write.right),
           simple_assign: write.simple,
           fresh_alloc: write.fresh,
+          node_id: write.node_id,
         });
       } else {
         self.uncertain.insert(root);

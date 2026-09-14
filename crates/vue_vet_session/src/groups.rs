@@ -15,8 +15,10 @@ use crate::registry::{composed_rule_metadata, known_rule_ids};
 /// Sorted `(id, group)` pairs. Binary-searchable; each ID appears at most once.
 pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/correctness/no-mutating-props", RuleGroupId::SourceContracts),
+  ("vue-vet/practice/prefer-conditional-watch-source", RuleGroupId::Derivation),
   ("vue-vet/practice/prefer-keyed-map-dependency", RuleGroupId::Derivation),
   ("vue-vet/practice/prefer-stable-computed-identity", RuleGroupId::Derivation),
+  ("vue-vet/practice/prefer-sync-ref-one-way", RuleGroupId::Derivation),
   ("vue-vet/project/unresolved-import", RuleGroupId::Project),
   ("vue-vet/project/unused-component", RuleGroupId::Project),
   ("vue-vet/reactivity/no-after-await-dependency-in-computed", RuleGroupId::Tracking),
@@ -231,6 +233,25 @@ mod tests {
   }
 
   #[test]
+  fn derivation_practice_ids_are_in_derivation() {
+    const DERIVATION_PRACTICE: &[&str] = &[
+      "vue-vet/practice/prefer-conditional-watch-source",
+      "vue-vet/practice/prefer-sync-ref-one-way",
+    ];
+    let derivation = rule_inventory(&[RuleGroupId::Derivation]);
+    for id in DERIVATION_PRACTICE {
+      assert_eq!(group_of(id), Some(RuleGroupId::Derivation), "{id}");
+      assert!(
+        derivation
+          .rules
+          .iter()
+          .any(|row| row.id == *id && row.group == Some(RuleGroupId::Derivation)),
+        "derivation inventory must include {id}"
+      );
+    }
+  }
+
+  #[test]
   fn lifetime_watcher_and_scope_ids_are_in_lifetime_not_tracking() {
     const LIFETIME_IDS: &[&str] = &[
       "vue-vet/reactivity/no-detached-effect-scope-without-stop",
@@ -243,7 +264,7 @@ mod tests {
       "vue-vet/reactivity/no-watch-cleanup-current-source",
     ];
     let inventory = rule_inventory(&[]);
-    assert_eq!(inventory.counts.total, 133, "composed CLI inventory count");
+    assert_eq!(inventory.counts.total, 135, "composed CLI inventory count");
     assert_eq!(
       group_of("vue-vet/practice/prefer-stable-computed-identity"),
       Some(RuleGroupId::Derivation)
@@ -251,7 +272,7 @@ mod tests {
     let source = rule_inventory(&[RuleGroupId::SourceContracts]);
     assert_eq!(source.counts.total, 36, "source-contracts group count");
     let derivation = rule_inventory(&[RuleGroupId::Derivation]);
-    assert_eq!(derivation.counts.total, 9, "derivation group count");
+    assert_eq!(derivation.counts.total, 11, "derivation group count");
     for id in [
       "vue-vet/reactivity/no-controlled-computed-stale-result-demand",
       "vue-vet/reactivity/no-custom-ref-lost-notification",

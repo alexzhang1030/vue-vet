@@ -119,7 +119,57 @@ pub(super) enum ShapeHint {
   New(Span),
 }
 
-/// Fact-producing Vue API sinks collected into `SourceContractFacts`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum PrimitiveAtom {
+  Bool(bool),
+  Number { bits: u64, nan: bool },
+  Other,
+  Null,
+  Undefined,
+}
+
+impl PrimitiveAtom {
+  pub(super) const fn object_is(self, other: Self) -> bool {
+    match (self, other) {
+      (Self::Bool(left), Self::Bool(right)) => left == right,
+      (Self::Number { bits: left, nan: false }, Self::Number { bits: right, nan: false }) => {
+        left == right
+      }
+      (Self::Number { nan: true, .. }, Self::Number { nan: true, .. })
+      | (Self::Other, Self::Other)
+      | (Self::Null, Self::Null)
+      | (Self::Undefined, Self::Undefined) => true,
+      _ => false,
+    }
+  }
+
+  pub(super) const fn is_falsy_guard(self) -> bool {
+    matches!(
+      self,
+      Self::Bool(false) | Self::Number { bits: 0, nan: false } | Self::Null | Self::Undefined
+    )
+  }
+}
+
+pub(super) fn primitive_atom(expression: &Expression<'_>) -> Option<PrimitiveAtom> {
+  match expression.get_inner_expression() {
+    Expression::BooleanLiteral(literal) => Some(PrimitiveAtom::Bool(literal.value)),
+    Expression::NumericLiteral(literal) => {
+      Some(PrimitiveAtom::Number { bits: literal.value.to_bits(), nan: literal.value.is_nan() })
+    }
+    Expression::StringLiteral(_) | Expression::BigIntLiteral(_) => Some(PrimitiveAtom::Other),
+    Expression::TemplateLiteral(literal) if literal.expressions.is_empty() => {
+      Some(PrimitiveAtom::Other)
+    }
+    Expression::NullLiteral(_) => Some(PrimitiveAtom::Null),
+    Expression::Identifier(identifier) if identifier.name.as_str() == "undefined" => {
+      Some(PrimitiveAtom::Undefined)
+    }
+    _ => None,
+  }
+}
+
+/// Fact-producing Vue / `@vueuse` API sinks collected into `SourceContractFacts`.
 ///
 /// Eligibility preflight and the collector walk share this table through
 /// [`contract_sink`]. `watch` feeds both the ordinary source collector and
@@ -131,7 +181,8 @@ pub(super) enum ShapeHint {
 /// `toRef`, `effectScope`, and `customRef` are additional sinks so a named
 /// import of any still admits collection. `computed` admits computed-only
 /// imports so identity facts keep forced-full parity without a second
-/// Vue-import pass.
+/// Vue-import pass. `syncRef` is admitted only from `@vueuse/shared` /
+/// `@vueuse/core`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum CollectionCtor {
   Map,
@@ -176,6 +227,7 @@ pub enum ContractSink {
   EffectScope,
   CustomRef,
   Computed,
+  SyncRef,
 }
 
 impl ContractSink {
@@ -206,6 +258,7 @@ pub(super) fn intern_api(name: &str) -> Option<&'static str> {
     "effectScope" => Some("effectScope"),
     "useTemplateRef" => Some("useTemplateRef"),
     "defineModel" => Some("defineModel"),
+    "syncRef" => Some("syncRef"),
     _ => None,
   }
 }
@@ -218,6 +271,8 @@ pub(super) fn intern_tracked_source(source: &str) -> Option<&'static str> {
     "@vue/runtime-dom" => Some("@vue/runtime-dom"),
     "@vue/reactivity" => Some("@vue/reactivity"),
     "#imports" => Some("#imports"),
+    "@vueuse/core" => Some("@vueuse/core"),
+    "@vueuse/shared" => Some("@vueuse/shared"),
     _ => None,
   }
 }
@@ -235,6 +290,8 @@ pub fn contract_sink(api: &str) -> Option<ContractSink> {
     "effectScope" => Some(ContractSink::EffectScope),
     "customRef" => Some(ContractSink::CustomRef),
     "computed" => Some(ContractSink::Computed),
+    "syncRef" => Some(ContractSink::SyncRef),
+
     _ => None,
   }
 }
@@ -369,6 +426,10 @@ pub(super) fn native_callable(kind: PrimitiveKind, method: &str) -> Option<bool>
   }
 }
 
+pub(super) fn is_vueuse_sync_ref_source(source: &str) -> bool {
+  matches!(source, "@vueuse/core" | "@vueuse/shared")
+}
+
 pub(super) fn is_ref_api(api: &str) -> bool {
   matches!(
     api,
@@ -396,7 +457,8 @@ pub(super) fn collect_vue_imports(
     };
     let runtime = is_vue_runtime_source(source);
     let auto = is_named_auto_import_source(source);
-    if !runtime && !auto {
+    let vueuse = is_vueuse_sync_ref_source(source);
+    if !runtime && !auto && !vueuse {
       continue;
     }
     let Some(specifiers) = &declaration.specifiers else {
@@ -414,6 +476,9 @@ pub(super) fn collect_vue_imports(
             oxc_ast::ast::ModuleExportName::IdentifierReference(name) => name.name.as_str(),
             oxc_ast::ast::ModuleExportName::StringLiteral(name) => name.value.as_str(),
           };
+          if vueuse && imported != "syncRef" || !vueuse && imported == "syncRef" {
+            continue;
+          }
           if let Some(api) = intern_api(imported)
             && let Some(symbol_id) = specifier.local.symbol_id.get()
           {

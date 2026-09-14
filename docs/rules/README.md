@@ -12,9 +12,9 @@ not Essential/a11y parity with `eslint-plugin-vue`.
 | --- | --- | ---: |
 | `tracer` | Needs `vue_vet_reactivity` graph facts (read kinds, guards, scopes, prop edges, binding kinds) | 66 |
 | `parity` | Template Essential / a11y / macros / after-await registrars — open-box completeness | 50 |
-| `practice` | Ecosystem suggestions (`category: practice`); excluded from score by default | 15 |
+| `practice` | Ecosystem suggestions (`category: practice`); excluded from score by default | 17 |
 
-Total registered **file** rules (builtins + practice): **131**.
+Total registered **file** rules (builtins + practice): **133**.
 
 Project-graph IDs are listed separately below and are not in this file-ID set.
 
@@ -23,7 +23,7 @@ Project-graph IDs are listed separately below and are not in this file-ID set.
 | `accessibility` | 13 |
 | `correctness` | 36 |
 | `maintainability` | 1 |
-| `practice` | 14 |
+| `practice` | 16 |
 | `reactivity` | 66 |
 | `security` | 1 |
 
@@ -90,9 +90,11 @@ Per-rule pages live under `docs/rules/<category>/<name>.md`.
 
 ## practice
 
+- [`vue-vet/practice/prefer-conditional-watch-source`](./practice/prefer-conditional-watch-source.md) `practice`
 - [`vue-vet/practice/prefer-define-model`](./practice/prefer-define-model.md) `practice`
 - [`vue-vet/practice/prefer-keyed-map-dependency`](./practice/prefer-keyed-map-dependency.md) `practice`
 - [`vue-vet/practice/prefer-stable-computed-identity`](./practice/prefer-stable-computed-identity.md) `practice`
+- [`vue-vet/practice/prefer-sync-ref-one-way`](./practice/prefer-sync-ref-one-way.md) `practice`
 - [`vue-vet/practice/prefer-to-value`](./practice/prefer-to-value.md) `practice`
 - [`vue-vet/practice/prefer-use-slots-attrs`](./practice/prefer-use-slots-attrs.md) `practice`
 - [`vue-vet/practice/vueuse-use-debounce-fn`](./practice/vueuse-use-debounce-fn.md) `practice`
