@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-raw-proxy-map-key",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-raw-proxy-map-key",
+    "message": "Native `Map` lookup uses object identity, so this `get` of the raw key misses the stored proxy key and the unguarded use throws",
+    "help": "Stored key at 5:23 and Vue wrapper at 4:15. Look up the stored proxy identity; wrapping the Map does not rewrite keys that were already stored as proxies.",
+    "file": "fixtures/rules/no-raw-proxy-map-key/invalid/reverse.vue",
+    "span": {
+      "offset": 149,
+      "length": 18,
+      "line": 6,
+      "column": 6
+    }
+  }
+]

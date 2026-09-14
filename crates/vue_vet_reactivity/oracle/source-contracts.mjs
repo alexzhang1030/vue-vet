@@ -16,6 +16,7 @@ const vue = requireVue("vue");
 assert.equal(vue.version, "3.5.40", `expected Vue 3.5.40, got ${vue.version}`);
 
 const {
+  computed,
   markRaw,
   nextTick,
   reactive,
@@ -456,6 +457,234 @@ function cloneErrorName(value) {
     detachedRuns += 1;
   });
   assert.equal(detachedRuns, 1, "effectScope(true) must still run callbacks");
+}
+
+// Native Map treats raw object and Vue Proxy as distinct keys; unguarded demand throws.
+{
+  const raw = {};
+  const proxy = reactive(raw);
+  const values = new Map([[raw, { count: 1 }]]);
+  assert.throws(() => values.get(proxy).count, TypeError);
+  assert.equal(values.get(raw).count, 1);
+  const reversed = new Map();
+  reversed.set(proxy, { count: 2 });
+  assert.throws(() => reversed.get(raw).count, TypeError);
+  assert.equal(reversed.get(proxy).count, 2);
+  assert.equal(values.get(proxy), undefined);
+  assert.equal(values.has(proxy), false);
+  assert.equal(values.get(proxy)?.count, undefined);
+  assert.equal(values.get(proxy) ?? { count: 0 }.count, 0);
+}
+
+// Vue reactive(Map) normalizes raw/proxy keys; original-key get still works.
+{
+  const raw = {};
+  const proxy = reactive(raw);
+  const observed = reactive(new Map([[raw, { count: 1 }]]));
+  assert.equal(observed.get(proxy).count, 1);
+  assert.equal(observed.get(raw).count, 1);
+  const shallowMap = shallowReactive(new Map([[raw, { count: 3 }]]));
+  assert.equal(shallowMap.get(proxy).count, 3);
+}
+
+// Wrapping a Map normalizes raw-stored keys; proxy-stored keys stay unmatched.
+{
+  const raw = {};
+  const proxy = reactive(raw);
+  for (const wrap of [reactive, shallowReactive]) {
+    const rawStored = wrap(new Map([[raw, { count: 7 }]]));
+    assert.equal(rawStored.get(proxy).count, 7);
+    const proxyStored = wrap(new Map([[proxy, { count: 9 }]]));
+    assert.equal(proxyStored.get(raw), undefined);
+    assert.throws(() => proxyStored.get(raw).count, TypeError);
+  }
+}
+
+// Skip marker and non-extensible targets do not allocate a distinct proxy.
+{
+  const skipped = { __v_skip: true };
+  assert.equal(reactive(skipped), skipped);
+  const sealed = {};
+  Object.preventExtensions(sealed);
+  assert.equal(reactive(sealed), sealed);
+  const helper = {
+    get(target) {
+      Object.preventExtensions(target);
+    },
+  };
+  const helped = {};
+  helper.get(helped);
+  assert.equal(reactive(helped), helped);
+  const native = new Map();
+  native.get = (target) => Object.preventExtensions(target);
+  const frozen = {};
+  native.get(frozen);
+  const frozenProxy = reactive(frozen);
+  assert.equal(frozenProxy, frozen);
+  assert.equal(new Map([[frozen, { count: 7 }]]).get(frozenProxy).count, 7);
+}
+
+// Repeated same-flavor wrappers share identity; deep vs shallow stay distinct.
+{
+  const raw = {};
+  const first = reactive(raw);
+  const second = reactive(raw);
+  assert.equal(first, second);
+  const shallow = shallowReactive(raw);
+  assert.notEqual(first, shallow);
+  const entries = new Map([
+    [raw, { count: 1 }],
+    [first, { count: 7 }],
+  ]);
+  assert.equal(entries.get(second).count, 7);
+  0 ?? entries.delete(first);
+  assert.equal(entries.get(first).count, 7);
+  null ?? entries.delete(first);
+  assert.equal(entries.get(first), undefined);
+}
+
+// Own get override changes keyed lookup without changing forEach selection.
+{
+  const overridden = reactive(new Map([["selected", 7]]));
+  overridden.get = () => 9;
+  let selected;
+  overridden.forEach((value, key) => {
+    if (key === "selected") selected = value;
+  });
+  assert.equal(selected, 7);
+  assert.equal(overridden.get("selected"), 9);
+  function alter(target) {
+    target.get = () => 9;
+  }
+  const inner = new Map([["selected", 7]]);
+  alter(inner);
+  const wrapped = reactive(inner);
+  let wrappedSelected;
+  wrapped.forEach((value, key) => {
+    if (key === "selected") wrappedSelected = value;
+  });
+  assert.equal(wrappedSelected, 7);
+  assert.equal(wrapped.get("selected"), 9);
+  const nestedInner = new Map([["selected", 7]]);
+  shallowReactive(reactive(nestedInner)).get = () => 9;
+  const nestedObserved = reactive(nestedInner);
+  let nestedSelected;
+  nestedObserved.forEach((value, key) => {
+    if (key === "selected") nestedSelected = value;
+  });
+  assert.equal(nestedSelected, 7);
+  assert.equal(nestedObserved.get("selected"), 9);
+  const hopInner = new Map([["selected", 7]]);
+  let hop = reactive(hopInner);
+  for (let index = 0; index < 10; index++) hop = shallowReactive(hop);
+  hop.get = () => 9;
+  const hopObserved = reactive(hopInner);
+  let hopSelected;
+  hopObserved.forEach((value, key) => {
+    if (key === "selected") hopSelected = value;
+  });
+  assert.equal(hopSelected, 7);
+  assert.equal(hopObserved.get("selected"), 9);
+}
+
+// Demand after return is not executed.
+{
+  function read() {
+    const raw = {};
+    const proxy = reactive(raw);
+    const entries = new Map([[raw, { count: 1 }]]);
+    const result = entries.get(proxy);
+    return 7;
+    void result.count;
+  }
+  assert.equal(read(), 7);
+  function early() {
+    return 7;
+    const raw = {};
+    const proxy = reactive(raw);
+    const entries = new Map([[raw, { count: 1 }]]);
+    void entries.get(proxy).count;
+  }
+  assert.equal(early(), 7);
+  const raw = {};
+  const proxy = reactive(raw);
+  const absent = new Map([[raw, { count: 1 }]]);
+  const result = absent.get(proxy);
+  assert.equal(result, undefined);
+  assert.equal(false && result.count, false);
+}
+
+// Keyed Map.get tracks one key; forEach iteration reruns on unrelated writes.
+{
+  const keyed = reactive(
+    new Map([
+      ["selected", 1],
+      ["other", 2],
+    ]),
+  );
+  let iterationRuns = 0;
+  let keyedRuns = 0;
+  const iteration = computed(() => {
+    iterationRuns++;
+    let value;
+    keyed.forEach((entry, key) => {
+      if (key === "selected") value = entry;
+    });
+    return value;
+  });
+  const selection = computed(() => {
+    keyedRuns++;
+    return keyed.get("selected");
+  });
+  assert.equal(iteration.value, selection.value);
+  keyed.set("other", 3);
+  assert.equal(iteration.value, selection.value);
+  assert.deepEqual([iterationRuns, keyedRuns], [2, 1]);
+  keyed.set("selected", 4);
+  assert.equal(iteration.value, selection.value);
+  assert.deepEqual([iterationRuns, keyedRuns], [3, 2]);
+  keyed.delete("selected");
+  assert.equal(iteration.value, undefined);
+  assert.equal(selection.value, undefined);
+  assert.equal(iteration.value, selection.value);
+}
+
+// watchEffect pays the same full-iteration cost as computed forEach select.
+{
+  const keyed = reactive(
+    new Map([
+      ["selected", 1],
+      ["other", 2],
+    ]),
+  );
+  let iterationRuns = 0;
+  let keyedRuns = 0;
+  let iterationValue;
+  let selectionValue;
+  const stopIter = watchEffect(
+    () => {
+      iterationRuns++;
+      let value;
+      keyed.forEach((entry, key) => {
+        if (key === "selected") value = entry;
+      });
+      iterationValue = value;
+    },
+    { flush: "sync" },
+  );
+  const stopGet = watchEffect(
+    () => {
+      keyedRuns++;
+      selectionValue = keyed.get("selected");
+    },
+    { flush: "sync" },
+  );
+  assert.equal(iterationValue, selectionValue);
+  keyed.set("other", 9);
+  assert.equal(iterationValue, selectionValue);
+  assert.deepEqual([iterationRuns, keyedRuns], [2, 1]);
+  stopIter();
+  stopGet();
 }
 
 console.log("source-contracts oracle: ok (Vue 3.5.40)");

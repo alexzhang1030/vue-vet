@@ -10,11 +10,11 @@ not Essential/a11y parity with `eslint-plugin-vue`.
 
 | Tier | Meaning | Count |
 | --- | --- | ---: |
-| `tracer` | Needs `vue_vet_reactivity` graph facts (read kinds, guards, scopes, prop edges, binding kinds) | 59 |
+| `tracer` | Needs `vue_vet_reactivity` graph facts (read kinds, guards, scopes, prop edges, binding kinds) | 60 |
 | `parity` | Template Essential / a11y / macros / after-await registrars — open-box completeness | 50 |
-| `practice` | Ecosystem suggestions (`category: practice`); excluded from score by default | 13 |
+| `practice` | Ecosystem suggestions (`category: practice`); excluded from score by default | 14 |
 
-Total registered **file** rules (builtins + practice): **122**.
+Total registered **file** rules (builtins + practice): **124**.
 
 Project-graph IDs are listed separately below and are not in this file-ID set.
 
@@ -23,8 +23,8 @@ Project-graph IDs are listed separately below and are not in this file-ID set.
 | `accessibility` | 13 |
 | `correctness` | 36 |
 | `maintainability` | 1 |
-| `practice` | 12 |
-| `reactivity` | 59 |
+| `practice` | 13 |
+| `reactivity` | 60 |
 | `security` | 1 |
 
 Per-rule pages live under `docs/rules/<category>/<name>.md`.
@@ -91,6 +91,7 @@ Per-rule pages live under `docs/rules/<category>/<name>.md`.
 ## practice
 
 - [`vue-vet/practice/prefer-define-model`](./practice/prefer-define-model.md) `practice`
+- [`vue-vet/practice/prefer-keyed-map-dependency`](./practice/prefer-keyed-map-dependency.md) `practice`
 - [`vue-vet/practice/prefer-to-value`](./practice/prefer-to-value.md) `practice`
 - [`vue-vet/practice/prefer-use-slots-attrs`](./practice/prefer-use-slots-attrs.md) `practice`
 - [`vue-vet/practice/vueuse-use-debounce-fn`](./practice/vueuse-use-debounce-fn.md) `practice`
@@ -137,6 +138,7 @@ Per-rule pages live under `docs/rules/<category>/<name>.md`.
 - [`vue-vet/reactivity/no-primitive-reactive-target`](./reactivity/no-primitive-reactive-target.md) `tracer`
 - [`vue-vet/reactivity/no-props-snapshot-in-ref`](./reactivity/no-props-snapshot-in-ref.md) `tracer`
 - [`vue-vet/reactivity/no-proxy-structured-clone`](./reactivity/no-proxy-structured-clone.md) `tracer`
+- [`vue-vet/reactivity/no-raw-proxy-map-key`](./reactivity/no-raw-proxy-map-key.md) `tracer`
 - [`vue-vet/reactivity/no-reactive-destructure`](./reactivity/no-reactive-destructure.md) `tracer`
 - [`vue-vet/reactivity/no-reactive-read-during-pause-tracking`](./reactivity/no-reactive-read-during-pause-tracking.md) `tracer`
 - [`vue-vet/reactivity/no-readonly-mutation`](./reactivity/no-readonly-mutation.md) `tracer`

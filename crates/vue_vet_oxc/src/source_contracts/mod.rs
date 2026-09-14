@@ -37,10 +37,19 @@
 //! source indexes empty when every resolved reference is a proven call with
 //! fewer than two arguments and no spread. Ordinary sinks and namespace
 //! imports keep full indexing.
+//!
+//! Native `Map` raw/proxy key identity and keyed `forEach` selection require a
+//! fresh unresolved `Map` constructor (poisoned by `Map` / `globalThis.Map`
+//! reassignment and `Map.prototype` writes) and, for actual Proxy wrappers, a
+//! named/namespace import from `vue` / `@vue/runtime-*` / `@vue/reactivity`.
+//! `vue-demi` and `#imports` stay unproven for Proxy allocation. Wrappers that
+//! share a memoized canonical raw Map allocation share a once-summarized
+//! capability result. Unresolved origins withhold that proof.
 
 mod clone_boundary;
 mod demand;
 mod index;
+mod map_lookup;
 mod normalization;
 mod proof;
 mod shape;
@@ -165,6 +174,7 @@ impl Collector<'_> {
         continue;
       };
       self.collect_extracted_method_call(node_id, call);
+      self.collect_keyed_map_foreach(node_id, call);
       // Native `structuredClone` is not a Vue API. Classify it before the Vue-only
       // sink return so a proven Proxy constructor in the same module can report.
       // Native-only modules (no Vue imports) stay quiet: there is no actual-Proxy
@@ -198,6 +208,7 @@ impl Collector<'_> {
         None => {}
       }
     }
+    self.collect_all_raw_proxy_map_gets();
   }
 
   fn finish(mut self) -> (SourceContractFacts, SourceContractStats) {
@@ -279,6 +290,16 @@ impl Collector<'_> {
           right.constructor_span.offset,
           right.method.as_str(),
         ))
+    });
+    self.facts.raw_proxy_map_key.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.demand_span.offset, left.get_span.offset)
+        .cmp(&(right.demand_span.offset, right.get_span.offset))
+    });
+    self.facts.keyed_map_dependency.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.for_each_span.offset, left.result_span.offset)
+        .cmp(&(right.for_each_span.offset, right.result_span.offset))
     });
     (self.facts, self.indexes.stats())
   }

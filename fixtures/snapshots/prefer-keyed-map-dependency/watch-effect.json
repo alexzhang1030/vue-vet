@@ -1,0 +1,25 @@
+[
+  {
+    "rule_id": "vue-vet/practice/prefer-keyed-map-dependency",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/practice/prefer-keyed-map-dependency",
+    "message": "`forEach` over a reactive Map to select `selected` tracks every entry; `Map.get` tracks only that key",
+    "help": "watchEffect at 9:8 reruns when unrelated keys change. `get('selected')` yields the same selected value or `undefined` after delete.",
+    "file": "fixtures/rules/prefer-keyed-map-dependency/invalid/watch-effect.vue",
+    "span": {
+      "offset": 168,
+      "length": 78,
+      "line": 6,
+      "column": 3
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "vue",
+      "export": "Map.prototype.get",
+      "docs_url": "https://vuejs.org/guide/essentials/reactivity-fundamentals.html#collections",
+      "import_example": "keyed.get('selected')"
+    }
+  }
+]

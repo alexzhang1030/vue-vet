@@ -43,6 +43,10 @@ pub struct SourceContractFacts {
   pub missing_torefs_key: Vec<MissingToRefsKeyFact>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub extracted_reactive_collection_method: Vec<ExtractedReactiveCollectionMethodFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub raw_proxy_map_key: Vec<RawProxyMapKeyFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub keyed_map_dependency: Vec<KeyedMapDependencyFact>,
 }
 
 impl SourceContractFacts {
@@ -63,6 +67,8 @@ impl SourceContractFacts {
       && self.inactive_scope_result.is_empty()
       && self.missing_torefs_key.is_empty()
       && self.extracted_reactive_collection_method.is_empty()
+      && self.raw_proxy_map_key.is_empty()
+      && self.keyed_map_dependency.is_empty()
   }
 }
 
@@ -204,5 +210,29 @@ pub struct ExtractedReactiveCollectionMethodFact {
   pub object: String,
   pub method: String,
   pub collection: String,
+  pub api: String,
+}
+
+/// Native `Map` stores one of a raw/proxy pair and later `get`s the other.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RawProxyMapKeyFact {
+  pub demand_span: SourceSpan,
+  pub get_span: SourceSpan,
+  pub stored_key_span: SourceSpan,
+  pub wrapper_span: SourceSpan,
+  /// `"raw"` or `"proxy"` for the stored key identity.
+  pub stored_kind: String,
+  /// `"raw"` or `"proxy"` for the lookup identity.
+  pub lookup_kind: String,
+}
+
+/// Reactive `Map.forEach` selecting one literal string key inside computed / `watchEffect`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct KeyedMapDependencyFact {
+  pub for_each_span: SourceSpan,
+  pub map_span: SourceSpan,
+  pub result_span: SourceSpan,
+  pub key: String,
+  /// `"computed"` or `"watchEffect"`.
   pub api: String,
 }

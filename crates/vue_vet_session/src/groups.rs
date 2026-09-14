@@ -15,6 +15,7 @@ use crate::registry::{composed_rule_metadata, known_rule_ids};
 /// Sorted `(id, group)` pairs. Binary-searchable; each ID appears at most once.
 pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/correctness/no-mutating-props", RuleGroupId::SourceContracts),
+  ("vue-vet/practice/prefer-keyed-map-dependency", RuleGroupId::Derivation),
   ("vue-vet/project/unresolved-import", RuleGroupId::Project),
   ("vue-vet/project/unused-component", RuleGroupId::Project),
   ("vue-vet/reactivity/no-after-await-dependency-in-computed", RuleGroupId::Tracking),
@@ -48,6 +49,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-primitive-reactive-target", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-props-snapshot-in-ref", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-proxy-structured-clone", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-raw-proxy-map-key", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-reactive-destructure", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-reactive-read-during-pause-tracking", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-readonly-mutation", RuleGroupId::SourceContracts),
@@ -230,13 +232,16 @@ mod tests {
       "vue-vet/reactivity/no-returned-watcher-cleanup",
     ];
     let inventory = rule_inventory(&[]);
-    assert_eq!(inventory.counts.total, 124, "composed CLI inventory count");
+    assert_eq!(inventory.counts.total, 126, "composed CLI inventory count");
     let source = rule_inventory(&[RuleGroupId::SourceContracts]);
-    assert_eq!(source.counts.total, 32, "source-contracts group count");
+    assert_eq!(source.counts.total, 33, "source-contracts group count");
+    let derivation = rule_inventory(&[RuleGroupId::Derivation]);
+    assert_eq!(derivation.counts.total, 8, "derivation group count");
     for id in [
       "vue-vet/reactivity/no-extracted-reactive-collection-method",
       "vue-vet/reactivity/no-lost-shallow-nested-notification",
       "vue-vet/reactivity/no-proxy-structured-clone",
+      "vue-vet/reactivity/no-raw-proxy-map-key",
       "vue-vet/reactivity/no-toraw-write-of-tracked-state",
       "vue-vet/reactivity/no-watch-ignored-option",
       "vue-vet/reactivity/no-watch-signature-mismatch",

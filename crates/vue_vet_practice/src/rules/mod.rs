@@ -1,6 +1,7 @@
 use vue_vet_core::Rule;
 
 mod prefer_define_model;
+mod prefer_keyed_map_dependency;
 mod prefer_to_value;
 mod prefer_use_slots_attrs;
 mod prefer_use_template_ref;
@@ -17,6 +18,7 @@ mod vueuse_use_window_size;
 pub fn all() -> Vec<&'static dyn Rule> {
   vec![
     &prefer_define_model::RULE,
+    &prefer_keyed_map_dependency::RULE,
     &prefer_to_value::RULE,
     &prefer_use_slots_attrs::RULE,
     &prefer_use_template_ref::RULE,

@@ -17,7 +17,7 @@ Workspace-internal (`publish = false`).
 | --- | --- | --- |
 | `CACHE_FORMAT_VERSION` | `5` | On-disk entry schema; directory `v5/` |
 | `BASELINE_FORMAT_VERSION` | `1` | Baseline file schema |
-| `RULESET_VERSION` | `24` | Extracted reactive collection-method receiver facts on the demand-gated value catalog (v23) |
+| `RULESET_VERSION` | `25` | Native Map raw/proxy key demand and keyed Map `forEach`→`get` practice on the extracted collection-method catalog (v24) |
 | `CACHE_VIZE_CROQUIS_VERSION` | `0.387.0` | Hashed `vize-version` (`AnalysisStackIdentity`) |
 | `CACHE_OXC_PARSER_VERSION` | `0.142.0` | Hashed `oxc-version` (`AnalysisStackIdentity`) |
 
