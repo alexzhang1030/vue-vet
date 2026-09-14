@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::fmt::Write;
 
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
@@ -2146,6 +2147,8 @@ fn source_contracts_gated_facts_match_forced_full_for_all_sinks() {
     "import { watchSyncEffect } from 'vue'; watchSyncEffect(() => {}, { flush: 'post', once: true });",
     "import * as Vue from 'vue'; Vue.watchEffect(() => {}, { deep: true });",
     "import { ref, watch } from 'vue'; const n = ref(0); watch(n, (v) => v, { equals: () => true });",
+    "import { ref, watch } from 'vue'; const n = ref(0); function accept(_value: unknown) {} watch(n, (next, old) => { if (old === undefined) return; accept(next); }, { once: true, immediate: true });",
+    "import { reactive, watch } from 'vue'; const state = reactive({ n: 1 }); function accept(_value: unknown) {} watch(state, (next, old) => { if (next === old) return; accept(next); });",
   ];
   for source in cases {
     let facts = assert_gated_matches_forced(source, ScriptKind::Setup);
@@ -2280,6 +2283,36 @@ fn source_contracts_effect_family_named_imports_alone_match_forced_full() {
 }
 
 #[test]
+fn source_contracts_callback_named_watch_import_alone_match_forced_full() {
+  let once = assert_gated_matches_forced(
+    "import { ref, watch } from 'vue';     const n = ref(0);     function accept(_value: unknown) {}     watch(n, (next, old) => { if (old === undefined) return; accept(next); }, { once: true, immediate: true });",
+    ScriptKind::Setup,
+  );
+  assert_eq!(
+    once.watch_callback_contracts.len(),
+    1,
+    "named watch + ref (non-sink) must report once-immediate; {once:?}"
+  );
+  assert_eq!(
+    once.watch_callback_contracts.first().map(|site| site.reason),
+    Some(vue_vet_core::WatchCallbackContractReason::OnceImmediateUndefinedGuard)
+  );
+  let identity = assert_gated_matches_forced(
+    "import { reactive, watch } from 'vue';     const state = reactive({ n: 1 });     function accept(_value: unknown) {}     watch(state, (next, old) => { if (next === old) return; accept(next); });",
+    ScriptKind::Setup,
+  );
+  assert_eq!(
+    identity.watch_callback_contracts.len(),
+    1,
+    "named watch + reactive must report root identity; {identity:?}"
+  );
+  assert_eq!(
+    identity.watch_callback_contracts.first().map(|site| site.reason),
+    Some(vue_vet_core::WatchCallbackContractReason::ReactiveRootIdentityGuard)
+  );
+}
+
+#[test]
 fn source_contracts_bypass_without_fact_producing_sinks() {
   assert_bypass("", ScriptKind::Setup);
   assert_bypass("const n = 1;", ScriptKind::Script);
@@ -2303,6 +2336,580 @@ fn source_contracts_bypass_without_fact_producing_sinks() {
     "import { ref } from 'vue'; const o = { a: { x: 1 }, b: [1] }; const r = ref(o); const alias = r; alias.value = { a: { x: 2 } };",
     ScriptKind::Setup,
   );
+}
+
+#[test]
+fn source_contracts_once_immediate_and_root_identity_predicates() {
+  let once = analyze(
+    "import { ref, watch } from 'vue';\
+     const n = ref(0);\
+     function accept(_value: unknown) {}\
+     watch(n, (next, old) => { if (old === undefined) return; accept(next); }, { once: true, immediate: true });",
+    "ts",
+  );
+  assert_eq!(
+    once.source_contracts.watch_callback_contracts.len(),
+    1,
+    "{:?}",
+    once.source_contracts
+  );
+  assert_eq!(
+    once.source_contracts.watch_callback_contracts.first().map(|site| site.reason),
+    Some(vue_vet_core::WatchCallbackContractReason::OnceImmediateUndefinedGuard)
+  );
+  let ordered = analyze(
+    "import { ref, watch } from 'vue';\
+     const n = ref(0);\
+     function accept(_value: unknown) {}\
+     watch(n, (next, old) => { if (old === void 0) return; accept(next); }, { immediate: true, once: true });",
+    "ts",
+  );
+  assert_eq!(ordered.source_contracts.watch_callback_contracts.len(), 1);
+  let reactive_array = analyze(
+    "import { reactive, watch } from 'vue';\
+     const list = reactive([1]);\
+     function accept(_value: unknown) {}\
+     watch(list, (next, old) => { if (old === undefined) return; accept(next); }, { once: true, immediate: true });",
+    "ts",
+  );
+  assert_eq!(reactive_array.source_contracts.watch_callback_contracts.len(), 1);
+  let tuple = analyze(
+    "import { ref, watch } from 'vue';\
+     const n = ref(0);\
+     function accept(_value: unknown) {}\
+     watch([n], (next, old) => { if (old === undefined) return; accept(next); }, { once: true, immediate: true });",
+    "ts",
+  );
+  assert!(
+    tuple.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    tuple.source_contracts
+  );
+  let identity = analyze(
+    "import { reactive, watch } from 'vue';\
+     const state = reactive({ n: 1 });\
+     function accept(_value: unknown) {}\
+     watch(state, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert_eq!(
+    identity.source_contracts.watch_callback_contracts.len(),
+    1,
+    "{:?}",
+    identity.source_contracts
+  );
+  assert_eq!(
+    identity.source_contracts.watch_callback_contracts.first().map(|site| site.reason),
+    Some(vue_vet_core::WatchCallbackContractReason::ReactiveRootIdentityGuard)
+  );
+  let getter = analyze(
+    "import { reactive, watch } from 'vue';\
+     const state = reactive({ n: 1 });\
+     function accept(_value: unknown) {}\
+     watch(() => state.n, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert!(getter.source_contracts.watch_callback_contracts.is_empty());
+  let deep_ref = analyze(
+    "import { ref, watch } from 'vue';\
+     const source = ref({ n: 1 });\
+     function accept(_value: unknown) {}\
+     watch(source, (next, old) => { if (next === old) return; accept(next); }, { deep: true });",
+    "ts",
+  );
+  assert!(deep_ref.source_contracts.watch_callback_contracts.is_empty());
+  let local_undefined = analyze(
+    "import { ref, watch } from 'vue';\
+     const n = ref(0);\
+     const undefined = 1;\
+     function accept(_value: unknown) {}\
+     watch(n, (next, old) => { if (old === undefined) return; accept(next); }, { once: true, immediate: true });",
+    "ts",
+  );
+  assert!(local_undefined.source_contracts.watch_callback_contracts.is_empty());
+  let void_effect = analyze(
+    "import { ref, watch } from 'vue';\
+     const n = ref(0);\
+     function accept(_value: unknown) {}\
+     watch(n, (next, old) => { if (old === void accept(next)) return; accept(next); }, { once: true, immediate: true });",
+    "ts",
+  );
+  assert!(
+    void_effect.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    void_effect.source_contracts
+  );
+  let after_return = analyze(
+    "import { ref, watch } from 'vue';\
+     const n = ref(0);\
+     function accept(_value: unknown) {}\
+     watch(n, (next, old) => { if (old === undefined) return; return; accept(next); }, { once: true, immediate: true });",
+    "ts",
+  );
+  assert!(
+    after_return.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    after_return.source_contracts
+  );
+  let dead_branch = analyze(
+    "import { ref, watch } from 'vue';\
+     const n = ref(0);\
+     function accept(_value: unknown) {}\
+     watch(n, (next, old) => { if (old === undefined) return; if (false) accept(next); }, { once: true, immediate: true });",
+    "ts",
+  );
+  assert!(
+    dead_branch.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    dead_branch.source_contracts
+  );
+  let tagged = analyze(
+    "import { reactive, watch } from 'vue';\
+     const tagged = reactive({ __v_isRef: true, value: 0 });\
+     function accept(_value: unknown) {}\
+     watch(tagged, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert!(
+    tagged.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    tagged.source_contracts
+  );
+  let proxy_ref = analyze(
+    "import { reactive, ref, watch } from 'vue';\
+     const source = reactive(ref(0));\
+     function accept(_value: unknown) {}\
+     watch(source, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert!(
+    proxy_ref.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    proxy_ref.source_contracts
+  );
+  let inherited = analyze(
+    "import { reactive, watch } from 'vue';\
+     const state = reactive({ n: 1 });\
+     function accept(_value: unknown) {}\
+     watch(state, (next, old) => { if (next === old) return; accept(next); }, { __proto__: { immediate: true } });",
+    "ts",
+  );
+  assert_eq!(
+    inherited.source_contracts.watch_callback_contracts.len(),
+    1,
+    "{:?}",
+    inherited.source_contracts
+  );
+  let unicode = analyze(
+    "import { ref, watch } from 'vue';\
+     const n = ref(0);\
+     function 接收(_value: unknown) {}\
+     watch(n, (新, 旧) => { if (旧 === undefined) return; 接收(新); }, { once: true, immediate: true });",
+    "ts",
+  );
+  assert_eq!(unicode.source_contracts.watch_callback_contracts.len(), 1);
+  let crlf = analyze(
+    "import { ref, watch } from 'vue';\r\nconst n = ref(0);\r\nfunction accept(_value: unknown) {}\r\nwatch(n, (next, old) => { if (old === undefined) return; accept(next); }, { once: true, immediate: true });\r\n",
+    "ts",
+  );
+  #[expect(clippy::panic, reason = "missing CRLF span evidence must fail the regression")]
+  let Some(site) = crlf.source_contracts.watch_callback_contracts.first() else {
+    panic!("CRLF once-immediate fact missing");
+  };
+  assert!(site.guard_span.offset > 0 && site.watch_span.length > 0);
+}
+
+#[test]
+fn source_contracts_second_review_false_positives_stay_quiet() {
+  let nested_block = analyze(
+    "import { ref, watch } from 'vue';\
+     const n = ref(0);\
+     function accept(_value: unknown) {}\
+     watch(n, (next, old) => { if (old === undefined) return; { return } accept(next); }, { once: true, immediate: true });",
+    "ts",
+  );
+  assert!(
+    nested_block.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    nested_block.source_contracts
+  );
+  let later_marker = analyze(
+    "import { reactive, watch } from 'vue';\
+     const taggedLater = reactive({ value: 0 });\
+     taggedLater.__v_isRef = true;\
+     function accept(_value: unknown) {}\
+     watch(taggedLater, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert!(
+    later_marker.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    later_marker.source_contracts
+  );
+  let frozen = analyze(
+    "import { reactive, watch } from 'vue';\
+     const frozenTarget = { n: 0 };\
+     Object.freeze(frozenTarget);\
+     const frozenState = reactive(frozenTarget);\
+     function accept(_value: unknown) {}\
+     watch(frozenState, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert!(
+    frozen.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    frozen.source_contracts
+  );
+  let readonly_marker = analyze(
+    "import { reactive, watch } from 'vue';\
+     const readonlyMarker = reactive({ __v_isReadonly: true, n: 0 });\
+     function accept(_value: unknown) {}\
+     watch(readonlyMarker, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert!(
+    readonly_marker.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    readonly_marker.source_contracts
+  );
+  let raw_marker = analyze(
+    "import { reactive, watch } from 'vue';\
+     const rawMarker = reactive({ __v_raw: { n: 0 }, n: 0 });\
+     function accept(_value: unknown) {}\
+     watch(rawMarker, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert!(
+    raw_marker.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    raw_marker.source_contracts
+  );
+  let field_mutate = analyze(
+    "import { reactive, watch } from 'vue';\
+     const state = reactive({ n: 1 });\
+     state.n = 2;\
+     function accept(_value: unknown) {}\
+     watch(state, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert_eq!(
+    field_mutate.source_contracts.watch_callback_contracts.len(),
+    1,
+    "{:?}",
+    field_mutate.source_contracts
+  );
+  let pattern_field = analyze(
+    "import { reactive, watch } from 'vue';\
+     const state = reactive({ n: 1 });\
+     ({ n: state.n } = { n: 2 });\
+     function accept(_value: unknown) {}\
+     watch(state, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert_eq!(
+    pattern_field.source_contracts.watch_callback_contracts.len(),
+    1,
+    "{:?}",
+    pattern_field.source_contracts
+  );
+}
+
+#[test]
+fn source_contracts_third_review_capability_roles_stay_quiet() {
+  let pattern_marker = analyze(
+    "import { reactive, watch } from 'vue';\
+     const tagged = reactive({ value: 0 });\
+     ({ x: tagged.__v_isRef } = { x: true });\
+     function accept(_value: unknown) {}\
+     watch(tagged, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert!(
+    pattern_marker.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    pattern_marker.source_contracts
+  );
+  let nested_default_rest = analyze(
+    "import { reactive, watch } from 'vue';\
+     const tagged = reactive({ value: 0 });\
+     ({ nested: { x: tagged.__v_isRef = true } = {}, ..._rest } = { nested: {} });\
+     function accept(_value: unknown) {}\
+     watch(tagged, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert!(
+    nested_default_rest.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    nested_default_rest.source_contracts
+  );
+  let ts_wrapper = analyze(
+    "import { reactive, watch } from 'vue';\
+     const tagged = reactive({ value: 0 });\
+     ({ x: (tagged.__v_isRef as boolean) } = { x: true });\
+     function accept(_value: unknown) {}\
+     watch(tagged, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert!(
+    ts_wrapper.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    ts_wrapper.source_contracts
+  );
+  let spread_freeze = analyze(
+    "import { reactive, watch } from 'vue';\
+     const frozen = { n: 0 };\
+     Object.freeze(...[frozen]);\
+     const state = reactive(frozen);\
+     function accept(_value: unknown) {}\
+     watch(state, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert!(
+    spread_freeze.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    spread_freeze.source_contracts
+  );
+  let indexed_freeze = analyze(
+    "import { reactive, watch } from 'vue';\
+     const published = { n: 0 };\
+     const container = [published];\
+     Object.freeze(container[0]);\
+     const publishedState = reactive(published);\
+     function accept(_value: unknown) {}\
+     watch(publishedState, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert!(
+    indexed_freeze.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    indexed_freeze.source_contracts
+  );
+  let sequence_freeze = analyze(
+    "import { reactive, watch } from 'vue';\
+     const frozen = { n: 0 };\
+     Object.freeze((0, frozen));\
+     const state = reactive(frozen);\
+     function accept(_value: unknown) {}\
+     watch(state, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert!(
+    sequence_freeze.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    sequence_freeze.source_contracts
+  );
+}
+
+#[test]
+fn source_contracts_fourth_review_pattern_values_and_receiver() {
+  let same_object_pattern = analyze(
+    "import { reactive, watch } from 'vue';\
+     const state = reactive({ child: { n: 0 } });\
+     watch(state.child, () => {});\
+     ({ child: state.child } = { child: state.child });",
+    "ts",
+  );
+  assert!(
+    same_object_pattern.source_contracts.watch_replaced_object_source.is_empty(),
+    "{:?}",
+    same_object_pattern.source_contracts
+  );
+  let same_array_pattern = analyze(
+    "import { reactive, watch } from 'vue';\
+     const state = reactive({ child: { n: 0 } });\
+     watch(state.child, () => {});\
+     [state.child] = [state.child];",
+    "ts",
+  );
+  assert!(
+    same_array_pattern.source_contracts.watch_replaced_object_source.is_empty(),
+    "{:?}",
+    same_array_pattern.source_contracts
+  );
+  let direct_replace = analyze(
+    "import { reactive, watch } from 'vue';\
+     const state = reactive({ child: { n: 0 } });\
+     watch(state.child, () => {});\
+     state.child = { n: 1 };",
+    "ts",
+  );
+  assert_eq!(
+    direct_replace.source_contracts.watch_replaced_object_source.len(),
+    1,
+    "{:?}",
+    direct_replace.source_contracts
+  );
+  let receiver = analyze(
+    "import { reactive, watch } from 'vue';\
+     const tagged = reactive({ value: 0, tag: function () { this.__v_isRef = true } });\
+     tagged.tag();\
+     function accept(_value: unknown) {}\
+     watch(tagged, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert!(
+    receiver.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    receiver.source_contracts
+  );
+  let tagged_template = analyze(
+    "import { reactive, watch } from 'vue';\
+     const tagged = reactive({ value: 0, tag: function () { this.__v_isRef = true } });\
+     tagged.tag``;\
+     function accept(_value: unknown) {}\
+     watch(tagged, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert!(
+    tagged_template.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    tagged_template.source_contracts
+  );
+  let tagged_template_wrapper = analyze(
+    "import { reactive, watch } from 'vue';\
+     const tagged = reactive({ value: 0, tag: function () { this.__v_isRef = true } });\
+     ((tagged.tag as () => void)!)``;\
+     function accept(_value: unknown) {}\
+     watch(tagged, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert!(
+    tagged_template_wrapper.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    tagged_template_wrapper.source_contracts
+  );
+  let tagged_template_args = analyze(
+    "import { reactive, watch } from 'vue';\
+     const tagged = reactive({ value: 0, tag: function () { this.__v_isRef = true } });\
+     tagged.tag<string>``;\
+     function accept(_value: unknown) {}\
+     watch(tagged, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert!(
+    tagged_template_args.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    tagged_template_args.source_contracts
+  );
+  let receiver_freeze = analyze(
+    "import { reactive, watch } from 'vue';\
+     const raw = { n: 0, lock: function () { Object.freeze(this) } };\
+     raw.lock();\
+     const state = reactive(raw);\
+     function accept(_value: unknown) {}\
+     watch(state, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert!(
+    receiver_freeze.source_contracts.watch_callback_contracts.is_empty(),
+    "{:?}",
+    receiver_freeze.source_contracts
+  );
+  let field_mutate = analyze(
+    "import { reactive, watch } from 'vue';\
+     const state = reactive({ n: 1 });\
+     state.n = 2;\
+     function accept(_value: unknown) {}\
+     watch(state, (next, old) => { if (next === old) return; accept(next); });",
+    "ts",
+  );
+  assert_eq!(
+    field_mutate.source_contracts.watch_callback_contracts.len(),
+    1,
+    "{:?}",
+    field_mutate.source_contracts
+  );
+}
+
+#[test]
+fn source_parent_identifier_watch_use_drops_unwrapped_payload_proof() {
+  let alone =
+    analyze("import { ref, watch } from 'vue'; const n = ref(0); watch(n.value, () => {});", "ts");
+  assert_eq!(
+    alone.source_contracts.watch_unwrapped_source.len(),
+    1,
+    "parent unwrapped proof for watch(n.value) must stay; {:?}",
+    alone.source_contracts
+  );
+  let combined = analyze(
+    "import { ref, watch } from 'vue'; const n = ref(0); watch(n.value, () => {}); watch(n, () => {});",
+    "ts",
+  );
+  assert!(
+    combined.source_contracts.watch_unwrapped_source.is_empty(),
+    "source-parent escape/uncertain indexing: a later identifier watch(n) currently drops watch(n.value); {:?}",
+    combined.source_contracts
+  );
+  assert!(
+    combined.source_contracts.watch_callback_contracts.is_empty(),
+    "empty callback must not emit callback-contract facts; {:?}",
+    combined.source_contracts
+  );
+}
+
+#[test]
+#[expect(clippy::panic, reason = "shared-literal fixture construction must fail the test")]
+fn source_contracts_shared_wide_literal_watchers_stay_linear() {
+  let mut previous: Option<(u64, u64)> = None;
+  for size in [32_u64, 64, 128] {
+    let mut fields = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
+    for index in 0..size {
+      fields.push(format!("f{index}: {index}"));
+    }
+    let mut source = format!(
+      "import {{ reactive, watch }} from 'vue'; function accept(_value: unknown) {{}} const raw = {{ {} }};",
+      fields.join(", ")
+    );
+    for index in 0..size {
+      write!(
+        source,
+        "const s{index} = reactive(raw); watch(s{index}, (next, old) => {{ if (next === old) return; accept(next); }});"
+      )
+      .unwrap_or_else(|error| panic!("shared-literal fixture write: {error}"));
+    }
+    let (contracts, work) = contract_stats(&source);
+    assert_eq!(
+      contracts.watch_callback_contracts.len(),
+      usize::try_from(size).unwrap_or(usize::MAX),
+      "shared-literal identity facts at width {size}"
+    );
+    if let Some((prev_size, prev_work)) = previous {
+      assert_eq!(size, prev_size * 2, "fixture sizes must double");
+      assert!(
+        work.saturating_mul(10) < prev_work.saturating_mul(30),
+        "shared-literal watcher work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
+      );
+    }
+    previous = Some((size, work));
+  }
+}
+
+#[test]
+fn source_contracts_watch_callback_sites_stay_linear() {
+  let mut previous: Option<(u64, u64)> = None;
+  for size in [50_u64, 100, 200] {
+    let mut source = String::from(
+      "import { ref, watch } from 'vue'; const n = ref(0); function accept(_value: unknown) {}",
+    );
+    for _ in 0..size {
+      source.push_str(
+        "watch(n, (next, old) => { if (old === undefined) return; accept(next); }, { once: true, immediate: true });",
+      );
+    }
+    let (contracts, work) = contract_stats(&source);
+    assert_eq!(
+      contracts.watch_callback_contracts.len(),
+      usize::try_from(size).unwrap_or(usize::MAX)
+    );
+    if let Some((prev_size, prev_work)) = previous {
+      assert_eq!(size, prev_size * 2, "fixture sizes must double");
+      assert!(
+        work.saturating_mul(10) < prev_work.saturating_mul(30),
+        "callback-site work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
+      );
+    }
+    previous = Some((size, work));
+  }
 }
 
 fn script_setup_from_sfc(sfc: &str) -> &str {

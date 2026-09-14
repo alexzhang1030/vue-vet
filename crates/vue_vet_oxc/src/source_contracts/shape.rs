@@ -76,7 +76,8 @@ pub(super) enum ShapeHint {
 ///
 /// Eligibility preflight and the collector walk share this table through
 /// [`contract_sink`]. `watch` feeds both the ordinary source collector and
-/// watch-family option/signature facts. Named
+/// watch-family option/signature facts. Ordinary `watch` also feeds
+/// callback-contract collectors; `watch*Effect` does not. Named
 /// [`ContractSink::WatchEffectFamily`] imports keep source indexes empty when
 /// every resolved reference is a proven call with fewer than two arguments and
 /// no spread. Ordinary sinks and namespace imports keep full indexing.

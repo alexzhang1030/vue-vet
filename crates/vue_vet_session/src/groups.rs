@@ -35,6 +35,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-multiple-effects-same-target", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-nonreactive-props-destructure", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-on-scope-dispose-reactive-read", RuleGroupId::Lifetime),
+  ("vue-vet/reactivity/no-once-immediate-discard", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-orphaned-scope-watcher", RuleGroupId::Lifetime),
   ("vue-vet/reactivity/no-outside-tracking-dependency-in-computed", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-outside-tracking-dependency-in-effect-scope", RuleGroupId::Tracking),
@@ -56,6 +57,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-trigger-ref-on-non-ref", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-unused-computed-binding", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-v-model-nonreactive-source", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-watch-alias-old-new", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-watch-callback-as-tracking-scope", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-watch-ignored-option", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-watch-replaced-object-source", RuleGroupId::SourceContracts),
@@ -221,13 +223,15 @@ mod tests {
       "vue-vet/reactivity/no-returned-watcher-cleanup",
     ];
     let inventory = rule_inventory(&[]);
-    assert_eq!(inventory.counts.total, 115, "composed CLI inventory count");
+    assert_eq!(inventory.counts.total, 117, "composed CLI inventory count");
     let source = rule_inventory(&[RuleGroupId::SourceContracts]);
     for id in [
       "vue-vet/reactivity/no-lost-shallow-nested-notification",
       "vue-vet/reactivity/no-toraw-write-of-tracked-state",
       "vue-vet/reactivity/no-watch-ignored-option",
       "vue-vet/reactivity/no-watch-signature-mismatch",
+      "vue-vet/reactivity/no-once-immediate-discard",
+      "vue-vet/reactivity/no-watch-alias-old-new",
     ] {
       assert_eq!(group_of(id), Some(RuleGroupId::SourceContracts), "{id}");
       assert!(

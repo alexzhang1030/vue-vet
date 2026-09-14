@@ -1,0 +1,34 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-watch-alias-old-new",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-watch-alias-old-new",
+    "message": "`watch` on a reactive root compares the same proxy identity, so later new-value work never runs",
+    "help": "Vue reuses the reactive object for `old` and `new` on nested changes. Compare a field, watch a getter, or drop the identity guard.",
+    "file": "fixtures/rules/no-watch-alias-old-new/invalid/basic.vue",
+    "span": {
+      "offset": 164,
+      "length": 24,
+      "line": 6,
+      "column": 3
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/no-deep-watch-on-reactive-root",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-deep-watch-on-reactive-root",
+    "message": "`watch(state)` deep-tracks the reactive root; prefer a getter or explicit sources",
+    "help": "Use `watch(() => state.field, …)` or `watch(() => ({ … }), …)` so dependencies stay precise.",
+    "file": "fixtures/rules/no-watch-alias-old-new/invalid/basic.vue",
+    "span": {
+      "offset": 138,
+      "length": 5,
+      "line": 5,
+      "column": 7
+    }
+  }
+]

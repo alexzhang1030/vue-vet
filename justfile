@@ -51,11 +51,15 @@ oracle-lifetime:
 
 # Vue 3.5.40 source-contract premises (issue #224). Locked oracle Vue pin.
 oracle-source-contracts:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node source-contracts.mjs && node watch-api.mjs
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node source-contracts.mjs && node watch-api.mjs && node watch-callback-contracts.mjs
 
 # Vue 3.5.40 watch-family option/signature premises (issue #224).
 oracle-watch-api:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node watch-api.mjs
+
+# Vue 3.5.40 watch-callback contract premises. Locked oracle Vue pin.
+oracle-watch-callback-contracts:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node watch-callback-contracts.mjs
 
 # Vue 3.5.40 lost-notification premises (shallow nested + toRaw) and safe controls.
 oracle-lost-notification:

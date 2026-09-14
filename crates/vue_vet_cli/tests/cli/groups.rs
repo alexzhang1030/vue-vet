@@ -44,8 +44,8 @@ fn list_rules_is_sorted_unique_and_includes_project_ids() {
   );
   assert_eq!(
     parsed.pointer("/counts/total").and_then(Value::as_u64),
-    Some(115),
-    "composed CLI inventory must be 115 after source-contract, notification, and watch-api rules"
+    Some(117),
+    "composed CLI inventory must be 117 after source-contract, notification, watch-api, and callback rules"
   );
 }
 
