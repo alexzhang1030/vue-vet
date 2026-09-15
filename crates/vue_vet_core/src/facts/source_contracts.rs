@@ -73,6 +73,10 @@ pub struct SourceContractFacts {
   pub shared_composable_first_instance_args: Vec<SharedComposableFirstInstanceArgsFact>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub cancelled_filter_promise_demand: Vec<CancelledFilterPromiseDemandFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub json_clone_lossy_type: Vec<JsonCloneLossyTypeFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub ref_history_snapshot_alias: Vec<RefHistorySnapshotAliasFact>,
 }
 
 impl SourceContractFacts {
@@ -107,6 +111,8 @@ impl SourceContractFacts {
       && self.ignorable_async_ignore_window.is_empty()
       && self.shared_composable_first_instance_args.is_empty()
       && self.cancelled_filter_promise_demand.is_empty()
+      && self.json_clone_lossy_type.is_empty()
+      && self.ref_history_snapshot_alias.is_empty()
   }
 }
 
@@ -522,4 +528,25 @@ pub struct CancelledFilterPromiseDemandFact {
   pub await_span: SourceSpan,
   pub member: String,
   pub api: String,
+}
+
+/// Default JSON `useCloned` output is a string, then a Date method is demanded.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct JsonCloneLossyTypeFact {
+  pub demand_span: SourceSpan,
+  pub source_span: SourceSpan,
+  pub clone_span: SourceSpan,
+  pub path: String,
+  pub method: String,
+  pub output_kind: String,
+}
+
+/// Identity history snapshot aliased by a later in-place nested write.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RefHistorySnapshotAliasFact {
+  pub write_span: SourceSpan,
+  pub record_span: SourceSpan,
+  pub demand_span: SourceSpan,
+  pub property: String,
+  pub demand_kind: String,
 }

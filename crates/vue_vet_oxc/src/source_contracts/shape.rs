@@ -87,6 +87,15 @@ pub(super) enum NativeKind {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum Literal {
+  Bool(bool),
+  Number(i64),
+  String,
+  Null,
+  Undefined,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Shape {
   Unknown,
   Primitive,
@@ -485,6 +494,8 @@ pub(super) fn intern_vueuse_api(name: &str, core: bool, shared: bool) -> Option<
     "createSharedComposable" if core || shared => Some("createSharedComposable"),
     "createGlobalState" if core || shared => Some("createGlobalState"),
     "useDebounceFn" if core || shared => Some("useDebounceFn"),
+    "useCloned" if core => Some("useCloned"),
+    "useManualRefHistory" if core => Some("useManualRefHistory"),
     _ => None,
   }
 }
@@ -841,6 +852,33 @@ pub(super) fn is_unresolved_collection(
   symbol_of: impl Fn(&IdentifierReference<'_>) -> Option<SymbolId>,
 ) -> bool {
   unresolved_collection_kind(callee, symbol_of).is_some()
+}
+
+pub(super) fn is_unresolved_date(
+  callee: &Expression<'_>,
+  symbol_of: impl Fn(&IdentifierReference<'_>) -> Option<SymbolId>,
+) -> bool {
+  let Some(identifier) = callee.get_inner_expression().get_identifier_reference() else {
+    return false;
+  };
+  identifier.name.as_str() == "Date" && symbol_of(identifier).is_none()
+}
+
+pub(super) fn literal_of(expression: &Expression<'_>) -> Option<Literal> {
+  match expression.get_inner_expression() {
+    Expression::BooleanLiteral(literal) => Some(Literal::Bool(literal.value)),
+    Expression::NumericLiteral(literal) if literal.value.fract() == 0.0 =>
+    {
+      #[expect(clippy::cast_possible_truncation, reason = "option capacity is a small integer")]
+      Some(Literal::Number(literal.value as i64))
+    }
+    Expression::StringLiteral(_) => Some(Literal::String),
+    Expression::NullLiteral(_) => Some(Literal::Null),
+    Expression::Identifier(identifier) if identifier.name.as_str() == "undefined" => {
+      Some(Literal::Undefined)
+    }
+    _ => None,
+  }
 }
 
 pub(super) fn unresolved_collection_kind(

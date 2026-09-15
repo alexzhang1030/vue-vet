@@ -10,11 +10,11 @@ not Essential/a11y parity with `eslint-plugin-vue`.
 
 | Tier | Meaning | Count |
 | --- | --- | ---: |
-| `tracer` | Needs `vue_vet_reactivity` graph facts (read kinds, guards, scopes, prop edges, binding kinds) | 73 |
+| `tracer` | Needs `vue_vet_reactivity` graph facts (read kinds, guards, scopes, prop edges, binding kinds) | 75 |
 | `parity` | Template Essential / a11y / macros / after-await registrars — open-box completeness | 50 |
 | `practice` | Ecosystem suggestions (`category: practice`); excluded from score by default | 20 |
 
-Total registered **file** rules (builtins + practice): **143**.
+Total registered **file** rules (builtins + practice): **145**.
 
 Project-graph IDs are listed separately below and are not in this file-ID set.
 
@@ -24,7 +24,7 @@ Project-graph IDs are listed separately below and are not in this file-ID set.
 | `correctness` | 36 |
 | `maintainability` | 1 |
 | `practice` | 19 |
-| `reactivity` | 73 |
+| `reactivity` | 75 |
 | `security` | 1 |
 
 Per-rule pages live under `docs/rules/<category>/<name>.md`.
@@ -134,6 +134,7 @@ Per-rule pages live under `docs/rules/<category>/<name>.md`.
 - [`vue-vet/reactivity/no-inactive-scope-result`](./reactivity/no-inactive-scope-result.md) `tracer`
 - [`vue-vet/reactivity/no-inject-same-instance-provide`](./reactivity/no-inject-same-instance-provide.md) `tracer`
 - [`vue-vet/reactivity/no-invalid-custom-ref-interface`](./reactivity/no-invalid-custom-ref-interface.md) `tracer`
+- [`vue-vet/reactivity/no-json-clone-lossy-type`](./reactivity/no-json-clone-lossy-type.md) `tracer`
 - [`vue-vet/reactivity/no-late-cancellation-guard`](./reactivity/no-late-cancellation-guard.md) `tracer`
 - [`vue-vet/reactivity/no-late-scope-dispose`](./reactivity/no-late-scope-dispose.md) `tracer`
 - [`vue-vet/reactivity/no-late-watcher-cleanup`](./reactivity/no-late-watcher-cleanup.md) `tracer`
@@ -159,6 +160,7 @@ Per-rule pages live under `docs/rules/<category>/<name>.md`.
 - [`vue-vet/reactivity/no-reactive-read-during-pause-tracking`](./reactivity/no-reactive-read-during-pause-tracking.md) `tracer`
 - [`vue-vet/reactivity/no-readonly-mutation`](./reactivity/no-readonly-mutation.md) `tracer`
 - [`vue-vet/reactivity/no-ref-as-operand`](./reactivity/no-ref-as-operand.md) `tracer`
+- [`vue-vet/reactivity/no-ref-history-snapshot-alias`](./reactivity/no-ref-history-snapshot-alias.md) `tracer`
 - [`vue-vet/reactivity/no-returned-watcher-cleanup`](./reactivity/no-returned-watcher-cleanup.md) `tracer`
 - [`vue-vet/reactivity/no-route-destructure`](./reactivity/no-route-destructure.md) `tracer`
 - [`vue-vet/reactivity/no-router-destructure`](./reactivity/no-router-destructure.md) `tracer`

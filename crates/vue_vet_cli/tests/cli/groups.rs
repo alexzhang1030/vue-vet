@@ -44,8 +44,8 @@ fn list_rules_is_sorted_unique_and_includes_project_ids() {
   );
   assert_eq!(
     parsed.pointer("/counts/total").and_then(Value::as_u64),
-    Some(145),
-    "composed CLI inventory must be 145 after cancelled-filter promise demand, VueUse demand, same-instance injection demand, until timeout unmatched-demand, the private-field receiver, late-cancellation-guard lifetime owner, scheduling-practice, derivation-practice, stable-computed-identity practice, cached-result demand, lifetime ownership, customRef notification, cleanup-identity, collection-lookup, extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
+    Some(147),
+    "composed CLI inventory must be 147 after snapshot-demand, cancelled-filter promise demand, VueUse demand, same-instance injection demand, until timeout unmatched-demand, the private-field receiver, late-cancellation-guard lifetime owner, scheduling-practice, derivation-practice, stable-computed-identity practice, cached-result demand, lifetime ownership, customRef notification, cleanup-identity, collection-lookup, extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
   );
 }
 
@@ -142,6 +142,7 @@ fn list_rules_source_contracts_includes_contract_ids() {
         .collect()
     })
     .unwrap_or_default();
+  assert_eq!(ids.len(), 44, "{ids:?}");
   for id in [
     "vue-vet/reactivity/no-custom-ref-lost-notification",
     "vue-vet/reactivity/no-effect-scope-callback-argument",
@@ -171,6 +172,8 @@ fn list_rules_source_contracts_includes_contract_ids() {
     "vue-vet/reactivity/no-ignorable-async-ignore-window",
     "vue-vet/reactivity/no-shared-composable-first-instance-args",
     "vue-vet/reactivity/no-cancelled-filter-promise-demand",
+    "vue-vet/reactivity/no-json-clone-lossy-type",
+    "vue-vet/reactivity/no-ref-history-snapshot-alias",
   ] {
     assert!(ids.iter().any(|row| row == id), "missing {id} in {ids:?}");
   }
