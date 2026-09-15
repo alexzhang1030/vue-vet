@@ -1,4 +1,6 @@
-use vue_vet_core::{Confidence, PRACTICE_CATEGORY, Rule, RuleContext, RuleMeta, Severity};
+use vue_vet_core::{
+  Confidence, PRACTICE_CATEGORY, Rule, RuleContext, RuleGroupId, RuleMeta, Severity,
+};
 
 use crate::{
   recipe::{EcosystemApi, PracticeRecipe},
@@ -24,6 +26,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Info,
   confidence: RECIPE.confidence,
   documentation: RECIPE.documentation,
+  group: Some(RuleGroupId::Derivation),
 };
 
 pub(super) struct PreferKeyedMapDependency;

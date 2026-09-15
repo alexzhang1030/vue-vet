@@ -1,6 +1,6 @@
 //! After-tick demand of a memo-blocked conditional template ref.
 
-use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, Severity};
+use vue_vet_core::{Confidence, Rule, RuleContext, RuleGroupId, RuleMeta, Severity};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-v-memo-blocked-ref-demand",
@@ -8,6 +8,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-v-memo-blocked-ref-demand",
+  group: Some(RuleGroupId::Tracking),
 };
 
 pub(super) struct NoVMemoBlockedRefDemand;

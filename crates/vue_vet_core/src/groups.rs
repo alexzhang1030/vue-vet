@@ -1,4 +1,4 @@
-//! Serializable rule-group identity. Product catalogs of rule IDs live in session.
+//! Serializable rule-group identity. Each rule declares `RuleMeta.group`.
 
 use serde::{Deserialize, Serialize};
 

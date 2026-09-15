@@ -6,6 +6,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Error,
   confidence: Confidence::High,
   documentation: "rules/correctness/require-v-for-key",
+  group: None,
 };
 
 pub(super) struct RequireVForKey;

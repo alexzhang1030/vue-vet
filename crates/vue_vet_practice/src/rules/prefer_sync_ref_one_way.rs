@@ -1,6 +1,6 @@
 use vue_vet_core::{
-  Confidence, PRACTICE_CATEGORY, Rule, RuleContext, RuleMeta, Severity, SyncRefOneWayFact,
-  TemplateFacts,
+  Confidence, PRACTICE_CATEGORY, Rule, RuleContext, RuleGroupId, RuleMeta, Severity,
+  SyncRefOneWayFact, TemplateFacts,
 };
 
 use crate::{
@@ -27,6 +27,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Info,
   confidence: RECIPE.confidence,
   documentation: RECIPE.documentation,
+  group: Some(RuleGroupId::Derivation),
 };
 
 pub(super) struct PreferSyncRefOneWay;

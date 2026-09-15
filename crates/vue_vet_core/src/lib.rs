@@ -44,6 +44,7 @@ mod tests {
     default_severity: Severity::Info,
     confidence: Confidence::High,
     documentation: "rules/test/a",
+    group: None,
   };
   static Z_META: RuleMeta = RuleMeta {
     id: "vue-vet/test/z",
@@ -51,6 +52,7 @@ mod tests {
     default_severity: Severity::Info,
     confidence: Confidence::High,
     documentation: "rules/test/z",
+    group: None,
   };
   static A_RULE: TestRule = TestRule(&A_META);
   static Z_RULE: TestRule = TestRule(&Z_META);

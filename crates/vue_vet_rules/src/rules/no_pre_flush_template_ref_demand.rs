@@ -1,6 +1,6 @@
 //! Pre-flush demand of a still-null conditional template ref.
 
-use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, Severity};
+use vue_vet_core::{Confidence, Rule, RuleContext, RuleGroupId, RuleMeta, Severity};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-pre-flush-template-ref-demand",
@@ -8,6 +8,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-pre-flush-template-ref-demand",
+  group: Some(RuleGroupId::Derivation),
 };
 
 pub(super) struct NoPreFlushTemplateRefDemand;

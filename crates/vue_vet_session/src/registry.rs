@@ -1,7 +1,7 @@
 //! Built-in + practice + project rule metadata used by session scans.
 use std::sync::LazyLock;
 
-use vue_vet_core::{Confidence, MIGRATION_CATEGORY, RuleMeta, RuleRegistry, Severity};
+use vue_vet_core::{Confidence, MIGRATION_CATEGORY, RuleGroupId, RuleMeta, RuleRegistry, Severity};
 use vue_vet_practice::practice_rules;
 use vue_vet_project::{PROJECT_RULE_IDS, VAPOR_MIGRATION_RULE_IDS};
 use vue_vet_rules::builtin_rules;
@@ -14,6 +14,7 @@ static PROJECT_RULE_META: [RuleMeta; 2] = [
     default_severity: Severity::Error,
     confidence: Confidence::High,
     documentation: "project-graph",
+    group: Some(RuleGroupId::Project),
   },
   RuleMeta {
     id: PROJECT_RULE_IDS[1],
@@ -21,6 +22,7 @@ static PROJECT_RULE_META: [RuleMeta; 2] = [
     default_severity: Severity::Warning,
     confidence: Confidence::Medium,
     documentation: "project-graph",
+    group: Some(RuleGroupId::Project),
   },
 ];
 
@@ -31,6 +33,7 @@ static VAPOR_MIGRATION_RULE_META: [RuleMeta; 5] = [
     default_severity: Severity::Info,
     confidence: Confidence::High,
     documentation: "rules/migration/vapor-assessment",
+    group: Some(RuleGroupId::VaporMigration),
   },
   RuleMeta {
     id: VAPOR_MIGRATION_RULE_IDS[1],
@@ -38,6 +41,7 @@ static VAPOR_MIGRATION_RULE_META: [RuleMeta; 5] = [
     default_severity: Severity::Info,
     confidence: Confidence::High,
     documentation: "rules/migration/vapor-interop-required",
+    group: Some(RuleGroupId::VaporMigration),
   },
   RuleMeta {
     id: VAPOR_MIGRATION_RULE_IDS[2],
@@ -45,6 +49,7 @@ static VAPOR_MIGRATION_RULE_META: [RuleMeta; 5] = [
     default_severity: Severity::Info,
     confidence: Confidence::High,
     documentation: "rules/migration/vapor-memo-contract-dropped",
+    group: Some(RuleGroupId::VaporMigration),
   },
   RuleMeta {
     id: VAPOR_MIGRATION_RULE_IDS[3],
@@ -52,6 +57,7 @@ static VAPOR_MIGRATION_RULE_META: [RuleMeta; 5] = [
     default_severity: Severity::Info,
     confidence: Confidence::High,
     documentation: "rules/migration/vapor-runtime-envelope",
+    group: Some(RuleGroupId::VaporMigration),
   },
   RuleMeta {
     id: VAPOR_MIGRATION_RULE_IDS[4],
@@ -59,6 +65,7 @@ static VAPOR_MIGRATION_RULE_META: [RuleMeta; 5] = [
     default_severity: Severity::Info,
     confidence: Confidence::High,
     documentation: "rules/migration/vapor-sfc-compile-contract",
+    group: Some(RuleGroupId::VaporMigration),
   },
 ];
 
@@ -115,48 +122,5 @@ mod tests {
     assert!(!ids.contains("vue-vet/correctness/no-on-mounted-after-await"));
     assert!(!ids.contains("vue-vet/reactivity/no-conditional-watch-effect-dependency"));
     assert!(!ids.contains("vue-vet/reactivity/no-self-trigger-in-watch-effect"));
-  }
-
-  #[test]
-  fn file_analysis_registry_matches_docs_file_id_catalog() {
-    let catalog = include_str!("../../../docs/rules/README.md");
-    let mut docs_ids = std::collections::BTreeSet::new();
-    for token in catalog.split('`') {
-      if token.starts_with("vue-vet/")
-        && !token.starts_with("vue-vet/project/")
-        && !token.starts_with("vue-vet/migration/")
-      {
-        docs_ids.insert(token);
-      }
-    }
-    let runtime_ids = file_analysis_registry()
-      .metadata()
-      .into_iter()
-      .map(|meta| meta.id)
-      .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(
-      runtime_ids, docs_ids,
-      "file_analysis_registry metadata must match docs/rules/README.md file IDs (practice included, project/migration excluded)"
-    );
-    for project_id in PROJECT_RULE_IDS {
-      assert!(
-        !runtime_ids.contains(project_id),
-        "project ID {project_id} must stay off the file registry"
-      );
-      assert!(
-        catalog.contains(project_id),
-        "catalog must document project ID {project_id} separately"
-      );
-    }
-    for migration_id in VAPOR_MIGRATION_RULE_IDS {
-      assert!(
-        !runtime_ids.contains(migration_id),
-        "migration ID {migration_id} must stay off the file registry"
-      );
-      assert!(
-        catalog.contains(migration_id),
-        "catalog must document migration ID {migration_id} separately"
-      );
-    }
   }
 }

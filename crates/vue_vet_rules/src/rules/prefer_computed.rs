@@ -1,6 +1,6 @@
 use vue_vet_core::{
   Confidence, FactKinds, FactRef, ReactiveBindingKind, ReactiveReadKind, ReactiveWriteFact, Rule,
-  RuleContext, RuleMeta, ScriptBlockFacts, ScriptOperandFact, Severity, TemplateFacts,
+  RuleContext, RuleGroupId, RuleMeta, ScriptBlockFacts, ScriptOperandFact, Severity, TemplateFacts,
   TrackingScopeFact, TrackingScopeKind,
 };
 use vue_vet_rule_query::{
@@ -13,6 +13,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/prefer-computed",
+  group: Some(RuleGroupId::Derivation),
 };
 
 pub(super) struct PreferComputed;

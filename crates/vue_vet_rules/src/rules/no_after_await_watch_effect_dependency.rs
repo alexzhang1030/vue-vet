@@ -1,5 +1,6 @@
 use vue_vet_core::{
-  Confidence, FactKinds, FactRef, ReactiveReadKind, Rule, RuleContext, RuleMeta, Severity,
+  Confidence, FactKinds, FactRef, ReactiveReadKind, Rule, RuleContext, RuleGroupId, RuleMeta,
+  Severity,
 };
 use vue_vet_rule_query::binding_path;
 
@@ -9,6 +10,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-after-await-watch-effect-dependency",
+  group: Some(RuleGroupId::Tracking),
 };
 
 pub(super) struct NoAfterAwaitWatchEffectDependency;

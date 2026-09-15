@@ -1,7 +1,8 @@
 //! Nested writes past a shallow container's notifying frontier.
 
 use vue_vet_core::{
-  Confidence, FactKinds, FactRef, NotificationBypassKind, Rule, RuleContext, RuleMeta, Severity,
+  Confidence, FactKinds, FactRef, NotificationBypassKind, Rule, RuleContext, RuleGroupId, RuleMeta,
+  Severity,
 };
 
 const META: RuleMeta = RuleMeta {
@@ -10,6 +11,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-lost-shallow-nested-notification",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 pub(super) struct NoLostShallowNestedNotification;

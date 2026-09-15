@@ -27,6 +27,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Info,
   confidence: RECIPE.confidence,
   documentation: RECIPE.documentation,
+  group: None,
 };
 
 pub(super) struct PreferToValue;

@@ -1,4 +1,4 @@
-use vue_vet_core::{Confidence, Rule, RuleContext, RuleMeta, Severity};
+use vue_vet_core::{Confidence, Rule, RuleContext, RuleGroupId, RuleMeta, Severity};
 use vue_vet_rule_query::{block_calls, setup_blocks};
 
 const META: RuleMeta = RuleMeta {
@@ -7,6 +7,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Error,
   confidence: Confidence::High,
   documentation: "rules/correctness/no-mutating-props",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 pub(super) struct NoMutatingProps;

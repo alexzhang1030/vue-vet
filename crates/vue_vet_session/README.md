@@ -40,7 +40,7 @@ Workspace-internal (`publish = false`). Dependents: `vue-vet`, `vue_vet_lsp`,
 | `locality.rs` | DirtyPlan / work counters / product levels |
 | `config.rs` | Discover + validate `vue-vet.toml` |
 | `registry.rs` | File-rule + practice + project metadata / known ids |
-| `groups.rs` | Canonical group table, inventory, effective-config `off` filter |
+| `groups.rs` | Inventory + `--group` off-filter from composed `RuleMeta.group` |
 | `explain.rs` | Rule / finding / scope explain |
 | `discovery.rs` / `package_index.rs` / `scan.rs` | Input snapshot + packages |
 | `diagnostics.rs` | DiagnosticFinalizer |
