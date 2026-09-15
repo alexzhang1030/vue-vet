@@ -1,0 +1,10 @@
+<script setup lang="ts">
+import { ref } from 'vue'
+import { until } from '@vueuse/core'
+const source = ref(0)
+;(await until(source).toBe('ready', { timeout: 5 })).toUpperCase()
+</script>
+
+<template>
+  <p />
+</template>

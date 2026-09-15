@@ -109,6 +109,8 @@ jobs:
         run: just oracle-derivation-practice
       - name: Scheduling-practice Vue 3.5.40 / VueUse 13.9.0 premises
         run: just oracle-scheduling-practice
+      - name: Until timeout unmatched-demand VueUse premises
+        run: just oracle-until-demand
 
   vapor-migration-research:
     name: Vapor migration research

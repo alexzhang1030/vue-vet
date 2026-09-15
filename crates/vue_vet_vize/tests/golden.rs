@@ -2620,6 +2620,7 @@ const SOURCE_CONTRACT_RULES: &[&str] = &[
   "no-memoize-stale-result-demand",
   "no-controlled-computed-stale-result-demand",
   "no-reactive-private-field-access",
+  "no-until-timeout-unmatched-demand",
 ];
 
 const CLEANUP_IDENTITY_RULES: &[&str] = &["no-watch-cleanup-current-source"];

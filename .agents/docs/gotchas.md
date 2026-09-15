@@ -82,6 +82,17 @@ nine `u64` fields (72 bytes) in both layouts; `stats.rs` pins the size.
 only a proven Vue `toRefs` first-argument borrow; helper arguments, storage,
 export, `new`, tagged templates, and receiver calls — including TypeScript
 instantiation wrappers — keep source keys unknown.
+
+`until(source)` is the same generic source5 escape. Timeout unmatched-demand
+proof may discount only a proven `@vueuse/core` / `@vueuse/shared` `until`
+first-argument borrow. Only same-block straight-line writes prove the current
+value; conditional/loop writes and compound/update/pattern `.value` writes
+(`||=`, `+=`, `++`, destructuring) leave the source unknown. Optional
+chaining guards only a provably nullish timeout value. Ordered writes,
+foreign escapes, and effect/timer owners must support the await interval; the
+initializer alone is incomplete. Await sites are indexed by operand so shared
+`until` consumers stay linear.
+
 Object literals execute computed keys (and pattern defaults) during
 construction — walking only `prop.value` misses receiver mutation such as
 `{ [this._set = fn]: 1 }`. Memoized closed-key sets are borrowed and queried

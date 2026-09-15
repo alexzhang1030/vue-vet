@@ -17,7 +17,7 @@ Workspace-internal (`publish = false`).
 | --- | --- | --- |
 | `CACHE_FORMAT_VERSION` | `5` | On-disk entry schema; directory `v5/` |
 | `BASELINE_FORMAT_VERSION` | `1` | Baseline file schema |
-| `RULESET_VERSION` | `34` | Reactive private-field receiver (`no-reactive-private-field-access`) on the late-cancellation-guard catalog (v33) |
+| `RULESET_VERSION` | `35` | VueUse `until(ref).toBe` timeout unmatched-demand (`no-until-timeout-unmatched-demand`) on the private-receiver catalog (v34) |
 | `CACHE_VIZE_CROQUIS_VERSION` | `0.387.0` | Hashed `vize-version` (`AnalysisStackIdentity`) |
 | `CACHE_OXC_PARSER_VERSION` | `0.142.0` | Hashed `oxc-version` (`AnalysisStackIdentity`) |
 

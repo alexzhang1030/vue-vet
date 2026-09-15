@@ -58,6 +58,34 @@ impl PrimitiveKind {
   }
 }
 
+/// Closed literal payload for until timeout unmatched-demand proof.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum Scalar {
+  Number(u64),
+  Str(u64),
+  Bool(bool),
+  Nullish,
+}
+
+impl Scalar {
+  pub(super) const fn kind(self) -> NativeKind {
+    match self {
+      Self::Number(_) => NativeKind::Number,
+      Self::Str(_) => NativeKind::String,
+      Self::Bool(_) => NativeKind::Boolean,
+      Self::Nullish => NativeKind::Nullish,
+    }
+  }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum NativeKind {
+  Number,
+  String,
+  Boolean,
+  Nullish,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Shape {
   Unknown,
@@ -449,6 +477,7 @@ pub(super) fn intern_vueuse_api(name: &str, core: bool, shared: bool) -> Option<
     "computedWithControl" if core || shared => Some("computedWithControl"),
     "controlledComputed" if core || shared => Some("controlledComputed"),
     "computedAsync" | "asyncComputed" if core => Some("computedAsync"),
+    "until" if core || shared => Some("until"),
     _ => None,
   }
 }
@@ -858,6 +887,41 @@ pub(super) fn resolve_vueuse_api(
     }
     _ => None,
   }
+}
+
+pub(super) fn scalar_of(expression: &Expression<'_>) -> Option<Scalar> {
+  match expression.get_inner_expression() {
+    Expression::NumericLiteral(literal) => Some(Scalar::Number(literal.value.to_bits())),
+    Expression::BooleanLiteral(literal) => Some(Scalar::Bool(literal.value)),
+    Expression::StringLiteral(literal) => Some(Scalar::Str(fnv1a(literal.value.as_str()))),
+    Expression::TemplateLiteral(literal) if literal.expressions.is_empty() => {
+      let cooked = literal.quasis.first()?.value.cooked.as_ref()?;
+      Some(Scalar::Str(fnv1a(cooked.as_str())))
+    }
+    Expression::NullLiteral(_) => Some(Scalar::Nullish),
+    Expression::UnaryExpression(unary) if unary.operator == UnaryOperator::UnaryNegation => {
+      let Expression::NumericLiteral(literal) = unary.argument.get_inner_expression() else {
+        return None;
+      };
+      Some(Scalar::Number((-literal.value).to_bits()))
+    }
+    _ => None,
+  }
+}
+
+pub(super) const SYNC_FLUSH: u64 = fnv1a("sync");
+
+#[expect(clippy::indexing_slicing, reason = "const FNV-1a walks a compile-time string")]
+pub(super) const fn fnv1a(text: &str) -> u64 {
+  let mut hash = 0xcbf2_9ce4_8422_2325;
+  let bytes = text.as_bytes();
+  let mut index = 0;
+  while index < bytes.len() {
+    hash ^= bytes[index] as u64;
+    hash = hash.wrapping_mul(0x0100_0000_01b3);
+    index += 1;
+  }
+  hash
 }
 
 pub(super) fn span_key(span: Span) -> u64 {
