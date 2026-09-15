@@ -33,6 +33,7 @@ fn joins_composable_instance_member_chains_from_template() {
         identifiers: Some(vec!["bag".into(), "other".into()]),
       },
     ],
+    allocations: Vec::new(),
   };
   graph.join_template_reads(&template);
   assert!(
@@ -378,6 +379,7 @@ fn local_composable_instance_works_with_sfc_script_offset() {
       span: test_span(sfc.find("bag.signal").unwrap_or(0)),
       identifiers: Some(vec!["bag".into()]),
     }],
+    allocations: Vec::new(),
   };
   let mut joined = graph;
   joined.join_template_reads(&template);

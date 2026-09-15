@@ -74,6 +74,63 @@ pub fn slot_prop_alias_identifiers(expression: &str) -> Vec<String> {
   binding_pattern_identifiers(expression.trim())
 }
 
+/// Proven single identifier expression (`visible`), after TS/paren wrappers.
+#[must_use]
+pub fn template_simple_identifier(expression: &str) -> Option<String> {
+  let trimmed = expression.trim();
+  if trimmed.is_empty() {
+    return None;
+  }
+  let allocator = Allocator::default();
+  let Ok(expr) = Parser::new(&allocator, trimmed, SourceType::tsx()).parse_expression() else {
+    return None;
+  };
+  match expr.get_inner_expression() {
+    Expression::Identifier(identifier) => Some(identifier.name.to_string()),
+    _ => None,
+  }
+}
+
+/// Proven `v-memo` dependency tuple: identifiers and literals only.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TemplateMemoTuple {
+  pub identifiers: Vec<String>,
+  pub empty: bool,
+  pub stable: bool,
+}
+
+/// Parse a `v-memo` expression as a closed array of identifiers/literals.
+///
+/// Spreads, calls, members, and computed holes make the tuple unknown (`None`).
+#[must_use]
+pub fn template_memo_tuple(expression: &str) -> Option<TemplateMemoTuple> {
+  let trimmed = expression.trim();
+  if trimmed.is_empty() {
+    return None;
+  }
+  let allocator = Allocator::default();
+  let Ok(expr) = Parser::new(&allocator, trimmed, SourceType::tsx()).parse_expression() else {
+    return None;
+  };
+  let Expression::ArrayExpression(array) = expr.get_inner_expression() else {
+    return None;
+  };
+  let mut identifiers = Vec::new();
+  for element in &array.elements {
+    let expr = element.as_expression()?;
+    match expr.get_inner_expression() {
+      Expression::Identifier(identifier) => identifiers.push(identifier.name.to_string()),
+      Expression::BooleanLiteral(_)
+      | Expression::NumericLiteral(_)
+      | Expression::StringLiteral(_)
+      | Expression::NullLiteral(_)
+      | Expression::BigIntLiteral(_) => {}
+      _ => return None,
+    }
+  }
+  Some(TemplateMemoTuple { empty: array.elements.is_empty(), stable: true, identifiers })
+}
+
 /// Proven own `key` on an object-literal `v-bind` expression.
 ///
 /// Parentheses and TypeScript `as` / `satisfies` / non-null wrappers are

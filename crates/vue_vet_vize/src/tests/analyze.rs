@@ -1205,3 +1205,111 @@ fn prefer_computed_requires_ordinary_ref_target() {
     "caller-owned Ref parameters must not convert: {diagnostics:?}"
   );
 }
+
+#[test]
+fn template_ref_demand_basic_facts() {
+  let source =
+    include_str!("../../../../fixtures/rules/no-pre-flush-template-ref-demand/invalid/basic.vue");
+  let facts = facts_for_test(Path::new("basic.vue"), source);
+  assert!(!facts.template.allocations.is_empty(), "allocations: {:?}", facts.template.allocations);
+  assert!(
+    facts.script.blocks.iter().any(|block| !block.template_ref_demands.pre_flush.is_empty()),
+    "pre_flush empty; allocations={:?} demands={:?}",
+    facts.template.allocations,
+    facts.script.blocks.iter().map(|block| &block.template_ref_demands).collect::<Vec<_>>()
+  );
+  let memo_source =
+    include_str!("../../../../fixtures/rules/no-v-memo-blocked-ref-demand/invalid/basic.vue");
+  let memo_facts = facts_for_test(Path::new("memo.vue"), memo_source);
+  assert!(
+    memo_facts
+      .script
+      .blocks
+      .iter()
+      .any(|block| !block.template_ref_demands.memo_blocked.is_empty()),
+    "memo_blocked empty; allocations={:?} demands={:?}",
+    memo_facts.template.allocations,
+    memo_facts.script.blocks.iter().map(|block| &block.template_ref_demands).collect::<Vec<_>>()
+  );
+}
+
+#[test]
+fn v_else_inherits_ancestor_condition() {
+  let source = concat!(
+    "<script setup lang=\"ts\">\n",
+    "const outer = false\n",
+    "const visible = false\n",
+    "</script>\n",
+    "<template>\n",
+    "  <div v-if=\"outer\">\n",
+    "    <span v-if=\"visible\">on</span>\n",
+    "    <span v-else ref=\"node\">off</span>\n",
+    "  </div>\n",
+    "</template>\n",
+  );
+  let facts = facts_for_test(Path::new("ElseInherit.vue"), source);
+  let node = facts
+    .template
+    .allocations
+    .iter()
+    .find(|allocation| allocation.static_ref.as_deref() == Some("node"));
+  assert_eq!(
+    node.and_then(|allocation| allocation.condition.as_ref()?.simple_identifier.as_deref()),
+    Some("outer"),
+    "v-else must keep the ancestor v-if; {node:?}"
+  );
+}
+
+#[test]
+fn condition_inside_memo_is_strict_descendant() {
+  let inside = facts_for_test(
+    Path::new("MemoInside.vue"),
+    concat!(
+      "<script setup lang=\"ts\">\nconst revision = 0\nconst visible = false\n</script>\n",
+      "<template><div v-memo=\"[revision]\"><span v-if=\"visible\" ref=\"node\">ready</span></div></template>\n",
+    ),
+  );
+  let inside_ref = inside
+    .template
+    .allocations
+    .iter()
+    .find(|allocation| allocation.static_ref.as_deref() == Some("node"));
+  assert!(
+    inside_ref.is_some_and(|allocation| allocation.condition_inside_memo),
+    "v-if inside v-memo must be marked inside; {inside_ref:?}"
+  );
+  let same = facts_for_test(
+    Path::new("MemoSame.vue"),
+    concat!(
+      "<script setup lang=\"ts\">\nconst revision = 0\nconst visible = false\n</script>\n",
+      "<template><span v-if=\"visible\" v-memo=\"[revision]\" ref=\"node\">ready</span></template>\n",
+    ),
+  );
+  let same_ref = same
+    .template
+    .allocations
+    .iter()
+    .find(|allocation| allocation.static_ref.as_deref() == Some("node"));
+  assert!(
+    same_ref.is_some_and(|allocation| !allocation.condition_inside_memo),
+    "same-element v-if+v-memo is outside withMemo; {same_ref:?}"
+  );
+}
+
+#[test]
+fn template_ref_demand_shadowed_name_diagnostics_are_deterministic() {
+  let source = include_str!(
+    "../../../../fixtures/rules/no-pre-flush-template-ref-demand/invalid/shadowed-name.vue"
+  );
+  let first = analyze_for_test(Path::new("shadowed-name.vue"), source);
+  let pre = first
+    .iter()
+    .filter(|diagnostic| diagnostic.rule_id.ends_with("no-pre-flush-template-ref-demand"))
+    .count();
+  assert_eq!(pre, 1, "shadowing parameter must keep the pre-flush finding; {first:?}");
+  let encoded = format!("{first:?}");
+  for _ in 0..8 {
+    let again = analyze_for_test(Path::new("shadowed-name.vue"), source);
+    assert_eq!(format!("{again:?}"), encoded, "SFC diagnostics must be byte-identical");
+  }
+}

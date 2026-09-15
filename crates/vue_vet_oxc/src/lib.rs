@@ -22,15 +22,23 @@ mod jsx;
 mod lifetime;
 mod nuxt_config;
 mod source_contracts;
+mod template_demand;
 mod template_expr;
 
 pub(crate) use facts::source_span;
 pub use nuxt_config::{
   NuxtConfigFacts, NuxtContentModulePolicy, nuxt_config_content_modules, parse_nuxt_config,
 };
+pub use template_demand::TemplateDemandStats;
+#[cfg(test)]
+pub use template_demand::{
+  collect_forced_full as collect_template_demand_forced_full,
+  collect_with_stats as collect_template_demand_stats,
+};
 pub use template_expr::{
-  object_literal_has_own_key, slot_prop_alias_identifiers, template_expression_identifiers,
-  template_expression_identifiers_with_shadow, v_for_alias_identifiers,
+  TemplateMemoTuple, object_literal_has_own_key, slot_prop_alias_identifiers,
+  template_expression_identifiers, template_expression_identifiers_with_shadow,
+  template_memo_tuple, template_simple_identifier, v_for_alias_identifiers,
 };
 
 #[derive(Debug, Error)]
@@ -83,7 +91,31 @@ pub fn analyze_module_source(
   language: &str,
   kind: ScriptKind,
 ) -> Result<ModuleAnalysis, AnalyzeScriptError> {
-  analyze_module_source_inner(sfc_source, script_source, script_offset, language, kind, false)
+  analyze_module_source_inner(sfc_source, script_source, script_offset, language, kind, false, None)
+}
+
+/// Analyze one script surface, joining template allocation facts when present.
+///
+/// # Errors
+///
+/// Returns the same parser or semantic errors as [`analyze_module_source`].
+pub fn analyze_module_source_with_template(
+  sfc_source: &str,
+  script_source: &str,
+  script_offset: usize,
+  language: &str,
+  kind: ScriptKind,
+  template: Option<&TemplateFacts>,
+) -> Result<ModuleAnalysis, AnalyzeScriptError> {
+  analyze_module_source_inner(
+    sfc_source,
+    script_source,
+    script_offset,
+    language,
+    kind,
+    false,
+    template,
+  )
 }
 
 /// Same as [`analyze_module_source`] but always builds source-contract indexes.
@@ -101,7 +133,7 @@ pub fn analyze_module_source_forced_contracts(
   language: &str,
   kind: ScriptKind,
 ) -> Result<ModuleAnalysis, AnalyzeScriptError> {
-  analyze_module_source_inner(sfc_source, script_source, script_offset, language, kind, true)
+  analyze_module_source_inner(sfc_source, script_source, script_offset, language, kind, true, None)
 }
 
 fn analyze_module_source_inner(
@@ -111,6 +143,7 @@ fn analyze_module_source_inner(
   language: &str,
   kind: ScriptKind,
   force_contracts: bool,
+  template: Option<&TemplateFacts>,
 ) -> Result<ModuleAnalysis, AnalyzeScriptError> {
   let source_type = source_type(language)?;
   let allocator = Allocator::default();
@@ -195,6 +228,14 @@ fn analyze_module_source_inner(
       operands: node_facts.operands,
       lifetime: lifetime::collect(&semantic, &line_index, sfc_source, script_offset),
       source_contracts,
+      template_ref_demands: template_demand::collect_template_ref_demand_facts(
+        &semantic,
+        &line_index,
+        sfc_source,
+        script_offset,
+        kind,
+        template,
+      ),
       reactivity_graph,
     },
     template_facts,

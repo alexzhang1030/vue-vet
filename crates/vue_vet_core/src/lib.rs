@@ -185,6 +185,7 @@ mod tests {
     graph.composable_instances.insert("bag".into(), shape);
     graph.join_template_reads(&TemplateFacts {
       elements: Vec::new(),
+      allocations: Vec::new(),
       expressions: vec![
         TemplateExpressionFact {
           surface: "interpolation".into(),

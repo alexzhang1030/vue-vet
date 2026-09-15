@@ -173,4 +173,7 @@ pub struct TemplateFacts {
   /// Flattened expression surfaces (directives + interpolations) with spans.
   #[serde(default)]
   pub expressions: Vec<TemplateExpressionFact>,
+  /// Parent / memo / condition / ref relations recorded during the Vize walk.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub allocations: Vec<super::TemplateAllocationFact>,
 }

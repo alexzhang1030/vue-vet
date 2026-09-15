@@ -148,6 +148,9 @@ pub struct ScriptBlockFacts {
   /// Neutral Vue API source-contract sites (issue #224). Absence is not proof.
   #[serde(default, skip_serializing_if = "crate::SourceContractFacts::is_empty")]
   pub source_contracts: crate::SourceContractFacts,
+  /// Joined template-ref allocation/demand facts (pre-flush and memo-blocked).
+  #[serde(default, skip_serializing_if = "crate::TemplateRefDemandFacts::is_empty")]
+  pub template_ref_demands: crate::TemplateRefDemandFacts,
   pub reactivity_graph: std::sync::Arc<ReactivityGraph>,
 }
 

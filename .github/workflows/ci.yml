@@ -121,6 +121,8 @@ jobs:
         run: just oracle-snapshot-demand
       - name: Model-default demand compiled-SFC premises
         run: just oracle-model-demand
+      - name: Template-ref demand Vue 3.5.40 premises
+        run: just oracle-template-ref-demand
 
   vapor-migration-research:
     name: Vapor migration research

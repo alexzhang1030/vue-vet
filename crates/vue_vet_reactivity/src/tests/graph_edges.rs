@@ -53,6 +53,7 @@ fn joins_template_reads_onto_script_bindings() {
       span: binding_span,
       identifiers: Some(vec!["count".into()]),
     }],
+    allocations: Vec::new(),
   };
   graph.join_template_reads(&template);
   assert!(

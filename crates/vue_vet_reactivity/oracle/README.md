@@ -216,3 +216,11 @@ the two VueUse source-contract rules. It installs this package's lock
   initializer is retained; an incompatible later demand throws; same-kind
   seeds share updates; disposing the last shared owner allows a new
   string instance
+
+`just oracle-template-ref-demand` (`template-ref-demand.mjs`) is the Vue
+3.5.40 compiled-SFC pin for pre-flush / `v-memo` template-ref demand. It
+resolves `vue`, `@vue/compiler-sfc`, and `@vue/compiler-dom` only from this
+oracle package (`createRequire` on this directory's `package.json`). Both
+compilers are pinned at **3.5.40** — do not loosen. The host is
+`createRenderer` (no DOM package); it proves vnode patch and ref
+capability, not layout/focus/selection.

@@ -63,6 +63,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-outside-tracking-dependency-in-computed", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-outside-tracking-dependency-in-effect-scope", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-outside-tracking-dependency-in-watch-sources", RuleGroupId::Tracking),
+  ("vue-vet/reactivity/no-pre-flush-template-ref-demand", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-primitive-reactive-target", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-props-snapshot-in-ref", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-proxy-structured-clone", RuleGroupId::SourceContracts),
@@ -87,6 +88,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-trigger-ref-on-non-ref", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-until-timeout-unmatched-demand", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-unused-computed-binding", RuleGroupId::Derivation),
+  ("vue-vet/reactivity/no-v-memo-blocked-ref-demand", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-v-model-nonreactive-source", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-watch-alias-old-new", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-watch-callback-as-tracking-scope", RuleGroupId::Tracking),
@@ -315,7 +317,7 @@ mod tests {
       "vue-vet/reactivity/no-watch-cleanup-current-source",
     ];
     let inventory = rule_inventory(&[]);
-    assert_eq!(inventory.counts.total, 149, "composed CLI inventory count");
+    assert_eq!(inventory.counts.total, 151, "composed CLI inventory count");
     assert_eq!(
       group_of("vue-vet/practice/prefer-stable-computed-identity"),
       Some(RuleGroupId::Derivation)
@@ -323,7 +325,7 @@ mod tests {
     let source = rule_inventory(&[RuleGroupId::SourceContracts]);
     assert_eq!(source.counts.total, 46, "source-contracts group count");
     let derivation = rule_inventory(&[RuleGroupId::Derivation]);
-    assert_eq!(derivation.counts.total, 13, "derivation group count");
+    assert_eq!(derivation.counts.total, 14, "derivation group count");
     for id in [
       "vue-vet/reactivity/no-controlled-computed-stale-result-demand",
       "vue-vet/reactivity/no-custom-ref-lost-notification",
@@ -376,6 +378,26 @@ mod tests {
         "tracking inventory must exclude {id}"
       );
     }
+    let derivation = rule_inventory(&[RuleGroupId::Derivation]);
+    assert_eq!(
+      group_of("vue-vet/reactivity/no-pre-flush-template-ref-demand"),
+      Some(RuleGroupId::Derivation)
+    );
+    assert!(
+      derivation
+        .rules
+        .iter()
+        .any(|row| row.id == "vue-vet/reactivity/no-pre-flush-template-ref-demand"),
+      "derivation inventory must include pre-flush template-ref demand"
+    );
+    assert_eq!(
+      group_of("vue-vet/reactivity/no-v-memo-blocked-ref-demand"),
+      Some(RuleGroupId::Tracking)
+    );
+    assert!(
+      tracking.rules.iter().any(|row| row.id == "vue-vet/reactivity/no-v-memo-blocked-ref-demand"),
+      "tracking inventory must include memo-blocked ref demand"
+    );
   }
 
   fn raw_composed_ids() -> Vec<&'static str> {

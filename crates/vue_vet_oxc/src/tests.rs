@@ -11540,3 +11540,239 @@ fn source_contracts_model_preflight_equals_forced_full_without_surface() {
   assert_eq!(relative.model_defaults, full.model_defaults);
   assert_eq!(relative.mounted_member_demands, full.mounted_member_demands);
 }
+
+fn template_demand_span(offset: usize) -> vue_vet_core::SourceSpan {
+  vue_vet_core::SourceSpan { offset, length: 4, line: 1, column: offset.saturating_add(1) }
+}
+
+fn native_alloc(
+  name: &str,
+  condition: &str,
+  offset: usize,
+) -> vue_vet_core::TemplateAllocationFact {
+  vue_vet_core::TemplateAllocationFact {
+    element_span: template_demand_span(offset),
+    tag: "span".into(),
+    is_component: false,
+    static_ref: Some(name.into()),
+    ref_span: Some(template_demand_span(offset.saturating_add(8))),
+    parent_span: None,
+    condition: Some(vue_vet_core::TemplateConditionRelation {
+      expression: condition.into(),
+      span: template_demand_span(offset.saturating_add(2)),
+      identifiers: Some(vec![condition.into()]),
+      simple_identifier: Some(condition.into()),
+      on_self: true,
+    }),
+    memo: None,
+    v_show: false,
+    v_for: false,
+    slot: false,
+    transition: false,
+    nested_memo: false,
+    callback_ref: false,
+    condition_inside_memo: false,
+  }
+}
+
+fn demand_stats(
+  source: &str,
+  allocations: Vec<vue_vet_core::TemplateAllocationFact>,
+  force_full: bool,
+) -> (vue_vet_core::TemplateRefDemandFacts, crate::TemplateDemandStats) {
+  let allocator = Allocator::default();
+  let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
+  assert!(parsed.diagnostics.is_empty(), "demand fixture failed to parse");
+  let built = SemanticBuilder::new().with_build_nodes(true).build(&parsed.program);
+  assert!(built.diagnostics.is_empty(), "demand fixture failed semantics");
+  let line_index = vue_vet_core::LineIndex::new(source);
+  let template =
+    vue_vet_core::TemplateFacts { allocations, ..vue_vet_core::TemplateFacts::default() };
+  if force_full {
+    crate::collect_template_demand_forced_full(
+      &built.semantic,
+      &line_index,
+      source,
+      0,
+      ScriptKind::Setup,
+      Some(&template),
+    )
+  } else {
+    crate::collect_template_demand_stats(
+      &built.semantic,
+      &line_index,
+      source,
+      0,
+      ScriptKind::Setup,
+      Some(&template),
+      false,
+    )
+  }
+}
+
+fn shared_source_fanout(width: u32) -> (String, Vec<vue_vet_core::TemplateAllocationFact>) {
+  let mut source =
+    String::from("import { onMounted, ref, watch } from 'vue'\nconst visible = ref(false)\n");
+  let mut allocations = Vec::new();
+  for index in 0..width {
+    source.push_str("const node");
+    source.push_str(&index.to_string());
+    source.push_str(" = ref(null)\n");
+    allocations.push(native_alloc(&format!("node{index}"), "visible", 200 + index as usize * 10));
+  }
+  source.push_str("watch(visible, () => {\n");
+  for index in 0..width {
+    source.push_str("  node");
+    source.push_str(&index.to_string());
+    source.push_str(".value.textContent\n");
+  }
+  source.push_str("}, { flush: 'pre' })\nonMounted(() => { visible.value = true })\n");
+  (source, allocations)
+}
+
+#[test]
+fn template_demand_gated_matches_forced_full() {
+  let (source, allocations) = shared_source_fanout(4);
+  let (gated, gated_stats) = demand_stats(&source, allocations.clone(), false);
+  let (full, full_stats) = demand_stats(&source, allocations, true);
+  assert_eq!(gated, full, "gated facts must equal forced-full");
+  assert_eq!(gated.pre_flush.len(), 4, "{gated:?}");
+  assert!(gated_stats.work() > 0 && full_stats.work() > 0);
+}
+
+#[test]
+fn template_demand_shared_source_fanout_grows_sub_quadratic() {
+  let mut previous: Option<(u32, u64)> = None;
+  for width in [8_u32, 16, 32] {
+    let (source, allocations) = shared_source_fanout(width);
+    let (facts, stats) = demand_stats(&source, allocations, false);
+    assert_eq!(facts.pre_flush.len(), width as usize, "width {width}; {facts:?}");
+    if let Some((prev_width, prev_work)) = previous {
+      assert_eq!(width, prev_width * 2);
+      assert!(
+        stats.work().saturating_mul(10) < prev_work.saturating_mul(30),
+        "shared-source fanout work grew from {prev_work} to {} on {prev_width}->{width}",
+        stats.work()
+      );
+    }
+    previous = Some((width, stats.work()));
+  }
+}
+
+#[test]
+fn template_demand_many_conditions_and_consumers_grow_together() {
+  let mut previous: Option<(u32, u64)> = None;
+  for width in [8_u32, 16, 32] {
+    let mut source = String::from("import { onMounted, ref, watch } from 'vue'\n");
+    let mut allocations = Vec::new();
+    for index in 0..width {
+      source.push_str("const visible");
+      source.push_str(&index.to_string());
+      source.push_str(" = ref(false)\nconst node");
+      source.push_str(&index.to_string());
+      source.push_str(" = ref(null)\nwatch(visible");
+      source.push_str(&index.to_string());
+      source.push_str(", () => { node");
+      source.push_str(&index.to_string());
+      source.push_str(".value.textContent }, { flush: 'pre' })\n");
+      allocations.push(native_alloc(
+        &format!("node{index}"),
+        &format!("visible{index}"),
+        300 + index as usize * 10,
+      ));
+    }
+    source.push_str("onMounted(() => {\n");
+    for index in 0..width {
+      source.push_str("  visible");
+      source.push_str(&index.to_string());
+      source.push_str(".value = true\n");
+    }
+    source.push_str("})\n");
+    let (facts, stats) = demand_stats(&source, allocations, false);
+    assert_eq!(facts.pre_flush.len(), width as usize, "width {width}; {facts:?}");
+    if let Some((prev_width, prev_work)) = previous {
+      assert_eq!(width, prev_width * 2);
+      assert!(
+        stats.work().saturating_mul(10) < prev_work.saturating_mul(30),
+        "multi-condition work grew from {prev_work} to {} on {prev_width}->{width}",
+        stats.work()
+      );
+    }
+    previous = Some((width, stats.work()));
+  }
+}
+
+fn watches_times_demands(width: u32) -> (String, Vec<vue_vet_core::TemplateAllocationFact>) {
+  let mut source = String::from(
+    "import { onMounted, ref, watch } from 'vue'\nconst visible = ref(false)\nconst node = ref(null)\n",
+  );
+  for _ in 0..width {
+    source.push_str("watch(visible, () => {\n  node.value.textContent\n}, { flush: 'pre' })\n");
+  }
+  source.push_str("onMounted(() => { visible.value = true })\n");
+  (source, vec![native_alloc("node", "visible", 200)])
+}
+
+#[test]
+fn template_demand_many_watches_and_demands_grow_sub_quadratic() {
+  let mut previous: Option<(u32, u64)> = None;
+  for width in [20_u32, 40, 80] {
+    let (source, allocations) = watches_times_demands(width);
+    let (facts, stats) = demand_stats(&source, allocations, false);
+    assert_eq!(facts.pre_flush.len(), width as usize, "width {width}; {facts:?}");
+    if let Some((prev_width, prev_work)) = previous {
+      assert_eq!(width, prev_width * 2);
+      assert!(
+        stats.work().saturating_mul(10) < prev_work.saturating_mul(30),
+        "watch×demand work grew from {prev_work} to {} on {prev_width}->{width}",
+        stats.work()
+      );
+    }
+    previous = Some((width, stats.work()));
+  }
+}
+
+#[test]
+fn template_demand_shadowed_parameter_is_deterministic() {
+  let source = concat!(
+    "import { onMounted, ref, watch } from 'vue'\n",
+    "const visible = ref(false)\n",
+    "const node = ref(null)\n",
+    "const trim = (node: string) => node.trim()\n",
+    "const isOn = (visible: boolean) => visible\n",
+    "watch(visible, () => {\n",
+    "  node.value.textContent\n",
+    "}, { flush: 'pre' })\n",
+    "onMounted(() => { visible.value = true })\n",
+  );
+  let allocations = vec![native_alloc("node", "visible", 200)];
+  let (first, _) = demand_stats(source, allocations.clone(), false);
+  assert_eq!(
+    first.pre_flush.len(),
+    1,
+    "a shadowing parameter must not steal the script-setup template ref; {first:?}"
+  );
+  let encoded = format!("{first:?}");
+  for _ in 0..16 {
+    let (again, _) = demand_stats(source, allocations.clone(), false);
+    assert_eq!(format!("{again:?}"), encoded, "repeated collector output must be byte-identical");
+    assert_eq!(again.pre_flush.len(), 1);
+    assert_eq!(again.memo_blocked.len(), 0);
+  }
+}
+
+#[test]
+fn template_demand_sibling_early_return_is_a_guard() {
+  let source = concat!(
+    "import { onMounted, ref, watch } from 'vue'\n",
+    "const visible = ref(false)\n",
+    "const node = ref(null)\n",
+    "watch(visible, () => {\n",
+    "  if (!node.value) return\n",
+    "  node.value.textContent\n",
+    "}, { flush: 'pre' })\n",
+    "onMounted(() => { visible.value = true })\n",
+  );
+  let (facts, _) = demand_stats(source, vec![native_alloc("node", "visible", 200)], false);
+  assert!(facts.is_empty(), "sibling early-return must guard the demand; {facts:?}");
+}

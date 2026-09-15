@@ -110,6 +110,7 @@ pub fn file(path: &str, imports: &[(&str, &str)], tags: &[&str], calls: &[&str])
       operands: Vec::new(),
       lifetime: vue_vet_core::ReactivityLifetimeFacts::default(),
       source_contracts: vue_vet_core::SourceContractFacts::default(),
+      template_ref_demands: vue_vet_core::TemplateRefDemandFacts::default(),
       reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
     }],
   };
@@ -136,6 +137,7 @@ pub fn file(path: &str, imports: &[(&str, &str)], tags: &[&str], calls: &[&str])
       })
       .collect(),
     expressions: Vec::new(),
+    allocations: Vec::new(),
   };
   ProjectFile {
     path: path.into(),
@@ -185,7 +187,7 @@ pub fn setup_sfc_file(
     path: path.into(),
     source_len: sfc.len(),
     facts: SfcFacts {
-      template: TemplateFacts { elements: Vec::new(), expressions },
+      template: TemplateFacts { elements: Vec::new(), expressions, allocations: Vec::new() },
       script: ScriptFacts {
         blocks: vec![ScriptBlockFacts {
           kind: ScriptKind::Setup,
@@ -219,6 +221,7 @@ pub fn setup_sfc_file(
           operands: Vec::new(),
           lifetime: vue_vet_core::ReactivityLifetimeFacts::default(),
           source_contracts: vue_vet_core::SourceContractFacts::default(),
+          template_ref_demands: vue_vet_core::TemplateRefDemandFacts::default(),
           reactivity_graph: empty_graph(),
         }],
       },

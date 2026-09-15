@@ -2627,6 +2627,8 @@ const SOURCE_CONTRACT_RULES: &[&str] = &[
   "no-cancelled-filter-promise-demand",
   "no-json-clone-lossy-type",
   "no-ref-history-snapshot-alias",
+  "no-pre-flush-template-ref-demand",
+  "no-v-memo-blocked-ref-demand",
 ];
 
 const CLEANUP_IDENTITY_RULES: &[&str] = &["no-watch-cleanup-current-source"];

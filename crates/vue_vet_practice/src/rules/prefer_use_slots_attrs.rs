@@ -105,6 +105,7 @@ mod tests {
         operands: Vec::new(),
         lifetime: vue_vet_core::ReactivityLifetimeFacts::default(),
         source_contracts: vue_vet_core::SourceContractFacts::default(),
+        template_ref_demands: vue_vet_core::TemplateRefDemandFacts::default(),
         reactivity_graph: std::sync::Arc::new(ReactivityGraph::default()),
       }],
     };

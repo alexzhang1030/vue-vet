@@ -102,6 +102,7 @@ mod tests {
           },
           ..SourceContractFacts::default()
         },
+        template_ref_demands: vue_vet_core::TemplateRefDemandFacts::default(),
         reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
       }],
     };

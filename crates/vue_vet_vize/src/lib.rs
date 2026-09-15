@@ -13,7 +13,7 @@ use vue_vet_core::{
   ScriptBlockFacts, ScriptFacts, ScriptKind, SfcFacts, TemplateFacts, content_digest,
 };
 use vue_vet_oxc::{
-  AnalyzeScriptError, analyze_module_source, analyze_module_source_forced_contracts,
+  AnalyzeScriptError, analyze_module_source_forced_contracts, analyze_module_source_with_template,
 };
 use vue_vet_reactivity::ModuleSource;
 
@@ -145,7 +145,10 @@ fn analyze_sfc_facts_inner(
       block.lang.as_deref().unwrap_or("js").into(),
     ));
     let lang = block.lang.as_deref().unwrap_or("js");
-    let can_reuse_script = (reuse_template || !matches!(lang, "jsx" | "tsx")) && reuse_script;
+    // Template-ref demand facts are joined while Oxc walks the script. A
+    // template-only edit must re-run that join; keying reuse on an allocations
+    // digest would recover the LSP-style latency this gives up.
+    let can_reuse_script = reuse_template && reuse_script;
     let (script_facts, summary) = if can_reuse_script
       && let Some(previous) = previous
       && let Some(facts) = previous_script_block(&previous.facts, ScriptKind::Script)
@@ -159,8 +162,14 @@ fn analyze_sfc_facts_inner(
     } else {
       script_rebuilt = true;
       // `block.loc.start/end` are absolute offsets into the original SFC source.
-      let analysis =
-        analyze_module_source(source, &block.content, block.loc.start, lang, ScriptKind::Script)?;
+      let analysis = analyze_module_source_with_template(
+        source,
+        &block.content,
+        block.loc.start,
+        lang,
+        ScriptKind::Script,
+        Some(&template),
+      )?;
       merge_jsx_template_facts(&mut template, analysis.template_facts);
       (analysis.script_facts, Some(analysis.module_trace))
     };
@@ -175,7 +184,7 @@ fn analyze_sfc_facts_inner(
   }
   if let Some(block) = descriptor.script_setup {
     let lang = block.lang.as_deref().unwrap_or("js");
-    let can_reuse_setup = (reuse_template || !matches!(lang, "jsx" | "tsx")) && reuse_setup;
+    let can_reuse_setup = reuse_template && reuse_setup;
     let (script_facts, summary) = if can_reuse_setup
       && let Some(previous) = previous
       && let Some(facts) = previous_script_block(&previous.facts, ScriptKind::Setup)
@@ -183,8 +192,14 @@ fn analyze_sfc_facts_inner(
       (facts.clone(), previous.module_source.as_ref().and_then(ModuleSource::module_summary))
     } else {
       script_rebuilt = true;
-      let analysis =
-        analyze_module_source(source, &block.content, block.loc.start, lang, ScriptKind::Setup)?;
+      let analysis = analyze_module_source_with_template(
+        source,
+        &block.content,
+        block.loc.start,
+        lang,
+        ScriptKind::Setup,
+        Some(&template),
+      )?;
       merge_jsx_template_facts(&mut template, analysis.template_facts);
       (analysis.script_facts, Some(analysis.module_trace))
     };
@@ -279,6 +294,14 @@ fn mark_imported_component_elements(template: &mut TemplateFacts, script: &Scrip
       || locals.iter().any(|local| pascal_to_kebab(local) == element.tag)
     {
       element.is_component = true;
+    }
+  }
+  for allocation in &mut template.allocations {
+    if !allocation.is_component
+      && locals.contains(allocation.tag.as_str())
+      && !vize_carton::is_native_tag(&allocation.tag)
+    {
+      allocation.is_component = true;
     }
   }
 }

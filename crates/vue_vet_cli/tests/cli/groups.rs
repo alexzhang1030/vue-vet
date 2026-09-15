@@ -44,8 +44,8 @@ fn list_rules_is_sorted_unique_and_includes_project_ids() {
   );
   assert_eq!(
     parsed.pointer("/counts/total").and_then(Value::as_u64),
-    Some(149),
-    "composed CLI inventory must be 149 after two component-default demand owners, snapshot-demand, cancelled-filter promise demand, VueUse demand, same-instance injection demand, until timeout unmatched-demand, the private-field receiver, late-cancellation-guard lifetime owner, scheduling-practice, derivation-practice, stable-computed-identity practice, cached-result demand, lifetime ownership, customRef notification, cleanup-identity, collection-lookup, extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
+    Some(151),
+    "composed CLI inventory must be 151 after template-ref demand, two component-default demand owners, snapshot-demand, cancelled-filter promise demand, VueUse demand, same-instance injection demand, until timeout unmatched-demand, the private-field receiver, late-cancellation-guard lifetime owner, scheduling-practice, derivation-practice, stable-computed-identity practice, cached-result demand, lifetime ownership, customRef notification, cleanup-identity, collection-lookup, extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
   );
 }
 
@@ -254,6 +254,38 @@ fn list_rules_derivation_includes_keyed_map_practice() {
   assert!(
     ids.iter().any(|id| id == "vue-vet/practice/prefer-keyed-map-dependency"),
     "missing keyed map practice in {ids:?}"
+  );
+}
+
+#[test]
+fn list_rules_template_ref_demand_groups() {
+  let derivation = run(&["--list-rules", "--format", "json", "--group", "derivation"]);
+  let tracking = run(&["--list-rules", "--format", "json", "--group", "tracking"]);
+  assert!(derivation.status.success(), "{}", String::from_utf8_lossy(&derivation.stderr));
+  assert!(tracking.status.success(), "{}", String::from_utf8_lossy(&tracking.stderr));
+  let derivation_json: Value = serde_json::from_slice(&derivation.stdout).expect("derivation json");
+  let tracking_json: Value = serde_json::from_slice(&tracking.stdout).expect("tracking json");
+  let derivation_ids: Vec<_> = derivation_json
+    .get("rules")
+    .and_then(Value::as_array)
+    .map(|rules| {
+      rules.iter().filter_map(|row| row.get("id").and_then(Value::as_str)).collect::<Vec<_>>()
+    })
+    .unwrap_or_default();
+  let tracking_ids: Vec<_> = tracking_json
+    .get("rules")
+    .and_then(Value::as_array)
+    .map(|rules| {
+      rules.iter().filter_map(|row| row.get("id").and_then(Value::as_str)).collect::<Vec<_>>()
+    })
+    .unwrap_or_default();
+  assert!(
+    derivation_ids.contains(&"vue-vet/reactivity/no-pre-flush-template-ref-demand"),
+    "{derivation_ids:?}"
+  );
+  assert!(
+    tracking_ids.contains(&"vue-vet/reactivity/no-v-memo-blocked-ref-demand"),
+    "{tracking_ids:?}"
   );
 }
 
