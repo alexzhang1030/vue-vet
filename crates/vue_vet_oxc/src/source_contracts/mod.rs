@@ -16,6 +16,10 @@
 //! `@vueuse/core` / `@vueuse/shared` `computedWithControl` /
 //! `controlledComputed` provenance.
 //!
+//! Proven `VueUse` identity is a named or namespace import from `@vueuse/core`.
+//! `useCloned` and `useManualRefHistory` are core-only; `@vueuse/shared` and
+//! type-only / default / shadowed spellings stay unproven.
+//!
 //! Replacement findings require a simple `=` of a fresh object/array/`new`
 //! built-in collection in the same straight-line block after `watch`.
 //!
@@ -78,6 +82,7 @@ mod normalization;
 mod proof;
 mod scheduling_practice;
 mod shape;
+mod snapshot;
 mod stats;
 mod until;
 mod vueuse;
@@ -124,6 +129,7 @@ pub(in crate::source_contracts) struct Collector<'a> {
   pub(in crate::source_contracts) producer_demand: HashMap<SymbolId, ProducerDemand>,
   pub(in crate::source_contracts) sink_use: HashMap<SymbolId, SinkOwnership>,
   pub(in crate::source_contracts) primitive_kind: HashMap<SymbolId, shape::PrimitiveKind>,
+  pub(in crate::source_contracts) snapshot_memo: snapshot::SnapshotMemo,
   pub(in crate::source_contracts) facts: SourceContractFacts,
   pub(in crate::source_contracts) factory_summaries: HashMap<u64, custom_ref::FactorySummary>,
   pub(in crate::source_contracts) computed_calls: Vec<NodeId>,
@@ -196,6 +202,7 @@ fn collect_prepared(
     producer_demand: HashMap::new(),
     sink_use: HashMap::new(),
     primitive_kind: HashMap::new(),
+    snapshot_memo: snapshot::SnapshotMemo::default(),
     facts: SourceContractFacts::default(),
     factory_summaries: HashMap::new(),
     computed_calls: Vec::new(),
@@ -238,6 +245,8 @@ impl Collector<'_> {
           "createSharedComposable" | "createGlobalState" => {
             self.collect_shared_first_instance_args(node_id, call, info);
           }
+          "useCloned" => self.collect_json_clone_lossy(node_id, call, info),
+          "useManualRefHistory" => self.collect_history_snapshot_alias(node_id, call, info),
           _ => {}
         }
       }
@@ -533,6 +542,16 @@ impl Collector<'_> {
       self.indexes.note_query();
       (left.demand_span.offset, left.first_call_span.offset)
         .cmp(&(right.demand_span.offset, right.first_call_span.offset))
+    });
+    self.facts.json_clone_lossy_type.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.demand_span.offset, left.clone_span.offset)
+        .cmp(&(right.demand_span.offset, right.clone_span.offset))
+    });
+    self.facts.ref_history_snapshot_alias.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.write_span.offset, left.demand_span.offset)
+        .cmp(&(right.write_span.offset, right.demand_span.offset))
     });
     (self.facts, self.indexes.stats())
   }

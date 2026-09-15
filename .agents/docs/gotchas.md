@@ -84,6 +84,12 @@ awaited call by `until_awaits_for_bound` / `until_await_method_calls_on`
 (or `until_result_of_await` aliases). Any await between the two calls,
 including `await nextTick()`, is a conservative region boundary. Each
 superseded first-call promise with a failing demand is reported.
+Snapshot-demand facts (`useCloned` JSON Date loss, `useManualRefHistory`
+identity alias) reuse the same region/barrier proof. `useCloned` and
+`useManualRefHistory` stay unproven from `@vueuse/shared`, type-only
+specifiers, defaults, and shadows. JSON clone warnings require a reachable
+Date method after default JSON cloning; history alias warnings require a
+changed nested write plus undo/reset/history demand on the retained record.
 
 `toRefs(state)` is a generic source5 escape/uncertain use. Demand may discount
 only a proven Vue `toRefs` first-argument borrow; helper arguments, storage,

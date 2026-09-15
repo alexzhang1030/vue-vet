@@ -117,6 +117,8 @@ jobs:
         run: just oracle-vueuse-demand
       - name: Cancelled-filter promise demand VueUse premises
         run: just oracle-filter-settlement
+      - name: Snapshot-demand VueUse runtime premises
+        run: just oracle-snapshot-demand
 
   vapor-migration-research:
     name: Vapor migration research

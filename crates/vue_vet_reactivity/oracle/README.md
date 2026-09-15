@@ -145,6 +145,21 @@ matched / zero-timeout / optional-chain / compound-assign controls.
 3.5.40 for same-instance `provide`/`inject` on a fresh native `Symbol()`
 key: the fallback lacks a native callable the local provide would supply.
 
+`just oracle-snapshot-demand` (`snapshot-demand.mjs`) installs this package
+with `--frozen-lockfile` and resolves `vue@3.5.40` / `@vueuse/core@13.9.0` /
+`@vueuse/shared@13.9.0` from the oracle `package.json` only. It pins:
+
+- default `useCloned` JSON clone turns a nested `Date` into a string, so
+  `.getTime()` / `.getUTCFullYear()` throw while string consumers succeed
+- custom `clone` functions keep `Date`
+- nested `cloned.value.when = new Date(...)` repairs the method
+- `useManualRefHistory` identity dump/parse aliases `source.value`
+- a nested write mutates retained records; `undo` / `reset` restore the
+  edited object
+- `{ clone: true }` and function `clone` restore the recorded value
+- root replacement, latest-rebase, write-restored-before-demand, drained
+  undo, and `clear` / `capacity` follow VueUse 13.9.0 stack semantics
+
 `just oracle-self-trigger` (`self-trigger-runs.mjs`) is separate from onTrack
 JSON. It asserts Vue 3.5.40 execution counts for self-write effects, one-shot
 versus repeating `requestAnimationFrame`, and template host behavior:

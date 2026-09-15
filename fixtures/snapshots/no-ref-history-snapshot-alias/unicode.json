@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-ref-history-snapshot-alias",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-ref-history-snapshot-alias",
+    "message": "In-place write to `计数` mutates a retained history snapshot, so `undo` restores the edited object",
+    "help": "Record at 5:26 and `undo` at 8:1. History stores the same object when `clone` is false. Replace the root, or pass `{ clone: true }` / a clone that copies nested values.",
+    "file": "fixtures/rules/no-ref-history-snapshot-alias/invalid/unicode.vue",
+    "span": {
+      "offset": 192,
+      "length": 16,
+      "line": 7,
+      "column": 1
+    }
+  }
+]

@@ -206,6 +206,22 @@ const CANCELLED_FILTER_META: RuleMeta = RuleMeta {
   documentation: "rules/reactivity/no-cancelled-filter-promise-demand",
 };
 
+const JSON_CLONE_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-json-clone-lossy-type",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-json-clone-lossy-type",
+};
+
+const HISTORY_ALIAS_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-ref-history-snapshot-alias",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-ref-history-snapshot-alias",
+};
+
 pub(super) struct NoTriggerRefOnNonRef;
 pub(super) static NO_TRIGGER_REF_ON_NON_REF: NoTriggerRefOnNonRef = NoTriggerRefOnNonRef;
 
@@ -294,6 +310,13 @@ pub(super) static NO_SHARED_COMPOSABLE_FIRST_INSTANCE_ARGS: NoSharedComposableFi
 pub(super) struct NoCancelledFilterPromiseDemand;
 pub(super) static NO_CANCELLED_FILTER_PROMISE_DEMAND: NoCancelledFilterPromiseDemand =
   NoCancelledFilterPromiseDemand;
+
+pub(super) struct NoJsonCloneLossyType;
+pub(super) static NO_JSON_CLONE_LOSSY_TYPE: NoJsonCloneLossyType = NoJsonCloneLossyType;
+
+pub(super) struct NoRefHistorySnapshotAlias;
+pub(super) static NO_REF_HISTORY_SNAPSHOT_ALIAS: NoRefHistorySnapshotAlias =
+  NoRefHistorySnapshotAlias;
 
 impl Rule for NoTriggerRefOnNonRef {
   fn meta(&self) -> &'static RuleMeta {
@@ -1010,6 +1033,63 @@ impl Rule for NoCancelledFilterPromiseDemand {
   }
 }
 
+impl Rule for NoJsonCloneLossyType {
+  fn meta(&self) -> &'static RuleMeta {
+    &JSON_CLONE_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.json_clone_lossy_type {
+        context.report(
+          self.meta(),
+          site.demand_span,
+          format!(
+            "JSON clone produced a {} at `{}`, so `.{}()` is not a function",
+            site.output_kind, site.path, site.method
+          ),
+          Some(format!(
+            "Date path at {}:{} and `useCloned` at {}:{}. Use a clone that keeps Date methods; JSON.stringify turns Date into an ISO string.",
+            site.source_span.line,
+            site.source_span.column,
+            site.clone_span.line,
+            site.clone_span.column
+          )),
+        );
+      }
+    }
+  }
+}
+
+impl Rule for NoRefHistorySnapshotAlias {
+  fn meta(&self) -> &'static RuleMeta {
+    &HISTORY_ALIAS_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.ref_history_snapshot_alias {
+        context.report(
+          self.meta(),
+          site.write_span,
+          format!(
+            "In-place write to `{}` mutates a retained history snapshot, so `{}` restores the edited object",
+            site.property, site.demand_kind
+          ),
+          Some(format!(
+            "Record at {}:{} and `{}` at {}:{}. History stores the same object when `clone` is false. Replace the root, or pass `{{ clone: true }}` / a clone that copies nested values.",
+            site.record_span.line,
+            site.record_span.column,
+            site.demand_kind,
+            site.demand_span.line,
+            site.demand_span.column
+          )),
+        );
+      }
+    }
+  }
+}
+
 fn report_site(
   context: &mut RuleContext<'_>,
   meta: &RuleMeta,
@@ -1049,5 +1129,7 @@ pub(super) fn source_contract_rules() -> Vec<&'static dyn Rule> {
     &NO_IGNORABLE_ASYNC_IGNORE_WINDOW,
     &NO_SHARED_COMPOSABLE_FIRST_INSTANCE_ARGS,
     &NO_CANCELLED_FILTER_PROMISE_DEMAND,
+    &NO_JSON_CLONE_LOSSY_TYPE,
+    &NO_REF_HISTORY_SNAPSHOT_ALIAS,
   ]
 }

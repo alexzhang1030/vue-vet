@@ -38,10 +38,11 @@ use super::proof::{
   classify_role, is_custom_prototype_key,
 };
 use super::shape::{
-  CollectionCtor, PrimitiveAtom as ShapePrimitiveAtom, Scalar, ShapeHint, VueImport, VueUseImport,
-  hint_of, intern_extractable_method, intern_native_ctor, is_actual_proxy_runtime_source,
-  is_fresh_allocation, is_known_receiver_method, is_proxy_allocating_api, primitive_atom,
-  resolve_vue_api, resolve_vueuse_api, scalar_of, span_key, unresolved_collection_kind,
+  CollectionCtor, Literal, PrimitiveAtom as ShapePrimitiveAtom, Scalar, ShapeHint, VueImport,
+  VueUseImport, hint_of, intern_extractable_method, intern_native_ctor,
+  is_actual_proxy_runtime_source, is_fresh_allocation, is_known_receiver_method,
+  is_proxy_allocating_api, is_unresolved_date, literal_of, primitive_atom, resolve_vue_api,
+  resolve_vueuse_api, scalar_of, span_key, unresolved_collection_kind,
 };
 use super::stats::WorkCounter;
 use crate::facts::source_span;
@@ -126,6 +127,60 @@ pub(super) struct CallInfo {
   pub actual_proxy_origin: bool,
   pub arg_count: u8,
   pub third_arg: Option<Span>,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct PathCall {
+  pub keys: Vec<String>,
+  pub method: String,
+  pub site: MemberUse,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct NestedWrite {
+  pub offset: usize,
+  pub span: Span,
+  pub callable: Option<NodeId>,
+  pub region: NodeId,
+  pub rhs: Span,
+  pub simple_assign: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct PathRead {
+  pub keys: Vec<String>,
+  pub site: MemberUse,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct PathWrite {
+  pub offset: usize,
+  pub callable: Option<NodeId>,
+  pub region: NodeId,
+  pub simple_assign: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct SnapshotCall {
+  pub offset: usize,
+  pub span: Span,
+  pub callable: Option<NodeId>,
+  pub region: NodeId,
+  pub reach: Reach,
+  pub optional: bool,
+}
+
+impl SnapshotCall {
+  pub(super) const fn from_call_use(call: CallUse) -> Self {
+    Self {
+      offset: call.offset,
+      span: call.span,
+      callable: call.callable,
+      region: call.region,
+      reach: call.reach,
+      optional: call.optional,
+    }
+  }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -636,6 +691,16 @@ pub(super) struct Indexes {
   provides_by_key: HashMap<SymbolId, Vec<InjectionSite>>,
   injects_by_key: HashMap<SymbolId, Vec<InjectionSite>>,
   script_kind: ScriptKind,
+  pub(super) dates: HashSet<u64>,
+  pub(super) date_poisoned: bool,
+  pub(super) json_poisoned: bool,
+  pub(super) string_capability_poisoned: bool,
+  literals: HashMap<u64, Literal>,
+  path_calls: HashMap<SymbolId, Vec<PathCall>>,
+  path_reads: HashMap<SymbolId, Vec<PathRead>>,
+  path_value_writes: HashMap<SymbolId, Vec<(Vec<String>, PathWrite)>>,
+  pub(super) value_object_alias: HashMap<SymbolId, SymbolId>,
+  nested_writes: HashMap<SymbolId, Vec<(String, NestedWrite)>>,
   work: WorkCounter,
 }
 
@@ -782,6 +847,16 @@ impl Indexes {
       provides_by_key: HashMap::new(),
       injects_by_key: HashMap::new(),
       script_kind: kind,
+      dates: HashSet::new(),
+      date_poisoned: false,
+      json_poisoned: false,
+      string_capability_poisoned: false,
+      literals: HashMap::new(),
+      path_calls: HashMap::new(),
+      path_reads: HashMap::new(),
+      path_value_writes: HashMap::new(),
+      value_object_alias: HashMap::new(),
+      nested_writes: HashMap::new(),
       work,
     };
     indexes.build_owners(semantic);
@@ -930,6 +1005,18 @@ impl Indexes {
     }
     for reads in self.custom_ref_value_reads.values_mut() {
       reads.sort_by_key(|read| read.offset);
+    }
+    for writes in self.nested_writes.values_mut() {
+      writes.sort_by_key(|(_, write)| write.offset);
+    }
+    for calls in self.path_calls.values_mut() {
+      calls.sort_by_key(|call| call.site.offset);
+    }
+    for reads in self.path_reads.values_mut() {
+      reads.sort_by_key(|read| read.site.offset);
+    }
+    for writes in self.path_value_writes.values_mut() {
+      writes.sort_by_key(|(_, write)| write.offset);
     }
   }
 
@@ -1458,6 +1545,87 @@ impl Indexes {
   pub(super) fn result_of_call(&self, span: Span) -> Option<SymbolId> {
     self.work.add_queries(1);
     self.call_results.get(&span_key(span)).copied()
+  }
+
+  pub(super) fn path_calls_on(&self, root: SymbolId) -> &[PathCall] {
+    self.work.add_queries(1);
+    self.path_calls.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn path_reads_on(&self, root: SymbolId) -> &[PathRead] {
+    self.work.add_queries(1);
+    self.path_reads.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn path_value_writes_on(&self, root: SymbolId) -> &[(Vec<String>, PathWrite)] {
+    self.work.add_queries(1);
+    self.path_value_writes.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn nested_writes_on(&self, root: SymbolId) -> &[(String, NestedWrite)] {
+    self.work.add_queries(1);
+    self.nested_writes.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn literal_at(&self, span: Span) -> Option<Literal> {
+    self.work.add_queries(1);
+    self.literals.get(&span_key(span)).copied()
+  }
+
+  pub(super) fn object_is_closed_data(&self, span: Span) -> bool {
+    self.work.add_queries(1);
+    let Some(entries) = self.objects.get(&span_key(span)) else {
+      return false;
+    };
+    entries.iter().all(|entry| {
+      self.work.add_object_entries(1);
+      matches!(entry, ObjectEntry::Data { .. })
+    })
+  }
+
+  pub(super) fn object_has_key_named(&self, span: Span, name: &str) -> bool {
+    self.work.add_queries(1);
+    let Some(entries) = self.objects.get(&span_key(span)) else {
+      return false;
+    };
+    entries.iter().any(|entry| {
+      self.work.add_object_entries(1);
+      match entry {
+        ObjectEntry::Data { name: key, .. } | ObjectEntry::Accessor { name: Some(key) } => {
+          key == name
+        }
+        _ => false,
+      }
+    })
+  }
+
+  #[expect(dead_code, reason = "array literals remain indexed for closed-object proofs")]
+  pub(super) fn array_elements(&self, span: Span) -> Option<&[Span]> {
+    self.work.add_queries(1);
+    self.array_elements.get(&span_key(span)).map(Vec::as_slice)
+  }
+
+  pub(super) fn is_native_date(&self, span: Span) -> bool {
+    self.work.add_queries(1);
+    !self.date_poisoned && self.dates.contains(&span_key(span))
+  }
+
+  pub(super) fn ident_demand(&self, site: &SnapshotCall, origin: DemandOrigin) -> bool {
+    self.work.add_queries(1);
+    site.reach.is_straight()
+      && !site.optional
+      && site.callable == origin.callable
+      && site.region == origin.region
+      && !self.has_barrier_between(origin.region, origin.offset, site.offset)
+  }
+
+  pub(super) fn nested_demand(&self, write: &NestedWrite, origin: DemandOrigin) -> bool {
+    self.work.add_queries(1);
+    write.simple_assign
+      && write.callable == origin.callable
+      && write.region == origin.region
+      && write.offset > origin.offset
+      && !self.has_barrier_between(origin.region, origin.offset, write.offset)
   }
 
   pub(super) fn until_result_of_await(&self, span: Span) -> Option<SymbolId> {
@@ -2347,6 +2515,13 @@ impl Indexes {
               }
               _ => {}
             }
+            if semantic.scoping().symbol_flags(symbol_id).contains(SymbolFlags::ConstVariable)
+              && let Some((ident, keys)) = peel_static_chain(init, &self.work)
+              && keys.as_slice() == ["value"]
+              && let Some(target) = reference_symbol(semantic, ident)
+            {
+              self.value_object_alias.insert(symbol_id, self.root_of(target));
+            }
           }
           if let Some(init) = &declarator.init {
             self.record_destructure(semantic, &declarator.id, init);
@@ -2564,6 +2739,9 @@ impl Indexes {
             reference_symbol(semantic, ident)
           }) {
             self.collections.insert(span_key(expression.span), ctor);
+          }
+          if is_unresolved_date(&expression.callee, |ident| reference_symbol(semantic, ident)) {
+            self.dates.insert(span_key(expression.span));
           }
           self.record_class_new(semantic, expression);
         }
@@ -3065,6 +3243,10 @@ impl Indexes {
     if let Some(scalar) = scalar_of(inner) {
       self.until.scalars.insert(span_key(inner.span()), scalar);
       self.until.scalars.insert(span_key(expression.span()), scalar);
+    }
+    if let Some(literal) = literal_of(inner) {
+      self.literals.insert(span_key(inner.span()), literal);
+      self.literals.insert(span_key(expression.span()), literal);
     }
     self.intern_expr(semantic, inner);
     if let Expression::CallExpression(call) = inner {
@@ -3874,6 +4056,7 @@ impl Indexes {
       }
       _ => {}
     }
+    self.record_snapshot_assignment(semantic, node_id, offset, simple, left, right);
   }
 
   fn record_static_member_assignment(
@@ -3928,6 +4111,131 @@ impl Indexes {
         fresh_alloc: write.fresh,
       });
     }
+  }
+
+  fn record_snapshot_assignment(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    node_id: NodeId,
+    offset: usize,
+    simple: bool,
+    left: &AssignmentTarget<'_>,
+    right: &Expression<'_>,
+  ) {
+    let owner = self.owner(node_id);
+    let callable = owner.callable;
+    match left {
+      AssignmentTarget::AssignmentTargetIdentifier(identifier) => match identifier.name.as_str() {
+        "Date" => self.date_poisoned = true,
+        "JSON" => self.json_poisoned = true,
+        "String" => self.string_capability_poisoned = true,
+        _ => {}
+      },
+      AssignmentTarget::StaticMemberExpression(member) => {
+        let property = member.property.name.as_str();
+        if poisons_native_date(&member.object, property, |ident| reference_symbol(semantic, ident))
+        {
+          self.date_poisoned = true;
+        }
+        if poisons_date_tojson(&member.object, property, |ident| reference_symbol(semantic, ident))
+        {
+          self.date_poisoned = true;
+        }
+        if poisons_json(&member.object, property) {
+          self.json_poisoned = true;
+        }
+        if poisons_string_capability(&member.object, property, |ident| {
+          reference_symbol(semantic, ident)
+        }) {
+          self.string_capability_poisoned = true;
+        }
+        if property == "value"
+          && let Some((ident, keys)) = peel_member_chain(&member.object, &self.work)
+          && let Some(symbol_id) = reference_symbol(semantic, ident)
+          && !keys.is_empty()
+        {
+          let region = region_of(owner, node_id);
+          self
+            .path_value_writes
+            .entry(self.root_of(symbol_id))
+            .or_default()
+            .push((keys, PathWrite { offset, callable, region, simple_assign: simple }));
+        }
+        if let Some((ident, keys)) = peel_static_chain(&member.object, &self.work)
+          && keys.as_slice() == ["value"]
+          && let Some(symbol_id) = reference_symbol(semantic, ident)
+        {
+          self.push_nested_write(
+            self.root_of(symbol_id),
+            member.property.name.as_str().to_string(),
+            NestedWrite {
+              offset,
+              span: member.span,
+              callable,
+              region: region_of(owner, node_id),
+              rhs: right.span(),
+              simple_assign: simple,
+            },
+          );
+        }
+        if let Some(ident) = member.object.get_inner_expression().get_identifier_reference()
+          && let Some(symbol_id) = reference_symbol(semantic, ident)
+          && let Some(root) = self.value_object_alias.get(&self.root_of(symbol_id)).copied()
+        {
+          self.push_nested_write(
+            root,
+            member.property.name.as_str().to_string(),
+            NestedWrite {
+              offset,
+              span: member.span,
+              callable,
+              region: region_of(owner, node_id),
+              rhs: right.span(),
+              simple_assign: simple,
+            },
+          );
+        }
+      }
+      AssignmentTarget::ComputedMemberExpression(member) => {
+        if let Some(key) = computed_literal_key(&member.expression) {
+          if poisons_json(&member.object, &key) {
+            self.json_poisoned = true;
+          }
+          if poisons_string_capability(&member.object, &key, |ident| {
+            reference_symbol(semantic, ident)
+          }) {
+            self.string_capability_poisoned = true;
+          }
+          if poisons_date_tojson(&member.object, &key, |ident| reference_symbol(semantic, ident)) {
+            self.date_poisoned = true;
+          }
+        }
+        if let Some((ident, keys)) = peel_static_chain(&member.object, &self.work)
+          && keys.as_slice() == ["value"]
+          && let Some(symbol_id) = reference_symbol(semantic, ident)
+          && let Some(key) = computed_literal_key(&member.expression)
+        {
+          self.push_nested_write(
+            self.root_of(symbol_id),
+            key,
+            NestedWrite {
+              offset,
+              span: member.span,
+              callable,
+              region: region_of(owner, node_id),
+              rhs: right.span(),
+              simple_assign: simple,
+            },
+          );
+        }
+      }
+      _ => {}
+    }
+  }
+
+  fn push_nested_write(&mut self, root: SymbolId, property: String, write: NestedWrite) {
+    self.work.add_writes(1);
+    self.nested_writes.entry(root).or_default().push((property, write));
   }
 
   fn mark_pattern_uncertain(
@@ -4118,7 +4426,6 @@ impl Indexes {
           .or_default()
           .push(NamedUse { key: property.to_string(), site: use_site });
       }
-      return;
     }
     if property == "value"
       && let Expression::StaticMemberExpression(inner) = object
@@ -4128,6 +4435,19 @@ impl Indexes {
       let root = self.root_of(symbol_id);
       let key = inner.property.name.as_str().to_string();
       self.chained_value_by_root.entry(root).or_default().push(NamedUse { key, site: use_site });
+    }
+    if !use_site.optional
+      && !member.optional
+      && let Some((ident, mut keys)) = peel_member_chain(&member.object, &self.work)
+      && let Some(symbol_id) = reference_symbol(semantic, ident)
+    {
+      self.work.add_queries(1);
+      keys.push(property.to_string());
+      self
+        .path_reads
+        .entry(self.root_of(symbol_id))
+        .or_default()
+        .push(PathRead { keys, site: use_site });
     }
   }
 
@@ -4199,6 +4519,46 @@ impl Indexes {
       self.member_call_by_span.insert(span_key(call.span), named.clone());
       self.until.await_method_calls.entry(span_key(awaited.span)).or_default().push(named);
     }
+    if let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() {
+      let use_site = MemberUse {
+        offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
+        span: call.span,
+        callable: owner.callable,
+        region,
+        optional,
+        call_optional: call.optional,
+        reach: classify_reach(semantic, node_id, &self.work),
+        role: DemandRole::Other,
+      };
+      self.record_path_call(semantic, member, use_site);
+    }
+  }
+
+  fn record_path_call(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    member: &StaticMemberExpression<'_>,
+    site: MemberUse,
+  ) {
+    if site.optional {
+      return;
+    }
+    let Some((ident, keys)) = peel_static_chain(&member.object, &self.work) else {
+      return;
+    };
+    if keys.is_empty() {
+      return;
+    }
+    let Some(symbol_id) = reference_symbol(semantic, ident) else {
+      return;
+    };
+    let root = self.root_of(symbol_id);
+    let path = keys.into_iter().map(str::to_string).collect();
+    self.path_calls.entry(root).or_default().push(PathCall {
+      keys: path,
+      method: member.property.name.as_str().to_string(),
+      site,
+    });
   }
 
   fn record_flow(
@@ -4424,6 +4784,12 @@ impl Indexes {
         }
         "Symbol" => {
           self.shadowed_ctors.insert("Symbol");
+        }
+        "Date" => {
+          self.shadowed_ctors.insert("Date");
+        }
+        "JSON" => {
+          self.shadowed_ctors.insert("JSON");
         }
         _ => {}
       }
@@ -6349,8 +6715,155 @@ fn unresolved_native_ctor(
   let Some(identifier) = expression.get_inner_expression().get_identifier_reference() else {
     return false;
   };
-  matches!(identifier.name.as_str(), "Number" | "String" | "Boolean" | "BigInt" | "Object")
-    && reference_symbol(semantic, identifier).is_none()
+  matches!(
+    identifier.name.as_str(),
+    "Number" | "String" | "Boolean" | "BigInt" | "Object" | "Date" | "JSON"
+  ) && reference_symbol(semantic, identifier).is_none()
+}
+
+fn peel_static_chain<'a>(
+  expression: &'a Expression<'a>,
+  work: &WorkCounter,
+) -> Option<(&'a IdentifierReference<'a>, Vec<&'a str>)> {
+  let mut current = expression.get_inner_expression();
+  let mut keys = Vec::new();
+  loop {
+    work.add_queries(1);
+    match current {
+      Expression::StaticMemberExpression(member) => {
+        if member.optional {
+          return None;
+        }
+        work.add_queries(1);
+        keys.push(member.property.name.as_str());
+        current = member.object.get_inner_expression();
+      }
+      Expression::Identifier(identifier) => {
+        work.add_queries(u64::try_from(keys.len()).unwrap_or(u64::MAX));
+        keys.reverse();
+        return Some((identifier, keys));
+      }
+      _ => return None,
+    }
+  }
+}
+
+fn peel_member_chain<'a>(
+  expression: &'a Expression<'a>,
+  work: &WorkCounter,
+) -> Option<(&'a IdentifierReference<'a>, Vec<String>)> {
+  let mut current = expression.get_inner_expression();
+  let mut keys = Vec::new();
+  loop {
+    work.add_queries(1);
+    match current {
+      Expression::StaticMemberExpression(member) => {
+        if member.optional {
+          return None;
+        }
+        work.add_queries(1);
+        keys.push(member.property.name.to_string());
+        current = member.object.get_inner_expression();
+      }
+      Expression::ComputedMemberExpression(member) => {
+        if member.optional {
+          return None;
+        }
+        let key = computed_literal_key(&member.expression)?;
+        work.add_queries(1);
+        keys.push(key);
+        current = member.object.get_inner_expression();
+      }
+      Expression::Identifier(identifier) => {
+        work.add_queries(u64::try_from(keys.len()).unwrap_or(u64::MAX));
+        keys.reverse();
+        return Some((identifier, keys));
+      }
+      _ => return None,
+    }
+  }
+}
+
+fn poisons_json(object: &Expression<'_>, property: &str) -> bool {
+  let Some(ident) = object.get_inner_expression().get_identifier_reference() else {
+    return false;
+  };
+  ident.name.as_str() == "JSON" && matches!(property, "parse" | "stringify")
+}
+
+fn poisons_date_tojson(
+  object: &Expression<'_>,
+  property: &str,
+  symbol_of: impl Fn(&IdentifierReference<'_>) -> Option<SymbolId>,
+) -> bool {
+  let Some(ident) = object.get_inner_expression().get_identifier_reference() else {
+    return false;
+  };
+  ident.name.as_str() == "Date" && property == "toJSON" && symbol_of(ident).is_none()
+}
+
+fn poisons_string_capability(
+  object: &Expression<'_>,
+  property: &str,
+  symbol_of: impl Fn(&IdentifierReference<'_>) -> Option<SymbolId>,
+) -> bool {
+  if !matches!(property, "getTime" | "getUTCFullYear") {
+    return false;
+  }
+  let inner = object.get_inner_expression();
+  if let Some(ident) = inner.get_identifier_reference() {
+    return ident.name.as_str() == "String"
+      && symbol_of(ident).is_none()
+      && property == "prototype";
+  }
+  let Expression::StaticMemberExpression(member) = inner else {
+    return false;
+  };
+  if member.property.name.as_str() != "prototype" {
+    return false;
+  }
+  let Some(ident) = member.object.get_inner_expression().get_identifier_reference() else {
+    return false;
+  };
+  ident.name.as_str() == "String" && symbol_of(ident).is_none()
+}
+
+fn poisons_native_date(
+  object: &Expression<'_>,
+  property: &str,
+  symbol_of: impl Fn(&IdentifierReference<'_>) -> Option<SymbolId>,
+) -> bool {
+  let inner = object.get_inner_expression();
+  if let Some(ident) = inner.get_identifier_reference() {
+    return ident.name.as_str() == "Date" && symbol_of(ident).is_none() && property == "prototype";
+  }
+  let Expression::StaticMemberExpression(member) = inner else {
+    return false;
+  };
+  if member.property.name.as_str() != "prototype" {
+    return false;
+  }
+  let Some(ident) = member.object.get_inner_expression().get_identifier_reference() else {
+    return false;
+  };
+  ident.name.as_str() == "Date" && symbol_of(ident).is_none()
+}
+
+fn computed_literal_key(expression: &Expression<'_>) -> Option<String> {
+  match expression.get_inner_expression() {
+    Expression::StringLiteral(literal) => Some(literal.value.to_string()),
+    Expression::NumericLiteral(literal)
+      if literal.value.fract() == 0.0 && literal.value >= 0.0 && literal.value < 1_000_000.0 =>
+    {
+      #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "array index keys are small non-negative integers"
+      )]
+      Some((literal.value as u64).to_string())
+    }
+    _ => None,
+  }
 }
 
 fn prototype_receiver_is_native_ctor(

@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-json-clone-lossy-type",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-json-clone-lossy-type",
+    "message": "JSON clone produced a string at `when`, so `.getTime()` is not a function",
+    "help": "Date path at 4:43 and `useCloned` at 4:20. Use a clone that keeps Date methods; JSON.stringify turns Date into an ISO string.",
+    "file": "fixtures/rules/no-json-clone-lossy-type/invalid/alias.vue",
+    "span": {
+      "offset": 175,
+      "length": 27,
+      "line": 5,
+      "column": 1
+    }
+  }
+]

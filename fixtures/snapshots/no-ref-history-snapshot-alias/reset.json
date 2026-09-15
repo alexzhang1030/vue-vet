@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-ref-history-snapshot-alias",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-ref-history-snapshot-alias",
+    "message": "In-place write to `n` mutates a retained history snapshot, so `reset` restores the edited object",
+    "help": "Record at 5:19 and `reset` at 7:1. History stores the same object when `clone` is false. Replace the root, or pass `{ clone: true }` / a clone that copies nested values.",
+    "file": "fixtures/rules/no-ref-history-snapshot-alias/invalid/reset.vue",
+    "span": {
+      "offset": 177,
+      "length": 14,
+      "line": 6,
+      "column": 1
+    }
+  }
+]

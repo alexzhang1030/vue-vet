@@ -2625,6 +2625,8 @@ const SOURCE_CONTRACT_RULES: &[&str] = &[
   "no-ignorable-async-ignore-window",
   "no-shared-composable-first-instance-args",
   "no-cancelled-filter-promise-demand",
+  "no-json-clone-lossy-type",
+  "no-ref-history-snapshot-alias",
 ];
 
 const CLEANUP_IDENTITY_RULES: &[&str] = &["no-watch-cleanup-current-source"];
