@@ -226,6 +226,14 @@ File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         as `ContractSink::WatchEffectFamily`. `toRef` and `effectScope` are
         `ContractSink::ToRef` / `ContractSink::EffectScope` so a named import of
         either still admits collection. `customRef` is `ContractSink::CustomRef`.
+        `computed` is `ContractSink::Computed` so computed-only imports keep
+        forced-full parity for identity facts. Stable-identity facts index
+        producers and consumers once by symbol, compare the source value at
+        consumer population (not the declaration initializer), and require a
+        proven later delivery: a downstream computed needs a later reachable
+        demand, and watch flush/stop/pause is tracked through the delivery
+        interval. Primitive atoms use Oxc unresolved-global identity for
+        `undefined`/`NaN`/`Infinity`.
         Closed-local customRef track/trigger reachability records executed
         consumer, identity setter transfer, and per-handle inactivity queries.
         Demand-gated facts use a function-level execution region plus
@@ -258,7 +266,7 @@ File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         imports reuse the canonical Vue-import pass. `watch` still runs the
         ordinary source collector, watch-family option/signature facts, and
         callback-contract collectors (`watch_callbacks.rs`). Combined
-        `RULESET_VERSION` is 29; `REACTIVITY_GRAPH_VERSION` stays 41.
+        `RULESET_VERSION` is 30; `REACTIVITY_GRAPH_VERSION` stays 41.
         Named effect-family imports keep source indexes empty when every Oxc
         resolved reference is a proven call with fewer than two arguments and
         no spread (current watch-API rules read that second argument). Ordinary
@@ -364,7 +372,7 @@ source-contract uncertainty. Statement ordinals, preceding exits, watcher
 identity by `NodeId`, and scope-active intervals are built once. Shared
 outer/getter/scope proofs stay memoized. Statement / reference / watcher /
 toggle / computed-edge inspections use a test-only counter; production
-`WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 29.
+`WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 30.
 
 `ModuleSummary` (formerly the opaque `PreparedModuleTrace`) is the formal
 cross-module boundary: imports, exports, provides/injects, local reactivity, and

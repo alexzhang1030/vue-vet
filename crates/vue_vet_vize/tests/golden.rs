@@ -2797,3 +2797,83 @@ fn lost_notification_safe_fixtures_produce_no_diagnostics() {
     assert_diagnostics(path, source, empty);
   }
 }
+
+#[test]
+#[expect(clippy::panic, reason = "fixture IO must fail the golden test")]
+fn practice_stable_computed_identity_fixtures_match_exact_diagnostics() {
+  let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+  let rule = "prefer-stable-computed-identity";
+  let invalid_dir = root.join(format!("fixtures/rules/{rule}/invalid"));
+  let valid_dir = root.join(format!("fixtures/rules/{rule}/valid"));
+  let snap_dir = root.join(format!("fixtures/snapshots/{rule}"));
+  std::fs::create_dir_all(&snap_dir).unwrap_or_else(|error| panic!("mkdir {snap_dir:?}: {error}"));
+  for entry in
+    std::fs::read_dir(&invalid_dir).unwrap_or_else(|error| panic!("{invalid_dir:?}: {error}"))
+  {
+    let path = entry.unwrap_or_else(|error| panic!("entry: {error}")).path();
+    if path.extension().and_then(|ext| ext.to_str()) != Some("vue") {
+      continue;
+    }
+    let source =
+      std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("read {path:?}: {error}"));
+    let logical = path.strip_prefix(&root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+    let diagnostics = analyze_versioned(&logical, &source, 4);
+    let actual = match serde_json::to_string_pretty(&diagnostics) {
+      Ok(snapshot) => snapshot,
+      Err(error) => panic!("serialize {logical}: {error}"),
+    };
+    let snap_path = snap_dir.join(format!(
+      "{}.json",
+      path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("fixture")
+    ));
+    if std::env::var_os("UPDATE_SOURCE_CONTRACT_SNAPSHOTS").is_some() {
+      std::fs::write(&snap_path, format!("{actual}\n"))
+        .unwrap_or_else(|error| panic!("write {snap_path:?}: {error}"));
+    }
+    let expected = std::fs::read_to_string(&snap_path)
+      .unwrap_or_else(|error| panic!("missing snapshot {snap_path:?}: {error}"));
+    assert_eq!(actual, expected.trim_end(), "snapshot changed for {logical}");
+    assert!(
+      diagnostics.iter().any(|diagnostic| diagnostic.rule_id.ends_with(rule)),
+      "{logical} must report {rule}; {diagnostics:?}"
+    );
+    assert!(
+      diagnostics.iter().all(|diagnostic| {
+        diagnostic.category == PRACTICE_CATEGORY
+          && diagnostic.severity == Severity::Info
+          && diagnostic.edits.is_empty()
+          && !diagnostic.affects_score()
+      }),
+      "{logical} must stay off score/exit; {diagnostics:?}"
+    );
+    for diagnostic in &diagnostics {
+      let end = diagnostic.span.offset.saturating_add(diagnostic.span.length);
+      assert!(
+        source.get(diagnostic.span.offset..end).is_some_and(|snippet| !snippet.is_empty()),
+        "{logical} span must be non-empty"
+      );
+    }
+    assert!(
+      analyze_versioned(&logical, &source, 3)
+        .iter()
+        .all(|diagnostic| !diagnostic.rule_id.ends_with(rule)),
+      "{logical} must stay quiet before Vue 3.4"
+    );
+  }
+  for entry in
+    std::fs::read_dir(&valid_dir).unwrap_or_else(|error| panic!("{valid_dir:?}: {error}"))
+  {
+    let path = entry.unwrap_or_else(|error| panic!("entry: {error}")).path();
+    if path.extension().and_then(|ext| ext.to_str()) != Some("vue") {
+      continue;
+    }
+    let source =
+      std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("read {path:?}: {error}"));
+    let logical = path.strip_prefix(&root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+    let diagnostics = analyze_versioned(&logical, &source, 4);
+    assert!(
+      diagnostics.iter().all(|diagnostic| !diagnostic.rule_id.ends_with(rule)),
+      "{logical} must stay quiet for {rule}; {diagnostics:?}"
+    );
+  }
+}

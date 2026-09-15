@@ -130,6 +130,11 @@ assignment, constructor arguments, and call / tagged-template receivers,
 including TypeScript instantiation wrappers) and
 `effectScope` constructor callbacks.
 
+`just oracle-computed-identity` (`computed-identity.mjs`) proves Vue 3.5.40
+original vs previous-value-reused computed identity, equal projected values,
+reduced downstream watch/computed work, and the same-value / changed content /
+activation / stop / NaN / signed-zero controls.
+
 `just oracle-lifetime` (`lifetime-runs.mjs` plus `lifetime-ownership-runs.mjs`)
 pins Vue 3.5.40 and includes discarded nested-watch / detached-scope ownership:
 outer callbacks fire at least twice after the original `scope.run` returns, the

@@ -786,3 +786,78 @@ const unused = 1\n\
   );
   let _ignored = std::fs::remove_dir_all(root);
 }
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn stable_computed_identity_edit_and_restore_matches_fresh_sessions() {
+  const ID: &str = "vue-vet/practice/prefer-stable-computed-identity";
+  let root =
+    std::env::temp_dir().join(format!("vue-vet-computed-identity-session-{}", std::process::id()));
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+  std::fs::write(root.join("package.json"), r#"{"dependencies":{"vue":"3.5.40"}}"#)
+    .unwrap_or_else(|error| panic!("package: {error}"));
+  let app = root.join("App.vue");
+  let original = "<script setup lang=\"ts\">\n\
+import { computed, ref, watch } from 'vue'\n\
+const items = ref([1, 2])\n\
+const doubled = computed(() => items.value.map((n: number) => n * 2))\n\
+watch(doubled, (value) => { void value })\n\
+items.value = [1, 2]\n\
+</script>\n\
+<template><p /></template>\n";
+  let edited = "<script setup lang=\"ts\">\n\
+import { computed, ref } from 'vue'\n\
+const items = ref([1, 2])\n\
+const doubled = computed(() => items.value.map((n: number) => n * 2))\n\
+const first = computed(() => doubled.value[0])\n\
+void first.value\n\
+items.value = [1, 2]\n\
+</script>\n\
+<template><p /></template>\n";
+  std::fs::write(&app, original).unwrap_or_else(|error| panic!("write original: {error}"));
+  let has_id = |snapshot: &AnalysisSnapshot| {
+    snapshot
+      .summary
+      .diagnostics
+      .iter()
+      .any(|diagnostic| diagnostic.file == FileId::from("App.vue") && diagnostic.rule_id == ID)
+  };
+  let session = open_session_threads(root.clone(), 1);
+  let cold = session.analyze().unwrap_or_else(|error| panic!("cold: {error}"));
+  assert!(has_id(&cold), "cold positive must report; {:?}", cold.summary.diagnostics);
+  let cold_fresh = open_session_threads(root.clone(), 1)
+    .analyze()
+    .unwrap_or_else(|error| panic!("cold fresh: {error}"));
+  assert_analysis_parity(&cold, &cold_fresh);
+
+  std::fs::write(&app, edited).unwrap_or_else(|error| panic!("write edited: {error}"));
+  session
+    .apply_changes(ChangeSet::upsert(app.clone(), edited.into()))
+    .unwrap_or_else(|error| panic!("edit: {error}"));
+  let incremental =
+    session.analyze_affected().unwrap_or_else(|error| panic!("edit incremental: {error}"));
+  assert!(
+    !has_id(&incremental),
+    "lazy-consumer edit must stay quiet; {:?}",
+    incremental.summary.diagnostics
+  );
+  let edited_fresh = open_session_threads(root.clone(), 1)
+    .analyze()
+    .unwrap_or_else(|error| panic!("edit fresh: {error}"));
+  assert!(!has_id(&edited_fresh), "fresh edited session must stay quiet");
+  assert_analysis_parity(&incremental, &edited_fresh);
+
+  std::fs::write(&app, original).unwrap_or_else(|error| panic!("write restore: {error}"));
+  session
+    .apply_changes(ChangeSet::upsert(app, original.into()))
+    .unwrap_or_else(|error| panic!("restore: {error}"));
+  let restored =
+    session.analyze_affected().unwrap_or_else(|error| panic!("restore incremental: {error}"));
+  assert!(has_id(&restored), "restored positive must report; {:?}", restored.summary.diagnostics);
+  let restored_fresh = open_session_threads(root.clone(), 1)
+    .analyze()
+    .unwrap_or_else(|error| panic!("restore fresh: {error}"));
+  assert_analysis_parity(&restored, &restored_fresh);
+  let _ignored = std::fs::remove_dir_all(root);
+}

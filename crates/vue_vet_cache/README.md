@@ -17,7 +17,7 @@ Workspace-internal (`publish = false`).
 | --- | --- | --- |
 | `CACHE_FORMAT_VERSION` | `5` | On-disk entry schema; directory `v5/` |
 | `BASELINE_FORMAT_VERSION` | `1` | Baseline file schema |
-| `RULESET_VERSION` | `29` | cached-result demand (`no-memoize-stale-result-demand`, `no-controlled-computed-stale-result-demand`) on the lifetime-ownership catalog (v28) |
+| `RULESET_VERSION` | `30` | Stable computed-identity practice (`prefer-stable-computed-identity`) on the cached-result catalog (v29) |
 | `CACHE_VIZE_CROQUIS_VERSION` | `0.387.0` | Hashed `vize-version` (`AnalysisStackIdentity`) |
 | `CACHE_OXC_PARSER_VERSION` | `0.142.0` | Hashed `oxc-version` (`AnalysisStackIdentity`) |
 
