@@ -25,6 +25,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-computed-as-operand", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-computed-self-trigger", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-computed-without-dependency", RuleGroupId::Tracking),
+  ("vue-vet/reactivity/no-custom-ref-lost-notification", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-deep-watch-on-reactive-root", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-deferred-callback-reactive-read-in-effect", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-effect-scope-callback-argument", RuleGroupId::SourceContracts),
@@ -234,12 +235,13 @@ mod tests {
       "vue-vet/reactivity/no-watch-cleanup-current-source",
     ];
     let inventory = rule_inventory(&[]);
-    assert_eq!(inventory.counts.total, 127, "composed CLI inventory count");
+    assert_eq!(inventory.counts.total, 128, "composed CLI inventory count");
     let source = rule_inventory(&[RuleGroupId::SourceContracts]);
-    assert_eq!(source.counts.total, 33, "source-contracts group count");
+    assert_eq!(source.counts.total, 34, "source-contracts group count");
     let derivation = rule_inventory(&[RuleGroupId::Derivation]);
     assert_eq!(derivation.counts.total, 8, "derivation group count");
     for id in [
+      "vue-vet/reactivity/no-custom-ref-lost-notification",
       "vue-vet/reactivity/no-extracted-reactive-collection-method",
       "vue-vet/reactivity/no-lost-shallow-nested-notification",
       "vue-vet/reactivity/no-proxy-structured-clone",

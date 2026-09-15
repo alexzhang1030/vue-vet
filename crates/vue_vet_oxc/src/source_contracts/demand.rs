@@ -433,7 +433,7 @@ impl Collector<'_> {
     Some((self.indexes.copy_key(key), value.span))
   }
 
-  fn result_symbol(&self, node_id: NodeId) -> Option<SymbolId> {
+  pub(super) fn result_symbol(&self, node_id: NodeId) -> Option<SymbolId> {
     let parent = skip_ts(self.semantic, node_id);
     match self.semantic.nodes().kind(parent) {
       AstKind::VariableDeclarator(declarator) => {

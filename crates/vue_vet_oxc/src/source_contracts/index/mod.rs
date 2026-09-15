@@ -19,9 +19,9 @@ use oxc_ast::{
   ast::{
     Argument, ArrayExpression, ArrayExpressionElement, AssignmentOperator, AssignmentTarget,
     AssignmentTargetMaybeDefault, AssignmentTargetProperty, BindingPattern, CallExpression,
-    Expression, ForStatementLeft, IdentifierReference, LogicalOperator, NewExpression,
-    ObjectPropertyKind, PropertyKind, SimpleAssignmentTarget, StaticMemberExpression,
-    UnaryOperator, VariableDeclarator,
+    Expression, ForStatementLeft, FormalParameters, IdentifierReference, LogicalOperator,
+    NewExpression, ObjectPropertyKind, PropertyKind, SimpleAssignmentTarget,
+    StaticMemberExpression, UnaryOperator, VariableDeclarator,
   },
 };
 use oxc_semantic::{NodeId, SymbolFlags, SymbolId};
@@ -54,11 +54,23 @@ pub(super) struct StmtSite {
   pub expr_offset: usize,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum WriteLiteral {
+  Number(u64),
+  Bool(bool),
+  Undefined,
+  Other,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(super) struct ValueWrite {
   pub offset: usize,
   pub callable: Option<NodeId>,
   pub block: NodeId,
+  pub span: Span,
+  #[expect(dead_code, reason = "RHS span is stored for write-site identity")]
+  pub rhs: Span,
+  pub literal: WriteLiteral,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -81,6 +93,7 @@ struct DirectMemberWrite<'a> {
   right: &'a Expression<'a>,
   simple: bool,
   fresh: bool,
+  span: Span,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -227,6 +240,108 @@ pub(super) struct Owner {
   pub region: Option<NodeId>,
 }
 
+#[derive(Clone, Debug)]
+pub(super) struct FunctionInfo {
+  #[expect(dead_code, reason = "node identity is stored for callback owner joins")]
+  pub node_id: NodeId,
+  pub params: Vec<Option<SymbolId>>,
+  pub has_rest: bool,
+  #[expect(dead_code, reason = "arrow expression flag is stored with the function index")]
+  pub expression_arrow: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum FlushKind {
+  Pre,
+  Post,
+  Sync,
+  Unknown,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum OptionFlag {
+  Default,
+  On,
+  Off,
+  Unknown,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct WatchConsumerOptions {
+  pub flush: FlushKind,
+  pub immediate: OptionFlag,
+  pub once: OptionFlag,
+}
+
+impl WatchConsumerOptions {
+  pub(super) fn default_for(api: Option<&str>) -> Self {
+    match api {
+      Some("watchPostEffect") => {
+        Self { flush: FlushKind::Post, immediate: OptionFlag::Default, once: OptionFlag::Default }
+      }
+      Some("watchSyncEffect") => {
+        Self { flush: FlushKind::Sync, immediate: OptionFlag::Default, once: OptionFlag::Default }
+      }
+      _ => {
+        Self { flush: FlushKind::Pre, immediate: OptionFlag::Default, once: OptionFlag::Default }
+      }
+    }
+  }
+
+  /// `Some(true)` when the API is proven subscribed at the call site.
+  /// `Some(false)` when the first run is post-flush or the watcher is already stopped.
+  /// `None` when options are unknown.
+  pub(super) fn immediately_active(self, api: Option<&str>) -> Option<bool> {
+    if matches!(self.flush, FlushKind::Unknown)
+      || matches!(self.immediate, OptionFlag::Unknown)
+      || matches!(self.once, OptionFlag::Unknown)
+    {
+      return None;
+    }
+    let once = matches!(self.once, OptionFlag::On);
+    let immediate = matches!(self.immediate, OptionFlag::On);
+    match api {
+      Some("watchPostEffect") => Some(false),
+      Some("watchEffect" | "effect") => Some(!matches!(self.flush, FlushKind::Post)),
+      Some("watchSyncEffect") => Some(true),
+      Some("watch") => Some(!(once && immediate)),
+      _ => None,
+    }
+  }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ArgUse {
+  pub api: Option<&'static str>,
+  pub index: u32,
+  pub call_span: Span,
+  pub offset: usize,
+  pub node_id: NodeId,
+  #[expect(dead_code, reason = "callable owner is stored for same-block consumer proof")]
+  pub callable: Option<NodeId>,
+  pub block: NodeId,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct IdentCall {
+  #[expect(dead_code, reason = "call span is stored for stop/pause site identity")]
+  pub span: Span,
+  pub offset: usize,
+  #[expect(dead_code, reason = "callable owner is stored for stop/pause ordering")]
+  pub callable: Option<NodeId>,
+  pub block: NodeId,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ValueRead {
+  pub node_id: NodeId,
+  pub offset: usize,
+  pub span: Span,
+  pub callable: Option<NodeId>,
+  #[expect(dead_code, reason = "block is stored for same-block consumer proof")]
+  pub block: NodeId,
+}
+
 pub(super) struct Indexes {
   pub vue_imports: HashMap<SymbolId, VueImport>,
   pub alias_root: HashMap<SymbolId, SymbolId>,
@@ -268,6 +383,18 @@ pub(super) struct Indexes {
   pub init_span: HashMap<SymbolId, Span>,
   pub value_write_roots: HashSet<SymbolId>,
   pub member_write_roots: HashSet<SymbolId>,
+  pub functions: HashMap<u64, FunctionInfo>,
+  pub function_by_node: HashMap<NodeId, Span>,
+  pub effect_calls: HashMap<u64, ArgUse>,
+  pub watch_getters: HashMap<u64, ArgUse>,
+  pub watch_options: HashMap<u64, WatchConsumerOptions>,
+  pub call_results: HashMap<u64, SymbolId>,
+  pub arg_uses: HashMap<SymbolId, Vec<ArgUse>>,
+  pub ident_calls: HashMap<SymbolId, Vec<IdentCall>>,
+  pub handle_member_calls: HashMap<(SymbolId, String), Vec<IdentCall>>,
+  pub custom_ref_value_reads: HashMap<SymbolId, Vec<ValueRead>>,
+  root_members: HashMap<SymbolId, Vec<SymbolId>>,
+  inactivity_by_handle_block: HashMap<(SymbolId, NodeId), Vec<IdentCall>>,
   mixed_value_owners: HashSet<SymbolId>,
   mixed_member_owners: HashSet<(SymbolId, String)>,
   value_write_owner: HashMap<SymbolId, (Option<NodeId>, NodeId)>,
@@ -356,6 +483,18 @@ impl Indexes {
       init_span: HashMap::new(),
       value_write_roots: HashSet::new(),
       member_write_roots: HashSet::new(),
+      functions: HashMap::new(),
+      function_by_node: HashMap::new(),
+      effect_calls: HashMap::new(),
+      watch_getters: HashMap::new(),
+      watch_options: HashMap::new(),
+      call_results: HashMap::new(),
+      arg_uses: HashMap::new(),
+      ident_calls: HashMap::new(),
+      handle_member_calls: HashMap::new(),
+      custom_ref_value_reads: HashMap::new(),
+      root_members: HashMap::new(),
+      inactivity_by_handle_block: HashMap::new(),
       mixed_value_owners: HashSet::new(),
       mixed_member_owners: HashSet::new(),
       value_write_owner: HashMap::new(),
@@ -399,9 +538,12 @@ impl Indexes {
     indexes.record_region_starts(semantic, line_index, sfc_source, script_offset);
     indexes.scan(semantic, line_index, sfc_source, script_offset, kind);
     indexes.finish_aliases_and_roles(semantic);
+    indexes.remap_symbol_maps();
+    indexes.summarize_root_members();
     indexes.summarize_writes();
     indexes.precompute_closed_objects();
     indexes.summarize_closed_keys();
+    indexes.summarize_inactivity();
     for events in indexes.events_by_block.values_mut() {
       events.sort_unstable();
     }
@@ -432,9 +574,88 @@ impl Indexes {
     for uses in indexes.member_calls_by_root.values_mut() {
       uses.sort_by_key(|use_site| use_site.site.offset);
     }
+    for uses in indexes.arg_uses.values_mut() {
+      uses.sort_by_key(|use_site| use_site.offset);
+    }
+    for calls in indexes.ident_calls.values_mut() {
+      calls.sort_by_key(|call| call.offset);
+    }
+    for calls in indexes.handle_member_calls.values_mut() {
+      calls.sort_by_key(|call| call.offset);
+    }
+    for reads in indexes.custom_ref_value_reads.values_mut() {
+      reads.sort_by_key(|read| read.offset);
+    }
     indexes.finish_pending_map_key_args(semantic);
     indexes.finish_map_indexes();
     indexes
+  }
+
+  pub(super) const fn work_counter(&self) -> &WorkCounter {
+    &self.work
+  }
+
+  pub(super) fn function(&self, span: Span) -> Option<&FunctionInfo> {
+    self.work.add_queries(1);
+    self.functions.get(&span_key(span))
+  }
+
+  pub(super) fn arg_uses_of(&self, root: SymbolId) -> &[ArgUse] {
+    self.work.add_queries(1);
+    self.arg_uses.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn value_reads_of(&self, root: SymbolId) -> &[ValueRead] {
+    self.work.add_queries(1);
+    self.custom_ref_value_reads.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn value_writes_of(&self, root: SymbolId) -> &[ValueWrite] {
+    self.work.add_queries(1);
+    self.value_writes.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn call_result(&self, call_span: Span) -> Option<SymbolId> {
+    self.work.add_queries(1);
+    self.call_results.get(&span_key(call_span)).copied()
+  }
+
+  pub(super) fn watch_options_of(
+    &self,
+    call_span: Span,
+    api: Option<&str>,
+  ) -> WatchConsumerOptions {
+    self.work.add_queries(1);
+    self
+      .watch_options
+      .get(&span_key(call_span))
+      .copied()
+      .unwrap_or_else(|| WatchConsumerOptions::default_for(api))
+  }
+
+  pub(super) fn symbols_of_root(&self, root: SymbolId) -> &[SymbolId] {
+    self.work.add_queries(1);
+    self.root_members.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn first_inactivity_after(
+    &self,
+    handle_root: SymbolId,
+    block: NodeId,
+    after: usize,
+  ) -> Option<usize> {
+    let Some(events) = self.inactivity_by_handle_block.get(&(handle_root, block)) else {
+      self.work.add_queries(1);
+      return None;
+    };
+    let index = self.work.partition_point(events, |event| event.offset <= after);
+    self.work.add_queries(1);
+    events.get(index).map(|event| event.offset)
+  }
+
+  pub(super) fn has_member_mutation(&self, root: SymbolId) -> bool {
+    self.work.add_queries(1);
+    self.member_write_roots.contains(&root) || self.unknown_member_touch.contains(&root)
   }
 
   pub(super) const fn stats(&self) -> super::stats::SourceContractStats {
@@ -786,10 +1007,6 @@ impl Indexes {
     })
   }
 
-  pub(super) const fn work_counter(&self) -> &WorkCounter {
-    &self.work
-  }
-
   pub(super) fn member_calls_on(&self, root: SymbolId) -> &[NamedUse] {
     self.work.add_queries(1);
     self.member_calls_by_root.get(&root).map_or(&[], Vec::as_slice)
@@ -892,12 +1109,80 @@ impl Indexes {
     }
   }
 
+  fn summarize_inactivity(&mut self) {
+    for (root, calls) in &self.ident_calls {
+      for call in calls {
+        self.work.add_queries(1);
+        self.inactivity_by_handle_block.entry((*root, call.block)).or_default().push(*call);
+      }
+    }
+    for ((root, property), calls) in &self.handle_member_calls {
+      if property != "stop" && property != "pause" {
+        continue;
+      }
+      for call in calls {
+        self.work.add_queries(1);
+        self.inactivity_by_handle_block.entry((*root, call.block)).or_default().push(*call);
+      }
+    }
+    for events in self.inactivity_by_handle_block.values_mut() {
+      events.sort_by_key(|event| event.offset);
+    }
+  }
+
   pub(super) fn owner(&self, node_id: NodeId) -> Owner {
     self.owners.get(&node_id).copied().unwrap_or(Owner {
       callable: None,
       block: None,
       region: None,
     })
+  }
+
+  fn remap_symbol_maps(&mut self) {
+    let ident_calls = std::mem::take(&mut self.ident_calls);
+    for (symbol_id, mut calls) in ident_calls {
+      self.work.add_queries(1);
+      self.ident_calls.entry(self.root_of(symbol_id)).or_default().append(&mut calls);
+    }
+    let arg_uses = std::mem::take(&mut self.arg_uses);
+    for (symbol_id, mut uses) in arg_uses {
+      self.work.add_queries(1);
+      self.arg_uses.entry(self.root_of(symbol_id)).or_default().append(&mut uses);
+    }
+    let value_reads = std::mem::take(&mut self.value_reads);
+    for (symbol_id, mut reads) in value_reads {
+      self.work.add_queries(1);
+      self.value_reads.entry(self.root_of(symbol_id)).or_default().append(&mut reads);
+    }
+    let custom_ref_value_reads = std::mem::take(&mut self.custom_ref_value_reads);
+    for (symbol_id, mut reads) in custom_ref_value_reads {
+      self.work.add_queries(1);
+      self.custom_ref_value_reads.entry(self.root_of(symbol_id)).or_default().append(&mut reads);
+    }
+    let handle_member_calls = std::mem::take(&mut self.handle_member_calls);
+    for ((symbol_id, property), mut calls) in handle_member_calls {
+      self.work.add_queries(1);
+      self
+        .handle_member_calls
+        .entry((self.root_of(symbol_id), property))
+        .or_default()
+        .append(&mut calls);
+    }
+  }
+
+  fn summarize_root_members(&mut self) {
+    for (alias, target) in &self.alias_root {
+      self.work.add_queries(1);
+      let bucket = self.root_members.entry(*target).or_default();
+      if bucket.is_empty() {
+        bucket.push(*target);
+        self.work.add_writes(1);
+      }
+      if *alias != *target {
+        bucket.push(*alias);
+        self.work.add_writes(1);
+      }
+    }
   }
 
   pub(super) fn note_node(&self) {
@@ -972,6 +1257,7 @@ impl Indexes {
             node_id,
             member,
           );
+          self.record_value_read(semantic, line_index, sfc_source, script_offset, node_id, member);
         }
         AstKind::VariableDeclarator(declarator) => {
           if matches!(
@@ -1021,6 +1307,9 @@ impl Indexes {
             self
               .init_offset
               .insert(symbol_id, mapped(line_index, sfc_source, script_offset, init.span()).offset);
+            if let Expression::CallExpression(call) = init.get_inner_expression() {
+              self.call_results.insert(span_key(call.span), symbol_id);
+            }
           }
           if let Some(init) = &declarator.init {
             self.record_destructure(semantic, &declarator.id, init);
@@ -1093,6 +1382,12 @@ impl Indexes {
             self.map_intrinsic_poisoned = true;
           }
         }
+        AstKind::Function(function) => {
+          self.record_function(node_id, function.span, &function.params, false);
+        }
+        AstKind::ArrowFunctionExpression(arrow) => {
+          self.record_function(node_id, arrow.span, &arrow.params, arrow.expression);
+        }
         AstKind::CallExpression(call) => {
           self.record_call(semantic, kind, call);
           self.record_map_member_call(
@@ -1104,6 +1399,7 @@ impl Indexes {
             node_id,
             call,
           );
+          self.record_call_uses(semantic, line_index, sfc_source, script_offset, node_id, call);
           let api = self.calls.get(&span_key(call.span)).and_then(|info| info.api);
           for (index, argument) in call.arguments.iter().enumerate() {
             if let Some(expression) = argument.as_expression() {
@@ -1658,6 +1954,224 @@ impl Indexes {
     }
   }
 
+  fn record_function(
+    &mut self,
+    node_id: NodeId,
+    span: Span,
+    params: &FormalParameters<'_>,
+    expression_arrow: bool,
+  ) {
+    let mut simple = Vec::with_capacity(params.items.len());
+    let mut has_pattern = false;
+    for item in &params.items {
+      if let Some(symbol_id) = simple_binding_symbol(&item.pattern) {
+        simple.push(Some(symbol_id));
+      } else {
+        has_pattern = true;
+        simple.push(None);
+      }
+    }
+    self.function_by_node.insert(node_id, span);
+    self.functions.insert(
+      span_key(span),
+      FunctionInfo {
+        node_id,
+        params: simple,
+        has_rest: params.rest.is_some() || has_pattern,
+        expression_arrow,
+      },
+    );
+  }
+
+  fn record_call_uses(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    node_id: NodeId,
+    call: &CallExpression<'_>,
+  ) {
+    let owner = self.owner(node_id);
+    let block = owner.block.unwrap_or(node_id);
+    let offset = mapped(line_index, sfc_source, script_offset, call.span).offset;
+    let api = self.calls.get(&span_key(call.span)).and_then(|info| info.api);
+    if super::shape::is_watch_effect_api(api.unwrap_or(""))
+      && let Some(first) = call.arguments.first().and_then(Argument::as_expression)
+    {
+      let inner = first.get_inner_expression();
+      self.effect_calls.insert(
+        span_key(inner.span()),
+        ArgUse {
+          api,
+          index: 0,
+          call_span: call.span,
+          offset,
+          node_id,
+          callable: owner.callable,
+          block,
+        },
+      );
+    }
+    if api == Some("watch")
+      && let Some(first) = call.arguments.first().and_then(Argument::as_expression)
+    {
+      let inner = first.get_inner_expression();
+      if matches!(inner, Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_))
+      {
+        self.watch_getters.insert(
+          span_key(inner.span()),
+          ArgUse {
+            api,
+            index: 0,
+            call_span: call.span,
+            offset,
+            node_id,
+            callable: owner.callable,
+            block,
+          },
+        );
+      }
+    }
+    if api.is_some_and(|name| {
+      matches!(name, "watch" | "watchEffect" | "watchPostEffect" | "watchSyncEffect" | "effect")
+    }) {
+      self.watch_options.insert(span_key(call.span), parse_watch_options(call, api));
+    }
+    if let Some(identifier) = call.callee.get_inner_expression().get_identifier_reference()
+      && let Some(symbol_id) = reference_symbol(semantic, identifier)
+    {
+      self.ident_calls.entry(symbol_id).or_default().push(IdentCall {
+        span: call.span,
+        offset,
+        callable: owner.callable,
+        block,
+      });
+    }
+    if let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression()
+      && let Some(object) = member.object.get_inner_expression().get_identifier_reference()
+      && let Some(symbol_id) = reference_symbol(semantic, object)
+    {
+      self
+        .handle_member_calls
+        .entry((symbol_id, member.property.name.to_string()))
+        .or_default()
+        .push(IdentCall { span: call.span, offset, callable: owner.callable, block });
+    }
+    for (index, argument) in call.arguments.iter().enumerate() {
+      let Some(expression) = argument.as_expression() else {
+        continue;
+      };
+      self.record_arg_ident(
+        semantic,
+        line_index,
+        sfc_source,
+        script_offset,
+        expression,
+        api,
+        index,
+        call.span,
+        offset,
+        node_id,
+        owner.callable,
+        block,
+      );
+      if index == 0
+        && api == Some("watch")
+        && let Expression::ArrayExpression(array) = expression.get_inner_expression()
+      {
+        for element in &array.elements {
+          let Some(inner) = element.as_expression() else {
+            continue;
+          };
+          self.record_arg_ident(
+            semantic,
+            line_index,
+            sfc_source,
+            script_offset,
+            inner,
+            api,
+            0,
+            call.span,
+            offset,
+            node_id,
+            owner.callable,
+            block,
+          );
+        }
+      }
+    }
+  }
+
+  #[expect(
+    clippy::too_many_arguments,
+    reason = "call-arg indexing needs the mapped call site plus argument identity"
+  )]
+  fn record_arg_ident(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    expression: &Expression<'_>,
+    api: Option<&'static str>,
+    index: usize,
+    call_span: Span,
+    call_offset: usize,
+    node_id: NodeId,
+    callable: Option<NodeId>,
+    block: NodeId,
+  ) {
+    let Some(identifier) = expression.get_inner_expression().get_identifier_reference() else {
+      return;
+    };
+    let Some(symbol_id) = reference_symbol(semantic, identifier) else {
+      return;
+    };
+    let offset = mapped(line_index, sfc_source, script_offset, identifier.span).offset;
+    self.arg_uses.entry(symbol_id).or_default().push(ArgUse {
+      api,
+      index: u32::try_from(index).unwrap_or(u32::MAX),
+      call_span,
+      offset: if offset == 0 { call_offset } else { offset },
+      node_id,
+      callable,
+      block,
+    });
+  }
+
+  fn record_value_read(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    node_id: NodeId,
+    member: &oxc_ast::ast::StaticMemberExpression<'_>,
+  ) {
+    if member.property.name.as_str() != "value" {
+      return;
+    }
+    if member_is_write_context(semantic, node_id, member.span) {
+      return;
+    }
+    let Some(object) = member.object.get_inner_expression().get_identifier_reference() else {
+      return;
+    };
+    let Some(symbol_id) = reference_symbol(semantic, object) else {
+      return;
+    };
+    let owner = self.owner(node_id);
+    let offset = mapped(line_index, sfc_source, script_offset, member.span).offset;
+    self.custom_ref_value_reads.entry(symbol_id).or_default().push(ValueRead {
+      node_id,
+      offset,
+      span: member.span,
+      callable: owner.callable,
+      block: owner.block.unwrap_or(node_id),
+    });
+  }
+
   fn mark_escape_expr(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
@@ -1706,7 +2220,7 @@ impl Indexes {
           semantic,
           &member.object,
           member.property.name.as_str(),
-          DirectMemberWrite { offset, callable, block, right, simple, fresh },
+          DirectMemberWrite { offset, callable, block, right, simple, fresh, span: member.span },
         );
       }
       AssignmentTarget::ComputedMemberExpression(member) => {
@@ -1754,6 +2268,9 @@ impl Indexes {
           offset: write.offset,
           callable: write.callable,
           block: write.block,
+          span: write.span,
+          rhs: write.right.span(),
+          literal: write_literal(semantic, write.right),
         });
       } else {
         self.uncertain.insert(root);
@@ -3439,6 +3956,126 @@ fn reference_symbol(
 
 fn intern_unresolved_global_name(name: &str) -> Option<&'static str> {
   intern_native_ctor(name).or_else(|| (name == "globalThis").then_some("globalThis"))
+}
+
+fn simple_binding_symbol(pattern: &BindingPattern<'_>) -> Option<SymbolId> {
+  match pattern {
+    BindingPattern::BindingIdentifier(identifier) => identifier.symbol_id.get(),
+    BindingPattern::AssignmentPattern(assignment) => simple_binding_symbol(&assignment.left),
+    _ => None,
+  }
+}
+
+fn write_literal(
+  semantic: &oxc_semantic::Semantic<'_>,
+  expression: &Expression<'_>,
+) -> WriteLiteral {
+  match expression.get_inner_expression() {
+    Expression::NumericLiteral(literal) => WriteLiteral::Number(literal.value.to_bits()),
+    Expression::BooleanLiteral(literal) => WriteLiteral::Bool(literal.value),
+    Expression::Identifier(identifier)
+      if identifier.name.as_str() == "undefined"
+        && reference_symbol(semantic, identifier).is_none() =>
+    {
+      WriteLiteral::Undefined
+    }
+    _ => WriteLiteral::Other,
+  }
+}
+
+fn parse_watch_options(call: &CallExpression<'_>, api: Option<&str>) -> WatchConsumerOptions {
+  let mut options = WatchConsumerOptions::default_for(api);
+  let Some(index) = watch_options_index(api) else {
+    return options;
+  };
+  if call.arguments.iter().take(index.saturating_add(1)).any(Argument::is_spread) {
+    options.flush = FlushKind::Unknown;
+    options.immediate = OptionFlag::Unknown;
+    options.once = OptionFlag::Unknown;
+    return options;
+  }
+  let Some(argument) = call.arguments.get(index).and_then(Argument::as_expression) else {
+    return options;
+  };
+  let Expression::ObjectExpression(object) = argument.get_inner_expression() else {
+    options.flush = FlushKind::Unknown;
+    options.immediate = OptionFlag::Unknown;
+    options.once = OptionFlag::Unknown;
+    return options;
+  };
+  for property in &object.properties {
+    match property {
+      ObjectPropertyKind::SpreadProperty(_) => {
+        options.flush = FlushKind::Unknown;
+        options.immediate = OptionFlag::Unknown;
+        options.once = OptionFlag::Unknown;
+      }
+      ObjectPropertyKind::ObjectProperty(property) => {
+        let Some(name) = property.key.static_name() else {
+          options.flush = FlushKind::Unknown;
+          options.immediate = OptionFlag::Unknown;
+          options.once = OptionFlag::Unknown;
+          continue;
+        };
+        if name == "flush" {
+          options.flush = match property.value.get_inner_expression() {
+            Expression::StringLiteral(literal) if literal.value.as_str() == "pre" => FlushKind::Pre,
+            Expression::StringLiteral(literal) if literal.value.as_str() == "post" => {
+              FlushKind::Post
+            }
+            Expression::StringLiteral(literal) if literal.value.as_str() == "sync" => {
+              FlushKind::Sync
+            }
+            _ => FlushKind::Unknown,
+          };
+        } else if name == "immediate" {
+          options.immediate = bool_option_flag(&property.value);
+        } else if name == "once" {
+          options.once = bool_option_flag(&property.value);
+        }
+      }
+    }
+  }
+  if api == Some("watchPostEffect") {
+    options.flush = FlushKind::Post;
+  }
+  if api == Some("watchSyncEffect") {
+    options.flush = FlushKind::Sync;
+  }
+  options
+}
+
+fn watch_options_index(api: Option<&str>) -> Option<usize> {
+  match api {
+    Some("watch") => Some(2),
+    Some("watchEffect" | "watchPostEffect" | "watchSyncEffect" | "effect") => Some(1),
+    _ => None,
+  }
+}
+
+fn bool_option_flag(expression: &Expression<'_>) -> OptionFlag {
+  match expression.get_inner_expression() {
+    Expression::BooleanLiteral(literal) if literal.value => OptionFlag::On,
+    Expression::BooleanLiteral(literal) if !literal.value => OptionFlag::Off,
+    _ => OptionFlag::Unknown,
+  }
+}
+
+fn member_is_write_context(
+  semantic: &oxc_semantic::Semantic<'_>,
+  node_id: NodeId,
+  span: Span,
+) -> bool {
+  match semantic.nodes().parent_kind(node_id) {
+    AstKind::UpdateExpression(_) => true,
+    AstKind::AssignmentExpression(assignment) => {
+      assignment.left.span().start <= span.start && span.end <= assignment.left.span().end
+    }
+    AstKind::CallExpression(call) => {
+      call.callee.span().start <= span.start && span.end <= call.callee.span().end
+    }
+    _ => false,
+  }
 }
 
 fn mapped(

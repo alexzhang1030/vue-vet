@@ -470,7 +470,7 @@ watchEffect(() => { source.value; return () => {} })\n",
   let _ignored = std::fs::remove_dir_all(root);
 }
 
-const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 18] = [
+const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 19] = [
   "vue-vet/reactivity/no-watch-unwrapped-source",
   "vue-vet/reactivity/no-trigger-ref-on-non-ref",
   "vue-vet/reactivity/no-torefs-on-non-proxy",
@@ -489,6 +489,7 @@ const SOURCE_CONTRACT_AND_NOTIFICATION_IDS: [&str; 18] = [
   "vue-vet/reactivity/no-inactive-scope-result",
   "vue-vet/reactivity/no-missing-torefs-key",
   "vue-vet/reactivity/no-extracted-reactive-collection-method",
+  "vue-vet/reactivity/no-custom-ref-lost-notification",
 ];
 
 #[test]
@@ -528,6 +529,9 @@ raw.n = 2\n\
 const quiet = reactive({ n: 1 })\n\
 const quietRaw = toRaw(quiet)\n\
 quietRaw.n = 2\n\
+const lost = customRef((_track, trigger) => { let value = 0; return { get() { return value }, set(next: number) { value = next; trigger() } } })\n\
+watch(lost, () => {})\n\
+lost.value = 1\n\
 </script>\n\
 <template><p /></template>\n";
   let replaced = "<script setup lang=\"ts\">\n\
@@ -581,7 +585,7 @@ watch(state, (next, old) => { if (next === old) return; accept(next) })\n\
   assert_eq!(
     contract_ids(&cold),
     expected,
-    "cold scan must emit source-contract, watch-api, notification, callback, normalization, clone, and extracted-method IDs; {:?}",
+    "cold scan must emit source-contract, watch-api, notification, callback, normalization, clone, extracted-method, and customRef-notification IDs; {:?}",
     cold.summary.diagnostics
   );
   let toraw = "vue-vet/reactivity/no-toraw-write-of-tracked-state";

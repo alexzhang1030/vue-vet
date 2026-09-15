@@ -47,6 +47,8 @@ pub struct SourceContractFacts {
   pub raw_proxy_map_key: Vec<RawProxyMapKeyFact>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub keyed_map_dependency: Vec<KeyedMapDependencyFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub custom_ref_lost_notification: Vec<CustomRefLostNotificationFact>,
 }
 
 impl SourceContractFacts {
@@ -69,6 +71,7 @@ impl SourceContractFacts {
       && self.extracted_reactive_collection_method.is_empty()
       && self.raw_proxy_map_key.is_empty()
       && self.keyed_map_dependency.is_empty()
+      && self.custom_ref_lost_notification.is_empty()
   }
 }
 
@@ -235,4 +238,21 @@ pub struct KeyedMapDependencyFact {
   pub key: String,
   /// `"computed"` or `"watchEffect"`.
   pub api: String,
+}
+
+/// Missing `track` in get versus missing `trigger` in set. One rule ID.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub enum CustomRefLostNotificationReason {
+  GetTracking,
+  SetNotification,
+}
+
+/// Closed-local customRef whose primitive slot cannot notify a proven consumer.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CustomRefLostNotificationFact {
+  pub span: SourceSpan,
+  pub source_span: SourceSpan,
+  pub consumer_span: SourceSpan,
+  pub write_span: SourceSpan,
+  pub reason: CustomRefLostNotificationReason,
 }

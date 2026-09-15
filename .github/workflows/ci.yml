@@ -99,6 +99,8 @@ jobs:
         run: just oracle-lost-notification
       - name: EventTarget watch cleanup identity
         run: just oracle-cleanup-identity
+      - name: customRef notification-chain Vue 3.5.40 premises
+        run: just oracle-custom-ref-notification
 
   vapor-migration-research:
     name: Vapor migration research

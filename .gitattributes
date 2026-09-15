@@ -12,3 +12,4 @@ fixtures/rules/no-missing-torefs-key/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/no-raw-proxy-map-key/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/prefer-keyed-map-dependency/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/no-watch-cleanup-current-source/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/no-custom-ref-lost-notification/invalid/crlf.vue -text whitespace=cr-at-eol

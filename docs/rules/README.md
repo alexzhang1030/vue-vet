@@ -10,11 +10,11 @@ not Essential/a11y parity with `eslint-plugin-vue`.
 
 | Tier | Meaning | Count |
 | --- | --- | ---: |
-| `tracer` | Needs `vue_vet_reactivity` graph facts (read kinds, guards, scopes, prop edges, binding kinds) | 61 |
+| `tracer` | Needs `vue_vet_reactivity` graph facts (read kinds, guards, scopes, prop edges, binding kinds) | 62 |
 | `parity` | Template Essential / a11y / macros / after-await registrars — open-box completeness | 50 |
 | `practice` | Ecosystem suggestions (`category: practice`); excluded from score by default | 14 |
 
-Total registered **file** rules (builtins + practice): **125**.
+Total registered **file** rules (builtins + practice): **126**.
 
 Project-graph IDs are listed separately below and are not in this file-ID set.
 
@@ -24,7 +24,7 @@ Project-graph IDs are listed separately below and are not in this file-ID set.
 | `correctness` | 36 |
 | `maintainability` | 1 |
 | `practice` | 13 |
-| `reactivity` | 61 |
+| `reactivity` | 62 |
 | `security` | 1 |
 
 Per-rule pages live under `docs/rules/<category>/<name>.md`.
@@ -114,6 +114,7 @@ Per-rule pages live under `docs/rules/<category>/<name>.md`.
 - [`vue-vet/reactivity/no-computed-as-operand`](./reactivity/no-computed-as-operand.md) `tracer`
 - [`vue-vet/reactivity/no-computed-self-trigger`](./reactivity/no-computed-self-trigger.md) `tracer`
 - [`vue-vet/reactivity/no-computed-without-dependency`](./reactivity/no-computed-without-dependency.md) `tracer`
+- [`vue-vet/reactivity/no-custom-ref-lost-notification`](./reactivity/no-custom-ref-lost-notification.md) `tracer`
 - [`vue-vet/reactivity/no-deep-watch-on-reactive-root`](./reactivity/no-deep-watch-on-reactive-root.md) `tracer`
 - [`vue-vet/reactivity/no-deferred-callback-reactive-read-in-effect`](./reactivity/no-deferred-callback-reactive-read-in-effect.md) `tracer`
 - [`vue-vet/reactivity/no-effect-scope-callback-argument`](./reactivity/no-effect-scope-callback-argument.md) `tracer`
