@@ -33,91 +33,57 @@ roll-rust: lint-rust test
 roll: roll-rust npm-test
 
 # Refresh committed Vue onTrack oracle fixtures (requires pnpm + Node).
+# Differs from `oracle lane`: writes fixtures via `pnpm oracle:write`.
 oracle-refresh:
   cd crates/vue_vet_reactivity/oracle && pnpm install && pnpm oracle:write
 
 # Compare static tracer to committed runtime oracle (no Node required).
+# Differs from `oracle lane`: this is a cargo test, not a Node script.
 oracle:
   cargo test -p vue_vet_reactivity --lib oracle --locked
 
-# Vue 3.5.40 *run-count* evidence (Node test only; not the onTrack JSON oracle).
-# Uses the oracle package pnpm-lock.yaml v9 with a frozen install.
-oracle-self-trigger:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node self-trigger-runs.mjs
+# Run one Node oracle lane (`just oracle-lane computed-identity` → computed-identity.mjs).
+# Named `oracle-lane` because `oracle` is the cargo onTrack comparison.
+oracle-lane lane:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node {{lane}}.mjs
 
-# Vue 3.5.40 watcher cleanup / effectScope lifetime evidence (Node; frozen lock).
+# Vue 3.5.40 watcher cleanup / effectScope lifetime evidence (two Node files).
 oracle-lifetime:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node lifetime-runs.mjs && node lifetime-ownership-runs.mjs
 
-# Vue 3.5.40 late cancellation-guard / stale-settlement evidence (Node; frozen lock).
-oracle-stale-settlement:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node stale-settlement-runs.mjs
-
-# Vue 3.5.40 source-contract premises (issue #224). Locked oracle Vue pin.
+# Vue 3.5.40 source-contract premises (four Node files).
 oracle-source-contracts:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node source-contracts.mjs && node watch-api.mjs && node watch-callback-contracts.mjs && node value-contracts.mjs
 
-# Vue 3.5.40 compiled SFC template-ref demand premises (pre-flush + v-memo).
-oracle-template-ref-demand:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node template-ref-demand.mjs
-
-# Vue 3.5.40 / VueUse 13.9.0 derivation-practice premises (one-way syncRef, conditional sources).
-oracle-derivation-practice:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node derivation-practice.mjs
-
-# Vue 3.5.40 / VueUse 13.9.0 scheduling-practice premises (queued flush, attached scope, lazy async).
-oracle-scheduling-practice:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node scheduling-practice.mjs
-
-# Vue 3.5.40 lost-notification premises (shallow nested + toRaw) and safe controls.
-oracle-lost-notification:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node lost-notification-runs.mjs
-
-# Vue 3.5.40 demand-gated value-contract premises (issue #224 batch 3).
-oracle-value-contracts:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node value-contracts.mjs
-# Vue 3.5.40 EventTarget watch cleanup identity (issue #224). Locked oracle Vue pin.
-oracle-cleanup-identity:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node cleanup-identity-runs.mjs
-# Vue 3.5.40 customRef track/trigger notification-chain premises.
-oracle-custom-ref-notification:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node custom-ref-notification-runs.mjs
-
-# Vue 3.5.40 / VueUse 13.9.0 cached-result demand premises (issue #224).
-oracle-cached-result:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node cached-result-contracts.mjs
-
-# Vue 3.5.40 stable computed-identity premises (issue #224).
-oracle-computed-identity:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node computed-identity.mjs
-
-# Vue 3.5.40 private-field receiver TypeError vs raw-instance no-op.
-oracle-private-receiver:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node private-receiver.mjs
-
-# Vue 3.5.40 / VueUse 13.9.0 until timeout unmatched-demand premises.
-oracle-until-demand:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node until-demand.mjs
-
-# Vue 3.5.40 same-instance injection demand premises (issue #224).
-oracle-injection-demand:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node injection-demand-contracts.mjs
-
-# Vue 3.5.40 / VueUse 13.9.0 demand premises (issue #224 round 5).
-oracle-vueuse-demand:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node vueuse-demand.mjs
-
-# Vue 3.5.40 / VueUse 13.9.0 cancelled-filter promise premises (issue #224).
-oracle-filter-settlement:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node filter-settlement-contracts.mjs
-
-# Vue 3.5.40 + VueUse 13.9.0 snapshot-demand premises (oracle package pins).
-oracle-snapshot-demand:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node snapshot-demand.mjs
-
-# Vue 3.5.40 compiled-SFC model-default premises (fixture compile + mount).
-oracle-model-demand:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node model-demand.mjs
+# Every Node evidence lane (install once). Does not include `oracle` or `oracle-refresh`.
+oracle-all:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd crates/vue_vet_reactivity/oracle
+  pnpm install --frozen-lockfile
+  node self-trigger-runs.mjs
+  node lifetime-runs.mjs
+  node lifetime-ownership-runs.mjs
+  node stale-settlement-runs.mjs
+  node source-contracts.mjs
+  node watch-api.mjs
+  node watch-callback-contracts.mjs
+  node value-contracts.mjs
+  node template-ref-demand.mjs
+  node derivation-practice.mjs
+  node scheduling-practice.mjs
+  node lost-notification-runs.mjs
+  node cleanup-identity-runs.mjs
+  node custom-ref-notification-runs.mjs
+  node cached-result-contracts.mjs
+  node computed-identity.mjs
+  node private-receiver.mjs
+  node until-demand.mjs
+  node injection-demand-contracts.mjs
+  node vueuse-demand.mjs
+  node filter-settlement-contracts.mjs
+  node snapshot-demand.mjs
+  node model-demand.mjs
 
 # Run all non-mutating Rust linters.
 lint-rust: fmt-check check clippy

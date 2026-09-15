@@ -74,40 +74,8 @@ jobs:
         with:
           node-version: "22"
       - uses: extractions/setup-just@v3
-      - name: Watch*Effect / watch / computed run-count evidence
-        run: just oracle-self-trigger
-      - name: Watcher cleanup and effectScope lifetime evidence
-        run: just oracle-lifetime
-      - name: Source-contract runtime premises
-        run: just oracle-source-contracts
-      - name: Lost-notification Vue 3.5.40 premises
-        run: just oracle-lost-notification
-      - name: EventTarget watch cleanup identity
-        run: just oracle-cleanup-identity
-      - name: customRef notification-chain Vue 3.5.40 premises
-        run: just oracle-custom-ref-notification
-      - name: Cached-result demand VueUse premises
-        run: just oracle-cached-result
-      - name: Stable computed-identity Vue 3.5.40 premises
-        run: just oracle-computed-identity
-      - name: Derivation-practice Vue 3.5.40 / VueUse premises
-        run: just oracle-derivation-practice
-      - name: Scheduling-practice Vue 3.5.40 / VueUse 13.9.0 premises
-        run: just oracle-scheduling-practice
-      - name: Until timeout unmatched-demand VueUse premises
-        run: just oracle-until-demand
-      - name: Same-instance injection demand Vue 3.5.40 premises
-        run: just oracle-injection-demand
-      - name: VueUse demand runtime premises
-        run: just oracle-vueuse-demand
-      - name: Cancelled-filter promise demand VueUse premises
-        run: just oracle-filter-settlement
-      - name: Snapshot-demand VueUse runtime premises
-        run: just oracle-snapshot-demand
-      - name: Model-default demand compiled-SFC premises
-        run: just oracle-model-demand
-      - name: Template-ref demand Vue 3.5.40 premises
-        run: just oracle-template-ref-demand
+      - name: Vue runtime oracle lanes
+        run: just oracle-all
 
   vapor-migration-research:
     name: Vapor migration research
