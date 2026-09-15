@@ -172,7 +172,7 @@ use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType;
 use vue_vet_core::ScriptKind;
-use vue_vet_reactivity::oxc;
+use vue_vet_reactivity::{TraceConfig, oxc};
 
 let allocator = Allocator::default();
 let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
@@ -182,15 +182,19 @@ let semantic = SemanticBuilder::new()
   .build(&parsed.program)
   .semantic;
 
-let graph = oxc::trace_reactivity(&semantic, source, 0, ScriptKind::Script);
+let graph = oxc::trace_reactivity_with_config(
+  &semantic,
+  source,
+  0,
+  ScriptKind::Script,
+  &TraceConfig::empty(),
+);
 assert!(graph.scopes.iter().any(|scope| {
   scope.reads.iter().any(|read| read.binding == "count")
 }));
 ```
 
-Product adapters (`vue_vet_oxc`) import from `vue_vet_reactivity::oxc`. Root
-still re-exports the same names (`trace_reactivity`, `prepare_module_trace`, …)
-as `#[doc(hidden)]` compat aliases — not `#[deprecated]`, not a second parser.
+Product adapters (`vue_vet_oxc`) import from `vue_vet_reactivity::oxc`.
 Prefer `ModuleSource` + `trace_modules` unless the caller already holds a
 `Semantic`.
 

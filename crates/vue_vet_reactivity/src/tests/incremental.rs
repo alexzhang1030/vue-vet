@@ -315,7 +315,10 @@ fn retain_options() -> TraceModulesOptions {
 fn graphs_from_state(
   state: &ModuleTraceState,
 ) -> std::collections::BTreeMap<vue_vet_core::ModuleId, &ReactivityGraph> {
-  state.iter_cached_reactivity().map(|(id, module)| (id.clone(), module.graph.as_ref())).collect()
+  state
+    .cached_module_ids()
+    .filter_map(|id| state.cached_reactivity(id).map(|module| (id.clone(), module.graph.as_ref())))
+    .collect()
 }
 
 #[test]
@@ -572,7 +575,14 @@ fn prepared_phase_one_facts_avoid_an_unseeded_second_parse() {
     ScriptKind::Script,
     &default_trace_config(),
   );
-  let summary = prepare_module_summary(&built.semantic, source, 0, ScriptKind::Script, local_graph);
+  let summary = prepare_module_summary_with_config(
+    &built.semantic,
+    source,
+    0,
+    ScriptKind::Script,
+    local_graph,
+    &default_trace_config(),
+  );
   let mut module = ModuleSource::standalone("count.ts", source, "ts", ScriptKind::Script)
     .with_module_summary(summary);
 

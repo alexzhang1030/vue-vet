@@ -399,7 +399,7 @@ outer/getter/scope proofs stay memoized. Statement / reference / watcher /
 toggle / computed-edge inspections use a test-only counter; production
 `WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 41.
 
-`ModuleSummary` (formerly the opaque `PreparedModuleTrace`) is the formal
+`ModuleSummary` is the formal
 cross-module boundary: imports, exports, provides/injects, local reactivity, and
 no Oxc/Vize nodes. Session file-rule reuse is keyed by `FileRuleInputKey`:
 source and `RuleEnvironment` via `content_digest` / `serde_digest`, and final

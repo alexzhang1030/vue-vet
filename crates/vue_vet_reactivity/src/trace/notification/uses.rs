@@ -633,7 +633,6 @@ fn vue_api_or_invalid(
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum FlushKind {
   Sync,
-  Post,
   Unknown,
 }
 
@@ -670,11 +669,13 @@ fn object_flush(expression: &Expression<'_>, work: &WorkCounter) -> FlushKind {
           continue;
         }
         flush = match peel(&property.value) {
-          Expression::StringLiteral(literal) if literal.value.as_str() == "post" => FlushKind::Post,
           Expression::StringLiteral(literal)
             if matches!(literal.value.as_str(), "pre" | "sync") =>
           {
             FlushKind::Sync
+          }
+          Expression::StringLiteral(literal) if literal.value.as_str() == "post" => {
+            FlushKind::Unknown
           }
           _ => return FlushKind::Unknown,
         };

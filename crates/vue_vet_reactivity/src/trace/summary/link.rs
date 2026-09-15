@@ -130,11 +130,6 @@ impl ModuleTraceState {
     self.entries.keys()
   }
 
-  /// Cached `(id, graph)` pairs in deterministic map order.
-  pub fn iter_cached_reactivity(&self) -> impl Iterator<Item = (&ModuleId, &ModuleReactivity)> {
-    self.entries.iter().map(|(id, entry)| (id, &entry.reactivity))
-  }
-
   /// Whether a prior persistent scan retained at least one module.
   #[must_use]
   pub fn has_cached_modules(&self) -> bool {

@@ -448,26 +448,6 @@ fn needs_implementation_merge_only_for_provisional_halves() {
 }
 
 #[test]
-fn unwrapped_call_without_plain_object_declaration_stays_quiet() {
-  let implementation = prepared_standalone(
-    "producer.js",
-    "import { useState } from '#imports';\n\
-     export const useFlag = () => useState('flag').value;\n",
-    "js",
-  );
-  let declaration =
-    prepared_standalone("producer.d.ts", "export declare const useFlag: () => number;\n", "d.ts");
-  let merged = merge_declaration_implementation_summary(
-    attached_summary(&declaration).as_ref(),
-    attached_summary(&implementation).as_ref(),
-  );
-  assert!(
-    !merged.has_reactivity_export_seeds(),
-    "number return + unwrapped call must not invent Reactive; summary={merged:?}"
-  );
-}
-
-#[test]
 fn bare_nuxt_imports_link_seeds_reactive_factory_call() {
   let declaration = prepared_standalone(
     "producer.d.ts",

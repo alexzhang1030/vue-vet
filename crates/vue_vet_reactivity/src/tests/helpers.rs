@@ -7,9 +7,9 @@ use oxc_span::SourceType;
 
 pub(super) use crate::{
   ModuleLink, ModuleReactivity, ModuleSource, ModuleTraceState, NamedApiBag, TraceConfig,
-  TraceModulesOptions, merge_declaration_implementation_summary, prepare_module_summary,
-  prepare_module_summary_with_config, prepare_module_trace, prepare_standalone_module_source,
-  trace_modules, trace_modules_incremental_with_options, trace_reactivity_with_config,
+  TraceModulesOptions, merge_declaration_implementation_summary,
+  prepare_module_summary_with_config, prepare_standalone_module_source, trace_modules,
+  trace_modules_incremental_with_options, trace_reactivity_with_config,
 };
 pub(super) use vue_vet_core::{
   ReactiveBindingKind, ReactiveDependencyKind, ReactiveGuardRole, ReactiveReadKind,
@@ -160,9 +160,6 @@ pub(super) fn graph_and_summary_with_seeds(
   );
   assert_eq!(graph, forced_graph, "normal graph must equal forced-full for {source}");
   assert_eq!(summary, forced_summary, "normal summary must equal forced-full for {source}");
-  let public = prepare_module_summary(&built.semantic, source, 0, kind, graph.clone());
-  let alias = prepare_module_trace(&built.semantic, source, 0, kind, graph.clone());
-  assert_eq!(public, alias, "prepare_module_trace must match prepare_module_summary for {source}");
   (graph, summary, scan, usage)
 }
 
