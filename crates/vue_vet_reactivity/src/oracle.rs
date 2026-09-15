@@ -17,7 +17,8 @@ use oxc_span::SourceType;
 use serde::Deserialize;
 use vue_vet_core::{ReactiveReadKind, ReactivityGraph, ScriptKind};
 
-use crate::{DEEP_WATCH_PROPERTY, TraceConfig, trace_reactivity_with_config};
+use crate::oxc::trace_reactivity_with_config;
+use crate::{DEEP_WATCH_PROPERTY, TraceConfig};
 
 #[derive(Debug, Deserialize)]
 struct OracleCase {

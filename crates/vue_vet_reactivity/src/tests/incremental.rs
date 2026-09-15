@@ -179,7 +179,8 @@ fn seed_plans_recompute_only_export_closure() {
 fn incremental_linking_skips_export_resolve_when_only_local_graph_changes() {
   use std::sync::Arc;
 
-  use crate::{TraceSeeds, prepare_module_summary_with_config, trace_reactivity_seeded};
+  use crate::oxc::prepare_module_summary_with_config;
+  use crate::{TraceSeeds, trace_reactivity_seeded};
 
   fn summary_for(source: &str) -> Arc<crate::ModuleSummary> {
     let allocator = oxc_allocator::Allocator::default();

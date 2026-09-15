@@ -41,7 +41,7 @@ fn assert_populated_usage_walk(source: &str, usage: crate::ComposableUsageWork) 
 fn ref_only_5k_shape_reuses_one_import_index_and_skips_empty_usage_walk() {
   for index in [0usize, 1, 4999] {
     let source = ref_only_module(index);
-    let (graph, summary, scan, usage) = graph_and_summary(&source, ScriptKind::Script);
+    let (graph, _, scan, usage) = graph_and_summary(&source, ScriptKind::Script);
     assert_one_summary_import_index(&source, scan);
     assert_empty_usage_walk(&source, usage);
     assert_eq!(graph.bindings.len(), 1, "one exported ref for {source}: {:?}", graph.bindings);

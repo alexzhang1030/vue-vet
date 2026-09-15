@@ -5,11 +5,11 @@ use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType;
 
+pub(super) use crate::oxc::{prepare_module_summary_with_config, trace_reactivity_with_config};
 pub(super) use crate::{
   ModuleLink, ModuleReactivity, ModuleSource, ModuleTraceState, NamedApiBag, TraceConfig,
-  TraceModulesOptions, merge_declaration_implementation_summary,
-  prepare_module_summary_with_config, prepare_standalone_module_source, trace_modules,
-  trace_modules_incremental_with_options, trace_reactivity_with_config,
+  TraceModulesOptions, merge_declaration_implementation_summary, prepare_standalone_module_source,
+  trace_modules, trace_modules_incremental_with_options,
 };
 pub(super) use vue_vet_core::{
   ReactiveBindingKind, ReactiveDependencyKind, ReactiveGuardRole, ReactiveReadKind,
