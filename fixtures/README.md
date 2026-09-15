@@ -22,7 +22,7 @@ normalizes Windows and Unix separators before comparison.
 3. Add or update the exact diagnostic snapshot: rule ID, severity, message,
    help, logical path, byte offset/length, line, and column.
 4. Add both a positive case and the common safe pattern that must not report.
-5. Run `just snapshots`, inspect the diff, then run `just roll-rust`.
+5. Run `just test`, inspect the diff, then run `just roll-rust`.
 
 Snapshot changes are reviewed evidence. Never replace expected output merely
 because the implementation changed.

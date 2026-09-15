@@ -399,14 +399,14 @@ outer/getter/scope proofs stay memoized. Statement / reference / watcher /
 toggle / computed-edge inspections use a test-only counter; production
 `WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 41.
 
-`ModuleSummary` (formerly the opaque `PreparedModuleTrace`) is the formal
+`ModuleSummary` is the formal
 cross-module boundary: imports, exports, provides/injects, local reactivity, and
 no Oxc/Vize nodes. Session file-rule reuse is keyed by `FileRuleInputKey`:
 source and `RuleEnvironment` via `content_digest` / `serde_digest`, and final
 primary/ordinary module graphs via in-memory `Arc` content equality (avoid
 re-serializing full graphs on every file). Shared block access and
 control-flow queries over those facts live in `vue_vet_rule_query`
-(setup-block walks, after-await call selection, prior unconditional reads).
+(setup-block walks, after-await call selection, alias-aware write identity).
 A fuller `EffectModel` view is still deferred until a rule needs more than
 those queries.
 

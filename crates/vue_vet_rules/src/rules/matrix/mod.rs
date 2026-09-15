@@ -1,7 +1,7 @@
 //! Matrix family rules: shared detection types, unique `RuleMeta` per id.
 //!
-//! Hand-maintained. `scripts/gen_matrix_rules.py` is a check-only inventory
-//! validator and must not overwrite this file.
+//! Hand-maintained. Retired IDs must stay absent; the catalog test in
+//! `vue_vet_rules::lib` asserts that.
 
 use std::collections::BTreeMap;
 

@@ -10,7 +10,6 @@ on:
       - 'npm/**'
       - '.github/workflows/pkg-pr-new.yml'
       - 'scripts/native_size.py'
-      - 'scripts/test_native_size.py'
       - 'fixtures/quality/native-size-budget.json'
   push:
     branches: [main]
@@ -23,7 +22,6 @@ on:
       - 'npm/**'
       - '.github/workflows/pkg-pr-new.yml'
       - 'scripts/native_size.py'
-      - 'scripts/test_native_size.py'
       - 'fixtures/quality/native-size-budget.json'
 
 concurrency:

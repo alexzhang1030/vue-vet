@@ -13,8 +13,7 @@
   under `vue_vet_rules/src/rules`. Standalone rules use one dedicated file.
   **Matrix families** (tracking-graph packs; live `defineExpose` after-await) may share an
   implementation type plus a catalog of unique ids in `rules/matrix/`. That
-  module is hand-maintained; `scripts/gen_matrix_rules.py` only validates the
-  live/retired ID inventory and must not overwrite rule bodies. The parent
+  module is hand-maintained. The parent
   registry still only assembles `&'static dyn Rule` and must not become a
   behavior dispatcher. Each matrix id still needs docs and fixtures. Practice
   suggestions live in `vue_vet_practice` with the same per-rule module shape,
@@ -24,8 +23,8 @@
   resolved Vue/`#imports` `unref` with getter-argument evidence, and bare
   auto-import `unref` without a local binding) over broad call presence.
   Routine `unref(ref)` / numeric MaybeRef unwrapping stays quiet. Shared block-access and control-flow
-  queries live in `vue_vet_rule_query` (setup blocks, after-await calls, prior
-  unconditional reads). Those helpers borrow: path formatters return `MemberPath`,
+  queries live in `vue_vet_rule_query` (setup blocks, after-await calls,
+  alias-aware write identity). Those helpers borrow: path formatters return `MemberPath`,
   walks yield `&T`. `RuleContext::script` (and `template` / `source` / `file`)
   use the stored lifetime so `run_once` can `report` without collecting clones.
   `SourceSpan` is `Copy`; pass `call.span`, do not write `.clone()` on it.
@@ -99,8 +98,7 @@
   live in `just oracle-template-ref-demand` (`template-ref-demand.mjs`, Vue
   3.5.40, `@vue/compiler-dom` 3.5.40).
 - After adding or renaming rule ids, regenerate the human catalog with
-  `just rules-catalog` (`docs/rules/README.md`). Expand stub pages with
-  `just rules-docs` (`scripts/expand_rule_docs.py`) before polishing essays.
+  `just rules-catalog` (`docs/rules/README.md`).
   Session tests assert `file_analysis_registry().metadata` matches that file-ID
   set (practice included; project IDs stay separate).
 - Watch-callback contracts (`no-once-immediate-discard`,

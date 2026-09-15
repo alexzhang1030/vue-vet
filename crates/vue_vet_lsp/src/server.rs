@@ -60,8 +60,6 @@ struct OpenDocument {
   /// Shared text + line index; rebuilt on each buffer update.
   context: SourceContext,
   version: i32,
-  /// Bumped on every open/change/save publish request; stale analyses drop results.
-  generation: u64,
 }
 
 impl OpenDocument {
@@ -174,12 +172,6 @@ impl Backend {
   }
 }
 
-/// Returns true when `current` still matches the generation captured before analyze.
-#[must_use]
-pub const fn is_current_generation(current: Option<u64>, expected: u64) -> bool {
-  matches!(current, Some(value) if value == expected)
-}
-
 fn full_change_text(params: &DidChangeTextDocumentParams) -> Option<String> {
   params.content_changes.last().map(|change| change.text.clone())
 }
@@ -252,7 +244,6 @@ impl LanguageServer for Backend {
           path,
           context: SourceContext::new(params.text_document.text),
           version: params.text_document.version,
-          generation: 1,
         },
       );
     }
@@ -284,7 +275,6 @@ impl LanguageServer for Backend {
       };
       doc.set_text(text);
       doc.version = params.text_document.version;
-      doc.generation = doc.generation.saturating_add(1);
       let path = doc.path.clone();
       let text = doc.context.text().to_owned();
       drop(state);
@@ -315,7 +305,6 @@ impl LanguageServer for Backend {
       } else if let Ok(disk) = std::fs::read_to_string(&doc.path) {
         doc.set_text(disk);
       }
-      doc.generation = doc.generation.saturating_add(1);
       let path = doc.path.clone();
       let text = doc.context.text().to_owned();
       drop(state);
@@ -428,16 +417,4 @@ fn parent_or_cwd(path: &Path) -> PathBuf {
     || std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
     Path::to_path_buf,
   )
-}
-
-#[cfg(test)]
-mod tests {
-  use super::is_current_generation;
-
-  #[test]
-  fn drops_stale_generations() {
-    assert!(is_current_generation(Some(3), 3));
-    assert!(!is_current_generation(Some(4), 3));
-    assert!(!is_current_generation(None, 3));
-  }
 }

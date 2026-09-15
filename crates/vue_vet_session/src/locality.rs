@@ -31,8 +31,6 @@ pub enum AnalysisProduct {
 pub enum ResolutionScope {
   #[default]
   None,
-  /// Reserved for package-subtree epochs (monorepo scoping).
-  PackageSubtree,
   Workspace,
 }
 

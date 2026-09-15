@@ -43,7 +43,7 @@ CI (`pkg.pr.new` matrix) measures the stripped `vue-vet` file already produced b
 That gzip figure is not the GitHub `.tar.gz`/`.zip` and not the npm tarball.
 Maxima are ceil(candidate bytes * 1.03) for the `e7af8c8` matrix binaries (workflow run 34925492605);
 baseline rows stay `2dabaad` (run 34034720314), the pre-#241 binaries, as a
-published reference. Until #259 the script tests also required every measured
+published reference. Until #259 a retired script-level floor also required every measured
 candidate to stay below that baseline on both metrics as proof the #241
 savings were still in effect; at #259 the rule set outgrew those savings
 (`aarch64-unknown-linux-gnu` 9054552 vs 8923248, +1.5%; `x86_64-unknown-linux-gnu`

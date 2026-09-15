@@ -38,10 +38,8 @@ Workspace-internal (`publish = false`). Dependents: `vue_vet_rules`,
 
 | Item | Role |
 | --- | --- |
-| `MemberPath` / `member_path` / `binding_path` / `write_path` / `guard_path` | Path identity |
-| `same_target` / `join_member_paths` | Path equality / join |
-| `has_prior_unconditional_read` / `unguarded_conditional_reads` | Ordering predicates |
-| `unconditional_self_triggers` / `effect_family` / `is_readonly_kind` | Scope helpers |
+| `MemberPath` / `member_path` / `binding_path` / `write_path` | Path identity |
+| `same_reactive_target` / `effect_family` / `is_readonly_kind` | Scope helpers |
 
 Helpers return borrowed views (`&T` iterators). `SourceSpan` is `Copy` — pass
 `call.span` into `report` without cloning.

@@ -17,10 +17,8 @@ pub use graph::{
   static_template_ref_names, used_reactive_names,
 };
 pub use reads::{
-  MemberPath, alias_root, binding_path, canonical_write_identity, effect_family, guard_path,
-  has_prior_unconditional_read, is_readonly_kind, join_member_paths, member_path,
-  same_reactive_target, same_target, unconditional_self_triggers, unguarded_conditional_reads,
-  write_path,
+  MemberPath, alias_root, binding_path, canonical_write_identity, effect_family, is_readonly_kind,
+  member_path, same_reactive_target, write_path,
 };
 
 #[cfg(test)]
@@ -137,25 +135,6 @@ mod tests {
     let extras: Vec<usize> =
       extra_setup_calls(&script, "defineProps").map(|call| call.span.offset).collect();
     assert_eq!(extras, vec![3]);
-  }
-
-  #[test]
-  fn prior_unconditional_matches_earlier_same_target_only() {
-    let same_later = read("count", Some("value"), ReactiveReadKind::Conditional, 8);
-    let other = read("other", Some("value"), ReactiveReadKind::Conditional, 9);
-    let earlier_conditional = read("count", Some("value"), ReactiveReadKind::Conditional, 1);
-    let reads = vec![
-      read("count", Some("value"), ReactiveReadKind::Unconditional, 2),
-      read("count", Some("value"), ReactiveReadKind::Conditional, 8),
-      read("other", Some("value"), ReactiveReadKind::Conditional, 9),
-      read("count", Some("value"), ReactiveReadKind::Conditional, 1),
-    ];
-    assert!(has_prior_unconditional_read(&reads, &same_later));
-    assert!(!has_prior_unconditional_read(&reads, &other));
-    assert!(!has_prior_unconditional_read(&reads, &earlier_conditional));
-    let unguarded: Vec<usize> =
-      unguarded_conditional_reads(&reads).map(|item| item.span.offset).collect();
-    assert_eq!(unguarded, vec![9, 1]);
   }
 
   #[test]
@@ -285,10 +264,6 @@ mod tests {
     assert_eq!(binding_path(&read), "count.value");
     assert_eq!(member_path("count", None), "count");
     assert_ne!(member_path("ab", Some("c")), "abXc");
-    assert_eq!(
-      join_member_paths([member_path("ready", None), binding_path(&read)], "`, `"),
-      "ready`, `count.value"
-    );
   }
 
   #[test]

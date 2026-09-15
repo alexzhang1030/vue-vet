@@ -46,7 +46,7 @@ Library consumers of **`vue_vet_reactivity` alone** get an **empty** catalog
 
 ```rust
 use vue_vet_plugins::default_trace_config;
-use vue_vet_reactivity::trace_reactivity_with_config;
+use vue_vet_reactivity::oxc::trace_reactivity_with_config;
 
 let config = default_trace_config();
 let graph = trace_reactivity_with_config(&semantic, source, 0, kind, &config);

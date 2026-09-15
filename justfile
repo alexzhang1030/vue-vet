@@ -61,14 +61,6 @@ oracle-source-contracts:
 oracle-template-ref-demand:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node template-ref-demand.mjs
 
-# Vue 3.5.40 watch-family option/signature premises (issue #224).
-oracle-watch-api:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node watch-api.mjs
-
-# Vue 3.5.40 watch-callback contract premises. Locked oracle Vue pin.
-oracle-watch-callback-contracts:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node watch-callback-contracts.mjs
-
 # Vue 3.5.40 / VueUse 13.9.0 derivation-practice premises (one-way syncRef, conditional sources).
 oracle-derivation-practice:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node derivation-practice.mjs
@@ -173,11 +165,6 @@ bench-codspeed-run:
 rules-catalog:
   python3 scripts/gen_rule_catalog.py
 
-# Expand stub rule docs into Bad/Good pages (skips polished essays).
-rules-docs:
-  python3 scripts/expand_rule_docs.py
-  just rules-catalog
-
 # Print quality-corpus tree digests (update fixtures/quality/manifest.json after intentional edits).
 quality-digest:
   cargo test -p vue-vet --test quality_gates digest_printer -- --exact --ignored --nocapture
@@ -198,9 +185,6 @@ coverage-lcov:
 smoke:
   cargo test -p vue-vet --test cli --locked
 
-# Run the golden fixture and reporter snapshots in one unified feature build.
-snapshots: test
-
 # Apply safe formatter and Clippy fixes to the working tree.
 fix-rust:
   cargo fmt --all
@@ -209,10 +193,6 @@ fix-rust:
 # Run every configured Git hook against the repository.
 precommit:
   prek run --all-files
-
-# Install the prek-managed Git hook.
-install-hooks:
-  prek install
 
 # Run npm launcher unit tests (Node >= 18).
 npm-test:
@@ -256,11 +236,6 @@ native-size:
 # Artifact-mode budget check. Pass the built binary, Rust triple, and budget file.
 native-size-check binary target budget="fixtures/quality/native-size-budget.json":
   python3 scripts/native_size.py --binary {{quote(binary)}} --target {{quote(target)}} --budget-file {{quote(budget)}} --json
-
-# Focused native-size script tests (no fat-LTO).
-native-size-test:
-  python3 scripts/native_size.py --help >/dev/null
-  python3 scripts/test_native_size.py
 
 # Smoke the host release binary (--version + fixture scan).
 release-smoke:

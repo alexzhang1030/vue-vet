@@ -121,12 +121,6 @@ impl ModuleSource {
     self.module_summary.as_ref().map(Arc::clone)
   }
 
-  /// Compatibility alias for [`Self::with_module_summary`].
-  #[must_use]
-  pub fn with_prepared_trace(self, prepared_trace: PreparedModuleTrace) -> Self {
-    self.with_module_summary(prepared_trace)
-  }
-
   #[must_use]
   pub(super) fn span_origin(&self) -> &str {
     if self.span_source.is_empty() { self.source.as_ref() } else { self.span_source.as_ref() }
@@ -485,22 +479,6 @@ impl ModuleSummary {
     sources
   }
 
-  /// Whether any export local is a finished Factory/Composable/Known/value-bag seed.
-  #[must_use]
-  pub fn has_reactivity_export_seeds(&self) -> bool {
-    self.locals.values().any(|state| {
-      matches!(
-        state,
-        ExportState::Factory(_)
-          | ExportState::Composable(_)
-          | ExportState::Known(_)
-          | ExportState::ValueFactory(_)
-          | ExportState::ValueBag(_)
-          | ExportState::ComponentFactory
-      )
-    })
-  }
-
   /// Whether a companion implementation file may still complete provisional seeds.
   ///
   /// Only provisional declaration/body halves need a merge. Do **not** treat "no
@@ -600,26 +578,6 @@ pub fn prepare_standalone_module_source(
   Ok(module.with_module_summary(phase.facts.summary))
 }
 
-/// Compatibility alias for [`ModuleSummary`].
-pub type PreparedModuleTrace = ModuleSummary;
-
-pub fn prepare_module_summary(
-  semantic: &Semantic<'_>,
-  span_source: &str,
-  source_offset: usize,
-  kind: ScriptKind,
-  local_graph: impl Into<Arc<ReactivityGraph>>,
-) -> ModuleSummary {
-  prepare_module_summary_with_config(
-    semantic,
-    span_source,
-    source_offset,
-    kind,
-    local_graph,
-    &super::TraceConfig::empty(),
-  )
-}
-
 /// Test-only count of the one summary-local `imported_bindings` index build.
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -712,18 +670,6 @@ pub fn prepare_module_summary_with_config(
     called_locals,
     local_graph,
   }
-}
-
-/// Compatibility alias for [`prepare_module_summary`].
-#[must_use]
-pub fn prepare_module_trace(
-  semantic: &Semantic<'_>,
-  span_source: &str,
-  source_offset: usize,
-  kind: ScriptKind,
-  local_graph: impl Into<Arc<ReactivityGraph>>,
-) -> PreparedModuleTrace {
-  prepare_module_summary(semantic, span_source, source_offset, kind, local_graph)
 }
 
 pub(super) struct ModulePhaseOne {
@@ -1233,77 +1179,6 @@ pub fn build_returns_by_function(
   returns_by_function
 }
 
-/// Object shape returned by a composable function / arrow (under-approx).
-///
-/// `script_offset` must match the offset used when materializing `graph.bindings`
-/// spans (0 for standalone modules, Vize `loc.start` for SFC script bodies).
-/// Prefer [`composable_return_shape_with_index`] when indexing many functions.
-#[must_use]
-pub fn composable_return_shape(
-  semantic: &oxc_semantic::Semantic<'_>,
-  function_id: NodeId,
-  graph: &ReactivityGraph,
-  script_offset: usize,
-) -> ComposableShape {
-  let returns_by_function = build_returns_by_function(semantic);
-  composable_return_shape_with_index(
-    semantic,
-    function_id,
-    graph,
-    script_offset,
-    &returns_by_function,
-  )
-}
-
-/// [`composable_return_shape`] using a prebuilt [`build_returns_by_function`] index.
-#[must_use]
-pub fn composable_return_shape_with_index(
-  semantic: &oxc_semantic::Semantic<'_>,
-  function_id: NodeId,
-  graph: &ReactivityGraph,
-  script_offset: usize,
-  returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
-) -> ComposableShape {
-  match composable_return_with_index(
-    semantic,
-    function_id,
-    graph,
-    script_offset,
-    returns_by_function,
-  ) {
-    Some(ComposableReturn::Object(shape)) => shape,
-    Some(
-      ComposableReturn::Factory(_)
-      | ComposableReturn::UnwrappedState
-      | ComposableReturn::Forward(_)
-      | ComposableReturn::ValueBag(_)
-      | ComposableReturn::GenericParam(_),
-    )
-    | None => ComposableShape::default(),
-  }
-}
-
-/// Nested value-bag return for a function/arrow (`return { maps: { useX } }`).
-#[must_use]
-pub fn composable_value_bag_with_index(
-  semantic: &oxc_semantic::Semantic<'_>,
-  function_id: NodeId,
-  graph: &ReactivityGraph,
-  script_offset: usize,
-  returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
-) -> Option<ValueBag> {
-  match composable_return_with_index(
-    semantic,
-    function_id,
-    graph,
-    script_offset,
-    returns_by_function,
-  ) {
-    Some(ComposableReturn::ValueBag(bag)) if !bag.is_empty() => Some(bag),
-    _ => None,
-  }
-}
-
 /// `api.maps.useX` → root `api` plus path segments `maps` / `useX`.
 pub fn static_member_call_path(callee: &Expression<'_>) -> Option<(String, Vec<String>)> {
   let mut path = Vec::new();
@@ -1760,34 +1635,6 @@ pub fn arrow_return_type_shape(
   };
   let mut index = None;
   ts_type_composable_shape(semantic, &annotation.type_annotation, 0, &mut index)
-}
-
-/// Scalar factory kind from return expressions (`return ref(0)`), when consistent.
-#[must_use]
-pub fn composable_factory_kind_with_index(
-  semantic: &oxc_semantic::Semantic<'_>,
-  function_id: NodeId,
-  graph: &ReactivityGraph,
-  script_offset: usize,
-  returns_by_function: &BTreeMap<NodeId, Vec<NodeId>>,
-) -> Option<ReactiveBindingKind> {
-  match composable_return_with_index(
-    semantic,
-    function_id,
-    graph,
-    script_offset,
-    returns_by_function,
-  ) {
-    Some(ComposableReturn::Factory(kind)) => Some(kind),
-    Some(
-      ComposableReturn::Object(_)
-      | ComposableReturn::ValueBag(_)
-      | ComposableReturn::UnwrappedState
-      | ComposableReturn::Forward(_)
-      | ComposableReturn::GenericParam(_),
-    )
-    | None => None,
-  }
 }
 
 /// `return <call>(...).value` where callee is unresolved or imported from `#imports`.
