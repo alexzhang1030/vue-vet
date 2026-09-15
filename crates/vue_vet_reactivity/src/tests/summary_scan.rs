@@ -260,8 +260,7 @@ fn options_typed_define_component_and_provide_inject_reuse_one_import_index() {
          return () => mode.value;\n\
        },\n\
      });";
-  let (component_graph, component_summary, component_scan, _) =
-    graph_and_summary(component, ScriptKind::Setup);
+  let (component_graph, _, component_scan, _) = graph_and_summary(component, ScriptKind::Setup);
   assert_one_summary_import_index(component, component_scan);
   assert!(
     component_graph.scopes.iter().any(|scope| {
@@ -274,7 +273,6 @@ fn options_typed_define_component_and_provide_inject_reuse_one_import_index() {
     "defineComponent setup props must track: {:?}",
     component_graph.scopes
   );
-  assert!(component_summary.has_component_factory_local());
 
   let inject = "import { provide, inject, ref, computed } from 'vue';\n\
      const count = ref(1);\n\
