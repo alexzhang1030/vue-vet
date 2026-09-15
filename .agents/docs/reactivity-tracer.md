@@ -78,7 +78,9 @@ Cross-module seeds cross only **finished** export states. Phase one builds
 per-module `locals: name → ExportState`; the link-time fixed point refines
 forwards and publishes seedable states. Executable checks live in
 `crates/vue_vet_reactivity/src/trace/summary/export_lattice.rs` (pure, no
-AST); `link.rs` is the impure adapter (facts, links, fixed-point queue).
+AST); `summary/resolve/worklist.rs` is the impure adapter (facts, links,
+fixed-point queue). Module layout is listed in
+[`crates/vue_vet_reactivity/README.md`](../../crates/vue_vet_reactivity/README.md#module-layout).
 
 | State | Seedable? | Meaning (under-approx) |
 | --- | --- | --- |

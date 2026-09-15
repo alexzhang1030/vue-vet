@@ -209,6 +209,32 @@ Prefer `ModuleSource` + `trace_modules` unless the caller already holds a
 Design axes and honesty bounds live in the repository PCR:
 [reactivity tracer](https://github.com/alexzhang1030/vue-vet/blob/main/.agents/docs/reactivity-tracer.md).
 
+## Module layout
+
+`src/trace/` is the tracer. Files stay under ~1200 lines; split along these
+seams rather than growing a file.
+
+| Path | Owns |
+| --- | --- |
+| `mod.rs` | `trace_reactivity_seeded` pipeline: bindings → scopes → notification → graph |
+| `bindings.rs`, `kinds.rs` | Reactive binding collection; Vue callee / kind classification, imports, spans |
+| `scopes.rs`, `reads.rs`, `uncertain.rs`, `writes.rs` | Tracking scopes and their reads / uncertain accesses / writes (dual-path: local + bounded helper follow) |
+| `follow.rs`, `context.rs`, `expr.rs`, `branch_hygiene.rs` | Same-file callee follow, node indexes, expression peeling, guard hygiene |
+| `local.rs`, `inject.rs`, `render.rs`, `plugin.rs` | Same-file composable seeds, provide/inject, render scopes, `TracerPlugin` bags |
+| `notification/` | Lost-notification `source_views` / `notification_bypasses` |
+| `summary/mod.rs` | `ModuleSource`, `ModuleLink`, phase-one prepare / parse, imports / exports |
+| `summary/model.rs` | `ModuleSummary` and the A6 `ExportState` data model |
+| `summary/locals.rs` | Per-module local `ExportState` classification (phase one) |
+| `summary/return_kind.rs` | Composable / factory return-shape analysis over function bodies |
+| `summary/declared_types.rs` | TypeScript type surface → reactive kinds / bag shapes |
+| `summary/export_lattice.rs` | Pure lattice rules (no AST) |
+| `summary/options_callback.rs`, `summary/typed_callback.rs` | Declared callback-slot seeds |
+| `summary/resolve/mod.rs` | `trace_modules*` entry points, phase-one scheduling, phase two |
+| `summary/resolve/worklist.rs` | Export / callback-slot barrel fixed points |
+| `summary/resolve/schedule.rs` | Seed-plan scheduling (cold / warm / cached / subset passes) |
+| `summary/resolve/cache.rs` | `ModuleTraceState`, linking snapshot, live-scope retention |
+| `summary/resolve/seeds.rs` | Worker-side seed materialization from the live parse |
+
 ## Charter
 
 1. **Static only** — runtime Vue is the semantic reference / test oracle, not the product engine.

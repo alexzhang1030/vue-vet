@@ -831,7 +831,7 @@ mod tests {
 
   #[test]
   fn refine_composable_pending_materializes_and_retains() {
-    use super::super::PendingValueBagField;
+    use super::super::model::PendingValueBagField;
     let mut shape = super::super::ComposableShape::default();
     shape.pending_value_bag_fields.insert(
       "isLoading".into(),
