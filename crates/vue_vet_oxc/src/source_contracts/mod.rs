@@ -12,6 +12,9 @@
 //! local and unknown calls skip that lookup. Native `structuredClone` *calls*
 //! require a definite static key; unresolved `globalThis` *writes* with a
 //! non-literal key poison identity.
+//! Cached-result facts require exact `@vueuse/core` `useMemoize` or
+//! `@vueuse/core` / `@vueuse/shared` `computedWithControl` /
+//! `controlledComputed` provenance.
 //!
 //! Replacement findings require a simple `=` of a fresh object/array/`new`
 //! built-in collection in the same straight-line block after `watch`.
@@ -49,6 +52,7 @@
 //! Closed-local customRef track/trigger reachability records executed consumer,
 //! identity setter transfer, and per-handle inactivity queries.
 
+mod cached;
 mod clone_boundary;
 mod custom_ref;
 mod custom_ref_proof;
@@ -80,7 +84,7 @@ use crate::facts::source_span;
 use index::{CallInfo, Indexes, ObjectProp};
 use shape::{
   CollectionCtor, CollectionKind, Shape, ShapeHint, classify_vue_result, collect_vue_imports,
-  is_ref_api, span_key,
+  collect_vueuse_imports, is_ref_api, span_key,
 };
 pub use shape::{ContractSink, contract_sink};
 use stats::WorkCounter;
@@ -143,7 +147,8 @@ fn collect_prepared(
 ) -> (SourceContractFacts, SourceContractStats) {
   let work = WorkCounter::default();
   let (vue_imports, needs_index) = collect_vue_imports(semantic, &work);
-  if !needs_index && !force_full {
+  let vueuse_imports = collect_vueuse_imports(semantic, &work);
+  if !needs_index && vueuse_imports.is_empty() && !force_full {
     return (SourceContractFacts::default(), work.snapshot());
   }
   let mut collector = Collector {
@@ -158,6 +163,7 @@ fn collect_prepared(
       script_offset,
       kind,
       vue_imports,
+      vueuse_imports,
       work,
     ),
     shape_cache: HashMap::new(),
@@ -190,6 +196,7 @@ impl Collector<'_> {
         self.collect_structured_clone(info);
       }
       self.collect_inactive_scope_run(node_id, call);
+      self.collect_cached_result(node_id, call, info);
       let Some(api) = info.api else {
         continue;
       };
@@ -327,6 +334,16 @@ impl Collector<'_> {
           right.write_span.offset,
           right.span.offset,
         ))
+    });
+    self.facts.memoize_stale_result_demand.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.demand_span.offset, left.producer_span.offset)
+        .cmp(&(right.demand_span.offset, right.producer_span.offset))
+    });
+    self.facts.controlled_computed_stale_result_demand.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.demand_span.offset, left.producer_span.offset)
+        .cmp(&(right.demand_span.offset, right.producer_span.offset))
     });
     (self.facts, self.indexes.stats())
   }
@@ -648,7 +665,7 @@ impl Collector<'_> {
     let hint = self.indexes.hints.get(&span_key(span)).copied()?;
     Some(match hint {
       ShapeHint::Unknown | ShapeHint::Identifier(None, _) => Shape::Unknown,
-      ShapeHint::Primitive => Shape::Primitive,
+      ShapeHint::Primitive(_) => Shape::Primitive,
       ShapeHint::Nullish | ShapeHint::Identifier(_, true) => Shape::Nullish,
       ShapeHint::PlainRecord => Shape::PlainRecord,
       ShapeHint::Function => Shape::Function,

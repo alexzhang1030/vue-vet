@@ -16,3 +16,5 @@ fixtures/rules/no-custom-ref-lost-notification/invalid/crlf.vue -text whitespace
 fixtures/rules/no-nested-watch-without-cleanup/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/no-nested-watch-without-cleanup/invalid/wrapped-custom-ref-getter-crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/no-detached-effect-scope-without-stop/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/no-memoize-stale-result-demand/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/no-controlled-computed-stale-result-demand/invalid/crlf.vue -text whitespace=cr-at-eol

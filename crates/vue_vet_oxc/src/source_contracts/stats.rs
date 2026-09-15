@@ -29,12 +29,18 @@
 //! or mutation-op vector elements on the per-root replay path (currently none:
 //! replay indexes in place). Per-root Map replay counts constructor
 //! classification once, each mutating operation once, and each read query once.
+//! Cached-result producer/fill/write/repair/demand joins, exclusive-interval
+//! iterator visits, counted `binary_search` comparisons, and counted sort
+//! comparisons also increment `queries`.
 //!
 //! Production `WorkCounter` is zero-sized and does not record. Test builds
 //! keep saturating `Cell` counters so inner-work growth tests stay real.
+//! `SourceContractStats` is a separate snapshot DTO: nine `u64` fields
+//! (`size_of::<[u64; 9]>()` bytes) in both production and test layouts.
 
 #[cfg(test)]
 use std::cell::Cell;
+use std::mem::size_of;
 
 /// Completed collector work. Not part of the stable Vue Vet fact contract.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -51,6 +57,12 @@ pub struct SourceContractStats {
   pub key_lookups: u64,
   pub key_copies: u64,
 }
+
+const STATS_BYTES: usize = size_of::<[u64; 9]>();
+const _: () = assert!(
+  size_of::<SourceContractStats>() == STATS_BYTES,
+  "SourceContractStats snapshot DTO is nine u64 fields"
+);
 
 impl SourceContractStats {
   #[cfg(test)]
@@ -283,6 +295,49 @@ impl WorkCounter {
   }
 
   #[cfg(test)]
+  pub(super) fn sort_by_key<T, K, F>(&self, items: &mut [T], mut key: F)
+  where
+    K: Ord,
+    F: FnMut(&T) -> K,
+  {
+    self.add_queries(1);
+    items.sort_by(|left, right| {
+      self.add_queries(1);
+      key(left).cmp(&key(right))
+    });
+  }
+
+  #[cfg(not(test))]
+  #[expect(
+    clippy::unused_self,
+    reason = "production path forwards to slice::sort_by_key without counting"
+  )]
+  pub(super) fn sort_by_key<T, K, F>(&self, items: &mut [T], key: F)
+  where
+    K: Ord,
+    F: FnMut(&T) -> K,
+  {
+    items.sort_by_key(key);
+  }
+
+  /// Offsets in `(start, end)`: exclusive start, exclusive end.
+  pub(super) fn exclusive_offsets<'a>(
+    &self,
+    items: &'a [usize],
+    start: usize,
+    end: usize,
+  ) -> &'a [usize] {
+    const EMPTY: &[usize] = &[];
+    if end <= start {
+      self.add_queries(1);
+      return EMPTY;
+    }
+    let lo = self.partition_point(items, |offset| *offset <= start);
+    let hi = self.partition_point(items, |offset| *offset < end);
+    items.get(lo..hi).unwrap_or(EMPTY)
+  }
+
+  #[cfg(test)]
   pub(super) const fn snapshot(&self) -> SourceContractStats {
     SourceContractStats {
       nodes: self.nodes.get(),
@@ -311,5 +366,22 @@ impl WorkCounter {
       key_lookups: 0,
       key_copies: 0,
     }
+  }
+}
+
+#[cfg(test)]
+mod size_tests {
+  use super::{STATS_BYTES, SourceContractStats, WorkCounter};
+  use std::mem::size_of;
+
+  #[test]
+  fn stats_dto_keeps_nine_u64_layout() {
+    assert_eq!(size_of::<SourceContractStats>(), STATS_BYTES);
+    assert_eq!(STATS_BYTES, 72);
+  }
+
+  #[test]
+  fn test_work_counter_records() {
+    assert!(size_of::<WorkCounter>() > 0);
   }
 }

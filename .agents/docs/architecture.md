@@ -230,8 +230,14 @@ File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         consumer, identity setter transfer, and per-handle inactivity queries.
         Demand-gated facts use a function-level execution region plus
         source-order barriers, typed Get/Set capabilities, closed-body
-        receiver-effect proof (including executed object keys), and proven
-        `toRefs` first-arg borrows over memoized closed keys. Generic source5
+        receiver-effect proof (including executed object keys), proven
+        `toRefs` first-arg borrows over memoized closed keys, and cached-result
+        demand facts for exact VueUse `useMemoize` / `computedWithControl`
+        origins. A per-result ordered event fold retains first-fill kind and
+        span through later hits; only proven invalidation or refill advances
+        that state. Native prototype mutations are collected before
+        identifier-root early returns. Foreign-event intervals are exclusive
+        both-endpoint queries over unique allowed offsets. Generic source5
         statement eligibility stays `ExpressionStatement`-parent only.
         Typed `toRef` ignored-key facts require an immutable `__v_isRef`
         capability on a dedicated role index; marker writes/deletes, helper
@@ -252,7 +258,7 @@ File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         imports reuse the canonical Vue-import pass. `watch` still runs the
         ordinary source collector, watch-family option/signature facts, and
         callback-contract collectors (`watch_callbacks.rs`). Combined
-        `RULESET_VERSION` is 28; `REACTIVITY_GRAPH_VERSION` stays 41.
+        `RULESET_VERSION` is 29; `REACTIVITY_GRAPH_VERSION` stays 41.
         Named effect-family imports keep source indexes empty when every Oxc
         resolved reference is a proven call with fewer than two arguments and
         no spread (current watch-API rules read that second argument). Ordinary
@@ -358,7 +364,7 @@ source-contract uncertainty. Statement ordinals, preceding exits, watcher
 identity by `NodeId`, and scope-active intervals are built once. Shared
 outer/getter/scope proofs stay memoized. Statement / reference / watcher /
 toggle / computed-edge inspections use a test-only counter; production
-`WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 28.
+`WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 29.
 
 `ModuleSummary` (formerly the opaque `PreparedModuleTrace`) is the formal
 cross-module boundary: imports, exports, provides/injects, local reactivity, and

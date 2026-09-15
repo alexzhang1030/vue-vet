@@ -142,6 +142,22 @@ const CUSTOM_REF_LOST_META: RuleMeta = RuleMeta {
   documentation: "rules/reactivity/no-custom-ref-lost-notification",
 };
 
+const MEMOIZE_STALE_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-memoize-stale-result-demand",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-memoize-stale-result-demand",
+};
+
+const CONTROLLED_STALE_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-controlled-computed-stale-result-demand",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-controlled-computed-stale-result-demand",
+};
+
 pub(super) struct NoTriggerRefOnNonRef;
 pub(super) static NO_TRIGGER_REF_ON_NON_REF: NoTriggerRefOnNonRef = NoTriggerRefOnNonRef;
 
@@ -198,6 +214,14 @@ pub(super) static NO_RAW_PROXY_MAP_KEY: NoRawProxyMapKey = NoRawProxyMapKey;
 pub(super) struct NoCustomRefLostNotification;
 pub(super) static NO_CUSTOM_REF_LOST_NOTIFICATION: NoCustomRefLostNotification =
   NoCustomRefLostNotification;
+
+pub(super) struct NoMemoizeStaleResultDemand;
+pub(super) static NO_MEMOIZE_STALE_RESULT_DEMAND: NoMemoizeStaleResultDemand =
+  NoMemoizeStaleResultDemand;
+
+pub(super) struct NoControlledComputedStaleResultDemand;
+pub(super) static NO_CONTROLLED_COMPUTED_STALE_RESULT_DEMAND:
+  NoControlledComputedStaleResultDemand = NoControlledComputedStaleResultDemand;
 
 impl Rule for NoTriggerRefOnNonRef {
   fn meta(&self) -> &'static RuleMeta {
@@ -665,6 +689,72 @@ impl Rule for NoCustomRefLostNotification {
   }
 }
 
+impl Rule for NoMemoizeStaleResultDemand {
+  fn meta(&self) -> &'static RuleMeta {
+    &MEMOIZE_STALE_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.memoize_stale_result_demand {
+        context.report(
+          self.meta(),
+          site.demand_span,
+          format!(
+            "`{}` returned a cached {}, so calling `{}` throws after the source became a {}",
+            site.api,
+            site.cached_kind.as_str(),
+            site.member,
+            site.current_kind.as_str()
+          ),
+          Some(format!(
+            "Cache fill at {}:{}, source write at {}:{}, producer at {}:{}. Include the source in the memo key, or call `load`/`delete` after the write.",
+            site.fill_span.line,
+            site.fill_span.column,
+            site.write_span.line,
+            site.write_span.column,
+            site.producer_span.line,
+            site.producer_span.column
+          )),
+        );
+      }
+    }
+  }
+}
+
+impl Rule for NoControlledComputedStaleResultDemand {
+  fn meta(&self) -> &'static RuleMeta {
+    &CONTROLLED_STALE_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.controlled_computed_stale_result_demand {
+        context.report(
+          self.meta(),
+          site.demand_span,
+          format!(
+            "`{}` retained a cached {}, so calling `{}` throws after an unlisted source became a {}",
+            site.api,
+            site.cached_kind.as_str(),
+            site.member,
+            site.current_kind.as_str()
+          ),
+          Some(format!(
+            "Cache fill at {}:{}, unlisted write at {}:{}, producer at {}:{}. List the source, call `trigger()`, or use Vue `computed` when every input should invalidate.",
+            site.fill_span.line,
+            site.fill_span.column,
+            site.write_span.line,
+            site.write_span.column,
+            site.producer_span.line,
+            site.producer_span.column
+          )),
+        );
+      }
+    }
+  }
+}
+
 fn report_site(
   context: &mut RuleContext<'_>,
   meta: &RuleMeta,
@@ -696,5 +786,7 @@ pub(super) fn source_contract_rules() -> Vec<&'static dyn Rule> {
     &super::no_proxy_structured_clone::NO_PROXY_STRUCTURED_CLONE,
     &NO_RAW_PROXY_MAP_KEY,
     &NO_CUSTOM_REF_LOST_NOTIFICATION,
+    &NO_MEMOIZE_STALE_RESULT_DEMAND,
+    &NO_CONTROLLED_COMPUTED_STALE_RESULT_DEMAND,
   ]
 }

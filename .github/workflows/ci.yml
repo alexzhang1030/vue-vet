@@ -101,6 +101,8 @@ jobs:
         run: just oracle-cleanup-identity
       - name: customRef notification-chain Vue 3.5.40 premises
         run: just oracle-custom-ref-notification
+      - name: Cached-result demand VueUse premises
+        run: just oracle-cached-result
 
   vapor-migration-research:
     name: Vapor migration research

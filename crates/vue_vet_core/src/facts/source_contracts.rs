@@ -49,6 +49,10 @@ pub struct SourceContractFacts {
   pub keyed_map_dependency: Vec<KeyedMapDependencyFact>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub custom_ref_lost_notification: Vec<CustomRefLostNotificationFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub memoize_stale_result_demand: Vec<CachedResultDemandFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub controlled_computed_stale_result_demand: Vec<CachedResultDemandFact>,
 }
 
 impl SourceContractFacts {
@@ -72,6 +76,8 @@ impl SourceContractFacts {
       && self.raw_proxy_map_key.is_empty()
       && self.keyed_map_dependency.is_empty()
       && self.custom_ref_lost_notification.is_empty()
+      && self.memoize_stale_result_demand.is_empty()
+      && self.controlled_computed_stale_result_demand.is_empty()
   }
 }
 
@@ -255,4 +261,41 @@ pub struct CustomRefLostNotificationFact {
   pub consumer_span: SourceSpan,
   pub write_span: SourceSpan,
   pub reason: CustomRefLostNotificationReason,
+}
+
+/// Proven primitive kind retained by a cache entry or later source write.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrimitiveValueKind {
+  Number,
+  String,
+  Boolean,
+  Bigint,
+  Nullish,
+}
+
+impl PrimitiveValueKind {
+  #[must_use]
+  pub const fn as_str(self) -> &'static str {
+    match self {
+      Self::Number => "number",
+      Self::String => "string",
+      Self::Boolean => "boolean",
+      Self::Bigint => "bigint",
+      Self::Nullish => "nullish",
+    }
+  }
+}
+
+/// Cached memoize / controlled-computed result fails a later native demand.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CachedResultDemandFact {
+  pub demand_span: SourceSpan,
+  pub fill_span: SourceSpan,
+  pub write_span: SourceSpan,
+  pub producer_span: SourceSpan,
+  pub cached_kind: PrimitiveValueKind,
+  pub current_kind: PrimitiveValueKind,
+  pub member: String,
+  pub api: String,
 }

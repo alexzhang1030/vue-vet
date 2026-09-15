@@ -75,6 +75,10 @@ oracle-cleanup-identity:
 oracle-custom-ref-notification:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node custom-ref-notification-runs.mjs
 
+# Vue 3.5.40 / VueUse 13.9.0 cached-result demand premises (issue #224).
+oracle-cached-result:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node cached-result-contracts.mjs
+
 # Run all non-mutating Rust linters.
 lint-rust: fmt-check check clippy
 
