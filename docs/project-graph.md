@@ -73,8 +73,9 @@ form so alias joins and resolve results share one path representation.
 Convention recognition covers files under `components`, `composables`,
 `pages`, `layouts`, `plugins`, `middleware`, and `stores`. Component tags and
 composable calls create auto-import edges. Explicit imports shadow convention
-matches. `CONVENTIONS_VERSION` (currently 18) invalidates cached graphs when
-convention, type-vs-runtime follow, or resolver semantics change.
+matches. `CONVENTIONS_VERSION` (`crates/vue_vet_project/src/model.rs`)
+invalidates cached graphs when convention, type-vs-runtime follow, or resolver
+semantics change.
 
 Component auto-import names follow Nuxt defaults without executing
 `nuxt.config`:
@@ -134,12 +135,10 @@ use `typeof import('./src/…')['name']` from the project root. When multiple ma
 list the same name, prefer `.nuxt/imports.d.ts`, then `.nuxt/types/imports.d.ts`,
 then root `auto-imports.d.ts`. Those imports maps are also invalidation inputs.
 Single-file / IDE scans walk up to the nearest `package.json` as the workspace
-boundary so nested paths still load these root maps. External package summaries load through `ExternalSummaryLoadPass::run`;
-provisional `.d.ts` + companion `.js` Factory merge is
-`ProvisionalFactoryMergePass::run` at each loaded module (SummaryMerge). The
-`vue_vet_project` crate is staged as `context` → `structural` → `passes` →
-trace → `layers` → `rules` (orchestrated by `pipeline`). See architecture PCR
-`vue_vet_project` pipeline and `ENRICHMENT_STEPS`.
+boundary so nested paths still load these root maps. External package
+summaries and the provisional `.d.ts` + companion `.js` Factory merge are
+enrichment passes; the stage order is in
+[architecture](../.agents/docs/architecture.md#vue_vet_project-pipeline-crate-layout).
 
 ## Component navigation (not prop dataflow)
 
@@ -148,9 +147,12 @@ VS Code host surface the same facts) built only from `ComponentUsage` and
 `AutoComponent` edges: per file `uses` / `used_by` with template-tag evidence
 spans. This is **structural** parent→child component reference navigation.
 
-It does **not** model parent `:foo="bar"` → child `props.foo` reactivity edges,
-runtime component trees, `keep-alive`, or dynamic `:is`. Those remain deferred
-cross-file dataflow work.
+It does **not** model runtime component trees, `keep-alive`, or dynamic `:is`.
+Parent `:foo="bar"` → child `props.foo` dataflow is a separate channel: static
+`ReactiveDependencyKind::Prop` edges joined after component edges
+(`join_prop_flows`) for bare identifiers, `.value`, static member / optional
+chains, and `v-model` → `modelValue`; whole-object `v-bind`, computed / bracket
+/ call expressions stay quiet.
 
 ## Initial cross-file rules
 
