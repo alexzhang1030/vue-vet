@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-outside-tracking-dependency-in-effect-scope",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-outside-tracking-dependency-in-effect-scope",
+    "message": "`count.value` is read outside synchronous tracking inside effectScope, so it is not a reliable dependency",
+    "help": "Read `count.value` synchronously in effectScope, or use explicit `watch` sources.",
+    "file": "fixtures/rules/no-outside-tracking-dependency-in-effect-scope/invalid/basic.vue",
+    "span": {
+      "offset": 173,
+      "length": 11,
+      "line": 7,
+      "column": 10
+    }
+  }
+]

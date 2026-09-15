@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/valid-v-else",
+    "category": "correctness",
+    "severity": "error",
+    "confidence": "high",
+    "documentation": "rules/correctness/valid-v-else",
+    "message": "`v-else` does not accept an expression",
+    "help": "Use `v-else-if=\"…\"` when a condition is required.",
+    "file": "fixtures/rules/valid-v-else/invalid/unicode.vue",
+    "span": {
+      "offset": 147,
+      "length": 6,
+      "line": 8,
+      "column": 8
+    }
+  }
+]

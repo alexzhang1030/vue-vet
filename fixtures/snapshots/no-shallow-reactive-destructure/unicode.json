@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-shallow-reactive-destructure",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-shallow-reactive-destructure",
+    "message": "destructuring `shallowReactive()` loses reactivity for the pulled fields",
+    "help": "Keep the shallowReactive object, or use `toRefs` / `toRef`.",
+    "file": "fixtures/rules/no-shallow-reactive-destructure/invalid/unicode.vue",
+    "span": {
+      "offset": 69,
+      "length": 9,
+      "line": 3,
+      "column": 7
+    }
+  }
+]

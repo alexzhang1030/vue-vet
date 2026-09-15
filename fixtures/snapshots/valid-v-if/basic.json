@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/valid-v-if",
+    "category": "correctness",
+    "severity": "error",
+    "confidence": "high",
+    "documentation": "rules/correctness/valid-v-if",
+    "message": "`v-if` is missing an expression",
+    "help": "Provide an expression for `v-if`.",
+    "file": "fixtures/rules/valid-v-if/invalid/basic.vue",
+    "span": {
+      "offset": 18,
+      "length": 4,
+      "line": 2,
+      "column": 8
+    }
+  }
+]

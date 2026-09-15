@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+import Child from './Child.vue'
+let title = 'hi'
 </script>
-<template>{{ x }}</template>
+<template>
+  <Child :title="title" />
+</template>

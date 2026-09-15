@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-effect-write-without-read",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-effect-write-without-read",
+    "message": "`watchEffect` writes reactive state but reads no reactive dependency",
+    "help": "Effects without reactive reads never re-run; use a plain function or explicit trigger.",
+    "file": "fixtures/rules/no-effect-write-without-read/invalid/basic.vue",
+    "span": {
+      "offset": 85,
+      "length": 40,
+      "line": 4,
+      "column": 1
+    }
+  }
+]

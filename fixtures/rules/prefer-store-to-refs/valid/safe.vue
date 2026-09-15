@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+import { storeToRefs } from 'pinia'
+const store = useCounterStore()
+const { count } = storeToRefs(store)
 </script>
-<template>{{ x }}</template>
+<template>{{ count }}</template>

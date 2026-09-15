@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-deep-watch-on-reactive-root",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-deep-watch-on-reactive-root",
+    "message": "`watch(state)` deep-tracks the reactive root; prefer a getter or explicit sources",
+    "help": "Use `watch(() => state.field, …)` or `watch(() => ({ … }), …)` so dependencies stay precise.",
+    "file": "fixtures/rules/no-deep-watch-on-reactive-root/invalid/unicode.vue",
+    "span": {
+      "offset": 129,
+      "length": 5,
+      "line": 6,
+      "column": 7
+    }
+  }
+]

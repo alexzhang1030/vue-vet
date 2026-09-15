@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+import { ref, watch } from 'vue'
+const count = ref(0)
+watch(count, () => {
+  console.log('changed')
+})
 </script>
-<template>{{ x }}</template>
+<template>{{ count }}</template>

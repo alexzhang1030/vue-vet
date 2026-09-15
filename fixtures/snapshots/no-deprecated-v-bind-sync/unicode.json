@@ -16,7 +16,7 @@
     },
     "edits": [
       {
-        "file": "fixtures/rules/no-deprecated-v-bind-sync/invalid/unicode.vue",
+        "file": "invalid/unicode.vue",
         "range": {
           "offset": 19,
           "length": 20

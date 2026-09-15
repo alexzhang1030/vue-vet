@@ -1,5 +1,28 @@
 [
   {
+    "rule_id": "vue-vet/reactivity/prefer-use-template-ref",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/reactivity/prefer-use-template-ref",
+    "message": "`node` mirrors a static template ref with `ref(null)`",
+    "help": "Prefer `useTemplateRef('node')`, available in Vue 3.5 and newer.",
+    "file": "fixtures/rules/no-v-memo-blocked-ref-demand/invalid/shadowed-name.vue",
+    "span": {
+      "offset": 129,
+      "length": 4,
+      "line": 5,
+      "column": 7
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "vue",
+      "export": "useTemplateRef",
+      "docs_url": "https://vuejs.org/api/composition-api-helpers.html#usetemplateref",
+      "import_example": "import { useTemplateRef } from 'vue'"
+    }
+  },
+  {
     "rule_id": "vue-vet/reactivity/no-v-memo-blocked-ref-demand",
     "category": "reactivity",
     "severity": "warning",

@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-after-await-watch-effect-dependency",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-after-await-watch-effect-dependency",
+    "message": "`result.value` is read after `await`, so `watchEffect` will not track it",
+    "help": "Read every dependency before the first `await`, or use explicit `watch` sources for values needed after async work.",
+    "file": "fixtures/rules/no-after-await-watch-effect-dependency/invalid/unicode.vue",
+    "span": {
+      "offset": 176,
+      "length": 12,
+      "line": 9,
+      "column": 15
+    }
+  }
+]

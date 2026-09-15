@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+import { reactive, readonly } from 'vue'
+const state = reactive({ count: 0 })
+const view = readonly(state)
+state.count++
+void view
 </script>
-<template>{{ x }}</template>
+<template>{{ view.count }}</template>

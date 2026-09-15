@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-outside-tracking-dependency-in-computed",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-outside-tracking-dependency-in-computed",
+    "message": "`count.value` is read outside synchronous tracking inside computed, so it is not a reliable dependency",
+    "help": "Read `count.value` synchronously in computed, or use explicit `watch` sources.",
+    "file": "fixtures/rules/no-outside-tracking-dependency-in-computed/invalid/unicode.vue",
+    "span": {
+      "offset": 144,
+      "length": 11,
+      "line": 5,
+      "column": 32
+    }
+  }
+]

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+import { shallowReactive } from 'vue'
+const state = shallowReactive({ count: 0 })
 </script>
-<template>{{ x }}</template>
+<template>{{ state.count }}</template>

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-const x = ref(0)
+const props = defineProps<{ title: string }>()
+const snapshot = ref(props)
+void snapshot
 </script>
-<template>{{ x }}</template>
+<template>{{ props.title }}</template>

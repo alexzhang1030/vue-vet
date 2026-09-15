@@ -1,0 +1,34 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/require-v-for-key",
+    "category": "correctness",
+    "severity": "error",
+    "confidence": "high",
+    "documentation": "rules/correctness/require-v-for-key",
+    "message": "`v-for` requires a stable `:key`",
+    "help": "Bind a stable identity from the item; do not use the array index when order can change.",
+    "file": "fixtures/rules/valid-v-for/invalid/crlf.vue",
+    "span": {
+      "offset": 18,
+      "length": 5,
+      "line": 2,
+      "column": 7
+    }
+  },
+  {
+    "rule_id": "vue-vet/correctness/valid-v-for",
+    "category": "correctness",
+    "severity": "error",
+    "confidence": "high",
+    "documentation": "rules/correctness/valid-v-for",
+    "message": "`v-for` is missing an expression",
+    "help": "Provide an expression for `v-for`.",
+    "file": "fixtures/rules/valid-v-for/invalid/crlf.vue",
+    "span": {
+      "offset": 18,
+      "length": 5,
+      "line": 2,
+      "column": 7
+    }
+  }
+]

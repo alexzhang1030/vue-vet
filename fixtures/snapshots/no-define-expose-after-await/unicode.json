@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/no-define-expose-after-await",
+    "category": "correctness",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/correctness/no-define-expose-after-await",
+    "message": "`defineExpose` is registered after a top-level `await`, so it will not bind to this instance",
+    "help": "Move `defineExpose` before the first top-level `await`, or register it in a synchronous setup path.",
+    "file": "fixtures/rules/no-define-expose-after-await/invalid/unicode.vue",
+    "span": {
+      "offset": 94,
+      "length": 22,
+      "line": 3,
+      "column": 1
+    }
+  }
+]

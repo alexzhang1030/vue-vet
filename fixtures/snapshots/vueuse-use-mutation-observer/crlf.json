@@ -1,0 +1,48 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/prefer-use-template-ref",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/reactivity/prefer-use-template-ref",
+    "message": "`el` mirrors a static template ref with `ref(null)`",
+    "help": "Prefer `useTemplateRef('el')`, available in Vue 3.5 and newer.",
+    "file": "fixtures/rules/vueuse-use-mutation-observer/invalid/crlf.vue",
+    "span": {
+      "offset": 72,
+      "length": 2,
+      "line": 4,
+      "column": 7
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "vue",
+      "export": "useTemplateRef",
+      "docs_url": "https://vuejs.org/api/composition-api-helpers.html#usetemplateref",
+      "import_example": "import { useTemplateRef } from 'vue'"
+    }
+  },
+  {
+    "rule_id": "vue-vet/practice/vueuse-use-mutation-observer",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "medium",
+    "documentation": "rules/practice/vueuse-use-mutation-observer",
+    "message": "This constructs a `MutationObserver` inside a setup lifecycle hook without `disconnect`; consider VueUse `useMutationObserver` for automatic cleanup.",
+    "help": "`@vueuse/core` is already available; prefer `useMutationObserver` for this pattern.",
+    "file": "fixtures/rules/vueuse-use-mutation-observer/invalid/crlf.vue",
+    "span": {
+      "offset": 148,
+      "length": 50,
+      "line": 7,
+      "column": 20
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "@vueuse/core",
+      "export": "useMutationObserver",
+      "docs_url": "https://vueuse.org/core/useMutationObserver/",
+      "import_example": "import { useMutationObserver } from '@vueuse/core'"
+    }
+  }
+]

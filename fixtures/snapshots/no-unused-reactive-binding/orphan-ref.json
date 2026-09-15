@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-unused-reactive-binding",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-unused-reactive-binding",
+    "message": "reactive binding `orphan` (ref) is never read in script or template",
+    "help": "Remove the unused binding, or read it from a tracking scope, template expression, or other script use.",
+    "file": "fixtures/rules/no-unused-reactive-binding/invalid/orphan-ref.vue",
+    "span": {
+      "offset": 58,
+      "length": 6,
+      "line": 4,
+      "column": 7
+    }
+  }
+]

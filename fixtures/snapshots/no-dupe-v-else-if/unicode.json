@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/no-dupe-v-else-if",
+    "category": "correctness",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/correctness/no-dupe-v-else-if",
+    "message": "`v-else-if=\"type === 'b'\"` repeats the previous branch's condition",
+    "help": "The later branch is unreachable; remove it or fix the condition.",
+    "file": "fixtures/rules/no-dupe-v-else-if/invalid/unicode.vue",
+    "span": {
+      "offset": 198,
+      "length": 9,
+      "line": 9,
+      "column": 8
+    }
+  }
+]

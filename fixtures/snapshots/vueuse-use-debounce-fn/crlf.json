@@ -1,0 +1,25 @@
+[
+  {
+    "rule_id": "vue-vet/practice/vueuse-use-debounce-fn",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "medium",
+    "documentation": "rules/practice/vueuse-use-debounce-fn",
+    "message": "This looks like a hand-rolled debounce that clears and reassigns the same timer; consider VueUse `useDebounceFn`.",
+    "help": "`@vueuse/core` is already available; prefer `useDebounceFn` for this pattern.",
+    "file": "fixtures/rules/vueuse-use-debounce-fn/invalid/crlf.vue",
+    "span": {
+      "offset": 147,
+      "length": 53,
+      "line": 5,
+      "column": 11
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "@vueuse/core",
+      "export": "useDebounceFn",
+      "docs_url": "https://vueuse.org/core/useDebounceFn/",
+      "import_example": "import { useDebounceFn } from '@vueuse/core'"
+    }
+  }
+]

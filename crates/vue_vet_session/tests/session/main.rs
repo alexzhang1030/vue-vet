@@ -7,4 +7,5 @@ mod misc;
 mod model_demand;
 mod overlays;
 mod progress;
+mod rule_fixtures;
 mod vapor_migration;

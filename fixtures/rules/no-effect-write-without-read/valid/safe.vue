@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+import { ref, watchEffect } from 'vue'
+const count = ref(0)
+watchEffect(() => {
+  count.value = count.value + 1
+})
 </script>
-<template>{{ x }}</template>
+<template>{{ count }}</template>

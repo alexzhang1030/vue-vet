@@ -1,0 +1,25 @@
+[
+  {
+    "rule_id": "vue-vet/practice/prefer-use-slots-attrs",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "medium",
+    "documentation": "rules/practice/prefer-use-slots-attrs",
+    "message": "`getCurrentInstance` is an advanced escape hatch; `useSlots()` / `useAttrs()` cover the common cases",
+    "help": "Prefer `useSlots()` for `instance.slots` and `useAttrs()` for `instance.attrs` inside `<script setup>`.",
+    "file": "fixtures/rules/prefer-use-slots-attrs/invalid/unicode.vue",
+    "span": {
+      "offset": 83,
+      "length": 20,
+      "line": 3,
+      "column": 18
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "vue",
+      "export": "useSlots",
+      "docs_url": "https://vuejs.org/api/composition-api-setup.html#useslots-useattrs",
+      "import_example": "import { useSlots } from 'vue'"
+    }
+  }
+]

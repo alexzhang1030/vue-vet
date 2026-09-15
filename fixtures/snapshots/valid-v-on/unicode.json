@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/valid-v-on",
+    "category": "correctness",
+    "severity": "error",
+    "confidence": "high",
+    "documentation": "rules/correctness/valid-v-on",
+    "message": "`v-on` is missing an event name or listeners expression",
+    "help": "Use `v-on:event` / `@event`, or `v-on=\"listeners\"`.",
+    "file": "fixtures/rules/valid-v-on/invalid/unicode.vue",
+    "span": {
+      "offset": 43,
+      "length": 4,
+      "line": 3,
+      "column": 11
+    }
+  }
+]

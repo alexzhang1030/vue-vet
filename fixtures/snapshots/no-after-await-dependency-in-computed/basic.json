@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-after-await-dependency-in-computed",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-after-await-dependency-in-computed",
+    "message": "`a.value` is read after `await` inside computed, so it is not a reliable dependency",
+    "help": "Read `a.value` synchronously in computed, or use explicit `watch` sources.",
+    "file": "fixtures/rules/no-after-await-dependency-in-computed/invalid/basic.vue",
+    "span": {
+      "offset": 146,
+      "length": 7,
+      "line": 6,
+      "column": 10
+    }
+  }
+]

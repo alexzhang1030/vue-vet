@@ -16,7 +16,7 @@
     },
     "edits": [
       {
-        "file": "fixtures/rules/no-deprecated-v-on-native-modifier/invalid/unicode.vue",
+        "file": "invalid/unicode.vue",
         "range": {
           "offset": 21,
           "length": 13

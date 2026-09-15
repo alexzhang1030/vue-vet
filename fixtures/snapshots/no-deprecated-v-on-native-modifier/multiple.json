@@ -16,7 +16,7 @@
     },
     "edits": [
       {
-        "file": "fixtures/rules/no-deprecated-v-on-native-modifier/invalid/multiple.vue",
+        "file": "invalid/multiple.vue",
         "range": {
           "offset": 21,
           "length": 13
@@ -44,7 +44,7 @@
     },
     "edits": [
       {
-        "file": "fixtures/rules/no-deprecated-v-on-native-modifier/invalid/multiple.vue",
+        "file": "invalid/multiple.vue",
         "range": {
           "offset": 46,
           "length": 13

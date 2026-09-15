@@ -6,7 +6,7 @@
     "confidence": "medium",
     "documentation": "rules/practice/vueuse-use-timeout-fn",
     "message": "This timeout is declared in code registered by a setup lifecycle hook; consider a setup-owned useTimeoutFn for cancellation and cleanup.",
-    "help": "Optional dependency: install `@vueuse/core` when you want `useTimeoutFn`, then replace the hand-rolled pattern. Create `useTimeoutFn` during setup with `{ immediate: false }`, then call `start()` from the callback.",
+    "help": "`@vueuse/core` is already available; prefer `useTimeoutFn` for this pattern. Create `useTimeoutFn` during setup with `{ immediate: false }`, then call `start()` from the callback.",
     "file": "fixtures/rules/vueuse-use-timeout-fn/invalid/set-without-clear.vue",
     "span": {
       "offset": 78,

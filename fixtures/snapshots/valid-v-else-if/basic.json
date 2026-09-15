@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/valid-v-else-if",
+    "category": "correctness",
+    "severity": "error",
+    "confidence": "high",
+    "documentation": "rules/correctness/valid-v-else-if",
+    "message": "`v-else-if` is missing an expression",
+    "help": "Provide an expression for `v-else-if`.",
+    "file": "fixtures/rules/valid-v-else-if/invalid/basic.vue",
+    "span": {
+      "offset": 136,
+      "length": 9,
+      "line": 7,
+      "column": 8
+    }
+  }
+]

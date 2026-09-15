@@ -1,0 +1,25 @@
+[
+  {
+    "rule_id": "vue-vet/practice/prefer-define-model",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "medium",
+    "documentation": "rules/practice/prefer-define-model",
+    "message": "`modelValue` prop plus `update:modelValue` emit can be replaced with `defineModel`",
+    "help": "Vue 3.4+ `defineModel()` declares the prop and event together and returns a writable ref.",
+    "file": "fixtures/rules/prefer-define-model/invalid/basic.vue",
+    "span": {
+      "offset": 48,
+      "length": 37,
+      "line": 2,
+      "column": 24
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "vue",
+      "export": "defineModel",
+      "docs_url": "https://vuejs.org/api/sfc-script-setup.html#definemodel",
+      "import_example": "const model = defineModel()"
+    }
+  }
+]

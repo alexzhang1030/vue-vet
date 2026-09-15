@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/prefer-computed",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/prefer-computed",
+    "message": "`watchEffect` only assigns `fullName` from other reactive reads",
+    "help": "Use `computed(() => …)` for pure derived state instead of syncing refs in `watchEffect`.",
+    "file": "fixtures/rules/prefer-computed/invalid/watch-effect-sync.vue",
+    "span": {
+      "offset": 145,
+      "length": 72,
+      "line": 8,
+      "column": 1
+    }
+  }
+]

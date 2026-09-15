@@ -1,0 +1,25 @@
+[
+  {
+    "rule_id": "vue-vet/practice/vueuse-use-event-listener",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "medium",
+    "documentation": "rules/practice/vueuse-use-event-listener",
+    "message": "This registers a DOM listener inside a setup lifecycle hook without `removeEventListener`; consider VueUse `useEventListener` for automatic cleanup.",
+    "help": "`@vueuse/core` is already available; prefer `useEventListener` for this pattern.",
+    "file": "fixtures/rules/vueuse-use-event-listener/invalid/unicode.vue",
+    "span": {
+      "offset": 78,
+      "length": 73,
+      "line": 5,
+      "column": 3
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "@vueuse/core",
+      "export": "useEventListener",
+      "docs_url": "https://vueuse.org/core/useEventListener/",
+      "import_example": "import { useEventListener } from '@vueuse/core'"
+    }
+  }
+]

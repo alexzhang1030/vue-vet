@@ -1,5 +1,11 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+import { effectScope, ref, watchEffect } from 'vue'
+const count = ref(0)
+const scope = effectScope()
+scope.run(() => {
+  watchEffect(() => {
+    void count.value
+  })
+})
 </script>
-<template>{{ x }}</template>
+<template>{{ count }}</template>

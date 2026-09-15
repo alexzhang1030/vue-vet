@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+defineExpose()
+const data = await fetch('/api').then((response) => response.json())
 </script>
-<template>{{ x }}</template>
+<template>
+  <div>{{ data }}</div>
+</template>

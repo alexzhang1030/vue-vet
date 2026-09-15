@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/no-template-key",
+    "category": "correctness",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/correctness/no-template-key",
+    "message": "`<template>` should not have a `key` unless it also has `v-for`",
+    "help": "Move `key` onto a real element, or add `v-for` on the template.",
+    "file": "fixtures/rules/no-template-key/invalid/unicode.vue",
+    "span": {
+      "offset": 35,
+      "length": 18,
+      "line": 3,
+      "column": 3
+    }
+  }
+]

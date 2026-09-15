@@ -1,0 +1,25 @@
+[
+  {
+    "rule_id": "vue-vet/practice/vueuse-use-timeout-fn",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "medium",
+    "documentation": "rules/practice/vueuse-use-timeout-fn",
+    "message": "This timeout is declared in code registered by a setup lifecycle hook; consider a setup-owned useTimeoutFn for cancellation and cleanup.",
+    "help": "`@vueuse/core` is already available; prefer `useTimeoutFn` for this pattern. Create `useTimeoutFn` during setup with `{ immediate: false }`, then call `start()` from the callback.",
+    "file": "fixtures/rules/vueuse-use-timeout-fn/invalid/crlf.vue",
+    "span": {
+      "offset": 186,
+      "length": 59,
+      "line": 12,
+      "column": 5
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "@vueuse/core",
+      "export": "useTimeoutFn",
+      "docs_url": "https://vueuse.org/core/useTimeoutFn/",
+      "import_example": "import { useTimeoutFn } from '@vueuse/core'"
+    }
+  }
+]

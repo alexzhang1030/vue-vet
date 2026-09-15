@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/valid-v-bind",
+    "category": "correctness",
+    "severity": "error",
+    "confidence": "high",
+    "documentation": "rules/correctness/valid-v-bind",
+    "message": "`v-bind` is missing an attribute name or object expression",
+    "help": "Use `v-bind:attr` / `:attr`, or `v-bind=\"object\"`.",
+    "file": "fixtures/rules/valid-v-bind/invalid/basic.vue",
+    "span": {
+      "offset": 18,
+      "length": 6,
+      "line": 2,
+      "column": 8
+    }
+  }
+]

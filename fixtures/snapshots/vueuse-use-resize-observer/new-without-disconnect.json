@@ -1,12 +1,35 @@
 [
   {
+    "rule_id": "vue-vet/reactivity/prefer-use-template-ref",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/reactivity/prefer-use-template-ref",
+    "message": "`el` mirrors a static template ref with `ref(null)`",
+    "help": "Prefer `useTemplateRef('el')`, available in Vue 3.5 and newer.",
+    "file": "fixtures/rules/vueuse-use-resize-observer/invalid/new-without-disconnect.vue",
+    "span": {
+      "offset": 69,
+      "length": 2,
+      "line": 4,
+      "column": 7
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "vue",
+      "export": "useTemplateRef",
+      "docs_url": "https://vuejs.org/api/composition-api-helpers.html#usetemplateref",
+      "import_example": "import { useTemplateRef } from 'vue'"
+    }
+  },
+  {
     "rule_id": "vue-vet/practice/vueuse-use-resize-observer",
     "category": "practice",
     "severity": "info",
     "confidence": "medium",
     "documentation": "rules/practice/vueuse-use-resize-observer",
     "message": "This constructs a `ResizeObserver` inside a setup lifecycle hook without `disconnect`; consider VueUse `useResizeObserver` for automatic cleanup.",
-    "help": "Optional dependency: install `@vueuse/core` when you want `useResizeObserver`, then replace the hand-rolled pattern.",
+    "help": "`@vueuse/core` is already available; prefer `useResizeObserver` for this pattern.",
     "file": "fixtures/rules/vueuse-use-resize-observer/invalid/new-without-disconnect.vue",
     "span": {
       "offset": 142,
