@@ -1,10 +1,10 @@
 //! Thin MCP adapter over [`vue_vet_session`].
 //!
-//! Stdio JSON-RPC (Content-Length framing) exposing scan, explain, explain-scope,
-//! and safe-fix preview tools. The live server keeps one [`vue_vet_session::ProjectSession`]
-//! per resolved tool path: scan / preview replace it (disk edits stay visible);
-//! explain / explain-scope reuse the last committed snapshot. Apply remains
-//! CLI / LSP — never silent.
+//! Newline-delimited JSON-RPC 2.0 over stdio (one message per line) exposing
+//! scan, explain, explain-scope, and safe-fix preview tools. The live server
+//! keeps one [`vue_vet_session::ProjectSession`] per resolved tool path: scan /
+//! preview replace it (disk edits stay visible); explain / explain-scope reuse
+//! the last committed snapshot. Apply remains CLI / LSP — never silent.
 
 mod protocol;
 mod tools;
@@ -12,16 +12,13 @@ mod tools;
 pub use protocol::{McpServer, read_message, write_message};
 pub use tools::{TOOL_NAMES, call_tool, list_tools};
 
-use std::{
-  io::{BufReader, Write},
-  path::PathBuf,
-};
+use std::{io::BufReader, path::PathBuf};
 
 /// Run the MCP server on stdin/stdout until the client closes the stream.
 ///
 /// # Errors
 ///
-/// Returns an I/O or protocol framing error. Tool failures are returned as MCP
+/// Returns an I/O error. Tool failures are returned as MCP
 /// tool results, not as process-level errors.
 pub fn run_stdio(workspace_root: PathBuf) -> std::io::Result<()> {
   let server = McpServer::new(workspace_root);
@@ -29,11 +26,5 @@ pub fn run_stdio(workspace_root: PathBuf) -> std::io::Result<()> {
   let stdout = std::io::stdout();
   let mut reader = BufReader::new(stdin.lock());
   let mut writer = stdout.lock();
-  while let Some(message) = read_message(&mut reader)? {
-    if let Some(response) = server.handle(&message) {
-      write_message(&mut writer, &response)?;
-      writer.flush()?;
-    }
-  }
-  Ok(())
+  server.serve(&mut reader, &mut writer)
 }

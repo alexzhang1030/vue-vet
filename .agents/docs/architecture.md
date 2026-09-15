@@ -803,7 +803,8 @@ Hover converts the caret UTF-16 position to a byte offset and asks
 the same `ScopeExplain` markdown as CLI `--explain-scope`. Diagnostics
 publish may use `AnalysisProduct::DiagnosticsOnly`; the committed session
 snapshot keeps the full graph so hover does not re-trace. `vue-vet --mcp`
-(`vue_vet_mcp`) exposes stdio JSON-RPC tools for scan, explain,
+(`vue_vet_mcp`) exposes newline-delimited JSON-RPC 2.0 tools over stdio (one
+UTF-8 message per line, no Content-Length headers) for scan, explain,
 explain-scope (`vue_vet_explain_scope`, same `ScopeExplain` JSON as CLI
 `--explain-scope`), and safe-fix preview with the same workspace path bounds;
 it never applies edits. The process keeps one session per resolved tool path
