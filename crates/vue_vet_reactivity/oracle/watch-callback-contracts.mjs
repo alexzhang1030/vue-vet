@@ -2,7 +2,7 @@
  * Vue 3.5.40 runtime premises for watch-callback contract rules.
  *
  * Locked oracle: this package's node_modules (Vue 3.5.40).
- * Run: `just oracle-watch-callback-contracts`
+ * Run: `just oracle-source-contracts` (this file is one of its steps).
  */
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";

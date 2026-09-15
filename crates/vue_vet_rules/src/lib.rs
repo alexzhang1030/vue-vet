@@ -135,4 +135,12 @@ mod tests {
     assert!(ids.contains("vue-vet/reactivity/no-lost-shallow-nested-notification"));
     assert!(ids.contains("vue-vet/reactivity/no-toraw-write-of-tracked-state"));
   }
+
+  #[test]
+  fn retired_rule_ids_are_absent_from_matrix_mod() {
+    let matrix = include_str!("rules/matrix/mod.rs");
+    let lingering: Vec<_> =
+      RETIRED_RULE_IDS.iter().copied().filter(|id| matrix.contains(id)).collect();
+    assert!(lingering.is_empty(), "retired ids still in matrix/mod.rs: {lingering:?}");
+  }
 }
