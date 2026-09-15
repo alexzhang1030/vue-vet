@@ -39,6 +39,7 @@ versioned wire gates.
 | Reactivity | `ReactivityDigest`, `binding_detail`, `scope_detail*`, `render_reactivity_detail` / `_footer` |
 | Nav | `binding_nav_from_details`, `component_nav_from_edges` |
 | Humanize | `humanize_binding` / `_scope` / `_edge` / … |
+| Inventory | `render_rule_inventory_text`, `render_rule_catalog_markdown` |
 | Re-exports | `FindingExplain`, `RuleExplain`, `ScopeExplain`, … from `vue_vet_core` |
 
 `component_nav` is structural `uses` / `used_by` only — **not** prop dataflow

@@ -1,7 +1,7 @@
 # Rule catalog
 
 Generated from `RuleMeta` documentation keys. Regenerate with
-`python3 scripts/gen_rule_catalog.py` (`just rules-catalog`).
+`vue-vet --list-rules --format markdown` (`just rules-catalog`).
 
 ## Differentiation tiers
 

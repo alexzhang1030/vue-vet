@@ -42,7 +42,7 @@ pub fn run_explain(cli: &Cli, target: &str) -> ExitCode {
     (OutputFormat::Json, Explained::Finding { explain, .. }) => {
       render_finding_explain_json(&explain)
     }
-    (OutputFormat::Sarif | OutputFormat::Github, _) => {
+    (OutputFormat::Sarif | OutputFormat::Github | OutputFormat::Markdown, _) => {
       return operational_failure(cli, "--explain supports --format text or json only");
     }
   };
@@ -73,7 +73,7 @@ pub fn run_explain_scope(cli: &Cli, query: &str) -> ExitCode {
   let output = match cli.format {
     OutputFormat::Text => Ok(render_scope_explains_text(&explains)),
     OutputFormat::Json => render_scope_explains_json(&explains),
-    OutputFormat::Sarif | OutputFormat::Github => {
+    OutputFormat::Sarif | OutputFormat::Github | OutputFormat::Markdown => {
       return operational_failure(cli, "--explain-scope supports --format text or json only");
     }
   };

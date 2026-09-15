@@ -161,9 +161,13 @@ bench-codspeed-build:
 bench-codspeed-run:
   cargo codspeed run
 
-# Regenerate docs/rules/README.md from RuleMeta documentation keys.
+# Regenerate docs/rules/README.md from the live composed registry.
 rules-catalog:
-  python3 scripts/gen_rule_catalog.py
+  cargo run -p vue-vet --locked --quiet -- --list-rules --format markdown > docs/rules/README.md
+
+# Fail when the committed catalog is stale relative to the binary.
+rules-catalog-check: rules-catalog
+  git diff --exit-code -- docs/rules/README.md
 
 # Print quality-corpus tree digests (update fixtures/quality/manifest.json after intentional edits).
 quality-digest:
