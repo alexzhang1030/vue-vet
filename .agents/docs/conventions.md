@@ -143,6 +143,10 @@
 
 Internal locations are byte offsets into the original SFC source. User-facing line and column values are derived explicitly. `SourceSpan` is four `usize`s and is `Copy`, same as `ByteRange`. Span changes require ASCII, Unicode, multiline, and relevant CRLF fixtures. Never assume a byte offset is a character index.
 
+## Fixtures and snapshots
+
+Per-rule fixtures live under `fixtures/rules/<rule>/{invalid,valid}/`. One session integration walker (`crates/vue_vet_session/tests/session/rule_fixtures.rs`) analyzes every non-skipped rule directory through `ProjectSession` (the same finalize path as the CLI, including overlap consolidation and config defaults). The temp workspace writes a `vue-vet.toml` that turns off `vue-vet/project/unresolved-import` and `vue-vet/project/unused-component` so missing stub packages do not pollute rule snapshots; every other rule stays at defaults. Invalid fixtures compare pretty-printed diagnostics to `fixtures/snapshots/<rule>/<stem>.json`; set `UPDATE_RULE_SNAPSHOTS=1` to refresh those files. Snapshots are post-overlap: they record the diagnostics that survive `DiagnosticFinalizer` (config, suppressions, computed-impurity / watch-source / nested-watch overlap), not the raw per-rule `analyze_sfc` stream. Companion SFCs that another fixture in the same directory imports use a PascalCase stem (`Child.vue`); they are scanned and snapshotted but are not required to report the target rule. `no-stale-prop-flow` is walked this way: `join_prop_flows` attaches a parent-side Prop edge for a bare `:prop` ident so a plain `let title` (not a graph binding) is visible on the parent file. Every walked rule keeps `invalid/unicode*.vue` (multibyte text before the offending span) and `invalid/crlf*.vue` (literal `\r\n`). Project and migration rules stay on their dedicated project-fixture tests; `recommended/` remains a pack fixture in `golden.rs`.
+
 ## Deterministic output
 
 Sort diagnostics by normalized repository-relative path, byte offset, and rule ID. Do not expose platform path separators or hash-map iteration order in snapshots, JSON, baselines, or cache identities.
