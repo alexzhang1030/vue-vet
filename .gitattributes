@@ -9,3 +9,5 @@ fixtures/rules/no-effect-scope-callback-argument/invalid/crlf.vue -text whitespa
 fixtures/rules/no-invalid-custom-ref-interface/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/no-inactive-scope-result/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/no-missing-torefs-key/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/no-raw-proxy-map-key/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/prefer-keyed-map-dependency/invalid/crlf.vue -text whitespace=cr-at-eol

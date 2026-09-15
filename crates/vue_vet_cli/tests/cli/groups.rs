@@ -44,8 +44,8 @@ fn list_rules_is_sorted_unique_and_includes_project_ids() {
   );
   assert_eq!(
     parsed.pointer("/counts/total").and_then(Value::as_u64),
-    Some(124),
-    "composed CLI inventory must be 124 after extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
+    Some(126),
+    "composed CLI inventory must be 126 after collection-lookup, extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
   );
 }
 
@@ -130,9 +130,86 @@ fn list_rules_source_contracts_includes_contract_ids() {
     "vue-vet/reactivity/no-invalid-custom-ref-interface",
     "vue-vet/reactivity/no-inactive-scope-result",
     "vue-vet/reactivity/no-missing-torefs-key",
+    "vue-vet/reactivity/no-raw-proxy-map-key",
   ] {
     assert!(ids.iter().any(|row| row == id), "missing {id} in {ids:?}");
   }
+}
+
+#[test]
+fn collection_lookup_group_cold_warm_and_incremental_match() {
+  let project = TempProject::new(
+    "collection-lookup-groups",
+    include_str!("../../../../fixtures/rules/no-raw-proxy-map-key/invalid/basic.vue"),
+  );
+  project.write_source(
+    "Keyed.vue",
+    include_str!("../../../../fixtures/rules/prefer-keyed-map-dependency/invalid/computed.vue"),
+  );
+  project.write_source(
+    "lookup.ts",
+    include_str!("../../../../fixtures/rules/no-raw-proxy-map-key/invalid/basic.ts"),
+  );
+  let cache = project.root().join("cache");
+  let root = project.root().to_string_lossy();
+  let cache_dir = cache.to_string_lossy();
+  let source_contracts =
+    [root.as_ref(), "--format", "json", "--no-cache", "--group", "source-contracts"];
+  let cold = parse_scan(&run(&source_contracts));
+  let ids = diagnostic_ids(&cold);
+  assert!(ids.iter().any(|id| id.contains("no-raw-proxy-map-key")), "{ids:?}");
+  assert!(ids.iter().all(|id| !id.contains("prefer-keyed-map-dependency")), "{ids:?}");
+  let derivation =
+    parse_scan(&run(&[root.as_ref(), "--format", "json", "--no-cache", "--group", "derivation"]));
+  let derivation_ids = diagnostic_ids(&derivation);
+  assert!(
+    derivation_ids.iter().any(|id| id.contains("prefer-keyed-map-dependency")),
+    "{derivation_ids:?}"
+  );
+  assert_eq!(derivation.pointer("/summary/score").and_then(Value::as_u64), Some(100));
+  let cached_args = [
+    root.as_ref(),
+    "--format",
+    "json",
+    "--cache-dir",
+    cache_dir.as_ref(),
+    "--group",
+    "source-contracts",
+  ];
+  let miss = run(&cached_args);
+  let hit = run(&cached_args);
+  assert_eq!(miss.stdout, hit.stdout, "cold/warm group output must match");
+  project.write_source(
+    "lookup.ts",
+    "import { reactive } from 'vue'\nconst raw = {}\nconst proxy = reactive(raw)\nvoid proxy\n",
+  );
+  let incremental = parse_scan(&run(&cached_args));
+  let incremental_ids = diagnostic_ids(&incremental);
+  assert!(
+    incremental_ids.iter().any(|id| id.contains("no-raw-proxy-map-key")),
+    "App.vue finding must remain after unrelated ts edit: {incremental_ids:?}"
+  );
+}
+
+#[test]
+fn list_rules_derivation_includes_keyed_map_practice() {
+  let output = run(&["--list-rules", "--format", "json", "--group", "derivation"]);
+  assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+  let parsed: Value = serde_json::from_slice(&output.stdout).expect("derivation json");
+  let ids: Vec<_> = parsed
+    .get("rules")
+    .and_then(Value::as_array)
+    .map(|rules| {
+      rules
+        .iter()
+        .filter_map(|row| row.get("id").and_then(Value::as_str).map(str::to_owned))
+        .collect()
+    })
+    .unwrap_or_default();
+  assert!(
+    ids.iter().any(|id| id == "vue-vet/practice/prefer-keyed-map-dependency"),
+    "missing keyed map practice in {ids:?}"
+  );
 }
 
 #[test]

@@ -34,6 +34,14 @@
   `callee_is`; `is_script_setup_block` re-exports the query crate). Recipe
   metadata may declare `min_vue` / `confidence`; matching stays in thin
   `Rule` code. `practice = "off"` in `vue-vet.toml` drops the whole channel.
+  Keyed Map `forEach`→`get` suggestions consume source-contract facts and stay
+  on the derivation group without changing score or CI exit. Native Map key-argument
+  roles and identifier-wrapped practice both require a completed capability proof
+  on the concrete receiver (and its underlying allocation, including object/array/
+  return/assignment escapes). Demand uses the same region-entry barrier and
+  child-role execution classification as Map operations, including logical
+  assignment, optional call/computed arguments, and inherited ChainExpression
+  short-circuit. Wrappers that share one raw Map allocation share capability.
 - Rules use the pass API: declare `fact_kinds`, implement `run_on` for per-fact
   checks, and use `run_once` only for true multi-fact aggregation. Prefer
   immediate `report` inside the visitor. Do not filter the whole fact set into a
@@ -60,8 +68,8 @@
   separate capability from Vue import identity. Demand-gated value contracts
   (`no-invalid-custom-ref-interface`, `no-inactive-scope-result`,
   `no-missing-torefs-key`) stay distinct from callback/toRef receiver sets
-  and clone native identity. Combined inventory is 124 (122 file + 2
-  project); source-contract group 32; `RULESET_VERSION` 24; graph stays 41.
+  and clone native identity. Combined inventory is 126 (124 file + 2
+  project); source-contract group 33; `RULESET_VERSION` 25; graph stays 41.
   Runtime premises live in `just oracle-source-contracts` (Vue 3.5.40), which
   runs `source-contracts.mjs`, `watch-api.mjs`, `watch-callback-contracts.mjs`,
   and `value-contracts.mjs`. Dedicated `just oracle-value-contracts` remains

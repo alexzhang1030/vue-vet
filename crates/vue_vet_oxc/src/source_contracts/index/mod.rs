@@ -17,10 +17,11 @@ use std::collections::{HashMap, HashSet};
 use oxc_ast::{
   AstKind,
   ast::{
-    Argument, AssignmentOperator, AssignmentTarget, AssignmentTargetMaybeDefault,
-    AssignmentTargetProperty, BindingPattern, CallExpression, Expression, ForStatementLeft,
-    IdentifierReference, ObjectPropertyKind, PropertyKind, SimpleAssignmentTarget,
-    StaticMemberExpression, UnaryOperator, VariableDeclarator,
+    Argument, ArrayExpression, ArrayExpressionElement, AssignmentOperator, AssignmentTarget,
+    AssignmentTargetMaybeDefault, AssignmentTargetProperty, BindingPattern, CallExpression,
+    Expression, ForStatementLeft, IdentifierReference, LogicalOperator, NewExpression,
+    ObjectPropertyKind, PropertyKind, SimpleAssignmentTarget, StaticMemberExpression,
+    UnaryOperator, VariableDeclarator,
   },
 };
 use oxc_semantic::{NodeId, SymbolFlags, SymbolId};
@@ -84,6 +85,7 @@ struct DirectMemberWrite<'a> {
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct CallInfo {
+  pub span: Span,
   pub api: Option<&'static str>,
   pub first_arg: Option<Span>,
   pub second_arg: Option<Span>,
@@ -94,6 +96,86 @@ pub(super) struct CallInfo {
   /// local/unknown calls never walk declaration ancestors.
   pub actual_proxy_origin: bool,
   pub arg_count: u8,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub(super) enum ProxyFlavor {
+  Deep,
+  Shallow,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct MapKeyRef {
+  pub span: Span,
+  pub symbol: Option<SymbolId>,
+  pub proxy_of: Option<SymbolId>,
+  pub actual_proxy: bool,
+  pub proxy_flavor: Option<ProxyFlavor>,
+  pub is_literal: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ExecKind {
+  Always,
+  Never,
+  Maybe,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ChainPlace {
+  Inside,
+  Outside,
+  Unknown,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WrapperOrigin {
+  None,
+  Known(SymbolId),
+  Unknown,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct NewInfo {
+  pub ctor: Option<&'static str>,
+  #[expect(dead_code, reason = "constructor arity is recorded with key extraction")]
+  pub first_arg: Option<Span>,
+  #[expect(dead_code, reason = "constructor arity is recorded with key extraction")]
+  pub has_spread: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct MemberCallSite {
+  pub span: Span,
+  pub node_id: NodeId,
+  pub block: NodeId,
+  pub callable: Option<NodeId>,
+  pub region: NodeId,
+  pub offset: usize,
+  pub optional: bool,
+  pub has_spread: bool,
+  pub arg_count: u8,
+  pub first_key: Option<MapKeyRef>,
+  pub first_key_unknown: bool,
+  pub exec: ExecKind,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct MapOp {
+  pub method: Option<&'static str>,
+  pub site: MemberCallSite,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum CtorKeyState {
+  Unknown,
+  Known(usize),
+}
+
+struct PendingMapKeyArg {
+  receiver: SymbolId,
+  method: &'static str,
+  arg: SymbolId,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -198,6 +280,30 @@ pub(super) struct Indexes {
   global_this_aliases: HashSet<SymbolId>,
   native_ctor_aliases: HashMap<SymbolId, &'static str>,
   terminations_by_callable: HashMap<Option<NodeId>, Vec<usize>>,
+  pub object_literals: HashSet<u64>,
+  pub news: HashMap<u64, NewInfo>,
+  pub map_init_keys: HashMap<u64, Option<Vec<MapKeyRef>>>,
+  pub member_calls: HashMap<(SymbolId, String), Vec<MemberCallSite>>,
+  pub member_call_by_node: HashMap<NodeId, MemberCallSite>,
+  pub map_ops: HashMap<SymbolId, Vec<MapOp>>,
+  pub map_gets: HashMap<SymbolId, Vec<MemberCallSite>>,
+  pub proxy_wrapper: HashMap<SymbolId, Span>,
+  wrappers_of_alloc: HashMap<SymbolId, Vec<SymbolId>>,
+  pub skip_marker_objects: HashSet<u64>,
+  pub skip_written: HashSet<SymbolId>,
+  pub map_intrinsic_poisoned: bool,
+  pub region_start: HashMap<NodeId, usize>,
+  pub init_offset: HashMap<SymbolId, usize>,
+  pub known_truthy: HashMap<u64, bool>,
+  pub known_nullish: HashMap<u64, bool>,
+  pub helper_escaped: HashSet<SymbolId>,
+  pending_map_key_args: Vec<PendingMapKeyArg>,
+  wrapper_origin: HashMap<SymbolId, SymbolId>,
+  pending_inline_writes: Vec<(SymbolId, String, MemberWrite)>,
+  pending_inline_unknown: Vec<SymbolId>,
+  canonical_of: HashMap<SymbolId, Option<SymbolId>>,
+  unresolved_origin_touch: bool,
+  alloc_capability: HashMap<SymbolId, bool>,
   work: WorkCounter,
 }
 
@@ -262,10 +368,35 @@ impl Indexes {
       global_this_aliases: HashSet::new(),
       native_ctor_aliases: HashMap::new(),
       terminations_by_callable: HashMap::new(),
+      object_literals: HashSet::new(),
+      news: HashMap::new(),
+      map_init_keys: HashMap::new(),
+      member_calls: HashMap::new(),
+      member_call_by_node: HashMap::new(),
+      map_ops: HashMap::new(),
+      map_gets: HashMap::new(),
+      proxy_wrapper: HashMap::new(),
+      wrappers_of_alloc: HashMap::new(),
+      skip_marker_objects: HashSet::new(),
+      skip_written: HashSet::new(),
+      map_intrinsic_poisoned: false,
+      region_start: HashMap::new(),
+      init_offset: HashMap::new(),
+      known_truthy: HashMap::new(),
+      known_nullish: HashMap::new(),
+      helper_escaped: HashSet::new(),
+      pending_map_key_args: Vec::new(),
+      wrapper_origin: HashMap::new(),
+      pending_inline_writes: Vec::new(),
+      pending_inline_unknown: Vec::new(),
+      canonical_of: HashMap::new(),
+      unresolved_origin_touch: false,
+      alloc_capability: HashMap::new(),
       work,
     };
     indexes.build_owners(semantic);
     indexes.precompute_aliases(semantic);
+    indexes.record_region_starts(semantic, line_index, sfc_source, script_offset);
     indexes.scan(semantic, line_index, sfc_source, script_offset, kind);
     indexes.finish_aliases_and_roles(semantic);
     indexes.summarize_writes();
@@ -301,6 +432,8 @@ impl Indexes {
     for uses in indexes.member_calls_by_root.values_mut() {
       uses.sort_by_key(|use_site| use_site.site.offset);
     }
+    indexes.finish_pending_map_key_args(semantic);
+    indexes.finish_map_indexes();
     indexes
   }
 
@@ -444,7 +577,8 @@ impl Indexes {
 
   pub(super) fn capability_poisoned(&self, symbol_id: SymbolId) -> bool {
     self.work.add_queries(1);
-    self.capability_poisoned.contains(&self.root_of(symbol_id))
+    let root = self.root_of(symbol_id);
+    self.capability_poisoned.contains(&root) || self.skip_written.contains(&root)
   }
 
   pub(super) fn collection_capability_invalid(&self, symbol_id: SymbolId) -> bool {
@@ -778,6 +912,18 @@ impl Indexes {
     self.work.add_object_entries(n);
   }
 
+  pub(super) fn note_entry(&self) {
+    self.work.add_object_entries(1);
+  }
+
+  pub(super) fn note_identity(&self) {
+    self.work.add_key_lookups(1);
+  }
+
+  pub(super) fn note_mutation(&self) {
+    self.work.add_writes(1);
+  }
+
   pub(super) fn add_queries(&self, n: u64) {
     self.work.add_queries(n);
   }
@@ -872,6 +1018,9 @@ impl Indexes {
             && let Some(init) = &declarator.init
           {
             self.init_span.insert(symbol_id, init.span());
+            self
+              .init_offset
+              .insert(symbol_id, mapped(line_index, sfc_source, script_offset, init.span()).offset);
           }
           if let Some(init) = &declarator.init {
             self.record_destructure(semantic, &declarator.id, init);
@@ -890,9 +1039,21 @@ impl Indexes {
           self.mark_escape_expr(semantic, &assignment.right, true);
           self.poison_expr(semantic, &assignment.right);
           self.taint_assignment_target(semantic, &assignment.left);
+          if assignment_poisons_map_intrinsic(semantic, &assignment.left, &self.work) {
+            self.map_intrinsic_poisoned = true;
+          }
           let offset = mapped(line_index, sfc_source, script_offset, assignment.span).offset;
           self.index_assignment(
             semantic,
+            node_id,
+            offset,
+            assignment.operator,
+            &assignment.left,
+            &assignment.right,
+          );
+          self.record_wrapper_assignment(
+            semantic,
+            kind,
             node_id,
             offset,
             assignment.operator,
@@ -903,14 +1064,19 @@ impl Indexes {
         }
         AstKind::ForInStatement(statement) => {
           self.note_loop_assignment_poison(semantic, &statement.left);
+          self.note_loop_map_poison(semantic, &statement.left);
           self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
         }
         AstKind::ForOfStatement(statement) => {
           self.note_loop_assignment_poison(semantic, &statement.left);
+          self.note_loop_map_poison(semantic, &statement.left);
           self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
         }
         AstKind::UpdateExpression(update) => {
           self.poison_simple_target(semantic, &update.argument);
+          if simple_target_poisons_map_intrinsic(semantic, &update.argument, &self.work) {
+            self.map_intrinsic_poisoned = true;
+          }
           if simple_target_poisons_clone_intrinsic(semantic, &update.argument, &self.work) {
             self.clone_intrinsic_poisoned = true;
           }
@@ -923,16 +1089,40 @@ impl Indexes {
         AstKind::UnaryExpression(unary) if unary.operator == UnaryOperator::Delete => {
           self.poison_member_expression(semantic, &unary.argument);
           self.note_delete(semantic, &unary.argument);
+          if expression_poisons_map_intrinsic(semantic, &unary.argument, &self.work) {
+            self.map_intrinsic_poisoned = true;
+          }
         }
         AstKind::CallExpression(call) => {
           self.record_call(semantic, kind, call);
+          self.record_map_member_call(
+            semantic,
+            kind,
+            line_index,
+            sfc_source,
+            script_offset,
+            node_id,
+            call,
+          );
           let api = self.calls.get(&span_key(call.span)).and_then(|info| info.api);
           for (index, argument) in call.arguments.iter().enumerate() {
             if let Some(expression) = argument.as_expression() {
               self.record_expr(semantic, kind, expression);
               self.mark_escape_expr(semantic, expression, !(api == Some("toRef") && index == 0));
-              if api.is_none() {
+              if capability_mutating_callee(semantic, &call.callee) {
                 self.poison_expr(semantic, expression);
+                self.mark_helper_escape_expr(semantic, expression);
+              } else if api.is_none() {
+                if let Some(pending) =
+                  self.pending_native_map_key_arg(semantic, call, index, expression)
+                {
+                  self.pending_map_key_args.push(pending);
+                } else {
+                  self.poison_expr(semantic, expression);
+                  self.mark_helper_escape_expr(semantic, expression);
+                }
+              } else if !vue_wrapper_skips_capability(call, index, &self.calls) {
+                self.mark_helper_escape_expr(semantic, expression);
               }
             }
           }
@@ -944,11 +1134,16 @@ impl Indexes {
         AstKind::NewExpression(expression) => {
           self.record_expr(semantic, kind, &expression.callee);
           self.note_receiver_use(semantic, &expression.callee);
+          self.record_map_new(semantic, kind, expression);
+          let skip_map_args =
+            self.news.get(&span_key(expression.span)).is_some_and(|info| info.ctor == Some("Map"));
           for argument in &expression.arguments {
             if let Some(arg) = argument.as_expression() {
               self.record_expr(semantic, kind, arg);
-              self.mark_escape_expr(semantic, arg, true);
-              self.poison_expr(semantic, arg);
+              if !skip_map_args {
+                self.mark_escape_expr(semantic, arg, true);
+                self.poison_expr(semantic, arg);
+              }
             }
           }
           if let Some(ctor) = unresolved_collection_kind(&expression.callee, |ident| {
@@ -966,6 +1161,10 @@ impl Indexes {
         }
         AstKind::ObjectExpression(object) => {
           self.literal_span.insert(span_key(object.span), object.span);
+          self.object_literals.insert(span_key(object.span));
+          if object_has_skip_marker(object) {
+            self.skip_marker_objects.insert(span_key(object.span));
+          }
           let entries = object_entries(object);
           let props = summarize_object_props(&entries, &self.work);
           self.object_props.insert(span_key(object.span), props);
@@ -978,7 +1177,9 @@ impl Indexes {
             }
           }
         }
-        AstKind::ArrayExpression(array) => self.index_array_expression(semantic, kind, array),
+        AstKind::ArrayExpression(array) => {
+          self.index_array_expression(semantic, kind, node_id, array);
+        }
         AstKind::ReturnStatement(statement) => {
           if let Some(argument) = &statement.argument {
             self.record_expr(semantic, kind, argument);
@@ -1076,6 +1277,18 @@ impl Indexes {
           );
           self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
         }
+        AstKind::AwaitExpression(expression) => {
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, expression.span);
+        }
+        AstKind::YieldExpression(expression) => {
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, expression.span);
+        }
+        AstKind::BreakStatement(statement) => {
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
+        }
+        AstKind::ContinueStatement(statement) => {
+          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
+        }
         AstKind::ExportNamedDeclaration(_) | AstKind::ExportDefaultDeclaration(_) => {
           if let AstKind::VariableDeclaration(_) = semantic.nodes().parent_kind(node_id) {
             // handled via BindingIdentifier export flags below
@@ -1141,6 +1354,9 @@ impl Indexes {
           continue;
         }
         if known_const_alias_role(semantic, reference.node_id()) {
+          continue;
+        }
+        if known_map_constructor_key_role(semantic, reference.node_id()) {
           continue;
         }
         self.uncertain.insert(root);
@@ -1314,6 +1530,18 @@ impl Indexes {
       self.literal_span.insert(span_key(expression.span()), inner.span());
       self.literal_span.insert(span_key(inner.span()), inner.span());
     }
+    if let Some(truthy) = literal_truthy(semantic, inner) {
+      self.known_truthy.insert(span_key(inner.span()), truthy);
+      self.known_truthy.insert(span_key(expression.span()), truthy);
+    }
+    if let Some(nullish) = literal_nullish(semantic, inner) {
+      self.known_nullish.insert(span_key(inner.span()), nullish);
+      self.known_nullish.insert(span_key(expression.span()), nullish);
+    }
+    if matches!(inner, Expression::ObjectExpression(_)) {
+      self.object_literals.insert(span_key(inner.span()));
+      self.object_literals.insert(span_key(expression.span()));
+    }
     if let Expression::CallExpression(call) = inner {
       self.record_call(semantic, kind, call);
     }
@@ -1350,6 +1578,7 @@ impl Indexes {
     self.calls.insert(
       span_key(call.span),
       CallInfo {
+        span: call.span,
         api,
         first_arg,
         second_arg,
@@ -1372,6 +1601,7 @@ impl Indexes {
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     kind: ScriptKind,
+    node_id: NodeId,
     array: &oxc_ast::ast::ArrayExpression<'_>,
   ) {
     self.arrays.insert(span_key(array.span));
@@ -1383,9 +1613,17 @@ impl Indexes {
     {
       self.array_spread.insert(span_key(array.span));
     }
-    for element in &array.elements {
+    let map_entry = array_is_map_entry(semantic, node_id);
+    let map_iterable = array_is_map_iterable(semantic, node_id);
+    for (index, element) in array.elements.iter().enumerate() {
       if let Some(expression) = element.as_expression() {
         self.record_expr(semantic, kind, expression);
+        if map_entry && index == 0 {
+          continue;
+        }
+        if map_iterable {
+          continue;
+        }
         self.mark_escape_expr(semantic, expression, true);
         self.poison_expr(semantic, expression);
       }
@@ -3211,3 +3449,12 @@ fn mapped(
 ) -> SourceSpan {
   source_span(line_index, sfc_source, script_offset, span)
 }
+
+mod map_index;
+use map_index::{
+  array_is_map_entry, array_is_map_iterable, assignment_poisons_map_intrinsic,
+  capability_mutating_callee, expression_poisons_map_intrinsic, known_map_constructor_key_role,
+  literal_nullish, literal_truthy, object_has_skip_marker, simple_target_poisons_map_intrinsic,
+  vue_wrapper_skips_capability,
+};
+pub(super) use map_index::{proxy_flavor, skip_ts_parent};

@@ -1,0 +1,41 @@
+[
+  {
+    "rule_id": "vue-vet/practice/prefer-keyed-map-dependency",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/practice/prefer-keyed-map-dependency",
+    "message": "`forEach` over a reactive Map to select `selected` tracks every entry; `Map.get` tracks only that key",
+    "help": "computed at 9:10 reruns when unrelated keys change. `get('selected')` yields the same selected value or `undefined` after delete.",
+    "file": "fixtures/rules/prefer-keyed-map-dependency/invalid/namespace.vue",
+    "span": {
+      "offset": 173,
+      "length": 78,
+      "line": 6,
+      "column": 3
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "vue",
+      "export": "Map.prototype.get",
+      "docs_url": "https://vuejs.org/guide/essentials/reactivity-fundamentals.html#collections",
+      "import_example": "keyed.get('selected')"
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/no-computed-as-operand",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-computed-as-operand",
+    "message": "`selected` is a computed ref object used as an operand; unwrap with `.value` (or `toValue`)",
+    "help": "Use `selected.value` (or `toValue(selected)`) when reading the inner value.",
+    "file": "fixtures/rules/prefer-keyed-map-dependency/invalid/namespace.vue",
+    "span": {
+      "offset": 275,
+      "length": 8,
+      "line": 11,
+      "column": 6
+    }
+  }
+]

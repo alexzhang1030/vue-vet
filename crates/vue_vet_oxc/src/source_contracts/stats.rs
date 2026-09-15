@@ -23,6 +23,12 @@
 //! Each examined `AssignmentTarget` in the native-clone poison walk, plus
 //! `for...in` / `for...of` left classification, increments `queries`.
 //! Assignment-form loop heads also increment `writes` once.
+//! Map-op / member-call / root / barrier index sort comparisons,
+//! constructor-entry visits, keyed identity lookups, and mutation visits also
+//! increment those counters. `key_copies` counts remaining cloned constructor-key
+//! or mutation-op vector elements on the per-root replay path (currently none:
+//! replay indexes in place). Per-root Map replay counts constructor
+//! classification once, each mutating operation once, and each read query once.
 //!
 //! Production `WorkCounter` is zero-sized and does not record. Test builds
 //! keep saturating `Cell` counters so inner-work growth tests stay real.

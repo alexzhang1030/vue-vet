@@ -71,7 +71,7 @@ block complete. Bare `const alias = known` is recorded on the existing
 ## Current baseline
 
 Contract version: **`REACTIVITY_GRAPH_VERSION = 41`**. Rule-set identity
-hashed into the scan cache is **`RULESET_VERSION = 24`**.
+hashed into the scan cache is **`RULESET_VERSION = 25`**.
 `watchEffect` / `watchPostEffect` / `watchSyncEffect` are source-contract sink
 APIs (option/signature facts). Eligibility and dispatch share one `ContractSink`
 table with the source5 collectors; watch-API, watch-callback, and
@@ -81,6 +81,9 @@ Ordinary `watch` also runs callback-contract collectors
 `effectScope` imports admit `no-toref-ignored-key` and
 `no-effect-scope-callback-argument`. Extracted reactive collection-method
 receiver facts compose onto that catalog without changing graph version.
+Native Map raw/proxy key demand (`no-raw-proxy-map-key`) and keyed Map
+`forEach`→`get` practice (`prefer-keyed-map-dependency`) compose onto that
+catalog without changing graph version.
 Named effect-family
 imports keep source-contract indexes empty when every resolved reference is a
 proven call with fewer than two arguments and no spread; that is equivalent

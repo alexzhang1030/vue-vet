@@ -184,6 +184,32 @@ rollback protocol. Atomic replacement preserves the intended file contents, not
 all timestamps, ACLs, extended attributes, or platform metadata; keep that
 limitation visible until the project defines and tests a metadata policy.
 
+## Native Map keys are not Vue-normalized
+
+`reactive(raw)` and `raw` are distinct JavaScript identities. A native
+`new Map([[raw, value]])` then `map.get(proxy)` returns `undefined`; unguarded
+member demand throws. Vue `reactive(new Map)` *does* normalize those keys —
+but only when the stored key is raw; wrapping a Map that already stored the
+proxy does not rewrite that key. Source-contract facts therefore require a
+fresh unresolved `Map` constructor (poisoned by `Map` / `globalThis.Map`
+reassignment and `Map.prototype` writes) and an actual distinct Proxy from
+`vue` / `@vue/*` — not `vue-demi` or `#imports`, skip-marked objects, or
+non-extensible targets. Method spelling `get` / `set` / `has` / `delete` must
+not exempt first arguments from source5 escape or uncertainty; lookup key
+identity stays in the Map-key collector. Same-spelling helper `get`/`set`/
+`has`/`delete` still poisons allocation capability unless the receiver is a
+proven native `Map` and the argument is the key slot. Proxy key identity is
+the raw target plus wrapper flavor — repeated `reactive(raw)` shares one
+cached proxy, and `reactive` vs `shallowReactive` stay distinct; the wrapper
+span is diagnostic provenance, not part of equality. `??` is nullish (`0`
+skips the RHS) while `&&`/`||` are truthy, and a bound `undefined` is unknown
+until its init is proven. Demand after `return`/`throw`/`await`/`yield` in
+the callable region is unreachable. Replay each root's mutating ops once and
+query keyed membership; do not rebuild constructor/operation vectors per get.
+Mutating ordinary payload fields of the raw object does not change Map
+identity. The two CRLF fixtures for this slice need `.gitattributes` `-text`
+so Git does not rewrite their bytes.
+
 ## Do not add a parallel pattern engine
 
 Structural patterns can rediscover problems already proven by Vize/Oxc-backed

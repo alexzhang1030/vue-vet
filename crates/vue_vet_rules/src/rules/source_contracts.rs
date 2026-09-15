@@ -125,6 +125,14 @@ const EXTRACTED_METHOD_META: RuleMeta = RuleMeta {
   documentation: "rules/reactivity/no-extracted-reactive-collection-method",
 };
 
+const RAW_PROXY_MAP_KEY_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-raw-proxy-map-key",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-raw-proxy-map-key",
+};
+
 pub(super) struct NoTriggerRefOnNonRef;
 pub(super) static NO_TRIGGER_REF_ON_NON_REF: NoTriggerRefOnNonRef = NoTriggerRefOnNonRef;
 
@@ -174,6 +182,9 @@ pub(super) static NO_MISSING_TOREFS_KEY: NoMissingToRefsKey = NoMissingToRefsKey
 pub(super) struct NoExtractedReactiveCollectionMethod;
 pub(super) static NO_EXTRACTED_REACTIVE_COLLECTION_METHOD: NoExtractedReactiveCollectionMethod =
   NoExtractedReactiveCollectionMethod;
+
+pub(super) struct NoRawProxyMapKey;
+pub(super) static NO_RAW_PROXY_MAP_KEY: NoRawProxyMapKey = NoRawProxyMapKey;
 
 impl Rule for NoTriggerRefOnNonRef {
   fn meta(&self) -> &'static RuleMeta {
@@ -571,6 +582,39 @@ impl Rule for NoExtractedReactiveCollectionMethod {
   }
 }
 
+impl Rule for NoRawProxyMapKey {
+  fn meta(&self) -> &'static RuleMeta {
+    &RAW_PROXY_MAP_KEY_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.raw_proxy_map_key {
+        context.report(
+          self.meta(),
+          site.demand_span,
+          format!(
+            "Native `Map` lookup uses object identity, so this `get` of the {} key misses the stored {} key and the unguarded use throws",
+            site.lookup_kind, site.stored_kind
+          ),
+          Some(format!(
+            "Stored key at {}:{} and Vue wrapper at {}:{}. {}",
+            site.stored_key_span.line,
+            site.stored_key_span.column,
+            site.wrapper_span.line,
+            site.wrapper_span.column,
+            if site.stored_kind == "raw" {
+              "Look up the stored raw identity, or wrap the Map with `reactive` / `shallowReactive` so lookup keys are normalized."
+            } else {
+              "Look up the stored proxy identity; wrapping the Map does not rewrite keys that were already stored as proxies."
+            }
+          )),
+        );
+      }
+    }
+  }
+}
+
 fn report_site(
   context: &mut RuleContext<'_>,
   meta: &RuleMeta,
@@ -600,5 +644,6 @@ pub(super) fn source_contract_rules() -> Vec<&'static dyn Rule> {
     &NO_MISSING_TOREFS_KEY,
     &NO_EXTRACTED_REACTIVE_COLLECTION_METHOD,
     &super::no_proxy_structured_clone::NO_PROXY_STRUCTURED_CLONE,
+    &NO_RAW_PROXY_MAP_KEY,
   ]
 }

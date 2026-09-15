@@ -1827,6 +1827,8 @@ const SOURCE_CONTRACT_RULES: &[&str] = &[
   "no-invalid-custom-ref-interface",
   "no-inactive-scope-result",
   "no-missing-torefs-key",
+  "no-raw-proxy-map-key",
+  "prefer-keyed-map-dependency",
 ];
 
 #[test]
