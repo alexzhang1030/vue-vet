@@ -15,7 +15,6 @@ description = "Thin MCP adapter over vue_vet_session for agent scan, explain, ex
 workspace = true
 
 [dependencies]
-serde.workspace = true
 serde_json.workspace = true
 vue_vet_core = { path = "../vue_vet_core" }
 vue_vet_reporters = { path = "../vue_vet_reporters" }
