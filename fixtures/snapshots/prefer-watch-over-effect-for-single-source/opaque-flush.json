@@ -1,21 +1,5 @@
 [
   {
-    "rule_id": "vue-vet/reactivity/no-multiple-effects-same-target",
-    "category": "reactivity",
-    "severity": "warning",
-    "confidence": "high",
-    "documentation": "rules/reactivity/no-multiple-effects-same-target",
-    "message": "multiple effects write `result.value`",
-    "help": "Keep a single writer effect, or merge the updates into one scope.",
-    "file": "fixtures/rules/prefer-watch-over-effect-for-single-source/invalid/opaque-flush.vue",
-    "span": {
-      "offset": 188,
-      "length": 12,
-      "line": 8,
-      "column": 21
-    }
-  },
-  {
     "rule_id": "vue-vet/reactivity/prefer-watch-over-effect-for-single-source",
     "category": "practice",
     "severity": "info",
@@ -29,6 +13,22 @@
       "length": 59,
       "line": 8,
       "column": 1
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/no-multiple-effects-same-target",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-multiple-effects-same-target",
+    "message": "multiple effects write `result.value`",
+    "help": "Keep a single writer effect, or merge the updates into one scope.",
+    "file": "fixtures/rules/prefer-watch-over-effect-for-single-source/invalid/opaque-flush.vue",
+    "span": {
+      "offset": 188,
+      "length": 12,
+      "line": 8,
+      "column": 21
     }
   },
   {

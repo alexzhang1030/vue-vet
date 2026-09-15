@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-router-destructure",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-router-destructure",
+    "message": "destructuring `useRouter()` is usually unnecessary and can hide API misuse",
+    "help": "Keep the router instance and call methods on it.",
+    "file": "fixtures/rules/no-router-destructure/invalid/crlf.vue",
+    "span": {
+      "offset": 72,
+      "length": 8,
+      "line": 3,
+      "column": 7
+    }
+  }
+]

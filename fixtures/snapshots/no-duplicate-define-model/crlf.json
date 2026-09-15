@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/no-duplicate-define-model",
+    "category": "correctness",
+    "severity": "error",
+    "confidence": "high",
+    "documentation": "rules/correctness/no-duplicate-define-model",
+    "message": "duplicate `defineModel` declaration",
+    "help": "Keep a single `defineModel` per model name.",
+    "file": "fixtures/rules/no-duplicate-define-model/invalid/crlf.vue",
+    "span": {
+      "offset": 49,
+      "length": 21,
+      "line": 3,
+      "column": 1
+    }
+  }
+]

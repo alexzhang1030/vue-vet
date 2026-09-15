@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-after-await-dependency-in-effect-scope",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-after-await-dependency-in-effect-scope",
+    "message": "`count.value` is read after `await` inside effectScope, so it is not a reliable dependency",
+    "help": "Read `count.value` synchronously in effectScope, or use explicit `watch` sources.",
+    "file": "fixtures/rules/no-after-await-dependency-in-effect-scope/invalid/crlf.vue",
+    "span": {
+      "offset": 176,
+      "length": 11,
+      "line": 7,
+      "column": 8
+    }
+  }
+]

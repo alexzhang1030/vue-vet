@@ -1,0 +1,25 @@
+[
+  {
+    "rule_id": "vue-vet/practice/prefer-to-value",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/practice/prefer-to-value",
+    "message": "`unref` leaves a function payload intact; Vue 3.3+ `toValue` invokes getters.",
+    "help": "`toValue` invokes a function payload; `unref` returns the function. Use `toValue` only when getter-or-ref normalization is intended.",
+    "file": "fixtures/rules/prefer-to-value/invalid/unicode.vue",
+    "span": {
+      "offset": 56,
+      "length": 24,
+      "line": 3,
+      "column": 11
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "vue",
+      "export": "toValue",
+      "docs_url": "https://vuejs.org/api/reactivity-utilities.html#tovalue",
+      "import_example": "import { toValue } from 'vue'"
+    }
+  }
+]

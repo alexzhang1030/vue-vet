@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/valid-v-memo",
+    "category": "correctness",
+    "severity": "error",
+    "confidence": "high",
+    "documentation": "rules/correctness/valid-v-memo",
+    "message": "`v-memo` is missing an expression",
+    "help": "Provide an expression for `v-memo`.",
+    "file": "fixtures/rules/valid-v-memo/invalid/unicode.vue",
+    "span": {
+      "offset": 40,
+      "length": 6,
+      "line": 3,
+      "column": 8
+    }
+  }
+]

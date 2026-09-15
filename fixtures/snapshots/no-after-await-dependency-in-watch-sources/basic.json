@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-after-await-dependency-in-watch-sources",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-after-await-dependency-in-watch-sources",
+    "message": "`count.value` is read after `await` inside watch sources, so it is not a reliable dependency",
+    "help": "Read `count.value` synchronously in watch sources, or use explicit `watch` sources.",
+    "file": "fixtures/rules/no-after-await-dependency-in-watch-sources/invalid/basic.vue",
+    "span": {
+      "offset": 134,
+      "length": 11,
+      "line": 6,
+      "column": 10
+    }
+  }
+]

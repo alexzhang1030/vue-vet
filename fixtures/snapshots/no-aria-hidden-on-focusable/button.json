@@ -16,7 +16,7 @@
     },
     "edits": [
       {
-        "file": "fixtures/rules/no-aria-hidden-on-focusable/invalid/button.vue",
+        "file": "invalid/button.vue",
         "range": {
           "offset": 20,
           "length": 19

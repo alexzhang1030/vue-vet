@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/no-duplicate-attributes",
+    "category": "correctness",
+    "severity": "error",
+    "confidence": "high",
+    "documentation": "rules/correctness/no-duplicate-attributes",
+    "message": "duplicate attribute `id`",
+    "help": "Remove the duplicate attribute.",
+    "file": "fixtures/rules/no-duplicate-attributes/invalid/basic.vue",
+    "span": {
+      "offset": 25,
+      "length": 2,
+      "line": 2,
+      "column": 15
+    }
+  }
+]

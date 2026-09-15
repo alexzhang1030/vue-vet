@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-reactive-destructure",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-reactive-destructure",
+    "message": "destructuring `reactive()` loses reactivity for the pulled fields",
+    "help": "Keep the reactive object, or use `toRefs` / `toRef`.",
+    "file": "fixtures/rules/no-reactive-destructure/invalid/unicode.vue",
+    "span": {
+      "offset": 62,
+      "length": 9,
+      "line": 3,
+      "column": 7
+    }
+  }
+]

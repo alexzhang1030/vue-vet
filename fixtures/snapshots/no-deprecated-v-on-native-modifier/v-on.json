@@ -16,7 +16,7 @@
     },
     "edits": [
       {
-        "file": "fixtures/rules/no-deprecated-v-on-native-modifier/invalid/v-on.vue",
+        "file": "invalid/v-on.vue",
         "range": {
           "offset": 21,
           "length": 17

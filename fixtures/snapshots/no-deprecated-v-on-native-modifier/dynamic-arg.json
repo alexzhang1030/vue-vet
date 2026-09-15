@@ -16,7 +16,7 @@
     },
     "edits": [
       {
-        "file": "fixtures/rules/no-deprecated-v-on-native-modifier/invalid/dynamic-arg.vue",
+        "file": "invalid/dynamic-arg.vue",
         "range": {
           "offset": 21,
           "length": 15

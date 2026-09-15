@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/no-import-compiler-macros",
+    "category": "correctness",
+    "severity": "error",
+    "confidence": "high",
+    "documentation": "rules/correctness/no-import-compiler-macros",
+    "message": "`defineProps` is a compiler macro and must not be imported",
+    "help": "Remove the import; compiler macros are globally available in `<script setup>`.",
+    "file": "fixtures/rules/no-import-compiler-macros/invalid/crlf.vue",
+    "span": {
+      "offset": 35,
+      "length": 11,
+      "line": 2,
+      "column": 10
+    }
+  }
+]

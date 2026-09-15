@@ -1,21 +1,5 @@
 [
   {
-    "rule_id": "vue-vet/reactivity/no-multiple-effects-same-target",
-    "category": "reactivity",
-    "severity": "warning",
-    "confidence": "high",
-    "documentation": "rules/reactivity/no-multiple-effects-same-target",
-    "message": "multiple effects write `state.value`",
-    "help": "Keep a single writer effect, or merge the updates into one scope.",
-    "file": "fixtures/rules/no-multiple-effects-same-target/invalid/shadowed-alias.vue",
-    "span": {
-      "offset": 205,
-      "length": 11,
-      "line": 7,
-      "column": 21
-    }
-  },
-  {
     "rule_id": "vue-vet/reactivity/prefer-watch-over-effect-for-single-source",
     "category": "practice",
     "severity": "info",
@@ -29,6 +13,22 @@
       "length": 49,
       "line": 7,
       "column": 1
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/no-multiple-effects-same-target",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-multiple-effects-same-target",
+    "message": "multiple effects write `state.value`",
+    "help": "Keep a single writer effect, or merge the updates into one scope.",
+    "file": "fixtures/rules/no-multiple-effects-same-target/invalid/shadowed-alias.vue",
+    "span": {
+      "offset": 205,
+      "length": 11,
+      "line": 7,
+      "column": 21
     }
   },
   {

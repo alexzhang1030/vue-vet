@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-readonly-mutation",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-readonly-mutation",
+    "message": "`view` is readonly and should not be mutated",
+    "help": "Mutate the source reactive state instead of a readonly projection.",
+    "file": "fixtures/rules/no-readonly-mutation/invalid/unicode.vue",
+    "span": {
+      "offset": 132,
+      "length": 10,
+      "line": 5,
+      "column": 1
+    }
+  }
+]

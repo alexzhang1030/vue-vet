@@ -1,0 +1,34 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/no-v-text-v-html-on-component",
+    "category": "correctness",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/correctness/no-v-text-v-html-on-component",
+    "message": "`v-html` should not be used on components",
+    "help": "Pass content via slots or props instead.",
+    "file": "fixtures/rules/no-v-text-v-html-on-component/invalid/basic.vue",
+    "span": {
+      "offset": 78,
+      "length": 6,
+      "line": 5,
+      "column": 9
+    }
+  },
+  {
+    "rule_id": "vue-vet/security/no-v-html",
+    "category": "security",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/security/no-v-html",
+    "message": "`v-html` can render untrusted HTML into the page",
+    "help": "Prefer normal template interpolation. If raw HTML is required, sanitize it at the trust boundary.",
+    "file": "fixtures/rules/no-v-text-v-html-on-component/invalid/basic.vue",
+    "span": {
+      "offset": 78,
+      "length": 6,
+      "line": 5,
+      "column": 9
+    }
+  }
+]

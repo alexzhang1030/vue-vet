@@ -1,0 +1,34 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/no-child-content",
+    "category": "correctness",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/correctness/no-child-content",
+    "message": "`v-text` overwrites element children",
+    "help": "Remove the children, or drop `v-text`.",
+    "file": "fixtures/rules/no-child-content/invalid/unicode.vue",
+    "span": {
+      "offset": 92,
+      "length": 6,
+      "line": 6,
+      "column": 8
+    }
+  },
+  {
+    "rule_id": "vue-vet/correctness/valid-v-text",
+    "category": "correctness",
+    "severity": "error",
+    "confidence": "high",
+    "documentation": "rules/correctness/valid-v-text",
+    "message": "invalid `v-text` usage",
+    "help": "Provide exactly one expression, no argument or modifiers, and no child content.",
+    "file": "fixtures/rules/no-child-content/invalid/unicode.vue",
+    "span": {
+      "offset": 92,
+      "length": 6,
+      "line": 6,
+      "column": 8
+    }
+  }
+]

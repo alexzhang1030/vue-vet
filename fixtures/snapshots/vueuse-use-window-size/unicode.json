@@ -1,0 +1,48 @@
+[
+  {
+    "rule_id": "vue-vet/practice/vueuse-use-event-listener",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "medium",
+    "documentation": "rules/practice/vueuse-use-event-listener",
+    "message": "This registers a DOM listener inside a setup lifecycle hook without `removeEventListener`; consider VueUse `useEventListener` for automatic cleanup.",
+    "help": "`@vueuse/core` is already available; prefer `useEventListener` for this pattern.",
+    "file": "fixtures/rules/vueuse-use-window-size/invalid/unicode.vue",
+    "span": {
+      "offset": 160,
+      "length": 120,
+      "line": 8,
+      "column": 3
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "@vueuse/core",
+      "export": "useEventListener",
+      "docs_url": "https://vueuse.org/core/useEventListener/",
+      "import_example": "import { useEventListener } from '@vueuse/core'"
+    }
+  },
+  {
+    "rule_id": "vue-vet/practice/vueuse-use-window-size",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "medium",
+    "documentation": "rules/practice/vueuse-use-window-size",
+    "message": "This hand-rolls `width`/`height` refs with a `resize` listener; consider VueUse `useWindowSize` for a reactive, cleanup-safe size tracker.",
+    "help": "`@vueuse/core` is already available; prefer `useWindowSize` for this pattern.",
+    "file": "fixtures/rules/vueuse-use-window-size/invalid/unicode.vue",
+    "span": {
+      "offset": 160,
+      "length": 120,
+      "line": 8,
+      "column": 3
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "@vueuse/core",
+      "export": "useWindowSize",
+      "docs_url": "https://vueuse.org/core/useWindowSize/",
+      "import_example": "import { useWindowSize } from '@vueuse/core'"
+    }
+  }
+]

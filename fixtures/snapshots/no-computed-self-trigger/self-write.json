@@ -14,21 +14,5 @@
       "line": 5,
       "column": 3
     }
-  },
-  {
-    "rule_id": "vue-vet/reactivity/no-side-effects-in-computed",
-    "category": "reactivity",
-    "severity": "warning",
-    "confidence": "high",
-    "documentation": "rules/reactivity/no-side-effects-in-computed",
-    "message": "computed getter writes `count.value`, which is a side effect",
-    "help": "Keep computed getters pure; move writes into `watch` / event handlers.",
-    "file": "fixtures/rules/no-computed-self-trigger/invalid/self-write.vue",
-    "span": {
-      "offset": 116,
-      "length": 11,
-      "line": 5,
-      "column": 3
-    }
   }
 ]

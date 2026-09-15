@@ -1,0 +1,34 @@
+[
+  {
+    "rule_id": "vue-vet/accessibility/form-control-has-label",
+    "category": "accessibility",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/accessibility/form-control-has-label",
+    "message": "form control has no associated label",
+    "help": "Nest the control in a label, set a matching `for`/`id` pair, or add aria-label/aria-labelledby.",
+    "file": "fixtures/rules/no-textarea-mustache/invalid/crlf.vue",
+    "span": {
+      "offset": 73,
+      "length": 10,
+      "line": 5,
+      "column": 3
+    }
+  },
+  {
+    "rule_id": "vue-vet/correctness/no-textarea-mustache",
+    "category": "correctness",
+    "severity": "error",
+    "confidence": "high",
+    "documentation": "rules/correctness/no-textarea-mustache",
+    "message": "textarea content should use `v-model` instead of interpolation",
+    "help": "Bind the value with `v-model` on `<textarea>`.",
+    "file": "fixtures/rules/no-textarea-mustache/invalid/crlf.vue",
+    "span": {
+      "offset": 73,
+      "length": 10,
+      "line": 5,
+      "column": 3
+    }
+  }
+]

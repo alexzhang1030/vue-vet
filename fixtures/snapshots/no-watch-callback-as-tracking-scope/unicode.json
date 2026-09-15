@@ -1,0 +1,34 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-empty-watch-sources",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-empty-watch-sources",
+    "message": "`watch` sources do not read any reactive dependency",
+    "help": "Pass a ref, a getter, or an array of sources that read reactive state.",
+    "file": "fixtures/rules/no-watch-callback-as-tracking-scope/invalid/unicode.vue",
+    "span": {
+      "offset": 79,
+      "length": 44,
+      "line": 4,
+      "column": 1
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/no-watch-callback-as-tracking-scope",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-watch-callback-as-tracking-scope",
+    "message": "reactive reads in a `watch` callback are not tracked for invalidation",
+    "help": "List dependencies in the `watch` source argument; the callback is a side-effect sink.",
+    "file": "fixtures/rules/no-watch-callback-as-tracking-scope/invalid/unicode.vue",
+    "span": {
+      "offset": 79,
+      "length": 44,
+      "line": 4,
+      "column": 1
+    }
+  }
+]

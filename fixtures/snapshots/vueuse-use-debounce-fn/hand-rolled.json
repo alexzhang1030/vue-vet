@@ -6,7 +6,7 @@
     "confidence": "medium",
     "documentation": "rules/practice/vueuse-use-debounce-fn",
     "message": "This looks like a hand-rolled debounce that clears and reassigns the same timer; consider VueUse `useDebounceFn`.",
-    "help": "Optional dependency: install `@vueuse/core` when you want `useDebounceFn`, then replace the hand-rolled pattern.",
+    "help": "`@vueuse/core` is already available; prefer `useDebounceFn` for this pattern.",
     "file": "fixtures/rules/vueuse-use-debounce-fn/invalid/hand-rolled.vue",
     "span": {
       "offset": 143,

@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-deferred-callback-reactive-read-in-effect",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-deferred-callback-reactive-read-in-effect",
+    "message": "`result.value` is read inside a deferred callback in `watchEffect`, so the effect will not track it",
+    "help": "Read the dependency synchronously in the effect, or watch it with explicit sources.",
+    "file": "fixtures/rules/no-deferred-callback-reactive-read-in-effect/invalid/then-callback.vue",
+    "span": {
+      "offset": 157,
+      "length": 12,
+      "line": 8,
+      "column": 17
+    }
+  }
+]

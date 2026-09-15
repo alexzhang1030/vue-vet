@@ -1,21 +1,5 @@
 [
   {
-    "rule_id": "vue-vet/reactivity/no-watch-ignored-option",
-    "category": "reactivity",
-    "severity": "warning",
-    "confidence": "high",
-    "documentation": "rules/reactivity/no-watch-ignored-option",
-    "message": "`watchEffect` / `watchPostEffect` / `watchSyncEffect` ignore `once`",
-    "help": "Remove `once`. It does not stop later reruns; stop the handle or use `watch(..., { once: true })`.",
-    "file": "fixtures/rules/no-nested-watch-without-cleanup/invalid/effect-family-once-ignored.vue",
-    "span": {
-      "offset": 178,
-      "length": 4,
-      "line": 6,
-      "column": 45
-    }
-  },
-  {
     "rule_id": "vue-vet/reactivity/no-nested-watch-without-cleanup",
     "category": "reactivity",
     "severity": "warning",
@@ -29,6 +13,22 @@
       "length": 70,
       "line": 6,
       "column": 3
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/no-watch-ignored-option",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-watch-ignored-option",
+    "message": "`watchEffect` / `watchPostEffect` / `watchSyncEffect` ignore `once`",
+    "help": "Remove `once`. It does not stop later reruns; stop the handle or use `watch(..., { once: true })`.",
+    "file": "fixtures/rules/no-nested-watch-without-cleanup/invalid/effect-family-once-ignored.vue",
+    "span": {
+      "offset": 178,
+      "length": 4,
+      "line": 6,
+      "column": 45
     }
   }
 ]

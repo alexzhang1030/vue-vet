@@ -16,7 +16,7 @@
     },
     "edits": [
       {
-        "file": "fixtures/rules/no-deprecated-v-bind-sync/invalid/v-bind.vue",
+        "file": "invalid/v-bind.vue",
         "range": {
           "offset": 19,
           "length": 23

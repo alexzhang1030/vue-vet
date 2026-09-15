@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-on-scope-dispose-reactive-read",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-on-scope-dispose-reactive-read",
+    "message": "`count.value` is read in `onScopeDispose`, which is not a tracking scope",
+    "help": "Capture values before dispose, or clean up without relying on reactive tracking.",
+    "file": "fixtures/rules/no-on-scope-dispose-reactive-read/invalid/basic.vue",
+    "span": {
+      "offset": 188,
+      "length": 11,
+      "line": 7,
+      "column": 17
+    }
+  }
+]

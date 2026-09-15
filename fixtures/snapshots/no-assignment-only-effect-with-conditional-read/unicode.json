@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-assignment-only-effect-with-conditional-read",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-assignment-only-effect-with-conditional-read",
+    "message": "`watchEffect` is assignment-only but tracks at least one conditional dependency",
+    "help": "Use explicit `watch` sources for every value that must invalidate the sync.",
+    "file": "fixtures/rules/no-assignment-only-effect-with-conditional-read/invalid/unicode.vue",
+    "span": {
+      "offset": 134,
+      "length": 72,
+      "line": 6,
+      "column": 1
+    }
+  }
+]

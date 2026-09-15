@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/valid-v-show",
+    "category": "correctness",
+    "severity": "error",
+    "confidence": "high",
+    "documentation": "rules/correctness/valid-v-show",
+    "message": "`v-show` is missing an expression",
+    "help": "Provide an expression for `v-show`.",
+    "file": "fixtures/rules/valid-v-show/invalid/crlf.vue",
+    "span": {
+      "offset": 19,
+      "length": 6,
+      "line": 2,
+      "column": 8
+    }
+  }
+]

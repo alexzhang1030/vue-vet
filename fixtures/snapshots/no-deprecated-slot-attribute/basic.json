@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/no-deprecated-slot-attribute",
+    "category": "correctness",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/correctness/no-deprecated-slot-attribute",
+    "message": "`slot` attribute is deprecated; use `v-slot` / `#`",
+    "help": "Replace `slot=\"name\"` with `v-slot:name` or `#name`.",
+    "file": "fixtures/rules/no-deprecated-slot-attribute/invalid/basic.vue",
+    "span": {
+      "offset": 24,
+      "length": 4,
+      "line": 2,
+      "column": 14
+    }
+  }
+]

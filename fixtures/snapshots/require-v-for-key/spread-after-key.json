@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/correctness/require-v-for-key",
+    "category": "correctness",
+    "severity": "error",
+    "confidence": "high",
+    "documentation": "rules/correctness/require-v-for-key",
+    "message": "`v-for` requires a stable `:key`",
+    "help": "Bind a stable identity from the item; do not use the array index when order can change.",
+    "file": "fixtures/rules/require-v-for-key/invalid/spread-after-key.vue",
+    "span": {
+      "offset": 74,
+      "length": 5,
+      "line": 5,
+      "column": 7
+    }
+  }
+]

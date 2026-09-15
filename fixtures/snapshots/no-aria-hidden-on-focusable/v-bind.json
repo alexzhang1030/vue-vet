@@ -16,7 +16,7 @@
     },
     "edits": [
       {
-        "file": "fixtures/rules/no-aria-hidden-on-focusable/invalid/v-bind.vue",
+        "file": "invalid/v-bind.vue",
         "range": {
           "offset": 20,
           "length": 26
