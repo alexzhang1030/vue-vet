@@ -1,6 +1,6 @@
 //! Stable project-graph DTOs (public contract).
 
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use serde::{Deserialize, Serialize};
 use vue_vet_core::{Diagnostic, FileId, ModuleId, SfcFacts, SourceSpan};
@@ -89,6 +89,9 @@ pub struct ProjectGraph {
   /// Compatibility summary for reporters that have not adopted structured issues.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub reactivity_error: Option<String>,
+  /// Joined model-default demand findings keyed by parent file path.
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+  pub model_demand: BTreeMap<String, vue_vet_core::ModelDemandFileFacts>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

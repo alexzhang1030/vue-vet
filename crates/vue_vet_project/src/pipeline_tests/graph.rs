@@ -310,6 +310,10 @@ fn parent_child_files(
       object_bind_has_key: false,
       is_component: false,
       has_accessible_name_ancestor: false,
+      has_conditional_ancestor: false,
+      has_for_ancestor: false,
+      has_async_boundary_ancestor: false,
+      has_slot_ancestor: false,
     }];
   }
   let child_script = "const props = defineProps<{ value: number }>()\n";

@@ -120,6 +120,10 @@ fn push_jsx_element(
     has_accessible_name_ancestor: false,
     object_bind_has_key,
     is_component: jsx_opening_is_component(&element.opening_element.name),
+    has_conditional_ancestor: false,
+    has_for_ancestor: false,
+    has_async_boundary_ancestor: false,
+    has_slot_ancestor: false,
   });
 }
 

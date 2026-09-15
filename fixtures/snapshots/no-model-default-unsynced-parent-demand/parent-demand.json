@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-model-default-unsynced-parent-demand",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-model-default-unsynced-parent-demand",
+    "message": "parent `value.value.toFixed` runs while the v-model binding is still undefined; the child `defineModel` default was not written back",
+    "help": "Initialize `value` before mount, or guard the optional value. Assigning the child default back to itself does not emit. v-model `modelValue` at 10:10 and child default in Child.vue at 2:15.",
+    "file": "parent-demand.vue",
+    "span": {
+      "offset": 134,
+      "length": 22,
+      "line": 6,
+      "column": 3
+    }
+  }
+]

@@ -119,6 +119,10 @@ oracle-filter-settlement:
 oracle-snapshot-demand:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node snapshot-demand.mjs
 
+# Vue 3.5.40 compiled-SFC model-default premises (fixture compile + mount).
+oracle-model-demand:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node model-demand.mjs
+
 # Run all non-mutating Rust linters.
 lint-rust: fmt-check check clippy
 

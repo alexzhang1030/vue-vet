@@ -12,7 +12,7 @@ vue-vet CLI / --lsp / --mcp
        parse         vue_vet_vize (SFC) / vue_vet_oxc (JS/TS) → File Fact IR
        project       vue_vet_project pipeline
                        context → structural → passes(enrichment)
-                       → reactivity Trace → layers → project rules
+                       → reactivity Trace → layers → model-demand join → project rules
        reactivity    vue_vet_reactivity (trace / summary / link)
        rules         vue_vet_rule_query → vue_vet_rules + vue_vet_practice
        finalize      DiagnosticFinalizer → vue_vet_core ScanSummary
@@ -277,7 +277,7 @@ File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         imports reuse the canonical Vue-import pass. `watch` still runs the
         ordinary source collector, watch-family option/signature facts, and
         callback-contract collectors (`watch_callbacks.rs`). Combined
-        `RULESET_VERSION` is 39; `REACTIVITY_GRAPH_VERSION` stays 41. Cancelled default-debounce promise identity (`useDebounceFn` wrapper calls, awaited earlier promise, native demand) joins that catalog. Snapshot-demand facts (`json_clone_lossy_type`, `ref_history_snapshot_alias`) require exact `@vueuse/core` `useCloned` / `useManualRefHistory`.
+        `RULESET_VERSION` is 40; `REACTIVITY_GRAPH_VERSION` stays 41. Cancelled default-debounce promise identity (`useDebounceFn` wrapper calls, awaited earlier promise, native demand) joins that catalog. Snapshot-demand facts (`json_clone_lossy_type`, `ref_history_snapshot_alias`) require exact `@vueuse/core` `useCloned` / `useManualRefHistory`. Model-default demand facts (`model_defaults`, `mounted_member_demands`, project-joined `unsynced_model_parent_demands` / `shared_default_cross_instance_demands`) join Vize instance flags with Oxc defineModel/ref/expose surfaces.
         Scheduling-practice facts (`queued_watch_flush`, `attached_effect_scope`,
         `lazy_computed_async`) live on `SourceContractFacts.scheduling_practice`.
         Named effect-family imports keep source indexes empty when every Oxc
@@ -390,7 +390,7 @@ source-contract uncertainty. Statement ordinals, preceding exits, watcher
 identity by `NodeId`, and scope-active intervals are built once. Shared
 outer/getter/scope proofs stay memoized. Statement / reference / watcher /
 toggle / computed-edge inspections use a test-only counter; production
-`WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 39.
+`WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 40.
 
 `ModuleSummary` (formerly the opaque `PreparedModuleTrace`) is the formal
 cross-module boundary: imports, exports, provides/injects, local reactivity, and

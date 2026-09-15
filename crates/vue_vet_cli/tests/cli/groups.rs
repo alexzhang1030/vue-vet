@@ -44,8 +44,8 @@ fn list_rules_is_sorted_unique_and_includes_project_ids() {
   );
   assert_eq!(
     parsed.pointer("/counts/total").and_then(Value::as_u64),
-    Some(147),
-    "composed CLI inventory must be 147 after snapshot-demand, cancelled-filter promise demand, VueUse demand, same-instance injection demand, until timeout unmatched-demand, the private-field receiver, late-cancellation-guard lifetime owner, scheduling-practice, derivation-practice, stable-computed-identity practice, cached-result demand, lifetime ownership, customRef notification, cleanup-identity, collection-lookup, extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
+    Some(149),
+    "composed CLI inventory must be 149 after two component-default demand owners, snapshot-demand, cancelled-filter promise demand, VueUse demand, same-instance injection demand, until timeout unmatched-demand, the private-field receiver, late-cancellation-guard lifetime owner, scheduling-practice, derivation-practice, stable-computed-identity practice, cached-result demand, lifetime ownership, customRef notification, cleanup-identity, collection-lookup, extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
   );
 }
 
@@ -142,7 +142,7 @@ fn list_rules_source_contracts_includes_contract_ids() {
         .collect()
     })
     .unwrap_or_default();
-  assert_eq!(ids.len(), 44, "{ids:?}");
+  assert_eq!(ids.len(), 46, "{ids:?}");
   for id in [
     "vue-vet/reactivity/no-custom-ref-lost-notification",
     "vue-vet/reactivity/no-effect-scope-callback-argument",
@@ -151,6 +151,8 @@ fn list_rules_source_contracts_includes_contract_ids() {
     "vue-vet/reactivity/no-once-immediate-discard",
     "vue-vet/reactivity/no-primitive-reactive-target",
     "vue-vet/reactivity/no-proxy-structured-clone",
+    "vue-vet/reactivity/no-model-default-unsynced-parent-demand",
+    "vue-vet/reactivity/no-shared-default-cross-instance-demand",
     "vue-vet/reactivity/no-toref-ignored-key",
     "vue-vet/reactivity/no-toraw-write-of-tracked-state",
     "vue-vet/reactivity/no-torefs-on-non-proxy",

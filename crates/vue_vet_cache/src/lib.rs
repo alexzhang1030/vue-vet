@@ -23,6 +23,11 @@ pub const CACHE_FORMAT_VERSION: u32 = 5;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// Bump when built-in rule set or seed-aware analysis behavior changes.
 ///
+/// v40: component model-default demand owners
+/// (`no-model-default-unsynced-parent-demand`,
+/// `no-shared-default-cross-instance-demand`) join Vize instance flags with
+/// Oxc defineModel/ref/mounted-demand facts, on the snapshot-demand catalog
+/// (v39). Graph version stays 41.
 /// v39: snapshot-demand contracts (`no-json-clone-lossy-type`,
 /// `no-ref-history-snapshot-alias`) on exact `@vueuse/core` `useCloned` /
 /// `useManualRefHistory`, on the cancelled-filter catalog (v38).
@@ -119,7 +124,7 @@ pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// prefer-watch suppresses self-write sources; computed self-write is impure.
 /// v5: conditional-dep premise withdrawn; after-await registrars deprecated
 /// except defineExpose; absence rules require complete follow coverage.
-pub const RULESET_VERSION: u32 = 39;
+pub const RULESET_VERSION: u32 = 40;
 
 /// Workspace pin for `vize_croquis` / `vize_atelier_core`.
 ///

@@ -83,6 +83,35 @@ pub fn analyze_module_source(
   language: &str,
   kind: ScriptKind,
 ) -> Result<ModuleAnalysis, AnalyzeScriptError> {
+  analyze_module_source_inner(sfc_source, script_source, script_offset, language, kind, false)
+}
+
+/// Same as [`analyze_module_source`] but always builds source-contract indexes.
+///
+/// Used for ordinary SFC `<script>` blocks that own objects referenced from
+/// `<script setup>` `defineModel` and therefore have no Vue import sink.
+///
+/// # Errors
+///
+/// Same as [`analyze_module_source`].
+pub fn analyze_module_source_forced_contracts(
+  sfc_source: &str,
+  script_source: &str,
+  script_offset: usize,
+  language: &str,
+  kind: ScriptKind,
+) -> Result<ModuleAnalysis, AnalyzeScriptError> {
+  analyze_module_source_inner(sfc_source, script_source, script_offset, language, kind, true)
+}
+
+fn analyze_module_source_inner(
+  sfc_source: &str,
+  script_source: &str,
+  script_offset: usize,
+  language: &str,
+  kind: ScriptKind,
+  force_contracts: bool,
+) -> Result<ModuleAnalysis, AnalyzeScriptError> {
   let source_type = source_type(language)?;
   let allocator = Allocator::default();
   let parsed = Parser::new(&allocator, script_source, source_type).parse();
@@ -110,13 +139,24 @@ pub fn analyze_module_source(
     script_offset,
   )
   .into_source_order();
-  let source_contracts = source_contracts::collect_source_contract_facts(
-    &semantic,
-    &line_index,
-    sfc_source,
-    script_offset,
-    kind,
-  );
+  let source_contracts = if force_contracts {
+    source_contracts::collect_source_contract_facts_forced_full(
+      &semantic,
+      &line_index,
+      sfc_source,
+      script_offset,
+      kind,
+    )
+    .0
+  } else {
+    source_contracts::collect_source_contract_facts(
+      &semantic,
+      &line_index,
+      sfc_source,
+      script_offset,
+      kind,
+    )
+  };
   // Plain JS/TS has no JSX nodes; skip the AST walk on the CodSpeed hot path.
   let template_facts = if matches!(language, "jsx" | "tsx") {
     jsx::collect_jsx_template_facts(&semantic, &line_index, sfc_source, script_offset)

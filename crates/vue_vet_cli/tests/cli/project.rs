@@ -230,3 +230,74 @@ fn reference_fixture_corpus_never_crashes() {
     );
   }
 }
+
+#[test]
+fn project_model_demand_reports_parent_and_shared_findings() {
+  let project = fixture("projects/model-demand");
+  let output = run(&[project.to_string_lossy().as_ref(), "--format", "json", "--no-cache"]);
+  let parsed: Result<Value, _> = serde_json::from_slice(&output.stdout);
+  assert!(
+    output.status.success(),
+    "model-demand project scan must succeed: {}",
+    String::from_utf8_lossy(&output.stderr)
+  );
+  let diagnostics = parsed
+    .as_ref()
+    .ok()
+    .and_then(|value| value.get("diagnostics"))
+    .and_then(Value::as_array)
+    .cloned()
+    .unwrap_or_default();
+  assert!(
+    diagnostics.iter().any(|diagnostic| {
+      diagnostic.get("rule_id").and_then(Value::as_str)
+        == Some("vue-vet/reactivity/no-model-default-unsynced-parent-demand")
+        && diagnostic
+          .get("file")
+          .and_then(Value::as_str)
+          .is_some_and(|file| file.contains("Parent.vue"))
+    }),
+    "undefined parent demand must report; {diagnostics:?}"
+  );
+  assert!(
+    diagnostics.iter().any(|diagnostic| {
+      diagnostic.get("rule_id").and_then(Value::as_str)
+        == Some("vue-vet/reactivity/no-shared-default-cross-instance-demand")
+        && diagnostic
+          .get("file")
+          .and_then(Value::as_str)
+          .is_some_and(|file| file.contains("SharedParent.vue"))
+    }),
+    "shared default sibling demand must report; {diagnostics:?}"
+  );
+  assert!(
+    diagnostics.iter().all(|diagnostic| {
+      diagnostic.get("file").and_then(Value::as_str) != Some("FreshParent.vue")
+        || diagnostic.get("rule_id").and_then(Value::as_str)
+          != Some("vue-vet/reactivity/no-shared-default-cross-instance-demand")
+    }),
+    "fresh factory must stay quiet; {diagnostics:?}"
+  );
+  assert!(
+    diagnostics.iter().any(|diagnostic| {
+      diagnostic.get("rule_id").and_then(Value::as_str)
+        == Some("vue-vet/reactivity/no-shared-default-cross-instance-demand")
+        && diagnostic
+          .get("file")
+          .and_then(Value::as_str)
+          .is_some_and(|file| file.contains("LiteralParent.vue"))
+    }),
+    "literal object default must report; {diagnostics:?}"
+  );
+  assert!(
+    diagnostics.iter().any(|diagnostic| {
+      diagnostic.get("rule_id").and_then(Value::as_str)
+        == Some("vue-vet/reactivity/no-model-default-unsynced-parent-demand")
+        && diagnostic
+          .get("file")
+          .and_then(Value::as_str)
+          .is_some_and(|file| file.contains("KebabParent.vue"))
+    }),
+    "kebab-case parent must report; {diagnostics:?}"
+  );
+}

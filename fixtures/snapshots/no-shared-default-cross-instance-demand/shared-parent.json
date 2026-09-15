@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-shared-default-cross-instance-demand",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-shared-default-cross-instance-demand",
+    "message": "sibling instance `.toFixed` demand fails after a write through a shared model default",
+    "help": "Create a fresh default per instance when isolated state is required. Shared default in Child.vue at 5:15, write at 7:3.",
+    "file": "shared-parent.vue",
+    "span": {
+      "offset": 191,
+      "length": 30,
+      "line": 8,
+      "column": 3
+    }
+  }
+]

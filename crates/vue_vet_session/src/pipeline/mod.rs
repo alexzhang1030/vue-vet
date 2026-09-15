@@ -59,6 +59,7 @@ struct FileRuleInputKey {
   environment: String,
   primary_graph: Option<Arc<ReactivityGraph>>,
   ordinary_graph: Option<Arc<ReactivityGraph>>,
+  model_demand: String,
 }
 
 impl FileRuleInputKey {
@@ -67,12 +68,14 @@ impl FileRuleInputKey {
     environment: &RuleEnvironment,
     primary_graph: Option<Arc<ReactivityGraph>>,
     ordinary_graph: Option<Arc<ReactivityGraph>>,
+    model_demand: Option<&vue_vet_core::ModelDemandFileFacts>,
   ) -> Self {
     Self {
       source: content_digest(source.as_bytes()),
       environment: serde_digest(environment),
       primary_graph,
       ordinary_graph,
+      model_demand: model_demand.map_or_else(String::new, serde_digest),
     }
   }
 }
@@ -425,18 +428,20 @@ fn scan_parallel(
       } else {
         None
       };
+      let model_demand = graph.model_demand.get(file_id.as_str());
       let key = FileRuleInputKey::new(
         &pending.source,
         &pending.environment,
         primary_graph.as_ref().map(Arc::clone),
         ordinary_graph.as_ref().map(Arc::clone),
+        model_demand,
       );
       // Outside DirtyPlan.rule_files: keep the previous finalized diagnostics.
       // Inside the plan: FileRuleInputKey still allows reuse when IR is unchanged.
       let (cached, reran) = if !plan.rule_files.contains(&file_id) {
         previous.file_diagnostics.get(&file_id).map_or_else(
           || {
-            let diagnostics = run_file_rules(&pending, primary_graph, ordinary_graph);
+            let diagnostics = run_file_rules(&pending, primary_graph, ordinary_graph, model_demand);
             (CachedFileDiagnostics { key, diagnostics: diagnostics.into() }, true)
           },
           |cached| {
@@ -454,7 +459,7 @@ fn scan_parallel(
       {
         (CachedFileDiagnostics { key, diagnostics: Arc::clone(&cached.diagnostics) }, false)
       } else {
-        let diagnostics = run_file_rules(&pending, primary_graph, ordinary_graph);
+        let diagnostics = run_file_rules(&pending, primary_graph, ordinary_graph, model_demand);
         (CachedFileDiagnostics { key, diagnostics: diagnostics.into() }, true)
       };
       if let Some(progress) = progress {
@@ -545,8 +550,8 @@ mod file_rule_key_tests {
   fn file_rule_input_key_is_stable_for_identical_ir_inputs() {
     let graph = Arc::new(ReactivityGraph::default());
     let environment = RuleEnvironment::default();
-    let left = FileRuleInputKey::new("source", &environment, Some(Arc::clone(&graph)), None);
-    let right = FileRuleInputKey::new("source", &environment, Some(graph), None);
+    let left = FileRuleInputKey::new("source", &environment, Some(Arc::clone(&graph)), None, None);
+    let right = FileRuleInputKey::new("source", &environment, Some(graph), None, None);
     assert_eq!(left, right);
   }
 
@@ -556,8 +561,8 @@ mod file_rule_key_tests {
     let empty = Arc::new(ReactivityGraph::default());
     let changed =
       Arc::new(ReactivityGraph { module_id: "App.vue".into(), ..ReactivityGraph::default() });
-    let left = FileRuleInputKey::new("source", &environment, Some(empty), None);
-    let right = FileRuleInputKey::new("source", &environment, Some(changed), None);
+    let left = FileRuleInputKey::new("source", &environment, Some(empty), None, None);
+    let right = FileRuleInputKey::new("source", &environment, Some(changed), None, None);
     assert_ne!(left, right);
   }
 
@@ -565,8 +570,8 @@ mod file_rule_key_tests {
   fn file_rule_input_key_changes_when_source_changes() {
     let environment = RuleEnvironment::default();
     let graph = Arc::new(ReactivityGraph::default());
-    let left = FileRuleInputKey::new("a", &environment, Some(Arc::clone(&graph)), None);
-    let right = FileRuleInputKey::new("b", &environment, Some(graph), None);
+    let left = FileRuleInputKey::new("a", &environment, Some(Arc::clone(&graph)), None, None);
+    let right = FileRuleInputKey::new("b", &environment, Some(graph), None, None);
     assert_ne!(left, right);
   }
 }
