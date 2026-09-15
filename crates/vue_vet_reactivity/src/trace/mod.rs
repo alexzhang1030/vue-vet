@@ -88,11 +88,10 @@ pub use summary::{
   ComposableShape, ModuleLink, ModuleReactivity, ModuleSource, ModuleSummary, ModuleTraceState,
   TraceModulesError, TraceModulesOptions, TraceModulesReport, TraceModulesStats, ValueBag,
   ValueBagEntry, arrow_return_type_kind, arrow_return_type_shape, build_returns_by_function,
-  function_return_type_kind, function_return_type_shape,
-  merge_declaration_implementation_summary, prepare_module_summary_with_config,
-  prepare_standalone_module_source, trace_modules, trace_modules_incremental_from_arcs,
-  trace_modules_incremental_from_refs, trace_modules_incremental_with_options,
-  trace_modules_with_options,
+  function_return_type_kind, function_return_type_shape, merge_declaration_implementation_summary,
+  prepare_module_summary_with_config, prepare_standalone_module_source, trace_modules,
+  trace_modules_incremental_from_arcs, trace_modules_incremental_from_refs,
+  trace_modules_incremental_with_options, trace_modules_with_options,
 };
 
 /// Trace with an explicit plugin catalog ([`TraceConfig::named_api_bags`]).

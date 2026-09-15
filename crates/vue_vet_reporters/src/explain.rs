@@ -6,9 +6,7 @@
 
 use std::fmt::Write;
 
-use vue_vet_core::{
-  Confidence, FindingExplain, RuleExplain, ScopeExplain, Severity,
-};
+use vue_vet_core::{Confidence, FindingExplain, RuleExplain, ScopeExplain, Severity};
 
 /// Map a documentation key to the JSON/report path form.
 #[must_use]
