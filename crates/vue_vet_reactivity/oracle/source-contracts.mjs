@@ -687,4 +687,95 @@ function cloneErrorName(value) {
   stopGet();
 }
 
+function throwsTypeError(fn, name) {
+  let failed = false;
+  try {
+    fn();
+  } catch (error) {
+    failed = true;
+    assert.equal(error instanceof TypeError, true, `${name} must be TypeError, got ${error}`);
+  }
+  assert.equal(failed, true, `${name} must throw`);
+}
+
+{
+  class Counter {
+    #n = 1;
+    read() {
+      return this.#n;
+    }
+    get value() {
+      return this.#n;
+    }
+    readOther(other) {
+      return other.#n;
+    }
+    guarded() {
+      return #n in this ? this.#n : 0;
+    }
+    readRaw() {
+      return toRaw(this).#n;
+    }
+  }
+  const raw = new Counter();
+  const proxy = reactive(raw);
+  throwsTypeError(() => proxy.read(), "reactive proxy method this.#n");
+  throwsTypeError(() => proxy.value, "reactive proxy getter this.#n");
+  throwsTypeError(() => shallowReactive(new Counter()).read(), "shallowReactive proxy this.#n");
+  assert.equal(raw.read(), 1, "raw instance keeps the brand");
+  assert.equal(proxy.readOther(raw), 1, "other.#n with a branded argument succeeds");
+  assert.equal(proxy.guarded(), 0, "#n in this on a proxy is false");
+  assert.equal(proxy.readRaw(), 1, "toRaw(this).#n keeps the brand");
+  assert.equal(reactive(markRaw(new Counter())).read(), 1, "markRaw preserves the brand");
+
+  class Bound {
+    #n = 1;
+    constructor() {
+      this.read = this.read.bind(this);
+    }
+    read() {
+      return this.#n;
+    }
+  }
+  class Arrow {
+    #n = 2;
+    read = () => this.#n;
+  }
+  class Replacement {
+    #n = 3;
+    constructor() {
+      return { read: () => 4 };
+    }
+    read() {
+      return this.#n;
+    }
+  }
+  assert.equal(reactive(new Bound()).read(), 1, "constructor-bound method keeps raw this");
+  assert.equal(reactive(new Arrow()).read(), 2, "arrow field keeps lexical this");
+  assert.equal(reactive(new Replacement()).read(), 4, "constructor return replacement is not branded");
+
+  class Notify {
+    #n = 1;
+    read() {
+      return toRaw(this).#n;
+    }
+    write(next) {
+      toRaw(this).#n = next;
+    }
+  }
+  const observed = reactive(new Notify());
+  let runs = 0;
+  const stop = watchEffect(
+    () => {
+      void observed.read();
+      runs++;
+    },
+    { flush: "sync" },
+  );
+  const before = runs;
+  observed.write(2);
+  assert.equal(runs, before, "raw #field writes do not notify Vue");
+  stop();
+}
+
 console.log("source-contracts oracle: ok (Vue 3.5.40)");

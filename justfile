@@ -95,6 +95,10 @@ oracle-cached-result:
 oracle-computed-identity:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node computed-identity.mjs
 
+# Vue 3.5.40 private-field receiver TypeError vs raw-instance no-op.
+oracle-private-receiver:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node private-receiver.mjs
+
 # Run all non-mutating Rust linters.
 lint-rust: fmt-check check clippy
 

@@ -158,6 +158,14 @@ const CONTROLLED_STALE_META: RuleMeta = RuleMeta {
   documentation: "rules/reactivity/no-controlled-computed-stale-result-demand",
 };
 
+const PRIVATE_FIELD_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-reactive-private-field-access",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-reactive-private-field-access",
+};
+
 pub(super) struct NoTriggerRefOnNonRef;
 pub(super) static NO_TRIGGER_REF_ON_NON_REF: NoTriggerRefOnNonRef = NoTriggerRefOnNonRef;
 
@@ -222,6 +230,10 @@ pub(super) static NO_MEMOIZE_STALE_RESULT_DEMAND: NoMemoizeStaleResultDemand =
 pub(super) struct NoControlledComputedStaleResultDemand;
 pub(super) static NO_CONTROLLED_COMPUTED_STALE_RESULT_DEMAND:
   NoControlledComputedStaleResultDemand = NoControlledComputedStaleResultDemand;
+
+pub(super) struct NoReactivePrivateFieldAccess;
+pub(super) static NO_REACTIVE_PRIVATE_FIELD_ACCESS: NoReactivePrivateFieldAccess =
+  NoReactivePrivateFieldAccess;
 
 impl Rule for NoTriggerRefOnNonRef {
   fn meta(&self) -> &'static RuleMeta {
@@ -755,6 +767,40 @@ impl Rule for NoControlledComputedStaleResultDemand {
   }
 }
 
+impl Rule for NoReactivePrivateFieldAccess {
+  fn meta(&self) -> &'static RuleMeta {
+    &PRIVATE_FIELD_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.reactive_private_field_access {
+        let action = if site.getter { "reading" } else { "calling" };
+        context.report(
+          self.meta(),
+          site.demand_span,
+          format!(
+            "`{}` proxy is not branded for `#{}`; {action} `{}` throws TypeError",
+            site.api, site.field, site.member
+          ),
+          Some(format!(
+            "Proxy at {}:{}; `{}` at {}:{} reads `#{}` at {}:{}. Native private fields brand the original instance, not the Vue proxy. Keep `this` as that instance with a constructor-bound method, an arrow field, or `toRaw(proxy)`. Those raw receivers are not observed by Vue when `#{}` is assigned.",
+            site.proxy_span.line,
+            site.proxy_span.column,
+            site.member,
+            site.member_span.line,
+            site.member_span.column,
+            site.field,
+            site.private_span.line,
+            site.private_span.column,
+            site.field
+          )),
+        );
+      }
+    }
+  }
+}
+
 fn report_site(
   context: &mut RuleContext<'_>,
   meta: &RuleMeta,
@@ -788,5 +834,6 @@ pub(super) fn source_contract_rules() -> Vec<&'static dyn Rule> {
     &NO_CUSTOM_REF_LOST_NOTIFICATION,
     &NO_MEMOIZE_STALE_RESULT_DEMAND,
     &NO_CONTROLLED_COMPUTED_STALE_RESULT_DEMAND,
+    &NO_REACTIVE_PRIVATE_FIELD_ACCESS,
   ]
 }

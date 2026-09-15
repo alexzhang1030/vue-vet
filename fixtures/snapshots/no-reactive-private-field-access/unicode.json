@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-reactive-private-field-access",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-reactive-private-field-access",
+    "message": "`reactive` proxy is not branded for `#数量`; calling `读取` throws TypeError",
+    "help": "Proxy at 9:16; `读取` at 5:3 reads `#数量` at 6:12. Native private fields brand the original instance, not the Vue proxy. Keep `this` as that instance with a constructor-bound method, an arrow field, or `toRaw(proxy)`. Those raw receivers are not observed by Vue when `#数量` is assigned.",
+    "file": "fixtures/rules/no-reactive-private-field-access/invalid/unicode.vue",
+    "span": {
+      "offset": 177,
+      "length": 15,
+      "line": 10,
+      "column": 6
+    }
+  }
+]

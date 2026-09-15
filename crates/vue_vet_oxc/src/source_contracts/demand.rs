@@ -11,17 +11,217 @@ use oxc_semantic::{NodeId, SymbolFlags, SymbolId};
 use oxc_span::{GetSpan, Span};
 
 use super::Collector;
+use super::class::MemberKind;
 use super::index::{CallInfo, MemberUse, NamedUse};
 use super::proof::{
   DemandOrigin, DemandRole, ReceiverEffect, callable_receiver_effect, classify_reach,
-  expression_is_noncallable_literal, is_object_prototype_key,
+  classify_role, expression_is_noncallable_literal, is_object_prototype_key,
 };
-use super::shape::{Shape, span_key};
+use super::shape::{Shape, VueImport, span_key};
 use vue_vet_core::{
-  CustomRefCapability, InactiveScopeResultFact, InvalidCustomRefInterfaceFact, MissingToRefsKeyFact,
+  CustomRefCapability, InactiveScopeResultFact, InvalidCustomRefInterfaceFact,
+  MissingToRefsKeyFact, ReactivePrivateFieldAccessFact,
 };
 
 impl Collector<'_> {
+  pub(super) fn aliased_vue_api(&self, call: &CallExpression<'_>) -> Option<&'static str> {
+    let ident = call.callee.get_inner_expression().get_identifier_reference()?;
+    let symbol_id = self.reference_symbol(ident)?;
+    match self.indexes.vue_imports.get(&self.indexes.root_of(symbol_id)) {
+      Some(VueImport::Named(api, _)) => Some(*api),
+      _ => None,
+    }
+  }
+
+  pub(super) fn collect_private_field_access(
+    &mut self,
+    node_id: NodeId,
+    call: &CallExpression<'_>,
+    info: CallInfo,
+    api: &str,
+  ) {
+    if info.has_spread {
+      return;
+    }
+    let Some(argument) = call.arguments.first().and_then(Argument::as_expression) else {
+      return;
+    };
+    let Expression::NewExpression(new_expr) = argument.get_inner_expression() else {
+      return;
+    };
+    let Some(new_info) = self.indexes.new_at(new_expr.span) else {
+      return;
+    };
+    if new_info.has_spread || new_info.argc != 0 {
+      return;
+    }
+    let Some(callee) = new_info.callee else {
+      return;
+    };
+    let class_id = self.indexes.root_of(callee);
+    if !self.indexes.class_identity_intact(class_id) {
+      return;
+    }
+    if !self.indexes.class_declared_before(class_id, new_expr.span) {
+      return;
+    }
+    if let Some(result) = self.result_symbol(node_id) {
+      let root = self.indexes.root_of(result);
+      if !self.indexes.capability_intact(root) {
+        return;
+      }
+      let origin = self.indexes.origin_for(node_id, self.span(call.span).offset);
+      self.emit_private_demands(root, origin, class_id, call.span, api);
+      return;
+    }
+    self.collect_chained_private_demand(node_id, call, class_id, api);
+  }
+
+  fn emit_private_demands(
+    &mut self,
+    root: SymbolId,
+    origin: DemandOrigin,
+    class_id: SymbolId,
+    proxy: Span,
+    api: &str,
+  ) {
+    let calls = self.indexes.member_calls_on(root).to_vec();
+    let reads = self.indexes.member_reads_on(root).to_vec();
+    let value_reads = self.indexes.value_reads_on(root).to_vec();
+    let mut pending = Vec::new();
+    for site in &calls {
+      if let Some(fact) =
+        self.private_demand_fact(site, class_id, origin, proxy, api, MemberKind::Method)
+      {
+        pending.push(fact);
+      }
+    }
+    for site in &reads {
+      if !site.site.role.needs_get() {
+        continue;
+      }
+      if let Some(fact) =
+        self.private_demand_fact(site, class_id, origin, proxy, api, MemberKind::Getter)
+      {
+        pending.push(fact);
+      }
+    }
+    for site in &value_reads {
+      if !site.role.needs_get() {
+        continue;
+      }
+      let named = NamedUse { key: self.indexes.copy_key("value"), site: *site };
+      if let Some(fact) =
+        self.private_demand_fact(&named, class_id, origin, proxy, api, MemberKind::Getter)
+      {
+        pending.push(fact);
+      }
+    }
+    self.facts.reactive_private_field_access.extend(pending);
+  }
+
+  fn private_demand_fact(
+    &self,
+    site: &NamedUse,
+    class_id: SymbolId,
+    origin: DemandOrigin,
+    proxy: Span,
+    api: &str,
+    want: MemberKind,
+  ) -> Option<ReactivePrivateFieldAccessFact> {
+    if !self.indexes.demand_from(&site.site, origin) {
+      return None;
+    }
+    let member = self.indexes.class_member(class_id, site.key.as_str())?;
+    if member.kind != want {
+      return None;
+    }
+    Some(ReactivePrivateFieldAccessFact {
+      demand_span: self.span(site.site.span),
+      proxy_span: self.span(proxy),
+      member_span: self.span(member.span),
+      private_span: self.span(member.private_span),
+      api: api.to_string(),
+      member: self.indexes.copy_key(&site.key),
+      field: self.indexes.copy_key(&member.field),
+      getter: matches!(want, MemberKind::Getter),
+    })
+  }
+
+  fn collect_chained_private_demand(
+    &mut self,
+    node_id: NodeId,
+    call: &CallExpression<'_>,
+    class_id: SymbolId,
+    api: &str,
+  ) {
+    let member_id = skip_ts(self.semantic, node_id);
+    let oxc_ast::AstKind::StaticMemberExpression(member) = self.semantic.nodes().kind(member_id)
+    else {
+      return;
+    };
+    if self.indexes.is_optional_chain(self.semantic, member_id) {
+      return;
+    }
+    let key = member.property.name.as_str();
+    let Some(record) = self.indexes.class_member(class_id, key) else {
+      return;
+    };
+    let member_span = record.span;
+    let private_span = record.private_span;
+    let field = record.field.clone();
+    let record_kind = record.kind;
+    let after = skip_ts(self.semantic, member_id);
+    let (demand_span, method) = match self.semantic.nodes().kind(after) {
+      oxc_ast::AstKind::CallExpression(outer)
+        if outer.callee.get_inner_expression().span() == member.span =>
+      {
+        if self.indexes.is_optional_chain(self.semantic, after) {
+          return;
+        }
+        (outer.span, true)
+      }
+      _ => (member.span, false),
+    };
+    let want = if method { MemberKind::Method } else { MemberKind::Getter };
+    if record_kind != want {
+      return;
+    }
+    let demand_id = if method { after } else { member_id };
+    let reach = classify_reach(self.semantic, demand_id, self.indexes.work_counter());
+    if !reach.is_straight() {
+      return;
+    }
+    if !method {
+      let role = classify_role(self.semantic, member_id, self.indexes.work_counter());
+      if !role.needs_get() {
+        return;
+      }
+    }
+    let origin = self.indexes.origin_for(node_id, self.span(call.span).offset);
+    let owner = self.indexes.owner(demand_id);
+    let region = owner.region.unwrap_or(origin.region);
+    if owner.callable != origin.callable || region != origin.region {
+      return;
+    }
+    if self.indexes.has_barrier_between(origin.region, origin.offset, self.span(demand_span).offset)
+    {
+      return;
+    }
+    let member_name = self.indexes.copy_key(key);
+    let field = self.indexes.copy_key(&field);
+    self.facts.reactive_private_field_access.push(ReactivePrivateFieldAccessFact {
+      demand_span: self.span(demand_span),
+      proxy_span: self.span(call.span),
+      member_span: self.span(member_span),
+      private_span: self.span(private_span),
+      api: api.to_string(),
+      member: member_name,
+      field,
+      getter: matches!(want, MemberKind::Getter),
+    });
+  }
+
   pub(super) fn collect_custom_ref(
     &mut self,
     node_id: NodeId,

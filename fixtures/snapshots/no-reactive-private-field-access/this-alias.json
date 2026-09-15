@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-reactive-private-field-access",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-reactive-private-field-access",
+    "message": "`reactive` proxy is not branded for `#n`; calling `read` throws TypeError",
+    "help": "Proxy at 10:15; `read` at 5:3 reads `#n` at 7:12. Native private fields brand the original instance, not the Vue proxy. Keep `this` as that instance with a constructor-bound method, an arrow field, or `toRaw(proxy)`. Those raw receivers are not observed by Vue when `#n` is assigned.",
+    "file": "fixtures/rules/no-reactive-private-field-access/invalid/this-alias.vue",
+    "span": {
+      "offset": 182,
+      "length": 12,
+      "line": 11,
+      "column": 6
+    }
+  }
+]

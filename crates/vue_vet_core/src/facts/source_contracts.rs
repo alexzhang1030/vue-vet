@@ -61,6 +61,8 @@ pub struct SourceContractFacts {
   /// Practice opportunities (queued flush / attached child scope / lazy async).
   #[serde(default, skip_serializing_if = "SchedulingPracticeFacts::is_empty")]
   pub scheduling_practice: SchedulingPracticeFacts,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub reactive_private_field_access: Vec<ReactivePrivateFieldAccessFact>,
 }
 
 impl SourceContractFacts {
@@ -89,6 +91,7 @@ impl SourceContractFacts {
       && self.stable_computed_identity.is_empty()
       && self.derivation_practice.is_empty()
       && self.scheduling_practice.is_empty()
+      && self.reactive_private_field_access.is_empty()
   }
 }
 
@@ -419,4 +422,17 @@ pub struct StableComputedIdentityFact {
 #[serde(rename_all = "kebab-case")]
 pub enum StableComputedIdentityReason {
   FreshPrimitiveProjection,
+}
+
+/// Native private-field access through a Vue reactive proxy receiver.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReactivePrivateFieldAccessFact {
+  pub demand_span: SourceSpan,
+  pub proxy_span: SourceSpan,
+  pub member_span: SourceSpan,
+  pub private_span: SourceSpan,
+  pub api: String,
+  pub member: String,
+  pub field: String,
+  pub getter: bool,
 }

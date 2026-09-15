@@ -30,6 +30,9 @@ use oxc_syntax::reference::ReferenceFlags;
 use vue_vet_core::{ScriptKind, SourceSpan};
 
 use super::atom::{PrimitiveAtom, atom_of_expression};
+use super::class::{
+  ClassNewInfo, ClassRecord, MemberRecord, analyze_class, class_binding_symbol, class_new_info,
+};
 use super::proof::{
   ANCESTOR_BUDGET, DemandOrigin, DemandRole, Reach, classify_reach, classify_role,
   is_custom_prototype_key,
@@ -531,6 +534,9 @@ pub(super) struct Indexes {
   terminations_by_callable: HashMap<Option<NodeId>, Vec<usize>>,
   pub object_literals: HashSet<u64>,
   pub news: HashMap<u64, NewInfo>,
+  pub classes: HashMap<SymbolId, ClassRecord>,
+  pub class_news: HashMap<u64, ClassNewInfo>,
+  pub prototype_touch: HashSet<SymbolId>,
   pub map_init_keys: HashMap<u64, Option<Vec<MapKeyRef>>>,
   pub member_calls: HashMap<(SymbolId, String), Vec<MemberCallSite>>,
   pub member_call_by_node: HashMap<NodeId, MemberCallSite>,
@@ -666,6 +672,9 @@ impl Indexes {
       terminations_by_callable: HashMap::new(),
       object_literals: HashSet::new(),
       news: HashMap::new(),
+      classes: HashMap::new(),
+      class_news: HashMap::new(),
+      prototype_touch: HashSet::new(),
       map_init_keys: HashMap::new(),
       member_calls: HashMap::new(),
       member_call_by_node: HashMap::new(),
@@ -889,6 +898,43 @@ impl Indexes {
   pub(super) fn value_reads_on(&self, root: SymbolId) -> &[MemberUse] {
     self.work.add_queries(1);
     self.value_reads.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn class_identity_intact(&self, class: SymbolId) -> bool {
+    self.work.add_queries(1);
+    let Some(record) = self.classes.get(&class) else {
+      return false;
+    };
+    record.ordinary
+      && !self.reassigned.contains(&class)
+      && !self.escaped.contains(&class)
+      && !self.prototype_touch.contains(&class)
+      && !self.unknown_member_touch.contains(&class)
+      && !self.capability_touch.contains(&class)
+  }
+
+  pub(super) fn class_declared_before(&self, class: SymbolId, new_span: Span) -> bool {
+    self.work.add_queries(1);
+    self.classes.get(&class).is_some_and(|record| record.span.start < new_span.start)
+  }
+
+  pub(super) fn class_member(&self, class: SymbolId, name: &str) -> Option<&MemberRecord> {
+    self.work.add_queries(1);
+    self.work.add_key_lookups(1);
+    self.classes.get(&class).and_then(|record| record.members.get(name))
+  }
+
+  pub(super) fn new_at(&self, span: Span) -> Option<ClassNewInfo> {
+    self.work.add_queries(1);
+    self.class_news.get(&span_key(span)).copied()
+  }
+
+  pub(super) fn is_optional_chain(
+    &self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    node_id: NodeId,
+  ) -> bool {
+    chain_optional(semantic, node_id, &self.work)
   }
 
   pub(super) fn ctor_shadowed(&self, name: &str) -> bool {
@@ -1798,6 +1844,7 @@ impl Indexes {
     for (node_id, node) in semantic.nodes().iter_enumerated() {
       self.work.add_nodes(1);
       match node.kind() {
+        AstKind::Class(class) => self.record_class(semantic, node_id, class),
         AstKind::StaticMemberExpression(member) => {
           self.record_static_member(
             semantic,
@@ -2077,6 +2124,7 @@ impl Indexes {
           }) {
             self.collections.insert(span_key(expression.span), ctor);
           }
+          self.record_class_new(semantic, expression);
         }
         AstKind::TaggedTemplateExpression(tagged) => {
           self.note_receiver_use(semantic, &tagged.tag);
@@ -2128,7 +2176,7 @@ impl Indexes {
             node_id,
             statement.span,
           );
-          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
+          self.record_barrier_end(line_index, sfc_source, script_offset, node_id, statement.span);
         }
         AstKind::ThrowStatement(statement) => {
           self.record_expr(semantic, kind, &statement.argument);
@@ -2142,7 +2190,7 @@ impl Indexes {
             node_id,
             statement.span,
           );
-          self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
+          self.record_barrier_end(line_index, sfc_source, script_offset, node_id, statement.span);
         }
         AstKind::SpreadElement(spread) => {
           self.mark_escape_expr(semantic, &spread.argument, true);
@@ -2349,6 +2397,9 @@ impl Indexes {
           continue;
         }
         if known_const_alias_role(semantic, reference.node_id()) {
+          continue;
+        }
+        if known_class_ctor_role(semantic, reference.node_id(), &self.classes, root) {
           continue;
         }
         if known_map_constructor_key_role(semantic, reference.node_id()) {
@@ -3571,6 +3622,9 @@ impl Indexes {
       && let Some(symbol_id) = reference_symbol(semantic, ident)
     {
       let root = self.root_of(symbol_id);
+      if property == "prototype" {
+        self.prototype_touch.insert(root);
+      }
       if property == "value" {
         if use_site.role.needs_get() || use_site.role.needs_set() {
           self.value_reads.entry(root).or_default().push(use_site);
@@ -3979,6 +4033,49 @@ impl Indexes {
     let offset = mapped(line_index, sfc_source, script_offset, span).offset;
     self.barriers_by_region.entry(region).or_default().push(offset);
   }
+
+  fn record_barrier_end(
+    &mut self,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    node_id: NodeId,
+    span: Span,
+  ) {
+    let Some(region) = self.owner(node_id).region else {
+      return;
+    };
+    let mapped_span = mapped(line_index, sfc_source, script_offset, span);
+    let offset = mapped_span.offset.saturating_add(mapped_span.length);
+    self.barriers_by_region.entry(region).or_default().push(offset);
+  }
+
+  fn record_class(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    node_id: NodeId,
+    class: &oxc_ast::ast::Class<'_>,
+  ) {
+    let Some(symbol_id) = class_binding_symbol(semantic, node_id, class) else {
+      return;
+    };
+    let record = analyze_class(class, &self.work);
+    self.classes.insert(symbol_id, record);
+  }
+
+  fn record_class_new(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    expression: &oxc_ast::ast::NewExpression<'_>,
+  ) {
+    let callee = expression
+      .callee
+      .get_inner_expression()
+      .get_identifier_reference()
+      .and_then(|ident| reference_symbol(semantic, ident));
+    self.class_news.insert(span_key(expression.span), class_new_info(expression, callee));
+  }
+
   fn record_stmt_site(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
@@ -4871,6 +4968,23 @@ fn is_known_constructor_or_watch(api: Option<&str>) -> bool {
 
 fn known_static_member_object_role(semantic: &oxc_semantic::Semantic<'_>, node_id: NodeId) -> bool {
   matches!(semantic.nodes().parent_kind(node_id), AstKind::StaticMemberExpression(_))
+}
+
+fn known_class_ctor_role(
+  semantic: &oxc_semantic::Semantic<'_>,
+  node_id: NodeId,
+  classes: &HashMap<SymbolId, ClassRecord>,
+  root: SymbolId,
+) -> bool {
+  if !classes.contains_key(&root) {
+    return false;
+  }
+  let oxc_ast::AstKind::NewExpression(expression) = semantic.nodes().parent_kind(node_id) else {
+    return false;
+  };
+  let ident_span = semantic.nodes().kind(node_id).span();
+  let callee = expression.callee.get_inner_expression().span();
+  callee == ident_span
 }
 
 fn known_const_alias_role(semantic: &oxc_semantic::Semantic<'_>, node_id: NodeId) -> bool {

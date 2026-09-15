@@ -51,9 +51,15 @@
 //!
 //! Closed-local customRef track/trigger reachability records executed consumer,
 //! identity setter transfer, and per-handle inactivity queries.
+//!
+//! Private-field receiver facts join a class-symbol/member index with
+//! per-object operations. Native `#private` brands the original instance;
+//! Vue `reactive` / `readonly` / `shallowReactive` / `shallowReadonly`
+//! proxies are not that receiver.
 
 mod atom;
 mod cached;
+mod class;
 mod clone_boundary;
 mod computed_identity;
 mod custom_ref;
@@ -213,6 +219,11 @@ impl Collector<'_> {
       self.collect_inactive_scope_run(node_id, call);
       self.collect_cached_result(node_id, call, info);
       let Some(api) = info.api else {
+        if let Some(api) = self.aliased_vue_api(call)
+          && matches!(api, "reactive" | "readonly" | "shallowReactive" | "shallowReadonly")
+        {
+          self.collect_private_field_access(node_id, call, info, api);
+        }
         continue;
       };
       if info.has_spread {
@@ -224,7 +235,10 @@ impl Collector<'_> {
           self.collect_torefs(info);
           self.collect_missing_torefs_key(node_id, call, info);
         }
-        Some(ContractSink::ProxyConstructor) => self.collect_primitive_reactive(info, api),
+        Some(ContractSink::ProxyConstructor) => {
+          self.collect_primitive_reactive(info, api);
+          self.collect_private_field_access(node_id, call, info, api);
+        }
         Some(ContractSink::Watch) => {
           self.collect_watch(node_id, call, info);
           self.collect_watch_api(call, info);
@@ -252,6 +266,7 @@ impl Collector<'_> {
     self.collect_all_raw_proxy_map_gets();
   }
 
+  #[expect(clippy::too_many_lines, reason = "deterministic fact-pack sort is one finish pass")]
   fn finish(mut self) -> (SourceContractFacts, SourceContractStats) {
     self.facts.trigger_ref_non_ref.sort_by(|left, right| {
       self.indexes.note_query();
@@ -446,6 +461,14 @@ impl Collector<'_> {
         right.call_span.offset,
         right.source_span.offset,
         right.demand_span.offset,
+      ))
+    });
+    self.facts.reactive_private_field_access.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.demand_span.offset, left.proxy_span.offset, left.member_span.offset).cmp(&(
+        right.demand_span.offset,
+        right.proxy_span.offset,
+        right.member_span.offset,
       ))
     });
     (self.facts, self.indexes.stats())
