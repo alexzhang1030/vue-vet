@@ -5,7 +5,7 @@
 )]
 
 use super::helpers::*;
-use vue_vet_project::PROJECT_RULE_IDS;
+use vue_vet_project::{PROJECT_RULE_IDS, VAPOR_MIGRATION_RULE_IDS};
 use vue_vet_session::{file_analysis_registry, rule_inventory};
 
 #[test]
@@ -26,6 +26,7 @@ fn list_rules_is_sorted_unique_and_includes_project_ids() {
   let mut raw: Vec<_> =
     file_analysis_registry().metadata().into_iter().map(|meta| meta.id).collect();
   raw.extend(PROJECT_RULE_IDS);
+  raw.extend(VAPOR_MIGRATION_RULE_IDS);
   raw.sort_unstable();
   let mut seen = std::collections::BTreeSet::new();
   for id in &raw {
@@ -44,8 +45,8 @@ fn list_rules_is_sorted_unique_and_includes_project_ids() {
   );
   assert_eq!(
     parsed.pointer("/counts/total").and_then(Value::as_u64),
-    Some(151),
-    "composed CLI inventory must be 151 after template-ref demand, two component-default demand owners, snapshot-demand, cancelled-filter promise demand, VueUse demand, same-instance injection demand, until timeout unmatched-demand, the private-field receiver, late-cancellation-guard lifetime owner, scheduling-practice, derivation-practice, stable-computed-identity practice, cached-result demand, lifetime ownership, customRef notification, cleanup-identity, collection-lookup, extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
+    Some(156),
+    "composed CLI inventory must be 156 after the vapor-migration assessment group (5 IDs) plus the prior 151 file/project rules"
   );
 }
 
