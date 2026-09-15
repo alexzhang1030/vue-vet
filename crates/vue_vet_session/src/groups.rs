@@ -40,6 +40,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-effect-write-without-read", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-empty-watch-sources", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-extracted-reactive-collection-method", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-ignorable-async-ignore-window", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-inactive-scope-result", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-inject-same-instance-provide", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-invalid-custom-ref-interface", RuleGroupId::SourceContracts),
@@ -72,6 +73,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-route-destructure", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-router-destructure", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-shallow-reactive-destructure", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-shared-composable-first-instance-args", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-side-effects-in-computed", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-stale-prop-flow", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-toraw-write-of-tracked-state", RuleGroupId::SourceContracts),
@@ -308,13 +310,13 @@ mod tests {
       "vue-vet/reactivity/no-watch-cleanup-current-source",
     ];
     let inventory = rule_inventory(&[]);
-    assert_eq!(inventory.counts.total, 142, "composed CLI inventory count");
+    assert_eq!(inventory.counts.total, 144, "composed CLI inventory count");
     assert_eq!(
       group_of("vue-vet/practice/prefer-stable-computed-identity"),
       Some(RuleGroupId::Derivation)
     );
     let source = rule_inventory(&[RuleGroupId::SourceContracts]);
-    assert_eq!(source.counts.total, 39, "source-contracts group count");
+    assert_eq!(source.counts.total, 41, "source-contracts group count");
     let derivation = rule_inventory(&[RuleGroupId::Derivation]);
     assert_eq!(derivation.counts.total, 13, "derivation group count");
     for id in [
@@ -338,6 +340,8 @@ mod tests {
       "vue-vet/reactivity/no-missing-torefs-key",
       "vue-vet/reactivity/no-until-timeout-unmatched-demand",
       "vue-vet/reactivity/no-inject-same-instance-provide",
+      "vue-vet/reactivity/no-ignorable-async-ignore-window",
+      "vue-vet/reactivity/no-shared-composable-first-instance-args",
     ] {
       assert_eq!(group_of(id), Some(RuleGroupId::SourceContracts), "{id}");
       assert!(

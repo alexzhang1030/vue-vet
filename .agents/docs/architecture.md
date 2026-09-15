@@ -242,7 +242,14 @@ File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         receiver-effect proof (including executed object keys), proven
         `toRefs` first-arg borrows over memoized closed keys, and cached-result
         demand facts for exact VueUse `useMemoize` / `computedWithControl`
-        origins. A class-symbol/member index joins per-object operations for
+        origins. VueUse demand facts (`vueuse.rs`) reuse that region/barrier
+        and native-capability surface for exact `@vueuse/core` /
+        `@vueuse/shared` `watchIgnorable` / `ignorableWatch` sync ignore
+        windows and `createSharedComposable` / `createGlobalState`
+        first-instance argument demands. Shared wrappers keep one
+        retained-initializer summary; ignore-window previous-value proof is
+        confined to the updater callable and uses `straight_awaits_in`, not
+        the stack-wide await barrier, to decide the window. A class-symbol/member index joins per-object operations for
         native `#private` access through `reactive` / `readonly` /
         `shallowReactive` / `shallowReadonly` proxies. A per-result ordered
         event fold retains first-fill kind and span through later hits; only
@@ -270,7 +277,7 @@ File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         imports reuse the canonical Vue-import pass. `watch` still runs the
         ordinary source collector, watch-family option/signature facts, and
         callback-contract collectors (`watch_callbacks.rs`). Combined
-        `RULESET_VERSION` is 36; `REACTIVITY_GRAPH_VERSION` stays 41.
+        `RULESET_VERSION` is 37; `REACTIVITY_GRAPH_VERSION` stays 41.
         Scheduling-practice facts (`queued_watch_flush`, `attached_effect_scope`,
         `lazy_computed_async`) live on `SourceContractFacts.scheduling_practice`.
         Named effect-family imports keep source indexes empty when every Oxc
@@ -383,7 +390,7 @@ source-contract uncertainty. Statement ordinals, preceding exits, watcher
 identity by `NodeId`, and scope-active intervals are built once. Shared
 outer/getter/scope proofs stay memoized. Statement / reference / watcher /
 toggle / computed-edge inspections use a test-only counter; production
-`WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 36.
+`WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 37.
 
 `ModuleSummary` (formerly the opaque `PreparedModuleTrace`) is the formal
 cross-module boundary: imports, exports, provides/injects, local reactivity, and

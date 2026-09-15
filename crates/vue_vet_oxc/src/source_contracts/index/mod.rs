@@ -521,6 +521,9 @@ pub(super) struct Indexes {
   pub toref_identity_uncertain: HashSet<SymbolId>,
   pub toref_helper_escape: HashSet<SymbolId>,
   pub value_writes: HashMap<SymbolId, Vec<ValueWrite>>,
+  /// Every `.value` write, including compound assigns. Ignore-window proof
+  /// uses this list to see outside-updater writes that `value_writes` drops.
+  value_write_events: HashMap<SymbolId, Vec<ValueWrite>>,
   pub value_reads: HashMap<SymbolId, Vec<MemberUse>>,
   pub derivation_value_reads: HashMap<SymbolId, Vec<ValueRead>>,
   pub member_reads_by_root: HashMap<SymbolId, Vec<NamedUse>>,
@@ -530,6 +533,8 @@ pub(super) struct Indexes {
   pub result_demands: HashMap<SymbolId, Vec<ResultDemand>>,
   pub value_demands: HashMap<SymbolId, Vec<ValueDemand>>,
   pub destructure_by_object: HashMap<SymbolId, Vec<(SymbolId, String)>>,
+  call_destructure: HashMap<u64, Vec<(SymbolId, String)>>,
+  value_writes_by_callable: HashMap<(SymbolId, Option<NodeId>), Vec<ValueWrite>>,
   pub scheduling_value_reads: HashMap<SymbolId, Vec<ValueRead>>,
   pub scheduling_member_calls: HashMap<SymbolId, Vec<MemberCall>>,
   pub awaits: Vec<AwaitSite>,
@@ -666,6 +671,7 @@ impl Indexes {
       toref_identity_uncertain: HashSet::new(),
       toref_helper_escape: HashSet::new(),
       value_writes: HashMap::new(),
+      value_write_events: HashMap::new(),
       value_reads: HashMap::new(),
       derivation_value_reads: HashMap::new(),
       member_reads_by_root: HashMap::new(),
@@ -675,6 +681,8 @@ impl Indexes {
       result_demands: HashMap::new(),
       value_demands: HashMap::new(),
       destructure_by_object: HashMap::new(),
+      call_destructure: HashMap::new(),
+      value_writes_by_callable: HashMap::new(),
       scheduling_value_reads: HashMap::new(),
       scheduling_member_calls: HashMap::new(),
       awaits: Vec::new(),
@@ -829,6 +837,10 @@ impl Indexes {
     for writes in self.value_writes.values_mut() {
       writes.sort_by_key(|write| write.offset);
     }
+    for writes in self.value_write_events.values_mut() {
+      writes.sort_by_key(|write| write.offset);
+    }
+    self.index_vueuse_value_writes();
     for uses in self.value_reads.values_mut() {
       uses.sort_by_key(|use_site| use_site.offset);
     }
@@ -1131,6 +1143,51 @@ impl Indexes {
     self.value_writes.get(&root).map_or(&[], Vec::as_slice)
   }
 
+  pub(super) fn value_write_events(&self, root: SymbolId) -> &[ValueWrite] {
+    self.work.add_queries(1);
+    self.value_write_events.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn value_writes_for(
+    &self,
+    root: SymbolId,
+    callable: Option<NodeId>,
+  ) -> Option<&[ValueWrite]> {
+    self.work.add_queries(1);
+    self.value_writes_by_callable.get(&(root, callable)).map(Vec::as_slice)
+  }
+
+  pub(super) fn last_value_write_in(
+    &self,
+    root: SymbolId,
+    callable: Option<NodeId>,
+    before: usize,
+  ) -> Option<ValueWrite> {
+    let writes = self.value_writes_for(root, callable)?;
+    let end = self.work.partition_point(writes, |write| write.offset < before);
+    self.work.add_queries(1);
+    end.checked_sub(1).and_then(|index| writes.get(index)).copied()
+  }
+
+  pub(super) fn has_simple_value_write_between(
+    &self,
+    root: SymbolId,
+    start: usize,
+    end: usize,
+  ) -> bool {
+    let Some(writes) = self.value_writes.get(&root) else {
+      self.work.add_queries(1);
+      return false;
+    };
+    let index = self.work.partition_point(writes, |write| write.offset <= start);
+    writes.get(index..).is_some_and(|rest| {
+      rest.iter().any(|write| {
+        self.work.add_queries(1);
+        write.offset < end && write.simple_assign
+      })
+    })
+  }
+
   pub(super) fn call_result(&self, call_span: Span) -> Option<SymbolId> {
     self.work.add_queries(1);
     self.call_results.get(&span_key(call_span)).copied()
@@ -1349,6 +1406,35 @@ impl Indexes {
   pub(super) fn awaits_of(&self, callable: Option<NodeId>) -> &[AwaitSite] {
     self.work.add_queries(1);
     self.awaits_by_callable.get(&callable).map_or(&[], Vec::as_slice)
+  }
+
+  /// Straight-line awaits inside `callable`. Ignore-window proof uses this
+  /// list, not `has_barrier_between`, so an updater `await` stays a signal
+  /// rather than a stack-wide barrier that would hide the later write.
+  pub(super) fn straight_awaits_in(
+    &self,
+    callable: Option<NodeId>,
+  ) -> impl Iterator<Item = UntilAwaitSite> + '_ {
+    self.work.add_queries(1);
+    self.until.awaits.iter().copied().filter(move |site| {
+      self.work.add_queries(1);
+      site.callable == callable && site.reach.is_straight()
+    })
+  }
+
+  pub(super) fn function_id(&self, span: Span) -> Option<NodeId> {
+    self.work.add_queries(1);
+    self.callables.get(&span_key(span)).copied()
+  }
+
+  pub(super) fn scalar(&self, span: Span) -> Option<Scalar> {
+    self.work.add_queries(1);
+    self.until.scalars.get(&span_key(span)).copied()
+  }
+
+  pub(super) fn call_bindings(&self, call_span: Span) -> &[(SymbolId, String)] {
+    self.work.add_queries(1);
+    self.call_destructure.get(&span_key(call_span)).map_or(&[], Vec::as_slice)
   }
 
   pub(super) fn call_info(&self, span: Span) -> Option<CallInfo> {
@@ -1732,6 +1818,17 @@ impl Indexes {
     let keys = self.closed_keys.get(&span_key(object_span))?;
     self.work.add_key_lookups(1);
     Some(keys.contains(key))
+  }
+
+  pub(super) fn closed_object_only_keys(&self, object_span: Span, allowed: &[&str]) -> bool {
+    self.work.add_queries(1);
+    let Some(keys) = self.closed_keys.get(&span_key(object_span)) else {
+      return false;
+    };
+    keys.iter().all(|key| {
+      self.work.add_key_lookups(1);
+      allowed.contains(&key.as_str())
+    })
   }
 
   pub(super) fn keys_closed(&self, root: SymbolId) -> bool {
@@ -2322,7 +2419,7 @@ impl Indexes {
                 let owner = self.owner(node_id);
                 let offset = mapped(line_index, sfc_source, script_offset, update.span).offset;
                 self.value_write_roots.insert(root);
-                self.value_writes.entry(root).or_default().push(ValueWrite {
+                let event = ValueWrite {
                   offset,
                   callable: owner.callable,
                   block: owner.block.unwrap_or(node_id),
@@ -2332,7 +2429,9 @@ impl Indexes {
                   simple_assign: false,
                   fresh_alloc: false,
                   node_id,
-                });
+                };
+                self.value_writes.entry(root).or_default().push(event);
+                self.value_write_events.entry(root).or_default().push(event);
               }
             }
             _ => {}
@@ -3796,19 +3895,21 @@ impl Indexes {
       self.capability_touch.insert(root);
     }
     if property == "value" {
+      let event = ValueWrite {
+        offset: write.offset,
+        callable: write.callable,
+        block: write.block,
+        span: write.span,
+        rhs: write.right.span(),
+        literal: write_literal(semantic, write.right),
+        simple_assign: write.simple,
+        fresh_alloc: write.fresh,
+        node_id: write.node_id,
+      };
+      self.value_write_events.entry(root).or_default().push(event);
       if write.simple {
         self.value_write_roots.insert(root);
-        self.value_writes.entry(root).or_default().push(ValueWrite {
-          offset: write.offset,
-          callable: write.callable,
-          block: write.block,
-          span: write.span,
-          rhs: write.right.span(),
-          literal: write_literal(semantic, write.right),
-          simple_assign: write.simple,
-          fresh_alloc: write.fresh,
-          node_id: write.node_id,
-        });
+        self.value_writes.entry(root).or_default().push(event);
       } else {
         self.uncertain.insert(root);
         self.until.uncertain_value_writes.insert(root);
@@ -4437,9 +4538,9 @@ impl Indexes {
   ) {
     let Some(ident) = init.get_inner_expression().get_identifier_reference() else {
       if let BindingPattern::ObjectPattern(object) = pattern
-        && let Expression::CallExpression(_) = init.get_inner_expression()
+        && let Expression::CallExpression(call) = init.get_inner_expression()
       {
-        self.record_object_destructure_from_call(semantic, object);
+        self.record_object_destructure_from_call(semantic, object, call.span);
       }
       return;
     };
@@ -4471,10 +4572,12 @@ impl Indexes {
     &mut self,
     _semantic: &oxc_semantic::Semantic<'_>,
     object: &oxc_ast::ast::ObjectPattern<'_>,
+    call_span: Span,
   ) {
     if object.rest.is_some() {
       return;
     }
+    let mut bindings = Vec::new();
     for property in &object.properties {
       let Some(key) = property.key.static_name() else {
         return;
@@ -4482,9 +4585,26 @@ impl Indexes {
       if let BindingPattern::BindingIdentifier(binding) = &property.value
         && let Some(local) = binding.symbol_id.get()
       {
-        self.destructure_by_object.entry(local).or_default().push((local, key.to_string()));
+        self.work.add_key_copies(1);
+        let name = key.to_string();
+        self.destructure_by_object.entry(local).or_default().push((local, name.clone()));
+        bindings.push((local, name));
       }
     }
+    if !bindings.is_empty() {
+      self.call_destructure.insert(span_key(call_span), bindings);
+    }
+  }
+
+  fn index_vueuse_value_writes(&mut self) {
+    let mut value_writes_by_callable: HashMap<(SymbolId, Option<NodeId>), Vec<ValueWrite>> =
+      HashMap::new();
+    for (root, writes) in &self.value_write_events {
+      for write in writes {
+        value_writes_by_callable.entry((*root, write.callable)).or_default().push(*write);
+      }
+    }
+    self.value_writes_by_callable = value_writes_by_callable;
   }
 
   fn build_until_await_lookups(&mut self) {

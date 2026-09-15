@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-ignorable-async-ignore-window",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-ignorable-async-ignore-window",
+    "message": "This write reaches the `watchIgnorable` callback because the synchronous `ignoreUpdates` window has ended",
+    "help": "`ignoreUpdates` at 9:6 suspends at 10:3. Await the data, then call `ignoreUpdates(() => { ... })` around the post-await write.",
+    "file": "fixtures/rules/no-ignorable-async-ignore-window/invalid/bag.vue",
+    "span": {
+      "offset": 299,
+      "length": 12,
+      "line": 11,
+      "column": 3
+    }
+  }
+]

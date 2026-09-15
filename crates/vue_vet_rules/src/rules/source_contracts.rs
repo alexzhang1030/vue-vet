@@ -182,6 +182,22 @@ const PRIVATE_FIELD_META: RuleMeta = RuleMeta {
   documentation: "rules/reactivity/no-reactive-private-field-access",
 };
 
+const IGNORABLE_WINDOW_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-ignorable-async-ignore-window",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-ignorable-async-ignore-window",
+};
+
+const SHARED_FIRST_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-shared-composable-first-instance-args",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-shared-composable-first-instance-args",
+};
+
 pub(super) struct NoTriggerRefOnNonRef;
 pub(super) static NO_TRIGGER_REF_ON_NON_REF: NoTriggerRefOnNonRef = NoTriggerRefOnNonRef;
 
@@ -259,6 +275,13 @@ pub(super) struct NoInjectSameInstanceProvide;
 pub(super) static NO_INJECT_SAME_INSTANCE_PROVIDE: NoInjectSameInstanceProvide =
   NoInjectSameInstanceProvide;
 
+pub(super) struct NoIgnorableAsyncIgnoreWindow;
+pub(super) static NO_IGNORABLE_ASYNC_IGNORE_WINDOW: NoIgnorableAsyncIgnoreWindow =
+  NoIgnorableAsyncIgnoreWindow;
+
+pub(super) struct NoSharedComposableFirstInstanceArgs;
+pub(super) static NO_SHARED_COMPOSABLE_FIRST_INSTANCE_ARGS: NoSharedComposableFirstInstanceArgs =
+  NoSharedComposableFirstInstanceArgs;
 impl Rule for NoTriggerRefOnNonRef {
   fn meta(&self) -> &'static RuleMeta {
     &TRIGGER_META
@@ -887,6 +910,63 @@ impl Rule for NoInjectSameInstanceProvide {
   }
 }
 
+impl Rule for NoIgnorableAsyncIgnoreWindow {
+  fn meta(&self) -> &'static RuleMeta {
+    &IGNORABLE_WINDOW_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.ignorable_async_ignore_window {
+        let api = if site.api.is_empty() { "watchIgnorable" } else { site.api.as_str() };
+        context.report(
+          self.meta(),
+          site.write_span,
+          format!(
+            "This write reaches the `{api}` callback because the synchronous `ignoreUpdates` window has ended"
+          ),
+          Some(format!(
+            "`ignoreUpdates` at {}:{} suspends at {}:{}. Await the data, then call `ignoreUpdates(() => {{ ... }})` around the post-await write.",
+            site.ignore_span.line,
+            site.ignore_span.column,
+            site.await_span.line,
+            site.await_span.column
+          )),
+        );
+      }
+    }
+  }
+}
+
+impl Rule for NoSharedComposableFirstInstanceArgs {
+  fn meta(&self) -> &'static RuleMeta {
+    &SHARED_FIRST_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.shared_composable_first_instance_args {
+        let api = if site.api.is_empty() { "createSharedComposable" } else { site.api.as_str() };
+        context.report(
+          self.meta(),
+          site.demand_span,
+          format!(
+            "Shared `{api}` state keeps the first initializer; this demand needs `{cap}` which the retained value does not have",
+            cap = site.capability
+          ),
+          Some(format!(
+            "First call at {}:{} and later argument at {}:{}. Use independent composables or an explicitly keyed factory when per-argument instances are required.",
+            site.first_call_span.line,
+            site.first_call_span.column,
+            site.later_arg_span.line,
+            site.later_arg_span.column
+          )),
+        );
+      }
+    }
+  }
+}
+
 fn report_site(
   context: &mut RuleContext<'_>,
   meta: &RuleMeta,
@@ -923,5 +1003,7 @@ pub(super) fn source_contract_rules() -> Vec<&'static dyn Rule> {
     &NO_REACTIVE_PRIVATE_FIELD_ACCESS,
     &NO_UNTIL_TIMEOUT_UNMATCHED_DEMAND,
     &NO_INJECT_SAME_INSTANCE_PROVIDE,
+    &NO_IGNORABLE_ASYNC_IGNORE_WINDOW,
+    &NO_SHARED_COMPOSABLE_FIRST_INSTANCE_ARGS,
   ]
 }
