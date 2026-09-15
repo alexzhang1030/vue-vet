@@ -5195,7 +5195,7 @@ fn source_contracts_import_source_steps_bypass_nested_local_calls() {
   let (quiet, quiet_stats) = contract_full_stats(&nest(64, false));
   assert!(quiet.uncloneable_proxy_data.is_empty(), "{quiet:?}");
   assert!(
-    quiet_stats.import_source_steps <= 0,
+    quiet_stats.import_source_steps == 0,
     "nested local calls must not examine import sources; {quiet_stats:?}"
   );
 
@@ -5782,7 +5782,7 @@ fn extracted_collection_methods_reuse_counted_actual_proxy_origin() {
   );
   assert!(local.extracted_reactive_collection_method.is_empty(), "{local:?}");
   assert!(
-    local_stats.import_source_steps <= 0,
+    local_stats.import_source_steps == 0,
     "local constructors must not examine VueImport; {local_stats:?}"
   );
   let (type_only, type_only_stats) = contract_full_stats(
@@ -5790,7 +5790,7 @@ fn extracted_collection_methods_reuse_counted_actual_proxy_origin() {
   );
   assert!(type_only.extracted_reactive_collection_method.is_empty(), "{type_only:?}");
   assert!(
-    type_only_stats.import_source_steps <= 0,
+    type_only_stats.import_source_steps == 0,
     "type-only sources must not examine VueImport; {type_only_stats:?}"
   );
 }
@@ -7691,10 +7691,10 @@ fn collection_lookup_replay_pins_exact_work_for_size_16() {
   let (mutated_facts, mutated_stats) = contract_full_stats(&mutated);
   assert_eq!(mutated_facts.raw_proxy_map_key.len(), 16, "{mutated_facts:?}");
   assert!(shared_stats.key_lookups <= 33, "{shared_stats:?}");
-  assert!(shared_stats.writes <= 0, "{shared_stats:?}");
+  assert_eq!(shared_stats.writes, 0, "{shared_stats:?}");
   assert!(shared_stats.key_copies <= 1, "{shared_stats:?}");
   assert!(wide_stats.key_lookups <= 49, "{wide_stats:?}");
-  assert!(wide_stats.writes <= 0, "{wide_stats:?}");
+  assert_eq!(wide_stats.writes, 0, "{wide_stats:?}");
   assert!(wide_stats.key_copies <= 1, "{wide_stats:?}");
   assert!(distinct_stats.key_lookups <= 48, "{distinct_stats:?}");
   assert!(distinct_stats.key_copies <= 16, "{distinct_stats:?}");
