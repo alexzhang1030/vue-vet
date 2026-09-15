@@ -162,7 +162,6 @@ pub fn apply_template_prop_layers(
         element_span: edge.evidence,
         parent_template: &parent_facts.facts.template,
         parent_graph,
-        parent_module: parent_path,
         child_module: child_path,
       })
     })

@@ -14,7 +14,6 @@ pub struct PropFlowSite<'a> {
   pub element_span: SourceSpan,
   pub parent_template: &'a TemplateFacts,
   pub parent_graph: &'a ReactivityGraph,
-  pub parent_module: &'a str,
   pub child_module: &'a str,
 }
 
@@ -50,25 +49,17 @@ pub fn join_prop_flows(children: &mut [Arc<ModuleReactivity>], sites: &[PropFlow
     let Some(&child_idx) = child_index.get(site.child_module) else {
       continue;
     };
-    if children.get(child_idx).is_some_and(|child| child_has_props_bag(&child.graph)) {
-      let child_edges = collect_prop_edges(element, site.parent_graph);
-      if !child_edges.is_empty() {
-        pending.entry(child_idx).or_default().extend(child_edges);
-      }
+    let Some(child) = children.get(child_idx) else {
+      continue;
+    };
+    if !child_has_props_bag(&child.graph) {
+      continue;
     }
-    // Parent-side edges use the template ident as `from` so `no-stale-prop-flow`
-    // can see a plain `let title` (not a graph binding) on the parent file.
-    // `defineProps()` without `const props =` has no child props bag; still join.
-    if let Some(&parent_idx) = child_index.get(site.parent_module) {
-      let parent_edges = collect_parent_source_prop_edges(element);
-      if !parent_edges.is_empty()
-        && !children
-          .get(parent_idx)
-          .is_some_and(|parent| parent_already_has_prop_edges(&parent.graph, &parent_edges))
-      {
-        pending.entry(parent_idx).or_default().extend(parent_edges);
-      }
+    let new_edges = collect_prop_edges(element, site.parent_graph);
+    if new_edges.is_empty() {
+      continue;
     }
+    pending.entry(child_idx).or_default().extend(new_edges);
   }
   for (child_idx, mut new_edges) in pending {
     let Some(child) = children.get_mut(child_idx) else {
@@ -95,21 +86,6 @@ pub fn join_prop_flows(children: &mut [Arc<ModuleReactivity>], sites: &[PropFlow
         && left.span.offset == right.span.offset
     });
   }
-}
-
-fn parent_already_has_prop_edges(
-  graph: &ReactivityGraph,
-  incoming: &[ReactiveDependencyEdge],
-) -> bool {
-  incoming.iter().all(|new| {
-    graph.edges.iter().any(|existing| {
-      existing.kind == new.kind
-        && existing.from == new.from
-        && existing.to == new.to
-        && existing.property == new.property
-        && existing.span.offset == new.span.offset
-    })
-  })
 }
 
 fn child_has_props_bag(graph: &ReactivityGraph) -> bool {
@@ -160,39 +136,6 @@ fn collect_prop_edges(
         &parent_binding.name,
         parent_binding.span.offset,
       )),
-      property: Some(prop_name.to_owned()),
-      kind: ReactiveDependencyKind::Prop,
-      span: directive.span,
-    });
-  }
-  edges
-}
-
-fn collect_parent_source_prop_edges(element: &TemplateElementFact) -> Vec<ReactiveDependencyEdge> {
-  let mut edges = Vec::new();
-  for directive in &element.directives {
-    let prop_name = match directive.name.as_str() {
-      "bind" => {
-        let Some(name) = directive.argument.as_deref().filter(|name| !name.is_empty()) else {
-          continue;
-        };
-        name
-      }
-      "model" => {
-        directive.argument.as_deref().filter(|name| !name.is_empty()).unwrap_or("modelValue")
-      }
-      _ => continue,
-    };
-    let Some(expression) = directive.expression.as_deref() else {
-      continue;
-    };
-    let Some(binding) = parse_parent_binding_root(expression) else {
-      continue;
-    };
-    edges.push(ReactiveDependencyEdge {
-      from: binding.to_owned(),
-      to: "props".into(),
-      to_id: None,
       property: Some(prop_name.to_owned()),
       kind: ReactiveDependencyKind::Prop,
       span: directive.span,
@@ -311,7 +254,6 @@ mod tests {
         element_span: span(10),
         parent_template: &parent_template,
         parent_graph: &parent_graph,
-        parent_module: "Parent.vue",
         child_module: "Child.vue",
       }],
     );
@@ -329,75 +271,6 @@ mod tests {
         child.graph.edges
       );
     }
-  }
-
-  #[test]
-  fn joins_plain_ident_onto_parent_when_not_a_graph_binding() {
-    let parent_template = TemplateFacts {
-      elements: vec![TemplateElementFact {
-        tag: "Child".into(),
-        span: span(10),
-        attributes: Vec::new(),
-        directives: vec![TemplateDirectiveFact {
-          name: "bind".into(),
-          raw_name: ":title".into(),
-          argument: Some("title".into()),
-          expression: Some("title".into()),
-          modifiers: Vec::new(),
-          span: span(12),
-        }],
-        has_children: false,
-        has_accessible_content: false,
-        has_labelable_descendant: false,
-        has_label_ancestor: false,
-        has_accessible_name_ancestor: false,
-        object_bind_has_key: false,
-        is_component: false,
-        has_conditional_ancestor: false,
-        has_for_ancestor: false,
-        has_async_boundary_ancestor: false,
-        has_slot_ancestor: false,
-      }],
-      expressions: Vec::new(),
-      allocations: Vec::new(),
-      ..Default::default()
-    };
-    let mut parent_graph = ReactivityGraph::default();
-    parent_graph.set_module_id("Parent.vue");
-    let child_graph = ReactivityGraph {
-      bindings: vec![ReactiveBindingFact {
-        name: "props".into(),
-        kind: ReactiveBindingKind::Reactive,
-        initialized_with_null: false,
-        alias_of: None,
-        alias_of_span: None,
-        span: span(2),
-      }],
-      ..ReactivityGraph::default()
-    };
-    let mut modules = vec![
-      Arc::new(ModuleReactivity { id: "Parent.vue".into(), graph: Arc::new(parent_graph.clone()) }),
-      Arc::new(ModuleReactivity { id: "Child.vue".into(), graph: Arc::new(child_graph) }),
-    ];
-    join_prop_flows(
-      &mut modules,
-      &[PropFlowSite {
-        element_span: span(10),
-        parent_template: &parent_template,
-        parent_graph: &parent_graph,
-        parent_module: "Parent.vue",
-        child_module: "Child.vue",
-      }],
-    );
-    let parent = modules.iter().find(|module| module.id == "Parent.vue");
-    let edge = parent.and_then(|module| {
-      module.graph.edges.iter().find(|edge| edge.kind == ReactiveDependencyKind::Prop)
-    });
-    assert!(
-      edge.is_some_and(|edge| edge.from == "title" && edge.to == "props"),
-      "plain ident must land on the parent graph; got {:?}",
-      parent.map(|module| &module.graph.edges)
-    );
   }
 
   #[test]
@@ -498,7 +371,6 @@ mod tests {
         element_span: span(10),
         parent_template: &parent_template,
         parent_graph: &parent_graph,
-        parent_module: "Parent.vue",
         child_module: "Child.vue",
       }],
     );
@@ -608,7 +480,6 @@ mod tests {
         element_span: span(10),
         parent_template: &parent_template,
         parent_graph: &parent_graph,
-        parent_module: "Parent.vue",
         child_module: "Child.vue",
       }],
     );
@@ -692,7 +563,6 @@ mod tests {
         element_span: span(10),
         parent_template: &parent_template,
         parent_graph: &parent_graph,
-        parent_module: "Parent.vue",
         child_module: "Child.vue",
       }],
     );
@@ -774,7 +644,6 @@ mod tests {
         element_span: span(10),
         parent_template: &parent_template,
         parent_graph: &parent_graph,
-        parent_module: "Parent.vue",
         child_module: "Child.vue",
       }],
     );
@@ -863,7 +732,6 @@ mod tests {
         element_span: span(10),
         parent_template: &parent_template,
         parent_graph: &parent_graph,
-        parent_module: "Parent.vue",
         child_module: "Child.vue",
       }],
     );

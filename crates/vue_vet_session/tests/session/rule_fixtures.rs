@@ -26,6 +26,10 @@ const SKIPPED_RULE_DIRS: &[(&str, &str)] = &[
     "legacy pack; golden.rs::recommended_rule_pack_covers_all_rules_with_valid_spans",
   ),
   (
+    "no-stale-prop-flow",
+    "dead until #273: join_prop_flows only puts Prop edges on the child graph; fixtures kept",
+  ),
+  (
     "unresolved-import",
     "no fixtures/rules dir; pipeline_tests/graph.rs::reports_broken_imports_and_unused_components",
   ),
