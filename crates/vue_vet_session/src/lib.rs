@@ -22,8 +22,7 @@ mod types;
 
 pub use explain::Explained;
 pub use groups::{
-  RULE_GROUP_TABLE, apply_selected_groups, apply_vapor_migration_defaults, group_of,
-  normalize_groups, rule_inventory,
+  apply_selected_groups, apply_vapor_migration_defaults, group_of, normalize_groups, rule_inventory,
 };
 pub use locality::{AnalysisProduct, ChangeImpact, DirtyPlan, ResolutionScope, ScanWorkCounters};
 pub use path::resolve_under_root;

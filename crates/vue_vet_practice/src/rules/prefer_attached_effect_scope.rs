@@ -1,5 +1,6 @@
 use vue_vet_core::{
-  AttachedEffectScopeFact, Confidence, PRACTICE_CATEGORY, Rule, RuleContext, RuleMeta, Severity,
+  AttachedEffectScopeFact, Confidence, PRACTICE_CATEGORY, Rule, RuleContext, RuleGroupId, RuleMeta,
+  Severity,
 };
 
 use crate::{
@@ -26,6 +27,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Info,
   confidence: RECIPE.confidence,
   documentation: RECIPE.documentation,
+  group: Some(RuleGroupId::Lifetime),
 };
 
 pub(super) struct PreferAttachedEffectScope;

@@ -38,7 +38,7 @@ pub use humanize::{
   humanize_binding, humanize_edge, humanize_edge_parts_with_property, humanize_scope,
   humanize_source, humanize_template_read, humanize_template_surface, parse_name_offset, to_path,
 };
-pub use inventory::render_rule_inventory_text;
+pub use inventory::{render_rule_catalog_markdown, render_rule_inventory_text};
 use json::render_json;
 pub use json::{render_error, report_diagnostic_id};
 pub use reactivity::{

@@ -1,5 +1,6 @@
 use vue_vet_core::{
-  Confidence, FactKinds, FactRef, LateWatcherCleanupKind, Rule, RuleContext, RuleMeta, Severity,
+  Confidence, FactKinds, FactRef, LateWatcherCleanupKind, Rule, RuleContext, RuleGroupId, RuleMeta,
+  Severity,
 };
 
 const META: RuleMeta = RuleMeta {
@@ -8,6 +9,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-late-watcher-cleanup",
+  group: Some(RuleGroupId::Lifetime),
 };
 
 pub(super) struct NoLateWatcherCleanup;

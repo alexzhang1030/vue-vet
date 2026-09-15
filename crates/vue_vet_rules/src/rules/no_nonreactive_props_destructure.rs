@@ -1,5 +1,5 @@
 use vue_vet_core::{
-  Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, ScriptKind, Severity,
+  Confidence, FactKinds, FactRef, Rule, RuleContext, RuleGroupId, RuleMeta, ScriptKind, Severity,
 };
 
 const META: RuleMeta = RuleMeta {
@@ -8,6 +8,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Error,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-nonreactive-props-destructure",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 pub(super) struct NoNonreactivePropsDestructure;

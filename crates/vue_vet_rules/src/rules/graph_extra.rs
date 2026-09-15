@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use vue_vet_core::{
   Confidence, FactKinds, FactRef, ReactiveBindingKind, ReactiveDependencyKind, Rule, RuleContext,
-  RuleMeta, ScriptBlockFacts, Severity,
+  RuleGroupId, RuleMeta, ScriptBlockFacts, Severity,
 };
 
 use vue_vet_rule_query::{
@@ -17,6 +17,7 @@ const MULTI_EFFECT_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-multiple-effects-same-target",
+  group: Some(RuleGroupId::Derivation),
 };
 
 pub(super) struct NoMultipleEffectsSameTarget;
@@ -82,6 +83,7 @@ const PROPS_SNAPSHOT_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-props-snapshot-in-ref",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 pub(super) struct NoPropsSnapshotInRef;
@@ -124,6 +126,7 @@ const VMODEL_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-v-model-nonreactive-source",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 pub(super) struct NoVModelNonreactiveSource;
@@ -179,6 +182,7 @@ const STALE_PROP_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-stale-prop-flow",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 pub(super) struct NoStalePropFlow;
@@ -231,6 +235,7 @@ const UNUSED_COMPUTED_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-unused-computed-binding",
+  group: Some(RuleGroupId::Derivation),
 };
 
 pub(super) struct NoUnusedComputedBinding;

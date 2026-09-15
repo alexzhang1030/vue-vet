@@ -23,6 +23,7 @@ jobs:
           components: clippy,rustfmt
       - uses: extractions/setup-just@v3
       - run: just lint-rust
+      - run: just rules-catalog-check
 
   test:
     name: Test (${{ matrix.os }})

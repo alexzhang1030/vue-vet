@@ -6,6 +6,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/correctness/no-v-if-with-v-for",
+  group: None,
 };
 
 pub(super) struct NoVIfWithVFor;

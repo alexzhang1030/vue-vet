@@ -5,8 +5,9 @@
 )]
 
 use super::helpers::*;
+use vue_vet_core::RuleGroupId;
 use vue_vet_project::{PROJECT_RULE_IDS, VAPOR_MIGRATION_RULE_IDS};
-use vue_vet_session::{file_analysis_registry, rule_inventory};
+use vue_vet_session::{composed_rule_metadata, file_analysis_registry, rule_inventory};
 
 #[test]
 #[expect(clippy::panic, reason = "malformed inventory JSON must fail the integration test")]
@@ -45,25 +46,22 @@ fn list_rules_is_sorted_unique_and_includes_project_ids() {
   );
   assert_eq!(
     parsed.pointer("/counts/total").and_then(Value::as_u64),
-    Some(156),
-    "composed CLI inventory must be 156 after the vapor-migration assessment group (5 IDs) plus the prior 151 file/project rules"
+    Some(composed_rule_metadata().len() as u64)
+  );
+  assert!(
+    composed_rule_metadata().len() >= 150,
+    "composed registry wipe guard (got {})",
+    composed_rule_metadata().len()
   );
 }
 
 #[test]
-fn list_rules_lifetime_includes_ten_and_tracking_excludes_them() {
-  const LIFETIME_IDS: &[&str] = &[
-    "vue-vet/practice/prefer-attached-effect-scope",
-    "vue-vet/reactivity/no-detached-effect-scope-without-stop",
-    "vue-vet/reactivity/no-late-cancellation-guard",
-    "vue-vet/reactivity/no-late-scope-dispose",
-    "vue-vet/reactivity/no-late-watcher-cleanup",
-    "vue-vet/reactivity/no-nested-watch-without-cleanup",
-    "vue-vet/reactivity/no-on-scope-dispose-reactive-read",
-    "vue-vet/reactivity/no-orphaned-scope-watcher",
-    "vue-vet/reactivity/no-returned-watcher-cleanup",
-    "vue-vet/reactivity/no-watch-cleanup-current-source",
-  ];
+fn list_rules_lifetime_matches_registry_and_tracking_excludes_them() {
+  let expected: Vec<_> = composed_rule_metadata()
+    .into_iter()
+    .filter(|meta| meta.group == Some(RuleGroupId::Lifetime))
+    .map(|meta| meta.id)
+    .collect();
   let lifetime = run(&["--list-rules", "--format", "json", "--group", "lifetime"]);
   let tracking = run(&["--list-rules", "--format", "json", "--group", "tracking"]);
   assert!(lifetime.status.success(), "{}", String::from_utf8_lossy(&lifetime.stderr));
@@ -84,10 +82,24 @@ fn list_rules_lifetime_includes_ten_and_tracking_excludes_them() {
       rules.iter().filter_map(|row| row.get("id").and_then(Value::as_str)).collect::<Vec<_>>()
     })
     .unwrap_or_default();
-  for id in LIFETIME_IDS {
-    assert!(lifetime_ids.contains(id), "lifetime inventory missing {id}: {lifetime_ids:?}");
-    assert!(!tracking_ids.contains(id), "tracking inventory must exclude {id}");
+  assert_eq!(lifetime_ids, expected);
+  for id in expected {
+    assert!(!tracking_ids.contains(&id), "tracking inventory must exclude {id}");
   }
+}
+
+#[test]
+fn list_rules_markdown_is_the_human_catalog() {
+  let output = run(&["--list-rules", "--format", "markdown"]);
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  assert!(output.status.success(), "{stdout}");
+  assert!(stdout.starts_with("# Rule catalog\n"));
+  assert!(stdout.contains("vue-vet --list-rules --format markdown"));
+  assert!(stdout.contains("## Differentiation tiers"));
+  assert!(stdout.contains("## Project-graph rules"));
+  assert!(stdout.contains("## Migration assessment rules"));
+  assert!(stdout.contains("`vue-vet/project/unresolved-import`"));
+  assert!(stdout.contains("[`vue-vet/migration/vapor-assessment`]"));
 }
 
 #[test]
@@ -143,7 +155,13 @@ fn list_rules_source_contracts_includes_contract_ids() {
         .collect()
     })
     .unwrap_or_default();
-  assert_eq!(ids.len(), 46, "{ids:?}");
+  let expected: Vec<_> = composed_rule_metadata()
+    .into_iter()
+    .filter(|meta| meta.group == Some(RuleGroupId::SourceContracts))
+    .map(|meta| meta.id)
+    .collect();
+  let printed: Vec<_> = ids.iter().map(String::as_str).collect();
+  assert_eq!(printed, expected, "{ids:?}");
   for id in [
     "vue-vet/reactivity/no-custom-ref-lost-notification",
     "vue-vet/reactivity/no-effect-scope-callback-argument",

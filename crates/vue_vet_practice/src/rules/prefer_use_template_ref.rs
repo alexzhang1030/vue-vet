@@ -13,6 +13,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Info,
   confidence: Confidence::High,
   documentation: "rules/reactivity/prefer-use-template-ref",
+  group: None,
 };
 
 pub(super) struct PreferUseTemplateRef;

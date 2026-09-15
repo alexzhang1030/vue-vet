@@ -7,6 +7,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Error,
   confidence: Confidence::High,
   documentation: "rules/correctness/no-duplicate-define-options",
+  group: None,
 };
 
 pub(super) struct NoDuplicateDefineOptions;

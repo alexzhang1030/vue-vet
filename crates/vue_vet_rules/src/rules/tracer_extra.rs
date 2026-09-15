@@ -1,8 +1,8 @@
 //! Tracer-differentiated rules that need reactivity-graph read kinds / guards.
 
 use vue_vet_core::{
-  Confidence, FactKinds, FactRef, ReactiveReadKind, Rule, RuleContext, RuleMeta, Severity,
-  TrackingScopeKind,
+  Confidence, FactKinds, FactRef, ReactiveReadKind, Rule, RuleContext, RuleGroupId, RuleMeta,
+  Severity, TrackingScopeKind,
 };
 
 use vue_vet_rule_query::{binding_path, effect_family, script_has_call};
@@ -17,6 +17,7 @@ const DEEP_WATCH_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-deep-watch-on-reactive-root",
+  group: Some(RuleGroupId::Derivation),
 };
 
 pub(super) struct NoDeepWatchOnReactiveRoot;
@@ -67,6 +68,7 @@ const PAUSE_TRACKING_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-reactive-read-during-pause-tracking",
+  group: Some(RuleGroupId::Tracking),
 };
 
 pub(super) struct NoReactiveReadDuringPauseTracking;
@@ -121,6 +123,7 @@ const DEFERRED_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-deferred-callback-reactive-read-in-effect",
+  group: Some(RuleGroupId::Tracking),
 };
 
 pub(super) struct NoDeferredCallbackReactiveReadInEffect;

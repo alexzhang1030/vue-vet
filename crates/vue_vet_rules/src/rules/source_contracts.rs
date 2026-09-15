@@ -1,7 +1,7 @@
 //! Vue API source-contract rules (issue #224). Consume stable facts only.
 
 use vue_vet_core::{
-  Confidence, CustomRefLostNotificationReason, Rule, RuleContext, RuleMeta, Severity,
+  Confidence, CustomRefLostNotificationReason, Rule, RuleContext, RuleGroupId, RuleMeta, Severity,
   SourceContractSiteFact, ToRefIgnoredKeyReason, WatchCallbackContractReason,
   WatchIgnoredOptionReason, WatchSignatureMismatchReason,
 };
@@ -12,6 +12,7 @@ const TRIGGER_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-trigger-ref-on-non-ref",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const TOREFS_META: RuleMeta = RuleMeta {
@@ -20,6 +21,7 @@ const TOREFS_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-torefs-on-non-proxy",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const PRIMITIVE_META: RuleMeta = RuleMeta {
@@ -28,6 +30,7 @@ const PRIMITIVE_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-primitive-reactive-target",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const UNWRAPPED_META: RuleMeta = RuleMeta {
@@ -36,6 +39,7 @@ const UNWRAPPED_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-watch-unwrapped-source",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const REPLACED_META: RuleMeta = RuleMeta {
@@ -44,6 +48,7 @@ const REPLACED_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-watch-replaced-object-source",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const IGNORED_META: RuleMeta = RuleMeta {
@@ -52,6 +57,7 @@ const IGNORED_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-watch-ignored-option",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const SIGNATURE_META: RuleMeta = RuleMeta {
@@ -60,6 +66,7 @@ const SIGNATURE_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-watch-signature-mismatch",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const ONCE_IMMEDIATE_META: RuleMeta = RuleMeta {
@@ -68,6 +75,7 @@ const ONCE_IMMEDIATE_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-once-immediate-discard",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const ALIAS_OLD_NEW_META: RuleMeta = RuleMeta {
@@ -76,6 +84,7 @@ const ALIAS_OLD_NEW_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-watch-alias-old-new",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const TOREF_KEY_META: RuleMeta = RuleMeta {
@@ -84,6 +93,7 @@ const TOREF_KEY_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-toref-ignored-key",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const EFFECT_SCOPE_META: RuleMeta = RuleMeta {
@@ -92,6 +102,7 @@ const EFFECT_SCOPE_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-effect-scope-callback-argument",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const CUSTOM_REF_META: RuleMeta = RuleMeta {
@@ -100,6 +111,7 @@ const CUSTOM_REF_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-invalid-custom-ref-interface",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const INACTIVE_SCOPE_META: RuleMeta = RuleMeta {
@@ -108,6 +120,7 @@ const INACTIVE_SCOPE_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-inactive-scope-result",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const MISSING_TOREFS_META: RuleMeta = RuleMeta {
@@ -116,6 +129,7 @@ const MISSING_TOREFS_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-missing-torefs-key",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const INJECT_SAME_INSTANCE_META: RuleMeta = RuleMeta {
@@ -124,6 +138,7 @@ const INJECT_SAME_INSTANCE_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-inject-same-instance-provide",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const UNTIL_TIMEOUT_META: RuleMeta = RuleMeta {
@@ -132,6 +147,7 @@ const UNTIL_TIMEOUT_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-until-timeout-unmatched-demand",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const EXTRACTED_METHOD_META: RuleMeta = RuleMeta {
@@ -140,6 +156,7 @@ const EXTRACTED_METHOD_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-extracted-reactive-collection-method",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const RAW_PROXY_MAP_KEY_META: RuleMeta = RuleMeta {
@@ -148,6 +165,7 @@ const RAW_PROXY_MAP_KEY_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-raw-proxy-map-key",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const CUSTOM_REF_LOST_META: RuleMeta = RuleMeta {
@@ -156,6 +174,7 @@ const CUSTOM_REF_LOST_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-custom-ref-lost-notification",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const MEMOIZE_STALE_META: RuleMeta = RuleMeta {
@@ -164,6 +183,7 @@ const MEMOIZE_STALE_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-memoize-stale-result-demand",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const CONTROLLED_STALE_META: RuleMeta = RuleMeta {
@@ -172,6 +192,7 @@ const CONTROLLED_STALE_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-controlled-computed-stale-result-demand",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const PRIVATE_FIELD_META: RuleMeta = RuleMeta {
@@ -180,6 +201,7 @@ const PRIVATE_FIELD_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-reactive-private-field-access",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const IGNORABLE_WINDOW_META: RuleMeta = RuleMeta {
@@ -188,6 +210,7 @@ const IGNORABLE_WINDOW_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-ignorable-async-ignore-window",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const SHARED_FIRST_META: RuleMeta = RuleMeta {
@@ -196,6 +219,7 @@ const SHARED_FIRST_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-shared-composable-first-instance-args",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const CANCELLED_FILTER_META: RuleMeta = RuleMeta {
@@ -204,6 +228,7 @@ const CANCELLED_FILTER_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-cancelled-filter-promise-demand",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const JSON_CLONE_META: RuleMeta = RuleMeta {
@@ -212,6 +237,7 @@ const JSON_CLONE_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-json-clone-lossy-type",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const HISTORY_ALIAS_META: RuleMeta = RuleMeta {
@@ -220,6 +246,7 @@ const HISTORY_ALIAS_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-ref-history-snapshot-alias",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const MODEL_DEFAULT_META: RuleMeta = RuleMeta {
@@ -228,6 +255,7 @@ const MODEL_DEFAULT_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-model-default-unsynced-parent-demand",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 const SHARED_DEFAULT_META: RuleMeta = RuleMeta {
@@ -236,6 +264,7 @@ const SHARED_DEFAULT_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-shared-default-cross-instance-demand",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 pub(super) struct NoTriggerRefOnNonRef;

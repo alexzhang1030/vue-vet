@@ -22,7 +22,8 @@ Workspace-internal (`publish = false`). Recommended preset is
 | `builtin_registry()` | `RuleRegistry` over builtins |
 
 Per-rule docs and fixtures: [`docs/rules/`](../../docs/rules/README.md). After
-adding or renaming ids, regenerate the catalog with `just rules-catalog`.
+adding or renaming ids, regenerate the catalog with `just rules-catalog`
+(`vue-vet --list-rules --format markdown`).
 
 ## Layout
 

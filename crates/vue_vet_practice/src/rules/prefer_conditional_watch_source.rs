@@ -1,6 +1,6 @@
 use vue_vet_core::{
-  ConditionalWatchSourceFact, Confidence, PRACTICE_CATEGORY, Rule, RuleContext, RuleMeta, Severity,
-  TemplateFacts,
+  ConditionalWatchSourceFact, Confidence, PRACTICE_CATEGORY, Rule, RuleContext, RuleGroupId,
+  RuleMeta, Severity, TemplateFacts,
 };
 
 use crate::{
@@ -27,6 +27,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Info,
   confidence: RECIPE.confidence,
   documentation: RECIPE.documentation,
+  group: Some(RuleGroupId::Derivation),
 };
 
 pub(super) struct PreferConditionalWatchSource;

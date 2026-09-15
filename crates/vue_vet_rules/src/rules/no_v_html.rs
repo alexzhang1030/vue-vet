@@ -6,6 +6,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/security/no-v-html",
+  group: None,
 };
 
 pub(super) struct NoVHtml;

@@ -42,7 +42,7 @@ impl Rule for MissingExprRule {
 }
 
 macro_rules! missing_expr {
-  ($static_name:ident, $id:literal, $doc:literal, $directive:literal) => {
+  ($static_name:ident, $id:literal, $doc:literal, $group:expr, $directive:literal) => {
     static $static_name: MissingExprRule = MissingExprRule {
       meta: &RuleMeta {
         id: $id,
@@ -50,41 +50,53 @@ macro_rules! missing_expr {
         default_severity: Severity::Error,
         confidence: Confidence::High,
         documentation: $doc,
+        group: $group,
       },
       directive: $directive,
     };
   };
 }
 
-missing_expr!(VALID_V_IF, "vue-vet/correctness/valid-v-if", "rules/correctness/valid-v-if", "if");
+missing_expr!(
+  VALID_V_IF,
+  "vue-vet/correctness/valid-v-if",
+  "rules/correctness/valid-v-if",
+  None,
+  "if"
+);
 missing_expr!(
   VALID_V_ELSE_IF,
   "vue-vet/correctness/valid-v-else-if",
   "rules/correctness/valid-v-else-if",
+  None,
   "else-if"
 );
 missing_expr!(
   VALID_V_SHOW,
   "vue-vet/correctness/valid-v-show",
   "rules/correctness/valid-v-show",
+  None,
   "show"
 );
 missing_expr!(
   VALID_V_MODEL,
   "vue-vet/correctness/valid-v-model",
   "rules/correctness/valid-v-model",
+  None,
   "model"
 );
 missing_expr!(
   VALID_V_FOR,
   "vue-vet/correctness/valid-v-for",
   "rules/correctness/valid-v-for",
+  None,
   "for"
 );
 missing_expr!(
   VALID_V_MEMO,
   "vue-vet/correctness/valid-v-memo",
   "rules/correctness/valid-v-memo",
+  None,
   "memo"
 );
 
@@ -94,6 +106,7 @@ const VALID_V_ON_META: RuleMeta = RuleMeta {
   default_severity: Severity::Error,
   confidence: Confidence::High,
   documentation: "rules/correctness/valid-v-on",
+  group: None,
 };
 
 struct ValidVOn;
@@ -137,6 +150,7 @@ const VALID_V_ELSE_META: RuleMeta = RuleMeta {
   default_severity: Severity::Error,
   confidence: Confidence::High,
   documentation: "rules/correctness/valid-v-else",
+  group: None,
 };
 
 struct ValidVElse;
@@ -173,6 +187,7 @@ const VALID_V_BIND_META: RuleMeta = RuleMeta {
   default_severity: Severity::Error,
   confidence: Confidence::High,
   documentation: "rules/correctness/valid-v-bind",
+  group: None,
 };
 
 struct ValidVBind;
@@ -215,6 +230,7 @@ const NO_CHILD_CONTENT_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/correctness/no-child-content",
+  group: None,
 };
 
 struct NoChildContent;
@@ -253,6 +269,7 @@ const NO_TEXTAREA_META: RuleMeta = RuleMeta {
   default_severity: Severity::Error,
   confidence: Confidence::High,
   documentation: "rules/correctness/no-textarea-mustache",
+  group: None,
 };
 
 struct NoTextareaMustache;
@@ -293,6 +310,7 @@ const NO_TEMPLATE_KEY_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/correctness/no-template-key",
+  group: None,
 };
 
 struct NoTemplateKey;
@@ -334,6 +352,7 @@ const NO_DUP_ATTR_META: RuleMeta = RuleMeta {
   default_severity: Severity::Error,
   confidence: Confidence::High,
   documentation: "rules/correctness/no-duplicate-attributes",
+  group: None,
 };
 
 struct NoDuplicateAttributes;
@@ -388,6 +407,7 @@ const NO_SYNC_META: RuleMeta = RuleMeta {
   default_severity: Severity::Error,
   confidence: Confidence::High,
   documentation: "rules/correctness/no-deprecated-v-bind-sync",
+  group: None,
 };
 
 struct NoDeprecatedVBindSync;
@@ -436,6 +456,7 @@ const NO_SLOT_ATTR_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/correctness/no-deprecated-slot-attribute",
+  group: None,
 };
 
 struct NoDeprecatedSlotAttribute;
@@ -469,6 +490,7 @@ const NO_VHTML_COMPONENT_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/correctness/no-v-text-v-html-on-component",
+  group: None,
 };
 
 struct NoVTextVHtmlOnComponent;
@@ -507,6 +529,7 @@ const NO_IMPORT_MACROS_META: RuleMeta = RuleMeta {
   default_severity: Severity::Error,
   confidence: Confidence::High,
   documentation: "rules/correctness/no-import-compiler-macros",
+  group: None,
 };
 
 struct NoImportCompilerMacros;
@@ -560,6 +583,7 @@ const NO_DUP_MODEL_META: RuleMeta = RuleMeta {
   default_severity: Severity::Error,
   confidence: Confidence::High,
   documentation: "rules/correctness/no-duplicate-define-model",
+  group: None,
 };
 
 struct NoDuplicateDefineModel;
@@ -598,6 +622,7 @@ const VALID_V_SLOT_META: RuleMeta = RuleMeta {
   default_severity: Severity::Error,
   confidence: Confidence::High,
   documentation: "rules/correctness/valid-v-slot",
+  group: None,
 };
 
 struct ValidVSlot;
@@ -637,6 +662,7 @@ const NO_DUPE_ELSE_IF_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/correctness/no-dupe-v-else-if",
+  group: None,
 };
 
 struct NoDupeVElseIf;
@@ -695,6 +721,7 @@ const REQUIRE_TOGGLE_META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/correctness/require-toggle-inside-transition",
+  group: None,
 };
 
 struct RequireToggleInsideTransition;
@@ -754,6 +781,7 @@ const NO_DEPRECATED_FILTER_META: RuleMeta = RuleMeta {
   default_severity: Severity::Error,
   confidence: Confidence::High,
   documentation: "rules/correctness/no-deprecated-filter",
+  group: None,
 };
 
 struct NoDeprecatedFilter;

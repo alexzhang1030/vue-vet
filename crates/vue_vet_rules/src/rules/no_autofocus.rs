@@ -8,6 +8,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/accessibility/no-autofocus",
+  group: None,
 };
 
 pub(super) struct NoAutofocus;

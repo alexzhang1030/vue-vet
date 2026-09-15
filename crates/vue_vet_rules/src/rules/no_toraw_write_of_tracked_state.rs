@@ -1,7 +1,8 @@
 //! Raw-view writes of a path a proxy consumer already tracks.
 
 use vue_vet_core::{
-  Confidence, FactKinds, FactRef, NotificationBypassKind, Rule, RuleContext, RuleMeta, Severity,
+  Confidence, FactKinds, FactRef, NotificationBypassKind, Rule, RuleContext, RuleGroupId, RuleMeta,
+  Severity,
 };
 
 const META: RuleMeta = RuleMeta {
@@ -10,6 +11,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-toraw-write-of-tracked-state",
+  group: Some(RuleGroupId::SourceContracts),
 };
 
 pub(super) struct NoToRawWriteOfTrackedState;

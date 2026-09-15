@@ -1,5 +1,6 @@
 use vue_vet_core::{
-  Confidence, PRACTICE_CATEGORY, QueuedWatchFlushFact, Rule, RuleContext, RuleMeta, Severity,
+  Confidence, PRACTICE_CATEGORY, QueuedWatchFlushFact, Rule, RuleContext, RuleGroupId, RuleMeta,
+  Severity,
 };
 
 use crate::{
@@ -26,6 +27,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Info,
   confidence: RECIPE.confidence,
   documentation: RECIPE.documentation,
+  group: Some(RuleGroupId::Derivation),
 };
 
 pub(super) struct PreferQueuedWatchFlush;

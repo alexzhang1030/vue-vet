@@ -7,7 +7,8 @@ use std::collections::BTreeMap;
 
 use vue_vet_core::{
   Confidence, FactKinds, FactRef, PRACTICE_CATEGORY, ReactiveBindingKind, ReactiveReadKind, Rule,
-  RuleContext, RuleMeta, ScriptBlockFacts, Severity, TrackingScopeFact, TrackingScopeKind,
+  RuleContext, RuleGroupId, RuleMeta, ScriptBlockFacts, Severity, TrackingScopeFact,
+  TrackingScopeKind,
 };
 
 use vue_vet_rule_query::{
@@ -63,7 +64,7 @@ impl Rule for BoundaryRule {
 }
 
 macro_rules! boundary_rule {
-  ($static_name:ident, $id:literal, $doc:literal, $scope:ident, $read:ident, $label:literal, $reason:literal) => {
+  ($static_name:ident, $id:literal, $doc:literal, $group:expr, $scope:ident, $read:ident, $label:literal, $reason:literal) => {
     static $static_name: BoundaryRule = BoundaryRule {
       meta: &RuleMeta {
         id: $id,
@@ -71,6 +72,7 @@ macro_rules! boundary_rule {
         default_severity: Severity::Warning,
         confidence: Confidence::High,
         documentation: $doc,
+        group: $group,
       },
       scope_kind: TrackingScopeKind::$scope,
       read_kind: ReactiveReadKind::$read,
@@ -84,6 +86,7 @@ boundary_rule!(
   B_NO_AFTER_AWAIT_DEPENDENCY_IN_COMPUTED,
   "vue-vet/reactivity/no-after-await-dependency-in-computed",
   "rules/reactivity/no-after-await-dependency-in-computed",
+  Some(RuleGroupId::Tracking),
   Computed,
   AfterAwait,
   "computed",
@@ -93,6 +96,7 @@ boundary_rule!(
   B_NO_OUTSIDE_TRACKING_DEPENDENCY_IN_COMPUTED,
   "vue-vet/reactivity/no-outside-tracking-dependency-in-computed",
   "rules/reactivity/no-outside-tracking-dependency-in-computed",
+  Some(RuleGroupId::Tracking),
   Computed,
   OutsideTracking,
   "computed",
@@ -102,6 +106,7 @@ boundary_rule!(
   B_NO_AFTER_AWAIT_DEPENDENCY_IN_WATCH_SOURCES,
   "vue-vet/reactivity/no-after-await-dependency-in-watch-sources",
   "rules/reactivity/no-after-await-dependency-in-watch-sources",
+  Some(RuleGroupId::Tracking),
   WatchSources,
   AfterAwait,
   "watch sources",
@@ -111,6 +116,7 @@ boundary_rule!(
   B_NO_OUTSIDE_TRACKING_DEPENDENCY_IN_WATCH_SOURCES,
   "vue-vet/reactivity/no-outside-tracking-dependency-in-watch-sources",
   "rules/reactivity/no-outside-tracking-dependency-in-watch-sources",
+  Some(RuleGroupId::Tracking),
   WatchSources,
   OutsideTracking,
   "watch sources",
@@ -120,6 +126,7 @@ boundary_rule!(
   B_NO_AFTER_AWAIT_DEPENDENCY_IN_EFFECT_SCOPE,
   "vue-vet/reactivity/no-after-await-dependency-in-effect-scope",
   "rules/reactivity/no-after-await-dependency-in-effect-scope",
+  Some(RuleGroupId::Tracking),
   EffectScope,
   AfterAwait,
   "effectScope",
@@ -129,6 +136,7 @@ boundary_rule!(
   B_NO_OUTSIDE_TRACKING_DEPENDENCY_IN_EFFECT_SCOPE,
   "vue-vet/reactivity/no-outside-tracking-dependency-in-effect-scope",
   "rules/reactivity/no-outside-tracking-dependency-in-effect-scope",
+  Some(RuleGroupId::Tracking),
   EffectScope,
   OutsideTracking,
   "effectScope",
@@ -144,6 +152,7 @@ impl Rule for DefineExposeAfterAwaitRule {
       default_severity: Severity::Warning,
       confidence: Confidence::High,
       documentation: "rules/correctness/no-define-expose-after-await",
+      group: None,
     }
   }
 
@@ -450,11 +459,12 @@ fn absence_finding(
 }
 
 macro_rules! pathology_rule {
-  ($static_name:ident, $id:literal, $doc:literal, $kind:ident, $scope:ident, $effect_family:expr) => {
+  ($static_name:ident, $id:literal, $doc:literal, $group:expr, $kind:ident, $scope:ident, $effect_family:expr) => {
     pathology_rule!(
       $static_name,
       $id,
       $doc,
+      $group,
       $kind,
       $scope,
       $effect_family,
@@ -466,6 +476,7 @@ macro_rules! pathology_rule {
     $static_name:ident,
     $id:literal,
     $doc:literal,
+    $group:expr,
     $kind:ident,
     $scope:ident,
     $effect_family:expr,
@@ -479,6 +490,7 @@ macro_rules! pathology_rule {
         default_severity: $severity,
         confidence: Confidence::High,
         documentation: $doc,
+        group: $group,
       },
       kind: PathologyKind::$kind,
       scope_filter: TrackingScopeKind::$scope,
@@ -491,6 +503,7 @@ pathology_rule!(
   P_NO_COMPUTED_SELF_TRIGGER,
   "vue-vet/reactivity/no-computed-self-trigger",
   "rules/reactivity/no-computed-self-trigger",
+  Some(RuleGroupId::Derivation),
   SelfTrigger,
   Computed,
   false
@@ -499,6 +512,7 @@ pathology_rule!(
   P_NO_SIDE_EFFECTS_IN_COMPUTED,
   "vue-vet/reactivity/no-side-effects-in-computed",
   "rules/reactivity/no-side-effects-in-computed",
+  Some(RuleGroupId::Derivation),
   SideEffectsInComputed,
   Computed,
   false
@@ -507,6 +521,7 @@ pathology_rule!(
   P_NO_EFFECT_WRITE_WITHOUT_READ,
   "vue-vet/reactivity/no-effect-write-without-read",
   "rules/reactivity/no-effect-write-without-read",
+  Some(RuleGroupId::Tracking),
   WriteWithoutRead,
   WatchEffect,
   true
@@ -515,6 +530,7 @@ pathology_rule!(
   P_NO_COMPUTED_WITHOUT_DEPENDENCY,
   "vue-vet/reactivity/no-computed-without-dependency",
   "rules/reactivity/no-computed-without-dependency",
+  Some(RuleGroupId::Tracking),
   NoDependency,
   Computed,
   false,
@@ -525,6 +541,7 @@ pathology_rule!(
   P_PREFER_WATCH_OVER_EFFECT_FOR_SINGLE_SOURCE,
   "vue-vet/reactivity/prefer-watch-over-effect-for-single-source",
   "rules/reactivity/prefer-watch-over-effect-for-single-source",
+  Some(RuleGroupId::Derivation),
   PreferWatchSingle,
   WatchEffect,
   true,
@@ -535,6 +552,7 @@ pathology_rule!(
   P_NO_ASSIGNMENT_ONLY_EFFECT_WITH_CONDITIONAL_READ,
   "vue-vet/reactivity/no-assignment-only-effect-with-conditional-read",
   "rules/reactivity/no-assignment-only-effect-with-conditional-read",
+  None,
   AssignOnlyConditional,
   WatchEffect,
   true
@@ -543,6 +561,7 @@ pathology_rule!(
   P_NO_ON_SCOPE_DISPOSE_REACTIVE_READ,
   "vue-vet/reactivity/no-on-scope-dispose-reactive-read",
   "rules/reactivity/no-on-scope-dispose-reactive-read",
+  Some(RuleGroupId::Lifetime),
   DisposeRead,
   OnScopeDispose,
   false
@@ -551,6 +570,7 @@ pathology_rule!(
   P_NO_EMPTY_WATCH_SOURCES,
   "vue-vet/reactivity/no-empty-watch-sources",
   "rules/reactivity/no-empty-watch-sources",
+  Some(RuleGroupId::Tracking),
   EmptyWatchSources,
   WatchSources,
   false
@@ -566,6 +586,7 @@ impl Rule for WatchCallbackTrackingRule {
       default_severity: Severity::Warning,
       confidence: Confidence::High,
       documentation: "rules/reactivity/no-watch-callback-as-tracking-scope",
+      group: Some(RuleGroupId::Tracking),
     }
   }
 
@@ -637,11 +658,12 @@ impl Rule for DestructureSourceRule {
 }
 
 macro_rules! destructure_rule {
-  ($static_name:ident, $id:literal, $doc:literal, $source:literal, $message:literal, $help:literal, $pinia:expr) => {
+  ($static_name:ident, $id:literal, $doc:literal, $group:expr, $source:literal, $message:literal, $help:literal, $pinia:expr) => {
     destructure_rule!(
       $static_name,
       $id,
       $doc,
+      $group,
       $source,
       $message,
       $help,
@@ -654,6 +676,7 @@ macro_rules! destructure_rule {
     $static_name:ident,
     $id:literal,
     $doc:literal,
+    $group:expr,
     $source:literal,
     $message:literal,
     $help:literal,
@@ -668,6 +691,7 @@ macro_rules! destructure_rule {
         default_severity: $severity,
         confidence: Confidence::High,
         documentation: $doc,
+        group: $group,
       },
       source: $source,
       message: $message,
@@ -681,6 +705,7 @@ destructure_rule!(
   I_REACTIVE_DESTRUCTURE,
   "vue-vet/reactivity/no-reactive-destructure",
   "rules/reactivity/no-reactive-destructure",
+  Some(RuleGroupId::SourceContracts),
   "reactive",
   "destructuring `reactive()` loses reactivity for the pulled fields",
   "Keep the reactive object, or use `toRefs` / `toRef`.",
@@ -690,6 +715,7 @@ destructure_rule!(
   I_SHALLOW_REACTIVE_DESTRUCTURE,
   "vue-vet/reactivity/no-shallow-reactive-destructure",
   "rules/reactivity/no-shallow-reactive-destructure",
+  Some(RuleGroupId::SourceContracts),
   "shallowReactive",
   "destructuring `shallowReactive()` loses reactivity for the pulled fields",
   "Keep the shallowReactive object, or use `toRefs` / `toRef`.",
@@ -699,6 +725,7 @@ destructure_rule!(
   I_PREFER_STORE_TO_REFS,
   "vue-vet/reactivity/prefer-store-to-refs",
   "rules/reactivity/prefer-store-to-refs",
+  Some(RuleGroupId::SourceContracts),
   "",
   "destructuring a Pinia store loses reactivity for state fields",
   "Use `storeToRefs(store)` for state/getters, and keep actions on the store object.",
@@ -708,6 +735,7 @@ destructure_rule!(
   I_ROUTE_DESTRUCTURE,
   "vue-vet/reactivity/no-route-destructure",
   "rules/reactivity/no-route-destructure",
+  Some(RuleGroupId::SourceContracts),
   "useRoute",
   "destructuring `useRoute()` snapshots route fields",
   "Keep the route object or read `route.params` / `route.query` through it when later navigation must stay live. One-shot initialization reads can keep the snapshot.",
@@ -719,6 +747,7 @@ destructure_rule!(
   I_ROUTER_DESTRUCTURE,
   "vue-vet/reactivity/no-router-destructure",
   "rules/reactivity/no-router-destructure",
+  Some(RuleGroupId::SourceContracts),
   "useRouter",
   "destructuring `useRouter()` is usually unnecessary and can hide API misuse",
   "Keep the router instance and call methods on it.",
@@ -769,7 +798,7 @@ impl Rule for RefOperandRule {
 }
 
 macro_rules! ref_operand_rule {
-  ($static_name:ident, $id:literal, $doc:literal, $label:literal, [$($kind:ident),+]) => {
+  ($static_name:ident, $id:literal, $doc:literal, $group:expr, $label:literal, [$($kind:ident),+]) => {
     static $static_name: RefOperandRule = RefOperandRule {
       meta: &RuleMeta {
         id: $id,
@@ -777,6 +806,7 @@ macro_rules! ref_operand_rule {
         default_severity: Severity::Warning,
         confidence: Confidence::High,
         documentation: $doc,
+        group: $group,
       },
       kinds: &[$(ReactiveBindingKind::$kind),+],
       label: $label,
@@ -788,6 +818,7 @@ ref_operand_rule!(
   I_REF_AS_OPERAND,
   "vue-vet/reactivity/no-ref-as-operand",
   "rules/reactivity/no-ref-as-operand",
+  Some(RuleGroupId::SourceContracts),
   "ref",
   [Ref, ShallowRef, CustomRef, ToRef, TemplateRef]
 );
@@ -795,6 +826,7 @@ ref_operand_rule!(
   I_MODEL_REF_AS_OPERAND,
   "vue-vet/reactivity/no-model-ref-as-operand",
   "rules/reactivity/no-model-ref-as-operand",
+  Some(RuleGroupId::SourceContracts),
   "defineModel ref",
   [ModelRef]
 );
@@ -802,6 +834,7 @@ ref_operand_rule!(
   I_COMPUTED_AS_OPERAND,
   "vue-vet/reactivity/no-computed-as-operand",
   "rules/reactivity/no-computed-as-operand",
+  Some(RuleGroupId::SourceContracts),
   "computed ref",
   [Computed]
 );
@@ -816,6 +849,7 @@ impl Rule for ReadonlyMutationRule {
       default_severity: Severity::Warning,
       confidence: Confidence::High,
       documentation: "rules/reactivity/no-readonly-mutation",
+      group: Some(RuleGroupId::SourceContracts),
     }
   }
 

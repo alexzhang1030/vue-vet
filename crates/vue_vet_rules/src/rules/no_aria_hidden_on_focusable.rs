@@ -11,6 +11,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Error,
   confidence: Confidence::High,
   documentation: "rules/accessibility/no-aria-hidden-on-focusable",
+  group: None,
 };
 
 pub(super) struct NoAriaHiddenOnFocusable;

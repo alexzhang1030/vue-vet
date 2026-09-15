@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::edits::TextEdit;
+use crate::groups::RuleGroupId;
 use crate::identity::FileId;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -31,6 +32,9 @@ pub struct RuleMeta {
   pub default_severity: Severity,
   pub confidence: Confidence,
   pub documentation: &'static str,
+  /// Canonical product group. `None` for unmapped IDs (a11y, template parity, …).
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub group: Option<RuleGroupId>,
 }
 
 /// Byte offset plus derived line/column. Four `usize`s; pass by copy.

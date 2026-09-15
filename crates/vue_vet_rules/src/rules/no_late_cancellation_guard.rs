@@ -1,5 +1,6 @@
 use vue_vet_core::{
-  Confidence, FactKinds, FactRef, LateCancellationGuardKind, Rule, RuleContext, RuleMeta, Severity,
+  Confidence, FactKinds, FactRef, LateCancellationGuardKind, Rule, RuleContext, RuleGroupId,
+  RuleMeta, Severity,
 };
 
 const META: RuleMeta = RuleMeta {
@@ -8,6 +9,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-late-cancellation-guard",
+  group: Some(RuleGroupId::Lifetime),
 };
 
 pub(super) struct NoLateCancellationGuard;

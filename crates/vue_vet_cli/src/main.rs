@@ -7,9 +7,13 @@ use std::{io::IsTerminal, path::PathBuf, process::ExitCode, sync::Arc};
 
 use clap::{Args, Parser, ValueEnum};
 use vue_vet_cache::{Baseline, filter_diff, read_git_diff};
-use vue_vet_reporters::{ReportFormat, render_reactivity_detail, render_rule_inventory_text};
+use vue_vet_project::{PROJECT_RULE_IDS, VAPOR_MIGRATION_RULE_IDS};
+use vue_vet_reporters::{
+  ReportFormat, render_reactivity_detail, render_rule_catalog_markdown, render_rule_inventory_text,
+};
 use vue_vet_session::{
-  AnalysisSnapshot, ProgressEvent, ProjectSession, RuleGroupId, SessionOptions, rule_inventory,
+  AnalysisSnapshot, ProgressEvent, ProjectSession, RuleGroupId, SessionOptions,
+  file_analysis_registry, rule_inventory,
 };
 
 mod explain;
@@ -232,6 +236,7 @@ enum OutputFormat {
   Json,
   Sarif,
   Github,
+  Markdown,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -282,7 +287,7 @@ fn progress_enabled(when: ProgressWhen) -> bool {
 impl From<OutputFormat> for ReportFormat {
   fn from(format: OutputFormat) -> Self {
     match format {
-      OutputFormat::Text => Self::Text,
+      OutputFormat::Text | OutputFormat::Markdown => Self::Text,
       OutputFormat::Json => Self::Json,
       OutputFormat::Sarif => Self::Sarif,
       OutputFormat::Github => Self::Github,
@@ -303,6 +308,9 @@ fn main() -> ExitCode {
   };
   if cli.list_rules {
     return run_list_rules(&cli, &selected_groups);
+  }
+  if matches!(cli.format, OutputFormat::Markdown) {
+    return operational_failure(&cli, "--format markdown is only supported with --list-rules");
   }
   if cli.lsp {
     return match vue_vet_lsp::run_stdio() {
@@ -473,8 +481,19 @@ fn run_list_rules(cli: &Cli, groups: &[RuleGroupId]) -> ExitCode {
       print!("{}", render_rule_inventory_text(&inventory));
       ExitCode::SUCCESS
     }
+    OutputFormat::Markdown => {
+      print!(
+        "{}",
+        render_rule_catalog_markdown(
+          &file_analysis_registry().metadata(),
+          &PROJECT_RULE_IDS,
+          &VAPOR_MIGRATION_RULE_IDS,
+        )
+      );
+      ExitCode::SUCCESS
+    }
     OutputFormat::Sarif | OutputFormat::Github => {
-      operational_failure(cli, "--list-rules supports --format text or json only")
+      operational_failure(cli, "--list-rules supports --format text, json, or markdown only")
     }
   }
 }

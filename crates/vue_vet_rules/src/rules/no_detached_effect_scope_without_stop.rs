@@ -1,4 +1,6 @@
-use vue_vet_core::{Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity};
+use vue_vet_core::{
+  Confidence, FactKinds, FactRef, Rule, RuleContext, RuleGroupId, RuleMeta, Severity,
+};
 
 const META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-detached-effect-scope-without-stop",
@@ -6,6 +8,7 @@ const META: RuleMeta = RuleMeta {
   default_severity: Severity::Warning,
   confidence: Confidence::High,
   documentation: "rules/reactivity/no-detached-effect-scope-without-stop",
+  group: Some(RuleGroupId::Lifetime),
 };
 
 pub(super) struct NoDetachedEffectScopeWithoutStop;

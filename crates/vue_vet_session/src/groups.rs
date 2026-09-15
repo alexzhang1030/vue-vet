@@ -1,6 +1,4 @@
-//! Product mapping from composed rule IDs to canonical groups.
-//!
-//! The table lives here so `vue_vet_core` does not hardcode built-in IDs.
+//! Product groups come from composed `RuleMeta.group` (not a parallel table).
 
 use std::collections::BTreeMap;
 
@@ -10,110 +8,12 @@ use vue_vet_core::{
   RuleInventory, RuleInventoryCounts, RuleInventoryRow, RuleMeta,
 };
 
-use crate::registry::{composed_rule_metadata, known_rule_ids};
-
-/// Sorted `(id, group)` pairs. Binary-searchable; each ID appears at most once.
-pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
-  ("vue-vet/correctness/no-mutating-props", RuleGroupId::SourceContracts),
-  ("vue-vet/migration/vapor-assessment", RuleGroupId::VaporMigration),
-  ("vue-vet/migration/vapor-interop-required", RuleGroupId::VaporMigration),
-  ("vue-vet/migration/vapor-memo-contract-dropped", RuleGroupId::VaporMigration),
-  ("vue-vet/migration/vapor-runtime-envelope", RuleGroupId::VaporMigration),
-  ("vue-vet/migration/vapor-sfc-compile-contract", RuleGroupId::VaporMigration),
-  ("vue-vet/practice/prefer-attached-effect-scope", RuleGroupId::Lifetime),
-  ("vue-vet/practice/prefer-conditional-watch-source", RuleGroupId::Derivation),
-  ("vue-vet/practice/prefer-keyed-map-dependency", RuleGroupId::Derivation),
-  ("vue-vet/practice/prefer-lazy-computed-async", RuleGroupId::Derivation),
-  ("vue-vet/practice/prefer-queued-watch-flush", RuleGroupId::Derivation),
-  ("vue-vet/practice/prefer-stable-computed-identity", RuleGroupId::Derivation),
-  ("vue-vet/practice/prefer-sync-ref-one-way", RuleGroupId::Derivation),
-  ("vue-vet/project/unresolved-import", RuleGroupId::Project),
-  ("vue-vet/project/unused-component", RuleGroupId::Project),
-  ("vue-vet/reactivity/no-after-await-dependency-in-computed", RuleGroupId::Tracking),
-  ("vue-vet/reactivity/no-after-await-dependency-in-effect-scope", RuleGroupId::Tracking),
-  ("vue-vet/reactivity/no-after-await-dependency-in-watch-sources", RuleGroupId::Tracking),
-  ("vue-vet/reactivity/no-after-await-watch-effect-dependency", RuleGroupId::Tracking),
-  ("vue-vet/reactivity/no-cancelled-filter-promise-demand", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-computed-as-operand", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-computed-self-trigger", RuleGroupId::Derivation),
-  ("vue-vet/reactivity/no-computed-without-dependency", RuleGroupId::Tracking),
-  ("vue-vet/reactivity/no-controlled-computed-stale-result-demand", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-custom-ref-lost-notification", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-deep-watch-on-reactive-root", RuleGroupId::Derivation),
-  ("vue-vet/reactivity/no-deferred-callback-reactive-read-in-effect", RuleGroupId::Tracking),
-  ("vue-vet/reactivity/no-detached-effect-scope-without-stop", RuleGroupId::Lifetime),
-  ("vue-vet/reactivity/no-effect-scope-callback-argument", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-effect-write-without-read", RuleGroupId::Tracking),
-  ("vue-vet/reactivity/no-empty-watch-sources", RuleGroupId::Tracking),
-  ("vue-vet/reactivity/no-extracted-reactive-collection-method", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-ignorable-async-ignore-window", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-inactive-scope-result", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-inject-same-instance-provide", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-invalid-custom-ref-interface", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-json-clone-lossy-type", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-late-cancellation-guard", RuleGroupId::Lifetime),
-  ("vue-vet/reactivity/no-late-scope-dispose", RuleGroupId::Lifetime),
-  ("vue-vet/reactivity/no-late-watcher-cleanup", RuleGroupId::Lifetime),
-  ("vue-vet/reactivity/no-lost-shallow-nested-notification", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-memoize-stale-result-demand", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-missing-torefs-key", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-model-default-unsynced-parent-demand", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-model-ref-as-operand", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-multiple-effects-same-target", RuleGroupId::Derivation),
-  ("vue-vet/reactivity/no-nested-watch-without-cleanup", RuleGroupId::Lifetime),
-  ("vue-vet/reactivity/no-nonreactive-props-destructure", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-on-scope-dispose-reactive-read", RuleGroupId::Lifetime),
-  ("vue-vet/reactivity/no-once-immediate-discard", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-orphaned-scope-watcher", RuleGroupId::Lifetime),
-  ("vue-vet/reactivity/no-outside-tracking-dependency-in-computed", RuleGroupId::Tracking),
-  ("vue-vet/reactivity/no-outside-tracking-dependency-in-effect-scope", RuleGroupId::Tracking),
-  ("vue-vet/reactivity/no-outside-tracking-dependency-in-watch-sources", RuleGroupId::Tracking),
-  ("vue-vet/reactivity/no-pre-flush-template-ref-demand", RuleGroupId::Derivation),
-  ("vue-vet/reactivity/no-primitive-reactive-target", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-props-snapshot-in-ref", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-proxy-structured-clone", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-raw-proxy-map-key", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-reactive-destructure", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-reactive-private-field-access", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-reactive-read-during-pause-tracking", RuleGroupId::Tracking),
-  ("vue-vet/reactivity/no-readonly-mutation", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-ref-as-operand", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-ref-history-snapshot-alias", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-returned-watcher-cleanup", RuleGroupId::Lifetime),
-  ("vue-vet/reactivity/no-route-destructure", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-router-destructure", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-shallow-reactive-destructure", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-shared-composable-first-instance-args", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-shared-default-cross-instance-demand", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-side-effects-in-computed", RuleGroupId::Derivation),
-  ("vue-vet/reactivity/no-stale-prop-flow", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-toraw-write-of-tracked-state", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-toref-ignored-key", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-torefs-on-non-proxy", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-trigger-ref-on-non-ref", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-until-timeout-unmatched-demand", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-unused-computed-binding", RuleGroupId::Derivation),
-  ("vue-vet/reactivity/no-v-memo-blocked-ref-demand", RuleGroupId::Tracking),
-  ("vue-vet/reactivity/no-v-model-nonreactive-source", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-watch-alias-old-new", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-watch-callback-as-tracking-scope", RuleGroupId::Tracking),
-  ("vue-vet/reactivity/no-watch-cleanup-current-source", RuleGroupId::Lifetime),
-  ("vue-vet/reactivity/no-watch-ignored-option", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-watch-replaced-object-source", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-watch-signature-mismatch", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/no-watch-unwrapped-source", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/prefer-computed", RuleGroupId::Derivation),
-  ("vue-vet/reactivity/prefer-store-to-refs", RuleGroupId::SourceContracts),
-  ("vue-vet/reactivity/prefer-watch-over-effect-for-single-source", RuleGroupId::Derivation),
-];
+use crate::registry::{composed_rule_metadata, resolve_rule_meta};
 
 /// Lookup the canonical group for a stable rule ID.
 #[must_use]
 pub fn group_of(rule_id: &str) -> Option<RuleGroupId> {
-  RULE_GROUP_TABLE
-    .binary_search_by_key(&rule_id, |entry| entry.0)
-    .ok()
-    .and_then(|index| RULE_GROUP_TABLE.get(index).map(|entry| entry.1))
+  resolve_rule_meta(rule_id).and_then(|meta| meta.group)
 }
 
 /// Sort and deduplicate a group union so identical selections serialize the same.
@@ -131,11 +31,11 @@ pub fn apply_selected_groups(config: &mut Config, groups: &[RuleGroupId]) {
   if selected.is_empty() {
     return;
   }
-  for id in known_rule_ids() {
-    match group_of(id) {
+  for meta in composed_rule_metadata() {
+    match meta.group {
       Some(group) if selected.contains(&group) => {}
       Some(_) | None => {
-        config.rules.insert(id.to_string(), RuleLevel::Off);
+        config.rules.insert(meta.id.to_string(), RuleLevel::Off);
       }
     }
   }
@@ -148,8 +48,10 @@ pub fn apply_vapor_migration_defaults(config: &mut Config, groups: &[RuleGroupId
   if enabled {
     return;
   }
-  for id in vue_vet_project::VAPOR_MIGRATION_RULE_IDS {
-    config.rules.entry((*id).to_string()).or_insert(RuleLevel::Off);
+  for meta in composed_rule_metadata() {
+    if meta.group == Some(RuleGroupId::VaporMigration) {
+      config.rules.entry(meta.id.to_string()).or_insert(RuleLevel::Off);
+    }
   }
 }
 
@@ -161,7 +63,7 @@ pub fn rule_inventory(filter: &[RuleGroupId]) -> RuleInventory {
   let rules = metas
     .into_iter()
     .filter_map(|meta| {
-      let group = group_of(meta.id);
+      let group = meta.group;
       if !selected.is_empty() && group.is_none_or(|group| !selected.contains(&group)) {
         return None;
       }
@@ -201,21 +103,21 @@ fn inventory_row(meta: &RuleMeta, group: Option<RuleGroupId>) -> RuleInventoryRo
 
 #[cfg(test)]
 mod tests {
+  use std::path::PathBuf;
+
   use super::*;
 
   #[test]
-  fn group_table_is_sorted_unique_and_live() {
-    assert!(!RULE_GROUP_TABLE.is_empty(), "group table must not be empty");
-    let known = raw_composed_ids();
-    assert_unique_ids(&known);
-    let mut previous = "";
-    let mut seen = std::collections::BTreeSet::new();
-    for (id, _) in RULE_GROUP_TABLE {
-      assert!(*id > previous, "group table must be strictly sorted: {id} after {previous}");
-      assert!(seen.insert(*id), "group table must be disjoint: duplicate {id}");
-      assert!(known.contains(id), "mapped id must exist in composed registry: {id}");
-      previous = id;
+  fn every_registry_id_has_a_documentation_file() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut missing = Vec::new();
+    for meta in composed_rule_metadata() {
+      let path = root.join(format!("docs/{}.md", meta.documentation));
+      if !path.is_file() {
+        missing.push(format!("{} -> {}", meta.id, path.display()));
+      }
     }
+    assert!(missing.is_empty(), "missing rule docs:\n{}", missing.join("\n"));
   }
 
   #[test]
@@ -258,168 +160,55 @@ mod tests {
     let inventory_ids: Vec<_> = inventory.rules.iter().map(|row| row.id.as_str()).collect();
     assert_eq!(inventory_ids, raw);
     assert_eq!(inventory.counts.total, raw.len());
+    assert!(
+      composed_rule_metadata().len() >= 150,
+      "composed registry wipe guard (got {})",
+      composed_rule_metadata().len()
+    );
     assert!(inventory.rules.iter().any(|row| row.id == "vue-vet/project/unresolved-import"));
     assert!(inventory.rules.iter().any(|row| row.id == "vue-vet/project/unused-component"));
     let tracking = rule_inventory(&[RuleGroupId::Tracking, RuleGroupId::Tracking]);
     assert!(tracking.rules.iter().all(|row| row.group == Some(RuleGroupId::Tracking)));
     assert_eq!(tracking.counts.total, tracking.rules.len());
+    assert_eq!(tracking.counts.total, registry_ids_in(RuleGroupId::Tracking).len());
   }
 
   #[test]
-  fn derivation_practice_ids_are_in_derivation() {
-    const DERIVATION_PRACTICE: &[&str] = &[
-      "vue-vet/practice/prefer-conditional-watch-source",
-      "vue-vet/practice/prefer-sync-ref-one-way",
-    ];
-    let derivation = rule_inventory(&[RuleGroupId::Derivation]);
-    for id in DERIVATION_PRACTICE {
-      assert_eq!(group_of(id), Some(RuleGroupId::Derivation), "{id}");
-      assert!(
-        derivation
-          .rules
-          .iter()
-          .any(|row| row.id == *id && row.group == Some(RuleGroupId::Derivation)),
-        "derivation inventory must include {id}"
-      );
-    }
-  }
-
-  #[test]
-  fn scheduling_practice_ids_keep_derivation_and_lifetime_groups() {
-    assert_eq!(
-      group_of("vue-vet/practice/prefer-queued-watch-flush"),
-      Some(RuleGroupId::Derivation)
-    );
-    assert_eq!(
-      group_of("vue-vet/practice/prefer-lazy-computed-async"),
-      Some(RuleGroupId::Derivation)
-    );
-    assert_eq!(
-      group_of("vue-vet/practice/prefer-attached-effect-scope"),
-      Some(RuleGroupId::Lifetime)
-    );
-    let derivation = rule_inventory(&[RuleGroupId::Derivation]);
-    for id in
-      ["vue-vet/practice/prefer-queued-watch-flush", "vue-vet/practice/prefer-lazy-computed-async"]
-    {
-      assert!(
-        derivation
-          .rules
-          .iter()
-          .any(|row| row.id == *id && row.group == Some(RuleGroupId::Derivation)),
-        "derivation inventory must include {id}"
-      );
-    }
-    let lifetime = rule_inventory(&[RuleGroupId::Lifetime]);
-    assert!(
-      lifetime.rules.iter().any(|row| {
-        row.id == "vue-vet/practice/prefer-attached-effect-scope"
-          && row.group == Some(RuleGroupId::Lifetime)
-      }),
-      "lifetime inventory must include attached-effect-scope"
-    );
-  }
-
-  #[test]
-  fn lifetime_watcher_and_scope_ids_are_in_lifetime_not_tracking() {
-    const LIFETIME_IDS: &[&str] = &[
-      "vue-vet/reactivity/no-detached-effect-scope-without-stop",
-      "vue-vet/reactivity/no-late-cancellation-guard",
-      "vue-vet/reactivity/no-late-scope-dispose",
-      "vue-vet/reactivity/no-late-watcher-cleanup",
-      "vue-vet/reactivity/no-nested-watch-without-cleanup",
-      "vue-vet/reactivity/no-on-scope-dispose-reactive-read",
-      "vue-vet/reactivity/no-orphaned-scope-watcher",
-      "vue-vet/reactivity/no-returned-watcher-cleanup",
-      "vue-vet/reactivity/no-watch-cleanup-current-source",
-    ];
+  fn inventory_group_counts_match_composed_registry() {
     let inventory = rule_inventory(&[]);
-    assert_eq!(inventory.counts.total, 156, "composed CLI inventory count");
-    let vapor = rule_inventory(&[RuleGroupId::VaporMigration]);
-    assert_eq!(vapor.counts.total, 5, "vapor-migration group count");
-    for id in vue_vet_project::VAPOR_MIGRATION_RULE_IDS {
-      assert_eq!(group_of(id), Some(RuleGroupId::VaporMigration), "{id}");
+    assert_eq!(inventory.counts.total, composed_rule_metadata().len());
+    for group in RuleGroupId::ALL {
+      let filtered = rule_inventory(&[group]);
+      let expected = registry_ids_in(group);
+      let printed: Vec<_> = filtered.rules.iter().map(|row| row.id.as_str()).collect();
+      assert_eq!(printed, expected, "{group:?} inventory must match registry metadata");
+      assert_eq!(filtered.counts.total, expected.len());
     }
-    assert_eq!(
-      group_of("vue-vet/practice/prefer-stable-computed-identity"),
-      Some(RuleGroupId::Derivation)
-    );
-    let source = rule_inventory(&[RuleGroupId::SourceContracts]);
-    assert_eq!(source.counts.total, 46, "source-contracts group count");
-    let derivation = rule_inventory(&[RuleGroupId::Derivation]);
-    assert_eq!(derivation.counts.total, 14, "derivation group count");
-    for id in [
-      "vue-vet/reactivity/no-controlled-computed-stale-result-demand",
-      "vue-vet/reactivity/no-custom-ref-lost-notification",
-      "vue-vet/reactivity/no-extracted-reactive-collection-method",
-      "vue-vet/reactivity/no-lost-shallow-nested-notification",
-      "vue-vet/reactivity/no-proxy-structured-clone",
-      "vue-vet/reactivity/no-raw-proxy-map-key",
-      "vue-vet/reactivity/no-reactive-private-field-access",
-      "vue-vet/reactivity/no-toraw-write-of-tracked-state",
-      "vue-vet/reactivity/no-watch-ignored-option",
-      "vue-vet/reactivity/no-watch-signature-mismatch",
-      "vue-vet/reactivity/no-once-immediate-discard",
-      "vue-vet/reactivity/no-watch-alias-old-new",
-      "vue-vet/reactivity/no-toref-ignored-key",
-      "vue-vet/reactivity/no-effect-scope-callback-argument",
-      "vue-vet/reactivity/no-invalid-custom-ref-interface",
-      "vue-vet/reactivity/no-inactive-scope-result",
-      "vue-vet/reactivity/no-memoize-stale-result-demand",
-      "vue-vet/reactivity/no-missing-torefs-key",
-      "vue-vet/reactivity/no-until-timeout-unmatched-demand",
-      "vue-vet/reactivity/no-inject-same-instance-provide",
-      "vue-vet/reactivity/no-ignorable-async-ignore-window",
-      "vue-vet/reactivity/no-shared-composable-first-instance-args",
-      "vue-vet/reactivity/no-cancelled-filter-promise-demand",
-      "vue-vet/reactivity/no-json-clone-lossy-type",
-      "vue-vet/reactivity/no-ref-history-snapshot-alias",
-      "vue-vet/reactivity/no-model-default-unsynced-parent-demand",
-      "vue-vet/reactivity/no-shared-default-cross-instance-demand",
-    ] {
-      assert_eq!(group_of(id), Some(RuleGroupId::SourceContracts), "{id}");
-      assert!(
-        source
-          .rules
-          .iter()
-          .any(|row| row.id == *id && row.group == Some(RuleGroupId::SourceContracts)),
-        "source-contracts inventory must include {id}"
-      );
+    let lifetime = registry_ids_in(RuleGroupId::Lifetime);
+    let tracking = registry_ids_in(RuleGroupId::Tracking);
+    for id in lifetime {
+      assert!(!tracking.contains(&id), "lifetime id {id} must not also be tracking");
     }
-    let lifetime = rule_inventory(&[RuleGroupId::Lifetime]);
-    assert_eq!(lifetime.counts.total, 10, "lifetime group count");
-    let tracking = rule_inventory(&[RuleGroupId::Tracking]);
-    for id in LIFETIME_IDS {
-      assert_eq!(group_of(id), Some(RuleGroupId::Lifetime), "{id}");
-      assert!(
-        lifetime.rules.iter().any(|row| row.id == *id && row.group == Some(RuleGroupId::Lifetime)),
-        "lifetime inventory must include {id}"
-      );
-      assert!(
-        tracking.rules.iter().all(|row| row.id != *id),
-        "tracking inventory must exclude {id}"
-      );
-    }
-    let derivation = rule_inventory(&[RuleGroupId::Derivation]);
     assert_eq!(
       group_of("vue-vet/reactivity/no-pre-flush-template-ref-demand"),
       Some(RuleGroupId::Derivation)
-    );
-    assert!(
-      derivation
-        .rules
-        .iter()
-        .any(|row| row.id == "vue-vet/reactivity/no-pre-flush-template-ref-demand"),
-      "derivation inventory must include pre-flush template-ref demand"
     );
     assert_eq!(
       group_of("vue-vet/reactivity/no-v-memo-blocked-ref-demand"),
       Some(RuleGroupId::Tracking)
     );
-    assert!(
-      tracking.rules.iter().any(|row| row.id == "vue-vet/reactivity/no-v-memo-blocked-ref-demand"),
-      "tracking inventory must include memo-blocked ref demand"
+    assert_eq!(
+      group_of("vue-vet/practice/prefer-attached-effect-scope"),
+      Some(RuleGroupId::Lifetime)
     );
+  }
+
+  fn registry_ids_in(group: RuleGroupId) -> Vec<&'static str> {
+    composed_rule_metadata()
+      .into_iter()
+      .filter(|meta| meta.group == Some(group))
+      .map(|meta| meta.id)
+      .collect()
   }
 
   fn raw_composed_ids() -> Vec<&'static str> {
