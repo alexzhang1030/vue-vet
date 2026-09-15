@@ -138,7 +138,7 @@ Child `label` prop and `{{ label }}`) must keep the measured baseline: 1000 file
 edges 250 Prop / 750 Computed / 500 Effect / 750 Template; scopes 500 computed /
 500 `watchEffect`; `template_reads` length 750. Generation and cache-directory
 teardown stay outside the timed closure. Each package's suites must be built in
-one CodSpeed invocation; see [the compatibility notes](../.agents/docs/gotchas.md#codspeed-benchmark-attributes-use-the-pinned-compatibility-api).
+one CodSpeed invocation; see [the compatibility notes](../.agents/docs/gotchas.md#benchmarks).
 
 Commands: `just bench`, `just bench-codspeed-build`, `just bench-codspeed-run`.
 

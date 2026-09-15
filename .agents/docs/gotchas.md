@@ -1,1446 +1,450 @@
 # Known gotchas
 
-## `toRef` follows a live `__v_isRef` marker
-
-Vue 3.5 `toRef(source, key)` checks `isRef(source)` before the getter and
-object-key overloads. Assigning `source.__v_isRef = false` or deleting the
-marker retargets the call onto the object-property overload even when
-`source` was created by `ref()`. A function tagged `__v_isRef = true` takes
-the existing-ref path. `no-toref-ignored-key` must prove the marker is
-immutable through its live capability evidence. Keep that uncertainty on
-the toRef sink and preserve the original five source-contract IDs' payload
-classification. Pattern
-assignment (static / computed / default / rest / TS wrappers), constructor
-arguments, and call / tagged-template receivers (including TypeScript
-instantiation wrappers) are the same capability-role escapes. Ordinary
-`.value` / data writes keep payload proof.
-
-## Vize API churn is expected
-
-Vize is not yet production-stable and publishes frequently. Keep the dependency exact-pinned. An upgrade is a compatibility task: compile, inspect API changes, run golden fixtures and diagnostic snapshots, and record behavior differences. Do not change the version range just to unblock dependency resolution.
-
-Vize 0.387.0 requires Rust 1.95 or newer and pins Oxc 0.142.0. The original
-Rust 1.85 pin therefore failed before Vue Vet compiled. Keep the exact Rust
-toolchain aligned with the workspace `rust-version`, regenerate `Cargo.lock`
-only with that toolchain, and validate upgrades through `just roll-rust`.
-Template `SourceLocation` is now a byte `Span` only (no copied `loc.source`);
-compound expression text is reconstructed from children. Tag/name fields are
-`&str` — do not call `.as_str()` (unstable `str::as_str`).
-Oxc 0.142 `SemanticBuilder` leaves `Semantic::nodes` empty unless
-`.with_build_nodes(true)` is set; forgetting it makes every node-walk fact
-collector (imports, calls, scopes) succeed with empty results.
-
-## Native private fields brand the raw instance
-
-Vue `reactive` / `readonly` / `shallowReactive` / `shallowReadonly` proxies
-are not in a class's private brand. An ordinary prototype method or getter
-that reads `this.#field` throws `TypeError` on that proxy. Constructor-bound
-methods and arrow fields capture the raw instance; `toRaw` / `markRaw` keep
-the brand. Those raw receivers are not Proxy traps, so `#field` writes do
-not notify Vue. A class that only contains private fields is not a finding —
-the later executed member access is. Index classes by symbol and members by
-name; join per-object operations. Do not scan class-by-instance-by-method.
-Native `#private` and TypeScript `private` are different runtime contracts.
-
-`reactive()` is not always a Proxy. Vue's `getTargetType` leaves the target
-raw when it sees `__v_skip` (markRaw semantics), `__v_raw`, a non-extensible
-object, or `Object.prototype.toString` whose `toRawType` is not
-`Object`/`Array`/`Map`/`Set`/`WeakMap`/`WeakSet`. A class field or getter
-named `__v_skip` / `__v_raw`, or `[Symbol.toStringTag]`, therefore makes
-`reactive(new C())` a no-op — reporting a private-receiver `TypeError` there
-is a false positive. Treat those own members as unproven.
-
-## Demand proof is not source5 eligibility
-
-Demand-gated value contracts (`customRef` / stopped `effectScope.run` /
-missing `toRefs` key / same-instance inject) own a function-level execution region and source-order
-barriers. Cached-result demand (`useMemoize` / `computedWithControl`) reuses
-that region plus a per-result ordered event fold; VueUse identity requires
-exact `@vueuse/core` / `@vueuse/shared` provenance, not a named API bag.
-A populated cache keeps its first filled kind and fill span through later
-hits; only proven `load` / `delete` / `clear` / `trigger` / listed-source
-writes refill. Native prototype assignments (`Number.prototype.m` and
-`Number['prototype']['m']`) must be collected before identifier-root early
-returns. Foreign events use exclusive `(start, end)` `partition_point`
-queries over unique event and allowed-offset indexes — do not rescan calls
-or producer suffixes per demand. "Unique" is load-bearing: nested calls such
-as `r0().toUpperCase()` record two events at one start offset, so
-`events_by_block` must be sorted **and** deduped in `Indexes::build`;
-without the dedup the foreign-event count exceeds the (deduped) allowed
-count and every demand after the first in a block is silently dropped
-(`cached_result_shared_source_producers_grow_subquadratically` pins this).
-Generic source5 still uses immediate
-`ExpressionStatement` parents only. Do not reuse demand reach/barrier proof
-as source5 execution evidence; a later sink preflight may merge collectors,
-but source5 output must stay stable until that merge.
-
-Production `WorkCounter` is a zero-sized type (`cfg(not(test))`); test builds
-keep `Cell` counters. `SourceContractStats` is a separate snapshot DTO of
-nine `u64` fields (72 bytes) in both layouts; `stats.rs` pins the size.
-Cancelled-filter proof requires two same-wrapper `useDebounceFn` calls
-with no await between them, then an await of the earlier promise; that await
-is the settlement boundary, not a reason to drop the later demand. Pair the
-awaited call by `until_awaits_for_bound` / `until_await_method_calls_on`
-(or `until_result_of_await` aliases). Any await between the two calls,
-including `await nextTick()`, is a conservative region boundary. Each
-superseded first-call promise with a failing demand is reported.
-Snapshot-demand facts (`useCloned` JSON Date loss, `useManualRefHistory`
-identity alias) reuse the same region/barrier proof. `useCloned` and
-`useManualRefHistory` stay unproven from `@vueuse/shared`, type-only
-specifiers, defaults, and shadows. JSON clone warnings require a reachable
-Date method after default JSON cloning; history alias warnings require a
-changed nested write plus undo/reset/history demand on the retained record.
-
-`toRefs(state)` is a generic source5 escape/uncertain use. Demand may discount
-only a proven Vue `toRefs` first-argument borrow; helper arguments, storage,
-export, `new`, tagged templates, and receiver calls — including TypeScript
-instantiation wrappers — keep source keys unknown.
-
-`until(source)` is the same generic source5 escape. Timeout unmatched-demand
-proof may discount only a proven `@vueuse/core` / `@vueuse/shared` `until`
-first-argument borrow. Only same-block straight-line writes prove the current
-value; conditional/loop writes and compound/update/pattern `.value` writes
-(`||=`, `+=`, `++`, destructuring) leave the source unknown. Optional
-chaining guards only a provably nullish timeout value. Ordered writes,
-foreign escapes, and effect/timer owners must support the await interval; the
-initializer alone is incomplete. Await sites are indexed by operand so shared
-`until` consumers stay linear.
-
-VueUse demand owners (`no-ignorable-async-ignore-window`,
-`no-shared-composable-first-instance-args`) resolve named/namespace imports
-from `@vueuse/core` and `@vueuse/shared` only. Passing a watched ref to
-`watchIgnorable` is an expected argument use and must not be treated as
-demand proof of source5 eligibility. `#imports` auto-import spelling without
-that package origin stays unproven.
-The shared first-instance owner is the first `useValue(...)` call in
-program order (any callable). Unproven, spread, or earlier-in-another-region
-calls poison the wrapper instead of being skipped. A `.value` write through
-any alias of the live shared result repairs the retained state. Ignore-window
-previous-value proof stays inside the updater: an outside, compound,
-non-literal, or other-callback write to the same ref abstains; `once` +
-`immediate` and a `stop()` before the post-await write are already dead.
-An `await` inside the updater is the ignore-window signal
-(`straight_awaits_in`); it must not be treated as the stack-wide source-order
-barrier that would hide a later changed write.
-
-
-Object literals execute computed keys (and pattern defaults) during
-construction — walking only `prop.value` misses receiver mutation such as
-`{ [this._set = fn]: 1 }`. Memoized closed-key sets are borrowed and queried
-per demanded key; cloning the `HashSet` per `toRefs` call is quadratic in
-source width.
-
-## Element start-tag spans cannot prove nesting
-
-Vize `TemplateElementFact.span` covers the start tag, not the element subtree.
-`v-if` / `v-for` / slot / `Suspense`/`Transition` ancestry is an explicit flag
-(`has_conditional_ancestor`, `has_for_ancestor`, `has_slot_ancestor`,
-`has_async_boundary_ancestor`) recorded during the template walk. Implicit
-default-slot content (`<Wrapper><Child /></Wrapper>`) sets `has_slot_ancestor`
-the same way as `<template #default>`. Model-default demand owners must not
-treat span containment as mount proof; kebab-case tags trust the project
-`ComponentUsage` edge rather than Vize `is_component`.
-
-## Template-only SFC edits re-run script analysis
-
-`analyze_sfc_facts_reusing` sets `can_reuse_script` / `can_reuse_setup` to
-`reuse_template && reuse_*`. Template-ref demand facts are joined from Vize
-allocations while Oxc walks the script, so a template-only edit cannot keep
-the prior script block. That is a latency trade-off for LSP-style template
-edits; an allocations digest would recover reuse without stale joins. Do not
-relax the conjunction to `reuse_script` alone — a template change would
-leave pre-flush / memo-blocked facts pointing at the previous tree.
-
-## Template element spans cannot prove descendant ownership
-
-Vize element locations cover the start tag, not the nested tree. `v-if`,
-`v-memo`, `v-for`, slot, and parent relations used by template-ref demand
-rules are recorded during the Vize walk as `TemplateAllocationFact`s. Do not
-recover child ownership by testing whether one start-tag span contains
-another. Template expressions are parsed with Oxc (`template_simple_identifier`,
-`template_memo_tuple`); source-text matching is outside the project contract.
-
-## SFC offsets are not plain string positions
-
-Vize block locations are offsets into the original SFC, while downstream parsers may operate on extracted script or template content. Every extraction needs an explicit offset map back to the original source. Unicode makes byte/character confusion visible; CRLF makes line calculations visible.
-
-The template parser reports offsets relative to the extracted template content.
-The Vize adapter must add the SFC template block's start offset exactly once
-before creating Vue Vet spans. Persist full diagnostic snapshots for ASCII,
-Unicode, multiline, and multiple-directive inputs whenever this adapter changes.
-
-## A parsed SFC contains several language surfaces
-
-Template, ordinary script, script setup, styles, and custom blocks have different grammars and semantics. Never run one generic pattern language over the full `.vue` file and present the result as semantic certainty.
-
-Oxc spans are relative to the extracted script block. Add the Vize
-`SfcScriptBlock.loc.start` offset exactly once before deriving line and column.
-Ordinary script and script setup remain separate fact blocks so duplicate names
-and future merge semantics are explicit rather than accidental.
-
-## Structured clone requires actual Proxy allocation proof
-
-`Shape::DeepProxy` / `ShallowProxy` / `ReadonlyProxy` record Vue API result
-kinds. Vue still returns the raw target for `markRaw`, `__v_skip`, frozen, or
-non-extensible input. `no-proxy-structured-clone` uses actual Proxy
-allocation proof from `clone_boundary.rs`. Definite
-Proxy origin is only `vue` / `@vue/runtime-core` / `@vue/runtime-dom` /
-`@vue/reactivity`; named `#imports` and `vue-demi` stay unproved. The
-yes/no cache stores terminal proofs; exhausted queries remain uncached.
-Object eligibility charges each property scan. Native
-`structuredClone` identity is poisoned by unresolved global / `globalThis`
-writes (computed string keys, unresolved computed keys, patterns with
-default/rest, TypeScript wrappers, `delete`, updates, and `for...in` /
-`for...of` assignment targets). A shadowed `globalThis` retains local binding
-identity. Declaration-form loop heads keep binding semantics. Definite
-native *calls* still need the static `structuredClone` key. Actual-Proxy
-origin is an indexed import-source lookup on resolved proxy constructors
-only; local calls skip it.
-
-## Configuration is part of diagnostic identity
-
-Preset expansion happens before explicit rule overrides. Path globs normalize
-separators before matching, severity overrides run before exit-policy scoring,
-and suppressions run after diagnostics exist so unused directives can be
-reported. Future cache keys must include the serialized effective configuration.
-
-## Package directories can look like source files
-
-npm/pnpm install trees often contain directories (or directory symlinks) named
-like packages with a `.js` suffix, for example `node_modules/pixi.js`.
-`Path::extension` reports `js`, and `DirEntry::file_type` may describe a
-symlink rather than a directory, so naive walks try to `fs::read` them and
-fail with EISDIR. Project walks skip `node_modules` and accept regular files
-using the walk's cached `FileType`. Symlinks and unknown file types resolve
-through `Path::is_file()`. This preserves file-link support and directory-link
-filtering while saving a metadata syscall for each regular entry. Discovery
-tests cover both link types and directories with source-like extensions.
-
-## crates.io API calls need a User-Agent
-
-The crates.io HTTP API returns **403** for clients that omit a descriptive
-`User-Agent` (including bare `curl -fsS`). Release waits that poll
-`/api/v1/crates/<name>/<version>` after `cargo publish` must send one (see
-`.github/workflows/release.yml`). A 403 is not “not indexed yet”; treating it
-as missing visibility aborts after `vue_vet_core` uploaded and skips
-`vue_vet_reactivity`, GitHub Release, and npm. Re-runs must skip versions
-already on the registry (`cargo publish` refuses duplicates).
-
-## npm registry processing delays
-
-`npm publish` can print “package is being processed and may take a few minutes
-to become available.” The version document and tarball on
-`registry.npmjs.org` lag the upload. Publishing `@vue-vet/cli` before all five
-platform packages are fetchable can leave the required native package absent
-from the installation. Wait with `npm/scripts/wait-registry.mjs`: `--mode platforms`
-before the launcher publish; `--mode launcher --host` in install smoke.
-Poll the public registry directly, require an exact version
-document plus a reachable `dist.tarball`, and for the launcher require
-`bin.vue-vet` and all five optional deps at that version. Bound the wait
-(10 minutes). A timeout aborts the launcher publish.
-
-## The launcher owns the npm command
-
-Only `@vue-vet/cli` owns the `vue-vet` bin. Platform templates used to declare
-`bin.vue-vet` as well. npm 10 then marked the launcher bin deleted while
-pruning optional deps that did not match the host, leaving
-`node_modules/.bin` empty (`sh: vue-vet: command not found`). npm 11 survived.
-Keep `files: ["bin"]` and the native file; omit `bin` from platform
-`package.json`. Install smoke should keep using `npx` so this regression stays
-visible.
-
-## `has_children` is not accessible content
-
-Template facts keep `has_children` for structural rules (`valid-v-html`,
-`valid-v-text`). Accessibility rules that need a discernable name
-(`anchor-has-content`, `button-has-content`, `heading-has-content`) must use
-`has_accessible_content`: non-whitespace text, interpolation, `v-text` /
-`v-html`, or a descendant `img`/`area` with non-empty `alt`. Icon-only
-element trees (for example `<a><div class="i-carbon-logo-github" /></a>`)
-set `has_children` and clear `has_accessible_content`. Do not treat child
-presence alone as an accessible name; `title` is also insufficient (a static
-`title` may only contribute a safe `aria-label` insert preview).
-
-## Template element spans are start-tag only
-
-Vize `ElementNode` locations used for `TemplateElementFact.span` cover the
-opening tag, not the full element including children. Nested-structure rules
-must not use span containment — compute descendant facts while the tree is
-still available (`has_labelable_descendant` for `label-has-for`,
-`has_label_ancestor` for `form-control-has-label`).
-
-## Safe fixes need complete source coverage
-
-A diagnostic span is not automatically a safe replacement span. For example,
-the template fact for `autofocus` precisely covers its name but not a possible
-value. The first safe producer therefore removes only boolean `autofocus` and
-leaves `autofocus="..."` as a visible manual finding. The `aria-hidden="true"`
-producer reconstructs the quoted value from source before deleting; unquoted
-forms stay report-only. The `.sync` producer reconstructs quoted
-`:arg.sync="expr"` / `v-bind:arg.sync="expr"` before rewriting to
-`v-model:arg`; object `v-bind.sync`, unquoted values, extra modifiers, and
-dynamic `:[name].sync` stay report-only (the fact argument for `:[name]` is
-the inner ident, so source must still start with that ident). The `.native`
-producer reconstructs the contiguous name from Vize's `@` / `v-on` prefix
-(`@click.native` → `@click`) and leaves the handler value untouched; a
-mismatched prefix or dangling `@` / `v-on:` stays report-only.
-Never turn a name-only span into a partial edit that leaves invalid syntax behind.
-
-Fix ranges are original-source UTF-8 byte ranges. Validate both endpoints before
-editing, apply multiple ranges from the end of the source, and preserve all
-untouched bytes so Unicode and CRLF remain unchanged. The current executor is
-deliberately single-file and rejects a multi-file plan before any write; do not
-weaken that failure until issue #9 adds a real cross-file transaction and
-rollback protocol. Atomic replacement preserves the intended file contents, not
-all timestamps, ACLs, extended attributes, or platform metadata; keep that
-limitation visible until the project defines and tests a metadata policy.
-
-## Native Map keys are not Vue-normalized
-
-`reactive(raw)` and `raw` are distinct JavaScript identities. A native
-`new Map([[raw, value]])` then `map.get(proxy)` returns `undefined`; unguarded
-member demand throws. Vue `reactive(new Map)` *does* normalize those keys —
-but only when the stored key is raw; wrapping a Map that already stored the
-proxy does not rewrite that key. Source-contract facts therefore require a
-fresh unresolved `Map` constructor (poisoned by `Map` / `globalThis.Map`
-reassignment and `Map.prototype` writes) and an actual distinct Proxy from
-`vue` / `@vue/*` — not `vue-demi` or `#imports`, skip-marked objects, or
-non-extensible targets. Method spelling `get` / `set` / `has` / `delete` must
-not exempt first arguments from source5 escape or uncertainty; lookup key
-identity stays in the Map-key collector. Same-spelling helper `get`/`set`/
-`has`/`delete` still poisons allocation capability unless the receiver is a
-proven native `Map` and the argument is the key slot. Proxy key identity is
-the raw target plus wrapper flavor — repeated `reactive(raw)` shares one
-cached proxy, and `reactive` vs `shallowReactive` stay distinct; the wrapper
-span is diagnostic provenance, not part of equality. `??` is nullish (`0`
-skips the RHS) while `&&`/`||` are truthy, and a bound `undefined` is unknown
-until its init is proven. Demand after `return`/`throw`/`await`/`yield` in
-the callable region is unreachable. Replay each root's mutating ops once and
-query keyed membership; do not rebuild constructor/operation vectors per get.
-Mutating ordinary payload fields of the raw object does not change Map
-identity. The two CRLF fixtures for this slice need `.gitattributes` `-text`
-so Git does not rewrite their bytes.
-
-## Do not add a parallel pattern engine
-
-Structural patterns can rediscover problems already proven by Vize/Oxc-backed
-rules while adding a second parser, offset model, confidence model, and
-dependency lifecycle. Keep built-in analysis on the semantic stack. A future
-customization mechanism needs demonstrated user demand and a new product
-decision rather than being introduced as an implementation shortcut.
-
-## Diff mode is a graph problem
-
-A changed file can introduce a diagnostic whose best source location is in another file. Changed-line filtering must track causality through the project graph rather than dropping every finding outside the textual diff.
-
-Project import resolution uses `oxc_resolver` (Rolldown / enhanced-resolve), not
-a hand-rolled path matcher. Successful resolves into `node_modules` or outside
-the scanned file set are external graph nodes; only true resolve failures raise
-`unresolved-import`. A small allowlist is classified as external **before**
-resolve (`node:` / `nodejs:`, stylesheets, `virtual:…`, `uno.css`,
-`*/auto-routes`, `#imports`) so Vite/Nuxt virtual and non-JS imports do not
-flood real apps — see [project graph](../../docs/project-graph.md). Bare Node
-builtins (`fs`, `path`, `fs/promises`, …) are quieted **after** resolve via
-`oxc_resolver`'s `builtin_modules` + `ResolveError::Builtin` (same External,
-no path). Failed `#…` virtuals (`#components`, `#build-info`, …) are also
-quieted after resolve; successful Nuxt path mappings for `#app/…` still resolve.
-Do **not** reinterpret arbitrary failed resolves as external packages.
-Vue Vet still does **not** execute `vite.config.*` / `nuxt.config.*` — aliases
-come from Vite defaults (`@` → `src`, `~` → root), tsconfig paths (including
-`.nuxt/tsconfig.json`), and package `exports`.
-`oxc_resolver` stays on `11.21.0` until a dedicated upgrade reviews
-resolve-quiet behavior (`11.22+` / latest 11.24.3). Vize 0.387 lifted its
-`dashmap` exact pin to `=6.2.1` (ubugeeei-prod/vize#4567), so the old 6.1.0
-conflict is gone; leftover `dashmap 5.5.3` in the lock is `tower-lsp`. The
-same Vize 0.387 release still exact-pins `serde =1.0.228`,
-`serde_json =1.0.149`, and `compact_str =0.9.0`, so a workspace
-`cargo update` cannot float those patches either. Always
-absolutize/canonicalize the scan root
-before building the resolver: `vue-vet .` must not leave alias targets as `"."`,
-or Nuxt `~/…` imports fail even when the files exist. On Windows, also strip
-compatible `\\?\` verbatim prefixes after canonicalize — otherwise alias targets
-and `Path::strip_prefix` disagree with `oxc_resolver`'s ordinary `C:\…` paths and
-`@/` / `~/` imports look unresolved in CI. Bump `CONVENTIONS_VERSION` when
-resolve quiet rules change so content-addressed caches invalidate.
-
-Nuxt component auto-imports do not use the raw file stem. `HeroDemo.client.vue`
-is registered as `HeroDemo` (and `LazyHeroDemo`); nesting and `index.vue` also
-change the PascalCase name. Matching only `file_stem` produces false
-`unused-component` warnings. Prefer convention naming, and when present read
-`.nuxt/components.d.ts` / `.nuxt/types/components.d.ts` instead of executing
-`nuxt.config`.
-
-Cache corruption is a miss, not a scan failure. Cache keys must change when any
-normalized semantic input changes; raw dependency ASTs must never be persisted.
-Diff filtering keeps every project diagnostic because removing an edge can
-create a finding on a file that has no remaining path back to the changed file.
-
-## Diff-filter CodSpeed work must stay CPU-only
-
-`scan_diff_filter_nuxt_graph` measures `filter_diff` on the `nuxt-graph`
-summary. Analyze once, clone owned summaries in `with_inputs`, and tear down
-the cache directory after the bench. Putting `remove_dir_all` in the measured
-closure next to an ~8 µs retain made CodSpeed bounce ±15% under "Different
-runtime environments" (#181 / #182 / main after #189). That name is not a
-scan-path signal. Do not reintroduce filesystem teardown there.
-
-## `cargo bench --profile release` uses panic=unwind
-
-Cargo forces the benchmark panic strategy to unwind even when the selected
-profile is `release` (`panic = "abort"`). Saved `module_scaling` /
-`whole_project` comparison programs built with `cargo bench --no-run --profile
-release` therefore import `__Unwind_RaiseException` / `__Unwind_DeleteException`.
-The shipped CLI (`cargo build --release`) keeps `profile.release` `panic =
-"abort"` and omits those two imports. Label those Divan artifacts as
-release-optimization/unwind. The recorded +7.04% and +13.20% `trace_5k`
-medians remain evidence for those exact unwind binaries; CLI abort timing is a
-separate measurement. CodSpeed uses `profile.codspeed` (`panic = "unwind"`,
-`lto = false`, product crates `opt-level = 3`). Accepted abort in-process timing
-uses the same 5,000-module / eight-worker
-workload as `module_scaling::trace_5k_modules`, compiled with
-`cargo build --release` (`panic = abort`). `cargo bench --profile release`
-stays unwind. A one-module executable provides smoke-test evidence.
-
-## CodSpeed benchmark attributes use the pinned compatibility API
-
-`codspeed-divan-compat` 5.0.1 exposes `threads` only in its native wall-time
-runner. Under `cfg(codspeed)`, that attribute fails with missing `IntoThreads`
-and a missing `BenchOptions.threads` field. Use the default single-threaded
-benchmark runner and set analysis concurrency through
-`SessionOptions { threads: Some(1) }`. `whole_project` and `scan_modes` exercise
-this combination; validate additions with `just bench-codspeed-build` as well
-as `just bench` (PR #216).
-
-`cargo-codspeed` 5.0.1 also clears each selected package's staged suite directory
-on every build. Pass all of a package's `--bench` targets in one invocation;
-otherwise the later build replaces earlier suites and the report lists those
-benchmarks as skipped. `bench-codspeed-build` groups `scan_modes` and
-`whole_project` together. Verify all 20 current benchmarks produce results.
-Upstream evidence: [`build_benches` at v5.0.1](https://github.com/CodSpeedHQ/codspeed-rust/blob/v5.0.1/crates/cargo-codspeed/src/build.rs).
-
-## The current score is provisional
-
-Scoring is deterministic but still a product experiment, not a stable health
-certificate. Severity weights remain Error 10 / Warning 3 / Info 1. The public
-score is **density-normalized by scanned files** (Sonar/CodeClimate debt-ratio
-and StackHealth lint-density style), not absolute finding count:
-`score = floor(100 × capacity / (capacity + raw))` with
-`capacity = max(files_scanned, 1) × 50`. Sparse warnings in a large Nuxt app
-stay high; the same absolute count concentrated in a tiny project drops harder.
-Before external release, keep documenting weights, fingerprints, baselines, and
-corpus evidence. Do not tune rules merely to chase the current number.
-
-## Vue behavior must be capability-gated
-
-Vue compiler behavior is not uniform across Vue 3 releases. Reactive props
-destructuring and `useTemplateRef()` are available in Vue 3.5+, while direct
-`defineProps()` destructuring loses reactivity in 3.4 and older. Version-aware
-rules read the nearest numeric `vue` requirement from `package.json`, include
-that manifest in cache inputs, and stay quiet when the capability is unknown.
-
-Tracking scopes (`watchEffect*`, `computed`, `watch` sources) subscribe only to
-reactive reads reached during synchronous execution. Model guarded reads as graph
-edges derived from Oxc control structure; do not rediscover them with source text
-matching. A conditional edge is evidence about tracking behavior, so diagnostics
-must describe the condition and recommend explicit `watch` sources when all
-inputs are intended to invalidate the effect. Keep every direct read occurrence
-in the graph: consumers need earlier unconditional reads to suppress false
-positives. Reads after a top-level `await` are `AfterAwait` because Vue stops
-dependency collection at that synchronous boundary. Deferred callbacks
-(`then` / `nextTick` / …) are `OutsideTracking` rather than silent drops.
-Arbitrary nested callbacks, local lookalike functions, and write-only assignment
-targets remain outside parent-scope tracking. See
-[reactivity tracer](./reactivity-tracer.md).
-
-## Cross-module reactivity is a summary problem
-
-Do not concatenate files and parse the result as one script. The reactivity
-linker analyzes each module separately, consumes only project-resolved edges,
-and propagates Vue Vet-owned summaries through named/default exports, barrels,
-multi-hop re-exports, and cycles. Exported composables are summarized when:
-
-- a named function returns a **statically keyed object** whose values resolve to
-  proven local reactive bindings (`ExportState::Composable`) — consumers seed
-  via destructuring or instance bags; or
-- every analyzable return is the **same scalar reactive kind** (`return ref(0)`,
-  `return flag`, or a declared `.d.ts` return type `Ref` / `ComputedRef` / …)
-  → `ExportState::Factory(kind)`, and `const x = useX()` seeds a local binding
-  of that kind (the imported function name itself is never a Ref); or
-- a declared `.d.ts` / annotated return type is an **object type literal** (or a
-  same-file `interface` / `type` alias of one) whose static properties resolve to
-  ref-like types → `ExportState::Composable(shape)` even when the body is only
-  `declare function` (VueUse `useElementSize(): { width: Ref; height: Ref }`).
-  Non-reactive fields (`stop: () => void`) stay out of the shape.
-
-Mixed object/scalar returns, conflicting kinds, and unanalyzable returns stay
-quiet. Plain `reactive()` returns typed as interfaces of string/boolean fields
-(Nuxt `useColorMode(): ColorModeInstance`) still stay quiet — there is no
-Ref-shaped evidence in the type surface.
-
-Declared object-bag shape helpers must stay off the `const x = ref(0)` cold
-path (`trace_1k_modules`): build the return-statement index only after seeing a
-function/arrow init, compute `.d.ts` shapes lazily when body analysis returns
-`None`, and keep shape helpers `#[inline(never)]` so they do not bloat export
-collection instruction cache.
-
-Local variable names are never enough for module propagation. Export collection,
-composable returns, imported calls, and effect reads must agree on Oxc symbol
-identity so shadowed parameters and function-local refs do not leak across the
-module boundary. Operand rules use the same contract: resolved identifiers
-match `ScriptOperandFact.binding_span` to a reactive declaration; unresolved
-bare auto-imports match a unique proven seed only when the module has no local
-symbol of that name (`reference_resolves_to_binding`). Conflicting star exports, ambiguous links, unresolved imports,
-dynamic keys, namespace consumers, and unsupported return shapes stay quiet
-instead of inventing certainty. Standalone JavaScript/TypeScript files are wired
-into the project graph today. Template→script join is **not** blocked on Vize:
-`vize_croquis::sfc` already gives absolute block `loc` offsets, and
-`vize_atelier_core` parse trees expose `Interpolation`, directive `exp`/`arg`,
-and `ExpressionNode::loc()`. The historical gap was vue-vet under-extraction
-(elements-only walk, directive-name spans, no interpolation surfaces). Today
-`TemplateFacts.expressions` carries those Vize surfaces with SFC-absolute spans
-and `join_template_reads` prefers them. Identifier reads are filled by Oxc
-(`vue_vet_oxc::template_expression_identifiers`) so static member properties are
-not mistaken for bindings; lexical scan is only the empty-list fallback. Handler free-vars and template-local `v-for` / `v-slot` aliases are filtered at
-extract time. `TemplateExpressionFact.identifiers` is `Some(…)` when resolved
-(including empty = no free reads); only `None` triggers the lexical join
-fallback—do not treat empty `Some` as unknown.
-`<style>` `v-bind(ident)` / `v-bind('ident')` / `v-bind("ident")` use join
-surface `style-v-bind`. Template `:style` keeps `surface: "style"`. Sharing
-`"style"` made `refresh_style_v_bind_expressions` drop template style reads
-whenever other template expressions remained alongside `:style="{ aspectRatio }"`.
-Complex CSS expressions stay quiet. `SfcBlockRevisions` still fingerprints
-only template/script/script_setup: style-only color edits reuse facts, but
-the adapter strips `surface == "style-v-bind"` and re-extracts from current
-style blocks so a `v-bind` ident swap still re-joins. Do not add style to
-revisions just to catch color-only CSS.
-
-Vue JSX is not React JSX and must not be Babel-transformed for analysis: Oxc
-parses source JSX/TSX and lowers Vue-JSX attributes (`v-html`, `innerHTML` /
-`domPropsInnerHTML`, `v-model*`, `v-show`, `onClick`, …) into `TemplateFacts`.
-Do not route JSX through Vize. Render-effect recognition is structure-first;
-unknown cross-file factories stay quiet unless a local options/`setup`/`render`
-object or exported functional component is visible. Same-file
-`const definePage = (o) => defineComponent(o)` forwarders are recognized; deeper
-or options-mutating wrappers are not.
-
-Cross-file module tracing for `.vue` uses the preferred script block
-(`script setup` first) as `ModuleSource::sfc_script` with Vize `loc.start` and
-the full SFC as `span_source`. Standalone JS/TS modules keep offset 0. Seed
-spans must use the same origin/offset as module re-trace (`source_offset` +
-`span_source`), or `reference_resolves_to_binding` will drop composable reads.
-After seed linking, project graph re-runs `join_template_reads`. The CLI then
-applies that module graph onto SFC facts and runs rules, so composable seeds
-affect per-file diagnostics—not only `module_reactivity` debug output.
-
-Content cache keys include `CACHE_FORMAT_VERSION`, ruleset version,
-`REACTIVITY_GRAPH_VERSION`, conventions, and `AnalysisStackIdentity::current()`
-(`CACHE_VIZE_CROQUIS_VERSION`, `CACHE_OXC_PARSER_VERSION`,
-`OXC_RESOLVER_VERSION`) hashed by `content_key`. Those identity constants must
-match `fixtures/quality/compat-matrix.json`, the workspace pin, and Cargo.lock
-(`just compat-matrix`). Proving a version participates in the hash requires
-mutating `AnalysisStackIdentity` and observing a different `content_key`
-(`content_key_with_identity`) — `assert_ne!` on a stale string plus
-`key.len() == 64` is not enough. Keep `docs/cache-baseline-diff.md` aligned
-with `CACHE_FORMAT_VERSION`. Dual ordinary+setup blocks re-trace as setup plus
-`{path}#script` (not a single concatenated module).
-
-## Effect run counts are not onTrack JSON
-
-`just oracle` compares tracer edges to Vue `onTrack` JSON. That does **not**
-prove how many times an effect or computed getter runs. Vue 3.5.40 coalesces a
-sync self-assign in `watchEffect` / `watchPostEffect` / `watchSyncEffect`
-(`count.value = count.value + 1`, `++`, helper) into one initial run; an
-external change of `count` yields a second. The same write under
-`watch(source, cb, { immediate: true, flush: 'sync' })` retriggers. Computed
-self-write is impurity / cache invalidation (`can invalidate its cached
-value`), not a proven loop. Run-count evidence is `just oracle-self-trigger`
-(Node 22, pnpm 9 frozen lock, Vue 3.5.40). Do not admit a loop diagnostic
-from onTrack fixtures alone.
-
-## Do not stack per-guard-role Conditional rule ids
-
-`ReactiveGuardRole` (early-exit, short-circuit, switch, branch) is fact metadata
-on a Conditional read. Scope-aware rules already report that read once
-(`no-conditional-dependency-in-{computed,watch-sources,effect-scope,render}` and
-`no-conditional-watch-effect-dependency`). Do not revive separate rule ids per
-guard role: they duplicate findings on the same span, inflate score density, and
-add redundant TrackingScope visitor passes (#136).
-
-## JSX adaptation must not lint every Script module
-
-Vue SFCs and JSX/TSX always join the file-rule registry. Plain `.js`/`.ts`
-join only after linking, when local or seeded facts exist (scopes, bindings,
-calls, operands, member writes). Empty independent TS (`export const valueN =
-N`) must not enter `pending_vue` — that regresses CodSpeed `scan_*` / 1k
-module benches. Eligibility uses the retained `module_source.id` / language
-and the applied primary graph; do not synthesize an ordinary `#script` id for
-plain scripts. Skip Oxc JSX template collection unless `language` is
-`jsx`/`tsx`, and skip `defineComponent` identity-forwarder fixed-point walks
-when no Vue factory import exists (#134 / #136).
-
-## SFC compiler macros are setup-only
-
-`defineModel` / `defineModels` / `defineProps` / `defineEmits` / … are
-`<script setup>` compiler macros. Practice and correctness rules that recommend
-or enforce them must gate on `ScriptKind::Setup`. Standalone JSX/TSX modules use
-`ScriptKind::Script`; telling them to adopt `defineModel` is a false positive
-(#138).
-
-Vue Macros' multi-model form is object-destructure only: each local from
-`const { modelValue } = defineModels<{…}>()` seeds a `ModelRef` binding (same
-shape as `toRefs` / `storeToRefs`). A whole-object assignment without
-destructure stays quiet under-approx.
-
-## `no-deprecated-filter` is template syntax, not any spaced `|`
-
-Vue 2 pipe filters lived in SFC templates. Do not treat every ` | ` in lowered
-JSX/`TemplateFacts` expressions as a filter — TypeScript unions
-(`Foo.Bar | Foo.Baz`, `x as A | B`) are common false positives. Require a
-filter-shaped RHS and skip standalone `.jsx`/`.tsx` (#142).
-
-## Performance: do not re-serialize the hot path
-
-CLI scan follows oxlint's model (parallel files, coordinated seed resolution).
-Never restore one scoped native thread per module: Oxc semantics are not `Send`,
-and parking thousands of sticky workers exhausts stacks and defeats
-`--threads`. `TraceModulesOptions::max_workers` bounds both phases. The Oxc
-adapter supplies prepared Vue Vet-owned phase-one facts from its file parse;
-unseeded modules reuse that graph. Seeded consumers reparse only when source or
-seed plans change; unchanged final graphs are retained by `ModuleTraceState`.
-Module failures are collected independently so healthy links still resolve.
-The multi-sample 1k/5k synthetic module benchmark guards this scaling model.
-
-Cache lookup and cache-miss analysis must share `WorkspaceInputSnapshot`; do not
-add a pre-hash walk that rereads the same files. Per-file package capabilities
-come from `PackageIndex`, not repeated ancestor I/O. Long-lived sessions retain
-source bytes, Nuxt declaration mappings, facts, raw file diagnostics, per-file
-structural graph partitions, module plans/graphs, and reverse dependencies.
-`apply_changes` updates exact paths in that snapshot; an edit must not trigger a
-fresh workspace walk or rebuild unrelated structural partitions. First discovery
-must also merge overlay-only paths that the filesystem walk never saw (unsaved
-new buffers). `WorkspaceInputSnapshot::apply_changes` is strongly exception-safe:
-on `Err`, the retained snapshot is unchanged. Session `apply_changes` is
-transactional over overlays + snapshot + revision.
-
-The session revision cannot live in a separate atomic publication step from
-input mutation. Otherwise an analysis may observe the old revision after the
-new bytes are installed and commit stale state. Revision, retained input, and
-committed analysis share one `SessionCore` lock; CPU work uses captured `Arc`
-snapshots outside the lock and publishes only if the captured revision still
-matches. Keep the barrier regression test when changing this lifecycle.
-
-Resolver inputs are semantic invalidation, not only structural-cache inputs.
-`ProjectContext.epochs` stores independent counters per `ContextChangeKind` so
-consecutive mutations before `analyze_affected` cannot drop an earlier kind.
-Package manifests participate in module resolution (`imports`/`exports`/…), so
-they invalidate all source consumers — not only `RuleEnvironment` capability
-keys. File-rule caches also compare the consumed final module graphs before
-reuse. Incremental-vs-clean tests cover package capability, package imports,
-tsconfig, lockfile, Nuxt declarations, and consecutive mixed context mutations.
-
-`TraceModulesOptions::max_workers` must install a dedicated pool for public
-callers. Only session analysis sets `reuse_current_pool: true` after installing
-its outer `--threads` pool; never ignore `max_workers` for the standalone API.
-
-File-rule diagnostic reuse must compare a `FileRuleInputKey` covering source,
-`RuleEnvironment`, and the final primary/ordinary `ReactivityGraph`s. Never
-reuse diagnostics from source+environment equality alone when the linked module
-graph may have changed. Do not `serde_digest` full graphs on the hot path —
-prefer Arc content equality (or a future trace-time digest). Do not invent a
-unified template/script AST IR; keep `ModuleSummary` as the cross-file semantic
-boundary.
-
-Never discard the dirty `FileId` set returned by
-`WorkspaceInputSnapshot::apply_changes`. Session analysis must schedule from
-`PendingChanges` via `ChangeImpact` / `DirtyPlan`. Cancellation must not clear
-pending dirty state. A no-op `analyze_affected` when the revision is unchanged
-must return the last snapshot without re-entering the pipeline.
-
-Cached `RuleEnvironment` is reused on leaf edits. `PackageIndex::environment_for`
-runs for `force_full_parse`, `impact.environment` (package epoch), and new
-sources, including nested package add / replace / remove. `dirty_plan_from`
-builds `rule_files` from the affected `SourceInput`s that are file-rule kinds.
-Vue FileIds (live or deleted, `.vue` suffix) include the ordinary `#script`
-dirty summary; after linking, plain JS/TS look up the retained primary
-`module_source.id` and language.
-
-Layer rebuild looks up `ModuleLayerKey` by `ModuleId` binary search. The vector
-stays in `BTreeSet<&ModuleId>` order; a missing id or a `base_ptr` / `facts_ptr`
-mismatch rebuilds that module. ProjectFile order computes `normalized_path`
-once per file (`sort_by_cached_key`) and keeps that sort. Template joins and
-prop-site parents use a `FileId` map; prop-child expansion uses ids grouped by
-file path (including `#script`). `join_prop_flows` indexes template elements by
-span offset per parent template.
-
-Default CLI/JSON reactivity digest uses `ReactivityModuleStats::from_counts`.
-`--print-reactivity` (and the TUI via `reactivity_module_stats`) builds labels,
-`*_details`, and `explain_tracking_scope`.
-
-**Dirty `FileId` ≠ dirty work.** A small `affected_files()` set only proves parse
-scheduling was narrow. After a warm persist scan, phase one visits the
-source-dirty subset; `module_summaries_visited` is that count, not
-`graph.module_reactivity.len()`. Prove locality with work counters
-(`files_parsed`, `module_summaries_visited`, `cached_modules_merged`,
-`seed_plans_recomputed`, `export_resolve_ran`, `seeded_reparses`, layered
-rebuild, COW clones, rules rerun) and `DirtyPlan.export_closure` (the
-seed-dirty set, not `module_summaries`). Do not treat `affected_files()`
-size as A6 work.
-
-**Subset input without retain or `live_module_ids` drops the workspace.**
-`state.entries.retain` used to keep only this pass's `report.modules`. Passing
-a dirty subset without `retain_cached_modules` or `live_module_ids` still does
-that. Prefer `retain_cached_modules` plus `drop_module_ids` (deleted ids only)
-so a warm scan does not clone the live universe. Explicit `live_module_ids`
-still wins when set. Compare live surfaces in place from `state.entries`;
-merge cached summaries into this-pass facts only on a linking miss (seed
-resolve and consumer pull still need the full live `facts_by_id`). Pull
-seed-dirty consumers from `cached_source`, and keep unchanged graphs in
-`state` — do not emit them into `report.modules`. Empty unique + persist +
-retain must keep the cached universe, not `clear()` the state. Do not clone
-unchanged
-`ModuleSource`s into the tracer input. Persist of a dirty input is an
-`Arc<ModuleSource>` refcount (`trace_modules_incremental_from_arcs`); the
-live set is borrowed from those Arcs. Do not `Arc::new(module.clone())`
-on a source the caller already shared.
-
-**Linking surface ≠ `ModuleSummary` equality.** Export/seed reuse keys on
-imports/exports/locals/provides/injects + links. A leaf body edit that only
-changes `local_graph` must not force `resolve_exports`. Do not key linking
-cache on full `ModuleSummary` (it includes the local graph and `called_locals`).
-`called_locals` is a phase-two skip index: unused Factory / Composable /
-ValueFactory / callback-slot plans reuse `local_graph`. Known / ValueBag /
-ComponentFactory / inject still reparse. Do not filter `ModuleSeedPlan` by
-call sites — the plan stays "what could seed"; skip is "what would
-materialize this pass." Filtering the plan would miss the linking cache when
-a body edit starts calling an already-imported factory. Never rebuild a
-cloned `LinkingSurface` map for every module on each scan — retain
-`Arc<ModuleSummary>` and prefer `Arc::ptr_eq`, then compare linking fields in
-place. O(N) deep clones on cold `trace_modules` / independent leaf edits are a
-known CodSpeed regression. `ModuleSummary` deliberately omits `Clone`: share
-with `Arc`, and let companion merge rebuild locals while `Arc::clone`-ing
-`local_graph`. Do not re-derive `Clone` to make `(*summary).clone()` compile.
-
-**Template/prop layers must not `make_mut` reused base graphs on warm scans.**
-Keep base reactivity from module-trace separate from the layered final graphs;
-reuse the layered `Arc<[Arc<ModuleReactivity>]>` when the whole key matches
-(`ProjectGraph.module_reactivity` is that Arc). Assemble the universe from the
-tracer this-pass plus `cached_reactivity` — do not require an emitted N-graph
-report. When only some modules change, reuse each previous layered module whose
-`(base_ptr, facts_ptr)` is unchanged and `prop_edges` did not change (inner
-`Arc` clone, not `ModuleReactivity::clone`). A leaf body edit patches the
-stored layered key in place so the other N-1 `ModuleId`s are not cloned, and
-must not `make_mut` the other N-1 graphs (cache still holds those base Arcs).
-Rebuild a prop-flow child from base when its parent or the prop edge set
-changes, then `join_prop_flows`. Compare `StructuralContextKey` in place;
-allocate a new key only on mismatch. Skip `node_by_path` / composable indexes
-when every structural file reuses; otherwise borrow `&str` maps from the
-current nodes. Do not clone `FileId`s just to retain the structural file map.
-
-**`ModuleSource` equality ignores `span_source`.** Style-only SFC edits change
-the wrapper file bytes without invalidating script body IR when `source` +
-`source_offset` match. Do not reintroduce `span_source` into `PartialEq`.
-
-**SFC block reuse keys on content digest + absolute loc.** If a preceding block
-grows/shrinks, later blocks' `start`/`end` change and must rebuild even when
-their text is identical. Style-only edits after other blocks are the common
-full-reuse path.
-
-**Context invalidation ≠ re-parse.** Epoch bumps for tsconfig, lockfile,
-package resolution, Nuxt declarations, or source membership must refresh
-resolution / environment / indexes / rules as needed. They must not force
-`analyze_candidate()` on unchanged source bytes. Prefer `ChangeImpact` domains
-over a boolean `invalidate_all_sources`.
-
-**Prefer internal Arc partitions over a top-level `Arc<ProjectGraphState>`.**
-Session state holds `ProjectGraphState` by value; `structural` and
-`module_trace` are independently `Arc`-shared and copy-on-write. Count
-`partition_cow_clones` / `graph_cow_clones`. Do not reintroduce a single outer
-Arc that `make_mut`s the entire linking state.
-
-**No-op / product publish must stay refcount-only.** `AnalysisSnapshot` keeps
-`summary` / `graph` / `coverage` / `issues` / `analyzed_files` behind `Arc`.
-Never reintroduce owned `Vec` fields that `Clone` deep-copies on noop.
-
-Export resolution must not clone the entire resolved-export map each fixed-point
-round — use a worklist over reverse re-export users.
-
-Deep `.clone()` of reactivity graphs, analyzed candidates, or workspace snapshots
-is a regress on the incremental path. Share with `Arc` / `ProjectGraphState::share`,
-mutate with `Arc::make_mut` on the smallest partition, and restore cache hits with
-`AnalysisState::share_from`. Prefer `Arc::clone` (refcount) over `T::clone` of
-owned maps/vecs. Session overlay updates must not double-clone
-`WorkspaceInputSnapshot` (fork once via `Arc::make_mut`, then
-`apply_changes_in_place`). Reporter/CLI boundaries may `to_vec()` once when
-leaving the session.
-
-Never build the session Rayon pool in `ProjectSession::open` — warm disk-cache
-hits must not pay thread-pool construction. Lazily init on the first real scan.
-Stdio MCP (`vue-vet --mcp`) must not open a new `ProjectSession` for every
-explain after a scan of the same path — keep the bound session and reuse
-`current_snapshot`. Scan / preview replace that session so a later disk edit
-is visible. One-shot `call_tool` helpers (tests) still open throwaway sessions.
-Never eagerly re-scan on a disk-cache hit to hydrate IR: that turns
-`scan_warm_*` / CLI warm re-scans into full analyzes. Keep publishing the
-cached summary/graph as `"hit"`. Empty IR is seeded on the first dirty analyze
-via `force_full_parse` when `!has_file_facts()`.
-
-**`SourceContext::new(&str)` copies the buffer.** Use it when the caller already
-owns / wants to own the text (LSP documents). Hot analysis entry points that
-only need positions should install `Arc<LineIndex>` without re-allocating the
-source string — otherwise cold `trace_1k_*` / SFC benches regress.
-
-**One-shot `trace_modules_with_options` must not archive linking state.** Set
-`persist_linking_cache = false` (forced by that API). Archiving sorted links +
-seed-plan maps that are immediately dropped regresses CodSpeed `trace_*`.
-The locality signal is `trace_warm_leaf_edit_1k_modules`, which keeps the
-cache on and edits one independent leaf. Do not treat `trace_1k_modules` as
-that win.
-Build `returns_by_function` lazily — only after a real function/composable
-candidate is found.
-
-**Phase-two must not Rayon-schedule immediate reuse.** On persistent scans,
-split reused vs dirty modules before `par_iter`. Independent leaf edits with
-many reusable graphs must not pay worker scheduling for no-op reuse. Empty
-plans and unused call-site-only plans finish sequentially (`set_module_id`
-only). Never clone all `ModuleSource` values into a side cache map for
-phase-one — borrow `state.entries` instead.
-
-**First persistent scan must build seed plans once.** Cold session analyzes
-(`scan_overlay_*`, first `analyze`) should use oneshot-style plan construction
-and archive the linking snapshot after phase two — never build a plan map and
-then clone every plan into work.
-`AnalysisSnapshot` keeps `summary`/`graph` behind `Arc` so commit/`last_snapshot`
-is refcount-only for those fields.
-
-LSP positions are UTF-16 code units via `vue_vet_core::LineIndex`. Never publish
-byte columns to the editor. Document identity must go through
-`ProjectSession::file_id_for_path` rather than ad-hoc `strip_prefix`.
-
-## Paths are identities, not suffixes
-
-Discovery is the only boundary that converts `PhysicalPath` to normalized,
-workspace-relative `FileId`. Diagnostics, edits, graph nodes, fingerprints,
-cache/diff inputs, LSP, and reporters compare `FileId` exactly. Never use
-`ends_with` to reconcile paths: `apps/admin/src/App.vue` and
-`apps/customer/src/App.vue` are both valid and suffix matching can select the
-wrong file. Reports keep analyzed source coverage separate from package,
-lockfile, and tsconfig invalidation inputs.
-
-## EffectScope `.run` requires provenance
-
-Only `const scope = effectScope(); scope.run(cb)` is a tracking-scope body.
-Arbitrary objects with a `.run` method must stay quiet — inventing
-`effectScope.run` edges violates under-approx. See the reorientation in
-[reactivity tracer](./reactivity-tracer.md).
-
-## Watch cleanup identity needs an executed schedule
+Traps already paid for, grouped by area. Each entry states the trap and the
+rule that avoids it; the code or test named is the evidence. History lives in
+`git log`.
+
+## Build, CI, release
+
+### Keep Cargo targets local to one worktree
+
+Give each worktree its own `CARGO_TARGET_DIR`: a shared target can keep an
+older local-crate artifact `Fresh` while a downstream crate compiles against
+a newer fact schema. Freeze comparison binaries outside the target directory
+with commit, build command, and hash.
+
+### Native-size budget
+
+`fixtures/quality/native-size-budget.json` is a 3 % regression guard on the
+stripped matrix binary, not a product ceiling: rule lanes add code and a
+stacked series crosses the line every few lanes. Re-pin the candidate to the
+failing PR's own `pkg.pr.new` matrix run; never shrink fixtures, loosen the
+margin, or re-pin for profile / dependency changes without the CLI and bench
+gates in [quality baselines](../../docs/quality-baselines.md). Each platform
+gate uses its own artifact; Linux ARM64 moves in 64 KiB ELF page steps.
+
+Production work counters must stay zero-sized: `WorkCounter` fields in the
+Oxc source-contract, lifetime, template-demand, and tracer collectors are
+`Cell`s only under `cfg(test)`; `LAST_WORK` / `last_*_work` are test-only.
+Leaving them on the production path once failed every native-size gate.
+
+### Benchmarks
+
+- Cargo forces benchmark targets to `panic = "unwind"` even when the profile
+  says abort, so a Divan run measures the unwind path. CodSpeed uses
+  `profile.codspeed` (`panic = "unwind"`, `lto = false`); the shipped CLI is
+  `cargo build --release` (abort) and is timed separately.
+- `codspeed-divan-compat` 5.0.1 has no `threads` attribute under
+  `cfg(codspeed)`; use `SessionOptions { threads: Some(1) }`. `cargo-codspeed`
+  5.0.1 clears a package's staged suite directory on every build, so pass all
+  of a package's `--bench` targets in one invocation (see
+  `just bench-codspeed-build`).
+- Keep filesystem teardown out of measured closures —
+  `scan_diff_filter_nuxt_graph` bounced ±15 % when `remove_dir_all` sat next
+  to an ~8 µs retain. Validate with `just bench-codspeed-build` + `just bench`.
+
+### Release publishing
+
+crates.io returns **403** to clients without a descriptive `User-Agent`
+(bare `curl` included); index polls in `release.yml` send one, and re-runs
+skip already-published versions. `npm publish` can lag the registry — wait
+with `npm/scripts/wait-registry.mjs`. Only `@vue-vet/cli` declares
+`bin.vue-vet`; platform packages that also declared it left
+`node_modules/.bin` empty under npm 10 (install smoke uses `npx`).
+
+## Spans and encoding
+
+### Offsets are SFC-absolute bytes
+
+Vize block locations are byte offsets into the original SFC; the template
+parser and Oxc report offsets relative to the extracted block. Add the block
+`loc.start` exactly once. Ordinary script and script setup stay separate fact
+blocks; never run one pattern language over the whole `.vue` file. Persist
+ASCII, Unicode, multiline, and CRLF snapshots when span math changes; CRLF
+fixtures need `.gitattributes` `-text`.
+
+### Element spans are start-tag only
+
+`TemplateElementFact.span` covers the opening tag, not the subtree. Nesting
+(`v-if` / `v-for` / slot / `Suspense` ancestry, `has_labelable_descendant`,
+template-ref relations) is recorded as explicit flags or
+`TemplateAllocationFact`s during the Vize walk; never test span containment
+to recover ownership. Implicit default-slot content sets `has_slot_ancestor`.
+Kebab-case component tags trust the project `ComponentUsage` edge, not Vize
+`is_component`. Template expressions are parsed with Oxc
+(`template_simple_identifier`, `template_memo_tuple`), never string-matched.
+
+### Paths are identities, not suffixes
+
+Discovery is the only place a physical path becomes a normalized
+workspace-relative `FileId`; later stages compare exactly (`ends_with` picks
+the wrong `App.vue` in a monorepo). LSP positions are UTF-16 via
+`vue_vet_core::LineIndex`; document identity goes through
+`ProjectSession::file_id_for_path`. `ProjectGraph` node ids are
+`file:{path}` while module graphs use bare paths — strip the prefix before
+module lookups. `node_modules/pixi.js` is a directory whose extension is
+`js`: walks skip `node_modules` and resolve symlinks / unknown types through
+`Path::is_file()`.
+
+## Vize and Oxc adapters
+
+### Pins
+
+Vize is exact-pinned and moves fast; upgrading is a compatibility task
+([procedure](../../docs/vize-compatibility.md)). Vize 0.387 requires Oxc
+0.142; keep Oxc on the Vize family (never two Oxc graphs). `oxc_resolver`
+stays `11.21.0` until a dedicated upgrade reviews resolve-quiet behavior
+(see the comment in `Cargo.toml`). Template `SourceLocation` is a byte `Span`
+only; tag / name fields are `&str`. Oxc 0.142 `SemanticBuilder` leaves
+`Semantic::nodes` empty unless `.with_build_nodes(true)` is set — node-walk
+collectors then succeed with empty results and rules go quiet.
+
+### Configuration is part of diagnostic identity
+
+Preset expansion runs before explicit overrides; severity overrides precede
+exit-policy scoring; suppressions run after diagnostics exist so unused
+directives are reported. Cache keys include the effective configuration.
+
+### Accessible content is not `has_children`
+
+`has_children` is structural (`valid-v-html` / `valid-v-text`). Name rules
+(`anchor-has-content`, `button-has-content`, `heading-has-content`) use
+`has_accessible_content`: text, interpolation, `v-text` / `v-html`, an `img`
+/ `area` with non-empty `alt`, or a custom component child. A static `title`
+is not a name — it only feeds a safe `aria-label` insert. Tooltip / menu
+wrappers with a name-like prop mark descendants `has_accessible_name_ancestor`.
+
+### Safe fixes need complete source coverage
+
+A diagnostic span is not a replacement span: the `autofocus` fact covers the
+name only, so just the boolean form is removed. Producers reconstruct the
+quoted extent from source (`aria-hidden="true"`, `:arg.sync`,
+`@event.native`) and stay report-only otherwise. Fix ranges are
+original-source byte ranges applied from the end; the executor is
+single-file and fails closed on multi-file plans until issue #9. See
+[edit model](../../docs/edit-model.md).
+
+### JSX and SFC macros
+
+Vue JSX/TSX is Oxc-owned: JSX lowers into `TemplateFacts`; never route it
+through Vize. Plain `.js`/`.ts` join the file-rule registry only when local or
+seeded facts exist (empty TS in `pending_vue` regressed CodSpeed `scan_*`).
+Skip JSX collection unless the language is `jsx`/`tsx`; skip `defineComponent`
+forwarder walks without a Vue factory import. `defineModel` / `defineProps`
+are `<script setup>` macros: rules that recommend them gate on
+`ScriptKind::Setup`. `no-deprecated-filter` requires a filter-shaped RHS and
+skips `.jsx`/`.tsx` (TypeScript unions are the false positive).
+
+### `<script vapor>` is setup
+
+Vue flips `<script vapor>` to setup; Vize keeps it on `descriptor.script` with
+`vapor` in attrs, so treat `ScriptBlockFacts.vapor` as setup. Dual-script
+fixtures are `<script>` + `<script setup>`. Runtime-export blocking reads
+`ScriptBlockFacts.runtime_export_spans` — never byte-scan for `export`.
+
+## Reactivity tracer
+
+Product stance and the graph contract live in
+[reactivity tracer](./reactivity-tracer.md); these are the traps.
+
+### Tracking semantics
+
+- Scopes subscribe only to reads reached synchronously. Reads after a
+  top-level `await` are `AfterAwait`; `then` / `nextTick` / timers are
+  `OutsideTracking`. Keep every direct read — consumers need earlier
+  unconditional reads to suppress false positives.
+- `watch(ref)` records `property: Some("value")`; bare `watch(reactiveObj)`
+  records the deep root `*`, never invented keys. Sync HOF callbacks
+  (`filter`, `map`, `String#replace`, `Array.from(_, fn)`, `JSON.parse(_, fn)`)
+  run inside the parent scope. `toValue(() => …)` tracks; `unref` does not
+  call. Only `const scope = effectScope(); scope.run(cb)` is a tracking body.
+- `just oracle` compares edges to Vue `onTrack` JSON; it does **not** prove
+  run counts (`just oracle-self-trigger` does). Vue 3.5 coalesces a sync
+  self-assign in `watch*Effect` into one run; computed self-write is impurity,
+  not a loop. `pauseTracking` / `enableTracking` are not public `vue` exports.
+- `ReactiveGuardRole` is metadata on one Conditional read; the per-guard rule
+  ids were withdrawn ([removed ids](../../docs/rules/removed-ids.md)).
+
+### Same-file helper follow (dual-path)
+
+Inline and helper-backed forms must agree. `follow_local_callees` (depth ≤ 2,
+skip async / generator / args / import / method) is the single callee
+enumerator for reads, `uncertain_accesses`, writes, and `assignment_only`.
+Followed reads inherit **caller** guards via call-site proxies. Pause / resume
+inside a helper projects onto the call end (Vue `shouldTrack` is
+process-global); never merge helper pause events by file offset. Identifier
+getters (`computed(load)`) resolve through `local_getter_parts`. Local
+collectors look up `FileTraceIndex` / `ScopeIrIndex` instead of re-walking
+`semantic.nodes()`. Parens / TS wrappers peel once (`peel_parens`).
+
+### Absence rules and soft evidence
+
+Absence rules (`no-computed-without-dependency`, `no-effect-write-without-read`,
+`no-empty-watch-sources`, `no-watch-callback-as-tracking-scope`) try hard
+evidence first and consult `uncertain_accesses` only when reads stay empty,
+reporting `(maybe: …)`. `unknown_calls` / `follow_truncated` / non-empty
+uncertain make `analysis_complete` false. Sync HOF callback params are **not**
+soft evidence; untyped composable formals are. `&&=` / `||=` / `??=` are not
+writes. Explain module matching is `vue_vet_reactivity::module_id_matches`.
+
+### Typed ref parameters
+
+Formals / declarators annotated `Ref` / `ComputedRef` / … (and outermost
+`expr as Ref<T>`) seed classification via `ts_type_reactive_kind`; function
+types with Ref-like formals publish `TypedCallbackParamSlots`. Only an
+optional `value?` type literal is a Ref duck. Function-local `ref()` stays
+out of top-level `bindings`; `prefer-computed` must not read that as private.
+
+### Cross-module summaries
+
+- Never concatenate files. Exports, composable returns, imported calls, and
+  reads agree on Oxc symbol identity (`reference_resolves_to_binding`); bare
+  auto-import seeds match by name only when no local symbol exists.
+- Seed spans use the module's `source_offset` + `span_source`; return-shape
+  resolution uses the binding `script_offset` — hard-coding 0 drops SFC bags.
+- `const bag = useX()` seeds `composable_instances` only; shape fields are not
+  top-level bindings. Dual scripts re-trace as setup plus `{path}#script`.
+- `return { list, ...spread }` merges only a proven reactive bag
+  (`open_reactive_spread`).
+- Imported factories record `ValueFactoryCall` and re-resolve at publish;
+  never mark Vue primitives as `ValueFactoryCall` (breaks incremental seed
+  reuse). `createSharedComposable` / `createGlobalState` are identity
+  wrappers; residual `MethodForward` must not block the factory.
+- provide/inject links through a project-wide provide index: seed only when
+  exactly one provide has a known shape; imported keys match
+  `(specifier, export)`, local `Symbol()` keys by definition span.
+  `inject(key) as Ctx` peels the assertion. Generic context factories keep
+  `GenericMethodInstantiate` in `working_locals` until publish.
+- Shape helpers stay off the `const x = ref(0)` cold path
+  (`returns_by_function` lazy, helpers `#[inline(never)]`).
+- Edge `to` is a bare binding name; `to_id` (`{module}:{name}@{offset}`) is
+  the identity.
+
+### Nuxt / auto-import seeds and external follow
+
+- Bare `ref` without an import resolves only when Oxc marks it unresolved and
+  the name is on the `vue` / `#imports` allowlist; a local lookalike wins.
+- Imports maps load first-wins (`.nuxt/imports.d.ts`,
+  `.nuxt/types/imports.d.ts`, `auto-imports.d.ts`); specifiers resolve from
+  the **declaring** dts. Vite maps use `typeof import('./src/…')['name']`.
+  Single-file scans walk up to the nearest `package.json`
+  (`discover_workspace_boundary`) or root maps never load.
+- Companion `.js` bodies load only for provisional `.d.ts` halves, size-capped
+  by `EXTERNAL_COMPANION_MAX_BYTES` (parsing every bundle stalled Nuxt apps).
+  Never invent `Factory(Reactive)` from an interface alone.
+- Bundler resolve lands on `exports["."].import`; `prefer_types_declaration`
+  remaps to `types` or follow parses an empty JS barrel. Inlined `.d.ts`
+  bodies strip **all** import lines. Interface `extends` follow needs a
+  visited set and depth bound. Follow budget is global and per-package;
+  canonicalize pnpm store paths in budget keys.
+
+### Style `v-bind` and block reuse
+
+`<style>` `v-bind(ident)` uses surface `style-v-bind`; template `:style`
+keeps `style` (one shared name dropped template reads). `SfcBlockRevisions`
+fingerprints template / script / setup only; style is re-extracted, so do not
+add it. `ModuleSource` equality ignores `span_source`; block reuse keys on
+digest **plus** absolute loc.
+
+## Source-contract lanes (Oxc `source_contracts/`)
+
+### Demand proof is not source5 eligibility
+
+Demand-gated contracts own a function-level execution region plus
+source-order barriers; generic source5 still uses immediate
+`ExpressionStatement` parents. Do not reuse demand reach as source5 evidence.
+
+- VueUse identity requires exact `@vueuse/core` / `@vueuse/shared`
+  provenance, never a named bag or `#imports` spelling.
+- Foreign events use exclusive `partition_point` queries over **unique**
+  event indexes; `events_by_block` is sorted and deduped in `Indexes::build`
+  (`cached_result_shared_source_producers_grow_subquadratically`).
+- `toRefs(state)` and `until(source)` are generic source5 escapes; demand may
+  discount only a proven first-argument borrow. Only same-block straight-line
+  writes prove `until`'s current value.
+- Cancelled-filter proof needs two same-wrapper `useDebounceFn` calls with no
+  await between, then an await of the earlier promise. An await inside a
+  `watchIgnorable` updater is the ignore-window signal (`straight_awaits_in`),
+  not a stack-wide barrier; passing a watched ref to `watchIgnorable` is not
+  demand proof.
+- Object literals execute computed keys and pattern defaults. Memoized
+  closed-key sets are borrowed per key — cloning per call is quadratic.
+- `SourceContractStats` is a fixed nine-`u64` snapshot pinned by `stats.rs`.
+
+### Identifier escapes
+
+- A ref passed as a bare identifier is `uncertain` / `escaped`, so
+  `watch(n.value)` then fails `payload_uncertain` — source-parent behavior,
+  pinned by `source_parent_identifier_watch_use_drops_unwrapped_payload_proof`.
+  Do not weaken fixtures to hide it. Ordinary `state.n` pattern writes stay
+  off that set so `no-watch-alias-old-new` still fires.
+- Vue checks `isRef(source)` first, so a written or deleted `__v_isRef`
+  retargets `toRef`. `no-toref-ignored-key` proves the marker immutable via
+  capability evidence; pattern assignment, constructor args, and call / tagged
+  receivers are capability escapes.
+
+### Proxy identity: private fields, Map keys, structured clone
+
+- `reactive` / `readonly` proxies are outside a class's private brand: a
+  prototype method reading `this.#field` on the proxy throws; `toRaw` keeps
+  the raw instance, whose `#field` writes do not notify. TS `private` is a
+  different contract.
+- `new Map([[raw, v]]).get(proxy)` is `undefined`; Vue only normalizes keys
+  stored in `reactive(new Map)`. Facts require a fresh unresolved `Map`
+  constructor and a distinct proxy from `vue` / `@vue/*` (not `vue-demi`);
+  `reactive` vs `shallowReactive` differ.
+- `reactive()` returns the raw target for `markRaw`, `__v_skip`, frozen, or
+  non-extensible input, so `no-proxy-structured-clone` uses allocation proof
+  from `clone_boundary.rs`; native `structuredClone` identity is poisoned by
+  unresolved `globalThis` writes. Demand after `return` / `throw` / `await` /
+  `yield` is unreachable.
+
+### Collection escape-depth exhaustion is Unknown
+
+`poison_expr_bounded` walks helper / `new` / tagged / assignment arguments to
+depth 8. Exhaustion on an identifier poisons that root; on any other leftover
+the semantic-reference pass poisons every symbol inside it
+(`capability_poisoned`) and taints canonical native constructor identity
+(`intern_native_ctor`). Raising the depth alone would still trust a deeper
+leftover.
+
+### customRef lost-notification needs an executed, still-active consumer
+
+`no-custom-ref-lost-notification` is a closed-local chain: post-flush first
+runs are not subscribed at the call site; `{ once: true, immediate: true }`
+stops before a later write; an executed `await` / `yield` ends the subscribed
+prefix. Setters that do not store their first parameter with plain `=`,
+generator / async accessors, coercing `==`, and replaced `_get` / `_set` are
+Unknown and fail closed.
+
+### Watch cleanup identity needs an executed schedule
 
 `no-watch-cleanup-current-source` fires only after a proven acquisition and a
-later distinct EventTarget **allocation** while the watcher is still active.
-Value transitions and callback acquisitions are separate: a non-immediate sync
-write equal to the registered value does not acquire, and a queued watcher uses
-the settled identity at a proven `await nextTick()` / invalidation boundary
-(`initial → fresh → initial` in one immediate-pre batch is safe). Default
-`flush: 'pre'` coalesces synchronous assignments into one callback, so two
-batched `source.value = new EventTarget()` writes are a safe control, not a
-leak. Watch creation must be execution-proven in its owner lane; const handle
-aliases canonicalize before stop/pause/resume/escape. An earlier conditional or
-uncertain handle stop bounds the proven active interval even when a later
-definite `stop()` / `.stop()` exists. Written payload aliases are Unknown:
-semantic write roles are indexed once before allocation and source-write
-collection (plain, logical, compound, destructuring, every owner). Stable const
-aliases keep allocation provenance. Method mutation or generic escape through a written receiver
-alias uses the native-capability Unknown boundary. Native-payload seeds and
-identifier-flow edges are collected from declarations and assignments; escapes
-are resolved after the identity index is complete, including assignment, copy,
-and later-declaration forms. Numeric-only locals stay outside that seed
-closure. Native method and escape
-checks apply to the acquired allocation; `null` / `undefined` handlers create
-no listener. Identity work counters are test-only (production ZST). Counted
-test inner work includes timeline construction, prefix / next-transition
-queries, comparisons, registration-site visits, alias hops, resource-key
-copies, and one write-role scan per symbol on shared-source / shared-callback /
-multi-resource shapes, the N-prior-writes, N-same-value-writes,
-N-separate-cleanup curves, and increasing written-alias chains (facts 0). See
-[`cleanup-identity-runs.mjs`](../../crates/vue_vet_reactivity/oracle/cleanup-identity-runs.mjs).
-
-## Project graph node ids are not module ids
-
-`ProjectGraph` edges use `file:{path}` node ids. Reactivity module graphs and
-template maps use bare logical paths (`Parent.vue`). Prop-flow joins (and any
-future edge→module joins) must strip the `file:` prefix before looking up
-templates or `module_reactivity` entries — otherwise sites silently vanish.
-Structural `component_nav` already normalizes; do not copy raw `edge.from` /
-`edge.to` into module-id APIs.
-
-Quiet gaps still expected after fixture sweeps: whole-object `v-bind="obj"`,
-computed / bracket / call prop expressions, and App Tree provide/inject remain
-under-approx stops (see [reactivity tracer](./reactivity-tracer.md)). Static
-prop flow joins bare identifiers, `ident.value`, static member chains
-(`ident.member`, `ident.a.b`, `ident?.a?.b`), and `v-model` → `modelValue`
-(root binding only; no nested key invention).
-
-## Runtime oracle is the precision ruler
-
-Committed `crates/vue_vet_reactivity/oracle/expected/*.json` capture Vue
-`onTrack` deps. Static tests must keep **tracer tracking-reads ⊆ runtime deps**.
-Refresh with `just oracle-refresh` (Node + pnpm) when Vue tracking semantics
-change (including alien-signals / 3.6). Do not treat the 280 syntax corpus as
-recall evidence.
-
-`pauseTracking` / `enableTracking` are **not** public `vue` package exports in
-3.5.x; the oracle harness imports them from `@vue/reactivity` while static
-sources may still name them under `from 'vue'` (matching common docs / Nuxt
-re-exports). Treat that API surface as capability-gated, not guaranteed.
-
-## Watch source dep keys
-
-`watch(ref)` / `watch([ref, …])` track each ref's **`.value`** key at runtime.
-Static bare-identifier sources must record `property: Some("value")` for
-ref-like bindings — a property-less read invents an onTrack identity that never
-appears. Bare `watch(reactiveObj)` deep-tracks many keys; stay quiet rather than
-emit a single property-less edge.
-
-## Sync HOF callbacks still track
-
-`list.value.filter(x => query.value)` runs the callback during the parent
-tracking flush. Nested arrows that are arguments to known sync Array methods
-stay inside the parent scope; deferred containers (`then` / `nextTick` / …)
-remain outside.
-
-## Ecosystem APIs beyond `vue`
-
-`storeToRefs` (pinia / `#imports`) and `useRoute` / `useRouter` (vue-router /
-`#imports`) are allowlisted reactivity sources. Unknown package callees stay
-quiet **unless** project resolution finds a concrete file and the reactivity
-linker can summarize a `Factory` / `Composable` export from that file (or a
-companion `.d.ts`). Prefer return-kind analysis over growing the name allowlist.
-Custom Vue component children (`AccountInfo`, `CommonDropdownItem`) supply
-accessible names the parent cannot see as text. `has_accessible_content`
-propagates component tags (PascalCase / kebab-case) to parents so
-`NuxtLink`/`button` wrappers are not false `*-has-content` hits; empty native
-icon `div`s still flag. Do not mark the control itself as content just for
-being a component (`<NuxtLink />` stays empty).
-
-Tooltip/menu wrappers that set a name-like prop (`content` / `title` / `label` /
-`text` / `aria-label`) mark descendants with `has_accessible_name_ancestor` so
-icon-only buttons in `<CommonTooltip :content="…">` stay quiet without treating
-bare `title=` as a name (static title still wants `aria-label` autofix).
-
-Do not treat every `use*` auto-import as reactive without evidence. `#imports`
-virtual modules still have no file body and stay quiet.
-
-**Absence rules** (`no-computed-without-dependency`, `no-effect-write-without-read`,
-`no-empty-watch-sources`, `no-watch-callback-as-tracking-scope`) must try hard
-evidence first (bindings, Factory returns, aliases, classified reads). Only when
-reads stay empty do they consult `uncertain_accesses` (reactivity-shaped
-`.value` / `unref` / `toValue` / bare watch sources that could not be classified,
-including those inside same-file zero-arg helpers followed from the scope)
-and report with `(maybe: …)`. Do not invent edges; do not treat empty reads as
-ironclad proof when soft evidence remains. A helper called only from `then()` /
-`nextTick` must not contribute maybe — those accesses are outside tracking.
-The same helper follow records **writes** and **`assignment_only`** (graph v26):
-`computed(() => load())` where `load` assigns a ref is a computed side effect;
-`watchEffect(() => { assign() })` where `assign` is assignment-only is
-`prefer-computed`. `then()`-only helpers must not invent those facts either.
-Compound assignment and update write the same targets (graph v29):
-`a.value += 1` / `a.value++` must appear in `writes` like `a.value = …`.
-`assignment_only` includes `UpdateExpression`. Logical `&&=` / `||=` / `??=`
-stay quiet — they may not write. Do not treat `operator.is_assign()` (`=`
-only) as the write gate.
-Composable-instance writes are dual-path with reads (graph v33):
-`bag.field.value = …` records `binding = field` / `property = "value"` when
-`field` is a known ref-like shape entry. `bag.field = …` (replacing the ref),
-`bag['field'].value`, unknown bags, and `bag.nested.field.value` stay quiet.
-Sync HOF / `toValue` getter writes are dual-path with those nested reads
-(graph v34): `list.value.map(() => { t.value = 1 })` and
-`toValue(() => { t.value = 1; return x })` record writes. Deferred
-`then` / `nextTick` / `setTimeout`, first-arg `Array.from(() => …)`, and
-identifier `list.map(fn)` stay quiet — do not invent a second follow.
-A local function **reference** is the tracking body (graph v27 / v32):
-`computed(load)` / `watchEffect(load)` / `watch(load)` / `computed({ get: load })`
-/ `render: renderFn` / `setup() { return renderFn }`
-must agree with the `() => load()` / inline `render()` form. Resolve through `local_getter_parts`
-(`local_function_id` + async/generator skip). Do not treat `load(1)` (args) or
-an imported/method callee as a getter. Unused parameters on `function load(_x)`
-are allowed — Vue invokes the getter with no args. Followed reads inherit
-**caller** control-flow (graph v28): `computed(() => cond ? load() : 0)` is
-Conditional, matching `cond ? x.value : 0`. Both-arm `load()` stays
-Unconditional (`branch_hygiene` sees call-site proxies). Do not classify
-helper-body reads with only the tracking-scope `path_guards` walk — the read
-node is not an AST descendant of the caller ternary. Followed reads also
-inherit **pause/resume** (graph v30): `function load() { pauseTracking(); return x.value }`
-is OutsideTracking, matching inline `pauseTracking(); x.value`. Evaluate pause
-in the owning function's IR plus caller hops; project a helper's last
-pause/resume onto the call end so later sibling reads see the leak (Vue
-`shouldTrack` is process-global). Do not merge helper pause events into the
-caller IR by file byte offset — a helper declared above the effect would
-look like it ran first. Do not "fix" last-event fold to a stack/counter
-without a new oracle case. Await-in-helper stays quiet (async helpers are
-unfollowed). New dual-path collectors
-must go through `follow_local_callees` (or the same `local_function_id` + async
-skip for statement walks) — do not add a fourth callee enumerator. Tracking-root
-discovery is the file `FileTraceIndex` (`LocalCalleeIndex` + `ScopeNodeIndex`);
-nested hops and watch-source getters look up `full_callees(F)` and filter
-`visiting`. Local member / ident / write / uncertain collectors look up the
-node index — do not walk `semantic.nodes()` again for ownership. Context and
-sync maps stay separate (deferred is outside vs drop). Await/pause
-classification looks up file `ScopeIrIndex` (await ends via
-`tracking_await_owner`; pause via `innermost_function_id` + helper leak).
-Do not rebuild that IR per tracking scope. Do not unify await ownership with
-context/sync — `if` / ternary / `&&` drop the await, and there is no
-HOF / `toValue` / deferred skip. Do not cache a slice keyed only on
-`scope_id`. Parens / TypeScript wrappers peel in `trace/expr.rs`
-(`peel_parens`); do not add another copy in callback or render adapters.
-Watch sources use that peel too (graph v31): `watch((count))` /
-`watch(count as T)` / `watch((() => count.value))` must agree with the
-unwrapped form. Do not match Identifier / Arrow on the raw argument.
-Nested `watch([[() => x]])` still must not treat the inner arrow as a
-source getter.
-Explain-scope module suffix matching is `vue_vet_reactivity::module_id_matches`
-— session must not reimplement path tails. Sync Array/String HOF callback
-params (`OPTIONS.map(o => o.value)`) are not soft evidence — `.value` there is
-almost always a plain data field; leave reads empty so absence rules can report
-a hard no-dependency finding instead of `(maybe: option)`. Untyped composable
-formals (`function useX(option) { option.value }`) still surface as uncertain.
-
-**Typed ref parameters & nested composable locals.** Formal parameters /
-declarators annotated as `Ref` / `ComputedRef` / … seed scope-classification
-bindings via `ts_type_reactive_kind` so `type.value` inside a composable is not
-`(maybe: type)`. Outermost `const x = expr as Ref<T>` / `<Ref<T>>expr` assertions
-on declarator inits count the same way (VueUse `useVModel(…) as Ref`).
-Callee parameters typed as function types whose formals are Ref-like
-(`run: (state: ComputedRef<T>) => R`) publish `TypedCallbackParamSlots` so
-call-site `(state) => computed(() => state.value…)` seeds without a
-callee-name allowlist (same barrel follow as options-callback slots).
-VueUse `RemovableRef` is Factory(Ref) like `Ref` (storage helpers). Package
-aliases `export const useX: typeof useY` become `ForwardReturn` so the
-imported bag/factory is not dropped; external follow may load that bare
-package (still size-capped — not every import). A type literal whose only
-member is optional `value?` is a Ref duck (mock/`as` stand-ins); required
-`{ value: T }` (select options, `{ value: boolean }` returns) stays quiet.
-Function-local `ref()` / `computed()` calls likewise participate in scope
-classification (span-resolved) even though they stay out of the published
-top-level `bindings` list (#140). `prefer-computed` must not treat that
-omission as a private owned local: empty graph alias lookup and missing
-non-escaped script-binding proof both abstain. Typed `Ref` parameters keep
-the caller’s writable contract.
-
-Nuxt (and unplugin-auto-import) often call `ref` / `watchEffect` with **no**
-`import` statement. The tracer treats bare identifiers as Vue APIs only when
-Oxc marks them unresolved and the name is on the `vue` / `#imports` allowlist.
-A local `function ref()` still wins and stays quiet. Empty module facts mean
-under-approx miss, not “100% reactive.”
-
-Bare **package / local composable** auto-imports (e.g. `useColorMode()` or
-Vite `useTableQuery()` with no import) need an imports map → a concrete file,
-then Factory/Composable evidence from that file (or companion `.js` when the
-preferred `.d.ts` has **provisional** halves: declared plain-object return
-and/or body unwrap — not merely “no finished seeds”). Maps loaded (first wins):
-`.nuxt/imports.d.ts`, `.nuxt/types/imports.d.ts`, root `auto-imports.d.ts`,
-`src/auto-imports.d.ts`. Specifiers must resolve from the **declaring** dts
-importer: Nuxt’s types map uses one more `../` than the re-export map; resolving
-a types specifier from `.nuxt/imports.d.ts` goes outside the package and quietly
-drops the seed (real-app `colorMode` FP). Vite unplugin maps use
-`typeof import('./src/…')['name']` — bracket members must parse, not only
-`.name`. When Nuxt and Vite maps both exist, keep the Nuxt entry. **Single-file /
-IDE scans** must not treat the file’s immediate parent as the package root:
-`discover_workspace_boundary` walks up to the nearest `package.json` so root
-`auto-imports.d.ts` still loads (otherwise bare `useTableQuery` never seeds and
-`no-computed-without-dependency` FPs on destructured `list` / spread `isLoading`).
-Wiring lives in `NuxtImportsSeedPass::run`; companion merge in
-`ProvisionalFactoryMergePass::run` at `ExternalSummaryLoadPass` module completion
-([architecture](./architecture.md) `Analysis enrichment passes`) — not diagnostic
-Rules and not user plugins. Parsing every seedless package’s companion `.js`
-pulls multi‑MB bundles such as `typescript.js` and stalls real Nuxt docs apps.
-Companion bodies are also size-capped. Do **not** invent `Factory(Reactive)`
-from a plain interface alone, or from `return <call>(...).value` alone without
-a declared plain-object return (≥1 property, no Ref-like fields). Name-agnostic:
-any unresolved/`#imports` callee unwrap counts, not a `useState` allowlist.
-
-**Package root JS ≠ sibling `.d.ts`.** Bundler resolve often lands on
-`exports["."].import` (`dist/index.js`) while types live at
-`exports["."].types` / `types` (`dist/types/index.d.ts`).
-`prefer_types_declaration` must remap that root entry via `package.json`, or
-`ExternalSummaryLoad` only parses an empty JS barrel and never follows Form /
-vue-query leaves. Relative chunk follows still require a sibling `.d.ts`.
-Directory barrels (`export * from './components'`) need
-`components/index.d.ts` filesystem fallback when resolver returns a directory or
-`Unresolved`. Relative `.d.ts` enrich must strip **all** import lines from
-inlined bodies — concatenating `utils` + `types` + `composables` otherwise
-redeclares `MaybeRefOrGetter` from `vue` and Oxc semantics fails, falling back
-to raw `utils.d.ts` with no `StdFormProps` bag. Options-object callback slots
-(`defineStdFormProps({ setup({ values }) })`) are collected on the leaf
-`declare function` module and must also propagate through `export { x } from` /
-`export *` in the seed plan — looking only at the package entry summary misses
-them (`CONVENTIONS_VERSION` / `REACTIVITY_GRAPH_VERSION` bumps when either side
-changes). External follow budget is global **and** per-`node_modules` package
-(soft cap). Expand **one package at a time** ordered by seed priority then
-importer popularity — a flat BFS across thousands of roots lets vueuse / ambient
-entries fill the budget before a deep UI barrel reaches `Form/utils.d.ts`.
-Canonicalize load paths so pnpm symlink vs store duplicates do not split one
-barrel across two trees. Per-package budget keys must skip `node_modules/.pnpm`
-(and `.yarn`) store segments — otherwise every package collapses to key
-`.pnpm` and one soft cap starves `@standard-design/ui` / Form leaves.
-
-## Edge `from` / `to_id` labels (graph v4–v6)
-
-Computed edges prefer the assigned binding name (`doubled`). Other scopes use
-`{kind}:{callee}@{offset}`. Template joins use `template:{surface}@{offset}` so
-multiple interpolations do not collapse. **`to` stays a bare binding name** for
-rule matching (`unused-binding` etc.). Graph **v6** adds optional
-`to_id = {name}@{offset}` (read span) via `ReactiveDependencyEdge::to_identity()`.
-
-## Dual ordinary + setup scripts
-
-When both `<script>` and `<script setup>` exist, Vize emits:
-- primary `module_source` = setup (id = file path)
-- `ordinary_module_source` = ordinary (id = `{path}#script`)
-
-Project re-traces both with seeds; CLI applies setup graph to Setup blocks and
-`#script` graph to ordinary Script blocks. Prefer-setup alone dropped ordinary
-seeded analysis.
-
-## Instance seeds are bags, not field injections
-
-`const bag = useComposable()` for an **object** composable records `bag` under
-`composable_instances` so `bag.field.value` can resolve. Do **not** also push
-each shape field as a top-level `ReactiveBindingFact` — that invents edges for
-bare `field.value` when the consumer never destructured. Destructured calls
-(`const { field } = useX()`) remain the only object-bag path that seeds a local
-`field`. Scalar **`Factory`** exports are different: `const x = useFlag()` seeds
-`x` as a top-level binding of the factory kind (no instance bag).
-
-The graph retains `composable_instances` (v5) so template joins can resolve pure
-member chains `bag.field` / `bag.field.value` (and static optional forms
-`bag?.field` / `bag?.field?.value`) after module re-trace. Free-id extraction
-only yields `bag` for those expressions; without the instance map, template
-would stay quiet. Operator-bearing expressions (`bag.field + x`) and computed
-brackets (`bag?.[k]`) stay quiet — under-approx, not a mini expression
-evaluator.
-
-Same-file `function useX()` / `const useX = () => ({ field: ref(0) })` (including
-parenthesized arrow objects) also seed instance bags and destructure fields.
-Function-local `const field = ref(0)` used only to build the return shape is
-**not** published as a top-level binding — otherwise it collides with
-`const { field } = useX()` and invents bare `field.value` edges.
-
-Composable return-shape resolution must use the **same `script_offset`** as
-binding spans. Hardcoding offset `0` makes `return { signal }` miss nested refs
-inside SFC `<script setup>` (absolute spans) and silently drops same-file
-instance bags — a quiet A6 failure, not under-approx by design.
-
-**Return object spreads.** `return { list, ...queryResult }` skips
-`SpreadElement` unless the spread source is a proven reactive bag in the same
-function (`queryResult.data.value` / similar). Then known `bag.field.value`
-keys merge into the shape and `open_reactive_spread` lets consumers destructure
-additional keys (e.g. `isLoading`) as `Ref`. Plain `...extras` without `.value`
-reads stays closed — do not invent Ref seeds.
-
-**Component `props` bags.** `defineProps()` already seeds `Reactive`. Also seed
-the first parameter of Vue `defineComponent` factories (import from
-`vue` / `#imports` / `vue-demi` / `@vue/runtime-*`, bare auto-import, same-file
-identity forwarder, or a setup-forward wrapper) and options-API `setup(props)`
-so `computed(() => props.foo)` tracks. Wrappers whose body forwards the first
-parameter to `defineComponent` (allowing `as any` aliases and an optional second
-options argument) export as `ExportState::ComponentFactory`; consumers seed via
-that summary — not by helper name. Opaque helpers without a `defineComponent`
-forward stay quiet. Package `.d.ts` declare wrappers regain the flag when a
-size-capped `exports.import` body (and one relative chunk hop) proves the
-forward — never from the declaration signature alone.
-
-**Options-object callback bags.** Helpers like
-`defineFormProps({ setup({ values }) {…} })` put the callback on an object
-literal property, not as a direct call argument. When the callee declares
-`props: { setup?: (ctx: Ctx) => … }` and `Ctx` (or an `extends` base) has Ref
-fields, publish options-callback slots and seed the call-site ObjectPattern.
-Cross-module consumers often have no `Ref` text — slots must travel in the seed
-plan. Interface `extends` follow must use a visited set + depth bound; unbounded
-extends recursion stack-overflows on large `.d.ts` graphs.
-
-**Composable shape forwarding (not name allowlists).** Prefer declared / body
-return shapes over package or callee-name heuristics. Mapped object types whose
-values peel to `Ref`/`ComputedRef` (including
-`{ [K in keyof T]: … ? Fn : Ref<…> }`) become `ComposableShape` with
-`open_reactive_spread` so destructured keys seed as `Ref` without a field table.
-`return toRefs(…)` and `return <call>(…)` that resolve to a known composable
-shape forward that shape. Nested `return { maps: createX() }` value bags plus
-static member calls (`api.maps.useX()`) resolve the leaf composable — quiet when
-the path is unknown. Do not add `useApi*` / `*Query*` name matchers.
-`export const api = createApi()` where `createApi` is an **import** must record
-`ExportState::ValueFactoryCall` and materialize `ValueBag` at each export publish
-by re-resolving the callee — same-file fixpoint only sees local ValueFactory
-callees, so without the call marker the binding never enters `locals`. Do not
-sticky-convert the call into a `ValueBag` clone in working locals: an early
-snapshot can freeze `MethodForward("useQuery")` before the factory refines.
-Never mark `const x = computed(...)` / other Vue primitives as
-`ValueFactoryCall` — that overwrites [`ExportState::Known`] and breaks
-incremental seed reuse.
-VueUse `createSharedComposable` / `createGlobalState` are identity wrappers
-(`Fn` → `Fn`): take the first-argument factory bag, do not stop at the wrapper
-call name.
-Residual unresolved `MethodForward` (e.g. `useMutation` beside resolved
-`useQuery`) must not block publishing the whole factory — leaf `resolve_path`
-stays quiet for those methods.
-Wrapper re-exports (`return { isLoading }` after
-`const { isLoading } = api.ns.useX()`) record `PendingValueBagField` on the
-composable shape and resolve at link time — Oxc's `symbol_declaration` for
-object-pattern bindings is often the whole `VariableDeclarator`, not the inner
-identifier.
-
-
-**unused-component + barrels / stories.** Script `import { Foo } from '@components'`
-often resolves to an index barrel while `components/Foo/…` is the real node —
-also emit `ComponentUsage` edges by imported local/exported name. Skip
-`.story.` / `.test.` / `.spec.` / `__tests__` paths.
-
-Cross-module export shapes are not only `export function useX`. Also register:
-- `export const useX = () => ({ … })` / `export const useX = function () { … }`
-- `export default function useX() { … }` (exported name `default`, local name `useX`)
-Anonymous default arrows stay quiet (no local name to hang a shape on).
-
-## provide/inject without an App Tree
-
-Injection is linked by a **project-wide provide index**, not a component
-ancestor chain. Rules:
-
-- Seed an `inject` local only when **exactly one** provide site for that key has
-  a known reactive shape (or when a static default value has a known shape).
-- **Multiple** provides of the same key stay quiet — nearest-ancestor selection
-  needs an App Tree we deliberately do not build yet.
-- String keys match exactly.
-- **Imported** keys (`import { ThemeKey } from './keys'`) match by
-  `(specifier, export name)` so shared symbol modules link across files.
-- **Local** keys (`const ThemeKey = Symbol()`) use definition span identity —
-  two files each defining their own `Symbol()` never cross-link.
-- `provide(api)` where `api` is a composable instance bag seeds
-  `composable_instances` on the inject local (not a scalar binding).
-- Same-file `provide('k', useX())` also seeds when `useX` has a known return
-  shape (no intermediate bag variable required). The call must **resolve to the
-  composable def span** — a block-shadowed non-composable `useX` stays quiet
-  (name-only matching invents outer bag fields).
-- `toValue(() => …)` invokes the getter synchronously; reads **and writes**
-  inside that getter stay in the parent tracking scope (like Array HOF
-  callbacks). `unref` does not call functions.
-- Sync HOF callbacks also include **String#replace / replaceAll** replacers
-  (and Array methods), plus well-known statics **`Array.from(…, mapFn)`** and
-  **`JSON.parse(…, reviver)`** (receiver must be the `Array`/`JSON` identifier —
-  bare `.from`/`.parse` on unknown objects stay quiet). Callback **argument
-  index** is callee-specific: prototype HOF → arg 0; replace/from/parse → arg 1.
-  First-arg-only forms (`Array.from(() => x)`, `JSON.parse(() => x)`,
-  `str.replace(() => x)`) must stay quiet — runtime does not invoke them as
-  mapFn/reviver/replacer. Deferred callbacks (`then`/`setTimeout`/`nextTick`)
-  stay outside tracking. Writes in those same sync callbacks are recorded
-  (graph v34); deferred / first-arg / identifier `map(fn)` writes stay quiet.
-- Factory defaults (`inject(key, () => ref(0))`) stay quiet; plain
-  `inject(key, someRef)` may seed from the default.
-- `const ctx = inject(key) as Ctx` must peel the `TSAsExpression` (parent of the
-  call is not the declarator). When `Ctx` is a same-file interface/type with
-  Ref-like fields and no unique known provide exists, seed the inject local from
-  that asserted bag. Helpers that `return ctx` after such an assertion export the
-  bag shape so cross-module `const { mapId } = useCtx()` seeds — provide helpers
-  that `provide(key, { ...param, localRef })` often have an unknown offer at the
-  definition site because the spread parameter is not a composable instance.
-- Generic context factories (`createContext<T>`-style): nested `return value as T`
-  becomes `MethodGeneric(paramIndex)`. Call-site
-  `const { useInject: useX } = factory<Ctx>(…)` records
-  `GenericMethodInstantiate` and must stay in link `working_locals` until the
-  callee `ValueFactory` is published — otherwise the pending state never refines
-  and `useX` stays unpublished. Only properties that are `MethodGeneric` promote
-  (so `useProvide` stays quiet).
-
-## Collection escape-depth exhaustion is Unknown
-
-`poison_expr_bounded` walks helper / `new` / tagged / assignment-result
-arguments through logical, conditional, sequence, and aggregate forms to
-depth 8. Exhaustion on a leftover identifier poisons that collection root.
-Exhaustion on any other leftover expression records the leftover span; the
-existing semantic-reference pass then poisons every symbol whose reference
-sits inside that span (`capability_poisoned` only) and taints canonical
-constructor identity for unresolved native `Map` / `Set` / `Array` (including
-`.prototype`) identifiers in the same span. Const aliases of those
-constructors and `.prototype` objects (`const C = Array`,
-`const P = Array.prototype`, and alias chains) share one precomputed
-native-kind identity (`intern_native_ctor`) queried by both ordinary helper
-escapes and leftover covering. A true `globalThis` alias escape — ordinary
-or unresolved — taints every supported intrinsic because that object can
-replace any constructor; shadowed local globals stay distinct symbols and
-do not taint native identity. Unrelated ordinary collection roots stay
-reportable when global capability is intact. Raising the depth alone would
-still trust a deeper leftover. This is not generic source5 `uncertain` /
-`escaped`. Fallback work is leftover-span copy, counted sort comparisons,
-merge, `partition_point` covering checks, unresolved native/global
-reference covering, and native-alias map construction plus identity
-resolution.
-## Production notification work counters miss native-size
-
-PR 233 failed all five native-size gates while `NotificationWork`'s 16 `usize`
-fields and the `LAST_WORK` `RefCell` stayed on the production tracer path.
-Keep the collector `WorkCounter` zero-sized in production (`cfg(test)` `Cell`s
-only); write `LAST_WORK` only in tests. Inner-loop charges stay real under
-`cfg(test)`. Prove collector growth in tests; measure size with the stripped CLI.
-
-Import/semantic eligibility uses the canonical `imported_bindings` map (including
-type-only named specifiers) and the semantic root unresolved-reference index.
-Each platform gate uses its own artifact.
-
-## Native-size re-pins are routine; the pre-#241 floor is gone
-
-Every rule lane adds ~50–130 KB per target, so a stacked rule series crosses
-the ceil(1.03) maxima every three or four lanes. Re-pin the candidate to the
-failing PR's own `pkg.pr.new` matrix run (`repin` keeps the `2dabaad` rows) and
-record the run ID in `docs/quality-baselines.md`; do not shrink fixtures or
-loosen the 3% margin. Until #259 a retired script-level floor also required
-every measured candidate to stay below the pre-#241 `2dabaad` binaries; the
-rule set outgrew those savings there (`aarch64-unknown-linux-gnu` +1.5%,
-`x86_64-unknown-linux-gnu` +0.1%) and the floor was retired by product
-decision, so a re-pin no longer needs a byte-for-byte comparison against
-history. Profile or dependency changes still need the CLI/bench gates, never
-a re-pin alone.
-
-## customRef lost-notification needs an executed, still-active consumer
-
-`no-custom-ref-lost-notification` is a closed-local chain, not a mention of
-`watch`. Post-flush first runs (`watchPostEffect`, `watchEffect({ flush: 'post' })`)
-are not subscribed at the call site. `false && watch(...)` installs nothing.
-`{ once: true, immediate: true }` stops before a later write. An effect that
-returns before the `.value` read never tracked. An earlier executed `await` or
-`yield` in that callback (including initializers and sequences) ends the
-subscribed synchronous prefix; a read after that is not a pre-write consumer.
-Member/IIFE/holder-alias capability forwarding, a setter that does not store
-its unchanged first parameter with simple `=`, getter or factory extra storage
-writes (object keys and values execute; only a proven conditional/logical arm
-is taken), factory destructuring defaults that a supplied non-`undefined` property
-keeps dormant (a proven `undefined` value still activates the default;
-an activated default object is the nested source; own-property absence is
-not proven missing when the standard prototype or a `__proto__` setter may
-supply the key; language `undefined` is the unbound identifier), generator/async accessors
-(the generator body is dormant on call), class expressions (eager static
-initialization), coercing `==`, and
-replacing `_get`/`_set` after construction are unknown paths. An executed `await` in a computed
-object key, binding default, or assignment target ends the subscribed prefix;
-so does a nested block `return`/`throw`. Unsupported evaluation shapes fail
-closed as Unknown rather than dropping evaluated children. One `watch(r)` argument must not clear unrelated
-object/export/helper/member escapes. Handle `stop`/`pause` queries are indexed
-by handle and block; do not rescan every foreign-block call per write. Alias
-members of a root are indexed once; do not scan the whole alias map per root.
-
-## Text report color is CLI-injected
-
-ANSI styles apply only when `ReportContext.color` is true (CLI `--color`).
-`auto` enables color for TTY stdout unless `NO_COLOR` is set (non-empty);
-`FORCE_COLOR` / `CLICOLOR_FORCE` (non-empty) force on. Pipelines and reporter
-snapshots keep color off so byte-stable fixtures stay green. JSON / SARIF /
-GitHub never paint.
-
-## Scan progress vs per-file stream
-
-`--progress auto|always|never` (default `auto`) reports scan **phases** on
-**stderr only**. A live TTY (not `TERM=dumb`) uses one bounded status line
-with an ASCII spinner, phase label, elapsed time, and a monotonic eligible-file
-counter when the pipeline supplies one. Heartbeat continues during long
-event-free graph work; a short initial delay avoids flashing on fast scans.
-Redirected stderr, pipes, and `TERM=dumb` with `--progress always` emit a
-compact per-phase log whose line count does not grow with project size.
-`auto` enables only when stderr is a TTY and `CI` is unset/empty. `--progress
-never` is silent. Color (`--color` / `NO_COLOR`) is independent of progress.
-
-Do not write progress to stdout. JSON/SARIF/GitHub/`--print-graph`/`--explain`
-remain single final documents. Text diagnostics are batched once after the
-scan so file **and** project findings appear exactly once (including
-`--progress never` and cache hits). Never invent a global percentage or ETA;
-never show raw filenames on the status line. Stop and clear the live line
-before stdout reports, cache-stat/fix messages, errors, or the reactivity TUI.
-
-## MCP stdio is newline-delimited, not LSP-framed
-
-MCP 2024-11-05 stdio is one UTF-8 JSON-RPC object per `\n`, not LSP
-`Content-Length` headers. The first adapter copied LSP framing, so standard
-clients could not talk to `vue-vet --mcp`. The in-crate framing test only
-round-tripped the server against itself; `parity.rs` calls tools in-process.
-`mcp_stdio_round_trips_initialize_and_tools_list` now spawns the CLI and
-reads newline-delimited `initialize` / `tools/list`.
-
-## `once: true` is not a late cancellation-guard window
-
-Vue 3.5 wraps a `watch(..., { once: true })` callback as
-`_cb(...args); watchHandle()`. The async callback returns at its first
-`await`, then `effect.stop()` runs every cleanup registered so far — before
-that await settles. There is never a competing run, so a late bound
-`onCleanup` flag still yields a correct single write. The usual remediation
-(register the flag before `await`) makes `stop()` set the flag first and
-drops the only result. `no-late-cancellation-guard` abstains when `once` is
-literally `true` on a closed options object, and stays Unknown when options
-are an identifier, spread, computed key, or non-literal `once`.
-`watchEffect` / `watchPostEffect` / `watchSyncEffect` have no `once`.
-Runtime pin: `just oracle-stale-settlement` (`onceLate` writes `"one"`;
-`onceSync` writes nothing).
-
-## Identifier `watch(n)` drops `watch(n.value)` unwrapped proof
-
-Source-contract indexing marks a ref `uncertain`/`escaped` when it is passed
-as a bare identifier (including a second `watch(n, …)`). `watch(n.value)` then
-fails `payload_uncertain` and the unwrapped finding disappears. That is
-source-parent preexisting, not the watch-callback collector. Do not weaken
-unwrapped fixtures to hide it; a parent fix belongs on the escape/uncertain
-role table. The executable repro is
-`source_parent_identifier_watch_use_drops_unwrapped_payload_proof`.
-
-Assignment-pattern member targets restore that same generic `uncertain`
-value fact: the whole destructuring RHS is not each member's extracted
-value. Capability keys and dynamic pattern targets additionally mark
-`capability_uncertain`. Ordinary `state.n` pattern writes stay off that
-dedicated set so `no-watch-alias-old-new` can still fire. Direct
-`state.child = { … }` still records a proven fresh replacement.
-
-Static-member receiver roles share one span-identity policy for
-`CallExpression`, `NewExpression`, and `TaggedTemplateExpression` (a tagged
-template binds `this` like a call). TS wrappers, including instantiation, and
-`ChainExpression` are walked with the same ancestor budget. Import sources,
-JSX member tags, and decorator expressions are not JS `this` receivers and
-stay off this set.
-
-## Ready is recommended for direct conversion
-
-`Verdict::Ready` is the aggregate-only “recommended for direct conversion”
-answer. It is assigned only when `complete` is true, no check is `blocked` /
-`unsupported` / `needs-verification`, and `runtime-envelope` is
-`compiler-candidate`. `convertible` answers whether conversion is possible at
-all. Aggregate of checks stays `blocked` > `unsupported` > `needs-verification`
-> `compiler-candidate`; `not-applicable` never wins. Incomplete assessments
-cannot beat `needs-verification`.
-
-## Do not widen the Vapor runtime envelope without an oracle pair
-
+later distinct EventTarget **allocation** while the watcher is active.
+Default `flush: 'pre'` coalesces sync writes, so two batched allocations are a
+safe control. Const handle aliases canonicalize before stop / pause / resume;
+an earlier conditional stop bounds the active interval. `null` handlers create
+no listener. Runtime pin: `just oracle-cleanup-identity`.
+
+### `once: true` is not a late cancellation-guard window
+
+Vue 3.5 wraps a `once` callback as `_cb(...); watchHandle()`, so `stop()` runs
+every cleanup before the first `await` settles. `no-late-cancellation-guard`
+abstains on literal `once: true` and stays Unknown for non-literal options.
+`watch*Effect` has no `once`. Runtime pin: `just oracle-stale-settlement`.
+
+### Template-only SFC edits re-run script analysis
+
+`analyze_sfc_facts_reusing` sets `can_reuse_script = reuse_template && …`
+because template-ref demand facts are joined from Vize allocations during the
+Oxc script walk; relaxing it leaves demand facts pointing at the old tree.
+
+## Project graph and resolution
+
+- Resolution is `oxc_resolver`; do **not** reinterpret failed resolves as
+  external. A small allowlist is external **before** resolve (`node:`,
+  stylesheets, `virtual:…`, `uno.css`, `*/auto-routes`, `#imports`); bare
+  Node builtins and failed `#…` virtuals are quieted **after** resolve. Bump
+  `CONVENTIONS_VERSION` when quiet rules change.
+- Canonicalize the scan root before building the resolver (`vue-vet .` must
+  not leave alias targets as `"."`); on Windows strip the `\\?\` prefix.
+- Nuxt component names are not file stems (`HeroDemo.client.vue` →
+  `HeroDemo` / `LazyHeroDemo`); prefer convention naming plus
+  `.nuxt/components.d.ts`; never execute `nuxt.config`.
+- `unused-component`: barrel imports resolve to an index — also emit
+  `ComponentUsage` by imported name; skip `.story.` / `.test.` / `.spec.`.
+- Cache corruption is a miss, not a failure. Diff filtering keeps every
+  project diagnostic (a removed edge has no path back to the changed file).
+  Static prop flow joins identifiers, `.value`, static member chains, and
+  `v-model` → `modelValue`; whole-object `v-bind` and computed / call
+  expressions stay quiet by design.
+
+## Cache
+
+Content keys hash `CACHE_FORMAT_VERSION`, `RULESET_VERSION`,
+`REACTIVITY_GRAPH_VERSION`, `CONVENTIONS_VERSION`, and
+`AnalysisStackIdentity::current()`; `just compat-matrix` gates those against
+the pin and lock. Proving a field participates requires
+`content_key_with_identity` and a different key — `assert_ne!` on a stale
+string proves nothing. Keep
+[cache-baseline-diff](../../docs/cache-baseline-diff.md) aligned with
+`CACHE_FORMAT_VERSION`.
+
+## Session, incremental locality, LSP, MCP
+
+### Scheduling and identity
+
+- Never one native thread per module: Oxc semantics are not `Send`.
+  `TraceModulesOptions::max_workers` bounds both phases; only session sets
+  `reuse_current_pool: true`. Never build the Rayon pool in
+  `ProjectSession::open`.
+- Cache lookup and cache-miss analysis share one `WorkspaceInputSnapshot`.
+  Revision, retained input, and committed analysis share one `SessionCore`
+  lock; CPU work runs on captured `Arc` snapshots and publishes only if the
+  revision still matches.
+- **Context invalidation ≠ re-parse** — `ProjectContext.epochs` bumps must
+  not force `analyze_candidate()` on unchanged bytes. File-rule reuse compares
+  `FileRuleInputKey` by `Arc` content equality; never `serde_digest` full
+  graphs on the hot path.
+- Never discard the dirty `FileId` set from `apply_changes`; schedule via
+  `ChangeImpact` / `DirtyPlan`. **Dirty `FileId` ≠ dirty work** — prove
+  locality with work counters (`files_parsed`, `module_summaries_visited`,
+  `cached_modules_merged`, `seed_plans_recomputed`, `export_resolve_ran`,
+  `seeded_reparses`) and `DirtyPlan.export_closure`.
+### Sharing, not cloning
+
+- `ModuleSummary` omits `Clone`; share `Arc<ModuleSummary>`, prefer
+  `Arc::ptr_eq`. Linking reuse keys on imports / exports / locals / provides /
+  injects + links — **not** on the full summary (which includes
+  `local_graph`). `called_locals` is a phase-two skip index, never a key.
+- Warm subset scans pass dirty `Arc<ModuleSource>`s
+  (`trace_modules_incremental_from_arcs`) with `retain_cached_modules` +
+  `drop_module_ids`; do not clone the live universe into `live_module_ids`.
+  `trace_warm_leaf_edit_1k_modules` is the locality signal,
+  `trace_1k_modules` is not.
+- Layered template / prop graphs reuse `Arc<[Arc<ModuleReactivity>]>`; a leaf
+  edit patches `LayeredInputKey` in place and must not `make_mut` the other
+  N-1 graphs. `ProjectGraphState` holds `structural` / `module_trace` as
+  independent Arc partitions; `AnalysisSnapshot` keeps its fields behind `Arc`
+  so a no-op publish is refcount-only. Overlay updates fork once
+  (`Arc::make_mut` + `apply_changes_in_place`).
+- Never eagerly re-scan on a disk-cache hit to hydrate IR; publish `"hit"` and
+  seed IR on the first dirty analyze via `force_full_parse`.
+- Default CLI/JSON reactivity digest uses `ReactivityModuleStats::from_counts`;
+  only `--print-reactivity` / TUI build labels.
+
+### Surfaces
+
+- Text color applies only when `ReportContext.color` is true (`--color`;
+  `auto` = TTY and no `NO_COLOR`; `FORCE_COLOR` / `CLICOLOR_FORCE` force on).
+  Snapshots and JSON / SARIF / GitHub never paint.
+- `--progress` is **stderr only**: live TTY line, compact per-phase log when
+  redirected, `auto` off under `CI`; never a percentage / ETA / filenames.
+- MCP stdio is newline-delimited JSON-RPC, not LSP `Content-Length` framing
+  (`mcp_stdio_round_trips_initialize_and_tools_list` spawns the real CLI).
+  `vue-vet --mcp` keeps one `ProjectSession` per tool path; explain reuses
+  `current_snapshot`.
+
+## Vapor migration assessment
+
+`Verdict::Ready` is the aggregate-only "recommended for direct conversion":
+`complete`, no `blocked` / `unsupported` / `needs-verification`, and
+`runtime-envelope` = `compiler-candidate`. Aggregate precedence: `blocked` >
+`unsupported` > `needs-verification` > `compiler-candidate`.
 `ENVELOPE_VUE_BUILT_IN_DIRECTIVES` / `ENVELOPE_SCRIPT_APIS` in
 `vapor_migration.rs` are the admitted envelope from
-`research/vapor-migration/README.md`. Adding a construct to that whitelist
-requires first adding and passing a runtime oracle fixture pair there. The
-only shipped generalization is treating any modifier-free native `v-on` as
-inside the envelope (the oracle executed click).
+[the research harness](../../research/vapor-migration/README.md); adding a
+construct requires a passing runtime oracle fixture pair first.
 
-## `<script vapor>` is setup
+## Product decisions worth re-reading
 
-Vue flips an ordinary `<script vapor>` block to setup. Vize still stores it
-on `descriptor.script` with `vapor` in `attrs` (not `script_setup`). Treat
-`ScriptBlockFacts.vapor` as setup for compile-contract reasons. Dual-script
-fixtures must be `<script>` + `<script setup>`; `<script>` + `<script vapor>`
-is a Vize `DUPLICATE_SCRIPT`. Runtime-export blocking uses
-`ScriptBlockFacts.runtime_export_spans` from the Oxc walk — do not byte-scan
-the string `export` (that matches comments, strings, and type-only
-`export type` / `export interface`, which Vue allows in setup).
-
-## Keep Cargo targets local to one worktree
-
-Give each worktree its own `CARGO_TARGET_DIR`. Reusing a target directory
-across stacked checkouts can retain an older local-crate artifact marked
-`Fresh`, while a downstream crate compiles against a newer fact schema.
-A native-build review reproduced this as an unresolved fact import and
-missing struct fields after a rule was added in the child checkout.
-
-Freeze comparison binaries outside the mutable target directory together
-with their source commit, manifest hash, build command and binary hash.
-After an adoption build, compare the full `--list-rules --format json`
-inventory and fixture outputs with the accepted artifact. A size measurement
-belongs to that verified executable. Keep separate worktree targets during
-`just roll-rust` and release builds, including local profile experiments.
+- **No parallel pattern engine.** Built-in analysis stays on Vize + Oxc facts
+  ([technology stack](./technology-stack.md)).
+- **The score is provisional.** `floor(100 × capacity / (capacity + raw))`,
+  `capacity = files × 50`, weights Error 10 / Warning 3 / Info 1. Do not tune
+  rules to move it.
+- **Vue behavior is capability-gated.** Version-aware rules read the nearest
+  `vue` requirement from `package.json`, include it in cache inputs, and stay
+  quiet when unknown.
+- **Diff mode is a graph problem.** Changed-line filtering tracks causality
+  through the project graph rather than dropping findings outside the diff.
