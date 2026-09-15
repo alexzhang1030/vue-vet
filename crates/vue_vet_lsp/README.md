@@ -20,7 +20,6 @@ Workspace-internal (`publish = false`). Entry: `vue-vet --lsp` → `run_stdio()`
 | --- | --- |
 | `run_stdio` | Tokio + `tower-lsp` stdin/stdout server |
 | `Backend` | LSP handlers over a `ProjectSession` |
-| `is_current_generation` | Latest-wins gate helper |
 | `to_lsp_diagnostic` / `span_to_range` / `position_to_byte` | Convert |
 | `explain_scope_query` / `hover_from_scope_explains` | Hover |
 | `safe_code_actions` / `SafeCodeActionRequest` | Quick fix |

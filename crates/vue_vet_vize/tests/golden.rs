@@ -163,42 +163,6 @@ fn recommended_rule_pack_covers_all_rules_with_valid_spans() {
 }
 
 #[test]
-#[expect(clippy::panic, reason = "fixture IO must fail the golden snapshot dump")]
-fn dump_lifetime_ownership_snapshots() {
-  use std::fs;
-  let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-  let cases = [
-    (
-      "fixtures/rules/no-nested-watch-without-cleanup/invalid/dormant-computed.vue",
-      "fixtures/snapshots/no-nested-watch-without-cleanup/dormant-computed.json",
-    ),
-    (
-      "fixtures/rules/no-nested-watch-without-cleanup/invalid/shared-callback.vue",
-      "fixtures/snapshots/no-nested-watch-without-cleanup/shared-callback.json",
-    ),
-    (
-      "fixtures/rules/no-nested-watch-without-cleanup/invalid/crlf.vue",
-      "fixtures/snapshots/no-nested-watch-without-cleanup/crlf.json",
-    ),
-    (
-      "fixtures/rules/no-detached-effect-scope-without-stop/invalid/crlf.vue",
-      "fixtures/snapshots/no-detached-effect-scope-without-stop/crlf.json",
-    ),
-    (
-      "fixtures/rules/no-returned-watcher-cleanup/invalid/returned-watch-handle.vue",
-      "fixtures/snapshots/no-returned-watcher-cleanup/returned-watch-handle.json",
-    ),
-  ];
-  for (path, snap) in cases {
-    let source =
-      fs::read_to_string(root.join(path)).unwrap_or_else(|error| panic!("{path}: {error}"));
-    let json = diagnostics_snapshot(path, &source);
-    fs::write(root.join(snap), format!("{json}\n"))
-      .unwrap_or_else(|error| panic!("{snap}: {error}"));
-  }
-}
-
-#[test]
 #[expect(clippy::panic, reason = "unexpected fixture analysis errors must fail golden tests")]
 fn recommended_rule_pack_safe_patterns_are_quiet() {
   let source = include_str!("../../../fixtures/rules/recommended/valid.vue");

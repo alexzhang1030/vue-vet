@@ -9,8 +9,8 @@ use tower_lsp::lsp_types::{
 };
 use vue_vet_core::LineIndex;
 use vue_vet_lsp::{
-  SafeCodeActionRequest, explain_scope_query, hover_from_scope_explains, is_current_generation,
-  position_to_byte, safe_code_actions, to_lsp_diagnostic,
+  SafeCodeActionRequest, explain_scope_query, hover_from_scope_explains, position_to_byte,
+  safe_code_actions, to_lsp_diagnostic,
 };
 use vue_vet_reporters::report_diagnostic_id;
 use vue_vet_session::{ProjectSession, SessionOptions};
@@ -80,8 +80,6 @@ fn overlay_snapshot_finding_ids_match_cli_identity() {
       Some(expected.as_str())
     );
   }
-  assert!(is_current_generation(Some(1), 1));
-  assert!(!is_current_generation(Some(2), 1));
 }
 
 #[test]

@@ -34,7 +34,7 @@ versioned wire gates.
 | --- | --- |
 | Dispatch | `render`, `ReportContext`, `ReportFormat`, `ReportMode`, `ReportFramework` |
 | Errors | `render_error`, `report_diagnostic_id` |
-| Explain | `explain_rule` / `explain_finding` / `finding_explain_with_tracking`, `render_*_explain_*`, `documentation_path`, `looks_like_finding_id` |
+| Explain | `render_*_explain_*`, `documentation_path` |
 | Scope | `render_scope_explain_{text,markdown,json}` (+ plural variants) |
 | Reactivity | `ReactivityDigest`, `binding_detail`, `scope_detail*`, `render_reactivity_detail` / `_footer` |
 | Nav | `binding_nav_from_details`, `component_nav_from_edges` |

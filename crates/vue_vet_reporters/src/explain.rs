@@ -1,92 +1,19 @@
-//! Rule and finding documentation lookup for `--explain` and future LSP / agent surfaces.
+//! Rule, finding, and scope explain formatters for CLI / MCP / LSP.
 //!
-//! Resolves Vue Vet-owned [`RuleMeta`] documentation keys to repository-local
-//! Markdown paths and optional file bodies. Callers supply the metadata table
-//! (built-ins + project rules); this module does not depend on `vue_vet_rules`.
-//! Finding explain attaches scan evidence to the same rule docs payload.
+//! Domain lookup lives in `vue_vet_session`. This module formats already-built
+//! [`RuleExplain`] / [`FindingExplain`] / [`ScopeExplain`] payloads and maps
+//! documentation keys to the JSON/report path form.
 
-use std::{
-  fmt::Write,
-  fs,
-  path::{Path, PathBuf},
-};
+use std::fmt::Write;
 
 use vue_vet_core::{
-  Confidence, Diagnostic, FindingExplain, RuleExplain, RuleMeta, ScopeExplain, Severity,
+  Confidence, FindingExplain, RuleExplain, ScopeExplain, Severity,
 };
 
-/// Map a [`RuleMeta::documentation`] key to the JSON/report path form.
+/// Map a documentation key to the JSON/report path form.
 #[must_use]
 pub fn documentation_path(documentation: &str) -> String {
   format!("docs/{documentation}.md")
-}
-
-/// Build an explain payload from rule metadata, loading docs from `search_roots`.
-#[must_use]
-pub fn explain_rule(meta: &RuleMeta, search_roots: &[PathBuf]) -> RuleExplain {
-  let documentation = documentation_path(meta.documentation);
-  let (body, body_path, body_error) =
-    match load_documentation_body(meta.documentation, search_roots) {
-      Ok((path, text)) => (Some(text), Some(path.display().to_string().replace('\\', "/")), None),
-      Err(error) => (None, None, Some(error)),
-    };
-  RuleExplain {
-    rule_id: meta.id.into(),
-    category: meta.category.into(),
-    severity: meta.default_severity,
-    confidence: meta.confidence,
-    documentation,
-    body,
-    body_path,
-    body_error,
-  }
-}
-
-/// Find `meta` by exact `rule_id` in a caller-supplied table.
-#[must_use]
-pub fn find_rule_meta<'a>(rule_id: &str, metas: &[&'a RuleMeta]) -> Option<&'a RuleMeta> {
-  metas.iter().copied().find(|meta| meta.id == rule_id)
-}
-
-/// Heuristic for CLI routing: finding ids always contain `::`; rule ids do not.
-///
-/// Consumers must still treat diagnostic ids as opaque strings and never parse
-/// fields out of them; this only decides whether `--explain` should scan.
-#[must_use]
-pub fn looks_like_finding_id(target: &str) -> bool {
-  target.contains("::")
-}
-
-/// Attach scan evidence to rule documentation for a matched finding.
-#[must_use]
-pub fn explain_finding(
-  id: impl Into<String>,
-  diagnostic: &Diagnostic,
-  file: impl Into<String>,
-  rule: RuleExplain,
-) -> FindingExplain {
-  FindingExplain {
-    id: id.into(),
-    file: file.into(),
-    span: diagnostic.span,
-    severity: diagnostic.severity,
-    confidence: diagnostic.confidence,
-    message: diagnostic.message.clone(),
-    help: diagnostic.help.clone(),
-    recommendation: diagnostic.recommendation.clone(),
-    rule,
-    tracking: None,
-  }
-}
-
-/// Attach static tracking explain to a finding payload.
-#[must_use]
-pub fn finding_explain_with_tracking(
-  mut explain: FindingExplain,
-  tracking: ScopeExplain,
-) -> FindingExplain {
-  explain.tracking = Some(tracking);
-  explain
 }
 
 /// Render a human-readable explain report.
@@ -363,50 +290,6 @@ pub fn render_finding_explain_json(explain: &FindingExplain) -> Result<String, s
   serde_json::to_string_pretty(explain)
 }
 
-fn load_documentation_body(
-  documentation_key: &str,
-  search_roots: &[PathBuf],
-) -> Result<(PathBuf, String), String> {
-  let relative = documentation_path(documentation_key);
-  let mut tried = Vec::new();
-  for root in search_roots {
-    for candidate in documentation_candidates(root, &relative) {
-      tried.push(candidate.display().to_string());
-      match fs::read_to_string(&candidate) {
-        Ok(text) => return Ok((candidate, text)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => {
-          return Err(format!("failed to read {}: {error}", candidate.display()));
-        }
-      }
-    }
-  }
-  Err(format!(
-    "could not find {relative} under {}; install from source or clone the Vue Vet repository to read full rule docs",
-    if tried.is_empty() { "the search roots".into() } else { tried.join(", ") }
-  ))
-}
-
-fn documentation_candidates(root: &Path, relative_docs_path: &str) -> Vec<PathBuf> {
-  let mut candidates = Vec::new();
-  // Direct: <root>/docs/...
-  candidates.push(root.join(relative_docs_path));
-  // Walk ancestors so scanning a nested path still finds the repo docs/.
-  let mut current = root.to_path_buf();
-  for _ in 0..8 {
-    let parent = current.parent().map(Path::to_path_buf);
-    let Some(parent) = parent else {
-      break;
-    };
-    if parent == current {
-      break;
-    }
-    candidates.push(parent.join(relative_docs_path));
-    current = parent;
-  }
-  candidates
-}
-
 const fn severity_label(severity: Severity) -> &'static str {
   match severity {
     Severity::Info => "info",
@@ -426,15 +309,7 @@ const fn confidence_label(confidence: Confidence) -> &'static str {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use vue_vet_core::{Confidence, Severity};
-
-  static SAMPLE: RuleMeta = RuleMeta {
-    id: "vue-vet/security/no-v-html",
-    category: "security",
-    default_severity: Severity::Warning,
-    confidence: Confidence::High,
-    documentation: "rules/security/no-v-html",
-  };
+  use vue_vet_core::{Confidence, Severity, SourceSpan};
 
   #[test]
   fn documentation_path_matches_json_report_shape() {
@@ -443,59 +318,47 @@ mod tests {
   }
 
   #[test]
-  fn explain_loads_body_from_workspace_docs() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let explain = explain_rule(&SAMPLE, &[root]);
-    assert_eq!(explain.rule_id, SAMPLE.id);
-    assert_eq!(explain.documentation, "docs/rules/security/no-v-html.md");
-    assert!(
-      explain.body.as_deref().is_some_and(|body| body.contains("v-html")),
-      "expected rule markdown body; error={:?}",
-      explain.body_error
-    );
+  fn rule_explain_text_renders_fields() {
+    let explain = RuleExplain {
+      rule_id: "vue-vet/security/no-v-html".into(),
+      category: "security".into(),
+      severity: Severity::Warning,
+      confidence: Confidence::High,
+      documentation: "docs/rules/security/no-v-html.md".into(),
+      body: Some("## Bad\n".into()),
+      body_path: None,
+      body_error: None,
+    };
     let text = render_rule_explain_text(&explain);
     assert!(text.contains("category: security"));
     assert!(text.contains("## Bad"));
   }
 
   #[test]
-  fn find_rule_meta_matches_exact_id() {
-    assert!(find_rule_meta(SAMPLE.id, &[&SAMPLE]).is_some());
-    assert!(find_rule_meta("vue-vet/missing", &[&SAMPLE]).is_none());
-  }
-
-  #[test]
-  fn finding_id_heuristic_requires_double_colon() {
-    assert!(looks_like_finding_id("basic.vue::2:9::vue-vet/security/no-v-html::deadbeef"));
-    assert!(!looks_like_finding_id("vue-vet/security/no-v-html"));
-  }
-
-  #[test]
   #[expect(clippy::panic, reason = "malformed finding explain JSON must fail the unit test")]
   fn finding_explain_nests_rule_docs() {
-    use vue_vet_core::{Diagnostic, SourceSpan};
-
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let rule = explain_rule(&SAMPLE, &[root]);
-    let diagnostic = Diagnostic {
-      rule_id: SAMPLE.id.into(),
-      category: SAMPLE.category.into(),
+    let rule = RuleExplain {
+      rule_id: "vue-vet/security/no-v-html".into(),
+      category: "security".into(),
+      severity: Severity::Warning,
+      confidence: Confidence::High,
+      documentation: "docs/rules/security/no-v-html.md".into(),
+      body: Some("## Bad\n".into()),
+      body_path: None,
+      body_error: None,
+    };
+    let explain = FindingExplain {
+      id: "basic.vue::2:9::vue-vet/security/no-v-html::abc".into(),
+      file: "basic.vue".into(),
+      span: SourceSpan { offset: 19, length: 6, line: 2, column: 9 },
       severity: Severity::Warning,
       confidence: Some(Confidence::High),
-      documentation: Some(SAMPLE.documentation.into()),
       message: "`v-html` can render untrusted HTML into the page".into(),
       help: Some("Prefer normal template interpolation.".into()),
-      file: PathBuf::from("basic.vue").into(),
-      span: SourceSpan { offset: 19, length: 6, line: 2, column: 9 },
-      edits: Vec::new(),
       recommendation: None,
-    };
-    let explain = explain_finding(
-      "basic.vue::2:9::vue-vet/security/no-v-html::abc",
-      &diagnostic,
-      "basic.vue",
       rule,
-    );
+      tracking: None,
+    };
     let text = render_finding_explain_text(&explain);
     assert!(text.contains("finding: basic.vue::"));
     assert!(text.contains("message: `v-html`"));

@@ -13,7 +13,7 @@ pub use convert::{
   SafeCodeActionRequest, byte_range_to_range, explain_scope_query, hover_from_scope_explains,
   position_to_byte, safe_code_actions, span_to_range, to_lsp_diagnostic,
 };
-pub use server::{Backend, is_current_generation};
+pub use server::Backend;
 
 use tower_lsp::{LspService, Server};
 
