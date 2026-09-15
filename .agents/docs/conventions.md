@@ -2,146 +2,75 @@
 
 ## Rule contract
 
-- Built-in IDs use `vue-vet/<category>/<name>` and are treated as user-facing stable identifiers.
-- Every rule declares category, default severity, confidence, and a documentation key.
-- Prefer the practice channel (`category: practice`) when the pattern remains correct and
-  the finding only recommends a newer/ecosystem API — for example `prefer-use-template-ref`
-  and VueUse recipes. Reserve Warning for real risk, unused waste, or likely bugs. Lint
-  severity weights still feed the density score (Info 1 / Warning 3 / Error 10); practice
-  findings do not.
-- Every built-in lint rule keeps stable `RuleMeta` and a `Rule` implementation
-  under `vue_vet_rules/src/rules`. Standalone rules use one dedicated file.
-  **Matrix families** (tracking-graph packs; live `defineExpose` after-await) may share an
-  implementation type plus a catalog of unique ids in `rules/matrix/`. That
-  module is hand-maintained. The parent
-  registry still only assembles `&'static dyn Rule` and must not become a
-  behavior dispatcher. Each matrix id still needs docs and fixtures. Practice
-  suggestions live in `vue_vet_practice` with the same per-rule module shape,
-  `category: "practice"`, and an optional `recommendation` payload; they must
-  not affect score or default CI exit. Prefer high-precision fact links (shared
-  timer bindings, lifecycle + missing cleanup for timers/listeners/rAF,
-  resolved Vue/`#imports` `unref` with getter-argument evidence, and bare
-  auto-import `unref` without a local binding) over broad call presence.
-  Routine `unref(ref)` / numeric MaybeRef unwrapping stays quiet. Shared block-access and control-flow
-  queries live in `vue_vet_rule_query` (setup blocks, after-await calls,
-  alias-aware write identity). Those helpers borrow: path formatters return `MemberPath`,
-  walks yield `&T`. `RuleContext::script` (and `template` / `source` / `file`)
-  use the stored lifetime so `run_once` can `report` without collecting clones.
-  `SourceSpan` is `Copy`; pass `call.span`, do not write `.clone()` on it.
-  Practice-only
-  helpers stay in `vue_vet_practice::util` (`is_setup_lifecycle_hook`,
-  `callee_is`; `is_script_setup_block` re-exports the query crate). Recipe
-  metadata may declare `min_vue` / `confidence`; matching stays in thin
-  `Rule` code. `practice = "off"` in `vue-vet.toml` drops the whole channel.
-  Keyed Map `forEach`→`get` suggestions consume source-contract facts and stay
-  on the derivation group without changing score or CI exit. Native Map key-argument
-  roles and identifier-wrapped practice both require a completed capability proof
-  on the concrete receiver (and its underlying allocation, including object/array/
-  return/assignment escapes). Demand uses the same region-entry barrier and
-  child-role execution classification as Map operations, including logical
-  assignment, optional call/computed arguments, and inherited ChainExpression
-  short-circuit. Wrappers that share one raw Map allocation share capability.
-- Rules use the pass API: declare `fact_kinds`, implement `run_on` for per-fact
-  checks, and use `run_once` only for true multi-fact aggregation. Prefer
-  immediate `report` inside the visitor. Do not filter the whole fact set into a
-  temporary `Vec` and then iterate it again.
-- A rule lands with rationale, bad/good examples, limitations, positive fixtures, common safe patterns, false-positive regressions, exact-span assertions, and reporter snapshots.
-- A diagnostic whose **premise is Vue runtime behavior** (effect run count,
-  loop vs coalesce, first-run / `immediate`, flush `'pre'` / `'post'` /
-  `'sync'`) must ship **rerunnable runtime evidence** at a locked Vue version
-  (`just oracle-self-trigger` or equivalent Node test; not the onTrack JSON
-  `just oracle` gate) plus: a true-positive fixture when the ID still reports,
-  a quiet / false-positive fixture for the coalesced or incomplete-coverage
-  case, a precision pin when the quality corpus is affected, and exact-span
-  snapshots for every remaining finding. Removed IDs must leave the runtime
-  catalog; keep Vue behavior evidence as semantic regressions, not as quiet
-  registered rules. Delete those IDs from `[rules]` configuration — unknown
-  IDs fail config validation.
-- Source-contract IDs `vue-vet/reactivity/no-toref-ignored-key` and
-  `vue-vet/reactivity/no-effect-scope-callback-argument` consume Oxc
-  `toRef` / `effectScope` fact sinks (`ContractSink::ToRef` /
-  `ContractSink::EffectScope`). Dedicated `toref_identity_uncertain` /
-  `toref_helper_escape` roles stay distinct from generic source5
-  `escaped` / `uncertain` and from callback `capability_uncertain`.
-  Native `structuredClone` facts (`no-proxy-structured-clone`) stay a
-  separate capability from Vue import identity. Demand-gated value contracts
-  (`no-invalid-custom-ref-interface`, `no-inactive-scope-result`,
-  `no-missing-torefs-key`) stay distinct from callback/toRef receiver sets
-  and clone native identity. Component model-default demand owners
-  (`no-model-default-unsynced-parent-demand`,
-  `no-shared-default-cross-instance-demand`) join project instance/default
-  facts onto file rules. Template-ref demand rules
-  (`no-pre-flush-template-ref-demand`, `no-v-memo-blocked-ref-demand`) join
-  Vize allocation relations with Oxc demand facts.   Combined inventory is 156 (149 file + 2
-  project + 5 migration); source-contract group 46; lifetime group 10; vapor-migration group 5
-  (default off); `RULESET_VERSION` 43; graph stays 41.
-  Category `migration` is off-score and off-exit like `practice`. Enable with
+- Built-in IDs use `vue-vet/<category>/<name>` and are user-facing stable
+  identifiers. Every rule declares category, default severity, confidence, and
+  a documentation key. The live inventory is `vue-vet --list-rules`; the human
+  catalog `docs/rules/README.md` is regenerated with `just rules-catalog` after
+  adding or renaming ids, and session tests assert the registry matches it.
+  Cache identity (`RULESET_VERSION`) lives in `crates/vue_vet_cache/src/lib.rs`;
+  graph identity (`REACTIVITY_GRAPH_VERSION`) in `vue_vet_core`.
+- Prefer the practice channel (`category: practice`) when the pattern remains
+  correct and the finding only recommends a newer / ecosystem API. Reserve
+  Warning for real risk, unused waste, or likely bugs. Lint severity weights
+  feed the density score (Info 1 / Warning 3 / Error 10); practice and
+  `migration` findings do not, and neither affects the default CI exit.
+  `practice = "off"` drops the whole channel; `migration` is enabled with
   `assessment = "vapor"`, `--group vapor-migration`, or `[rules]`.
-  Runtime premises live in `just oracle-source-contracts` (Vue 3.5.40), which
-  runs `source-contracts.mjs`, `watch-api.mjs`, `watch-callback-contracts.mjs`,
-  and `value-contracts.mjs`. Dedicated `just oracle-value-contracts` remains
-  available. Cached-result demand premises live in `just oracle-cached-result`
-  (`cached-result-contracts.mjs`). Stable computed-identity premises live in
-  `just oracle-computed-identity` (`computed-identity.mjs`). Derivation-practice
-  premises live in `just oracle-derivation-practice` (`derivation-practice.mjs`).
-  Scheduling-practice facts (`prefer-queued-watch-flush`,
-  `prefer-attached-effect-scope`, `prefer-lazy-computed-async`) compare queued
-  or attached delivery against the watcher's retained baseline with `Object.is`,
-  keep omitted / known / Unknown option states distinct, intern exact primitive
-  atoms for loading guards (`===` / `!==`), and require a proven executed
-  region plus a live owner through settlement. Assignment RHS `.value` is a
-  read. Owner-indexed disposals, result-indexed watch consumers, and
-  callable/block-indexed awaits live in the shared semantic pass. Runtime
-  premises live in `just oracle-scheduling-practice` (`scheduling-practice.mjs`).
-  VueUse demand contracts (`no-ignorable-async-ignore-window`,
-  `no-shared-composable-first-instance-args`) require exact `@vueuse/core` /
-  `@vueuse/shared` origin. Runtime premises: `just oracle-vueuse-demand`.
-  Compiled-SFC model-default premises live in `just oracle-model-demand`
-  (`model-demand.mjs`, Vue 3.5.40). Compiled-SFC template-ref demand premises
-  live in `just oracle-template-ref-demand` (`template-ref-demand.mjs`, Vue
-  3.5.40, `@vue/compiler-dom` 3.5.40).
-- After adding or renaming rule ids, regenerate the human catalog with
-  `just rules-catalog` (`docs/rules/README.md`).
-  Session tests assert `file_analysis_registry().metadata` matches that file-ID
-  set (practice included; project IDs stay separate).
-- Watch-callback contracts (`no-once-immediate-discard`,
-  `no-watch-alias-old-new`) consume `SourceContractFacts.watch_callback_contracts`
-  only and map to the `source-contracts` group. Once-immediate requires a
-  supported single source (ref, getter, or proven actually-reactive root);
-  identity requires a closed plain object/array `reactive`/`shallowReactive`
-  target. Vue marker keys, `__proto__`, spread, and accessor keys stay unknown;
-  constructor-input `Object.freeze` / unknown helpers / spread-sequence-storage
-  argument flow abstain; assignment-pattern marker writes invalidate the watched
-  root; ordinary `state.n` writes keep the watched root. Nested later-work
-  blocks abstain. Closed object proofs are precomputed per span.
-  Capability-unknown flow uses a per-root role index. Generic `escaped` /
-  `uncertain` remain watch/reactive-argument facts. Static-member receiver
-  roles share one wrapper and span-identity walk for call / `new` / tagged
-  template, including TypeScript instantiation expressions. Exhausted ancestor
-  budgets stay unproven. Dedicated toRef and callback result sets stay
-  independent of generic source5 uncertainty.
-  Keep `no-deep-watch-on-reactive-root` when the identity-guard rule also
-  fires: the former reports source-wide tracking, and the latter reports
-  callback dead work. Scheduling-practice facts (`prefer-queued-watch-flush`,
-  `prefer-attached-effect-scope`, `prefer-lazy-computed-async`) compare queued
-  or attached delivery against the watcher's retained baseline with `Object.is`,
-  keep omitted / known / Unknown option states distinct, intern exact primitive
-  atoms for loading guards (`===` / `!==`), and require a proven executed
-  region plus a live owner through settlement. Assignment RHS `.value` is a
-  read. Owner-indexed disposals, result-indexed watch consumers, and
-  callable/block-indexed awaits live in the shared semantic pass.
-- Low-confidence heuristics are opt-in and never enter the default preset merely to increase rule count.
-- Canonical rule groups are a product inventory overlay, not a per-rule `RuleMeta`
-  field. The mapping table lives with the composed registry in `vue_vet_session`.
-  Each mapped ID belongs to at most one group. `--list-rules` is the live
-  registry (sorted stable IDs, including project rules) and is **not** a scan
-  with the current `vue-vet.toml`. `--group` unions only change which known IDs
-  are `off` in effective config; they must not re-enable `preset = "none"`,
+- Every built-in lint rule is a self-contained module under
+  `vue_vet_rules/src/rules` (one file per standalone rule). **Matrix
+  families** may share an implementation type plus a hand-maintained catalog
+  of unique ids in `rules/matrix/`; each matrix id still needs docs and
+  fixtures. The registry only assembles `&'static dyn Rule` — never a behavior
+  dispatcher. Practice suggestions live in `vue_vet_practice` with the same
+  per-rule shape and an optional `recommendation` payload; practice-only
+  helpers stay in `vue_vet_practice::util`.
+- Shared block-access and control-flow queries live in `vue_vet_rule_query`.
+  Those helpers borrow: path formatters return `MemberPath`, walks yield `&T`,
+  `RuleContext::script` / `template` / `source` / `file` use the stored
+  lifetime so `run_once` can `report` without collecting clones. `SourceSpan`
+  is `Copy`; pass `call.span`, never `.clone()` it.
+- Rules use the pass API: declare `fact_kinds`, implement `run_on` for per-fact
+  checks, and use `run_once` only for true multi-fact aggregation. Report
+  immediately inside the visitor; do not filter the fact set into a temporary
+  `Vec` and iterate it again.
+- Prefer high-precision fact links over broad call presence: exact provenance
+  (Vue / `#imports` / exact `@vueuse/*` origin), completed capability proof on
+  the concrete receiver, and proven executed regions. Routine `unref(ref)` /
+  numeric MaybeRef unwrapping stays quiet.
+- A rule lands with rationale, bad/good examples, limitations, positive
+  fixtures, common safe patterns, false-positive regressions, exact-span
+  assertions, and reporter snapshots.
+- A diagnostic whose **premise is Vue runtime behavior** (effect run count,
+  loop vs coalesce, first-run / `immediate`, flush timing, cleanup order) must
+  ship **rerunnable runtime evidence** at the locked oracle Vue version via a
+  `just oracle-*` Node recipe (not the onTrack JSON `just oracle` gate), plus a
+  true-positive fixture, a quiet fixture for the coalesced / incomplete-coverage
+  case, a precision pin when the quality corpus is affected, and exact-span
+  snapshots. Removed IDs leave the runtime catalog
+  (`docs/rules/removed-ids.md`) and fail config validation; keep the Vue
+  behavior evidence as semantic regressions, not as quiet registered rules.
+- Source-contract, lifetime, and derivation facts are collected in the Oxc
+  adapter and consumed by thin rules; dedicated uncertainty roles (toRef
+  identity, callback capability, clone native identity, demand
+  `closed_key_unknown`) stay distinct from generic source5 `escaped` /
+  `uncertain`. Details: [architecture](./architecture.md#semantic-ir-layers).
+- Low-confidence heuristics are opt-in and never enter the default preset
+  merely to increase rule count.
+- Canonical rule groups are a product inventory overlay, not a `RuleMeta`
+  field; the mapping table lives with the composed registry in
+  `vue_vet_session` and each mapped ID belongs to at most one group.
+  `--list-rules` is the live registry, **not** a scan with the current
+  `vue-vet.toml`. `--group` unions only change which known IDs are `off` in
+  effective config; they must not re-enable `preset = "none"`,
   `practice = "off"`, or explicit `off` entries.
 
 ## Source locations
 
-Internal locations are byte offsets into the original SFC source. User-facing line and column values are derived explicitly. `SourceSpan` is four `usize`s and is `Copy`, same as `ByteRange`. Span changes require ASCII, Unicode, multiline, and relevant CRLF fixtures. Never assume a byte offset is a character index.
+Internal locations are byte offsets into the original SFC source. User-facing
+line and column values are derived explicitly. `SourceSpan` is four `usize`s
+and is `Copy`, same as `ByteRange`. Span changes require ASCII, Unicode,
+multiline, and relevant CRLF fixtures. Never assume a byte offset is a
+character index.
 
 ## Fixtures and snapshots
 
@@ -149,127 +78,112 @@ Per-rule fixtures live under `fixtures/rules/<rule>/{invalid,valid}/`. One sessi
 
 ## Deterministic output
 
-Sort diagnostics by normalized repository-relative path, byte offset, and rule ID. Do not expose platform path separators or hash-map iteration order in snapshots, JSON, baselines, or cache identities.
+Sort diagnostics by normalized repository-relative path, byte offset, and rule
+ID. Do not expose platform path separators or hash-map iteration order in
+snapshots, JSON, baselines, or cache identities.
 
 Machine-readable finding IDs are opaque and deterministic. Their readable
-prefix uses normalized path, line/column, and rule ID; their digest changes with
-user-visible severity or message changes. Exact scan coverage and an explicit
-completeness flag accompany findings so empty output is never ambiguous.
+prefix uses normalized path, line/column, and rule ID; their digest changes
+with user-visible severity or message changes. Exact scan coverage and an
+explicit completeness flag accompany findings so empty output is never
+ambiguous.
 
 ## Edit contracts
 
 Text edits use byte offsets into the original file, carry explicit safe/unsafe
 applicability and rule provenance, and are sorted by normalized path and range
 before any consumer sees a plan. Reject overflowing ranges and all
-order-dependent overlap before touching disk. Two non-empty half-open ranges may
-meet at a boundary, but insertions at replacement boundaries conflict because
-their application order could change the result. Core planning and reporters
-must never mutate files.
+order-dependent overlap before touching disk. Two non-empty half-open ranges
+may meet at a boundary, but insertions at replacement boundaries conflict. Core
+planning and reporters never mutate files.
 
 Attach an edit candidate to the diagnostic that authorizes it; rule overrides
-and suppressions must remove both together. Normalize target paths relative to
-the scan root before reporting or applying them. Safe application additionally
-validates scan-scope containment, file bounds, and UTF-8 boundaries, applies
-later byte ranges first, commits through atomic replacement, and reports a fresh
-post-fix scan. Fix modes never consume a cached edit plan. A rule may advertise a
-safe edit only for syntax it can replace completely; keep the diagnostic but
-omit the edit when source coverage is incomplete.
+and suppressions remove both together. Safe application validates scan-scope
+containment, file bounds, and UTF-8 boundaries, applies later byte ranges
+first, commits through atomic replacement, and reports a fresh post-fix scan.
+Fix modes never consume a cached edit plan. A rule may advertise a safe edit
+only for syntax it can replace completely; keep the diagnostic but omit the
+edit when source coverage is incomplete. See [edit model](../../docs/edit-model.md).
 
 ## Crate and directory names
 
 Workspace crates use **snake_case** for both the Cargo package name and the
-directory under `crates/` (for example `vue_vet_reactivity`), matching the Oxc /
-Rolldown layout. The CLI package remains `vue-vet` so the installed binary stays
-`vue-vet`. User-facing rule IDs keep the `vue-vet/<category>/<name>` form.
+directory under `crates/` (for example `vue_vet_reactivity`), matching the Oxc
+/ Rolldown layout. The CLI package remains `vue-vet` so the installed binary
+stays `vue-vet`.
 
 ## npm launcher boundary
 
 JavaScript under `npm/` may only select a native binary and forward process
-I/O. Do not move analysis, parsing, or rule logic into Node. Prefer repository
-`just` recipes (`npm-test`, `pack-platform`, `npm-smoke`, `npm-consumer-check`)
-for launcher work. `npm-test` also runs the `node:test` suites under
-`npm/scripts/test/`, and `npm-consumer-check` accepts an already-built binary
-without invoking Cargo or editing `npm/vue-vet/package.json`.
+I/O. Do not move analysis, parsing, or rule logic into Node. Use the `just`
+recipes `npm-test`, `pack-platform`, `npm-smoke`, and `npm-consumer-check` for
+launcher work; `npm-consumer-check` accepts an already-built binary without
+invoking Cargo.
 
 ## Dependency boundaries
 
-Vize and Oxc types remain inside their adapters. Stable downstream code consumes Vue Vet-owned facts. Dependency upgrades are reviewed as behavior changes and include compatibility evidence rather than blind snapshot replacement.
+Vize and Oxc types remain inside their adapters. Stable downstream code
+consumes Vue Vet-owned facts. Dependency upgrades are reviewed as behavior
+changes and include compatibility evidence rather than blind snapshot
+replacement ([procedure](../../docs/vize-compatibility.md)).
 
 ## Testing and completion
 
-Use `just` as the canonical task interface and inspect recipes with `just --list`; keep local and CI commands behind the same recipes. Rust work is not complete until `just roll-rust` passes, including format, the workspace's Rolldown-derived and Vue Vet-tightened Clippy policy with warnings denied, workspace tests with the lockfile, and relevant fixture/integration tests. Do not add a lint exception without a narrow reason tied to code or an upstream dependency constraint. Use `prek` to manage hooks from `.pre-commit-config.yaml`. When local execution is unavailable, state that limitation and use CI as the evidence. Never claim a check passed when it was not run.
+Use `just` as the canonical task interface (`just --list`); keep local and CI
+commands behind the same recipes. Rust work is not complete until
+`just roll-rust` passes (format, the Rolldown-derived Clippy policy with
+warnings denied, workspace tests with the lockfile, fixture/integration tests).
+Do not add a lint exception without a narrow reason tied to code or an upstream
+constraint. Hooks are managed with `prek` from `.pre-commit-config.yaml`. When
+local execution is unavailable, say so and use CI as the evidence; never claim
+a check passed when it was not run.
 
 autofix.ci may run only deterministic repository-owned fix recipes from a
-`pull_request` workflow with read-only GitHub Actions permissions; the
-autofix.ci GitHub App is the sole writer. Never expose a write token to
-pull-request code or use `pull_request_target` to execute untrusted changes.
-Do not reintroduce CodeRabbit or other slow third-party review bots.
+`pull_request` workflow with read-only Actions permissions; the autofix.ci App
+is the sole writer. Never expose a write token to pull-request code or use
+`pull_request_target` on untrusted changes. Do not reintroduce slow
+third-party review bots.
 
 ## Performance regression checks
 
 CodSpeed's simulated-CPU results are the canonical pull-request performance
-comparison. Benchmarks use committed, representative fixtures and stable names
-so a result remains comparable across revisions. Keep benchmark inputs outside
-the measured closure. Do not put cache-directory teardown or other filesystem
-I/O in the measured closure: on micro-benches such as
-`scan_diff_filter_nuxt_graph` that I/O dominates the result. Pin the CodSpeed
-compatibility layer and CLI, and run the same repository-owned recipes locally
-and in CI. Renaming a benchmark or materially changing its fixture establishes
-a new baseline and requires an explicit rationale in the pull request. Performance checks complement rather
-than replace correctness tests. CodSpeed builds use the dedicated `codspeed`
-profile because its instrumentation does not link Oxc reliably under LTO
-(`lto = false`, `panic = "unwind"`). The release profile (`opt-level = 2`, `lto = "fat"`,
-`panic = "abort"`, `strip = "symbols"`, protocol/UI runtime packages
-`opt-level = "z"`, product crates `vue_vet_rules` / `vue_vet_practice` /
-`vue_vet_rule_query` `opt-level = "z"`, `vue_vet_core` /
-`vue_vet_reactivity` / `vue_vet_session` / `vue_vet_project` /
-`vue_vet_cache`
-`opt-level = "s"`; the LSP/TUI-only runtime closure `tokio` `"s"` and
-`tokio-util` / `tower*` / `futures*` / `httparse` / `bytes` / `url` / `idna` /
-`icu_*` / `mio` / `signal-hook*` `"z"`; `vue_vet_oxc` and
-`vue_vet_reporters` stay on the profile default) remains the source of
-truth for shipped artifacts. Package overrides outside the analysis closure
-are accepted on an LSP workflow gate plus LSP/MCP protocol equality, not on
-the analysis benches; see [technology stack](./technology-stack.md).
-`cargo bench --profile release` forces unwind; those Divan programs measure
-the release-optimization/unwind path. The shipped CLI is `cargo build --release` with
-`panic = "abort"`. See [gotchas](./gotchas.md) (`cargo bench --profile release`
-uses panic=unwind).
-`profile.codspeed` inherits `release`, then sets `opt-level = 3` and
-`lto = false`. That top-level 3 is the default only: named
-`profile.release.package` overrides still win unless restated. Protocol/UI
-release `opt-z` packages and the LSP/TUI-only runtime closure stay inherited
-(no bench links them). Product crates with release `"z"`
-or `"s"` (`vue_vet_rules`, `vue_vet_practice`, `vue_vet_rule_query`,
-`vue_vet_core`, `vue_vet_reactivity`, `vue_vet_session`, `vue_vet_project`,
-`vue_vet_cache`) have explicit
-`profile.codspeed.package.*.opt-level = 3`
-so CodSpeed keeps instrumentation `opt-level = 3`. Do not bake a local `CARGO_TARGET_DIR` or
-host byte count into pack/smoke scripts. `just native-size` prints the Cargo
-JSON executable for the build it just ran. CI size gates use artifact mode on
-the matrix binary plus the committed budget table; they must not rebuild.
+comparison. Benchmarks use committed fixtures and stable names; renaming a
+benchmark or materially changing its fixture establishes a new baseline and
+needs an explicit rationale. Keep inputs and filesystem I/O (including
+cache-directory teardown) outside the measured closure. CodSpeed builds use
+the dedicated `codspeed` profile (`lto = false`, `panic = "unwind"`,
+`opt-level = 3` restated on the size-optimized product crates) because its
+instrumentation does not link Oxc reliably under LTO. The release profile in
+`Cargo.toml` (with its inline comment on package overrides) is the source of
+truth for shipped artifacts; overrides outside the analysis closure are
+accepted on the LSP/MCP gate described in
+[quality baselines](../../docs/quality-baselines.md). Benchmark builds are
+always unwind; time the shipped abort CLI separately.
 
-Project-level cold / warm / overlay / diff-filter benches live in
-`vue_vet_session` (`scan_modes`) on the quality corpus, with an additional
-1k-module repeated-edit case. Bounded module tracing has multi-sample 1k/5k
-cases in `vue_vet_reactivity` (`trace_warm_leaf_edit_1k_modules` is the
-persistent `ModuleTraceState` leaf-edit name; one-shot `trace_*` stay
-unarchived). SFC micro-benchmarks remain in `vue_vet_vize`.
-Methodology and release checklists:
-[quality gates](../../docs/quality-gates.md).
+CI size gates use artifact mode on the matrix binary plus the committed budget
+table; they must not rebuild. Do not bake a local `CARGO_TARGET_DIR` or host
+byte count into pack/smoke scripts.
 
-Codecov is the canonical coverage comparison. Project coverage may fall by at
-most one percentage point relative to the base commit, while changed lines must
-retain at least 80% line coverage. CI and local runs generate the same LCOV
-artifact through `just coverage-lcov`; coverage status supplements the full
-cross-platform test matrix and never substitutes for behavior-focused tests.
+Codecov is the canonical coverage comparison: project coverage may fall by at
+most one percentage point relative to the base commit, changed lines keep at
+least 80 % line coverage, and CI and local runs share `just coverage-lcov`.
+Methodology and release checklists: [quality gates](../../docs/quality-gates.md).
 
 ## Commits and pull requests
 
-Commit messages follow Conventional Commits: `type(scope): imperative summary`. Use `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, or `revert`; use `!` and a `BREAKING CHANGE:` footer when a stable contract breaks. The scope names the affected product or crate boundary when that improves retrieval, for example `feat(rules): add stable v-for key diagnostic`.
+Commit messages follow Conventional Commits: `type(scope): imperative summary`
+with `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`,
+or `revert`; use `!` and a `BREAKING CHANGE:` footer when a stable contract
+breaks. The scope names the affected crate or product boundary.
 
-Normal development happens on a focused branch and is reviewed through a pull request linked to its GitHub issue. Keep the PR draft while acceptance criteria or checks remain incomplete. Direct commits to `main` are reserved for an explicit maintainer request or a documented emergency; convenience or missing local tooling is not sufficient reason to bypass review.
+Normal development happens on a focused branch reviewed through a pull request
+linked to its GitHub issue; keep the PR draft while acceptance criteria or
+checks remain incomplete. Direct commits to `main` are reserved for an explicit
+maintainer request or a documented emergency.
 
 ## Planning and records
 
-GitHub issues hold live implementation tasks and checklists. [ROADMAP.md](../../ROADMAP.md) holds milestone intent and release gates. PCR records hold durable rationale, architecture, conventions, and traps. Update the appropriate layer instead of duplicating the same plan in all three.
+GitHub issues hold live implementation tasks. [ROADMAP.md](../../ROADMAP.md)
+holds what is ahead and the release gates. PCR records hold durable rationale,
+architecture, conventions, and traps. Update the appropriate layer instead of
+duplicating the same plan in all three.
