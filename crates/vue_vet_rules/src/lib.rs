@@ -10,7 +10,8 @@ mod overlap;
 mod rules;
 
 pub use overlap::{
-  consolidate_overlapping_computed_impurity, consolidate_overlapping_watch_source_sites,
+  consolidate_overlapping_computed_impurity, consolidate_overlapping_nested_watch_returns,
+  consolidate_overlapping_watch_source_sites,
 };
 
 /// Built-in lint / gate rules (excludes practice suggestions).

@@ -5,7 +5,8 @@ use std::path::Path;
 use crate::diagnostics::{Diagnostic, Recommendation, RuleMeta, SourceSpan};
 use crate::edits::{ByteRange, EditApplicability, TextEdit};
 use crate::facts::{
-  LateScopeDisposeFact, LateWatcherCleanupFact, NotificationBypassFact, OrphanedScopeWatcherFact,
+  DetachedEffectScopeWithoutStopFact, LateScopeDisposeFact, LateWatcherCleanupFact,
+  NestedWatchWithoutCleanupFact, NotificationBypassFact, OrphanedScopeWatcherFact,
   ReactiveBindingFact, ReactivityEffectFact, ReturnedWatcherCleanupFact, RuleEnvironment,
   ScriptBindingFact, ScriptCallFact, ScriptDestructureFact, ScriptFacts, ScriptKind,
   ScriptMemberWriteFact, ScriptOperandFact, TemplateElementFact, TemplateFacts, TrackingScopeFact,
@@ -37,6 +38,8 @@ impl FactKinds {
   pub const LATE_SCOPE_DISPOSE: Self = Self(1 << 12);
   pub const NOTIFICATION_BYPASS: Self = Self(1 << 13);
   pub const WATCH_CLEANUP_CURRENT_SOURCE: Self = Self(1 << 14);
+  pub const NESTED_WATCH_WITHOUT_CLEANUP: Self = Self(1 << 15);
+  pub const DETACHED_EFFECT_SCOPE_WITHOUT_STOP: Self = Self(1 << 16);
 
   #[must_use]
   pub const fn union(self, other: Self) -> Self {
@@ -58,20 +61,70 @@ impl FactKinds {
 #[derive(Clone, Copy, Debug)]
 pub enum FactRef<'a> {
   TemplateElement(&'a TemplateElementFact),
-  ScriptCall { block_kind: ScriptKind, call: &'a ScriptCallFact },
-  ScriptMemberWrite { block_kind: ScriptKind, write: &'a ScriptMemberWriteFact },
-  ScriptDestructure { block_kind: ScriptKind, destructure: &'a ScriptDestructureFact },
-  ScriptBinding { block_kind: ScriptKind, binding: &'a ScriptBindingFact },
-  ReactiveBinding { block_kind: ScriptKind, binding: &'a ReactiveBindingFact },
-  TrackingScope { block_kind: ScriptKind, scope: &'a TrackingScopeFact },
-  ReactivityEffect { block_kind: ScriptKind, effect: &'a ReactivityEffectFact },
-  ScriptOperand { block_kind: ScriptKind, operand: &'a ScriptOperandFact },
-  ReturnedWatcherCleanup { block_kind: ScriptKind, fact: &'a ReturnedWatcherCleanupFact },
-  LateWatcherCleanup { block_kind: ScriptKind, fact: &'a LateWatcherCleanupFact },
-  OrphanedScopeWatcher { block_kind: ScriptKind, fact: &'a OrphanedScopeWatcherFact },
-  LateScopeDispose { block_kind: ScriptKind, fact: &'a LateScopeDisposeFact },
-  NotificationBypass { block_kind: ScriptKind, bypass: &'a NotificationBypassFact },
-  WatchCleanupCurrentSource { block_kind: ScriptKind, fact: &'a WatchCleanupCurrentSourceFact },
+  ScriptCall {
+    block_kind: ScriptKind,
+    call: &'a ScriptCallFact,
+  },
+  ScriptMemberWrite {
+    block_kind: ScriptKind,
+    write: &'a ScriptMemberWriteFact,
+  },
+  ScriptDestructure {
+    block_kind: ScriptKind,
+    destructure: &'a ScriptDestructureFact,
+  },
+  ScriptBinding {
+    block_kind: ScriptKind,
+    binding: &'a ScriptBindingFact,
+  },
+  ReactiveBinding {
+    block_kind: ScriptKind,
+    binding: &'a ReactiveBindingFact,
+  },
+  TrackingScope {
+    block_kind: ScriptKind,
+    scope: &'a TrackingScopeFact,
+  },
+  ReactivityEffect {
+    block_kind: ScriptKind,
+    effect: &'a ReactivityEffectFact,
+  },
+  ScriptOperand {
+    block_kind: ScriptKind,
+    operand: &'a ScriptOperandFact,
+  },
+  ReturnedWatcherCleanup {
+    block_kind: ScriptKind,
+    fact: &'a ReturnedWatcherCleanupFact,
+  },
+  LateWatcherCleanup {
+    block_kind: ScriptKind,
+    fact: &'a LateWatcherCleanupFact,
+  },
+  OrphanedScopeWatcher {
+    block_kind: ScriptKind,
+    fact: &'a OrphanedScopeWatcherFact,
+  },
+  LateScopeDispose {
+    block_kind: ScriptKind,
+    fact: &'a LateScopeDisposeFact,
+  },
+  NotificationBypass {
+    block_kind: ScriptKind,
+    bypass: &'a NotificationBypassFact,
+  },
+  WatchCleanupCurrentSource {
+    block_kind: ScriptKind,
+    fact: &'a WatchCleanupCurrentSourceFact,
+  },
+  NestedWatchWithoutCleanup {
+    block_kind: ScriptKind,
+    fact: &'a NestedWatchWithoutCleanupFact,
+  },
+  DetachedEffectScopeWithoutStop {
+    block_kind: ScriptKind,
+    fact: &'a DetachedEffectScopeWithoutStopFact,
+  },
 }
 
 /// Built-in rule contract (oxlint-style pass hooks over stable facts).
@@ -229,6 +282,8 @@ struct FactBuckets {
   late_scope_dispose: Vec<&'static dyn Rule>,
   notification_bypass: Vec<&'static dyn Rule>,
   watch_cleanup_current_source: Vec<&'static dyn Rule>,
+  nested_watch_without_cleanup: Vec<&'static dyn Rule>,
+  detached_effect_scope_without_stop: Vec<&'static dyn Rule>,
 }
 
 impl FactBuckets {
@@ -278,6 +333,12 @@ impl FactBuckets {
     if kinds.contains(FactKinds::WATCH_CLEANUP_CURRENT_SOURCE) {
       self.watch_cleanup_current_source.push(rule);
     }
+    if kinds.contains(FactKinds::NESTED_WATCH_WITHOUT_CLEANUP) {
+      self.nested_watch_without_cleanup.push(rule);
+    }
+    if kinds.contains(FactKinds::DETACHED_EFFECT_SCOPE_WITHOUT_STOP) {
+      self.detached_effect_scope_without_stop.push(rule);
+    }
   }
 
   fn needs_script_pass(&self) -> bool {
@@ -295,6 +356,8 @@ impl FactBuckets {
       || !self.late_scope_dispose.is_empty()
       || !self.notification_bypass.is_empty()
       || !self.watch_cleanup_current_source.is_empty()
+      || !self.nested_watch_without_cleanup.is_empty()
+      || !self.detached_effect_scope_without_stop.is_empty()
   }
 }
 
@@ -470,6 +533,22 @@ impl RuleRegistry {
           for fact in &block.lifetime.watch_cleanup_current_sources {
             let fact = FactRef::WatchCleanupCurrentSource { block_kind: block.kind, fact };
             for rule in &self.buckets.watch_cleanup_current_source {
+              rule.run_on(fact, &mut context);
+            }
+          }
+        }
+        if !self.buckets.nested_watch_without_cleanup.is_empty() {
+          for fact in &block.lifetime.nested_watch_without_cleanups {
+            let fact = FactRef::NestedWatchWithoutCleanup { block_kind: block.kind, fact };
+            for rule in &self.buckets.nested_watch_without_cleanup {
+              rule.run_on(fact, &mut context);
+            }
+          }
+        }
+        if !self.buckets.detached_effect_scope_without_stop.is_empty() {
+          for fact in &block.lifetime.detached_effect_scopes_without_stop {
+            let fact = FactRef::DetachedEffectScopeWithoutStop { block_kind: block.kind, fact };
+            for rule in &self.buckets.detached_effect_scope_without_stop {
               rule.run_on(fact, &mut context);
             }
           }

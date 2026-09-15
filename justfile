@@ -47,7 +47,7 @@ oracle-self-trigger:
 
 # Vue 3.5.40 watcher cleanup / effectScope lifetime evidence (Node; frozen lock).
 oracle-lifetime:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node lifetime-runs.mjs
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node lifetime-runs.mjs && node lifetime-ownership-runs.mjs
 
 # Vue 3.5.40 source-contract premises (issue #224). Locked oracle Vue pin.
 oracle-source-contracts:

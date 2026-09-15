@@ -163,6 +163,42 @@ fn recommended_rule_pack_covers_all_rules_with_valid_spans() {
 }
 
 #[test]
+#[expect(clippy::panic, reason = "fixture IO must fail the golden snapshot dump")]
+fn dump_lifetime_ownership_snapshots() {
+  use std::fs;
+  let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+  let cases = [
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/invalid/dormant-computed.vue",
+      "fixtures/snapshots/no-nested-watch-without-cleanup/dormant-computed.json",
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/invalid/shared-callback.vue",
+      "fixtures/snapshots/no-nested-watch-without-cleanup/shared-callback.json",
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/invalid/crlf.vue",
+      "fixtures/snapshots/no-nested-watch-without-cleanup/crlf.json",
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/invalid/crlf.vue",
+      "fixtures/snapshots/no-detached-effect-scope-without-stop/crlf.json",
+    ),
+    (
+      "fixtures/rules/no-returned-watcher-cleanup/invalid/returned-watch-handle.vue",
+      "fixtures/snapshots/no-returned-watcher-cleanup/returned-watch-handle.json",
+    ),
+  ];
+  for (path, snap) in cases {
+    let source =
+      fs::read_to_string(root.join(path)).unwrap_or_else(|error| panic!("{path}: {error}"));
+    let json = diagnostics_snapshot(path, &source);
+    fs::write(root.join(snap), format!("{json}\n"))
+      .unwrap_or_else(|error| panic!("{snap}: {error}"));
+  }
+}
+
+#[test]
 #[expect(clippy::panic, reason = "unexpected fixture analysis errors must fail golden tests")]
 fn recommended_rule_pack_safe_patterns_are_quiet() {
   let source = include_str!("../../../fixtures/rules/recommended/valid.vue");
@@ -833,6 +869,247 @@ fn reactivity_lifetime_invalid_fixtures_match_exact_diagnostics() {
 }
 
 #[test]
+#[expect(clippy::panic, reason = "fixture analysis errors must fail the producer test")]
+fn returned_watch_handle_producer_owns_both_rule_configurations() {
+  let path = "fixtures/rules/no-returned-watcher-cleanup/invalid/returned-watch-handle.vue";
+  let source = include_str!(
+    "../../../fixtures/rules/no-returned-watcher-cleanup/invalid/returned-watch-handle.vue"
+  );
+  let both = analyze_sfc(Path::new(path), source).unwrap_or_else(|error| panic!("{error}"));
+  assert_eq!(
+    both.iter().filter(|row| row.rule_id.ends_with("no-returned-watcher-cleanup")).count(),
+    1,
+    "{both:?}"
+  );
+  assert!(
+    both.iter().all(|row| !row.rule_id.ends_with("no-nested-watch-without-cleanup")),
+    "nested must stay quiet when the inner call is returned: {both:?}"
+  );
+  assert_eq!(both.first().map(|row| row.span.line), Some(6));
+  let analysis =
+    analyze_sfc_with_facts(Path::new(path), source).unwrap_or_else(|error| panic!("{error}"));
+  let nested_only = RuleRegistry::new(
+    builtin_rules()
+      .into_iter()
+      .filter(|rule| rule.meta().id.ends_with("no-nested-watch-without-cleanup"))
+      .collect(),
+  )
+  .run(Path::new(path), source, &analysis.facts.template, &analysis.facts.script);
+  assert!(
+    nested_only.iter().all(|row| !row.rule_id.ends_with("no-nested-watch-without-cleanup")),
+    "nested-only config must stay quiet: {nested_only:?}"
+  );
+  let returned_only = RuleRegistry::new(
+    builtin_rules()
+      .into_iter()
+      .filter(|rule| rule.meta().id.ends_with("no-returned-watcher-cleanup"))
+      .collect(),
+  )
+  .run(Path::new(path), source, &analysis.facts.template, &analysis.facts.script);
+  assert_eq!(
+    returned_only.iter().filter(|row| row.rule_id.ends_with("no-returned-watcher-cleanup")).count(),
+    1,
+    "returned-only config must keep the handle finding: {returned_only:?}"
+  );
+}
+
+#[test]
+fn reactivity_lifetime_ownership_invalid_fixtures_match_exact_diagnostics() {
+  for (path, source, expected) in [
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/invalid/basic.vue",
+      include_str!("../../../fixtures/rules/no-nested-watch-without-cleanup/invalid/basic.vue"),
+      include_str!("../../../fixtures/snapshots/no-nested-watch-without-cleanup/basic.json"),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/invalid/watch-effect.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/invalid/watch-effect.vue"
+      ),
+      include_str!("../../../fixtures/snapshots/no-nested-watch-without-cleanup/watch-effect.json"),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/invalid/void-discard.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/invalid/void-discard.vue"
+      ),
+      include_str!("../../../fixtures/snapshots/no-nested-watch-without-cleanup/void-discard.json"),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/invalid/unicode.vue",
+      include_str!("../../../fixtures/rules/no-nested-watch-without-cleanup/invalid/unicode.vue"),
+      include_str!("../../../fixtures/snapshots/no-nested-watch-without-cleanup/unicode.json"),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/invalid/two-inners.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/invalid/two-inners.vue"
+      ),
+      include_str!("../../../fixtures/snapshots/no-nested-watch-without-cleanup/two-inners.json"),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/invalid/immediate.vue",
+      include_str!("../../../fixtures/rules/no-nested-watch-without-cleanup/invalid/immediate.vue"),
+      include_str!("../../../fixtures/snapshots/no-nested-watch-without-cleanup/immediate.json"),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/invalid/dormant-computed.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/invalid/dormant-computed.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-nested-watch-without-cleanup/dormant-computed.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/invalid/shared-callback.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/invalid/shared-callback.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-nested-watch-without-cleanup/shared-callback.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/invalid/crlf.vue",
+      include_str!("../../../fixtures/rules/no-nested-watch-without-cleanup/invalid/crlf.vue"),
+      include_str!("../../../fixtures/snapshots/no-nested-watch-without-cleanup/crlf.json"),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/invalid/basic.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/invalid/basic.vue"
+      ),
+      include_str!("../../../fixtures/snapshots/no-detached-effect-scope-without-stop/basic.json"),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/invalid/watch-effect.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/invalid/watch-effect.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-detached-effect-scope-without-stop/watch-effect.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/invalid/unicode.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/invalid/unicode.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-detached-effect-scope-without-stop/unicode.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/invalid/crlf.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/invalid/crlf.vue"
+      ),
+      include_str!("../../../fixtures/snapshots/no-detached-effect-scope-without-stop/crlf.json"),
+    ),
+    (
+      "fixtures/rules/no-returned-watcher-cleanup/invalid/returned-watch-handle.vue",
+      include_str!(
+        "../../../fixtures/rules/no-returned-watcher-cleanup/invalid/returned-watch-handle.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-returned-watcher-cleanup/returned-watch-handle.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/invalid/assignment-rhs-tracked-source.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/invalid/assignment-rhs-tracked-source.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-nested-watch-without-cleanup/assignment-rhs-tracked-source.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/invalid/effect-family-once-ignored.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/invalid/effect-family-once-ignored.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-nested-watch-without-cleanup/effect-family-once-ignored.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/invalid/getter-before-stop.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/invalid/getter-before-stop.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-nested-watch-without-cleanup/getter-before-stop.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/invalid/assignment-default-read.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/invalid/assignment-default-read.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-nested-watch-without-cleanup/assignment-default-read.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/invalid/assignment-computed-key-read.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/invalid/assignment-computed-key-read.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-nested-watch-without-cleanup/assignment-computed-key-read.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/invalid/wrapped-custom-ref-getter.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/invalid/wrapped-custom-ref-getter.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-nested-watch-without-cleanup/wrapped-custom-ref-getter.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/invalid/wrapped-custom-ref-getter-unicode.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/invalid/wrapped-custom-ref-getter-unicode.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-nested-watch-without-cleanup/wrapped-custom-ref-getter-unicode.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/invalid/wrapped-custom-ref-getter-crlf.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/invalid/wrapped-custom-ref-getter-crlf.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-nested-watch-without-cleanup/wrapped-custom-ref-getter-crlf.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/invalid/changing-computed-chain.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/invalid/changing-computed-chain.vue"
+      ),
+      include_str!(
+        "../../../fixtures/snapshots/no-nested-watch-without-cleanup/changing-computed-chain.json"
+      ),
+    ),
+    (
+      "fixtures/rules/no-orphaned-scope-watcher/invalid/late-current-scope.vue",
+      include_str!(
+        "../../../fixtures/rules/no-orphaned-scope-watcher/invalid/late-current-scope.vue"
+      ),
+      include_str!("../../../fixtures/snapshots/no-orphaned-scope-watcher/late-current-scope.json"),
+    ),
+  ] {
+    assert_diagnostics(path, source, expected);
+  }
+}
+
+#[test]
 fn reactivity_lifetime_safe_fixtures_produce_no_diagnostics() {
   let empty = "[]";
   for (path, source) in [
@@ -1008,6 +1285,360 @@ fn reactivity_lifetime_safe_fixtures_produce_no_diagnostics() {
     ),
   ] {
     assert_diagnostics(path, source, empty);
+  }
+}
+
+#[test]
+fn reactivity_lifetime_ownership_safe_fixtures_produce_no_diagnostics() {
+  let empty = "[]";
+  for (path, source) in [
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/retained-handle.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/retained-handle.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/on-cleanup.vue",
+      include_str!("../../../fixtures/rules/no-nested-watch-without-cleanup/valid/on-cleanup.vue"),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/scope-run-reentry.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/scope-run-reentry.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/once.vue",
+      include_str!("../../../fixtures/rules/no-nested-watch-without-cleanup/valid/once.vue"),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/unknown-helper.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/unknown-helper.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/unknown-options.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/unknown-options.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/branch.vue",
+      include_str!("../../../fixtures/rules/no-nested-watch-without-cleanup/valid/branch.vue"),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/local-source.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/local-source.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/function-factory.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/function-factory.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/container.vue",
+      include_str!("../../../fixtures/rules/no-nested-watch-without-cleanup/valid/container.vue"),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/captured.vue",
+      include_str!("../../../fixtures/rules/no-nested-watch-without-cleanup/valid/captured.vue"),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/valid/returned-disposer.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/valid/returned-disposer.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/valid/direct-stop.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/valid/direct-stop.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/valid/computed-only.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/valid/computed-only.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/valid/empty-scope.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/valid/empty-scope.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/valid/function-declaration.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/valid/function-declaration.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/valid/retained-handle.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/valid/retained-handle.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/valid/container.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/valid/container.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/valid/helper.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/valid/helper.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/valid/once-outer.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/valid/once-outer.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/valid/unknown-factory.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/valid/unknown-factory.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/valid/method-mutation.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/valid/method-mutation.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/valid/attached-scope.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/valid/attached-scope.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/valid/exhausted-inner.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/valid/exhausted-inner.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/valid/unreachable-run.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/valid/unreachable-run.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/valid/dynamic-computed-run.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/valid/dynamic-computed-run.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/valid/constructor-owner.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/valid/constructor-owner.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/valid/tagged-template.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/valid/tagged-template.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/valid/loop-mutation.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/valid/loop-mutation.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/valid/delete-capability.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/valid/delete-capability.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/valid/current-scope-owner.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/valid/current-scope-owner.vue"
+      ),
+    ),
+  ] {
+    assert_diagnostics(path, source, empty);
+  }
+}
+
+#[test]
+#[expect(clippy::panic, reason = "fixture analysis errors must fail the ownership safe test")]
+fn ownership_generalized_safes_do_not_emit_ownership_ids() {
+  for (path, source) in [
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/dependency-free-outer.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/dependency-free-outer.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/constant-outer.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/constant-outer.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/stopped-outer.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/stopped-outer.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/exhausted-inner-once.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/exhausted-inner-once.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/getter-returns-ref-identity.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/getter-returns-ref-identity.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/effect-reads-identity.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/effect-reads-identity.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/scope-on-off.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/scope-on-off.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/unreachable-inner.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/unreachable-inner.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/write-only.vue",
+      include_str!("../../../fixtures/rules/no-nested-watch-without-cleanup/valid/write-only.vue"),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/guarded-read.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/guarded-read.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/after-await-read.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/after-await-read.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/type-only.vue",
+      include_str!("../../../fixtures/rules/no-nested-watch-without-cleanup/valid/type-only.vue"),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/returned-stop-inner.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/returned-stop-inner.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/stable-outer-getter.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/stable-outer-getter.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/dormant-computed-outer.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/dormant-computed-outer.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/dead-getter-read.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/dead-getter-read.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/delete-effect-property.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/delete-effect-property.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/stopped-outer-after-pure-read.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/stopped-outer-after-pure-read.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/safe-computed-getter-outer.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/safe-computed-getter-outer.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/object-default-skipped.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/object-default-skipped.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/array-default-skipped.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/array-default-skipped.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/async-getter-after-await.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/async-getter-after-await.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/cyclic-computed.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/cyclic-computed.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/self-cyclic-computed.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/self-cyclic-computed.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-nested-watch-without-cleanup/valid/stable-computed-chain.vue",
+      include_str!(
+        "../../../fixtures/rules/no-nested-watch-without-cleanup/valid/stable-computed-chain.vue"
+      ),
+    ),
+    (
+      "fixtures/rules/no-detached-effect-scope-without-stop/valid/conditional-current-scope.vue",
+      include_str!(
+        "../../../fixtures/rules/no-detached-effect-scope-without-stop/valid/conditional-current-scope.vue"
+      ),
+    ),
+  ] {
+    let diagnostics =
+      analyze_sfc(Path::new(path), source).unwrap_or_else(|error| panic!("{path}: {error}"));
+    assert!(
+      diagnostics.iter().all(|row| {
+        !row.rule_id.ends_with("no-nested-watch-without-cleanup")
+          && !row.rule_id.ends_with("no-detached-effect-scope-without-stop")
+      }),
+      "{path} must stay quiet for ownership ids: {diagnostics:?}"
+    );
   }
 }
 

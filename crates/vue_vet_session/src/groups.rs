@@ -28,6 +28,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-custom-ref-lost-notification", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-deep-watch-on-reactive-root", RuleGroupId::Derivation),
   ("vue-vet/reactivity/no-deferred-callback-reactive-read-in-effect", RuleGroupId::Tracking),
+  ("vue-vet/reactivity/no-detached-effect-scope-without-stop", RuleGroupId::Lifetime),
   ("vue-vet/reactivity/no-effect-scope-callback-argument", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-effect-write-without-read", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-empty-watch-sources", RuleGroupId::Tracking),
@@ -40,6 +41,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-missing-torefs-key", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-model-ref-as-operand", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-multiple-effects-same-target", RuleGroupId::Derivation),
+  ("vue-vet/reactivity/no-nested-watch-without-cleanup", RuleGroupId::Lifetime),
   ("vue-vet/reactivity/no-nonreactive-props-destructure", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-on-scope-dispose-reactive-read", RuleGroupId::Lifetime),
   ("vue-vet/reactivity/no-once-immediate-discard", RuleGroupId::SourceContracts),
@@ -228,14 +230,17 @@ mod tests {
   #[test]
   fn lifetime_watcher_and_scope_ids_are_in_lifetime_not_tracking() {
     const LIFETIME_IDS: &[&str] = &[
+      "vue-vet/reactivity/no-detached-effect-scope-without-stop",
       "vue-vet/reactivity/no-late-scope-dispose",
       "vue-vet/reactivity/no-late-watcher-cleanup",
+      "vue-vet/reactivity/no-nested-watch-without-cleanup",
+      "vue-vet/reactivity/no-on-scope-dispose-reactive-read",
       "vue-vet/reactivity/no-orphaned-scope-watcher",
       "vue-vet/reactivity/no-returned-watcher-cleanup",
       "vue-vet/reactivity/no-watch-cleanup-current-source",
     ];
     let inventory = rule_inventory(&[]);
-    assert_eq!(inventory.counts.total, 128, "composed CLI inventory count");
+    assert_eq!(inventory.counts.total, 130, "composed CLI inventory count");
     let source = rule_inventory(&[RuleGroupId::SourceContracts]);
     assert_eq!(source.counts.total, 34, "source-contracts group count");
     let derivation = rule_inventory(&[RuleGroupId::Derivation]);
@@ -267,6 +272,7 @@ mod tests {
       );
     }
     let lifetime = rule_inventory(&[RuleGroupId::Lifetime]);
+    assert_eq!(lifetime.counts.total, 8, "lifetime group count");
     let tracking = rule_inventory(&[RuleGroupId::Tracking]);
     for id in LIFETIME_IDS {
       assert_eq!(group_of(id), Some(RuleGroupId::Lifetime), "{id}");

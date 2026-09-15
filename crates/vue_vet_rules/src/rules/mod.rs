@@ -20,6 +20,7 @@ mod no_aria_hidden_on_focusable;
 mod no_autofocus;
 mod no_deprecated_slot_scope;
 mod no_deprecated_v_on_native_modifier;
+mod no_detached_effect_scope_without_stop;
 mod no_distracting_elements;
 mod no_duplicate_define_emits;
 mod no_duplicate_define_expose;
@@ -30,6 +31,7 @@ mod no_late_scope_dispose;
 mod no_late_watcher_cleanup;
 mod no_lost_shallow_nested_notification;
 mod no_mutating_props;
+mod no_nested_watch_without_cleanup;
 mod no_nonreactive_props_destructure;
 mod no_orphaned_scope_watcher;
 mod no_positive_tabindex;
@@ -60,8 +62,10 @@ pub fn builtins() -> Vec<&'static dyn Rule> {
     &img_has_alt::RULE,
     &label_has_for::RULE,
     &no_after_await_watch_effect_dependency::RULE,
+    &no_detached_effect_scope_without_stop::RULE,
     &no_late_scope_dispose::RULE,
     &no_late_watcher_cleanup::RULE,
+    &no_nested_watch_without_cleanup::RULE,
     &no_orphaned_scope_watcher::RULE,
     &no_returned_watcher_cleanup::RULE,
     &no_watch_cleanup_current_source::RULE,

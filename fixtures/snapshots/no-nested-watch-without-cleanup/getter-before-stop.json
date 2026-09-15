@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-nested-watch-without-cleanup",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-nested-watch-without-cleanup",
+    "message": "`watch` created inside a repeating watcher callback is not stopped when that callback ends",
+    "help": "Keep the inner stop handle, register it with `onCleanup` / `onWatcherCleanup`, or re-enter an owner `scope.run` (outer 8:14, source 9:9). The first immediate run may be scope-owned; later callbacks still leak.",
+    "file": "fixtures/rules/no-nested-watch-without-cleanup/invalid/getter-before-stop.vue",
+    "span": {
+      "offset": 214,
+      "length": 41,
+      "line": 9,
+      "column": 3
+    }
+  }
+]

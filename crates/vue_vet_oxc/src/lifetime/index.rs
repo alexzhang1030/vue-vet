@@ -3,12 +3,14 @@ use std::collections::{HashMap, HashSet};
 use oxc_ast::{
   AstKind,
   ast::{
-    Argument, AssignmentTarget, AssignmentTargetMaybeDefault, AssignmentTargetProperty,
-    BindingPattern, CallExpression, Declaration, Expression, UnaryOperator,
+    Argument, ArrayExpressionElement, AssignmentOperator, AssignmentTarget,
+    AssignmentTargetMaybeDefault, AssignmentTargetProperty, BindingPattern, CallExpression,
+    Declaration, Expression, IdentifierReference, ObjectPropertyKind, SimpleAssignmentTarget,
+    Statement, UnaryOperator, VariableDeclarator,
   },
 };
-use oxc_semantic::{IsGlobalReference, NodeId, SymbolId};
-use oxc_span::Span;
+use oxc_semantic::{IsGlobalReference, NodeId, SymbolFlags, SymbolId};
+use oxc_span::{GetSpan, Span};
 use vue_vet_core::WatcherApiKind;
 
 use super::resolve::{
@@ -16,6 +18,7 @@ use super::resolve::{
   enclosing_function, export_local_symbol_id, is_global_host, is_proven_promise, referenced_symbol,
   uncertain_to_function, vue_callee_export, watcher_api,
 };
+use super::stats::WorkCounter;
 
 #[derive(Default)]
 pub(super) struct LifetimeIndex {
@@ -33,6 +36,42 @@ pub(super) struct LifetimeIndex {
   pub selected_runs: HashMap<NodeId, Option<ProvenRun>>,
   pub incomplete_registration: HashSet<NodeId>,
   pub identity: super::cleanup_identity::CleanupIdentityIndex,
+  pub reactive_bindings: HashMap<SymbolId, ReactiveBinding>,
+  pub tracked_ops_by_fn: HashMap<NodeId, Vec<TrackedOp>>,
+  pub detached_scopes: Vec<DetachedScopeSite>,
+  pub stopped_scopes: HashSet<SymbolId>,
+  pub scope_use_fns: HashMap<SymbolId, HashSet<NodeId>>,
+  pub watch_handles: HashMap<SymbolId, NodeId>,
+  pub stopped_watchers: HashSet<NodeId>,
+  pub scope_toggles: Vec<ScopeToggle>,
+  pub watchers_by_node: HashMap<NodeId, usize>,
+  pub blocks: HashMap<NodeId, BlockFacts>,
+  pub current_scope_calls: Vec<CurrentScopeCall>,
+  pub stop_candidates: Vec<StopCandidate>,
+  pub work: WorkCounter,
+}
+
+#[derive(Clone)]
+pub(super) struct BlockFacts {
+  pub first_exit: usize,
+  pub starts: Vec<u32>,
+  pub ends: Vec<u32>,
+  pub pure: Vec<bool>,
+  pub next_impure: Vec<usize>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct CurrentScopeCall {
+  pub function_id: NodeId,
+  pub node_id: NodeId,
+  pub span: Span,
+  pub unused: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct StopCandidate {
+  pub watcher_id: NodeId,
+  pub stop_id: NodeId,
 }
 
 #[derive(Clone, Copy)]
@@ -44,6 +83,74 @@ pub(super) struct RegisterSite {
   pub explicit_owner: bool,
 }
 
+#[derive(Clone, Copy, Default)]
+pub(super) struct WatcherOptions {
+  pub unknown: bool,
+  pub once: Option<bool>,
+  pub immediate: Option<bool>,
+  pub has_scheduler: bool,
+}
+
+impl WatcherOptions {
+  /// Vue respects `once` only on `watch(source, callback, options)`.
+  pub(super) const fn once_applies(self, api: WatcherApiKind) -> bool {
+    matches!(api, WatcherApiKind::Watch) && matches!(self.once, Some(true))
+  }
+
+  pub(super) const fn is_repeatable(self, api: WatcherApiKind) -> bool {
+    !self.unknown && !self.has_scheduler && !self.once_applies(api)
+  }
+
+  pub(super) const fn is_exhausted_subscription(self, api: WatcherApiKind) -> bool {
+    !self.unknown && self.once_applies(api) && matches!(self.immediate, Some(true))
+  }
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum ReactiveKind {
+  Ref,
+  Computed,
+  Proxy,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct ReactiveBinding {
+  pub kind: ReactiveKind,
+  pub value_getter: Option<NodeId>,
+  pub fresh: bool,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum TrackedOpKind {
+  Read,
+  Write,
+  Delete,
+  Update,
+}
+
+impl TrackedOpKind {
+  pub(super) const fn subscribes(self) -> bool {
+    matches!(self, Self::Read | Self::Update)
+  }
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct TrackedOp {
+  pub symbol: SymbolId,
+  pub span: Span,
+  pub node_id: NodeId,
+  pub kind: TrackedOpKind,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct ScopeToggle {
+  pub symbol: SymbolId,
+  pub function_id: NodeId,
+  pub node_id: NodeId,
+  pub span: Span,
+  pub on: bool,
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct WatcherSite {
   pub span: Span,
@@ -51,10 +158,22 @@ pub(super) struct WatcherSite {
   pub callback: Option<FunctionRef>,
   pub unused: bool,
   pub node_id: NodeId,
+  pub options: WatcherOptions,
+  /// Bare-identifier `watch` source for ownership proofs (no spread, no wrapper).
   pub source_symbol: Option<SymbolId>,
+  /// Inner-expression `watch` source identity for cleanup-identity proofs.
+  pub identity_source_symbol: Option<SymbolId>,
   pub schedule: super::cleanup_identity::WatchSchedule,
   pub handle_symbol: Option<SymbolId>,
   pub owner: Option<NodeId>,
+  pub source_span: Option<Span>,
+  pub source_getter: Option<NodeId>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct DetachedScopeSite {
+  pub span: Span,
+  pub symbol: SymbolId,
 }
 
 #[derive(Clone, Copy)]
@@ -79,6 +198,7 @@ pub(super) struct DisposeSite {
 
 #[derive(Clone, Copy)]
 pub(super) struct ProvenRun {
+  pub node_id: NodeId,
   pub run_span: Span,
   pub owner_span: Span,
   pub callback: FunctionRef,
@@ -95,10 +215,37 @@ pub(super) fn observe_node(
 ) {
   super::cleanup_identity::observe(semantic, node_id, kind, vue_exports, resolver, index);
   match kind {
+    AstKind::BlockStatement(block) => index.record_block(node_id, block.body.as_slice()),
+    AstKind::FunctionBody(body) => index.record_block(node_id, body.statements.as_slice()),
+    AstKind::Program(program) => index.record_block(node_id, program.body.as_slice()),
     AstKind::CallExpression(call) => {
       record_scope_escape(semantic, call, vue_exports, index);
       record_scope_member_use(semantic, node_id, call, vue_exports, index);
       index_call(semantic, node_id, call, vue_exports, resolver, index);
+    }
+    AstKind::NewExpression(expression) => {
+      for argument in &expression.arguments {
+        let Some(value) = argument_expression(argument) else {
+          continue;
+        };
+        mark_value_escape(semantic, value, vue_exports, index);
+      }
+    }
+    AstKind::TaggedTemplateExpression(tagged) => {
+      mark_value_escape(semantic, &tagged.tag, vue_exports, index);
+      for expression in &tagged.quasi.expressions {
+        mark_value_escape(semantic, expression, vue_exports, index);
+      }
+    }
+    AstKind::ForInStatement(statement) => {
+      if let Some(target) = statement.left.as_assignment_target() {
+        mark_capability_mutation_target(semantic, target, index);
+      }
+    }
+    AstKind::ForOfStatement(statement) => {
+      if let Some(target) = statement.left.as_assignment_target() {
+        mark_capability_mutation_target(semantic, target, index);
+      }
     }
     AstKind::AwaitExpression(await_expression) => {
       let Some(function_id) = enclosing_function(semantic, node_id, &mut index.enclosing) else {
@@ -114,13 +261,26 @@ pub(super) fn observe_node(
       }
     }
     AstKind::AssignmentExpression(assignment) => {
-      mark_run_mutation_target(semantic, &assignment.left, index);
+      mark_capability_mutation_target(semantic, &assignment.left, index);
       mark_value_escape(semantic, &assignment.right, vue_exports, index);
     }
+    AstKind::UpdateExpression(update) => match &update.argument {
+      SimpleAssignmentTarget::StaticMemberExpression(member) => {
+        invalidate_scope_receiver(semantic, &member.object, index);
+      }
+      SimpleAssignmentTarget::ComputedMemberExpression(member) => {
+        invalidate_scope_receiver(semantic, &member.object, index);
+      }
+      _ => {}
+    },
     AstKind::VariableDeclarator(declarator) => {
       if let Some(init) = &declarator.init {
         mark_value_escape(semantic, init, vue_exports, index);
       }
+      record_declarator_bindings(semantic, declarator, vue_exports, resolver, index);
+    }
+    AstKind::IdentifierReference(identifier) => {
+      record_identifier_use(semantic, node_id, identifier, vue_exports, index);
     }
     AstKind::ReturnStatement(ret) => {
       if let Some(argument) = &ret.argument {
@@ -185,25 +345,40 @@ fn index_call(
         .and_then(|expression| resolver.resolve_expression(expression))
         .filter(|function| !function.is_generator)
     };
-    let (source_symbol, schedule, handle_symbol) =
+    let (identity_symbol, schedule, handle_symbol) =
       if api == WatcherApiKind::Watch && callback.is_some() {
         super::cleanup_identity::watch_source_and_schedule(semantic, node_id, call)
       } else {
         (None, super::cleanup_identity::WatchSchedule::DEFAULT, None)
       };
     let owner = enclosing_function(semantic, node_id, &mut index.enclosing);
+    let (slot_symbol, source_span, source_getter) =
+      watch_source_slots(semantic, call, api, resolver);
+    index.work.add_watchers(1);
+    index.watchers_by_node.insert(node_id, index.watchers.len());
     index.watchers.push(WatcherSite {
       node_id,
       span: call.span,
       api,
       callback,
       unused: call_result_unused(semantic, node_id),
-      source_symbol,
+      options: watcher_options(call, api),
+      source_symbol: slot_symbol,
+      identity_source_symbol: identity_symbol,
       schedule,
       handle_symbol,
       owner,
+      source_span,
+      source_getter,
     });
+    if let Some(symbol) = const_call_binding(semantic, node_id) {
+      index.watch_handles.insert(symbol, node_id);
+    }
   }
+
+  record_current_scope_call(semantic, node_id, call, vue_exports, index);
+
+  record_stopped_handle(semantic, node_id, call, index);
 
   if vue_callee_export(semantic, &call.callee, vue_exports) == Some("onWatcherCleanup") {
     let site = CleanupSite { node_id, span: call.span, suppressed: cleanup_call_suppressed(call) };
@@ -230,7 +405,7 @@ fn index_call(
     });
   }
 
-  if let Some(run) = proven_run_call(semantic, call, vue_exports, resolver, index) {
+  if let Some(run) = proven_run_call(semantic, node_id, call, vue_exports, resolver, index) {
     index.run_callbacks.entry(run.callback.node_id).or_default().push(run);
   }
 
@@ -245,6 +420,11 @@ fn record_register(
   resolver: &mut FunctionResolver<'_, '_>,
   index: &mut LifetimeIndex,
 ) {
+  if watcher_api(semantic, call, vue_exports).is_some()
+    || vue_callee_export(semantic, &call.callee, vue_exports) == Some("effectScope")
+  {
+    return;
+  }
   let Some(function_id) = enclosing_function(semantic, node_id, &mut index.enclosing) else {
     return;
   };
@@ -329,6 +509,7 @@ fn fail_silently_true(call: &CallExpression<'_>) -> bool {
 
 fn proven_run_call(
   semantic: &oxc_semantic::Semantic<'_>,
+  node_id: NodeId,
   call: &CallExpression<'_>,
   vue_exports: &HashMap<SymbolId, String>,
   resolver: &mut FunctionResolver<'_, '_>,
@@ -351,7 +532,7 @@ fn proven_run_call(
   if callback.is_generator {
     return None;
   }
-  Some(ProvenRun { run_span: call.span, owner_span, callback, scope_symbol })
+  Some(ProvenRun { node_id, run_span: call.span, owner_span, callback, scope_symbol })
 }
 
 fn run_member<'a>(callee: &'a Expression<'a>) -> Option<(&'a Expression<'a>, &'a str)> {
@@ -547,6 +728,15 @@ fn record_scope_member_use(
   let Some((object, property)) = run_member(&call.callee) else {
     return;
   };
+  if property == "stop" {
+    if let Some(identifier) = object.get_inner_expression().get_identifier_reference()
+      && let Some(symbol_id) = referenced_symbol(semantic, identifier)
+      && is_effect_scope_binding(semantic, symbol_id, vue_exports)
+    {
+      index.stopped_scopes.insert(symbol_id);
+    }
+    return;
+  }
   if !matches!(property, "on" | "off") {
     return;
   }
@@ -563,6 +753,13 @@ fn record_scope_member_use(
     return;
   };
   index.reentered_functions.insert(function_id);
+  index.scope_toggles.push(ScopeToggle {
+    symbol: symbol_id,
+    function_id,
+    node_id,
+    span: call.span,
+    on: property == "on",
+  });
 }
 
 fn record_scope_escape(
@@ -652,89 +849,86 @@ fn mark_value_escape(
   }
 }
 
-fn mark_run_mutation_target(
+fn mark_capability_mutation_target(
   semantic: &oxc_semantic::Semantic<'_>,
   target: &AssignmentTarget<'_>,
   index: &mut LifetimeIndex,
 ) {
   match target {
-    AssignmentTarget::StaticMemberExpression(member) if member.property.name.as_str() == "run" => {
+    AssignmentTarget::StaticMemberExpression(member) => {
       invalidate_scope_receiver(semantic, &member.object, index);
     }
     AssignmentTarget::ComputedMemberExpression(member) => {
-      let Expression::StringLiteral(literal) = member.expression.get_inner_expression() else {
-        return;
-      };
-      if literal.value.as_str() == "run" {
-        invalidate_scope_receiver(semantic, &member.object, index);
-      }
+      invalidate_scope_receiver(semantic, &member.object, index);
+    }
+    AssignmentTarget::PrivateFieldExpression(member) => {
+      invalidate_scope_receiver(semantic, &member.object, index);
     }
     AssignmentTarget::ArrayAssignmentTarget(array) => {
       for element in array.elements.iter().flatten() {
-        mark_run_mutation_maybe_default(semantic, element, index);
+        mark_capability_mutation_maybe_default(semantic, element, index);
       }
       if let Some(rest) = &array.rest {
-        mark_run_mutation_target(semantic, &rest.target, index);
+        mark_capability_mutation_target(semantic, &rest.target, index);
       }
     }
     AssignmentTarget::ObjectAssignmentTarget(object) => {
       for property in &object.properties {
         if let AssignmentTargetProperty::AssignmentTargetPropertyProperty(property) = property {
-          mark_run_mutation_maybe_default(semantic, &property.binding, index);
+          mark_capability_mutation_maybe_default(semantic, &property.binding, index);
         }
       }
       if let Some(rest) = &object.rest {
-        mark_run_mutation_target(semantic, &rest.target, index);
+        mark_capability_mutation_target(semantic, &rest.target, index);
       }
     }
     AssignmentTarget::TSAsExpression(inner) => {
-      mark_run_mutation_from_expression(semantic, &inner.expression, index);
+      mark_capability_mutation_from_expression(semantic, &inner.expression, index);
     }
     AssignmentTarget::TSSatisfiesExpression(inner) => {
-      mark_run_mutation_from_expression(semantic, &inner.expression, index);
+      mark_capability_mutation_from_expression(semantic, &inner.expression, index);
     }
     AssignmentTarget::TSNonNullExpression(inner) => {
-      mark_run_mutation_from_expression(semantic, &inner.expression, index);
+      mark_capability_mutation_from_expression(semantic, &inner.expression, index);
     }
     AssignmentTarget::TSTypeAssertion(inner) => {
-      mark_run_mutation_from_expression(semantic, &inner.expression, index);
+      mark_capability_mutation_from_expression(semantic, &inner.expression, index);
     }
-    _ => {}
+    AssignmentTarget::AssignmentTargetIdentifier(_) => {}
   }
 }
 
-fn mark_run_mutation_maybe_default(
+fn mark_capability_mutation_maybe_default(
   semantic: &oxc_semantic::Semantic<'_>,
   target: &AssignmentTargetMaybeDefault<'_>,
   index: &mut LifetimeIndex,
 ) {
   match target {
     AssignmentTargetMaybeDefault::AssignmentTargetWithDefault(with_default) => {
-      mark_run_mutation_target(semantic, &with_default.binding, index);
+      mark_capability_mutation_target(semantic, &with_default.binding, index);
     }
     other => {
       if let Some(target) = other.as_assignment_target() {
-        mark_run_mutation_target(semantic, target, index);
+        mark_capability_mutation_target(semantic, target, index);
       }
     }
   }
 }
 
-fn mark_run_mutation_from_expression(
+fn mark_capability_mutation_from_expression(
   semantic: &oxc_semantic::Semantic<'_>,
   expression: &Expression<'_>,
   index: &mut LifetimeIndex,
 ) {
   match expression.get_inner_expression() {
-    Expression::StaticMemberExpression(member) if member.property.name.as_str() == "run" => {
+    Expression::StaticMemberExpression(member) => {
       invalidate_scope_receiver(semantic, &member.object, index);
     }
     Expression::ComputedMemberExpression(member) => {
-      if let Expression::StringLiteral(literal) = member.expression.get_inner_expression()
-        && literal.value.as_str() == "run"
-      {
-        invalidate_scope_receiver(semantic, &member.object, index);
-      }
+      invalidate_scope_receiver(semantic, &member.object, index);
+    }
+    Expression::PrivateFieldExpression(member) => {
+      invalidate_scope_receiver(semantic, &member.object, index);
     }
     _ => {}
   }
@@ -746,16 +940,14 @@ fn mark_delete_run(
   index: &mut LifetimeIndex,
 ) {
   match argument.get_inner_expression() {
-    Expression::StaticMemberExpression(member) if member.property.name.as_str() == "run" => {
+    Expression::StaticMemberExpression(member) => {
       invalidate_scope_receiver(semantic, &member.object, index);
     }
     Expression::ComputedMemberExpression(member) => {
-      let Expression::StringLiteral(literal) = member.expression.get_inner_expression() else {
-        return;
-      };
-      if literal.value.as_str() == "run" {
-        invalidate_scope_receiver(semantic, &member.object, index);
-      }
+      invalidate_scope_receiver(semantic, &member.object, index);
+    }
+    Expression::PrivateFieldExpression(member) => {
+      invalidate_scope_receiver(semantic, &member.object, index);
     }
     _ => {}
   }
@@ -775,12 +967,119 @@ fn invalidate_scope_receiver(
 }
 
 impl LifetimeIndex {
-  pub(super) fn finalize_selected_runs(&mut self) -> usize {
+  pub(super) fn record_block(&mut self, block_id: NodeId, statements: &[Statement<'_>]) {
+    if self.blocks.contains_key(&block_id) {
+      return;
+    }
+    let mut first_exit = statements.len();
+    let mut starts = Vec::with_capacity(statements.len());
+    let mut ends = Vec::with_capacity(statements.len());
+    let mut pure = Vec::with_capacity(statements.len());
+    for (index, statement) in statements.iter().enumerate() {
+      self.work.add_statements(1);
+      starts.push(statement.span().start);
+      ends.push(statement.span().end);
+      if first_exit == statements.len() && statement_is_unconditional_exit(statement) {
+        first_exit = index;
+      }
+      pure.push(false);
+    }
+    self
+      .blocks
+      .insert(block_id, BlockFacts { first_exit, starts, ends, pure, next_impure: Vec::new() });
+  }
+
+  pub(super) fn preceding_exit(
+    &self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    node_id: NodeId,
+    function_id: NodeId,
+  ) -> bool {
+    let node_start = semantic.nodes().kind(node_id).span().start;
+    let mut current = node_id;
+    loop {
+      let parent = semantic.nodes().parent_id(current);
+      if parent == current {
+        return false;
+      }
+      self.work.add_statements(1);
+      if let Some(block) = self.blocks.get(&parent)
+        && block.ends.get(block.first_exit).is_some_and(|end| *end <= node_start)
+      {
+        return true;
+      }
+      if parent == function_id {
+        return false;
+      }
+      current = parent;
+    }
+  }
+
+  pub(super) fn statement_pos(
+    &self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    mut node_id: NodeId,
+  ) -> Option<(NodeId, usize)> {
+    let node_span = semantic.nodes().kind(node_id).span();
+    loop {
+      let parent = semantic.nodes().parent_id(node_id);
+      if parent == node_id {
+        return None;
+      }
+      if let Some(block) = self.blocks.get(&parent) {
+        let index = self.work.partition_point(&block.starts, |start| *start <= node_span.start);
+        let index = index.saturating_sub(1);
+        if block.starts.get(index).is_some_and(|start| *start <= node_span.start)
+          && block.ends.get(index).is_some_and(|end| *end >= node_span.end)
+        {
+          return Some((parent, index));
+        }
+      }
+      node_id = parent;
+    }
+  }
+
+  pub(super) fn stop_follows_watch_through_pure_reads(
+    &self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    watch_id: NodeId,
+    stop_id: NodeId,
+  ) -> bool {
+    let Some((watch_block, watch_index)) = self.statement_pos(semantic, watch_id) else {
+      return false;
+    };
+    let Some((stop_block, stop_index)) = self.statement_pos(semantic, stop_id) else {
+      return false;
+    };
+    if watch_block != stop_block || stop_index <= watch_index {
+      return false;
+    }
+    let Some(block) = self.blocks.get(&watch_block) else {
+      return false;
+    };
+    self.work.add_statements(1);
+    let start = watch_index.saturating_add(1);
+    let next = block.next_impure.get(start).copied().unwrap_or(block.pure.len());
+    next >= stop_index
+  }
+
+  pub(super) fn watcher_for_call(&self, call: &CallExpression<'_>) -> Option<&WatcherSite> {
+    self.work.add_watchers(1);
+    let node_id = call.node_id.get();
+    self.watchers_by_node.get(&node_id).and_then(|index| self.watchers.get(*index))
+  }
+
+  pub(super) fn finalize(&mut self, semantic: &oxc_semantic::Semantic<'_>) -> usize {
+    self.finalize_block_purity(semantic);
+    self.prove_stopped_handles(semantic);
+    self.drop_dead_tracked_ops(semantic);
+    self.escape_current_scope_capability(semantic);
     let mut work = 0usize;
     let unproven = &self.unproven_scopes;
     let mut selected = HashMap::new();
     for (function_id, runs) in &self.run_callbacks {
       work = work.saturating_add(runs.len());
+      self.work.add_watchers(runs.len());
       let chosen = runs
         .iter()
         .filter(|run| run.scope_symbol.is_none_or(|symbol| !unproven.contains(&symbol)))
@@ -791,6 +1090,218 @@ impl LifetimeIndex {
     self.selected_runs = selected;
     work
   }
+
+  fn drop_dead_tracked_ops(&mut self, semantic: &oxc_semantic::Semantic<'_>) {
+    let function_ids: Vec<NodeId> = self.tracked_ops_by_fn.keys().copied().collect();
+    for function_id in function_ids {
+      let ops = self.tracked_ops_by_fn.get(&function_id).cloned().unwrap_or_default();
+      let live: Vec<TrackedOp> = ops
+        .into_iter()
+        .filter(|op| {
+          self.work.add_references(1);
+          !self.preceding_exit(semantic, op.node_id, function_id)
+        })
+        .collect();
+      self.tracked_ops_by_fn.insert(function_id, live);
+    }
+  }
+
+  fn finalize_block_purity(&mut self, semantic: &oxc_semantic::Semantic<'_>) {
+    let block_ids: Vec<NodeId> = self.blocks.keys().copied().collect();
+    for block_id in block_ids {
+      let Some(statements) = statements_of(semantic, block_id) else {
+        continue;
+      };
+      let mut pure = Vec::with_capacity(statements.len());
+      for statement in statements {
+        self.work.add_statements(1);
+        pure.push(statement_is_pure_read(semantic, self, statement));
+      }
+      let count = pure.len();
+      let mut next_impure = vec![count; count];
+      let mut next = count;
+      for index in (0..count).rev() {
+        self.work.add_statements(1);
+        if !pure.get(index).copied().unwrap_or(true) {
+          next = index;
+        }
+        if let Some(slot) = next_impure.get_mut(index) {
+          *slot = next;
+        }
+      }
+      if let Some(block) = self.blocks.get_mut(&block_id) {
+        block.pure = pure;
+        block.next_impure = next_impure;
+      }
+    }
+  }
+
+  fn prove_stopped_handles(&mut self, semantic: &oxc_semantic::Semantic<'_>) {
+    let candidates = self.stop_candidates.clone();
+    for candidate in candidates {
+      self.work.add_watchers(1);
+      if self.stopped_watchers.contains(&candidate.watcher_id) {
+        continue;
+      }
+      if self.stop_follows_watch_through_pure_reads(
+        semantic,
+        candidate.watcher_id,
+        candidate.stop_id,
+      ) {
+        self.stopped_watchers.insert(candidate.watcher_id);
+      }
+    }
+  }
+
+  fn escape_current_scope_capability(&mut self, semantic: &oxc_semantic::Semantic<'_>) {
+    let calls = self.current_scope_calls.clone();
+    let mut eligible = HashSet::new();
+    for call in &calls {
+      self.work.add_references(1);
+      match self.current_scope_capability(semantic, call) {
+        CurrentScopeCapability::Absent => {}
+        CurrentScopeCapability::MayEscape | CurrentScopeCapability::Escaped => {
+          eligible.insert(call.function_id);
+        }
+      }
+    }
+    let mut escaped = HashSet::new();
+    for function_id in eligible {
+      let Some(runs) = self.run_callbacks.get(&function_id) else {
+        continue;
+      };
+      self.work.add_references(runs.len());
+      for run in runs {
+        if let Some(symbol) = run.scope_symbol {
+          escaped.insert(symbol);
+        }
+      }
+    }
+    self.unproven_scopes.extend(escaped);
+  }
+
+  fn current_scope_capability(
+    &self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    call: &CurrentScopeCall,
+  ) -> CurrentScopeCapability {
+    if call.unused || self.preceding_exit(semantic, call.node_id, call.function_id) {
+      return CurrentScopeCapability::Absent;
+    }
+    if let Some(await_span) = self.first_await.get(&call.function_id)
+      && call.span.start >= await_span.end
+    {
+      return CurrentScopeCapability::Absent;
+    }
+    if uncertain_to_function(semantic, call.node_id, call.function_id) {
+      CurrentScopeCapability::MayEscape
+    } else {
+      CurrentScopeCapability::Escaped
+    }
+  }
+}
+
+const fn statement_is_unconditional_exit(statement: &Statement<'_>) -> bool {
+  matches!(statement, Statement::ReturnStatement(_) | Statement::ThrowStatement(_))
+}
+
+fn statements_of<'a>(
+  semantic: &'a oxc_semantic::Semantic<'a>,
+  node_id: NodeId,
+) -> Option<&'a [Statement<'a>]> {
+  match semantic.nodes().kind(node_id) {
+    AstKind::BlockStatement(block) => Some(block.body.as_slice()),
+    AstKind::FunctionBody(body) => Some(body.statements.as_slice()),
+    AstKind::Program(program) => Some(program.body.as_slice()),
+    _ => None,
+  }
+}
+
+fn statement_is_pure_read(
+  semantic: &oxc_semantic::Semantic<'_>,
+  index: &LifetimeIndex,
+  statement: &Statement<'_>,
+) -> bool {
+  match statement {
+    Statement::EmptyStatement(_) => true,
+    Statement::ExpressionStatement(expression) => {
+      is_pure_read_expr(semantic, index, &expression.expression)
+    }
+    Statement::VariableDeclaration(declaration)
+      if matches!(
+        declaration.kind,
+        oxc_ast::ast::VariableDeclarationKind::Const
+          | oxc_ast::ast::VariableDeclarationKind::Let
+          | oxc_ast::ast::VariableDeclarationKind::Var
+      ) =>
+    {
+      declaration.declarations.iter().all(|declarator| {
+        matches!(declarator.id, BindingPattern::BindingIdentifier(_))
+          && declarator.init.as_ref().is_none_or(|init| is_pure_read_expr(semantic, index, init))
+      })
+    }
+    _ => false,
+  }
+}
+
+fn is_pure_read_expr(
+  semantic: &oxc_semantic::Semantic<'_>,
+  index: &LifetimeIndex,
+  expression: &Expression<'_>,
+) -> bool {
+  match expression.get_inner_expression() {
+    Expression::BooleanLiteral(_)
+    | Expression::NullLiteral(_)
+    | Expression::NumericLiteral(_)
+    | Expression::StringLiteral(_)
+    | Expression::BigIntLiteral(_)
+    | Expression::Identifier(_)
+    | Expression::ThisExpression(_) => true,
+    Expression::TemplateLiteral(template) => template.expressions.is_empty(),
+    Expression::StaticMemberExpression(member) => {
+      is_proven_vue_ref_value(semantic, index, &member.object, member.property.name.as_str())
+    }
+    Expression::ComputedMemberExpression(member) => {
+      matches!(
+        member.expression.get_inner_expression(),
+        Expression::StringLiteral(literal) if literal.value.as_str() == "value"
+      ) && is_proven_vue_ref_value(semantic, index, &member.object, "value")
+    }
+    Expression::UnaryExpression(unary) if unary.operator == UnaryOperator::Void => {
+      is_pure_read_expr(semantic, index, &unary.argument)
+    }
+    Expression::ParenthesizedExpression(inner) => {
+      is_pure_read_expr(semantic, index, &inner.expression)
+    }
+    Expression::TSAsExpression(inner) => is_pure_read_expr(semantic, index, &inner.expression),
+    Expression::TSSatisfiesExpression(inner) => {
+      is_pure_read_expr(semantic, index, &inner.expression)
+    }
+    Expression::TSNonNullExpression(inner) => is_pure_read_expr(semantic, index, &inner.expression),
+    Expression::TSTypeAssertion(inner) => is_pure_read_expr(semantic, index, &inner.expression),
+    _ => false,
+  }
+}
+
+fn is_proven_vue_ref_value(
+  semantic: &oxc_semantic::Semantic<'_>,
+  index: &LifetimeIndex,
+  object: &Expression<'_>,
+  property: &str,
+) -> bool {
+  if property != "value" {
+    return false;
+  }
+  let Some(identifier) = object.get_inner_expression().get_identifier_reference() else {
+    return false;
+  };
+  let Some(symbol) = referenced_symbol(semantic, identifier) else {
+    return false;
+  };
+  index
+    .reactive_bindings
+    .get(&symbol)
+    .is_some_and(|binding| matches!(binding.kind, ReactiveKind::Ref) && binding.fresh)
 }
 
 fn call_result_unused(semantic: &oxc_semantic::Semantic<'_>, node_id: NodeId) -> bool {
@@ -798,5 +1309,602 @@ fn call_result_unused(semantic: &oxc_semantic::Semantic<'_>, node_id: NodeId) ->
     AstKind::ExpressionStatement(_) => true,
     AstKind::UnaryExpression(unary) if unary.operator == UnaryOperator::Void => true,
     _ => false,
+  }
+}
+
+fn record_declarator_bindings(
+  semantic: &oxc_semantic::Semantic<'_>,
+  declarator: &VariableDeclarator<'_>,
+  vue_exports: &HashMap<SymbolId, String>,
+  resolver: &mut FunctionResolver<'_, '_>,
+  index: &mut LifetimeIndex,
+) {
+  let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
+    return;
+  };
+  let Some(symbol_id) = identifier.symbol_id.get() else {
+    return;
+  };
+  if !semantic.scoping().symbol_flags(symbol_id).contains(SymbolFlags::ConstVariable) {
+    return;
+  }
+  let Some(init) = &declarator.init else {
+    return;
+  };
+  let Expression::CallExpression(call) = init.get_inner_expression() else {
+    return;
+  };
+  match vue_callee_export(semantic, &call.callee, vue_exports) {
+    Some("ref" | "shallowRef") => {
+      index.reactive_bindings.insert(
+        symbol_id,
+        ReactiveBinding {
+          kind: ReactiveKind::Ref,
+          value_getter: None,
+          fresh: is_fresh_plain_ref_argument(call),
+        },
+      );
+    }
+    Some("computed") => {
+      let value_getter = computed_getter_id(call, resolver);
+      index.reactive_bindings.insert(
+        symbol_id,
+        ReactiveBinding { kind: ReactiveKind::Computed, value_getter, fresh: false },
+      );
+    }
+    Some("reactive" | "shallowReactive") => {
+      index.reactive_bindings.insert(
+        symbol_id,
+        ReactiveBinding { kind: ReactiveKind::Proxy, value_getter: None, fresh: false },
+      );
+    }
+    Some("effectScope") if is_literal_detached_scope(call) => {
+      index.detached_scopes.push(DetachedScopeSite { span: call.span, symbol: symbol_id });
+    }
+    _ => {}
+  }
+}
+
+fn is_literal_detached_scope(call: &CallExpression<'_>) -> bool {
+  if call_has_spread(call) || call.arguments.len() != 1 {
+    return false;
+  }
+  matches!(
+    call.arguments.first().and_then(argument_expression),
+    Some(Expression::BooleanLiteral(literal)) if literal.value
+  )
+}
+
+fn is_fresh_plain_ref_argument(call: &CallExpression<'_>) -> bool {
+  if call_has_spread(call) {
+    return false;
+  }
+  let Some(argument) = call.arguments.first() else {
+    return true;
+  };
+  let Some(expression) = argument_expression(argument) else {
+    return false;
+  };
+  match expression.get_inner_expression() {
+    Expression::BooleanLiteral(_)
+    | Expression::NullLiteral(_)
+    | Expression::NumericLiteral(_)
+    | Expression::StringLiteral(_)
+    | Expression::BigIntLiteral(_)
+    | Expression::ObjectExpression(_)
+    | Expression::ArrayExpression(_) => true,
+    Expression::TemplateLiteral(template) => template.expressions.is_empty(),
+    Expression::Identifier(identifier) if identifier.name == "undefined" => true,
+    Expression::UnaryExpression(unary) if unary.operator == UnaryOperator::Void => true,
+    _ => false,
+  }
+}
+
+fn record_identifier_use(
+  semantic: &oxc_semantic::Semantic<'_>,
+  node_id: NodeId,
+  identifier: &IdentifierReference<'_>,
+  vue_exports: &HashMap<SymbolId, String>,
+  index: &mut LifetimeIndex,
+) {
+  let Some(symbol_id) = referenced_symbol(semantic, identifier) else {
+    return;
+  };
+  let Some(function_id) = enclosing_function(semantic, node_id, &mut index.enclosing) else {
+    return;
+  };
+  if is_effect_scope_binding(semantic, symbol_id, vue_exports) {
+    index.scope_use_fns.entry(symbol_id).or_default().insert(function_id);
+  }
+  if is_type_position(semantic, node_id) {
+    return;
+  }
+  let Some(&binding) = index.reactive_bindings.get(&symbol_id) else {
+    return;
+  };
+  let Some(kind) = classify_tracked_op(semantic, node_id, identifier.span, binding.kind) else {
+    return;
+  };
+  if uncertain_to_function(semantic, node_id, function_id) {
+    return;
+  }
+  if let Some(await_span) = index.first_await.get(&function_id)
+    && identifier.span.start >= await_span.end
+  {
+    return;
+  }
+  index.work.add_references(1);
+  index.tracked_ops_by_fn.entry(function_id).or_default().push(TrackedOp {
+    symbol: symbol_id,
+    span: identifier.span,
+    node_id,
+    kind,
+  });
+}
+
+fn watch_source_slots(
+  semantic: &oxc_semantic::Semantic<'_>,
+  call: &CallExpression<'_>,
+  api: WatcherApiKind,
+  resolver: &mut FunctionResolver<'_, '_>,
+) -> (Option<SymbolId>, Option<Span>, Option<NodeId>) {
+  if api != WatcherApiKind::Watch || call_has_spread(call) {
+    return (None, None, None);
+  }
+  let Some(expression) = call.arguments.first().and_then(argument_expression) else {
+    return (None, None, None);
+  };
+  match expression {
+    Expression::Identifier(identifier) => {
+      let symbol = referenced_symbol(semantic, identifier);
+      (symbol, symbol.map(|_| identifier.span), None)
+    }
+    Expression::ArrowFunctionExpression(arrow) => (None, None, Some(arrow.node_id.get())),
+    Expression::FunctionExpression(function) => (None, None, Some(function.node_id.get())),
+    other => resolver
+      .resolve_expression(other)
+      .map_or((None, None, None), |function| (None, None, Some(function.node_id))),
+  }
+}
+
+fn watcher_options(call: &CallExpression<'_>, api: WatcherApiKind) -> WatcherOptions {
+  if call_has_spread(call) {
+    return WatcherOptions { unknown: true, ..WatcherOptions::default() };
+  }
+  let slot = match api {
+    WatcherApiKind::Watch => 2,
+    WatcherApiKind::WatchEffect
+    | WatcherApiKind::WatchPostEffect
+    | WatcherApiKind::WatchSyncEffect => 1,
+  };
+  let Some(argument) = call.arguments.get(slot) else {
+    return WatcherOptions::default();
+  };
+  let Some(expression) = argument_expression(argument) else {
+    return WatcherOptions { unknown: true, ..WatcherOptions::default() };
+  };
+  let Expression::ObjectExpression(object) = expression else {
+    return WatcherOptions { unknown: true, ..WatcherOptions::default() };
+  };
+  let mut options = WatcherOptions::default();
+  for property in &object.properties {
+    match property {
+      ObjectPropertyKind::SpreadProperty(_) => options.unknown = true,
+      ObjectPropertyKind::ObjectProperty(property) => {
+        let Some(name) = property.key.static_name() else {
+          options.unknown = true;
+          continue;
+        };
+        match name.as_ref() {
+          "once" => match property.value.get_inner_expression() {
+            Expression::BooleanLiteral(literal) => options.once = Some(literal.value),
+            _ => options.unknown = true,
+          },
+          "immediate" => match property.value.get_inner_expression() {
+            Expression::BooleanLiteral(literal) => options.immediate = Some(literal.value),
+            _ => options.unknown = true,
+          },
+          "scheduler" => options.has_scheduler = true,
+          _ => {}
+        }
+      }
+    }
+  }
+  options
+}
+
+fn const_call_binding(
+  semantic: &oxc_semantic::Semantic<'_>,
+  mut node_id: NodeId,
+) -> Option<SymbolId> {
+  loop {
+    let parent = semantic.nodes().parent_id(node_id);
+    if parent == node_id {
+      return None;
+    }
+    match semantic.nodes().kind(parent) {
+      AstKind::VariableDeclarator(declarator) => {
+        let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
+          return None;
+        };
+        let symbol_id = identifier.symbol_id.get()?;
+        if semantic.scoping().symbol_flags(symbol_id).contains(SymbolFlags::ConstVariable) {
+          return Some(symbol_id);
+        }
+        return None;
+      }
+      AstKind::ParenthesizedExpression(_)
+      | AstKind::TSAsExpression(_)
+      | AstKind::TSSatisfiesExpression(_)
+      | AstKind::TSNonNullExpression(_)
+      | AstKind::TSTypeAssertion(_) => node_id = parent,
+      _ => return None,
+    }
+  }
+}
+
+fn record_stopped_handle(
+  semantic: &oxc_semantic::Semantic<'_>,
+  node_id: NodeId,
+  call: &CallExpression<'_>,
+  index: &mut LifetimeIndex,
+) {
+  let Some(identifier) = call.callee.get_inner_expression().get_identifier_reference() else {
+    return;
+  };
+  let Some(symbol_id) = referenced_symbol(semantic, identifier) else {
+    return;
+  };
+  let Some(&watcher_id) = index.watch_handles.get(&symbol_id) else {
+    return;
+  };
+  let function_id = enclosing_function(semantic, node_id, &mut index.enclosing);
+  let watch_fn = enclosing_function(semantic, watcher_id, &mut index.enclosing);
+  if function_id != watch_fn {
+    return;
+  }
+  if function_id.is_some_and(|function_id| uncertain_to_function(semantic, node_id, function_id)) {
+    return;
+  }
+  index.work.add_watchers(1);
+  index.stop_candidates.push(StopCandidate { watcher_id, stop_id: node_id });
+}
+
+fn is_type_position(semantic: &oxc_semantic::Semantic<'_>, node_id: NodeId) -> bool {
+  matches!(
+    semantic.nodes().parent_kind(node_id),
+    AstKind::TSTypeQuery(_)
+      | AstKind::TSTypeReference(_)
+      | AstKind::TSTypeAnnotation(_)
+      | AstKind::TSTypeAliasDeclaration(_)
+      | AstKind::TSInterfaceDeclaration(_)
+      | AstKind::TSTypeParameterInstantiation(_)
+      | AstKind::TSTypeParameter(_)
+      | AstKind::TSQualifiedName(_)
+  )
+}
+
+fn computed_getter_id(
+  call: &CallExpression<'_>,
+  resolver: &mut FunctionResolver<'_, '_>,
+) -> Option<NodeId> {
+  let expression = call.arguments.first().and_then(argument_expression)?;
+  match expression {
+    Expression::ArrowFunctionExpression(arrow) => Some(arrow.node_id.get()),
+    Expression::FunctionExpression(function) => Some(function.node_id.get()),
+    other => resolver.resolve_expression(other).map(|function| function.node_id),
+  }
+}
+
+fn record_current_scope_call(
+  semantic: &oxc_semantic::Semantic<'_>,
+  node_id: NodeId,
+  call: &CallExpression<'_>,
+  vue_exports: &HashMap<SymbolId, String>,
+  index: &mut LifetimeIndex,
+) {
+  if vue_callee_export(semantic, &call.callee, vue_exports) != Some("getCurrentScope") {
+    return;
+  }
+  let Some(function_id) = enclosing_function(semantic, node_id, &mut index.enclosing) else {
+    return;
+  };
+  index.work.add_references(1);
+  index.current_scope_calls.push(CurrentScopeCall {
+    function_id,
+    node_id,
+    span: call.span,
+    unused: call_result_unused(semantic, node_id),
+  });
+}
+
+fn classify_tracked_op(
+  semantic: &oxc_semantic::Semantic<'_>,
+  node_id: NodeId,
+  ident_span: Span,
+  kind: ReactiveKind,
+) -> Option<TrackedOpKind> {
+  let member_id = semantic.nodes().parent_id(node_id);
+  if member_id == node_id || !is_tracked_member(semantic, member_id, ident_span, kind) {
+    return None;
+  }
+  classify_member_role(semantic, member_id)
+}
+
+fn is_tracked_member(
+  semantic: &oxc_semantic::Semantic<'_>,
+  member_id: NodeId,
+  ident_span: Span,
+  kind: ReactiveKind,
+) -> bool {
+  match semantic.nodes().kind(member_id) {
+    AstKind::StaticMemberExpression(member) => {
+      if member.object.get_inner_expression().span() != ident_span {
+        return false;
+      }
+      match kind {
+        ReactiveKind::Ref | ReactiveKind::Computed => member.property.name.as_str() == "value",
+        ReactiveKind::Proxy => true,
+      }
+    }
+    AstKind::ComputedMemberExpression(member) => {
+      if member.object.get_inner_expression().span() != ident_span {
+        return false;
+      }
+      match kind {
+        ReactiveKind::Ref | ReactiveKind::Computed => {
+          matches!(
+            member.expression.get_inner_expression(),
+            Expression::StringLiteral(literal) if literal.value.as_str() == "value"
+          )
+        }
+        ReactiveKind::Proxy => true,
+      }
+    }
+    _ => false,
+  }
+}
+
+fn classify_member_role(
+  semantic: &oxc_semantic::Semantic<'_>,
+  mut node_id: NodeId,
+) -> Option<TrackedOpKind> {
+  loop {
+    let parent = semantic.nodes().parent_id(node_id);
+    if parent == node_id {
+      return Some(TrackedOpKind::Read);
+    }
+    match semantic.nodes().kind(parent) {
+      AstKind::UnaryExpression(unary) if unary.operator == UnaryOperator::Delete => {
+        return Some(TrackedOpKind::Delete);
+      }
+      AstKind::UpdateExpression(_) => return Some(TrackedOpKind::Update),
+      AstKind::AssignmentExpression(assignment) => {
+        let node_span = semantic.nodes().kind(node_id).span();
+        if span_covers(assignment.left.span(), node_span) {
+          return Some(if assignment.operator == AssignmentOperator::Assign {
+            TrackedOpKind::Write
+          } else {
+            TrackedOpKind::Update
+          });
+        }
+        return Some(TrackedOpKind::Read);
+      }
+      AstKind::AssignmentTargetWithDefault(target) => {
+        let node_span = semantic.nodes().kind(node_id).span();
+        if span_covers(target.init.span(), node_span) {
+          return match default_activation(semantic, parent) {
+            DefaultActivation::Activated => Some(TrackedOpKind::Read),
+            DefaultActivation::Skipped | DefaultActivation::Unknown => None,
+          };
+        }
+        node_id = parent;
+      }
+      AstKind::AssignmentTargetPropertyIdentifier(property) => {
+        let node_span = semantic.nodes().kind(node_id).span();
+        if property.init.as_ref().is_some_and(|init| span_covers(init.span(), node_span)) {
+          return match default_activation(semantic, parent) {
+            DefaultActivation::Activated => Some(TrackedOpKind::Read),
+            DefaultActivation::Skipped | DefaultActivation::Unknown => None,
+          };
+        }
+        node_id = parent;
+      }
+      AstKind::AssignmentTargetPropertyProperty(property) => {
+        let node_span = semantic.nodes().kind(node_id).span();
+        if span_covers(property.name.span(), node_span) {
+          return Some(TrackedOpKind::Read);
+        }
+        node_id = parent;
+      }
+      AstKind::ArrayAssignmentTarget(_)
+      | AstKind::ObjectAssignmentTarget(_)
+      | AstKind::ForInStatement(_)
+      | AstKind::ForOfStatement(_) => return Some(TrackedOpKind::Write),
+      AstKind::ParenthesizedExpression(_)
+      | AstKind::TSAsExpression(_)
+      | AstKind::TSSatisfiesExpression(_)
+      | AstKind::TSNonNullExpression(_)
+      | AstKind::TSTypeAssertion(_)
+      | AstKind::ChainExpression(_) => node_id = parent,
+      _ => return Some(TrackedOpKind::Read),
+    }
+  }
+}
+
+const fn span_covers(outer: Span, inner: Span) -> bool {
+  outer.start <= inner.start && outer.end >= inner.end
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum CurrentScopeCapability {
+  Absent,
+  MayEscape,
+  Escaped,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum DefaultActivation {
+  Activated,
+  Skipped,
+  Unknown,
+}
+
+enum PatternSlot {
+  Object(String),
+  Array(usize),
+}
+
+fn default_activation(
+  semantic: &oxc_semantic::Semantic<'_>,
+  mut node_id: NodeId,
+) -> DefaultActivation {
+  let mut slots = Vec::new();
+  loop {
+    let parent = semantic.nodes().parent_id(node_id);
+    if parent == node_id {
+      return DefaultActivation::Unknown;
+    }
+    match semantic.nodes().kind(parent) {
+      AstKind::AssignmentTargetPropertyProperty(property) => {
+        if property.computed {
+          return DefaultActivation::Unknown;
+        }
+        let Some(name) = property.name.static_name() else {
+          return DefaultActivation::Unknown;
+        };
+        slots.push(PatternSlot::Object(name.to_string()));
+        node_id = parent;
+      }
+      AstKind::AssignmentTargetPropertyIdentifier(property) => {
+        slots.push(PatternSlot::Object(property.binding.name.to_string()));
+        node_id = parent;
+      }
+      AstKind::ArrayAssignmentTarget(array) => {
+        let node_span = semantic.nodes().kind(node_id).span();
+        let Some(index) = array
+          .elements
+          .iter()
+          .position(|element| element.as_ref().is_some_and(|el| span_covers(el.span(), node_span)))
+        else {
+          return DefaultActivation::Unknown;
+        };
+        slots.push(PatternSlot::Array(index));
+        node_id = parent;
+      }
+      AstKind::AssignmentExpression(assignment) => {
+        if slots.is_empty() {
+          return DefaultActivation::Unknown;
+        }
+        return activation_from_rhs(&assignment.right, &slots);
+      }
+      AstKind::AssignmentTargetWithDefault(_)
+      | AstKind::ObjectAssignmentTarget(_)
+      | AstKind::ParenthesizedExpression(_)
+      | AstKind::TSAsExpression(_)
+      | AstKind::TSSatisfiesExpression(_)
+      | AstKind::TSNonNullExpression(_)
+      | AstKind::TSTypeAssertion(_)
+      | AstKind::ChainExpression(_) => {
+        node_id = parent;
+      }
+      _ => return DefaultActivation::Unknown,
+    }
+  }
+}
+
+fn activation_from_rhs(expression: &Expression<'_>, slots: &[PatternSlot]) -> DefaultActivation {
+  let mut current = expression;
+  for slot in slots.iter().rev() {
+    match (current.get_inner_expression(), slot) {
+      (Expression::ObjectExpression(object), PatternSlot::Object(key)) => {
+        match object_property_value(object, key) {
+          ObjectSlot::Missing => return DefaultActivation::Activated,
+          ObjectSlot::Unknown => return DefaultActivation::Unknown,
+          ObjectSlot::Value(value) => current = value,
+        }
+      }
+      (Expression::ArrayExpression(array), PatternSlot::Array(index)) => {
+        match array_element_value(array, *index) {
+          ObjectSlot::Missing => return DefaultActivation::Activated,
+          ObjectSlot::Unknown => return DefaultActivation::Unknown,
+          ObjectSlot::Value(value) => current = value,
+        }
+      }
+      (Expression::Identifier(identifier), _) if identifier.name == "undefined" => {
+        return DefaultActivation::Activated;
+      }
+      (Expression::UnaryExpression(unary), _) if matches!(unary.operator, UnaryOperator::Void) => {
+        return DefaultActivation::Activated;
+      }
+      _ => return DefaultActivation::Unknown,
+    }
+  }
+  match current.get_inner_expression() {
+    Expression::Identifier(identifier) if identifier.name == "undefined" => {
+      DefaultActivation::Activated
+    }
+    Expression::UnaryExpression(unary) if matches!(unary.operator, UnaryOperator::Void) => {
+      DefaultActivation::Activated
+    }
+    Expression::BooleanLiteral(_)
+    | Expression::NullLiteral(_)
+    | Expression::NumericLiteral(_)
+    | Expression::StringLiteral(_)
+    | Expression::BigIntLiteral(_)
+    | Expression::ObjectExpression(_)
+    | Expression::ArrayExpression(_) => DefaultActivation::Skipped,
+    Expression::TemplateLiteral(template) if template.expressions.is_empty() => {
+      DefaultActivation::Skipped
+    }
+    _ => DefaultActivation::Unknown,
+  }
+}
+
+enum ObjectSlot<'a> {
+  Missing,
+  Value(&'a Expression<'a>),
+  Unknown,
+}
+
+fn object_property_value<'a>(
+  object: &'a oxc_ast::ast::ObjectExpression<'a>,
+  key: &str,
+) -> ObjectSlot<'a> {
+  let mut found = None;
+  for property in &object.properties {
+    match property {
+      ObjectPropertyKind::SpreadProperty(_) => return ObjectSlot::Unknown,
+      ObjectPropertyKind::ObjectProperty(property) => {
+        if property.computed {
+          return ObjectSlot::Unknown;
+        }
+        let Some(name) = property.key.static_name() else {
+          return ObjectSlot::Unknown;
+        };
+        if name == key {
+          found = Some(&property.value);
+        }
+      }
+    }
+  }
+  found.map_or(ObjectSlot::Missing, ObjectSlot::Value)
+}
+
+fn array_element_value<'a>(
+  array: &'a oxc_ast::ast::ArrayExpression<'a>,
+  index: usize,
+) -> ObjectSlot<'a> {
+  if array
+    .elements
+    .iter()
+    .any(|element| matches!(element, ArrayExpressionElement::SpreadElement(_)))
+  {
+    return ObjectSlot::Unknown;
+  }
+  match array.elements.get(index) {
+    None | Some(ArrayExpressionElement::Elision(_)) => ObjectSlot::Missing,
+    Some(ArrayExpressionElement::SpreadElement(_)) => ObjectSlot::Unknown,
+    Some(element) => element.as_expression().map_or(ObjectSlot::Unknown, ObjectSlot::Value),
   }
 }

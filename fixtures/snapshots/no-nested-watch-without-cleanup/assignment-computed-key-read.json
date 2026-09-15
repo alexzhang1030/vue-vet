@@ -1,0 +1,34 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/prefer-watch-over-effect-for-single-source",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/reactivity/prefer-watch-over-effect-for-single-source",
+    "message": "`watchEffect` only tracks `inner.value`; prefer `watch` with an explicit source",
+    "help": "Use `watch(() => inner.value, …, { immediate: true, flush: 'sync' })` to preserve the first run and sync flush.",
+    "file": "fixtures/rules/no-nested-watch-without-cleanup/invalid/assignment-computed-key-read.vue",
+    "span": {
+      "offset": 149,
+      "length": 82,
+      "line": 7,
+      "column": 3
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/no-nested-watch-without-cleanup",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-nested-watch-without-cleanup",
+    "message": "`watchEffect` created inside a repeating watcher callback is not stopped when that callback ends",
+    "help": "Keep the inner stop handle, register it with `onCleanup` / `onWatcherCleanup`, or re-enter an owner `scope.run` (outer 6:1, source 8:9). The first immediate run may be scope-owned; later callbacks still leak.",
+    "file": "fixtures/rules/no-nested-watch-without-cleanup/invalid/assignment-computed-key-read.vue",
+    "span": {
+      "offset": 149,
+      "length": 82,
+      "line": 7,
+      "column": 3
+    }
+  }
+]

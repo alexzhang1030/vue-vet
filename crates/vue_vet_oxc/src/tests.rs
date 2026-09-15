@@ -1406,6 +1406,826 @@ fn spread_cleanup_registration_stays_quiet_and_bare_return_still_reports() {
 }
 
 #[test]
+fn computed_retention_and_returned_watch_handle_are_owned() {
+  let computed = analyze(
+    "import { computed, ref, watch } from 'vue';\
+     const outer = ref(0);\
+     const inner = computed(() => 1);\
+     const stop = watch(outer, () => { watch(inner, () => {}, { flush: 'sync' }); }, { flush: 'sync' });\
+     outer.value++;\
+     stop();",
+    "ts",
+  );
+  assert_eq!(
+    computed.lifetime.nested_watch_without_cleanups.len(),
+    1,
+    "constant computed still retains subscribers: {:?}",
+    computed.lifetime
+  );
+  let returned = analyze(
+    "import { ref, watch } from 'vue';\
+     const outer = ref(0);\
+     const inner = ref(0);\
+     watch(outer, () => { return watch(inner, () => {}, { flush: 'sync' }); }, { flush: 'sync' });",
+    "ts",
+  );
+  assert_eq!(
+    returned.lifetime.returned_watcher_cleanups.len(),
+    1,
+    "returned inner watch handle: {:?}",
+    returned.lifetime
+  );
+  assert!(
+    returned.lifetime.nested_watch_without_cleanups.is_empty(),
+    "nested must stay quiet when the inner call is returned: {:?}",
+    returned.lifetime
+  );
+}
+
+#[test]
+fn ownership_corpus_covers_repeat_stop_escape_and_reachability() {
+  let quiet = [
+    "import { ref, watch, watchEffect } from 'vue'; const inner = ref(0); watchEffect(() => { watch(inner, () => {}, { flush: 'sync' }); });",
+    "import { ref, watch } from 'vue'; const inner = ref(0); watch(() => 1, () => { watch(inner, () => {}, { flush: 'sync' }); }, { immediate: true, flush: 'sync' });",
+    "import { ref, watch } from 'vue'; const outer = ref(0); const inner = ref(0); { const stop = watch(outer, () => { watch(inner, () => {}, { flush: 'sync' }); }, { immediate: true, flush: 'sync' }); stop(); }",
+    "import { ref, watch } from 'vue'; const outer = ref(0); const inner = ref(0); watch(outer, () => { watch(inner, () => {}, { immediate: true, once: true, flush: 'sync' }); }, { flush: 'sync' });",
+    "import { ref, watch } from 'vue'; const outer = ref(0); const inner = ref(0); watch(outer, () => { watch(() => inner, () => {}, { flush: 'sync' }); }, { flush: 'sync' });",
+    "import { ref, watch, watchEffect } from 'vue'; const outer = ref(0); const inner = ref(0); watch(outer, () => { watchEffect(() => { void inner; }); }, { flush: 'sync' });",
+    "import { effectScope, ref, watch } from 'vue'; const owner = effectScope(); const outer = ref(0); const inner = ref(0); owner.run(() => { watch(outer, () => { owner.on(); watch(inner, () => {}, { flush: 'sync' }); owner.off(); }, { flush: 'sync' }); });",
+    "import { ref, watch } from 'vue'; const outer = ref(0); const inner = ref(0); watch(outer, () => { return; watch(inner, () => {}, { flush: 'sync' }); }, { flush: 'sync' });",
+    "import { ref, watch } from 'vue'; const outer = ref(0); const inner = ref(0); watch(outer, () => { inner.value = 1; watchEffect(() => { inner.value = 2; }); }, { flush: 'sync' });",
+    "import { ref, watch, watchEffect } from 'vue'; const outer = ref(0); const inner = ref(0); watch(outer, () => { watchEffect(() => { if (outer.value) inner.value; }); }, { flush: 'sync' });",
+    "import { ref, watch, watchEffect } from 'vue'; const outer = ref(0); const inner = ref(0); watch(outer, () => { watchEffect(async () => { await Promise.resolve(); inner.value; }); }, { flush: 'sync' });",
+    "import { effectScope, ref, watch } from 'vue'; const outer = ref(0); const inner = ref(0); watch(outer, () => { const scope = effectScope(true); scope.run(() => { watch(inner, () => {}, { immediate: true, once: true, flush: 'sync' }); }); }, { flush: 'sync' });",
+    "import { effectScope, ref, watch } from 'vue'; const outer = ref(0); const inner = ref(0); watch(outer, () => { const scope = effectScope(true); if (false) scope.run(() => { watch(inner, () => {}, { flush: 'sync' }); }); }, { flush: 'sync' });",
+    "import { effectScope, ref, watch } from 'vue'; const outer = ref(0); const inner = ref(0); const method = 'run'; watch(outer, () => { const scope = effectScope(true); scope[method] = () => undefined; scope.run(() => { watch(inner, () => {}, { flush: 'sync' }); }); }, { flush: 'sync' });",
+    "import { effectScope, ref, watch } from 'vue'; const outer = ref(0); const inner = ref(0); watch(outer, () => { const scope = effectScope(true); scope.run(() => { watch(inner, () => {}, { flush: 'sync' }); }); new (class { constructor(target: unknown) { void target; } })(scope); }, { flush: 'sync' });",
+    "import { effectScope, ref, watch } from 'vue'; const outer = ref(0); const inner = ref(0); watch(outer, () => { const scope = effectScope(true); scope.run(() => { watch(inner, () => {}, { flush: 'sync' }); }); tag`${scope}`; }, { flush: 'sync' }); function tag(strings: TemplateStringsArray, value: unknown) { void strings; void value; }",
+    "import { effectScope, ref, watch } from 'vue'; const outer = ref(0); const inner = ref(0); watch(outer, () => { const scope = effectScope(true); const key = 'run'; for (const method of [key]) scope[method] = () => undefined; scope.run(() => { watch(inner, () => {}, { flush: 'sync' }); }); }, { flush: 'sync' });",
+    "import { effectScope, ref, watch } from 'vue'; const outer = ref(0); const inner = ref(0); watch(outer, () => { const scope = effectScope(true); delete (scope as { run?: unknown }).run; scope.run(() => { watch(inner, () => {}, { flush: 'sync' }); }); }, { flush: 'sync' });",
+  ];
+  for source in quiet {
+    let facts = analyze(source, "ts");
+    assert!(
+      facts.lifetime.nested_watch_without_cleanups.is_empty()
+        && facts.lifetime.detached_effect_scopes_without_stop.is_empty(),
+      "quiet ownership case leaked: {source} {:?}",
+      facts.lifetime
+    );
+  }
+  let shared = analyze(
+    "import { effectScope, ref, watch } from 'vue';\
+     const owner = effectScope();\
+     const outer = ref(0);\
+     const inner = ref(0);\
+     const create = () => { watch(inner, () => {}, { flush: 'sync' }); };\
+     owner.run(create);\
+     owner.run(() => { watch(outer, create, { flush: 'sync' }); });",
+    "ts",
+  );
+  assert_eq!(
+    shared.lifetime.nested_watch_without_cleanups.len(),
+    1,
+    "shared callback later invocation must leak: {:?}",
+    shared.lifetime
+  );
+}
+
+#[test]
+fn second_review_outer_result_roles_scope_and_once_are_exact() {
+  let quiet = [
+    "import { ref, watch } from 'vue'; const outer = ref(0); const inner = ref(0); watch(() => { void outer.value; return 0; }, () => { watch(inner, () => {}, { flush: 'sync' }); }, { immediate: true, flush: 'sync' });",
+    "import { computed, effectScope, ref, watch } from 'vue'; const outer = computed(() => 0); const inner = ref(0); const owner = effectScope(); owner.run(() => { watch(outer, () => { watch(inner, () => {}, { flush: 'sync' }); }, { immediate: true, flush: 'sync' }); });",
+    "import { ref, watch } from 'vue'; const outer = ref(0); const inner = ref(0); watch(outer, () => { watch(() => { return 0; inner.value; }, () => {}, { flush: 'sync' }); }, { flush: 'sync' });",
+    "import { ref, watch, watchEffect } from 'vue'; const outer = ref(0); const inner = ref(0); watch(outer, () => { watchEffect(() => { delete inner.value; }, { flush: 'sync' }); }, { flush: 'sync' });",
+    "import { effectScope, getCurrentScope, ref, watch } from 'vue'; const outer = ref(0); const inner = ref(0); const scopes: Array<ReturnType<typeof effectScope>> = []; watch(outer, () => { const scope = effectScope(true); scope.run(() => { scopes.push(getCurrentScope()); watch(inner, () => {}, { flush: 'sync' }); }); }, { flush: 'sync' });",
+    "import { effectScope, getCurrentScope as current, ref, watch } from 'vue'; const outer = ref(0); const inner = ref(0); const scopes: Array<ReturnType<typeof effectScope>> = []; watch(outer, () => { const scope = effectScope(true); scope.run(() => { scopes.push(current()); watch(inner, () => {}, { flush: 'sync' }); }); }, { flush: 'sync' });",
+    "import { effectScope, ref, watch } from 'vue'; const outer = ref(0); const inner = ref(0); const owner = effectScope(); owner.run(() => { const stop = watch(outer, () => { watch(inner, () => {}, { flush: 'sync' }); }, { immediate: true, flush: 'sync' }); const snapshot = inner.value; stop(); void snapshot; });",
+  ];
+  for source in quiet {
+    let facts = analyze(source, "ts");
+    assert!(
+      facts.lifetime.nested_watch_without_cleanups.is_empty()
+        && facts.lifetime.detached_effect_scopes_without_stop.is_empty(),
+      "second-review quiet leaked: {source} {:?}",
+      facts.lifetime
+    );
+  }
+  let assignment = analyze(
+    "import { ref, watch, watchEffect } from 'vue';\
+     const outer = ref(0);\
+     const inner = ref(0);\
+     let snapshot = 0;\
+     watch(outer, () => { watchEffect(() => { snapshot = inner.value; }, { flush: 'sync' }); }, { flush: 'sync' });",
+    "ts",
+  );
+  assert_eq!(
+    assignment.lifetime.nested_watch_without_cleanups.len(),
+    1,
+    "assignment RHS must subscribe: {:?}",
+    assignment.lifetime
+  );
+  let effect_once = analyze(
+    "import { ref, watch, watchEffect } from 'vue';\
+     const outer = ref(0);\
+     const inner = ref(0);\
+     watch(outer, () => { watchEffect(() => { void inner.value; }, { once: true, flush: 'sync' }); }, { flush: 'sync' });",
+    "ts",
+  );
+  assert_eq!(
+    effect_once.lifetime.nested_watch_without_cleanups.len(),
+    1,
+    "effect-family once is ignored: {:?}",
+    effect_once.lifetime
+  );
+  let inherited = analyze(
+    "import { ref, watch } from 'vue';\
+     const outer = ref(0);\
+     const inner = ref(0);\
+     watch(outer, () => { watch(inner, () => {}, { flush: 'sync' }); }, { __proto__: { once: true, immediate: true }, flush: 'sync' });",
+    "ts",
+  );
+  assert_eq!(
+    inherited.lifetime.nested_watch_without_cleanups.len(),
+    1,
+    "inherited option properties stay repeatable: {:?}",
+    inherited.lifetime
+  );
+  let returned = analyze(
+    "import { ref, watch, watchEffect } from 'vue';\
+     const outer = ref(0);\
+     const inner = ref(0);\
+     watch(outer, () => { watchEffect(() => inner.value, { flush: 'sync' }); }, { flush: 'sync' });",
+    "ts",
+  );
+  assert_eq!(
+    returned.lifetime.nested_watch_without_cleanups.len(),
+    1,
+    "returned tracked source stays positive: {:?}",
+    returned.lifetime
+  );
+}
+
+#[test]
+fn third_review_sync_scope_purity_computed_wrapper_and_assignment_roles() {
+  let getter_before = analyze(
+    "import { ref, watch } from 'vue';\
+     const outer = ref(0);\
+     const inner = ref(0);\
+     const trigger = { get value() { outer.value++; outer.value++; return 0; } };\
+     const stop = watch(outer, () => { watch(inner, () => {}, { flush: 'sync' }); }, { flush: 'sync' });\
+     const snapshot = trigger.value;\
+     stop();\
+     void snapshot;",
+    "ts",
+  );
+  assert_eq!(
+    getter_before.lifetime.nested_watch_without_cleanups.len(),
+    1,
+    "arbitrary getter before stop must keep nested: {:?}",
+    getter_before.lifetime
+  );
+  let default_read = analyze(
+    "import { ref, watch, watchEffect } from 'vue';\
+     const outer = ref(0);\
+     const inner = ref(0);\
+     let snapshot = 0;\
+     watch(outer, () => { watchEffect(() => { ({ value: snapshot = inner.value } = {}); }, { flush: 'sync' }); }, { flush: 'sync' });",
+    "ts",
+  );
+  assert_eq!(
+    default_read.lifetime.nested_watch_without_cleanups.len(),
+    1,
+    "assignment default must read: {:?}",
+    default_read.lifetime
+  );
+  let computed_key = analyze(
+    "import { ref, watch, watchEffect } from 'vue';\
+     const outer = ref(0);\
+     const inner = ref(0);\
+     let snapshot;\
+     watch(outer, () => { watchEffect(() => { ({ [inner.value]: snapshot } = {}); }, { flush: 'sync' }); }, { flush: 'sync' });",
+    "ts",
+  );
+  assert_eq!(
+    computed_key.lifetime.nested_watch_without_cleanups.len(),
+    1,
+    "computed assignment key must read: {:?}",
+    computed_key.lifetime
+  );
+  let wrapper = analyze(
+    "import { computed, effectScope, ref, watch } from 'vue';\
+     const source = computed(() => 0);\
+     const inner = ref(0);\
+     const owner = effectScope();\
+     owner.run(() => { watch(() => source.value, () => { watch(inner, () => {}, { flush: 'sync' }); }, { immediate: true, flush: 'sync' }); });",
+    "ts",
+  );
+  assert!(
+    wrapper.lifetime.nested_watch_without_cleanups.is_empty(),
+    "stable computed getter wrapper must stay quiet: {:?}",
+    wrapper.lifetime
+  );
+  let late = analyze(
+    "import { effectScope, getCurrentScope, ref, watchEffect } from 'vue';\
+     const owner = effectScope();\
+     const inner = ref(0);\
+     owner.run(async () => { await Promise.resolve(); const current = getCurrentScope(); watchEffect(() => { void inner.value; }, { flush: 'sync' }); void current; });",
+    "ts",
+  );
+  assert_eq!(
+    late.lifetime.orphaned_scope_watchers.len(),
+    1,
+    "after-await getCurrentScope must keep orphan owner: {:?}",
+    late.lifetime
+  );
+  assert!(
+    late.lifetime.nested_watch_without_cleanups.is_empty()
+      && late.lifetime.detached_effect_scopes_without_stop.is_empty(),
+    "after-await current-scope must not steal orphan: {:?}",
+    late.lifetime
+  );
+}
+
+#[test]
+fn fourth_review_cycle_subscribe_default_fresh_ref_and_may_escape() {
+  let object_skip = analyze(
+    "import { ref, watch, watchEffect } from 'vue';\
+     const outer = ref(0);\
+     const inner = ref(0);\
+     let snapshot;\
+     watch(outer, () => { watchEffect(() => { ({ value: snapshot = inner.value } = { value: 42 }); }, { flush: 'sync' }); }, { flush: 'sync' });",
+    "ts",
+  );
+  assert!(
+    object_skip.lifetime.nested_watch_without_cleanups.is_empty(),
+    "defined object default must skip: {:?}",
+    object_skip.lifetime
+  );
+  let array_skip = analyze(
+    "import { ref, watch, watchEffect } from 'vue';\
+     const outer = ref(0);\
+     const inner = ref(0);\
+     let snapshot;\
+     watch(outer, () => { watchEffect(() => { [snapshot = inner.value] = [42]; }, { flush: 'sync' }); }, { flush: 'sync' });",
+    "ts",
+  );
+  assert!(
+    array_skip.lifetime.nested_watch_without_cleanups.is_empty(),
+    "defined array default must skip: {:?}",
+    array_skip.lifetime
+  );
+  let async_getter = analyze(
+    "import { effectScope, ref, watch } from 'vue';\
+     const source = ref(0);\
+     const inner = ref(0);\
+     const owner = effectScope();\
+     owner.run(() => { watch(async () => { await Promise.resolve(); return source.value; }, () => { watch(inner, () => {}, { flush: 'sync' }); }, { immediate: true, flush: 'sync' }); });",
+    "ts",
+  );
+  assert!(
+    async_getter.lifetime.nested_watch_without_cleanups.is_empty(),
+    "after-await getter result stays unknown: {:?}",
+    async_getter.lifetime
+  );
+  let wrapped = analyze(
+    "import { customRef, ref, watch } from 'vue';\
+     const outer = ref(0);\
+     const inner = ref(0);\
+     const trigger = ref(customRef(() => ({ get() { outer.value++; outer.value++; return 0; }, set() {} })));\
+     const stop = watch(outer, () => { watch(inner, () => {}, { flush: 'sync' }); }, { flush: 'sync' });\
+     const snapshot = trigger.value;\
+     stop();\
+     void snapshot;",
+    "ts",
+  );
+  assert_eq!(
+    wrapped.lifetime.nested_watch_without_cleanups.len(),
+    1,
+    "ref(customRef) preserves custom getter: {:?}",
+    wrapped.lifetime
+  );
+  let fresh = analyze(
+    "import { ref, watch } from 'vue';\
+     const outer = ref(0);\
+     const inner = ref(0);\
+     const trigger = ref(0);\
+     const stop = watch(outer, () => { watch(inner, () => {}, { flush: 'sync' }); }, { flush: 'sync' });\
+     const snapshot = trigger.value;\
+     stop();\
+     void snapshot;",
+    "ts",
+  );
+  assert!(
+    fresh.lifetime.nested_watch_without_cleanups.is_empty(),
+    "fresh ref(0) snapshot stays pure: {:?}",
+    fresh.lifetime
+  );
+  let conditional = analyze(
+    "import { effectScope, getCurrentScope, ref, watch } from 'vue';\
+     const outer = ref(0);\
+     const inner = ref(0);\
+     const retained = [];\
+     watch(outer, () => { const owner = effectScope(true); owner.run(() => { if (true) retained.push(getCurrentScope()); watch(inner, () => {}, { flush: 'sync' }); }); }, { flush: 'sync' });",
+    "ts",
+  );
+  assert!(
+    conditional.lifetime.detached_effect_scopes_without_stop.is_empty(),
+    "sync conditional current-scope is MayEscape: {:?}",
+    conditional.lifetime
+  );
+  let cycle = analyze(
+    "import { computed, ref, watch } from 'vue';\
+     const inner = ref(0);\
+     const left = computed(() => right.value);\
+     const right = computed(() => left.value);\
+     watch(left, () => { watch(inner, () => {}, { flush: 'sync' }); }, { flush: 'sync' });",
+    "ts",
+  );
+  assert!(
+    cycle.lifetime.nested_watch_without_cleanups.is_empty(),
+    "mutual computed cycle stays unknown: {:?}",
+    cycle.lifetime
+  );
+  let self_cycle = analyze(
+    "import { computed, ref, watch } from 'vue';\
+     const inner = ref(0);\
+     const looped = computed(() => looped.value);\
+     watch(looped, () => { watch(inner, () => {}, { flush: 'sync' }); }, { flush: 'sync' });",
+    "ts",
+  );
+  assert!(
+    self_cycle.lifetime.nested_watch_without_cleanups.is_empty(),
+    "self computed cycle stays unknown: {:?}",
+    self_cycle.lifetime
+  );
+  let changing_chain = analyze(
+    "import { computed, ref, watch } from 'vue';\
+     const src = ref(0);\
+     const inner = ref(0);\
+     const c0 = computed(() => src.value);\
+     const c1 = computed(() => c0.value);\
+     const c2 = computed(() => c1.value);\
+     const c3 = computed(() => c2.value);\
+     watch(() => c3.value, () => { watch(inner, () => {}, { flush: 'sync' }); }, { immediate: true, flush: 'sync' });",
+    "ts",
+  );
+  assert_eq!(
+    changing_chain.lifetime.nested_watch_without_cleanups.len(),
+    1,
+    "acyclic changing computed chain stays nested: {:?}",
+    changing_chain.lifetime
+  );
+  let stable_chain = analyze(
+    "import { computed, ref, watch } from 'vue';\
+     const inner = ref(0);\
+     const c0 = computed(() => 0);\
+     const c1 = computed(() => c0.value);\
+     const c2 = computed(() => c1.value);\
+     const c3 = computed(() => c2.value);\
+     watch(() => c3.value, () => { watch(inner, () => {}, { flush: 'sync' }); }, { immediate: true, flush: 'sync' });",
+    "ts",
+  );
+  assert!(
+    stable_chain.lifetime.nested_watch_without_cleanups.is_empty(),
+    "acyclic stable computed chain stays quiet: {:?}",
+    stable_chain.lifetime
+  );
+}
+
+#[test]
+fn extracts_nested_watch_without_cleanup_and_keeps_controls_quiet() {
+  let facts = analyze(
+    "import { ref, watch } from 'vue';\
+     const outer = ref(0);\
+     const inner = ref(0);\
+     watch(outer, () => { watch(inner, () => {}, { flush: 'sync' }); }, { flush: 'sync' });\
+     watch(outer, () => { const stop = watch(inner, () => {}, { flush: 'sync' }); stop(); }, { flush: 'sync' });\
+     watch(outer, () => { watch(inner, () => {}, { flush: 'sync' }); }, { flush: 'sync', once: true });\
+     watch(outer, () => { const local = ref(0); watch(local, () => {}, { flush: 'sync' }); }, { flush: 'sync' });\
+     watch(outer, () => { if (true) watch(inner, () => {}, { flush: 'sync' }); }, { flush: 'sync' });",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.nested_watch_without_cleanups.len(),
+    1,
+    "only discarded repeating inner with external source: {:?}",
+    facts.lifetime.nested_watch_without_cleanups
+  );
+}
+
+#[test]
+fn extracts_detached_scope_without_stop_and_suppresses_nested_child() {
+  let facts = analyze(
+    "import { effectScope, ref, watch } from 'vue';\
+     const outer = ref(0);\
+     const inner = ref(0);\
+     watch(outer, () => {\
+       const scope = effectScope(true);\
+       scope.run(() => { watch(inner, () => {}, { flush: 'sync' }); });\
+     }, { flush: 'sync' });\
+     watch(outer, () => {\
+       const owned = effectScope(true);\
+       owned.run(() => { watch(inner, () => {}, { flush: 'sync' }); });\
+       return () => owned.stop();\
+     }, { flush: 'sync' });\
+     function factory() {\
+       const scope = effectScope(true);\
+       scope.run(() => { watch(inner, () => {}, { flush: 'sync' }); });\
+     }\
+     factory();",
+    "ts",
+  );
+  assert_eq!(
+    facts.lifetime.detached_effect_scopes_without_stop.len(),
+    1,
+    "function factories and returned disposers stay quiet: {:?}",
+    facts.lifetime.detached_effect_scopes_without_stop
+  );
+  assert!(
+    facts.lifetime.nested_watch_without_cleanups.is_empty(),
+    "detached scope must suppress nested child: {:?}",
+    facts.lifetime.nested_watch_without_cleanups
+  );
+}
+
+#[test]
+#[expect(clippy::panic, reason = "missing unicode/CRLF spans must fail the adapter test")]
+fn nested_and_detached_ownership_spans_cover_unicode_and_crlf() {
+  let source = "import { effectScope, ref, watch } from 'vue';\r\n\
+     const \u{5916}\u{5c42} = ref(0);\r\n\
+     const \u{5185}\u{5c42} = ref(0);\r\n\
+     watch(\u{5916}\u{5c42}, () => {\r\n\
+       watch(\u{5185}\u{5c42}, () => {}, { flush: 'sync' });\r\n\
+       const \u{4f5c}\u{7528}\u{57df} = effectScope(true);\r\n\
+       \u{4f5c}\u{7528}\u{57df}.run(() => { watch(\u{5185}\u{5c42}, () => {}, { flush: 'sync' }); });\r\n\
+     }, { flush: 'sync' });\r\n";
+  let facts = analyze(source, "ts");
+  let Some(nested) = facts.lifetime.nested_watch_without_cleanups.first() else {
+    panic!("unicode nested watch must be extracted: {:?}", facts.lifetime);
+  };
+  let Some(detached) = facts.lifetime.detached_effect_scopes_without_stop.first() else {
+    panic!("unicode detached scope must be extracted: {:?}", facts.lifetime);
+  };
+  let line_index = vue_vet_core::LineIndex::new(source);
+  let inner_needle = "watch(\u{5185}\u{5c42}, () => {}, { flush: 'sync' })";
+  let Some(inner_offset) = source.find(inner_needle) else {
+    panic!("missing inner watch call");
+  };
+  let (inner_line, inner_col) = line_index.byte_to_line_column(inner_offset);
+  assert_eq!(nested.inner_span.offset, inner_offset);
+  assert_eq!(nested.inner_span.length, inner_needle.len());
+  assert_eq!(nested.inner_span.line, inner_line);
+  assert_eq!(nested.inner_span.column, inner_col);
+  let Some(source_offset) = source.find("\u{5185}\u{5c42}, () => {}, { flush: 'sync' }") else {
+    panic!("missing inner source");
+  };
+  assert_eq!(nested.source_span.offset, source_offset);
+  assert_eq!(nested.source_span.length, "内层".len());
+  let Some(scope_offset) = source.find("effectScope(true)") else {
+    panic!("missing detached scope");
+  };
+  assert_eq!(detached.scope_span.offset, scope_offset);
+  assert_eq!(detached.scope_span.length, "effectScope(true)".len());
+  let (scope_line, scope_col) = line_index.byte_to_line_column(scope_offset);
+  assert_eq!(detached.scope_span.line, scope_line);
+  assert_eq!(detached.scope_span.column, scope_col);
+}
+
+#[test]
+#[expect(clippy::panic, reason = "missing unicode/CRLF wrapped-getter spans must fail")]
+fn wrapped_custom_ref_getter_spans_cover_unicode_and_crlf() {
+  let source = "import { customRef, ref, watch } from 'vue';\r\n\
+     const \u{5916}\u{5c42} = ref(0);\r\n\
+     const \u{5185}\u{5c42} = ref(0);\r\n\
+     const \u{89e6}\u{53d1} = ref(customRef(() => ({ get() { \u{5916}\u{5c42}.value++; \u{5916}\u{5c42}.value++; return 0; }, set() {} })));\r\n\
+     const stop = watch(\u{5916}\u{5c42}, () => {\r\n\
+       watch(\u{5185}\u{5c42}, () => {}, { flush: 'sync' });\r\n\
+     }, { flush: 'sync' });\r\n\
+     const snapshot = \u{89e6}\u{53d1}.value;\r\n\
+     stop();\r\n\
+     void snapshot;\r\n";
+  let facts = analyze(source, "ts");
+  let Some(nested) = facts.lifetime.nested_watch_without_cleanups.first() else {
+    panic!("unicode wrapped custom getter must keep nested: {:?}", facts.lifetime);
+  };
+  let line_index = vue_vet_core::LineIndex::new(source);
+  let inner_needle = "watch(\u{5185}\u{5c42}, () => {}, { flush: 'sync' })";
+  let Some(inner_offset) = source.find(inner_needle) else {
+    panic!("missing inner watch call");
+  };
+  let (inner_line, inner_col) = line_index.byte_to_line_column(inner_offset);
+  assert_eq!(nested.inner_span.offset, inner_offset);
+  assert_eq!(nested.inner_span.length, inner_needle.len());
+  assert_eq!(nested.inner_span.line, inner_line);
+  assert_eq!(nested.inner_span.column, inner_col);
+  assert!(source.contains('\r'), "fixture must keep physical CRLF");
+}
+
+#[test]
+#[expect(
+  clippy::print_stderr,
+  clippy::too_many_lines,
+  reason = "growth work counts and seven corpus shapes are captured for the repair report"
+)]
+fn nested_inner_work_scales_with_shared_source() {
+  const OVERHEAD: usize = 256;
+  fn visits_for(source: &str) -> (usize, usize, usize, super::lifetime::CollectStats) {
+    let allocator = oxc_allocator::Allocator::default();
+    let parsed = oxc_parser::Parser::new(&allocator, source, oxc_span::SourceType::ts()).parse();
+    let semantic =
+      oxc_semantic::SemanticBuilder::new().with_build_nodes(true).build(&parsed.program).semantic;
+    let line_index = vue_vet_core::LineIndex::new(source);
+    let (facts, stats) = super::lifetime::collect_with_visits(&semantic, &line_index, source, 0);
+    (
+      facts.nested_watch_without_cleanups.len(),
+      facts.detached_effect_scopes_without_stop.len(),
+      facts.returned_watcher_cleanups.len(),
+      stats,
+    )
+  }
+  fn assert_linear(label: &str, a: usize, b: usize) {
+    assert!(a > 0 && b > 0, "{label} must count actual work: {a} -> {b}");
+    assert!(
+      b < a.saturating_mul(3).saturating_add(OVERHEAD),
+      "{label} must stay linear: {a} -> {b}"
+    );
+  }
+  fn shared(count: usize, active: bool) -> String {
+    let reads = "void plain;\n".repeat(count);
+    let inners = "watchEffect(getter, { flush: 'sync' });\n".repeat(count);
+    let outers = "watch(outer, callback, { flush: 'sync' });\n".repeat(count);
+    let result = if active { "inner.value" } else { "plain" };
+    format!(
+      "import {{ ref, watch, watchEffect }} from 'vue';\n\
+const outer = ref(0);\n\
+const inner = ref(0);\n\
+const plain = 0;\n\
+const getter = () => {{\n{reads}return {result};\n}};\n\
+const callback = () => {{\n{inners}}};\n\
+{outers}"
+    )
+  }
+  fn watch_stop_pairs(count: usize) -> String {
+    let mut body = String::new();
+    for index in 0..count {
+      body.push_str("const stop");
+      body.push_str(&index.to_string());
+      body.push_str(" = watch(outer, () => { watch(inner, () => {}, { flush: 'sync' }); }, { flush: 'sync' });\nstop");
+      body.push_str(&index.to_string());
+      body.push_str("();\n");
+    }
+    format!(
+      "import {{ ref, watch }} from 'vue';\n\
+const outer = ref(0);\n\
+const inner = ref(0);\n\
+function run() {{\n{body}}}\n\
+run();"
+    )
+  }
+  fn returned_handles(count: usize) -> String {
+    let mut outers = String::new();
+    for index in 0..count {
+      outers.push_str("watch(outer, () => { return watch(inner, () => { ");
+      outers.push_str(&index.to_string());
+      outers.push_str(" }, { flush: 'sync' }); }, { flush: 'sync' });\n");
+    }
+    format!(
+      "import {{ ref, watch }} from 'vue';\n\
+const outer = ref(0);\n\
+const inner = ref(0);\n\
+{outers}"
+    )
+  }
+  fn toggles_and_inners(count: usize) -> String {
+    let mut body = String::new();
+    for index in 0..count {
+      body.push_str("owner.on();\nwatch(inner, () => { ");
+      body.push_str(&index.to_string());
+      body.push_str(" }, { flush: 'sync' });\nowner.off();\n");
+    }
+    format!(
+      "import {{ effectScope, ref, watch }} from 'vue';\n\
+const owner = effectScope();\n\
+const outer = ref(0);\n\
+const inner = ref(0);\n\
+owner.run(() => {{\n\
+  watch(outer, () => {{\n{body}}}, {{ flush: 'sync' }});\n\
+}});"
+    )
+  }
+  fn dense_negative_scopes(count: usize) -> String {
+    let mut out = String::from(
+      "import { effectScope, ref, watch } from 'vue';\n\
+const outer = ref(0);\n\
+const inner = ref(0);\n\
+const leaked = [];\n",
+    );
+    for _ in 0..count {
+      out.push_str(
+        "watch(outer, () => { const scope = effectScope(true); scope.run(() => { watch(inner, () => {}, { flush: 'sync' }); }); leaked.push(scope); }, { flush: 'sync' });\n",
+      );
+    }
+    out
+  }
+  fn repeated_stop(count: usize) -> String {
+    let mut snapshots = String::new();
+    for index in 0..count {
+      snapshots.push_str("const snapshot");
+      snapshots.push_str(&index.to_string());
+      snapshots.push_str(" = inner.value;\n");
+    }
+    let stops = "stop();\n".repeat(count);
+    format!(
+      "import {{ ref, watch }} from 'vue';\n\
+function install() {{\n\
+const outer = ref(0);\n\
+const inner = ref(0);\n\
+const stop = watch(outer, () => {{ watch(inner, () => {{}}, {{ flush: 'sync' }}); }}, {{ flush: 'sync' }});\n\
+{snapshots}{stops}}}\n"
+    )
+  }
+  fn shared_current_scope(count: usize) -> String {
+    let mut lookups = String::new();
+    let mut runs = String::new();
+    for index in 0..count {
+      lookups.push_str("const current");
+      lookups.push_str(&index.to_string());
+      lookups.push_str(" = getCurrentScope();\n");
+      runs.push_str("const owner");
+      runs.push_str(&index.to_string());
+      runs.push_str(" = effectScope(true); owner");
+      runs.push_str(&index.to_string());
+      runs.push_str(".run(install);\n");
+    }
+    format!(
+      "import {{ effectScope, getCurrentScope, ref, watch }} from 'vue';\n\
+const inner = ref(0);\n\
+const install = () => {{\n{lookups}watch(inner, () => {{}}, {{ flush: 'sync' }});\n}};\n\
+{runs}"
+    )
+  }
+  fn shared_computed(count: usize) -> String {
+    let mut wrappers = String::new();
+    let mut watches = String::new();
+    for index in 0..count {
+      wrappers.push_str("const wrap");
+      wrappers.push_str(&index.to_string());
+      wrappers.push_str(" = computed(() => leaf.value);\n");
+      watches.push_str("watch(() => wrap");
+      watches.push_str(&index.to_string());
+      watches.push_str(".value, callback, { immediate: true, flush: 'sync' });\n");
+    }
+    format!(
+      "import {{ computed, ref, watch }} from 'vue';\n\
+const leaf = computed(() => 0);\n\
+const inner = ref(0);\n\
+const callback = () => {{ watch(inner, () => {{}}, {{ flush: 'sync' }}); }};\n\
+{wrappers}{watches}"
+    )
+  }
+  let (facts_20, detached_20, _, shared_20) = visits_for(&shared(20, true));
+  let (facts_40, detached_40, _, shared_40) = visits_for(&shared(40, true));
+  let (facts_80, detached_80, _, shared_80) = visits_for(&shared(80, true));
+  let (facts_160, detached_160, _, shared_160) = visits_for(&shared(160, true));
+  let (quiet_80, quiet_detached, _, quiet) = visits_for(&shared(80, false));
+  let (stop_20, _, _, stop_stats_20) = visits_for(&watch_stop_pairs(20));
+  let (stop_40, _, _, stop_stats_40) = visits_for(&watch_stop_pairs(40));
+  let (stop_80, _, _, stop_stats_80) = visits_for(&watch_stop_pairs(80));
+  let (stop_160, _, _, stop_stats_160) = visits_for(&watch_stop_pairs(160));
+  let (_, _, returned_20, ret_20) = visits_for(&returned_handles(20));
+  let (_, _, returned_40, ret_40) = visits_for(&returned_handles(40));
+  let (_, _, returned_80, ret_80) = visits_for(&returned_handles(80));
+  let (_, _, returned_160, ret_160) = visits_for(&returned_handles(160));
+  let (toggle_20, _, _, tog_20) = visits_for(&toggles_and_inners(20));
+  let (toggle_40, _, _, tog_40) = visits_for(&toggles_and_inners(40));
+  let (toggle_80, _, _, tog_80) = visits_for(&toggles_and_inners(80));
+  let (toggle_160, _, _, tog_160) = visits_for(&toggles_and_inners(160));
+  let (scope_20, scope_detached_20, _, scope_20_stats) = visits_for(&dense_negative_scopes(20));
+  let (scope_40, scope_detached_40, _, scope_40_stats) = visits_for(&dense_negative_scopes(40));
+  let (scope_80, scope_detached_80, _, scope_80_stats) = visits_for(&dense_negative_scopes(80));
+  let (scope_160, scope_detached_160, _, scope_160_stats) = visits_for(&dense_negative_scopes(160));
+  let (repeat_20, repeat_det_20, _, repeat_20_stats) = visits_for(&repeated_stop(20));
+  let (repeat_40, repeat_det_40, _, repeat_40_stats) = visits_for(&repeated_stop(40));
+  let (repeat_80, repeat_det_80, _, repeat_80_stats) = visits_for(&repeated_stop(80));
+  let (repeat_160, repeat_det_160, _, repeat_160_stats) = visits_for(&repeated_stop(160));
+  let (cur_20, cur_det_20, _, cur_20_stats) = visits_for(&shared_current_scope(20));
+  let (cur_40, cur_det_40, _, cur_40_stats) = visits_for(&shared_current_scope(40));
+  let (cur_80, cur_det_80, _, cur_80_stats) = visits_for(&shared_current_scope(80));
+  let (cur_160, cur_det_160, _, cur_160_stats) = visits_for(&shared_current_scope(160));
+  let (comp_20, comp_det_20, _, comp_20_stats) = visits_for(&shared_computed(20));
+  let (comp_40, comp_det_40, _, comp_40_stats) = visits_for(&shared_computed(40));
+  let (comp_80, comp_det_80, _, comp_80_stats) = visits_for(&shared_computed(80));
+  let (comp_160, comp_det_160, _, comp_160_stats) = visits_for(&shared_computed(160));
+  assert_eq!((facts_20, detached_20), (20, 0));
+  assert_eq!((facts_40, detached_40), (40, 0));
+  assert_eq!((facts_80, detached_80), (80, 0));
+  assert_eq!((facts_160, detached_160), (160, 0));
+  assert_eq!((quiet_80, quiet_detached), (0, 0));
+  assert_eq!((stop_20, stop_40, stop_80, stop_160), (0, 0, 0, 0));
+  assert_eq!((returned_20, returned_40, returned_80, returned_160), (20, 40, 80, 160));
+  assert_eq!((toggle_20, toggle_40, toggle_80, toggle_160), (0, 0, 0, 0));
+  assert_eq!((scope_20, scope_detached_20), (0, 0));
+  assert_eq!((scope_40, scope_detached_40), (0, 0));
+  assert_eq!((scope_80, scope_detached_80), (0, 0));
+  assert_eq!((scope_160, scope_detached_160), (0, 0));
+  assert_eq!((repeat_20, repeat_det_20, repeat_40, repeat_det_40), (0, 0, 0, 0));
+  assert_eq!((repeat_80, repeat_det_80, repeat_160, repeat_det_160), (0, 0, 0, 0));
+  assert_eq!((cur_20, cur_det_20, cur_40, cur_det_40), (0, 0, 0, 0));
+  assert_eq!((cur_80, cur_det_80, cur_160, cur_det_160), (0, 0, 0, 0));
+  assert_eq!((comp_20, comp_det_20, comp_40, comp_det_40), (0, 0, 0, 0));
+  assert_eq!((comp_80, comp_det_80, comp_160, comp_det_160), (0, 0, 0, 0));
+  assert!(
+    comp_20_stats.computed_edges > 0
+      && comp_40_stats.computed_edges > comp_20_stats.computed_edges
+      && comp_80_stats.computed_edges > comp_40_stats.computed_edges
+      && comp_160_stats.computed_edges > comp_80_stats.computed_edges,
+    "shared computed chains must count actual edges: {} {} {} {}",
+    comp_20_stats.computed_edges,
+    comp_40_stats.computed_edges,
+    comp_80_stats.computed_edges,
+    comp_160_stats.computed_edges
+  );
+  eprintln!(
+    "work shared20={} shared40={} shared80={} shared160={} quiet80={} stop20={} stop40={} stop80={} stop160={} ret20={} ret40={} ret80={} ret160={} tog20={} tog40={} tog80={} tog160={} scope20={} scope40={} scope80={} scope160={} stmts/refs/watchers/toggles shared80={}/{}/{}/{}",
+    shared_20.work(),
+    shared_40.work(),
+    shared_80.work(),
+    shared_160.work(),
+    quiet.work(),
+    stop_stats_20.work(),
+    stop_stats_40.work(),
+    stop_stats_80.work(),
+    stop_stats_160.work(),
+    ret_20.work(),
+    ret_40.work(),
+    ret_80.work(),
+    ret_160.work(),
+    tog_20.work(),
+    tog_40.work(),
+    tog_80.work(),
+    tog_160.work(),
+    scope_20_stats.work(),
+    scope_40_stats.work(),
+    scope_80_stats.work(),
+    scope_160_stats.work(),
+    shared_80.statements,
+    shared_80.references,
+    shared_80.watchers,
+    shared_80.toggles,
+  );
+  assert_linear("shared 20->40", shared_20.work(), shared_40.work());
+  assert_linear("shared 40->80", shared_40.work(), shared_80.work());
+  assert_linear("shared 80->160", shared_80.work(), shared_160.work());
+  assert_linear("stop 20->40", stop_stats_20.work(), stop_stats_40.work());
+  assert_linear("stop 40->80", stop_stats_40.work(), stop_stats_80.work());
+  assert_linear("stop 80->160", stop_stats_80.work(), stop_stats_160.work());
+  assert_linear("returned 20->40", ret_20.work(), ret_40.work());
+  assert_linear("returned 40->80", ret_40.work(), ret_80.work());
+  assert_linear("returned 80->160", ret_80.work(), ret_160.work());
+  assert_linear("toggles 20->40", tog_20.work(), tog_40.work());
+  assert_linear("toggles 40->80", tog_40.work(), tog_80.work());
+  assert_linear("toggles 80->160", tog_80.work(), tog_160.work());
+  assert_linear("retained 20->40", scope_20_stats.work(), scope_40_stats.work());
+  assert_linear("retained 40->80", scope_40_stats.work(), scope_80_stats.work());
+  assert_linear("retained 80->160", scope_80_stats.work(), scope_160_stats.work());
+  eprintln!(
+    "work repeat20={} repeat40={} repeat80={} repeat160={} current20={} current40={} current80={} current160={} computed20={} computed40={} computed80={} computed160={} edges20={} edges40={} edges80={} edges160={}",
+    repeat_20_stats.work(),
+    repeat_40_stats.work(),
+    repeat_80_stats.work(),
+    repeat_160_stats.work(),
+    cur_20_stats.work(),
+    cur_40_stats.work(),
+    cur_80_stats.work(),
+    cur_160_stats.work(),
+    comp_20_stats.work(),
+    comp_40_stats.work(),
+    comp_80_stats.work(),
+    comp_160_stats.work(),
+    comp_20_stats.computed_edges,
+    comp_40_stats.computed_edges,
+    comp_80_stats.computed_edges,
+    comp_160_stats.computed_edges,
+  );
+  assert_linear("repeat-stop 20->40", repeat_20_stats.work(), repeat_40_stats.work());
+  assert_linear("repeat-stop 40->80", repeat_40_stats.work(), repeat_80_stats.work());
+  assert_linear("repeat-stop 80->160", repeat_80_stats.work(), repeat_160_stats.work());
+  assert_linear("current-scope 20->40", cur_20_stats.work(), cur_40_stats.work());
+  assert_linear("current-scope 40->80", cur_40_stats.work(), cur_80_stats.work());
+  assert_linear("current-scope 80->160", cur_80_stats.work(), cur_160_stats.work());
+  assert_linear("computed 20->40", comp_20_stats.work(), comp_40_stats.work());
+  assert_linear("computed 40->80", comp_40_stats.work(), comp_80_stats.work());
+  assert_linear("computed 80->160", comp_80_stats.work(), comp_160_stats.work());
+  assert!(
+    quiet.work() < shared_80.work().saturating_mul(3).saturating_add(OVERHEAD),
+    "quiet shared getters must not explode work: active80={} quiet80={}",
+    shared_80.work(),
+    quiet.work()
+  );
+}
+
+#[test]
 fn exported_scope_declaration_is_unproven_local_stays_positive() {
   let facts = analyze(
     "import { effectScope, watchEffect } from 'vue';\
@@ -7494,7 +8314,7 @@ fn watch_cleanup_current_source_const_payload_alias_still_emits() {
 #[test]
 fn cleanup_identity_counters_are_counted_in_tests() {
   let (identity, stats) = super::lifetime::counter_layout();
-  assert_eq!((identity, stats), (64, 72), "test IdentityWork is 8 usizes and CollectStats is 9");
+  assert_eq!((identity, stats), (64, 120), "test IdentityWork is 8 usizes and CollectStats is 15");
 }
 
 #[test]
