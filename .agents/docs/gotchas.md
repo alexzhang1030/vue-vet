@@ -1223,6 +1223,20 @@ Import/semantic eligibility uses the canonical `imported_bindings` map (includin
 type-only named specifiers) and the semantic root unresolved-reference index.
 Each platform gate uses its own artifact.
 
+## Native-size re-pins are routine; the pre-#241 floor is gone
+
+Every rule lane adds ~50–130 KB per target, so a stacked rule series crosses
+the ceil(1.03) maxima every three or four lanes. Re-pin the candidate to the
+failing PR's own `pkg.pr.new` matrix run (`repin` keeps the `2dabaad` rows) and
+record the run ID in `docs/quality-baselines.md`; do not shrink fixtures or
+loosen the 3% margin. Until #259 `scripts/test_native_size.py` also required
+every measured candidate to stay below the pre-#241 `2dabaad` binaries; the
+rule set outgrew those savings there (`aarch64-unknown-linux-gnu` +1.5%,
+`x86_64-unknown-linux-gnu` +0.1%) and the floor was retired by product
+decision, so a re-pin no longer needs a byte-for-byte comparison against
+history. Profile or dependency changes still need the CLI/bench gates, never
+a re-pin alone.
+
 ## customRef lost-notification needs an executed, still-active consumer
 
 `no-custom-ref-lost-notification` is a closed-local chain, not a mention of

@@ -42,13 +42,16 @@ CI (`pkg.pr.new` matrix) measures the stripped `vue-vet` file already produced b
 [`fixtures/quality/native-size-budget.json`](../fixtures/quality/native-size-budget.json).
 That gzip figure is not the GitHub `.tar.gz`/`.zip` and not the npm tarball.
 Maxima are ceil(candidate bytes * 1.03) for the `bab13ee` matrix binaries (workflow run 34917924232);
-baseline rows stay `2dabaad` (run 34034720314), the pre-#241 binaries; the
-script tests require every measured candidate to stay below that baseline on
-both metrics (the #241 savings are still in effect), while the 3% maxima may
-sit above it once rule growth consumes the gap (`aarch64-unknown-linux-gnu`
-and `x86_64-unknown-linux-gnu` crossed at #255, candidates 1.5% / 2.8% under
-baseline). If a candidate itself reaches the baseline, that is a product
-decision (shrink or retire the baseline), not a re-pin. Budget-only PRs retrigger the matrix
+baseline rows stay `2dabaad` (run 34034720314), the pre-#241 binaries, as a
+published reference. Until #259 the script tests also required every measured
+candidate to stay below that baseline on both metrics as proof the #241
+savings were still in effect; at #259 the rule set outgrew those savings
+(`aarch64-unknown-linux-gnu` 9054552 vs 8923248, +1.5%; `x86_64-unknown-linux-gnu`
+10517728 vs 10505408, +0.1%; Darwin arm64 gzip +0.9%) and the guard was
+retired by product decision (@alexzhang1030, 2026-09-15): binary growth from
+built-in rules is expected, the 3% regression budget is the guard that
+matters, and profile or dependency changes are still gated by the CLI/bench
+protocol below rather than by a fixed historical byte count. Budget-only PRs retrigger the matrix
 via path filters on the script and JSON.
 The budget is a regression guard for accidental growth, not a product ceiling:
 each built-in rule adds code, so the nine rule merges between `fa2debc` and
