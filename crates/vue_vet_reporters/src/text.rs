@@ -1,5 +1,5 @@
 //! Human text report lines and score footer.
-use vue_vet_core::{Diagnostic, PRACTICE_CATEGORY, ScanSummary, Severity};
+use vue_vet_core::{Diagnostic, MIGRATION_CATEGORY, PRACTICE_CATEGORY, ScanSummary, Severity};
 
 use crate::{ReportContext, color, render_reactivity_footer};
 
@@ -14,13 +14,25 @@ pub fn render_text(summary: &ScanSummary, context: &ReportContext) -> String {
 #[must_use]
 pub fn render_text_diagnostics(diagnostics: &[Diagnostic], color: bool) -> String {
   let mut output = String::new();
+  let (migration, rest): (Vec<_>, Vec<_>) =
+    diagnostics.iter().partition(|diagnostic| diagnostic.category == MIGRATION_CATEGORY);
   let (lint, practice): (Vec<_>, Vec<_>) =
-    diagnostics.iter().partition(|diagnostic| diagnostic.category != PRACTICE_CATEGORY);
+    rest.into_iter().partition(|diagnostic| diagnostic.category != PRACTICE_CATEGORY);
   for diagnostic in &lint {
     append_text_diagnostic(&mut output, diagnostic, color);
   }
-  if !practice.is_empty() {
+  if !migration.is_empty() {
     if !lint.is_empty() {
+      output.push('\n');
+    }
+    output.push_str(&color::header("Assessment", color));
+    output.push('\n');
+    for diagnostic in &migration {
+      append_text_diagnostic(&mut output, diagnostic, color);
+    }
+  }
+  if !practice.is_empty() {
+    if !lint.is_empty() || !migration.is_empty() {
       output.push('\n');
     }
     output.push_str(&color::header("Suggestions", color));

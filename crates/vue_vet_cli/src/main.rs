@@ -89,7 +89,7 @@ struct Cli {
     value_name = "SLUG",
     action = clap::ArgAction::Append,
     conflicts_with_all = ["lsp", "mcp"],
-    help = "Restrict scan or --list-rules to a canonical group (repeatable; union). Slugs: tracking, source-contracts, lifetime, derivation, project"
+    help = "Restrict scan or --list-rules to a canonical group (repeatable; union). Slugs: tracking, source-contracts, lifetime, derivation, project, vapor-migration"
   )]
   group: Vec<String>,
 

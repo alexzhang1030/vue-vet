@@ -176,4 +176,10 @@ pub struct TemplateFacts {
   /// Parent / memo / condition / ref relations recorded during the Vize walk.
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub allocations: Vec<super::TemplateAllocationFact>,
+  /// `vapor` attribute on the `<template>` block.
+  #[serde(default, skip_serializing_if = "is_false_flag")]
+  pub vapor: bool,
+  /// Opening `<template>` tag span, SFC-absolute.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub open_span: Option<SourceSpan>,
 }

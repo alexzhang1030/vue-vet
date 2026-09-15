@@ -148,6 +148,40 @@ fn reporter_json_snapshot_is_stable() {
 }
 
 #[test]
+fn vapor_migration_matched_text_snapshot_is_stable() {
+  let output = run_from_workspace(&[
+    "fixtures/projects/vapor-migration/matched",
+    "--no-cache",
+    "--color",
+    "never",
+  ]);
+  let stdout = String::from_utf8_lossy(&output.stdout).replace('\\', "/");
+  assert!(output.status.success(), "vapor-migration text snapshot must scan successfully");
+  assert_eq!(
+    stdout.trim_end(),
+    include_str!("../../../../fixtures/reporters/vapor-migration-matched.txt").trim_end(),
+    "vapor-migration text reporter snapshot changed"
+  );
+}
+
+#[test]
+fn vapor_migration_matched_json_snapshot_is_stable() {
+  let output = run_from_workspace(&[
+    "fixtures/projects/vapor-migration/matched",
+    "--format",
+    "json",
+    "--no-cache",
+  ]);
+  let stdout = String::from_utf8_lossy(&output.stdout).replace('\\', "/");
+  assert!(output.status.success(), "vapor-migration JSON snapshot must scan successfully");
+  assert_eq!(
+    stdout.trim_end(),
+    include_str!("../../../../fixtures/reporters/vapor-migration-matched.json").trim_end(),
+    "vapor-migration JSON reporter snapshot changed"
+  );
+}
+
+#[test]
 fn unknown_retired_rule_id_in_config_is_an_operational_failure() {
   let project = TempProject::new(
     "retired-rule-config",

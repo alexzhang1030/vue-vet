@@ -265,6 +265,7 @@ impl<'a> RuleContext<'a> {
       span,
       edits,
       recommendation,
+      assessment: None,
     });
   }
 }

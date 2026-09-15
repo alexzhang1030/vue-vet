@@ -42,8 +42,17 @@ pub struct SourceSpan {
   pub column: usize,
 }
 
+impl Default for SourceSpan {
+  fn default() -> Self {
+    Self { offset: 0, length: 0, line: 1, column: 1 }
+  }
+}
+
 /// Category for ecosystem / best-practice suggestions (excluded from score and CI exit).
 pub const PRACTICE_CATEGORY: &str = "practice";
+
+/// Category for opt-in migration assessment (excluded from score and CI exit).
+pub const MIGRATION_CATEGORY: &str = "migration";
 
 /// Optional ecosystem API recommendation attached to a finding (JSON v1 additive).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -54,6 +63,120 @@ pub struct Recommendation {
   pub export: String,
   pub docs_url: String,
   pub import_example: String,
+}
+
+/// Opt-in source of a Vapor migration assessment.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OptIn {
+  ScriptVaporAttr,
+  TemplateVaporAttr,
+  None,
+}
+
+/// Assessment check / aggregate verdict.
+///
+/// `ready` is the aggregate-only “recommended for direct conversion” answer.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Verdict {
+  CompilerCandidate,
+  Blocked,
+  NeedsVerification,
+  Unsupported,
+  NotApplicable,
+  Ready,
+}
+
+impl Verdict {
+  /// Severity rank for aggregate: blocked > unsupported > needs-verification > compiler-candidate.
+  /// `not-applicable` never wins. `ready` ranks with `compiler-candidate` and is
+  /// only assigned by [`Assessment::aggregate_verdict`].
+  #[must_use]
+  pub const fn rank(self) -> u8 {
+    match self {
+      Self::Blocked => 4,
+      Self::Unsupported => 3,
+      Self::NeedsVerification => 2,
+      Self::CompilerCandidate | Self::Ready => 1,
+      Self::NotApplicable => 0,
+    }
+  }
+}
+
+/// Can this component be converted to Vapor at all?
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Convertible {
+  Yes,
+  No,
+  Unknown,
+}
+
+/// One named check inside an [`Assessment`].
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct AssessmentCheck {
+  pub check: String,
+  pub verdict: Verdict,
+  pub reasons: Vec<String>,
+}
+
+/// Vue Vet-owned migration assessment record (JSON v1 additive).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct Assessment {
+  pub kind: String,
+  pub opt_in: OptIn,
+  pub complete: bool,
+  pub unknown: Vec<String>,
+  pub checks: Vec<AssessmentCheck>,
+  pub aggregate: Verdict,
+  pub convertible: Convertible,
+}
+
+impl Assessment {
+  /// Worst applicable check verdict. `not-applicable` never wins.
+  /// Incomplete assessments cannot be better than `needs-verification`.
+  /// `ready` only when `complete`, no check is `blocked` / `unsupported` /
+  /// `needs-verification`, and `runtime-envelope` is `compiler-candidate`.
+  #[must_use]
+  pub fn aggregate_verdict(checks: &[AssessmentCheck], complete: bool) -> Verdict {
+    let mut best = Verdict::NotApplicable;
+    for check in checks {
+      if check.verdict.rank() > best.rank() {
+        best = check.verdict;
+      }
+    }
+    if !complete && best.rank() < Verdict::NeedsVerification.rank() {
+      return Verdict::NeedsVerification;
+    }
+    let envelope_ready = checks.iter().any(|check| {
+      check.check == "runtime-envelope" && check.verdict == Verdict::CompilerCandidate
+    });
+    if complete
+      && envelope_ready
+      && !checks.iter().any(|check| {
+        matches!(
+          check.verdict,
+          Verdict::Blocked | Verdict::Unsupported | Verdict::NeedsVerification
+        )
+      })
+    {
+      return Verdict::Ready;
+    }
+    best
+  }
+
+  /// Answer (1): can this component be converted to Vapor at all?
+  #[must_use]
+  pub fn convertible_of(checks: &[AssessmentCheck], complete: bool) -> Convertible {
+    if checks.iter().any(|check| matches!(check.verdict, Verdict::Blocked | Verdict::Unsupported)) {
+      Convertible::No
+    } else if !complete {
+      Convertible::Unknown
+    } else {
+      Convertible::Yes
+    }
+  }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -72,19 +195,22 @@ pub struct Diagnostic {
   /// Ecosystem or official-API suggestion payload (practice findings).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub recommendation: Option<Recommendation>,
+  /// Opt-in migration assessment payload (migration findings).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub assessment: Option<Assessment>,
 }
 
 impl Diagnostic {
-  /// Practice suggestions do not affect score or default CI failure.
+  /// Practice and migration findings do not affect score or default CI failure.
   #[must_use]
   pub fn affects_score(&self) -> bool {
-    self.category != PRACTICE_CATEGORY
+    self.category != PRACTICE_CATEGORY && self.category != MIGRATION_CATEGORY
   }
 
-  /// Practice suggestions never fail the scan unless later opt-in policy says so.
+  /// Practice and migration findings never fail the scan unless later opt-in policy says so.
   #[must_use]
   pub fn affects_exit(&self) -> bool {
-    self.category != PRACTICE_CATEGORY
+    self.category != PRACTICE_CATEGORY && self.category != MIGRATION_CATEGORY
   }
 }
 
@@ -118,6 +244,8 @@ pub struct FindingExplain {
   pub help: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub recommendation: Option<Recommendation>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub assessment: Option<Assessment>,
   pub rule: RuleExplain,
   /// When the finding sits on a tracking scope, static “would Vue re-run?” evidence.
   #[serde(default, skip_serializing_if = "Option::is_none")]

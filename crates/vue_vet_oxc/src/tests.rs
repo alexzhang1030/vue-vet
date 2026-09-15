@@ -98,6 +98,30 @@ fn semantic_node_count(source: &str) -> u64 {
 }
 
 #[test]
+fn records_runtime_export_spans_and_skips_type_only_comments_and_strings() {
+  let runtime = analyze("export default { name: 'X' }\nexport const n = 1\n", "ts");
+  assert_eq!(runtime.runtime_export_spans.len(), 2, "{:?}", runtime.runtime_export_spans);
+  assert!(
+    runtime
+      .runtime_export_spans
+      .first()
+      .is_some_and(|span| span.offset == 0 && span.length >= "export default".len()),
+    "{:?}",
+    runtime.runtime_export_spans
+  );
+
+  let type_only =
+    analyze("export type Foo = string\nexport interface Bar { n: number }\nconst n = 0\n", "ts");
+  assert!(type_only.runtime_export_spans.is_empty(), "{:?}", type_only.runtime_export_spans);
+
+  let decoys = analyze(
+    "// export default { name: 'commented' }\nconst label = \"export default\"\nconst n = 0\n",
+    "ts",
+  );
+  assert!(decoys.runtime_export_spans.is_empty(), "{:?}", decoys.runtime_export_spans);
+}
+
+#[test]
 fn records_new_expressions_as_call_facts() {
   let facts = analyze(
     "const io = new IntersectionObserver(() => {});\

@@ -163,6 +163,8 @@ fn analyze_module_source_inner(
   let line_index = vue_vet_core::LineIndex::new(sfc_source);
   let (imports, imported_bindings) =
     facts::collect_import_facts(&semantic, &line_index, sfc_source, script_offset);
+  let runtime_export_spans =
+    facts::collect_runtime_export_spans(&semantic, &line_index, sfc_source, script_offset);
   let bindings = facts::collect_binding_facts(&semantic, &line_index, sfc_source, script_offset);
   let node_facts = facts::collect_node_facts(
     &semantic,
@@ -237,6 +239,9 @@ fn analyze_module_source_inner(
         template,
       ),
       reactivity_graph,
+      vapor: false,
+      open_span: None,
+      runtime_export_spans,
     },
     template_facts,
     module_trace,

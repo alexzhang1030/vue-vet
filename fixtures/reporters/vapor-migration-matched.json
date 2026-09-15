@@ -1,0 +1,1385 @@
+{
+  "schema_version": 1,
+  "tool": {
+    "name": "vue-vet",
+    "version": "0.1.23"
+  },
+  "ok": true,
+  "mode": "full",
+  "project": {
+    "root": "fixtures/projects/vapor-migration/matched",
+    "framework": "vue",
+    "analyzed_files": [
+      "Complete.vue",
+      "DualScript.vue",
+      "Envelope.vue",
+      "EnvelopeUnicode.vue",
+      "InteropHost.vue",
+      "Memo.vue",
+      "MemoCrlf.vue",
+      "MemoUnicode.vue",
+      "NonVaporChild.vue",
+      "OrdinaryScript.vue",
+      "SafePatterns.vue",
+      "ScriptVaporExport.vue",
+      "ScriptVaporSafeExport.vue",
+      "TemplateOnly.vue",
+      "TemplateVaporOptions.vue",
+      "UnresolvedChild.vue",
+      "main.ts"
+    ],
+    "analyzed_file_count": 17,
+    "files_scanned": 17,
+    "complete": true,
+    "skipped_checks": [],
+    "skipped_check_reasons": {}
+  },
+  "diagnostics": [
+    {
+      "id": "Complete.vue::1:1::vue-vet/migration/vapor-assessment::c595d7759d423f8f5f72bc7e7890552147740439741a2a14a61780a17da30736",
+      "rule_id": "vue-vet/migration/vapor-assessment",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "vapor migration: ready — direct conversion recommended (all constructs inside the verified runtime envelope)",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-assessment.md",
+      "file": "Complete.vue",
+      "span": {
+        "offset": 0,
+        "length": 20,
+        "line": 1,
+        "column": 1
+      },
+      "assessment": {
+        "kind": "vapor-migration",
+        "opt_in": "script_vapor_attr",
+        "complete": true,
+        "unknown": [],
+        "checks": [
+          {
+            "check": "toolchain-tuple",
+            "verdict": "compiler-candidate",
+            "reasons": [
+              "match vue 3.6.0-rc.7 / plugin-vue 6.0.8"
+            ]
+          },
+          {
+            "check": "sfc-compile-contract",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          },
+          {
+            "check": "memo-contract-dropped",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "interop-required",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "ssr-hydration",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "runtime-envelope",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          }
+        ],
+        "aggregate": "ready",
+        "convertible": "yes"
+      }
+    },
+    {
+      "id": "DualScript.vue::1:1::vue-vet/migration/vapor-sfc-compile-contract::5c981ce643c5c42249bc9d93d8131baaae97631e03361ac253bbb5f94df3be69",
+      "rule_id": "vue-vet/migration/vapor-sfc-compile-contract",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "inherited Options API from ordinary script unverified",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-sfc-compile-contract.md",
+      "file": "DualScript.vue",
+      "span": {
+        "offset": 0,
+        "length": 8,
+        "line": 1,
+        "column": 1
+      }
+    },
+    {
+      "id": "DualScript.vue::4:1::vue-vet/migration/vapor-assessment::650f5ba3ff009e71a4c2956cf8907bbde7d32b39edbfbaffac7cd5784407868d",
+      "rule_id": "vue-vet/migration/vapor-assessment",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "vapor migration: convertible, verification pending (sfc-compile-contract: inherited Options API from ordinary script unverified)",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-assessment.md",
+      "file": "DualScript.vue",
+      "span": {
+        "offset": 57,
+        "length": 14,
+        "line": 4,
+        "column": 1
+      },
+      "assessment": {
+        "kind": "vapor-migration",
+        "opt_in": "none",
+        "complete": true,
+        "unknown": [],
+        "checks": [
+          {
+            "check": "toolchain-tuple",
+            "verdict": "compiler-candidate",
+            "reasons": [
+              "match vue 3.6.0-rc.7 / plugin-vue 6.0.8"
+            ]
+          },
+          {
+            "check": "sfc-compile-contract",
+            "verdict": "needs-verification",
+            "reasons": [
+              "inherited Options API from ordinary script unverified"
+            ]
+          },
+          {
+            "check": "memo-contract-dropped",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "interop-required",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "ssr-hydration",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "runtime-envelope",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          }
+        ],
+        "aggregate": "needs-verification",
+        "convertible": "yes"
+      }
+    },
+    {
+      "id": "Envelope.vue::1:1::vue-vet/migration/vapor-assessment::146dbcb0c4770c086f6c13e7640e59a074f92cf8f3f6c37e4256cd58fadb24b7",
+      "rule_id": "vue-vet/migration/vapor-assessment",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "vapor migration: convertible, verification pending (runtime-envelope: provide, v-model, @click.stop)",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-assessment.md",
+      "file": "Envelope.vue",
+      "span": {
+        "offset": 0,
+        "length": 20,
+        "line": 1,
+        "column": 1
+      },
+      "assessment": {
+        "kind": "vapor-migration",
+        "opt_in": "script_vapor_attr",
+        "complete": true,
+        "unknown": [],
+        "checks": [
+          {
+            "check": "toolchain-tuple",
+            "verdict": "compiler-candidate",
+            "reasons": [
+              "match vue 3.6.0-rc.7 / plugin-vue 6.0.8"
+            ]
+          },
+          {
+            "check": "sfc-compile-contract",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          },
+          {
+            "check": "memo-contract-dropped",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "interop-required",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "ssr-hydration",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "runtime-envelope",
+            "verdict": "needs-verification",
+            "reasons": [
+              "provide",
+              "v-model",
+              "@click.stop",
+              "slot",
+              "v-show",
+              "unkeyed v-for",
+              "custom directive v-focus"
+            ]
+          }
+        ],
+        "aggregate": "needs-verification",
+        "convertible": "yes"
+      }
+    },
+    {
+      "id": "Envelope.vue::5:1::vue-vet/migration/vapor-runtime-envelope::95324c521fd83b8f3f2d4e861ad5c23840c23b22ca9f4af9e4cbf6e23f151050",
+      "rule_id": "vue-vet/migration/vapor-runtime-envelope",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "provide",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-runtime-envelope.md",
+      "file": "Envelope.vue",
+      "span": {
+        "offset": 96,
+        "length": 17,
+        "line": 5,
+        "column": 1
+      }
+    },
+    {
+      "id": "Envelope.vue::8:10::vue-vet/migration/vapor-runtime-envelope::cd3f99ae12e821b51d935dd68b8088f5d2e919ab8d098c2f7f7e8c10e9f67de7",
+      "rule_id": "vue-vet/migration/vapor-runtime-envelope",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "v-model",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-runtime-envelope.md",
+      "file": "Envelope.vue",
+      "span": {
+        "offset": 144,
+        "length": 7,
+        "line": 8,
+        "column": 10
+      }
+    },
+    {
+      "id": "Envelope.vue::9:11::vue-vet/migration/vapor-runtime-envelope::40a089536d229662a9113440823f4f26cf8e65487d9e654e3b195fd4bfac0541",
+      "rule_id": "vue-vet/migration/vapor-runtime-envelope",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "@click.stop",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-runtime-envelope.md",
+      "file": "Envelope.vue",
+      "span": {
+        "offset": 169,
+        "length": 1,
+        "line": 9,
+        "column": 11
+      }
+    },
+    {
+      "id": "Envelope.vue::10:3::vue-vet/migration/vapor-runtime-envelope::5970d7df31807537491e13e6af6b227dcdd85d17be61f6662575f91cc04cb6e7",
+      "rule_id": "vue-vet/migration/vapor-runtime-envelope",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "slot",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-runtime-envelope.md",
+      "file": "Envelope.vue",
+      "span": {
+        "offset": 202,
+        "length": 6,
+        "line": 10,
+        "column": 3
+      }
+    },
+    {
+      "id": "Envelope.vue::11:6::vue-vet/migration/vapor-runtime-envelope::d9c6fc08326ff0810510c3f8c7d1abff4b05c560ba2bf09959e5f0aa5d03c201",
+      "rule_id": "vue-vet/migration/vapor-runtime-envelope",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "v-show",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-runtime-envelope.md",
+      "file": "Envelope.vue",
+      "span": {
+        "offset": 221,
+        "length": 6,
+        "line": 11,
+        "column": 6
+      }
+    },
+    {
+      "id": "Envelope.vue::12:7::vue-vet/migration/vapor-runtime-envelope::e17ff6edecdcc8db32bd75c43c22c72e610a420e2ca5587225f19ef54be7a5b6",
+      "rule_id": "vue-vet/migration/vapor-runtime-envelope",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "unkeyed v-for",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-runtime-envelope.md",
+      "file": "Envelope.vue",
+      "span": {
+        "offset": 248,
+        "length": 5,
+        "line": 12,
+        "column": 7
+      }
+    },
+    {
+      "id": "Envelope.vue::13:8::vue-vet/migration/vapor-runtime-envelope::4c9aee90d2a20c25293d0315e67e646eb2971b4502df42b7db76d2034149dc84",
+      "rule_id": "vue-vet/migration/vapor-runtime-envelope",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "custom directive v-focus",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-runtime-envelope.md",
+      "file": "Envelope.vue",
+      "span": {
+        "offset": 293,
+        "length": 7,
+        "line": 13,
+        "column": 8
+      }
+    },
+    {
+      "id": "EnvelopeUnicode.vue::1:1::vue-vet/migration/vapor-assessment::3756b527567a73889d90184417369f68b0c94b86843a4021316071ef25ea2198",
+      "rule_id": "vue-vet/migration/vapor-assessment",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "vapor migration: convertible, verification pending (runtime-envelope: v-model)",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-assessment.md",
+      "file": "EnvelopeUnicode.vue",
+      "span": {
+        "offset": 0,
+        "length": 20,
+        "line": 1,
+        "column": 1
+      },
+      "assessment": {
+        "kind": "vapor-migration",
+        "opt_in": "script_vapor_attr",
+        "complete": true,
+        "unknown": [],
+        "checks": [
+          {
+            "check": "toolchain-tuple",
+            "verdict": "compiler-candidate",
+            "reasons": [
+              "match vue 3.6.0-rc.7 / plugin-vue 6.0.8"
+            ]
+          },
+          {
+            "check": "sfc-compile-contract",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          },
+          {
+            "check": "memo-contract-dropped",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "interop-required",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "ssr-hydration",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "runtime-envelope",
+            "verdict": "needs-verification",
+            "reasons": [
+              "v-model"
+            ]
+          }
+        ],
+        "aggregate": "needs-verification",
+        "convertible": "yes"
+      }
+    },
+    {
+      "id": "EnvelopeUnicode.vue::6:10::vue-vet/migration/vapor-runtime-envelope::cd3f99ae12e821b51d935dd68b8088f5d2e919ab8d098c2f7f7e8c10e9f67de7",
+      "rule_id": "vue-vet/migration/vapor-runtime-envelope",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "v-model",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-runtime-envelope.md",
+      "file": "EnvelopeUnicode.vue",
+      "span": {
+        "offset": 84,
+        "length": 7,
+        "line": 6,
+        "column": 10
+      }
+    },
+    {
+      "id": "InteropHost.vue::1:1::vue-vet/migration/vapor-assessment::e9f16e5526e0ab393553fb9f9f308c6b5bb491dee58ef975971720a13d0668c7",
+      "rule_id": "vue-vet/migration/vapor-assessment",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "vapor migration: convertible, verification pending (interop-required: requires vaporInteropPlugin; not executed in the audited envelope, requires vaporInteropPlugin; not executed in the audited envelope)",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-assessment.md",
+      "file": "InteropHost.vue",
+      "span": {
+        "offset": 0,
+        "length": 14,
+        "line": 1,
+        "column": 1
+      },
+      "assessment": {
+        "kind": "vapor-migration",
+        "opt_in": "none",
+        "complete": true,
+        "unknown": [],
+        "checks": [
+          {
+            "check": "toolchain-tuple",
+            "verdict": "compiler-candidate",
+            "reasons": [
+              "match vue 3.6.0-rc.7 / plugin-vue 6.0.8"
+            ]
+          },
+          {
+            "check": "sfc-compile-contract",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          },
+          {
+            "check": "memo-contract-dropped",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "interop-required",
+            "verdict": "needs-verification",
+            "reasons": [
+              "requires vaporInteropPlugin; not executed in the audited envelope",
+              "requires vaporInteropPlugin; not executed in the audited envelope"
+            ]
+          },
+          {
+            "check": "ssr-hydration",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "runtime-envelope",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          }
+        ],
+        "aggregate": "needs-verification",
+        "convertible": "yes"
+      }
+    },
+    {
+      "id": "InteropHost.vue::5:3::vue-vet/migration/vapor-interop-required::eda699e7633028d8f71119992fc6f3e10877ad5543f3ec135da3582718f27f5e",
+      "rule_id": "vue-vet/migration/vapor-interop-required",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "requires vaporInteropPlugin; not executed in the audited envelope",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-interop-required.md",
+      "file": "InteropHost.vue",
+      "span": {
+        "offset": 78,
+        "length": 10,
+        "line": 5,
+        "column": 3
+      }
+    },
+    {
+      "id": "InteropHost.vue::6:5::vue-vet/migration/vapor-interop-required::eda699e7633028d8f71119992fc6f3e10877ad5543f3ec135da3582718f27f5e",
+      "rule_id": "vue-vet/migration/vapor-interop-required",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "requires vaporInteropPlugin; not executed in the audited envelope",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-interop-required.md",
+      "file": "InteropHost.vue",
+      "span": {
+        "offset": 93,
+        "length": 9,
+        "line": 6,
+        "column": 5
+      }
+    },
+    {
+      "id": "Memo.vue::1:1::vue-vet/migration/vapor-assessment::26594f0eca86960a6fc96cc14d3879e2ad3931b2b27393dd084e9121508ba61d",
+      "rule_id": "vue-vet/migration/vapor-assessment",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "vapor migration: not convertible as-is — blocked (memo-contract-dropped)",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-assessment.md",
+      "file": "Memo.vue",
+      "span": {
+        "offset": 0,
+        "length": 14,
+        "line": 1,
+        "column": 1
+      },
+      "assessment": {
+        "kind": "vapor-migration",
+        "opt_in": "none",
+        "complete": true,
+        "unknown": [],
+        "checks": [
+          {
+            "check": "toolchain-tuple",
+            "verdict": "compiler-candidate",
+            "reasons": [
+              "match vue 3.6.0-rc.7 / plugin-vue 6.0.8"
+            ]
+          },
+          {
+            "check": "sfc-compile-contract",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          },
+          {
+            "check": "memo-contract-dropped",
+            "verdict": "blocked",
+            "reasons": [
+              "v-memo `[1]` is dropped under Vapor"
+            ]
+          },
+          {
+            "check": "interop-required",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "ssr-hydration",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "runtime-envelope",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          }
+        ],
+        "aggregate": "blocked",
+        "convertible": "no"
+      }
+    },
+    {
+      "id": "Memo.vue::4:8::vue-vet/migration/vapor-memo-contract-dropped::3aff6c421646b9204dcfbd242102bdb621e469a4e089d9943ab562614afee384",
+      "rule_id": "vue-vet/migration/vapor-memo-contract-dropped",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "v-memo `[1]` is dropped under Vapor",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-memo-contract-dropped.md",
+      "file": "Memo.vue",
+      "span": {
+        "offset": 43,
+        "length": 6,
+        "line": 4,
+        "column": 8
+      }
+    },
+    {
+      "id": "MemoCrlf.vue::1:1::vue-vet/migration/vapor-assessment::26594f0eca86960a6fc96cc14d3879e2ad3931b2b27393dd084e9121508ba61d",
+      "rule_id": "vue-vet/migration/vapor-assessment",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "vapor migration: not convertible as-is — blocked (memo-contract-dropped)",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-assessment.md",
+      "file": "MemoCrlf.vue",
+      "span": {
+        "offset": 0,
+        "length": 14,
+        "line": 1,
+        "column": 1
+      },
+      "assessment": {
+        "kind": "vapor-migration",
+        "opt_in": "none",
+        "complete": true,
+        "unknown": [],
+        "checks": [
+          {
+            "check": "toolchain-tuple",
+            "verdict": "compiler-candidate",
+            "reasons": [
+              "match vue 3.6.0-rc.7 / plugin-vue 6.0.8"
+            ]
+          },
+          {
+            "check": "sfc-compile-contract",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          },
+          {
+            "check": "memo-contract-dropped",
+            "verdict": "blocked",
+            "reasons": [
+              "v-memo `[3]` is dropped under Vapor"
+            ]
+          },
+          {
+            "check": "interop-required",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "ssr-hydration",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "runtime-envelope",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          }
+        ],
+        "aggregate": "blocked",
+        "convertible": "no"
+      }
+    },
+    {
+      "id": "MemoCrlf.vue::4:8::vue-vet/migration/vapor-memo-contract-dropped::38fd6e31badb96fa15472b7bb8de30e8d4bd88abe8eee199af0517c637a00c3c",
+      "rule_id": "vue-vet/migration/vapor-memo-contract-dropped",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "v-memo `[3]` is dropped under Vapor",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-memo-contract-dropped.md",
+      "file": "MemoCrlf.vue",
+      "span": {
+        "offset": 46,
+        "length": 6,
+        "line": 4,
+        "column": 8
+      }
+    },
+    {
+      "id": "MemoUnicode.vue::1:1::vue-vet/migration/vapor-assessment::26594f0eca86960a6fc96cc14d3879e2ad3931b2b27393dd084e9121508ba61d",
+      "rule_id": "vue-vet/migration/vapor-assessment",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "vapor migration: not convertible as-is — blocked (memo-contract-dropped)",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-assessment.md",
+      "file": "MemoUnicode.vue",
+      "span": {
+        "offset": 0,
+        "length": 14,
+        "line": 1,
+        "column": 1
+      },
+      "assessment": {
+        "kind": "vapor-migration",
+        "opt_in": "none",
+        "complete": true,
+        "unknown": [],
+        "checks": [
+          {
+            "check": "toolchain-tuple",
+            "verdict": "compiler-candidate",
+            "reasons": [
+              "match vue 3.6.0-rc.7 / plugin-vue 6.0.8"
+            ]
+          },
+          {
+            "check": "sfc-compile-contract",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          },
+          {
+            "check": "memo-contract-dropped",
+            "verdict": "blocked",
+            "reasons": [
+              "v-memo `[2]` is dropped under Vapor"
+            ]
+          },
+          {
+            "check": "interop-required",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "ssr-hydration",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "runtime-envelope",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          }
+        ],
+        "aggregate": "blocked",
+        "convertible": "no"
+      }
+    },
+    {
+      "id": "MemoUnicode.vue::5:8::vue-vet/migration/vapor-memo-contract-dropped::1e1f0ef94929ab39316aa30f23c8164d5b9a63a46ddb3795df69aa2254e0e3f7",
+      "rule_id": "vue-vet/migration/vapor-memo-contract-dropped",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "v-memo `[2]` is dropped under Vapor",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-memo-contract-dropped.md",
+      "file": "MemoUnicode.vue",
+      "span": {
+        "offset": 59,
+        "length": 6,
+        "line": 5,
+        "column": 8
+      }
+    },
+    {
+      "id": "NonVaporChild.vue::1:1::vue-vet/migration/vapor-assessment::c595d7759d423f8f5f72bc7e7890552147740439741a2a14a61780a17da30736",
+      "rule_id": "vue-vet/migration/vapor-assessment",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "vapor migration: ready — direct conversion recommended (all constructs inside the verified runtime envelope)",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-assessment.md",
+      "file": "NonVaporChild.vue",
+      "span": {
+        "offset": 0,
+        "length": 14,
+        "line": 1,
+        "column": 1
+      },
+      "assessment": {
+        "kind": "vapor-migration",
+        "opt_in": "none",
+        "complete": true,
+        "unknown": [],
+        "checks": [
+          {
+            "check": "toolchain-tuple",
+            "verdict": "compiler-candidate",
+            "reasons": [
+              "match vue 3.6.0-rc.7 / plugin-vue 6.0.8"
+            ]
+          },
+          {
+            "check": "sfc-compile-contract",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          },
+          {
+            "check": "memo-contract-dropped",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "interop-required",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "ssr-hydration",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "runtime-envelope",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          }
+        ],
+        "aggregate": "ready",
+        "convertible": "yes"
+      }
+    },
+    {
+      "id": "OrdinaryScript.vue::1:1::vue-vet/migration/vapor-assessment::f078635de216e519a1a23218e34adde4695822fb65fb622006caf11dcd377a00",
+      "rule_id": "vue-vet/migration/vapor-assessment",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "vapor migration: not convertible as-is — blocked (sfc-compile-contract)",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-assessment.md",
+      "file": "OrdinaryScript.vue",
+      "span": {
+        "offset": 0,
+        "length": 8,
+        "line": 1,
+        "column": 1
+      },
+      "assessment": {
+        "kind": "vapor-migration",
+        "opt_in": "none",
+        "complete": true,
+        "unknown": [],
+        "checks": [
+          {
+            "check": "toolchain-tuple",
+            "verdict": "compiler-candidate",
+            "reasons": [
+              "match vue 3.6.0-rc.7 / plugin-vue 6.0.8"
+            ]
+          },
+          {
+            "check": "sfc-compile-contract",
+            "verdict": "blocked",
+            "reasons": [
+              "plugin force conversion ineligible: ordinary-script-only SFC"
+            ]
+          },
+          {
+            "check": "memo-contract-dropped",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "interop-required",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "ssr-hydration",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "runtime-envelope",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          }
+        ],
+        "aggregate": "blocked",
+        "convertible": "no"
+      }
+    },
+    {
+      "id": "OrdinaryScript.vue::1:1::vue-vet/migration/vapor-sfc-compile-contract::ba8ace81e4816d7565805da9d502d3424738e0aa681e6728a7f2d751471048bd",
+      "rule_id": "vue-vet/migration/vapor-sfc-compile-contract",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "plugin force conversion ineligible: ordinary-script-only SFC",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-sfc-compile-contract.md",
+      "file": "OrdinaryScript.vue",
+      "span": {
+        "offset": 0,
+        "length": 8,
+        "line": 1,
+        "column": 1
+      }
+    },
+    {
+      "id": "SafePatterns.vue::1:1::vue-vet/migration/vapor-assessment::75375c4770d129843b4e65b979ca091a40f0f48e04d4f76e762e8a0aa368571a",
+      "rule_id": "vue-vet/migration/vapor-assessment",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "vapor migration: unknown — child component MyTeleport unresolved",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-assessment.md",
+      "file": "SafePatterns.vue",
+      "span": {
+        "offset": 0,
+        "length": 14,
+        "line": 1,
+        "column": 1
+      },
+      "assessment": {
+        "kind": "vapor-migration",
+        "opt_in": "none",
+        "complete": false,
+        "unknown": [
+          "child component MyTeleport unresolved"
+        ],
+        "checks": [
+          {
+            "check": "toolchain-tuple",
+            "verdict": "compiler-candidate",
+            "reasons": [
+              "match vue 3.6.0-rc.7 / plugin-vue 6.0.8"
+            ]
+          },
+          {
+            "check": "sfc-compile-contract",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          },
+          {
+            "check": "memo-contract-dropped",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "interop-required",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "ssr-hydration",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "runtime-envelope",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          }
+        ],
+        "aggregate": "needs-verification",
+        "convertible": "unknown"
+      }
+    },
+    {
+      "id": "ScriptVaporExport.vue::1:1::vue-vet/migration/vapor-assessment::f078635de216e519a1a23218e34adde4695822fb65fb622006caf11dcd377a00",
+      "rule_id": "vue-vet/migration/vapor-assessment",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "vapor migration: not convertible as-is — blocked (sfc-compile-contract)",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-assessment.md",
+      "file": "ScriptVaporExport.vue",
+      "span": {
+        "offset": 0,
+        "length": 14,
+        "line": 1,
+        "column": 1
+      },
+      "assessment": {
+        "kind": "vapor-migration",
+        "opt_in": "script_vapor_attr",
+        "complete": true,
+        "unknown": [],
+        "checks": [
+          {
+            "check": "toolchain-tuple",
+            "verdict": "compiler-candidate",
+            "reasons": [
+              "match vue 3.6.0-rc.7 / plugin-vue 6.0.8"
+            ]
+          },
+          {
+            "check": "sfc-compile-contract",
+            "verdict": "blocked",
+            "reasons": [
+              "setup block rejects runtime export"
+            ]
+          },
+          {
+            "check": "memo-contract-dropped",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "interop-required",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "ssr-hydration",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "runtime-envelope",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          }
+        ],
+        "aggregate": "blocked",
+        "convertible": "no"
+      }
+    },
+    {
+      "id": "ScriptVaporExport.vue::2:1::vue-vet/migration/vapor-sfc-compile-contract::b6b0ab64a373e71a59e848bb0eeedf3a988cf2381c1bf23f8cd8492a0f1e9576",
+      "rule_id": "vue-vet/migration/vapor-sfc-compile-contract",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "setup block rejects runtime export",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-sfc-compile-contract.md",
+      "file": "ScriptVaporExport.vue",
+      "span": {
+        "offset": 15,
+        "length": 44,
+        "line": 2,
+        "column": 1
+      }
+    },
+    {
+      "id": "ScriptVaporSafeExport.vue::1:1::vue-vet/migration/vapor-assessment::c595d7759d423f8f5f72bc7e7890552147740439741a2a14a61780a17da30736",
+      "rule_id": "vue-vet/migration/vapor-assessment",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "vapor migration: ready — direct conversion recommended (all constructs inside the verified runtime envelope)",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-assessment.md",
+      "file": "ScriptVaporSafeExport.vue",
+      "span": {
+        "offset": 0,
+        "length": 24,
+        "line": 1,
+        "column": 1
+      },
+      "assessment": {
+        "kind": "vapor-migration",
+        "opt_in": "script_vapor_attr",
+        "complete": true,
+        "unknown": [],
+        "checks": [
+          {
+            "check": "toolchain-tuple",
+            "verdict": "compiler-candidate",
+            "reasons": [
+              "match vue 3.6.0-rc.7 / plugin-vue 6.0.8"
+            ]
+          },
+          {
+            "check": "sfc-compile-contract",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          },
+          {
+            "check": "memo-contract-dropped",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "interop-required",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "ssr-hydration",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "runtime-envelope",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          }
+        ],
+        "aggregate": "ready",
+        "convertible": "yes"
+      }
+    },
+    {
+      "id": "TemplateOnly.vue::1:1::vue-vet/migration/vapor-assessment::c595d7759d423f8f5f72bc7e7890552147740439741a2a14a61780a17da30736",
+      "rule_id": "vue-vet/migration/vapor-assessment",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "vapor migration: ready — direct conversion recommended (all constructs inside the verified runtime envelope)",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-assessment.md",
+      "file": "TemplateOnly.vue",
+      "span": {
+        "offset": 0,
+        "length": 10,
+        "line": 1,
+        "column": 1
+      },
+      "assessment": {
+        "kind": "vapor-migration",
+        "opt_in": "none",
+        "complete": true,
+        "unknown": [],
+        "checks": [
+          {
+            "check": "toolchain-tuple",
+            "verdict": "compiler-candidate",
+            "reasons": [
+              "match vue 3.6.0-rc.7 / plugin-vue 6.0.8"
+            ]
+          },
+          {
+            "check": "sfc-compile-contract",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          },
+          {
+            "check": "memo-contract-dropped",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "interop-required",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "ssr-hydration",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "runtime-envelope",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          }
+        ],
+        "aggregate": "ready",
+        "convertible": "yes"
+      }
+    },
+    {
+      "id": "TemplateVaporOptions.vue::4:1::vue-vet/migration/vapor-assessment::2fa6c404789360da653a8c8dc71ab3d78c22ef6d5367e66f03c50105e4ba351f",
+      "rule_id": "vue-vet/migration/vapor-assessment",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "vapor migration: convertible, verification pending (sfc-compile-contract: template-vapor with Options script: render + __vapor assembly unverified)",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-assessment.md",
+      "file": "TemplateVaporOptions.vue",
+      "span": {
+        "offset": 57,
+        "length": 8,
+        "line": 4,
+        "column": 1
+      },
+      "assessment": {
+        "kind": "vapor-migration",
+        "opt_in": "template_vapor_attr",
+        "complete": true,
+        "unknown": [],
+        "checks": [
+          {
+            "check": "toolchain-tuple",
+            "verdict": "compiler-candidate",
+            "reasons": [
+              "match vue 3.6.0-rc.7 / plugin-vue 6.0.8"
+            ]
+          },
+          {
+            "check": "sfc-compile-contract",
+            "verdict": "needs-verification",
+            "reasons": [
+              "template-vapor with Options script: render + __vapor assembly unverified"
+            ]
+          },
+          {
+            "check": "memo-contract-dropped",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "interop-required",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "ssr-hydration",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "runtime-envelope",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          }
+        ],
+        "aggregate": "needs-verification",
+        "convertible": "yes"
+      }
+    },
+    {
+      "id": "TemplateVaporOptions.vue::4:1::vue-vet/migration/vapor-sfc-compile-contract::c3a47955e3602df7a8fb3a8ebb5589dcb31a35b040fc12168a950ec2edb76478",
+      "rule_id": "vue-vet/migration/vapor-sfc-compile-contract",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "template-vapor with Options script: render + __vapor assembly unverified",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-sfc-compile-contract.md",
+      "file": "TemplateVaporOptions.vue",
+      "span": {
+        "offset": 57,
+        "length": 8,
+        "line": 4,
+        "column": 1
+      }
+    },
+    {
+      "id": "UnresolvedChild.vue::1:1::vue-vet/migration/vapor-assessment::d6e7d5480db8679a58e4db84b705e4e61737a945984ca849f205502c280283bd",
+      "rule_id": "vue-vet/migration/vapor-assessment",
+      "category": "migration",
+      "severity": "info",
+      "confidence": "high",
+      "message": "vapor migration: unknown — child component UnknownChild unresolved",
+      "help": null,
+      "documentation": "docs/rules/migration/vapor-assessment.md",
+      "file": "UnresolvedChild.vue",
+      "span": {
+        "offset": 0,
+        "length": 14,
+        "line": 1,
+        "column": 1
+      },
+      "assessment": {
+        "kind": "vapor-migration",
+        "opt_in": "none",
+        "complete": false,
+        "unknown": [
+          "child component UnknownChild unresolved"
+        ],
+        "checks": [
+          {
+            "check": "toolchain-tuple",
+            "verdict": "compiler-candidate",
+            "reasons": [
+              "match vue 3.6.0-rc.7 / plugin-vue 6.0.8"
+            ]
+          },
+          {
+            "check": "sfc-compile-contract",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          },
+          {
+            "check": "memo-contract-dropped",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "interop-required",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "ssr-hydration",
+            "verdict": "not-applicable",
+            "reasons": []
+          },
+          {
+            "check": "runtime-envelope",
+            "verdict": "compiler-candidate",
+            "reasons": []
+          }
+        ],
+        "aggregate": "needs-verification",
+        "convertible": "unknown"
+      }
+    }
+  ],
+  "summary": {
+    "score": 100,
+    "finding_count": 33,
+    "affected_file_count": 16,
+    "by_severity": {
+      "info": 33,
+      "warning": 0,
+      "error": 0
+    }
+  },
+  "reactivity": {
+    "modules": 17,
+    "bindings": 5,
+    "scopes": 0,
+    "edges": 7,
+    "template_reads": 7,
+    "hotspots": [
+      {
+        "id": "Envelope.vue",
+        "bindings": 2,
+        "scopes": 0,
+        "edges": 4,
+        "template_reads": 4
+      },
+      {
+        "id": "Complete.vue",
+        "bindings": 1,
+        "scopes": 0,
+        "edges": 1,
+        "template_reads": 1
+      },
+      {
+        "id": "EnvelopeUnicode.vue",
+        "bindings": 1,
+        "scopes": 0,
+        "edges": 1,
+        "template_reads": 1
+      },
+      {
+        "id": "ScriptVaporSafeExport.vue",
+        "bindings": 1,
+        "scopes": 0,
+        "edges": 1,
+        "template_reads": 1
+      }
+    ]
+  },
+  "component_nav": {
+    "modules": [
+      {
+        "id": "InteropHost.vue",
+        "uses": [
+          {
+            "peer": "NonVaporChild.vue",
+            "kind": "component_usage",
+            "specifier": "Child",
+            "span": {
+              "offset": 93,
+              "length": 9
+            }
+          }
+        ],
+        "used_by": []
+      },
+      {
+        "id": "NonVaporChild.vue",
+        "uses": [],
+        "used_by": [
+          {
+            "peer": "InteropHost.vue",
+            "kind": "component_usage",
+            "specifier": "Child",
+            "span": {
+              "offset": 93,
+              "length": 9
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "error": null
+}

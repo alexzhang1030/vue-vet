@@ -11,7 +11,8 @@ The project is an early local-doctor implementation. Today it:
 - discovers `.vue` files while respecting `.gitignore`;
 - parses every SFC with Vize;
 - analyzes JavaScript, TypeScript, JSX, and TSX in both Vue script blocks with Oxc;
-- runs 149 file rules and recommendations plus 2 project-graph rules (151
+- runs 149 file rules and recommendations plus 2 project-graph rules and 5
+  opt-in Vapor migration assessment IDs (156
   composed inventory IDs), with original-source locations — see
   [the rule catalog](docs/rules/README.md)
   (`tracer` tier is the reactivity-graph differentiator; `parity` is Essential
@@ -67,6 +68,7 @@ configuration.
 version = 1
 preset = "recommended"
 practice = "on"
+assessment = "off"
 include = ["src/**/*.vue"]
 exclude = ["src/generated/**"]
 
@@ -78,6 +80,10 @@ exclude = ["src/generated/**"]
 `practice` is `on` (default) or `off`. When `off`, ecosystem practice suggestions
 (`category: practice`) are dropped before scoring and reporting; individual
 practice rule IDs can still be toggled under `[rules]` when practice is on.
+`assessment` is `off` (default) or `vapor`. When `vapor`, the opt-in
+`vapor-migration` group (`category: migration`) is enabled; it never affects
+score or the default exit code. `--group vapor-migration` is the CLI equivalent.
+Individual migration IDs can also be set under `[rules]`.
 Levels are `off`, `info`, `warning`, and `error`. Unknown fields, rule IDs,
 values, and future versions fail before scanning. Deleted historical IDs are
 listed in [removed rule IDs](docs/rules/removed-ids.md); remove those keys from

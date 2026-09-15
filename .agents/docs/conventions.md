@@ -72,8 +72,11 @@
   `no-shared-default-cross-instance-demand`) join project instance/default
   facts onto file rules. Template-ref demand rules
   (`no-pre-flush-template-ref-demand`, `no-v-memo-blocked-ref-demand`) join
-  Vize allocation relations with Oxc demand facts. Combined inventory is 151 (149 file + 2
-  project); source-contract group 46; lifetime group 10; `RULESET_VERSION` 41; graph stays 41.
+  Vize allocation relations with Oxc demand facts.   Combined inventory is 156 (149 file + 2
+  project + 5 migration); source-contract group 46; lifetime group 10; vapor-migration group 5
+  (default off); `RULESET_VERSION` 43; graph stays 41.
+  Category `migration` is off-score and off-exit like `practice`. Enable with
+  `assessment = "vapor"`, `--group vapor-migration`, or `[rules]`.
   Runtime premises live in `just oracle-source-contracts` (Vue 3.5.40), which
   runs `source-contracts.mjs`, `watch-api.mjs`, `watch-callback-contracts.mjs`,
   and `value-contracts.mjs`. Dedicated `just oracle-value-contracts` remains

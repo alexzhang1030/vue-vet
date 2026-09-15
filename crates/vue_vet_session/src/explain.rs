@@ -214,6 +214,7 @@ fn build_finding_explain(
     message: diagnostic.message.clone(),
     help: diagnostic.help.clone(),
     recommendation: diagnostic.recommendation.clone(),
+    assessment: diagnostic.assessment.clone(),
     rule,
     tracking: None,
   }

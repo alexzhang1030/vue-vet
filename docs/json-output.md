@@ -241,6 +241,48 @@ LSP diagnostic `data` is a JSON object with opaque finding `id` and the same
 optional `recommendation` when present. Finding `--explain` JSON nests
 `recommendation` beside the rule docs payload.
 
+## Assessment
+
+Migration findings (`category: "migration"`) may include an additive
+`assessment` object (still `schema_version` 1). They appear in `diagnostics`
+and text `Assessment` sections, but do **not** reduce `summary.score` or fail
+the default CI exit. The five IDs are off by default. Enable them with
+`--group vapor-migration`, `assessment = "vapor"` in `vue-vet.toml`, or an
+individual ID under `[rules]`. `--list-rules` still lists them.
+
+`convertible` answers “can this component be converted to Vapor at all?”
+(`yes` / `no` / `unknown`). `aggregate: "ready"` answers “is direct conversion
+recommended right now?” and is produced only when `complete` is true, no check
+is `blocked` / `unsupported` / `needs-verification`, and `runtime-envelope` is
+`compiler-candidate`.
+
+```json
+{
+  "rule_id": "vue-vet/migration/vapor-assessment",
+  "category": "migration",
+  "severity": "info",
+  "assessment": {
+    "kind": "vapor-migration",
+    "opt_in": "script_vapor_attr",
+    "complete": true,
+    "unknown": [],
+    "checks": [
+      { "check": "toolchain-tuple", "verdict": "compiler-candidate", "reasons": ["match vue 3.6.0-rc.7 / plugin-vue 6.0.8"] },
+      { "check": "sfc-compile-contract", "verdict": "compiler-candidate", "reasons": [] },
+      { "check": "memo-contract-dropped", "verdict": "not-applicable", "reasons": [] },
+      { "check": "interop-required", "verdict": "not-applicable", "reasons": [] },
+      { "check": "ssr-hydration", "verdict": "not-applicable", "reasons": [] },
+      { "check": "runtime-envelope", "verdict": "compiler-candidate", "reasons": [] }
+    ],
+    "aggregate": "ready",
+    "convertible": "yes"
+  }
+}
+```
+
+LSP diagnostic `data` includes the same optional `assessment` when present.
+Finding `--explain` JSON nests `assessment` beside the rule docs payload.
+
 ```json
 {
   "file": "src/App.vue",
@@ -279,8 +321,8 @@ failures.
 ## `--list-rules` (composed registry inventory)
 
 `--list-rules` prints the **live composed registry** (built-in + practice +
-project IDs), sorted by stable ID. It is an inventory, not a scan: project
-`vue-vet.toml` preset, `practice`, and `[rules]` do not hide rows. Repeatable
+project + migration IDs), sorted by stable ID. It is an inventory, not a scan: project
+`vue-vet.toml` preset, `practice`, `assessment`, and `[rules]` do not hide rows. Repeatable
 `--group <slug>` may narrow the printed set to the union of those groups.
 Unmapped rules omit `group` / `group_title`. Counts come from that same
 in-memory registry — not from parsing source or Markdown.
@@ -297,7 +339,8 @@ JSON (`--format json`) is a versioned additive document (`kind` is
     { "id": "source-contracts", "title": "Source contracts" },
     { "id": "lifetime", "title": "Lifetime" },
     { "id": "derivation", "title": "Derivation" },
-    { "id": "project", "title": "Project" }
+    { "id": "project", "title": "Project" },
+    { "id": "vapor-migration", "title": "Vapor migration" }
   ],
   "counts": {
     "total": "<registry length>",

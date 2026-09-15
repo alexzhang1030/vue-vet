@@ -270,6 +270,20 @@ pub fn render_finding_explain_text(explain: &FindingExplain) -> String {
     output.push_str(&recommendation.import_example);
     output.push('\n');
   }
+  if let Some(assessment) = &explain.assessment {
+    output.push_str("assessment: ");
+    output.push_str(&assessment.kind);
+    output.push(' ');
+    output.push_str(match assessment.aggregate {
+      vue_vet_core::Verdict::CompilerCandidate => "compiler-candidate",
+      vue_vet_core::Verdict::Blocked => "blocked",
+      vue_vet_core::Verdict::NeedsVerification => "needs-verification",
+      vue_vet_core::Verdict::Unsupported => "unsupported",
+      vue_vet_core::Verdict::NotApplicable => "not-applicable",
+      vue_vet_core::Verdict::Ready => "ready",
+    });
+    output.push('\n');
+  }
   output.push('\n');
   output.push_str(&render_rule_explain_text(&explain.rule));
   if let Some(tracking) = &explain.tracking {
@@ -354,6 +368,7 @@ mod tests {
       message: "`v-html` can render untrusted HTML into the page".into(),
       help: Some("Prefer normal template interpolation.".into()),
       recommendation: None,
+      assessment: None,
       rule,
       tracking: None,
     };

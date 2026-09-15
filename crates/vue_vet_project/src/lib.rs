@@ -21,6 +21,7 @@ mod resolve;
 mod rules;
 mod state;
 mod structural;
+mod vapor_migration;
 
 pub use context::{
   ContextChangeKind, ContextEpochs, ProjectContext, context_change_kind_for, layer_input_relatives,
@@ -42,3 +43,7 @@ pub use pipeline::{
 };
 pub use resolve::{OXC_RESOLVER_VERSION, normalize_project_root, resolver_config_inputs};
 pub use state::{ProjectGraphState, ProjectGraphStats};
+pub use vapor_migration::{
+  AUDITED_CORE_COMMIT, AUDITED_PLUGIN_VUE_COMMIT, AUDITED_PLUGIN_VUE_VERSION, AUDITED_VUE_VERSION,
+  VAPOR_MIGRATION_RULE_IDS, vapor_migration_diagnostics,
+};

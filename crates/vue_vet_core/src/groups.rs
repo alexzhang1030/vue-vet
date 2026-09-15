@@ -11,6 +11,7 @@ pub enum RuleGroupId {
   Lifetime,
   Derivation,
   Project,
+  VaporMigration,
 }
 
 impl RuleGroupId {
@@ -23,6 +24,7 @@ impl RuleGroupId {
       Self::Lifetime => "lifetime",
       Self::Derivation => "derivation",
       Self::Project => "project",
+      Self::VaporMigration => "vapor-migration",
     }
   }
 
@@ -35,12 +37,19 @@ impl RuleGroupId {
       Self::Lifetime => "Lifetime",
       Self::Derivation => "Derivation",
       Self::Project => "Project",
+      Self::VaporMigration => "Vapor migration",
     }
   }
 
   /// Every canonical group, in display order.
-  pub const ALL: [Self; 5] =
-    [Self::Tracking, Self::SourceContracts, Self::Lifetime, Self::Derivation, Self::Project];
+  pub const ALL: [Self; 6] = [
+    Self::Tracking,
+    Self::SourceContracts,
+    Self::Lifetime,
+    Self::Derivation,
+    Self::Project,
+    Self::VaporMigration,
+  ];
 
   /// Parse a CLI slug. Unknown slugs return `None`.
   #[must_use]

@@ -37,3 +37,4 @@ fixtures/rules/no-model-default-unsynced-parent-demand/invalid/crlf-parent.vue -
 fixtures/rules/no-shared-default-cross-instance-demand/invalid/crlf-parent.vue -text whitespace=cr-at-eol
 fixtures/rules/no-pre-flush-template-ref-demand/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/no-v-memo-blocked-ref-demand/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/projects/vapor-migration/matched/MemoCrlf.vue -text whitespace=cr-at-eol

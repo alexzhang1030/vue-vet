@@ -1,7 +1,7 @@
 use std::{path::Path, sync::Arc};
 
 use super::super::*;
-use vue_vet_core::{Diagnostic, RuleEnvironment, RuleRegistry};
+use vue_vet_core::{Diagnostic, RuleEnvironment, RuleRegistry, ScriptKind};
 use vue_vet_practice::practice_rules;
 use vue_vet_rules::builtin_rules;
 
@@ -1312,4 +1312,19 @@ fn template_ref_demand_shadowed_name_diagnostics_are_deterministic() {
     let again = analyze_for_test(Path::new("shadowed-name.vue"), source);
     assert_eq!(format!("{again:?}"), encoded, "SFC diagnostics must be byte-identical");
   }
+}
+
+#[test]
+#[expect(clippy::panic, reason = "missing vapor facts must fail the unit test")]
+fn records_vapor_attrs_and_opening_tag_spans() {
+  let source = "<script setup vapor>\nconst n = 1\n</script>\n<template vapor>\n<div>{{ n }}</div>\n</template>\n";
+  let facts = facts_for_test(Path::new("Vapor.vue"), source);
+  let setup = facts.script.blocks.iter().find(|block| block.kind == ScriptKind::Setup);
+  let Some(setup) = setup else {
+    panic!("setup block");
+  };
+  assert!(setup.vapor);
+  assert_eq!(setup.open_span.map(|span| span.offset), Some(0));
+  assert!(facts.template.vapor);
+  assert!(facts.template.open_span.is_some());
 }

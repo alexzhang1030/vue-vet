@@ -210,3 +210,13 @@ These IDs belong to the project registry and are listed separately from file rul
 
 - `vue-vet/project/unresolved-import`
 - `vue-vet/project/unused-component`
+
+## Migration assessment rules
+
+These IDs belong to the opt-in `vapor-migration` group (`category: migration`) and are listed separately from file rules.
+
+- [`vue-vet/migration/vapor-assessment`](./migration/vapor-assessment.md)
+- [`vue-vet/migration/vapor-interop-required`](./migration/vapor-interop-required.md)
+- [`vue-vet/migration/vapor-memo-contract-dropped`](./migration/vapor-memo-contract-dropped.md)
+- [`vue-vet/migration/vapor-runtime-envelope`](./migration/vapor-runtime-envelope.md)
+- [`vue-vet/migration/vapor-sfc-compile-contract`](./migration/vapor-sfc-compile-contract.md)

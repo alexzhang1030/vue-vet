@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 use vue_vet_core::{
-  ByteRange, Confidence, Diagnostic, EditApplicability, FileId, Recommendation, ScanSummary,
-  Severity, SourceSpan, diagnostic_id,
+  Assessment, ByteRange, Confidence, Diagnostic, EditApplicability, FileId, Recommendation,
+  ScanSummary, Severity, SourceSpan, diagnostic_id,
 };
 
 use crate::{
@@ -62,6 +62,8 @@ struct JsonDiagnostic<'a> {
   edits: Vec<JsonTextEdit<'a>>,
   #[serde(skip_serializing_if = "Option::is_none")]
   recommendation: Option<&'a Recommendation>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  assessment: Option<&'a Assessment>,
 }
 
 #[derive(Serialize)]
@@ -216,6 +218,7 @@ fn json_diagnostic<'a>(
       })
       .collect(),
     recommendation: diagnostic.recommendation.as_ref(),
+    assessment: diagnostic.assessment.as_ref(),
   }
 }
 

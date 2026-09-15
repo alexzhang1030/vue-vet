@@ -1,0 +1,45 @@
+Assessment
+Complete.vue:1:1  info  vue-vet/migration/vapor-assessment  vapor migration: ready — direct conversion recommended (all constructs inside the verified runtime envelope)
+DualScript.vue:1:1  info  vue-vet/migration/vapor-sfc-compile-contract  inherited Options API from ordinary script unverified
+DualScript.vue:4:1  info  vue-vet/migration/vapor-assessment  vapor migration: convertible, verification pending (sfc-compile-contract: inherited Options API from ordinary script unverified)
+Envelope.vue:1:1  info  vue-vet/migration/vapor-assessment  vapor migration: convertible, verification pending (runtime-envelope: provide, v-model, @click.stop)
+Envelope.vue:5:1  info  vue-vet/migration/vapor-runtime-envelope  provide
+Envelope.vue:8:10  info  vue-vet/migration/vapor-runtime-envelope  v-model
+Envelope.vue:9:11  info  vue-vet/migration/vapor-runtime-envelope  @click.stop
+Envelope.vue:10:3  info  vue-vet/migration/vapor-runtime-envelope  slot
+Envelope.vue:11:6  info  vue-vet/migration/vapor-runtime-envelope  v-show
+Envelope.vue:12:7  info  vue-vet/migration/vapor-runtime-envelope  unkeyed v-for
+Envelope.vue:13:8  info  vue-vet/migration/vapor-runtime-envelope  custom directive v-focus
+EnvelopeUnicode.vue:1:1  info  vue-vet/migration/vapor-assessment  vapor migration: convertible, verification pending (runtime-envelope: v-model)
+EnvelopeUnicode.vue:6:10  info  vue-vet/migration/vapor-runtime-envelope  v-model
+InteropHost.vue:1:1  info  vue-vet/migration/vapor-assessment  vapor migration: convertible, verification pending (interop-required: requires vaporInteropPlugin; not executed in the audited envelope, requires vaporInteropPlugin; not executed in the audited envelope)
+InteropHost.vue:5:3  info  vue-vet/migration/vapor-interop-required  requires vaporInteropPlugin; not executed in the audited envelope
+InteropHost.vue:6:5  info  vue-vet/migration/vapor-interop-required  requires vaporInteropPlugin; not executed in the audited envelope
+Memo.vue:1:1  info  vue-vet/migration/vapor-assessment  vapor migration: not convertible as-is — blocked (memo-contract-dropped)
+Memo.vue:4:8  info  vue-vet/migration/vapor-memo-contract-dropped  v-memo `[1]` is dropped under Vapor
+MemoCrlf.vue:1:1  info  vue-vet/migration/vapor-assessment  vapor migration: not convertible as-is — blocked (memo-contract-dropped)
+MemoCrlf.vue:4:8  info  vue-vet/migration/vapor-memo-contract-dropped  v-memo `[3]` is dropped under Vapor
+MemoUnicode.vue:1:1  info  vue-vet/migration/vapor-assessment  vapor migration: not convertible as-is — blocked (memo-contract-dropped)
+MemoUnicode.vue:5:8  info  vue-vet/migration/vapor-memo-contract-dropped  v-memo `[2]` is dropped under Vapor
+NonVaporChild.vue:1:1  info  vue-vet/migration/vapor-assessment  vapor migration: ready — direct conversion recommended (all constructs inside the verified runtime envelope)
+OrdinaryScript.vue:1:1  info  vue-vet/migration/vapor-assessment  vapor migration: not convertible as-is — blocked (sfc-compile-contract)
+OrdinaryScript.vue:1:1  info  vue-vet/migration/vapor-sfc-compile-contract  plugin force conversion ineligible: ordinary-script-only SFC
+SafePatterns.vue:1:1  info  vue-vet/migration/vapor-assessment  vapor migration: unknown — child component MyTeleport unresolved
+ScriptVaporExport.vue:1:1  info  vue-vet/migration/vapor-assessment  vapor migration: not convertible as-is — blocked (sfc-compile-contract)
+ScriptVaporExport.vue:2:1  info  vue-vet/migration/vapor-sfc-compile-contract  setup block rejects runtime export
+ScriptVaporSafeExport.vue:1:1  info  vue-vet/migration/vapor-assessment  vapor migration: ready — direct conversion recommended (all constructs inside the verified runtime envelope)
+TemplateOnly.vue:1:1  info  vue-vet/migration/vapor-assessment  vapor migration: ready — direct conversion recommended (all constructs inside the verified runtime envelope)
+TemplateVaporOptions.vue:4:1  info  vue-vet/migration/vapor-assessment  vapor migration: convertible, verification pending (sfc-compile-contract: template-vapor with Options script: render + __vapor assembly unverified)
+TemplateVaporOptions.vue:4:1  info  vue-vet/migration/vapor-sfc-compile-contract  template-vapor with Options script: render + __vapor assembly unverified
+UnresolvedChild.vue:1:1  info  vue-vet/migration/vapor-assessment  vapor migration: unknown — child component UnknownChild unresolved
+
+Vue Vet score: 100/100 — 17 file(s), 33 finding(s)
+
+Reactivity
+  traced 17 module(s) · 5 bindings · 0 scopes · 7 edges · 7 template reads
+  busiest
+    Envelope.vue               2b  0s  4e  4t
+    Complete.vue               1b  0s  1e  1t
+    EnvelopeUnicode.vue        1b  0s  1e  1t
+    ScriptVaporSafeExport.vue  1b  0s  1e  1t
+

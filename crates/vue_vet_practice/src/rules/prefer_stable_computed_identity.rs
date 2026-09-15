@@ -105,6 +105,9 @@ mod tests {
         source_contracts: facts,
         template_ref_demands: vue_vet_core::TemplateRefDemandFacts::default(),
         reactivity_graph: std::sync::Arc::new(ReactivityGraph::default()),
+        vapor: false,
+        open_span: None,
+        runtime_export_spans: Vec::new(),
       }],
     };
     practice_registry().run_with_environment(
@@ -181,6 +184,9 @@ mod tests {
         source_contracts: finding(),
         template_ref_demands: vue_vet_core::TemplateRefDemandFacts::default(),
         reactivity_graph: std::sync::Arc::new(ReactivityGraph::default()),
+        vapor: false,
+        open_span: None,
+        runtime_export_spans: Vec::new(),
       }],
     };
     let diagnostics = practice_registry().run_with_environment(

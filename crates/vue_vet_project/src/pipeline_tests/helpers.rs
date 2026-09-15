@@ -112,6 +112,9 @@ pub fn file(path: &str, imports: &[(&str, &str)], tags: &[&str], calls: &[&str])
       source_contracts: vue_vet_core::SourceContractFacts::default(),
       template_ref_demands: vue_vet_core::TemplateRefDemandFacts::default(),
       reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
+      vapor: false,
+      open_span: None,
+      runtime_export_spans: Vec::new(),
     }],
   };
   let template = TemplateFacts {
@@ -138,6 +141,7 @@ pub fn file(path: &str, imports: &[(&str, &str)], tags: &[&str], calls: &[&str])
       .collect(),
     expressions: Vec::new(),
     allocations: Vec::new(),
+    ..Default::default()
   };
   ProjectFile {
     path: path.into(),
@@ -187,7 +191,12 @@ pub fn setup_sfc_file(
     path: path.into(),
     source_len: sfc.len(),
     facts: SfcFacts {
-      template: TemplateFacts { elements: Vec::new(), expressions, allocations: Vec::new() },
+      template: TemplateFacts {
+        elements: Vec::new(),
+        expressions,
+        allocations: Vec::new(),
+        ..Default::default()
+      },
       script: ScriptFacts {
         blocks: vec![ScriptBlockFacts {
           kind: ScriptKind::Setup,
@@ -223,6 +232,9 @@ pub fn setup_sfc_file(
           source_contracts: vue_vet_core::SourceContractFacts::default(),
           template_ref_demands: vue_vet_core::TemplateRefDemandFacts::default(),
           reactivity_graph: empty_graph(),
+          vapor: false,
+          open_span: None,
+          runtime_export_spans: Vec::new(),
         }],
       },
     }

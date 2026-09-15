@@ -8,7 +8,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use thiserror::Error;
-use vize_croquis::sfc::{SfcDescriptor, SfcParseOptions, parse_sfc};
+use vize_croquis::sfc::{
+  BlockLocation, SfcDescriptor, SfcParseOptions, SfcScriptBlock, SfcTemplateBlock, parse_sfc,
+};
 use vue_vet_core::{
   ScriptBlockFacts, ScriptFacts, ScriptKind, SfcFacts, TemplateFacts, content_digest,
 };
@@ -133,6 +135,9 @@ fn analyze_sfc_facts_inner(
   } else {
     TemplateFacts::default()
   };
+  if let Some(block) = descriptor.template.as_ref() {
+    apply_template_vapor(&mut template, source, block);
+  }
   style::refresh_style_v_bind_expressions(source, &descriptor, &mut template);
 
   let mut script = ScriptFacts::default();
@@ -180,6 +185,8 @@ fn analyze_sfc_facts_inner(
         None => module,
       });
     }
+    let mut script_facts = script_facts;
+    apply_script_vapor(&mut script_facts, source, &block);
     script.blocks.push(script_facts);
   }
   if let Some(block) = descriptor.script_setup {
@@ -209,6 +216,8 @@ fn analyze_sfc_facts_inner(
         None => module,
       });
     }
+    let mut script_facts = script_facts;
+    apply_script_vapor(&mut script_facts, source, &block);
     script.blocks.push(script_facts);
   }
 
@@ -369,6 +378,21 @@ fn dual_module_sources(
     (None, Some(ordinary)) => (Some(ordinary), None),
     (None, None) => (None, None),
   }
+}
+
+fn apply_template_vapor(facts: &mut TemplateFacts, source: &str, block: &SfcTemplateBlock<'_>) {
+  facts.vapor = block.attrs.contains_key("vapor");
+  facts.open_span = opening_tag_span(source, &block.loc);
+}
+
+fn apply_script_vapor(facts: &mut ScriptBlockFacts, source: &str, block: &SfcScriptBlock<'_>) {
+  facts.vapor = block.attrs.contains_key("vapor");
+  facts.open_span = opening_tag_span(source, &block.loc);
+}
+
+fn opening_tag_span(source: &str, loc: &BlockLocation) -> Option<vue_vet_core::SourceSpan> {
+  let length = loc.start.saturating_sub(loc.tag_start);
+  (length > 0).then(|| span::source_span(source, loc.tag_start, length))
 }
 
 fn merge_jsx_template_facts(target: &mut TemplateFacts, jsx: TemplateFacts) {

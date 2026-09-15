@@ -28,6 +28,7 @@ pub fn unresolved_diagnostic(file: &Path, specifier: &str, span: SourceSpan) -> 
     span,
     edits: Vec::new(),
     recommendation: None,
+    assessment: None,
   }
 }
 
@@ -73,6 +74,7 @@ pub fn unused_component_diagnostics(
         span: SourceSpan { offset: 0, length: file.source_len.min(1), line: 1, column: 1 },
         edits: Vec::new(),
         recommendation: None,
+        assessment: None,
       })
     })
     .collect()

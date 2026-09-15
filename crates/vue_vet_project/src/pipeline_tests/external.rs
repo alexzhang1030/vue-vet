@@ -325,6 +325,7 @@ fn non_provisional_external_dts_skips_huge_companion_js() {
         elements: Vec::new(),
         expressions: Vec::new(),
         allocations: Vec::new(),
+        ..Default::default()
       },
       script: ScriptFacts {
         blocks: vec![ScriptBlockFacts {
@@ -348,6 +349,9 @@ fn non_provisional_external_dts_skips_huge_companion_js() {
           source_contracts: vue_vet_core::SourceContractFacts::default(),
           template_ref_demands: vue_vet_core::TemplateRefDemandFacts::default(),
           reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
+          vapor: false,
+          open_span: None,
+          runtime_export_spans: Vec::new(),
         }],
       },
     }

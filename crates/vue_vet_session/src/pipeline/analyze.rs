@@ -250,6 +250,7 @@ pub fn issue_diagnostic(issue: &AnalysisIssue) -> Option<Diagnostic> {
     span: SourceSpan { offset: 0, length: 0, line: 1, column: 1 },
     edits: Vec::new(),
     recommendation: None,
+    assessment: None,
   })
 }
 
@@ -279,6 +280,9 @@ mod tests {
       source_contracts: vue_vet_core::SourceContractFacts::default(),
       template_ref_demands: vue_vet_core::TemplateRefDemandFacts::default(),
       reactivity_graph: std::sync::Arc::new(ReactivityGraph::default()),
+      vapor: false,
+      open_span: None,
+      runtime_export_spans: Vec::new(),
     }
   }
 

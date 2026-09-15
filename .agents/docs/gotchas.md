@@ -1400,6 +1400,36 @@ template binds `this` like a call). TS wrappers, including instantiation, and
 JSX member tags, and decorator expressions are not JS `this` receivers and
 stay off this set.
 
+## Ready is recommended for direct conversion
+
+`Verdict::Ready` is the aggregate-only “recommended for direct conversion”
+answer. It is assigned only when `complete` is true, no check is `blocked` /
+`unsupported` / `needs-verification`, and `runtime-envelope` is
+`compiler-candidate`. `convertible` answers whether conversion is possible at
+all. Aggregate of checks stays `blocked` > `unsupported` > `needs-verification`
+> `compiler-candidate`; `not-applicable` never wins. Incomplete assessments
+cannot beat `needs-verification`.
+
+## Do not widen the Vapor runtime envelope without an oracle pair
+
+`ENVELOPE_VUE_BUILT_IN_DIRECTIVES` / `ENVELOPE_SCRIPT_APIS` in
+`vapor_migration.rs` are the admitted envelope from
+`research/vapor-migration/README.md`. Adding a construct to that whitelist
+requires first adding and passing a runtime oracle fixture pair there. The
+only shipped generalization is treating any modifier-free native `v-on` as
+inside the envelope (the oracle executed click).
+
+## `<script vapor>` is setup
+
+Vue flips an ordinary `<script vapor>` block to setup. Vize still stores it
+on `descriptor.script` with `vapor` in `attrs` (not `script_setup`). Treat
+`ScriptBlockFacts.vapor` as setup for compile-contract reasons. Dual-script
+fixtures must be `<script>` + `<script setup>`; `<script>` + `<script vapor>`
+is a Vize `DUPLICATE_SCRIPT`. Runtime-export blocking uses
+`ScriptBlockFacts.runtime_export_spans` from the Oxc walk — do not byte-scan
+the string `export` (that matches comments, strings, and type-only
+`export type` / `export interface`, which Vue allows in setup).
+
 ## Keep Cargo targets local to one worktree
 
 Give each worktree its own `CARGO_TARGET_DIR`. Reusing a target directory

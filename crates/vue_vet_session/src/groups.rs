@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use vue_vet_config::{Config, RuleLevel};
+use vue_vet_config::{AssessmentMode, Config, RuleLevel};
 use vue_vet_core::{
   RULE_INVENTORY_KIND, RULE_INVENTORY_SCHEMA_VERSION, RuleGroupDescriptor, RuleGroupId,
   RuleInventory, RuleInventoryCounts, RuleInventoryRow, RuleMeta,
@@ -15,6 +15,11 @@ use crate::registry::{composed_rule_metadata, known_rule_ids};
 /// Sorted `(id, group)` pairs. Binary-searchable; each ID appears at most once.
 pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/correctness/no-mutating-props", RuleGroupId::SourceContracts),
+  ("vue-vet/migration/vapor-assessment", RuleGroupId::VaporMigration),
+  ("vue-vet/migration/vapor-interop-required", RuleGroupId::VaporMigration),
+  ("vue-vet/migration/vapor-memo-contract-dropped", RuleGroupId::VaporMigration),
+  ("vue-vet/migration/vapor-runtime-envelope", RuleGroupId::VaporMigration),
+  ("vue-vet/migration/vapor-sfc-compile-contract", RuleGroupId::VaporMigration),
   ("vue-vet/practice/prefer-attached-effect-scope", RuleGroupId::Lifetime),
   ("vue-vet/practice/prefer-conditional-watch-source", RuleGroupId::Derivation),
   ("vue-vet/practice/prefer-keyed-map-dependency", RuleGroupId::Derivation),
@@ -133,6 +138,18 @@ pub fn apply_selected_groups(config: &mut Config, groups: &[RuleGroupId]) {
         config.rules.insert(id.to_string(), RuleLevel::Off);
       }
     }
+  }
+}
+
+/// Default-off for vapor-migration IDs unless `assessment = "vapor"` or the group is selected.
+pub fn apply_vapor_migration_defaults(config: &mut Config, groups: &[RuleGroupId]) {
+  let enabled =
+    config.assessment == AssessmentMode::Vapor || groups.contains(&RuleGroupId::VaporMigration);
+  if enabled {
+    return;
+  }
+  for id in vue_vet_project::VAPOR_MIGRATION_RULE_IDS {
+    config.rules.entry((*id).to_string()).or_insert(RuleLevel::Off);
   }
 }
 
@@ -317,7 +334,12 @@ mod tests {
       "vue-vet/reactivity/no-watch-cleanup-current-source",
     ];
     let inventory = rule_inventory(&[]);
-    assert_eq!(inventory.counts.total, 151, "composed CLI inventory count");
+    assert_eq!(inventory.counts.total, 156, "composed CLI inventory count");
+    let vapor = rule_inventory(&[RuleGroupId::VaporMigration]);
+    assert_eq!(vapor.counts.total, 5, "vapor-migration group count");
+    for id in vue_vet_project::VAPOR_MIGRATION_RULE_IDS {
+      assert_eq!(group_of(id), Some(RuleGroupId::VaporMigration), "{id}");
+    }
     assert_eq!(
       group_of("vue-vet/practice/prefer-stable-computed-identity"),
       Some(RuleGroupId::Derivation)
@@ -404,6 +426,7 @@ mod tests {
     let mut ids: Vec<_> =
       crate::file_analysis_registry().metadata().into_iter().map(|meta| meta.id).collect();
     ids.extend(vue_vet_project::PROJECT_RULE_IDS);
+    ids.extend(vue_vet_project::VAPOR_MIGRATION_RULE_IDS);
     ids.sort_unstable();
     ids
   }

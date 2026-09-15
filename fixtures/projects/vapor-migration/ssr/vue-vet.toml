@@ -1,0 +1,5 @@
+version = 1
+assessment = "vapor"
+include = ["**/*.vue", "**/*.ts"]
+[rules]
+"vue-vet/project/unused-component" = "off"

@@ -444,8 +444,12 @@ fn reports_broken_imports_and_unused_components() {
   let component = file("components/UnusedPanel.vue", &[], &[], &[]);
   materialize(&project, &[page.clone(), component.clone()]);
   let graph = build_project_graph(project.root(), &[page, component]);
-  let ids =
-    graph.diagnostics.iter().map(|diagnostic| diagnostic.rule_id.as_str()).collect::<BTreeSet<_>>();
+  let ids = graph
+    .diagnostics
+    .iter()
+    .filter(|diagnostic| !diagnostic.rule_id.starts_with("vue-vet/migration/"))
+    .map(|diagnostic| diagnostic.rule_id.as_str())
+    .collect::<BTreeSet<_>>();
   assert_eq!(ids, PROJECT_RULE_IDS.into_iter().collect());
 }
 
@@ -837,6 +841,9 @@ fn type_only_relative_declaration_imports_resolve() {
       source_contracts: vue_vet_core::SourceContractFacts::default(),
       template_ref_demands: vue_vet_core::TemplateRefDemandFacts::default(),
       reactivity_graph: empty_graph(),
+      vapor: false,
+      open_span: None,
+      runtime_export_spans: Vec::new(),
     }];
   }
   let graph = build_project_graph(project.root(), &[importer]);
@@ -896,6 +903,9 @@ fn grouped_unresolved_imports_use_declaration_span() {
       source_contracts: vue_vet_core::SourceContractFacts::default(),
       template_ref_demands: vue_vet_core::TemplateRefDemandFacts::default(),
       reactivity_graph: empty_graph(),
+      vapor: false,
+      open_span: None,
+      runtime_export_spans: Vec::new(),
     }];
   }
   let graph = build_project_graph(project.root(), &[importer]);

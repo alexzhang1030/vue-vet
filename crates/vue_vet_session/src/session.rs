@@ -134,6 +134,7 @@ impl ProjectSession {
     let boundary = discover_workspace_boundary(&root);
     let mut config = load_config(&root, options.config_path.as_deref())?;
     crate::groups::apply_selected_groups(&mut config, &options.selected_groups);
+    crate::groups::apply_vapor_migration_defaults(&mut config, &options.selected_groups);
     Ok(Self {
       root: WorkspaceRoot::new(root),
       boundary,
