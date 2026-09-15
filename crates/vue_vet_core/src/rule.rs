@@ -5,12 +5,12 @@ use std::path::Path;
 use crate::diagnostics::{Diagnostic, Recommendation, RuleMeta, SourceSpan};
 use crate::edits::{ByteRange, EditApplicability, TextEdit};
 use crate::facts::{
-  DetachedEffectScopeWithoutStopFact, LateScopeDisposeFact, LateWatcherCleanupFact,
-  NestedWatchWithoutCleanupFact, NotificationBypassFact, OrphanedScopeWatcherFact,
-  ReactiveBindingFact, ReactivityEffectFact, ReturnedWatcherCleanupFact, RuleEnvironment,
-  ScriptBindingFact, ScriptCallFact, ScriptDestructureFact, ScriptFacts, ScriptKind,
-  ScriptMemberWriteFact, ScriptOperandFact, TemplateElementFact, TemplateFacts, TrackingScopeFact,
-  WatchCleanupCurrentSourceFact,
+  DetachedEffectScopeWithoutStopFact, LateCancellationGuardFact, LateScopeDisposeFact,
+  LateWatcherCleanupFact, NestedWatchWithoutCleanupFact, NotificationBypassFact,
+  OrphanedScopeWatcherFact, ReactiveBindingFact, ReactivityEffectFact, ReturnedWatcherCleanupFact,
+  RuleEnvironment, ScriptBindingFact, ScriptCallFact, ScriptDestructureFact, ScriptFacts,
+  ScriptKind, ScriptMemberWriteFact, ScriptOperandFact, TemplateElementFact, TemplateFacts,
+  TrackingScopeFact, WatchCleanupCurrentSourceFact,
 };
 use crate::identity::FileId;
 
@@ -40,6 +40,7 @@ impl FactKinds {
   pub const WATCH_CLEANUP_CURRENT_SOURCE: Self = Self(1 << 14);
   pub const NESTED_WATCH_WITHOUT_CLEANUP: Self = Self(1 << 15);
   pub const DETACHED_EFFECT_SCOPE_WITHOUT_STOP: Self = Self(1 << 16);
+  pub const LATE_CANCELLATION_GUARD: Self = Self(1 << 17);
 
   #[must_use]
   pub const fn union(self, other: Self) -> Self {
@@ -124,6 +125,10 @@ pub enum FactRef<'a> {
   DetachedEffectScopeWithoutStop {
     block_kind: ScriptKind,
     fact: &'a DetachedEffectScopeWithoutStopFact,
+  },
+  LateCancellationGuard {
+    block_kind: ScriptKind,
+    fact: &'a LateCancellationGuardFact,
   },
 }
 
@@ -284,6 +289,7 @@ struct FactBuckets {
   watch_cleanup_current_source: Vec<&'static dyn Rule>,
   nested_watch_without_cleanup: Vec<&'static dyn Rule>,
   detached_effect_scope_without_stop: Vec<&'static dyn Rule>,
+  late_cancellation_guard: Vec<&'static dyn Rule>,
 }
 
 impl FactBuckets {
@@ -339,6 +345,9 @@ impl FactBuckets {
     if kinds.contains(FactKinds::DETACHED_EFFECT_SCOPE_WITHOUT_STOP) {
       self.detached_effect_scope_without_stop.push(rule);
     }
+    if kinds.contains(FactKinds::LATE_CANCELLATION_GUARD) {
+      self.late_cancellation_guard.push(rule);
+    }
   }
 
   fn needs_script_pass(&self) -> bool {
@@ -358,6 +367,7 @@ impl FactBuckets {
       || !self.watch_cleanup_current_source.is_empty()
       || !self.nested_watch_without_cleanup.is_empty()
       || !self.detached_effect_scope_without_stop.is_empty()
+      || !self.late_cancellation_guard.is_empty()
   }
 }
 
@@ -549,6 +559,14 @@ impl RuleRegistry {
           for fact in &block.lifetime.detached_effect_scopes_without_stop {
             let fact = FactRef::DetachedEffectScopeWithoutStop { block_kind: block.kind, fact };
             for rule in &self.buckets.detached_effect_scope_without_stop {
+              rule.run_on(fact, &mut context);
+            }
+          }
+        }
+        if !self.buckets.late_cancellation_guard.is_empty() {
+          for fact in &block.lifetime.late_cancellation_guards {
+            let fact = FactRef::LateCancellationGuard { block_kind: block.kind, fact };
+            for rule in &self.buckets.late_cancellation_guard {
               rule.run_on(fact, &mut context);
             }
           }

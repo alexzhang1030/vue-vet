@@ -377,6 +377,10 @@ pub(super) fn callback_parameter_at(
   simple_binding_symbol(pattern)
 }
 
+pub(super) fn binding_symbol(pattern: &BindingPattern<'_>) -> Option<SymbolId> {
+  simple_binding_symbol(pattern)
+}
+
 fn simple_binding_symbol(pattern: &BindingPattern<'_>) -> Option<SymbolId> {
   match pattern {
     BindingPattern::BindingIdentifier(identifier) => identifier.symbol_id.get(),

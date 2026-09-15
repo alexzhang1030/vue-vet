@@ -27,6 +27,7 @@ mod no_duplicate_define_expose;
 mod no_duplicate_define_options;
 mod no_duplicate_define_props;
 mod no_duplicate_define_slots;
+mod no_late_cancellation_guard;
 mod no_late_scope_dispose;
 mod no_late_watcher_cleanup;
 mod no_lost_shallow_nested_notification;
@@ -63,6 +64,7 @@ pub fn builtins() -> Vec<&'static dyn Rule> {
     &label_has_for::RULE,
     &no_after_await_watch_effect_dependency::RULE,
     &no_detached_effect_scope_without_stop::RULE,
+    &no_late_cancellation_guard::RULE,
     &no_late_scope_dispose::RULE,
     &no_late_watcher_cleanup::RULE,
     &no_nested_watch_without_cleanup::RULE,

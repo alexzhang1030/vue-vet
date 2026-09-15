@@ -44,15 +44,17 @@ fn list_rules_is_sorted_unique_and_includes_project_ids() {
   );
   assert_eq!(
     parsed.pointer("/counts/total").and_then(Value::as_u64),
-    Some(138),
-    "composed CLI inventory must be 138 after scheduling-practice, derivation-practice, stable-computed-identity practice, cached-result demand, lifetime ownership, customRef notification, cleanup-identity, collection-lookup, extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
+    Some(139),
+    "composed CLI inventory must be 139 after the late-cancellation-guard lifetime owner, scheduling-practice, derivation-practice, stable-computed-identity practice, cached-result demand, lifetime ownership, customRef notification, cleanup-identity, collection-lookup, extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
   );
 }
 
 #[test]
-fn list_rules_lifetime_includes_four_and_tracking_excludes_them() {
+fn list_rules_lifetime_includes_ten_and_tracking_excludes_them() {
   const LIFETIME_IDS: &[&str] = &[
+    "vue-vet/practice/prefer-attached-effect-scope",
     "vue-vet/reactivity/no-detached-effect-scope-without-stop",
+    "vue-vet/reactivity/no-late-cancellation-guard",
     "vue-vet/reactivity/no-late-scope-dispose",
     "vue-vet/reactivity/no-late-watcher-cleanup",
     "vue-vet/reactivity/no-nested-watch-without-cleanup",
