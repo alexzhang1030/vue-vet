@@ -1352,6 +1352,15 @@ scan so file **and** project findings appear exactly once (including
 never show raw filenames on the status line. Stop and clear the live line
 before stdout reports, cache-stat/fix messages, errors, or the reactivity TUI.
 
+## MCP stdio is newline-delimited, not LSP-framed
+
+MCP 2024-11-05 stdio is one UTF-8 JSON-RPC object per `\n`, not LSP
+`Content-Length` headers. The first adapter copied LSP framing, so standard
+clients could not talk to `vue-vet --mcp`. The in-crate framing test only
+round-tripped the server against itself; `parity.rs` calls tools in-process.
+`mcp_stdio_round_trips_initialize_and_tools_list` now spawns the CLI and
+reads newline-delimited `initialize` / `tools/list`.
+
 ## `once: true` is not a late cancellation-guard window
 
 Vue 3.5 wraps a `watch(..., { once: true })` callback as

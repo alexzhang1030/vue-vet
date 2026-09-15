@@ -1,4 +1,4 @@
-//! Minimal MCP tools-subset over JSON-RPC 2.0 with LSP-style Content-Length framing.
+//! Minimal MCP tools-subset over newline-delimited JSON-RPC 2.0 (one message per line).
 
 use std::{
   io::{BufRead, Write},
@@ -77,6 +77,35 @@ impl McpServer {
       }
     }
   }
+
+  /// Read newline-delimited JSON-RPC from `reader` until EOF.
+  ///
+  /// Empty lines are skipped. A malformed JSON line writes a `-32700` parse
+  /// error (`id: null`) and the loop continues.
+  ///
+  /// # Errors
+  ///
+  /// Returns I/O or JSON encode failures. Parse errors stay on the stream.
+  pub(crate) fn serve(
+    &self,
+    reader: &mut impl BufRead,
+    writer: &mut impl Write,
+  ) -> std::io::Result<()> {
+    loop {
+      match read_message(reader) {
+        Ok(None) => return Ok(()),
+        Ok(Some(message)) => {
+          if let Some(response) = self.handle(&message) {
+            write_message(writer, &response)?;
+          }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
+          write_message(writer, &rpc_error(None, -32700, "Parse error"))?;
+        }
+        Err(error) => return Err(error),
+      }
+    }
+  }
 }
 
 fn initialize_result() -> Value {
@@ -115,56 +144,37 @@ fn rpc_error(id: Option<&Value>, code: i64, message: &str) -> Value {
   Value::Object(object)
 }
 
-/// Read one Content-Length framed JSON message from `reader`.
+/// Read the next newline-delimited JSON-RPC message from `reader`.
+///
+/// Empty lines are skipped. `Ok(None)` means EOF.
 ///
 /// # Errors
 ///
-/// Returns I/O errors, invalid framing, or JSON decode failures. `Ok(None)` means EOF
-/// before a message starts.
+/// Returns I/O errors, or `ErrorKind::InvalidData` when a non-empty line is not JSON.
 pub fn read_message(reader: &mut impl BufRead) -> std::io::Result<Option<Value>> {
-  let mut content_length = None;
-  loop {
-    let mut line = String::new();
-    let bytes = reader.read_line(&mut line)?;
-    if bytes == 0 {
-      return Ok(None);
+  for line in reader.lines() {
+    let line = line?;
+    if line.is_empty() {
+      continue;
     }
-    let trimmed = line.trim_end_matches(['\r', '\n']);
-    if trimmed.is_empty() {
-      break;
-    }
-    if let Some(value) = trimmed.strip_prefix("Content-Length:") {
-      let parsed = value.trim().parse::<usize>().map_err(|error| {
-        std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Content-Length: {error}"))
-      })?;
-      content_length = Some(parsed);
-    }
+    return serde_json::from_str(&line).map(Some).map_err(|error| {
+      std::io::Error::new(std::io::ErrorKind::InvalidData, format!("invalid JSON: {error}"))
+    });
   }
-  let Some(length) = content_length else {
-    return Err(std::io::Error::new(
-      std::io::ErrorKind::InvalidData,
-      "missing required Content-Length header",
-    ));
-  };
-  let mut body = vec![0_u8; length];
-  reader.read_exact(&mut body)?;
-  serde_json::from_slice(&body).map(Some).map_err(|error| {
-    std::io::Error::new(std::io::ErrorKind::InvalidData, format!("invalid JSON body: {error}"))
-  })
+  Ok(None)
 }
 
-/// Write one Content-Length framed JSON message to `writer`.
+/// Write one newline-delimited JSON-RPC message to `writer`.
 ///
 /// # Errors
 ///
 /// Returns I/O or JSON encode failures.
 pub fn write_message(writer: &mut impl Write, message: &Value) -> std::io::Result<()> {
-  let body = serde_json::to_vec(message).map_err(|error| {
+  serde_json::to_writer(&mut *writer, message).map_err(|error| {
     std::io::Error::new(std::io::ErrorKind::InvalidData, format!("encode JSON: {error}"))
   })?;
-  write!(writer, "Content-Length: {}\r\n\r\n", body.len())?;
-  writer.write_all(&body)?;
-  Ok(())
+  writer.write_all(b"\n")?;
+  writer.flush()
 }
 
 #[cfg(test)]
@@ -173,16 +183,50 @@ mod tests {
   use std::io::Cursor;
 
   #[test]
-  #[expect(clippy::panic, reason = "framing fixture failures must fail the unit test")]
-  fn round_trips_content_length_framing() {
+  #[expect(
+    clippy::indexing_slicing,
+    clippy::panic,
+    reason = "framing fixture failures must fail the unit test"
+  )]
+  fn round_trips_newline_delimited_framing() {
     let message = json!({"jsonrpc":"2.0","id":1,"method":"ping"});
     let mut buffer = Vec::new();
     write_message(&mut buffer, &message).unwrap_or_else(|_| panic!("write"));
+    assert!(buffer.ends_with(b"\n"), "each message is one newline-terminated line");
+    assert!(
+      !buffer.starts_with(b"Content-Length"),
+      "stdio MCP must not use LSP headers: {}",
+      String::from_utf8_lossy(&buffer)
+    );
     let mut reader = Cursor::new(buffer);
     let Ok(Some(decoded)) = read_message(&mut reader) else {
       panic!("read");
     };
     assert_eq!(decoded, message);
+
+    let server = McpServer::new(PathBuf::from("."));
+    let input = concat!(
+      "\n\n",
+      r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#,
+      "\nnot-json\n",
+      r#"{"jsonrpc":"2.0","id":2,"method":"ping"}"#,
+      "\n"
+    );
+    let mut stdout = Vec::new();
+    server
+      .serve(&mut Cursor::new(input.as_bytes()), &mut stdout)
+      .unwrap_or_else(|_| panic!("serve"));
+    let lines = stdout
+      .split(|byte| *byte == b'\n')
+      .filter(|line| !line.is_empty())
+      .map(|line| serde_json::from_slice::<Value>(line).unwrap_or_else(|_| panic!("json line")))
+      .collect::<Vec<_>>();
+    assert_eq!(lines.len(), 3);
+    assert_eq!(lines[0]["id"], 1);
+    assert_eq!(lines[0]["result"], json!({}));
+    assert_eq!(lines[1]["id"], Value::Null);
+    assert_eq!(lines[1]["error"]["code"], -32700);
+    assert_eq!(lines[2]["id"], 2);
   }
 
   #[test]

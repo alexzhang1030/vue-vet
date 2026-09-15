@@ -2,10 +2,16 @@
 
 Thin **MCP** adapter over [`vue_vet_session`](../vue_vet_session/README.md).
 
-Stdio JSON-RPC with Content-Length framing. Exposes scan, explain,
-explain-scope, and safe-fix **preview** tools under workspace path bounds.
+Newline-delimited JSON-RPC 2.0 over stdio, one message per line. Exposes
+scan, explain, explain-scope, and safe-fix **preview** tools under workspace
+path bounds. Logging goes to stderr; stdout is MCP messages only.
 
 Does **never** apply edits — apply remains CLI / LSP.
+
+Connect a client (Cursor / Claude Desktop) with:
+
+    command: vue-vet
+    args: ["--mcp"]
 
 ## Status
 
@@ -54,7 +60,7 @@ Tool failures return MCP tool results, not process-level errors.
 
 - [architecture PCR](../../.agents/docs/architecture.md) (`vue_vet_mcp`)
 - [JSON output](../../docs/json-output.md)
-- [gotchas PCR](../../.agents/docs/gotchas.md) (MCP session reuse)
+- [gotchas PCR](../../.agents/docs/gotchas.md) (MCP session reuse; newline stdio)
 - [Workspace crates](../../docs/crates.md)
 
 ## License
