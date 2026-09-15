@@ -118,6 +118,14 @@ const MISSING_TOREFS_META: RuleMeta = RuleMeta {
   documentation: "rules/reactivity/no-missing-torefs-key",
 };
 
+const INJECT_SAME_INSTANCE_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-inject-same-instance-provide",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-inject-same-instance-provide",
+};
+
 const UNTIL_TIMEOUT_META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-until-timeout-unmatched-demand",
   category: "reactivity",
@@ -246,6 +254,10 @@ pub(super) static NO_REACTIVE_PRIVATE_FIELD_ACCESS: NoReactivePrivateFieldAccess
 pub(super) struct NoUntilTimeoutUnmatchedDemand;
 pub(super) static NO_UNTIL_TIMEOUT_UNMATCHED_DEMAND: NoUntilTimeoutUnmatchedDemand =
   NoUntilTimeoutUnmatchedDemand;
+
+pub(super) struct NoInjectSameInstanceProvide;
+pub(super) static NO_INJECT_SAME_INSTANCE_PROVIDE: NoInjectSameInstanceProvide =
+  NoInjectSameInstanceProvide;
 
 impl Rule for NoTriggerRefOnNonRef {
   fn meta(&self) -> &'static RuleMeta {
@@ -843,6 +855,38 @@ impl Rule for NoUntilTimeoutUnmatchedDemand {
   }
 }
 
+impl Rule for NoInjectSameInstanceProvide {
+  fn meta(&self) -> &'static RuleMeta {
+    &INJECT_SAME_INSTANCE_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.inject_same_instance_provide {
+        context.report(
+          self.meta(),
+          site.demand_span,
+          format!(
+            "`inject` reads the ancestor/app chain, so this {} fallback lacks `{}` that the local {} provide would supply",
+            if site.default_absent { "absent (undefined)" } else { site.fallback_kind.as_str() },
+            site.member,
+            site.provided_kind.as_str()
+          ),
+          Some(format!(
+            "Key at {}:{}, `provide` at {}:{}, `inject` at {}:{}. Use the local value in this setup, or inject from an ancestor that actually provides the key.",
+            site.key_span.line,
+            site.key_span.column,
+            site.provide_span.line,
+            site.provide_span.column,
+            site.inject_span.line,
+            site.inject_span.column
+          )),
+        );
+      }
+    }
+  }
+}
+
 fn report_site(
   context: &mut RuleContext<'_>,
   meta: &RuleMeta,
@@ -878,5 +922,6 @@ pub(super) fn source_contract_rules() -> Vec<&'static dyn Rule> {
     &NO_CONTROLLED_COMPUTED_STALE_RESULT_DEMAND,
     &NO_REACTIVE_PRIVATE_FIELD_ACCESS,
     &NO_UNTIL_TIMEOUT_UNMATCHED_DEMAND,
+    &NO_INJECT_SAME_INSTANCE_PROVIDE,
   ]
 }

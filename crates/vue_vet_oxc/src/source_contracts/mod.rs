@@ -68,6 +68,7 @@ mod demand;
 mod derivation_practice;
 
 mod index;
+mod injection;
 mod map_lookup;
 mod normalization;
 mod proof;
@@ -117,6 +118,7 @@ pub(in crate::source_contracts) struct Collector<'a> {
   pub(in crate::source_contracts) proxy_proof: HashMap<SymbolId, bool>,
   pub(in crate::source_contracts) producer_demand: HashMap<SymbolId, ProducerDemand>,
   pub(in crate::source_contracts) sink_use: HashMap<SymbolId, SinkOwnership>,
+  pub(in crate::source_contracts) primitive_kind: HashMap<SymbolId, shape::PrimitiveKind>,
   pub(in crate::source_contracts) facts: SourceContractFacts,
   pub(in crate::source_contracts) factory_summaries: HashMap<u64, custom_ref::FactorySummary>,
   pub(in crate::source_contracts) computed_calls: Vec<NodeId>,
@@ -188,7 +190,7 @@ fn collect_prepared(
     proxy_proof: HashMap::new(),
     producer_demand: HashMap::new(),
     sink_use: HashMap::new(),
-
+    primitive_kind: HashMap::new(),
     facts: SourceContractFacts::default(),
     factory_summaries: HashMap::new(),
     computed_calls: Vec::new(),
@@ -263,6 +265,9 @@ impl Collector<'_> {
         Some(ContractSink::SyncRef) => self.collect_sync_ref_one_way(node_id, call, info),
         Some(ContractSink::ComputedAsync) => self.collect_lazy_computed_async(call, info),
         None => {}
+      }
+      if api == "inject" {
+        self.collect_injection(node_id, call, info);
       }
     }
     self.collect_all_raw_proxy_map_gets();
@@ -479,6 +484,14 @@ impl Collector<'_> {
         right.demand_span.offset,
         right.comparison_span.offset,
         right.source_span.offset,
+      ))
+    });
+    self.facts.inject_same_instance_provide.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.demand_span.offset, left.inject_span.offset, left.provide_span.offset).cmp(&(
+        right.demand_span.offset,
+        right.inject_span.offset,
+        right.provide_span.offset,
       ))
     });
     (self.facts, self.indexes.stats())

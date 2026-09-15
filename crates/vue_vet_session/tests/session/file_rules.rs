@@ -502,7 +502,7 @@ fn source_contract_findings_keep_incremental_identity() {
   let _ignored = std::fs::remove_dir_all(&root);
   std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
   let source = "<script setup lang=\"ts\">\n\
-import { customRef, effectScope, reactive, ref, shallowRef, toRaw, toRef, triggerRef, toRefs, watch, watchSyncEffect } from 'vue'\n\
+import { customRef, effectScope, inject, provide, reactive, ref, shallowRef, toRaw, toRef, triggerRef, toRefs, watch, watchSyncEffect } from 'vue'\n\
 import { useMemoize } from '@vueuse/core'\n\
 import { computedWithControl } from '@vueuse/shared'\n\
 const n = ref(0)\n\
@@ -551,6 +551,10 @@ controlled.value.toUpperCase()\n\
 class Counter { #n = 1; read() { return this.#n } }\n\
 const branded = reactive(new Counter())\n\
 void branded.read()\n\
+const key = Symbol('count')\n\
+provide(key, 7)\n\
+const count = inject(key, 'missing')\n\
+count.toFixed(2)\n\
 </script>\n\
 <template><p /></template>\n";
   let replaced = "<script setup lang=\"ts\">\n\

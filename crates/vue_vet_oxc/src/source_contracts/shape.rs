@@ -330,6 +330,8 @@ pub(super) fn intern_api(name: &str) -> Option<&'static str> {
     "onScopeDispose" => Some("onScopeDispose"),
     "nextTick" => Some("nextTick"),
     "computedAsync" | "asyncComputed" => Some("computedAsync"),
+    "provide" => Some("provide"),
+    "inject" => Some("inject"),
     _ => None,
   }
 }
@@ -572,6 +574,7 @@ pub(super) fn collect_vue_imports(
             match contract_sink(api) {
               Some(sink) if !sink.requires_full_index() => has_effect_family = true,
               Some(_) => requires_full_index = true,
+              None if matches!(api, "provide" | "inject") => requires_full_index = true,
               None => {}
             }
             imports.insert(symbol_id, VueImport::Named(api, source));
@@ -778,6 +781,15 @@ pub(super) fn hint_of(
       ShapeHint::Primitive(PrimitiveKind::String)
     }
     Expression::NullLiteral(_) => ShapeHint::Nullish,
+    Expression::UnaryExpression(unary)
+      if matches!(unary.operator, UnaryOperator::UnaryNegation | UnaryOperator::UnaryPlus) =>
+    {
+      match unary.argument.get_inner_expression() {
+        Expression::NumericLiteral(_) => ShapeHint::Primitive(PrimitiveKind::Number),
+        Expression::BigIntLiteral(_) => ShapeHint::Primitive(PrimitiveKind::BigInt),
+        _ => ShapeHint::Unknown,
+      }
+    }
     Expression::Identifier(identifier) => {
       let symbol = symbol_of(identifier);
       ShapeHint::Identifier(symbol, identifier.name.as_str() == "undefined" && symbol.is_none())

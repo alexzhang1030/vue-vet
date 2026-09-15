@@ -65,6 +65,8 @@ pub struct SourceContractFacts {
   pub reactive_private_field_access: Vec<ReactivePrivateFieldAccessFact>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub until_timeout_unmatched_demand: Vec<UntilTimeoutUnmatchedDemandFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub inject_same_instance_provide: Vec<InjectSameInstanceDemandFact>,
 }
 
 impl SourceContractFacts {
@@ -95,6 +97,7 @@ impl SourceContractFacts {
       && self.scheduling_practice.is_empty()
       && self.reactive_private_field_access.is_empty()
       && self.until_timeout_unmatched_demand.is_empty()
+      && self.inject_same_instance_provide.is_empty()
   }
 }
 
@@ -448,4 +451,35 @@ pub struct UntilTimeoutUnmatchedDemandFact {
   pub options_span: SourceSpan,
   pub source_span: SourceSpan,
   pub capability: String,
+}
+
+/// Why a same-instance provide/inject pair fails a later capability demand.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InjectSameInstanceDemandReason {
+  LocalProvideMiss,
+}
+
+impl InjectSameInstanceDemandReason {
+  #[must_use]
+  pub const fn as_str(self) -> &'static str {
+    match self {
+      Self::LocalProvideMiss => "local_provide_miss",
+    }
+  }
+}
+
+/// Same-setup `provide` does not supply `inject`; the fallback fails a native demand.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct InjectSameInstanceDemandFact {
+  pub demand_span: SourceSpan,
+  pub key_span: SourceSpan,
+  pub provide_span: SourceSpan,
+  pub inject_span: SourceSpan,
+  pub fallback_kind: PrimitiveValueKind,
+  pub provided_kind: PrimitiveValueKind,
+  pub member: String,
+  #[serde(default)]
+  pub default_absent: bool,
+  pub reason: InjectSameInstanceDemandReason,
 }

@@ -53,7 +53,7 @@ is a false positive. Treat those own members as unproven.
 ## Demand proof is not source5 eligibility
 
 Demand-gated value contracts (`customRef` / stopped `effectScope.run` /
-missing `toRefs` key) own a function-level execution region and source-order
+missing `toRefs` key / same-instance inject) own a function-level execution region and source-order
 barriers. Cached-result demand (`useMemoize` / `computedWithControl`) reuses
 that region plus a per-result ordered event fold; VueUse identity requires
 exact `@vueuse/core` / `@vueuse/shared` provenance, not a named API bag.

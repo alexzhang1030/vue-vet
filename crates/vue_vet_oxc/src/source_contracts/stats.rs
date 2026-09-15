@@ -32,7 +32,8 @@
 //! exclusive-interval iterator visits, counted `binary_search` comparisons,
 //! and counted sort comparisons also increment `queries`. Class-body elements
 //! count as object-entry scans; member-name and private-field lookups count
-//! as key lookups.
+//! as key lookups. Injection key/provide/inject/demand joins increment
+//! `queries` on the existing counter set.
 //!
 //! Production `WorkCounter` is zero-sized and does not record. Test builds
 //! keep saturating `Cell` counters so inner-work growth tests stay real.
