@@ -10,11 +10,11 @@ not Essential/a11y parity with `eslint-plugin-vue`.
 
 | Tier | Meaning | Count |
 | --- | --- | ---: |
-| `tracer` | Needs `vue_vet_reactivity` graph facts (read kinds, guards, scopes, prop edges, binding kinds) | 70 |
+| `tracer` | Needs `vue_vet_reactivity` graph facts (read kinds, guards, scopes, prop edges, binding kinds) | 72 |
 | `parity` | Template Essential / a11y / macros / after-await registrars — open-box completeness | 50 |
 | `practice` | Ecosystem suggestions (`category: practice`); excluded from score by default | 20 |
 
-Total registered **file** rules (builtins + practice): **140**.
+Total registered **file** rules (builtins + practice): **142**.
 
 Project-graph IDs are listed separately below and are not in this file-ID set.
 
@@ -24,7 +24,7 @@ Project-graph IDs are listed separately below and are not in this file-ID set.
 | `correctness` | 36 |
 | `maintainability` | 1 |
 | `practice` | 19 |
-| `reactivity` | 70 |
+| `reactivity` | 72 |
 | `security` | 1 |
 
 Per-rule pages live under `docs/rules/<category>/<name>.md`.
@@ -129,6 +129,7 @@ Per-rule pages live under `docs/rules/<category>/<name>.md`.
 - [`vue-vet/reactivity/no-effect-write-without-read`](./reactivity/no-effect-write-without-read.md) `tracer`
 - [`vue-vet/reactivity/no-empty-watch-sources`](./reactivity/no-empty-watch-sources.md) `tracer`
 - [`vue-vet/reactivity/no-extracted-reactive-collection-method`](./reactivity/no-extracted-reactive-collection-method.md) `tracer`
+- [`vue-vet/reactivity/no-ignorable-async-ignore-window`](./reactivity/no-ignorable-async-ignore-window.md) `tracer`
 - [`vue-vet/reactivity/no-inactive-scope-result`](./reactivity/no-inactive-scope-result.md) `tracer`
 - [`vue-vet/reactivity/no-inject-same-instance-provide`](./reactivity/no-inject-same-instance-provide.md) `tracer`
 - [`vue-vet/reactivity/no-invalid-custom-ref-interface`](./reactivity/no-invalid-custom-ref-interface.md) `tracer`
@@ -161,6 +162,7 @@ Per-rule pages live under `docs/rules/<category>/<name>.md`.
 - [`vue-vet/reactivity/no-route-destructure`](./reactivity/no-route-destructure.md) `tracer`
 - [`vue-vet/reactivity/no-router-destructure`](./reactivity/no-router-destructure.md) `tracer`
 - [`vue-vet/reactivity/no-shallow-reactive-destructure`](./reactivity/no-shallow-reactive-destructure.md) `tracer`
+- [`vue-vet/reactivity/no-shared-composable-first-instance-args`](./reactivity/no-shared-composable-first-instance-args.md) `tracer`
 - [`vue-vet/reactivity/no-side-effects-in-computed`](./reactivity/no-side-effects-in-computed.md) `tracer`
 - [`vue-vet/reactivity/no-stale-prop-flow`](./reactivity/no-stale-prop-flow.md) `tracer`
 - [`vue-vet/reactivity/no-toraw-write-of-tracked-state`](./reactivity/no-toraw-write-of-tracked-state.md) `tracer`

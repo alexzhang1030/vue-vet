@@ -480,6 +480,10 @@ pub(super) fn intern_vueuse_api(name: &str, core: bool, shared: bool) -> Option<
     "controlledComputed" if core || shared => Some("controlledComputed"),
     "computedAsync" | "asyncComputed" if core => Some("computedAsync"),
     "until" if core || shared => Some("until"),
+    "watchIgnorable" if core || shared => Some("watchIgnorable"),
+    "ignorableWatch" if core || shared => Some("ignorableWatch"),
+    "createSharedComposable" if core || shared => Some("createSharedComposable"),
+    "createGlobalState" if core || shared => Some("createGlobalState"),
     _ => None,
   }
 }

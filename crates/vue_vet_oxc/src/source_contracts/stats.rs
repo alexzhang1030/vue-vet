@@ -33,7 +33,8 @@
 //! and counted sort comparisons also increment `queries`. Class-body elements
 //! count as object-entry scans; member-name and private-field lookups count
 //! as key lookups. Injection key/provide/inject/demand joins increment
-//! `queries` on the existing counter set.
+//! `queries` on the existing counter set. `VueUse` ignore-window and shared
+//! first-instance joins reuse those same query counters.
 //!
 //! Production `WorkCounter` is zero-sized and does not record. Test builds
 //! keep saturating `Cell` counters so inner-work growth tests stay real.

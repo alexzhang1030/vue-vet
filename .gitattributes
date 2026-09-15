@@ -28,3 +28,5 @@ fixtures/rules/no-late-cancellation-guard/invalid/crlf.vue -text whitespace=cr-a
 fixtures/rules/no-reactive-private-field-access/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/no-until-timeout-unmatched-demand/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/no-inject-same-instance-provide/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/no-ignorable-async-ignore-window/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/no-shared-composable-first-instance-args/invalid/crlf.vue -text whitespace=cr-at-eol

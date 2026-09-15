@@ -107,6 +107,10 @@ oracle-until-demand:
 oracle-injection-demand:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node injection-demand-contracts.mjs
 
+# Vue 3.5.40 / VueUse 13.9.0 demand premises (issue #224 round 5).
+oracle-vueuse-demand:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node vueuse-demand.mjs
+
 # Run all non-mutating Rust linters.
 lint-rust: fmt-check check clippy
 

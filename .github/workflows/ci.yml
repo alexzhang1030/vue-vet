@@ -113,6 +113,8 @@ jobs:
         run: just oracle-until-demand
       - name: Same-instance injection demand Vue 3.5.40 premises
         run: just oracle-injection-demand
+      - name: VueUse demand runtime premises
+        run: just oracle-vueuse-demand
 
   vapor-migration-research:
     name: Vapor migration research

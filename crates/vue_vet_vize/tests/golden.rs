@@ -2622,6 +2622,8 @@ const SOURCE_CONTRACT_RULES: &[&str] = &[
   "no-reactive-private-field-access",
   "no-until-timeout-unmatched-demand",
   "no-inject-same-instance-provide",
+  "no-ignorable-async-ignore-window",
+  "no-shared-composable-first-instance-args",
 ];
 
 const CLEANUP_IDENTITY_RULES: &[&str] = &["no-watch-cleanup-current-source"];

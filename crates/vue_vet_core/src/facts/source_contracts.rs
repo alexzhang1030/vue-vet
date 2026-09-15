@@ -67,6 +67,10 @@ pub struct SourceContractFacts {
   pub until_timeout_unmatched_demand: Vec<UntilTimeoutUnmatchedDemandFact>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub inject_same_instance_provide: Vec<InjectSameInstanceDemandFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub ignorable_async_ignore_window: Vec<IgnorableAsyncIgnoreWindowFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub shared_composable_first_instance_args: Vec<SharedComposableFirstInstanceArgsFact>,
 }
 
 impl SourceContractFacts {
@@ -98,6 +102,8 @@ impl SourceContractFacts {
       && self.reactive_private_field_access.is_empty()
       && self.until_timeout_unmatched_demand.is_empty()
       && self.inject_same_instance_provide.is_empty()
+      && self.ignorable_async_ignore_window.is_empty()
+      && self.shared_composable_first_instance_args.is_empty()
   }
 }
 
@@ -482,4 +488,23 @@ pub struct InjectSameInstanceDemandFact {
   #[serde(default)]
   pub default_absent: bool,
   pub reason: InjectSameInstanceDemandReason,
+}
+
+/// Post-await source write after a proven synchronous `ignoreUpdates` window.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IgnorableAsyncIgnoreWindowFact {
+  pub write_span: SourceSpan,
+  pub ignore_span: SourceSpan,
+  pub await_span: SourceSpan,
+  pub api: String,
+}
+
+/// Later shared-state demand that the first initializer cannot satisfy.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SharedComposableFirstInstanceArgsFact {
+  pub demand_span: SourceSpan,
+  pub first_call_span: SourceSpan,
+  pub later_arg_span: SourceSpan,
+  pub api: String,
+  pub capability: String,
 }

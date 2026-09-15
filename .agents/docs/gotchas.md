@@ -93,6 +93,24 @@ foreign escapes, and effect/timer owners must support the await interval; the
 initializer alone is incomplete. Await sites are indexed by operand so shared
 `until` consumers stay linear.
 
+VueUse demand owners (`no-ignorable-async-ignore-window`,
+`no-shared-composable-first-instance-args`) resolve named/namespace imports
+from `@vueuse/core` and `@vueuse/shared` only. Passing a watched ref to
+`watchIgnorable` is an expected argument use and must not be treated as
+demand proof of source5 eligibility. `#imports` auto-import spelling without
+that package origin stays unproven.
+The shared first-instance owner is the first `useValue(...)` call in
+program order (any callable). Unproven, spread, or earlier-in-another-region
+calls poison the wrapper instead of being skipped. A `.value` write through
+any alias of the live shared result repairs the retained state. Ignore-window
+previous-value proof stays inside the updater: an outside, compound,
+non-literal, or other-callback write to the same ref abstains; `once` +
+`immediate` and a `stop()` before the post-await write are already dead.
+An `await` inside the updater is the ignore-window signal
+(`straight_awaits_in`); it must not be treated as the stack-wide source-order
+barrier that would hide a later changed write.
+
+
 Object literals execute computed keys (and pattern defaults) during
 construction — walking only `prop.value` misses receiver mutation such as
 `{ [this._set = fn]: 1 }`. Memoized closed-key sets are borrowed and queried

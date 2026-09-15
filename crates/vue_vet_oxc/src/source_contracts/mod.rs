@@ -76,6 +76,7 @@ mod scheduling_practice;
 mod shape;
 mod stats;
 mod until;
+mod vueuse;
 mod watch_api;
 mod watch_callbacks;
 
@@ -222,6 +223,19 @@ impl Collector<'_> {
       self.collect_inactive_scope_run(node_id, call);
       self.collect_cached_result(node_id, call, info);
       self.collect_until_timeout_unmatched_demand(node_id, call);
+      if let Some(api) = info.vueuse
+        && !info.has_spread
+      {
+        match api {
+          "watchIgnorable" | "ignorableWatch" => {
+            self.collect_ignorable_async_ignore_window(node_id, call, info);
+          }
+          "createSharedComposable" | "createGlobalState" => {
+            self.collect_shared_first_instance_args(node_id, call, info);
+          }
+          _ => {}
+        }
+      }
       let Some(api) = info.api else {
         if let Some(api) = self.aliased_vue_api(call)
           && matches!(api, "reactive" | "readonly" | "shallowReactive" | "shallowReadonly")
@@ -492,6 +506,22 @@ impl Collector<'_> {
         right.demand_span.offset,
         right.inject_span.offset,
         right.provide_span.offset,
+      ))
+    });
+    self.facts.ignorable_async_ignore_window.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.write_span.offset, left.ignore_span.offset, left.await_span.offset).cmp(&(
+        right.write_span.offset,
+        right.ignore_span.offset,
+        right.await_span.offset,
+      ))
+    });
+    self.facts.shared_composable_first_instance_args.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.demand_span.offset, left.first_call_span.offset, left.later_arg_span.offset).cmp(&(
+        right.demand_span.offset,
+        right.first_call_span.offset,
+        right.later_arg_span.offset,
       ))
     });
     (self.facts, self.indexes.stats())

@@ -159,3 +159,18 @@ Defined object/array assignment defaults skip the initializer;
 evaluates to `undefined` and terminates; synchronous conditional
 `getCurrentScope()` capture can retain the owner. Bounded hits are not
 infinite-execution claims.
+
+## VueUse demand premises
+
+`just oracle-vueuse-demand` (`vueuse-demand.mjs`) is a Node runtime gate for
+the two VueUse source-contract rules. It installs this package's lock
+(`vue` 3.5.40, `@vueuse/core` / `@vueuse/shared` 13.9.0) and asserts:
+
+- `watchIgnorable` + `flush: 'sync'`: the ignore window is synchronous; a
+  changed write after `await` reaches the callback; a nested
+  `ignoreUpdates(() => { ... })` write stays ignored; a same-value write
+  does not notify
+- `createSharedComposable` / `createGlobalState`: the first live
+  initializer is retained; an incompatible later demand throws; same-kind
+  seeds share updates; disposing the last shared owner allows a new
+  string instance

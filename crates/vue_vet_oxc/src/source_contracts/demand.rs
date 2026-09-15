@@ -652,7 +652,7 @@ impl Collector<'_> {
     }
   }
 
-  fn symbol_is_effect_scope(&self, root: SymbolId) -> bool {
+  pub(super) fn symbol_is_effect_scope(&self, root: SymbolId) -> bool {
     let Some(init) = self.indexes.init_span.get(&root).copied() else {
       return false;
     };

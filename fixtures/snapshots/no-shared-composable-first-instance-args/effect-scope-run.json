@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-shared-composable-first-instance-args",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-shared-composable-first-instance-args",
+    "message": "Shared `createSharedComposable` state keeps the first initializer; this demand needs `toUpperCase` which the retained value does not have",
+    "help": "First call at 7:17 and later argument at 8:27. Use independent composables or an explicitly keyed factory when per-argument instances are required.",
+    "file": "fixtures/rules/no-shared-composable-first-instance-args/invalid/effect-scope-run.vue",
+    "span": {
+      "offset": 313,
+      "length": 26,
+      "line": 9,
+      "column": 8
+    }
+  }
+]
