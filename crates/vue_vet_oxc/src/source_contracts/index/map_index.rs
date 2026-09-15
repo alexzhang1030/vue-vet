@@ -10,7 +10,8 @@ use super::{
   NewExpression, NewInfo, NodeId, ObjectPropertyKind, Owner, PendingMapKeyArg, ProxyFlavor,
   ScriptKind, ShapeHint, SimpleAssignmentTarget, Span, SymbolFlags, SymbolId, VueImport,
   WorkCounter, WrapperOrigin, callee_has_actual_proxy_origin, chain_optional, is_fresh_allocation,
-  is_proxy_allocating_api, mapped, reference_symbol, resolve_vue_api, span_key,
+  is_proxy_allocating_api, is_ts_wrapper, mapped, reference_symbol, resolve_vue_api,
+  skip_ts_parent, span_key,
 };
 
 impl Indexes {
@@ -688,15 +689,16 @@ fn intern_map_method(name: &str) -> Option<&'static str> {
 pub(super) fn known_map_constructor_key_role(
   semantic: &oxc_semantic::Semantic<'_>,
   node_id: NodeId,
+  work: &WorkCounter,
 ) -> bool {
-  let parent = skip_ts_parent(semantic, node_id);
+  let parent = skip_ts_parent(semantic, node_id, work);
   let AstKind::ArrayExpression(array) = semantic.nodes().kind(parent) else {
     return false;
   };
   let Some(index) = array_element_index(array, semantic, node_id) else {
     return false;
   };
-  index == 0 && array_is_map_entry(semantic, parent)
+  index == 0 && array_is_map_entry(semantic, parent, work)
 }
 
 fn array_element_index(
@@ -711,19 +713,24 @@ fn array_element_index(
   })
 }
 
-pub(super) fn array_is_map_entry(semantic: &oxc_semantic::Semantic<'_>, array_id: NodeId) -> bool {
-  let parent = skip_ts_parent(semantic, array_id);
+pub(super) fn array_is_map_entry(
+  semantic: &oxc_semantic::Semantic<'_>,
+  array_id: NodeId,
+  work: &WorkCounter,
+) -> bool {
+  let parent = skip_ts_parent(semantic, array_id, work);
   let AstKind::ArrayExpression(_) = semantic.nodes().kind(parent) else {
     return false;
   };
-  array_is_map_iterable(semantic, parent)
+  array_is_map_iterable(semantic, parent, work)
 }
 
 pub(super) fn array_is_map_iterable(
   semantic: &oxc_semantic::Semantic<'_>,
   array_id: NodeId,
+  work: &WorkCounter,
 ) -> bool {
-  let parent = skip_ts_parent(semantic, array_id);
+  let parent = skip_ts_parent(semantic, array_id, work);
   let AstKind::NewExpression(expression) = semantic.nodes().kind(parent) else {
     return false;
   };
@@ -854,24 +861,6 @@ pub(in crate::source_contracts) fn proxy_flavor(api: &str) -> Option<ProxyFlavor
     "shallowReactive" => Some(ProxyFlavor::Shallow),
     _ => None,
   }
-}
-
-pub(in crate::source_contracts) fn skip_ts_parent(
-  semantic: &oxc_semantic::Semantic<'_>,
-  node_id: NodeId,
-) -> NodeId {
-  let mut parent = semantic.nodes().parent_id(node_id);
-  for _ in 0..8 {
-    match semantic.nodes().kind(parent) {
-      AstKind::ParenthesizedExpression(_)
-      | AstKind::TSAsExpression(_)
-      | AstKind::TSSatisfiesExpression(_)
-      | AstKind::TSNonNullExpression(_)
-      | AstKind::TSTypeAssertion(_) => parent = semantic.nodes().parent_id(parent),
-      _ => return parent,
-    }
-  }
-  parent
 }
 
 pub(super) fn assignment_poisons_map_intrinsic(
@@ -1358,11 +1347,7 @@ impl Indexes {
       let parent = semantic.nodes().parent_id(node_id);
       match semantic.nodes().kind(parent) {
         AstKind::ChainExpression(_) => return ChainPlace::Inside,
-        AstKind::ParenthesizedExpression(_)
-        | AstKind::TSAsExpression(_)
-        | AstKind::TSSatisfiesExpression(_)
-        | AstKind::TSNonNullExpression(_)
-        | AstKind::TSTypeAssertion(_) => node_id = parent,
+        wrapper if is_ts_wrapper(wrapper) => node_id = parent,
         AstKind::StaticMemberExpression(member)
           if node_matches_expr(semantic, node_id, &member.object) =>
         {

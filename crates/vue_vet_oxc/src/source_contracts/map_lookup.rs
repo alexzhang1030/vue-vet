@@ -16,9 +16,10 @@ use vue_vet_core::{KeyedMapDependencyFact, RawProxyMapKeyFact};
 
 use super::index::{
   CtorKeyState, ExecKind, MapKeyRef, MapOp, MemberCallSite, ProxyFlavor, proxy_flavor,
-  skip_ts_parent,
 };
+use super::proof::{enclosing_call, skip_ts_parent};
 use super::shape::{Shape, ShapeHint, span_key};
+use super::stats::WorkCounter;
 use super::{Collector, MAX_DEPTH};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -596,16 +597,18 @@ impl Collector<'_> {
     get: MemberCallSite,
     map_origin: usize,
   ) -> Option<vue_vet_core::SourceSpan> {
-    if chain_parent_optional(self.semantic, node_id) {
+    if chain_parent_optional(self.semantic, node_id, self.indexes.work_counter()) {
       return None;
     }
     let AstKind::CallExpression(call) = self.semantic.nodes().kind(node_id) else {
       return None;
     };
-    let parent = skip_ts_parent(self.semantic, node_id);
+    let parent = skip_ts_parent(self.semantic, node_id, self.indexes.work_counter());
     let demand = match self.semantic.nodes().kind(parent) {
       AstKind::StaticMemberExpression(member) => {
-        if member.optional || chain_parent_optional(self.semantic, parent) {
+        if member.optional
+          || chain_parent_optional(self.semantic, parent, self.indexes.work_counter())
+        {
           return None;
         }
         if member.object.get_inner_expression().span() != call.span {
@@ -614,7 +617,9 @@ impl Collector<'_> {
         self.span(member.span)
       }
       AstKind::ComputedMemberExpression(member) => {
-        if member.optional || chain_parent_optional(self.semantic, parent) {
+        if member.optional
+          || chain_parent_optional(self.semantic, parent, self.indexes.work_counter())
+        {
           return None;
         }
         if member.object.get_inner_expression().span() != call.span {
@@ -689,10 +694,12 @@ impl Collector<'_> {
       if matches!(self.semantic.nodes().parent_kind(node_id), AstKind::VariableDeclarator(_)) {
         continue;
       }
-      let parent = skip_ts_parent(self.semantic, node_id);
+      let parent = skip_ts_parent(self.semantic, node_id, self.indexes.work_counter());
       match self.semantic.nodes().kind(parent) {
         AstKind::StaticMemberExpression(member) => {
-          if member.optional || chain_parent_optional(self.semantic, parent) {
+          if member.optional
+            || chain_parent_optional(self.semantic, parent, self.indexes.work_counter())
+          {
             guarded = true;
             continue;
           }
@@ -717,7 +724,9 @@ impl Collector<'_> {
           demand.get_or_insert_with(|| self.span(member.span));
         }
         AstKind::ComputedMemberExpression(member) => {
-          if member.optional || chain_parent_optional(self.semantic, parent) {
+          if member.optional
+            || chain_parent_optional(self.semantic, parent, self.indexes.work_counter())
+          {
             guarded = true;
             continue;
           }
@@ -795,10 +804,7 @@ impl Collector<'_> {
       let parent = self.semantic.nodes().parent_id(current);
       match self.semantic.nodes().kind(parent) {
         AstKind::ArrowFunctionExpression(_) | AstKind::Function(_) => {
-          let call_id = skip_ts_parent(self.semantic, parent);
-          let AstKind::CallExpression(call) = self.semantic.nodes().kind(call_id) else {
-            return None;
-          };
+          let (_, call) = enclosing_call(self.semantic, parent, self.indexes.work_counter())?;
           let info = self.indexes.calls.get(&span_key(call.span)).copied()?;
           if !matches!(info.api, Some("computed" | "watchEffect")) || info.has_spread {
             return None;
@@ -1049,9 +1055,15 @@ fn as_expression_stmt<'a>(statement: &'a Statement<'a>) -> Option<&'a Expression
   }
 }
 
-fn chain_parent_optional(semantic: &oxc_semantic::Semantic<'_>, node_id: NodeId) -> bool {
-  matches!(semantic.nodes().kind(skip_ts_parent(semantic, node_id)), AstKind::ChainExpression(_))
-    || matches!(semantic.nodes().parent_kind(node_id), AstKind::ChainExpression(_))
+fn chain_parent_optional(
+  semantic: &oxc_semantic::Semantic<'_>,
+  node_id: NodeId,
+  work: &WorkCounter,
+) -> bool {
+  matches!(
+    semantic.nodes().kind(skip_ts_parent(semantic, node_id, work)),
+    AstKind::ChainExpression(_)
+  ) || matches!(semantic.nodes().parent_kind(node_id), AstKind::ChainExpression(_))
 }
 
 fn expression_is_callee(callee: &Expression<'_>, call: &CallExpression<'_>) -> bool {

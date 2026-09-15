@@ -8,7 +8,7 @@ use oxc_span::Span;
 
 use super::Collector;
 use super::index::{CallInfo, MemberUse, NestedWrite, ObjectProp, SnapshotCall};
-use super::proof::{DemandOrigin, classify_reach};
+use super::proof::{DemandOrigin, classify_reach, enclosing_call, skip_ts_parent};
 use super::shape::{Literal, span_key};
 use super::timeline;
 use vue_vet_core::{JsonCloneLossyTypeFact, RefHistorySnapshotAliasFact};
@@ -413,28 +413,28 @@ impl Collector<'_> {
     path: &str,
     origin: DemandOrigin,
   ) -> Option<DateDemand> {
-    let cloned = skip_ts(self.semantic, node_id);
+    let cloned = skip_ts_parent(self.semantic, node_id, self.indexes.work_counter());
     let AstKind::StaticMemberExpression(member) = self.semantic.nodes().kind(cloned) else {
       return None;
     };
     if member.property.name.as_str() != "cloned" {
       return None;
     }
-    let value = skip_ts(self.semantic, cloned);
+    let value = skip_ts_parent(self.semantic, cloned, self.indexes.work_counter());
     let AstKind::StaticMemberExpression(member) = self.semantic.nodes().kind(value) else {
       return None;
     };
     if member.property.name.as_str() != "value" {
       return None;
     }
-    let field = skip_ts(self.semantic, value);
+    let field = skip_ts_parent(self.semantic, value, self.indexes.work_counter());
     let AstKind::StaticMemberExpression(member) = self.semantic.nodes().kind(field) else {
       return None;
     };
     if member.property.name.as_str() != path {
       return None;
     }
-    let method = skip_ts(self.semantic, field);
+    let method = skip_ts_parent(self.semantic, field, self.indexes.work_counter());
     let AstKind::StaticMemberExpression(member) = self.semantic.nodes().kind(method) else {
       return None;
     };
@@ -442,10 +442,7 @@ impl Collector<'_> {
     if !DATE_METHODS.contains(&name) {
       return None;
     }
-    let invoke = skip_ts(self.semantic, method);
-    let AstKind::CallExpression(call) = self.semantic.nodes().kind(invoke) else {
-      return None;
-    };
+    let (invoke, call) = enclosing_call(self.semantic, method, self.indexes.work_counter())?;
     let reach = classify_reach(self.semantic, invoke, self.indexes.work_counter());
     if !reach.is_straight() {
       return None;
@@ -1107,19 +1104,4 @@ fn path_reaches_snapshot(keys: &[String]) -> bool {
 
 fn snapshot_index(keys: &[String]) -> Option<usize> {
   keys.get(1).and_then(|key| key.parse().ok())
-}
-
-fn skip_ts(semantic: &oxc_semantic::Semantic<'_>, mut node_id: NodeId) -> NodeId {
-  for _ in 0..8 {
-    let parent = semantic.nodes().parent_id(node_id);
-    match semantic.nodes().kind(parent) {
-      AstKind::ParenthesizedExpression(_)
-      | AstKind::TSAsExpression(_)
-      | AstKind::TSSatisfiesExpression(_)
-      | AstKind::TSNonNullExpression(_)
-      | AstKind::TSTypeAssertion(_) => node_id = parent,
-      _ => return parent,
-    }
-  }
-  node_id
 }

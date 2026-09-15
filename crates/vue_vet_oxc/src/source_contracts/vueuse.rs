@@ -11,7 +11,9 @@ use oxc_span::Span;
 
 use super::Collector;
 use super::index::{CallInfo, CallUse, MemberUse, ObjectProp, UntilAwaitSite, ValueWrite};
-use super::proof::{DemandOrigin, DemandRole, classify_reach, native_kind_has_method};
+use super::proof::{
+  DemandOrigin, DemandRole, classify_reach, is_ts_wrapper, native_kind_has_method,
+};
 use super::shape::{NativeKind, SYNC_FLUSH, Scalar, Shape, ShapeHint, is_ref_api, span_key};
 use super::timeline;
 use vue_vet_core::{IgnorableAsyncIgnoreWindowFact, SharedComposableFirstInstanceArgsFact};
@@ -677,12 +679,9 @@ impl Collector<'_> {
       self.indexes.note_query();
       let parent = self.semantic.nodes().parent_id(current);
       match self.semantic.nodes().kind(parent) {
-        AstKind::ParenthesizedExpression(_)
-        | AstKind::TSAsExpression(_)
-        | AstKind::TSSatisfiesExpression(_)
-        | AstKind::TSNonNullExpression(_)
-        | AstKind::TSTypeAssertion(_)
-        | AstKind::ExpressionStatement(_) => current = parent,
+        wrapper if is_ts_wrapper(wrapper) || matches!(wrapper, AstKind::ExpressionStatement(_)) => {
+          current = parent;
+        }
         AstKind::CallExpression(call) => {
           let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression()
           else {

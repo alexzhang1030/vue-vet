@@ -35,7 +35,7 @@ use super::class::{
 };
 use super::proof::{
   ANCESTOR_BUDGET, DemandOrigin, DemandRole, Reach, classify_reach, classify_reach_except_chain,
-  classify_role, is_custom_prototype_key,
+  classify_role, enclosing_call, is_custom_prototype_key, is_ts_wrapper, skip_ts_parent,
 };
 use super::shape::{
   CollectionCtor, Literal, PrimitiveAtom as ShapePrimitiveAtom, Scalar, ShapeHint, VueImport,
@@ -3025,7 +3025,7 @@ impl Indexes {
         if known_class_ctor_role(semantic, reference.node_id(), &self.classes, root) {
           continue;
         }
-        if known_map_constructor_key_role(semantic, reference.node_id()) {
+        if known_map_constructor_key_role(semantic, reference.node_id(), &self.work) {
           continue;
         }
         self.uncertain.insert(root);
@@ -3055,12 +3055,7 @@ impl Indexes {
       let parent_id = semantic.nodes().parent_id(current);
       self.work.add_queries(1);
       match semantic.nodes().kind(parent_id) {
-        AstKind::ParenthesizedExpression(_)
-        | AstKind::TSAsExpression(_)
-        | AstKind::TSSatisfiesExpression(_)
-        | AstKind::TSNonNullExpression(_)
-        | AstKind::TSTypeAssertion(_)
-        | AstKind::ChainExpression(_) => {
+        wrapper if is_ts_wrapper(wrapper) || matches!(wrapper, AstKind::ChainExpression(_)) => {
           current = parent_id;
         }
         AstKind::CallExpression(call) => {
@@ -3099,13 +3094,7 @@ impl Indexes {
       let parent_id = semantic.nodes().parent_id(current);
       self.work.add_queries(1);
       match semantic.nodes().kind(parent_id) {
-        AstKind::ParenthesizedExpression(_)
-        | AstKind::TSAsExpression(_)
-        | AstKind::TSSatisfiesExpression(_)
-        | AstKind::TSNonNullExpression(_)
-        | AstKind::TSTypeAssertion(_)
-        | AstKind::TSInstantiationExpression(_)
-        | AstKind::ChainExpression(_) => {
+        wrapper if is_ts_wrapper(wrapper) || matches!(wrapper, AstKind::ChainExpression(_)) => {
           current = parent_id;
           current_span = semantic.nodes().kind(parent_id).span();
         }
@@ -3146,12 +3135,7 @@ impl Indexes {
       let parent_id = semantic.nodes().parent_id(current);
       self.work.add_queries(1);
       match semantic.nodes().kind(parent_id) {
-        AstKind::ParenthesizedExpression(_)
-        | AstKind::TSAsExpression(_)
-        | AstKind::TSSatisfiesExpression(_)
-        | AstKind::TSNonNullExpression(_)
-        | AstKind::TSTypeAssertion(_)
-        | AstKind::ChainExpression(_) => {
+        wrapper if is_ts_wrapper(wrapper) || matches!(wrapper, AstKind::ChainExpression(_)) => {
           current = parent_id;
         }
         AstKind::CallExpression(call) => {
@@ -3694,8 +3678,8 @@ impl Indexes {
     {
       self.array_spread.insert(span_key(array.span));
     }
-    let map_entry = array_is_map_entry(semantic, node_id);
-    let map_iterable = array_is_map_iterable(semantic, node_id);
+    let map_entry = array_is_map_entry(semantic, node_id, &self.work);
+    let map_iterable = array_is_map_iterable(semantic, node_id, &self.work);
     let retain = array_is_controlled_source(semantic, node_id, &self.calls, &self.work);
     let mut elements = Vec::new();
     let mut closed = true;
@@ -4627,12 +4611,11 @@ impl Indexes {
     root: SymbolId,
     inner: CallUse,
   ) {
-    let parent = super::proof::skip_ts_parent(semantic, node_id, &self.work);
+    let parent = skip_ts_parent(semantic, node_id, &self.work);
     let AstKind::StaticMemberExpression(member) = semantic.nodes().kind(parent) else {
       return;
     };
-    let grand = super::proof::skip_ts_parent(semantic, parent, &self.work);
-    let AstKind::CallExpression(outer) = semantic.nodes().kind(grand) else {
+    let Some((grand, outer)) = enclosing_call(semantic, parent, &self.work) else {
       return;
     };
     let optional = chain_optional(semantic, grand, &self.work);
@@ -4696,7 +4679,7 @@ impl Indexes {
       reach: classify_reach(semantic, node_id, &self.work),
       role: DemandRole::Other,
     };
-    let object = peel_ts(&member.object);
+    let object = &member.object.get_inner_expression();
     let Expression::StaticMemberExpression(inner) = object else {
       return;
     };
@@ -5952,7 +5935,7 @@ fn known_static_member_object_role(
 ) -> bool {
   let ident_span = semantic.nodes().kind(node_id).span();
   work.add_queries(1);
-  let parent = skip_ts_parent(semantic, node_id);
+  let parent = skip_ts_parent(semantic, node_id, work);
   match semantic.nodes().kind(parent) {
     AstKind::StaticMemberExpression(member) => {
       let object = member.object.get_inner_expression().span();
@@ -6009,8 +5992,7 @@ fn known_injection_key_role(
 ) -> bool {
   let ident_span = semantic.nodes().kind(node_id).span();
   work.add_queries(1);
-  let parent = skip_ts_parent(semantic, node_id);
-  let AstKind::CallExpression(call) = semantic.nodes().kind(parent) else {
+  let Some((_, call)) = enclosing_call(semantic, node_id, work) else {
     return false;
   };
   work.add_queries(1);
@@ -6077,11 +6059,7 @@ fn known_torefs_borrow_role(
     work.add_queries(1);
     let parent = semantic.nodes().parent_id(current);
     match semantic.nodes().kind(parent) {
-      AstKind::ParenthesizedExpression(_)
-      | AstKind::TSAsExpression(_)
-      | AstKind::TSSatisfiesExpression(_)
-      | AstKind::TSNonNullExpression(_)
-      | AstKind::TSTypeAssertion(_) => {
+      wrapper if is_ts_wrapper(wrapper) => {
         current = parent;
       }
       AstKind::CallExpression(call) => {
@@ -6119,12 +6097,7 @@ fn known_static_member_read_role(
     work.add_queries(1);
     let grand = semantic.nodes().parent_id(current);
     match semantic.nodes().kind(grand) {
-      AstKind::ParenthesizedExpression(_)
-      | AstKind::TSAsExpression(_)
-      | AstKind::TSSatisfiesExpression(_)
-      | AstKind::TSNonNullExpression(_)
-      | AstKind::TSTypeAssertion(_)
-      | AstKind::TSInstantiationExpression(_) => {
+      wrapper if is_ts_wrapper(wrapper) => {
         current = grand;
       }
       AstKind::CallExpression(_)
@@ -6148,11 +6121,7 @@ pub(super) fn chain_optional(
     let parent = semantic.nodes().parent_id(node_id);
     match semantic.nodes().kind(parent) {
       AstKind::ChainExpression(_) => return true,
-      AstKind::ParenthesizedExpression(_)
-      | AstKind::TSAsExpression(_)
-      | AstKind::TSSatisfiesExpression(_)
-      | AstKind::TSNonNullExpression(_)
-      | AstKind::TSTypeAssertion(_) => node_id = parent,
+      wrapper if is_ts_wrapper(wrapper) => node_id = parent,
       _ => return false,
     }
   }
@@ -6629,11 +6598,7 @@ fn array_is_controlled_source(
     work.add_queries(1);
     let parent = semantic.nodes().parent_id(node_id);
     match semantic.nodes().kind(parent) {
-      AstKind::ParenthesizedExpression(_)
-      | AstKind::TSAsExpression(_)
-      | AstKind::TSSatisfiesExpression(_)
-      | AstKind::TSNonNullExpression(_)
-      | AstKind::TSTypeAssertion(_) => {
+      wrapper if is_ts_wrapper(wrapper) => {
         node_id = parent;
       }
       AstKind::CallExpression(call) => {
@@ -6846,21 +6811,6 @@ fn prototype_receiver_is_native_ctor(
   }
 }
 
-fn peel_ts<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
-  let mut current = expression.get_inner_expression();
-  for _ in 0..64 {
-    current = match current {
-      Expression::ParenthesizedExpression(inner) => inner.expression.get_inner_expression(),
-      Expression::TSAsExpression(inner) => inner.expression.get_inner_expression(),
-      Expression::TSSatisfiesExpression(inner) => inner.expression.get_inner_expression(),
-      Expression::TSNonNullExpression(inner) => inner.expression.get_inner_expression(),
-      Expression::TSTypeAssertion(inner) => inner.expression.get_inner_expression(),
-      other => return other,
-    };
-  }
-  current
-}
-
 fn is_object_define_property(callee: &Expression<'_>) -> bool {
   let Expression::StaticMemberExpression(member) = callee.get_inner_expression() else {
     return false;
@@ -6959,11 +6909,7 @@ fn assigned_const_symbol(
   for _ in 0..6 {
     let parent_id = semantic.nodes().parent_id(current);
     match semantic.nodes().kind(parent_id) {
-      AstKind::ParenthesizedExpression(_)
-      | AstKind::TSAsExpression(_)
-      | AstKind::TSSatisfiesExpression(_)
-      | AstKind::TSNonNullExpression(_)
-      | AstKind::TSTypeAssertion(_) => current = parent_id,
+      wrapper if is_ts_wrapper(wrapper) => current = parent_id,
       AstKind::VariableDeclarator(declarator) => {
         let oxc_ast::ast::BindingPattern::BindingIdentifier(binding) = &declarator.id else {
           return None;
@@ -7035,10 +6981,10 @@ fn intern_scope_method(name: &str) -> Option<&'static str> {
 }
 
 mod map_index;
+pub(super) use map_index::proxy_flavor;
 use map_index::{
   array_is_map_entry, array_is_map_iterable, assignment_poisons_map_intrinsic,
   capability_mutating_callee, expression_poisons_map_intrinsic, known_map_constructor_key_role,
   literal_nullish, literal_truthy, object_has_skip_marker, simple_target_poisons_map_intrinsic,
   vue_wrapper_skips_capability,
 };
-pub(super) use map_index::{proxy_flavor, skip_ts_parent};

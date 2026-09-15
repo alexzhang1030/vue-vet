@@ -16,6 +16,7 @@ use oxc_span::{GetSpan, Span};
 use vue_vet_core::{AttachedEffectScopeFact, LazyComputedAsyncFact, QueuedWatchFlushFact};
 
 use super::index::{AwaitSite, CallInfo, MemberCall, WatchConsumer};
+use super::proof::is_ts_wrapper;
 use super::shape::{PrimitiveAtom, ShapeHint, primitive_atom, span_key};
 use super::timeline;
 use super::{Collector, MAX_DEPTH};
@@ -593,12 +594,8 @@ impl Collector<'_> {
               return false;
             }
           }
-          AstKind::ParenthesizedExpression(_)
-          | AstKind::TSAsExpression(_)
-          | AstKind::TSSatisfiesExpression(_)
-          | AstKind::TSNonNullExpression(_)
-          | AstKind::TSTypeAssertion(_)
-          | AstKind::VariableDeclarator(_) => {}
+          wrapper
+            if is_ts_wrapper(wrapper) || matches!(wrapper, AstKind::VariableDeclarator(_)) => {}
           _ => return false,
         }
       }
@@ -630,12 +627,9 @@ impl Collector<'_> {
       let parent_id = self.semantic.nodes().parent_id(current);
       self.indexes.note_query();
       match self.semantic.nodes().kind(parent_id) {
-        AstKind::ParenthesizedExpression(_)
-        | AstKind::TSAsExpression(_)
-        | AstKind::TSSatisfiesExpression(_)
-        | AstKind::TSNonNullExpression(_)
-        | AstKind::TSTypeAssertion(_)
-        | AstKind::ExpressionStatement(_) => current = parent_id,
+        wrapper if is_ts_wrapper(wrapper) || matches!(wrapper, AstKind::ExpressionStatement(_)) => {
+          current = parent_id;
+        }
         AstKind::CallExpression(call) => {
           let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression()
           else {
@@ -1035,12 +1029,8 @@ impl Collector<'_> {
         let ident_span = self.semantic.nodes().kind(node_id).span();
         match self.semantic.nodes().parent_kind(node_id) {
           AstKind::CallExpression(call) if callee_span_matches(call, ident_span) => return true,
-          AstKind::ParenthesizedExpression(_)
-          | AstKind::TSAsExpression(_)
-          | AstKind::TSSatisfiesExpression(_)
-          | AstKind::TSNonNullExpression(_)
-          | AstKind::TSTypeAssertion(_)
-          | AstKind::VariableDeclarator(_) => {}
+          wrapper
+            if is_ts_wrapper(wrapper) || matches!(wrapper, AstKind::VariableDeclarator(_)) => {}
           _ => return true,
         }
       }
@@ -1255,11 +1245,7 @@ impl Collector<'_> {
       let parent_id = self.semantic.nodes().parent_id(current);
       self.indexes.note_query();
       match self.semantic.nodes().kind(parent_id) {
-        AstKind::ParenthesizedExpression(_)
-        | AstKind::TSAsExpression(_)
-        | AstKind::TSSatisfiesExpression(_)
-        | AstKind::TSNonNullExpression(_)
-        | AstKind::TSTypeAssertion(_) => current = parent_id,
+        wrapper if is_ts_wrapper(wrapper) => current = parent_id,
         AstKind::VariableDeclarator(declarator) => {
           let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
             return None;
@@ -1313,11 +1299,7 @@ impl Collector<'_> {
       {
         true
       }
-      AstKind::ParenthesizedExpression(_)
-      | AstKind::TSAsExpression(_)
-      | AstKind::TSSatisfiesExpression(_)
-      | AstKind::TSNonNullExpression(_)
-      | AstKind::TSTypeAssertion(_) => self.allowed_value_member(parent_id),
+      wrapper if is_ts_wrapper(wrapper) => self.allowed_value_member(parent_id),
       _ => false,
     }
   }
@@ -1334,11 +1316,7 @@ impl Collector<'_> {
       {
         true
       }
-      AstKind::ParenthesizedExpression(_)
-      | AstKind::TSAsExpression(_)
-      | AstKind::TSSatisfiesExpression(_)
-      | AstKind::TSNonNullExpression(_)
-      | AstKind::TSTypeAssertion(_) => self.scope_method_reference(parent_id, methods),
+      wrapper if is_ts_wrapper(wrapper) => self.scope_method_reference(parent_id, methods),
       _ => false,
     }
   }
@@ -1350,11 +1328,7 @@ impl Collector<'_> {
       let parent_id = self.semantic.nodes().parent_id(current);
       self.indexes.note_query();
       match self.semantic.nodes().kind(parent_id) {
-        AstKind::ParenthesizedExpression(_)
-        | AstKind::TSAsExpression(_)
-        | AstKind::TSSatisfiesExpression(_)
-        | AstKind::TSNonNullExpression(_)
-        | AstKind::TSTypeAssertion(_) => current = parent_id,
+        wrapper if is_ts_wrapper(wrapper) => current = parent_id,
         AstKind::CallExpression(call) if call.span == call_span => {
           return call.arguments.iter().any(|argument| {
             argument.as_expression().is_some_and(|expression| {
@@ -1376,11 +1350,7 @@ impl Collector<'_> {
       let parent_id = self.semantic.nodes().parent_id(current);
       self.indexes.note_query();
       match self.semantic.nodes().kind(parent_id) {
-        AstKind::ParenthesizedExpression(_)
-        | AstKind::TSAsExpression(_)
-        | AstKind::TSSatisfiesExpression(_)
-        | AstKind::TSNonNullExpression(_)
-        | AstKind::TSTypeAssertion(_) => current = parent_id,
+        wrapper if is_ts_wrapper(wrapper) => current = parent_id,
         AstKind::CallExpression(call) => {
           let Some(info) = self.indexes.calls.get(&span_key(call.span)).copied() else {
             return false;

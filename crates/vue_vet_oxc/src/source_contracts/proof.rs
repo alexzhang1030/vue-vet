@@ -287,24 +287,53 @@ const fn span_covers(outer: Span, inner: Span) -> bool {
   outer.start <= inner.start && inner.end <= outer.end
 }
 
+/// Nested value-preserving wrappers (`(x)`, `x as T`, `x!`, `x satisfies T`,
+/// `<T>x`, `x<T>`) an ancestor walk looks through before giving up.
+pub(super) const WRAPPER_BUDGET: u8 = 16;
+
+/// The wrapper set `Expression::get_inner_expression` peels, as parent kinds.
+pub(super) const fn is_ts_wrapper(kind: AstKind<'_>) -> bool {
+  matches!(
+    kind,
+    AstKind::ParenthesizedExpression(_)
+      | AstKind::TSAsExpression(_)
+      | AstKind::TSSatisfiesExpression(_)
+      | AstKind::TSNonNullExpression(_)
+      | AstKind::TSTypeAssertion(_)
+      | AstKind::TSInstantiationExpression(_)
+  )
+}
+
+/// Nearest ancestor that is not a TS / parenthesis wrapper. Returns the last
+/// wrapper itself when the budget is exhausted so callers fail closed.
 pub(super) fn skip_ts_parent(
   semantic: &oxc_semantic::Semantic<'_>,
   mut node_id: NodeId,
   work: &WorkCounter,
 ) -> NodeId {
-  for _ in 0..ANCESTOR_BUDGET {
+  for _ in 0..WRAPPER_BUDGET {
     work.add_queries(1);
     let parent = semantic.nodes().parent_id(node_id);
-    match semantic.nodes().kind(parent) {
-      AstKind::ParenthesizedExpression(_)
-      | AstKind::TSAsExpression(_)
-      | AstKind::TSSatisfiesExpression(_)
-      | AstKind::TSNonNullExpression(_)
-      | AstKind::TSTypeAssertion(_) => node_id = parent,
-      _ => return parent,
+    if !is_ts_wrapper(semantic.nodes().kind(parent)) {
+      return parent;
     }
+    node_id = parent;
   }
   node_id
+}
+
+/// The call that directly holds `node_id` (through wrappers) as callee or
+/// argument, with its node id.
+pub(super) fn enclosing_call<'a>(
+  semantic: &oxc_semantic::Semantic<'a>,
+  node_id: NodeId,
+  work: &WorkCounter,
+) -> Option<(NodeId, &'a oxc_ast::ast::CallExpression<'a>)> {
+  let parent = skip_ts_parent(semantic, node_id, work);
+  match semantic.nodes().kind(parent) {
+    AstKind::CallExpression(call) => Some((parent, call)),
+    _ => None,
+  }
 }
 
 pub(super) fn expression_is_noncallable_literal(

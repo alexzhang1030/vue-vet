@@ -17,11 +17,11 @@ use oxc_span::{GetSpan, Span};
 use super::Collector;
 use super::custom_ref_proof::{
   TakenBranch, TakenLogical, callable_body, computed_key_expression, is_nested_callable,
-  object_value_is_eager, preceding_statement_blocks_read, skip_ts, taken_conditional_branch,
+  object_value_is_eager, preceding_statement_blocks_read, taken_conditional_branch,
   taken_logical_side,
 };
 use super::index::{ArgUse, CallInfo, WriteLiteral};
-use super::proof::classify_reach;
+use super::proof::{classify_reach, enclosing_call, skip_ts_parent};
 use super::shape::{Shape, span_key};
 use super::timeline;
 use vue_vet_core::{CustomRefLostNotificationFact, CustomRefLostNotificationReason};
@@ -611,7 +611,7 @@ impl Collector<'_> {
   }
 
   fn reference_is_known_borrow(&self, node_id: NodeId, factory_span: Span) -> bool {
-    let parent = skip_ts(self.semantic, node_id);
+    let parent = skip_ts_parent(self.semantic, node_id, self.indexes.work_counter());
     match self.semantic.nodes().kind(parent) {
       AstKind::StaticMemberExpression(member) if member.property.name.as_str() == "value" => true,
       AstKind::VariableDeclarator(declarator) => {
@@ -634,8 +634,8 @@ impl Collector<'_> {
         )
       }
       AstKind::ArrayExpression(array) => {
-        let outer = skip_ts(self.semantic, parent);
-        let AstKind::CallExpression(call) = self.semantic.nodes().kind(outer) else {
+        let Some((_, call)) = enclosing_call(self.semantic, parent, self.indexes.work_counter())
+        else {
           return false;
         };
         span_covers(array.span, self.semantic.nodes().kind(node_id).span())

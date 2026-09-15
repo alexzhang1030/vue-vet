@@ -12,7 +12,7 @@ use oxc_span::Span;
 
 use super::Collector;
 use super::index::{CallInfo, CallUse, MemberUse};
-use super::proof::{DemandOrigin, DemandRole};
+use super::proof::{DemandOrigin, DemandRole, skip_ts_parent};
 use super::shape::{PrimitiveKind, native_callable, span_key};
 use vue_vet_core::CachedResultDemandFact;
 
@@ -485,7 +485,7 @@ impl Collector<'_> {
   }
 
   fn bound_const_symbol(&self, node_id: NodeId) -> Option<SymbolId> {
-    let parent = skip_ts(self.semantic, node_id);
+    let parent = skip_ts_parent(self.semantic, node_id, self.indexes.work_counter());
     let AstKind::VariableDeclarator(declarator) = self.semantic.nodes().kind(parent) else {
       return None;
     };
@@ -648,19 +648,4 @@ fn single_return_ref_value(
     return None;
   };
   read(statement.argument.as_ref()?)
-}
-
-fn skip_ts(semantic: &oxc_semantic::Semantic<'_>, mut node_id: NodeId) -> NodeId {
-  for _ in 0..8 {
-    let parent = semantic.nodes().parent_id(node_id);
-    match semantic.nodes().kind(parent) {
-      AstKind::ParenthesizedExpression(_)
-      | AstKind::TSAsExpression(_)
-      | AstKind::TSSatisfiesExpression(_)
-      | AstKind::TSNonNullExpression(_)
-      | AstKind::TSTypeAssertion(_) => node_id = parent,
-      _ => return parent,
-    }
-  }
-  node_id
 }

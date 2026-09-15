@@ -15,7 +15,7 @@ use super::class::MemberKind;
 use super::index::{CallInfo, MemberUse, NamedUse};
 use super::proof::{
   DemandOrigin, DemandRole, ReceiverEffect, callable_receiver_effect, classify_reach,
-  classify_role, expression_is_noncallable_literal, is_object_prototype_key,
+  classify_role, expression_is_noncallable_literal, is_object_prototype_key, skip_ts_parent,
 };
 use super::shape::{Shape, VueImport, span_key};
 use vue_vet_core::{
@@ -155,7 +155,7 @@ impl Collector<'_> {
     class_id: SymbolId,
     api: &str,
   ) {
-    let member_id = skip_ts(self.semantic, node_id);
+    let member_id = skip_ts_parent(self.semantic, node_id, self.indexes.work_counter());
     let oxc_ast::AstKind::StaticMemberExpression(member) = self.semantic.nodes().kind(member_id)
     else {
       return;
@@ -171,7 +171,7 @@ impl Collector<'_> {
     let private_span = record.private_span;
     let field = record.field.clone();
     let record_kind = record.kind;
-    let after = skip_ts(self.semantic, member_id);
+    let after = skip_ts_parent(self.semantic, member_id, self.indexes.work_counter());
     let (demand_span, method) = match self.semantic.nodes().kind(after) {
       oxc_ast::AstKind::CallExpression(outer)
         if outer.callee.get_inner_expression().span() == member.span =>
@@ -303,7 +303,7 @@ impl Collector<'_> {
     factory: Span,
     origin: DemandOrigin,
   ) {
-    let parent = skip_ts(self.semantic, node_id);
+    let parent = skip_ts_parent(self.semantic, node_id, self.indexes.work_counter());
     let AstKind::StaticMemberExpression(member) = self.semantic.nodes().kind(parent) else {
       return;
     };
@@ -544,7 +544,7 @@ impl Collector<'_> {
     torefs_span: vue_vet_core::SourceSpan,
     origin: DemandOrigin,
   ) {
-    let parent = skip_ts(self.semantic, node_id);
+    let parent = skip_ts_parent(self.semantic, node_id, self.indexes.work_counter());
     let AstKind::VariableDeclarator(declarator) = self.semantic.nodes().kind(parent) else {
       return;
     };
@@ -593,7 +593,7 @@ impl Collector<'_> {
     object_span: Span,
     origin: DemandOrigin,
   ) -> Option<(String, Span)> {
-    let parent = skip_ts(self.semantic, node_id);
+    let parent = skip_ts_parent(self.semantic, node_id, self.indexes.work_counter());
     let AstKind::StaticMemberExpression(member) = self.semantic.nodes().kind(parent) else {
       return None;
     };
@@ -603,7 +603,7 @@ impl Collector<'_> {
     {
       return None;
     }
-    let next = skip_ts(self.semantic, parent);
+    let next = skip_ts_parent(self.semantic, parent, self.indexes.work_counter());
     let AstKind::StaticMemberExpression(value) = self.semantic.nodes().kind(next) else {
       return None;
     };
@@ -636,7 +636,7 @@ impl Collector<'_> {
   }
 
   pub(super) fn result_symbol(&self, node_id: NodeId) -> Option<SymbolId> {
-    let parent = skip_ts(self.semantic, node_id);
+    let parent = skip_ts_parent(self.semantic, node_id, self.indexes.work_counter());
     match self.semantic.nodes().kind(parent) {
       AstKind::VariableDeclarator(declarator) => {
         let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
@@ -678,7 +678,7 @@ impl Collector<'_> {
     call: &CallExpression<'_>,
     origin: DemandOrigin,
   ) -> Option<Span> {
-    let parent = skip_ts(self.semantic, node_id);
+    let parent = skip_ts_parent(self.semantic, node_id, self.indexes.work_counter());
     match self.semantic.nodes().kind(parent) {
       AstKind::StaticMemberExpression(member) => {
         let reach = classify_reach(self.semantic, parent, self.indexes.work_counter());
@@ -852,21 +852,6 @@ fn is_function_expr(expression: &Expression<'_>) -> bool {
     expression.get_inner_expression(),
     Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
   )
-}
-
-pub(super) fn skip_ts(semantic: &oxc_semantic::Semantic<'_>, mut node_id: NodeId) -> NodeId {
-  for _ in 0..8 {
-    let parent = semantic.nodes().parent_id(node_id);
-    match semantic.nodes().kind(parent) {
-      AstKind::ParenthesizedExpression(_)
-      | AstKind::TSAsExpression(_)
-      | AstKind::TSSatisfiesExpression(_)
-      | AstKind::TSNonNullExpression(_)
-      | AstKind::TSTypeAssertion(_) => node_id = parent,
-      _ => return parent,
-    }
-  }
-  node_id
 }
 
 fn expression_is_callee(callee: &Expression<'_>, call: &CallExpression<'_>) -> bool {
