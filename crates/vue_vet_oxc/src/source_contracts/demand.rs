@@ -322,6 +322,7 @@ impl Collector<'_> {
       callable: owner.callable,
       region: owner.region.unwrap_or(origin.region),
       optional: false,
+      call_optional: false,
       reach,
       role,
     };
@@ -624,6 +625,7 @@ impl Collector<'_> {
       callable: owner.callable,
       region: owner.region.unwrap_or(origin.region),
       optional: false,
+      call_optional: false,
       reach,
       role,
     };

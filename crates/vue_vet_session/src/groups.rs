@@ -41,6 +41,7 @@ pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/reactivity/no-empty-watch-sources", RuleGroupId::Tracking),
   ("vue-vet/reactivity/no-extracted-reactive-collection-method", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-inactive-scope-result", RuleGroupId::SourceContracts),
+  ("vue-vet/reactivity/no-inject-same-instance-provide", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-invalid-custom-ref-interface", RuleGroupId::SourceContracts),
   ("vue-vet/reactivity/no-late-cancellation-guard", RuleGroupId::Lifetime),
   ("vue-vet/reactivity/no-late-scope-dispose", RuleGroupId::Lifetime),
@@ -307,13 +308,13 @@ mod tests {
       "vue-vet/reactivity/no-watch-cleanup-current-source",
     ];
     let inventory = rule_inventory(&[]);
-    assert_eq!(inventory.counts.total, 141, "composed CLI inventory count");
+    assert_eq!(inventory.counts.total, 142, "composed CLI inventory count");
     assert_eq!(
       group_of("vue-vet/practice/prefer-stable-computed-identity"),
       Some(RuleGroupId::Derivation)
     );
     let source = rule_inventory(&[RuleGroupId::SourceContracts]);
-    assert_eq!(source.counts.total, 38, "source-contracts group count");
+    assert_eq!(source.counts.total, 39, "source-contracts group count");
     let derivation = rule_inventory(&[RuleGroupId::Derivation]);
     assert_eq!(derivation.counts.total, 13, "derivation group count");
     for id in [
@@ -336,6 +337,7 @@ mod tests {
       "vue-vet/reactivity/no-memoize-stale-result-demand",
       "vue-vet/reactivity/no-missing-torefs-key",
       "vue-vet/reactivity/no-until-timeout-unmatched-demand",
+      "vue-vet/reactivity/no-inject-same-instance-provide",
     ] {
       assert_eq!(group_of(id), Some(RuleGroupId::SourceContracts), "{id}");
       assert!(

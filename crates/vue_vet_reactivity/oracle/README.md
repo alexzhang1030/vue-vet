@@ -121,6 +121,10 @@ current unmatched value, expected-kind demand throws, current-kind demand is
 valid, an intervening write matches, `throwOnTimeout` rejects, and already
 matched / zero-timeout / optional-chain / compound-assign controls.
 
+`just oracle-injection-demand` (`injection-demand-contracts.mjs`) pins Vue
+3.5.40 for same-instance `provide`/`inject` on a fresh native `Symbol()`
+key: the fallback lacks a native callable the local provide would supply.
+
 `just oracle-self-trigger` (`self-trigger-runs.mjs`) is separate from onTrack
 JSON. It asserts Vue 3.5.40 execution counts for self-write effects, one-shot
 versus repeating `requestAnimationFrame`, and template host behavior:

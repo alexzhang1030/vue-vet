@@ -103,6 +103,10 @@ oracle-private-receiver:
 oracle-until-demand:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node until-demand.mjs
 
+# Vue 3.5.40 same-instance injection demand premises (issue #224).
+oracle-injection-demand:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node injection-demand-contracts.mjs
+
 # Run all non-mutating Rust linters.
 lint-rust: fmt-check check clippy
 

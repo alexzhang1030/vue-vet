@@ -125,6 +125,31 @@ pub(super) struct CallInfo {
   /// local/unknown calls never walk declaration ancestors.
   pub actual_proxy_origin: bool,
   pub arg_count: u8,
+  pub third_arg: Option<Span>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct InjectionSite {
+  pub offset: usize,
+  pub span: Span,
+  pub callable: Option<NodeId>,
+  pub region: NodeId,
+  pub block: NodeId,
+  pub reach: Reach,
+  pub optional: bool,
+  pub argc: u8,
+  pub has_spread: bool,
+  pub payload: Option<Span>,
+  pub factory: Option<bool>,
+  pub node_id: NodeId,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct NativeSymbol {
+  pub offset: usize,
+  pub span: Span,
+  pub callable: Option<NodeId>,
+  pub region: NodeId,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -228,6 +253,7 @@ pub(super) struct MemberUse {
   pub callable: Option<NodeId>,
   pub region: NodeId,
   pub optional: bool,
+  pub call_optional: bool,
   pub reach: Reach,
   pub role: DemandRole,
 }
@@ -601,6 +627,10 @@ pub(super) struct Indexes {
   unresolved_origin_touch: bool,
   alloc_capability: HashMap<SymbolId, bool>,
   until: UntilIndexes,
+  native_symbols: HashMap<SymbolId, NativeSymbol>,
+  provides_by_key: HashMap<SymbolId, Vec<InjectionSite>>,
+  injects_by_key: HashMap<SymbolId, Vec<InjectionSite>>,
+  script_kind: ScriptKind,
   work: WorkCounter,
 }
 
@@ -740,6 +770,10 @@ impl Indexes {
       unresolved_origin_touch: false,
       alloc_capability: HashMap::new(),
       until: UntilIndexes::default(),
+      native_symbols: HashMap::new(),
+      provides_by_key: HashMap::new(),
+      injects_by_key: HashMap::new(),
+      script_kind: kind,
       work,
     };
     indexes.build_owners(semantic);
@@ -849,6 +883,12 @@ impl Indexes {
     }
     for uses in self.member_calls_by_root.values_mut() {
       uses.sort_by_key(|use_site| use_site.site.offset);
+    }
+    for sites in self.provides_by_key.values_mut() {
+      sites.sort_by_key(|site| site.offset);
+    }
+    for sites in self.injects_by_key.values_mut() {
+      sites.sort_by_key(|site| site.offset);
     }
     for uses in self.identifier_calls.values_mut() {
       uses.sort_by_key(|use_site| use_site.offset);
@@ -1008,6 +1048,59 @@ impl Indexes {
       && !self.ctor_shadowed("Boolean")
       && !self.ctor_shadowed("BigInt")
       && !self.ctor_shadowed("Object")
+      && !self.ctor_shadowed("Symbol")
+  }
+
+  pub(super) fn setup_lane(&self) -> bool {
+    self.work.add_queries(1);
+    self.script_kind == ScriptKind::Setup
+  }
+
+  /// Optional member (`count?.toFixed`) guards only a nullish fallback.
+  /// Optional *call* (`toFixed?.()`) always guards.
+  pub(super) fn injection_demand_from(
+    &self,
+    site: &MemberUse,
+    origin: DemandOrigin,
+    fallback: super::shape::PrimitiveKind,
+  ) -> bool {
+    self.work.add_queries(1);
+    if !site.reach.is_straight() || site.call_optional {
+      return false;
+    }
+    if site.optional && fallback == super::shape::PrimitiveKind::Nullish {
+      return false;
+    }
+    site.callable == origin.callable
+      && site.region == origin.region
+      && self.until_interval_open(origin.callable, origin.region, origin.offset, site.offset)
+  }
+
+  pub(super) fn inject_site(
+    &self,
+    key: SymbolId,
+    offset: usize,
+    node_id: NodeId,
+  ) -> Option<InjectionSite> {
+    let sites = self.injects_on(key);
+    let index = self.work.partition_point(sites, |site| site.offset < offset);
+    self.work.add_queries(1);
+    sites.get(index).copied().filter(|site| site.node_id == node_id)
+  }
+
+  pub(super) fn native_symbol(&self, root: SymbolId) -> Option<NativeSymbol> {
+    self.work.add_queries(1);
+    self.native_symbols.get(&root).copied()
+  }
+
+  pub(super) fn provides_on(&self, root: SymbolId) -> &[InjectionSite] {
+    self.work.add_queries(1);
+    self.provides_by_key.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn injects_on(&self, root: SymbolId) -> &[InjectionSite] {
+    self.work.add_queries(1);
+    self.injects_by_key.get(&root).map_or(&[], Vec::as_slice)
   }
 
   pub(super) fn result_binding_intact(&self, root: SymbolId) -> bool {
@@ -2133,6 +2226,15 @@ impl Indexes {
             && let Some(init) = &declarator.init
           {
             self.init_span.insert(symbol_id, init.span());
+            self.record_native_symbol(
+              semantic,
+              line_index,
+              sfc_source,
+              script_offset,
+              node_id,
+              symbol_id,
+              init,
+            );
             self
               .init_offset
               .insert(symbol_id, mapped(line_index, sfc_source, script_offset, init.span()).offset);
@@ -2284,7 +2386,14 @@ impl Indexes {
                 });
               if !is_retained_vueuse_source_arg(info, index) {
                 self.until.pending_borrow = until_borrow;
-                self.mark_escape_expr(semantic, expression, !(api == Some("toRef") && index == 0));
+                let skip_injection_key = matches!(api, Some("provide" | "inject")) && index == 0;
+                if !skip_injection_key {
+                  self.mark_escape_expr(
+                    semantic,
+                    expression,
+                    !(api == Some("toRef") && index == 0),
+                  );
+                }
                 self.until.pending_borrow = false;
               }
               if capability_mutating_callee(semantic, &call.callee) {
@@ -2299,10 +2408,15 @@ impl Indexes {
                   self.poison_expr(semantic, expression);
                   self.mark_helper_escape_expr(semantic, expression);
                 }
-              } else if !vue_wrapper_skips_capability(call, index, &self.calls) {
+              } else if !(vue_wrapper_skips_capability(call, index, &self.calls)
+                || matches!(api, Some("provide" | "inject")) && index == 0)
+              {
                 self.mark_helper_escape_expr(semantic, expression);
               }
             }
+          }
+          if matches!(api, Some("provide" | "inject")) {
+            self.record_injection(semantic, line_index, sfc_source, script_offset, node_id, call);
           }
           self.note_receiver_use(semantic, &call.callee);
           self.record_stmt_site(semantic, line_index, sfc_source, script_offset, node_id);
@@ -2592,7 +2706,7 @@ impl Indexes {
         let flags = reference.flags();
         let node_id = reference.node_id();
         let member_payload = flags.intersects(ReferenceFlags::MemberWriteTarget)
-          || known_static_member_object_role(semantic, node_id);
+          || known_static_member_object_role(semantic, node_id, &self.work);
         if !closed_key_use_is_known(
           semantic,
           node_id,
@@ -2608,7 +2722,7 @@ impl Indexes {
           {
             self.uncertain.insert(root);
           }
-          if known_static_member_object_role(semantic, reference.node_id())
+          if known_static_member_object_role(semantic, reference.node_id(), &self.work)
             && self.static_member_chain_receiver_uncertain(semantic, reference.node_id())
           {
             self.toref_identity_uncertain.insert(root);
@@ -2622,6 +2736,9 @@ impl Indexes {
           continue;
         }
         if known_const_alias_role(semantic, reference.node_id()) {
+          continue;
+        }
+        if known_injection_key_role(semantic, reference.node_id(), &self.calls, &self.work) {
           continue;
         }
         if known_class_ctor_role(semantic, reference.node_id(), &self.classes, root) {
@@ -3249,6 +3366,11 @@ impl Indexes {
     let actual_proxy_origin = api.is_some_and(is_proxy_allocating_api)
       && callee_has_actual_proxy_origin(&call.callee, &self.vue_imports, semantic, &self.work);
     let arg_count = u8::try_from(call.arguments.len()).unwrap_or(u8::MAX);
+    let third_arg = if has_spread {
+      None
+    } else {
+      call.arguments.get(2).and_then(Argument::as_expression).map(GetSpan::span)
+    };
     self.calls.insert(
       span_key(call.span),
       CallInfo {
@@ -3261,6 +3383,7 @@ impl Indexes {
         native_structured_clone,
         actual_proxy_origin,
         arg_count,
+        third_arg,
       },
     );
     if is_object_define_property(&call.callee) {
@@ -3867,6 +3990,7 @@ impl Indexes {
       callable: owner.callable,
       region,
       optional,
+      call_optional: false,
       reach: classify_reach(semantic, node_id, &self.work),
       role: classify_role(semantic, node_id, &self.work),
     };
@@ -3912,13 +4036,13 @@ impl Indexes {
     node_id: NodeId,
     call: &CallExpression<'_>,
   ) {
-    let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() else {
+    let Some((object, key)) = member_call_object_key(call.callee.get_inner_expression()) else {
       return;
     };
     let optional = chain_optional(semantic, node_id, &self.work);
     let owner = self.owner(node_id);
     let region = region_of(owner, node_id);
-    let object = member.object.get_inner_expression();
+    let object = object.get_inner_expression();
     if let Some(ident) = object.get_identifier_reference()
       && let Some(symbol_id) = reference_symbol(semantic, ident)
     {
@@ -3928,10 +4052,11 @@ impl Indexes {
         callable: owner.callable,
         region,
         optional,
+        call_optional: call.optional,
         reach: classify_reach(semantic, node_id, &self.work),
         role: DemandRole::Other,
       };
-      let named = NamedUse { key: member.property.name.as_str().to_string(), site: use_site };
+      let named = NamedUse { key: key.to_string(), site: use_site };
       let root = self.root_of(symbol_id);
       if named.key == "stop" && self.demand_ok(&use_site) {
         self.stops_by_region.entry((root, use_site.callable, region)).or_default().push(use_site);
@@ -3945,7 +4070,14 @@ impl Indexes {
           ..use_site
         },
       });
-      self.member_calls_by_root.entry(root).or_default().push(named);
+      self.member_calls_by_root.entry(root).or_default().push(NamedUse {
+        key: named.key,
+        site: MemberUse {
+          reach: classify_reach_except_chain(semantic, node_id, &self.work),
+          call_optional: call.optional,
+          ..use_site
+        },
+      });
       return;
     }
     if let Expression::AwaitExpression(awaited) = object {
@@ -3955,10 +4087,11 @@ impl Indexes {
         callable: owner.callable,
         region,
         optional,
+        call_optional: call.optional,
         reach: classify_reach_except_chain(semantic, node_id, &self.work),
         role: DemandRole::Other,
       };
-      let named = NamedUse { key: member.property.name.as_str().to_string(), site: use_site };
+      let named = NamedUse { key: key.to_string(), site: use_site };
       self.member_call_by_span.insert(span_key(call.span), named.clone());
       self.until.await_method_calls.entry(span_key(awaited.span)).or_default().push(named);
     }
@@ -4084,6 +4217,7 @@ impl Indexes {
       callable: owner.callable,
       region,
       optional,
+      call_optional: false,
       reach: classify_reach(semantic, grand, &self.work),
       role: DemandRole::Other,
     };
@@ -4130,6 +4264,7 @@ impl Indexes {
       callable: owner.callable,
       region,
       optional,
+      call_optional: false,
       reach: classify_reach(semantic, node_id, &self.work),
       role: DemandRole::Other,
     };
@@ -4152,6 +4287,7 @@ impl Indexes {
       callable: owner.callable,
       region,
       optional,
+      call_optional: false,
       reach: classify_reach(semantic, node_id, &self.work),
       role: DemandRole::Read,
     };
@@ -4182,8 +4318,95 @@ impl Indexes {
         "Object" => {
           self.shadowed_ctors.insert("Object");
         }
+        "Symbol" => {
+          self.shadowed_ctors.insert("Symbol");
+        }
         _ => {}
       }
+    }
+  }
+
+  #[expect(clippy::too_many_arguments, reason = "span mapping matches other record helpers")]
+  fn record_native_symbol(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    node_id: NodeId,
+    symbol_id: SymbolId,
+    init: &Expression<'_>,
+  ) {
+    if !semantic.scoping().symbol_flags(symbol_id).contains(SymbolFlags::ConstVariable) {
+      return;
+    }
+    let Expression::CallExpression(call) = init.get_inner_expression() else {
+      return;
+    };
+    if call.arguments.iter().any(Argument::is_spread) || call.arguments.len() > 1 {
+      return;
+    }
+    let Some(identifier) = call.callee.get_inner_expression().get_identifier_reference() else {
+      return;
+    };
+    if identifier.name.as_str() != "Symbol" || reference_symbol(semantic, identifier).is_some() {
+      return;
+    }
+    let owner = self.owner(node_id);
+    let region = region_of(owner, node_id);
+    self.native_symbols.insert(
+      symbol_id,
+      NativeSymbol {
+        offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
+        span: call.span,
+        callable: owner.callable,
+        region,
+      },
+    );
+  }
+
+  fn record_injection(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    node_id: NodeId,
+    call: &CallExpression<'_>,
+  ) {
+    let Some(info) = self.calls.get(&span_key(call.span)).copied() else {
+      return;
+    };
+    let Some(key_expr) = call.arguments.first().and_then(Argument::as_expression) else {
+      return;
+    };
+    let Some(ident) = key_expr.get_inner_expression().get_identifier_reference() else {
+      return;
+    };
+    let Some(symbol_id) = reference_symbol(semantic, ident) else {
+      return;
+    };
+    let root = self.root_of(symbol_id);
+    let owner = self.owner(node_id);
+    let region = region_of(owner, node_id);
+    let site = InjectionSite {
+      offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
+      span: call.span,
+      callable: owner.callable,
+      region,
+      block: owner.block.unwrap_or(node_id),
+      reach: classify_reach(semantic, node_id, &self.work),
+      optional: chain_optional(semantic, node_id, &self.work),
+      argc: info.arg_count,
+      has_spread: info.has_spread,
+      payload: info.second_arg,
+      factory: call.arguments.get(2).and_then(Argument::as_expression).and_then(boolean_literal),
+      node_id,
+    };
+    match info.api {
+      Some("provide") => self.provides_by_key.entry(root).or_default().push(site),
+      Some("inject") => self.injects_by_key.entry(root).or_default().push(site),
+      _ => {}
     }
   }
 
@@ -5275,8 +5498,28 @@ fn is_known_constructor_or_watch(api: Option<&str>) -> bool {
   matches!(api, Some("reactive" | "shallowReactive" | "readonly" | "shallowReadonly" | "watch"))
 }
 
-fn known_static_member_object_role(semantic: &oxc_semantic::Semantic<'_>, node_id: NodeId) -> bool {
-  matches!(semantic.nodes().parent_kind(node_id), AstKind::StaticMemberExpression(_))
+fn known_static_member_object_role(
+  semantic: &oxc_semantic::Semantic<'_>,
+  node_id: NodeId,
+  work: &WorkCounter,
+) -> bool {
+  let ident_span = semantic.nodes().kind(node_id).span();
+  work.add_queries(1);
+  let parent = skip_ts_parent(semantic, node_id);
+  match semantic.nodes().kind(parent) {
+    AstKind::StaticMemberExpression(member) => {
+      let object = member.object.get_inner_expression().span();
+      object == ident_span || member.object.span() == ident_span
+    }
+    AstKind::ComputedMemberExpression(member) => {
+      if !matches!(member.expression.get_inner_expression(), Expression::StringLiteral(_)) {
+        return false;
+      }
+      let object = member.object.get_inner_expression().span();
+      object == ident_span || member.object.span() == ident_span
+    }
+    _ => false,
+  }
 }
 
 fn known_class_ctor_role(
@@ -5294,6 +5537,54 @@ fn known_class_ctor_role(
   let ident_span = semantic.nodes().kind(node_id).span();
   let callee = expression.callee.get_inner_expression().span();
   callee == ident_span
+}
+
+fn member_call_object_key<'a>(callee: &'a Expression<'a>) -> Option<(&'a Expression<'a>, &'a str)> {
+  match callee {
+    Expression::StaticMemberExpression(member) => {
+      Some((&member.object, member.property.name.as_str()))
+    }
+    Expression::ComputedMemberExpression(member) => {
+      let Expression::StringLiteral(literal) = member.expression.get_inner_expression() else {
+        return None;
+      };
+      Some((&member.object, literal.value.as_str()))
+    }
+    _ => None,
+  }
+}
+
+fn known_injection_key_role(
+  semantic: &oxc_semantic::Semantic<'_>,
+  node_id: NodeId,
+  calls: &HashMap<u64, CallInfo>,
+  work: &WorkCounter,
+) -> bool {
+  let ident_span = semantic.nodes().kind(node_id).span();
+  work.add_queries(1);
+  let parent = skip_ts_parent(semantic, node_id);
+  let AstKind::CallExpression(call) = semantic.nodes().kind(parent) else {
+    return false;
+  };
+  work.add_queries(1);
+  let Some(info) = calls.get(&span_key(call.span)) else {
+    return false;
+  };
+  if !matches!(info.api, Some("provide" | "inject")) || info.has_spread {
+    return false;
+  }
+  let Some(first) = call.arguments.first().and_then(Argument::as_expression) else {
+    return false;
+  };
+  let inner = first.get_inner_expression().span();
+  inner == ident_span || first.span() == ident_span
+}
+
+fn boolean_literal(expression: &Expression<'_>) -> Option<bool> {
+  match expression.get_inner_expression() {
+    Expression::BooleanLiteral(literal) => Some(literal.value),
+    _ => None,
+  }
 }
 
 fn known_const_alias_role(semantic: &oxc_semantic::Semantic<'_>, node_id: NodeId) -> bool {
@@ -5400,7 +5691,7 @@ fn known_static_member_read_role(
   false
 }
 
-fn chain_optional(
+pub(super) fn chain_optional(
   semantic: &oxc_semantic::Semantic<'_>,
   mut node_id: NodeId,
   work: &WorkCounter,

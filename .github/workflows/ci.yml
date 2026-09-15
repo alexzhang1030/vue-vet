@@ -111,6 +111,8 @@ jobs:
         run: just oracle-scheduling-practice
       - name: Until timeout unmatched-demand VueUse premises
         run: just oracle-until-demand
+      - name: Same-instance injection demand Vue 3.5.40 premises
+        run: just oracle-injection-demand
 
   vapor-migration-research:
     name: Vapor migration research
