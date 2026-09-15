@@ -26,6 +26,14 @@ PROJECT_RULE_IDS = (
   "vue-vet/project/unused-component",
 )
 
+MIGRATION_RULE_IDS = (
+  "vue-vet/migration/vapor-assessment",
+  "vue-vet/migration/vapor-interop-required",
+  "vue-vet/migration/vapor-memo-contract-dropped",
+  "vue-vet/migration/vapor-runtime-envelope",
+  "vue-vet/migration/vapor-sfc-compile-contract",
+)
+
 # Stable overrides when heuristics would mis-label.
 TRACER_FORCE = {
   "vue-vet/reactivity/prefer-computed",
@@ -165,6 +173,12 @@ def render(rules: dict[str, str]) -> str:
       "",
       f"- `{PROJECT_RULE_IDS[0]}`",
       f"- `{PROJECT_RULE_IDS[1]}`",
+      "",
+      "## Migration assessment rules",
+      "",
+      "These IDs belong to the opt-in `vapor-migration` group (`category: migration`) and are listed separately from file rules.",
+      "",
+      *[f"- [`{rid}`](./migration/{rid.rsplit('/', 1)[-1]}.md)" for rid in MIGRATION_RULE_IDS],
       "",
     ]
   )

@@ -281,7 +281,7 @@ File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         imports reuse the canonical Vue-import pass. `watch` still runs the
         ordinary source collector, watch-family option/signature facts, and
         callback-contract collectors (`watch_callbacks.rs`). Combined
-        `RULESET_VERSION` is 41; `REACTIVITY_GRAPH_VERSION` stays 41. Cancelled default-debounce promise identity (`useDebounceFn` wrapper calls, awaited earlier promise, native demand) joins that catalog. Snapshot-demand facts (`json_clone_lossy_type`, `ref_history_snapshot_alias`) require exact `@vueuse/core` `useCloned` / `useManualRefHistory`. Model-default demand facts (`model_defaults`, `mounted_member_demands`, project-joined `unsynced_model_parent_demands` / `shared_default_cross_instance_demands`) join Vize instance flags with Oxc defineModel/ref/expose surfaces.
+        `RULESET_VERSION` is 43; `REACTIVITY_GRAPH_VERSION` stays 41. Cancelled default-debounce promise identity (`useDebounceFn` wrapper calls, awaited earlier promise, native demand) joins that catalog. Snapshot-demand facts (`json_clone_lossy_type`, `ref_history_snapshot_alias`) require exact `@vueuse/core` `useCloned` / `useManualRefHistory`. Model-default demand facts (`model_defaults`, `mounted_member_demands`, project-joined `unsynced_model_parent_demands` / `shared_default_cross_instance_demands`) join Vize instance flags with Oxc defineModel/ref/expose surfaces.
         Scheduling-practice facts (`queued_watch_flush`, `attached_effect_scope`,
         `lazy_computed_async`) live on `SourceContractFacts.scheduling_practice`.
         Named effect-family imports keep source indexes empty when every Oxc
@@ -397,7 +397,18 @@ source-contract uncertainty. Statement ordinals, preceding exits, watcher
 identity by `NodeId`, and scope-active intervals are built once. Shared
 outer/getter/scope proofs stay memoized. Statement / reference / watcher /
 toggle / computed-edge inspections use a test-only counter; production
-`WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 41.
+`WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 43.
+
+The opt-in `vapor-migration` group (`category: migration`) is an off-score
+assessment channel like practice. `vue_vet_project` emits five Info IDs from
+facts + the project graph; session default-offs them unless `assessment = "vapor"`,
+`--group vapor-migration`, or an individual `[rules]` override. `Diagnostic.assessment`
+carries `convertible` (can it convert at all?) and `aggregate` (`ready` only when
+complete, no open/blocking checks, and `runtime-envelope` is `compiler-candidate`).
+Runtime ES-module
+exports on `<script vapor>` come from Oxc
+`ScriptBlockFacts.runtime_export_spans` (Vue `compileScript.ts` L722–L732:
+named exports only when not type-only, plus every default and star export).
 
 `ModuleSummary` is the formal
 cross-module boundary: imports, exports, provides/injects, local reactivity, and

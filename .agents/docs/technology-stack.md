@@ -77,7 +77,7 @@ the Rust engine. The audited identity is the exact `vue` /
 stay gated on a re-audit of that identity. Published
 `@vue/compiler-sfc@3.5.42` has no Vapor compiler and is a specific blocker for
 that toolchain; other unmatched versions are unsupported or need verification.
-Shipped CLI modes and rules stay at delta 0. Analysis remains on
+The assessment shipped as the opt-in `vapor-migration` group (5 IDs). Analysis remains on
 `vize_croquis` / `vize_atelier_core` without `vize_atelier_vapor`. The product
 Vue 3.5.40 reactivity oracle is unchanged. Opt-in, completeness, and aggregate
 verdicts are assessment fields.

@@ -1,9 +1,11 @@
 # Vue Vapor component-migration assessment
 
-**Status:** research. This work ships **0** Vue Vet rule IDs. The product
-reactivity oracle remains `vue@3.5.40`. This note records an audited
-compiler/runtime identity and a proposed assessment shape. Shipped CLI modes,
-rules, and product dependencies stay unchanged.
+**Status:** shipped as the opt-in `vapor-migration` group (5 IDs:
+`vue-vet/migration/vapor-assessment`, `vapor-sfc-compile-contract`,
+`vapor-memo-contract-dropped`, `vapor-interop-required`,
+`vapor-runtime-envelope`). The research
+oracles in [`research/vapor-migration`](../../research/vapor-migration/README.md)
+remain the evidence base. The product reactivity oracle remains `vue@3.5.40`.
 
 Rerunnable oracles: [`research/vapor-migration`](../../research/vapor-migration/README.md)
 (`just vapor-migration-research`).
@@ -21,10 +23,10 @@ score. Opt-in, completeness, unknown reasons, and aggregate verdict are
 | **needs-verification** | App, plugin, runtime, dependency, or hydration behavior is still open. Legal interop that was not executed stays here. |
 | **unsupported** | The resolved toolchain identity is outside the audited tuple and is not the known 3.5 compiler-sfc gap below. |
 
-A **ready** result is reserved for a closed capability envelope: this exact
-tuple, source opt-in or a planned migration target, supported SFC shape, known
-script and template surfaces, resolved component boundaries and app mode, and
-complete coverage for every relevant fact.
+A **ready** aggregate means direct conversion is recommended right now:
+`complete` is true, no check is `blocked` / `unsupported` / `needs-verification`,
+and `runtime-envelope` is `compiler-candidate`. `convertible` is the separate
+“can this be converted at all?” answer (`yes` / `no` / `unknown`).
 
 ## Audited toolchain tuple
 
@@ -55,7 +57,7 @@ Primary sources:
 - `<script vapor>` is setup (`isSetup = setup \|\| vapor`). [`parse.ts#L204`](https://github.com/vuejs/core/blob/4b2f1914e8a6da7218955593b8bc2ba5db2c6dce/packages/compiler-sfc/src/parse.ts#L204).
 - Ordinary-script-only SFCs go through `processNormalScript`. [`compileScript.ts#L204-L216`](https://github.com/vuejs/core/blob/4b2f1914e8a6da7218955593b8bc2ba5db2c6dce/packages/compiler-sfc/src/compileScript.ts#L204-L216). Passing `vapor: true` on that path leaves `__vapor` unset.
 - Dual-script: the ordinary default export merges into the setup/vapor object. [`compileScript.ts#L449`](https://github.com/vuejs/core/blob/4b2f1914e8a6da7218955593b8bc2ba5db2c6dce/packages/compiler-sfc/src/compileScript.ts#L449), [`#L1122`](https://github.com/vuejs/core/blob/4b2f1914e8a6da7218955593b8bc2ba5db2c6dce/packages/compiler-sfc/src/compileScript.ts#L1122).
-- Setup AST rejects runtime `export` / `export default` / `export *`. [`compileScript.ts#L722-L732`](https://github.com/vuejs/core/blob/4b2f1914e8a6da7218955593b8bc2ba5db2c6dce/packages/compiler-sfc/src/compileScript.ts#L722-L732). Attaching `vapor` to an ordinary script changes that block to setup and then hits this rule.
+- Setup AST rejects runtime `export` / `export default` / `export *`. [`compileScript.ts#L722-L732`](https://github.com/vuejs/core/blob/4b2f1914e8a6da7218955593b8bc2ba5db2c6dce/packages/compiler-sfc/src/compileScript.ts#L722-L732). Attaching `vapor` to an ordinary script changes that block to setup and then hits this rule. Vue Vet records those sites on `ScriptBlockFacts.runtime_export_spans` from the Oxc walk (type-only named exports are omitted).
 - plugin-vue 6.0.8 [`vapor.ts`](https://github.com/vitejs/vite-plugin-vue/blob/d8ff7d0e8f557a7c1975c07b30e232c69bdbbc03/packages/plugin-vue/src/utils/vapor.ts): `descriptor.vapor` selects Vapor immediately; else `features.vapor` uses `canForceVaporMode` (`.vue` + `scriptSetup` or template-only: eligible; `.vue` + ordinary script only: ineligible).
 - Default vapor compiler registers `once` and omits `memo`. `memo` is a built-in, so it also skips the custom-directive IR path. [`compile.ts#L79-L102`](https://github.com/vuejs/core/blob/4b2f1914e8a6da7218955593b8bc2ba5db2c6dce/packages/compiler-vapor/src/compile.ts#L79-L102), [`transformElement.ts#L1215-L1235`](https://github.com/vuejs/core/blob/4b2f1914e8a6da7218955593b8bc2ba5db2c6dce/packages/compiler-vapor/src/transforms/transformElement.ts#L1215-L1235), [`general.ts#L106-L109`](https://github.com/vuejs/core/blob/4b2f1914e8a6da7218955593b8bc2ba5db2c6dce/packages/shared/src/general.ts#L106-L109).
 - `v-once` sets `inVOnce`; effects register as one-shot operations. [`vOnce.ts#L4-L11`](https://github.com/vuejs/core/blob/4b2f1914e8a6da7218955593b8bc2ba5db2c6dce/packages/compiler-vapor/src/transforms/vOnce.ts#L4-L11).
@@ -91,7 +93,7 @@ event modifiers, provide/inject, KeepAlive / Transition / Teleport, Suspense
 with `vaporInteropPlugin` installed, SSR hydration, custom
 `directiveTransforms`, and apps that resolve the Node `vue` export condition.
 
-## Five proposed checks
+## Six shipped checks
 
 One `vapor-migration` group. Publish opt-in, completeness, unknown reasons, and
 aggregate as fields.
@@ -112,6 +114,10 @@ aggregate as fields.
    `appContext.vdom`. Suspense is a reason inside this check.
 5. **`ssr-hydration-unverified`** — the project uses SSR/hydration, or that
    mode is unresolved.
+6. **`runtime-envelope`** — every construct outside the admitted oracle
+   envelope (`research/vapor-migration` “Admitted envelope”) is
+   `needs-verification` with an exact span. Empty findings are
+   `compiler-candidate`. Never `not-applicable`.
 
 Illustrative assessment record:
 
