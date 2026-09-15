@@ -387,6 +387,49 @@ pub(super) struct ValueRead {
   pub block: NodeId,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(super) struct MemberCall {
+  pub offset: usize,
+  pub method: &'static str,
+  pub span: Span,
+  pub callable: Option<NodeId>,
+  pub block: NodeId,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct AwaitSite {
+  pub offset: usize,
+  pub callee_api: Option<&'static str>,
+  pub callable: Option<NodeId>,
+  pub block: NodeId,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct DisposeSite {
+  pub offset: usize,
+  pub span: Span,
+  pub child: Option<SymbolId>,
+  pub callable: Option<NodeId>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct WatchConsumer {
+  pub offset: usize,
+  pub span: Span,
+  pub callable: Option<NodeId>,
+  pub source: SymbolId,
+  pub once: Option<bool>,
+  pub immediate: Option<bool>,
+  pub options_unknown: bool,
+  pub handle: Option<SymbolId>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct EffectCallback {
+  pub offset: usize,
+  pub api: &'static str,
+}
+
 #[expect(
   clippy::struct_excessive_bools,
   reason = "clone/map intrinsic poison, prototype mutation, and unresolved origin touch are independent whole-file proofs"
@@ -417,6 +460,17 @@ pub(super) struct Indexes {
   pub result_demands: HashMap<SymbolId, Vec<ResultDemand>>,
   pub value_demands: HashMap<SymbolId, Vec<ValueDemand>>,
   pub destructure_by_object: HashMap<SymbolId, Vec<(SymbolId, String)>>,
+  pub scheduling_value_reads: HashMap<SymbolId, Vec<ValueRead>>,
+  pub scheduling_member_calls: HashMap<SymbolId, Vec<MemberCall>>,
+  pub awaits: Vec<AwaitSite>,
+  pub awaits_by_callable: HashMap<Option<NodeId>, Vec<AwaitSite>>,
+  pub disposals_by_callable: HashMap<Option<NodeId>, Vec<DisposeSite>>,
+  pub watches_by_source: HashMap<SymbolId, Vec<WatchConsumer>>,
+  pub effect_callbacks: HashMap<NodeId, EffectCallback>,
+  pub run_callback_scope: HashMap<NodeId, SymbolId>,
+  pub async_callables: HashSet<NodeId>,
+  pub interned: Vec<String>,
+  pub call_nodes: HashMap<u64, NodeId>,
 
   pub member_writes: HashMap<(SymbolId, String), Vec<MemberWrite>>,
   pub capability_touch: HashSet<SymbolId>,
@@ -543,6 +597,17 @@ impl Indexes {
       result_demands: HashMap::new(),
       value_demands: HashMap::new(),
       destructure_by_object: HashMap::new(),
+      scheduling_value_reads: HashMap::new(),
+      scheduling_member_calls: HashMap::new(),
+      awaits: Vec::new(),
+      awaits_by_callable: HashMap::new(),
+      disposals_by_callable: HashMap::new(),
+      watches_by_source: HashMap::new(),
+      effect_callbacks: HashMap::new(),
+      run_callback_scope: HashMap::new(),
+      async_callables: HashSet::new(),
+      interned: Vec::new(),
+      call_nodes: HashMap::new(),
 
       member_writes: HashMap::new(),
       capability_touch: HashSet::new(),
@@ -630,6 +695,7 @@ impl Indexes {
     indexes.note_ctor_shadows(semantic);
     indexes.record_region_starts(semantic, line_index, sfc_source, script_offset);
     indexes.scan(semantic, line_index, sfc_source, script_offset, kind);
+    indexes.finish_practice_indexes(semantic, line_index, sfc_source, script_offset, kind);
     indexes.finish_aliases_and_roles(semantic);
     indexes.remap_symbol_maps();
     indexes.summarize_root_members();
@@ -639,84 +705,110 @@ impl Indexes {
     indexes.precompute_closed_objects();
     indexes.summarize_closed_keys();
     indexes.summarize_inactivity();
-    {
-      let work = &indexes.work;
-      for events in indexes.events_by_block.values_mut() {
-        work.sort_by_key(events, |offset| *offset);
-        events.dedup();
-      }
-    }
-    for offsets in indexes.terminations_by_callable.values_mut() {
-      offsets.sort_unstable();
-    }
-    for barriers in indexes.barriers_by_region.values_mut() {
-      barriers.sort_unstable();
-    }
-    for stops in indexes.stops_by_region.values_mut() {
-      stops.sort_by_key(|stop| stop.offset);
-    }
-    for events in indexes.control_events_by_block.values_mut() {
-      events.sort_unstable();
-    }
-    for events in indexes.pause_events_by_block.values_mut() {
-      events.sort_unstable();
-    }
-    for writes in indexes.member_writes.values_mut() {
-      writes.sort_by_key(|write| write.offset);
-    }
-    for writes in indexes.value_writes.values_mut() {
-      writes.sort_by_key(|write| write.offset);
-    }
-    for uses in indexes.value_reads.values_mut() {
-      uses.sort_by_key(|use_site| use_site.offset);
-    }
-    let mut derivation_reads = std::mem::take(&mut indexes.derivation_value_reads);
-    for bucket in derivation_reads.values_mut() {
-      bucket.sort_by(|left, right| {
-        indexes.work.add_queries(1);
-        left.offset.cmp(&right.offset)
-      });
-    }
-    indexes.derivation_value_reads = derivation_reads;
-    for uses in indexes.member_reads_by_root.values_mut() {
-      uses.sort_by_key(|use_site| use_site.site.offset);
-    }
-    for uses in indexes.chained_value_by_root.values_mut() {
-      uses.sort_by_key(|use_site| use_site.site.offset);
-    }
-    for uses in indexes.member_calls_by_root.values_mut() {
-      uses.sort_by_key(|use_site| use_site.site.offset);
-    }
-    for uses in indexes.identifier_calls.values_mut() {
-      uses.sort_by_key(|use_site| use_site.offset);
-    }
-    for uses in indexes.result_demands.values_mut() {
-      uses.sort_by_key(|use_site| use_site.site.offset);
-    }
-    for uses in indexes.value_demands.values_mut() {
-      uses.sort_by_key(|use_site| use_site.site.offset);
-    }
-    indexes.work.sort_by_key(&mut indexes.stop_offsets, |offset| *offset);
-    indexes.stop_offsets.dedup();
-    indexes.work.sort_by_key(&mut indexes.producer_call_offsets, |offset| *offset);
-    indexes.producer_call_offsets.dedup();
-    indexes.finish_allowed_offsets();
-    for uses in indexes.arg_uses.values_mut() {
-      uses.sort_by_key(|use_site| use_site.offset);
-    }
-    for calls in indexes.ident_calls.values_mut() {
-      calls.sort_by_key(|call| call.offset);
-    }
-    for calls in indexes.handle_member_calls.values_mut() {
-      calls.sort_by_key(|call| call.offset);
-    }
-    for reads in indexes.custom_ref_value_reads.values_mut() {
-      reads.sort_by_key(|read| read.offset);
-    }
+    indexes.sort_finish_indexes();
     indexes.finish_pending_map_key_args(semantic);
     indexes.finish_map_indexes();
 
     indexes
+  }
+
+  fn sort_finish_indexes(&mut self) {
+    {
+      let work = &self.work;
+      for events in self.events_by_block.values_mut() {
+        work.sort_by_key(events, |offset| *offset);
+        events.dedup();
+      }
+    }
+    for offsets in self.terminations_by_callable.values_mut() {
+      offsets.sort_unstable();
+    }
+    for barriers in self.barriers_by_region.values_mut() {
+      barriers.sort_unstable();
+    }
+    for stops in self.stops_by_region.values_mut() {
+      stops.sort_by_key(|stop| stop.offset);
+    }
+    for events in self.control_events_by_block.values_mut() {
+      events.sort_unstable();
+    }
+    for events in self.pause_events_by_block.values_mut() {
+      events.sort_unstable();
+    }
+    for writes in self.member_writes.values_mut() {
+      writes.sort_by_key(|write| write.offset);
+    }
+    for writes in self.value_writes.values_mut() {
+      writes.sort_by_key(|write| write.offset);
+    }
+    for uses in self.value_reads.values_mut() {
+      uses.sort_by_key(|use_site| use_site.offset);
+    }
+    let mut derivation_reads = std::mem::take(&mut self.derivation_value_reads);
+    for bucket in derivation_reads.values_mut() {
+      bucket.sort_by(|left, right| {
+        self.work.add_queries(1);
+        left.offset.cmp(&right.offset)
+      });
+    }
+    self.derivation_value_reads = derivation_reads;
+    for reads in self.scheduling_value_reads.values_mut() {
+      self.work.add_queries(reads.len() as u64);
+      reads.sort_by_key(|read| read.offset);
+    }
+    for calls in self.scheduling_member_calls.values_mut() {
+      self.work.add_queries(calls.len() as u64);
+      calls.sort_by_key(|call| call.offset);
+    }
+    for awaits in self.awaits_by_callable.values_mut() {
+      self.work.add_queries(awaits.len() as u64);
+      awaits.sort_by_key(|site| site.offset);
+    }
+    self.work.add_queries(self.awaits.len() as u64);
+    self.awaits.sort_by_key(|site| site.offset);
+    for disposals in self.disposals_by_callable.values_mut() {
+      self.work.add_queries(disposals.len() as u64);
+      disposals.sort_by_key(|site| site.offset);
+    }
+    for watches in self.watches_by_source.values_mut() {
+      self.work.add_queries(watches.len() as u64);
+      watches.sort_by_key(|site| site.offset);
+    }
+    for uses in self.member_reads_by_root.values_mut() {
+      uses.sort_by_key(|use_site| use_site.site.offset);
+    }
+    for uses in self.chained_value_by_root.values_mut() {
+      uses.sort_by_key(|use_site| use_site.site.offset);
+    }
+    for uses in self.member_calls_by_root.values_mut() {
+      uses.sort_by_key(|use_site| use_site.site.offset);
+    }
+    for uses in self.identifier_calls.values_mut() {
+      uses.sort_by_key(|use_site| use_site.offset);
+    }
+    for uses in self.result_demands.values_mut() {
+      uses.sort_by_key(|use_site| use_site.site.offset);
+    }
+    for uses in self.value_demands.values_mut() {
+      uses.sort_by_key(|use_site| use_site.site.offset);
+    }
+    self.work.sort_by_key(&mut self.stop_offsets, |offset| *offset);
+    self.stop_offsets.dedup();
+    self.work.sort_by_key(&mut self.producer_call_offsets, |offset| *offset);
+    self.producer_call_offsets.dedup();
+    self.finish_allowed_offsets();
+    for uses in self.arg_uses.values_mut() {
+      uses.sort_by_key(|use_site| use_site.offset);
+    }
+    for calls in self.ident_calls.values_mut() {
+      calls.sort_by_key(|call| call.offset);
+    }
+    for calls in self.handle_member_calls.values_mut() {
+      calls.sort_by_key(|call| call.offset);
+    }
+    for reads in self.custom_ref_value_reads.values_mut() {
+      reads.sort_by_key(|read| read.offset);
+    }
   }
 
   pub(super) const fn work_counter(&self) -> &WorkCounter {
@@ -1027,6 +1119,89 @@ impl Indexes {
   pub(super) fn primitive_at(&self, span: Span) -> Option<ShapePrimitiveAtom> {
     self.work.add_queries(1);
     self.primitives.get(&span_key(span)).copied()
+  }
+
+  pub(super) fn atoms_object_is(
+    &self,
+    left: ShapePrimitiveAtom,
+    right: ShapePrimitiveAtom,
+  ) -> bool {
+    self.work.add_queries(1);
+    left.object_is(right, &self.interned)
+  }
+
+  pub(super) fn atoms_js_strict_eq(
+    &self,
+    left: ShapePrimitiveAtom,
+    right: ShapePrimitiveAtom,
+  ) -> bool {
+    self.work.add_queries(1);
+    left.js_strict_eq(right, &self.interned)
+  }
+
+  pub(super) fn scheduling_value_reads_of(&self, root: SymbolId) -> &[ValueRead] {
+    self.work.add_queries(1);
+    self.scheduling_value_reads.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn member_calls_of(&self, root: SymbolId) -> &[MemberCall] {
+    self.work.add_queries(1);
+    self.scheduling_member_calls.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn awaits_of(&self, callable: Option<NodeId>) -> &[AwaitSite] {
+    self.work.add_queries(1);
+    self.awaits_by_callable.get(&callable).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn disposals_of(&self, callable: Option<NodeId>) -> &[DisposeSite] {
+    self.work.add_queries(1);
+    self.disposals_by_callable.get(&callable).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn watch_consumers_of(&self, root: SymbolId) -> &[WatchConsumer] {
+    self.work.add_queries(1);
+    self.watches_by_source.get(&root).map_or(&[], Vec::as_slice)
+  }
+
+  pub(super) fn effect_callback(&self, callable: NodeId) -> Option<EffectCallback> {
+    self.work.add_queries(1);
+    self.effect_callbacks.get(&callable).copied()
+  }
+
+  pub(super) fn run_scope_of(&self, callback: NodeId) -> Option<SymbolId> {
+    self.work.add_queries(1);
+    self.run_callback_scope.get(&callback).copied()
+  }
+
+  pub(super) fn is_async_callable(&self, callable: NodeId) -> bool {
+    self.work.add_queries(1);
+    self.async_callables.contains(&callable)
+  }
+
+  pub(super) fn block_of(&self, node_id: NodeId) -> Option<NodeId> {
+    self.work.add_queries(1);
+    self.owner(node_id).block
+  }
+
+  pub(super) fn call_node(&self, span: Span) -> Option<NodeId> {
+    self.work.add_queries(1);
+    self.call_nodes.get(&span_key(span)).copied()
+  }
+
+  pub(super) fn callable_of(&self, node_id: NodeId) -> Option<NodeId> {
+    self.work.add_queries(1);
+    self.owner(node_id).callable
+  }
+
+  pub(super) fn symbols_for_root(&self, root: SymbolId) -> Vec<SymbolId> {
+    self.work.add_queries(1);
+    let mut symbols = vec![root];
+    if let Some(aliases) = self.aliases_of.get(&root) {
+      self.work.add_queries(aliases.len() as u64);
+      symbols.extend(aliases.iter().copied());
+    }
+    symbols
   }
 
   pub(super) fn callable_node(&self, span: Span) -> Option<NodeId> {
@@ -1501,6 +1676,21 @@ impl Indexes {
       self.work.add_queries(1);
       self.derivation_value_reads.entry(self.root_of(symbol_id)).or_default().append(&mut reads);
     }
+    let scheduling_value_reads = std::mem::take(&mut self.scheduling_value_reads);
+    for (symbol_id, mut reads) in scheduling_value_reads {
+      self.work.add_queries(1);
+      self.scheduling_value_reads.entry(self.root_of(symbol_id)).or_default().append(&mut reads);
+    }
+    let scheduling_member_calls = std::mem::take(&mut self.scheduling_member_calls);
+    for (symbol_id, mut calls) in scheduling_member_calls {
+      self.work.add_queries(1);
+      self.scheduling_member_calls.entry(self.root_of(symbol_id)).or_default().append(&mut calls);
+    }
+    let watches_by_source = std::mem::take(&mut self.watches_by_source);
+    for (symbol_id, mut watches) in watches_by_source {
+      self.work.add_queries(1);
+      self.watches_by_source.entry(self.root_of(symbol_id)).or_default().append(&mut watches);
+    }
     let handle_member_calls = std::mem::take(&mut self.handle_member_calls);
     for ((symbol_id, property), mut calls) in handle_member_calls {
       self.work.add_queries(1);
@@ -1626,6 +1816,16 @@ impl Indexes {
             node_id,
             member,
           );
+          if self.member_value_is_read(semantic, node_id, member.span) {
+            self.record_scheduling_value_read(
+              semantic,
+              line_index,
+              sfc_source,
+              script_offset,
+              node_id,
+              member,
+            );
+          }
           self.index_static_member(semantic, kind, member);
         }
         AstKind::VariableDeclarator(declarator) => {
@@ -1779,12 +1979,19 @@ impl Indexes {
         }
         AstKind::Function(function) => {
           self.record_function(node_id, function.span, &function.params, false);
+          if function.r#async {
+            self.async_callables.insert(node_id);
+          }
         }
         AstKind::ArrowFunctionExpression(arrow) => {
           self.record_function(node_id, arrow.span, &arrow.params, arrow.expression);
+          if arrow.r#async {
+            self.async_callables.insert(node_id);
+          }
         }
         AstKind::CallExpression(call) => {
           self.record_call(semantic, kind, call);
+          self.call_nodes.insert(span_key(call.span), node_id);
           self.record_map_member_call(
             semantic,
             kind,
@@ -1841,6 +2048,14 @@ impl Indexes {
           if callee_is_pause(call) {
             self.record_pause_event(node_id, line_index, sfc_source, script_offset, call.span);
           }
+          self.record_scheduling_member_call(
+            semantic,
+            line_index,
+            sfc_source,
+            script_offset,
+            node_id,
+            call,
+          );
         }
         AstKind::NewExpression(expression) => {
           self.record_expr(semantic, kind, &expression.callee);
@@ -1988,8 +2203,77 @@ impl Indexes {
           );
           self.record_barrier(line_index, sfc_source, script_offset, node_id, statement.span);
         }
+        AstKind::StringLiteral(literal) => {
+          self.store_interned_atom(literal.span, literal.value.as_str(), false);
+        }
+        AstKind::BigIntLiteral(literal) => {
+          if let Some(raw) = literal.raw.as_deref() {
+            self.store_interned_atom(literal.span, raw, true);
+          }
+        }
+        AstKind::TemplateLiteral(literal) if literal.expressions.is_empty() => {
+          if let Some(cooked) =
+            literal.quasis.first().and_then(|quasi| quasi.value.cooked.as_deref())
+          {
+            self.store_interned_atom(literal.span, cooked, false);
+          }
+        }
+        AstKind::BooleanLiteral(literal) => {
+          self.store_atom(literal.span, ShapePrimitiveAtom::Bool(literal.value));
+        }
+        AstKind::NumericLiteral(literal) => {
+          self.store_atom(
+            literal.span,
+            ShapePrimitiveAtom::Number {
+              bits: literal.value.to_bits(),
+              nan: literal.value.is_nan(),
+            },
+          );
+        }
+        AstKind::NullLiteral(literal) => self.store_atom(literal.span, ShapePrimitiveAtom::Null),
+        AstKind::IdentifierReference(identifier)
+          if identifier.name.as_str() == "undefined"
+            && reference_symbol(semantic, identifier).is_none() =>
+        {
+          self.store_atom(identifier.span, ShapePrimitiveAtom::Undefined);
+        }
+        AstKind::UnaryExpression(unary)
+          if matches!(unary.operator, UnaryOperator::UnaryNegation | UnaryOperator::UnaryPlus) =>
+        {
+          match unary.operator {
+            UnaryOperator::UnaryNegation => {
+              if let Some(ShapePrimitiveAtom::Number { bits, nan: false }) =
+                primitive_atom(&unary.argument)
+              {
+                self.store_atom(
+                  unary.span,
+                  ShapePrimitiveAtom::Number {
+                    bits: (-f64::from_bits(bits)).to_bits(),
+                    nan: false,
+                  },
+                );
+              }
+            }
+            UnaryOperator::UnaryPlus => {
+              if let Some(atom) = primitive_atom(&unary.argument) {
+                self.store_atom(unary.span, atom);
+              }
+            }
+            _ => {}
+          }
+        }
         AstKind::AwaitExpression(expression) => {
           self.record_barrier(line_index, sfc_source, script_offset, node_id, expression.span);
+          self.record_await(
+            semantic,
+            kind,
+            line_index,
+            sfc_source,
+            script_offset,
+            node_id,
+            expression.span,
+            &expression.argument,
+          );
         }
         AstKind::YieldExpression(expression) => {
           self.record_barrier(line_index, sfc_source, script_offset, node_id, expression.span);
@@ -2280,9 +2564,10 @@ impl Indexes {
       self.object_literals.insert(span_key(expression.span()));
     }
     if let Some(atom) = primitive_atom(inner) {
-      self.primitives.insert(span_key(inner.span()), atom);
-      self.primitives.insert(span_key(expression.span()), atom);
+      self.store_atom(inner.span(), atom);
+      self.store_atom(expression.span(), atom);
     }
+    self.intern_expr(semantic, inner);
     if let Expression::CallExpression(call) = inner {
       self.record_call(semantic, kind, call);
     }
@@ -2319,6 +2604,323 @@ impl Indexes {
       block: owner.block.unwrap_or(node_id),
       node_id,
     });
+  }
+
+  fn intern(&mut self, value: &str) -> u32 {
+    self.work.add_queries(1);
+    if let Some(index) = self.interned.iter().position(|existing| {
+      self.work.add_queries(1);
+      existing == value
+    }) {
+      return u32::try_from(index).unwrap_or(u32::MAX);
+    }
+    let id = u32::try_from(self.interned.len()).unwrap_or(u32::MAX);
+    self.interned.push(value.to_string());
+    self.work.add_queries(1);
+    id
+  }
+
+  fn store_atom(&mut self, span: Span, atom: ShapePrimitiveAtom) {
+    self.work.add_queries(1);
+    self.primitives.insert(span_key(span), atom);
+  }
+
+  fn store_interned_atom(&mut self, span: Span, value: &str, bigint: bool) {
+    let id = self.intern(value);
+    self.store_atom(
+      span,
+      if bigint { ShapePrimitiveAtom::BigInt(id) } else { ShapePrimitiveAtom::Str(id) },
+    );
+  }
+
+  fn intern_expr(&mut self, semantic: &oxc_semantic::Semantic<'_>, expression: &Expression<'_>) {
+    self.work.add_queries(1);
+    match expression.get_inner_expression() {
+      Expression::StringLiteral(literal) => {
+        self.store_interned_atom(literal.span, literal.value.as_str(), false);
+        self.store_interned_atom(expression.span(), literal.value.as_str(), false);
+      }
+      Expression::BigIntLiteral(literal) => {
+        if let Some(raw) = literal.raw.as_deref() {
+          self.store_interned_atom(literal.span, raw, true);
+          self.store_interned_atom(expression.span(), raw, true);
+        }
+      }
+      Expression::TemplateLiteral(literal) if literal.expressions.is_empty() => {
+        if let Some(cooked) = literal.quasis.first().and_then(|quasi| quasi.value.cooked.as_deref())
+        {
+          self.store_interned_atom(literal.span, cooked, false);
+          self.store_interned_atom(expression.span(), cooked, false);
+        }
+      }
+      Expression::Identifier(identifier)
+        if identifier.name.as_str() == "undefined"
+          && reference_symbol(semantic, identifier).is_none() =>
+      {
+        self.store_atom(identifier.span, ShapePrimitiveAtom::Undefined);
+        self.store_atom(expression.span(), ShapePrimitiveAtom::Undefined);
+      }
+      Expression::UnaryExpression(unary)
+        if matches!(unary.operator, UnaryOperator::UnaryNegation) =>
+      {
+        self.intern_expr(semantic, &unary.argument);
+        if let Some(ShapePrimitiveAtom::Number { bits, nan: false }) =
+          self.primitives.get(&span_key(unary.argument.span())).copied()
+        {
+          self.store_atom(
+            unary.span,
+            ShapePrimitiveAtom::Number { bits: (-f64::from_bits(bits)).to_bits(), nan: false },
+          );
+        }
+      }
+      Expression::UnaryExpression(unary) if matches!(unary.operator, UnaryOperator::UnaryPlus) => {
+        self.intern_expr(semantic, &unary.argument);
+        if let Some(atom) = self.primitives.get(&span_key(unary.argument.span())).copied() {
+          self.store_atom(unary.span, atom);
+          self.store_atom(expression.span(), atom);
+        }
+      }
+      _ => {}
+    }
+  }
+
+  fn member_value_is_read(
+    &self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    node_id: NodeId,
+    member_span: Span,
+  ) -> bool {
+    self.work.add_queries(1);
+    match semantic.nodes().parent_kind(node_id) {
+      AstKind::UpdateExpression(_) => false,
+      AstKind::AssignmentExpression(assignment) => {
+        let right = assignment.right.span();
+        if right.start <= member_span.start && member_span.end <= right.end {
+          return true;
+        }
+        assignment.operator != AssignmentOperator::Assign
+          && assignment.left.span().start <= member_span.start
+          && member_span.end <= assignment.left.span().end
+      }
+      _ => true,
+    }
+  }
+
+  fn record_scheduling_value_read(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    node_id: NodeId,
+    member: &oxc_ast::ast::StaticMemberExpression<'_>,
+  ) {
+    if member.property.name.as_str() != "value" {
+      return;
+    }
+    let Some(object) = member.object.get_inner_expression().get_identifier_reference() else {
+      return;
+    };
+    let Some(symbol_id) = reference_symbol(semantic, object) else {
+      return;
+    };
+    self.work.add_writes(1);
+    let owner = self.owner(node_id);
+    self.scheduling_value_reads.entry(self.root_of(symbol_id)).or_default().push(ValueRead {
+      node_id,
+      offset: mapped(line_index, sfc_source, script_offset, member.span).offset,
+      span: member.span,
+      callable: owner.callable,
+      block: owner.block.unwrap_or(node_id),
+    });
+  }
+
+  fn record_scheduling_member_call(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    node_id: NodeId,
+    call: &CallExpression<'_>,
+  ) {
+    let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() else {
+      return;
+    };
+    let Some(method) = intern_scope_method(member.property.name.as_str()) else {
+      return;
+    };
+    let Some(object) = member.object.get_inner_expression().get_identifier_reference() else {
+      return;
+    };
+    let Some(symbol_id) = reference_symbol(semantic, object) else {
+      return;
+    };
+    let owner = self.owner(node_id);
+    self.work.add_writes(1);
+    self.scheduling_member_calls.entry(self.root_of(symbol_id)).or_default().push(MemberCall {
+      offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
+      method,
+      span: call.span,
+      callable: owner.callable,
+      block: owner.block.unwrap_or(node_id),
+    });
+  }
+
+  #[expect(clippy::too_many_arguments, reason = "await indexing needs owner, span, and callee")]
+  fn record_await(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    kind: ScriptKind,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    node_id: NodeId,
+    span: Span,
+    argument: &Expression<'_>,
+  ) {
+    self.record_event(semantic, line_index, sfc_source, script_offset, node_id, span);
+    let inner = argument.get_inner_expression();
+    let callee_api = match inner {
+      Expression::CallExpression(call) => resolve_vue_api(
+        &call.callee,
+        &self.vue_imports,
+        |ident| reference_symbol(semantic, ident),
+        kind,
+      ),
+      _ => None,
+    };
+    let owner = self.owner(node_id);
+    self.work.add_writes(1);
+    let site = AwaitSite {
+      offset: mapped(line_index, sfc_source, script_offset, span).offset,
+      callee_api,
+      callable: owner.callable,
+      block: owner.block.unwrap_or(node_id),
+    };
+    self.awaits.push(site);
+    self.work.add_writes(1);
+    self.awaits_by_callable.entry(owner.callable).or_default().push(site);
+  }
+
+  fn finish_practice_indexes(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    kind: ScriptKind,
+  ) {
+    let node_ids: Vec<NodeId> = self.call_nodes.values().copied().collect();
+    self.work.add_queries(node_ids.len() as u64);
+    for node_id in node_ids {
+      let AstKind::CallExpression(call) = semantic.nodes().kind(node_id) else {
+        continue;
+      };
+      self.work.add_queries(1);
+      let Some(info) = self.calls.get(&span_key(call.span)).copied() else {
+        continue;
+      };
+      self.bind_practice_call(
+        semantic,
+        line_index,
+        sfc_source,
+        script_offset,
+        kind,
+        node_id,
+        call,
+        info,
+      );
+    }
+  }
+
+  #[expect(clippy::too_many_arguments, reason = "practice index bind needs owner, span, and call")]
+  fn bind_practice_call(
+    &mut self,
+    semantic: &oxc_semantic::Semantic<'_>,
+    line_index: &vue_vet_core::LineIndex,
+    sfc_source: &str,
+    script_offset: usize,
+    kind: ScriptKind,
+    node_id: NodeId,
+    call: &CallExpression<'_>,
+    info: CallInfo,
+  ) {
+    let owner = self.owner(node_id);
+    let offset = mapped(line_index, sfc_source, script_offset, call.span).offset;
+    match info.api {
+      Some("onScopeDispose") => {
+        let child = nth_call_expr(call, 0).and_then(|expression| {
+          stopped_child_symbol(semantic, expression, |ident| reference_symbol(semantic, ident))
+        });
+        let site = DisposeSite { offset, span: call.span, child, callable: owner.callable };
+        self.work.add_writes(1);
+        self.disposals_by_callable.entry(owner.callable).or_default().push(site);
+      }
+      Some("watch") => {
+        let Some(source_expr) = nth_call_expr(call, 0) else {
+          return;
+        };
+        let Some(ident) = source_expr.get_inner_expression().get_identifier_reference() else {
+          return;
+        };
+        let Some(symbol_id) = reference_symbol(semantic, ident) else {
+          return;
+        };
+        let (once, immediate, options_unknown) = watch_option_flags(nth_call_expr(call, 2));
+        let handle = assigned_const_symbol(semantic, node_id);
+        let consumer = WatchConsumer {
+          offset,
+          span: call.span,
+          callable: owner.callable,
+          source: self.root_of(symbol_id),
+          once,
+          immediate,
+          options_unknown,
+          handle,
+        };
+        self.work.add_writes(1);
+        self.watches_by_source.entry(consumer.source).or_default().push(consumer);
+        if let Some(callback) = nth_call_expr(call, 1)
+          && let Some(callback_id) = function_node(callback, |span| {
+            self.work.add_queries(1);
+            self.callables.get(&span_key(span)).copied()
+          })
+        {
+          self.work.add_writes(1);
+          self.effect_callbacks.insert(callback_id, EffectCallback { offset, api: "watch" });
+        }
+      }
+      Some("watchEffect" | "watchPostEffect" | "watchSyncEffect") => {
+        let Some(api) = info.api else {
+          return;
+        };
+        if let Some(callback) = nth_call_expr(call, 0)
+          && let Some(callback_id) = function_node(callback, |span| {
+            self.work.add_queries(1);
+            self.callables.get(&span_key(span)).copied()
+          })
+        {
+          self.work.add_writes(1);
+          self.effect_callbacks.insert(callback_id, EffectCallback { offset, api });
+        }
+      }
+      _ => {}
+    }
+    let _ = kind;
+    if let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression()
+      && member.property.name.as_str() == "run"
+      && let Some(object) = member.object.get_inner_expression().get_identifier_reference()
+      && let Some(symbol_id) = reference_symbol(semantic, object)
+      && let Some(callback) = nth_call_expr(call, 0)
+      && let Some(callback_id) = function_node(callback, |span| {
+        self.work.add_queries(1);
+        self.callables.get(&span_key(span)).copied()
+      })
+    {
+      self.work.add_writes(1);
+      self.run_callback_scope.insert(callback_id, self.root_of(symbol_id));
+    }
   }
 
   fn record_call(
@@ -4963,6 +5565,165 @@ fn is_object_define_property(callee: &Expression<'_>) -> bool {
     .get_inner_expression()
     .get_identifier_reference()
     .is_some_and(|identifier| identifier.name.as_str() == "Object")
+}
+
+fn nth_call_expr<'a>(call: &'a CallExpression<'a>, index: usize) -> Option<&'a Expression<'a>> {
+  call.arguments.get(index).and_then(Argument::as_expression)
+}
+
+fn function_node(
+  expression: &Expression<'_>,
+  lookup: impl Fn(Span) -> Option<NodeId>,
+) -> Option<NodeId> {
+  match expression.get_inner_expression() {
+    Expression::ArrowFunctionExpression(arrow) => lookup(arrow.span),
+    Expression::FunctionExpression(function) => lookup(function.span),
+    _ => None,
+  }
+}
+
+fn watch_option_flags(options: Option<&Expression<'_>>) -> (Option<bool>, Option<bool>, bool) {
+  let Some(options) = options else {
+    return (None, None, false);
+  };
+  let Expression::ObjectExpression(object) = options.get_inner_expression() else {
+    return (None, None, true);
+  };
+  let mut once = None;
+  let mut immediate = None;
+  for property in &object.properties {
+    match property {
+      ObjectPropertyKind::SpreadProperty(_) => return (None, None, true),
+      ObjectPropertyKind::ObjectProperty(prop) => {
+        if prop.kind != PropertyKind::Init || prop.method || prop.shorthand || prop.computed {
+          return (None, None, true);
+        }
+        let Some(name) = prop.key.static_name() else {
+          return (None, None, true);
+        };
+        match name.as_ref() {
+          "once" => {
+            if once.is_some() {
+              return (None, None, true);
+            }
+            let Some(value) = bool_literal_value(&prop.value) else {
+              return (None, None, true);
+            };
+            once = Some(value);
+          }
+          "immediate" => {
+            if immediate.is_some() {
+              return (None, None, true);
+            }
+            let Some(value) = bool_literal_value(&prop.value) else {
+              return (None, None, true);
+            };
+            immediate = Some(value);
+          }
+          "flush" => {
+            let Expression::StringLiteral(literal) = prop.value.get_inner_expression() else {
+              return (None, None, true);
+            };
+            if !matches!(literal.value.as_str(), "pre" | "sync" | "post") {
+              return (None, None, true);
+            }
+          }
+          _ => return (None, None, true),
+        }
+      }
+    }
+  }
+  (once, immediate, false)
+}
+
+fn bool_literal_value(expression: &Expression<'_>) -> Option<bool> {
+  match expression.get_inner_expression() {
+    Expression::BooleanLiteral(literal) => Some(literal.value),
+    _ => None,
+  }
+}
+
+fn assigned_const_symbol(
+  semantic: &oxc_semantic::Semantic<'_>,
+  node_id: NodeId,
+) -> Option<SymbolId> {
+  let mut current = node_id;
+  for _ in 0..6 {
+    let parent_id = semantic.nodes().parent_id(current);
+    match semantic.nodes().kind(parent_id) {
+      AstKind::ParenthesizedExpression(_)
+      | AstKind::TSAsExpression(_)
+      | AstKind::TSSatisfiesExpression(_)
+      | AstKind::TSNonNullExpression(_)
+      | AstKind::TSTypeAssertion(_) => current = parent_id,
+      AstKind::VariableDeclarator(declarator) => {
+        let oxc_ast::ast::BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+          return None;
+        };
+        let symbol_id = binding.symbol_id.get()?;
+        if !semantic.scoping().symbol_flags(symbol_id).contains(SymbolFlags::ConstVariable) {
+          return None;
+        }
+        return Some(symbol_id);
+      }
+      _ => return None,
+    }
+  }
+  None
+}
+
+fn stopped_child_symbol(
+  _semantic: &oxc_semantic::Semantic<'_>,
+  expression: &Expression<'_>,
+  symbol_of: impl Fn(&IdentifierReference<'_>) -> Option<SymbolId>,
+) -> Option<SymbolId> {
+  let inner = expression.get_inner_expression();
+  let body = match inner {
+    Expression::ArrowFunctionExpression(arrow) => {
+      if arrow.r#async || arrow.params.rest.is_some() || !arrow.params.items.is_empty() {
+        return None;
+      }
+      &arrow.body
+    }
+    Expression::FunctionExpression(function) => {
+      if function.r#async
+        || function.generator
+        || function.params.rest.is_some()
+        || !function.params.items.is_empty()
+      {
+        return None;
+      }
+      function.body.as_ref()?
+    }
+    _ => return None,
+  };
+  if body.statements.len() != 1 {
+    return None;
+  }
+  let oxc_ast::ast::Statement::ExpressionStatement(stmt) = body.statements.first()? else {
+    return None;
+  };
+  let Expression::CallExpression(call) = stmt.expression.get_inner_expression() else {
+    return None;
+  };
+  let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() else {
+    return None;
+  };
+  if member.property.name.as_str() != "stop" {
+    return None;
+  }
+  let object = member.object.get_inner_expression().get_identifier_reference()?;
+  symbol_of(object)
+}
+
+fn intern_scope_method(name: &str) -> Option<&'static str> {
+  match name {
+    "pause" => Some("pause"),
+    "resume" => Some("resume"),
+    "stop" => Some("stop"),
+    "run" => Some("run"),
+    _ => None,
+  }
 }
 
 mod map_index;

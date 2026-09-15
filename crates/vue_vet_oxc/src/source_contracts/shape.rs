@@ -3,7 +3,8 @@
 use oxc_ast::{
   AstKind,
   ast::{
-    CallExpression, Expression, IdentifierReference, ImportDeclarationSpecifier, ImportOrExportKind,
+    CallExpression, Expression, IdentifierReference, ImportDeclarationSpecifier,
+    ImportOrExportKind, UnaryOperator,
   },
 };
 use oxc_semantic::{NodeId, Reference, ReferenceFlags, SymbolId};
@@ -119,26 +120,53 @@ pub(super) enum ShapeHint {
   New(Span),
 }
 
+/// Closed primitive payload used to prove a write actually changed.
+/// Interned `Str`/`BigInt` ids live on `Indexes.interned`. Computed-identity
+/// keeps a separate owned `atom::PrimitiveAtom`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum PrimitiveAtom {
   Bool(bool),
   Number { bits: u64, nan: bool },
-  Other,
+  Str(u32),
+  BigInt(u32),
   Null,
   Undefined,
 }
 
 impl PrimitiveAtom {
-  pub(super) const fn object_is(self, other: Self) -> bool {
+  /// Vue watcher delivery uses `Object.is`.
+  #[expect(
+    clippy::match_same_arms,
+    reason = "NaN Object.is and interned string/bigint equality are distinct JS cases"
+  )]
+  pub(super) fn object_is(self, other: Self, interned: &[String]) -> bool {
     match (self, other) {
       (Self::Bool(left), Self::Bool(right)) => left == right,
       (Self::Number { bits: left, nan: false }, Self::Number { bits: right, nan: false }) => {
         left == right
       }
-      (Self::Number { nan: true, .. }, Self::Number { nan: true, .. })
-      | (Self::Other, Self::Other)
-      | (Self::Null, Self::Null)
-      | (Self::Undefined, Self::Undefined) => true,
+      (Self::Number { nan: true, .. }, Self::Number { nan: true, .. }) => true,
+      (Self::Str(left), Self::Str(right)) | (Self::BigInt(left), Self::BigInt(right)) => {
+        interned_eq(interned, left, right)
+      }
+      (Self::Null, Self::Null) | (Self::Undefined, Self::Undefined) => true,
+      _ => false,
+    }
+  }
+
+  /// Guard operators `===` / `!==` use JavaScript strict equality (`+0 === -0`, `NaN !== NaN`).
+  #[expect(clippy::match_same_arms, reason = "NaN !== NaN must stay explicit against the wildcard")]
+  pub(super) fn js_strict_eq(self, other: Self, interned: &[String]) -> bool {
+    match (self, other) {
+      (Self::Bool(left), Self::Bool(right)) => left == right,
+      (Self::Number { nan: true, .. }, _) | (_, Self::Number { nan: true, .. }) => false,
+      (Self::Number { bits: left, nan: false }, Self::Number { bits: right, nan: false }) => {
+        f64::from_bits(left) == f64::from_bits(right)
+      }
+      (Self::Str(left), Self::Str(right)) | (Self::BigInt(left), Self::BigInt(right)) => {
+        interned_eq(interned, left, right)
+      }
+      (Self::Null, Self::Null) | (Self::Undefined, Self::Undefined) => true,
       _ => false,
     }
   }
@@ -151,17 +179,28 @@ impl PrimitiveAtom {
   }
 }
 
+fn interned_eq(interned: &[String], left: u32, right: u32) -> bool {
+  interned.get(left as usize) == interned.get(right as usize)
+}
+
 pub(super) fn primitive_atom(expression: &Expression<'_>) -> Option<PrimitiveAtom> {
   match expression.get_inner_expression() {
     Expression::BooleanLiteral(literal) => Some(PrimitiveAtom::Bool(literal.value)),
     Expression::NumericLiteral(literal) => {
       Some(PrimitiveAtom::Number { bits: literal.value.to_bits(), nan: literal.value.is_nan() })
     }
-    Expression::StringLiteral(_) | Expression::BigIntLiteral(_) => Some(PrimitiveAtom::Other),
-    Expression::TemplateLiteral(literal) if literal.expressions.is_empty() => {
-      Some(PrimitiveAtom::Other)
-    }
     Expression::NullLiteral(_) => Some(PrimitiveAtom::Null),
+    Expression::UnaryExpression(unary) if unary.operator == UnaryOperator::UnaryNegation => {
+      match primitive_atom(&unary.argument) {
+        Some(PrimitiveAtom::Number { bits, nan: false }) => {
+          Some(PrimitiveAtom::Number { bits: (-f64::from_bits(bits)).to_bits(), nan: false })
+        }
+        other => other,
+      }
+    }
+    Expression::UnaryExpression(unary) if unary.operator == UnaryOperator::UnaryPlus => {
+      primitive_atom(&unary.argument)
+    }
     Expression::Identifier(identifier) if identifier.name.as_str() == "undefined" => {
       Some(PrimitiveAtom::Undefined)
     }
@@ -182,7 +221,7 @@ pub(super) fn primitive_atom(expression: &Expression<'_>) -> Option<PrimitiveAto
 /// import of any still admits collection. `computed` admits computed-only
 /// imports so identity facts keep forced-full parity without a second
 /// Vue-import pass. `syncRef` is admitted only from `@vueuse/shared` /
-/// `@vueuse/core`.
+/// `@vueuse/core`. `computedAsync` is admitted only from `@vueuse/core`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum CollectionCtor {
   Map,
@@ -228,6 +267,7 @@ pub enum ContractSink {
   CustomRef,
   Computed,
   SyncRef,
+  ComputedAsync,
 }
 
 impl ContractSink {
@@ -259,6 +299,9 @@ pub(super) fn intern_api(name: &str) -> Option<&'static str> {
     "useTemplateRef" => Some("useTemplateRef"),
     "defineModel" => Some("defineModel"),
     "syncRef" => Some("syncRef"),
+    "onScopeDispose" => Some("onScopeDispose"),
+    "nextTick" => Some("nextTick"),
+    "computedAsync" | "asyncComputed" => Some("computedAsync"),
     _ => None,
   }
 }
@@ -291,7 +334,7 @@ pub fn contract_sink(api: &str) -> Option<ContractSink> {
     "customRef" => Some(ContractSink::CustomRef),
     "computed" => Some(ContractSink::Computed),
     "syncRef" => Some(ContractSink::SyncRef),
-
+    "computedAsync" => Some(ContractSink::ComputedAsync),
     _ => None,
   }
 }
@@ -405,6 +448,7 @@ pub(super) fn intern_vueuse_api(name: &str, core: bool, shared: bool) -> Option<
     "useMemoize" if core => Some("useMemoize"),
     "computedWithControl" if core || shared => Some("computedWithControl"),
     "controlledComputed" if core || shared => Some("controlledComputed"),
+    "computedAsync" | "asyncComputed" if core => Some("computedAsync"),
     _ => None,
   }
 }
@@ -433,7 +477,14 @@ pub(super) fn is_vueuse_sync_ref_source(source: &str) -> bool {
 pub(super) fn is_ref_api(api: &str) -> bool {
   matches!(
     api,
-    "ref" | "shallowRef" | "customRef" | "computed" | "toRef" | "useTemplateRef" | "defineModel"
+    "ref"
+      | "shallowRef"
+      | "customRef"
+      | "computed"
+      | "toRef"
+      | "useTemplateRef"
+      | "defineModel"
+      | "computedAsync"
   )
 }
 
@@ -457,7 +508,7 @@ pub(super) fn collect_vue_imports(
     };
     let runtime = is_vue_runtime_source(source);
     let auto = is_named_auto_import_source(source);
-    let vueuse = is_vueuse_sync_ref_source(source);
+    let vueuse = is_vueuse_sync_ref_source(source) || is_vueuse_core_source(source);
     if !runtime && !auto && !vueuse {
       continue;
     }
@@ -476,7 +527,14 @@ pub(super) fn collect_vue_imports(
             oxc_ast::ast::ModuleExportName::IdentifierReference(name) => name.name.as_str(),
             oxc_ast::ast::ModuleExportName::StringLiteral(name) => name.value.as_str(),
           };
-          if vueuse && imported != "syncRef" || !vueuse && imported == "syncRef" {
+          let computed_async = matches!(imported, "computedAsync" | "asyncComputed");
+          let sync_ref = imported == "syncRef";
+          if vueuse {
+            let core = is_vueuse_core_source(source);
+            if !(sync_ref || (computed_async && core)) {
+              continue;
+            }
+          } else if sync_ref || computed_async {
             continue;
           }
           if let Some(api) = intern_api(imported)

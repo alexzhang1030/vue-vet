@@ -982,3 +982,171 @@ source.value = 3\n\
   );
   let _ignored = std::fs::remove_dir_all(root);
 }
+
+const SCHEDULING_PRACTICE_IDS: [&str; 3] = [
+  "vue-vet/practice/prefer-queued-watch-flush",
+  "vue-vet/practice/prefer-attached-effect-scope",
+  "vue-vet/practice/prefer-lazy-computed-async",
+];
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn scheduling_practice_findings_keep_incremental_and_group_identity() {
+  let root =
+    std::env::temp_dir().join(format!("vue-vet-scheduling-practice-{}", std::process::id()));
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+  std::fs::write(
+    root.join("Flush.vue"),
+    "<script setup lang=\"ts\">\n\
+import { nextTick, ref, watch } from 'vue'\n\
+const source = ref(0)\n\
+const sink = ref(0)\n\
+watch(source, (value) => { sink.value = value }, { flush: 'sync' })\n\
+source.value = 1\n\
+source.value = 2\n\
+await nextTick()\n\
+void sink.value\n\
+</script>\n\
+<template><p /></template>\n",
+  )
+  .unwrap_or_else(|error| panic!("write flush: {error}"));
+  std::fs::write(
+    root.join("Scope.vue"),
+    "<script setup lang=\"ts\">\n\
+import { effectScope, onScopeDispose, ref, watch } from 'vue'\n\
+const source = ref(0)\n\
+const sink = ref(0)\n\
+const parent = effectScope()\n\
+parent.run(() => {\n\
+  const child = effectScope(true)\n\
+  child.run(() => {\n\
+    watch(source, (value) => { sink.value = value }, { flush: 'sync' })\n\
+  })\n\
+  onScopeDispose(() => child.stop())\n\
+})\n\
+parent.pause()\n\
+source.value = 2\n\
+source.value = 3\n\
+parent.resume()\n\
+void sink.value\n\
+</script>\n\
+<template><p /></template>\n",
+  )
+  .unwrap_or_else(|error| panic!("write scope: {error}"));
+  std::fs::write(
+    root.join("Async.vue"),
+    "<script setup lang=\"ts\">\n\
+import { ref, watch } from 'vue'\n\
+import { computedAsync } from '@vueuse/core'\n\
+const source = ref(1)\n\
+const sink = ref(0)\n\
+const value = computedAsync(async () => source.value * 10, -1)\n\
+source.value = 3\n\
+watch(value, (current) => { if (current !== -1) sink.value = current }, { immediate: true })\n\
+</script>\n\
+<template><p /></template>\n",
+  )
+  .unwrap_or_else(|error| panic!("write async: {error}"));
+  let session = open_session_threads(root.clone(), 1);
+  let cold = session.analyze().unwrap_or_else(|error| panic!("cold: {error}"));
+  let ids = |snapshot: &AnalysisSnapshot| -> std::collections::BTreeSet<String> {
+    snapshot
+      .summary
+      .diagnostics
+      .iter()
+      .map(|diagnostic| diagnostic.rule_id.clone())
+      .filter(|rule_id| SCHEDULING_PRACTICE_IDS.contains(&rule_id.as_str()))
+      .collect()
+  };
+  let expected: std::collections::BTreeSet<String> =
+    SCHEDULING_PRACTICE_IDS.into_iter().map(str::to_owned).collect();
+  assert_eq!(
+    ids(&cold),
+    expected,
+    "cold scan must emit all scheduling-practice IDs; {:?}",
+    cold.summary.diagnostics
+  );
+  assert!(
+    cold
+      .summary
+      .diagnostics
+      .iter()
+      .filter(|diagnostic| SCHEDULING_PRACTICE_IDS.contains(&diagnostic.rule_id.as_str()))
+      .all(|diagnostic| !diagnostic.affects_score() && !diagnostic.affects_exit()),
+    "practice channel must stay off score and default exit; {:?}",
+    cold.summary.diagnostics
+  );
+  session
+    .apply_changes(ChangeSet::upsert(
+      root.join("Flush.vue"),
+      std::fs::read_to_string(root.join("Flush.vue"))
+        .unwrap_or_else(|error| panic!("reread: {error}")),
+    ))
+    .unwrap_or_else(|error| panic!("touch: {error}"));
+  let warm = session.analyze_affected().unwrap_or_else(|error| panic!("warm: {error}"));
+  assert_eq!(ids(&warm), expected, "warm scan must keep all IDs; {:?}", warm.summary.diagnostics);
+  let clean = open_session_threads(root.clone(), 1)
+    .analyze()
+    .unwrap_or_else(|error| panic!("clean: {error}"));
+  assert_analysis_parity(&warm, &clean);
+
+  let derivation = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+    selected_groups: vec![vue_vet_session::RuleGroupId::Derivation],
+  })
+  .unwrap_or_else(|error| panic!("open derivation: {error}"));
+  let derivation_snap = derivation.analyze().unwrap_or_else(|error| panic!("derivation: {error}"));
+  let derivation_ids = ids(&derivation_snap);
+  assert!(
+    derivation_ids.contains("vue-vet/practice/prefer-queued-watch-flush")
+      && derivation_ids.contains("vue-vet/practice/prefer-lazy-computed-async")
+      && !derivation_ids.contains("vue-vet/practice/prefer-attached-effect-scope"),
+    "derivation group must keep flush/async and drop attached; {:?}",
+    derivation_snap.summary.diagnostics
+  );
+
+  let lifetime = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+    selected_groups: vec![vue_vet_session::RuleGroupId::Lifetime],
+  })
+  .unwrap_or_else(|error| panic!("open lifetime: {error}"));
+  let lifetime_snap = lifetime.analyze().unwrap_or_else(|error| panic!("lifetime: {error}"));
+  let lifetime_ids = ids(&lifetime_snap);
+  assert!(
+    lifetime_ids.contains("vue-vet/practice/prefer-attached-effect-scope")
+      && !lifetime_ids.contains("vue-vet/practice/prefer-queued-watch-flush"),
+    "lifetime group must keep attached-effect-scope; {:?}",
+    lifetime_snap.summary.diagnostics
+  );
+
+  std::fs::write(
+    root.join("vue-vet.toml"),
+    "version = 1\npreset = \"recommended\"\npractice = \"off\"\n",
+  )
+  .unwrap_or_else(|error| panic!("practice off: {error}"));
+  let off = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: Some(root.join("vue-vet.toml")),
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+    selected_groups: vec![vue_vet_session::RuleGroupId::Derivation],
+  })
+  .unwrap_or_else(|error| panic!("open practice off: {error}"));
+  let off_snap = off.analyze().unwrap_or_else(|error| panic!("practice off: {error}"));
+  assert!(
+    ids(&off_snap).is_empty(),
+    "practice = off must not be re-enabled by --group derivation; {:?}",
+    off_snap.summary.diagnostics
+  );
+  let _ignored = std::fs::remove_dir_all(root);
+}

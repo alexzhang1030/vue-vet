@@ -15,8 +15,11 @@ use crate::registry::{composed_rule_metadata, known_rule_ids};
 /// Sorted `(id, group)` pairs. Binary-searchable; each ID appears at most once.
 pub static RULE_GROUP_TABLE: &[(&str, RuleGroupId)] = &[
   ("vue-vet/correctness/no-mutating-props", RuleGroupId::SourceContracts),
+  ("vue-vet/practice/prefer-attached-effect-scope", RuleGroupId::Lifetime),
   ("vue-vet/practice/prefer-conditional-watch-source", RuleGroupId::Derivation),
   ("vue-vet/practice/prefer-keyed-map-dependency", RuleGroupId::Derivation),
+  ("vue-vet/practice/prefer-lazy-computed-async", RuleGroupId::Derivation),
+  ("vue-vet/practice/prefer-queued-watch-flush", RuleGroupId::Derivation),
   ("vue-vet/practice/prefer-stable-computed-identity", RuleGroupId::Derivation),
   ("vue-vet/practice/prefer-sync-ref-one-way", RuleGroupId::Derivation),
   ("vue-vet/project/unresolved-import", RuleGroupId::Project),
@@ -252,6 +255,42 @@ mod tests {
   }
 
   #[test]
+  fn scheduling_practice_ids_keep_derivation_and_lifetime_groups() {
+    assert_eq!(
+      group_of("vue-vet/practice/prefer-queued-watch-flush"),
+      Some(RuleGroupId::Derivation)
+    );
+    assert_eq!(
+      group_of("vue-vet/practice/prefer-lazy-computed-async"),
+      Some(RuleGroupId::Derivation)
+    );
+    assert_eq!(
+      group_of("vue-vet/practice/prefer-attached-effect-scope"),
+      Some(RuleGroupId::Lifetime)
+    );
+    let derivation = rule_inventory(&[RuleGroupId::Derivation]);
+    for id in
+      ["vue-vet/practice/prefer-queued-watch-flush", "vue-vet/practice/prefer-lazy-computed-async"]
+    {
+      assert!(
+        derivation
+          .rules
+          .iter()
+          .any(|row| row.id == *id && row.group == Some(RuleGroupId::Derivation)),
+        "derivation inventory must include {id}"
+      );
+    }
+    let lifetime = rule_inventory(&[RuleGroupId::Lifetime]);
+    assert!(
+      lifetime.rules.iter().any(|row| {
+        row.id == "vue-vet/practice/prefer-attached-effect-scope"
+          && row.group == Some(RuleGroupId::Lifetime)
+      }),
+      "lifetime inventory must include attached-effect-scope"
+    );
+  }
+
+  #[test]
   fn lifetime_watcher_and_scope_ids_are_in_lifetime_not_tracking() {
     const LIFETIME_IDS: &[&str] = &[
       "vue-vet/reactivity/no-detached-effect-scope-without-stop",
@@ -264,7 +303,7 @@ mod tests {
       "vue-vet/reactivity/no-watch-cleanup-current-source",
     ];
     let inventory = rule_inventory(&[]);
-    assert_eq!(inventory.counts.total, 135, "composed CLI inventory count");
+    assert_eq!(inventory.counts.total, 138, "composed CLI inventory count");
     assert_eq!(
       group_of("vue-vet/practice/prefer-stable-computed-identity"),
       Some(RuleGroupId::Derivation)
@@ -272,7 +311,7 @@ mod tests {
     let source = rule_inventory(&[RuleGroupId::SourceContracts]);
     assert_eq!(source.counts.total, 36, "source-contracts group count");
     let derivation = rule_inventory(&[RuleGroupId::Derivation]);
-    assert_eq!(derivation.counts.total, 11, "derivation group count");
+    assert_eq!(derivation.counts.total, 13, "derivation group count");
     for id in [
       "vue-vet/reactivity/no-controlled-computed-stale-result-demand",
       "vue-vet/reactivity/no-custom-ref-lost-notification",
@@ -302,7 +341,7 @@ mod tests {
       );
     }
     let lifetime = rule_inventory(&[RuleGroupId::Lifetime]);
-    assert_eq!(lifetime.counts.total, 8, "lifetime group count");
+    assert_eq!(lifetime.counts.total, 9, "lifetime group count");
     let tracking = rule_inventory(&[RuleGroupId::Tracking]);
     for id in LIFETIME_IDS {
       assert_eq!(group_of(id), Some(RuleGroupId::Lifetime), "{id}");

@@ -475,7 +475,7 @@ impl Collector<'_> {
       }
       let next = self.indexes.primitive_at(write.rhs)?;
       if let Some(prior) = previous
-        && !prior.object_is(next)
+        && !self.indexes.atoms_object_is(prior, next)
       {
         return Some(write.rhs);
       }
@@ -647,7 +647,7 @@ impl Collector<'_> {
       }
       let next = self.indexes.primitive_at(write.rhs)?;
       if let Some(prior) = previous
-        && !prior.object_is(next)
+        && !self.indexes.atoms_object_is(prior, next)
       {
         return Some(write.rhs);
       }
@@ -1083,12 +1083,12 @@ impl Collector<'_> {
     Some(inner.to_string())
   }
 
-  fn symbol_is_const(&self, symbol_id: SymbolId) -> bool {
+  pub(super) fn symbol_is_const(&self, symbol_id: SymbolId) -> bool {
     self.indexes.note_query();
     self.semantic.scoping().symbol_flags(symbol_id).contains(SymbolFlags::ConstVariable)
   }
 
-  fn is_parameter(&self, symbol_id: SymbolId) -> bool {
+  pub(super) fn is_parameter(&self, symbol_id: SymbolId) -> bool {
     self.indexes.note_query();
     let declaration = self.semantic.symbol_declaration(symbol_id);
     matches!(declaration.kind(), oxc_ast::AstKind::FormalParameter(_))
@@ -1098,12 +1098,12 @@ impl Collector<'_> {
       )
   }
 
-  fn symbol_name(&self, symbol_id: SymbolId) -> String {
+  pub(super) fn symbol_name(&self, symbol_id: SymbolId) -> String {
     self.indexes.note_query();
     self.semantic.scoping().symbol_name(symbol_id).to_string()
   }
 
-  fn is_exported(&self, symbol_id: SymbolId) -> bool {
+  pub(super) fn is_exported(&self, symbol_id: SymbolId) -> bool {
     self.indexes.note_query();
     let mut current = self.semantic.symbol_declaration(symbol_id).id();
     for _ in 0..6 {

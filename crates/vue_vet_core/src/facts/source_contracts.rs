@@ -58,6 +58,9 @@ pub struct SourceContractFacts {
   /// Practice opportunities (one-way syncRef / conditional watch sources).
   #[serde(default, skip_serializing_if = "DerivationPracticeFacts::is_empty")]
   pub derivation_practice: DerivationPracticeFacts,
+  /// Practice opportunities (queued flush / attached child scope / lazy async).
+  #[serde(default, skip_serializing_if = "SchedulingPracticeFacts::is_empty")]
+  pub scheduling_practice: SchedulingPracticeFacts,
 }
 
 impl SourceContractFacts {
@@ -85,6 +88,7 @@ impl SourceContractFacts {
       && self.controlled_computed_stale_result_demand.is_empty()
       && self.stable_computed_identity.is_empty()
       && self.derivation_practice.is_empty()
+      && self.scheduling_practice.is_empty()
   }
 }
 
@@ -128,6 +132,55 @@ pub struct ConditionalWatchSourceFact {
   /// Root plus const aliases of the producer allocation, sorted.
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub producer_names: Vec<String>,
+}
+
+/// Closed scheduling-practice opportunities collected beside source contracts.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SchedulingPracticeFacts {
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub queued_watch_flush: Vec<QueuedWatchFlushFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub attached_effect_scope: Vec<AttachedEffectScopeFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub lazy_computed_async: Vec<LazyComputedAsyncFact>,
+}
+
+impl SchedulingPracticeFacts {
+  #[must_use]
+  pub const fn is_empty(&self) -> bool {
+    self.queued_watch_flush.is_empty()
+      && self.attached_effect_scope.is_empty()
+      && self.lazy_computed_async.is_empty()
+  }
+}
+
+/// Proven `flush: 'sync'` watch whose sink is only observed after `nextTick`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct QueuedWatchFlushFact {
+  pub flush_span: SourceSpan,
+  pub write_span: SourceSpan,
+  pub demand_span: SourceSpan,
+  pub sink_name: String,
+}
+
+/// Proven detached child scope that joins parent pause with valid stop ownership.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[expect(clippy::struct_field_names, reason = "each field is a distinct causal span")]
+pub struct AttachedEffectScopeFact {
+  pub detached_span: SourceSpan,
+  pub parent_span: SourceSpan,
+  pub cleanup_span: SourceSpan,
+  pub pause_span: SourceSpan,
+  pub write_span: SourceSpan,
+}
+
+/// Proven eager `computedAsync` whose startup work is superseded before first demand.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[expect(clippy::struct_field_names, reason = "each field is a distinct causal span")]
+pub struct LazyComputedAsyncFact {
+  pub call_span: SourceSpan,
+  pub source_span: SourceSpan,
+  pub demand_span: SourceSpan,
 }
 
 /// One call/argument site with a proven contract failure.

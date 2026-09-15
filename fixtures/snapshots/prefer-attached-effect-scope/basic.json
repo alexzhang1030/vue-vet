@@ -1,0 +1,25 @@
+[
+  {
+    "rule_id": "vue-vet/practice/prefer-attached-effect-scope",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/practice/prefer-attached-effect-scope",
+    "message": "A detached child scope keeps running while its parent is paused",
+    "help": "Create the child with `effectScope()` so it joins parent pause and coalesces last-value work. `onScopeDispose(() => child.stop())` still owns disposal. Parent construction, cleanup, pause, and paused-period writes are the causal spans.",
+    "file": "fixtures/rules/prefer-attached-effect-scope/invalid/basic.vue",
+    "span": {
+      "offset": 206,
+      "length": 4,
+      "line": 8,
+      "column": 29
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "vue",
+      "export": "effectScope",
+      "docs_url": "https://vuejs.org/api/reactivity-advanced.html#effectscope",
+      "import_example": "import { effectScope } from 'vue'"
+    }
+  }
+]

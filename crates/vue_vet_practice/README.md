@@ -14,8 +14,7 @@ practice rule IDs remain toggleable under `[rules]` when the channel is on.
 ## Status
 
 Workspace-internal (`publish = false`). Registered beside builtins by
-`vue_vet_session`. Current pack: **17** rules (asserted in-crate).
-
+`vue_vet_session`. Current pack: **20** rules (asserted in-crate).
 
 ## Public API
 
@@ -36,12 +35,14 @@ Workspace-internal (`publish = false`). Registered beside builtins by
 
 | Id segment | Notes |
 | --- | --- |
+| `prefer-attached-effect-scope` | Detached child scope that should join parent pause |
 | `prefer-conditional-watch-source` | Array watch that keeps an idle computed live |
 | `prefer-define-model` | `defineProps` + `defineEmits` → `defineModel` (Vue ≥ 3.4) |
 | `prefer-keyed-map-dependency` | Keyed reactive-Map `forEach`→`get` (derivation / practice) |
+| `prefer-lazy-computed-async` | Eager `computedAsync` with unused startup work |
+| `prefer-queued-watch-flush` | Sync last-value watch that can use default `pre` flush |
 | `prefer-stable-computed-identity` | Fresh primitive projections that churn identity (Vue ≥ 3.4 previous-value reuse) |
 | `prefer-sync-ref-one-way` | Default two-way `syncRef` with a closed sink |
-
 | `prefer-to-value` | Prefer `toValue` over manual unref patterns |
 | `prefer-use-slots-attrs` | Prefer `useSlots` / `useAttrs` |
 | `prefer-use-template-ref` | Historical id under `vue-vet/reactivity/…` for config stability |

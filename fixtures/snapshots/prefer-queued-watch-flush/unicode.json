@@ -1,0 +1,25 @@
+[
+  {
+    "rule_id": "vue-vet/practice/prefer-queued-watch-flush",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/practice/prefer-queued-watch-flush",
+    "message": "Synchronous `flush: 'sync'` runs this last-value watcher once per write in the same tick",
+    "help": "`汇` is only read after `await nextTick()`. Default `pre` flush keeps that later value and reduces callback work from 2 to 1. The clustered writes and after-flush demand are the causal spans. Keep `immediate` if the watcher already uses it.",
+    "file": "fixtures/rules/prefer-queued-watch-flush/invalid/unicode.vue",
+    "span": {
+      "offset": 161,
+      "length": 6,
+      "line": 6,
+      "column": 55
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "vue",
+      "export": "watch",
+      "docs_url": "https://vuejs.org/api/reactivity-core.html#watch",
+      "import_example": "import { watch } from 'vue'"
+    }
+  }
+]

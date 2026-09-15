@@ -65,6 +65,7 @@ mod index;
 mod map_lookup;
 mod normalization;
 mod proof;
+mod scheduling_practice;
 mod shape;
 mod stats;
 mod watch_api;
@@ -230,17 +231,21 @@ impl Collector<'_> {
           self.collect_watch_callback_contracts(call, info);
           self.watch_calls.push(node_id);
           self.collect_conditional_watch_source(node_id, call, info);
+          self.collect_queued_watch_flush(call, info);
         }
         Some(ContractSink::WatchEffectFamily) => self.collect_watch_api(call, info),
         Some(ContractSink::ToRef) => self.collect_toref(call, info),
-        Some(ContractSink::EffectScope) => self.collect_effect_scope(info),
+        Some(ContractSink::EffectScope) => {
+          self.collect_effect_scope(info);
+          self.collect_attached_effect_scope(call, info);
+        }
         Some(ContractSink::CustomRef) => {
           self.collect_custom_ref(node_id, call, info);
           self.collect_custom_ref_lost_notification(node_id, call, info);
         }
         Some(ContractSink::Computed) => self.computed_calls.push(node_id),
         Some(ContractSink::SyncRef) => self.collect_sync_ref_one_way(node_id, call, info),
-
+        Some(ContractSink::ComputedAsync) => self.collect_lazy_computed_async(call, info),
         None => {}
       }
     }
@@ -409,6 +414,39 @@ impl Collector<'_> {
           right.producer_span.offset,
           right.idle_write_span.offset,
         ))
+    });
+    self.facts.scheduling_practice.queued_watch_flush.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.flush_span.offset, left.write_span.offset, left.demand_span.offset).cmp(&(
+        right.flush_span.offset,
+        right.write_span.offset,
+        right.demand_span.offset,
+      ))
+    });
+    self.facts.scheduling_practice.attached_effect_scope.sort_by(|left, right| {
+      self.indexes.note_query();
+      (
+        left.detached_span.offset,
+        left.parent_span.offset,
+        left.cleanup_span.offset,
+        left.pause_span.offset,
+        left.write_span.offset,
+      )
+        .cmp(&(
+          right.detached_span.offset,
+          right.parent_span.offset,
+          right.cleanup_span.offset,
+          right.pause_span.offset,
+          right.write_span.offset,
+        ))
+    });
+    self.facts.scheduling_practice.lazy_computed_async.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.call_span.offset, left.source_span.offset, left.demand_span.offset).cmp(&(
+        right.call_span.offset,
+        right.source_span.offset,
+        right.demand_span.offset,
+      ))
     });
     (self.facts, self.indexes.stats())
   }
