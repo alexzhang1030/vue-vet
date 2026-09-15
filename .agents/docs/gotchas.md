@@ -77,6 +77,13 @@ but source5 output must stay stable until that merge.
 Production `WorkCounter` is a zero-sized type (`cfg(not(test))`); test builds
 keep `Cell` counters. `SourceContractStats` is a separate snapshot DTO of
 nine `u64` fields (72 bytes) in both layouts; `stats.rs` pins the size.
+Cancelled-filter proof requires two same-wrapper `useDebounceFn` calls
+with no await between them, then an await of the earlier promise; that await
+is the settlement boundary, not a reason to drop the later demand. Pair the
+awaited call by `until_awaits_for_bound` / `until_await_method_calls_on`
+(or `until_result_of_await` aliases). Any await between the two calls,
+including `await nextTick()`, is a conservative region boundary. Each
+superseded first-call promise with a failing demand is reported.
 
 `toRefs(state)` is a generic source5 escape/uncertain use. Demand may discount
 only a proven Vue `toRefs` first-argument borrow; helper arguments, storage,

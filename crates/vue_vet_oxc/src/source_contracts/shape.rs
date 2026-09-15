@@ -484,6 +484,7 @@ pub(super) fn intern_vueuse_api(name: &str, core: bool, shared: bool) -> Option<
     "ignorableWatch" if core || shared => Some("ignorableWatch"),
     "createSharedComposable" if core || shared => Some("createSharedComposable"),
     "createGlobalState" if core || shared => Some("createGlobalState"),
+    "useDebounceFn" if core || shared => Some("useDebounceFn"),
     _ => None,
   }
 }
@@ -502,6 +503,20 @@ pub(super) fn native_callable(kind: PrimitiveKind, method: &str) -> Option<bool>
     }
     "toFixed" | "toExponential" | "toPrecision" => Some(kind == PrimitiveKind::Number),
     _ => None,
+  }
+}
+
+pub(super) fn native_return_kind(kind: PrimitiveKind, method: &str) -> PrimitiveKind {
+  if native_callable(kind, method) != Some(true) {
+    return PrimitiveKind::Unknown;
+  }
+  match method {
+    "charCodeAt" | "indexOf" | "lastIndexOf" | "search" | "localeCompare" | "codePointAt" => {
+      PrimitiveKind::Number
+    }
+    "includes" | "startsWith" | "endsWith" | "isWellFormed" => PrimitiveKind::Boolean,
+    "match" | "matchAll" | "split" => PrimitiveKind::Unknown,
+    _ => PrimitiveKind::String,
   }
 }
 

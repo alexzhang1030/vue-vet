@@ -71,7 +71,7 @@ block complete. Bare `const alias = known` is recorded on the existing
 ## Current baseline
 
 Contract version: **`REACTIVITY_GRAPH_VERSION = 41`**. Rule-set identity
-hashed into the scan cache is **`RULESET_VERSION = 37`**.
+hashed into the scan cache is **`RULESET_VERSION = 38`**.
 `watchEffect` / `watchPostEffect` / `watchSyncEffect` are source-contract sink
 APIs (option/signature facts). `computed` is a source-contract sink for
 stable-identity practice facts. Eligibility and dispatch share one `ContractSink`
@@ -129,6 +129,11 @@ VueUse demand contracts (`no-ignorable-async-ignore-window`,
 without changing graph version. Ignore-window proof uses `straight_awaits_in`
 for an await inside the updater and must not treat that await as the
 stack-wide source-order barrier. Runtime premises: `just oracle-vueuse-demand`.
+Cancelled default-debounce promise demand
+(`no-cancelled-filter-promise-demand`) joins the source-contract catalog
+without changing graph version. Any await between the two wrapper calls
+is a conservative region boundary. Runtime premises:
+`just oracle-filter-settlement`.
 
 
 v41 records same-file lost-notification source/view/path facts (`source_views`,

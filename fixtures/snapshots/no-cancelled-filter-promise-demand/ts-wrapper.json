@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-cancelled-filter-promise-demand",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-cancelled-filter-promise-demand",
+    "message": "`useDebounceFn` cancelled the earlier promise with undefined, so calling `slice` throws",
+    "help": "First call at 6:15 was superseded at 7:1 before the timer; await at 8:3 fulfills `undefined`. Demand the latest call's result, wait for each call to settle, or set `rejectOnCancel: true` and handle rejection.",
+    "file": "fixtures/rules/no-cancelled-filter-promise-demand/invalid/ts-wrapper.vue",
+    "span": {
+      "offset": 218,
+      "length": 25,
+      "line": 8,
+      "column": 2
+    }
+  }
+]

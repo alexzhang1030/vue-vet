@@ -879,6 +879,9 @@ impl Indexes {
     for sites in self.until.awaits_by_region.values_mut() {
       sites.sort_by_key(|site| site.offset);
     }
+    for sites in self.until.await_by_bound.values_mut() {
+      sites.sort_by_key(|site| site.offset);
+    }
     for disposals in self.disposals_by_callable.values_mut() {
       self.work.add_queries(disposals.len() as u64);
       disposals.sort_by_key(|site| site.offset);

@@ -71,6 +71,8 @@ pub struct SourceContractFacts {
   pub ignorable_async_ignore_window: Vec<IgnorableAsyncIgnoreWindowFact>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub shared_composable_first_instance_args: Vec<SharedComposableFirstInstanceArgsFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub cancelled_filter_promise_demand: Vec<CancelledFilterPromiseDemandFact>,
 }
 
 impl SourceContractFacts {
@@ -104,6 +106,7 @@ impl SourceContractFacts {
       && self.inject_same_instance_provide.is_empty()
       && self.ignorable_async_ignore_window.is_empty()
       && self.shared_composable_first_instance_args.is_empty()
+      && self.cancelled_filter_promise_demand.is_empty()
   }
 }
 
@@ -507,4 +510,16 @@ pub struct SharedComposableFirstInstanceArgsFact {
   pub later_arg_span: SourceSpan,
   pub api: String,
   pub capability: String,
+}
+
+/// Default-debounce cancellation fulfills the earlier promise with `undefined`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CancelledFilterPromiseDemandFact {
+  pub demand_span: SourceSpan,
+  pub producer_span: SourceSpan,
+  pub first_call_span: SourceSpan,
+  pub superseding_call_span: SourceSpan,
+  pub await_span: SourceSpan,
+  pub member: String,
+  pub api: String,
 }
