@@ -5,8 +5,8 @@
 - Built-in IDs use `vue-vet/<category>/<name>` and are user-facing stable
   identifiers. Every rule declares category, default severity, confidence, and
   a documentation key. The live inventory is `vue-vet --list-rules`; the human
-  catalog `docs/rules/README.md` is regenerated with `just rules-catalog` after
-  adding or renaming ids, and session tests assert the registry matches it.
+  catalog `docs/rules/README.md` is `vue-vet --list-rules --format markdown`
+  (`just rules-catalog`); CI fails on drift via `just rules-catalog-check`.
   Cache identity (`RULESET_VERSION`) lives in `crates/vue_vet_cache/src/lib.rs`;
   graph identity (`REACTIVITY_GRAPH_VERSION`) in `vue_vet_core`.
 - Prefer the practice channel (`category: practice`) when the pattern remains
@@ -56,9 +56,9 @@
   `uncertain`. Details: [architecture](./architecture.md#semantic-ir-layers).
 - Low-confidence heuristics are opt-in and never enter the default preset
   merely to increase rule count.
-- Canonical rule groups are a product inventory overlay, not a `RuleMeta`
-  field; the mapping table lives with the composed registry in
-  `vue_vet_session` and each mapped ID belongs to at most one group.
+- Canonical rule groups are declared on `RuleMeta.group` (`Option<RuleGroupId>`);
+  `vue_vet_session::groups` derives inventory and `--group` filtering from the
+  composed registry, so registering a rule is its `RuleMeta` plus its doc page.
   `--list-rules` is the live registry, **not** a scan with the current
   `vue-vet.toml`. `--group` unions only change which known IDs are `off` in
   effective config; they must not re-enable `preset = "none"`,

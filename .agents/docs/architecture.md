@@ -368,9 +368,10 @@ control-flow predicate.
 `vue_vet_session` owns the long-lived project analysis handle: config load,
 cached/fresh scans, unsaved overlays, per-file fact state, reverse
 dependencies, rule/finding explain, workspace path containment, and the
-**product rule-group table**. Canonical groups (`tracking`,
-`source-contracts`, `lifetime`, `derivation`, `project`) map composed registry
-IDs one-to-one; `vue_vet_core` holds only serializable group DTOs. `--group`
+**rule-group inventory**. Canonical groups (`tracking`, `source-contracts`,
+`lifetime`, `derivation`, `project`, `vapor-migration`) are declared on each
+`RuleMeta.group`; `vue_vet_session::groups` only derives inventory and filters
+from the composed registry. `--group`
 is applied to the effective `vue-vet.toml` **before** analysis by setting
 non-selected known IDs to `off`, so cache identity, score, exit, edits, and
 explain share one config. `--list-rules` prints the composed registry
