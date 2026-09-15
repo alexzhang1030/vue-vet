@@ -56,7 +56,7 @@ Workspace-internal (`publish = false`). Dependents: `vue-vet`, `vue_vet_lsp`,
 - Shared Rayon pool is created lazily on the first real scan; tracer gets
   `reuse_current_pool: true`.
 - Dirty parse is real; structural / module partitions may still rebuild broadly
-  (Post-#107 locality gap) — prove cost with `ScanWorkCounters`.
+  — prove cost with `ScanWorkCounters` (architecture, `Locality plan shape`).
 - Context epoch ≠ re-parse.
 - File/module failures become scoped `AnalysisIssue`; fatal config still fails
   the request.

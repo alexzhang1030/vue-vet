@@ -35,12 +35,10 @@ LSP: `vue-vet --lsp` hover at a caret inside a tracking scope.
 
 ## Status
 
-Early `0.x`. The fact schema is versioned
-(`REACTIVITY_GRAPH_VERSION = 41` in `vue_vet_core`). See the repository PCR
-([reactivity tracer](https://github.com/alexzhang1030/vue-vet/blob/main/.agents/docs/reactivity-tracer.md))
-for the ExportState policy algebra and axis checklist. In-scope design axes A1–A7
-and Evidence are **complete** — complete means the in-scope checklists, not
-whole-program JS soundness. Contract refinements still bump the graph version.
+Early `0.x`. The fact schema is versioned (`REACTIVITY_GRAPH_VERSION` in
+`vue_vet_core::facts::graph`); contract refinements bump it. Scope, product
+stance, and honesty bounds live in the repository PCR
+([reactivity tracer](https://github.com/alexzhang1030/vue-vet/blob/main/.agents/docs/reactivity-tracer.md)).
 Treat the Rust API as evolving until Vue Vet hits a stable release. Prefer
 **under-approximation**: missing edges are quiet failure; invented edges are
 bugs.
