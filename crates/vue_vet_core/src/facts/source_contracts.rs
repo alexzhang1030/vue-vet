@@ -55,6 +55,9 @@ pub struct SourceContractFacts {
   pub controlled_computed_stale_result_demand: Vec<CachedResultDemandFact>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub stable_computed_identity: Vec<StableComputedIdentityFact>,
+  /// Practice opportunities (one-way syncRef / conditional watch sources).
+  #[serde(default, skip_serializing_if = "DerivationPracticeFacts::is_empty")]
+  pub derivation_practice: DerivationPracticeFacts,
 }
 
 impl SourceContractFacts {
@@ -81,7 +84,50 @@ impl SourceContractFacts {
       && self.memoize_stale_result_demand.is_empty()
       && self.controlled_computed_stale_result_demand.is_empty()
       && self.stable_computed_identity.is_empty()
+      && self.derivation_practice.is_empty()
   }
+}
+
+/// Closed derivation-practice opportunities collected beside source contracts.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DerivationPracticeFacts {
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub sync_ref_one_way: Vec<SyncRefOneWayFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub conditional_watch_source: Vec<ConditionalWatchSourceFact>,
+}
+
+impl DerivationPracticeFacts {
+  #[must_use]
+  pub const fn is_empty(&self) -> bool {
+    self.sync_ref_one_way.is_empty() && self.conditional_watch_source.is_empty()
+  }
+}
+
+/// Proven default two-way `syncRef` whose right side is a closed sink.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SyncRefOneWayFact {
+  pub call_span: SourceSpan,
+  pub source_span: SourceSpan,
+  pub sink_span: SourceSpan,
+  pub demand_span: SourceSpan,
+  pub sink_name: String,
+  /// Root plus const aliases of the sink allocation, sorted.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub sink_names: Vec<String>,
+}
+
+/// Proven array-source watch that keeps an idle computed producer live.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ConditionalWatchSourceFact {
+  pub source_array_span: SourceSpan,
+  pub guard_span: SourceSpan,
+  pub producer_span: SourceSpan,
+  pub idle_write_span: SourceSpan,
+  pub producer_name: String,
+  /// Root plus const aliases of the producer allocation, sorted.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub producer_names: Vec<String>,
 }
 
 /// One call/argument site with a proven contract failure.

@@ -105,6 +105,9 @@ jobs:
         run: just oracle-cached-result
       - name: Stable computed-identity Vue 3.5.40 premises
         run: just oracle-computed-identity
+      - name: Derivation-practice Vue 3.5.40 / VueUse premises
+        run: just oracle-derivation-practice
+
 
   vapor-migration-research:
     name: Vapor migration research

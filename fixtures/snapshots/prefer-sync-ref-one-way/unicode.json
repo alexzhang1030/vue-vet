@@ -1,0 +1,25 @@
+[
+  {
+    "rule_id": "vue-vet/practice/prefer-sync-ref-one-way",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/practice/prefer-sync-ref-one-way",
+    "message": "Default two-way `syncRef` installs a reverse watcher that this sink never writes",
+    "help": "`显示` is only read after a changed left write. `{ direction: 'ltr' }` keeps those observations and removes the reverse watcher. Left update and right demand are the causal spans.",
+    "file": "fixtures/rules/prefer-sync-ref-one-way/invalid/unicode.vue",
+    "span": {
+      "offset": 132,
+      "length": 20,
+      "line": 7,
+      "column": 1
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "@vueuse/core",
+      "export": "syncRef",
+      "docs_url": "https://vueuse.org/shared/syncRef/",
+      "import_example": "import { syncRef } from '@vueuse/core'"
+    }
+  }
+]

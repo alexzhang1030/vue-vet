@@ -1,0 +1,25 @@
+[
+  {
+    "rule_id": "vue-vet/practice/prefer-conditional-watch-source",
+    "category": "practice",
+    "severity": "info",
+    "confidence": "high",
+    "documentation": "rules/practice/prefer-conditional-watch-source",
+    "message": "This array source keeps an idle computed producer live while the guard is inactive",
+    "help": "`heavy` re-evaluates on idle dependency writes. A getter tuple `[guard.value, guard.value ? heavy.value : undefined]` skips those evaluations, preserves activation when branch values collide, and keeps the guarded assignment. Guard, producer, and idle write are the causal spans.",
+    "file": "fixtures/rules/prefer-conditional-watch-source/invalid/explicit-options.vue",
+    "span": {
+      "offset": 187,
+      "length": 13,
+      "line": 9,
+      "column": 3
+    },
+    "recommendation": {
+      "kind": "ecosystem_api",
+      "package": "vue",
+      "export": "watch",
+      "docs_url": "https://vuejs.org/guide/essentials/watchers.html#watching-a-getter",
+      "import_example": "watch(() => [flag.value, flag.value ? selected.value : undefined], callback)"
+    }
+  }
+]

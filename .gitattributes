@@ -19,3 +19,5 @@ fixtures/rules/no-detached-effect-scope-without-stop/invalid/crlf.vue -text whit
 fixtures/rules/no-memoize-stale-result-demand/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/no-controlled-computed-stale-result-demand/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/prefer-stable-computed-identity/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/prefer-sync-ref-one-way/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/prefer-conditional-watch-source/invalid/crlf.vue -text whitespace=cr-at-eol

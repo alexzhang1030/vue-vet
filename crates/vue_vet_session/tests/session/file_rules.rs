@@ -861,3 +861,124 @@ items.value = [1, 2]\n\
   assert_analysis_parity(&restored, &restored_fresh);
   let _ignored = std::fs::remove_dir_all(root);
 }
+
+const DERIVATION_PRACTICE_IDS: [&str; 2] =
+  ["vue-vet/practice/prefer-sync-ref-one-way", "vue-vet/practice/prefer-conditional-watch-source"];
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn derivation_practice_findings_keep_incremental_and_group_identity() {
+  let root =
+    std::env::temp_dir().join(format!("vue-vet-derivation-practice-{}", std::process::id()));
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+  std::fs::write(
+    root.join("Sync.vue"),
+    "<script setup lang=\"ts\">\n\
+import { ref } from 'vue'\n\
+import { syncRef } from '@vueuse/core'\n\
+const source = ref(1)\n\
+const display = ref(0)\n\
+syncRef(source, display)\n\
+source.value = 5\n\
+void display.value\n\
+</script>\n\
+<template><p /></template>\n",
+  )
+  .unwrap_or_else(|error| panic!("write sync: {error}"));
+  std::fs::write(
+    root.join("Watch.vue"),
+    "<script setup lang=\"ts\">\n\
+import { computed, ref, watch } from 'vue'\n\
+const flag = ref(false)\n\
+const source = ref(2)\n\
+const sink = ref(5)\n\
+const heavy = computed(() => source.value)\n\
+watch([flag, heavy], ([active, value]) => { if (active) sink.value = value })\n\
+source.value = 3\n\
+</script>\n\
+<template><p /></template>\n",
+  )
+  .unwrap_or_else(|error| panic!("write watch: {error}"));
+  let session = open_session_threads(root.clone(), 1);
+  let cold = session.analyze().unwrap_or_else(|error| panic!("cold: {error}"));
+  let ids = |snapshot: &AnalysisSnapshot| -> std::collections::BTreeSet<String> {
+    snapshot
+      .summary
+      .diagnostics
+      .iter()
+      .map(|diagnostic| diagnostic.rule_id.clone())
+      .filter(|rule_id| DERIVATION_PRACTICE_IDS.contains(&rule_id.as_str()))
+      .collect()
+  };
+  let expected: std::collections::BTreeSet<String> =
+    DERIVATION_PRACTICE_IDS.into_iter().map(str::to_owned).collect();
+  assert_eq!(
+    ids(&cold),
+    expected,
+    "cold scan must emit both derivation-practice IDs; {:?}",
+    cold.summary.diagnostics
+  );
+  assert!(
+    cold
+      .summary
+      .diagnostics
+      .iter()
+      .filter(|diagnostic| { DERIVATION_PRACTICE_IDS.contains(&diagnostic.rule_id.as_str()) })
+      .all(|diagnostic| !diagnostic.affects_score() && !diagnostic.affects_exit()),
+    "practice channel must stay off score and default exit; {:?}",
+    cold.summary.diagnostics
+  );
+  session
+    .apply_changes(ChangeSet::upsert(
+      root.join("Sync.vue"),
+      std::fs::read_to_string(root.join("Sync.vue"))
+        .unwrap_or_else(|error| panic!("reread: {error}")),
+    ))
+    .unwrap_or_else(|error| panic!("touch: {error}"));
+  let warm = session.analyze_affected().unwrap_or_else(|error| panic!("warm: {error}"));
+  assert_eq!(ids(&warm), expected, "warm scan must keep both IDs; {:?}", warm.summary.diagnostics);
+  let clean = open_session_threads(root.clone(), 1)
+    .analyze()
+    .unwrap_or_else(|error| panic!("clean: {error}"));
+  assert_analysis_parity(&warm, &clean);
+
+  let derivation = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: None,
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+    selected_groups: vec![vue_vet_session::RuleGroupId::Derivation],
+  })
+  .unwrap_or_else(|error| panic!("open derivation: {error}"));
+  let derivation_snap = derivation.analyze().unwrap_or_else(|error| panic!("derivation: {error}"));
+  assert_eq!(
+    ids(&derivation_snap),
+    expected,
+    "derivation group must keep the two practice IDs; {:?}",
+    derivation_snap.summary.diagnostics
+  );
+
+  std::fs::write(
+    root.join("vue-vet.toml"),
+    "version = 1\npreset = \"recommended\"\npractice = \"off\"\n",
+  )
+  .unwrap_or_else(|error| panic!("practice off: {error}"));
+  let off = ProjectSession::open(SessionOptions {
+    root: root.clone(),
+    config_path: Some(root.join("vue-vet.toml")),
+    cache_dir: None,
+    no_cache: true,
+    threads: Some(1),
+    selected_groups: vec![vue_vet_session::RuleGroupId::Derivation],
+  })
+  .unwrap_or_else(|error| panic!("open practice off: {error}"));
+  let off_snap = off.analyze().unwrap_or_else(|error| panic!("practice off: {error}"));
+  assert!(
+    ids(&off_snap).is_empty(),
+    "practice = off must not be re-enabled by --group derivation; {:?}",
+    off_snap.summary.diagnostics
+  );
+  let _ignored = std::fs::remove_dir_all(root);
+}

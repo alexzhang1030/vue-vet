@@ -41,15 +41,22 @@ CI (`pkg.pr.new` matrix) measures the stripped `vue-vet` file already produced b
 **compression proxy** (mtime 0, no filename) to
 [`fixtures/quality/native-size-budget.json`](../fixtures/quality/native-size-budget.json).
 That gzip figure is not the GitHub `.tar.gz`/`.zip` and not the npm tarball.
-Maxima are ceil(candidate bytes * 1.03) for the `b0b0d8b` matrix binaries (workflow run 34831626360);
-baseline rows stay `2dabaad` (run 34034720314), the pre-#241 binaries the
-budget must keep rejecting. Budget-only PRs retrigger the matrix
+Maxima are ceil(candidate bytes * 1.03) for the `a4ee975` matrix binaries (workflow run 34850542000);
+baseline rows stay `2dabaad` (run 34034720314), the pre-#241 binaries; the
+script tests require every measured candidate to stay below that baseline on
+both metrics (the #241 savings are still in effect), while the 3% maxima may
+sit above it once rule growth consumes the gap (`aarch64-unknown-linux-gnu`
+and `x86_64-unknown-linux-gnu` crossed at #255, candidates 1.5% / 2.8% under
+baseline). If a candidate itself reaches the baseline, that is a product
+decision (shrink or retire the baseline), not a re-pin. Budget-only PRs retrigger the matrix
 via path filters on the script and JSON.
 The budget is a regression guard for accidental growth, not a product ceiling:
 each built-in rule adds code, so the nine rule merges between `fa2debc` and
 `bf4de76` consumed the arm64 margin (`aarch64-unknown-linux-gnu` reached
 8136952 of 8178423 bytes on `main`) and the two Map-key rules in #248 added
-another 131 KB there; #249 + #251 added a further 262 KB. Re-pin the candidate to the rule PR's own matrix run when
+another 131 KB there; #249 + #251 added a further 262 KB; the seven rules in
+#252–#255 (lifetime ownership, cached-result, computed identity, derivation
+practice) added 262 KB more and crossed every target's line at #255. Re-pin the candidate to the rule PR's own matrix run when
 a rule lane crosses the line; note the run ID here, keep the `2dabaad`
 baseline rows, and let x86 rows tighten when those binaries shrink. Do not re-pin for dependency or profile changes
 without the CLI/bench gates below.

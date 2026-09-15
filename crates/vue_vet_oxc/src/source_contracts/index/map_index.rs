@@ -404,7 +404,16 @@ impl Indexes {
     } else {
       expression.arguments.first().and_then(Argument::as_expression).map(GetSpan::span)
     };
-    self.news.insert(span_key(expression.span), NewInfo { ctor, first_arg, has_spread });
+    let second_arg = if has_spread {
+      None
+    } else {
+      expression.arguments.get(1).and_then(Argument::as_expression).map(GetSpan::span)
+    };
+    let arg_count = u8::try_from(expression.arguments.len()).unwrap_or(u8::MAX);
+    self.news.insert(
+      span_key(expression.span),
+      NewInfo { ctor, first_arg, has_spread, second_arg, arg_count },
+    );
     if ctor == Some("Map") {
       self.map_init_keys.insert(
         span_key(expression.span),

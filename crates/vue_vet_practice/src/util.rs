@@ -48,6 +48,32 @@ pub fn callee_is(callee: &str, name: &str) -> bool {
   callee == name || callee.rsplit_once('.').is_some_and(|(_, property)| property == name)
 }
 
+const fn ident_token(ch: char) -> bool {
+  ch.is_ascii_alphanumeric() || ch == '_' || ch == '$'
+}
+
+/// Proven identifier list, or a conservative lexical scan of the raw expression.
+pub fn expression_mentions(identifiers: Option<&[String]>, expression: &str, name: &str) -> bool {
+  identifiers.map_or_else(
+    || expression.split(|ch: char| !ident_token(ch)).any(|part| part == name),
+    |identifiers| identifiers.iter().any(|identifier| identifier == name),
+  )
+}
+
+/// Root spelling plus const aliases. Empty `names` falls back to the root.
+pub fn expression_mentions_any(
+  identifiers: Option<&[String]>,
+  expression: &str,
+  names: &[String],
+  fallback: &str,
+) -> bool {
+  if names.is_empty() {
+    expression_mentions(identifiers, expression, fallback)
+  } else {
+    names.iter().any(|name| expression_mentions(identifiers, expression, name))
+  }
+}
+
 /// First `new Ctor(...)` / bare ctor call in a block that also has a setup lifecycle
 /// hook and no `disconnect` (including `observer.disconnect`).
 #[must_use]

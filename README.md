@@ -11,7 +11,8 @@ The project is an early local-doctor implementation. Today it:
 - discovers `.vue` files while respecting `.gitignore`;
 - parses every SFC with Vize;
 - analyzes JavaScript, TypeScript, JSX, and TSX in both Vue script blocks with Oxc;
-- runs 131 file rules and recommendations plus 2 project-graph rules (133
+- runs 133 file rules and recommendations plus 2 project-graph rules (135
+
   composed inventory IDs), with original-source locations — see
   [the rule catalog](docs/rules/README.md)
   (`tracer` tier is the reactivity-graph differentiator; `parity` is Essential

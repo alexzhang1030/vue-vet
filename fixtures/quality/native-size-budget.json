@@ -7,8 +7,8 @@
     "workflow_run": 34034720314
   },
   "candidate": {
-    "commit": "b0b0d8bfcdec8fb3892bb0bfc5fb987926f02361",
-    "workflow_run": 34831626360
+    "commit": "a4ee975c2ea1fbd9c8a3927c0bc03e7b3c653094",
+    "workflow_run": 34850542000
   },
   "measured_baseline": {
     "targets": {
@@ -21,18 +21,18 @@
   },
   "measured_candidate": {
     "targets": {
-      "aarch64-apple-darwin": { "file_bytes": 7265824, "gzip9_bytes": 3378635 },
-      "x86_64-apple-darwin": { "file_bytes": 8578200, "gzip9_bytes": 3763512 },
-      "aarch64-unknown-linux-gnu": { "file_bytes": 8530192, "gzip9_bytes": 3705706 },
-      "x86_64-unknown-linux-gnu": { "file_bytes": 9873384, "gzip9_bytes": 3992541 },
-      "x86_64-pc-windows-msvc": { "file_bytes": 8360960, "gzip9_bytes": 3622041 }
+      "aarch64-apple-darwin": { "file_bytes": 7530592, "gzip9_bytes": 3491206 },
+      "x86_64-apple-darwin": { "file_bytes": 8898240, "gzip9_bytes": 3891110 },
+      "aarch64-unknown-linux-gnu": { "file_bytes": 8792384, "gzip9_bytes": 3820831 },
+      "x86_64-unknown-linux-gnu": { "file_bytes": 10214408, "gzip9_bytes": 4122998 },
+      "x86_64-pc-windows-msvc": { "file_bytes": 8623616, "gzip9_bytes": 3737933 }
     }
   },
   "targets": {
-    "aarch64-apple-darwin": { "file_bytes": 7483799, "gzip9_bytes": 3479995 },
-    "x86_64-apple-darwin": { "file_bytes": 8835546, "gzip9_bytes": 3876418 },
-    "aarch64-unknown-linux-gnu": { "file_bytes": 8786098, "gzip9_bytes": 3816878 },
-    "x86_64-unknown-linux-gnu": { "file_bytes": 10169586, "gzip9_bytes": 4112318 },
-    "x86_64-pc-windows-msvc": { "file_bytes": 8611789, "gzip9_bytes": 3730703 }
+    "aarch64-apple-darwin": { "file_bytes": 7756510, "gzip9_bytes": 3595943 },
+    "x86_64-apple-darwin": { "file_bytes": 9165188, "gzip9_bytes": 4007844 },
+    "aarch64-unknown-linux-gnu": { "file_bytes": 9056156, "gzip9_bytes": 3935456 },
+    "x86_64-unknown-linux-gnu": { "file_bytes": 10520841, "gzip9_bytes": 4246688 },
+    "x86_64-pc-windows-msvc": { "file_bytes": 8882325, "gzip9_bytes": 3850071 }
   }
 }
