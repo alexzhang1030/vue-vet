@@ -82,6 +82,17 @@ nine `u64` fields (72 bytes) in both layouts; `stats.rs` pins the size.
 only a proven Vue `toRefs` first-argument borrow; helper arguments, storage,
 export, `new`, tagged templates, and receiver calls — including TypeScript
 instantiation wrappers — keep source keys unknown.
+
+`until(source)` is the same generic source5 escape. Timeout unmatched-demand
+proof may discount only a proven `@vueuse/core` / `@vueuse/shared` `until`
+first-argument borrow. Only same-block straight-line writes prove the current
+value; conditional/loop writes and compound/update/pattern `.value` writes
+(`||=`, `+=`, `++`, destructuring) leave the source unknown. Optional
+chaining guards only a provably nullish timeout value. Ordered writes,
+foreign escapes, and effect/timer owners must support the await interval; the
+initializer alone is incomplete. Await sites are indexed by operand so shared
+`until` consumers stay linear.
+
 Object literals execute computed keys (and pattern defaults) during
 construction — walking only `prop.value` misses receiver mutation such as
 `{ [this._set = fn]: 1 }`. Memoized closed-key sets are borrowed and queried
@@ -1211,6 +1222,20 @@ only); write `LAST_WORK` only in tests. Inner-loop charges stay real under
 Import/semantic eligibility uses the canonical `imported_bindings` map (including
 type-only named specifiers) and the semantic root unresolved-reference index.
 Each platform gate uses its own artifact.
+
+## Native-size re-pins are routine; the pre-#241 floor is gone
+
+Every rule lane adds ~50–130 KB per target, so a stacked rule series crosses
+the ceil(1.03) maxima every three or four lanes. Re-pin the candidate to the
+failing PR's own `pkg.pr.new` matrix run (`repin` keeps the `2dabaad` rows) and
+record the run ID in `docs/quality-baselines.md`; do not shrink fixtures or
+loosen the 3% margin. Until #259 `scripts/test_native_size.py` also required
+every measured candidate to stay below the pre-#241 `2dabaad` binaries; the
+rule set outgrew those savings there (`aarch64-unknown-linux-gnu` +1.5%,
+`x86_64-unknown-linux-gnu` +0.1%) and the floor was retired by product
+decision, so a re-pin no longer needs a byte-for-byte comparison against
+history. Profile or dependency changes still need the CLI/bench gates, never
+a re-pin alone.
 
 ## customRef lost-notification needs an executed, still-active consumer
 

@@ -26,3 +26,4 @@ fixtures/rules/prefer-attached-effect-scope/invalid/crlf.vue -text whitespace=cr
 fixtures/rules/prefer-lazy-computed-async/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/no-late-cancellation-guard/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/no-reactive-private-field-access/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/no-until-timeout-unmatched-demand/invalid/crlf.vue -text whitespace=cr-at-eol

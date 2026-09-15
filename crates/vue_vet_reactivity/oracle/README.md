@@ -115,6 +115,12 @@ capability forwarding, and later accessor replacement.
 and VueUse core 13.9.0 for queued `watch` flush, attached child `effectScope`,
 and lazy `computedAsync` startup. Independent round-7 probes remain read-only.
 
+`just oracle-until-demand` (`until-demand.mjs`) pins Vue 3.5.40 and VueUse
+13.9.0 for `until(ref).toBe` timeout unmatched-demand: timeout fulfills the
+current unmatched value, expected-kind demand throws, current-kind demand is
+valid, an intervening write matches, `throwOnTimeout` rejects, and already
+matched / zero-timeout / optional-chain / compound-assign controls.
+
 `just oracle-self-trigger` (`self-trigger-runs.mjs`) is separate from onTrack
 JSON. It asserts Vue 3.5.40 execution counts for self-write effects, one-shot
 versus repeating `requestAnimationFrame`, and template host behavior:

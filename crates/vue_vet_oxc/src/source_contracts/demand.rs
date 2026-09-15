@@ -852,7 +852,7 @@ fn is_function_expr(expression: &Expression<'_>) -> bool {
   )
 }
 
-fn skip_ts(semantic: &oxc_semantic::Semantic<'_>, mut node_id: NodeId) -> NodeId {
+pub(super) fn skip_ts(semantic: &oxc_semantic::Semantic<'_>, mut node_id: NodeId) -> NodeId {
   for _ in 0..8 {
     let parent = semantic.nodes().parent_id(node_id);
     match semantic.nodes().kind(parent) {

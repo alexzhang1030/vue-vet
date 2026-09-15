@@ -118,6 +118,14 @@ const MISSING_TOREFS_META: RuleMeta = RuleMeta {
   documentation: "rules/reactivity/no-missing-torefs-key",
 };
 
+const UNTIL_TIMEOUT_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-until-timeout-unmatched-demand",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-until-timeout-unmatched-demand",
+};
+
 const EXTRACTED_METHOD_META: RuleMeta = RuleMeta {
   id: "vue-vet/reactivity/no-extracted-reactive-collection-method",
   category: "reactivity",
@@ -234,6 +242,10 @@ pub(super) static NO_CONTROLLED_COMPUTED_STALE_RESULT_DEMAND:
 pub(super) struct NoReactivePrivateFieldAccess;
 pub(super) static NO_REACTIVE_PRIVATE_FIELD_ACCESS: NoReactivePrivateFieldAccess =
   NoReactivePrivateFieldAccess;
+
+pub(super) struct NoUntilTimeoutUnmatchedDemand;
+pub(super) static NO_UNTIL_TIMEOUT_UNMATCHED_DEMAND: NoUntilTimeoutUnmatchedDemand =
+  NoUntilTimeoutUnmatchedDemand;
 
 impl Rule for NoTriggerRefOnNonRef {
   fn meta(&self) -> &'static RuleMeta {
@@ -801,6 +813,36 @@ impl Rule for NoReactivePrivateFieldAccess {
   }
 }
 
+impl Rule for NoUntilTimeoutUnmatchedDemand {
+  fn meta(&self) -> &'static RuleMeta {
+    &UNTIL_TIMEOUT_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.until_timeout_unmatched_demand {
+        context.report(
+          self.meta(),
+          site.demand_span,
+          format!(
+            "`until(...).toBe` timed out with the unmatched source value; `{}` belongs to the expected kind",
+            site.capability
+          ),
+          Some(format!(
+            "Comparison at {}:{} and timeout at {}:{} resolved the current source at {}:{}. Consume the timeout kind, wait without a timeout, or set `throwOnTimeout: true` and handle rejection.",
+            site.comparison_span.line,
+            site.comparison_span.column,
+            site.options_span.line,
+            site.options_span.column,
+            site.source_span.line,
+            site.source_span.column
+          )),
+        );
+      }
+    }
+  }
+}
+
 fn report_site(
   context: &mut RuleContext<'_>,
   meta: &RuleMeta,
@@ -835,5 +877,6 @@ pub(super) fn source_contract_rules() -> Vec<&'static dyn Rule> {
     &NO_MEMOIZE_STALE_RESULT_DEMAND,
     &NO_CONTROLLED_COMPUTED_STALE_RESULT_DEMAND,
     &NO_REACTIVE_PRIVATE_FIELD_ACCESS,
+    &NO_UNTIL_TIMEOUT_UNMATCHED_DEMAND,
   ]
 }

@@ -71,7 +71,7 @@ block complete. Bare `const alias = known` is recorded on the existing
 ## Current baseline
 
 Contract version: **`REACTIVITY_GRAPH_VERSION = 41`**. Rule-set identity
-hashed into the scan cache is **`RULESET_VERSION = 34`**.
+hashed into the scan cache is **`RULESET_VERSION = 35`**.
 `watchEffect` / `watchPostEffect` / `watchSyncEffect` are source-contract sink
 APIs (option/signature facts). `computed` is a source-contract sink for
 stable-identity practice facts. Eligibility and dispatch share one `ContractSink`
@@ -119,6 +119,11 @@ Native `#private` access through `reactive` / `readonly` / `shallowReactive` /
 `shallowReadonly` proxies (`no-reactive-private-field-access`) joins the
 source-contract catalog without changing graph version. Runtime premises:
 `just oracle-private-receiver`.
+VueUse `until(ref).toBe` timeout unmatched-demand
+(`no-until-timeout-unmatched-demand`) joins the source-contract catalog
+without changing graph version. Closed-source interval summaries and ordered
+writes/escapes/awaits stay file-fact only. Runtime premises:
+`just oracle-until-demand`.
 
 
 v41 records same-file lost-notification source/view/path facts (`source_views`,

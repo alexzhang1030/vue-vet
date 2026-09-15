@@ -10219,3 +10219,140 @@ fn private_receiver_deeper_method_bodies_stay_linear() {
     previous = Some((size, work));
   }
 }
+
+#[test]
+fn until_timeout_unmatched_demand_and_controls() {
+  let (positive, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/core'; async function run() { const source = ref(0); const value = await until(source).toBe('ready', { timeout: 5 }); value.toUpperCase(); }",
+  );
+  assert_eq!(positive.until_timeout_unmatched_demand.len(), 1, "{positive:?}");
+  let (shared, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/shared'; async function run() { const source = ref(0); const value = await until(source).toBe('ready', { timeout: 5 }); value.toUpperCase(); }",
+  );
+  assert_eq!(shared.until_timeout_unmatched_demand.len(), 1, "{shared:?}");
+  let (number_expected, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/core'; async function run() { const source = ref(''); const value = await until(source).toBe(1, { timeout: 5 }); value.toFixed(1); }",
+  );
+  assert_eq!(number_expected.until_timeout_unmatched_demand.len(), 1, "{number_expected:?}");
+  let (boolean_source, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/core'; async function run() { const source = ref(false); const value = await until(source).toBe('ready', { timeout: 5 }); value.trim(); }",
+  );
+  assert_eq!(boolean_source.until_timeout_unmatched_demand.len(), 1, "{boolean_source:?}");
+  let (null_source, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/core'; async function run() { const source = ref(null); const value = await until(source).toBe('ready', { timeout: 5 }); value.toUpperCase(); }",
+  );
+  assert_eq!(null_source.until_timeout_unmatched_demand.len(), 1, "{null_source:?}");
+  let (optional_primitive, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/core'; async function run() { const source = ref(0); const value = await until(source).toBe('ready', { timeout: 5 }); value?.toUpperCase(); }",
+  );
+  assert_eq!(optional_primitive.until_timeout_unmatched_demand.len(), 1, "{optional_primitive:?}");
+  let (two_awaits, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/core'; async function run() { const source = ref(0); const first = await until(source).toBe('ready', { timeout: 5 }); source.value = 'ready'; const second = await until(source).toBe('ready', { timeout: 5 }); second.toUpperCase(); first.toUpperCase(); }",
+  );
+  assert_eq!(two_awaits.until_timeout_unmatched_demand.len(), 1, "{two_awaits:?}");
+  let (zero_timeout, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/core'; async function run() { const source = ref(0); const value = await until(source).toBe('ready', { timeout: 0 }); value.toUpperCase(); }",
+  );
+  assert_eq!(zero_timeout.until_timeout_unmatched_demand.len(), 1, "{zero_timeout:?}");
+  let (negative_timeout, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/core'; async function run() { const source = ref(0); const value = await until(source).toBe('ready', { timeout: -5 }); value.toUpperCase(); }",
+  );
+  assert_eq!(negative_timeout.until_timeout_unmatched_demand.len(), 1, "{negative_timeout:?}");
+  let (matched, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/core'; async function run() { const source = ref('ready'); const value = await until(source).toBe('ready', { timeout: 5 }); value.toUpperCase(); }",
+  );
+  assert!(matched.until_timeout_unmatched_demand.is_empty(), "{matched:?}");
+  let (current, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/core'; async function run() { const source = ref(0); const value = await until(source).toBe('ready', { timeout: 5 }); value.toFixed(1); }",
+  );
+  assert!(current.until_timeout_unmatched_demand.is_empty(), "{current:?}");
+  let (throws, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/core'; async function run() { const source = ref(0); const value = await until(source).toBe('ready', { timeout: 5, throwOnTimeout: true }); value.toUpperCase(); }",
+  );
+  assert!(throws.until_timeout_unmatched_demand.is_empty(), "{throws:?}");
+  let (intervening, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/core'; async function run() { const source = ref(0); const pending = until(source).toBe('ready', { timeout: 5 }); source.value = 'ready'; const value = await pending; value.toUpperCase(); }",
+  );
+  assert!(intervening.until_timeout_unmatched_demand.is_empty(), "{intervening:?}");
+  let (escape, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/core'; function write(target: { value: unknown }) { target.value = 'ready' } async function run() { const source = ref(0); write(source); const value = await until(source).toBe('ready', { timeout: 5 }); value.toUpperCase(); }",
+  );
+  assert!(escape.until_timeout_unmatched_demand.is_empty(), "{escape:?}");
+  let (conditional, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/core'; async function run() { const source = ref(0); const flag = false; if (flag) { source.value = 'other' } const value = await until(source).toBe(1, { timeout: 5 }); value.toFixed(1); }",
+  );
+  assert!(conditional.until_timeout_unmatched_demand.is_empty(), "{conditional:?}");
+  let (looped, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/core'; async function run() { const source = ref(0); for (const _ of []) { source.value = 'other' } const value = await until(source).toBe(1, { timeout: 5 }); value.toFixed(1); }",
+  );
+  assert!(looped.until_timeout_unmatched_demand.is_empty(), "{looped:?}");
+  let (or_assign, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/core'; async function run() { const source = ref(0); const pending = until(source).toBe('ready', { timeout: 5 }); source.value ||= 'ready'; const value = await pending; value.toUpperCase(); }",
+  );
+  assert!(or_assign.until_timeout_unmatched_demand.is_empty(), "{or_assign:?}");
+  let (plus_assign, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/core'; async function run() { const source = ref(0); const pending = until(source).toBe('0ready', { timeout: 5 }); source.value += 'ready'; const value = await pending; value.toUpperCase(); }",
+  );
+  assert!(plus_assign.until_timeout_unmatched_demand.is_empty(), "{plus_assign:?}");
+  let (updated, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/core'; async function run() { const source = ref(true); const pending = until(source).toBe(1, { timeout: 5 }); source.value++; const value = await pending; value.toFixed(1); }",
+  );
+  assert!(updated.until_timeout_unmatched_demand.is_empty(), "{updated:?}");
+  let (destructure, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/core'; async function run() { const source = ref(0); const pending = until(source).toBe('ready', { timeout: 5 }); [source.value] = ['ready']; const value = await pending; value.toUpperCase(); }",
+  );
+  assert!(destructure.until_timeout_unmatched_demand.is_empty(), "{destructure:?}");
+  let (reassigned, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/core'; async function run() { const source = ref(0); let value = await until(source).toBe('ready', { timeout: 5 }); value = String(value); value.toUpperCase(); }",
+  );
+  assert!(reassigned.until_timeout_unmatched_demand.is_empty(), "{reassigned:?}");
+  let (optional_nullish, _) = contract_stats(
+    "import { ref } from 'vue'; import { until } from '@vueuse/core'; async function run() { const source = ref(null); const value = await until(source).toBe('ready', { timeout: 5 }); value?.toUpperCase(); }",
+  );
+  assert!(optional_nullish.until_timeout_unmatched_demand.is_empty(), "{optional_nullish:?}");
+}
+
+#[test]
+fn until_timeout_shared_consumers_scale_linearly() {
+  let mut previous: Option<(u64, u64)> = None;
+  let mut at_64: Option<u64> = None;
+  for size in [64_u64, 128, 256] {
+    let mut source = String::from(
+      "import { ref } from 'vue'; import { until } from '@vueuse/core'; async function run() { const source = ref(0);",
+    );
+    for index in 0..size {
+      source.push_str("const v");
+      source.push_str(&index.to_string());
+      source.push_str(" = await until(source).toBe('ready', { timeout: 5 }); v");
+      source.push_str(&index.to_string());
+      source.push_str(".toUpperCase();");
+    }
+    source.push('}');
+    let (contracts, stats) = contract_full_stats(&source);
+    let queries = stats.queries;
+    assert_eq!(
+      contracts.until_timeout_unmatched_demand.len(),
+      usize::try_from(size).unwrap_or(usize::MAX),
+      "{contracts:?}"
+    );
+    if size == 64 {
+      at_64 = Some(queries);
+    }
+    if let Some((prev_size, prev_queries)) = previous {
+      assert_eq!(size, prev_size * 2);
+      assert!(
+        queries.saturating_mul(10) < prev_queries.saturating_mul(25),
+        "shared until await-lookup queries grew from {prev_queries} to {queries} on {prev_size}->{size}"
+      );
+    }
+    if size == 256
+      && let Some(baseline) = at_64
+    {
+      assert!(
+        queries.saturating_mul(10) < baseline.saturating_mul(63),
+        "shared until N=256 queries {queries} vs N=64 {baseline} must stay within 2.5x per doubling"
+      );
+    }
+    previous = Some((size, queries));
+  }
+}

@@ -63,6 +63,8 @@ pub struct SourceContractFacts {
   pub scheduling_practice: SchedulingPracticeFacts,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub reactive_private_field_access: Vec<ReactivePrivateFieldAccessFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub until_timeout_unmatched_demand: Vec<UntilTimeoutUnmatchedDemandFact>,
 }
 
 impl SourceContractFacts {
@@ -92,6 +94,7 @@ impl SourceContractFacts {
       && self.derivation_practice.is_empty()
       && self.scheduling_practice.is_empty()
       && self.reactive_private_field_access.is_empty()
+      && self.until_timeout_unmatched_demand.is_empty()
   }
 }
 
@@ -435,4 +438,14 @@ pub struct ReactivePrivateFieldAccessFact {
   pub member: String,
   pub field: String,
   pub getter: bool,
+}
+
+/// `until(ref).toBe(expected, { timeout })` fulfills the unmatched source value.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct UntilTimeoutUnmatchedDemandFact {
+  pub demand_span: SourceSpan,
+  pub comparison_span: SourceSpan,
+  pub options_span: SourceSpan,
+  pub source_span: SourceSpan,
+  pub capability: String,
 }

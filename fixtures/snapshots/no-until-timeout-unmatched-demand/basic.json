@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-until-timeout-unmatched-demand",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-until-timeout-unmatched-demand",
+    "message": "`until(...).toBe` timed out with the unmatched source value; `toUpperCase` belongs to the expected kind",
+    "help": "Comparison at 5:21 and timeout at 5:60 resolved the current source at 4:16. Consume the timeout kind, wait without a timeout, or set `throwOnTimeout: true` and handle rejection.",
+    "file": "fixtures/rules/no-until-timeout-unmatched-demand/invalid/basic.vue",
+    "span": {
+      "offset": 174,
+      "length": 19,
+      "line": 6,
+      "column": 1
+    }
+  }
+]

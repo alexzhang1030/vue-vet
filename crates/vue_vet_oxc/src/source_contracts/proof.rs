@@ -11,6 +11,7 @@ use oxc_ast::{
 use oxc_semantic::{NodeId, SymbolId};
 use oxc_span::{GetSpan, Span};
 
+use super::shape::NativeKind;
 use super::stats::WorkCounter;
 
 pub(super) const ANCESTOR_BUDGET: u8 = 16;
@@ -66,8 +67,27 @@ pub(super) enum ReceiverEffect {
 
 pub(super) fn classify_reach(
   semantic: &oxc_semantic::Semantic<'_>,
+  node_id: NodeId,
+  work: &WorkCounter,
+) -> Reach {
+  classify_reach_with(semantic, node_id, work, false)
+}
+
+/// Same as [`classify_reach`], but optional chaining is not itself a guard.
+/// Callers that still treat `?.` as a nullish guard use the `optional` flag.
+pub(super) fn classify_reach_except_chain(
+  semantic: &oxc_semantic::Semantic<'_>,
+  node_id: NodeId,
+  work: &WorkCounter,
+) -> Reach {
+  classify_reach_with(semantic, node_id, work, true)
+}
+
+fn classify_reach_with(
+  semantic: &oxc_semantic::Semantic<'_>,
   mut node_id: NodeId,
   work: &WorkCounter,
+  skip_chain: bool,
 ) -> Reach {
   for _ in 0..ANCESTOR_BUDGET {
     work.add_queries(1);
@@ -97,6 +117,9 @@ pub(super) fn classify_reach(
           continue;
         }
         return Reach::Guarded;
+      }
+      AstKind::ChainExpression(_) if skip_chain => {
+        node_id = parent;
       }
       AstKind::ForStatement(_)
       | AstKind::ForInStatement(_)
@@ -195,6 +218,65 @@ pub(super) fn is_object_prototype_key(key: &str) -> bool {
 
 pub(super) fn is_custom_prototype_key(key: &str) -> bool {
   key == "__proto__"
+}
+
+pub(super) fn native_kind_has_method(kind: NativeKind, method: &str) -> bool {
+  if is_object_prototype_key(method) {
+    return true;
+  }
+  match kind {
+    NativeKind::String => is_string_method(method),
+    NativeKind::Number => is_number_method(method),
+    NativeKind::Boolean => matches!(method, "toString" | "valueOf"),
+    NativeKind::Nullish => false,
+  }
+}
+
+fn is_string_method(method: &str) -> bool {
+  matches!(
+    method,
+    "at"
+      | "charAt"
+      | "charCodeAt"
+      | "codePointAt"
+      | "concat"
+      | "endsWith"
+      | "includes"
+      | "indexOf"
+      | "isWellFormed"
+      | "lastIndexOf"
+      | "localeCompare"
+      | "match"
+      | "matchAll"
+      | "normalize"
+      | "padEnd"
+      | "padStart"
+      | "repeat"
+      | "replace"
+      | "replaceAll"
+      | "search"
+      | "slice"
+      | "split"
+      | "startsWith"
+      | "substring"
+      | "toLocaleLowerCase"
+      | "toLocaleUpperCase"
+      | "toLowerCase"
+      | "toUpperCase"
+      | "toWellFormed"
+      | "trim"
+      | "trimEnd"
+      | "trimStart"
+      | "trimLeft"
+      | "trimRight"
+  )
+}
+
+fn is_number_method(method: &str) -> bool {
+  matches!(
+    method,
+    "toExponential" | "toFixed" | "toLocaleString" | "toPrecision" | "toString" | "valueOf"
+  )
 }
 
 fn assignment_left_is_node(left: &AssignmentTarget<'_>, node_span: Span) -> bool {
