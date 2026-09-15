@@ -23,8 +23,8 @@
   resolved Vue/`#imports` `unref` with getter-argument evidence, and bare
   auto-import `unref` without a local binding) over broad call presence.
   Routine `unref(ref)` / numeric MaybeRef unwrapping stays quiet. Shared block-access and control-flow
-  queries live in `vue_vet_rule_query` (setup blocks, after-await calls, prior
-  unconditional reads). Those helpers borrow: path formatters return `MemberPath`,
+  queries live in `vue_vet_rule_query` (setup blocks, after-await calls,
+  alias-aware write identity). Those helpers borrow: path formatters return `MemberPath`,
   walks yield `&T`. `RuleContext::script` (and `template` / `source` / `file`)
   use the stored lifetime so `run_once` can `report` without collecting clones.
   `SourceSpan` is `Copy`; pass `call.span`, do not write `.clone()` on it.
