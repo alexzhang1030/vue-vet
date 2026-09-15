@@ -32,6 +32,7 @@ pub(super) struct LifetimeIndex {
   pub registers_by_fn: HashMap<NodeId, Vec<RegisterSite>>,
   pub selected_runs: HashMap<NodeId, Option<ProvenRun>>,
   pub incomplete_registration: HashSet<NodeId>,
+  pub identity: super::cleanup_identity::CleanupIdentityIndex,
 }
 
 #[derive(Clone, Copy)]
@@ -50,6 +51,10 @@ pub(super) struct WatcherSite {
   pub callback: Option<FunctionRef>,
   pub unused: bool,
   pub node_id: NodeId,
+  pub source_symbol: Option<SymbolId>,
+  pub schedule: super::cleanup_identity::WatchSchedule,
+  pub handle_symbol: Option<SymbolId>,
+  pub owner: Option<NodeId>,
 }
 
 #[derive(Clone, Copy)]
@@ -88,6 +93,7 @@ pub(super) fn observe_node(
   resolver: &mut FunctionResolver<'_, '_>,
   index: &mut LifetimeIndex,
 ) {
+  super::cleanup_identity::observe(semantic, node_id, kind, vue_exports, resolver, index);
   match kind {
     AstKind::CallExpression(call) => {
       record_scope_escape(semantic, call, vue_exports, index);
@@ -179,12 +185,23 @@ fn index_call(
         .and_then(|expression| resolver.resolve_expression(expression))
         .filter(|function| !function.is_generator)
     };
+    let (source_symbol, schedule, handle_symbol) =
+      if api == WatcherApiKind::Watch && callback.is_some() {
+        super::cleanup_identity::watch_source_and_schedule(semantic, node_id, call)
+      } else {
+        (None, super::cleanup_identity::WatchSchedule::DEFAULT, None)
+      };
+    let owner = enclosing_function(semantic, node_id, &mut index.enclosing);
     index.watchers.push(WatcherSite {
       node_id,
       span: call.span,
       api,
       callback,
       unused: call_result_unused(semantic, node_id),
+      source_symbol,
+      schedule,
+      handle_symbol,
+      owner,
     });
   }
 

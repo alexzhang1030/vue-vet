@@ -77,6 +77,28 @@ pub struct LateScopeDisposeFact {
   pub owner_span: SourceSpan,
 }
 
+/// Why watcher cleanup targeted the live source instead of the acquired receiver.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WatchCleanupCurrentSourceKind {
+  /// `removeEventListener` rereads a replaced native `EventTarget` source.
+  RereadReplacedEventTarget,
+}
+
+/// Per-run `EventTarget` acquisition/release identity mismatch.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct WatchCleanupCurrentSourceFact {
+  pub kind: WatchCleanupCurrentSourceKind,
+  /// Wrong `removeEventListener` receiver (`source.value`).
+  pub release_span: SourceSpan,
+  /// Proven `addEventListener` on the run-local target.
+  pub acquisition_span: SourceSpan,
+  /// Later distinct `new EventTarget()` replacement of the watched source.
+  pub replacement_span: SourceSpan,
+  pub callback_span: SourceSpan,
+  pub registration_span: SourceSpan,
+}
+
 /// Domain facts for watcher/effect-scope lifetime contracts.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ReactivityLifetimeFacts {
@@ -88,6 +110,8 @@ pub struct ReactivityLifetimeFacts {
   pub orphaned_scope_watchers: Vec<OrphanedScopeWatcherFact>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub late_scope_disposes: Vec<LateScopeDisposeFact>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub watch_cleanup_current_sources: Vec<WatchCleanupCurrentSourceFact>,
 }
 
 impl ReactivityLifetimeFacts {
@@ -97,6 +121,7 @@ impl ReactivityLifetimeFacts {
       && self.late_watcher_cleanups.is_empty()
       && self.orphaned_scope_watchers.is_empty()
       && self.late_scope_disposes.is_empty()
+      && self.watch_cleanup_current_sources.is_empty()
   }
 
   pub fn sort_by_source_order(&mut self) {
@@ -104,6 +129,9 @@ impl ReactivityLifetimeFacts {
     self.late_watcher_cleanups.sort_by_key(|fact| fact.cleanup_span.offset);
     self.orphaned_scope_watchers.sort_by_key(|fact| fact.watcher_span.offset);
     self.late_scope_disposes.sort_by_key(|fact| fact.dispose_span.offset);
+    self.watch_cleanup_current_sources.sort_by_key(|fact| {
+      (fact.release_span.offset, fact.acquisition_span.offset, fact.replacement_span.offset)
+    });
   }
 }
 

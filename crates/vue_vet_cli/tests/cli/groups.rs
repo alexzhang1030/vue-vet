@@ -44,8 +44,8 @@ fn list_rules_is_sorted_unique_and_includes_project_ids() {
   );
   assert_eq!(
     parsed.pointer("/counts/total").and_then(Value::as_u64),
-    Some(126),
-    "composed CLI inventory must be 126 after collection-lookup, extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
+    Some(127),
+    "composed CLI inventory must be 127 after cleanup-identity, collection-lookup, extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
   );
 }
 
@@ -56,6 +56,7 @@ fn list_rules_lifetime_includes_four_and_tracking_excludes_them() {
     "vue-vet/reactivity/no-late-watcher-cleanup",
     "vue-vet/reactivity/no-orphaned-scope-watcher",
     "vue-vet/reactivity/no-returned-watcher-cleanup",
+    "vue-vet/reactivity/no-watch-cleanup-current-source",
   ];
   let lifetime = run(&["--list-rules", "--format", "json", "--group", "lifetime"]);
   let tracking = run(&["--list-rules", "--format", "json", "--group", "tracking"]);

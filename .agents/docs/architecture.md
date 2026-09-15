@@ -250,7 +250,7 @@ File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         imports reuse the canonical Vue-import pass. `watch` still runs the
         ordinary source collector, watch-family option/signature facts, and
         callback-contract collectors (`watch_callbacks.rs`). Combined
-        `RULESET_VERSION` is 25; `REACTIVITY_GRAPH_VERSION` stays 41.
+        `RULESET_VERSION` is 26; `REACTIVITY_GRAPH_VERSION` stays 41.
         Named effect-family imports keep source indexes empty when every Oxc
         resolved reference is a proven call with fewer than two arguments and
         no spread (current watch-API rules read that second argument). Ordinary
@@ -291,7 +291,33 @@ arguments and unproven scope identity abstain. See
 [`no-late-watcher-cleanup`](../../docs/rules/reactivity/no-late-watcher-cleanup.md),
 [`no-orphaned-scope-watcher`](../../docs/rules/reactivity/no-orphaned-scope-watcher.md),
 [`no-late-scope-dispose`](../../docs/rules/reactivity/no-late-scope-dispose.md),
-and [`lifetime-runs.mjs`](../../crates/vue_vet_reactivity/oracle/lifetime-runs.mjs).
+[`no-watch-cleanup-current-source`](../../docs/rules/reactivity/no-watch-cleanup-current-source.md),
+[`lifetime-runs.mjs`](../../crates/vue_vet_reactivity/oracle/lifetime-runs.mjs),
+and [`cleanup-identity-runs.mjs`](../../crates/vue_vet_reactivity/oracle/cleanup-identity-runs.mjs).
+Cleanup-identity facts reuse the same lifetime index (one walk, per-root
+ordered listener/write queries, indexed shared-source/cleanup joins). Native
+`EventTarget` is a baseline intrinsic; replacement requires allocation identity
+and an executed watcher schedule (immediate / sync / pre-post plus `await
+nextTick()`), not merely native capability. Source value transitions and
+callback acquisitions are separate events; queued watchers read prefix values
+and the next transition at a proven flush boundary. Watch creation must be
+execution-proven in its owner lane, and const handle aliases canonicalize
+before stop/pause/resume/escape. Ordered handle-stop facts keep an earlier
+conditional or uncertain stop as a lifetime boundary; a later definite stop
+does not prove activity across it. Written payload aliases are Unknown after a
+pre-index of Oxc semantic write roles; stable const aliases keep allocation
+provenance. Method mutation or generic escape through a written receiver alias stays
+native-capability Unknown. Native-payload seeds and identifier-flow edges are
+collected from declarations and assignments, then escapes are resolved after
+the identity index is complete. Native method/escape checks apply to the acquired
+allocation; null/undefined listeners are not acquisitions. Cleanup identity
+work counters are test-only zero-sized types in production. Releases are
+aggregated per
+callback/resource once; source write stability is summarized once per symbol
+from semantic reference roles and reused. Local/import poisoning, method
+mutation, helper escapes, completed/paused watchers, inactive watch creation,
+and discharged captured releases stay unproven. Serialized reactivity graphs
+are unchanged, so `REACTIVITY_GRAPH_VERSION` stays 41.
 
 `ModuleSummary` (formerly the opaque `PreparedModuleTrace`) is the formal
 cross-module boundary: imports, exports, provides/injects, local reactivity, and

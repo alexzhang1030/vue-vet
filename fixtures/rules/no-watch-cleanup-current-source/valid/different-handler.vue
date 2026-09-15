@@ -1,0 +1,15 @@
+<script setup lang="ts">
+import { ref, watch } from 'vue'
+const handler = () => {}
+const other = () => {}
+const source = ref(new EventTarget())
+watch(source, (target, _prev, onCleanup) => {
+  target.addEventListener('click', handler)
+  onCleanup(() => {
+    source.value.removeEventListener('click', other)
+  })
+})
+source.value = new EventTarget()
+source.value = new EventTarget()
+</script>
+<template>{{ source }}</template>

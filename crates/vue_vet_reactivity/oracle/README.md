@@ -72,6 +72,11 @@ local ref names and is not a fair under-approx pair without alias mapping.
 public `vue` package in 3.5.x). The static source still names them under
 `from 'vue'` to match docs / re-exports.
 
+Runtime contract oracles (Node, frozen Vue 3.5.40 lock) live beside this
+onTrack suite: `lifetime-runs.mjs`, `source-contracts.mjs`,
+`lost-notification-runs.mjs`, and `cleanup-identity-runs.mjs`
+(`just oracle-cleanup-identity`). They are not onTrack JSON.
+
 ## Refresh expected JSON
 
 ```bash

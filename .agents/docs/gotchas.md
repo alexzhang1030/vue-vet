@@ -722,6 +722,37 @@ Arbitrary objects with a `.run` method must stay quiet — inventing
 `effectScope.run` edges violates under-approx. See the reorientation in
 [reactivity tracer](./reactivity-tracer.md).
 
+## Watch cleanup identity needs an executed schedule
+
+`no-watch-cleanup-current-source` fires only after a proven acquisition and a
+later distinct EventTarget **allocation** while the watcher is still active.
+Value transitions and callback acquisitions are separate: a non-immediate sync
+write equal to the registered value does not acquire, and a queued watcher uses
+the settled identity at a proven `await nextTick()` / invalidation boundary
+(`initial → fresh → initial` in one immediate-pre batch is safe). Default
+`flush: 'pre'` coalesces synchronous assignments into one callback, so two
+batched `source.value = new EventTarget()` writes are a safe control, not a
+leak. Watch creation must be execution-proven in its owner lane; const handle
+aliases canonicalize before stop/pause/resume/escape. An earlier conditional or
+uncertain handle stop bounds the proven active interval even when a later
+definite `stop()` / `.stop()` exists. Written payload aliases are Unknown:
+semantic write roles are indexed once before allocation and source-write
+collection (plain, logical, compound, destructuring, every owner). Stable const
+aliases keep allocation provenance. Method mutation or generic escape through a written receiver
+alias uses the native-capability Unknown boundary. Native-payload seeds and
+identifier-flow edges are collected from declarations and assignments; escapes
+are resolved after the identity index is complete, including assignment, copy,
+and later-declaration forms. Numeric-only locals stay outside that seed
+closure. Native method and escape
+checks apply to the acquired allocation; `null` / `undefined` handlers create
+no listener. Identity work counters are test-only (production ZST). Counted
+test inner work includes timeline construction, prefix / next-transition
+queries, comparisons, registration-site visits, alias hops, resource-key
+copies, and one write-role scan per symbol on shared-source / shared-callback /
+multi-resource shapes, the N-prior-writes, N-same-value-writes,
+N-separate-cleanup curves, and increasing written-alias chains (facts 0). See
+[`cleanup-identity-runs.mjs`](../../crates/vue_vet_reactivity/oracle/cleanup-identity-runs.mjs).
+
 ## Project graph node ids are not module ids
 
 `ProjectGraph` edges use `file:{path}` node ids. Reactivity module graphs and

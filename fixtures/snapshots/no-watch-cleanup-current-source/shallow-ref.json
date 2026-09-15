@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-watch-cleanup-current-source",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-watch-cleanup-current-source",
+    "message": "Watcher cleanup removes the listener from the current source value, not the EventTarget acquired in this run",
+    "help": "Acquisition at 6:3, source replacement at 11:16. Capture the run-local target and call `removeEventListener` on that identity.",
+    "file": "fixtures/rules/no-watch-cleanup-current-source/invalid/shallow-ref.vue",
+    "span": {
+      "offset": 249,
+      "length": 12,
+      "line": 8,
+      "column": 5
+    }
+  }
+]

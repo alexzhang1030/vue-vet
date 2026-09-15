@@ -40,6 +40,7 @@ mod no_toraw_write_of_tracked_state;
 mod no_unused_reactive_binding;
 mod no_v_html;
 mod no_v_if_with_v_for;
+mod no_watch_cleanup_current_source;
 mod prefer_computed;
 mod require_component_is;
 mod require_v_for_key;
@@ -63,6 +64,7 @@ pub fn builtins() -> Vec<&'static dyn Rule> {
     &no_late_watcher_cleanup::RULE,
     &no_orphaned_scope_watcher::RULE,
     &no_returned_watcher_cleanup::RULE,
+    &no_watch_cleanup_current_source::RULE,
     &no_aria_hidden_on_focusable::RULE,
     &no_autofocus::RULE,
     &no_deprecated_slot_scope::RULE,

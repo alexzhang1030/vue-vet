@@ -68,6 +68,9 @@ oracle-lost-notification:
 # Vue 3.5.40 demand-gated value-contract premises (issue #224 batch 3).
 oracle-value-contracts:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node value-contracts.mjs
+# Vue 3.5.40 EventTarget watch cleanup identity (issue #224). Locked oracle Vue pin.
+oracle-cleanup-identity:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node cleanup-identity-runs.mjs
 
 # Run all non-mutating Rust linters.
 lint-rust: fmt-check check clippy
