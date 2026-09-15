@@ -4,13 +4,15 @@
 //! bags; the callback-slot resolvers propagate declared callback shapes through
 //! the same barrel edges. Pure lattice rules live in [`super::super::export_lattice`].
 
-use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
+use std::collections::{BTreeMap, BTreeSet, VecDeque, btree_map::Entry};
 
 use vue_vet_core::ModuleId;
 
+use super::super::export_lattice::NAME_RESOLVE_MAX_DEPTH;
+
 use super::super::{
-  ComposableShape, ExportState, ExportSummary, ModuleExportFacts, ModuleLink, OptionsCallbackSlots,
-  TraceModulesError, TypedCallbackParamSlots, ValueBag, export_lattice,
+  ComposableShape, ExportState, ExportSummary, ModuleExportFacts, ModuleLink, ModuleSummary,
+  OptionsCallbackSlots, TraceModulesError, TypedCallbackParamSlots, ValueBag, export_lattice,
 };
 
 pub(super) fn resolved_links_partial(
@@ -48,12 +50,90 @@ pub(super) fn resolved_links_partial(
   (resolved, issues)
 }
 
+/// One visit of a module inside [`barrel_fixpoint`].
+#[derive(Clone, Copy, Default)]
+struct Visit {
+  /// The module's published surface changed — its consumers are re-queued.
+  changed: bool,
+  /// A local refine may unlock more of the module's own locals — re-queue it too.
+  revisit_self: bool,
+}
+
+/// Monotone worklist over the reverse link graph (target → consumers).
+///
+/// `seeds` is the initial queue; `visit` processes one module and reports
+/// whether its published surface changed. Consumers of a changed module are
+/// re-queued; the module itself only when `revisit_self` is set. Every module
+/// is visited at most `NAME_RESOLVE_MAX_DEPTH + 1` times — the same convention
+/// as name resolve (visit index starts at 0, `> NAME_RESOLVE_MAX_DEPTH` stops) —
+/// so a non-monotone step cannot spin. Publishes are monotone, so the cap is a
+/// safety net, not a tuning knob.
+fn barrel_fixpoint<'f>(
+  facts: &'f BTreeMap<ModuleId, ModuleExportFacts>,
+  links: &BTreeMap<(&'f ModuleId, &str), &'f ModuleId>,
+  seeds: Vec<&'f ModuleId>,
+  mut visit: impl FnMut(&ModuleId, &ModuleExportFacts) -> Visit,
+) {
+  let mut reverse_users: BTreeMap<&ModuleId, Vec<&ModuleId>> = BTreeMap::new();
+  for ((from, _), to) in links {
+    reverse_users.entry(*to).or_default().push(*from);
+  }
+  let mut queued: BTreeSet<&ModuleId> = seeds.iter().copied().collect();
+  let mut queue: VecDeque<&ModuleId> = seeds.into_iter().collect();
+  let mut visits: BTreeMap<&ModuleId, u8> = BTreeMap::new();
+  while let Some(id) = queue.pop_front() {
+    queued.remove(id);
+    let Some(module_facts) = facts.get(id) else {
+      continue;
+    };
+    let depth = visits.entry(id).or_insert(0);
+    if *depth > NAME_RESOLVE_MAX_DEPTH {
+      continue;
+    }
+    *depth = depth.saturating_add(1);
+    let outcome = visit(id, module_facts);
+    if !outcome.changed {
+      continue;
+    }
+    if let Some(users) = reverse_users.get(id) {
+      for consumer in users {
+        if queued.insert(consumer) {
+          queue.push_back(consumer);
+        }
+      }
+    }
+    if outcome.revisit_self && queued.insert(id) {
+      queue.push_back(id);
+    }
+  }
+}
+
+/// Barrel modules that must enter the fixed point even without local state:
+/// `export { x } from` / `export *`, or `import { d as x }; export { x }` where
+/// the local name is neither in `locals` nor already a known slot.
+fn needs_barrel_visit(
+  module_facts: &ModuleExportFacts,
+  known_local: impl Fn(&str) -> bool,
+) -> bool {
+  let summary = &module_facts.summary;
+  let needs_reexport = summary
+    .exports
+    .iter()
+    .any(|export| matches!(export, ExportSummary::Reexport { .. } | ExportSummary::Star { .. }));
+  let needs_import_local_export = summary.exports.iter().any(|export| {
+    matches!(
+      export,
+      ExportSummary::Local { local, .. }
+        if !known_local(local) && summary.imports.iter().any(|import| import.local == *local)
+    )
+  });
+  needs_reexport || needs_import_local_export
+}
+
 pub(super) fn resolve_exports(
   facts: &BTreeMap<ModuleId, ModuleExportFacts>,
   links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
 ) -> BTreeMap<ModuleId, BTreeMap<String, ExportState>> {
-  use std::collections::VecDeque;
-
   let mut resolved =
     facts.keys().map(|id| (id.clone(), BTreeMap::new())).collect::<BTreeMap<_, _>>();
 
@@ -92,39 +172,16 @@ pub(super) fn resolve_exports(
     }
   }
 
-  // target module → consumers that import/re-export from it
-  let mut reverse_users: BTreeMap<&ModuleId, Vec<&ModuleId>> = BTreeMap::new();
-  for ((from, _), to) in links {
-    reverse_users.entry(*to).or_default().push(*from);
-  }
+  let seeds = facts
+    .iter()
+    .filter(|(id, module_facts)| {
+      working_locals.contains_key(*id)
+        || needs_barrel_visit(module_facts, |local| module_facts.summary.locals.contains_key(local))
+    })
+    .map(|(id, _)| id)
+    .collect();
 
-  let mut queue = VecDeque::new();
-  let mut queued = BTreeSet::new();
-  for (id, module_facts) in facts {
-    let needs_reexport =
-      module_facts.summary.exports.iter().any(|export| {
-        matches!(export, ExportSummary::Reexport { .. } | ExportSummary::Star { .. })
-      });
-    // `import { d as x }; export { x }` — Local export name is not in `locals`.
-    let needs_import_local_export = module_facts.summary.exports.iter().any(|export| {
-      matches!(
-        export,
-        ExportSummary::Local { local, .. }
-          if !module_facts.summary.locals.contains_key(local)
-            && module_facts.summary.imports.iter().any(|import| import.local == *local)
-      )
-    });
-    if needs_reexport || working_locals.contains_key(id) || needs_import_local_export {
-      queue.push_back(id);
-      queued.insert(id);
-    }
-  }
-
-  while let Some(id) = queue.pop_front() {
-    queued.remove(id);
-    let Some(module_facts) = facts.get(id) else {
-      continue;
-    };
+  barrel_fixpoint(facts, links, seeds, |id, module_facts| {
     let mut changed = false;
     let mut refined_forward = false;
 
@@ -204,21 +261,9 @@ pub(super) fn resolve_exports(
         }
       }
     }
-    if !changed {
-      continue;
-    }
-    if let Some(users) = reverse_users.get(id) {
-      for consumer in users {
-        if queued.insert(consumer) {
-          queue.push_back(consumer);
-        }
-      }
-    }
     // Only re-enter when a forward/value-bag refine may unlock more locals.
-    if refined_forward && working_locals.contains_key(id) && queued.insert(id) {
-      queue.push_back(id);
-    }
-  }
+    Visit { changed, revisit_self: refined_forward && working_locals.contains_key(id) }
+  });
 
   resolved
 }
@@ -407,158 +452,12 @@ pub(super) fn resolve_options_callback_exports(
   facts: &BTreeMap<ModuleId, ModuleExportFacts>,
   links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
 ) -> BTreeMap<ModuleId, BTreeMap<String, OptionsCallbackSlots>> {
-  use std::collections::VecDeque;
-
-  // Empty-slot graphs (typical synthetic / re-export benches) must not pay a
-  // full barrel fixpoint that queues every `export { … } from`.
-  if !facts
-    .values()
-    .any(|module| module.summary.options_callback_slots.values().any(|slots| !slots.is_empty()))
-  {
-    return BTreeMap::new();
-  }
-
-  let mut resolved: BTreeMap<ModuleId, BTreeMap<String, OptionsCallbackSlots>> = BTreeMap::new();
-
-  for (id, module_facts) in facts {
-    for (name, slots) in &module_facts.summary.options_callback_slots {
-      if slots.is_empty() {
-        continue;
-      }
-      resolved.entry(id.clone()).or_default().insert(name.clone(), slots.clone());
-    }
-    for export in &module_facts.summary.exports {
-      let ExportSummary::Local { local, exported } = export else {
-        continue;
-      };
-      if local == exported {
-        continue;
-      }
-      if let Some(slots) = module_facts.summary.options_callback_slots.get(local)
-        && !slots.is_empty()
-      {
-        resolved.entry(id.clone()).or_default().insert(exported.clone(), slots.clone());
-      }
-    }
-  }
-
-  let mut reverse_users: BTreeMap<&ModuleId, Vec<&ModuleId>> = BTreeMap::new();
-  for ((from, _), to) in links {
-    reverse_users.entry(*to).or_default().push(*from);
-  }
-
-  let mut queue = VecDeque::new();
-  let mut queued = BTreeSet::new();
-  for (id, module_facts) in facts {
-    let needs_reexport =
-      module_facts.summary.exports.iter().any(|export| {
-        matches!(export, ExportSummary::Reexport { .. } | ExportSummary::Star { .. })
-      });
-    let needs_import_local_export = module_facts.summary.exports.iter().any(|export| {
-      matches!(
-        export,
-        ExportSummary::Local { local, .. }
-          if !module_facts.summary.locals.contains_key(local)
-            && !module_facts.summary.options_callback_slots.contains_key(local)
-            && module_facts.summary.imports.iter().any(|import| import.local == *local)
-      )
-    });
-    if needs_reexport || needs_import_local_export {
-      queue.push_back(id);
-      queued.insert(id);
-    }
-  }
-
-  while let Some(id) = queue.pop_front() {
-    queued.remove(id);
-    let Some(module_facts) = facts.get(id) else {
-      continue;
-    };
-    let mut changed = false;
-    for export in &module_facts.summary.exports {
-      match export {
-        ExportSummary::Local { local, exported } => {
-          if module_facts.summary.options_callback_slots.contains_key(local)
-            || module_facts.summary.locals.contains_key(local)
-          {
-            continue;
-          }
-          let Some(import) =
-            module_facts.summary.imports.iter().find(|import| import.local == *local)
-          else {
-            continue;
-          };
-          let Some(target) = links.get(&(id, import.source.as_str())).copied() else {
-            continue;
-          };
-          let Some(slots) =
-            resolved.get(target).and_then(|exports| exports.get(&import.imported)).cloned()
-          else {
-            continue;
-          };
-          changed |= insert_options_callback_export(&mut resolved, id, exported, slots);
-        }
-        ExportSummary::Reexport { source, imported, exported } => {
-          let Some(target) = links.get(&(id, source.as_str())).copied() else {
-            continue;
-          };
-          let Some(slots) = resolved.get(target).and_then(|exports| exports.get(imported)).cloned()
-          else {
-            continue;
-          };
-          changed |= insert_options_callback_export(&mut resolved, id, exported, slots);
-        }
-        ExportSummary::Star { source } => {
-          let Some(target) = links.get(&(id, source.as_str())).copied() else {
-            continue;
-          };
-          let Some(target_slots) = resolved.get(target).cloned() else {
-            continue;
-          };
-          for (exported, slots) in target_slots {
-            if exported != "default" {
-              changed |= insert_options_callback_export(&mut resolved, id, &exported, slots);
-            }
-          }
-        }
-      }
-    }
-    if !changed {
-      continue;
-    }
-    if let Some(users) = reverse_users.get(id) {
-      for consumer in users {
-        if queued.insert(consumer) {
-          queue.push_back(consumer);
-        }
-      }
-    }
-  }
-
-  resolved
-}
-
-fn insert_options_callback_export(
-  resolved: &mut BTreeMap<ModuleId, BTreeMap<String, OptionsCallbackSlots>>,
-  module: &ModuleId,
-  exported: &str,
-  slots: OptionsCallbackSlots,
-) -> bool {
-  if slots.is_empty() {
-    return false;
-  }
-  // Barrel-only modules are not pre-seeded; create on first insert.
-  match resolved.entry(module.clone()).or_default().entry(exported.into()) {
-    Entry::Vacant(entry) => {
-      entry.insert(slots);
-      true
-    }
-    Entry::Occupied(mut entry) if entry.get() != &slots => {
-      entry.insert(slots);
-      true
-    }
-    Entry::Occupied(_) => false,
-  }
+  resolve_slot_exports(
+    facts,
+    links,
+    |summary| &summary.options_callback_slots,
+    OptionsCallbackSlots::is_empty,
+  )
 }
 
 /// Propagate typed function-callback Ref formals through barrels (same as options slots).
@@ -566,23 +465,40 @@ pub(super) fn resolve_typed_callback_param_exports(
   facts: &BTreeMap<ModuleId, ModuleExportFacts>,
   links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
 ) -> BTreeMap<ModuleId, BTreeMap<String, TypedCallbackParamSlots>> {
-  use std::collections::VecDeque;
+  resolve_slot_exports(
+    facts,
+    links,
+    |summary| &summary.typed_callback_param_slots,
+    TypedCallbackParamSlots::is_empty,
+  )
+}
 
-  if !facts
-    .values()
-    .any(|module| module.summary.typed_callback_param_slots.values().any(|slots| !slots.is_empty()))
+/// Barrel fixed point for one declared-slot family (`slots_of` picks the field).
+///
+/// `resolved` only ever holds non-empty bags: pre-seeding filters with
+/// `is_empty`, and the fixed point copies bags between `resolved` entries.
+fn resolve_slot_exports<S: Clone + PartialEq>(
+  facts: &BTreeMap<ModuleId, ModuleExportFacts>,
+  links: &BTreeMap<(&ModuleId, &str), &ModuleId>,
+  slots_of: impl Fn(&ModuleSummary) -> &BTreeMap<String, S>,
+  is_empty: impl Fn(&S) -> bool,
+) -> BTreeMap<ModuleId, BTreeMap<String, S>> {
+  // Empty-slot graphs (typical synthetic / re-export benches) must not pay a
+  // full barrel fixpoint that queues every `export { … } from`.
+  if !facts.values().any(|module| slots_of(&module.summary).values().any(|slots| !is_empty(slots)))
   {
     return BTreeMap::new();
   }
 
-  let mut resolved: BTreeMap<ModuleId, BTreeMap<String, TypedCallbackParamSlots>> = BTreeMap::new();
+  let mut resolved: BTreeMap<ModuleId, BTreeMap<String, S>> = BTreeMap::new();
 
   for (id, module_facts) in facts {
-    for (name, slots) in &module_facts.summary.typed_callback_param_slots {
-      if slots.is_empty() {
+    let slots = slots_of(&module_facts.summary);
+    for (name, bag) in slots {
+      if is_empty(bag) {
         continue;
       }
-      resolved.entry(id.clone()).or_default().insert(name.clone(), slots.clone());
+      resolved.entry(id.clone()).or_default().insert(name.clone(), bag.clone());
     }
     for export in &module_facts.summary.exports {
       let ExportSummary::Local { local, exported } = export else {
@@ -591,53 +507,32 @@ pub(super) fn resolve_typed_callback_param_exports(
       if local == exported {
         continue;
       }
-      if let Some(slots) = module_facts.summary.typed_callback_param_slots.get(local)
-        && !slots.is_empty()
+      if let Some(bag) = slots.get(local)
+        && !is_empty(bag)
       {
-        resolved.entry(id.clone()).or_default().insert(exported.clone(), slots.clone());
+        resolved.entry(id.clone()).or_default().insert(exported.clone(), bag.clone());
       }
     }
   }
 
-  let mut reverse_users: BTreeMap<&ModuleId, Vec<&ModuleId>> = BTreeMap::new();
-  for ((from, _), to) in links {
-    reverse_users.entry(*to).or_default().push(*from);
-  }
+  let seeds = facts
+    .iter()
+    .filter(|(_, module_facts)| {
+      needs_barrel_visit(module_facts, |local| {
+        module_facts.summary.locals.contains_key(local)
+          || slots_of(&module_facts.summary).contains_key(local)
+      })
+    })
+    .map(|(id, _)| id)
+    .collect();
 
-  let mut queue = VecDeque::new();
-  let mut queued = BTreeSet::new();
-  for (id, module_facts) in facts {
-    let needs_reexport =
-      module_facts.summary.exports.iter().any(|export| {
-        matches!(export, ExportSummary::Reexport { .. } | ExportSummary::Star { .. })
-      });
-    let needs_import_local_export = module_facts.summary.exports.iter().any(|export| {
-      matches!(
-        export,
-        ExportSummary::Local { local, .. }
-          if !module_facts.summary.locals.contains_key(local)
-            && !module_facts.summary.typed_callback_param_slots.contains_key(local)
-            && module_facts.summary.imports.iter().any(|import| import.local == *local)
-      )
-    });
-    if needs_reexport || needs_import_local_export {
-      queue.push_back(id);
-      queued.insert(id);
-    }
-  }
-
-  while let Some(id) = queue.pop_front() {
-    queued.remove(id);
-    let Some(module_facts) = facts.get(id) else {
-      continue;
-    };
+  barrel_fixpoint(facts, links, seeds, |id, module_facts| {
+    let slots = slots_of(&module_facts.summary);
     let mut changed = false;
     for export in &module_facts.summary.exports {
       match export {
         ExportSummary::Local { local, exported } => {
-          if module_facts.summary.typed_callback_param_slots.contains_key(local)
-            || module_facts.summary.locals.contains_key(local)
-          {
+          if slots.contains_key(local) || module_facts.summary.locals.contains_key(local) {
             continue;
           }
           let Some(import) =
@@ -648,22 +543,22 @@ pub(super) fn resolve_typed_callback_param_exports(
           let Some(target) = links.get(&(id, import.source.as_str())).copied() else {
             continue;
           };
-          let Some(slots) =
+          let Some(bag) =
             resolved.get(target).and_then(|exports| exports.get(&import.imported)).cloned()
           else {
             continue;
           };
-          changed |= insert_typed_callback_param_export(&mut resolved, id, exported, slots);
+          changed |= insert_slot_export(&mut resolved, id, exported, bag);
         }
         ExportSummary::Reexport { source, imported, exported } => {
           let Some(target) = links.get(&(id, source.as_str())).copied() else {
             continue;
           };
-          let Some(slots) = resolved.get(target).and_then(|exports| exports.get(imported)).cloned()
+          let Some(bag) = resolved.get(target).and_then(|exports| exports.get(imported)).cloned()
           else {
             continue;
           };
-          changed |= insert_typed_callback_param_export(&mut resolved, id, exported, slots);
+          changed |= insert_slot_export(&mut resolved, id, exported, bag);
         }
         ExportSummary::Star { source } => {
           let Some(target) = links.get(&(id, source.as_str())).copied() else {
@@ -672,38 +567,27 @@ pub(super) fn resolve_typed_callback_param_exports(
           let Some(target_slots) = resolved.get(target).cloned() else {
             continue;
           };
-          for (exported, slots) in target_slots {
+          for (exported, bag) in target_slots {
             if exported != "default" {
-              changed |= insert_typed_callback_param_export(&mut resolved, id, &exported, slots);
+              changed |= insert_slot_export(&mut resolved, id, &exported, bag);
             }
           }
         }
       }
     }
-    if !changed {
-      continue;
-    }
-    if let Some(users) = reverse_users.get(id) {
-      for consumer in users {
-        if queued.insert(consumer) {
-          queue.push_back(consumer);
-        }
-      }
-    }
-  }
+    Visit { changed, revisit_self: false }
+  });
 
   resolved
 }
 
-fn insert_typed_callback_param_export(
-  resolved: &mut BTreeMap<ModuleId, BTreeMap<String, TypedCallbackParamSlots>>,
+fn insert_slot_export<S: PartialEq>(
+  resolved: &mut BTreeMap<ModuleId, BTreeMap<String, S>>,
   module: &ModuleId,
   exported: &str,
-  slots: TypedCallbackParamSlots,
+  slots: S,
 ) -> bool {
-  if slots.is_empty() {
-    return false;
-  }
+  // Barrel-only modules are not pre-seeded; create on first insert.
   match resolved.entry(module.clone()).or_default().entry(exported.into()) {
     Entry::Vacant(entry) => {
       entry.insert(slots);
