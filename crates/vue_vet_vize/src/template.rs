@@ -30,7 +30,16 @@ pub fn extract_template_facts(
 
   let mut facts = TemplateFacts::default();
   let mut scopes = TemplateAliasScopes::default();
-  collect_children(source, template_offset, &root.children, &mut facts, &mut scopes, 0, 0);
+  collect_children(
+    source,
+    template_offset,
+    &root.children,
+    &mut facts,
+    &mut scopes,
+    0,
+    0,
+    MountContext::default(),
+  );
   // Elements follow document-order DFS; expressions are gathered from mixed
   // surfaces and need an explicit source-order pass.
   facts.expressions.sort_by_key(|expression| expression.span.offset);
@@ -81,6 +90,18 @@ impl SubtreeSummary {
   }
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+struct MountContext {
+  conditional: usize,
+  repeated: usize,
+  async_boundary: usize,
+  slot: usize,
+}
+
+#[expect(
+  clippy::too_many_arguments,
+  reason = "template walk threads mount flags with existing label/name depths"
+)]
 fn collect_children(
   source: &str,
   template_offset: usize,
@@ -89,6 +110,7 @@ fn collect_children(
   scopes: &mut TemplateAliasScopes,
   label_depth: usize,
   name_depth: usize,
+  mount: MountContext,
 ) -> SubtreeSummary {
   let mut summary = SubtreeSummary::default();
   for child in children {
@@ -102,6 +124,7 @@ fn collect_children(
           scopes,
           label_depth,
           name_depth,
+          mount,
         ));
       }
       TemplateChildNode::Interpolation(interpolation) => {
@@ -126,6 +149,8 @@ fn collect_children(
           if let Some(condition) = &branch.condition {
             push_expression_fact(source, template_offset, "if", condition, facts, scopes);
           }
+          let mut nested = mount;
+          nested.conditional = nested.conditional.saturating_add(1);
           summary = summary.or(collect_children(
             source,
             template_offset,
@@ -134,6 +159,7 @@ fn collect_children(
             scopes,
             label_depth,
             name_depth,
+            nested,
           ));
         }
       }
@@ -142,6 +168,8 @@ fn collect_children(
         let aliases = structural_for_aliases(for_node);
         push_expression_fact(source, template_offset, "for", &for_node.source, facts, scopes);
         scopes.push(aliases.clone());
+        let mut nested = mount;
+        nested.repeated = nested.repeated.saturating_add(1);
         summary = summary.or(collect_children(
           source,
           template_offset,
@@ -150,6 +178,7 @@ fn collect_children(
           scopes,
           label_depth,
           name_depth,
+          nested,
         ));
         scopes.pop_if(&aliases);
       }
@@ -157,6 +186,8 @@ fn collect_children(
         if let Some(condition) = &branch.condition {
           push_expression_fact(source, template_offset, "if", condition, facts, scopes);
         }
+        let mut nested = mount;
+        nested.conditional = nested.conditional.saturating_add(1);
         summary = summary.or(collect_children(
           source,
           template_offset,
@@ -165,6 +196,7 @@ fn collect_children(
           scopes,
           label_depth,
           name_depth,
+          nested,
         ));
       }
       TemplateChildNode::Text(_)
@@ -175,6 +207,10 @@ fn collect_children(
   summary
 }
 
+#[expect(
+  clippy::too_many_arguments,
+  reason = "template walk threads mount flags with existing label/name depths"
+)]
 fn collect_element(
   source: &str,
   template_offset: usize,
@@ -183,6 +219,7 @@ fn collect_element(
   scopes: &mut TemplateAliasScopes,
   label_depth: usize,
   name_depth: usize,
+  mount: MountContext,
 ) -> SubtreeSummary {
   let offset = template_offset.saturating_add(position_offset(element.loc.span.start));
   let end = template_offset.saturating_add(position_offset(element.loc.span.end));
@@ -261,6 +298,37 @@ fn collect_element(
         .as_deref()
         .is_some_and(|expression| object_literal_has_own_key(expression, "key"))
   });
+  let own_conditional =
+    directives.iter().any(|directive| matches!(directive.name.as_str(), "if" | "else-if" | "else"));
+  let own_for = directives.iter().any(|directive| directive.name == "for");
+  let own_slot = directives.iter().any(|directive| directive.name == "slot");
+  let own_async = tag_is_async_boundary(element.tag);
+  let has_conditional_ancestor = mount.conditional > 0 || own_conditional;
+  let has_for_ancestor = mount.repeated > 0 || own_for;
+  let has_async_boundary_ancestor = mount.async_boundary > 0;
+  let has_slot_ancestor = mount.slot > 0 || own_slot;
+  let mut child_mount = mount;
+  if own_conditional {
+    child_mount.conditional = child_mount.conditional.saturating_add(1);
+  }
+  if own_for {
+    child_mount.repeated = child_mount.repeated.saturating_add(1);
+  }
+  if own_async {
+    child_mount.async_boundary = child_mount.async_boundary.saturating_add(1);
+  }
+  if own_slot {
+    child_mount.slot = child_mount.slot.saturating_add(1);
+  }
+  // Implicit default-slot content (`<Wrapper><Child /></Wrapper>`) is still slot
+  // content even without `v-slot` / `#default`. Built-in async boundaries are
+  // already flagged separately.
+  if matches!(element.tag_type, ElementType::Component)
+    && !tag_is_async_boundary(element.tag)
+    && !element.tag.eq_ignore_ascii_case("component")
+  {
+    child_mount.slot = child_mount.slot.saturating_add(1);
+  }
   // Preserve parent-before-child element order for deterministic fixtures.
   let element_index = facts.elements.len();
   facts.elements.push(TemplateElementFact {
@@ -275,6 +343,10 @@ fn collect_element(
     has_accessible_name_ancestor: name_depth > 0,
     object_bind_has_key,
     is_component: matches!(element.tag_type, ElementType::Component),
+    has_conditional_ancestor,
+    has_for_ancestor,
+    has_async_boundary_ancestor,
+    has_slot_ancestor,
   });
   let child_summary = collect_children(
     source,
@@ -284,6 +356,7 @@ fn collect_element(
     scopes,
     child_label_depth,
     child_name_depth,
+    child_mount,
   );
   let content_directive = element_has_content_directive(element);
   // Own content only: children / v-text / v-html. Do not treat the control itself
@@ -316,6 +389,22 @@ fn collect_element(
 ///
 /// Under-approx for a11y: a component child may still be decorative, but real-app
 /// FPs from nested text/menu components dominate empty-icon false reports.
+fn tag_is_async_boundary(tag: &str) -> bool {
+  matches!(
+    tag,
+    "Suspense"
+      | "suspense"
+      | "Transition"
+      | "transition"
+      | "TransitionGroup"
+      | "transition-group"
+      | "KeepAlive"
+      | "keep-alive"
+      | "Teleport"
+      | "teleport"
+  )
+}
+
 fn tag_is_vue_component(tag: &str) -> bool {
   if tag.is_empty() {
     return false;

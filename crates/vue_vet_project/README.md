@@ -24,6 +24,7 @@ Workspace-internal (`publish = false`). Product builds auto-load
 | `OXC_RESOLVER_VERSION` | `"11.21.0"` | Pinned resolver (cache key field) |
 | `EXTERNAL_COMPANION_MAX_BYTES` | 1 MiB | Cap for companion `.js` body loads |
 | `PROJECT_RULE_IDS` | `unresolved-import`, `unused-component` | Project diagnostics |
+| `join_model_demand_facts` | component uses × model names × path versions | File-rule findings for the two model-default demand owners |
 
 ## Pipeline
 
@@ -34,6 +35,7 @@ structural    StructuralLink (import / component edges;
 passes        ExternalSummaryLoadPass (+ ProvisionalFactoryMergePass per load)
 pipeline      SeedPlan / Trace via vue_vet_reactivity → ProjectGraph
 layers        template joins + prop-flow
+model_demand  defineModel default × instance × demand join (file-rule facts)
 rules         unresolved-import / unused-component
 ```
 

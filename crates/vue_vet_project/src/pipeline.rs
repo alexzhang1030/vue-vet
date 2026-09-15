@@ -22,6 +22,7 @@ use crate::context::ProjectContext;
 use crate::conventions::{convention_component_name_with_content, is_nuxt_content_component};
 use crate::layers::apply_template_prop_layers;
 use crate::model::{CONVENTIONS_VERSION, NodeKind, ProjectFile, ProjectGraph, ReactivityIssue};
+use crate::model_demand::join_model_demand_facts;
 use crate::passes::ExternalSummaryLoadPass;
 use crate::resolve::{ProjectResolver, normalize_project_root, normalized_path};
 use crate::rules::unused_component_diagnostics;
@@ -214,6 +215,7 @@ pub fn build_project_graph_incremental_with_options<'a>(
   // --- Layers: template joins + prop flow ---
   let module_reactivity =
     apply_template_prop_layers(state, &ordered, &edges, trace_report.modules, &module_ids);
+  let (model_demand, _) = join_model_demand_facts(&ordered, &edges);
   let mut invalidation_inputs = known.into_iter().collect::<Vec<_>>();
   invalidation_inputs.extend(project_context.invalidation_inputs.iter().cloned());
   invalidation_inputs.sort();
@@ -227,6 +229,7 @@ pub fn build_project_graph_incremental_with_options<'a>(
     module_reactivity,
     reactivity_issues,
     reactivity_error,
+    model_demand,
   }
 }
 

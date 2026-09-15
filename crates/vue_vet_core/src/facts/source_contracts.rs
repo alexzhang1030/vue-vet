@@ -77,6 +77,36 @@ pub struct SourceContractFacts {
   pub json_clone_lossy_type: Vec<JsonCloneLossyTypeFact>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub ref_history_snapshot_alias: Vec<RefHistorySnapshotAliasFact>,
+  /// Child `defineModel` default producers (not findings).
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub model_defaults: Vec<crate::ModelDefaultFact>,
+  /// Module-owned objects that a default factory can alias.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub shared_object_bindings: Vec<crate::SharedObjectBindingFact>,
+  /// Ordinary `ref` / `shallowRef` initializers.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub ordinary_ref_inits: Vec<crate::OrdinaryRefInitFact>,
+  /// Unguarded native member demands in `onMounted`.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub mounted_member_demands: Vec<crate::MountedMemberDemandFact>,
+  /// `defineExpose` keys.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub define_expose: Vec<crate::DefineExposeFact>,
+  /// Native member demands through template-ref instance chains.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub instance_member_demands: Vec<crate::InstanceMemberDemandFact>,
+  /// Writes through template-ref instance chains.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub instance_path_writes: Vec<crate::InstancePathWriteFact>,
+  /// Child model `.value` writes (changed vs unchanged default).
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub model_value_writes: Vec<crate::ModelValueWriteFact>,
+  /// Project-joined parent default-sync failures.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub unsynced_model_parent_demands: Vec<crate::UnsyncedModelParentDemandFact>,
+  /// Project-joined shared-default sibling failures.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub shared_default_cross_instance_demands: Vec<crate::SharedDefaultCrossInstanceDemandFact>,
 }
 
 impl SourceContractFacts {
@@ -113,6 +143,16 @@ impl SourceContractFacts {
       && self.cancelled_filter_promise_demand.is_empty()
       && self.json_clone_lossy_type.is_empty()
       && self.ref_history_snapshot_alias.is_empty()
+      && self.model_defaults.is_empty()
+      && self.shared_object_bindings.is_empty()
+      && self.ordinary_ref_inits.is_empty()
+      && self.mounted_member_demands.is_empty()
+      && self.define_expose.is_empty()
+      && self.instance_member_demands.is_empty()
+      && self.instance_path_writes.is_empty()
+      && self.model_value_writes.is_empty()
+      && self.unsynced_model_parent_demands.is_empty()
+      && self.shared_default_cross_instance_demands.is_empty()
   }
 }
 

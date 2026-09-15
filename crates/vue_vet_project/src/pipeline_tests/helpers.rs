@@ -129,6 +129,10 @@ pub fn file(path: &str, imports: &[(&str, &str)], tags: &[&str], calls: &[&str])
         has_accessible_name_ancestor: false,
         object_bind_has_key: false,
         is_component: false,
+        has_conditional_ancestor: false,
+        has_for_ancestor: false,
+        has_async_boundary_ancestor: false,
+        has_slot_ancestor: false,
       })
       .collect(),
     expressions: Vec::new(),

@@ -33,3 +33,5 @@ fixtures/rules/no-shared-composable-first-instance-args/invalid/crlf.vue -text w
 fixtures/rules/no-cancelled-filter-promise-demand/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/no-json-clone-lossy-type/invalid/crlf.vue -text whitespace=cr-at-eol
 fixtures/rules/no-ref-history-snapshot-alias/invalid/crlf.vue -text whitespace=cr-at-eol
+fixtures/rules/no-model-default-unsynced-parent-demand/invalid/crlf-parent.vue -text whitespace=cr-at-eol
+fixtures/rules/no-shared-default-cross-instance-demand/invalid/crlf-parent.vue -text whitespace=cr-at-eol

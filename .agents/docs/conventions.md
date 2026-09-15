@@ -68,8 +68,11 @@
   separate capability from Vue import identity. Demand-gated value contracts
   (`no-invalid-custom-ref-interface`, `no-inactive-scope-result`,
   `no-missing-torefs-key`) stay distinct from callback/toRef receiver sets
-  and clone native identity.   Combined inventory is 147 (145 file + 2
-  project); source-contract group 44; lifetime group 10; `RULESET_VERSION` 39; graph stays 41.
+  and clone native identity. Component model-default demand owners
+  (`no-model-default-unsynced-parent-demand`,
+  `no-shared-default-cross-instance-demand`) join project instance/default
+  facts onto file rules. Combined inventory is 149 (147 file + 2
+  project); source-contract group 46; lifetime group 10; `RULESET_VERSION` 40; graph stays 41.
   Runtime premises live in `just oracle-source-contracts` (Vue 3.5.40), which
   runs `source-contracts.mjs`, `watch-api.mjs`, `watch-callback-contracts.mjs`,
   and `value-contracts.mjs`. Dedicated `just oracle-value-contracts` remains
@@ -89,6 +92,8 @@
   VueUse demand contracts (`no-ignorable-async-ignore-window`,
   `no-shared-composable-first-instance-args`) require exact `@vueuse/core` /
   `@vueuse/shared` origin. Runtime premises: `just oracle-vueuse-demand`.
+  Compiled-SFC model-default premises live in `just oracle-model-demand`
+  (`model-demand.mjs`, Vue 3.5.40).
 - After adding or renaming rule ids, regenerate the human catalog with
   `just rules-catalog` (`docs/rules/README.md`). Expand stub pages with
   `just rules-docs` (`scripts/expand_rule_docs.py`) before polishing essays.

@@ -59,6 +59,19 @@ pub struct TemplateElementFact {
   /// positives are preserved; lowercase imported components stay true.
   #[serde(default, skip_serializing_if = "is_false_flag")]
   pub is_component: bool,
+  /// Nested under `v-if` / `v-else-if` / `v-else` (own directive or ancestor).
+  /// Start-tag spans cannot prove nesting by containment.
+  #[serde(default, skip_serializing_if = "is_false_flag")]
+  pub has_conditional_ancestor: bool,
+  /// Nested under `v-for` (own directive or ancestor).
+  #[serde(default, skip_serializing_if = "is_false_flag")]
+  pub has_for_ancestor: bool,
+  /// Nested under `Suspense` / `Transition` / `KeepAlive` / `Teleport`.
+  #[serde(default, skip_serializing_if = "is_false_flag")]
+  pub has_async_boundary_ancestor: bool,
+  /// Nested under `v-slot` / `#default` (own directive or ancestor).
+  #[serde(default, skip_serializing_if = "is_false_flag")]
+  pub has_slot_ancestor: bool,
 }
 
 #[expect(clippy::trivially_copy_pass_by_ref, reason = "serde skip_serializing_if takes &T")]
@@ -98,6 +111,44 @@ impl TemplateElementFact {
     self.attribute("key").is_some()
       || self.bound_attribute("key").is_some()
       || self.object_bind_has_key
+  }
+
+  /// Unconditional static mount: no branch, list, slot, or async boundary.
+  ///
+  /// Does not require [`Self::is_component`]. Project joins that already have a
+  /// `ComponentUsage` / `AutoComponent` edge should use this so kebab-case tags
+  /// Vize classifies as native elements still join.
+  #[must_use]
+  pub fn is_unconditional_mount(&self) -> bool {
+    !self.has_conditional_ancestor
+      && !self.has_for_ancestor
+      && !self.has_async_boundary_ancestor
+      && !self.has_slot_ancestor
+      && !self.has_mount_directive()
+      && !self.is_dynamic_component()
+  }
+
+  /// Unconditional static component instance: no branch, list, slot, or async boundary.
+  #[must_use]
+  pub fn is_static_unconditional_instance(&self) -> bool {
+    self.is_component && self.is_unconditional_mount()
+  }
+
+  fn has_mount_directive(&self) -> bool {
+    self.directives.iter().any(|directive| {
+      matches!(directive.name.as_str(), "if" | "else-if" | "else" | "for" | "slot" | "is")
+        || (directive.name == "bind" && directive.argument.as_deref() == Some("is"))
+    })
+  }
+
+  fn is_dynamic_component(&self) -> bool {
+    self.tag.eq_ignore_ascii_case("component") || self.tag.eq_ignore_ascii_case("async-component")
+  }
+
+  /// Template `ref="name"` (static attribute only).
+  #[must_use]
+  pub fn static_ref_name(&self) -> Option<&str> {
+    self.attribute("ref").and_then(|attribute| attribute.value.as_deref())
   }
 }
 

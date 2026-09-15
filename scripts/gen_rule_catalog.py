@@ -32,6 +32,8 @@ TRACER_FORCE = {
   "vue-vet/reactivity/no-after-await-watch-effect-dependency",
   "vue-vet/reactivity/no-unused-reactive-binding",
   "vue-vet/reactivity/no-stale-prop-flow",
+  "vue-vet/reactivity/no-model-default-unsynced-parent-demand",
+  "vue-vet/reactivity/no-shared-default-cross-instance-demand",
   "vue-vet/reactivity/no-nonreactive-props-destructure",
   "vue-vet/correctness/no-mutating-props",
 }

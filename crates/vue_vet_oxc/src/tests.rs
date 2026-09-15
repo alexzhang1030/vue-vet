@@ -3914,6 +3914,7 @@ fn source_contracts_sink_inventory_is_the_eligibility_table() {
   assert_eq!(contract_sink("computed"), Some(ContractSink::Computed));
   assert_eq!(contract_sink("syncRef"), Some(ContractSink::SyncRef));
   assert_eq!(contract_sink("computedAsync"), Some(ContractSink::ComputedAsync));
+  assert_eq!(contract_sink("onMounted"), Some(ContractSink::OnMounted));
   for api in ["ref", "shallowRef", "toRaw", "nextTick"] {
     assert_eq!(contract_sink(api), None, "{api} must not gate collection");
   }
@@ -4030,7 +4031,7 @@ fn source_contracts_bypass_without_fact_producing_sinks() {
     ScriptKind::Setup,
   );
   assert_bypass("triggerRef(1); reactive(0); watch(1, () => {});", ScriptKind::Setup);
-  assert_bypass("defineProps<{ title: string }>(); defineModel<number>();", ScriptKind::Setup);
+  assert_bypass("defineProps<{ title: string }>();", ScriptKind::Setup);
   assert_bypass(
     "import { ref } from 'vue'; const o = { a: { x: 1 }, b: [1] }; const r = ref(o); const alias = r; alias.value = { a: { x: 2 } };",
     ScriptKind::Setup,
@@ -11276,4 +11277,266 @@ fn snapshot_contracts_keep_source5_and_value3_outputs() {
   assert_eq!(facts.source_contracts.missing_torefs_key.len(), 1);
   assert!(facts.source_contracts.json_clone_lossy_type.is_empty());
   assert!(facts.source_contracts.ref_history_snapshot_alias.is_empty());
+}
+
+#[test]
+#[expect(clippy::panic, reason = "missing span evidence must fail the regression")]
+fn source_contracts_define_model_literal_default_and_undefined_ref() {
+  let facts = analyze(
+    "import { ref, onMounted } from 'vue'\nconst model = defineModel({ default: 1 })\nconst value = ref()\nonMounted(() => { value.value.toFixed(2) })\ndefineExpose({ model })\n",
+    "ts",
+  );
+  assert_eq!(facts.source_contracts.model_defaults.len(), 1, "{:?}", facts.source_contracts);
+  let Some(default) = facts.source_contracts.model_defaults.first() else {
+    panic!("default missing: {:?}", facts.source_contracts);
+  };
+  assert_eq!(default.model_name, "modelValue");
+  assert_eq!(default.origin, vue_vet_core::ModelDefaultOrigin::LiteralPrimitive);
+  assert_eq!(default.primitive, Some(vue_vet_core::ModelPrimitiveKind::Number));
+  assert!(
+    facts
+      .source_contracts
+      .ordinary_ref_inits
+      .iter()
+      .any(|init| { init.binding == "value" && init.kind == vue_vet_core::RefInitKind::Undefined }),
+    "{:?}",
+    facts.source_contracts.ordinary_ref_inits
+  );
+  assert_eq!(
+    facts.source_contracts.mounted_member_demands.len(),
+    1,
+    "{:?}",
+    facts.source_contracts.mounted_member_demands
+  );
+  assert_eq!(
+    facts.source_contracts.mounted_member_demands.first().map(|demand| demand.member.as_str()),
+    Some("toFixed")
+  );
+  assert!(
+    facts
+      .source_contracts
+      .define_expose
+      .iter()
+      .any(|expose| expose.names.contains(&"model".into()))
+  );
+}
+
+#[test]
+fn source_contracts_shared_factory_and_fresh_factory_and_instance_chains() {
+  let shared = analyze(
+    "const shared = { n: 1 }\nconst model = defineModel({ default: () => shared })\ndefineExpose({ model })\n",
+    "ts",
+  );
+  assert!(
+    shared.source_contracts.model_defaults.iter().any(|model| {
+      model.origin == vue_vet_core::ModelDefaultOrigin::SharedObjectFactory
+        && model.shared_binding.as_deref() == Some("shared")
+    }),
+    "{:?}",
+    shared.source_contracts.model_defaults
+  );
+  assert!(
+    shared.source_contracts.shared_object_bindings.iter().any(|binding| {
+      binding.binding == "shared"
+        && binding
+          .own_paths
+          .iter()
+          .any(|(path, kind)| path == "n" && *kind == vue_vet_core::ModelPrimitiveKind::Number)
+    }),
+    "{:?}",
+    shared.source_contracts.shared_object_bindings
+  );
+  let fresh = analyze("const model = defineModel({ default: () => ({ n: 1 }) })\n", "ts");
+  assert!(
+    fresh
+      .source_contracts
+      .model_defaults
+      .iter()
+      .any(|model| { model.origin == vue_vet_core::ModelDefaultOrigin::FreshObjectFactory }),
+    "{:?}",
+    fresh.source_contracts.model_defaults
+  );
+  let literal = analyze("const model = defineModel({ default: { n: 1 } })\n", "ts");
+  assert!(
+    literal.source_contracts.model_defaults.iter().any(|model| {
+      model.origin == vue_vet_core::ModelDefaultOrigin::SharedObjectLiteral
+        && model
+          .own_paths
+          .iter()
+          .any(|(path, kind)| path == "n" && *kind == vue_vet_core::ModelPrimitiveKind::Number)
+    }),
+    "{:?}",
+    literal.source_contracts.model_defaults
+  );
+  let array = analyze("const model = defineModel({ default: [] })\n", "ts");
+  assert!(
+    array
+      .source_contracts
+      .model_defaults
+      .iter()
+      .any(|model| model.origin == vue_vet_core::ModelDefaultOrigin::SharedObjectLiteral),
+    "{:?}",
+    array.source_contracts.model_defaults
+  );
+  let chain = analyze(
+    "import { ref, onMounted } from 'vue'\nconst left = ref(null)\nconst right = ref(null)\nonMounted(() => { left.value.model.n = 'text'; right.value.model.n.toFixed(2) })\n",
+    "ts",
+  );
+  assert!(
+    chain.source_contracts.instance_path_writes.iter().any(|write| {
+      write.instance == "left"
+        && write.path == ["model", "n"]
+        && write.rhs_kind == vue_vet_core::RefInitKind::String
+    }),
+    "{:?}",
+    chain.source_contracts.instance_path_writes
+  );
+  assert!(
+    chain.source_contracts.instance_member_demands.iter().any(|demand| {
+      demand.instance == "right"
+        && demand.path == ["model", "n"]
+        && demand.member == "toFixed"
+        && !demand.optional
+        && !demand.guarded
+    }),
+    "{:?}",
+    chain.source_contracts.instance_member_demands
+  );
+}
+
+#[test]
+#[expect(clippy::panic, reason = "missing span evidence must fail the regression")]
+fn source_contracts_model_demand_unicode_and_crlf_span_the_call() {
+  let unicode = "import { ref, onMounted } from 'vue'\nconst 值 = ref()\nonMounted(() => { 值.value.toFixed(2) })\n";
+  let facts = analyze(unicode, "ts");
+  let needle = "值.value.toFixed(2)";
+  let Some(offset) = unicode.find(needle) else {
+    panic!("unicode demand missing");
+  };
+  let Some(demand) = facts.source_contracts.mounted_member_demands.first() else {
+    panic!("unicode demand fact missing: {:?}", facts.source_contracts);
+  };
+  assert_eq!(demand.span.offset, offset);
+  assert_eq!(demand.span.length, needle.len());
+
+  let crlf = "import { ref, onMounted } from 'vue';\r\nconst value = ref();\r\nonMounted(() => { value.value.toFixed(2) })\r\n";
+  let facts = analyze(crlf, "ts");
+  let needle = "value.value.toFixed(2)";
+  let Some(offset) = crlf.find(needle) else {
+    panic!("crlf demand missing");
+  };
+  let Some(demand) = facts.source_contracts.mounted_member_demands.first() else {
+    panic!("crlf demand fact missing: {:?}", facts.source_contracts);
+  };
+  assert_eq!(demand.span.offset, offset);
+  assert_eq!(demand.span.length, needle.len());
+}
+
+#[test]
+fn source_contracts_model_facts_scale_with_combined_fanout() {
+  let mut previous: Option<(u64, u64)> = None;
+  for size in [8_u64, 16, 32] {
+    let mut source = String::from("import { ref, onMounted } from 'vue'\n");
+    for index in 0..size {
+      source.push_str("const s");
+      source.push_str(&index.to_string());
+      source.push_str(" = { n: 1 }\nconst m");
+      source.push_str(&index.to_string());
+      source.push_str(" = defineModel({ default: () => s");
+      source.push_str(&index.to_string());
+      source.push_str(" })\nconst r");
+      source.push_str(&index.to_string());
+      source.push_str(" = ref()\n");
+    }
+    source.push_str("onMounted(() => {\n");
+    for index in 0..size {
+      source.push('r');
+      source.push_str(&index.to_string());
+      source.push_str(".value.toFixed(2)");
+      source.push('\n');
+    }
+    source.push_str("})\n");
+    let (contracts, work) = contract_stats(&source);
+    let count = usize::try_from(size).unwrap_or(usize::MAX);
+    assert_eq!(contracts.model_defaults.len(), count, "size {size} defaults; {contracts:?}");
+    assert_eq!(contracts.mounted_member_demands.len(), count, "size {size} demands; {contracts:?}");
+    if let Some((prev_size, prev_work)) = previous {
+      assert_eq!(size, prev_size * 2, "fixture sizes must double");
+      assert!(work > 0, "model-fact collection must count work");
+      assert!(
+        work.saturating_mul(10) < prev_work.saturating_mul(30),
+        "model-fact work grew from {prev_work} to {work} on {prev_size}->{size} (must stay <3x per doubling)"
+      );
+    }
+    previous = Some((size, work));
+  }
+}
+
+#[test]
+fn source_contracts_model_write_compares_literal_value_on_model_binding() {
+  let same = analyze(
+    "const model = defineModel({ default: 1 })\nconst label = ref('a')\nmodel.value = 1\nlabel.value = 'b'\n",
+    "ts",
+  );
+  assert!(
+    same.source_contracts.model_value_writes.iter().any(|write| {
+      write.binding == "model" && write.unchanged_default && write.rhs_text.as_deref() == Some("1")
+    }),
+    "{:?}",
+    same.source_contracts.model_value_writes
+  );
+  assert!(
+    same.source_contracts.model_value_writes.iter().all(|write| write.binding != "label"),
+    "unrelated ref writes must not be model writes: {:?}",
+    same.source_contracts.model_value_writes
+  );
+  let changed = analyze("const model = defineModel({ default: 1 })\nmodel.value = 2\n", "ts");
+  assert!(
+    changed
+      .source_contracts
+      .model_value_writes
+      .iter()
+      .any(|write| write.binding == "model" && !write.unchanged_default),
+    "{:?}",
+    changed.source_contracts.model_value_writes
+  );
+}
+
+#[test]
+fn source_contracts_early_return_marks_mounted_demand_guarded() {
+  let facts = analyze(
+    "import { ref, onMounted } from 'vue'\nconst value = ref()\nonMounted(() => { if (value.value === undefined) return; value.value.toFixed(2) })\n",
+    "ts",
+  );
+  assert!(
+    facts.source_contracts.mounted_member_demands.iter().any(|demand| demand.guarded),
+    "{:?}",
+    facts.source_contracts.mounted_member_demands
+  );
+}
+
+#[test]
+fn source_contracts_ordinary_script_records_shared_object_without_model_surface() {
+  let (facts, _) =
+    contract_collect("const shared = { n: 1 }\n", vue_vet_core::ScriptKind::Script, true);
+  assert!(
+    facts.shared_object_bindings.iter().any(|binding| {
+      binding.binding == "shared"
+        && binding
+          .own_paths
+          .iter()
+          .any(|(path, kind)| path == "n" && *kind == vue_vet_core::ModelPrimitiveKind::Number)
+    }),
+    "{:?}",
+    facts.shared_object_bindings
+  );
+}
+
+#[test]
+fn source_contracts_model_preflight_equals_forced_full_without_surface() {
+  let source = "const n = 1\n";
+  let (relative, _) = contract_collect(source, vue_vet_core::ScriptKind::Setup, false);
+  let (full, _) = contract_collect(source, vue_vet_core::ScriptKind::Setup, true);
+  assert_eq!(relative.model_defaults, full.model_defaults);
+  assert_eq!(relative.mounted_member_demands, full.mounted_member_demands);
 }

@@ -214,6 +214,10 @@ mod tests {
         has_accessible_name_ancestor: false,
         object_bind_has_key: false,
         is_component: false,
+        has_conditional_ancestor: false,
+        has_for_ancestor: false,
+        has_async_boundary_ancestor: false,
+        has_slot_ancestor: false,
       }],
       expressions: Vec::new(),
     };
@@ -289,6 +293,10 @@ mod tests {
       has_accessible_name_ancestor: false,
       object_bind_has_key: false,
       is_component: false,
+      has_conditional_ancestor: false,
+      has_for_ancestor: false,
+      has_async_boundary_ancestor: false,
+      has_slot_ancestor: false,
     };
     let second = TemplateElementFact {
       tag: "Child".into(),
@@ -309,6 +317,10 @@ mod tests {
       has_accessible_name_ancestor: false,
       object_bind_has_key: false,
       is_component: false,
+      has_conditional_ancestor: false,
+      has_for_ancestor: false,
+      has_async_boundary_ancestor: false,
+      has_slot_ancestor: false,
     };
     let parent_template = TemplateFacts { elements: vec![first, second], expressions: Vec::new() };
     let mut parent_graph = ReactivityGraph {
@@ -411,6 +423,10 @@ mod tests {
         has_accessible_name_ancestor: false,
         object_bind_has_key: false,
         is_component: false,
+        has_conditional_ancestor: false,
+        has_for_ancestor: false,
+        has_async_boundary_ancestor: false,
+        has_slot_ancestor: false,
       }],
       expressions: Vec::new(),
     };
@@ -498,6 +514,10 @@ mod tests {
         has_accessible_name_ancestor: false,
         object_bind_has_key: false,
         is_component: false,
+        has_conditional_ancestor: false,
+        has_for_ancestor: false,
+        has_async_boundary_ancestor: false,
+        has_slot_ancestor: false,
       }],
       expressions: Vec::new(),
     };
@@ -573,6 +593,10 @@ mod tests {
         has_accessible_name_ancestor: false,
         object_bind_has_key: false,
         is_component: false,
+        has_conditional_ancestor: false,
+        has_for_ancestor: false,
+        has_async_boundary_ancestor: false,
+        has_slot_ancestor: false,
       }],
       expressions: Vec::new(),
     };
@@ -655,6 +679,10 @@ mod tests {
         has_accessible_name_ancestor: false,
         object_bind_has_key: false,
         is_component: false,
+        has_conditional_ancestor: false,
+        has_for_ancestor: false,
+        has_async_boundary_ancestor: false,
+        has_slot_ancestor: false,
       }],
       expressions: Vec::new(),
     };

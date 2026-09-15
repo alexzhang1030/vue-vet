@@ -78,6 +78,7 @@ mod filter;
 mod index;
 mod injection;
 mod map_lookup;
+mod model;
 mod normalization;
 mod proof;
 mod scheduling_practice;
@@ -122,6 +123,7 @@ pub(in crate::source_contracts) struct Collector<'a> {
   pub(in crate::source_contracts) line_index: &'a vue_vet_core::LineIndex,
   pub(in crate::source_contracts) sfc_source: &'a str,
   pub(in crate::source_contracts) script_offset: usize,
+  pub(in crate::source_contracts) kind: ScriptKind,
   pub(in crate::source_contracts) indexes: Indexes,
   pub(in crate::source_contracts) shape_cache: HashMap<SymbolId, Shape>,
   pub(in crate::source_contracts) property_shape: HashMap<(SymbolId, String), Shape>,
@@ -156,7 +158,6 @@ pub fn collect_source_contract_facts_with_stats(
   collect_prepared(semantic, line_index, sfc_source, script_offset, kind, false)
 }
 
-#[cfg(test)]
 pub fn collect_source_contract_facts_forced_full(
   semantic: &oxc_semantic::Semantic<'_>,
   line_index: &vue_vet_core::LineIndex,
@@ -186,6 +187,7 @@ fn collect_prepared(
     line_index,
     sfc_source,
     script_offset,
+    kind,
     indexes: Indexes::build(
       semantic,
       line_index,
@@ -292,13 +294,23 @@ impl Collector<'_> {
         Some(ContractSink::Computed) => self.computed_calls.push(node_id),
         Some(ContractSink::SyncRef) => self.collect_sync_ref_one_way(node_id, call, info),
         Some(ContractSink::ComputedAsync) => self.collect_lazy_computed_async(call, info),
-        None => {}
+        Some(ContractSink::OnMounted) | None => {}
       }
       if api == "inject" {
         self.collect_injection(node_id, call, info);
       }
     }
     self.collect_all_raw_proxy_map_gets();
+    if self.has_model_surface() {
+      self.collect_model_facts();
+    } else if self.kind == ScriptKind::Script {
+      // Module `<script>` bindings are referenced from `<script setup>` `defineModel`.
+      self.collect_shared_object_bindings();
+    }
+  }
+
+  fn has_model_surface(&self) -> bool {
+    self.indexes.calls.values().any(|info| matches!(info.api, Some("defineModel" | "onMounted")))
   }
 
   #[expect(clippy::too_many_lines, reason = "deterministic fact-pack sort is one finish pass")]
@@ -552,6 +564,38 @@ impl Collector<'_> {
       self.indexes.note_query();
       (left.write_span.offset, left.demand_span.offset)
         .cmp(&(right.write_span.offset, right.demand_span.offset))
+    });
+    self.facts.model_defaults.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.shared_object_bindings.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.ordinary_ref_inits.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.mounted_member_demands.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.define_expose.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.instance_member_demands.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.instance_path_writes.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
+    });
+    self.facts.model_value_writes.sort_by(|left, right| {
+      self.indexes.note_query();
+      left.span.offset.cmp(&right.span.offset)
     });
     (self.facts, self.indexes.stats())
   }

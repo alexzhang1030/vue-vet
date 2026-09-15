@@ -8,7 +8,13 @@ importers:
 
   .:
     dependencies:
+      '@vue/compiler-sfc':
+        specifier: 3.5.40
+        version: 3.5.40
       '@vue/reactivity':
+        specifier: 3.5.40
+        version: 3.5.40
+      '@vue/server-renderer':
         specifier: 3.5.40
         version: 3.5.40
       '@vueuse/core':

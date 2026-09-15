@@ -10,7 +10,9 @@
   },
   "packageManager": "pnpm@9.15.9",
   "dependencies": {
+    "@vue/compiler-sfc": "3.5.40",
     "@vue/reactivity": "3.5.40",
+    "@vue/server-renderer": "3.5.40",
     "@vueuse/core": "13.9.0",
     "@vueuse/shared": "13.9.0",
     "vue": "3.5.40"

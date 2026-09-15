@@ -129,6 +129,7 @@ pub fn run_file_rules(
   pending: &PendingVueFile,
   primary_graph: Option<Arc<ReactivityGraph>>,
   ordinary_graph: Option<Arc<ReactivityGraph>>,
+  model_demand: Option<&vue_vet_core::ModelDemandFileFacts>,
 ) -> Vec<Diagnostic> {
   let mut facts = (*pending.facts).clone();
   if let Some(graph) = primary_graph {
@@ -136,6 +137,9 @@ pub fn run_file_rules(
   }
   if let Some(graph) = ordinary_graph {
     facts.apply_module_reactivity_for(vue_vet_core::ScriptKind::Script, graph);
+  }
+  if let Some(joined) = model_demand {
+    apply_model_demand_facts(&mut facts, joined);
   }
   file_analysis_registry().run_with_environment(
     pending.file_id.as_path(),
@@ -166,6 +170,26 @@ pub fn needs_file_rules(
     return true;
   }
   script_has_rule_facts(facts, primary_graph)
+}
+
+fn apply_model_demand_facts(facts: &mut SfcFacts, joined: &vue_vet_core::ModelDemandFileFacts) {
+  let index = facts
+    .script
+    .blocks
+    .iter()
+    .position(|block| block.kind == vue_vet_core::ScriptKind::Setup)
+    .or_else(|| (!facts.script.blocks.is_empty()).then_some(0));
+  let Some(index) = index else {
+    return;
+  };
+  let Some(block) = facts.script.blocks.get_mut(index) else {
+    return;
+  };
+  block.source_contracts.unsynced_model_parent_demands.clone_from(&joined.unsynced_parent_demands);
+  block
+    .source_contracts
+    .shared_default_cross_instance_demands
+    .clone_from(&joined.shared_cross_instance_demands);
 }
 
 fn script_has_rule_facts(facts: &SfcFacts, primary_graph: Option<&ReactivityGraph>) -> bool {

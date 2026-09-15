@@ -113,6 +113,7 @@ They use this package's locked `node_modules` and are separate from `just oracle
 | `just oracle-filter-settlement` | `filter-settlement-contracts.mjs` | Vue 3.5.40 + `@vueuse/core` / `@vueuse/shared` 13.9.0 |
 | `just oracle-self-trigger` | `self-trigger-runs.mjs` | Vue 3.5.40 run counts |
 | `just oracle-lifetime` | `lifetime-runs.mjs` | Vue 3.5.40 |
+| `just oracle-model-demand` | `model-demand.mjs` | Vue 3.5.40 + `@vue/compiler-sfc` / `@vue/server-renderer` 3.5.40 |
 
 `filter-settlement-contracts.mjs` asserts `useDebounceFn` same-turn supersession
 fulfills `undefined`, sequential/zero-delay/`maxWait: 0` preserves both results,
@@ -171,6 +172,12 @@ versus repeating `requestAnimationFrame`, and template host behavior:
 
 Those cases use Vue's `createRenderer` custom host, so they do not need a DOM
 package.
+
+`just oracle-model-demand` (`model-demand.mjs`) compiles every SFC under
+`fixtures/projects/model-demand/` and the two model-demand rule fixture trees
+with `@vue/compiler-sfc` 3.5.40, then mounts the shipped parent/child pairs
+(createRenderer so `onMounted` runs) for the unsynced-parent and shared-default
+premises.
 
 `just oracle-source-contracts` (`source-contracts.mjs`) is the Vue 3.5.40
 runtime pin for issue #224 API contracts, including `toRef` ignored-key

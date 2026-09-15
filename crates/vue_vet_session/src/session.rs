@@ -659,6 +659,7 @@ fn publish_product(snapshot: &AnalysisSnapshot, product: AnalysisProduct) -> Ana
         module_reactivity: Arc::from([]),
         reactivity_issues: full.reactivity_issues.clone(),
         reactivity_error: full.reactivity_error.clone(),
+        model_demand: full.model_demand.clone(),
       })
     }
     AnalysisProduct::DiagnosticsOnly => Arc::new(ProjectGraph {
@@ -670,6 +671,7 @@ fn publish_product(snapshot: &AnalysisSnapshot, product: AnalysisProduct) -> Ana
       module_reactivity: Arc::from([]),
       reactivity_issues: Vec::new(),
       reactivity_error: None,
+      model_demand: BTreeMap::new(),
     }),
   };
   AnalysisSnapshot {

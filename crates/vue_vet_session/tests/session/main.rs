@@ -4,5 +4,6 @@ mod groups;
 mod helpers;
 mod invalidation;
 mod misc;
+mod model_demand;
 mod overlays;
 mod progress;

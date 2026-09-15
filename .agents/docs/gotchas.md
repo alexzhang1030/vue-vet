@@ -130,6 +130,17 @@ construction — walking only `prop.value` misses receiver mutation such as
 per demanded key; cloning the `HashSet` per `toRefs` call is quadratic in
 source width.
 
+## Element start-tag spans cannot prove nesting
+
+Vize `TemplateElementFact.span` covers the start tag, not the element subtree.
+`v-if` / `v-for` / slot / `Suspense`/`Transition` ancestry is an explicit flag
+(`has_conditional_ancestor`, `has_for_ancestor`, `has_slot_ancestor`,
+`has_async_boundary_ancestor`) recorded during the template walk. Implicit
+default-slot content (`<Wrapper><Child /></Wrapper>`) sets `has_slot_ancestor`
+the same way as `<template #default>`. Model-default demand owners must not
+treat span containment as mount proof; kebab-case tags trust the project
+`ComponentUsage` edge rather than Vize `is_component`.
+
 ## SFC offsets are not plain string positions
 
 Vize block locations are offsets into the original SFC, while downstream parsers may operate on extracted script or template content. Every extraction needs an explicit offset map back to the original source. Unicode makes byte/character confusion visible; CRLF makes line calculations visible.

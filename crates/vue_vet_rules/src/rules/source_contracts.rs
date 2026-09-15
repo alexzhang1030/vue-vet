@@ -222,6 +222,22 @@ const HISTORY_ALIAS_META: RuleMeta = RuleMeta {
   documentation: "rules/reactivity/no-ref-history-snapshot-alias",
 };
 
+const MODEL_DEFAULT_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-model-default-unsynced-parent-demand",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-model-default-unsynced-parent-demand",
+};
+
+const SHARED_DEFAULT_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-shared-default-cross-instance-demand",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-shared-default-cross-instance-demand",
+};
+
 pub(super) struct NoTriggerRefOnNonRef;
 pub(super) static NO_TRIGGER_REF_ON_NON_REF: NoTriggerRefOnNonRef = NoTriggerRefOnNonRef;
 
@@ -317,6 +333,14 @@ pub(super) static NO_JSON_CLONE_LOSSY_TYPE: NoJsonCloneLossyType = NoJsonCloneLo
 pub(super) struct NoRefHistorySnapshotAlias;
 pub(super) static NO_REF_HISTORY_SNAPSHOT_ALIAS: NoRefHistorySnapshotAlias =
   NoRefHistorySnapshotAlias;
+
+pub(super) struct NoModelDefaultUnsyncedParentDemand;
+pub(super) static NO_MODEL_DEFAULT_UNSYNCED_PARENT_DEMAND: NoModelDefaultUnsyncedParentDemand =
+  NoModelDefaultUnsyncedParentDemand;
+
+pub(super) struct NoSharedDefaultCrossInstanceDemand;
+pub(super) static NO_SHARED_DEFAULT_CROSS_INSTANCE_DEMAND: NoSharedDefaultCrossInstanceDemand =
+  NoSharedDefaultCrossInstanceDemand;
 
 impl Rule for NoTriggerRefOnNonRef {
   fn meta(&self) -> &'static RuleMeta {
@@ -550,6 +574,66 @@ impl Rule for NoEffectScopeCallbackArgument {
             "Call `effectScope()` or `effectScope(true)` for detached ownership, then `scope.run(callback)`. Do not pass the callback to the constructor."
               .into(),
           ),
+        );
+      }
+    }
+  }
+}
+
+impl Rule for NoModelDefaultUnsyncedParentDemand {
+  fn meta(&self) -> &'static RuleMeta {
+    &MODEL_DEFAULT_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.unsynced_model_parent_demands {
+        context.report(
+          self.meta(),
+          site.demand_span,
+          format!(
+            "parent `{}.value.{}` runs while the v-model binding is still undefined; the child `defineModel` default was not written back",
+            site.parent_binding, site.demanded_member
+          ),
+          Some(format!(
+            "Initialize `{}` before mount, or guard the optional value. Assigning the child default back to itself does not emit. v-model `{}` at {}:{} and child default in {} at {}:{}.",
+            site.parent_binding,
+            site.model_name,
+            site.v_model_span.line,
+            site.v_model_span.column,
+            site.child_file,
+            site.child_default_span.line,
+            site.child_default_span.column
+          )),
+        );
+      }
+    }
+  }
+}
+
+impl Rule for NoSharedDefaultCrossInstanceDemand {
+  fn meta(&self) -> &'static RuleMeta {
+    &SHARED_DEFAULT_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.shared_default_cross_instance_demands {
+        context.report(
+          self.meta(),
+          site.demand_span,
+          format!(
+            "sibling instance `.{}` demand fails after a write through a shared model default",
+            site.demanded_member
+          ),
+          Some(format!(
+            "Create a fresh default per instance when isolated state is required. Shared default in {} at {}:{}, write at {}:{}.",
+            site.child_file,
+            site.default_span.line,
+            site.default_span.column,
+            site.write_span.line,
+            site.write_span.column
+          )),
         );
       }
     }
@@ -1131,5 +1215,7 @@ pub(super) fn source_contract_rules() -> Vec<&'static dyn Rule> {
     &NO_CANCELLED_FILTER_PROMISE_DEMAND,
     &NO_JSON_CLONE_LOSSY_TYPE,
     &NO_REF_HISTORY_SNAPSHOT_ALIAS,
+    &NO_MODEL_DEFAULT_UNSYNCED_PARENT_DEMAND,
+    &NO_SHARED_DEFAULT_CROSS_INSTANCE_DEMAND,
   ]
 }

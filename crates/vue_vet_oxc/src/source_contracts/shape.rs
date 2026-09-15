@@ -305,6 +305,7 @@ pub enum ContractSink {
   Computed,
   SyncRef,
   ComputedAsync,
+  OnMounted,
 }
 
 impl ContractSink {
@@ -341,6 +342,8 @@ pub(super) fn intern_api(name: &str) -> Option<&'static str> {
     "computedAsync" | "asyncComputed" => Some("computedAsync"),
     "provide" => Some("provide"),
     "inject" => Some("inject"),
+    "defineExpose" => Some("defineExpose"),
+    "onMounted" => Some("onMounted"),
     _ => None,
   }
 }
@@ -374,6 +377,7 @@ pub fn contract_sink(api: &str) -> Option<ContractSink> {
     "computed" => Some(ContractSink::Computed),
     "syncRef" => Some(ContractSink::SyncRef),
     "computedAsync" => Some(ContractSink::ComputedAsync),
+    "onMounted" => Some(ContractSink::OnMounted),
     _ => None,
   }
 }
@@ -558,6 +562,14 @@ pub(super) fn collect_vue_imports(
   let mut has_effect_family = false;
   for node in semantic.nodes() {
     work.add_nodes(1);
+    if let AstKind::IdentifierReference(identifier) = node.kind()
+      && identifier.name.as_str() == "defineModel"
+    {
+      // Compiler macro: not a ContractSink and not a Vue import, but model-default
+      // facts still need a full index. `defineExpose` / `onMounted` ride along
+      // once `defineModel` or an imported `onMounted` sink already opted in.
+      requires_full_index = true;
+    }
     let AstKind::ImportDeclaration(declaration) = node.kind() else {
       continue;
     };
@@ -913,7 +925,7 @@ pub(super) fn resolve_vue_api(
       };
     }
     let name = identifier.name.as_str();
-    if matches!(name, "defineProps" | "defineModel") && kind == ScriptKind::Setup {
+    if matches!(name, "defineProps" | "defineModel" | "defineExpose") && kind == ScriptKind::Setup {
       return intern_api(name);
     }
     return None;

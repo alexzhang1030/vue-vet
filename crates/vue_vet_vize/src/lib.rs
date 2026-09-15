@@ -12,7 +12,9 @@ use vize_croquis::sfc::{SfcDescriptor, SfcParseOptions, parse_sfc};
 use vue_vet_core::{
   ScriptBlockFacts, ScriptFacts, ScriptKind, SfcFacts, TemplateFacts, content_digest,
 };
-use vue_vet_oxc::{AnalyzeScriptError, analyze_module_source};
+use vue_vet_oxc::{
+  AnalyzeScriptError, analyze_module_source, analyze_module_source_forced_contracts,
+};
 use vue_vet_reactivity::ModuleSource;
 
 #[derive(Debug, Error)]
@@ -135,7 +137,13 @@ fn analyze_sfc_facts_inner(
 
   let mut script = ScriptFacts::default();
   let mut script_rebuilt = false;
+  let mut ordinary_script: Option<(String, usize, String)> = None;
   if let Some(block) = descriptor.script {
+    ordinary_script = Some((
+      block.content.to_string(),
+      block.loc.start,
+      block.lang.as_deref().unwrap_or("js").into(),
+    ));
     let lang = block.lang.as_deref().unwrap_or("js");
     let can_reuse_script = (reuse_template || !matches!(lang, "jsx" | "tsx")) && reuse_script;
     let (script_facts, summary) = if can_reuse_script
@@ -189,6 +197,18 @@ fn analyze_sfc_facts_inner(
     script.blocks.push(script_facts);
   }
 
+  if setup_needs_module_shared_objects(&script)
+    && let Some((content, offset, lang)) = ordinary_script
+  {
+    let analysis =
+      analyze_module_source_forced_contracts(source, &content, offset, &lang, ScriptKind::Script)?;
+    if let Some(ordinary) = script.blocks.iter_mut().find(|block| block.kind == ScriptKind::Script)
+    {
+      ordinary.source_contracts.shared_object_bindings =
+        analysis.script_facts.source_contracts.shared_object_bindings;
+    }
+  }
+
   mark_imported_component_elements(&mut template, &script);
 
   // Join when template or any script block was rebuilt; full reuse already joined.
@@ -230,6 +250,16 @@ fn fingerprint(content: &str, start: usize, end: usize) -> BlockFingerprint {
   BlockFingerprint { content_digest: content_digest(content.as_bytes()), start, end }
 }
 
+fn setup_needs_module_shared_objects(script: &ScriptFacts) -> bool {
+  script.blocks.iter().any(|block| {
+    block.kind == ScriptKind::Setup
+      && block.source_contracts.model_defaults.iter().any(|model| {
+        model.origin == vue_vet_core::ModelDefaultOrigin::SharedObjectFactory
+          && model.shared_binding.is_some()
+      })
+  })
+}
+
 fn mark_imported_component_elements(template: &mut TemplateFacts, script: &ScriptFacts) {
   let locals = script
     .blocks
@@ -242,13 +272,30 @@ fn mark_imported_component_elements(template: &mut TemplateFacts, script: &Scrip
     return;
   }
   for element in &mut template.elements {
-    if !element.is_component
-      && locals.contains(element.tag.as_str())
-      && !vize_carton::is_native_tag(&element.tag)
+    if element.is_component || vize_carton::is_native_tag(&element.tag) {
+      continue;
+    }
+    if locals.contains(element.tag.as_str())
+      || locals.iter().any(|local| pascal_to_kebab(local) == element.tag)
     {
       element.is_component = true;
     }
   }
+}
+
+fn pascal_to_kebab(name: &str) -> String {
+  let mut kebab = String::new();
+  for (index, ch) in name.chars().enumerate() {
+    if ch.is_ascii_uppercase() {
+      if index > 0 {
+        kebab.push('-');
+      }
+      kebab.push(ch.to_ascii_lowercase());
+    } else {
+      kebab.push(ch);
+    }
+  }
+  kebab
 }
 
 fn previous_script_block(facts: &SfcFacts, kind: ScriptKind) -> Option<&ScriptBlockFacts> {
