@@ -17,13 +17,15 @@ use std::{
 
 use rayon::prelude::*;
 use vue_vet_config::Config;
+use vue_vet_config::RuleLevel;
 use vue_vet_core::{
   Diagnostic, FileId, ModuleId, ReactivityGraph, RuleEnvironment, ScanSummary, content_digest,
   serde_digest,
 };
 use vue_vet_plugins::default_trace_modules_options;
 use vue_vet_project::{
-  ContextEpochs, ProjectGraph, ProjectGraphState, build_project_graph_incremental_with_options,
+  ContextEpochs, ProjectGraph, ProjectGraphState, VAPOR_MIGRATION_RULE_IDS,
+  build_project_graph_incremental_with_options, vapor_migration_diagnostics,
 };
 
 mod analyze;
@@ -484,6 +486,20 @@ fn scan_parallel(
     .flat_map(|(_, cached, _)| cached.diagnostics.iter().cloned().collect::<Vec<_>>())
     .collect::<Vec<_>>();
   raw_diagnostics.extend(graph.diagnostics.clone());
+  // Opt-in assessment: skip the whole project pass unless at least one ID is live.
+  if VAPOR_MIGRATION_RULE_IDS
+    .iter()
+    .any(|id| config.rules.get(*id).is_none_or(|level| *level != RuleLevel::Off))
+  {
+    let files = project_files.iter().map(AsRef::as_ref).collect::<Vec<_>>();
+    raw_diagnostics.extend(vapor_migration_diagnostics(
+      &input.boundary,
+      &files,
+      &graph.nodes,
+      &graph.edges,
+      &input.project_context,
+    ));
+  }
   raw_diagnostics.extend(issues.iter().filter_map(issue_diagnostic));
   let diagnostics_finalized = u64::try_from(raw_diagnostics.len()).unwrap_or(u64::MAX);
   let sources =

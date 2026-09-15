@@ -51,6 +51,14 @@ pub enum PracticeMode {
   Off,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AssessmentMode {
+  #[default]
+  Off,
+  Vapor,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -58,6 +66,8 @@ pub struct Config {
   pub preset: Preset,
   /// Ecosystem practice suggestions (`category: practice`). Default `on`.
   pub practice: PracticeMode,
+  /// Opt-in migration assessment (`category: migration`). Default `off`.
+  pub assessment: AssessmentMode,
   pub include: Vec<String>,
   pub exclude: Vec<String>,
   pub rules: BTreeMap<String, RuleLevel>,
@@ -69,6 +79,7 @@ impl Default for Config {
       version: CONFIG_VERSION,
       preset: Preset::Recommended,
       practice: PracticeMode::On,
+      assessment: AssessmentMode::Off,
       include: vec!["**/*.vue".into()],
       exclude: Vec::new(),
       rules: BTreeMap::new(),
@@ -144,6 +155,13 @@ impl Config {
             Ok("on") => PracticeMode::On,
             Ok("off") => PracticeMode::Off,
             _ => return invalid(line_number, "practice must be `on` or `off`".into()),
+          };
+        }
+        "assessment" => {
+          config.assessment = match unquote(value).as_deref() {
+            Ok("off") => AssessmentMode::Off,
+            Ok("vapor") => AssessmentMode::Vapor,
+            _ => return invalid(line_number, "assessment must be `off` or `vapor`".into()),
           };
         }
         "include" => config.include = parse_string_array(value, line_number)?,
@@ -277,6 +295,7 @@ pub fn apply_suppressions(
         span: line_span(source, suppression.offset),
         edits: Vec::new(),
         recommendation: None,
+        assessment: None,
       },
     ),
   );
@@ -430,6 +449,7 @@ mod tests {
       span: SourceSpan { offset: 0, length: 1, line, column: 1 },
       edits: Vec::new(),
       recommendation: None,
+      assessment: None,
     }
   }
 
@@ -480,6 +500,16 @@ exclude = ["src/generated/**"]
       applied.first().map(|diagnostic| diagnostic.rule_id.as_str()),
       Some("vue-vet/security/no-v-html")
     );
+  }
+
+  #[test]
+  fn assessment_vapor_parses_and_does_not_drop_migration_category() {
+    let config = Config::parse("version = 1\nassessment = \"vapor\"\n").unwrap_or_default();
+    assert_eq!(config.assessment, AssessmentMode::Vapor);
+    let mut migration = diagnostic("vue-vet/migration/vapor-assessment", 1);
+    migration.category = vue_vet_core::MIGRATION_CATEGORY.into();
+    let applied = config.apply(vec![migration]);
+    assert_eq!(applied.len(), 1, "assessment = vapor must not drop migration findings");
   }
 
   #[test]

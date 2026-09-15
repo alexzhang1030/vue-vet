@@ -152,6 +152,16 @@ pub struct ScriptBlockFacts {
   #[serde(default, skip_serializing_if = "crate::TemplateRefDemandFacts::is_empty")]
   pub template_ref_demands: crate::TemplateRefDemandFacts,
   pub reactivity_graph: std::sync::Arc<ReactivityGraph>,
+  /// `vapor` attribute on this `<script>` / `<script setup>` block.
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub vapor: bool,
+  /// Opening tag span (`<script>` / `<script setup>`), SFC-absolute.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub open_span: Option<SourceSpan>,
+  /// SFC-absolute spans of runtime ES module exports (`export` / `export default` /
+  /// `export *`). Type-only named exports (`export type`, `export interface`) are omitted.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub runtime_export_spans: Vec<SourceSpan>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]

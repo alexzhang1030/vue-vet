@@ -31,7 +31,6 @@ use crate::structural::{
   StructuralContextKey, StructuralFileCache, analyze_structural_file, file_node,
   insert_component_name,
 };
-
 #[cfg(test)]
 #[path = "pipeline_tests/mod.rs"]
 mod tests;

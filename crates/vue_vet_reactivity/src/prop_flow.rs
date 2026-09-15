@@ -221,6 +221,7 @@ mod tests {
       }],
       expressions: Vec::new(),
       allocations: Vec::new(),
+      ..Default::default()
     };
     let mut parent_graph = ReactivityGraph {
       bindings: vec![ReactiveBindingFact {
@@ -327,6 +328,7 @@ mod tests {
       elements: vec![first, second],
       expressions: Vec::new(),
       allocations: Vec::new(),
+      ..Default::default()
     };
     let mut parent_graph = ReactivityGraph {
       bindings: vec![
@@ -435,6 +437,7 @@ mod tests {
       }],
       expressions: Vec::new(),
       allocations: Vec::new(),
+      ..Default::default()
     };
     let mut parent_graph = ReactivityGraph {
       bindings: vec![
@@ -527,6 +530,7 @@ mod tests {
       }],
       expressions: Vec::new(),
       allocations: Vec::new(),
+      ..Default::default()
     };
     let mut parent_graph = ReactivityGraph {
       bindings: vec![ReactiveBindingFact {
@@ -607,6 +611,7 @@ mod tests {
       }],
       expressions: Vec::new(),
       allocations: Vec::new(),
+      ..Default::default()
     };
     let mut parent_graph = ReactivityGraph {
       bindings: vec![ReactiveBindingFact {
@@ -694,6 +699,7 @@ mod tests {
       }],
       expressions: Vec::new(),
       allocations: Vec::new(),
+      ..Default::default()
     };
     let mut parent_graph = ReactivityGraph {
       bindings: vec![ReactiveBindingFact {

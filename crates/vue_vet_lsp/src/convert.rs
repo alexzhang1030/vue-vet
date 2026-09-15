@@ -57,6 +57,11 @@ fn lsp_diagnostic_data(id: &str, diagnostic: &Diagnostic) -> serde_json::Value {
   {
     map.insert("recommendation".into(), value);
   }
+  if let Some(assessment) = &diagnostic.assessment
+    && let Ok(value) = serde_json::to_value(assessment)
+  {
+    map.insert("assessment".into(), value);
+  }
   serde_json::Value::Object(map)
 }
 
@@ -303,6 +308,7 @@ mod tests {
       span: SourceSpan { offset: 19, length: 6, line: 2, column: 9 },
       edits: Vec::new(),
       recommendation: None,
+      assessment: None,
     };
     let analyzed = vec!["basic.vue".into()];
     let lsp = to_lsp_diagnostic(
@@ -349,6 +355,7 @@ mod tests {
         rule_id: "vue-vet/security/no-v-html".into(),
       }],
       recommendation: None,
+      assessment: None,
     };
     let range = span_to_range(&diagnostic.span, Some(source));
     assert_eq!(range.start.line, 2);
@@ -403,6 +410,7 @@ mod tests {
         },
       ],
       recommendation: None,
+      assessment: None,
     };
     let analyzed = vec!["App.vue".into()];
     let file_id = FileId::from("App.vue");
@@ -464,6 +472,7 @@ mod tests {
         rule_id: "vue-vet/accessibility/no-autofocus".into(),
       }],
       recommendation: None,
+      assessment: None,
     };
     let analyzed = vec!["App.vue".into()];
     let file_id = FileId::from("App.vue");

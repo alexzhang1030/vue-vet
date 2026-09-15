@@ -156,6 +156,7 @@ mod tests {
         span: SourceSpan { offset: 19, length: 6, line: 2, column: 9 },
         edits: Vec::new(),
         recommendation: None,
+        assessment: None,
       }],
       score: 94,
     }

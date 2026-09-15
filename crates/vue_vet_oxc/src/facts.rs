@@ -143,6 +143,39 @@ pub fn collect_import_facts(
   (imports, imported_bindings)
 }
 
+/// Runtime ES-module export declaration spans, SFC-absolute.
+///
+/// Mirrors Vue `compileScript.ts` L722–L732 at vuejs/core
+/// `4b2f1914e8a6da7218955593b8bc2ba5db2c6dce`: `ExportNamedDeclaration` only
+/// when `export_kind` is not type-only, plus every `ExportDefaultDeclaration`
+/// and `ExportAllDeclaration`.
+pub fn collect_runtime_export_spans(
+  semantic: &oxc_semantic::Semantic<'_>,
+  line_index: &vue_vet_core::LineIndex,
+  sfc_source: &str,
+  script_offset: usize,
+) -> Vec<SourceSpan> {
+  let mut spans = Vec::new();
+  for node in semantic.nodes() {
+    match node.kind() {
+      AstKind::ExportNamedDeclaration(declaration)
+        if declaration.export_kind != ImportOrExportKind::Type =>
+      {
+        spans.push(source_span(line_index, sfc_source, script_offset, declaration.span));
+      }
+      AstKind::ExportDefaultDeclaration(declaration) => {
+        spans.push(source_span(line_index, sfc_source, script_offset, declaration.span));
+      }
+      AstKind::ExportAllDeclaration(declaration) => {
+        spans.push(source_span(line_index, sfc_source, script_offset, declaration.span));
+      }
+      _ => {}
+    }
+  }
+  spans.sort_by_key(|span| span.offset);
+  spans
+}
+
 pub fn collect_binding_facts(
   semantic: &oxc_semantic::Semantic<'_>,
   line_index: &vue_vet_core::LineIndex,

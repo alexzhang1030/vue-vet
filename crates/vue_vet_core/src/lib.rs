@@ -89,6 +89,7 @@ mod tests {
       span: SourceSpan { offset: 0, length: 1, line: 1, column: 1 },
       edits: Vec::new(),
       recommendation: None,
+      assessment: None,
     };
     let concentrated =
       ScanSummary { files_scanned: 1, diagnostics: vec![diagnostic.clone(); 40], score: 100 }
@@ -127,8 +128,30 @@ mod tests {
         docs_url: "https://vueuse.org/core/useDebounceFn/".into(),
         import_example: "import { useDebounceFn } from '@vueuse/core'".into(),
       }),
+      assessment: None,
     };
     let summary = ScanSummary { files_scanned: 1, diagnostics: vec![practice], score: 0 }.finish();
+    assert_eq!(summary.score, 100);
+    assert!(!summary.fails(true));
+  }
+
+  #[test]
+  fn migration_findings_do_not_affect_score_or_exit() {
+    let migration = Diagnostic {
+      rule_id: "vue-vet/migration/vapor-assessment".into(),
+      category: MIGRATION_CATEGORY.into(),
+      severity: Severity::Info,
+      confidence: Some(Confidence::High),
+      documentation: Some("rules/migration/vapor-assessment".into()),
+      message: "vapor migration: blocked (memo-contract-dropped); completeness incomplete".into(),
+      help: None,
+      file: "App.vue".into(),
+      span: SourceSpan { offset: 0, length: 1, line: 1, column: 1 },
+      edits: Vec::new(),
+      recommendation: None,
+      assessment: None,
+    };
+    let summary = ScanSummary { files_scanned: 1, diagnostics: vec![migration], score: 0 }.finish();
     assert_eq!(summary.score, 100);
     assert!(!summary.fails(true));
   }
@@ -147,6 +170,7 @@ mod tests {
       span: SourceSpan { offset: 8, length: 3, line: 2, column: 4 },
       edits: Vec::new(),
       recommendation: None,
+      assessment: None,
     };
     let first = diagnostic_id(&diagnostic, "src/App.vue");
     let second = diagnostic_id(&diagnostic, "src/App.vue");
@@ -206,6 +230,7 @@ mod tests {
           identifiers: None,
         },
       ],
+      ..Default::default()
     });
     assert!(
       graph.template_reads.iter().any(|read| read.binding == "signal" && read.span.offset == 10),

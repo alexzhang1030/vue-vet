@@ -150,6 +150,7 @@ mod tests {
       span: SourceSpan { offset, length: 8, line, column: 1 },
       edits: Vec::new(),
       recommendation: None,
+      assessment: None,
     }
   }
 
@@ -214,6 +215,7 @@ mod tests {
         span: SourceSpan { offset: 10, length: 20, line: 4, column: 1 },
         edits: Vec::new(),
         recommendation: None,
+        assessment: None,
       },
       Diagnostic {
         rule_id: UNWRAPPED_WATCH.into(),
@@ -227,6 +229,7 @@ mod tests {
         span: SourceSpan { offset: 16, length: 7, line: 4, column: 7 },
         edits: Vec::new(),
         recommendation: None,
+        assessment: None,
       },
     ];
     consolidate_overlapping_watch_source_sites(&mut diagnostics);
