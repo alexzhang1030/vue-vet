@@ -44,8 +44,8 @@ fn list_rules_is_sorted_unique_and_includes_project_ids() {
   );
   assert_eq!(
     parsed.pointer("/counts/total").and_then(Value::as_u64),
-    Some(144),
-    "composed CLI inventory must be 144 after VueUse demand, same-instance injection demand, until timeout unmatched-demand, the private-field receiver, late-cancellation-guard lifetime owner, scheduling-practice, derivation-practice, stable-computed-identity practice, cached-result demand, lifetime ownership, customRef notification, cleanup-identity, collection-lookup, extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
+    Some(145),
+    "composed CLI inventory must be 145 after cancelled-filter promise demand, VueUse demand, same-instance injection demand, until timeout unmatched-demand, the private-field receiver, late-cancellation-guard lifetime owner, scheduling-practice, derivation-practice, stable-computed-identity practice, cached-result demand, lifetime ownership, customRef notification, cleanup-identity, collection-lookup, extracted collection-method, source-contract, notification, watch-api, callback, normalization, clone, and value rules"
   );
 }
 
@@ -170,6 +170,7 @@ fn list_rules_source_contracts_includes_contract_ids() {
     "vue-vet/reactivity/no-inject-same-instance-provide",
     "vue-vet/reactivity/no-ignorable-async-ignore-window",
     "vue-vet/reactivity/no-shared-composable-first-instance-args",
+    "vue-vet/reactivity/no-cancelled-filter-promise-demand",
   ] {
     assert!(ids.iter().any(|row| row == id), "missing {id} in {ids:?}");
   }

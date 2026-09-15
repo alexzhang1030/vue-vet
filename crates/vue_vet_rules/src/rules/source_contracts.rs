@@ -198,6 +198,14 @@ const SHARED_FIRST_META: RuleMeta = RuleMeta {
   documentation: "rules/reactivity/no-shared-composable-first-instance-args",
 };
 
+const CANCELLED_FILTER_META: RuleMeta = RuleMeta {
+  id: "vue-vet/reactivity/no-cancelled-filter-promise-demand",
+  category: "reactivity",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/reactivity/no-cancelled-filter-promise-demand",
+};
+
 pub(super) struct NoTriggerRefOnNonRef;
 pub(super) static NO_TRIGGER_REF_ON_NON_REF: NoTriggerRefOnNonRef = NoTriggerRefOnNonRef;
 
@@ -282,6 +290,11 @@ pub(super) static NO_IGNORABLE_ASYNC_IGNORE_WINDOW: NoIgnorableAsyncIgnoreWindow
 pub(super) struct NoSharedComposableFirstInstanceArgs;
 pub(super) static NO_SHARED_COMPOSABLE_FIRST_INSTANCE_ARGS: NoSharedComposableFirstInstanceArgs =
   NoSharedComposableFirstInstanceArgs;
+
+pub(super) struct NoCancelledFilterPromiseDemand;
+pub(super) static NO_CANCELLED_FILTER_PROMISE_DEMAND: NoCancelledFilterPromiseDemand =
+  NoCancelledFilterPromiseDemand;
+
 impl Rule for NoTriggerRefOnNonRef {
   fn meta(&self) -> &'static RuleMeta {
     &TRIGGER_META
@@ -967,6 +980,36 @@ impl Rule for NoSharedComposableFirstInstanceArgs {
   }
 }
 
+impl Rule for NoCancelledFilterPromiseDemand {
+  fn meta(&self) -> &'static RuleMeta {
+    &CANCELLED_FILTER_META
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in &block.source_contracts.cancelled_filter_promise_demand {
+        context.report(
+          self.meta(),
+          site.demand_span,
+          format!(
+            "`{}` cancelled the earlier promise with undefined, so calling `{}` throws",
+            site.api, site.member
+          ),
+          Some(format!(
+            "First call at {}:{} was superseded at {}:{} before the timer; await at {}:{} fulfills `undefined`. Demand the latest call's result, wait for each call to settle, or set `rejectOnCancel: true` and handle rejection.",
+            site.first_call_span.line,
+            site.first_call_span.column,
+            site.superseding_call_span.line,
+            site.superseding_call_span.column,
+            site.await_span.line,
+            site.await_span.column
+          )),
+        );
+      }
+    }
+  }
+}
+
 fn report_site(
   context: &mut RuleContext<'_>,
   meta: &RuleMeta,
@@ -1005,5 +1048,6 @@ pub(super) fn source_contract_rules() -> Vec<&'static dyn Rule> {
     &NO_INJECT_SAME_INSTANCE_PROVIDE,
     &NO_IGNORABLE_ASYNC_IGNORE_WINDOW,
     &NO_SHARED_COMPOSABLE_FIRST_INSTANCE_ARGS,
+    &NO_CANCELLED_FILTER_PROMISE_DEMAND,
   ]
 }

@@ -101,6 +101,26 @@ This is a recall gate on committed cases — not a claim that every SFC in the
 universe is covered. Static-only joins (e.g. parent `:foo` → child props) stay
 in Rust unit/project tests.
 
+## Contract oracles (not onTrack JSON)
+
+These Node scripts pin Vue / VueUse runtime premises for source-contract rules.
+They use this package's locked `node_modules` and are separate from `just oracle`.
+
+| Recipe | Script | Pin |
+| --- | --- | --- |
+| `just oracle-source-contracts` | `source-contracts.mjs` | Vue 3.5.40 |
+| `just oracle-value-contracts` | `value-contracts.mjs` | Vue 3.5.40 |
+| `just oracle-filter-settlement` | `filter-settlement-contracts.mjs` | Vue 3.5.40 + `@vueuse/core` / `@vueuse/shared` 13.9.0 |
+| `just oracle-self-trigger` | `self-trigger-runs.mjs` | Vue 3.5.40 run counts |
+| `just oracle-lifetime` | `lifetime-runs.mjs` | Vue 3.5.40 |
+
+`filter-settlement-contracts.mjs` asserts `useDebounceFn` same-turn supersession
+fulfills `undefined`, sequential/zero-delay/`maxWait: 0` preserves both results,
+an await longer than the delay between calls preserves the first result,
+`maxWait > 0` fulfills **both** promises `undefined`, trailing / `leading: false`
+throttle cancel a pending promise, and a `.then` handler on the cancelled
+promise is an unhandled `TypeError`.
+
 ## Run counts and template host
 
 `just oracle-custom-ref-notification` (`custom-ref-notification-runs.mjs`)

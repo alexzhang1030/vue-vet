@@ -23,6 +23,10 @@ pub const CACHE_FORMAT_VERSION: u32 = 5;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// Bump when built-in rule set or seed-aware analysis behavior changes.
 ///
+/// v38: cancelled default-debounce promise demand
+/// (`no-cancelled-filter-promise-demand`) on exact `@vueuse/core` /
+/// `@vueuse/shared` `useDebounceFn`, on the `VueUse` demand catalog (v37).
+/// Graph version stays 41.
 /// v37: `VueUse` demand contracts (`no-ignorable-async-ignore-window`,
 /// `no-shared-composable-first-instance-args`) on exact `@vueuse/core` /
 /// `@vueuse/shared` exports, on the same-instance injection catalog (v36).
@@ -82,8 +86,7 @@ pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// eligibility on the lost-notification catalog (v18). Graph version stays 41.
 /// v18: lost-notification rules (`no-lost-shallow-nested-notification`,
 /// `no-toraw-write-of-tracked-state`) plus source/view/path graph facts,
-/// composed onto the source-contract catalog (v17).
-/// v17: source-contract rules (`no-trigger-ref-on-non-ref`,
+/// composed onto the source-contract catalog (v17)./// v17: source-contract rules (`no-trigger-ref-on-non-ref`,
 /// `no-torefs-on-non-proxy`, `no-primitive-reactive-target`,
 /// `no-watch-unwrapped-source`, `no-watch-replaced-object-source`) plus
 /// watch-source overlap finalization with `no-empty-watch-sources`.
@@ -111,7 +114,7 @@ pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// prefer-watch suppresses self-write sources; computed self-write is impure.
 /// v5: conditional-dep premise withdrawn; after-await registrars deprecated
 /// except defineExpose; absence rules require complete follow coverage.
-pub const RULESET_VERSION: u32 = 37;
+pub const RULESET_VERSION: u32 = 38;
 
 /// Workspace pin for `vize_croquis` / `vize_atelier_core`.
 ///

@@ -2624,6 +2624,7 @@ const SOURCE_CONTRACT_RULES: &[&str] = &[
   "no-inject-same-instance-provide",
   "no-ignorable-async-ignore-window",
   "no-shared-composable-first-instance-args",
+  "no-cancelled-filter-promise-demand",
 ];
 
 const CLEANUP_IDENTITY_RULES: &[&str] = &["no-watch-cleanup-current-source"];

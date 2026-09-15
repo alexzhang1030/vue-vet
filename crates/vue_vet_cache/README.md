@@ -17,7 +17,7 @@ Workspace-internal (`publish = false`).
 | --- | --- | --- |
 | `CACHE_FORMAT_VERSION` | `5` | On-disk entry schema; directory `v5/` |
 | `BASELINE_FORMAT_VERSION` | `1` | Baseline file schema |
-| `RULESET_VERSION` | `37` | VueUse demand contracts (`no-ignorable-async-ignore-window`, `no-shared-composable-first-instance-args`) on the same-instance injection catalog (v36) |
+| `RULESET_VERSION` | `38` | Cancelled default-debounce promise demand (`no-cancelled-filter-promise-demand`) on the VueUse demand catalog (v37) |
 | `CACHE_VIZE_CROQUIS_VERSION` | `0.387.0` | Hashed `vize-version` (`AnalysisStackIdentity`) |
 | `CACHE_OXC_PARSER_VERSION` | `0.142.0` | Hashed `oxc-version` (`AnalysisStackIdentity`) |
 

@@ -10,11 +10,11 @@ not Essential/a11y parity with `eslint-plugin-vue`.
 
 | Tier | Meaning | Count |
 | --- | --- | ---: |
-| `tracer` | Needs `vue_vet_reactivity` graph facts (read kinds, guards, scopes, prop edges, binding kinds) | 72 |
+| `tracer` | Needs `vue_vet_reactivity` graph facts (read kinds, guards, scopes, prop edges, binding kinds) | 73 |
 | `parity` | Template Essential / a11y / macros / after-await registrars — open-box completeness | 50 |
 | `practice` | Ecosystem suggestions (`category: practice`); excluded from score by default | 20 |
 
-Total registered **file** rules (builtins + practice): **142**.
+Total registered **file** rules (builtins + practice): **143**.
 
 Project-graph IDs are listed separately below and are not in this file-ID set.
 
@@ -24,7 +24,7 @@ Project-graph IDs are listed separately below and are not in this file-ID set.
 | `correctness` | 36 |
 | `maintainability` | 1 |
 | `practice` | 19 |
-| `reactivity` | 72 |
+| `reactivity` | 73 |
 | `security` | 1 |
 
 Per-rule pages live under `docs/rules/<category>/<name>.md`.
@@ -117,6 +117,7 @@ Per-rule pages live under `docs/rules/<category>/<name>.md`.
 - [`vue-vet/reactivity/no-after-await-dependency-in-watch-sources`](./reactivity/no-after-await-dependency-in-watch-sources.md) `tracer`
 - [`vue-vet/reactivity/no-after-await-watch-effect-dependency`](./reactivity/no-after-await-watch-effect-dependency.md) `tracer`
 - [`vue-vet/reactivity/no-assignment-only-effect-with-conditional-read`](./reactivity/no-assignment-only-effect-with-conditional-read.md) `tracer`
+- [`vue-vet/reactivity/no-cancelled-filter-promise-demand`](./reactivity/no-cancelled-filter-promise-demand.md) `tracer`
 - [`vue-vet/reactivity/no-computed-as-operand`](./reactivity/no-computed-as-operand.md) `tracer`
 - [`vue-vet/reactivity/no-computed-self-trigger`](./reactivity/no-computed-self-trigger.md) `tracer`
 - [`vue-vet/reactivity/no-computed-without-dependency`](./reactivity/no-computed-without-dependency.md) `tracer`

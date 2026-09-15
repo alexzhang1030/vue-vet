@@ -118,6 +118,17 @@ multi-file transaction. Dropping unused ratatui backends (termwiz / wezterm)
 removed the extra `nix` 0.29 / `sha2` 0.10 / `thiserror` 1.x copies; the
 remaining `nix` 0.31.3 is shared with CodSpeed.
 
+## VueUse 13.9.0 pins cancelled-filter settlement
+
+`no-cancelled-filter-promise-demand` proves `useDebounceFn` settlement against
+`@vueuse/core` / `@vueuse/shared` **13.9.0** (oracle `node_modules`).
+`createFilterWrapper` returns a fresh Promise per call. `debounceFilter` sets
+`lastRejector = options.rejectOnCancel ? reject : resolve`, so a same-turn
+supersede fulfills the earlier promise with `undefined` (rejects when
+`rejectOnCancel` is true). Re-run `just oracle-filter-settlement` on a VueUse
+bump and re-check `maxWait`, trailing/leading throttle, and timer-vs-await
+ordering before changing the rule.
+
 ## Vue Vet owns the product contracts
 
 Diagnostics, source spans, rule metadata, confidence, configuration, suppression, fingerprints, scoring, project facts, cache formats, baselines, reporters, and edits are Vue Vet-owned types. This boundary prevents dependency churn from becoming a public API break.

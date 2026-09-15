@@ -56,6 +56,10 @@
 //! per-object operations. Native `#private` brands the original instance;
 //! Vue `reactive` / `readonly` / `shallowReactive` / `shallowReadonly`
 //! proxies are not that receiver.
+//!
+//! Cancelled-filter facts require exact `@vueuse/core` / `@vueuse/shared`
+//! `useDebounceFn`, a finite positive literal delay, absent `maxWait`, and
+//! effective `rejectOnCancel: false`.
 
 mod atom;
 mod cached;
@@ -66,7 +70,7 @@ mod custom_ref;
 mod custom_ref_proof;
 mod demand;
 mod derivation_practice;
-
+mod filter;
 mod index;
 mod injection;
 mod map_lookup;
@@ -223,6 +227,7 @@ impl Collector<'_> {
       self.collect_inactive_scope_run(node_id, call);
       self.collect_cached_result(node_id, call, info);
       self.collect_until_timeout_unmatched_demand(node_id, call);
+      self.collect_cancelled_filter(node_id, call, info);
       if let Some(api) = info.vueuse
         && !info.has_spread
       {
@@ -523,6 +528,11 @@ impl Collector<'_> {
         right.first_call_span.offset,
         right.later_arg_span.offset,
       ))
+    });
+    self.facts.cancelled_filter_promise_demand.sort_by(|left, right| {
+      self.indexes.note_query();
+      (left.demand_span.offset, left.first_call_span.offset)
+        .cmp(&(right.demand_span.offset, right.first_call_span.offset))
     });
     (self.facts, self.indexes.stats())
   }

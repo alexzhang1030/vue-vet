@@ -1,0 +1,34 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-cancelled-filter-promise-demand",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-cancelled-filter-promise-demand",
+    "message": "`useDebounceFn` cancelled the earlier promise with undefined, so calling `slice` throws",
+    "help": "First call at 4:11 was superseded at 5:11 before the timer; await at 7:3 fulfills `undefined`. Demand the latest call's result, wait for each call to settle, or set `rejectOnCancel: true` and handle rejection.",
+    "file": "fixtures/rules/no-cancelled-filter-promise-demand/invalid/two-cancelled-promises.vue",
+    "span": {
+      "offset": 191,
+      "length": 21,
+      "line": 7,
+      "column": 2
+    }
+  },
+  {
+    "rule_id": "vue-vet/reactivity/no-cancelled-filter-promise-demand",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-cancelled-filter-promise-demand",
+    "message": "`useDebounceFn` cancelled the earlier promise with undefined, so calling `slice` throws",
+    "help": "First call at 5:11 was superseded at 6:1 before the timer; await at 8:3 fulfills `undefined`. Demand the latest call's result, wait for each call to settle, or set `rejectOnCancel: true` and handle rejection.",
+    "file": "fixtures/rules/no-cancelled-filter-promise-demand/invalid/two-cancelled-promises.vue",
+    "span": {
+      "offset": 214,
+      "length": 21,
+      "line": 8,
+      "column": 2
+    }
+  }
+]

@@ -111,6 +111,10 @@ oracle-injection-demand:
 oracle-vueuse-demand:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node vueuse-demand.mjs
 
+# Vue 3.5.40 / VueUse 13.9.0 cancelled-filter promise premises (issue #224).
+oracle-filter-settlement:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node filter-settlement-contracts.mjs
+
 # Run all non-mutating Rust linters.
 lint-rust: fmt-check check clippy
 
