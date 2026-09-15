@@ -6,12 +6,14 @@ use vize_atelier_core::{
   TemplateChildNode, parse,
 };
 use vue_vet_core::{
-  TemplateAttributeFact, TemplateDirectiveFact, TemplateElementFact, TemplateExpressionFact,
-  TemplateFacts,
+  SourceSpan, TemplateAllocationFact, TemplateAttributeFact, TemplateConditionRelation,
+  TemplateDirectiveFact, TemplateElementFact, TemplateExpressionFact, TemplateFacts,
+  TemplateMemoRelation,
 };
 use vue_vet_oxc::{
   object_literal_has_own_key, slot_prop_alias_identifiers,
-  template_expression_identifiers_with_shadow, v_for_alias_identifiers,
+  template_expression_identifiers_with_shadow, template_memo_tuple, template_simple_identifier,
+  v_for_alias_identifiers,
 };
 
 use crate::AnalyzeError;
@@ -36,14 +38,32 @@ pub fn extract_template_facts(
     &root.children,
     &mut facts,
     &mut scopes,
-    0,
-    0,
     MountContext::default(),
+    &AllocationFrame::default(),
   );
   // Elements follow document-order DFS; expressions are gathered from mixed
   // surfaces and need an explicit source-order pass.
   facts.expressions.sort_by_key(|expression| expression.span.offset);
   Ok(facts)
+}
+
+/// Ancestor allocation relations. Element spans cover start tags only.
+#[derive(Clone, Debug, Default)]
+#[expect(
+  clippy::struct_excessive_bools,
+  reason = "independent inherited allocation flags recorded during the Vize walk"
+)]
+struct AllocationFrame {
+  parent_span: Option<SourceSpan>,
+  condition: Option<TemplateConditionRelation>,
+  memo: Option<TemplateMemoRelation>,
+  v_for: bool,
+  slot: bool,
+  transition: bool,
+  memo_depth: u8,
+  label_depth: usize,
+  name_depth: usize,
+  condition_inside_memo: bool,
 }
 
 /// Stack of template-local aliases (`v-for` / `v-slot`) that shadow script bindings.
@@ -98,19 +118,14 @@ struct MountContext {
   slot: usize,
 }
 
-#[expect(
-  clippy::too_many_arguments,
-  reason = "template walk threads mount flags with existing label/name depths"
-)]
 fn collect_children(
   source: &str,
   template_offset: usize,
   children: &[TemplateChildNode<'_>],
   facts: &mut TemplateFacts,
   scopes: &mut TemplateAliasScopes,
-  label_depth: usize,
-  name_depth: usize,
   mount: MountContext,
+  frame: &AllocationFrame,
 ) -> SubtreeSummary {
   let mut summary = SubtreeSummary::default();
   for child in children {
@@ -122,9 +137,8 @@ fn collect_children(
           element,
           facts,
           scopes,
-          label_depth,
-          name_depth,
           mount,
+          frame,
         ));
       }
       TemplateChildNode::Interpolation(interpolation) => {
@@ -146,8 +160,11 @@ fn collect_children(
       }
       TemplateChildNode::If(if_node) => {
         for branch in &if_node.branches {
+          let mut child_frame = frame.clone();
           if let Some(condition) = &branch.condition {
             push_expression_fact(source, template_offset, "if", condition, facts, scopes);
+            child_frame.condition =
+              Some(condition_relation(source, template_offset, condition, scopes, false));
           }
           let mut nested = mount;
           nested.conditional = nested.conditional.saturating_add(1);
@@ -157,9 +174,8 @@ fn collect_children(
             &branch.children,
             facts,
             scopes,
-            label_depth,
-            name_depth,
             nested,
+            &child_frame,
           ));
         }
       }
@@ -170,21 +186,25 @@ fn collect_children(
         scopes.push(aliases.clone());
         let mut nested = mount;
         nested.repeated = nested.repeated.saturating_add(1);
+        let mut child_frame = frame.clone();
+        child_frame.v_for = true;
         summary = summary.or(collect_children(
           source,
           template_offset,
           &for_node.children,
           facts,
           scopes,
-          label_depth,
-          name_depth,
           nested,
+          &child_frame,
         ));
         scopes.pop_if(&aliases);
       }
       TemplateChildNode::IfBranch(branch) => {
+        let mut child_frame = frame.clone();
         if let Some(condition) = &branch.condition {
           push_expression_fact(source, template_offset, "if", condition, facts, scopes);
+          child_frame.condition =
+            Some(condition_relation(source, template_offset, condition, scopes, false));
         }
         let mut nested = mount;
         nested.conditional = nested.conditional.saturating_add(1);
@@ -194,9 +214,8 @@ fn collect_children(
           &branch.children,
           facts,
           scopes,
-          label_depth,
-          name_depth,
           nested,
+          &child_frame,
         ));
       }
       TemplateChildNode::Text(_)
@@ -207,19 +226,14 @@ fn collect_children(
   summary
 }
 
-#[expect(
-  clippy::too_many_arguments,
-  reason = "template walk threads mount flags with existing label/name depths"
-)]
 fn collect_element(
   source: &str,
   template_offset: usize,
   element: &ElementNode<'_>,
   facts: &mut TemplateFacts,
   scopes: &mut TemplateAliasScopes,
-  label_depth: usize,
-  name_depth: usize,
   mount: MountContext,
+  frame: &AllocationFrame,
 ) -> SubtreeSummary {
   let offset = template_offset.saturating_add(position_offset(element.loc.span.start));
   let end = template_offset.saturating_add(position_offset(element.loc.span.end));
@@ -283,13 +297,16 @@ fn collect_element(
   }
 
   let child_label_depth = if element.tag.eq_ignore_ascii_case("label") {
-    label_depth.saturating_add(1)
+    frame.label_depth.saturating_add(1)
   } else {
-    label_depth
+    frame.label_depth
   };
   // `CommonTooltip :content` / menu wrappers name their default-slot controls.
-  let child_name_depth =
-    if component_provides_slot_name(element) { name_depth.saturating_add(1) } else { name_depth };
+  let child_name_depth = if component_provides_slot_name(element) {
+    frame.name_depth.saturating_add(1)
+  } else {
+    frame.name_depth
+  };
   let object_bind_has_key = directives.iter().any(|directive| {
     directive.name == "bind"
       && directive.argument.is_none()
@@ -331,32 +348,61 @@ fn collect_element(
   }
   // Preserve parent-before-child element order for deterministic fixtures.
   let element_index = facts.elements.len();
+  let element_span = source_span(source, offset, end.saturating_sub(offset));
+  let is_component = matches!(element.tag_type, ElementType::Component);
+  let allocation = allocation_for_element(
+    source,
+    template_offset,
+    element,
+    element_span,
+    is_component,
+    frame,
+    scopes,
+  );
+  let mut child_frame = frame.clone();
+  child_frame.parent_span = Some(element_span);
+  if let Some(condition) = &allocation.condition {
+    child_frame.condition = Some(TemplateConditionRelation { on_self: false, ..condition.clone() });
+  }
+  if let Some(memo) = &allocation.memo {
+    let on_self = memo.on_self;
+    child_frame.memo = Some(TemplateMemoRelation { on_self: false, ..memo.clone() });
+    if on_self {
+      child_frame.memo_depth = child_frame.memo_depth.saturating_add(1);
+    }
+  }
+  child_frame.condition_inside_memo = allocation.condition_inside_memo;
+  child_frame.v_for |= allocation.v_for;
+  child_frame.slot |= allocation.slot;
+  child_frame.transition |= allocation.transition;
+  child_frame.label_depth = child_label_depth;
+  child_frame.name_depth = child_name_depth;
   facts.elements.push(TemplateElementFact {
     tag: element.tag.to_string(),
-    span: source_span(source, offset, end.saturating_sub(offset)),
+    span: element_span,
     attributes,
     directives,
     has_children: !element.children.is_empty(),
     has_accessible_content: false,
     has_labelable_descendant: false,
-    has_label_ancestor: label_depth > 0,
-    has_accessible_name_ancestor: name_depth > 0,
+    has_label_ancestor: frame.label_depth > 0,
+    has_accessible_name_ancestor: frame.name_depth > 0,
     object_bind_has_key,
-    is_component: matches!(element.tag_type, ElementType::Component),
+    is_component,
     has_conditional_ancestor,
     has_for_ancestor,
     has_async_boundary_ancestor,
     has_slot_ancestor,
   });
+  facts.allocations.push(allocation);
   let child_summary = collect_children(
     source,
     template_offset,
     &element.children,
     facts,
     scopes,
-    child_label_depth,
-    child_name_depth,
     child_mount,
+    &child_frame,
   );
   let content_directive = element_has_content_directive(element);
   // Own content only: children / v-text / v-html. Do not treat the control itself
@@ -382,6 +428,177 @@ fn collect_element(
   SubtreeSummary {
     accessible_content: propagate_accessible,
     labelable_control: is_labelable_control_tag(element.tag) || child_summary.labelable_control,
+  }
+}
+
+fn allocation_for_element(
+  source: &str,
+  template_offset: usize,
+  element: &ElementNode<'_>,
+  element_span: SourceSpan,
+  is_component: bool,
+  frame: &AllocationFrame,
+  scopes: &TemplateAliasScopes,
+) -> TemplateAllocationFact {
+  let mut static_ref = None;
+  let mut ref_span = None;
+  let mut callback_ref = false;
+  let mut v_show = false;
+  let mut own_for = false;
+  let mut own_slot = false;
+  for prop in &element.props {
+    match prop {
+      PropNode::Attribute(attribute) if attribute.name == "ref" => {
+        static_ref = attribute
+          .value
+          .as_ref()
+          .map(|value| value.content.trim().to_string())
+          .filter(|value| !value.is_empty());
+        let offset = template_offset.saturating_add(position_offset(attribute.name_loc.span.start));
+        ref_span = Some(source_span(source, offset, attribute.name.len()));
+      }
+      PropNode::Directive(directive) => match directive.name {
+        "bind"
+          if directive
+            .arg
+            .as_ref()
+            .is_some_and(|argument| expression_text(argument).eq_ignore_ascii_case("ref")) =>
+        {
+          callback_ref = true;
+        }
+        "show" => v_show = true,
+        "for" => own_for = true,
+        "slot" | "slot-scope" | "scope" => own_slot = true,
+        _ => {}
+      },
+      PropNode::Attribute(_) => {}
+    }
+  }
+  let v_for = frame.v_for || own_for;
+  let slot = frame.slot || own_slot;
+  let transition = frame.transition || is_transition_tag(element.tag);
+  let own_if = directive_expression(source, template_offset, element, "if");
+  let has_own_if = own_if.is_some();
+  let condition = if let Some((expression, span)) = own_if {
+    Some(condition_from_text(&expression, span, scopes, true))
+  } else {
+    frame.condition.clone()
+  };
+  let own_memo = directive_expression(source, template_offset, element, "memo");
+  let has_own_memo = own_memo.is_some();
+  let memo = if let Some((expression, span)) = own_memo {
+    Some(memo_from_text(&expression, span, scopes, true))
+  } else {
+    frame.memo.clone()
+  };
+  let nested_memo = frame.memo_depth > 1 || (has_own_memo && frame.memo_depth > 0);
+  let condition_inside_memo =
+    if has_own_if { frame.memo.is_some() } else { frame.condition_inside_memo };
+  TemplateAllocationFact {
+    element_span,
+    tag: element.tag.to_string(),
+    is_component,
+    static_ref,
+    ref_span,
+    parent_span: frame.parent_span,
+    condition,
+    memo,
+    v_show,
+    v_for,
+    slot,
+    transition,
+    nested_memo,
+    callback_ref,
+    condition_inside_memo,
+  }
+}
+
+fn is_transition_tag(tag: &str) -> bool {
+  matches!(
+    tag,
+    "Transition"
+      | "TransitionGroup"
+      | "transition"
+      | "transition-group"
+      | "KeepAlive"
+      | "keep-alive"
+  )
+}
+
+fn directive_expression(
+  source: &str,
+  template_offset: usize,
+  element: &ElementNode<'_>,
+  name: &str,
+) -> Option<(String, SourceSpan)> {
+  for prop in &element.props {
+    let PropNode::Directive(directive) = prop else {
+      continue;
+    };
+    if directive.name != name {
+      continue;
+    }
+    let exp = directive.exp.as_ref()?;
+    let text = expression_text(exp);
+    if text.trim().is_empty() {
+      return None;
+    }
+    let loc = exp.loc();
+    let offset = template_offset.saturating_add(position_offset(loc.span.start));
+    let end = template_offset.saturating_add(position_offset(loc.span.end));
+    return Some((text, source_span(source, offset, end.saturating_sub(offset))));
+  }
+  None
+}
+
+fn condition_relation(
+  source: &str,
+  template_offset: usize,
+  expression: &ExpressionNode<'_>,
+  scopes: &TemplateAliasScopes,
+  on_self: bool,
+) -> TemplateConditionRelation {
+  let text = expression_text(expression);
+  let loc = expression.loc();
+  let offset = template_offset.saturating_add(position_offset(loc.span.start));
+  let end = template_offset.saturating_add(position_offset(loc.span.end));
+  let span = source_span(source, offset, end.saturating_sub(offset).max(text.len()));
+  condition_from_text(&text, span, scopes, on_self)
+}
+
+fn condition_from_text(
+  text: &str,
+  span: SourceSpan,
+  scopes: &TemplateAliasScopes,
+  on_self: bool,
+) -> TemplateConditionRelation {
+  let shadowed = scopes.shadowed();
+  let identifiers = Some(template_expression_identifiers_with_shadow(text, "if", &shadowed));
+  TemplateConditionRelation {
+    simple_identifier: template_simple_identifier(text).filter(|name| !shadowed.contains(name)),
+    expression: text.to_owned(),
+    span,
+    identifiers,
+    on_self,
+  }
+}
+
+fn memo_from_text(
+  text: &str,
+  span: SourceSpan,
+  scopes: &TemplateAliasScopes,
+  on_self: bool,
+) -> TemplateMemoRelation {
+  let shadowed = scopes.shadowed();
+  let identifiers = Some(template_expression_identifiers_with_shadow(text, "memo", &shadowed));
+  let tuple = template_memo_tuple(text);
+  TemplateMemoRelation {
+    expression: text.to_owned(),
+    span,
+    identifiers,
+    empty: tuple.as_ref().is_some_and(|tuple| tuple.empty),
+    stable_tuple: tuple.as_ref().is_some_and(|tuple| tuple.stable),
+    on_self,
   }
 }
 

@@ -36,6 +36,7 @@ mod no_nested_watch_without_cleanup;
 mod no_nonreactive_props_destructure;
 mod no_orphaned_scope_watcher;
 mod no_positive_tabindex;
+mod no_pre_flush_template_ref_demand;
 mod no_proxy_structured_clone;
 mod no_redundant_role;
 mod no_returned_watcher_cleanup;
@@ -43,6 +44,7 @@ mod no_toraw_write_of_tracked_state;
 mod no_unused_reactive_binding;
 mod no_v_html;
 mod no_v_if_with_v_for;
+mod no_v_memo_blocked_ref_demand;
 mod no_watch_cleanup_current_source;
 mod prefer_computed;
 mod require_component_is;
@@ -84,11 +86,13 @@ pub fn builtins() -> Vec<&'static dyn Rule> {
     &no_mutating_props::RULE,
     &no_nonreactive_props_destructure::RULE,
     &no_positive_tabindex::RULE,
+    &no_pre_flush_template_ref_demand::RULE,
     &no_redundant_role::RULE,
     &no_lost_shallow_nested_notification::RULE,
     &no_toraw_write_of_tracked_state::RULE,
     &no_unused_reactive_binding::RULE,
     &no_v_html::RULE,
+    &no_v_memo_blocked_ref_demand::RULE,
     &no_v_if_with_v_for::RULE,
     &prefer_computed::RULE,
     &require_component_is::RULE,

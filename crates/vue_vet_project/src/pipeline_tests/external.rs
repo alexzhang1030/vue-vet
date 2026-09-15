@@ -321,7 +321,11 @@ fn non_provisional_external_dts_skips_huge_companion_js() {
     path: "consumer.ts".into(),
     source_len: 64,
     facts: SfcFacts {
-      template: TemplateFacts { elements: Vec::new(), expressions: Vec::new() },
+      template: TemplateFacts {
+        elements: Vec::new(),
+        expressions: Vec::new(),
+        allocations: Vec::new(),
+      },
       script: ScriptFacts {
         blocks: vec![ScriptBlockFacts {
           kind: ScriptKind::Script,
@@ -342,6 +346,7 @@ fn non_provisional_external_dts_skips_huge_companion_js() {
           operands: Vec::new(),
           lifetime: vue_vet_core::ReactivityLifetimeFacts::default(),
           source_contracts: vue_vet_core::SourceContractFacts::default(),
+          template_ref_demands: vue_vet_core::TemplateRefDemandFacts::default(),
           reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
         }],
       },

@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-v-memo-blocked-ref-demand",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-v-memo-blocked-ref-demand",
+    "message": "v-memo reused a first-render subtree, so this template ref was never created",
+    "help": "Include the condition in the memo tuple or invalidate a memo dependency before this demand. Memo at 12:16, condition at 13:17, ref at 13:26.",
+    "file": "fixtures/rules/no-v-memo-blocked-ref-demand/invalid/empty-memo.vue",
+    "span": {
+      "offset": 190,
+      "length": 22,
+      "line": 8,
+      "column": 3
+    }
+  }
+]

@@ -17,7 +17,7 @@ Workspace-internal (`publish = false`).
 | --- | --- | --- |
 | `CACHE_FORMAT_VERSION` | `5` | On-disk entry schema; directory `v5/` |
 | `BASELINE_FORMAT_VERSION` | `1` | Baseline file schema |
-| `RULESET_VERSION` | `40` | Component model-default demand owners (`no-model-default-unsynced-parent-demand`, `no-shared-default-cross-instance-demand`) on the snapshot-demand catalog (v39) |
+| `RULESET_VERSION` | `41` | Template-ref demand facts (`no-pre-flush-template-ref-demand`, `no-v-memo-blocked-ref-demand`) joined from Vize allocation relations, on the model-default demand catalog (v40) |
 | `CACHE_VIZE_CROQUIS_VERSION` | `0.387.0` | Hashed `vize-version` (`AnalysisStackIdentity`) |
 | `CACHE_OXC_PARSER_VERSION` | `0.142.0` | Hashed `oxc-version` (`AnalysisStackIdentity`) |
 

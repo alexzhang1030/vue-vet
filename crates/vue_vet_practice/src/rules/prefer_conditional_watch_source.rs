@@ -119,6 +119,7 @@ mod tests {
           },
           ..SourceContractFacts::default()
         },
+        template_ref_demands: vue_vet_core::TemplateRefDemandFacts::default(),
         reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
       }],
     };
@@ -168,6 +169,7 @@ mod tests {
           },
           ..SourceContractFacts::default()
         },
+        template_ref_demands: vue_vet_core::TemplateRefDemandFacts::default(),
         reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
       }],
     };
@@ -179,6 +181,7 @@ mod tests {
         span: span(0),
         identifiers: Some(vec!["shown".into()]),
       }],
+      allocations: Vec::new(),
     };
     let diagnostics = practice_registry().run_with_environment(
       Path::new("src/App.vue"),

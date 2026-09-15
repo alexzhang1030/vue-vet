@@ -24,7 +24,7 @@ Crate ownership (read before editing that stage):
 | Stage | Crate | Notes |
 | --- | --- | --- |
 | Stable contracts | `vue_vet_core` | facts / diagnostics / `Rule` — no Oxc/Vize types. Graph v41 adds `source_views` / `notification_bypasses` for lost-notification rules; Oxc types stay in `vue_vet_reactivity::trace`. |
-| Adapters | `vue_vet_vize`, `vue_vet_oxc` | short-lived AST → facts only; SFC parse is `vize_croquis::sfc`, never `vize_atelier_sfc` |
+| Adapters | `vue_vet_vize`, `vue_vet_oxc` | short-lived AST → facts only; SFC parse is `vize_croquis::sfc`, never `vize_atelier_sfc`. Template allocation/memo/condition/ref relations are Vue Vet-owned DTOs recorded in the Vize walk (start-tag spans cannot prove descendants) and joined with Oxc demand facts. |
 | Project graph | `vue_vet_project` | see `vue_vet_project` pipeline below |
 | Cross-file seeds | `vue_vet_reactivity` | `ModuleSource` + `trace_modules`; Oxc-taking APIs under `::oxc`; `ModuleSummary` boundary; under-approx |
 | File rules | `vue_vet_rules`, `vue_vet_practice` | consume facts via `vue_vet_rule_query`; practice off score |
@@ -203,6 +203,10 @@ Batch intent (execution lives in tracker issues, not temporary numbers here):
    `SubtreeSummary`; SFC `SfcBlockRevisions` (style/template/script reuse);
    `returns_by_function` for composable shapes; shared `SourceContext`
    (`Arc<str>` + `Arc<LineIndex>`) at analysis / open-document boundaries.
+   Script reuse is `can_reuse_script = reuse_template && reuse_*` because
+   template-ref demand facts are joined during the Oxc script walk. A
+   template-only edit therefore re-runs script analysis (LSP-style latency
+   cost) instead of joining from an allocations digest.
 
 ### Semantic IR layers
 
@@ -277,7 +281,7 @@ File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         imports reuse the canonical Vue-import pass. `watch` still runs the
         ordinary source collector, watch-family option/signature facts, and
         callback-contract collectors (`watch_callbacks.rs`). Combined
-        `RULESET_VERSION` is 40; `REACTIVITY_GRAPH_VERSION` stays 41. Cancelled default-debounce promise identity (`useDebounceFn` wrapper calls, awaited earlier promise, native demand) joins that catalog. Snapshot-demand facts (`json_clone_lossy_type`, `ref_history_snapshot_alias`) require exact `@vueuse/core` `useCloned` / `useManualRefHistory`. Model-default demand facts (`model_defaults`, `mounted_member_demands`, project-joined `unsynced_model_parent_demands` / `shared_default_cross_instance_demands`) join Vize instance flags with Oxc defineModel/ref/expose surfaces.
+        `RULESET_VERSION` is 41; `REACTIVITY_GRAPH_VERSION` stays 41. Cancelled default-debounce promise identity (`useDebounceFn` wrapper calls, awaited earlier promise, native demand) joins that catalog. Snapshot-demand facts (`json_clone_lossy_type`, `ref_history_snapshot_alias`) require exact `@vueuse/core` `useCloned` / `useManualRefHistory`. Model-default demand facts (`model_defaults`, `mounted_member_demands`, project-joined `unsynced_model_parent_demands` / `shared_default_cross_instance_demands`) join Vize instance flags with Oxc defineModel/ref/expose surfaces.
         Scheduling-practice facts (`queued_watch_flush`, `attached_effect_scope`,
         `lazy_computed_async`) live on `SourceContractFacts.scheduling_practice`.
         Named effect-family imports keep source indexes empty when every Oxc
@@ -285,6 +289,9 @@ File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
         no spread (current watch-API rules read that second argument). Ordinary
         sinks and namespace imports keep full indexing. Lifetime facts are a
         separate field owned elsewhere.
+        Template-ref demand facts (`template_ref_demands`: pre-flush and
+        `v-memo` blocked demands) join Vize allocation relations during the
+        Oxc script walk (v41).
         `TemplateElementFact::has_key` includes proven object-form `v-bind`
         keys from Oxc; `is_component` is Vize `ElementType` / JSX
         identifier-reference adapted into stable facts; Vize owns directive extraction)
@@ -390,7 +397,7 @@ source-contract uncertainty. Statement ordinals, preceding exits, watcher
 identity by `NodeId`, and scope-active intervals are built once. Shared
 outer/getter/scope proofs stay memoized. Statement / reference / watcher /
 toggle / computed-edge inspections use a test-only counter; production
-`WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 40.
+`WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 41.
 
 `ModuleSummary` (formerly the opaque `PreparedModuleTrace`) is the formal
 cross-module boundary: imports, exports, provides/injects, local reactivity, and

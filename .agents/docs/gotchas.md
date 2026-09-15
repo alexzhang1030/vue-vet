@@ -141,6 +141,25 @@ the same way as `<template #default>`. Model-default demand owners must not
 treat span containment as mount proof; kebab-case tags trust the project
 `ComponentUsage` edge rather than Vize `is_component`.
 
+## Template-only SFC edits re-run script analysis
+
+`analyze_sfc_facts_reusing` sets `can_reuse_script` / `can_reuse_setup` to
+`reuse_template && reuse_*`. Template-ref demand facts are joined from Vize
+allocations while Oxc walks the script, so a template-only edit cannot keep
+the prior script block. That is a latency trade-off for LSP-style template
+edits; an allocations digest would recover reuse without stale joins. Do not
+relax the conjunction to `reuse_script` alone — a template change would
+leave pre-flush / memo-blocked facts pointing at the previous tree.
+
+## Template element spans cannot prove descendant ownership
+
+Vize element locations cover the start tag, not the nested tree. `v-if`,
+`v-memo`, `v-for`, slot, and parent relations used by template-ref demand
+rules are recorded during the Vize walk as `TemplateAllocationFact`s. Do not
+recover child ownership by testing whether one start-tag span contains
+another. Template expressions are parsed with Oxc (`template_simple_identifier`,
+`template_memo_tuple`); source-text matching is outside the project contract.
+
 ## SFC offsets are not plain string positions
 
 Vize block locations are offsets into the original SFC, while downstream parsers may operate on extracted script or template content. Every extraction needs an explicit offset map back to the original source. Unicode makes byte/character confusion visible; CRLF makes line calculations visible.

@@ -57,6 +57,10 @@ oracle-stale-settlement:
 oracle-source-contracts:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node source-contracts.mjs && node watch-api.mjs && node watch-callback-contracts.mjs && node value-contracts.mjs
 
+# Vue 3.5.40 compiled SFC template-ref demand premises (pre-flush + v-memo).
+oracle-template-ref-demand:
+  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node template-ref-demand.mjs
+
 # Vue 3.5.40 watch-family option/signature premises (issue #224).
 oracle-watch-api:
   cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node watch-api.mjs

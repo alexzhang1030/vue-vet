@@ -1158,3 +1158,71 @@ watch(value, (current) => { if (current !== -1) sink.value = current }, { immedi
   );
   let _ignored = std::fs::remove_dir_all(root);
 }
+
+#[test]
+#[expect(clippy::panic, reason = "session setup failures must fail the integration test")]
+fn template_ref_demand_findings_keep_incremental_identity() {
+  let root = std::env::temp_dir().join(format!("vue-vet-template-demand-{}", std::process::id()));
+  let _ignored = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(&root).unwrap_or_else(|error| panic!("workspace: {error}"));
+  std::fs::write(
+    root.join("Pre.vue"),
+    include_str!("../../../../fixtures/rules/no-pre-flush-template-ref-demand/invalid/basic.vue"),
+  )
+  .unwrap_or_else(|error| panic!("write pre: {error}"));
+  std::fs::write(
+    root.join("Memo.vue"),
+    include_str!("../../../../fixtures/rules/no-v-memo-blocked-ref-demand/invalid/basic.vue"),
+  )
+  .unwrap_or_else(|error| panic!("write memo: {error}"));
+  std::fs::write(
+    root.join("Quiet.vue"),
+    include_str!("../../../../fixtures/rules/no-pre-flush-template-ref-demand/valid/post.vue"),
+  )
+  .unwrap_or_else(|error| panic!("write quiet: {error}"));
+  let session = open_session_threads(root.clone(), 1);
+  let cold = session.analyze().unwrap_or_else(|error| panic!("cold: {error}"));
+  let ids = |snapshot: &AnalysisSnapshot| -> Vec<String> {
+    let mut ids = snapshot
+      .summary
+      .diagnostics
+      .iter()
+      .filter(|diagnostic| {
+        diagnostic.rule_id == "vue-vet/reactivity/no-pre-flush-template-ref-demand"
+          || diagnostic.rule_id == "vue-vet/reactivity/no-v-memo-blocked-ref-demand"
+      })
+      .map(|diagnostic| format!("{}:{}", diagnostic.file, diagnostic.rule_id))
+      .collect::<Vec<_>>();
+    ids.sort();
+    ids
+  };
+  let cold_ids = ids(&cold);
+  assert!(
+    cold_ids.iter().any(|id| id.contains("no-pre-flush-template-ref-demand")),
+    "{cold_ids:?}"
+  );
+  assert!(cold_ids.iter().any(|id| id.contains("no-v-memo-blocked-ref-demand")), "{cold_ids:?}");
+  let warm = session.analyze_affected().unwrap_or_else(|error| panic!("warm: {error}"));
+  assert_eq!(ids(&warm), cold_ids, "warm session must preserve template-ref demand identity");
+  session
+    .apply_changes(ChangeSet::upsert(
+      root.join("Quiet.vue"),
+      include_str!("../../../../fixtures/rules/no-pre-flush-template-ref-demand/valid/post.vue")
+        .into(),
+    ))
+    .unwrap_or_else(|error| panic!("apply: {error}"));
+  let incremental =
+    session.analyze_affected().unwrap_or_else(|error| panic!("incremental: {error}"));
+  let remaining: Vec<_> = ids(&incremental)
+    .into_iter()
+    .filter(|id| id.contains("Pre.vue") || id.contains("Memo.vue"))
+    .collect();
+  let expected: Vec<_> =
+    cold_ids.into_iter().filter(|id| id.contains("Pre.vue") || id.contains("Memo.vue")).collect();
+  assert_eq!(remaining, expected, "unrelated edit must keep template-ref findings");
+  let fresh = open_session_threads(root.clone(), 1)
+    .analyze()
+    .unwrap_or_else(|error| panic!("fresh: {error}"));
+  assert_eq!(ids(&fresh), ids(&incremental), "incremental must equal a fresh scan");
+  let _ignored = std::fs::remove_dir_all(root);
+}

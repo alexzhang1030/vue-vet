@@ -220,6 +220,7 @@ mod tests {
         has_slot_ancestor: false,
       }],
       expressions: Vec::new(),
+      allocations: Vec::new(),
     };
     let mut parent_graph = ReactivityGraph {
       bindings: vec![ReactiveBindingFact {
@@ -322,7 +323,11 @@ mod tests {
       has_async_boundary_ancestor: false,
       has_slot_ancestor: false,
     };
-    let parent_template = TemplateFacts { elements: vec![first, second], expressions: Vec::new() };
+    let parent_template = TemplateFacts {
+      elements: vec![first, second],
+      expressions: Vec::new(),
+      allocations: Vec::new(),
+    };
     let mut parent_graph = ReactivityGraph {
       bindings: vec![
         ReactiveBindingFact {
@@ -429,6 +434,7 @@ mod tests {
         has_slot_ancestor: false,
       }],
       expressions: Vec::new(),
+      allocations: Vec::new(),
     };
     let mut parent_graph = ReactivityGraph {
       bindings: vec![
@@ -520,6 +526,7 @@ mod tests {
         has_slot_ancestor: false,
       }],
       expressions: Vec::new(),
+      allocations: Vec::new(),
     };
     let mut parent_graph = ReactivityGraph {
       bindings: vec![ReactiveBindingFact {
@@ -599,6 +606,7 @@ mod tests {
         has_slot_ancestor: false,
       }],
       expressions: Vec::new(),
+      allocations: Vec::new(),
     };
     let mut parent_graph = ReactivityGraph {
       bindings: vec![ReactiveBindingFact {
@@ -685,6 +693,7 @@ mod tests {
         has_slot_ancestor: false,
       }],
       expressions: Vec::new(),
+      allocations: Vec::new(),
     };
     let mut parent_graph = ReactivityGraph {
       bindings: vec![ReactiveBindingFact {

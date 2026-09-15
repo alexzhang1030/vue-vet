@@ -262,7 +262,11 @@ mod tests {
       path: "components/Demo.vue".into(),
       source_len: sfc.len(),
       facts: SfcFacts {
-        template: TemplateFacts { elements: Vec::new(), expressions: Vec::new() },
+        template: TemplateFacts {
+          elements: Vec::new(),
+          expressions: Vec::new(),
+          allocations: Vec::new(),
+        },
         script: ScriptFacts {
           blocks: vec![ScriptBlockFacts {
             kind: ScriptKind::Setup,
@@ -281,6 +285,7 @@ mod tests {
             operands: Vec::new(),
             lifetime: vue_vet_core::ReactivityLifetimeFacts::default(),
             source_contracts: vue_vet_core::SourceContractFacts::default(),
+            template_ref_demands: vue_vet_core::TemplateRefDemandFacts::default(),
             reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
           }],
         },
@@ -329,7 +334,11 @@ mod tests {
       path: "components/Demo.vue".into(),
       source_len: 1,
       facts: SfcFacts {
-        template: TemplateFacts { elements: Vec::new(), expressions: Vec::new() },
+        template: TemplateFacts {
+          elements: Vec::new(),
+          expressions: Vec::new(),
+          allocations: Vec::new(),
+        },
         script: ScriptFacts {
           blocks: vec![ScriptBlockFacts {
             kind: ScriptKind::Setup,
@@ -356,6 +365,7 @@ mod tests {
             operands: Vec::new(),
             lifetime: vue_vet_core::ReactivityLifetimeFacts::default(),
             source_contracts: vue_vet_core::SourceContractFacts::default(),
+            template_ref_demands: vue_vet_core::TemplateRefDemandFacts::default(),
             reactivity_graph: std::sync::Arc::new(vue_vet_core::ReactivityGraph::default()),
           }],
         },
