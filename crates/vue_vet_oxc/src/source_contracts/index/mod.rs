@@ -45,6 +45,7 @@ use super::shape::{
   resolve_vueuse_api, scalar_of, span_key, unresolved_collection_kind,
 };
 use super::stats::WorkCounter;
+use super::timeline::{self, Timed, Timeline};
 use crate::facts::source_span;
 
 const MAX_ALIAS_DEPTH: u8 = 8;
@@ -624,6 +625,36 @@ pub(super) struct EffectCallback {
   pub api: &'static str,
 }
 
+macro_rules! timed_by_offset {
+  ($($site:ty),* $(,)?) => {
+    $(impl Timed for $site {
+      fn at(&self) -> usize {
+        self.offset
+      }
+    })*
+  };
+}
+
+timed_by_offset!(
+  ValueWrite,
+  MemberWrite,
+  MemberUse,
+  ValueRead,
+  CallUse,
+  UntilAwaitSite,
+  InjectionSite,
+  IdentCall,
+  ArgUse,
+  AwaitSite,
+  MemberCall,
+);
+
+impl Timed for NamedUse {
+  fn at(&self) -> usize {
+    self.site.offset
+  }
+}
+
 #[expect(
   clippy::struct_excessive_bools,
   reason = "clone/map intrinsic poison, prototype mutation, and unresolved origin touch are independent whole-file proofs"
@@ -688,17 +719,17 @@ pub(super) struct Indexes {
   pub closed_objects: HashMap<u64, bool>,
   pub capability_uncertain: HashSet<SymbolId>,
   pub stmt_site: HashMap<NodeId, StmtSite>,
-  pub events_by_block: HashMap<NodeId, Vec<usize>>,
-  pub control_events_by_block: HashMap<NodeId, Vec<usize>>,
-  pub pause_events_by_block: HashMap<NodeId, Vec<usize>>,
+  events_by_block: HashMap<NodeId, Timeline>,
+  control_events_by_block: HashMap<NodeId, Timeline>,
+  pause_events_by_block: HashMap<NodeId, Timeline>,
   pub init_span: HashMap<SymbolId, Span>,
   pub value_write_roots: HashSet<SymbolId>,
   pub member_write_roots: HashSet<SymbolId>,
   pub prototype_mutated: bool,
   pub shadowed_ctors: HashSet<&'static str>,
-  pub stop_offsets: Vec<usize>,
-  pub producer_call_offsets: Vec<usize>,
-  pub allowed_offsets: Vec<usize>,
+  stop_offsets: Timeline,
+  producer_call_offsets: Timeline,
+  allowed_offsets: Timeline,
   pub functions: HashMap<u64, FunctionInfo>,
   pub function_by_node: HashMap<NodeId, Span>,
   pub effect_calls: HashMap<u64, ArgUse>,
@@ -720,12 +751,12 @@ pub(super) struct Indexes {
   member_write_owner: HashMap<(SymbolId, String), (Option<NodeId>, NodeId)>,
   member_call_by_span: HashMap<u64, NamedUse>,
   stops_by_region: HashMap<(SymbolId, Option<NodeId>, NodeId), Vec<MemberUse>>,
-  barriers_by_region: HashMap<NodeId, Vec<usize>>,
+  barriers_by_region: HashMap<NodeId, Timeline>,
   closed_keys: HashMap<u64, HashSet<String>>,
   owners: HashMap<NodeId, Owner>,
   global_this_aliases: HashSet<SymbolId>,
   native_ctor_aliases: HashMap<SymbolId, &'static str>,
-  terminations_by_callable: HashMap<Option<NodeId>, Vec<usize>>,
+  terminations_by_callable: HashMap<Option<NodeId>, Timeline>,
   pub object_literals: HashSet<u64>,
   pub news: HashMap<u64, NewInfo>,
   pub classes: HashMap<SymbolId, ClassRecord>,
@@ -850,9 +881,9 @@ impl Indexes {
       member_write_roots: HashSet::new(),
       prototype_mutated: false,
       shadowed_ctors: HashSet::new(),
-      stop_offsets: Vec::new(),
-      producer_call_offsets: Vec::new(),
-      allowed_offsets: Vec::new(),
+      stop_offsets: Timeline::new(),
+      producer_call_offsets: Timeline::new(),
+      allowed_offsets: Timeline::new(),
       functions: HashMap::new(),
       function_by_node: HashMap::new(),
       effect_calls: HashMap::new(),
@@ -951,24 +982,23 @@ impl Indexes {
     {
       let work = &self.work;
       for events in self.events_by_block.values_mut() {
-        work.sort_by_key(events, |offset| *offset);
-        events.dedup();
+        events.sort(work);
       }
-    }
-    for offsets in self.terminations_by_callable.values_mut() {
-      offsets.sort_unstable();
-    }
-    for barriers in self.barriers_by_region.values_mut() {
-      barriers.sort_unstable();
+      for offsets in self.terminations_by_callable.values_mut() {
+        offsets.sort(work);
+      }
+      for barriers in self.barriers_by_region.values_mut() {
+        barriers.sort(work);
+      }
+      for events in self.control_events_by_block.values_mut() {
+        events.sort(work);
+      }
+      for events in self.pause_events_by_block.values_mut() {
+        events.sort(work);
+      }
     }
     for stops in self.stops_by_region.values_mut() {
       stops.sort_by_key(|stop| stop.offset);
-    }
-    for events in self.control_events_by_block.values_mut() {
-      events.sort_unstable();
-    }
-    for events in self.pause_events_by_block.values_mut() {
-      events.sort_unstable();
     }
     for writes in self.member_writes.values_mut() {
       writes.sort_by_key(|write| write.offset);
@@ -1038,10 +1068,8 @@ impl Indexes {
     for uses in self.value_demands.values_mut() {
       uses.sort_by_key(|use_site| use_site.site.offset);
     }
-    self.work.sort_by_key(&mut self.stop_offsets, |offset| *offset);
-    self.stop_offsets.dedup();
-    self.work.sort_by_key(&mut self.producer_call_offsets, |offset| *offset);
-    self.producer_call_offsets.dedup();
+    self.stop_offsets.sort(&self.work);
+    self.producer_call_offsets.sort(&self.work);
     self.finish_allowed_offsets();
     for uses in self.arg_uses.values_mut() {
       uses.sort_by_key(|use_site| use_site.offset);
@@ -1078,15 +1106,16 @@ impl Indexes {
       .map(Vec::len)
       .chain(self.value_demands.values().map(Vec::len))
       .sum::<usize>();
-    let mut allowed = Vec::with_capacity(
+    let mut allowed = Timeline::new();
+    allowed.reserve(
       self
         .producer_call_offsets
         .len()
         .saturating_add(self.stop_offsets.len())
         .saturating_add(demand_len),
     );
-    allowed.extend_from_slice(&self.producer_call_offsets);
-    allowed.extend_from_slice(&self.stop_offsets);
+    allowed.extend_from(&self.producer_call_offsets);
+    allowed.extend_from(&self.stop_offsets);
     for uses in self.result_demands.values() {
       for demand in uses {
         allowed.push(demand.site.offset);
@@ -1098,8 +1127,7 @@ impl Indexes {
       }
     }
     self.work.add_queries(u64::try_from(allowed.len()).unwrap_or(u64::MAX));
-    self.work.sort_by_key(&mut allowed, |offset| *offset);
-    allowed.dedup();
+    allowed.sort(&self.work);
     self.allowed_offsets = allowed;
   }
 
@@ -1108,11 +1136,8 @@ impl Indexes {
       self.work.add_queries(1);
       return false;
     };
-    let event_count = self.work.exclusive_offsets(events, start, end).len();
-    self.work.add_queries(1);
-    let allowed_count = self.work.exclusive_offsets(&self.allowed_offsets, start, end).len();
-    self.work.add_queries(1);
-    event_count > allowed_count
+    events.count_between(&self.work, start, end)
+      > self.allowed_offsets.count_between(&self.work, start, end)
   }
 
   pub(super) fn sort_timeline<T, K, F>(&self, items: &mut [T], key: F)
@@ -1232,9 +1257,10 @@ impl Indexes {
     node_id: NodeId,
   ) -> Option<InjectionSite> {
     let sites = self.injects_on(key);
-    let index = self.work.partition_point(sites, |site| site.offset < offset);
-    self.work.add_queries(1);
-    sites.get(index).copied().filter(|site| site.node_id == node_id)
+    timeline::from(&self.work, sites, offset)
+      .first()
+      .copied()
+      .filter(|site| site.node_id == node_id)
   }
 
   pub(super) fn native_symbol(&self, root: SymbolId) -> Option<NativeSymbol> {
@@ -1301,9 +1327,7 @@ impl Indexes {
     before: usize,
   ) -> Option<ValueWrite> {
     let writes = self.value_writes_for(root, callable)?;
-    let end = self.work.partition_point(writes, |write| write.offset < before);
-    self.work.add_queries(1);
-    end.checked_sub(1).and_then(|index| writes.get(index)).copied()
+    timeline::last_before(&self.work, writes, before).copied()
   }
 
   pub(super) fn has_simple_value_write_between(
@@ -1316,12 +1340,9 @@ impl Indexes {
       self.work.add_queries(1);
       return false;
     };
-    let index = self.work.partition_point(writes, |write| write.offset <= start);
-    writes.get(index..).is_some_and(|rest| {
-      rest.iter().any(|write| {
-        self.work.add_queries(1);
-        write.offset < end && write.simple_assign
-      })
+    timeline::after(&self.work, writes, start).iter().any(|write| {
+      self.work.add_queries(1);
+      write.offset < end && write.simple_assign
     })
   }
 
@@ -1358,9 +1379,7 @@ impl Indexes {
       self.work.add_queries(1);
       return None;
     };
-    let index = self.work.partition_point(events, |event| event.offset <= after);
-    self.work.add_queries(1);
-    events.get(index).map(|event| event.offset)
+    timeline::first_after(&self.work, events, after).map(|event| event.offset)
   }
 
   pub(super) fn has_member_mutation(&self, root: SymbolId) -> bool {
@@ -1397,14 +1416,24 @@ impl Indexes {
       || self.toref_helper_escape.contains(&root)
   }
 
-  pub(super) fn has_pause_between(&self, block: NodeId, start: usize, end: usize) -> bool {
-    let Some(events) = self.pause_events_by_block.get(&block) else {
+  /// `(lo, hi)`-exclusive membership on one keyed timeline; a missing key
+  /// still charges a query so lane growth stays observable.
+  fn timeline_has_between<K: std::hash::Hash + Eq>(
+    &self,
+    timelines: &HashMap<K, Timeline>,
+    key: &K,
+    lo: usize,
+    hi: usize,
+  ) -> bool {
+    let Some(events) = timelines.get(key) else {
       self.work.add_queries(1);
       return false;
     };
-    let index = self.work.partition_point(events, |offset| *offset <= start);
-    self.work.add_queries(1);
-    events.get(index).is_some_and(|offset| *offset < end)
+    events.has_between(&self.work, lo, hi)
+  }
+
+  pub(super) fn has_pause_between(&self, block: NodeId, start: usize, end: usize) -> bool {
+    self.timeline_has_between(&self.pause_events_by_block, &block, start, end)
   }
 
   pub(super) fn next_control_after(&self, block: NodeId, offset: usize) -> usize {
@@ -1412,29 +1441,15 @@ impl Indexes {
       self.work.add_queries(1);
       return usize::MAX;
     };
-    let index = self.work.partition_point(events, |event| *event <= offset);
-    self.work.add_queries(1);
-    events.get(index).copied().unwrap_or(usize::MAX)
+    events.first_after(&self.work, offset).unwrap_or(usize::MAX)
   }
 
   pub(super) fn has_control_event_between(&self, block: NodeId, start: usize, end: usize) -> bool {
-    let Some(events) = self.control_events_by_block.get(&block) else {
-      self.work.add_queries(1);
-      return false;
-    };
-    let index = self.work.partition_point(events, |offset| *offset <= start);
-    self.work.add_queries(1);
-    events.get(index).is_some_and(|offset| *offset < end)
+    self.timeline_has_between(&self.control_events_by_block, &block, start, end)
   }
 
   pub(super) fn has_event_between(&self, block: NodeId, start: usize, end: usize) -> bool {
-    let Some(events) = self.events_by_block.get(&block) else {
-      self.work.add_queries(1);
-      return false;
-    };
-    let index = self.work.partition_point(events, |offset| *offset <= start);
-    self.work.add_queries(1);
-    events.get(index).is_some_and(|offset| *offset < end)
+    self.timeline_has_between(&self.events_by_block, &block, start, end)
   }
 
   pub(super) fn first_value_write_after(
@@ -1452,9 +1467,7 @@ impl Indexes {
       self.work.add_queries(1);
       return None;
     };
-    let index = self.work.partition_point(writes, |write| write.offset <= offset);
-    self.work.add_queries(1);
-    let next = writes.get(index).copied()?;
+    let next = timeline::first_after(&self.work, writes, offset).copied()?;
     (next.simple_assign && next.fresh_alloc && next.callable == callable && next.block == block)
       .then_some(next)
   }
@@ -1474,9 +1487,7 @@ impl Indexes {
       self.work.add_queries(1);
       return None;
     };
-    let index = self.work.partition_point(writes, |write| write.offset < offset);
-    self.work.add_queries(1);
-    let prior = index.checked_sub(1).and_then(|index| writes.get(index)).copied()?;
+    let prior = timeline::last_before(&self.work, writes, offset).copied()?;
     (prior.callable == callable && prior.block == block).then_some(prior)
   }
 
@@ -1494,8 +1505,7 @@ impl Indexes {
   ) -> Option<ValueRead> {
     self.work.add_queries(1);
     let reads = self.reads.derivation.get(&root).map_or(&[][..], Vec::as_slice);
-    let index = self.work.partition_point(reads, |read| read.offset <= offset);
-    reads.get(index..).into_iter().flatten().copied().find(|read| {
+    timeline::after(&self.work, reads, offset).iter().copied().find(|read| {
       self.work.add_queries(1);
       read.callable == callable && read.block == block
     })
@@ -1707,8 +1717,7 @@ impl Indexes {
     end: usize,
   ) -> bool {
     let sites = self.until_awaits_by_region(callable, region);
-    let from = self.work.partition_point(sites, |site| site.offset <= start);
-    sites.get(from..).is_some_and(|rest| rest.iter().any(|site| site.offset < end))
+    !timeline::between(&self.work, sites, start, end).is_empty()
   }
 
   /// Later `await` expressions are stack-wide barriers. An until timeout
@@ -1742,21 +1751,13 @@ impl Indexes {
     start: usize,
     end: usize,
   ) -> bool {
-    if end <= start {
-      self.work.add_queries(1);
-      return false;
-    }
     let Some(barriers) = self.barriers_by_region.get(&region) else {
       self.work.add_queries(1);
       return false;
     };
-    let index = self.work.partition_point(barriers, |offset| *offset <= start);
-    let Some(rest) = barriers.get(index..) else {
-      return false;
-    };
-    rest.iter().any(|offset| {
+    barriers.between(&self.work, start, end).iter().any(|offset| {
       self.work.add_queries(1);
-      *offset < end && !self.until_is_await_offset(callable, region, *offset)
+      !self.until_is_await_offset(callable, region, *offset)
     })
   }
 
@@ -1805,9 +1806,7 @@ impl Indexes {
     end: usize,
   ) -> impl Iterator<Item = ValueWrite> + '_ {
     let writes = self.value_writes.get(&root).map_or(&[][..], Vec::as_slice);
-    let from = self.work.partition_point(writes, |write| write.offset <= start);
-    let to = self.work.partition_point(writes, |write| write.offset <= end);
-    writes.get(from..to).unwrap_or(&[]).iter().copied()
+    timeline::through(&self.work, timeline::after(&self.work, writes, start), end).iter().copied()
   }
 
   pub(super) fn disposals_of(&self, callable: Option<NodeId>) -> &[DisposeSite] {
@@ -1910,9 +1909,7 @@ impl Indexes {
       self.work.add_queries(1);
       return None;
     };
-    let index = self.work.partition_point(writes, |write| write.offset < offset);
-    self.work.add_queries(1);
-    let prior = index.checked_sub(1).and_then(|index| writes.get(index)).copied()?;
+    let prior = timeline::last_before(&self.work, writes, offset).copied()?;
     (prior.callable == callable && prior.block == block).then_some(prior)
   }
 
@@ -1927,9 +1924,7 @@ impl Indexes {
       self.work.add_queries(1);
       return None;
     };
-    let index = self.work.partition_point(writes, |write| write.offset <= offset);
-    self.work.add_queries(1);
-    let next = writes.get(index).copied()?;
+    let next = timeline::first_after(&self.work, writes, offset).copied()?;
     (next.simple_assign && next.fresh_alloc && next.block == block).then_some(next)
   }
 
@@ -2068,17 +2063,7 @@ impl Indexes {
   }
 
   pub(super) fn has_barrier_between(&self, region: NodeId, start: usize, end: usize) -> bool {
-    if end <= start {
-      self.work.add_queries(1);
-      return false;
-    }
-    let Some(barriers) = self.barriers_by_region.get(&region) else {
-      self.work.add_queries(1);
-      return false;
-    };
-    let index = self.work.partition_point(barriers, |offset| *offset <= start);
-    self.work.add_queries(1);
-    barriers.get(index).is_some_and(|offset| *offset < end)
+    self.timeline_has_between(&self.barriers_by_region, &region, start, end)
   }
 
   pub(super) fn demand_from(&self, site: &MemberUse, origin: DemandOrigin) -> bool {
@@ -2104,9 +2089,7 @@ impl Indexes {
       self.work.add_queries(1);
       return None;
     };
-    let index = self.work.partition_point(stops, |stop| stop.offset < offset);
-    self.work.add_queries(1);
-    index.checked_sub(1).and_then(|index| stops.get(index)).copied()
+    timeline::last_before(&self.work, stops, offset).copied()
   }
 
   pub(super) fn capability_intact(&self, root: SymbolId) -> bool {
@@ -2156,12 +2139,9 @@ impl Indexes {
       self.work.add_queries(1);
       return false;
     };
-    let end = self.work.partition_point(uses, |site| site.offset < before);
-    uses.get(..end).is_some_and(|prior| {
-      prior.iter().any(|site| {
-        self.work.add_queries(1);
-        self.demand_from(site, origin) && needs(site.role)
-      })
+    timeline::before(&self.work, uses, before).iter().any(|site| {
+      self.work.add_queries(1);
+      self.demand_from(site, origin) && needs(site.role)
     })
   }
 
@@ -5127,13 +5107,7 @@ impl Indexes {
     start: usize,
     end: usize,
   ) -> bool {
-    let Some(offsets) = self.terminations_by_callable.get(&callable) else {
-      self.work.add_queries(1);
-      return false;
-    };
-    let index = self.work.partition_point(offsets, |offset| *offset <= start);
-    self.work.add_queries(1);
-    offsets.get(index).is_some_and(|offset| *offset < end)
+    self.timeline_has_between(&self.terminations_by_callable, &callable, start, end)
   }
 
   fn call_reach_is_straight(

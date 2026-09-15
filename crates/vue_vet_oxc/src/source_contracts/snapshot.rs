@@ -10,6 +10,7 @@ use super::Collector;
 use super::index::{CallInfo, MemberUse, NestedWrite, ObjectProp, SnapshotCall};
 use super::proof::{DemandOrigin, classify_reach};
 use super::shape::{Literal, span_key};
+use super::timeline;
 use vue_vet_core::{JsonCloneLossyTypeFact, RefHistorySnapshotAliasFact};
 
 const DATE_METHODS: &[&str] = &["getTime", "getUTCFullYear"];
@@ -583,12 +584,13 @@ impl Collector<'_> {
   }
 
   fn root_value_repaired(&self, root: SymbolId, origin: DemandOrigin, demand: usize) -> bool {
-    self.indexes.value_writes.get(&root).is_some_and(|writes| {
-      writes.iter().any(|write| {
+    let work = self.indexes.work_counter();
+    timeline::between(work, self.indexes.value_writes_on(root), origin.offset, demand).iter().any(
+      |write| {
         self.indexes.note_query();
-        write.callable == origin.callable && write.offset > origin.offset && write.offset < demand
-      })
-    })
+        write.callable == origin.callable
+      },
+    )
   }
 
   fn path_value_repaired(

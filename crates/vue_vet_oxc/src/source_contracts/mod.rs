@@ -85,6 +85,7 @@ mod scheduling_practice;
 mod shape;
 mod snapshot;
 mod stats;
+mod timeline;
 mod until;
 mod vueuse;
 mod watch_api;

@@ -13,6 +13,7 @@ use super::Collector;
 use super::index::{CallInfo, CallUse, MemberUse, ObjectProp, UntilAwaitSite, ValueWrite};
 use super::proof::{DemandOrigin, DemandRole, classify_reach, native_kind_has_method};
 use super::shape::{NativeKind, SYNC_FLUSH, Scalar, Shape, ShapeHint, is_ref_api, span_key};
+use super::timeline;
 use vue_vet_core::{IgnorableAsyncIgnoreWindowFact, SharedComposableFirstInstanceArgsFact};
 
 const IGNORE_OPTION_KEYS: &[&str] = &["flush", "immediate", "deep", "once"];
@@ -492,33 +493,30 @@ impl Collector<'_> {
     }
     let writes = self.indexes.value_writes_for(source, callable)?;
     self.indexes.note_query();
-    let start = self.indexes.work_counter().partition_point(writes, |write| write.offset <= after);
-    writes.get(start..).and_then(|rest| {
-      rest
-        .iter()
-        .find(|write| {
-          self.indexes.note_query();
-          if !write.simple_assign {
-            return false;
-          }
-          if self.indexes.until_non_await_barrier_between(callable, region, after, write.offset) {
-            return false;
-          }
-          let previous = match self.indexes.last_value_write_in(source, callable, write.offset) {
-            Some(prior) if prior.simple_assign => self.indexes.scalar(prior.rhs),
-            Some(_) => None,
-            None => self.vueuse_ref_init_scalar(source),
-          };
-          let Some(previous) = previous else {
-            return false;
-          };
-          let Some(next) = self.indexes.scalar(write.rhs) else {
-            return false;
-          };
-          previous != next
-        })
-        .copied()
-    })
+    timeline::after(self.indexes.work_counter(), writes, after)
+      .iter()
+      .find(|write| {
+        self.indexes.note_query();
+        if !write.simple_assign {
+          return false;
+        }
+        if self.indexes.until_non_await_barrier_between(callable, region, after, write.offset) {
+          return false;
+        }
+        let previous = match self.indexes.last_value_write_in(source, callable, write.offset) {
+          Some(prior) if prior.simple_assign => self.indexes.scalar(prior.rhs),
+          Some(_) => None,
+          None => self.vueuse_ref_init_scalar(source),
+        };
+        let Some(previous) = previous else {
+          return false;
+        };
+        let Some(next) = self.indexes.scalar(write.rhs) else {
+          return false;
+        };
+        previous != next
+      })
+      .copied()
   }
 
   fn vueuse_ref_init_scalar(&self, root: SymbolId) -> Option<Scalar> {

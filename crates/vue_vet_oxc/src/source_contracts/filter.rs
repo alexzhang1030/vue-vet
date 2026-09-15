@@ -13,6 +13,7 @@ use super::Collector;
 use super::index::{CallInfo, CallUse, NamedUse, UntilAwaitSite};
 use super::proof::skip_ts_parent;
 use super::shape::{PrimitiveAtom, PrimitiveKind, native_callable, native_return_kind};
+use super::timeline;
 use vue_vet_core::CancelledFilterPromiseDemandFact;
 
 const KIND_DEPTH: u8 = 8;
@@ -205,17 +206,11 @@ impl Collector<'_> {
     result_kind: PrimitiveKind,
   ) -> Option<FilterSite> {
     let demands = self.indexes.member_calls_on(demand_root);
-    let start = self
-      .indexes
-      .work_counter()
-      .partition_point(demands, |demand| demand.site.offset <= later.offset);
-    demands.get(start..).and_then(|rest| {
-      rest.iter().find_map(|named| {
-        self.indexes.note_query();
-        let awaited =
-          self.await_before_demand(await_root, origin, later.offset, named.site.offset)?;
-        self.demand_site(named, origin, first, later, awaited, result_kind, false)
-      })
+    timeline::after(self.indexes.work_counter(), demands, later.offset).iter().find_map(|named| {
+      self.indexes.note_query();
+      let awaited =
+        self.await_before_demand(await_root, origin, later.offset, named.site.offset)?;
+      self.demand_site(named, origin, first, later, awaited, result_kind, false)
     })
   }
 
@@ -240,13 +235,9 @@ impl Collector<'_> {
     demand_offset: usize,
   ) -> Option<&UntilAwaitSite> {
     let awaits = self.indexes.until_awaits_for_bound(promise);
-    let start =
-      self.indexes.work_counter().partition_point(awaits, |awaited| awaited.offset < after);
-    awaits.get(start..).and_then(|rest| {
-      rest.iter().find(|awaited| {
-        self.indexes.note_query();
-        self.await_ok(awaited, origin, after) && awaited.offset <= demand_offset
-      })
+    timeline::from(self.indexes.work_counter(), awaits, after).iter().find(|awaited| {
+      self.indexes.note_query();
+      self.await_ok(awaited, origin, after) && awaited.offset <= demand_offset
     })
   }
 

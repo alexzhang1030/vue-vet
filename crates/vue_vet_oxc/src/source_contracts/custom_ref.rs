@@ -23,6 +23,7 @@ use super::custom_ref_proof::{
 use super::index::{ArgUse, CallInfo, WriteLiteral};
 use super::proof::classify_reach;
 use super::shape::{Shape, span_key};
+use super::timeline;
 use vue_vet_core::{CustomRefLostNotificationFact, CustomRefLostNotificationReason};
 
 const MAX_BODY_NODES: u32 = 256;
@@ -791,9 +792,10 @@ impl Collector<'_> {
   }
 
   fn has_trigger_ref_after(&self, root: SymbolId, write_offset: usize) -> bool {
-    self.indexes.arg_uses_of(root).iter().any(|use_site| {
+    let work = self.indexes.work_counter();
+    timeline::after(work, self.indexes.arg_uses_of(root), write_offset).iter().any(|use_site| {
       self.indexes.note_query();
-      use_site.api == Some("triggerRef") && use_site.index == 0 && use_site.offset > write_offset
+      use_site.api == Some("triggerRef") && use_site.index == 0
     })
   }
 

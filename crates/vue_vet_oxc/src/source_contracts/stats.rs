@@ -325,23 +325,6 @@ impl WorkCounter {
     items.sort_by_key(key);
   }
 
-  /// Offsets in `(start, end)`: exclusive start, exclusive end.
-  pub(super) fn exclusive_offsets<'a>(
-    &self,
-    items: &'a [usize],
-    start: usize,
-    end: usize,
-  ) -> &'a [usize] {
-    const EMPTY: &[usize] = &[];
-    if end <= start {
-      self.add_queries(1);
-      return EMPTY;
-    }
-    let lo = self.partition_point(items, |offset| *offset <= start);
-    let hi = self.partition_point(items, |offset| *offset < end);
-    items.get(lo..hi).unwrap_or(EMPTY)
-  }
-
   #[cfg(test)]
   pub(super) const fn snapshot(&self) -> SourceContractStats {
     SourceContractStats {
