@@ -41,7 +41,7 @@ CI (`pkg.pr.new` matrix) measures the stripped `vue-vet` file already produced b
 **compression proxy** (mtime 0, no filename) to
 [`fixtures/quality/native-size-budget.json`](../fixtures/quality/native-size-budget.json).
 That gzip figure is not the GitHub `.tar.gz`/`.zip` and not the npm tarball.
-Maxima are ceil(candidate bytes * 1.03) for the `a4ee975` matrix binaries (workflow run 34850542000);
+Maxima are ceil(candidate bytes * 1.03) for the `bab13ee` matrix binaries (workflow run 34917924232);
 baseline rows stay `2dabaad` (run 34034720314), the pre-#241 binaries; the
 script tests require every measured candidate to stay below that baseline on
 both metrics (the #241 savings are still in effect), while the 3% maxima may
@@ -56,7 +56,10 @@ each built-in rule adds code, so the nine rule merges between `fa2debc` and
 8136952 of 8178423 bytes on `main`) and the two Map-key rules in #248 added
 another 131 KB there; #249 + #251 added a further 262 KB; the seven rules in
 #252–#255 (lifetime ownership, cached-result, computed identity, derivation
-practice) added 262 KB more and crossed every target's line at #255. Re-pin the candidate to the rule PR's own matrix run when
+practice) added 262 KB more and crossed every target's line at #255; the four
+rules in #256–#259 (scheduling practice, stale settlement, private receiver,
+`until` timeout) added another ~200 KB and crossed both Darwin lines at #259
+(`aarch64-apple-darwin` 7778752 vs 7756510). Re-pin the candidate to the rule PR's own matrix run when
 a rule lane crosses the line; note the run ID here, keep the `2dabaad`
 baseline rows, and let x86 rows tighten when those binaries shrink. Do not re-pin for dependency or profile changes
 without the CLI/bench gates below.
