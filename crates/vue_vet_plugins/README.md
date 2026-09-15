@@ -124,15 +124,8 @@ Do **not** put ecosystem callee names back into `vue_vet_reactivity` seed loops.
 
 ## Publish
 
-Tagged releases (`.github/workflows/release.yml`) publish in order:
-
-1. `vue_vet_core`
-2. wait for crates.io index
-3. `vue_vet_reactivity`
-4. wait for crates.io index
-5. **`vue_vet_plugins`**
-
-Dry-run publishes all three without waiting.
+Tagged releases publish `vue_vet_core` → `vue_vet_reactivity` →
+`vue_vet_plugins`; see [install / release](../../docs/install.md).
 
 ## Related docs
 

@@ -1,14 +1,12 @@
 # Vue Vapor component-migration assessment
 
-**Status:** shipped as the opt-in `vapor-migration` group (5 IDs:
-`vue-vet/migration/vapor-assessment`, `vapor-sfc-compile-contract`,
+**Status:** shipped as the opt-in `vapor-migration` group
+(`vue-vet/migration/vapor-assessment`, `vapor-sfc-compile-contract`,
 `vapor-memo-contract-dropped`, `vapor-interop-required`,
-`vapor-runtime-envelope`). The research
-oracles in [`research/vapor-migration`](../../research/vapor-migration/README.md)
-remain the evidence base. The product reactivity oracle remains `vue@3.5.40`.
-
-Rerunnable oracles: [`research/vapor-migration`](../../research/vapor-migration/README.md)
-(`just vapor-migration-research`).
+`vapor-runtime-envelope`; per-rule docs under `docs/rules/migration/`). The
+research oracles in [`research/vapor-migration`](../../research/vapor-migration/README.md)
+are the evidence base and rerun with `just vapor-migration-research` (also a CI
+job). The product reactivity oracle remains `vue@3.5.40`.
 
 ## Recommendation
 
@@ -40,9 +38,14 @@ gated on a re-audit of that identity.
 | `@vue/compiler-sfc` / `@vue/compiler-vapor` / `@vue/runtime-vapor` | **3.6.0-rc.7** |
 | `@vue/compiler-dom` / `compiler-ssr` / `server-renderer` | **3.6.0-rc.7** |
 | `@vitejs/plugin-vue` | **6.0.8**, git [`d8ff7d0e8f557a7c1975c07b30e232c69bdbbc03`](https://github.com/vitejs/vite-plugin-vue/tree/d8ff7d0e8f557a7c1975c07b30e232c69bdbbc03) |
-| Default jsdom runtime | `vue/dist/vue.runtime-with-vapor.esm-browser.prod.js` (inlined vapor). The Node `vue` export condition omits vapor APIs. |
+| Default jsdom runtime | `vue/dist/vue.runtime-with-vapor.esm-browser.prod.js` (inlined vapor; `runtime:dev` also runs the development build). The Node `vue` export condition omits vapor APIs. |
+| Harness | `jsdom@26.1.0`, `es-module-lexer@1.7.0` (imports rewritten to a portable relative specifier) |
 | Vue Vet Vize (product, unchanged) | `vize_croquis` / `vize_atelier_core` **0.387.0** |
 | Vue Vet oracle (unchanged) | `vue@3.5.40` |
+
+The runner asserts loaded `Vue.version`, installed `@vue/compiler-sfc`
+`package.version`, and the inlined-build header against this tuple, plus
+`Comp.__vapor` on the mounted component.
 
 Known **3.5** fact: published `@vue/compiler-sfc@3.5.42` has no Vapor compiler
 (tarball member names and JS/JSON/DTS contents contain no `vapor` string). That
@@ -66,10 +69,17 @@ Primary sources:
 
 ## Observed matrix (compact)
 
-Compiler: **66** rows (16 fixtures × 4 client modes + 2 SSR). Runtime: **5**
-fixture pairs, **38** step/teardown checkpoints, `v-memo` divergence and
-`v-once` equality under the admitted envelope. Details and codegen live with
-the oracles; this table is the assessment mapping.
+Compiler: **66** rows (16 fixtures × 4 client modes + 2 SSR rows). Client
+modes are `default-inline` (plugin `features.vapor=false`),
+`plugin-force-inline` (eligibility from the plugin-vue 6.0.8 excerpt),
+`naive-compileScript-vapor-inline` (compiler-sfc API `vapor: true` even when
+plugin force is ineligible), and `default-split` (separate `compileTemplate`);
+`ssr-inline` runs two setup fixtures through SSR `compileTemplate`. Runtime:
+**5** `<script setup>` fixture pairs compiled twice (`vapor: false` →
+`createApp`, `vapor: true` → `createVaporApp`), **38** step/teardown
+checkpoints over initial DOM, clicks, `nextTick`, and unmount, with `v-memo`
+divergence and `v-once` equality. Full codegen is written under the harness's
+gitignored `output/`; this table is the assessment mapping.
 
 | Construct | Verdict at this pin |
 | --- | --- |
@@ -87,6 +97,15 @@ the oracles; this table is the assessment mapping.
 | `<Suspense>` / Teleport-as-VDOM-primitive | **needs-verification** (interop prerequisite) |
 | SSR / hydration | **needs-verification** (SSR codegen observed; hydrate unexecuted) |
 | Router, Pinia, Nuxt, JSX | **needs-verification** |
+
+## Admitted envelope
+
+Oracle-executed constructs (the `runtime-envelope` whitelist,
+`ENVELOPE_VUE_BUILT_IN_DIRECTIVES` / `ENVELOPE_SCRIPT_APIS` in
+`vapor_migration.rs`): `ref`, click without modifiers, text interpolation,
+`v-if` / `v-else`, keyed `v-for` on a `ref` array with `push` / `shift`,
+`v-once`, `v-memo` with a stable key. Widening it requires a passing runtime
+fixture pair in the harness first.
 
 Runtime closure that remains **unknown**: child components, slots, `v-model`,
 event modifiers, provide/inject, KeepAlive / Transition / Teleport, Suspense
@@ -112,11 +131,10 @@ aggregate as fields.
 4. **`interop-required`** — resolved non-`__vapor` child or built-in
    Suspense/Teleport-as-VDOM-primitive without proven `vaporInteropPlugin` /
    `appContext.vdom`. Suspense is a reason inside this check.
-5. **`ssr-hydration-unverified`** — the project uses SSR/hydration, or that
-   mode is unresolved.
-6. **`runtime-envelope`** — every construct outside the admitted oracle
-   envelope (`research/vapor-migration` “Admitted envelope”) is
-   `needs-verification` with an exact span. Empty findings are
+5. **`ssr-hydration`** — the project uses SSR/hydration, or that mode is
+   unresolved.
+6. **`runtime-envelope`** — every construct outside the admitted envelope
+   above is `needs-verification` with an exact span. Empty findings are
    `compiler-candidate`. Never `not-applicable`.
 
 Illustrative assessment record:

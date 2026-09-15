@@ -11,12 +11,11 @@ The project is an early local-doctor implementation. Today it:
 - discovers `.vue` files while respecting `.gitignore`;
 - parses every SFC with Vize;
 - analyzes JavaScript, TypeScript, JSX, and TSX in both Vue script blocks with Oxc;
-- runs 149 file rules and recommendations plus 2 project-graph rules and 5
-  opt-in Vapor migration assessment IDs (156
-  composed inventory IDs), with original-source locations — see
-  [the rule catalog](docs/rules/README.md)
-  (`tracer` tier is the reactivity-graph differentiator; `parity` is Essential
-  completeness, not the product moat);
+- runs file rules and practice recommendations, project-graph rules, and an
+  opt-in Vapor migration assessment, with original-source locations — see
+  [the rule catalog](docs/rules/README.md) or `vue-vet --list-rules` for the
+  current inventory (`tracer` tier is the reactivity-graph differentiator;
+  `parity` is Essential completeness, not the product moat);
 - supports strict versioned configuration, presets, severity overrides, path
   filters, and scoped suppressions;
 - builds a deterministic Vue/Nuxt project graph with initial cross-file findings;

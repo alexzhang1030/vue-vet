@@ -1,115 +1,44 @@
 # Quality baselines (published measurements)
 
-Companion to [quality-gates.md](./quality-gates.md). These are the measurable
-signals Vue Vet publishes for Beta readiness. Numbers that depend on wall-clock
-hardware are informational; CodSpeed remains the PR regression comparator.
+Companion to [quality-gates.md](./quality-gates.md): the measurable signals
+Vue Vet publishes for Beta readiness. Wall-clock numbers are informational;
+CodSpeed is the PR regression comparator. Re-pin history is in `git log`.
 
-## Precision baselines (versioned expectations)
+## Precision baselines
 
 Exact `(rule_id, file)` sets for the quality corpus are committed under
-[`fixtures/quality/precision/`](../fixtures/quality/precision/). CI fails on drift
-via `just quality-gates`.
-
-| Project | Expected findings (TP / known_limitation) | FP pins |
-| --- | ---: | ---: |
-| `basic` | 1 | 0 |
-| `configured` | 1 | 0 |
-| `nuxt-graph` | 2 | 0 |
-| `vue-3.4` | 1 | 0 |
-| `vue-3.5` | 2 | 0 |
-| `prop-flow` | 0 | 2 |
-| `practice-vueuse` | 9 | 0 |
-| `a11y-forms` | 14 | 4 |
-| `suppressed` | 0 | 1 |
-| `module-seeds` | 1 | 0 |
-| `provide-inject` | 0 | 2 |
-| `reactivity-rules` | 2 | 3 |
-
-Expected findings count only `true_positive` / `known_limitation` pairs. FP pins
-must remain absent. Changing either set requires updating the precision JSON and
-explaining the behavior change in the PR. `reactivity-rules` counts (2 TP / 3 FP)
-match `fixtures/quality/precision/reactivity-rules.json`. Remaining TPs are
-unused-binding and `prefer-computed`. FP pins on `SafePatterns.vue` keep unused
-binding, `prefer-computed`, and `no-computed-without-dependency` quiet.
-`ConditionalWatch.vue` is Vue dynamic-dependency evidence only; the withdrawn
-conditional-dep IDs are no longer in the catalog.
+[`fixtures/quality/precision/`](../fixtures/quality/precision/) (one JSON per
+manifest project); `just quality-gates` fails on drift. Expected findings
+count only `true_positive` / `known_limitation` pairs; `false_positive` pins
+must remain absent. Changing either set means updating the JSON and
+explaining the behavior change in the PR.
 
 ## Native binary size budget
 
-CI (`pkg.pr.new` matrix) measures the stripped `vue-vet` file already produced by
-`cargo build --release --target` and compares `file_bytes` plus a gzip-9
-**compression proxy** (mtime 0, no filename) to
-[`fixtures/quality/native-size-budget.json`](../fixtures/quality/native-size-budget.json).
-That gzip figure is not the GitHub `.tar.gz`/`.zip` and not the npm tarball.
-Maxima are ceil(candidate bytes * 1.03) for the `e7af8c8` matrix binaries (workflow run 34925492605);
-baseline rows stay `2dabaad` (run 34034720314), the pre-#241 binaries, as a
-published reference. Until #259 a retired script-level floor also required every measured
-candidate to stay below that baseline on both metrics as proof the #241
-savings were still in effect; at #259 the rule set outgrew those savings
-(`aarch64-unknown-linux-gnu` 9054552 vs 8923248, +1.5%; `x86_64-unknown-linux-gnu`
-10517728 vs 10505408, +0.1%; Darwin arm64 gzip +0.9%) and the guard was
-retired by product decision (@alexzhang1030, 2026-09-15): binary growth from
-built-in rules is expected, the 3% regression budget is the guard that
-matters, and profile or dependency changes are still gated by the CLI/bench
-protocol below rather than by a fixed historical byte count. Budget-only PRs retrigger the matrix
-via path filters on the script and JSON.
-The budget is a regression guard for accidental growth, not a product ceiling:
-each built-in rule adds code, so the nine rule merges between `fa2debc` and
-`bf4de76` consumed the arm64 margin (`aarch64-unknown-linux-gnu` reached
-8136952 of 8178423 bytes on `main`) and the two Map-key rules in #248 added
-another 131 KB there; #249 + #251 added a further 262 KB; the seven rules in
-#252–#255 (lifetime ownership, cached-result, computed identity, derivation
-practice) added 262 KB more and crossed every target's line at #255; the four
-rules in #256–#259 (scheduling practice, stale settlement, private receiver,
-`until` timeout) added another ~200 KB and crossed both Darwin lines at #259
-(`aarch64-apple-darwin` 7778752 vs 7756510); the eight rules in #260–#266
-(same-instance inject, VueUse ignore-window / shared first-instance,
-cancelled filter promise, JSON clone / history alias, `defineModel` default
-demand) added ~440 KB and crossed every target at #266
-(`x86_64-unknown-linux-gnu` 10955728 vs 10833260, +1.1%). Re-pin the candidate to the rule PR's own matrix run when
-a rule lane crosses the line; note the run ID here, keep the `2dabaad`
-baseline rows, and let x86 rows tighten when those binaries shrink. Do not re-pin for dependency or profile changes
-without the CLI/bench gates below.
-Reproduce locally: `just native-size-check <binary> <rust-triple>`.
-Release-profile product-crate overrides are `opt-level = "z"` on
-`vue_vet_rules`, `vue_vet_practice`, and `vue_vet_rule_query`, and
-`opt-level = "s"` on `vue_vet_core`, `vue_vet_reactivity`,
-`vue_vet_session`, `vue_vet_project`, and `vue_vet_cache`.
-`vue_vet_oxc` and `vue_vet_reporters` stay on the profile default. Each
-platform gate uses its own artifact. Those overrides are accepted only with
-exact CLI and cache output equality plus five separate same-tree median 5%
-gates: 5k no-cache CLI; 5k fresh-cache CLI that performs serialization,
-write, and rename then observes a cache hit; and the existing
-`vue_vet_session` / `whole_project` benches
-`whole_project::scan_cold_mixed_1k`, `whole_project::scan_warm_mixed_1k`,
-and `whole_project::json_render_mixed_1k`. Divan `--exact` requires that
-complete path; `--list` leaf names are not the exact filter. `analyze_sfc`
-does not execute those paths and cannot accept the overrides. A clear
-persistent median regression above 5% on any of those five gates requires
-revising the override set. `cargo bench --profile release` Divan programs
-are unwind; the shipped CLI is `panic = "abort"`. CodSpeed keeps explicit
-`opt-level = 3` on the same eight packages so CodSpeed keeps
-instrumentation `opt-level = 3`.
+The `pkg.pr.new` matrix measures the stripped `vue-vet` from
+`cargo build --release --target` and compares `file_bytes` plus a gzip-9 proxy
+(mtime 0, no filename — not the release archive or npm tarball) to
+[`fixtures/quality/native-size-budget.json`](../fixtures/quality/native-size-budget.json);
+maxima are `ceil(candidate × 1.03)` per target and the `baseline` rows are a
+published reference only. Reproduce with
+`just native-size-check <binary> <rust-triple>`.
 
-The LSP/TUI-only runtime closure (`tokio` `"s"`; `tokio-util`, `tower*`,
-`futures*`, `httparse`, `bytes`, `pin-project`, `slab`, `url` / `idna` /
-`icu_*` / `zerovec` family, `mio`, `signal-hook*` `"z"`; issue #241) is not on
-the CLI scan path and not in any bench closure, so its gate is different:
-exact CLI/cache output equality and the two 5k CLI gates as controls, plus a
-real LSP workflow (initialize, `initialized`, `didOpen` diagnostics,
-`didChange` diagnostics, two `--explain-scope` hovers, `shutdown`, clean
-exit; one warmup then 8 ABBA cycles = 16 samples per side; candidate median
-at most 105% of baseline; complete protocol transcript parity) and
-byte-identical MCP `initialize` / `tools/list` / `vue_vet_scan` output.
-Accepted on the 124-rule source `7be6798`: Linux ARM64 8,202,480 ->
-8,136,952 file bytes (gzip-9 3,594,030 -> 3,581,683), macOS ARM64 6,984,128
--> 6,934,944 (3,279,748 -> 3,258,506), LSP workflow median 119.32 ms ->
-119.26 ms (-0.05%), 5k no-cache +1.78%, 5k fresh-cache -3.76%. Linux ARM64
-file bytes only move in 64 KiB ELF page steps; a Tokio-only `"s"` override
-shrank `.text` by 16,064 bytes and left the file size unchanged.
+Standing decision (@alexzhang1030, 2026-09-15): binary growth from built-in
+rules is expected and the 3 % regression budget is the only enforced guard.
+When a rule lane crosses the line, re-pin `candidate` to that PR's own matrix
+run (commit + run id in the JSON). Do **not** re-pin for dependency or profile
+changes without the protocol below.
 
-Record CLI startup and warm-cache process times separately from the
-in-process benchmark measurements.
+Profile overrides (documented beside `[profile.release]` in `Cargo.toml`) are
+accepted only with exact CLI and cache output equality plus same-tree median
+gates within 5 %: 5k no-cache CLI, 5k fresh-cache CLI (serialize, write,
+rename, observe a hit), and `whole_project::scan_cold_mixed_1k` /
+`scan_warm_mixed_1k` / `json_render_mixed_1k` (Divan `--exact` needs the full
+path). LSP-only runtime crates additionally need a real LSP workflow
+(initialize → `didOpen` → `didChange` → two `--explain-scope` hovers →
+`shutdown`; 8 ABBA cycles; median ≤ 105 %) and byte-identical MCP
+`initialize` / `tools/list` / `vue_vet_scan` output. Benchmark builds are
+unwind while the shipped CLI is `panic = "abort"`; time the CLI separately.
 
 ## Performance baselines (CodSpeed suite names)
 
@@ -117,193 +46,45 @@ Stable benchmark names (do not rename without a new baseline rationale):
 
 | Suite | Benchmark | Mode |
 | --- | --- | --- |
-| `vue_vet_vize` / `analyze_sfc` | `analyze_recommended_valid` | SFC micro |
-| `vue_vet_vize` / `analyze_sfc` | `analyze_recommended_invalid` | SFC micro |
-| `vue_vet_session` / `scan_modes` | `scan_cold_nuxt_graph` | Cold project scan |
-| `vue_vet_session` / `scan_modes` | `scan_warm_nuxt_graph` | Warm cache scan |
-| `vue_vet_session` / `scan_modes` | `scan_overlay_nuxt_graph` | Incremental overlay |
-| `vue_vet_session` / `scan_modes` | `scan_diff_filter_nuxt_graph` | Diff filter (`filter_diff` only; analyze and cache teardown are unmeasured) |
-| `vue_vet_reactivity` / `module_scaling` | `trace_1k_modules` | Cold one-shot (`persist_linking_cache` forced off). No-regression, not the locality win. |
-| `vue_vet_reactivity` / `module_scaling` | `trace_warm_leaf_edit_1k_modules` | Warm `ModuleTraceState` + one independent leaf body edit |
-| `vue_vet_session` / `whole_project` | `scan_cold_mixed_1k` | Cold analyze of mixed Vue+TS. Setup generates the tree outside the measured closure. |
-| `vue_vet_session` / `whole_project` | `scan_warm_mixed_1k` | New session after a primed on-disk cache (CLI warm). |
-| `vue_vet_session` / `whole_project` | `scan_script_edit_mixed_1k` | Incremental `analyze_affected` after Parent.vue script overlay. |
-| `vue_vet_session` / `whole_project` | `scan_dependency_edit_mixed_1k` | Incremental `analyze_affected` after `useCounter.ts` overlay. |
-| `vue_vet_session` / `whole_project` | `json_render_mixed_1k` | `render(..., Json)` of a completed 1k mixed snapshot. |
-| `vue_vet_session` / `whole_project` | `scan_template_edit_mixed_5k` | Incremental template overlay on a 5k-file mixed tree. |
+| `vue_vet_vize` / `analyze_sfc` | `analyze_recommended_valid`, `analyze_recommended_invalid` | SFC micro |
+| `vue_vet_session` / `scan_modes` | `scan_cold_nuxt_graph`, `scan_warm_nuxt_graph`, `scan_overlay_nuxt_graph` | Project scan modes |
+| `vue_vet_session` / `scan_modes` | `scan_diff_filter_nuxt_graph` | One `filter_diff`; analyze and teardown unmeasured |
+| `vue_vet_session` / `scan_modes` | `scan_incremental_edits_nuxt_graph`, `scan_noop_analyze_affected`, `scan_independent_leaf_edit_1k_modules`, `scan_incremental_root_edit_1k_modules` | Incremental session |
+| `vue_vet_reactivity` / `module_scaling` | `trace_1k_modules`, `trace_5k_modules`, `trace_1k_reexport_chain` | Cold one-shot (`persist_linking_cache` off); no-regression only |
+| `vue_vet_reactivity` / `module_scaling` | `trace_warm_leaf_edit_1k_modules` | Warm `ModuleTraceState` + one leaf edit — the locality signal |
+| `vue_vet_session` / `whole_project` | `scan_cold_mixed_1k`, `scan_warm_mixed_1k`, `scan_script_edit_mixed_1k`, `scan_dependency_edit_mixed_1k`, `json_render_mixed_1k`, `scan_template_edit_mixed_5k` | Mixed Vue+TS tree; generation and teardown outside the closure |
 
-`whole_project` 1k mixed fixture (250 groups, Parent `:value` + `:label="String(doubled)"`,
-Child `label` prop and `{{ label }}`) must keep the measured baseline: 1000 files,
-≥1000 module graphs, `no-v-html` diagnostics, `ComponentUsage` edges; module-graph
-edges 250 Prop / 750 Computed / 500 Effect / 750 Template; scopes 500 computed /
-500 `watchEffect`; `template_reads` length 750. Generation and cache-directory
-teardown stay outside the timed closure. Each package's suites must be built in
-one CodSpeed invocation; see [the compatibility notes](../.agents/docs/gotchas.md#codspeed-benchmark-attributes-use-the-pinned-compatibility-api).
-
+The `whole_project` fixture asserts its shape in the bench
+(`assert_mixed_semantics`). Each package's suites must be built in one
+CodSpeed invocation ([gotchas](../.agents/docs/gotchas.md#benchmarks)).
 Commands: `just bench`, `just bench-codspeed-build`, `just bench-codspeed-run`.
 
-`scan_diff_filter_nuxt_graph` times one `filter_diff` of the `nuxt-graph`
-summary. Analyze and cache-directory teardown stay outside the measured
-closure. Putting filesystem teardown back in establishes a new baseline.
+## Compatibility, crash-free, and offline spot checks
 
-### Developer-machine spot check (informational)
-
-Captured 2026-07-27 on the maintainer macOS host while landing #13 (not a release
-budget):
-
-| Mode | Corpus | Approx. wall time |
-| --- | --- | --- |
-| Cold CLI scan | `nuxt-graph` | ~0.8–2.9 ms session-analyze band in Divan; CLI process ~0.3–0.8 s including startup |
-| Warm CLI scan | `nuxt-graph` | Divan median ~1.0 ms; CLI process ~0.3 s |
-| Cold/warm identity | `nuxt-graph` | Same diagnostic ids (enforced in tests) |
-
-Prefer CodSpeed deltas over these wall times when judging regressions.
-
-### Whole-project comparison (2026-09-05, PR #216)
-
-Baseline: merged `main` at `ac055715f56b287a13a06db75634b41dc481e214`.
-Candidate: the graph/discovery/cache/report changes in PR #216, including JSON
-path borrowing. Device: Apple M1 Pro, 10 logical CPUs, 32 GiB RAM, macOS,
-Rust 1.98.0. Both builds use optimization level 3, one codegen unit, LTO off,
-and unwind; CLI builds use the committed `codspeed` profile. Analysis uses one
-thread. Baseline/head execution alternates on the same host, with compilation
-completed before timing. Values below are medians, in milliseconds.
-
-The independent session comparison runs the committed `whole_project` mixed
-fixture at 5,000 files (1,250 groups), with seven fresh processes per revision.
-Each process measures cold analysis, no-op, template/script/dependency edits,
-diagnostics-only analysis, JSON rendering, then fresh and primed disk caches.
-Fixture construction and output hashing are outside the timed calls.
-
-| Shared session operation, 5k files | Main | Candidate | Time reduction |
-| --- | ---: | ---: | ---: |
-| Cold analysis | 463.16 | 430.70 | 7.0% |
-| Template edit | 96.86 | 54.41 | 43.8% |
-| Script edit | 96.80 | 53.37 | 44.9% |
-| Dependency edit | 57.55 | 41.19 | 28.4% |
-| Diagnostics-only edit | 93.84 | 52.16 | 44.4% |
-| JSON rendering | 13.79 | 13.33 | 3.4% |
-| Cold analysis plus cache write | 555.59 | 509.81 | 8.2% |
-| Primed disk cache | 159.40 | 150.27 | 5.7% |
-
-The corresponding 1k session run reduces cold analysis 7.9%, template/script
-edits 17.7-18.3%, dependency edits 22.1%, and diagnostics-only edits 18.8%.
-No-op medians remain below 2 microseconds at both sizes. Graph, diagnostic,
-and file-list hashes match between revisions in every measured mode. Separate
-cold-versus-incremental comparisons also assert full graph/summary equality
-and isolation of previously published snapshots.
-
-CLI checks include process startup, report preparation, rendering, and stdout
-capture (`--threads 1 --format json --progress never --color never`). Cold
-uses `--no-cache`; warm uses a primed `--cache-dir`; detail adds
-`--print-reactivity`. Seven alternating rounds on the 5k fixture and nine on
-Nuxt UI yield:
-
-| CLI workload | Main | Candidate | Time reduction |
-| --- | ---: | ---: | ---: |
-| 5k cold JSON | 681.04 | 613.33 | 9.9% |
-| 5k cold detailed JSON | 806.99 | 684.67 | 15.2% |
-| 5k primed-cache JSON | 237.97 | 215.36 | 9.5% |
-| 5k primed-cache detailed JSON | 338.02 | 319.69 | 5.4% |
-| Nuxt UI cold JSON | 482.87 | 469.21 | 2.8% |
-| Nuxt UI cold detailed JSON | 500.24 | 525.64 | -5.1% |
-| Nuxt UI primed-cache JSON | 110.85 | 88.93 | 19.8% |
-| Nuxt UI primed-cache detailed JSON | 126.03 | 124.20 | 1.5% |
-
-Peak RSS from `/usr/bin/time -l` for primed-cache normal JSON falls from
-82.9 to 74.3 MB at 5k files, and 61.8 to 55.0 MB on Nuxt UI. Normal and detailed
-JSON hashes match across revisions. The external workload is public `nuxt/ui`
-at `fbb9e22032072fb2bb03fb86496809070f54d7b2`, 1,298 scanned files and 7,011
-diagnostics, with package dependencies absent; it measures the fixed source
-tree and resolver fallback behavior. It supplies throughput evidence only.
-
-Cold Nuxt UI timings vary between batches: an earlier seven-round detailed
-run showed a 1.9% reduction, while the nine-round run above showed a 5.1%
-increase. Treat that path as an unresolved small wall-time variation. A
-same-process, same-input, 100-round alternating renderer comparison isolates
-JSON path borrowing: 13.35 to 12.94 ms (3.0%), with byte-identical reports.
-Wall-time measurements are informational; review all 20 current CodSpeed
-benchmarks for the final PR commit before accepting its performance gate.
-
-Reproduce the committed synthetic workloads with `just bench` and
-`just bench-codspeed-build` / `just bench-codspeed-run`. Acceptance also covers
-the release-profile binary, repeated LSP edits, MCP cold/warm scan, finding and
-scope explain, safe-fix preview, and workspace bounds. Local `just roll-rust`
-passes with the reporter regression test included. The release binary is built
-with the unchanged fat-LTO/abort profile and checked separately from timing.
-`cargo bench --profile release` forces unwind; those Divan artifacts measure
-the release-optimization/unwind path. Release CLI timing measures the abort path.
-
-## Compatibility baselines
-
-Pinned analysis stack versions are machine-checked in
+Pinned analysis-stack versions are machine-checked in
 [`fixtures/quality/compat-matrix.json`](../fixtures/quality/compat-matrix.json)
-via `just compat-matrix`. Upgrade procedure:
-[vize-compatibility.md](./vize-compatibility.md).
+via `just compat-matrix` ([upgrade procedure](./vize-compatibility.md)).
+`reference_fixture_corpus_never_crashes` (CLI tests) walks the full
+`fixtures/` corpus; releases also run `just quality-gates` and `just oracle`.
 
-## Crash-free baseline
+External showcase apps (`antfu/vitesse`, `antfu/vitesse-lite`, `nuxt/starter`)
+are reviewed offline only — licenses and mutable trees keep them out of
+`fixtures/quality/manifest.json`. Run with dependencies installed so package
+resolution is External, and re-run after major a11y, project-graph, or tracer
+changes. Each issue class they surfaced is pinned in the CI corpus or rule
+fixtures. Still expected quiet: Vite-only aliases not in tsconfig, dynamic
+imports, App Tree provide/inject beyond the unique-key index.
 
-`reference_fixture_corpus_never_crashes` in the CLI test suite walks the full
-`fixtures/` source corpus. Releases also run `just quality-gates` and
-`just oracle` before building binaries.
+## Beta cut checklist
 
-## Offline real-repo spot checks (not CI inputs)
+Do not tag Beta while any of these is red, from a clean `main` tip:
 
-External showcase apps are reviewed offline only (licenses + mutable trees). Do
-not add them to `fixtures/quality/manifest.json` unless they become checksummed,
-project-owned fixtures.
+1. `just roll-rust`, `just compat-matrix`, `just quality-gates`, `just oracle`.
+2. CodSpeed on the release commit shows no unexplained regression versus the
+   previous published train; Codecov project/patch thresholds hold.
+3. Native release matrix targets in `release.yml` match [install](./install.md).
+4. Release notes link this file, `quality-gates.md`, and the CodSpeed report,
+   and state the version train and any precision expectation delta.
+5. Tag and publish only after the release workflow's gate jobs pass.
 
-Captured 2026-08-10 with `vue-vet` at tip (post `defineModels` ModelRef seeds).
-Re-run offline after major a11y, project-graph, or tracer binding changes.
-Require `pnpm install` (or equivalent) so package resolution is External rather
-than unresolved-import noise.
-
-| Repo | License | Setup | Observed findings (informational) |
-| --- | --- | --- | --- |
-| [antfu/vitesse-lite](https://github.com/antfu/vitesse-lite) @ tip | MIT | `pnpm install` | No crash. Icon-only footer: `button-has-content` + `anchor-has-content` (static `title="GitHub"` carries safe `aria-label` insert). `TheInput` `form-control-has-label` (reusable control with `id` + `$attrs`). Standard `defineModel()` stays quiet. |
-| [nuxt/starter](https://github.com/nuxt/starter) `v4` | MIT | `pnpm install` | No crash; **0** findings on the minimal app. |
-| [antfu/vitesse](https://github.com/antfu/vitesse) @ tip | MIT | `pnpm install` | No crash. Footer icon controls: `anchor-has-content`×4 + `button-has-content` (bound `:title` stays report-only; static GitHub `title` has safe edit). `TheInput` `form-control-has-label`. Vue Macros `defineModels` destructure is **quiet** for `v-model` (was a false positive before ModelRef seeds). |
-
-Corpus coverage that pins the same classes of issue in CI:
-
-- Icon-only / named controls → `a11y-forms` (`IconLink`, `EmptyButton`, `SafeNamedControls`)
-- RouterLink accessible name → rule fixtures under `fixtures/rules/anchor-has-content`
-- Prop under-approx quiet gaps → `prop-flow` (`SpreadChild` whole-object `v-bind`; computed/bracket/call expressions)
-- Unique-key provide/inject → `provide-inject`
-- Core reactivity lint TPs → `reactivity-rules` (+ after-await in `module-seeds`)
-- `defineModel` / `defineModels` quiet for `no-v-model-nonreactive-source` → rule fixtures under `fixtures/rules/no-v-model-nonreactive-source`
-
-Still expected quiet outside CI corpus: Vite-only aliases not in tsconfig,
-dynamic imports, App Tree provide/inject beyond the unique-key index.
-
-## Publishing with a Beta tag
-
-Release notes for Beta+ should link:
-
-1. This file
-2. `docs/quality-gates.md`
-3. The CodSpeed report for the release commit
-4. A short note if precision expectations changed since the previous tag
-
-### Beta cut checklist
-
-Do not tag Beta while any of these is red. Run from a clean `main` tip:
-
-1. `just roll-rust`
-2. `just compat-matrix`
-3. `just quality-gates`
-4. `just oracle`
-5. Confirm CodSpeed on the release commit has no unexplained regression vs the
-   previous published train
-6. Confirm Codecov project/patch thresholds still hold on the release PR or tip
-7. Confirm the native release matrix targets in `release.yml` still match
-   [install docs](./install.md)
-8. Draft release notes that include the four links above plus:
-   - version train (`vX.Y.Z` crates.io / npm / GitHub archives)
-   - one-paragraph precision summary (corpus size, TP count, FP pins)
-   - known quiet gaps (this file’s offline spot-check section)
-9. Tag and publish only after the release workflow’s gate jobs pass
-
-Post-Beta engineering that does **not** block the tag: real-repo offline FP
-passes, oracle-backed long-tail Factory / `.d.ts` seeds, extra single-file safe
-fix producers, multi-file fix transactions.
+Post-Beta work that does not block the tag: [ROADMAP.md](../ROADMAP.md).

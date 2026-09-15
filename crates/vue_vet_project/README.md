@@ -18,13 +18,13 @@ Workspace-internal (`publish = false`). Product builds auto-load
 
 ## Versions
 
-| Constant | Value | Role |
-| --- | --- | --- |
-| `CONVENTIONS_VERSION` | `18` | Nuxt / Vite map + type-vs-runtime / Content layer identity |
-| `OXC_RESOLVER_VERSION` | `"11.21.0"` | Pinned resolver (cache key field) |
-| `EXTERNAL_COMPANION_MAX_BYTES` | 1 MiB | Cap for companion `.js` body loads |
-| `PROJECT_RULE_IDS` | `unresolved-import`, `unused-component` | Project diagnostics |
-| `join_model_demand_facts` | component uses × model names × path versions | File-rule findings for the two model-default demand owners |
+| Constant | Role |
+| --- | --- |
+| `CONVENTIONS_VERSION` (`model.rs`) | Nuxt / Vite map + type-vs-runtime / Content layer identity; bump when convention derivation changes |
+| `OXC_RESOLVER_VERSION` (`resolve.rs`) | Pinned resolver, must equal the workspace `oxc_resolver` pin (cache key field) |
+| `EXTERNAL_COMPANION_MAX_BYTES` | Cap for companion `.js` body loads |
+| `PROJECT_RULE_IDS` | `unresolved-import`, `unused-component` project diagnostics |
+| `join_model_demand_facts` | component uses × model names × path versions → file-rule facts for the model-default demand owners |
 
 ## Pipeline
 

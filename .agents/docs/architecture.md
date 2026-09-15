@@ -2,7 +2,7 @@
 
 ## Monorepo analysis pipeline (end-to-end)
 
-One open pipeline across crates — no side-pocket “magic” hosts. Each crate is a
+One open pipeline across crates — no side-pocket "magic" hosts. Each crate is a
 stage owner; `lib.rs` files stay thin façades where the crate has been split.
 
 ```text
@@ -19,13 +19,14 @@ vue-vet CLI / --lsp / --mcp
   -> vue_vet_reporters | vue_vet_lsp | vue_vet_mcp
 ```
 
-Crate ownership (read before editing that stage):
+Crate ownership (read before editing that stage; each crate's `README.md`
+carries its module layout and public API — see [docs/crates.md](../../docs/crates.md)):
 
 | Stage | Crate | Notes |
 | --- | --- | --- |
-| Stable contracts | `vue_vet_core` | facts / diagnostics / `Rule` — no Oxc/Vize types. Graph v41 adds `source_views` / `notification_bypasses` for lost-notification rules; Oxc types stay in `vue_vet_reactivity::trace`. |
+| Stable contracts | `vue_vet_core` | facts / diagnostics / `Rule` — no Oxc/Vize types; Oxc types stay in `vue_vet_reactivity::trace`. |
 | Adapters | `vue_vet_vize`, `vue_vet_oxc` | short-lived AST → facts only; SFC parse is `vize_croquis::sfc`, never `vize_atelier_sfc`. Template allocation/memo/condition/ref relations are Vue Vet-owned DTOs recorded in the Vize walk (start-tag spans cannot prove descendants) and joined with Oxc demand facts. |
-| Project graph | `vue_vet_project` | see `vue_vet_project` pipeline below |
+| Project graph | `vue_vet_project` | see [`vue_vet_project` pipeline](#vue_vet_project-pipeline-crate-layout) |
 | Cross-file seeds | `vue_vet_reactivity` | `ModuleSource` + `trace_modules`; Oxc-taking APIs under `::oxc`; `ModuleSummary` boundary; under-approx |
 | File rules | `vue_vet_rules`, `vue_vet_practice` | consume facts via `vue_vet_rule_query`; practice off score |
 | Orchestration | `vue_vet_session` | thin façade; `pipeline` stages discovery → facts → project → rules → finalize |
@@ -52,126 +53,82 @@ vue-vet CLI
 
 ### Performance model (oxlint-inspired)
 
-- **One retained input snapshot per session revision** — initial discovery walks
-  and reads each source, manifest, and resolver input once. Cache lookup and a
+- **One retained input snapshot per session revision** — discovery walks and
+  reads each source, manifest, and resolver input once. Cache lookup and a
   cache-miss analysis share that snapshot; `apply_changes` updates only named
-  paths. Sources are retained as `Arc<str>`, Nuxt declaration mappings are built
-  from the same bytes, and package environments are parsed once into
-  `PackageIndex`.
+  paths. Sources are retained as `Arc<str>`; package environments are parsed
+  once into `PackageIndex`.
 - **Files parallel, pipeline per file sequential** — parse / facts / seed-aware
-  rules use Rayon (`--threads N` optional). The same bound is passed to module
-  tracing, so `--threads` constrains the complete scan rather than only the
-  outer file pass.
-- **Rules are pass-based, not “each rule re-scans everything”** — `Rule` exposes
-  oxlint-style hooks over Vue Vet facts (not dependency AST):
-  - `run_once` — whole-file / cross-fact aggregation
-  - `run_on` + `fact_kinds` — per-fact visitor with a bitset interest set
-  - `RuleRegistry` runs `run_once` once per rule, then a **single walk** over each
-    fact surface (template elements, script calls, reactivity scopes, …) dispatching
-    only bucketed interested rules. Rules must report immediately; they must not
-    `collect` intermediate vectors and re-scan them.
+  rules use Rayon (`--threads N`). The same bound is passed to module tracing,
+  so `--threads` constrains the complete scan.
+- **Rules are pass-based, not "each rule re-scans everything"** — `Rule`
+  exposes oxlint-style hooks over Vue Vet facts (not dependency AST):
+  `run_once` for whole-file aggregation, `run_on` + `fact_kinds` for a per-fact
+  visitor with a bitset interest set. `RuleRegistry` runs `run_once` once per
+  rule, then a **single walk** over each fact surface dispatching only bucketed
+  interested rules. Rules report immediately; they do not `collect` and
+  re-scan.
 - **Two-phase bounded module reactivity** — `TraceModulesOptions::max_workers`
-  caps both Rayon phases; there is never one native thread per module. Oxc's
-  adapter extracts script facts, the local graph, and opaque Vue Vet-owned module
-  summaries from one semantic. The coordinator resolves seeds from those
-  summaries. Modules whose seed plan cannot materialize reuse their local graph;
-  a consumer whose plan can materialize reparses only when its source or
-  resolved seed plan changed, while unchanged final graphs are reused from
-  `ModuleTraceState`. Oxc arena values never cross
-  a thread or adapter boundary and the workspace still forbids `unsafe_code`.
-- **Dirty-set scheduling (parse locality)** — `apply_changes` retains the returned
-  dirty `FileId` set in `PendingChanges`. `analyze_affected` returns the last
-  snapshot when the workspace revision is unchanged (refcount-cheap for shared
-  `summary`/`graph`; other snapshot fields may still clone). Otherwise a
-  `ChangeImpact` + `DirtyPlan` decide which files re-parse, which need
-  environment/rule refresh, and which diagnostics to finalize. `DirtyPlan.rule_files`
-  is the file-rule invalidation set (Vue SFCs and JS/TS/JSX/TSX), not Vue-only —
-  otherwise a TSX `didChange` or a `.ts` seed/call-only file reuses stale diagnostics.
-  Execution still filters with `needs_file_rules` after module graphs are applied.
-  Cached file `RuleEnvironment` is reused when `force_full_parse` is false and
-  the file is outside `impact.environment`. Cold start, package epoch, and new
-  sources query the current PackageIndex. Plain JS/TS expose one primary module;
-  after linking, eligibility uses `module_source.id` and language. Vue
-  dual-script looks up both surfaces; deleted `.vue` FileIds keep the ordinary
-  dirty summary. `DirtyPlan.rule_files` is the file-rule kinds among the
-  affected `SourceInput`s. Dirty parse is real; dirty linking / graph
-  materialization / diagnostic store updates are still incomplete — see
-  **Post-#107 locality gap**.
-- **Incremental project stages** — `ProjectSession` retains the source snapshot,
-  per-file Vize/Oxc facts, raw file diagnostics, structural edge partitions,
-  module seed plans/final graphs, and the reverse dependency index.   Unrelated
-  sources are not re-parsed on a normal edit. After a warm persist scan the
-  tracer receives a source-dirty subset of `Arc<ModuleSource>` and
-  `retain_cached_modules`. Linking compares live surfaces in place and
-  merges cached summaries only on a miss. Persist is a
-  refcount. The report is this-pass only. Unchanged graphs stay in
-  `ModuleTraceState`; layers read that cache and store
-  `Arc<[Arc<ModuleReactivity>]>` instead of a cloned live-id set or
-  emitted universe. `LayeredInputKey.modules` is sorted by `ModuleId`
-  (`BTreeSet` construction; warm scans patch pointers only) so a leaf
-  rebuild probes with binary search. Template/prop layers look up files by
-  path and expand prop children from a file-path index. ProjectFile order
-  caches `normalized_path` once per file (`sort_by_cached_key`). Default CLI
-  reports use count-only reactivity stats; `--print-reactivity` attaches
-  `modules_detail`. JSON diagnostics and edits borrow their normalized `FileId`
-  paths; opaque finding IDs use that same path and preserve the wire contract.
+  caps both Rayon phases; never one native thread per module. The Oxc adapter
+  extracts script facts, the local graph, and opaque module summaries from one
+  semantic; the coordinator resolves seeds from those summaries. Modules whose
+  seed plan cannot materialize reuse their local graph; a consumer reparses
+  only when its source or resolved seed plan changed, and unchanged final
+  graphs are reused from `ModuleTraceState`. Oxc arena values never cross a
+  thread or adapter boundary; the workspace forbids `unsafe_code`.
+- **Dirty-set scheduling (parse locality)** — `apply_changes` retains the dirty
+  `FileId` set in `PendingChanges`. `analyze_affected` returns the last
+  snapshot when the revision is unchanged; otherwise `ChangeImpact` +
+  `DirtyPlan` decide which files re-parse, which need environment/rule
+  refresh, and which diagnostics to finalize. `DirtyPlan.rule_files` covers
+  Vue SFCs **and** JS/TS/JSX/TSX. Cached file `RuleEnvironment` is reused when
+  `force_full_parse` is false and the file is outside `impact.environment`.
+- **Incremental project stages** — `ProjectSession` retains the source
+  snapshot, per-file facts, raw file diagnostics, structural edge partitions,
+  module seed plans/final graphs, and the reverse dependency index. After a
+  warm persist scan the tracer receives a source-dirty subset of
+  `Arc<ModuleSource>` plus `retain_cached_modules`; linking compares live
+  surfaces in place and merges cached summaries only on a miss. Layers read
+  `ModuleTraceState` and store `Arc<[Arc<ModuleReactivity>]>`;
+  `LayeredInputKey.modules` is sorted by `ModuleId` so a leaf rebuild probes
+  with binary search. Default CLI reports use count-only reactivity stats;
+  `--print-reactivity` attaches `modules_detail`.
 - **Atomic session publication** — the workspace revision, retained input
-  snapshot, and committed analysis state share one `SessionCore` synchronization
-  domain. Analysis captures `Arc` snapshots under the lock, computes outside it,
-  and commits only when the same revision is still current. Input mutations are
-  transactional (copy-then-commit) and advance the revision in the same critical
-  section before releasing that lock.
+  snapshot, and committed analysis state share one `SessionCore` lock.
+  Analysis captures `Arc` snapshots under the lock, computes outside it, and
+  commits only when the same revision is still current.
 - **Resolver-context parity** — `ProjectContext.epochs` tracks independent
-  counters for package / lockfile / tsconfig / Nuxt / source-membership so
-  debounced mutations cannot drop a prior kind. Context changes must not be
-  equated with re-parse: tsconfig/lockfile/membership bump resolution and
-  indexes; package Vue-version / Nuxt declarations refresh environments, rules,
-  and component conventions. File-rule diagnostic reuse still requires matching
-  primary and ordinary final module graphs. Incremental results remain equal to
-  a clean scan.
-- **Shared Rayon pool** — session `--threads N` lazily builds one persistent pool
-  on the first real scan (never on warm cache hits) and passes
-  `TraceModulesOptions { reuse_current_pool: true }`. Standalone
-  `trace_modules_with_options` still installs a dedicated pool sized to
-  `max_workers`. `AnalysisSnapshot` shares `summary`/`graph` via `Arc`.
+  counters for package / lockfile / tsconfig / Nuxt / source-membership.
+  Context changes are not re-parse: tsconfig/lockfile/membership bump
+  resolution and indexes; package Vue-version / Nuxt declarations refresh
+  environments, rules, and component conventions. Incremental results remain
+  equal to a clean scan.
+- **Shared Rayon pool** — session builds one persistent pool lazily on the
+  first real scan (never on warm cache hits) and passes
+  `TraceModulesOptions { reuse_current_pool: true }`; standalone
+  `trace_modules_with_options` installs a dedicated pool sized to
+  `max_workers`.
 - **Analysis state preparation** — each run seeds a candidate from the previous
-  committed state, shares `ProjectGraphState` and file/diagnostic maps via `Arc`
-  (copy-on-write / `share_from` on cache hit), and reuses `Arc<AnalyzedCandidate>`
-  instead of deep-cloning per-file IR. `ModuleSummary` / `ModuleReactivity.graph` /
-  `ScriptBlockFacts.reactivity_graph` share graphs by `Arc`; mutations use
-  `Arc::make_mut`. Export resolution uses a worklist rather than cloning the full
-  resolved map each fixed-point round. Session input updates fork the snapshot Arc
-  once (`Arc::make_mut` + in-place apply), never clone-then-clone.
+  committed state, shares `ProjectGraphState` and file/diagnostic maps via
+  `Arc` (copy-on-write / `share_from` on cache hit), and reuses
+  `Arc<AnalyzedCandidate>`. Graphs are shared by `Arc` and mutated with
+  `Arc::make_mut`; export resolution is a worklist; session input updates fork
+  the snapshot once.
 - **Partial module outcomes** — parse/link failures are scoped
-  `AnalysisIssue`s. Healthy modules still reach the cross-module fixed point;
-  one bad module never forces every other module back to an isolated local graph.
-- **Determinism after concurrency** — diagnostics are sorted in `ScanSummary::finish`;
-  module results are sorted by module id after parallel re-trace.
-- **Still single-process Rust** — no JS rule host; adapters stay behind Vue Vet facts.
-  Facts remain the stable rule surface; the pass walks those facts, not Oxc/Vize nodes.
+  `AnalysisIssue`s; one bad module never forces every other module back to an
+  isolated local graph.
+- **Determinism after concurrency** — diagnostics are sorted in
+  `ScanSummary::finish`; module results are sorted by module id.
+- **Still single-process Rust** — no JS rule host; the pass walks Vue Vet
+  facts, not Oxc/Vize nodes.
 
-### Post-#107 locality gap
+### Locality plan shape
 
-PR [#107](https://github.com/alexzhang1030/vue-vet/pull/107) proved dirty-set
-scheduling and shared IR are the right direction. Batch 1 execution locality is
-tracked in [#108](https://github.com/alexzhang1030/vue-vet/issues/108). Current state:
-
-```text
-dirty source → fewer parses                    (shipped)
-warm linking surface → skip export/seed FP     (shipped)
-warm base+facts → reuse template/prop layers   (shipped)
-TrackingScopeIR / Vize bottom-up               (shipped)
-export-closure seed recompute + SFC blocks     (shipped)
-warm disk hit stays cache-load cheap           (shipped; no eager IR hydrate)
-returns_by_function + SourceContext            (shipped)
-subset module input / cached universe          (shipped)
-skip cached-summary merge on linking hit       (shipped)
-```
-
-Do **not** pursue a generalized unified AST IR. Further locality work belongs in
-narrower dirty linking / diagnostics plans, not a new AST layer.
-
-Execution plan shape (session-owned):
+Dirty-set scheduling and shared IR landed through
+[#107](https://github.com/alexzhang1030/vue-vet/pull/107) /
+[#108](https://github.com/alexzhang1030/vue-vet/issues/108). Do **not**
+pursue a generalized unified AST IR; further locality work belongs in narrower
+dirty linking / diagnostics plans.
 
 ```text
 ChangeImpact { parse, environment, resolution, component_index, membership }
@@ -182,31 +139,16 @@ ChangeImpact { parse, environment, resolution, component_index, membership }
                          seeded_reparses, COW clones, …)
 ```
 
-Batch intent (execution lives in tracker issues, not temporary numbers here):
-
-1. **Execution locality** — domain dirty plans; context changes without re-parse;
-   work counters; `AnalysisProduct` so LSP publishes diagnostics without the full
-   graph DTO (`analyze_affected_product` / `diagnostics_for`).
-2. **Project/module state** — `ProjectGraphState` keeps internal Arc partitions
-   (structural / module-trace / layered) plus a retained resolver. Linking cache
-   skips export/provide/seed fixed points when the linking surface (imports,
-   exports, locals, provides, injects — not `local_graph`) and links are
-   unchanged; when only some surfaces change, seed plans recompute for the
-   export/inject closure. Linking reuse retains `Arc<ModuleSummary>` and prefers
-   `Arc::ptr_eq` — never clone a per-module linking-surface map on every scan.
-   Layered cache reuses post-template/prop graphs (`Arc<[Arc<ModuleReactivity>]>`)
-   when base graph Arcs and `SfcFacts` Arcs are unchanged; a leaf edit patches
-   the stored key in place. Disk-cache hits stay cache-load cheap and must
-   not eagerly re-scan; empty session IR is seeded on the first dirty analyze
-   via `force_full_parse` (`!has_file_facts()`).
-3. **Single-file algorithms** — `TrackingScopeIR`; Vize bottom-up
-   `SubtreeSummary`; SFC `SfcBlockRevisions` (style/template/script reuse);
-   `returns_by_function` for composable shapes; shared `SourceContext`
-   (`Arc<str>` + `Arc<LineIndex>`) at analysis / open-document boundaries.
-   Script reuse is `can_reuse_script = reuse_template && reuse_*` because
-   template-ref demand facts are joined during the Oxc script walk. A
-   template-only edit therefore re-runs script analysis (LSP-style latency
-   cost) instead of joining from an allocations digest.
+Standing decisions: `AnalysisProduct` lets LSP publish diagnostics without the
+full graph DTO (`analyze_affected_product` / `diagnostics_for`). Linking cache
+skips export/provide/seed fixed points when the linking surface (imports,
+exports, locals, provides, injects — not `local_graph`) and links are
+unchanged. Disk-cache hits stay cache-load cheap; empty session IR is seeded
+on the first dirty analyze via `force_full_parse`. Single-file algorithms are
+`TrackingScopeIR`, Vize bottom-up `SubtreeSummary`, `SfcBlockRevisions`,
+`returns_by_function`, and a shared `SourceContext` (`Arc<str>` +
+`Arc<LineIndex>`). Script reuse is `can_reuse_script = reuse_template && …`
+because template-ref demand facts are joined during the Oxc script walk.
 
 ### Semantic IR layers
 
@@ -216,85 +158,6 @@ Vue Vet keeps small domain IRs rather than a unified AST:
 Parser IR (Vize AST / Oxc Semantic)     — short-lived, never cached across adapters
         ↓
 File Fact IR (SfcFacts / ScriptFacts / TemplateFacts)  — stable, rule-facing
-        (`ScriptBlockFacts::source_contracts` holds proven Vue API source-identity
-        sites from Oxc (`vue_vet_oxc::source_contracts`), including watch-family
-        ignored-option and signature-slot facts (`watch_api.rs`), extracted
-        reactive collection-method receiver-loss sites, native Map raw/proxy
-        key demand, keyed reactive-Map `forEach` selection, and same-instance
-        inject demand (`inject_same_instance_provide`). Collection
-        capability is a dedicated poisoned-root query (not generic source5
-        `uncertain` / `escaped`); const alias roots are compressed before
-        mutation indexing. Watch-option collection inspects original
-        `ObjectProperty::computed` flags so computed literal keys stay quiet
-        without changing shared object summarization. Proven
-        `watchEffect` / `watchPostEffect` / `watchSyncEffect` identity is recorded
-        as `ContractSink::WatchEffectFamily`. `toRef` and `effectScope` are
-        `ContractSink::ToRef` / `ContractSink::EffectScope` so a named import of
-        either still admits collection. `customRef` is `ContractSink::CustomRef`.
-        `computed` is `ContractSink::Computed` so computed-only imports keep
-        forced-full parity for identity facts. Stable-identity facts index
-        producers and consumers once by symbol, compare the source value at
-        consumer population (not the declaration initializer), and require a
-        proven later delivery: a downstream computed needs a later reachable
-        demand, and watch flush/stop/pause is tracked through the delivery
-        interval. Primitive atoms use Oxc unresolved-global identity for
-        `undefined`/`NaN`/`Infinity`.
-        Closed-local customRef track/trigger reachability records executed
-        consumer, identity setter transfer, and per-handle inactivity queries.
-        Demand-gated facts use a function-level execution region plus
-        source-order barriers, typed Get/Set capabilities, closed-body
-        receiver-effect proof (including executed object keys), proven
-        `toRefs` first-arg borrows over memoized closed keys, and cached-result
-        demand facts for exact VueUse `useMemoize` / `computedWithControl`
-        origins. VueUse demand facts (`vueuse.rs`) reuse that region/barrier
-        and native-capability surface for exact `@vueuse/core` /
-        `@vueuse/shared` `watchIgnorable` / `ignorableWatch` sync ignore
-        windows and `createSharedComposable` / `createGlobalState`
-        first-instance argument demands. Shared wrappers keep one
-        retained-initializer summary; ignore-window previous-value proof is
-        confined to the updater callable and uses `straight_awaits_in`, not
-        the stack-wide await barrier, to decide the window. A class-symbol/member index joins per-object operations for
-        native `#private` access through `reactive` / `readonly` /
-        `shallowReactive` / `shallowReadonly` proxies. A per-result ordered
-        event fold retains first-fill kind and span through later hits; only
-        proven invalidation or refill advances that state. Native prototype
-        mutations are collected before identifier-root early returns.
-        Foreign-event intervals are exclusive both-endpoint queries over unique
-        allowed offsets. Generic source5 statement eligibility stays
-        `ExpressionStatement`-parent only.
-        Typed `toRef` ignored-key facts require an immutable `__v_isRef`
-        capability on a dedicated role index; marker writes/deletes, helper
-        arguments, method receivers, spreads, pattern assignment to the marker,
-        constructor arguments, and call / tagged-template receivers (including
-        TypeScript instantiation wrappers) stay unproven for that overload.
-        Call, `new`, and tagged receivers share one wrapper walk;
-        `toref_identity_uncertain` and `capability_uncertain` stay separate from
-        generic source5 `uncertain` / `escaped` and from demand
-        `closed_key_unknown`. Native `structuredClone` facts keep the intrinsic
-        separate from the Vue API whitelist; actual Proxy allocation proof
-        lives in `source_contracts/clone_boundary.rs`. Actual
-        Proxy origin is `vue` / `@vue/runtime-core` / `@vue/runtime-dom` /
-        `@vue/reactivity` only (`#imports` and `vue-demi` unknown here),
-        looked up from the indexed import source of proxy-allocating
-        constructors. Eligibility and dispatch share one `contract_sink`
-        table with source5, so named effect / toRef / effectScope / customRef
-        imports reuse the canonical Vue-import pass. `watch` still runs the
-        ordinary source collector, watch-family option/signature facts, and
-        callback-contract collectors (`watch_callbacks.rs`). Combined
-        `RULESET_VERSION` is 43; `REACTIVITY_GRAPH_VERSION` stays 41. Cancelled default-debounce promise identity (`useDebounceFn` wrapper calls, awaited earlier promise, native demand) joins that catalog. Snapshot-demand facts (`json_clone_lossy_type`, `ref_history_snapshot_alias`) require exact `@vueuse/core` `useCloned` / `useManualRefHistory`. Model-default demand facts (`model_defaults`, `mounted_member_demands`, project-joined `unsynced_model_parent_demands` / `shared_default_cross_instance_demands`) join Vize instance flags with Oxc defineModel/ref/expose surfaces.
-        Scheduling-practice facts (`queued_watch_flush`, `attached_effect_scope`,
-        `lazy_computed_async`) live on `SourceContractFacts.scheduling_practice`.
-        Named effect-family imports keep source indexes empty when every Oxc
-        resolved reference is a proven call with fewer than two arguments and
-        no spread (current watch-API rules read that second argument). Ordinary
-        sinks and namespace imports keep full indexing. Lifetime facts are a
-        separate field owned elsewhere.
-        Template-ref demand facts (`template_ref_demands`: pre-flush and
-        `v-memo` blocked demands) join Vize allocation relations during the
-        Oxc script walk (v41).
-        `TemplateElementFact::has_key` includes proven object-form `v-bind`
-        keys from Oxc; `is_component` is Vize `ElementType` / JSX
-        identifier-reference adapted into stable facts; Vize owns directive extraction)
         ↓
 Module Semantic IR (ModuleSummary)     — cross-file seeds; lifecycle-scoped
         ↓
@@ -303,271 +166,140 @@ Project Relation IR (ProjectGraph / ReactivityGraph / PropFlow)
 Diagnostics IR (Diagnostic / EditPlan)
 ```
 
+File Fact IR sub-surfaces owned by the Oxc adapter (each is a serializable
+field on `ScriptBlockFacts`; the Oxc AST never leaves `vue_vet_oxc`):
+
+- `source_contracts` (`vue_vet_oxc::source_contracts`) — proven Vue API
+  source-identity sites. Eligibility and dispatch share one `contract_sink`
+  table (`ContractSink::{WatchEffectFamily, ToRef, EffectScope, CustomRef,
+  Computed, …}`) with generic source5. Demand-gated contracts use a
+  function-level execution region plus source-order barriers; VueUse demands
+  (`vueuse.rs`) require exact `@vueuse/core` / `@vueuse/shared` provenance;
+  collection capability is a dedicated poisoned-root query, separate from
+  source5 `uncertain` / `escaped`; Proxy allocation proof lives in
+  `clone_boundary.rs`. Derivation-practice (`sync_ref_one_way`,
+  `conditional_watch_source`) and scheduling-practice
+  (`scheduling_practice`) facts sit beside them. The traps are in
+  [gotchas](./gotchas.md#source-contract-lanes-oxc-source_contracts).
+- `lifetime` (`ReactivityLifetimeFacts`) — watcher / effect-scope cleanup
+  contracts for the `lifetime` rule group. Provenance is **named Vue imports
+  and aliases only** (namespace `Vue.watchEffect` stays quiet). Same-invocation
+  `await` and deferred native Promise / scheduler / `nextTick` boundaries are
+  in scope; unknown owner arguments and unproven scope identity abstain. Scope
+  ownership is per invocation; nested-watch and detached-scope facts share the
+  same lifetime index. Runtime evidence: `just oracle-lifetime`,
+  `just oracle-stale-settlement`, `just oracle-cleanup-identity`; per-rule
+  semantics live in `docs/rules/reactivity/*.md`.
+- `template_ref_demands` — pre-flush and `v-memo`-blocked template-ref demands
+  joined with Vize allocation relations during the script walk.
+- `runtime_export_spans` — runtime ES-module exports for the
+  `vapor-migration` group (named exports only when not type-only, plus every
+  default and star export).
+- `TemplateElementFact::has_key` includes proven object-form `v-bind` keys;
+  `is_component` is Vize `ElementType` / JSX identifier-reference adapted into
+  stable facts; Vize owns directive extraction.
+
 **Vue JSX/TSX** is an Oxc-owned third surface (not Vize): JSX lowers into the
 same `TemplateFacts` so template rules and `ComponentUsage` edges reuse without
 a parallel pattern engine or Babel transform. Structural JSX facts are collected
 only when the script language is `jsx`/`tsx`; `TrackingScopeKind::Render` and
-JSX expression joins apply inside recognized render bodies (structure-first
-options/`setup`→render / exported functional components, plus same-file
-`defineComponent` alias and one-hop identity forwarders). Session runs the Vue
-file-rule registry on `.jsx`/`.tsx` always, and on plain `.js`/`.ts` when local
-or seeded facts warrant it (tracking scopes, reactive bindings, member writes,
-operands, destructures, or script calls). Empty modules stay graph/seed-only.
-Package-environment refresh includes those same JS/TS sources. See issue
-[#134](https://github.com/alexzhang1030/vue-vet/issues/134).
-
-`ScriptBlockFacts.lifetime` (`ReactivityLifetimeFacts` in `vue_vet_core`) is the
-file-fact owner for watcher/effect-scope cleanup contracts. The Oxc adapter
-extracts those facts; `vue_vet_rules` owns diagnostics. Provenance is **named
-Vue imports and aliases only** — namespace `Vue.watchEffect` is outside this
-slice and stays quiet. Same-invocation `await` and deferred native Promise /
-global scheduler / Vue `nextTick` boundaries are in scope; unknown owner
-arguments and unproven scope identity abstain. See
-[`no-returned-watcher-cleanup`](../../docs/rules/reactivity/no-returned-watcher-cleanup.md),
-[`no-late-watcher-cleanup`](../../docs/rules/reactivity/no-late-watcher-cleanup.md),
-[`no-late-cancellation-guard`](../../docs/rules/reactivity/no-late-cancellation-guard.md),
-[`no-orphaned-scope-watcher`](../../docs/rules/reactivity/no-orphaned-scope-watcher.md),
-[`no-late-scope-dispose`](../../docs/rules/reactivity/no-late-scope-dispose.md),
-[`no-watch-cleanup-current-source`](../../docs/rules/reactivity/no-watch-cleanup-current-source.md),
-[`no-nested-watch-without-cleanup`](../../docs/rules/reactivity/no-nested-watch-without-cleanup.md),
-[`no-detached-effect-scope-without-stop`](../../docs/rules/reactivity/no-detached-effect-scope-without-stop.md),
-[`lifetime-runs.mjs`](../../crates/vue_vet_reactivity/oracle/lifetime-runs.mjs),
-[`stale-settlement-runs.mjs`](../../crates/vue_vet_reactivity/oracle/stale-settlement-runs.mjs),
-and [`cleanup-identity-runs.mjs`](../../crates/vue_vet_reactivity/oracle/cleanup-identity-runs.mjs).
-Bound `onCleanup` registered after a source-dependent `await` is a sibling
-lifetime fact (`late_cancellation_guards`): the registrar still attaches for
-later invalidation, so it is not `no-late-watcher-cleanup` owner loss.
-Cleanup-identity facts reuse the same lifetime index (one walk, per-root
-ordered listener/write queries, indexed shared-source/cleanup joins). Native
-`EventTarget` is a baseline intrinsic; replacement requires allocation identity
-and an executed watcher schedule (immediate / sync / pre-post plus `await
-nextTick()`), not merely native capability. Source value transitions and
-callback acquisitions are separate events; queued watchers read prefix values
-and the next transition at a proven flush boundary. Watch creation must be
-execution-proven in its owner lane, and const handle aliases canonicalize
-before stop/pause/resume/escape. Ordered handle-stop facts keep an earlier
-conditional or uncertain stop as a lifetime boundary; a later definite stop
-does not prove activity across it. Written payload aliases are Unknown after a
-pre-index of Oxc semantic write roles; stable const aliases keep allocation
-provenance. Method mutation or generic escape through a written receiver alias stays
-native-capability Unknown. Native-payload seeds and identifier-flow edges are
-collected from declarations and assignments, then escapes are resolved after
-the identity index is complete. Native method/escape checks apply to the acquired
-allocation; null/undefined listeners are not acquisitions. Cleanup identity
-work counters are test-only zero-sized types in production. Releases are
-aggregated per
-callback/resource once; source write stability is summarized once per symbol
-from semantic reference roles and reused. Local/import poisoning, method
-mutation, helper escapes, completed/paused watchers, inactive watch creation,
-and discharged captured releases stay unproven. Serialized reactivity graphs
-are unchanged, so `REACTIVITY_GRAPH_VERSION` stays 41.
-Nested-watch and detached-scope facts share that lifetime index: one semantic
-walk plus root/owner keyed queries. Expression-statement / `void` handle
-discards, proven repeating outer callbacks whose *source result* can still
-change, ordered stop state (literals or proven *fresh plain* Vue `ref.value`
-reads only; `ref(existingRef)` / `ref(customRef(...))` and arbitrary getters
-cannot prove an early stop), and
-externally alive sources are in scope. Inner eligibility uses classified
-tracked operand roles (read / write / delete / update) on an actual execution
-prefix — assignment defaults record a read only when activation is proven
-(missing/undefined activate, defined skip, unknown abstain) — plus effective
-options under the exact Vue API (`once` is ignored on the effect family;
-ordinary `watch` `once`+`immediate` exhausts). A getter / computed result is
-Changing only after an eligible synchronous subscribing read; after-await and
-async Promise results stay Unknown. Computed getter graphs insert Visiting
-before following an edge (a back edge is Unknown; completed results stay
-memoized; acyclic chains are depth-bounded). A constant
-computed used as an *inner* source may still retain subscribers; a constant
-computed or stable-result getter — including `() => source.value` wrapping a
-constant computed — used as the *outer* source does not repeat.
-Scope ownership is per invocation (a function may run under `scope.run` and
-later as a watcher callback), including precomputed `on`/`off` intervals.
-Constructor arguments, tagged templates, capability mutation (computed keys,
-`delete`, loops), and `getCurrentScope()` escaping from a proven synchronous
-`run` unprove detached scopes. A synchronous *conditional* capture is
-`MayEscape` and leaves owner proof incomplete. After-await `getCurrentScope()`
-is `undefined` and does not transfer ownership. Known unreachable lookups stay
-inert. Unknown helpers, retained handles, unreachable
-creation, unknown evaluation forms, and incomplete ownership abstain.
-`return watch(...)` stays on `no-returned-watcher-cleanup` with the returned
-expression span. A discarded detached `effectScope(true)` suppresses
-nested-watch for watchers created inside that `run`. After-await orphans stay
-on `no-orphaned-scope-watcher`. Do not fold these predicates into
-source-contract uncertainty. Statement ordinals, preceding exits, watcher
-identity by `NodeId`, and scope-active intervals are built once. Shared
-outer/getter/scope proofs stay memoized. Statement / reference / watcher /
-toggle / computed-edge inspections use a test-only counter; production
-`WorkCounter` stays zero-sized. Combined `RULESET_VERSION` is 43.
+JSX expression joins apply inside recognized render bodies (options/`setup` →
+render, exported functional components, same-file `defineComponent` alias and
+one-hop forwarders). Session runs the Vue file-rule registry on `.jsx`/`.tsx`
+always, and on plain `.js`/`.ts` only when local or seeded facts warrant it.
+See [#134](https://github.com/alexzhang1030/vue-vet/issues/134).
 
 The opt-in `vapor-migration` group (`category: migration`) is an off-score
-assessment channel like practice. `vue_vet_project` emits five Info IDs from
-facts + the project graph; session default-offs them unless `assessment = "vapor"`,
-`--group vapor-migration`, or an individual `[rules]` override. `Diagnostic.assessment`
-carries `convertible` (can it convert at all?) and `aggregate` (`ready` only when
-complete, no open/blocking checks, and `runtime-envelope` is `compiler-candidate`).
-Runtime ES-module
-exports on `<script vapor>` come from Oxc
-`ScriptBlockFacts.runtime_export_spans` (Vue `compileScript.ts` L722–L732:
-named exports only when not type-only, plus every default and star export).
+assessment channel like practice. `vue_vet_project` emits its Info IDs from
+facts + the project graph; session default-offs them unless
+`assessment = "vapor"`, `--group vapor-migration`, or a `[rules]` override.
+`Diagnostic.assessment` carries `convertible` and `aggregate`
+(`ready` only when complete, no open/blocking checks, and `runtime-envelope`
+is `compiler-candidate`). Evidence:
+[vapor migration research](../../docs/research/vapor-migration.md).
 
-`ModuleSummary` is the formal
-cross-module boundary: imports, exports, provides/injects, local reactivity, and
-no Oxc/Vize nodes. Session file-rule reuse is keyed by `FileRuleInputKey`:
-source and `RuleEnvironment` via `content_digest` / `serde_digest`, and final
-primary/ordinary module graphs via in-memory `Arc` content equality (avoid
-re-serializing full graphs on every file). Shared block access and
-control-flow queries over those facts live in `vue_vet_rule_query`
-(setup-block walks, after-await call selection, alias-aware write identity).
-A fuller `EffectModel` view is still deferred until a rule needs more than
-those queries.
+`ModuleSummary` is the formal cross-module boundary: imports, exports,
+provides/injects, local reactivity, and no Oxc/Vize nodes. Session file-rule
+reuse is keyed by `FileRuleInputKey` (source and `RuleEnvironment` digests,
+final module graphs by `Arc` content equality). Shared block access and
+control-flow queries over facts live in `vue_vet_rule_query`.
 
-`no-v-html` remains the reference AST-backed built-in rule. Phase 2 adds the Oxc
-adapter while keeping both dependency ASTs behind Vue Vet-owned facts.
-Every built-in lint rule is a self-contained module under `vue_vet_rules/src/rules`:
-the module owns its metadata, rule type, and detection/reporting logic. The
-parent module only declares modules and assembles the built-in registry; it does
-not dispatch rule behavior through a shared enum or central match.
-Ecosystem and migration practice suggestions live in `vue_vet_practice`: recipe
-metadata plus thin `Rule` implementations that consume the same Vue Vet facts
-(no parallel pattern engine). Practice findings use `category: "practice"`,
-attach an optional `recommendation` payload, and stay off the score / default CI
-exit path. Some practice rules keep a historical rule id segment (for example
-`vue-vet/reactivity/prefer-use-template-ref`) for configuration stability.
-Derivation-practice facts (`sync_ref_one_way`, `conditional_watch_source`) are
-collected in the Oxc adapter beside source contracts, gated by the shared
-`ContractSink` table. VueUse `syncRef` is admitted only from `@vueuse/shared` /
-`@vueuse/core`. Scheduling-practice facts (`queued_watch_flush`,
-`attached_effect_scope`, `lazy_computed_async`) live on
-`SourceContractFacts.scheduling_practice`. Thin rules read those facts; Oxc AST stays in the adapter.
-Tracking-graph / after-await registrar packs may live as a **matrix family** under
-`vue_vet_rules/src/rules/matrix` (shared detection type + unique `RuleMeta` catalog);
-standalone rules remain one file each. Matrix ids still ship docs and fixtures.
-The session derives per-file Vue capabilities from a single discovery-time
-`PackageIndex` (nearest `package.json`: `vue` version plus dependency names) and passes them in
-`RuleEnvironment` without exposing package-manager state to parser adapters.
-Practice recipes may adjust help text when `@vueuse/core` is already declared.
-The Oxc adapter delegates reactivity construction to `vue_vet_reactivity`.
-That crate is the static reactivity tracing library: it records Vue-resolved
-bindings and **tracking scopes** (`watchEffect*`, `computed`, `watch` sources)
-as serializable Vue Vet facts. Each scope carries demand reads with property,
-exact span, classification (unconditional, conditional, after-await, or
-outside-tracking), and ordered guard evidence with roles; rules never receive
-Oxc nodes. Legacy `effects` is a projection of effect-family scopes for existing
-consumers. Its module layer summarizes direct bindings and composable return
-shapes (destructure and instance member seeds), then reaches a deterministic
-fixed point over resolved named/default exports, barrels, multi-hop re-exports,
-and cycles. See [reactivity tracer](./reactivity-tracer.md).
-Template joins include interpolations, directive expressions, template `:style`
-(`surface = "style"`), and `<style>` `v-bind(ident)` (`surface = "style-v-bind"`).
-Configuration changes
-rule enablement and severity after semantic analysis;
-suppressions are applied after diagnostic normalization and emit findings when
-unused.
+Every built-in lint rule is a self-contained module under
+`vue_vet_rules/src/rules`; the parent module only assembles the registry (no
+central match). Tracking-graph / after-await packs may live as a **matrix
+family** under `rules/matrix` (shared detection type + unique `RuleMeta`
+catalog). Practice suggestions live in `vue_vet_practice`: recipe metadata plus
+thin `Rule` implementations over the same facts, `category: "practice"`, an
+optional `recommendation` payload, off the score / default CI exit; some keep a
+historical id segment (`vue-vet/reactivity/prefer-use-template-ref`) for
+configuration stability. The session derives per-file Vue capabilities from
+`PackageIndex` and passes them in `RuleEnvironment`.
+
+The Oxc adapter delegates reactivity construction to `vue_vet_reactivity`,
+which records Vue-resolved bindings and **tracking scopes** with classified
+demand reads and guard evidence; `effects` is a projection of effect-family
+scopes for existing consumers. Template joins include interpolations, directive
+expressions, template `:style` (`surface = "style"`), and `<style>`
+`v-bind(ident)` (`surface = "style-v-bind"`). See
+[reactivity tracer](./reactivity-tracer.md). Configuration changes rule
+enablement and severity after semantic analysis; suppressions are applied after
+diagnostic normalization and emit findings when unused.
 
 ## Stable boundary
 
-Vue Vet's normalized facts and diagnostics are the architectural seam. Dependency AST objects must not cross into public rule, reporter, cache, LSP, or agent contracts. Adapters may change with dependency upgrades while downstream product behavior stays versioned and reviewable.
+Vue Vet's normalized facts and diagnostics are the architectural seam.
+Dependency AST objects must not cross into public rule, reporter, cache, LSP,
+or agent contracts.
 
-Default `vue_vet_reactivity` consumers use `ModuleSource` plus `trace_modules` /
-`trace_modules_with_options` / `prepare_standalone_module_source`, then
-`explain_tracking_scope`. Those entries take Vue Vet types only. Every function
-that takes Oxc `Semantic`, AST, `Span`, or `NodeId` lives under
-`vue_vet_reactivity::oxc`. Product adapters (`vue_vet_oxc`) import from that
-namespace. The crate root still re-exports the same names as `#[doc(hidden)]`
-compat aliases (no `#[deprecated]`, no second parser). Oxc 0.142
+Default `vue_vet_reactivity` consumers use `ModuleSource` plus `trace_modules`
+/ `trace_modules_with_options` / `prepare_standalone_module_source`, then
+`explain_tracking_scope`; those take Vue Vet types only. Every function that
+takes Oxc `Semantic`, AST, `Span`, or `NodeId` lives under
+`vue_vet_reactivity::oxc`, and `vue_vet_oxc` imports from that namespace. Oxc
 `SemanticBuilder` must `.with_build_nodes(true)` wherever facts walk
 `semantic.nodes()`.
 
-`ReactiveBindingFact.alias_of` is an existing graph fact (v36), not a new IR:
-`const alias = known` records the root name on the same binding record. Rules
-compare alias-aware targets with `vue_vet_rule_query::same_reactive_target`
-using `FactRef::TrackingScope.block_kind` and `script_block` so ordinary
-script and setup same-name bindings stay distinct. General alias analysis stays
-out of scope.
+`ReactiveBindingFact.alias_of` records `const alias = known` on the same
+binding record. Rules compare alias-aware targets with
+`vue_vet_rule_query::same_reactive_target` using
+`FactRef::TrackingScope.block_kind` and `script_block` so ordinary script and
+setup same-name bindings stay distinct. General alias analysis is out of scope.
 
 ## `vue_vet_reactivity` crate layout
 
-The tracer crate is a **library of collectors**, not a 4k-line `mod.rs` plus a
-6k-line `tests.rs`. `lib.rs` stays a façade; stages live in `trace/`:
+The tracer crate is a **library of collectors**. `lib.rs` stays a façade;
+stages live in `trace/`:
 
 ```text
-trace/mod.rs       single-file entry + orchestration
-trace/kinds.rs     vue callee / binding kind / import / span helpers
-trace/bindings.rs  reactive binding collectors (typed / props / aliases / route)
-trace/local.rs     same-file composable usage
-trace/context.rs   scope_context + HOF / toValue / deferred + `ScopeNodeIndex`
-trace/reads.rs     scope reads + classify + guards + `ScopeIrIndex`
-trace/writes.rs    scope writes + assignment_only + identifier getters
-trace/uncertain.rs uncertain accesses + watch sources
-trace/scopes.rs    tracking / render scope assembly
-trace/inject.rs    provide/inject sites + unique-key resolve
-trace/follow.rs    same-file zero-arg helper walk + file `LocalCalleeIndex`
-trace/expr.rs      paren / TS peel shared by assignment-only and factories
-trace/plugin.rs    NamedApiBag / TracerPlugin / TraceConfig
+trace/mod.rs        single-file entry + orchestration
+trace/kinds.rs      vue callee / binding kind / import / span helpers
+trace/bindings.rs   reactive binding collectors (typed / props / aliases / route)
+trace/local.rs      same-file composable usage
+trace/context.rs    scope_context + HOF / toValue / deferred + `ScopeNodeIndex`
+trace/reads.rs      scope reads + classify + guards + `ScopeIrIndex`
+trace/writes.rs     scope writes + assignment_only + identifier getters
+trace/uncertain.rs  uncertain accesses + watch sources
+trace/scopes.rs     tracking / render scope assembly
+trace/inject.rs     provide/inject sites + unique-key resolve
+trace/follow.rs     same-file zero-arg helper walk + file `LocalCalleeIndex`
+trace/expr.rs       paren / TS peel shared by assignment-only and factories
+trace/plugin.rs     NamedApiBag / TracerPlugin / TraceConfig
 trace/branch_hygiene.rs  pure A4 all-path coverage
-trace/render.rs    structure-first render bodies
-trace/summary      prepare / return shapes
-trace/summary/link cross-module seeds
-src/tests/         domain modules + shared helpers (not one file)
+trace/render.rs     structure-first render bodies
+trace/notification/ lost-notification source views / bypasses
+trace/summary/      prepare / return shapes / export lattice / link (cross-module seeds)
+src/tests/          domain modules + shared helpers (not one file)
 ```
 
 Do not grow `trace/mod.rs` or `src/tests/` with another collector family or
-fixture corpus — add a sibling module. Types stay Vue Vet-owned; Oxc AST does
-not leave this crate.
-
-## Adapter and surface crate layouts
-
-`lib.rs` / `main.rs` stay façades. New collector families or test corpora go
-in a sibling module — do not grow the 1k-line adapter or CLI entry files.
-
-```text
-vue_vet_core
-  facts/        template + script + reactivity-graph IR (no parser AST)
-
-vue_vet_vize
-  lib.rs        analyze_sfc_* + block reuse (`vize_croquis::sfc::parse_sfc`)
-  template.rs   `vize_atelier_core::parse` walk → TemplateFacts
-  style.rs      <style> v-bind(ident) expressions
-  span.rs       analysis-scoped line index
-  tests/        analyze + a11y unit tests
-
-vue_vet_oxc
-  lib.rs           analyze_script / analyze_module_source
-  facts.rs         import / binding / call / write collectors
-  template_expr.rs free-identifier reads for template surfaces
-  jsx.rs           JSX → TemplateFacts
-  tests.rs         adapter unit tests
-
-vue_vet_session
-  types.rs         SessionOptions / AnalysisSnapshot / SessionError
-  registry.rs      file-rule + project metadata
-  config.rs        vue-vet.toml discovery / rule-id validation
-  session.rs       ProjectSession orchestration
-  pipeline/        scan stages + per-file analyze/rules
-  tests/session    explain / overlays / invalidation
-
-vue_vet_cli
-  main.rs      clap + scan dispatch
-  report.rs    digest / summary / operational errors
-  explain.rs   --explain / --explain-scope
-  tests/cli    explain / fix / report / cache / project
-
-vue_vet_reporters
-  lib.rs       ReportContext + format dispatch
-  json.rs      schema_version JSON + operational errors
-  text.rs      diagnostic lines + score footer
-
-vue_vet_project
-  pipeline.rs              orchestrator
-  pipeline_tests/          graph + external SFC consumers
-  passes/external_summary  package follow + `.d.ts` enrich + path keys
-```
+fixture corpus — add a sibling module. Layouts for the adapter and surface
+crates are in their `README.md` files; the same rule applies there: `lib.rs`
+/ `main.rs` stay façades.
 
 ## `vue_vet_project` pipeline (crate layout)
 
-The project crate is an **explicit stage pipeline**, not a monolith with
-side-pocket special cases. `lib.rs` is a thin façade; orchestration lives in
-`pipeline.rs`:
+The project crate is an **explicit stage pipeline**. `lib.rs` is a thin
+façade; orchestration lives in `pipeline.rs`:
 
 ```text
 context          ConventionsLoad → ProjectContext
@@ -575,7 +307,9 @@ structural       StructuralLink (import/component edges)
 passes           enrichment (see below)
 pipeline         Trace handoff + ProjectGraph assembly
 layers           template joins + prop-flow
+model_demand     defineModel default / parent demand join
 rules            unresolved-import / unused-component
+vapor_migration  opt-in assessment IDs
 model / state    DTOs + retained incremental partitions
 resolve / conventions   oxc_resolver + Nuxt maps
 ```
@@ -586,30 +320,9 @@ Nuxt / package-shape specialization lives in **compile-time Rust enrichment
 passes** over Vue Vet IR — not AST Traverse (Oxc/SWC), and not a dynamic JS
 plugin host. Diagnostic [`Rule`](../../crates/vue_vet_core/src/lib.rs) passes
 consume the enriched facts; enrichment passes must not `report` diagnostics.
-
-### Reactivity tracer plugins (`vue_vet_plugins`)
-
-Ecosystem **named API bag** contracts (Nuxt `useAsyncData` / `useFetch`, vue-i18n
-`useI18n` ambient-on-call methods, …) are **not** hardcoded inside
-`vue_vet_reactivity`. The engine accepts a [`NamedApiBag`] catalog via
-`TraceConfig` / `TraceModulesOptions`. The **published** `vue_vet_plugins` crate
-implements [`TracerPlugin`] and exposes `default_named_api_bags()` /
-`default_trace_config()` / `ensure_default_plugins()`.
-
-**Auto-load:** Oxc single-file analysis, `vue_vet_project` graph builds, and
-`vue_vet_session` (CLI / LSP / MCP) install the default catalog at the boundary
-so product scans always see Nuxt / vue-i18n modeling. Pure `vue_vet_reactivity`
-callers stay empty until they depend on `vue_vet_plugins` and pass a catalog.
-
-Still compile-time Rust only — no `dlopen` / npm plugin ABI. crates.io publish
-order: `vue_vet_core` → `vue_vet_reactivity` → `vue_vet_plugins`.
-
-Each enrichment step is a named `struct` with an inherent `::run(...)`
-(see `ENRICHMENT_STEPS` in `vue_vet_project::passes`). There is no empty
-metadata trait and no dynamic plugin ABI — `pipeline` / `structural` call
-passes by name.
-
-Enrichment stages (deterministic order):
+Each step is a named `struct` with an inherent `::run(...)` (see
+`ENRICHMENT_STEPS` in `vue_vet_project::passes`); there is no empty metadata
+trait and no dynamic plugin ABI.
 
 ```text
 ConventionsLoad           (context + conventions → ProjectContext maps)
@@ -621,165 +334,84 @@ ConventionsLoad           (context + conventions → ProjectContext maps)
 ```
 
 After enrichment: SeedPlan / Trace (via `vue_vet_reactivity` from `pipeline`)
-and RuleRegistry (file rules outside this crate). Project-level diagnostics
-stay in `rules.rs`.
+and RuleRegistry (file rules outside this crate). Constraints: IR only
+(`ProjectContext`, `ModuleLink`, `ModuleSummary`, `ExportState`); sorted
+outputs; quiet under-approx; no `dlopen` / npm analysis plugins before a
+separate ADR.
 
-Constraints: IR only (`ProjectContext`, `ModuleLink`, `ModuleSummary`,
-`ExportState`); sorted outputs; quiet under-approx; no `dlopen` / npm analysis
-plugins before a separate ADR. See [gotchas](./gotchas.md) and
-[reactivity tracer](./reactivity-tracer.md).
+### Reactivity tracer plugins (`vue_vet_plugins`)
 
-## Planned analysis flow
-
-```text
-project discovery and configuration
-  -> Vize SFC/template facts
-  -> Oxc script facts
-  -> enrichment passes (Nuxt seeds, external summaries, provisional Factory merge)
-  -> per-file built-in rules
-  -> versioned project graph and graph-backed cross-file rules
-  -> normalize, suppress, deduplicate, fingerprint
-  -> content-addressed normalized-result cache
-  -> score, baseline/diff, report, preview/apply fixes
-```
+Ecosystem **named API bag** contracts (Nuxt `useAsyncData` / `useFetch`,
+vue-i18n `useI18n`, …) are **not** hardcoded inside `vue_vet_reactivity`. The
+engine accepts a `NamedApiBag` catalog via `TraceConfig` /
+`TraceModulesOptions`; the published `vue_vet_plugins` crate implements
+`TracerPlugin` and exposes `default_named_api_bags()` /
+`default_trace_config()` / `ensure_default_plugins()`. Oxc single-file
+analysis, `vue_vet_project` graph builds, and `vue_vet_session` install the
+default catalog at the boundary; pure `vue_vet_reactivity` callers stay empty
+until they pass a catalog. Compile-time Rust only — no `dlopen` / npm plugin
+ABI. See [the crate README](../../crates/vue_vet_plugins/README.md).
 
 ## Crate evolution
 
-Every workspace crate ships a `README.md` under `crates/<name>/`. The index is
-[docs/crates.md](../../docs/crates.md). Existing crates are `vue_vet_core`,
-`vue_vet_config`, `vue_vet_vize`, `vue_vet_oxc`, `vue_vet_reactivity`,
-`vue_vet_plugins`, `vue_vet_rule_query`, `vue_vet_rules`, `vue_vet_practice`,
-`vue_vet_project`, `vue_vet_reporters`, `vue_vet_session`, `vue_vet_cache`,
-`vue_vet_lsp`, `vue_vet_mcp`, and the `vue-vet` CLI (`vue_vet_cli`).
-New rule capabilities extend these semantic and product boundaries only when a
-working vertical slice exercises them; there is no separate pattern-engine
-boundary in the roadmap.
+Every workspace crate ships a `README.md` under `crates/<name>/`; the index is
+[docs/crates.md](../../docs/crates.md). New rule capabilities extend these
+semantic and product boundaries only when a working vertical slice exercises
+them; there is no separate pattern-engine boundary.
 
 `vue_vet_rule_query` is the workspace-internal fact-query layer used by
-`vue_vet_rules` and `vue_vet_practice`. It depends only on `vue_vet_core`,
-exposes no Vize or Oxc types, and is not published. Helpers return borrowed
-views (`&T` iterators, `MemberPath`). `RuleContext::script` / `template` /
-`source` / `file` yield the stored lifetime so `run_once` can report while
-walking those views. `SourceSpan` is `Copy` (four `usize`s); pass `call.span`
-into `report`. Put a helper there when two or more rules repeat the same
-block walk or control-flow predicate. Keep `vue_vet_core` as the published
-fact/diagnostic contract.
+`vue_vet_rules` and `vue_vet_practice`: depends only on `vue_vet_core`,
+exposes no Vize or Oxc types, is not published, and returns borrowed views.
+Put a helper there when two or more rules repeat the same block walk or
+control-flow predicate.
 
 `vue_vet_session` owns the long-lived project analysis handle: config load,
-cached/fresh scans, unsaved overlays, per-file fact state, reverse dependencies,
-rule/finding explain, workspace path containment, and the **product rule-group
-table**. Canonical groups (`tracking`, `source-contracts`, `lifetime`,
-`derivation`, `project`) map composed registry IDs (built-in + practice +
-project) one-to-one. The ten lifetime IDs (`prefer-attached-effect-scope`,
-`no-detached-effect-scope-without-stop`, `no-late-cancellation-guard`,
-`no-late-scope-dispose`, `no-late-watcher-cleanup`,
-`no-nested-watch-without-cleanup`, `no-on-scope-dispose-reactive-read`,
-`no-orphaned-scope-watcher`, `no-returned-watcher-cleanup`,
-`no-watch-cleanup-current-source`) map to `lifetime`. Core holds only serializable group DTOs — not hardcoded
-rule IDs and not a `RuleMeta` field. `--group` is applied to the effective
-`vue-vet.toml` **before** analysis by setting non-selected known IDs to `off`
-while leaving selected entries untouched, so cache identity, score, exit,
-edits, and explain-finding share one config. Empty `--group` is the historical
-scan. `--list-rules` prints the composed registry (including project IDs),
-independent of project configuration; scan-time enabling still follows preset,
-`practice`, and `[rules]`. Unmapped rules (a11y, template parity, and others
-without a group) stay available on the default scan. `apply_changes` plus
-`analyze_affected` schedule from `ChangeImpact`/`DirtyPlan`: reparses only
-parse-dirty files, refreshes environments/rules when context demands it, reuses
-unchanged facts and file-rule results when keys match, and expands graph
-consumers through the reverse index. Structural/module partitions still often
-rebuild broadly until Batch 2; work counters expose that cost. Overlay analysis
-bypasses the content-addressed cache. A file or module failure becomes a scoped
-`AnalysisIssue` while healthy files and module links continue; fatal root or
-configuration errors still fail the request. The CLI and `vue_vet_lsp` consume the session so
-diagnostic identity stays shared across surfaces. The thin LSP (`vue-vet --lsp`)
-publishes diagnostics on `didOpen` / `didChange` / `didSave` from open-buffer
-overlays (FULL sync) with the opaque finding id in LSP `data` and the document
-version on `publishDiagnostics`. Overlay changes advance a workspace revision
-in the same critical section that updates the retained input snapshot. A 50 ms
-debounce and single latest-wins gate admit only the newest blocking task; stale
-work cancels between pipeline phases and its commit is rejected under the same
-session lock. The resulting snapshot refreshes every open document. Safe
-quick-fix code actions return versioned
-workspace edits from explicitly safe diagnostic edits only (client applies;
-server never writes). Hover answers “would Vue re-run?” from the committed
-full snapshot via `--explain-scope` `file:@offset`. The thin MCP adapter
-(`vue-vet --mcp`, `vue_vet_mcp`) exposes scan / explain / explain-scope /
-safe-fix preview tools over stdio JSON-RPC with the same session path bounds;
-the live server keeps one `ProjectSession` per resolved tool path (scan /
-preview replace it; explain reuses the snapshot). MCP never applies edits.
+cached/fresh scans, unsaved overlays, per-file fact state, reverse
+dependencies, rule/finding explain, workspace path containment, and the
+**rule-group inventory**. Canonical groups (`tracking`, `source-contracts`,
+`lifetime`, `derivation`, `project`, `vapor-migration`) are declared on each
+`RuleMeta.group`; `vue_vet_session::groups` only derives inventory and filters
+from the composed registry. `--group`
+is applied to the effective `vue-vet.toml` **before** analysis by setting
+non-selected known IDs to `off`, so cache identity, score, exit, edits, and
+explain share one config. `--list-rules` prints the composed registry
+independent of project configuration. Overlay analysis bypasses the
+content-addressed cache. A file or module failure becomes a scoped
+`AnalysisIssue`; fatal root or configuration errors still fail the request.
 
 ### Published library crates
 
-`vue_vet_core` and `vue_vet_reactivity` are the first crates intended for
-crates.io. Goals: reserve the names, expose the stable fact / tracer contracts
-to external consumers, and keep the rest of the workspace (`publish = false`)
-until the CLI and adapters have a deliberate release story. Published packages
-omit in-tree fixtures and the runtime oracle; those remain git-only evidence.
-Path dependencies between publishable crates carry an explicit `version` so
-`cargo publish` can resolve them from the registry. Crate directories and package
-names use snake_case (see [conventions](./conventions.md)).
-
-Tagged releases publish those two crates automatically from
-`.github/workflows/release.yml` (after quality gates; `vue_vet_core` then
-`vue_vet_reactivity`) using the `CARGO_REGISTRY_TOKEN` repository secret.
-Index polls use a descriptive User-Agent and skip versions already on the
-registry so a partial publish can resume. See [install docs](../../docs/install.md)
-and [gotchas](./gotchas.md) (`crates.io API calls need a User-Agent`).
-
-### Native binary and npm distribution
-
-End-user installs go through npm (`@vue-vet/cli` + `@vue-vet/*` platform
-packages) or GitHub Release archives, not crates.io for the CLI
-(`publish = false`). The Release workflow (`.github/workflows/release.yml`)
-publishes library crates, builds the matrix targets, writes `SHA256SUMS`,
-publishes platform packages, then the launcher. Version numbers stay aligned
-across Cargo workspace, npm, and `v*` tags. Details: [install docs](../../docs/install.md).
+`vue_vet_core`, `vue_vet_reactivity`, and `vue_vet_plugins` are published to
+crates.io (in that order); the rest of the workspace stays `publish = false`.
+Published packages omit in-tree fixtures and the runtime oracle. Path
+dependencies between publishable crates carry an explicit `version`. Tagged
+releases publish them from `.github/workflows/release.yml` after quality
+gates. End-user CLI installs go through npm (`@vue-vet/cli` + platform
+packages) or GitHub Release archives; version numbers stay aligned across the
+Cargo workspace, npm, and `v*` tags. Details: [install docs](../../docs/install.md).
 
 ## Reporting and edit planning
 
-Explain domain models live in `vue_vet_core`/`vue_vet_session`; reporters do not
-own session state or domain construction. `vue_vet_reporters` consumes Vue
-Vet-owned `ScanSummary` values plus an explicit
-report context for scan mode, framework, exact analyzed files, completeness, and
-skipped-check reasons. It owns deterministic text and versioned JSON rendering,
-while the CLI retains stdout, operational-error messages, and exit policy.
-`ReportContext.color` is injected by the CLI (`--color auto|always|never`); only
-the interactive text report applies ANSI styles. JSON / SARIF / GitHub stay
-uncolored. Renderers return content without a terminal newline so each surface
-can choose its transport framing. Text snapshots remain byte-for-byte
-compatibility gates (color off); JSON snapshots are versioned wire-contract
-gates.
+`vue_vet_reporters` consumes Vue Vet-owned `ScanSummary` values plus an
+explicit `ReportContext` (scan mode, framework, analyzed files, completeness,
+skipped-check reasons, color) and owns deterministic text, versioned JSON,
+SARIF, and GitHub rendering; the CLI retains stdout, operational-error
+messages, and exit policy. Renderers return content without a terminal
+newline. Text snapshots are byte-for-byte compatibility gates (color off);
+JSON snapshots are versioned wire-contract gates. JSON v1 is the shared fact
+layer for CI and agent surfaces: consumers must use `complete` and exact
+analyzed-file coverage rather than treating an empty findings array as a clean
+scan. Contracts: [JSON output](../../docs/json-output.md),
+[SARIF / GitHub](../../docs/sarif-github.md).
 
-JSON v1 is the shared fact layer for CI and future agent surfaces. Each finding
-has a deterministic opaque ID, normalized project-relative path, confidence,
-and repository-local documentation path. Consumers must use `complete` and exact
-analyzed-file coverage rather than treating an empty findings array as proof of
-a clean scan. A future bounded agent handoff may summarize and group this data,
-but it must reference the complete report instead of replacing it.
-
-The shared edit contract lives in `vue_vet_core`, not in a parser, rule engine,
-or reporter. A text edit carries a repository path, checked byte range,
-replacement, safe/unsafe applicability, and originating rule ID. `EditPlan`
-normalizes ordering and rejects range overflow, overlapping replacements, and
-order-dependent insertions. An active diagnostic may carry edit candidates so
-configuration and suppression remove the finding and its edits together. JSON
-v1 exposes those candidates as an optional field without changing diagnostic
-identity.
-
-The CLI's private fix module has one interface for previewing or applying active
-safe edits. It resolves repository-relative targets inside the scan scope,
-consumes `EditPlan`, validates source bounds and UTF-8 boundaries, and applies
-one file from the original source in reverse-range order. Apply mode uses a
-same-directory atomic replacement and then performs a fresh scan; both fix modes
-bypass cached results so a persisted plan can never authorize mutation. This
-first vertical slice fails closed on multi-file plans. Cross-file staging,
-rollback, and further producers remain later issue #9 work. Shipped single-file
-producers: boolean `autofocus` removal, quoted `aria-hidden="true"` /
-`:aria-hidden="true"` removal on focusable elements, static `title` →
-`aria-label` inserts, redundant static `role` removal, quoted
-`:arg.sync` / `v-bind:arg.sync` → `v-model:arg`, and `@event.native` /
-`v-on:event.native` reconstructed from the `@` / `v-on` prefix → drop `.native`.
+The shared edit contract lives in `vue_vet_core`: a text edit carries a
+repository path, checked byte range, replacement, safe/unsafe applicability,
+and originating rule ID; `EditPlan` normalizes ordering and rejects overflow,
+overlap, and order-dependent insertions. The CLI's fix module previews or
+applies active safe edits from the original source in reverse-range order with
+atomic single-file replacement, bypasses cached results, and fails closed on
+multi-file plans (issue #9). Producers and modes:
+[edit model](../../docs/edit-model.md).
 
 ## Identity and determinism
 
@@ -788,79 +420,63 @@ diff mode, SARIF, LSP, and agent consumers. Results are sorted independently of
 traversal or hash-map order. Discovery converts physical paths exactly once to
 workspace-relative normalized `FileId`; diagnostics, edits, graphs, caches,
 baselines, LSP, and reporters compare that identity exactly. Suffix matching is
-forbidden. Physical paths stay in the source/I/O adapter. Coverage reports
-analyzed source files separately from manifests, lockfiles, and resolver inputs
-that invalidate the graph.
+forbidden. Coverage reports analyzed source files separately from manifests,
+lockfiles, and resolver inputs that invalidate the graph.
 
-## Thin editor host and diagnostics LSP
+## Thin editor host, LSP, and MCP
 
 `editors/vscode` is a **thin** VS Code host for reactivity visualization. It
-spawns the Rust CLI (`--format json --print-reactivity`), maps structured
-`*_details` byte spans onto decorations / hover / a TreeView, and must not grow
-a parallel tracer. Binding inspect prefers `modules_detail[].binding_nav`
-(inbound / outbound / properties) and scans `edge_details` only when that
-index is missing. **Explain Scope** shells
-`vue-vet <workspace> --explain-scope file:@offset` (same query as LSP hover)
-and keeps the disk cache. It does not start an LSP client. Hover may show
-`scope_details[].summary` from the digest.
+spawns the Rust CLI (`--format json --print-reactivity`), maps `*_details`
+byte spans onto decorations / hover / a TreeView, prefers
+`modules_detail[].binding_nav`, and shells `--explain-scope file:@offset` for
+Explain Scope. It does not start an LSP client and must not grow a parallel
+tracer.
 
-`vue-vet --lsp` is the diagnostics LSP surface (`vue_vet_lsp`). It uses
-`vue_vet_session` with open-buffer overlays and publishes
-`textDocument/publishDiagnostics` with the same opaque finding ids as JSON
-`diagnostics[].id` (stored in LSP `data`) plus the document version. Safe
-quick-fix code actions map active safe edits to versioned `WorkspaceEdit`s.
-Hover converts the caret UTF-16 position to a byte offset and asks
-`session.explain_scope` with `file:@offset` (start-exact, else covering) —
-the same `ScopeExplain` markdown as CLI `--explain-scope`. Diagnostics
-publish may use `AnalysisProduct::DiagnosticsOnly`; the committed session
-snapshot keeps the full graph so hover does not re-trace. `vue-vet --mcp`
-(`vue_vet_mcp`) exposes newline-delimited JSON-RPC 2.0 tools over stdio (one
-UTF-8 message per line, no Content-Length headers) for scan, explain,
-explain-scope (`vue_vet_explain_scope`, same `ScopeExplain` JSON as CLI
-`--explain-scope`), and safe-fix preview with the same workspace path bounds;
-it never applies edits. The process keeps one session per resolved tool path
-so explain after scan does not reopen analysis. Scan JSON includes the same
-`reactivity` totals as CLI `--format json` so agents can tell the tracer ran.
-Request-level cancellation remains later issue #12 work.
+`vue-vet --lsp` (`vue_vet_lsp`) publishes `textDocument/publishDiagnostics`
+from open-buffer overlays with the same opaque finding ids as JSON
+`diagnostics[].id` (in LSP `data`) plus the document version. A debounced
+latest-wins gate admits one blocking analysis; stale work cancels between
+pipeline phases and its commit is rejected under the session lock. Safe
+quick-fix code actions map active safe edits to versioned `WorkspaceEdit`s
+(client applies; server never writes). Hover converts the UTF-16 caret to a
+byte offset and asks `session.explain_scope` — the same `ScopeExplain` as CLI
+`--explain-scope`. Diagnostics publish may use
+`AnalysisProduct::DiagnosticsOnly`; the committed snapshot keeps the full
+graph so hover does not re-trace.
+
+`vue-vet --mcp` (`vue_vet_mcp`) exposes newline-delimited JSON-RPC 2.0 tools
+over stdio (no `Content-Length` framing) for scan, explain, explain-scope, and
+safe-fix preview with the same workspace path bounds; it never applies edits
+and keeps one session per resolved tool path. Request-level cancellation
+remains issue #12 work. Details: the [LSP](../../crates/vue_vet_lsp/README.md)
+and [MCP](../../crates/vue_vet_mcp/README.md) READMEs.
 
 ## Project intelligence
 
-Cross-file findings are derived from a Vue Vet-owned graph of imports, components, composables, routes, stores, and Nuxt conventions. Diff mode must invalidate and re-run affected graph consumers; it cannot scan only changed files and silently lose a newly caused project-level failure.
+Cross-file findings derive from a Vue Vet-owned graph of imports, components,
+composables, routes, stores, and Nuxt conventions. Diff mode must invalidate
+and re-run affected graph consumers; it cannot scan only changed files and
+silently lose a newly caused project-level failure.
 
-The first graph layer is `vue_vet_project`. It consumes serializable `SfcFacts`,
-uses repository-relative file IDs, stores source evidence on every edge, and
-publishes its exact file inputs for cache invalidation. Its convention version
-changes whenever Nuxt directory or naming behavior changes. Nuxt Content
-ownership is config-file based (package.json / `nuxt.config.*` only), with
-exported-config `modules` / literal `srcDir` and cycle-safe statically known
-`extends` layers resolved through the existing resolver — configs are never
-executed. Layer config bytes belong to the retained snapshot; input-based
-context does not re-read them from disk. Snapshot context reads ownership
-configs already present in the input map; it does not generate ancestor
-config candidates from every known source. Layer-relative collection filters
-the input iterator to `is_nuxt_config_file` paths before the input map and
-returns without root/resolver work when no config is present or no static
-`extends` remain. Resolver construction for `extends` runs only when those
-retained Nuxt config facts declare a static layer list. Session retain
-reuses that helper; it does not copy Nuxt config filenames. The filesystem
-convention loader still walks known-file ancestors. The project graph
-also supplies resolved module edges (standalone JS/TS **and** preferred SFC
-script blocks) to `vue_vet_reactivity` and publishes the resulting per-module
-graphs. Extracted `.vue` scripts use Vize block offsets plus the original SFC
-as `span_source` so absolute spans stay exact; template joins are re-applied on
-the module graph after cross-file seed linking.
+`vue_vet_project` consumes serializable `SfcFacts`, uses repository-relative
+file IDs, stores source evidence on every edge, and publishes its exact file
+inputs for cache invalidation; `CONVENTIONS_VERSION` changes whenever Nuxt
+directory or naming behavior changes. Nuxt ownership is config-file based
+(`package.json` / `nuxt.config.*`), with exported-config `modules`, literal
+`srcDir`, and cycle-safe static `extends` layers resolved through the existing
+resolver — configs are never executed, and layer config bytes belong to the
+retained snapshot. The project graph supplies resolved module edges
+(standalone JS/TS **and** preferred SFC script blocks) to `vue_vet_reactivity`;
+extracted `.vue` scripts use Vize block offsets plus the original SFC as
+`span_source`, and template joins are re-applied after cross-file seed
+linking. Details: [project graph](../../docs/project-graph.md).
 
-Cache format version 5 stores `ScanSummary` and `ProjectGraph`, including
-rule confidence, documentation metadata, and optional edit candidates on cached
-diagnostics. `CacheStore::store_parts` serializes references to the completed
-summary and graph; the existing `store` API forwards to it. Borrowed and owned
-envelopes have byte-identical JSON, covered by cache compatibility tests.
-Discovery validates UTF-8 directly from the retained source bytes and creates
-the analysis `Arc<str>` from that borrowed view. The cache key includes every
-source body plus configuration, tool, dependency, convention, and ruleset
-versions. Baseline filtering and diff
-filtering happen after cache lookup so those presentation choices do not
-fragment semantic cache entries.
-Fix modes still force a fresh scan before planning.
+The cache stores `ScanSummary` and `ProjectGraph` under a content key that
+includes every source body plus configuration, tool, dependency, convention,
+and ruleset versions (`crates/vue_vet_cache/src/lib.rs`). Baseline and diff
+filtering happen after cache lookup so presentation choices do not fragment
+semantic cache entries; fix modes force a fresh scan before planning. Details:
+[cache, baseline, diff](../../docs/cache-baseline-diff.md).
 
-See [technology stack](./technology-stack.md), [conventions](./conventions.md), and [the roadmap](../../ROADMAP.md).
+See [technology stack](./technology-stack.md), [conventions](./conventions.md),
+and [the roadmap](../../ROADMAP.md).

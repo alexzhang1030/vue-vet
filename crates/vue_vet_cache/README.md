@@ -13,13 +13,15 @@ Workspace-internal (`publish = false`).
 
 ## Format versions
 
-| Constant | Value | Role |
-| --- | --- | --- |
-| `CACHE_FORMAT_VERSION` | `5` | On-disk entry schema; directory `v5/` |
-| `BASELINE_FORMAT_VERSION` | `1` | Baseline file schema |
-| `RULESET_VERSION` | `43` | Opt-in `vapor-migration` assessment group (5 IDs, `convertible` / `ready`), on the template-ref demand catalog (v41) |
-| `CACHE_VIZE_CROQUIS_VERSION` | `0.387.0` | Hashed `vize-version` (`AnalysisStackIdentity`) |
-| `CACHE_OXC_PARSER_VERSION` | `0.142.0` | Hashed `oxc-version` (`AnalysisStackIdentity`) |
+Values live in `src/lib.rs` (single source of truth; do not copy numbers here):
+
+| Constant | Role |
+| --- | --- |
+| `CACHE_FORMAT_VERSION` | On-disk entry schema; directory `v<N>/` |
+| `BASELINE_FORMAT_VERSION` | Baseline file schema |
+| `RULESET_VERSION` | Bumped when the rule set / default channel behavior changes; doc comment carries the current reason |
+| `CACHE_VIZE_CROQUIS_VERSION` | Hashed `vize-version` (`AnalysisStackIdentity`) |
+| `CACHE_OXC_PARSER_VERSION` | Hashed `oxc-version` (`AnalysisStackIdentity`) |
 
 `content_key` SHA-256 fields (sorted file path+body last):
 

@@ -76,9 +76,9 @@ Each tagged release (`vX.Y.Z`) publishes archives named
 `vue-vet-<rust-target>.tar.gz` (Windows: `.zip`) plus `SHA256SUMS`.
 
 ```bash
-# Example for Apple Silicon
+# Example for Apple Silicon (substitute the release tag)
 curl -fsSL -o vue-vet.tar.gz \
-  https://github.com/alexzhang1030/vue-vet/releases/download/v0.1.0/vue-vet-aarch64-apple-darwin.tar.gz
+  https://github.com/alexzhang1030/vue-vet/releases/download/vX.Y.Z/vue-vet-aarch64-apple-darwin.tar.gz
 tar -xzf vue-vet.tar.gz
 ./vue-vet --version
 ```
@@ -164,23 +164,7 @@ the reverse), and crates.io may already have `vue_vet_core` /
 the failure; npm and crates.io both reject re-uploads of the same version, so
 bump the patch version if a partial publish already succeeded.
 
-## Secrets and first publish checklist
-
-1. Create the npm organization [`@vue-vet`](https://www.npmjs.com/org/create)
-   (CLI cannot create orgs).
-2. Log in with a granular access token that can publish `@vue-vet/*`
-   (`npm login`), or set `NPM_TOKEN` in the environment. Prefer npm Trusted
-   Publishing (OIDC) over long-lived write tokens for CI.
-3. Add repository secret `NPM_TOKEN` for the Release workflow (until Trusted
-   Publishing is configured for every package).
-4. Create a crates.io API token at
-   [crates.io/settings/tokens](https://crates.io/settings/tokens) with
-   publish rights for `vue_vet_core`, `vue_vet_reactivity`, and
-   `vue_vet_plugins` (new + update). Add it as repository secret
-   **`CARGO_REGISTRY_TOKEN`**. The Release workflow uses it only for non-dry-run
-   tag / `workflow_dispatch` publishes.
-
-### Library crates (crates.io)
+## Library crates (crates.io)
 
 | Crate | Role | Depends on |
 | --- | --- | --- |
@@ -192,20 +176,17 @@ Publish order is fixed by dependencies. Product entry points (Oxc adapter,
 project graph, session) **auto-load** `vue_vet_plugins` defaults; see
 [vue_vet_plugins README](../crates/vue_vet_plugins/README.md). Full workspace
 crate map: [docs/crates.md](./crates.md).
-5. Local host-only claim (optional before the full matrix release):
 
-   ```bash
-   just pack-platform
-   just npm-publish-host          # or: just npm-publish-host --dry-run
-   just npm-smoke                 # file: install without registry
-   ```
+## Secrets
 
-6. Full matrix: push tag `v0.1.0` (or run Release via `workflow_dispatch` with
-   `dry_run=false`). The tag version must equal `[workspace.package].version`.
+The Release workflow needs repository secrets `NPM_TOKEN` (publish rights on
+`@vue-vet/*`; prefer npm Trusted Publishing / OIDC once configured for every
+package) and `CARGO_REGISTRY_TOKEN` (publish rights for the three library
+crates); both are used only for non-dry-run tag / `workflow_dispatch`
+publishes. GitHub Releases use `GITHUB_TOKEN`; npm provenance uses OIDC
+(`id-token: write`). The tag version must equal `[workspace.package].version`.
 
-GitHub Releases use `GITHUB_TOKEN`. npm provenance uses OIDC (`id-token: write`).
-
-**Note:** publish paths must be absolute or start with `./`. Passing `npm/vue-vet`
-to `npm publish` is treated as the git host `github.com/npm/vue-vet`. The
+**Note:** `npm publish` paths must be absolute or start with `./` — a bare
+`npm/vue-vet` is treated as the git host `github.com/npm/vue-vet`. The
 launcher package name is `@vue-vet/cli` (not unscoped `vue-vet`) so it stays
 inside the `@vue-vet` org permission boundary.

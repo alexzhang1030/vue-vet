@@ -1,8 +1,7 @@
 # Quality gates (precision, performance, release)
 
-Issue [#13](https://github.com/alexzhang1030/vue-vet/issues/13). This document is the
-executable methodology for measured correctness and performance. Anecdotal
-confidence is not a release argument.
+This document is the executable methodology for measured correctness and
+performance. Anecdotal confidence is not a release argument.
 
 ## Principles
 
@@ -142,12 +141,8 @@ Published measurement inventory: [quality-baselines.md](./quality-baselines.md).
 
 ## Executable release checklists
 
-### Alpha (complete)
-
-- [x] M0–M3 delivery issues closed for the Alpha contract
-- [x] JSON `schema_version: 1` documented
-- [x] Reference fixture corpus no-crash test
-- [x] CodSpeed + Codecov wired on pull requests
+Alpha is complete (tracker
+[#14](https://github.com/alexzhang1030/vue-vet/issues/14)).
 
 ### Beta (blocking)
 
