@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+defineModel<string>()
+defineModel<string>()
 </script>
-<template>{{ x }}</template>
+<template><p>ok</p></template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+const props = defineProps<{ title: string }>()
+void props
 </script>
-<template>{{ x }}</template>
+<template>{{ props.title }}</template>

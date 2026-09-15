@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+const html = '<b>x</b>'
 </script>
-<template>{{ x }}</template>
+<template>
+  <div v-html="html" />
+</template>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+import { computed, ref } from 'vue'
+const count = ref(0)
+const result = computed(() => count.value + 1)
 </script>
-<template>{{ x }}</template>
+<template>{{ result }}</template>

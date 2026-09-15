@@ -78,9 +78,9 @@ fn static_computed_ref_contract_is_practice() {
 }
 
 #[test]
+#[expect(clippy::panic, reason = "fixture span lookup must fail the policy test")]
 fn route_snapshot_is_practice() {
-  let source =
-    include_str!("../../../../fixtures/rules/no-route-destructure/invalid/placeholder.vue");
+  let source = include_str!("../../../../fixtures/rules/no-route-destructure/invalid/basic.vue");
   let diagnostics = analyze("route-snapshot.vue", source);
   let rows = rule(&diagnostics, "/no-route-destructure");
   assert!(!rows.is_empty());
@@ -91,10 +91,10 @@ fn route_snapshot_is_practice() {
     return;
   };
   assert_eq!(primary.rule_id, "vue-vet/reactivity/no-route-destructure");
-  assert_eq!(primary.span.offset, 31);
-  assert_eq!(primary.span.length, 8);
-  assert_eq!(primary.span.line, 2);
-  assert_eq!(primary.span.column, 7);
+  let needle = "{ params }";
+  let offset = source.find(needle).unwrap_or_else(|| panic!("fixture must contain {needle}"));
+  assert_eq!(primary.span.offset, offset);
+  assert_eq!(primary.span.length, needle.len());
 }
 
 #[test]

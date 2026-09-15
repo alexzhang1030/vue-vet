@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+import { useRouter } from 'vue-router'
+const router = useRouter()
+void router.push
 </script>
-<template>{{ x }}</template>
+<template><p>ok</p></template>

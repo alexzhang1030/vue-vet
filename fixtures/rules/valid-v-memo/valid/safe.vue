@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-const x = ref(0)
+const value = ref(true)
 </script>
-<template>{{ x }}</template>
+<template>
+  <div v-memo="[value]">content</div>
+</template>

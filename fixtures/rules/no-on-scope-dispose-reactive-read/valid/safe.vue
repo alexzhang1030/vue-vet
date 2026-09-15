@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+import { effectScope, onScopeDispose, ref } from 'vue'
+const count = ref(0)
+const scope = effectScope()
+scope.run(() => {
+  onScopeDispose(() => {
+    console.log('disposed')
+  })
+})
+void count
 </script>
-<template>{{ x }}</template>
+<template>{{ count }}</template>

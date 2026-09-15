@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+const text = 'hello'
 </script>
-<template>{{ x }}</template>
+<template>
+  <textarea>{{ text }}</textarea>
+</template>

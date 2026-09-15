@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-const x = ref(0)
+const msg = 'hi'
 </script>
-<template>{{ x }}</template>
+<template>
+  <div v-text="msg">also children</div>
+</template>
