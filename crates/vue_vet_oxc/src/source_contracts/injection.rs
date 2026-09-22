@@ -8,7 +8,7 @@ use oxc_semantic::{NodeId, SymbolFlags, SymbolId};
 use oxc_span::{GetSpan, Span};
 
 use super::Collector;
-use super::index::{CallInfo, InjectionSite, MemberUse, chain_optional};
+use super::index::{CallInfo, InjectionSite, MemberUse, Site, chain_optional};
 use super::proof::{
   DemandOrigin, DemandRole, classify_reach_except_chain, enclosing_call, skip_ts_parent,
 };
@@ -40,7 +40,7 @@ impl Collector<'_> {
     let Some(inject) = self.indexes.inject_site(key, inject_offset, node_id) else {
       return;
     };
-    if inject.optional || !inject.reach.is_straight() {
+    if inject.optional || !inject.head.reach.is_straight() {
       return;
     }
     let Some(native) = self.indexes.native_symbol(key) else {
@@ -49,7 +49,7 @@ impl Collector<'_> {
     if native.callable != origin.callable || native.region != origin.region {
       return;
     }
-    if native.offset >= inject.offset {
+    if native.offset >= inject.head.offset {
       return;
     }
     if self.indexes.payload_uncertain(key) {
@@ -59,7 +59,7 @@ impl Collector<'_> {
       return;
     };
     if provide.optional
-      || !provide.reach.is_straight()
+      || !provide.head.reach.is_straight()
       || provide.has_spread
       || provide.argc < 2
       || provide.block != inject.block
@@ -91,7 +91,7 @@ impl Collector<'_> {
     self.facts.inject_same_instance_provide.push(vue_vet_core::InjectSameInstanceDemandFact {
       demand_span: self.span(site.demand),
       key_span: self.span(native.span),
-      provide_span: self.span(provide.span),
+      provide_span: self.span(provide.head.span),
       inject_span: self.span(call.span),
       fallback_kind,
       provided_kind,
@@ -112,7 +112,7 @@ impl Collector<'_> {
     let mut chosen: Option<InjectionSite> = None;
     for site in self.indexes.provides_on(key) {
       self.indexes.note_query();
-      if site.callable != origin.callable || site.region != origin.region {
+      if site.head.callable != origin.callable || site.head.region != origin.region {
         continue;
       }
       if chosen.is_some() {
@@ -231,7 +231,7 @@ impl Collector<'_> {
       if !self.indexes.injection_demand_from(&named.site, origin, fallback) {
         continue;
       }
-      if named.site.offset <= origin.offset {
+      if named.site.head.offset <= origin.offset {
         continue;
       }
       if native_callable(fallback, &named.key) != Some(false)
@@ -239,11 +239,11 @@ impl Collector<'_> {
       {
         continue;
       }
-      if chosen.as_ref().is_none_or(|current| named.site.offset < current.offset) {
+      if chosen.as_ref().is_none_or(|current| named.site.head.offset < current.offset) {
         chosen = Some(DemandSite {
-          demand: named.site.span,
+          demand: named.site.head.span,
           member: named.key.as_str(),
-          offset: named.site.offset,
+          offset: named.site.head.offset,
         });
       }
     }
@@ -274,19 +274,21 @@ impl Collector<'_> {
     }
     let owner = self.indexes.owner(next);
     let demand = MemberUse {
-      offset: self.span(outer.span).offset,
-      span: outer.span,
-      callable: owner.callable,
-      region: owner.region.unwrap_or(origin.region),
+      head: Site {
+        offset: self.span(outer.span).offset,
+        span: outer.span,
+        callable: owner.callable,
+        region: owner.region.unwrap_or(origin.region),
+        reach,
+      },
       optional: chain_optional(self.semantic, next, self.indexes.work_counter()),
       call_optional: outer.optional,
-      reach,
       role: DemandRole::Other,
     };
     if !self.indexes.injection_demand_from(&demand, origin, fallback) {
       return None;
     }
-    Some(DemandSite { demand: outer.span, member, offset: demand.offset })
+    Some(DemandSite { demand: outer.span, member, offset: demand.head.offset })
   }
 
   fn injection_kind_of_span(&mut self, span: Span, remaining: u8) -> Option<PrimitiveKind> {

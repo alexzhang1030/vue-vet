@@ -59,9 +59,9 @@ impl Indexes {
     origin: DemandOrigin,
   ) -> bool {
     self.demand_ok(site)
-      && site.callable == origin.callable
-      && site.region == origin.region
-      && self.await_interval_open(origin.callable, origin.region, origin.offset, site.offset)
+      && site.head.callable == origin.callable
+      && site.head.region == origin.region
+      && self.await_interval_open(origin.callable, origin.region, origin.offset, site.head.offset)
   }
 
   pub(in crate::source_contracts) fn await_interval_open(
@@ -99,7 +99,7 @@ impl Indexes {
     let sites = self.await_awaits_by_region(callable, region);
     sites.iter().any(|site| {
       self.work.add_queries(1);
-      site.offset == offset
+      site.head.offset == offset
     })
   }
 

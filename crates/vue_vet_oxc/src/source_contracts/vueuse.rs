@@ -10,7 +10,7 @@ use oxc_semantic::{NodeId, SymbolId};
 use oxc_span::Span;
 
 use super::Collector;
-use super::index::{AwaitPositionSite, CallInfo, CallUse, MemberUse, ObjectProp, ValueWrite};
+use super::index::{AwaitPositionSite, CallInfo, CallUse, MemberUse, ObjectProp, Site, ValueWrite};
 use super::proof::{
   DemandOrigin, DemandRole, classify_reach, is_ts_wrapper, native_kind_has_method,
 };
@@ -104,7 +104,7 @@ impl Collector<'_> {
       }
       self.consider_ignore_call(
         &named.site,
-        Some(named.site.span),
+        Some(named.site.head.span),
         source,
         parent,
         region,
@@ -128,10 +128,10 @@ impl Collector<'_> {
     stops: &StopHandles,
     chosen: &mut Option<(usize, Span, Span, Span)>,
   ) {
-    if site.callable != parent || site.region != region || !self.indexes.demand_ok(site) {
+    if site.head.callable != parent || site.head.region != region || !self.indexes.demand_ok(site) {
       return;
     }
-    let span = call_span.unwrap_or(site.span);
+    let span = call_span.unwrap_or(site.head.span);
     let Some(info) = self.indexes.call_info(span) else {
       return;
     };
@@ -150,25 +150,28 @@ impl Collector<'_> {
     let Some(await_site) = self.first_straight_await(Some(updater_id)) else {
       return;
     };
-    let Some(write) =
-      self.changed_write_after(source, Some(updater_id), await_site.offset, await_site.region)
-    else {
+    let Some(write) = self.changed_write_after(
+      source,
+      Some(updater_id),
+      await_site.head.offset,
+      await_site.head.region,
+    ) else {
       return;
     };
     if self.indexes.await_non_await_barrier_between(
       Some(updater_id),
-      await_site.region,
-      await_site.offset,
+      await_site.head.region,
+      await_site.head.offset,
       write.offset,
     ) {
       return;
     }
-    if self.stop_before_write(stops, updater_id, await_site.region, write.offset) {
+    if self.stop_before_write(stops, updater_id, await_site.head.region, write.offset) {
       return;
     }
     let offset = write.offset;
     if chosen.as_ref().is_none_or(|(current, _, _, _)| offset < *current) {
-      *chosen = Some((offset, write.span, span, await_site.span));
+      *chosen = Some((offset, write.span, span, await_site.head.span));
     }
   }
 
@@ -212,7 +215,7 @@ impl Collector<'_> {
     let calls = call_sites.as_slice();
     let Some(first_pos) = calls.iter().position(|site| {
       self.indexes.note_query();
-      site.offset > factory_offset
+      site.head.offset > factory_offset
     }) else {
       return;
     };
@@ -222,7 +225,7 @@ impl Collector<'_> {
     if !self.indexes.demand_ok(first_site) {
       return;
     }
-    let Some(first_info) = self.indexes.call_info(first_site.span) else {
+    let Some(first_info) = self.indexes.call_info(first_site.head.span) else {
       return;
     };
     if first_info.has_spread {
@@ -234,7 +237,7 @@ impl Collector<'_> {
     let Some(first_scalar) = self.scalar_of_span(first_arg) else {
       return;
     };
-    if !self.shared_callable_owner_ok(api, first_site.callable) {
+    if !self.shared_callable_owner_ok(api, first_site.head.callable) {
       return;
     }
     let Some(rest) = calls.get(first_pos..) else {
@@ -253,12 +256,12 @@ impl Collector<'_> {
     else {
       return;
     };
-    if self.alias_repaired_before(&aliases, first_site.offset, demand.offset) {
+    if self.alias_repaired_before(&aliases, first_site.head.offset, demand.head.offset) {
       return;
     }
     self.facts.shared_composable_first_instance_args.push(SharedComposableFirstInstanceArgsFact {
-      demand_span: self.span(demand.span),
-      first_call_span: self.span(first_site.span),
+      demand_span: self.span(demand.head.span),
+      first_call_span: self.span(first_site.head.span),
       later_arg_span: self.span(later_arg),
       api: api.into(),
       capability: method,
@@ -274,13 +277,15 @@ impl Collector<'_> {
   ) -> Option<(Span, NativeKind, DemandOrigin)> {
     for later in calls.iter().skip(first_pos.saturating_add(1)) {
       self.indexes.note_query();
-      if later.callable != first_site.callable || later.region != first_site.region {
+      if later.head.callable != first_site.head.callable
+        || later.head.region != first_site.head.region
+      {
         continue;
       }
       if !self.indexes.demand_ok(later) {
         continue;
       }
-      let Some(later_info) = self.indexes.call_info(later.span) else {
+      let Some(later_info) = self.indexes.call_info(later.head.span) else {
         continue;
       };
       if later_info.has_spread {
@@ -295,13 +300,21 @@ impl Collector<'_> {
       if later_scalar.kind() == first_kind {
         continue;
       }
-      if self.indexes.has_barrier_between(first_site.region, first_site.offset, later.offset) {
+      if self.indexes.has_barrier_between(
+        first_site.head.region,
+        first_site.head.offset,
+        later.head.offset,
+      ) {
         continue;
       }
       return Some((
         later_arg,
         later_scalar.kind(),
-        DemandOrigin { callable: later.callable, region: later.region, offset: later.offset },
+        DemandOrigin {
+          callable: later.head.callable,
+          region: later.head.region,
+          offset: later.head.offset,
+        },
       ));
     }
     None
@@ -311,7 +324,7 @@ impl Collector<'_> {
     let mut aliases = Vec::new();
     for site in calls {
       self.indexes.note_query();
-      let Some(result) = self.indexes.result_of_call(site.span) else {
+      let Some(result) = self.indexes.result_of_call(site.head.span) else {
         continue;
       };
       let root = self.indexes.root_of(result);
@@ -337,7 +350,7 @@ impl Collector<'_> {
       self.indexes.note_query();
       if let Some((demand, method)) =
         self.incompatible_demand(*alias, first, later, origin, origin.offset)
-        && chosen.as_ref().is_none_or(|(current, _)| demand.offset < current.offset)
+        && chosen.as_ref().is_none_or(|(current, _)| demand.head.offset < current.head.offset)
       {
         chosen = Some((demand, method));
       }
@@ -453,7 +466,7 @@ impl Collector<'_> {
   }
 
   fn first_straight_await(&self, callable: Option<NodeId>) -> Option<AwaitPositionSite> {
-    self.indexes.straight_awaits_in(callable).min_by_key(|site| site.offset)
+    self.indexes.straight_awaits_in(callable).min_by_key(|site| site.head.offset)
   }
 
   fn unordered_source_write(&self, source: SymbolId, updater: Option<NodeId>) -> bool {
@@ -537,7 +550,7 @@ impl Collector<'_> {
       if self.indexes.identifier_calls_on(*symbol).iter().any(|site| {
         self.indexes.note_query();
         let site = member_from_call(site);
-        site.callable == parent && site.region == region && self.indexes.demand_ok(&site)
+        site.head.callable == parent && site.head.region == region && self.indexes.demand_ok(&site)
       }) {
         return true;
       }
@@ -574,13 +587,13 @@ impl Collector<'_> {
       self.indexes.identifier_calls_on(*symbol).iter().any(|site| {
         self.indexes.note_query();
         let site = member_from_call(site);
-        site.callable == Some(updater)
-          && site.offset < before
+        site.head.callable == Some(updater)
+          && site.head.offset < before
           && self.indexes.demand_ok(&site)
           && !self.indexes.await_non_await_barrier_between(
             Some(updater),
             region,
-            site.offset,
+            site.head.offset,
             before,
           )
       })
@@ -707,7 +720,7 @@ impl Collector<'_> {
     let mut chosen: Option<(MemberUse, String)> = None;
     for demand in self.indexes.value_demands_on(root) {
       self.indexes.note_query();
-      if demand.site.offset <= after || !self.indexes.demand_from(&demand.site, origin) {
+      if demand.site.head.offset <= after || !self.indexes.demand_from(&demand.site, origin) {
         continue;
       }
       if native_kind_has_method(first, &demand.member)
@@ -715,7 +728,7 @@ impl Collector<'_> {
       {
         continue;
       }
-      if chosen.as_ref().is_none_or(|(current, _)| demand.site.offset < current.offset) {
+      if chosen.as_ref().is_none_or(|(current, _)| demand.site.head.offset < current.head.offset) {
         chosen = Some((demand.site, self.indexes.copy_key(&demand.member)));
       }
     }
@@ -743,13 +756,15 @@ impl Collector<'_> {
 
 const fn member_from_call(site: &CallUse) -> MemberUse {
   MemberUse {
-    offset: site.offset,
-    span: site.span,
-    callable: site.callable,
-    region: site.region,
+    head: Site {
+      offset: site.head.offset,
+      span: site.head.span,
+      callable: site.head.callable,
+      region: site.head.region,
+      reach: site.head.reach,
+    },
     optional: site.optional,
     call_optional: false,
-    reach: site.reach,
     role: DemandRole::Other,
   }
 }

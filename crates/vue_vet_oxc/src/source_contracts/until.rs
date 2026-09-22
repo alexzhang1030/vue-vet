@@ -58,15 +58,18 @@ impl Collector<'_> {
     if expected_kind == timeout_kind {
       return;
     }
-    let demand_origin =
-      DemandOrigin { callable: origin.callable, region: origin.region, offset: await_site.offset };
+    let demand_origin = DemandOrigin {
+      callable: origin.callable,
+      region: origin.region,
+      offset: await_site.head.offset,
+    };
     let Some((demand, capability)) =
       self.incompatible_result_demand(await_site, timeout_kind, expected_kind, demand_origin)
     else {
       return;
     };
     self.facts.until_timeout_unmatched_demand.push(UntilTimeoutUnmatchedDemandFact {
-      demand_span: self.span(demand.span),
+      demand_span: self.span(demand.head.span),
       comparison_span: self.span(call.span),
       options_span: self.span(timeout_span),
       source_span: self.span(source_span),
@@ -216,7 +219,9 @@ impl Collector<'_> {
 
   fn await_belongs(&self, site: AwaitPositionSite, origin: DemandOrigin) -> bool {
     self.indexes.note_query();
-    site.callable == origin.callable && site.region == origin.region && site.reach.is_straight()
+    site.head.callable == origin.callable
+      && site.head.region == origin.region
+      && site.head.reach.is_straight()
   }
 
   fn unmatched_timeout_value(
@@ -331,10 +336,10 @@ impl Collector<'_> {
     origin: DemandOrigin,
   ) -> Option<(MemberUse, String)> {
     let mut chosen: Option<(MemberUse, String)> = None;
-    for named in self.indexes.await_await_method_calls_on(await_site.span) {
+    for named in self.indexes.await_await_method_calls_on(await_site.head.span) {
       self.consider_demand(named, timeout_kind, expected_kind, origin, true, &mut chosen);
     }
-    if let Some(result) = self.indexes.await_result_of_await(await_site.span) {
+    if let Some(result) = self.indexes.await_result_of_await(await_site.head.span) {
       let root = self.indexes.root_of(result);
       if self.indexes.result_reassigned(root) {
         return None;
@@ -356,7 +361,7 @@ impl Collector<'_> {
     chosen: &mut Option<(MemberUse, String)>,
   ) {
     self.indexes.note_query();
-    if !chained && named.site.offset < origin.offset {
+    if !chained && named.site.head.offset < origin.offset {
       return;
     }
     if !self.unmatched_demand_from(&named.site, origin, timeout_kind) {
@@ -367,7 +372,7 @@ impl Collector<'_> {
     {
       return;
     }
-    if chosen.as_ref().is_none_or(|(current, _)| named.site.offset < current.offset) {
+    if chosen.as_ref().is_none_or(|(current, _)| named.site.head.offset < current.head.offset) {
       *chosen = Some((named.site, self.indexes.copy_key(&named.key)));
     }
   }
@@ -382,14 +387,14 @@ impl Collector<'_> {
       return false;
     }
     if site.optional {
-      return site.reach.is_straight()
-        && site.callable == origin.callable
-        && site.region == origin.region
+      return site.head.reach.is_straight()
+        && site.head.callable == origin.callable
+        && site.head.region == origin.region
         && self.indexes.await_interval_open(
           origin.callable,
           origin.region,
           origin.offset,
-          site.offset,
+          site.head.offset,
         );
     }
     self.indexes.await_demand_from(site, origin)

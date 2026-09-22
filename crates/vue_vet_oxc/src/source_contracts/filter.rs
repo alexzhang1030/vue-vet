@@ -87,19 +87,19 @@ impl Collector<'_> {
       for later in calls.iter().skip(index.saturating_add(1)) {
         self.indexes.note_query();
         if !self.wrapper_call_ok(later, origin)
-          || later.offset <= first.offset
-          || later.region != first.region
-          || later.callable != first.callable
+          || later.head.offset <= first.head.offset
+          || later.head.region != first.head.region
+          || later.head.callable != first.head.callable
           || later.block != first.block
         {
           continue;
         }
-        if self.indexes.has_barrier_between(first.region, first.offset, later.offset)
+        if self.indexes.has_barrier_between(first.head.region, first.head.offset, later.head.offset)
           || self.indexes.await_has_await_between(
-            first.callable,
-            first.region,
-            first.offset,
-            later.offset,
+            first.head.callable,
+            first.head.region,
+            first.head.offset,
+            later.head.offset,
           )
         {
           continue;
@@ -127,12 +127,12 @@ impl Collector<'_> {
 
   fn wrapper_call_ok(&self, call: &CallUse, origin: super::proof::DemandOrigin) -> bool {
     self.indexes.note_query();
-    call.reach.is_straight()
+    call.head.reach.is_straight()
       && !call.optional
       && !call.has_spread
-      && call.callable == origin.callable
-      && call.region == origin.region
-      && call.offset >= origin.offset
+      && call.head.callable == origin.callable
+      && call.head.region == origin.region
+      && call.head.offset >= origin.offset
   }
 
   fn demand_after_cancel(
@@ -176,10 +176,10 @@ impl Collector<'_> {
     let mut chosen = None;
     for awaited in self.indexes.await_awaits_for_bound(promise) {
       self.indexes.note_query();
-      if !self.await_ok(awaited, origin, later.offset) {
+      if !self.await_ok(awaited, origin, later.head.offset) {
         continue;
       }
-      for demand in self.indexes.await_await_method_calls_on(awaited.span) {
+      for demand in self.indexes.await_await_method_calls_on(awaited.head.span) {
         self.indexes.note_query();
         let Some(site) = self.demand_site(demand, origin, first, later, awaited, result_kind, true)
         else {
@@ -206,12 +206,18 @@ impl Collector<'_> {
     result_kind: PrimitiveKind,
   ) -> Option<FilterSite> {
     let demands = self.indexes.member_calls_on(demand_root);
-    timeline::after(self.indexes.work_counter(), demands, later.offset).iter().find_map(|named| {
-      self.indexes.note_query();
-      let awaited =
-        self.await_before_demand(await_root, origin, later.offset, named.site.offset)?;
-      self.demand_site(named, origin, first, later, awaited, result_kind, false)
-    })
+    timeline::after(self.indexes.work_counter(), demands, later.head.offset).iter().find_map(
+      |named| {
+        self.indexes.note_query();
+        let awaited = self.await_before_demand(
+          await_root,
+          origin,
+          later.head.offset,
+          named.site.head.offset,
+        )?;
+        self.demand_site(named, origin, first, later, awaited, result_kind, false)
+      },
+    )
   }
 
   fn await_ok(
@@ -221,10 +227,10 @@ impl Collector<'_> {
     after: usize,
   ) -> bool {
     self.indexes.note_query();
-    awaited.offset >= after
-      && awaited.callable == origin.callable
-      && awaited.region == origin.region
-      && awaited.reach.is_straight()
+    awaited.head.offset >= after
+      && awaited.head.callable == origin.callable
+      && awaited.head.region == origin.region
+      && awaited.head.reach.is_straight()
   }
 
   fn await_before_demand(
@@ -237,7 +243,7 @@ impl Collector<'_> {
     let awaits = self.indexes.await_awaits_for_bound(promise);
     timeline::from(self.indexes.work_counter(), awaits, after).iter().find(|awaited| {
       self.indexes.note_query();
-      self.await_ok(awaited, origin, after) && awaited.offset <= demand_offset
+      self.await_ok(awaited, origin, after) && awaited.head.offset <= demand_offset
     })
   }
 
@@ -256,20 +262,20 @@ impl Collector<'_> {
     chained_await: bool,
   ) -> Option<FilterSite> {
     if demand.site.optional
-      || !demand.site.reach.is_straight()
-      || demand.site.callable != origin.callable
-      || demand.site.region != origin.region
+      || !demand.site.head.reach.is_straight()
+      || demand.site.head.callable != origin.callable
+      || demand.site.head.region != origin.region
     {
       return None;
     }
-    if demand.site.offset <= later.offset {
+    if demand.site.head.offset <= later.head.offset {
       return None;
     }
     if chained_await {
-      if awaited.offset <= later.offset {
+      if awaited.head.offset <= later.head.offset {
         return None;
       }
-    } else if demand.site.offset < awaited.offset {
+    } else if demand.site.head.offset < awaited.head.offset {
       return None;
     }
     if native_callable(PrimitiveKind::Nullish, &demand.key) != Some(false)
@@ -278,10 +284,10 @@ impl Collector<'_> {
       return None;
     }
     Some(FilterSite {
-      demand: demand.site.span,
-      first: first.span,
-      superseding: later.span,
-      awaited: awaited.span,
+      demand: demand.site.head.span,
+      first: first.head.span,
+      superseding: later.head.span,
+      awaited: awaited.head.span,
       member: self.indexes.copy_key(&demand.key),
     })
   }
@@ -373,7 +379,7 @@ impl Collector<'_> {
   }
 
   fn call_first_arg_kind(&self, call: &CallUse) -> Option<PrimitiveKind> {
-    let info = self.indexes.call_info(call.span)?;
+    let info = self.indexes.call_info(call.head.span)?;
     self.filter_kind_of_span(info.first_arg?, KIND_DEPTH)
   }
 
@@ -441,7 +447,7 @@ impl Collector<'_> {
   }
 
   fn const_result_of(&self, call: &CallUse) -> Option<SymbolId> {
-    let symbol_id = self.indexes.result_of_call(call.span)?;
+    let symbol_id = self.indexes.result_of_call(call.head.span)?;
     self
       .semantic
       .scoping()
@@ -454,7 +460,7 @@ impl Collector<'_> {
     let mut aliases = Vec::new();
     for awaited in self.indexes.await_awaits_for_bound(promise) {
       self.indexes.note_query();
-      let Some(alias) = self.indexes.await_result_of_await(awaited.span) else {
+      let Some(alias) = self.indexes.await_result_of_await(awaited.head.span) else {
         continue;
       };
       if !self.semantic.scoping().symbol_flags(alias).contains(SymbolFlags::ConstVariable) {

@@ -7,7 +7,7 @@ use oxc_semantic::{NodeId, SymbolFlags, SymbolId};
 use oxc_span::Span;
 
 use super::Collector;
-use super::index::{CallInfo, MemberUse, NestedWrite, SnapshotCall};
+use super::index::{CallInfo, MemberUse, NestedWrite, Site, SnapshotCall};
 use super::proof::{DemandOrigin, classify_reach, enclosing_call, skip_ts_parent};
 use super::shape::{Literal, OptionValue, span_key};
 use super::timeline;
@@ -146,13 +146,14 @@ impl Collector<'_> {
     let mut chosen: Option<(NestedWrite, String, SnapshotCall, &'static str)> = None;
     for demand in self.history_value_demands(&bindings, origin, source) {
       self.indexes.note_query();
-      if demand.site.offset <= origin.offset {
+      if demand.site.head.offset <= origin.offset {
         continue;
       }
       let Some(record) = self.consumed_record(&summary, &demand) else {
         continue;
       };
-      if let Some((write, property)) = self.corrupting_write(&summary, &record, demand.site.offset)
+      if let Some((write, property)) =
+        self.corrupting_write(&summary, &record, demand.site.head.offset)
         && chosen.as_ref().is_none_or(|(current, _, _, _)| write.offset < current.offset)
       {
         chosen = Some((write, property, demand.site, demand.kind));
@@ -162,7 +163,7 @@ impl Collector<'_> {
       self.facts.ref_history_snapshot_alias.push(RefHistorySnapshotAliasFact {
         write_span: self.span(write.span),
         record_span: self.span(call.span),
-        demand_span: self.span(demand.span),
+        demand_span: self.span(demand.head.span),
         property,
         demand_kind: kind.into(),
       });
@@ -434,19 +435,21 @@ impl Collector<'_> {
     }
     let owner = self.indexes.owner(invoke);
     let demand = MemberUse {
-      offset: self.span(call.span).offset,
-      span: call.span,
-      callable: owner.callable,
-      region: owner.region.unwrap_or(origin.region),
+      head: Site {
+        offset: self.span(call.span).offset,
+        span: call.span,
+        callable: owner.callable,
+        region: owner.region.unwrap_or(origin.region),
+        reach,
+      },
       optional: false,
       call_optional: false,
-      reach,
       role: super::proof::DemandRole::Read,
     };
     if !self.indexes.demand_from(&demand, origin) {
       return None;
     }
-    Some(DateDemand { span: call.span, method: name.to_string(), offset: demand.offset })
+    Some(DateDemand { span: call.span, method: name.to_string(), offset: demand.head.offset })
   }
 
   fn path_method_demand(
@@ -469,11 +472,11 @@ impl Collector<'_> {
       if !self.indexes.demand_from(&call.site, origin) {
         continue;
       }
-      if chosen.as_ref().is_none_or(|current| call.site.offset < current.offset) {
+      if chosen.as_ref().is_none_or(|current| call.site.head.offset < current.offset) {
         chosen = Some(DateDemand {
-          span: call.site.span,
+          span: call.site.head.span,
           method: call.method.clone(),
-          offset: call.site.offset,
+          offset: call.site.head.offset,
         });
       }
     }
@@ -800,8 +803,8 @@ impl Collector<'_> {
       HistoryOpKind::Clear => bindings.clear,
     };
     self.each_method_site(local, bindings.bag, key, |site| {
-      if self.indexes.ident_demand(site, origin) && site.offset > origin.offset {
-        ops.push(HistoryOp { offset: site.offset, kind });
+      if self.indexes.ident_demand(site, origin) && site.head.offset > origin.offset {
+        ops.push(HistoryOp { offset: site.head.offset, kind });
       }
     });
   }
@@ -828,11 +831,13 @@ impl Collector<'_> {
         self.indexes.note_query();
         if named.key == key {
           let site = SnapshotCall {
-            offset: named.site.offset,
-            span: named.site.span,
-            callable: named.site.callable,
-            region: named.site.region,
-            reach: named.site.reach,
+            head: Site {
+              offset: named.site.head.offset,
+              span: named.site.head.span,
+              callable: named.site.head.callable,
+              region: named.site.head.region,
+              reach: named.site.head.reach,
+            },
             optional: named.site.optional,
           };
           visit(&site);
@@ -863,14 +868,14 @@ impl Collector<'_> {
     let mut demands = Vec::new();
     self.each_method_site(bindings.undo, bindings.bag, "undo", |site| {
       if self.indexes.ident_demand(site, origin)
-        && self.source_property_consumed(source, origin, site.offset)
+        && self.source_property_consumed(source, origin, site.head.offset)
       {
         demands.push(HistoryDemand { site: *site, kind: "undo", restore: Restore::Undo });
       }
     });
     self.each_method_site(bindings.reset, bindings.bag, "reset", |site| {
       if self.indexes.ident_demand(site, origin)
-        && self.source_property_consumed(source, origin, site.offset)
+        && self.source_property_consumed(source, origin, site.head.offset)
       {
         demands.push(HistoryDemand { site: *site, kind: "reset", restore: Restore::Reset });
       }
@@ -890,7 +895,7 @@ impl Collector<'_> {
       self.indexes.note_query();
       if read.keys.first().is_some_and(|key| key == "value")
         && read.keys.len() >= 2
-        && read.site.offset > after
+        && read.site.head.offset > after
         && self.indexes.demand_from(&read.site, origin)
       {
         return true;
@@ -919,11 +924,13 @@ impl Collector<'_> {
         }
         reads.push((
           SnapshotCall {
-            offset: read.site.offset,
-            span: read.site.span,
-            callable: read.site.callable,
-            region: read.site.region,
-            reach: read.site.reach,
+            head: Site {
+              offset: read.site.head.offset,
+              span: read.site.head.span,
+              callable: read.site.head.callable,
+              region: read.site.head.region,
+              reach: read.site.head.reach,
+            },
             optional: read.site.optional,
           },
           snapshot_index(&read.keys),
@@ -948,11 +955,13 @@ impl Collector<'_> {
         }
         reads.push((
           SnapshotCall {
-            offset: read.site.offset,
-            span: read.site.span,
-            callable: read.site.callable,
-            region: read.site.region,
-            reach: read.site.reach,
+            head: Site {
+              offset: read.site.head.offset,
+              span: read.site.head.span,
+              callable: read.site.head.callable,
+              region: read.site.head.region,
+              reach: read.site.head.reach,
+            },
             optional: read.site.optional,
           },
           snapshot_index(rest),
@@ -967,7 +976,7 @@ impl Collector<'_> {
     summary: &HistorySummary,
     demand: &HistoryDemand,
   ) -> Option<RecordState> {
-    let point = self.point_before(summary, demand.site.offset)?;
+    let point = self.point_before(summary, demand.site.head.offset)?;
     match demand.restore {
       Restore::Undo => point.undo.first().cloned(),
       Restore::Reset => Some(point.last.clone()),

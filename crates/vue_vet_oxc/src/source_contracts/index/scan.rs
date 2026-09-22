@@ -9,8 +9,8 @@ use super::{
   MAX_ALIAS_DEPTH, MAX_ESCAPE_DEPTH, MAX_ROLE_ANCESTORS, MemberCall, MemberInfo, MemberUse,
   MemberWrite, NamedUse, NativeSymbol, NestedWrite, NodeId, ObjectEntry, ObjectPropertyKind,
   PathCall, PathRead, PathWrite, PrimitiveAtom, ReferenceFlags, ResultDemand, ScriptKind,
-  ShapePrimitiveAtom, SimpleAssignmentTarget, Span, StaticMemberExpression, StmtSite, SymbolFlags,
-  SymbolId, TOREF_CAPABILITY_KEY, UnaryOperator, ValueDemand, ValueRead, ValueWrite,
+  ShapePrimitiveAtom, SimpleAssignmentTarget, Site, Span, StaticMemberExpression, StmtSite,
+  SymbolFlags, SymbolId, TOREF_CAPABILITY_KEY, UnaryOperator, ValueDemand, ValueRead, ValueWrite,
   VariableDeclarator, WatchConsumer, WriteLiteral, analyze_class, array_is_controlled_source,
   array_is_map_entry, array_is_map_iterable, assigned_const_symbol,
   assignment_poisons_clone_intrinsic, assignment_poisons_map_intrinsic, atom_of_expression,
@@ -1092,14 +1092,16 @@ impl Indexes {
       argument.get_identifier_reference().and_then(|ident| reference_symbol(semantic, ident));
     let region = region_of(owner, node_id);
     self.await_index.awaits.push(AwaitPositionSite {
-      offset: await_span.offset,
+      head: Site {
+        offset: await_span.offset,
+        span,
+        callable: owner.callable,
+        region,
+        reach: classify_reach(semantic, node_id, &self.work),
+      },
       end: await_span.offset.saturating_add(await_span.length),
-      span,
       argument: argument.span(),
       bound,
-      callable: owner.callable,
-      region,
-      reach: classify_reach(semantic, node_id, &self.work),
     });
   }
 
@@ -1973,13 +1975,15 @@ impl Indexes {
     let owner = self.owner(node_id);
     let region = region_of(owner, node_id);
     let use_site = MemberUse {
-      offset: mapped(line_index, sfc_source, script_offset, member.span).offset,
-      span: member.span,
-      callable: owner.callable,
-      region,
+      head: Site {
+        offset: mapped(line_index, sfc_source, script_offset, member.span).offset,
+        span: member.span,
+        callable: owner.callable,
+        region,
+        reach: classify_reach(semantic, node_id, &self.work),
+      },
       optional,
       call_optional: false,
-      reach: classify_reach(semantic, node_id, &self.work),
       role: classify_role(semantic, node_id, &self.work),
     };
     let property = member.property.name.as_str();
@@ -2047,33 +2051,45 @@ impl Indexes {
       && let Some(symbol_id) = reference_symbol(semantic, ident)
     {
       let use_site = MemberUse {
-        offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
-        span: call.span,
-        callable: owner.callable,
-        region,
+        head: Site {
+          offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
+          span: call.span,
+          callable: owner.callable,
+          region,
+          reach: classify_reach(semantic, node_id, &self.work),
+        },
         optional,
         call_optional: call.optional,
-        reach: classify_reach(semantic, node_id, &self.work),
         role: DemandRole::Other,
       };
       let named = NamedUse { key: key.to_string(), site: use_site };
       let root = self.root_of(symbol_id);
       if named.key == "stop" && self.demand_ok(&use_site) {
-        self.stops_by_region.entry((root, use_site.callable, region)).or_default().push(use_site);
-        self.stop_offsets.push(use_site.offset);
+        self
+          .stops_by_region
+          .entry((root, use_site.head.callable, region))
+          .or_default()
+          .push(use_site);
+        self.stop_offsets.push(use_site.head.offset);
       }
       self.member_call_by_span.insert(span_key(call.span), named.clone());
       self.await_index.result_method_calls.entry(root).or_default().push(NamedUse {
         key: named.key.clone(),
         site: MemberUse {
-          reach: classify_reach_except_chain(semantic, node_id, &self.work),
+          head: Site {
+            reach: classify_reach_except_chain(semantic, node_id, &self.work),
+            ..use_site.head
+          },
           ..use_site
         },
       });
       self.member_calls_by_root.entry(root).or_default().push(NamedUse {
         key: named.key,
         site: MemberUse {
-          reach: classify_reach_except_chain(semantic, node_id, &self.work),
+          head: Site {
+            reach: classify_reach_except_chain(semantic, node_id, &self.work),
+            ..use_site.head
+          },
           call_optional: call.optional,
           ..use_site
         },
@@ -2082,13 +2098,15 @@ impl Indexes {
     }
     if let Expression::AwaitExpression(awaited) = object {
       let use_site = MemberUse {
-        offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
-        span: call.span,
-        callable: owner.callable,
-        region,
+        head: Site {
+          offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
+          span: call.span,
+          callable: owner.callable,
+          region,
+          reach: classify_reach_except_chain(semantic, node_id, &self.work),
+        },
         optional,
         call_optional: call.optional,
-        reach: classify_reach_except_chain(semantic, node_id, &self.work),
         role: DemandRole::Other,
       };
       let named = NamedUse { key: key.to_string(), site: use_site };
@@ -2097,13 +2115,15 @@ impl Indexes {
     }
     if let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() {
       let use_site = MemberUse {
-        offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
-        span: call.span,
-        callable: owner.callable,
-        region,
+        head: Site {
+          offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
+          span: call.span,
+          callable: owner.callable,
+          region,
+          reach: classify_reach(semantic, node_id, &self.work),
+        },
         optional,
         call_optional: call.optional,
-        reach: classify_reach(semantic, node_id, &self.work),
         role: DemandRole::Other,
       };
       self.record_path_call(semantic, member, use_site);
@@ -2202,19 +2222,21 @@ impl Indexes {
     let has_spread = call.arguments.iter().any(Argument::is_spread);
     let argc = u8::try_from(call.arguments.len()).unwrap_or(u8::MAX);
     let use_site = CallUse {
-      offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
-      span: call.span,
-      callable: owner.callable,
-      region,
+      head: Site {
+        offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
+        span: call.span,
+        callable: owner.callable,
+        region,
+        reach: classify_reach(semantic, node_id, &self.work),
+      },
       block,
       optional,
-      reach: classify_reach(semantic, node_id, &self.work),
       argc,
       has_spread,
     };
     let root = self.root_of(symbol_id);
     if self.symbol_is_vueuse_producer(root) {
-      self.producer_call_offsets.push(use_site.offset);
+      self.producer_call_offsets.push(use_site.head.offset);
     }
     self.identifier_calls.entry(root).or_default().push(use_site);
     self.record_wrapped_result_demand(
@@ -2251,13 +2273,15 @@ impl Indexes {
     let region = region_of(owner, grand);
     let block = owner.block.unwrap_or(grand);
     let site = MemberUse {
-      offset: mapped(line_index, sfc_source, script_offset, outer.span).offset,
-      span: outer.span,
-      callable: owner.callable,
-      region,
+      head: Site {
+        offset: mapped(line_index, sfc_source, script_offset, outer.span).offset,
+        span: outer.span,
+        callable: owner.callable,
+        region,
+        reach: classify_reach(semantic, grand, &self.work),
+      },
       optional,
       call_optional: false,
-      reach: classify_reach(semantic, grand, &self.work),
       role: DemandRole::Other,
     };
     self.result_demands.entry(root).or_default().push(ResultDemand {
@@ -2298,13 +2322,15 @@ impl Indexes {
     let region = region_of(owner, node_id);
     let block = owner.block.unwrap_or(node_id);
     let site = MemberUse {
-      offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
-      span: call.span,
-      callable: owner.callable,
-      region,
+      head: Site {
+        offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
+        span: call.span,
+        callable: owner.callable,
+        region,
+        reach: classify_reach(semantic, node_id, &self.work),
+      },
       optional,
       call_optional: false,
-      reach: classify_reach(semantic, node_id, &self.work),
       role: DemandRole::Other,
     };
     let object = &member.object.get_inner_expression();
@@ -2321,13 +2347,15 @@ impl Indexes {
       return;
     };
     let value_read = MemberUse {
-      offset: mapped(line_index, sfc_source, script_offset, inner.span).offset,
-      span: inner.span,
-      callable: owner.callable,
-      region,
+      head: Site {
+        offset: mapped(line_index, sfc_source, script_offset, inner.span).offset,
+        span: inner.span,
+        callable: owner.callable,
+        region,
+        reach: classify_reach(semantic, node_id, &self.work),
+      },
       optional,
       call_optional: false,
-      reach: classify_reach(semantic, node_id, &self.work),
       role: DemandRole::Read,
     };
     self.value_demands.entry(self.root_of(symbol_id)).or_default().push(ValueDemand {
@@ -2435,12 +2463,14 @@ impl Indexes {
     let owner = self.owner(node_id);
     let region = region_of(owner, node_id);
     let site = InjectionSite {
-      offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
-      span: call.span,
-      callable: owner.callable,
-      region,
+      head: Site {
+        offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
+        span: call.span,
+        callable: owner.callable,
+        region,
+        reach: classify_reach(semantic, node_id, &self.work),
+      },
       block: owner.block.unwrap_or(node_id),
-      reach: classify_reach(semantic, node_id, &self.work),
       optional: chain_optional(semantic, node_id, &self.work),
       argc: info.arg_count,
       has_spread: info.has_spread,
@@ -2557,7 +2587,7 @@ impl Indexes {
       self
         .await_index
         .awaits_by_region
-        .entry((site.callable, site.region))
+        .entry((site.head.callable, site.head.region))
         .or_default()
         .push(*site);
       if let Some(symbol_id) = site.bound {
