@@ -11,6 +11,7 @@ use super::Collector;
 use super::index::{MemberUse, NamedUse, ObjectEntry, UntilAwaitSite, ValueWrite};
 use super::proof::{DemandOrigin, classify_reach, native_kind_has_method};
 use super::shape::{NativeKind, SYNC_FLUSH, Scalar, Shape, ShapeHint, span_key};
+use super::timeline;
 use vue_vet_core::UntilTimeoutUnmatchedDemandFact;
 
 impl Collector<'_> {
@@ -289,10 +290,7 @@ impl Collector<'_> {
     if writes.is_empty() {
       return false;
     }
-    let end = self.indexes.work_counter().partition_point(writes, |write| write.offset < offset);
-    let Some(prior) = writes.get(..end) else {
-      return false;
-    };
+    let prior = timeline::before(self.indexes.work_counter(), writes, offset);
     let last_same = prior.iter().rev().find(|write| {
       self.indexes.note_query();
       write.callable == callable && write.block == block && write.simple_assign
@@ -316,17 +314,14 @@ impl Collector<'_> {
     if writes.is_empty() {
       return None;
     }
-    let end = self.indexes.work_counter().partition_point(writes, |write| write.offset < offset);
-    writes.get(..end).and_then(|prior| {
-      prior
-        .iter()
-        .rev()
-        .find(|write| {
-          self.indexes.note_query();
-          write.callable == callable && write.block == block && write.simple_assign
-        })
-        .copied()
-    })
+    timeline::before(self.indexes.work_counter(), writes, offset)
+      .iter()
+      .rev()
+      .find(|write| {
+        self.indexes.note_query();
+        write.callable == callable && write.block == block && write.simple_assign
+      })
+      .copied()
   }
 
   fn ref_init_scalar(&self, root: SymbolId) -> Option<Scalar> {

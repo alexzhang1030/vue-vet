@@ -17,6 +17,7 @@ use vue_vet_core::{AttachedEffectScopeFact, LazyComputedAsyncFact, QueuedWatchFl
 
 use super::index::{AwaitSite, CallInfo, MemberCall, WatchConsumer};
 use super::shape::{PrimitiveAtom, ShapeHint, primitive_atom, span_key};
+use super::timeline;
 use super::{Collector, MAX_DEPTH};
 
 #[derive(Clone, Copy)]
@@ -489,27 +490,22 @@ impl Collector<'_> {
     callable: Option<NodeId>,
     block: NodeId,
   ) -> Option<&AwaitSite> {
-    self.indexes.awaits_of(callable).iter().find(|site| {
+    let work = self.indexes.work_counter();
+    timeline::after(work, self.indexes.awaits_of(callable), offset).iter().find(|site| {
       self.indexes.note_query();
-      site.offset > offset
-        && site.callable == callable
-        && site.block == block
-        && site.callee_api == Some("nextTick")
+      site.callable == callable && site.block == block && site.callee_api == Some("nextTick")
     })
   }
 
   fn sink_reads_only_after(&self, root: SymbolId, offset: usize) -> bool {
-    self.indexes.scheduling_value_reads_of(root).iter().all(|read| {
-      self.indexes.note_query();
-      read.offset > offset
-    })
+    let work = self.indexes.work_counter();
+    timeline::through(work, self.indexes.scheduling_value_reads_of(root), offset).is_empty()
   }
 
   fn first_sink_read_after(&self, root: SymbolId, offset: usize) -> Option<Span> {
-    self.indexes.scheduling_value_reads_of(root).iter().find_map(|read| {
-      self.indexes.note_query();
-      (read.offset > offset).then_some(read.span)
-    })
+    let work = self.indexes.work_counter();
+    timeline::first_after(work, self.indexes.scheduling_value_reads_of(root), offset)
+      .map(|read| read.span)
   }
 
   fn live_sink_observer(&self, root: SymbolId, start: usize, end: usize, producer: NodeId) -> bool {
@@ -821,13 +817,10 @@ impl Collector<'_> {
     block: NodeId,
   ) -> Option<&MemberCall> {
     let mut found = None;
-    for site in self.indexes.member_calls_of(root) {
+    let work = self.indexes.work_counter();
+    for site in timeline::after(work, self.indexes.member_calls_of(root), after) {
       self.indexes.note_query();
-      if site.method != method
-        || site.offset <= after
-        || site.callable != callable
-        || site.block != block
-      {
+      if site.method != method || site.callable != callable || site.block != block {
         continue;
       }
       if found.is_some() {
@@ -839,9 +832,10 @@ impl Collector<'_> {
   }
 
   fn method_between(&self, root: SymbolId, method: &'static str, start: usize, end: usize) -> bool {
-    self.indexes.member_calls_of(root).iter().any(|site| {
+    let work = self.indexes.work_counter();
+    timeline::between(work, self.indexes.member_calls_of(root), start, end).iter().any(|site| {
       self.indexes.note_query();
-      site.method == method && site.offset > start && site.offset < end
+      site.method == method
     })
   }
 
@@ -1201,10 +1195,14 @@ impl Collector<'_> {
     demand_offset: usize,
     call_offset: usize,
   ) -> bool {
-    self.indexes.scheduling_value_reads_of(root).iter().any(|read| {
-      self.indexes.note_query();
-      read.offset > call_offset && read.offset < demand_offset
-    })
+    let work = self.indexes.work_counter();
+    !timeline::between(
+      work,
+      self.indexes.scheduling_value_reads_of(root),
+      call_offset,
+      demand_offset,
+    )
+    .is_empty()
   }
 
   fn changed_write_before(
