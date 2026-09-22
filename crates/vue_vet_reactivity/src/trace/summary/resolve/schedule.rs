@@ -107,82 +107,108 @@ pub(super) struct PendingLinkingArchive {
   pub(super) provide_index: Arc<BTreeMap<InjectionKey, Vec<ProvideOffer>>>,
 }
 
-pub(super) fn build_cold_persistent_seed_work<'a>(
-  inputs: IncrementalInputs<'a>,
-  links: &[ModuleLink],
-  resolved_links: &BTreeMap<(ModuleId, String), ModuleId>,
-  facts_by_id: &BTreeMap<ModuleId, ModuleExportFacts>,
-  local_graphs: &mut BTreeMap<ModuleId, Arc<ReactivityGraph>>,
-  report: &mut TraceModulesReport,
-) -> (Vec<SeedWorkItem<'a>>, PendingLinkingArchive) {
-  let mut owned_links = links.to_vec();
-  owned_links.sort_by(|left, right| {
-    (&left.from, &left.specifier, &left.to).cmp(&(&right.from, &right.specifier, &right.to))
-  });
-  owned_links.dedup();
-  let link_index = link_index(resolved_links);
-  let exports = Arc::new(resolve_exports(facts_by_id, &link_index));
-  let options_exports = resolve_options_callback_exports(facts_by_id, &link_index);
-  let typed_callback_exports = resolve_typed_callback_param_exports(facts_by_id, &link_index);
-  let provide_index = Arc::new(global_provide_index(facts_by_id));
-  report.stats.export_resolve_ran = true;
-  let work = inputs
-    .unique
-    .iter()
-    .filter_map(|module| {
-      let facts = facts_by_id.get(&module.id)?;
-      let local_graph = local_graphs.remove(&module.id)?;
-      let (imports, options_callback_slots, typed_callback_param_slots) =
-        seed_plan_for(facts, &exports, &options_exports, &typed_callback_exports, &link_index);
-      let plan = ModuleSeedPlan {
-        imports,
-        injects: inject_seed_plan(facts, &provide_index),
-        options_callback_slots,
-        typed_callback_param_slots,
-      };
-      Some((inputs.work(module), local_graph, plan, Some(Arc::clone(&facts.summary))))
-    })
-    .collect::<Vec<_>>();
-  report.stats.seed_plans_recomputed = work.len();
-  let summaries =
-    facts_by_id.iter().map(|(id, facts)| (id.clone(), Arc::clone(&facts.summary))).collect();
-  (work, PendingLinkingArchive { links: owned_links, summaries, exports, provide_index })
+/// Link-time resolution computed once per fresh plan pass: resolved exports,
+/// declared callback slots, and the project-wide provide index.
+pub(super) struct LinkResolution<'l> {
+  link_index: BTreeMap<(&'l ModuleId, &'l str), &'l ModuleId>,
+  exports: Arc<BTreeMap<ModuleId, BTreeMap<String, ExportState>>>,
+  options_exports: BTreeMap<ModuleId, BTreeMap<String, OptionsCallbackSlots>>,
+  typed_callback_exports: BTreeMap<ModuleId, BTreeMap<String, TypedCallbackParamSlots>>,
+  provide_index: Arc<BTreeMap<InjectionKey, Vec<ProvideOffer>>>,
 }
 
-pub(super) fn build_oneshot_seed_work<'a>(
+impl<'l> LinkResolution<'l> {
+  fn new(
+    resolved_links: &'l BTreeMap<(ModuleId, String), ModuleId>,
+    facts_by_id: &BTreeMap<ModuleId, ModuleExportFacts>,
+    report: &mut TraceModulesReport,
+  ) -> Self {
+    let link_index = link_index(resolved_links);
+    let exports = Arc::new(resolve_exports(facts_by_id, &link_index));
+    let options_exports = resolve_options_callback_exports(facts_by_id, &link_index);
+    let typed_callback_exports = resolve_typed_callback_param_exports(facts_by_id, &link_index);
+    let provide_index = Arc::new(global_provide_index(facts_by_id));
+    report.stats.export_resolve_ran = true;
+    Self { link_index, exports, options_exports, typed_callback_exports, provide_index }
+  }
+
+  /// Coordinator-side plan for one module: import locals that resolve to
+  /// reactive exports, inject offers, and callback-param slots (independent of
+  /// return-shape seedability).
+  fn plan_for(&self, facts: &ModuleExportFacts) -> ModuleSeedPlan {
+    let (imports, options_callback_slots, typed_callback_param_slots) = seed_plan_for(
+      facts,
+      &self.exports,
+      &self.options_exports,
+      &self.typed_callback_exports,
+      &self.link_index,
+    );
+    ModuleSeedPlan {
+      imports,
+      injects: inject_seed_plan(facts, &self.provide_index),
+      options_callback_slots,
+      typed_callback_param_slots,
+    }
+  }
+
+  /// Snapshot for `state.linking`; plans are attached after phase two.
+  pub(super) fn into_archive(
+    self,
+    links: Vec<ModuleLink>,
+    facts_by_id: &BTreeMap<ModuleId, ModuleExportFacts>,
+  ) -> PendingLinkingArchive {
+    PendingLinkingArchive {
+      links,
+      summaries: summaries_of(facts_by_id),
+      exports: self.exports,
+      provide_index: self.provide_index,
+    }
+  }
+}
+
+fn summaries_of(
+  facts_by_id: &BTreeMap<ModuleId, ModuleExportFacts>,
+) -> BTreeMap<ModuleId, Arc<ModuleSummary>> {
+  facts_by_id.iter().map(|(id, facts)| (id.clone(), Arc::clone(&facts.summary))).collect()
+}
+
+/// Pair each input module with the plan `plan_for` yields; modules that failed
+/// phase one (no facts / local graph) or have no plan are skipped.
+fn seed_work<'a>(
   inputs: IncrementalInputs<'a>,
-  resolved_links: &BTreeMap<(ModuleId, String), ModuleId>,
   facts_by_id: &BTreeMap<ModuleId, ModuleExportFacts>,
   local_graphs: &mut BTreeMap<ModuleId, Arc<ReactivityGraph>>,
-  report: &mut TraceModulesReport,
+  plan_for: impl Fn(&ModuleExportFacts) -> Option<ModuleSeedPlan>,
 ) -> Vec<SeedWorkItem<'a>> {
-  let link_index = link_index(resolved_links);
-  let exports = resolve_exports(facts_by_id, &link_index);
-  let options_exports = resolve_options_callback_exports(facts_by_id, &link_index);
-  let typed_callback_exports = resolve_typed_callback_param_exports(facts_by_id, &link_index);
-  let provide_index = global_provide_index(facts_by_id);
-  report.stats.export_resolve_ran = true;
-  let work = inputs
+  inputs
     .unique
     .iter()
     .filter_map(|module| {
       let facts = facts_by_id.get(&module.id)?;
       let local_graph = local_graphs.remove(&module.id)?;
-      let (imports, options_callback_slots, typed_callback_param_slots) =
-        seed_plan_for(facts, &exports, &options_exports, &typed_callback_exports, &link_index);
-      let plan = ModuleSeedPlan {
-        imports,
-        injects: inject_seed_plan(facts, &provide_index),
-        options_callback_slots,
-        typed_callback_param_slots,
-      };
+      let plan = plan_for(facts)?;
       Some((inputs.work(module), local_graph, plan, Some(Arc::clone(&facts.summary))))
     })
-    .collect::<Vec<_>>();
-  report.stats.seed_plans_recomputed = work.len();
-  work
+    .collect()
 }
 
+/// Cold pass (one-shot, or first persistent scan): resolve links and build every
+/// input module's plan. The caller archives the resolution when persisting.
+pub(super) fn build_fresh_seed_work<'a, 'l>(
+  inputs: IncrementalInputs<'a>,
+  resolved_links: &'l BTreeMap<(ModuleId, String), ModuleId>,
+  facts_by_id: &BTreeMap<ModuleId, ModuleExportFacts>,
+  local_graphs: &mut BTreeMap<ModuleId, Arc<ReactivityGraph>>,
+  report: &mut TraceModulesReport,
+) -> (Vec<SeedWorkItem<'a>>, LinkResolution<'l>) {
+  let resolution = LinkResolution::new(resolved_links, facts_by_id, report);
+  let work = seed_work(inputs, facts_by_id, local_graphs, |facts| Some(resolution.plan_for(facts)));
+  report.stats.seed_plans_recomputed = work.len();
+  report.seed_plan_dirty = work.iter().map(|(module, ..)| module.source().id.clone()).collect();
+  (work, resolution)
+}
+
+/// Linking-cache hit: every input module reuses its archived plan.
 pub(super) fn build_work_from_cached_plans<'a>(
   inputs: IncrementalInputs<'a>,
   state: &ModuleTraceState,
@@ -196,18 +222,11 @@ pub(super) fn build_work_from_cached_plans<'a>(
   let Some(plans) = state.linking.as_ref().map(|cached| Arc::clone(&cached.plans)) else {
     return Vec::new();
   };
-  inputs
-    .unique
-    .iter()
-    .filter_map(|module| {
-      let facts = facts_by_id.get(&module.id)?;
-      let local_graph = local_graphs.remove(&module.id)?;
-      let plan = plans.get(&module.id)?.clone();
-      Some((inputs.work(module), local_graph, plan, Some(Arc::clone(&facts.summary))))
-    })
-    .collect()
+  seed_work(inputs, facts_by_id, local_graphs, |facts| plans.get(&facts.id).cloned())
 }
 
+/// Warm persistent pass: reuse the archived plans when the linking surface is
+/// unchanged, otherwise recompute plans only for seed-dirty and new modules.
 pub(super) fn build_persistent_seed_work<'a>(
   inputs: IncrementalInputs<'a>,
   owned_links: &[ModuleLink],
@@ -226,92 +245,47 @@ pub(super) fn build_persistent_seed_work<'a>(
     Arc::clone(&cached.plans)
   } else {
     // Caller guarantees `state.linking` is already populated (warm invalidate path).
-    report.stats.export_resolve_ran = true;
-    let link_index = link_index(resolved_links);
-    let exports = Arc::new(resolve_exports(facts_by_id, &link_index));
-    let options_exports = resolve_options_callback_exports(facts_by_id, &link_index);
-    let typed_callback_exports = resolve_typed_callback_param_exports(facts_by_id, &link_index);
-    let provide_index = Arc::new(global_provide_index(facts_by_id));
+    let resolution = LinkResolution::new(resolved_links, facts_by_id, report);
     let dirty_seed = modules_needing_seed_recompute(
       state.linking.as_ref(),
-      &exports,
-      &provide_index,
+      &resolution.exports,
+      &resolution.provide_index,
       owned_links,
       facts_by_id,
     );
     let mut next_plans =
       state.linking.as_ref().map(|cached| (*cached.plans).clone()).unwrap_or_default();
     next_plans.retain(|id, _| facts_by_id.contains_key(id));
-    let mut recomputed = 0_usize;
+    // Seed-dirty modules always recompute; inputs only when no archived plan survives.
+    let mut recompute: BTreeSet<&ModuleId> = dirty_seed.iter().collect();
+    recompute.extend(
+      inputs.unique.iter().map(|module| &module.id).filter(|id| !next_plans.contains_key(*id)),
+    );
     let mut dirty_ids = BTreeSet::new();
-    for id in &dirty_seed {
+    for id in recompute {
       let Some(facts) = facts_by_id.get(id) else {
         continue;
       };
-      let (imports, options_callback_slots, typed_callback_param_slots) =
-        seed_plan_for(facts, &exports, &options_exports, &typed_callback_exports, &link_index);
-      next_plans.insert(
-        id.clone(),
-        ModuleSeedPlan {
-          imports,
-          injects: inject_seed_plan(facts, &provide_index),
-          options_callback_slots,
-          typed_callback_param_slots,
-        },
-      );
+      next_plans.insert(id.clone(), resolution.plan_for(facts));
       dirty_ids.insert(id.clone());
-      recomputed += 1;
     }
-    for module in inputs.unique {
-      if next_plans.contains_key(&module.id) {
-        continue;
-      }
-      let Some(facts) = facts_by_id.get(&module.id) else {
-        continue;
-      };
-      let (imports, options_callback_slots, typed_callback_param_slots) =
-        seed_plan_for(facts, &exports, &options_exports, &typed_callback_exports, &link_index);
-      next_plans.insert(
-        module.id.clone(),
-        ModuleSeedPlan {
-          imports,
-          injects: inject_seed_plan(facts, &provide_index),
-          options_callback_slots,
-          typed_callback_param_slots,
-        },
-      );
-      dirty_ids.insert(module.id.clone());
-      recomputed += 1;
-    }
-    report.stats.seed_plans_recomputed = recomputed;
+    report.stats.seed_plans_recomputed = dirty_ids.len();
     report.seed_plan_dirty = dirty_ids;
     let plans = Arc::new(next_plans);
-    let summaries =
-      facts_by_id.iter().map(|(id, facts)| (id.clone(), Arc::clone(&facts.summary))).collect();
     state.linking = Some(CachedLinkingSnapshot {
       links: owned_links.to_vec(),
-      summaries,
-      exports,
-      provide_index,
+      summaries: summaries_of(facts_by_id),
+      exports: resolution.exports,
+      provide_index: resolution.provide_index,
       plans: Arc::clone(&plans),
     });
     plans
   };
 
-  inputs
-    .unique
-    .iter()
-    .filter_map(|module| {
-      let facts = facts_by_id.get(&module.id)?;
-      let local_graph = local_graphs.remove(&module.id)?;
-      let plan = plans.get(&module.id)?.clone();
-      Some((inputs.work(module), local_graph, plan, Some(Arc::clone(&facts.summary))))
-    })
-    .collect()
+  seed_work(inputs, facts_by_id, local_graphs, |facts| plans.get(&facts.id).cloned())
 }
 
-/// Coordinator-side: which of this module's import locals resolve to reactive exports,
-/// plus callback-param slots (independent of return-shape seedability).
+/// Import locals → resolved export state plus callback-param slots for one module.
 fn seed_plan_for(
   facts: &ModuleExportFacts,
   exports: &BTreeMap<ModuleId, BTreeMap<String, ExportState>>,

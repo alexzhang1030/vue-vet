@@ -34,8 +34,8 @@ use cache::{
   subset_cache_emit,
 };
 use schedule::{
-  IncrementalInputs, WorkSource, build_cold_persistent_seed_work, build_oneshot_seed_work,
-  build_persistent_seed_work, build_work_from_cached_plans, pull_cached_seed_work,
+  IncrementalInputs, WorkSource, build_fresh_seed_work, build_persistent_seed_work,
+  build_work_from_cached_plans, pull_cached_seed_work,
 };
 use seeds::materialize_seeds;
 use worklist::resolved_links_partial;
@@ -327,57 +327,43 @@ fn trace_modules_incremental_in_current_pool(
   } else {
     let (resolved_links, mut link_issues) = resolved_links_partial(&facts_by_id, links);
     report.issues.append(&mut link_issues);
-    if options.persist_linking_cache {
-      if state.linking.is_none() {
-        // First persistent scan: build plans once (like oneshot), archive after phase two.
-        let (work, archive) = build_cold_persistent_seed_work(
-          inputs,
-          links,
-          &resolved_links,
-          &facts_by_id,
-          &mut local_graphs,
-          &mut report,
-        );
-        pending_linking_archive = Some(archive);
-        report.seed_plan_dirty =
-          work.iter().map(|(module, _, _, _)| module.source().id.clone()).collect();
-        work
-      } else {
-        let mut work = build_persistent_seed_work(
-          inputs,
-          &owned_links,
-          &resolved_links,
-          &facts_by_id,
-          &mut local_graphs,
+    if options.persist_linking_cache && state.linking.is_some() {
+      let mut work = build_persistent_seed_work(
+        inputs,
+        &owned_links,
+        &resolved_links,
+        &facts_by_id,
+        &mut local_graphs,
+        state,
+        &mut report,
+      );
+      if persist_subset(options)
+        && let Some(plans) = state.linking.as_ref().map(|cached| Arc::clone(&cached.plans))
+      {
+        work.extend(pull_cached_seed_work(
+          unique,
+          scope,
+          &report.seed_plan_dirty,
           state,
-          &mut report,
-        );
-        if persist_subset(options)
-          && let Some(plans) = state.linking.as_ref().map(|cached| Arc::clone(&cached.plans))
-        {
-          work.extend(pull_cached_seed_work(
-            unique,
-            scope,
-            &report.seed_plan_dirty,
-            state,
-            &facts_by_id,
-            &mut local_graphs,
-            &plans,
-          ));
-        }
-        work
+          &facts_by_id,
+          &mut local_graphs,
+          &plans,
+        ));
       }
+      work
     } else {
-      // One-shot cold path: no link sort / seed-plan archive.
-      let work = build_oneshot_seed_work(
+      // Cold pass: build plans once. A first persistent scan archives the
+      // resolution after phase two; one-shot scans drop it.
+      let (work, resolution) = build_fresh_seed_work(
         inputs,
         &resolved_links,
         &facts_by_id,
         &mut local_graphs,
         &mut report,
       );
-      report.seed_plan_dirty =
-        work.iter().map(|(module, _, _, _)| module.source().id.clone()).collect();
+      if options.persist_linking_cache {
+        pending_linking_archive = Some(resolution.into_archive(owned_links, &facts_by_id));
+      }
       work
     }
   };

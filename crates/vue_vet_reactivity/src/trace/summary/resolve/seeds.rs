@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use oxc_ast::{
   AstKind,
-  ast::{BindingPattern, Expression},
+  ast::{BindingPattern, Expression, IdentifierReference},
 };
 use oxc_semantic::Semantic;
 use oxc_span::Span;
@@ -22,8 +22,9 @@ use super::super::{
 };
 use super::{ImportSeedPlan, ModuleSeedPlan};
 
+/// `const { field: local } = useX()` — one destructured field of a call.
 #[derive(Debug, Eq, PartialEq)]
-pub(super) struct DestructuredCallBinding {
+struct DestructuredCallBinding {
   imported_local: String,
   property: String,
   local: String,
@@ -32,15 +33,36 @@ pub(super) struct DestructuredCallBinding {
 
 /// `const bag = useFoo()` — whole-object composable call used via member access.
 #[derive(Debug, Eq, PartialEq)]
-pub(super) struct InstanceCallBinding {
+struct InstanceCallBinding {
   imported_local: String,
   local: String,
   span: Span,
 }
 
+/// Call sites whose callee resolved to a seed-plan key, each list sorted by span.
+#[derive(Default)]
+struct CallSites {
+  destructured: Vec<DestructuredCallBinding>,
+  instances: Vec<InstanceCallBinding>,
+}
+
+impl CallSites {
+  fn destructured_of<'s>(
+    &'s self,
+    local: &'s str,
+  ) -> impl Iterator<Item = &'s DestructuredCallBinding> {
+    self.destructured.iter().filter(move |call| call.imported_local == local)
+  }
+
+  fn instances_of<'s>(&'s self, local: &'s str) -> impl Iterator<Item = &'s InstanceCallBinding> {
+    self.instances.iter().filter(move |call| call.imported_local == local)
+  }
+}
+
+/// Callee is an import local whose reference binds to that import declaration.
 fn resolve_imported_callee<'a>(
-  semantic: &oxc_semantic::Semantic<'_>,
-  callee: &oxc_ast::ast::IdentifierReference<'_>,
+  semantic: &Semantic<'_>,
+  callee: &IdentifierReference<'_>,
   imports: &'a [ImportSummary],
 ) -> Option<&'a ImportSummary> {
   imports.iter().find(|import| {
@@ -58,53 +80,35 @@ fn resolve_imported_callee<'a>(
   })
 }
 
-fn collect_destructured_calls(
-  semantic: &oxc_semantic::Semantic<'_>,
-  imports: &[ImportSummary],
-) -> Vec<DestructuredCallBinding> {
-  let mut calls = Vec::new();
-  for node in semantic.nodes() {
-    let AstKind::CallExpression(call) = node.kind() else {
-      continue;
-    };
-    let Some(callee) = call.callee.get_identifier_reference() else {
-      continue;
-    };
-    let Some(import) = resolve_imported_callee(semantic, callee, imports) else {
-      continue;
-    };
-    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
-    else {
-      continue;
-    };
-    let BindingPattern::ObjectPattern(pattern) = &declarator.id else {
-      continue;
-    };
-    for property in &pattern.properties {
-      let Some(exported) = property.key.static_name() else {
-        continue;
-      };
-      let mut identifiers = Vec::new();
-      collect_binding_identifiers(&property.value, &mut identifiers);
-      for (local, span) in identifiers {
-        calls.push(DestructuredCallBinding {
-          imported_local: import.local.clone(),
-          property: exported.to_string(),
-          local,
-          span,
-        });
-      }
-    }
+/// Callee is an unresolved identifier (bare Nuxt / Vite auto-import) named in the plan.
+fn resolve_bare_callee(
+  semantic: &Semantic<'_>,
+  callee: &IdentifierReference<'_>,
+  plan: &ImportSeedPlan,
+) -> Option<String> {
+  if !plan.contains_key(callee.name.as_str()) {
+    return None;
   }
-  calls.sort_by_key(|call| call.span.start);
-  calls
+  let reference_id = callee.reference_id.get()?;
+  if semantic.scoping().get_reference(reference_id).symbol_id().is_some() {
+    return None;
+  }
+  Some(callee.name.to_string())
 }
 
-fn collect_instance_calls(
-  semantic: &oxc_semantic::Semantic<'_>,
-  imports: &[ImportSummary],
-) -> Vec<InstanceCallBinding> {
-  let mut calls = Vec::new();
+/// One walk over every `callee(...)` declarator initializer. `resolve_callee`
+/// maps the callee identifier to its seed-plan key, or `None` to skip the site.
+///
+/// `bare_plan` switches on the bare auto-import extensions for instance
+/// bindings: `const x = cond ? ref(false) : useX()` when both arms are ref-like,
+/// and first declaration wins per local name.
+fn collect_call_sites(
+  semantic: &Semantic<'_>,
+  resolve_callee: impl Fn(&IdentifierReference<'_>) -> Option<String>,
+  bare_plan: Option<&ImportSeedPlan>,
+) -> CallSites {
+  let mut sites = CallSites::default();
+  let mut seen_locals = BTreeSet::new();
   for node in semantic.nodes() {
     let AstKind::CallExpression(call) = node.kind() else {
       continue;
@@ -112,24 +116,61 @@ fn collect_instance_calls(
     let Some(callee) = call.callee.get_identifier_reference() else {
       continue;
     };
-    let Some(import) = resolve_imported_callee(semantic, callee, imports) else {
+    let Some(imported_local) = resolve_callee(callee) else {
       continue;
     };
-    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
-    else {
-      continue;
+    let call_id = call.node_id.get();
+    let (declarator, ternary_plan) = match semantic.nodes().parent_kind(call_id) {
+      AstKind::VariableDeclarator(declarator) => (declarator, None),
+      AstKind::ConditionalExpression(_) if bare_plan.is_some() => {
+        // call → conditional → declarator
+        let cond_id = semantic.nodes().parent_id(call_id);
+        match semantic.nodes().parent_kind(cond_id) {
+          AstKind::VariableDeclarator(declarator) => (declarator, bare_plan),
+          _ => continue,
+        }
+      }
+      _ => continue,
     };
-    let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
-      continue;
-    };
-    calls.push(InstanceCallBinding {
-      imported_local: import.local.clone(),
-      local: identifier.name.to_string(),
-      span: identifier.span,
-    });
+    match &declarator.id {
+      BindingPattern::ObjectPattern(pattern) if ternary_plan.is_none() => {
+        for property in &pattern.properties {
+          let Some(exported) = property.key.static_name() else {
+            continue;
+          };
+          let mut identifiers = Vec::new();
+          collect_binding_identifiers(&property.value, &mut identifiers);
+          for (local, span) in identifiers {
+            sites.destructured.push(DestructuredCallBinding {
+              imported_local: imported_local.clone(),
+              property: exported.to_string(),
+              local,
+              span,
+            });
+          }
+        }
+      }
+      BindingPattern::BindingIdentifier(identifier) => {
+        if let Some(plan) = ternary_plan {
+          let Some(Expression::ConditionalExpression(cond)) = &declarator.init else {
+            continue;
+          };
+          if !conditional_arms_ref_like_with_plan(cond, plan) {
+            continue;
+          }
+        }
+        let local = identifier.name.to_string();
+        if bare_plan.is_some() && !seen_locals.insert(local.clone()) {
+          continue;
+        }
+        sites.instances.push(InstanceCallBinding { imported_local, local, span: identifier.span });
+      }
+      _ => {}
+    }
   }
-  calls.sort_by_key(|call| call.span.start);
-  calls
+  sites.destructured.sort_by_key(|call| call.span.start);
+  sites.instances.sort_by_key(|call| call.span.start);
+  sites
 }
 
 /// Worker-side: attach SFC-absolute spans from the live parse (no second parse).
@@ -142,10 +183,16 @@ pub(super) fn materialize_seeds(
     return TraceSeeds::default();
   }
   let imports = collect_imports(semantic);
-  let destructured_calls = collect_destructured_calls(semantic, &imports);
-  let instance_calls = collect_instance_calls(semantic, &imports);
-  let bare_instance_calls = collect_bare_instance_calls(semantic, &plan.imports);
-  let bare_destructured_calls = collect_bare_destructured_calls(semantic, &plan.imports);
+  let imported = collect_call_sites(
+    semantic,
+    |callee| resolve_imported_callee(semantic, callee, &imports).map(|import| import.local.clone()),
+    None,
+  );
+  let bare = collect_call_sites(
+    semantic,
+    |callee| resolve_bare_callee(semantic, callee, &plan.imports),
+    Some(&plan.imports),
+  );
   let span_source = module.span_origin();
   let span_base = module.source_offset;
   let mut seeds = TraceSeeds::default();
@@ -175,9 +222,7 @@ pub(super) fn materialize_seeds(
         });
       }
       ExportState::Factory(kind) => {
-        let imported_calls = instance_calls.iter().filter(|call| call.imported_local == *local);
-        let bare_calls = bare_instance_calls.iter().filter(|call| call.imported_local == *local);
-        for call in imported_calls.chain(bare_calls) {
+        for call in imported.instances_of(local).chain(bare.instances_of(local)) {
           if seeds.bindings.iter().any(|binding| binding.name == call.local) {
             continue;
           }
@@ -192,11 +237,7 @@ pub(super) fn materialize_seeds(
         }
       }
       ExportState::Composable(shape) => {
-        let imported_destructure =
-          destructured_calls.iter().filter(|call| call.imported_local == *local);
-        let bare_destructure =
-          bare_destructured_calls.iter().filter(|call| call.imported_local == *local);
-        for call in imported_destructure.chain(bare_destructure) {
+        for call in imported.destructured_of(local).chain(bare.destructured_of(local)) {
           let Some(kind) = shape.kind_for_destructure(&call.property) else {
             continue;
           };
@@ -209,19 +250,13 @@ pub(super) fn materialize_seeds(
             span: source_span(span_source, span_base, call.span),
           });
         }
-        let imported_instances = instance_calls.iter().filter(|call| call.imported_local == *local);
-        let bare_instances =
-          bare_instance_calls.iter().filter(|call| call.imported_local == *local);
-        for call in imported_instances.chain(bare_instances) {
+        for call in imported.instances_of(local).chain(bare.instances_of(local)) {
           seeds.composable_instances.insert(call.local.clone(), shape.fields.clone());
         }
       }
       ExportState::ValueFactory(bag) => {
         // `const api = createApi()` — calling a value factory yields a value bag.
-        let imported_instances = instance_calls.iter().filter(|call| call.imported_local == *local);
-        let bare_instances =
-          bare_instance_calls.iter().filter(|call| call.imported_local == *local);
-        for call in imported_instances.chain(bare_instances) {
+        for call in imported.instances_of(local).chain(bare.instances_of(local)) {
           seed_value_bag_binding(&mut seeds, &call.local, bag);
         }
       }
@@ -308,71 +343,6 @@ fn first_bare_identifier_span(semantic: &oxc_semantic::Semantic<'_>, name: &str)
   best
 }
 
-/// `const x = useX()` where `useX` is unresolved and present in the seed plan (bare auto-import).
-///
-/// Also covers `const x = cond ? ref(false) : useX()` when both arms are ref-like
-/// (Vue primitive or seed-plan Factory/Known).
-fn collect_bare_instance_calls(
-  semantic: &oxc_semantic::Semantic<'_>,
-  plan: &ImportSeedPlan,
-) -> Vec<InstanceCallBinding> {
-  let mut calls = Vec::new();
-  let mut seen_locals = BTreeSet::new();
-  for node in semantic.nodes() {
-    let AstKind::CallExpression(call) = node.kind() else {
-      continue;
-    };
-    let Some(callee) = call.callee.get_identifier_reference() else {
-      continue;
-    };
-    if !plan.contains_key(callee.name.as_str()) {
-      continue;
-    }
-    let Some(reference_id) = callee.reference_id.get() else {
-      continue;
-    };
-    if semantic.scoping().get_reference(reference_id).symbol_id().is_some() {
-      continue;
-    }
-    let call_id = call.node_id.get();
-    let parent = semantic.nodes().parent_kind(call_id);
-    let (declarator, needs_arm_check) = match parent {
-      AstKind::VariableDeclarator(declarator) => (declarator, false),
-      AstKind::ConditionalExpression(_) => {
-        // call → conditional → declarator
-        let cond_id = semantic.nodes().parent_id(call_id);
-        match semantic.nodes().parent_kind(cond_id) {
-          AstKind::VariableDeclarator(declarator) => (declarator, true),
-          _ => continue,
-        }
-      }
-      _ => continue,
-    };
-    let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
-      continue;
-    };
-    if needs_arm_check {
-      let Some(Expression::ConditionalExpression(cond)) = &declarator.init else {
-        continue;
-      };
-      if !conditional_arms_ref_like_with_plan(cond, plan) {
-        continue;
-      }
-    }
-    let local = identifier.name.to_string();
-    if !seen_locals.insert(local.clone()) {
-      continue;
-    }
-    calls.push(InstanceCallBinding {
-      imported_local: callee.name.to_string(),
-      local,
-      span: identifier.span,
-    });
-  }
-  calls.sort_by_key(|call| call.span.start);
-  calls
-}
-
 /// Both ternary arms are ref-like: Vue `ref`/`computed`/… or seed-plan Factory/Known.
 fn conditional_arms_ref_like_with_plan(
   cond: &oxc_ast::ast::ConditionalExpression<'_>,
@@ -417,55 +387,6 @@ fn arm_is_ref_like_with_plan(
     }
   }
   false
-}
-
-/// `const { field } = useX()` for bare unresolved auto-import callees in the seed plan.
-fn collect_bare_destructured_calls(
-  semantic: &oxc_semantic::Semantic<'_>,
-  plan: &ImportSeedPlan,
-) -> Vec<DestructuredCallBinding> {
-  let mut calls = Vec::new();
-  for node in semantic.nodes() {
-    let AstKind::CallExpression(call) = node.kind() else {
-      continue;
-    };
-    let Some(callee) = call.callee.get_identifier_reference() else {
-      continue;
-    };
-    if !plan.contains_key(callee.name.as_str()) {
-      continue;
-    }
-    let Some(reference_id) = callee.reference_id.get() else {
-      continue;
-    };
-    if semantic.scoping().get_reference(reference_id).symbol_id().is_some() {
-      continue;
-    }
-    let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call.node_id.get())
-    else {
-      continue;
-    };
-    let BindingPattern::ObjectPattern(pattern) = &declarator.id else {
-      continue;
-    };
-    for property in &pattern.properties {
-      let Some(exported) = property.key.static_name() else {
-        continue;
-      };
-      let mut identifiers = Vec::new();
-      collect_binding_identifiers(&property.value, &mut identifiers);
-      for (local, span) in identifiers {
-        calls.push(DestructuredCallBinding {
-          imported_local: callee.name.to_string(),
-          property: exported.to_string(),
-          local,
-          span,
-        });
-      }
-    }
-  }
-  calls.sort_by_key(|call| call.span.start);
-  calls
 }
 
 fn seed_value_bag_binding(seeds: &mut TraceSeeds, local: &str, bag: &ValueBag) {
