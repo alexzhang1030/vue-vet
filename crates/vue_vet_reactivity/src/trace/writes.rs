@@ -17,13 +17,13 @@ use vue_vet_core::ReactiveWriteFact;
 
 use super::{
   context::ScopeNodeIndex,
-  reads::ScopeCtx,
   expr,
   follow::{
     FileTraceIndex, FollowOutside, MAX_LOCAL_CALLEE_FOLLOW_DEPTH, follow_local_callees,
     is_async_or_generator_function, local_function_id,
   },
   kinds::{reference_resolves_to_binding, source_span},
+  reads::ScopeCtx,
 };
 
 enum WriteLhs<'a> {

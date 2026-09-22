@@ -102,12 +102,8 @@ pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
     }
   }
   let writes = collect_scope_writes(&ctx, build.scope_id, build.sfc_source, build.index);
-  let uncertain_accesses = collect_uncertain_scope_accesses(
-    &ctx,
-    build.scope_id,
-    build.imported_bindings,
-    build.index,
-  );
+  let uncertain_accesses =
+    collect_uncertain_scope_accesses(&ctx, build.scope_id, build.imported_bindings, build.index);
   let mut assignment_visiting = BTreeSet::new();
   assignment_visiting.insert(build.scope_id);
   let gaps = super::follow::collect_analysis_gaps(

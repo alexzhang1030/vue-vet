@@ -38,9 +38,16 @@ pub(super) fn collect_uncertain_scope_accesses(
 ) -> Vec<String> {
   let mut visiting = BTreeSet::new();
   visiting.insert(scope_id);
-  collect_uncertain_scope_accesses_bounded(ctx, scope_id, imported_bindings, 0, &mut visiting, index)
-    .into_iter()
-    .collect()
+  collect_uncertain_scope_accesses_bounded(
+    ctx,
+    scope_id,
+    imported_bindings,
+    0,
+    &mut visiting,
+    index,
+  )
+  .into_iter()
+  .collect()
 }
 
 pub(super) fn collect_uncertain_scope_accesses_bounded(
@@ -52,12 +59,8 @@ pub(super) fn collect_uncertain_scope_accesses_bounded(
   index: &FileTraceIndex,
 ) -> BTreeSet<String> {
   let ScopeCtx { semantic, reactive_bindings, composable_instances, script_offset } = *ctx;
-  let mut names = collect_uncertain_scope_accesses_local(
-    ctx,
-    scope_id,
-    imported_bindings,
-    index.nodes(),
-  );
+  let mut names =
+    collect_uncertain_scope_accesses_local(ctx, scope_id, imported_bindings, index.nodes());
   collect_unclassified_watch_members_local(
     semantic,
     scope_id,
