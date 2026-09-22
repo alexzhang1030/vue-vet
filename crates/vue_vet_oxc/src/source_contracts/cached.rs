@@ -533,19 +533,9 @@ impl Collector<'_> {
   }
 
   fn kind_of_span(&self, span: Span, remaining: u8) -> PrimitiveKind {
-    self.indexes.note_query();
-    if remaining == 0 {
-      return PrimitiveKind::Unknown;
-    }
-    let Some(hint) = self.indexes.hints.get(&span_key(span)).copied() else {
-      return PrimitiveKind::Unknown;
-    };
-    match hint {
-      super::shape::ShapeHint::Primitive(kind) => kind,
-      super::shape::ShapeHint::Nullish | super::shape::ShapeHint::Identifier(_, true) => {
-        PrimitiveKind::Nullish
-      }
-      super::shape::ShapeHint::Identifier(Some(symbol_id), false) => {
+    match self.indexes.primitive_kind_step(span, remaining) {
+      super::shape::HintClass::Kind(kind) => kind,
+      super::shape::HintClass::Follow(symbol_id) => {
         let root = self.indexes.root_of(symbol_id);
         if self.indexes.reassigned.contains(&root) {
           return PrimitiveKind::Unknown;
@@ -555,7 +545,7 @@ impl Collector<'_> {
         };
         self.kind_of_span(init, remaining.saturating_sub(1))
       }
-      _ => PrimitiveKind::Unknown,
+      super::shape::HintClass::Other => PrimitiveKind::Unknown,
     }
   }
 

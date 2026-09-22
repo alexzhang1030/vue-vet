@@ -473,16 +473,12 @@ impl Collector<'_> {
     if let Some(kind) = self.filter_kind_of_atom(span) {
       return Some(kind);
     }
-    let hint = self.indexes.hints.get(&super::shape::span_key(span)).copied()?;
-    match hint {
-      super::shape::ShapeHint::Primitive(kind) => Some(kind),
-      super::shape::ShapeHint::Nullish | super::shape::ShapeHint::Identifier(_, true) => {
-        Some(PrimitiveKind::Nullish)
-      }
-      super::shape::ShapeHint::Identifier(Some(symbol_id), false) => {
+    match self.indexes.hints.get(&super::shape::span_key(span)).copied()?.classify_primitive() {
+      super::shape::HintClass::Kind(kind) => Some(kind),
+      super::shape::HintClass::Follow(symbol_id) => {
         self.filter_kind_of_symbol(symbol_id, remaining.saturating_sub(1))
       }
-      _ => None,
+      super::shape::HintClass::Other => None,
     }
   }
 
