@@ -148,7 +148,7 @@ pub(super) fn identifier_reference_is_unresolved(
 }
 
 /// Packages/exports the tracer treats as reactivity APIs (under-approx allowlist).
-pub(super) fn known_reactivity_export(source: &str, imported: &str) -> bool {
+fn known_reactivity_export(source: &str, imported: &str) -> bool {
   match source {
     "vue" | "#imports" => {
       reactive_binding_kind(imported).is_some()
@@ -297,10 +297,7 @@ pub(super) fn reference_resolves_to_binding(
   script_offset > 0 && relative == binding.span.offset
 }
 
-pub(super) fn module_has_local_symbol_named(
-  semantic: &oxc_semantic::Semantic<'_>,
-  name: &str,
-) -> bool {
+fn module_has_local_symbol_named(semantic: &oxc_semantic::Semantic<'_>, name: &str) -> bool {
   let scoping = semantic.scoping();
   scoping.symbol_ids().any(|symbol_id| scoping.symbol_name(symbol_id) == name)
 }

@@ -191,7 +191,7 @@ pub(super) fn classify_role(
   }
 }
 
-pub(super) fn is_global_undefined(
+fn is_global_undefined(
   identifier: &IdentifierReference<'_>,
   symbol_of: impl Fn(&IdentifierReference<'_>) -> Option<SymbolId>,
 ) -> bool {

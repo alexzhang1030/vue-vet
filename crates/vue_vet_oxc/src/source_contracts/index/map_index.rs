@@ -564,7 +564,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn wrapper_expr_origin(
+  fn wrapper_expr_origin(
     &self,
     semantic: &oxc_semantic::Semantic<'_>,
     kind: ScriptKind,
@@ -573,7 +573,7 @@ impl Indexes {
     self.wrapper_expr_origin_from(semantic, kind, expression, 0)
   }
 
-  pub(super) fn wrapper_expr_origin_from(
+  fn wrapper_expr_origin_from(
     &self,
     semantic: &oxc_semantic::Semantic<'_>,
     kind: ScriptKind,
@@ -1337,7 +1337,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn containing_chain(
+  fn containing_chain(
     &self,
     semantic: &oxc_semantic::Semantic<'_>,
     mut node_id: NodeId,

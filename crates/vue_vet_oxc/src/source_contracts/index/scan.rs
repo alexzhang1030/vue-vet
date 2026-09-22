@@ -663,7 +663,7 @@ impl Indexes {
   }
 
   /// First argument of a proven `toRef` call. Other identifier uses do not prove `__v_isRef`.
-  pub(super) fn known_toref_source_argument_role(
+  fn known_toref_source_argument_role(
     &self,
     semantic: &oxc_semantic::Semantic<'_>,
     node_id: NodeId,
@@ -703,7 +703,7 @@ impl Indexes {
   /// JSX member tags, and decorator expressions stay on the default (proven)
   /// branch; those positions bind no JS `this` receiver. Exhausted ancestor
   /// budgets stay unproven.
-  pub(super) fn static_member_chain_receiver_uncertain(
+  fn static_member_chain_receiver_uncertain(
     &self,
     semantic: &oxc_semantic::Semantic<'_>,
     node_id: NodeId,
@@ -743,7 +743,7 @@ impl Indexes {
     true
   }
 
-  pub(super) fn known_vue_source_argument_role(
+  fn known_vue_source_argument_role(
     &self,
     semantic: &oxc_semantic::Semantic<'_>,
     node_id: NodeId,
@@ -777,15 +777,15 @@ impl Indexes {
     false
   }
 
-  pub(super) fn has_simple_value_write(&self, root: SymbolId) -> bool {
+  fn has_simple_value_write(&self, root: SymbolId) -> bool {
     self.value_write_roots.contains(&root)
   }
 
-  pub(super) fn has_member_write(&self, root: SymbolId) -> bool {
+  fn has_member_write(&self, root: SymbolId) -> bool {
     self.member_write_roots.contains(&root)
   }
 
-  pub(super) fn index_static_member(
+  fn index_static_member(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     kind: ScriptKind,
@@ -802,7 +802,7 @@ impl Indexes {
     );
   }
 
-  pub(super) fn record_expr(
+  fn record_expr(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     kind: ScriptKind,
@@ -863,7 +863,7 @@ impl Indexes {
     clippy::too_many_arguments,
     reason = "one static-member visit fills custom-ref, derivation, and scheduling lanes"
   )]
-  pub(super) fn record_lane_value_reads(
+  fn record_lane_value_reads(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     line_index: &vue_vet_core::LineIndex,
@@ -912,7 +912,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn intern(&mut self, value: &str) -> u32 {
+  fn intern(&mut self, value: &str) -> u32 {
     self.note_query();
     if let Some(index) = self.interned.iter().position(|existing| {
       self.note_query();
@@ -926,12 +926,12 @@ impl Indexes {
     id
   }
 
-  pub(super) fn store_atom(&mut self, span: Span, atom: ShapePrimitiveAtom) {
+  fn store_atom(&mut self, span: Span, atom: ShapePrimitiveAtom) {
     self.note_query();
     self.primitives.insert(span_key(span), atom);
   }
 
-  pub(super) fn store_interned_atom(&mut self, span: Span, value: &str, bigint: bool) {
+  fn store_interned_atom(&mut self, span: Span, value: &str, bigint: bool) {
     let id = self.intern(value);
     self.store_atom(
       span,
@@ -939,11 +939,7 @@ impl Indexes {
     );
   }
 
-  pub(super) fn intern_expr(
-    &mut self,
-    semantic: &oxc_semantic::Semantic<'_>,
-    expression: &Expression<'_>,
-  ) {
+  fn intern_expr(&mut self, semantic: &oxc_semantic::Semantic<'_>, expression: &Expression<'_>) {
     self.note_query();
     match expression.get_inner_expression() {
       Expression::StringLiteral(literal) => {
@@ -994,7 +990,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn member_value_is_read(
+  fn member_value_is_read(
     &self,
     semantic: &oxc_semantic::Semantic<'_>,
     node_id: NodeId,
@@ -1016,7 +1012,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn record_scheduling_member_call(
+  fn record_scheduling_member_call(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     line_index: &vue_vet_core::LineIndex,
@@ -1053,7 +1049,7 @@ impl Indexes {
   }
 
   #[expect(clippy::too_many_arguments, reason = "await indexing needs owner, span, and callee")]
-  pub(super) fn record_await(
+  fn record_await(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     kind: ScriptKind,
@@ -1137,7 +1133,7 @@ impl Indexes {
   }
 
   #[expect(clippy::too_many_arguments, reason = "practice index bind needs owner, span, and call")]
-  pub(super) fn bind_practice_call(
+  fn bind_practice_call(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     line_index: &vue_vet_core::LineIndex,
@@ -1281,18 +1277,14 @@ impl Indexes {
     }
   }
 
-  pub(super) fn note_delete(
-    &mut self,
-    semantic: &oxc_semantic::Semantic<'_>,
-    argument: &Expression<'_>,
-  ) {
+  fn note_delete(&mut self, semantic: &oxc_semantic::Semantic<'_>, argument: &Expression<'_>) {
     if expression_poisons_clone_intrinsic(semantic, argument, &self.work) {
       self.clone_intrinsic_poisoned = true;
     }
     self.mark_delete_target(semantic, argument);
   }
 
-  pub(super) fn index_array_expression(
+  fn index_array_expression(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     kind: ScriptKind,
@@ -1337,7 +1329,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn mark_delete_target(
+  fn mark_delete_target(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     argument: &Expression<'_>,
@@ -1365,7 +1357,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn record_function(
+  fn record_function(
     &mut self,
     node_id: NodeId,
     span: Span,
@@ -1395,7 +1387,7 @@ impl Indexes {
     );
   }
 
-  pub(super) fn record_call_uses(
+  fn record_call_uses(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     line_index: &vue_vet_core::LineIndex,
@@ -1519,7 +1511,7 @@ impl Indexes {
     clippy::too_many_arguments,
     reason = "call-arg indexing needs the mapped call site plus argument identity"
   )]
-  pub(super) fn record_arg_ident(
+  fn record_arg_ident(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     line_index: &vue_vet_core::LineIndex,
@@ -1565,7 +1557,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn escape_root(&mut self, root: SymbolId, for_toref: bool) {
+  fn escape_root(&mut self, root: SymbolId, for_toref: bool) {
     self.escaped.insert(root);
     if for_toref {
       self.toref_helper_escape.insert(root);
@@ -1578,7 +1570,7 @@ impl Indexes {
       .push(AwaitEscapeSite { offset: 0, until_borrow: self.await_index.pending_borrow });
   }
 
-  pub(super) fn index_assignment(
+  fn index_assignment(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     node_id: NodeId,
@@ -1637,7 +1629,7 @@ impl Indexes {
     self.record_snapshot_assignment(semantic, node_id, offset, simple, left, right);
   }
 
-  pub(super) fn record_static_member_assignment(
+  fn record_static_member_assignment(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     object: &Expression<'_>,
@@ -1691,7 +1683,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn record_snapshot_assignment(
+  fn record_snapshot_assignment(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     node_id: NodeId,
@@ -1811,7 +1803,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn push_nested_write(&mut self, root: SymbolId, property: String, write: NestedWrite) {
+  fn push_nested_write(&mut self, root: SymbolId, property: String, write: NestedWrite) {
     self.work.add_writes(1);
     self.nested_writes.entry(root).or_default().push((property, write));
   }
@@ -1878,7 +1870,7 @@ impl Indexes {
   /// `state.n` keeps generic uncertainty only; `__v_isRef` and dynamic targets
   /// also mark toRef identity, and capability keys mark the dedicated
   /// capability set.
-  pub(super) fn record_pattern_static_member(
+  fn record_pattern_static_member(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     object: &Expression<'_>,
@@ -1904,7 +1896,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn record_pattern_dynamic_member(
+  fn record_pattern_dynamic_member(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     object: &Expression<'_>,
@@ -1924,7 +1916,7 @@ impl Indexes {
     self.capability_poisoned.insert(root);
   }
 
-  pub(super) fn mark_expression_target_uncertain(
+  fn mark_expression_target_uncertain(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     expression: &Expression<'_>,
@@ -1945,7 +1937,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn mark_maybe_default_uncertain(
+  fn mark_maybe_default_uncertain(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     target: &AssignmentTargetMaybeDefault<'_>,
@@ -1962,7 +1954,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn record_static_member(
+  fn record_static_member(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     line_index: &vue_vet_core::LineIndex,
@@ -2031,7 +2023,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn record_member_call(
+  fn record_member_call(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     line_index: &vue_vet_core::LineIndex,
@@ -2130,7 +2122,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn record_path_call(
+  fn record_path_call(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     member: &StaticMemberExpression<'_>,
@@ -2157,7 +2149,7 @@ impl Indexes {
     });
   }
 
-  pub(super) fn record_flow(
+  fn record_flow(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     line_index: &vue_vet_core::LineIndex,
@@ -2170,7 +2162,7 @@ impl Indexes {
     self.record_control_event(node_id, line_index, sfc_source, script_offset, span);
   }
 
-  pub(super) fn record_control_event(
+  fn record_control_event(
     &mut self,
     node_id: NodeId,
     line_index: &vue_vet_core::LineIndex,
@@ -2185,7 +2177,7 @@ impl Indexes {
     self.control_events_by_block.entry(block).or_default().push(offset);
   }
 
-  pub(super) fn record_pause_event(
+  fn record_pause_event(
     &mut self,
     node_id: NodeId,
     line_index: &vue_vet_core::LineIndex,
@@ -2200,7 +2192,7 @@ impl Indexes {
     self.pause_events_by_block.entry(block).or_default().push(offset);
   }
 
-  pub(super) fn record_identifier_call(
+  fn record_identifier_call(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     line_index: &vue_vet_core::LineIndex,
@@ -2251,7 +2243,7 @@ impl Indexes {
   }
 
   #[expect(clippy::too_many_arguments, reason = "span mapping matches other record helpers")]
-  pub(super) fn record_wrapped_result_demand(
+  fn record_wrapped_result_demand(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     line_index: &vue_vet_core::LineIndex,
@@ -2292,7 +2284,7 @@ impl Indexes {
     });
   }
 
-  pub(super) fn symbol_is_vueuse_producer(&self, root: SymbolId) -> bool {
+  fn symbol_is_vueuse_producer(&self, root: SymbolId) -> bool {
     let Some(init) = self.init_span.get(&root).copied() else {
       return false;
     };
@@ -2305,7 +2297,7 @@ impl Indexes {
     info.is_some_and(|call| call.vueuse.is_some() && !call.has_spread)
   }
 
-  pub(super) fn record_result_demand(
+  fn record_result_demand(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     line_index: &vue_vet_core::LineIndex,
@@ -2400,7 +2392,7 @@ impl Indexes {
   }
 
   #[expect(clippy::too_many_arguments, reason = "span mapping matches other record helpers")]
-  pub(super) fn record_native_symbol(
+  fn record_native_symbol(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     line_index: &vue_vet_core::LineIndex,
@@ -2438,7 +2430,7 @@ impl Indexes {
     );
   }
 
-  pub(super) fn record_injection(
+  fn record_injection(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     line_index: &vue_vet_core::LineIndex,
@@ -2485,7 +2477,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn note_native_prototype_assignment(
+  fn note_native_prototype_assignment(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     left: &AssignmentTarget<'_>,
@@ -2504,7 +2496,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn record_destructure(
+  fn record_destructure(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     pattern: &BindingPattern<'_>,
@@ -2542,7 +2534,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn record_object_destructure_from_call(
+  fn record_object_destructure_from_call(
     &mut self,
     _semantic: &oxc_semantic::Semantic<'_>,
     object: &oxc_ast::ast::ObjectPattern<'_>,
@@ -2650,7 +2642,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn record_barrier(
+  fn record_barrier(
     &mut self,
     line_index: &vue_vet_core::LineIndex,
     sfc_source: &str,
@@ -2665,7 +2657,7 @@ impl Indexes {
     self.barriers_by_region.entry(region).or_default().push(offset);
   }
 
-  pub(super) fn record_barrier_end(
+  fn record_barrier_end(
     &mut self,
     line_index: &vue_vet_core::LineIndex,
     sfc_source: &str,
@@ -2681,7 +2673,7 @@ impl Indexes {
     self.barriers_by_region.entry(region).or_default().push(offset);
   }
 
-  pub(super) fn record_class(
+  fn record_class(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     node_id: NodeId,
@@ -2694,7 +2686,7 @@ impl Indexes {
     self.classes.insert(symbol_id, record);
   }
 
-  pub(super) fn record_class_new(
+  fn record_class_new(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     expression: &oxc_ast::ast::NewExpression<'_>,
@@ -2707,7 +2699,7 @@ impl Indexes {
     self.class_news.insert(span_key(expression.span), class_new_info(expression, callee));
   }
 
-  pub(super) fn record_stmt_site(
+  fn record_stmt_site(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     line_index: &vue_vet_core::LineIndex,
@@ -2731,7 +2723,7 @@ impl Indexes {
     );
   }
 
-  pub(super) fn record_event(
+  fn record_event(
     &mut self,
     _semantic: &oxc_semantic::Semantic<'_>,
     line_index: &vue_vet_core::LineIndex,
@@ -2868,7 +2860,7 @@ impl Indexes {
     self.resolve_prototype_aliases(pending_prototype_aliases);
   }
 
-  pub(super) fn note_prototype_alias(
+  fn note_prototype_alias(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     local: SymbolId,
@@ -2895,7 +2887,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn resolve_prototype_aliases(&mut self, pending: Vec<(SymbolId, SymbolId)>) {
+  fn resolve_prototype_aliases(&mut self, pending: Vec<(SymbolId, SymbolId)>) {
     for (local, object) in pending {
       self.note_query();
       if let Some(ctor) = self.native_ctor_kind(self.root_of(object)) {
@@ -2904,17 +2896,17 @@ impl Indexes {
     }
   }
 
-  pub(super) fn record_native_ctor_alias(&mut self, local: SymbolId, ctor: &'static str) {
+  fn record_native_ctor_alias(&mut self, local: SymbolId, ctor: &'static str) {
     self.note_query();
     self.native_ctor_aliases.insert(local, ctor);
   }
 
-  pub(super) fn native_ctor_kind(&self, root: SymbolId) -> Option<&'static str> {
+  fn native_ctor_kind(&self, root: SymbolId) -> Option<&'static str> {
     self.note_query();
     self.native_ctor_aliases.get(&root).copied()
   }
 
-  pub(super) fn native_ctor_of_identifier(
+  fn native_ctor_of_identifier(
     &self,
     identifier: &IdentifierReference<'_>,
     semantic: &oxc_semantic::Semantic<'_>,
@@ -2926,7 +2918,7 @@ impl Indexes {
     )
   }
 
-  pub(super) fn canonicalize_aliases(&mut self) {
+  fn canonicalize_aliases(&mut self) {
     let locals: Vec<SymbolId> = self.alias_root.keys().copied().collect();
     for local in locals {
       self.note_query();
@@ -2952,15 +2944,11 @@ impl Indexes {
     }
   }
 
-  pub(super) fn poison_expr(
-    &mut self,
-    semantic: &oxc_semantic::Semantic<'_>,
-    expression: &Expression<'_>,
-  ) {
+  fn poison_expr(&mut self, semantic: &oxc_semantic::Semantic<'_>, expression: &Expression<'_>) {
     self.poison_expr_bounded(semantic, expression, MAX_ESCAPE_DEPTH);
   }
 
-  pub(super) fn poison_expr_bounded(
+  fn poison_expr_bounded(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     expression: &Expression<'_>,
@@ -3011,7 +2999,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn poison_unresolved_escape(
+  fn poison_unresolved_escape(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     expression: &Expression<'_>,
@@ -3028,7 +3016,7 @@ impl Indexes {
     self.unresolved_escape_spans.push(expression.span());
   }
 
-  pub(super) fn merged_unresolved_escape_ranges(&self) -> Vec<(u32, u32)> {
+  fn merged_unresolved_escape_ranges(&self) -> Vec<(u32, u32)> {
     self.note_query();
     if self.unresolved_escape_spans.is_empty() {
       return Vec::new();
@@ -3050,7 +3038,7 @@ impl Indexes {
     merged
   }
 
-  pub(super) fn unresolved_escape_covers(&self, ranges: &[(u32, u32)], span: Span) -> bool {
+  fn unresolved_escape_covers(&self, ranges: &[(u32, u32)], span: Span) -> bool {
     let index = self.work.partition_point(ranges, |range| range.0 <= span.start);
     self.note_query();
     index
@@ -3059,7 +3047,7 @@ impl Indexes {
       .is_some_and(|range| span.end <= range.1)
   }
 
-  pub(super) fn taint_native_ctor_identifier(
+  fn taint_native_ctor_identifier(
     &mut self,
     identifier: &IdentifierReference<'_>,
     semantic: &oxc_semantic::Semantic<'_>,
@@ -3069,7 +3057,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn taint_if_global_object(
+  fn taint_if_global_object(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     identifier: &IdentifierReference<'_>,
@@ -3079,7 +3067,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn taint_all_native_ctors(&mut self) {
+  fn taint_all_native_ctors(&mut self) {
     self.note_query();
     for name in ["Map", "Set", "Array"] {
       if let Some(ctor) = intern_native_ctor(name) {
@@ -3088,7 +3076,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn index_unresolved_global_ref(
+  fn index_unresolved_global_ref(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     identifier: &IdentifierReference<'_>,
@@ -3103,7 +3091,7 @@ impl Indexes {
     self.unresolved_global_refs.push((identifier.span(), name));
   }
 
-  pub(super) fn apply_unresolved_global_escape_coverage(&mut self, leftover: &[(u32, u32)]) {
+  fn apply_unresolved_global_escape_coverage(&mut self, leftover: &[(u32, u32)]) {
     let refs = std::mem::take(&mut self.unresolved_global_refs);
     for (span, name) in refs {
       self.work.add_references(1);
@@ -3118,7 +3106,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn taint_native_prototype(
+  fn taint_native_prototype(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     inner: &Expression<'_>,
@@ -3201,7 +3189,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn taint_maybe_default(
+  fn taint_maybe_default(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     target: &AssignmentTargetMaybeDefault<'_>,
@@ -3218,7 +3206,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn taint_expression_target(
+  fn taint_expression_target(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     expression: &Expression<'_>,
@@ -3242,7 +3230,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn taint_global_ctor_member(
+  fn taint_global_ctor_member(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     object: &Expression<'_>,
@@ -3274,7 +3262,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn is_global_this_ref(
+  fn is_global_this_ref(
     &self,
     semantic: &oxc_semantic::Semantic<'_>,
     identifier: &IdentifierReference<'_>,
@@ -3286,11 +3274,7 @@ impl Indexes {
     )
   }
 
-  pub(super) fn note_receiver_use(
-    &mut self,
-    semantic: &oxc_semantic::Semantic<'_>,
-    callee: &Expression<'_>,
-  ) {
+  fn note_receiver_use(&mut self, semantic: &oxc_semantic::Semantic<'_>, callee: &Expression<'_>) {
     match callee.get_inner_expression() {
       Expression::StaticMemberExpression(member) => {
         if is_known_receiver_method(member.property.name.as_str()) {
@@ -3305,7 +3289,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn record_method_extraction(
+  fn record_method_extraction(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     line_index: &vue_vet_core::LineIndex,
@@ -3405,7 +3389,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn poison_simple_target(
+  fn poison_simple_target(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     target: &SimpleAssignmentTarget<'_>,
@@ -3446,7 +3430,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn poison_member_expression(
+  fn poison_member_expression(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     expression: &Expression<'_>,
@@ -3480,7 +3464,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn poison_member_object(
+  fn poison_member_object(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     object: &Expression<'_>,
@@ -3492,7 +3476,7 @@ impl Indexes {
     }
   }
 
-  pub(super) fn record_termination(
+  fn record_termination(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     line_index: &vue_vet_core::LineIndex,

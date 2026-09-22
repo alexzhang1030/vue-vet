@@ -222,7 +222,7 @@ pub(super) fn is_deferred_callback_container(
 /// stay in; `then` / `nextTick` / `setTimeout` and other nested functions
 /// drop. Helper follow covers same-file zero-arg locals separately.
 #[cfg(test)]
-pub(super) fn sync_tracking_owns_node(
+fn sync_tracking_owns_node(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
   node_id: NodeId,
@@ -341,7 +341,7 @@ pub(super) fn tracking_context_owner(
 
 /// Inverse of [`sync_tracking_owns_node`]: first Function/Arrow that is not a
 /// sync HOF / `toValue` getter. Deferred ancestors have no sync owner.
-pub(super) fn tracking_sync_owner(
+fn tracking_sync_owner(
   semantic: &oxc_semantic::Semantic<'_>,
   node_id: NodeId,
   imported_bindings: &BTreeMap<String, (String, String)>,

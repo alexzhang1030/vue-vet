@@ -199,7 +199,7 @@ pub(super) fn collect_local_composable_usage(
   (instances, seeded, composables)
 }
 
-pub(super) fn seed_local_member_calls(
+fn seed_local_member_calls(
   semantic: &Semantic<'_>,
   value_bags: &BTreeMap<String, summary::ValueBag>,
   instances: &mut ComposableShapeMap,
@@ -269,7 +269,7 @@ pub(super) fn seed_local_member_calls(
   }
 }
 
-pub(super) fn local_composable_export_for(
+fn local_composable_export_for(
   semantic: &Semantic<'_>,
   function_id: oxc_semantic::NodeId,
   shape_graph: &ReactivityGraph,

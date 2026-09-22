@@ -390,7 +390,7 @@ pub(super) fn intern_api(name: &str) -> Option<&'static str> {
   }
 }
 
-pub(super) fn intern_tracked_source(source: &str) -> Option<&'static str> {
+fn intern_tracked_source(source: &str) -> Option<&'static str> {
   match source {
     "vue" => Some("vue"),
     "vue-demi" => Some("vue-demi"),
@@ -516,19 +516,19 @@ pub(super) fn intern_native_ctor(name: &str) -> Option<&'static str> {
   }
 }
 
-pub(super) fn is_named_auto_import_source(source: &str) -> bool {
+fn is_named_auto_import_source(source: &str) -> bool {
   source == "#imports"
 }
 
-pub(super) fn is_vueuse_core_source(source: &str) -> bool {
+fn is_vueuse_core_source(source: &str) -> bool {
   source == "@vueuse/core"
 }
 
-pub(super) fn is_vueuse_shared_source(source: &str) -> bool {
+fn is_vueuse_shared_source(source: &str) -> bool {
   source == "@vueuse/shared"
 }
 
-pub(super) fn intern_vueuse_api(name: &str, core: bool, shared: bool) -> Option<&'static str> {
+fn intern_vueuse_api(name: &str, core: bool, shared: bool) -> Option<&'static str> {
   match name {
     "useMemoize" if core => Some("useMemoize"),
     "computedWithControl" if core || shared => Some("computedWithControl"),
@@ -577,7 +577,7 @@ pub(super) fn native_return_kind(kind: PrimitiveKind, method: &str) -> Primitive
   }
 }
 
-pub(super) fn is_vueuse_sync_ref_source(source: &str) -> bool {
+fn is_vueuse_sync_ref_source(source: &str) -> bool {
   matches!(source, "@vueuse/core" | "@vueuse/shared")
 }
 
@@ -901,7 +901,7 @@ pub(super) fn is_fresh_allocation(
   }
 }
 
-pub(super) fn is_unresolved_collection(
+fn is_unresolved_collection(
   callee: &Expression<'_>,
   symbol_of: impl Fn(&IdentifierReference<'_>) -> Option<SymbolId>,
 ) -> bool {
@@ -1035,7 +1035,7 @@ pub(super) fn scalar_of(expression: &Expression<'_>) -> Option<Scalar> {
 pub(super) const SYNC_FLUSH: u64 = fnv1a("sync");
 
 #[expect(clippy::indexing_slicing, reason = "const FNV-1a walks a compile-time string")]
-pub(super) const fn fnv1a(text: &str) -> u64 {
+const fn fnv1a(text: &str) -> u64 {
   let mut hash = 0xcbf2_9ce4_8422_2325;
   let bytes = text.as_bytes();
   let mut index = 0;

@@ -18,7 +18,7 @@ pub(super) use vue_vet_core::{
 };
 /// Test fixture catalog mirroring production `vue_vet_plugins` defaults.
 /// Engine unit tests must not depend on the plugins crate (avoids a dep cycle).
-pub(super) fn fixture_named_api_bags() -> &'static [NamedApiBag] {
+fn fixture_named_api_bags() -> &'static [NamedApiBag] {
   fn async_data_field_kind(field: &str) -> Option<ReactiveBindingKind> {
     match field {
       "data" | "pending" | "error" | "status" => Some(ReactiveBindingKind::Ref),
@@ -173,7 +173,7 @@ pub(super) fn graph_work_forced(source: &str) -> (ReactivityGraph, crate::Notifi
   (graph, crate::last_notification_work())
 }
 
-pub(super) fn graph_seeded(source: &str, seeds: &crate::TraceSeeds) -> ReactivityGraph {
+fn graph_seeded(source: &str, seeds: &crate::TraceSeeds) -> ReactivityGraph {
   let allocator = Allocator::default();
   let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
   assert!(
@@ -422,10 +422,7 @@ pub(super) const REAL_WORLD_FIXTURES: [(&str, &str); 5] = [
 ];
 
 #[expect(clippy::panic, reason = "malformed committed fixtures must fail corpus tests")]
-pub(super) fn parse_fixture_batch<T: serde::de::DeserializeOwned>(
-  path: &str,
-  source: &str,
-) -> Vec<T> {
+fn parse_fixture_batch<T: serde::de::DeserializeOwned>(path: &str, source: &str) -> Vec<T> {
   match serde_json::from_str(source) {
     Ok(fixtures) => fixtures,
     Err(error) => panic!("could not parse fixture batch {path}: {error}"),
@@ -486,7 +483,7 @@ pub(super) fn assert_local_fixture(fixture: &LocalFixture) {
 }
 
 /// Exact effect read-set: every (binding, kind, guard-names) pair must match.
-pub(super) fn assert_effect_reads_exact(
+fn assert_effect_reads_exact(
   effect: &vue_vet_core::ReactivityEffectFact,
   expected: &[LocalReadExpectation],
   name: &str,
@@ -571,7 +568,7 @@ pub(super) fn traced_modules(
   }
 }
 
-pub(super) fn module_source(id: &str, source: &str) -> ModuleSource {
+fn module_source(id: &str, source: &str) -> ModuleSource {
   ModuleSource::standalone(id, source, "ts", ScriptKind::Script)
 }
 

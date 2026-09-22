@@ -170,16 +170,13 @@ pub(super) fn collect_component_props_bindings(
   bindings
 }
 
-pub(super) fn is_component_factory_callee(
-  callee: &Expression<'_>,
-  factories: &BTreeSet<String>,
-) -> bool {
+fn is_component_factory_callee(callee: &Expression<'_>, factories: &BTreeSet<String>) -> bool {
   callee
     .get_identifier_reference()
     .is_some_and(|identifier| factories.contains(identifier.name.as_str()))
 }
 
-pub(super) fn seed_first_formal_as_reactive(
+fn seed_first_formal_as_reactive(
   parameter: Option<&oxc_ast::ast::FormalParameter<'_>>,
   sfc_source: &str,
   script_offset: usize,
@@ -474,7 +471,7 @@ pub(super) fn collect_reactive_bindings_partitioned(
 
 /// Seed object-destructure of a [`NamedApiBag`]: reactive fields + ambient-on-call methods.
 #[expect(clippy::too_many_arguments, reason = "seed needs call site + both output maps")]
-pub(super) fn seed_named_api_bag_destructure(
+fn seed_named_api_bag_destructure(
   api: &NamedApiBag,
   pattern: &oxc_ast::ast::ObjectPattern<'_>,
   call: &oxc_ast::ast::CallExpression<'_>,
@@ -570,11 +567,11 @@ pub(super) fn seed_named_api_bag_destructure(
   }
 }
 
-pub(super) fn api_site_binding_name(callee: &str, call_offset: usize) -> String {
+fn api_site_binding_name(callee: &str, call_offset: usize) -> String {
   format!("{callee}@{call_offset}")
 }
 
-pub(super) fn variable_declarator_node_id(
+fn variable_declarator_node_id(
   semantic: &oxc_semantic::Semantic<'_>,
   call_id: NodeId,
 ) -> Option<NodeId> {
@@ -640,7 +637,7 @@ fn collect_conditional_init_bindings(
   }
 }
 
-pub(super) fn compatible_vue_binding_kind_from_arms(
+fn compatible_vue_binding_kind_from_arms(
   semantic: &Semantic<'_>,
   left: &Expression<'_>,
   right: &Expression<'_>,
@@ -663,7 +660,7 @@ pub(super) fn compatible_vue_binding_kind_from_arms(
   None
 }
 
-pub(super) fn vue_call_binding_kind(
+fn vue_call_binding_kind(
   semantic: &Semantic<'_>,
   expression: &Expression<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
@@ -694,7 +691,7 @@ pub(super) fn vue_call_binding_kind(
 }
 
 /// Parent `VariableDeclarator` for a call, peeling `await` (`const x = await useAsyncData()`).
-pub(super) fn variable_declarator_for_call<'a>(
+fn variable_declarator_for_call<'a>(
   semantic: &'a oxc_semantic::Semantic<'a>,
   call_id: NodeId,
 ) -> Option<&'a oxc_ast::ast::VariableDeclarator<'a>> {
@@ -713,7 +710,7 @@ pub(super) fn variable_declarator_for_call<'a>(
 }
 
 /// Vue primitives plus bare auto-import helpers from the plugin API-bag catalog.
-pub(super) fn resolved_binding_callee(
+fn resolved_binding_callee(
   semantic: &oxc_semantic::Semantic<'_>,
   callee: &Expression<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,

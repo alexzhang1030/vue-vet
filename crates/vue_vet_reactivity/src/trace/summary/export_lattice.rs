@@ -68,7 +68,7 @@ pub(super) const fn known_from_ref_like_kinds(
 /// 2. `Known` beats later `Factory` / `Composable` (graph-seeded value wins).
 /// 3. Otherwise the new state replaces the old one.
 #[must_use]
-pub(super) const fn prefers_existing(existing: &ExportState, next: &ExportState) -> bool {
+const fn prefers_existing(existing: &ExportState, next: &ExportState) -> bool {
   matches!(
     (existing, next),
     (ExportState::Factory(_), ExportState::Composable(_))
@@ -225,7 +225,7 @@ pub(super) fn merge_published(existing: &ExportState, next: &ExportState) -> Pub
 ///
 /// Under-approx: wrong root class, unresolved path, or `MethodForward` leaf → `None`.
 #[must_use]
-pub(super) fn resolve_pending_field(
+fn resolve_pending_field(
   root: &ExportState,
   path: &[String],
   field: &str,
@@ -252,7 +252,7 @@ pub(super) fn resolve_pending_field(
 ///
 /// Unresolved / non-matching callee keeps the forward marker (under-approx).
 #[must_use]
-pub(super) fn refine_method_forward(resolved: &ExportState, callee: String) -> ValueBagEntry {
+fn refine_method_forward(resolved: &ExportState, callee: String) -> ValueBagEntry {
   match resolved {
     ExportState::Composable(shape) => ValueBagEntry::Method(shape.clone()),
     ExportState::Factory(kind) => ValueBagEntry::MethodFactory(*kind),
