@@ -893,101 +893,15 @@ fn apply_factory_assignment_target(
   current: &mut Option<KnownPrim>,
   unknown: &mut bool,
 ) {
-  match target {
-    AssignmentTarget::AssignmentTargetIdentifier(_) => {}
-    AssignmentTarget::TSAsExpression(inner) => {
-      apply_factory_storage_expr(
-        collector,
-        &inner.expression,
-        storage,
-        get_span,
-        set_span,
-        current,
-        unknown,
-      );
-    }
-    AssignmentTarget::TSSatisfiesExpression(inner) => {
-      apply_factory_storage_expr(
-        collector,
-        &inner.expression,
-        storage,
-        get_span,
-        set_span,
-        current,
-        unknown,
-      );
-    }
-    AssignmentTarget::TSNonNullExpression(inner) => {
-      apply_factory_storage_expr(
-        collector,
-        &inner.expression,
-        storage,
-        get_span,
-        set_span,
-        current,
-        unknown,
-      );
-    }
-    AssignmentTarget::TSTypeAssertion(inner) => {
-      apply_factory_storage_expr(
-        collector,
-        &inner.expression,
-        storage,
-        get_span,
-        set_span,
-        current,
-        unknown,
-      );
-    }
-    AssignmentTarget::StaticMemberExpression(member) => {
-      apply_factory_storage_expr(
-        collector,
-        &member.object,
-        storage,
-        get_span,
-        set_span,
-        current,
-        unknown,
-      );
-    }
-    AssignmentTarget::ComputedMemberExpression(member) => {
-      apply_factory_storage_expr(
-        collector,
-        &member.object,
-        storage,
-        get_span,
-        set_span,
-        current,
-        unknown,
-      );
-      apply_factory_storage_expr(
-        collector,
-        &member.expression,
-        storage,
-        get_span,
-        set_span,
-        current,
-        unknown,
-      );
-    }
-    AssignmentTarget::PrivateFieldExpression(member) => {
-      apply_factory_storage_expr(
-        collector,
-        &member.object,
-        storage,
-        get_span,
-        set_span,
-        current,
-        unknown,
-      );
-    }
-    AssignmentTarget::ArrayAssignmentTarget(_) => *unknown = true,
-    AssignmentTarget::ObjectAssignmentTarget(object) => {
-      apply_factory_object_assignment(
-        collector, object, source, storage, get_span, set_span, current, unknown,
-      );
-    }
-  }
+  super::for_each_assignment_leaf(target, |leaf| match leaf {
+    super::AssignmentLeaf::Expr(expression) => apply_factory_storage_expr(
+      collector, expression, storage, get_span, set_span, current, unknown,
+    ),
+    super::AssignmentLeaf::Array(_) => *unknown = true,
+    super::AssignmentLeaf::Object(object) => apply_factory_object_assignment(
+      collector, object, source, storage, get_span, set_span, current, unknown,
+    ),
+  });
 }
 
 #[expect(
