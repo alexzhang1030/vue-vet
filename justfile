@@ -61,29 +61,7 @@ oracle-all:
   set -euo pipefail
   cd crates/vue_vet_reactivity/oracle
   pnpm install --frozen-lockfile
-  node self-trigger-runs.mjs
-  node lifetime-runs.mjs
-  node lifetime-ownership-runs.mjs
-  node stale-settlement-runs.mjs
-  node source-contracts.mjs
-  node watch-api.mjs
-  node watch-callback-contracts.mjs
-  node value-contracts.mjs
-  node template-ref-demand.mjs
-  node derivation-practice.mjs
-  node scheduling-practice.mjs
-  node lost-notification-runs.mjs
-  node cleanup-identity-runs.mjs
-  node custom-ref-notification-runs.mjs
-  node cached-result-contracts.mjs
-  node computed-identity.mjs
-  node private-receiver.mjs
-  node until-demand.mjs
-  node injection-demand-contracts.mjs
-  node vueuse-demand.mjs
-  node filter-settlement-contracts.mjs
-  node snapshot-demand.mjs
-  node model-demand.mjs
+  node run.mjs
 
 # Run all non-mutating Rust linters.
 lint-rust: fmt-check check clippy
