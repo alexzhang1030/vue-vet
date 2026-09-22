@@ -9,10 +9,7 @@ use oxc_ast::ast::Expression;
 use oxc_semantic::{NodeId, SymbolId};
 use oxc_span::Span;
 
-use super::super::proof::{DemandRole, Reach};
-use super::super::shape::Scalar;
-use super::super::stats::WorkCounter;
-use super::super::timeline::Timed;
+use super::{DemandRole, Reach, Scalar, Timed, WorkCounter};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::source_contracts) struct StmtSite {
