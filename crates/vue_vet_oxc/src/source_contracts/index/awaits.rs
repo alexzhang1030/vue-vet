@@ -3,10 +3,10 @@
 use oxc_semantic::{NodeId, SymbolId};
 use oxc_span::Span;
 
-use super::super::proof::DemandOrigin;
-use super::super::shape::span_key;
-use super::super::timeline;
-use super::{AwaitPositionSite, Indexes, MemberUse, NamedUse, ObjectEntry, ValueWrite};
+use super::{
+  AwaitPositionSite, DemandOrigin, Indexes, MemberUse, NamedUse, ObjectEntry, ValueWrite, span_key,
+  timeline,
+};
 
 impl Indexes {
   pub(in crate::source_contracts) fn await_result_of_await(&self, span: Span) -> Option<SymbolId> {

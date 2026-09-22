@@ -1,6 +1,6 @@
 //! Native `Map` key-identity indexing: constructor/`set`/`get` key roles,
 //! intrinsic-poison detection, and wrapper (`reactive` / `shallowReactive`)
-//! origin proofs consumed by `super::super::map_lookup`.
+//! origin proofs consumed by `map_lookup`.
 
 use super::{
   Argument, ArrayExpression, ArrayExpressionElement, AssignmentOperator, AssignmentTarget,
