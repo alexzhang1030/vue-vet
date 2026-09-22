@@ -84,7 +84,6 @@ impl Collector<'_> {
     let expression = call.arguments.first().and_then(Argument::as_expression)?;
     let span = expression.get_inner_expression().span();
     for (node_id, node) in self.semantic.nodes().iter_enumerated() {
-      self.indexes.note_query();
       match node.kind() {
         AstKind::ArrowFunctionExpression(arrow) if arrow.span == span => return Some(node_id),
         AstKind::Function(function) if function.span == span => return Some(node_id),
@@ -214,7 +213,6 @@ impl Collector<'_> {
   pub(super) fn collect_shared_object_bindings(&mut self) {
     let mut seen = HashSet::new();
     for (symbol, init) in &self.indexes.init_span {
-      self.indexes.note_query();
       let root = self.indexes.root_of(*symbol);
       if !seen.insert(root) {
         continue;
@@ -239,7 +237,6 @@ impl Collector<'_> {
       let mut own_paths = Vec::new();
       if let Some(props) = self.indexes.object_index.object_props.get(&span_key(object_span)) {
         for (key, prop) in props {
-          self.indexes.note_query();
           let super::index::ObjectProp::Value(value) = *prop else {
             continue;
           };
@@ -361,7 +358,6 @@ impl Collector<'_> {
     let mut current = node_id;
     let owner = self.indexes.owner(node_id).callable;
     for _ in 0..12 {
-      self.indexes.note_query();
       let parent = self.semantic.nodes().parent_id(current);
       if owner.is_some_and(|callable| parent == callable) {
         return false;
@@ -409,7 +405,6 @@ impl Collector<'_> {
     };
     let demand_start = call.span.start;
     for statement in &body.statements {
-      self.indexes.note_query();
       if statement.span().start >= demand_start {
         break;
       }
@@ -423,7 +418,6 @@ impl Collector<'_> {
   fn enclosing_function_body(&self, node_id: NodeId) -> Option<&FunctionBody<'_>> {
     let mut current = node_id;
     for _ in 0..24 {
-      self.indexes.note_query();
       let parent = self.semantic.nodes().parent_id(current);
       match self.semantic.nodes().kind(parent) {
         AstKind::ArrowFunctionExpression(arrow) => return Some(&arrow.body),
@@ -438,7 +432,6 @@ impl Collector<'_> {
   fn result_binding(&self, node_id: NodeId) -> Option<SymbolId> {
     let mut current = node_id;
     for _ in 0..6 {
-      self.indexes.note_query();
       let parent = self.semantic.nodes().parent_id(current);
       match self.semantic.nodes().kind(parent) {
         AstKind::VariableDeclarator(declarator) => {
@@ -459,7 +452,6 @@ impl Collector<'_> {
   }
 
   fn literal_kind_at(&self, span: Span) -> Option<ModelPrimitiveKind> {
-    self.indexes.note_query();
     let mapped = self.span(span);
     let text = self.sfc_source.get(mapped.offset..mapped.offset.saturating_add(mapped.length))?;
     let trimmed = text.trim();

@@ -17,16 +17,13 @@
 //! one query per `classify_maybe`. Shared object summarization treats computed
 //! literal keys as known; watch options check the original
 //! `ObjectProperty::computed` flag instead. Indexed actual-Proxy import-source
-//! lookups (Vue constructor calls only) increment `import_source_steps`.
-//! Demanded-key contains/hash lookups increment `key_lookups`; remaining
-//! key-string copies increment `key_copies`. Each examined `AssignmentTarget`
+//! lookups, demanded-key contains/hash lookups, and remaining key-string
+//! copies increment `queries`. Each examined `AssignmentTarget`
 //! in the native-clone poison walk, plus `for...in` / `for...of` left
 //! classification, increments `queries`. Assignment-form loop heads also
 //! increment `writes` once. Map-op / member-call / root / barrier index sort
 //! comparisons, constructor-entry visits, keyed identity lookups, and mutation
-//! visits also increment those counters. `key_copies` counts remaining cloned
-//! constructor-key or mutation-op vector elements on the per-root replay path
-//! (currently none: replay indexes in place). Per-root Map replay counts
+//! visits also increment `queries`. Per-root Map replay counts
 //! constructor classification once, each mutating operation once, and each
 //! read query once. Cached-result producer/fill/write/repair/demand joins,
 //! exclusive-interval iterator visits, counted `binary_search` comparisons,
@@ -40,8 +37,10 @@
 //!
 //! Production `WorkCounter` is zero-sized and does not record. Test builds
 //! keep saturating `Cell` counters so inner-work growth tests stay real.
-//! `SourceContractStats` is a separate snapshot DTO: nine `u64` fields
-//! (`size_of::<[u64; 9]>()` bytes) in both production and test layouts.
+//! `SourceContractStats` is a separate snapshot DTO: five `u64` fields
+//! (`nodes`, `owners`, `object_entries`, `writes`, `queries`). Reference
+//! walks, import-source steps, key lookups, and key copies charge `queries`.
+//! The CLI does not report this DTO. Production and test layouts match.
 
 #[cfg(test)]
 use std::cell::Cell;
@@ -52,21 +51,15 @@ use std::mem::size_of;
 pub struct SourceContractStats {
   pub nodes: u64,
   pub owners: u64,
-  pub references: u64,
   pub object_entries: u64,
   pub writes: u64,
   pub queries: u64,
-  /// Proven import-source examinations for Vue constructors that can allocate
-  /// a Proxy. Non-Vue and unresolved calls must not increment this.
-  pub import_source_steps: u64,
-  pub key_lookups: u64,
-  pub key_copies: u64,
 }
 
-const STATS_BYTES: usize = size_of::<[u64; 9]>();
+const STATS_BYTES: usize = size_of::<[u64; 5]>();
 const _: () = assert!(
   size_of::<SourceContractStats>() == STATS_BYTES,
-  "SourceContractStats snapshot DTO is nine u64 fields"
+  "SourceContractStats snapshot DTO is five u64 fields"
 );
 
 impl SourceContractStats {
@@ -76,13 +69,9 @@ impl SourceContractStats {
     self
       .nodes
       .saturating_add(self.owners)
-      .saturating_add(self.references)
       .saturating_add(self.object_entries)
       .saturating_add(self.writes)
       .saturating_add(self.queries)
-      .saturating_add(self.import_source_steps)
-      .saturating_add(self.key_lookups)
-      .saturating_add(self.key_copies)
   }
 
   /// True when Vue-import preflight ran and owner, object, and write indexes stayed empty.
@@ -100,19 +89,11 @@ pub(super) struct WorkCounter {
   #[cfg(test)]
   owners: Cell<u64>,
   #[cfg(test)]
-  references: Cell<u64>,
-  #[cfg(test)]
   object_entries: Cell<u64>,
   #[cfg(test)]
   writes: Cell<u64>,
   #[cfg(test)]
   queries: Cell<u64>,
-  #[cfg(test)]
-  import_source_steps: Cell<u64>,
-  #[cfg(test)]
-  key_lookups: Cell<u64>,
-  #[cfg(test)]
-  key_copies: Cell<u64>,
 }
 
 #[cfg(not(test))]
@@ -152,19 +133,8 @@ impl WorkCounter {
     let _ = n;
   }
 
-  #[cfg(test)]
   pub(super) fn add_references(&self, n: u64) {
-    self.references.set(self.references.get().saturating_add(n));
-  }
-
-  #[cfg(not(test))]
-  #[expect(
-    clippy::unused_self,
-    clippy::missing_const_for_fn,
-    reason = "zero-sized production counter keeps the test method shape"
-  )]
-  pub(super) fn add_references(&self, n: u64) {
-    let _ = n;
+    self.add_queries(n);
   }
 
   #[cfg(test)]
@@ -212,49 +182,16 @@ impl WorkCounter {
     let _ = n;
   }
 
-  #[cfg(test)]
   pub(super) fn add_import_source_steps(&self, n: u64) {
-    self.import_source_steps.set(self.import_source_steps.get().saturating_add(n));
+    self.add_queries(n);
   }
 
-  #[cfg(not(test))]
-  #[expect(
-    clippy::unused_self,
-    clippy::missing_const_for_fn,
-    reason = "zero-sized production counter keeps the test method shape"
-  )]
-  pub(super) fn add_import_source_steps(&self, n: u64) {
-    let _ = n;
-  }
-
-  #[cfg(test)]
   pub(super) fn add_key_lookups(&self, n: u64) {
-    self.key_lookups.set(self.key_lookups.get().saturating_add(n));
+    self.add_queries(n);
   }
 
-  #[cfg(not(test))]
-  #[expect(
-    clippy::unused_self,
-    clippy::missing_const_for_fn,
-    reason = "zero-sized production counter keeps the test method shape"
-  )]
-  pub(super) fn add_key_lookups(&self, n: u64) {
-    let _ = n;
-  }
-
-  #[cfg(test)]
   pub(super) fn add_key_copies(&self, n: u64) {
-    self.key_copies.set(self.key_copies.get().saturating_add(n));
-  }
-
-  #[cfg(not(test))]
-  #[expect(
-    clippy::unused_self,
-    clippy::missing_const_for_fn,
-    reason = "zero-sized production counter keeps the test method shape"
-  )]
-  pub(super) fn add_key_copies(&self, n: u64) {
-    let _ = n;
+    self.add_queries(n);
   }
 
   #[cfg(test)]
@@ -330,30 +267,16 @@ impl WorkCounter {
     SourceContractStats {
       nodes: self.nodes.get(),
       owners: self.owners.get(),
-      references: self.references.get(),
       object_entries: self.object_entries.get(),
       writes: self.writes.get(),
       queries: self.queries.get(),
-      import_source_steps: self.import_source_steps.get(),
-      key_lookups: self.key_lookups.get(),
-      key_copies: self.key_copies.get(),
     }
   }
 
   #[cfg(not(test))]
   #[expect(clippy::unused_self, reason = "production snapshot is always zero")]
   pub(super) const fn snapshot(&self) -> SourceContractStats {
-    SourceContractStats {
-      nodes: 0,
-      owners: 0,
-      references: 0,
-      object_entries: 0,
-      writes: 0,
-      queries: 0,
-      import_source_steps: 0,
-      key_lookups: 0,
-      key_copies: 0,
-    }
+    SourceContractStats { nodes: 0, owners: 0, object_entries: 0, writes: 0, queries: 0 }
   }
 }
 
@@ -363,9 +286,9 @@ mod size_tests {
   use std::mem::size_of;
 
   #[test]
-  fn stats_dto_keeps_nine_u64_layout() {
+  fn stats_dto_keeps_five_u64_layout() {
     assert_eq!(size_of::<SourceContractStats>(), STATS_BYTES);
-    assert_eq!(STATS_BYTES, 72);
+    assert_eq!(STATS_BYTES, 40);
   }
 
   #[test]

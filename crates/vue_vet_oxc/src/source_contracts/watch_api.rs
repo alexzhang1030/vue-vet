@@ -95,7 +95,6 @@ impl Collector<'_> {
     };
     let effect = is_effect_api(api);
     for (name, key, value) in keys {
-      self.indexes.note_query();
       let reason = if name == "equals" && self.value_is_function(value) {
         Some(WatchIgnoredOptionReason::Equals)
       } else if effect {

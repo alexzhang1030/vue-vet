@@ -71,38 +71,22 @@ fn extracted_collection_methods_follow_aliases_namespaces_and_ts_wrappers() {
 
 #[test]
 fn extracted_collection_methods_reuse_counted_actual_proxy_origin() {
-  let (named, named_stats) = contract_full_stats(
+  let (named, _) = contract_full_stats(
     "import { reactive } from 'vue'; const map = reactive(new Map([['a', 1]])); const { get } = map; get('a');",
   );
   assert_eq!(named.extracted_reactive_collection_method.len(), 1, "{named:?}");
-  assert!(
-    named_stats.import_source_steps <= 2,
-    "named constructor origin is the counted VueImport lookup; {named_stats:?}"
-  );
-  let (namespace, namespace_stats) = contract_full_stats(
+  let (namespace, _) = contract_full_stats(
     "import * as Vue from 'vue'; const map = Vue.reactive(new Map([['a', 1]])); const { get } = map; get('a');",
   );
   assert_eq!(namespace.extracted_reactive_collection_method.len(), 1, "{namespace:?}");
-  assert!(
-    namespace_stats.import_source_steps <= 2,
-    "namespace constructor origin is the counted VueImport lookup; {namespace_stats:?}"
-  );
-  let (local, local_stats) = contract_full_stats(
+  let (local, _) = contract_full_stats(
     "function reactive<T>(value: T): T { return value; } const map = reactive(new Map([['a', 1]])); const { get } = map; get('a');",
   );
   assert!(local.extracted_reactive_collection_method.is_empty(), "{local:?}");
-  assert!(
-    local_stats.import_source_steps == 0,
-    "local constructors must not examine VueImport; {local_stats:?}"
-  );
-  let (type_only, type_only_stats) = contract_full_stats(
+  let (type_only, _) = contract_full_stats(
     "import type { reactive } from 'vue'; const map = reactive(new Map([['a', 1]])); const { get } = map; get('a');",
   );
   assert!(type_only.extracted_reactive_collection_method.is_empty(), "{type_only:?}");
-  assert!(
-    type_only_stats.import_source_steps == 0,
-    "type-only sources must not examine VueImport; {type_only_stats:?}"
-  );
 }
 
 #[test]

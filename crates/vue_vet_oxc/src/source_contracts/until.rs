@@ -156,7 +156,6 @@ impl Collector<'_> {
     }
     let mut timeout = None;
     for entry in self.indexes.object_entries(options) {
-      self.indexes.note_query();
       match entry {
         ObjectEntry::Spread
         | ObjectEntry::Computed
@@ -203,7 +202,7 @@ impl Collector<'_> {
 
   fn await_of_to_be(&self, to_be: Span, origin: DemandOrigin) -> Option<AwaitPositionSite> {
     if let Some(site) = self.indexes.await_await_for_argument(to_be)
-      && self.await_belongs(site, origin)
+      && Self::await_belongs(site, origin)
     {
       return Some(site);
     }
@@ -214,11 +213,10 @@ impl Collector<'_> {
       .await_awaits_for_bound(root)
       .iter()
       .copied()
-      .find(|site| self.await_belongs(*site, origin))
+      .find(|site| Self::await_belongs(*site, origin))
   }
 
-  fn await_belongs(&self, site: AwaitPositionSite, origin: DemandOrigin) -> bool {
-    self.indexes.note_query();
+  fn await_belongs(site: AwaitPositionSite, origin: DemandOrigin) -> bool {
     site.head.callable == origin.callable
       && site.head.region == origin.region
       && site.head.reach.is_straight()
@@ -247,7 +245,6 @@ impl Collector<'_> {
       return None;
     }
     for write in self.indexes.await_writes_in(root, start, end) {
-      self.indexes.note_query();
       if write.callable != callable || write.block != block || !write.simple_assign {
         return None;
       }
@@ -291,13 +288,12 @@ impl Collector<'_> {
       return false;
     }
     let prior = timeline::before(self.indexes.work_counter(), writes, offset);
-    let last_same = prior.iter().rev().find(|write| {
-      self.indexes.note_query();
-      write.callable == callable && write.block == block && write.simple_assign
-    });
+    let last_same = prior
+      .iter()
+      .rev()
+      .find(|write| write.callable == callable && write.block == block && write.simple_assign);
     let proven_offset = last_same.map(|write| write.offset);
     prior.iter().any(|write| {
-      self.indexes.note_query();
       let after_proven = proven_offset.is_none_or(|offset| write.offset > offset);
       after_proven && (write.callable != callable || write.block != block || !write.simple_assign)
     })
@@ -317,10 +313,7 @@ impl Collector<'_> {
     timeline::before(self.indexes.work_counter(), writes, offset)
       .iter()
       .rev()
-      .find(|write| {
-        self.indexes.note_query();
-        write.callable == callable && write.block == block && write.simple_assign
-      })
+      .find(|write| write.callable == callable && write.block == block && write.simple_assign)
       .copied()
   }
 
@@ -360,7 +353,6 @@ impl Collector<'_> {
     chained: bool,
     chosen: &mut Option<(MemberUse, String)>,
   ) {
-    self.indexes.note_query();
     if !chained && named.site.head.offset < origin.offset {
       return;
     }

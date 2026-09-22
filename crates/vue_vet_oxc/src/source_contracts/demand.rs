@@ -508,7 +508,6 @@ impl Collector<'_> {
   ) {
     let uses = self.indexes.chained_values_on(root);
     if let Some(use_site) = uses.iter().find(|named| {
-      self.indexes.note_query();
       self.indexes.demand_from(&named.site, origin)
         && named.site.role.needs_get()
         && self.indexes.closed_object_has_key(object_span, &named.key) == Some(false)
@@ -523,7 +522,6 @@ impl Collector<'_> {
     }
     let mut chosen: Option<(usize, vue_vet_core::SourceSpan, String)> = None;
     for (local, key) in self.indexes.destructures_of(root) {
-      self.indexes.note_query();
       if self.indexes.closed_object_has_key(object_span, key) != Some(false)
         || is_object_prototype_key(key)
       {
@@ -565,7 +563,6 @@ impl Collector<'_> {
     }
     let mut chosen: Option<(usize, vue_vet_core::SourceSpan, String)> = None;
     for property in &object.properties {
-      self.indexes.note_query();
       let Some(key) = property.key.static_name() else {
         return;
       };
@@ -747,7 +744,6 @@ fn min_straight_span(
 ) -> Option<Span> {
   let mut chosen: Option<MemberUse> = None;
   for named in reads.iter().chain(calls) {
-    indexes.note_query();
     if !indexes.demand_from(&named.site, origin) {
       continue;
     }

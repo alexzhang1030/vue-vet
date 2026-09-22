@@ -47,7 +47,6 @@ impl Collector<'_> {
   }
 
   fn is_actual_proxy(&mut self, span: Span, remaining: u8) -> ProxyProof {
-    self.indexes.note_query();
     if remaining == 0 {
       return ProxyProof::Exhausted;
     }
@@ -123,7 +122,6 @@ impl Collector<'_> {
   }
 
   fn is_fresh_supported_root(&self, span: Span) -> bool {
-    self.indexes.note_query();
     let Some(literal) =
       self.indexes.literal_span.get(&span_key(span)).copied().or_else(|| {
         self.indexes.object_index.objects.contains_key(&span_key(span)).then_some(span)

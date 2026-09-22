@@ -145,11 +145,10 @@ impl Collector<'_> {
     }
     let mut chosen: Option<(NestedWrite, String, SnapshotCall, &'static str)> = None;
     for demand in self.history_value_demands(&bindings, origin, source) {
-      self.indexes.note_query();
       if demand.site.head.offset <= origin.offset {
         continue;
       }
-      let Some(record) = self.consumed_record(&summary, &demand) else {
+      let Some(record) = Self::consumed_record(&summary, &demand) else {
         continue;
       };
       if let Some((write, property)) =
@@ -227,16 +226,11 @@ impl Collector<'_> {
 
   fn object_keys_allowed(&self, span: Span, allowed: &[&str]) -> bool {
     let Some(entries) = self.indexes.object_index.objects.get(&span_key(span)) else {
-      self.indexes.note_query();
       return false;
     };
-    self.indexes.note_query();
-    entries.iter().all(|entry| {
-      self.indexes.note_query();
-      match entry {
-        super::index::ObjectEntry::Data { name, .. } => allowed.contains(&name.as_str()),
-        _ => false,
-      }
+    entries.iter().all(|entry| match entry {
+      super::index::ObjectEntry::Data { name, .. } => allowed.contains(&name.as_str()),
+      _ => false,
     })
   }
 
@@ -247,7 +241,6 @@ impl Collector<'_> {
   fn object_is_closed_data(&mut self, span: Span) -> bool {
     let key = span_key(span);
     if let Some(hit) = self.snapshot_memo.closed_data.get(&key) {
-      self.indexes.note_query();
       return *hit;
     }
     let hit = self.indexes.object_is_closed_data(span);
@@ -263,7 +256,6 @@ impl Collector<'_> {
     let object = self.ref_own_object(argument)?;
     let key = span_key(object);
     if let Some(hit) = self.snapshot_memo.date_paths.get(&key) {
-      self.indexes.note_query();
       return hit.clone();
     }
     let found = self.compute_date_source_path(object);
@@ -278,7 +270,6 @@ impl Collector<'_> {
     let entries = self.indexes.object_index.objects.get(&span_key(object))?;
     let mut found = None;
     for entry in entries {
-      self.indexes.note_query();
       let super::index::ObjectEntry::Data { name, value, .. } = entry else {
         return None;
       };
@@ -332,7 +323,6 @@ impl Collector<'_> {
   }
 
   fn call_info_at(&self, span: Span) -> Option<CallInfo> {
-    self.indexes.note_query();
     if let Some(info) = self.indexes.calls.get(&span_key(span)).copied() {
       return Some(info);
     }
@@ -357,7 +347,6 @@ impl Collector<'_> {
       return Some(demand);
     }
     for (symbol, key) in self.indexes.call_bindings(call.span) {
-      self.indexes.note_query();
       if key != "cloned" {
         continue;
       }
@@ -460,7 +449,6 @@ impl Collector<'_> {
   ) -> Option<DateDemand> {
     let mut chosen: Option<DateDemand> = None;
     for call in self.indexes.path_calls_on(root) {
-      self.indexes.note_query();
       if call.keys.len() != keys.len()
         || !call.keys.iter().zip(keys).all(|(left, right)| left == right)
       {
@@ -491,7 +479,6 @@ impl Collector<'_> {
   ) -> Option<DateDemand> {
     let mut chosen = None;
     for (alias, root) in &self.indexes.value_object_alias {
-      self.indexes.note_query();
       if *root != cloned || self.indexes.reassigned.contains(alias) {
         continue;
       }
@@ -519,7 +506,6 @@ impl Collector<'_> {
     }
     if let Some(root) = root {
       for (property, write) in self.indexes.nested_writes_on(root) {
-        self.indexes.note_query();
         if property != path || !write.simple_assign {
           continue;
         }
@@ -537,7 +523,6 @@ impl Collector<'_> {
         }
       }
       for (alias, aliased) in &self.indexes.value_object_alias {
-        self.indexes.note_query();
         if *aliased != root {
           continue;
         }
@@ -545,7 +530,6 @@ impl Collector<'_> {
           return true;
         }
         for (property, write) in self.indexes.nested_writes_on(root) {
-          self.indexes.note_query();
           if property == path
             && write.simple_assign
             && write.offset > origin.offset
@@ -570,12 +554,9 @@ impl Collector<'_> {
 
   fn root_value_repaired(&self, root: SymbolId, origin: DemandOrigin, demand: usize) -> bool {
     let work = self.indexes.work_counter();
-    timeline::between(work, self.indexes.value_writes_on(root), origin.offset, demand).iter().any(
-      |write| {
-        self.indexes.note_query();
-        write.callable == origin.callable
-      },
-    )
+    timeline::between(work, self.indexes.value_writes_on(root), origin.offset, demand)
+      .iter()
+      .any(|write| write.callable == origin.callable)
   }
 
   fn path_value_repaired(
@@ -586,7 +567,6 @@ impl Collector<'_> {
     demand: usize,
   ) -> bool {
     self.indexes.path_value_writes_on(root).iter().any(|(path, write)| {
-      self.indexes.note_query();
       path.len() == keys.len()
         && path.iter().zip(keys).all(|(left, right)| left == right)
         && write.simple_assign
@@ -618,7 +598,6 @@ impl Collector<'_> {
     let mut bindings =
       HistoryBindings { bag: self.indexes.result_of_call(call), ..HistoryBindings::default() };
     for (symbol, key) in self.indexes.call_bindings(call) {
-      self.indexes.note_query();
       match key.as_str() {
         "commit" => bindings.commit = Some(*symbol),
         "undo" => bindings.undo = Some(*symbol),
@@ -644,7 +623,6 @@ impl Collector<'_> {
     let key = (u64::try_from(source.index()).unwrap_or(u64::MAX) << 32)
       | u64::try_from(origin.offset).unwrap_or(u64::MAX);
     if let Some(hit) = self.snapshot_memo.histories.get(&key) {
-      self.indexes.note_query();
       return hit.clone();
     }
     let built = self.build_history_summary(source, object, bindings, origin, capacity);
@@ -666,15 +644,11 @@ impl Collector<'_> {
     self.collect_ops(bindings, origin, HistoryOpKind::Redo, "redo", &mut ops);
     self.collect_ops(bindings, origin, HistoryOpKind::Reset, "reset", &mut ops);
     self.collect_ops(bindings, origin, HistoryOpKind::Clear, "clear", &mut ops);
-    ops.sort_by(|left, right| {
-      self.indexes.note_query();
-      left.offset.cmp(&right.offset)
-    });
+    ops.sort_by_key(|op| op.offset);
     let mut props = self.object_literals(object)?;
     let mut generation = 0_u32;
     let mut unknown = false;
     for write in self.indexes.value_writes.get(&source).map_or(&[][..], Vec::as_slice) {
-      self.indexes.note_query();
       if write.callable != origin.callable || write.offset >= origin.offset {
         continue;
       }
@@ -683,7 +657,6 @@ impl Collector<'_> {
       unknown = true;
     }
     for (property, write) in self.indexes.nested_writes_on(source) {
-      self.indexes.note_query();
       if !self.indexes.nested_demand(write, origin)
         && write.offset < origin.offset
         && write.callable == origin.callable
@@ -703,31 +676,23 @@ impl Collector<'_> {
       events.push((op.offset, HistoryEvent::Op(*op)));
     }
     for (property, write) in self.indexes.nested_writes_on(source) {
-      self.indexes.note_query();
       if write.offset <= origin.offset || write.callable != origin.callable {
         continue;
       }
       events.push((write.offset, HistoryEvent::Write(property.clone(), *write)));
     }
     for write in self.indexes.value_writes.get(&source).map_or(&[][..], Vec::as_slice) {
-      self.indexes.note_query();
       if write.offset <= origin.offset || write.callable != origin.callable {
         continue;
       }
       events.push((write.offset, HistoryEvent::Root));
     }
-    events.sort_by(|left, right| {
-      self.indexes.note_query();
-      left.0.cmp(&right.0)
-    });
+    events.sort_by_key(|event| event.0);
     for (_, event) in events {
-      self.indexes.note_query();
       match event {
         HistoryEvent::Write(property, write) => {
-          self.indexes.note_query();
           props.insert(property.clone(), self.indexes.literal_at(write.rhs));
           writes.push((property, WriteEvent { write, generation }));
-          self.indexes.note_query();
           points.push(HistoryPoint {
             offset: write.offset,
             last: last.clone(),
@@ -742,7 +707,6 @@ impl Collector<'_> {
         HistoryEvent::Op(op) => {
           match op.kind {
             HistoryOpKind::Commit => {
-              self.indexes.note_query();
               undo.insert(0, last.clone());
               last = RecordState { dump_offset: op.offset, generation, baseline: props.clone() };
               if capacity >= 1 {
@@ -821,14 +785,12 @@ impl Collector<'_> {
         return;
       }
       for call in self.indexes.identifier_calls_on(symbol) {
-        self.indexes.note_query();
         let site = SnapshotCall::from_call_use(*call);
         visit(&site);
       }
     }
     if let Some(bag) = bag {
       for named in self.indexes.member_calls_on(bag) {
-        self.indexes.note_query();
         if named.key == key {
           let site = SnapshotCall {
             head: Site {
@@ -850,7 +812,6 @@ impl Collector<'_> {
     let entries = self.indexes.object_index.objects.get(&span_key(object))?;
     let mut props = HashMap::new();
     for entry in entries {
-      self.indexes.note_query();
       let super::index::ObjectEntry::Data { name, value, .. } = entry else {
         return None;
       };
@@ -892,7 +853,6 @@ impl Collector<'_> {
 
   fn source_property_consumed(&self, source: SymbolId, origin: DemandOrigin, after: usize) -> bool {
     for read in self.indexes.path_reads_on(source) {
-      self.indexes.note_query();
       if read.keys.first().is_some_and(|key| key == "value")
         && read.keys.len() >= 2
         && read.site.head.offset > after
@@ -915,7 +875,6 @@ impl Collector<'_> {
         continue;
       }
       for read in self.indexes.path_reads_on(symbol) {
-        self.indexes.note_query();
         if !self.indexes.demand_from(&read.site, origin) {
           continue;
         }
@@ -939,7 +898,6 @@ impl Collector<'_> {
     }
     if let Some(bag) = bindings.bag {
       for read in self.indexes.path_reads_on(bag) {
-        self.indexes.note_query();
         if !self.indexes.demand_from(&read.site, origin) {
           continue;
         }
@@ -971,12 +929,8 @@ impl Collector<'_> {
     reads
   }
 
-  fn consumed_record(
-    &self,
-    summary: &HistorySummary,
-    demand: &HistoryDemand,
-  ) -> Option<RecordState> {
-    let point = self.point_before(summary, demand.site.head.offset)?;
+  fn consumed_record(summary: &HistorySummary, demand: &HistoryDemand) -> Option<RecordState> {
+    let point = Self::point_before(summary, demand.site.head.offset)?;
     match demand.restore {
       Restore::Undo => point.undo.first().cloned(),
       Restore::Reset => Some(point.last.clone()),
@@ -989,15 +943,8 @@ impl Collector<'_> {
     }
   }
 
-  fn point_before<'a>(
-    &self,
-    summary: &'a HistorySummary,
-    offset: usize,
-  ) -> Option<&'a HistoryPoint> {
-    let index = summary.points.iter().rposition(|point| {
-      self.indexes.note_query();
-      point.offset < offset
-    })?;
+  fn point_before(summary: &HistorySummary, offset: usize) -> Option<&HistoryPoint> {
+    let index = summary.points.iter().rposition(|point| point.offset < offset)?;
     summary.points.get(index)
   }
 
@@ -1009,7 +956,6 @@ impl Collector<'_> {
   ) -> Option<(NestedWrite, String)> {
     let mut last_by_prop: HashMap<String, (NestedWrite, Option<Literal>)> = HashMap::new();
     for (property, event) in &summary.writes {
-      self.indexes.note_query();
       if event.generation != record.generation
         || event.write.offset <= record.dump_offset
         || event.write.offset >= demand
@@ -1022,7 +968,6 @@ impl Collector<'_> {
     }
     let mut chosen = None;
     for (property, (write, rhs)) in last_by_prop {
-      self.indexes.note_query();
       let rhs = rhs?;
       let baseline = record.baseline.get(&property).copied().flatten();
       if !literals_differ(baseline, Some(rhs)) {

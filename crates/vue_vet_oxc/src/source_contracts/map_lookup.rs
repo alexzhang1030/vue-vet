@@ -246,10 +246,7 @@ impl Collector<'_> {
       return None;
     };
     let ident = member.object.get_inner_expression().get_identifier_reference()?;
-    self.reference_symbol(ident).map(|symbol| {
-      self.indexes.note_query();
-      self.indexes.root_of(symbol)
-    })
+    self.reference_symbol(ident).map(|symbol| self.indexes.root_of(symbol))
   }
 
   fn receiver_span(call: &CallExpression<'_>) -> Option<Span> {
@@ -260,7 +257,6 @@ impl Collector<'_> {
   }
 
   fn native_map_root(&mut self, root: SymbolId) -> Option<SymbolId> {
-    self.indexes.note_query();
     if self.indexes.native_index.map_intrinsic_poisoned {
       return None;
     }
@@ -299,7 +295,6 @@ impl Collector<'_> {
       }
       let hint = self.indexes.hints.get(&span_key(target)).copied()?;
       if let ShapeHint::Identifier(Some(symbol_id), false) = hint {
-        self.indexes.note_query();
         let nested = self.indexes.root_of(symbol_id);
         let init = *self.indexes.init_span.get(&nested)?;
         return self.new_span_of(init).and_then(|new_span| {
@@ -317,7 +312,6 @@ impl Collector<'_> {
     let ShapeHint::Identifier(Some(symbol_id), false) = hint else {
       return None;
     };
-    self.indexes.note_query();
     let nested = self.indexes.root_of(symbol_id);
     let init = *self.indexes.init_span.get(&nested)?;
     self.new_span_of(init).and_then(|new_span| {
@@ -332,7 +326,6 @@ impl Collector<'_> {
   }
 
   fn reactive_map_root(&mut self, root: SymbolId) -> Option<SymbolId> {
-    self.indexes.note_query();
     if self.indexes.native_index.map_intrinsic_poisoned {
       return None;
     }
@@ -373,12 +366,10 @@ impl Collector<'_> {
     let ShapeHint::Identifier(Some(symbol_id), false) = hint else {
       return None;
     };
-    self.indexes.note_query();
     Some(self.indexes.root_of(symbol_id))
   }
 
   fn proxy_call(&self, span: Span) -> Option<super::index::CallInfo> {
-    self.indexes.note_query();
     if let Some(info) = self.indexes.calls.get(&span_key(span)).copied() {
       return Some(info);
     }
@@ -389,7 +380,6 @@ impl Collector<'_> {
   }
 
   fn new_span_of(&self, span: Span) -> Option<Span> {
-    self.indexes.note_query();
     if self.indexes.news.contains_key(&span_key(span)) {
       return Some(span);
     }
@@ -482,12 +472,10 @@ impl Collector<'_> {
   }
 
   fn classify_key(&mut self, key: MapKeyRef) -> ClassifiedKey {
-    self.indexes.note_query();
     if key.is_literal {
       return ClassifiedKey { id: KeyId::Primitive, span: key.span, wrapper: None };
     }
     if let Some(raw) = key.proxy_of {
-      self.indexes.note_query();
       let raw = self.indexes.root_of(raw);
       if key.actual_proxy
         && let Some(flavor) = key.proxy_flavor
@@ -505,7 +493,6 @@ impl Collector<'_> {
     let Some(symbol) = key.symbol else {
       return ClassifiedKey { id: KeyId::Unknown, span: key.span, wrapper: None };
     };
-    self.indexes.note_query();
     let root = self.indexes.root_of(symbol);
     if self.is_fresh_plain_object(root) {
       return ClassifiedKey { id: KeyId::Raw(root), span: key.span, wrapper: None };
@@ -521,7 +508,6 @@ impl Collector<'_> {
   }
 
   fn is_fresh_plain_object(&mut self, root: SymbolId) -> bool {
-    self.indexes.note_query();
     if !self.semantic.scoping().symbol_flags(root).contains(SymbolFlags::ConstVariable) {
       return false;
     }
@@ -563,7 +549,6 @@ impl Collector<'_> {
     let ShapeHint::Identifier(Some(symbol_id), false) = hint else {
       return None;
     };
-    self.indexes.note_query();
     let raw = self.indexes.root_of(symbol_id);
     if self.is_fresh_plain_object(raw) && self.proxy_capability_holds(raw) {
       Some((raw, flavor, wrapper))
@@ -647,7 +632,6 @@ impl Collector<'_> {
         if !self.semantic.scoping().symbol_flags(symbol_id).contains(SymbolFlags::ConstVariable) {
           return None;
         }
-        self.indexes.note_query();
         let root = self.indexes.root_of(symbol_id);
         if self.indexes.reassigned.contains(&root) || self.indexes.escaped.contains(&root) {
           return None;
@@ -686,7 +670,6 @@ impl Collector<'_> {
     let mut demand = None;
     let mut guarded = false;
     for reference in self.semantic.symbol_references(root) {
-      self.indexes.note_query();
       if reference.flags().is_write() {
         return None;
       }

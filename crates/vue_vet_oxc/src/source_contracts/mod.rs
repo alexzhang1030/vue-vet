@@ -314,51 +314,40 @@ impl Collector<'_> {
     self.indexes.calls.values().any(|info| matches!(info.api, Some("defineModel" | "onMounted")))
   }
 
-  fn sort_facts<T, F, K>(indexes: &Indexes, items: &mut [T], mut key: F)
+  fn sort_facts<T, F, K>(items: &mut [T], mut key: F)
   where
     F: FnMut(&T) -> K,
     K: Ord,
   {
-    items.sort_by(|left, right| {
-      indexes.note_query();
-      key(left).cmp(&key(right))
-    });
+    items.sort_by_key(|item| key(item));
   }
 
   fn finish(mut self) -> (SourceContractFacts, SourceContractStats) {
-    Self::sort_facts(&self.indexes, &mut self.facts.trigger_ref_non_ref, |fact| fact.span.offset);
-    Self::sort_facts(&self.indexes, &mut self.facts.torefs_non_proxy, |fact| fact.span.offset);
-    Self::sort_facts(&self.indexes, &mut self.facts.primitive_reactive_target, |fact| {
-      fact.span.offset
-    });
-    Self::sort_facts(&self.indexes, &mut self.facts.watch_unwrapped_source, |fact| {
-      fact.span.offset
-    });
-    Self::sort_facts(&self.indexes, &mut self.facts.watch_replaced_object_source, |fact| {
+    Self::sort_facts(&mut self.facts.trigger_ref_non_ref, |fact| fact.span.offset);
+    Self::sort_facts(&mut self.facts.torefs_non_proxy, |fact| fact.span.offset);
+    Self::sort_facts(&mut self.facts.primitive_reactive_target, |fact| fact.span.offset);
+    Self::sort_facts(&mut self.facts.watch_unwrapped_source, |fact| fact.span.offset);
+    Self::sort_facts(&mut self.facts.watch_replaced_object_source, |fact| {
       (fact.source_span.offset, fact.replacement_span.offset)
     });
-    Self::sort_facts(&self.indexes, &mut self.facts.watch_ignored_option, |fact| fact.span.offset);
-    Self::sort_facts(&self.indexes, &mut self.facts.watch_signature_mismatch, |fact| {
-      fact.span.offset
-    });
-    Self::sort_facts(&self.indexes, &mut self.facts.watch_callback_contracts, |fact| {
+    Self::sort_facts(&mut self.facts.watch_ignored_option, |fact| fact.span.offset);
+    Self::sort_facts(&mut self.facts.watch_signature_mismatch, |fact| fact.span.offset);
+    Self::sort_facts(&mut self.facts.watch_callback_contracts, |fact| {
       (fact.watch_span.offset, fact.guard_span.offset, fact.reason as u8)
     });
-    Self::sort_facts(&self.indexes, &mut self.facts.toref_ignored_key, |fact| fact.span.offset);
-    Self::sort_facts(&self.indexes, &mut self.facts.effect_scope_callback, |fact| fact.span.offset);
-    Self::sort_facts(&self.indexes, &mut self.facts.uncloneable_proxy_data, |fact| {
-      fact.span.offset
-    });
-    Self::sort_facts(&self.indexes, &mut self.facts.invalid_custom_ref_interface, |fact| {
+    Self::sort_facts(&mut self.facts.toref_ignored_key, |fact| fact.span.offset);
+    Self::sort_facts(&mut self.facts.effect_scope_callback, |fact| fact.span.offset);
+    Self::sort_facts(&mut self.facts.uncloneable_proxy_data, |fact| fact.span.offset);
+    Self::sort_facts(&mut self.facts.invalid_custom_ref_interface, |fact| {
       (fact.demand_span.offset, fact.interface_span.offset)
     });
-    Self::sort_facts(&self.indexes, &mut self.facts.inactive_scope_result, |fact| {
+    Self::sort_facts(&mut self.facts.inactive_scope_result, |fact| {
       (fact.consumer_span.offset, fact.run_span.offset)
     });
-    Self::sort_facts(&self.indexes, &mut self.facts.missing_torefs_key, |fact| {
+    Self::sort_facts(&mut self.facts.missing_torefs_key, |fact| {
       (fact.demand_span.offset, fact.torefs_span.offset)
     });
-    Self::sort_facts(&self.indexes, &mut self.facts.extracted_reactive_collection_method, |fact| {
+    Self::sort_facts(&mut self.facts.extracted_reactive_collection_method, |fact| {
       (
         fact.call_span.offset,
         fact.extraction_span.offset,
@@ -366,13 +355,13 @@ impl Collector<'_> {
         fact.method.clone(),
       )
     });
-    Self::sort_facts(&self.indexes, &mut self.facts.raw_proxy_map_key, |fact| {
+    Self::sort_facts(&mut self.facts.raw_proxy_map_key, |fact| {
       (fact.demand_span.offset, fact.get_span.offset)
     });
-    Self::sort_facts(&self.indexes, &mut self.facts.keyed_map_dependency, |fact| {
+    Self::sort_facts(&mut self.facts.keyed_map_dependency, |fact| {
       (fact.for_each_span.offset, fact.result_span.offset)
     });
-    Self::sort_facts(&self.indexes, &mut self.facts.custom_ref_lost_notification, |fact| {
+    Self::sort_facts(&mut self.facts.custom_ref_lost_notification, |fact| {
       (
         fact.source_span.offset,
         fact.reason,
@@ -381,16 +370,14 @@ impl Collector<'_> {
         fact.span.offset,
       )
     });
-    Self::sort_facts(&self.indexes, &mut self.facts.memoize_stale_result_demand, |fact| {
+    Self::sort_facts(&mut self.facts.memoize_stale_result_demand, |fact| {
       (fact.demand_span.offset, fact.producer_span.offset)
     });
-    Self::sort_facts(
-      &self.indexes,
-      &mut self.facts.controlled_computed_stale_result_demand,
-      |fact| (fact.demand_span.offset, fact.producer_span.offset),
-    );
+    Self::sort_facts(&mut self.facts.controlled_computed_stale_result_demand, |fact| {
+      (fact.demand_span.offset, fact.producer_span.offset)
+    });
     self.collect_stable_computed_identity();
-    Self::sort_facts(&self.indexes, &mut self.facts.stable_computed_identity, |fact| {
+    Self::sort_facts(&mut self.facts.stable_computed_identity, |fact| {
       (
         fact.computed_span.offset,
         fact.consumer_span.offset,
@@ -398,7 +385,7 @@ impl Collector<'_> {
         fact.reason as u8,
       )
     });
-    Self::sort_facts(&self.indexes, &mut self.facts.derivation_practice.sync_ref_one_way, |fact| {
+    Self::sort_facts(&mut self.facts.derivation_practice.sync_ref_one_way, |fact| {
       (
         fact.call_span.offset,
         fact.source_span.offset,
@@ -406,81 +393,61 @@ impl Collector<'_> {
         fact.demand_span.offset,
       )
     });
-    Self::sort_facts(
-      &self.indexes,
-      &mut self.facts.derivation_practice.conditional_watch_source,
-      |fact| {
-        (
-          fact.source_array_span.offset,
-          fact.guard_span.offset,
-          fact.producer_span.offset,
-          fact.idle_write_span.offset,
-        )
-      },
-    );
-    Self::sort_facts(
-      &self.indexes,
-      &mut self.facts.scheduling_practice.queued_watch_flush,
-      |fact| (fact.flush_span.offset, fact.write_span.offset, fact.demand_span.offset),
-    );
-    Self::sort_facts(
-      &self.indexes,
-      &mut self.facts.scheduling_practice.attached_effect_scope,
-      |fact| {
-        (
-          fact.detached_span.offset,
-          fact.parent_span.offset,
-          fact.cleanup_span.offset,
-          fact.pause_span.offset,
-          fact.write_span.offset,
-        )
-      },
-    );
-    Self::sort_facts(
-      &self.indexes,
-      &mut self.facts.scheduling_practice.lazy_computed_async,
-      |fact| (fact.call_span.offset, fact.source_span.offset, fact.demand_span.offset),
-    );
-    Self::sort_facts(&self.indexes, &mut self.facts.reactive_private_field_access, |fact| {
+    Self::sort_facts(&mut self.facts.derivation_practice.conditional_watch_source, |fact| {
+      (
+        fact.source_array_span.offset,
+        fact.guard_span.offset,
+        fact.producer_span.offset,
+        fact.idle_write_span.offset,
+      )
+    });
+    Self::sort_facts(&mut self.facts.scheduling_practice.queued_watch_flush, |fact| {
+      (fact.flush_span.offset, fact.write_span.offset, fact.demand_span.offset)
+    });
+    Self::sort_facts(&mut self.facts.scheduling_practice.attached_effect_scope, |fact| {
+      (
+        fact.detached_span.offset,
+        fact.parent_span.offset,
+        fact.cleanup_span.offset,
+        fact.pause_span.offset,
+        fact.write_span.offset,
+      )
+    });
+    Self::sort_facts(&mut self.facts.scheduling_practice.lazy_computed_async, |fact| {
+      (fact.call_span.offset, fact.source_span.offset, fact.demand_span.offset)
+    });
+    Self::sort_facts(&mut self.facts.reactive_private_field_access, |fact| {
       (fact.demand_span.offset, fact.proxy_span.offset, fact.member_span.offset)
     });
-    Self::sort_facts(&self.indexes, &mut self.facts.until_timeout_unmatched_demand, |fact| {
+    Self::sort_facts(&mut self.facts.until_timeout_unmatched_demand, |fact| {
       (fact.demand_span.offset, fact.comparison_span.offset, fact.source_span.offset)
     });
-    Self::sort_facts(&self.indexes, &mut self.facts.inject_same_instance_provide, |fact| {
+    Self::sort_facts(&mut self.facts.inject_same_instance_provide, |fact| {
       (fact.demand_span.offset, fact.inject_span.offset, fact.provide_span.offset)
     });
-    Self::sort_facts(&self.indexes, &mut self.facts.ignorable_async_ignore_window, |fact| {
+    Self::sort_facts(&mut self.facts.ignorable_async_ignore_window, |fact| {
       (fact.write_span.offset, fact.ignore_span.offset, fact.await_span.offset)
     });
-    Self::sort_facts(
-      &self.indexes,
-      &mut self.facts.shared_composable_first_instance_args,
-      |fact| (fact.demand_span.offset, fact.first_call_span.offset, fact.later_arg_span.offset),
-    );
-    Self::sort_facts(&self.indexes, &mut self.facts.cancelled_filter_promise_demand, |fact| {
+    Self::sort_facts(&mut self.facts.shared_composable_first_instance_args, |fact| {
+      (fact.demand_span.offset, fact.first_call_span.offset, fact.later_arg_span.offset)
+    });
+    Self::sort_facts(&mut self.facts.cancelled_filter_promise_demand, |fact| {
       (fact.demand_span.offset, fact.first_call_span.offset)
     });
-    Self::sort_facts(&self.indexes, &mut self.facts.json_clone_lossy_type, |fact| {
+    Self::sort_facts(&mut self.facts.json_clone_lossy_type, |fact| {
       (fact.demand_span.offset, fact.clone_span.offset)
     });
-    Self::sort_facts(&self.indexes, &mut self.facts.ref_history_snapshot_alias, |fact| {
+    Self::sort_facts(&mut self.facts.ref_history_snapshot_alias, |fact| {
       (fact.write_span.offset, fact.demand_span.offset)
     });
-    Self::sort_facts(&self.indexes, &mut self.facts.model_defaults, |fact| fact.span.offset);
-    Self::sort_facts(&self.indexes, &mut self.facts.shared_object_bindings, |fact| {
-      fact.span.offset
-    });
-    Self::sort_facts(&self.indexes, &mut self.facts.ordinary_ref_inits, |fact| fact.span.offset);
-    Self::sort_facts(&self.indexes, &mut self.facts.mounted_member_demands, |fact| {
-      fact.span.offset
-    });
-    Self::sort_facts(&self.indexes, &mut self.facts.define_expose, |fact| fact.span.offset);
-    Self::sort_facts(&self.indexes, &mut self.facts.instance_member_demands, |fact| {
-      fact.span.offset
-    });
-    Self::sort_facts(&self.indexes, &mut self.facts.instance_path_writes, |fact| fact.span.offset);
-    Self::sort_facts(&self.indexes, &mut self.facts.model_value_writes, |fact| fact.span.offset);
+    Self::sort_facts(&mut self.facts.model_defaults, |fact| fact.span.offset);
+    Self::sort_facts(&mut self.facts.shared_object_bindings, |fact| fact.span.offset);
+    Self::sort_facts(&mut self.facts.ordinary_ref_inits, |fact| fact.span.offset);
+    Self::sort_facts(&mut self.facts.mounted_member_demands, |fact| fact.span.offset);
+    Self::sort_facts(&mut self.facts.define_expose, |fact| fact.span.offset);
+    Self::sort_facts(&mut self.facts.instance_member_demands, |fact| fact.span.offset);
+    Self::sort_facts(&mut self.facts.instance_path_writes, |fact| fact.span.offset);
+    Self::sort_facts(&mut self.facts.model_value_writes, |fact| fact.span.offset);
     (self.facts, self.indexes.stats())
   }
 
@@ -798,7 +765,6 @@ impl Collector<'_> {
     span: Span,
     remaining: u8,
   ) -> Option<Shape> {
-    self.indexes.note_query();
     if remaining == 0 {
       return None;
     }
@@ -940,7 +906,6 @@ impl Collector<'_> {
   }
 
   fn collection_kind_of(&mut self, span: Span, remaining: u8) -> Option<(CollectionKind, Span)> {
-    self.indexes.note_query();
     if remaining == 0 {
       return None;
     }

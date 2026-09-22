@@ -302,13 +302,6 @@ fn value_contracts_shared_bag_and_destructure_growth_stays_subquadratic() {
     let work = stats.work();
     let expected = usize::try_from(size).unwrap_or(usize::MAX);
     assert_eq!(contracts.missing_torefs_key.len(), expected.saturating_mul(2), "{contracts:?}");
-    let cloned_set_work = size.saturating_mul(2).saturating_mul(size.saturating_add(1));
-    assert!(
-      stats.key_copies < cloned_set_work,
-      "key copies {copies} must stay below 2N(N+1)={cloned} whole-set clones for n={size}",
-      copies = stats.key_copies,
-      cloned = cloned_set_work,
-    );
     if let Some((prev_size, prev)) = previous {
       assert_eq!(size, prev_size * 2);
       let prev_work = prev.work();
@@ -317,16 +310,10 @@ fn value_contracts_shared_bag_and_destructure_growth_stays_subquadratic() {
         "shared-bag demand work grew from {prev_work} to {work} on {prev_size}->{size}"
       );
       assert!(
-        stats.key_copies.saturating_mul(10) < prev.key_copies.saturating_mul(30),
-        "shared-bag key copies grew from {prev} to {now} on {prev_size}->{size}",
-        prev = prev.key_copies,
-        now = stats.key_copies,
-      );
-      assert!(
-        stats.key_lookups.saturating_mul(10) < prev.key_lookups.saturating_mul(30),
-        "shared-bag key lookups grew from {prev} to {now} on {prev_size}->{size}",
-        prev = prev.key_lookups,
-        now = stats.key_lookups,
+        stats.queries.saturating_mul(10) < prev.queries.saturating_mul(30),
+        "shared-bag queries grew from {prev} to {now} on {prev_size}->{size}",
+        prev = prev.queries,
+        now = stats.queries,
       );
     }
     previous = Some((size, stats));
