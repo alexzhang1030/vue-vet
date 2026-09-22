@@ -388,19 +388,16 @@ impl Collector<'_> {
       return false;
     }
     !matches!(
-      self.indexes.object_prop(options, key),
-      Some(ObjectProp::Value(span)) if matches!(self.indexes.scalar(span), Some(Scalar::Bool(_)))
+      self.indexes.option_value(options, key),
+      super::shape::OptionValue::Known(super::shape::Literal::Bool(_))
     )
   }
 
   fn bool_prop(&self, options: Span, key: &str) -> Option<bool> {
-    match self.indexes.object_prop(options, key) {
-      None => Some(false),
-      Some(ObjectProp::Value(span)) => match self.indexes.scalar(span) {
-        Some(Scalar::Bool(value)) => Some(value),
-        _ => None,
-      },
-      Some(ObjectProp::Unknown) => None,
+    match self.indexes.option_value(options, key) {
+      super::shape::OptionValue::Absent => Some(false),
+      super::shape::OptionValue::Known(super::shape::Literal::Bool(value)) => Some(value),
+      super::shape::OptionValue::Known(_) | super::shape::OptionValue::Unknown => None,
     }
   }
 

@@ -10,7 +10,7 @@ use oxc_syntax::operator::BinaryOperator;
 use vue_vet_core::{WatchCallbackContractFact, WatchCallbackContractReason};
 
 use super::index::CallInfo;
-use super::shape::{Shape, ShapeHint, is_ref_api, span_key};
+use super::shape::{Literal, OptionValue, Shape, ShapeHint, is_ref_api, span_key};
 use super::{Collector, MAX_DEPTH};
 
 #[derive(Clone, Copy)]
@@ -218,40 +218,18 @@ impl Collector<'_> {
     let Some(options_expr) = call.arguments.get(2).and_then(Argument::as_expression) else {
       return Some(WatchOptions { once: false, immediate: false });
     };
-    let Expression::ObjectExpression(object) = options_expr.get_inner_expression() else {
+    let options_expr = options_expr.get_inner_expression();
+    let Expression::ObjectExpression(_) = options_expr else {
       return None;
     };
-    let mut once = None;
-    let mut immediate = None;
-    for property in &object.properties {
-      self.indexes.note_query();
-      match property {
-        oxc_ast::ast::ObjectPropertyKind::SpreadProperty(_) => return None,
-        oxc_ast::ast::ObjectPropertyKind::ObjectProperty(prop) => {
-          if prop.kind != oxc_ast::ast::PropertyKind::Init || prop.method || prop.shorthand {
-            return None;
-          }
-          let name = prop.key.static_name()?;
-          if name == "once" || name == "immediate" {
-            let Expression::BooleanLiteral(literal) = prop.value.get_inner_expression() else {
-              return None;
-            };
-            if name == "once" {
-              if once.is_some() {
-                return None;
-              }
-              once = Some(literal.value);
-            } else {
-              if immediate.is_some() {
-                return None;
-              }
-              immediate = Some(literal.value);
-            }
-          }
-        }
-      }
+    let span = options_expr.span();
+    if self.indexes.object_has_spread(span) {
+      return None;
     }
-    Some(WatchOptions { once: once.unwrap_or(false), immediate: immediate.unwrap_or(false) })
+    Some(WatchOptions {
+      once: bool_option(self.indexes.option_value(span, "once"))?,
+      immediate: bool_option(self.indexes.option_value(span, "immediate"))?,
+    })
   }
 
   fn callback_guard_pattern(&self, callback: &Callback<'_>) -> Option<GuardPattern> {
@@ -303,6 +281,14 @@ impl Collector<'_> {
       LaterWork::Consumes => Some(GuardPattern { kind, guard_span: if_stmt.span }),
       LaterWork::Absent | LaterWork::Uncertain => None,
     }
+  }
+}
+
+const fn bool_option(value: OptionValue<Literal>) -> Option<bool> {
+  match value {
+    OptionValue::Absent => Some(false),
+    OptionValue::Known(Literal::Bool(value)) => Some(value),
+    OptionValue::Known(_) | OptionValue::Unknown => None,
   }
 }
 

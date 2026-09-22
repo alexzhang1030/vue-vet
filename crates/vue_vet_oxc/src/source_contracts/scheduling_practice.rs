@@ -335,45 +335,49 @@ impl Collector<'_> {
 
   fn sync_flush_options(&self, call: &CallExpression<'_>) -> Option<(Span, Option<bool>)> {
     let options = nth_expr(call, 2)?;
-    let Expression::ObjectExpression(object) = options.get_inner_expression() else {
+    let options = options.get_inner_expression();
+    let Expression::ObjectExpression(_) = options else {
       return None;
     };
-    let mut flush = None;
-    let mut immediate = None;
-    for property in &object.properties {
-      self.indexes.note_query();
-      match property {
-        ObjectPropertyKind::SpreadProperty(_) => return None,
-        ObjectPropertyKind::ObjectProperty(prop) => {
-          if prop.kind != PropertyKind::Init || prop.method || prop.shorthand || prop.computed {
-            return None;
-          }
-          let name = prop.key.static_name()?;
-          match name.as_ref() {
-            "flush" => {
-              if flush.is_some() {
-                return None;
-              }
-              let Expression::StringLiteral(literal) = prop.value.get_inner_expression() else {
-                return None;
-              };
-              if literal.value.as_str() != "sync" {
-                return None;
-              }
-              flush = Some(prop.value.span());
-            }
-            "immediate" => {
-              if immediate.is_some() {
-                return None;
-              }
-              immediate = bool_literal(&prop.value).map(Some)?;
-            }
-            _ => return None,
-          }
-        }
-      }
+    let span = options.span();
+    if self.indexes.object_has_spread(span) || !self.scheduling_option_keys_closed(span) {
+      return None;
     }
-    Some((flush?, immediate))
+    let flush = match self.indexes.option_value(span, "flush") {
+      super::shape::OptionValue::Known(super::shape::Literal::String) => {
+        let super::index::ObjectProp::Value(value) = self.indexes.object_prop(span, "flush")?
+        else {
+          return None;
+        };
+        if self.indexes.scalar(value) != Some(super::shape::Scalar::Str(super::shape::SYNC_FLUSH)) {
+          return None;
+        }
+        value
+      }
+      _ => return None,
+    };
+    let immediate = match self.indexes.option_value(span, "immediate") {
+      super::shape::OptionValue::Absent => None,
+      super::shape::OptionValue::Known(super::shape::Literal::Bool(value)) => Some(value),
+      super::shape::OptionValue::Known(_) | super::shape::OptionValue::Unknown => return None,
+    };
+    Some((flush, immediate))
+  }
+
+  fn scheduling_option_keys_closed(&self, span: Span) -> bool {
+    let Some(entries) = self.indexes.objects.get(&super::shape::span_key(span)) else {
+      self.indexes.note_query();
+      return false;
+    };
+    entries.iter().all(|entry| {
+      self.indexes.note_query();
+      match entry {
+        super::index::ObjectEntry::Data { name, .. } => {
+          matches!(name.as_str(), "flush" | "immediate")
+        }
+        _ => false,
+      }
+    })
   }
 
   fn scheduling_ordinary_primitive_ref(&mut self, root: SymbolId) -> Option<OrdinaryRef> {

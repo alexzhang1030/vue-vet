@@ -38,8 +38,8 @@ use super::proof::{
   classify_role, enclosing_call, is_custom_prototype_key, is_ts_wrapper, skip_ts_parent,
 };
 use super::shape::{
-  CollectionCtor, HintClass, Literal, PrimitiveAtom as ShapePrimitiveAtom, Scalar, ShapeHint,
-  VueImport, VueUseImport, hint_of, intern_extractable_method, intern_native_ctor,
+  CollectionCtor, HintClass, Literal, OptionValue, PrimitiveAtom as ShapePrimitiveAtom, Scalar,
+  ShapeHint, VueImport, VueUseImport, hint_of, intern_extractable_method, intern_native_ctor,
   is_actual_proxy_runtime_source, is_fresh_allocation, is_known_receiver_method,
   is_proxy_allocating_api, is_unresolved_date, literal_of, primitive_atom, resolve_vue_api,
   resolve_vueuse_api, scalar_of, span_key, unresolved_collection_kind,
@@ -1944,6 +1944,21 @@ impl Indexes {
   pub(super) fn object_prop(&self, object_span: Span, property: &str) -> Option<ObjectProp> {
     self.work.add_queries(1);
     self.object_props.get(&span_key(object_span)).and_then(|props| props.get(property)).copied()
+  }
+
+  /// Shared options read. `undefined` is absent, so only a missing key or an
+  /// explicit `undefined` takes the caller's default. Anything else that is
+  /// not a literal is unknown.
+  pub(super) fn option_value(&self, object: Span, key: &str) -> OptionValue<Literal> {
+    match self.object_prop(object, key) {
+      None => OptionValue::Absent,
+      Some(ObjectProp::Unknown) => OptionValue::Unknown,
+      Some(ObjectProp::Value(span)) => match self.literal_at(span) {
+        Some(Literal::Undefined) => OptionValue::Absent,
+        Some(literal) => OptionValue::Known(literal),
+        None => OptionValue::Unknown,
+      },
+    }
   }
 
   pub(super) fn extracted_method(&self, symbol_id: SymbolId) -> Option<ExtractedMethod> {
