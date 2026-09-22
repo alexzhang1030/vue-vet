@@ -26,6 +26,15 @@ use super::{
   writes::function_body_of,
 };
 
+/// Borrowed inputs shared by the scope read, write, and uncertain collectors.
+#[derive(Clone, Copy)]
+pub(super) struct ScopeCtx<'a> {
+  pub semantic: &'a Semantic<'a>,
+  pub reactive_bindings: &'a [ReactiveBindingFact],
+  pub composable_instances: &'a ComposableShapeMap,
+  pub script_offset: usize,
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct RawReactiveRead {
   node_id: NodeId,
@@ -63,57 +72,40 @@ pub(super) struct RawGuard {
   role: ReactiveGuardRole,
 }
 
-#[expect(
-  clippy::too_many_arguments,
-  reason = "file trace index is one extra arg on the collector surface"
-)]
 pub(super) fn collect_scope_reads(
-  semantic: &oxc_semantic::Semantic<'_>,
+  ctx: &ScopeCtx<'_>,
   scope_id: NodeId,
-  reactive_bindings: &[ReactiveBindingFact],
-  composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
   ambient_call_handles: &AmbientCallHandles,
-  script_offset: usize,
   index: &FileTraceIndex,
 ) -> Vec<RawReactiveRead> {
   let mut visiting = BTreeSet::new();
   visiting.insert(scope_id);
   collect_scope_reads_bounded(
-    semantic,
+    ctx,
     scope_id,
-    reactive_bindings,
-    composable_instances,
     imported_bindings,
     ambient_call_handles,
-    script_offset,
     0,
     &mut visiting,
     index,
   )
 }
 
-#[expect(clippy::too_many_arguments, reason = "bounded collector threads scope + visit state")]
 pub(super) fn collect_scope_reads_bounded(
-  semantic: &oxc_semantic::Semantic<'_>,
+  ctx: &ScopeCtx<'_>,
   scope_id: NodeId,
-  reactive_bindings: &[ReactiveBindingFact],
-  composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
   ambient_call_handles: &AmbientCallHandles,
-  script_offset: usize,
   depth: u32,
   visiting: &mut BTreeSet<NodeId>,
   index: &FileTraceIndex,
 ) -> Vec<RawReactiveRead> {
   let mut reads = collect_scope_reads_local(
-    semantic,
+    ctx,
     scope_id,
-    reactive_bindings,
-    composable_instances,
     imported_bindings,
     ambient_call_handles,
-    script_offset,
     index.nodes(),
   );
 
@@ -127,13 +119,10 @@ pub(super) fn collect_scope_reads_bounded(
     FollowOutside::Mark,
     |callee_id, call_outside, next_depth, call_sites, visiting| {
       let mut nested = collect_scope_reads_bounded(
-        semantic,
+        ctx,
         callee_id,
-        reactive_bindings,
-        composable_instances,
         imported_bindings,
         ambient_call_handles,
-        script_offset,
         next_depth,
         visiting,
         index,
@@ -152,17 +141,14 @@ pub(super) fn collect_scope_reads_bounded(
   reads
 }
 
-#[expect(clippy::too_many_arguments, reason = "local reads look up the file node index by kind")]
 pub(super) fn collect_scope_reads_local(
-  semantic: &oxc_semantic::Semantic<'_>,
+  ctx: &ScopeCtx<'_>,
   scope_id: NodeId,
-  reactive_bindings: &[ReactiveBindingFact],
-  composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
   ambient_call_handles: &AmbientCallHandles,
-  script_offset: usize,
   nodes: &ScopeNodeIndex,
 ) -> Vec<RawReactiveRead> {
+  let ScopeCtx { semantic, reactive_bindings, composable_instances, script_offset } = *ctx;
   let mut reads = Vec::new();
   for owned in nodes.members(scope_id) {
     if let Some(read) = local_member_read(

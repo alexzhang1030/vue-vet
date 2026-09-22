@@ -16,7 +16,7 @@ use super::{
   bindings::AmbientCallHandles,
   follow::FileTraceIndex,
   kinds::{resolved_vue_callee, source_span},
-  reads::{ScopeIrIndex, classify_scope_reads, collect_scope_reads},
+  reads::{ScopeCtx, ScopeIrIndex, classify_scope_reads, collect_scope_reads},
   render,
   uncertain::{
     collect_uncertain_scope_accesses, collect_uncertain_watch_sources, collect_watch_source_gaps,
@@ -72,14 +72,17 @@ pub(super) struct ScopeBuild<'a> {
 }
 
 pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
+  let ctx = ScopeCtx {
+    semantic: build.semantic,
+    reactive_bindings: build.reactive_bindings,
+    composable_instances: build.composable_instances,
+    script_offset: build.script_offset,
+  };
   let raw_reads = collect_scope_reads(
-    build.semantic,
+    &ctx,
     build.scope_id,
-    build.reactive_bindings,
-    build.composable_instances,
     build.imported_bindings,
     build.ambient_call_handles,
-    build.script_offset,
     build.index,
   );
   let mut reads = classify_scope_reads(
@@ -98,22 +101,11 @@ pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
       read.guarded_by = None;
     }
   }
-  let writes = collect_scope_writes(
-    build.semantic,
-    build.scope_id,
-    build.reactive_bindings,
-    build.composable_instances,
-    build.sfc_source,
-    build.script_offset,
-    build.index,
-  );
+  let writes = collect_scope_writes(&ctx, build.scope_id, build.sfc_source, build.index);
   let uncertain_accesses = collect_uncertain_scope_accesses(
-    build.semantic,
+    &ctx,
     build.scope_id,
-    build.reactive_bindings,
-    build.composable_instances,
     build.imported_bindings,
-    build.script_offset,
     build.index,
   );
   let mut assignment_visiting = BTreeSet::new();

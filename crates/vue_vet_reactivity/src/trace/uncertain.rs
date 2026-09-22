@@ -19,7 +19,9 @@ use super::{
     AnalysisGaps, FileTraceIndex, FollowOutside, collect_analysis_gaps, follow_local_callees,
   },
   kinds::{reference_resolves_to_binding, resolved_vue_callee, source_span},
-  reads::{ScopeIrIndex, classify_scope_reads, collect_scope_reads, member_is_classified_read},
+  reads::{
+    ScopeCtx, ScopeIrIndex, classify_scope_reads, collect_scope_reads, member_is_classified_read,
+  },
   writes::local_getter_parts,
 };
 
@@ -29,50 +31,31 @@ use super::{
 /// Shares [`follow_local_callees`] with hard reads so `computed(() => load())`
 /// cannot disagree with an inlined getter.
 pub(super) fn collect_uncertain_scope_accesses(
-  semantic: &oxc_semantic::Semantic<'_>,
+  ctx: &ScopeCtx<'_>,
   scope_id: NodeId,
-  reactive_bindings: &[ReactiveBindingFact],
-  composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
-  script_offset: usize,
   index: &FileTraceIndex,
 ) -> Vec<String> {
   let mut visiting = BTreeSet::new();
   visiting.insert(scope_id);
-  collect_uncertain_scope_accesses_bounded(
-    semantic,
-    scope_id,
-    reactive_bindings,
-    composable_instances,
-    imported_bindings,
-    script_offset,
-    0,
-    &mut visiting,
-    index,
-  )
-  .into_iter()
-  .collect()
+  collect_uncertain_scope_accesses_bounded(ctx, scope_id, imported_bindings, 0, &mut visiting, index)
+    .into_iter()
+    .collect()
 }
 
-#[expect(clippy::too_many_arguments, reason = "bounded collector threads scope + visit state")]
 pub(super) fn collect_uncertain_scope_accesses_bounded(
-  semantic: &oxc_semantic::Semantic<'_>,
+  ctx: &ScopeCtx<'_>,
   scope_id: NodeId,
-  reactive_bindings: &[ReactiveBindingFact],
-  composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
-  script_offset: usize,
   depth: u32,
   visiting: &mut BTreeSet<NodeId>,
   index: &FileTraceIndex,
 ) -> BTreeSet<String> {
+  let ScopeCtx { semantic, reactive_bindings, composable_instances, script_offset } = *ctx;
   let mut names = collect_uncertain_scope_accesses_local(
-    semantic,
+    ctx,
     scope_id,
-    reactive_bindings,
-    composable_instances,
     imported_bindings,
-    script_offset,
     index.nodes(),
   );
   collect_unclassified_watch_members_local(
@@ -92,12 +75,9 @@ pub(super) fn collect_uncertain_scope_accesses_bounded(
     FollowOutside::Skip,
     |callee_id, _, next_depth, _, visiting| {
       names.extend(collect_uncertain_scope_accesses_bounded(
-        semantic,
+        ctx,
         callee_id,
-        reactive_bindings,
-        composable_instances,
         imported_bindings,
-        script_offset,
         next_depth,
         visiting,
         index,
@@ -108,14 +88,12 @@ pub(super) fn collect_uncertain_scope_accesses_bounded(
 }
 
 pub(super) fn collect_uncertain_scope_accesses_local(
-  semantic: &oxc_semantic::Semantic<'_>,
+  ctx: &ScopeCtx<'_>,
   scope_id: NodeId,
-  reactive_bindings: &[ReactiveBindingFact],
-  composable_instances: &ComposableShapeMap,
   imported_bindings: &BTreeMap<String, (String, String)>,
-  script_offset: usize,
   nodes: &ScopeNodeIndex,
 ) -> BTreeSet<String> {
+  let ScopeCtx { semantic, reactive_bindings, composable_instances, script_offset } = *ctx;
   let mut names = BTreeSet::new();
   for owned in nodes.members(scope_id).iter().chain(nodes.calls(scope_id)) {
     let Some((name, _)) = uncertain_access_at(
@@ -216,12 +194,9 @@ fn collect_uncertain_watch_getter(
   names: &mut BTreeSet<String>,
 ) {
   names.extend(collect_uncertain_scope_accesses(
-    semantic,
+    &ScopeCtx { semantic, reactive_bindings, composable_instances, script_offset },
     scope_id,
-    reactive_bindings,
-    composable_instances,
     imported_bindings,
-    script_offset,
     index,
   ));
   collect_unclassified_watch_getter_members(
@@ -738,13 +713,15 @@ pub(super) fn collect_watch_getter_reads(
   body: Option<&FunctionBody<'_>>,
 ) -> Vec<ReactiveReadFact> {
   let raw_reads = collect_scope_reads(
-    ctx.semantic,
+    &ScopeCtx {
+      semantic: ctx.semantic,
+      reactive_bindings: ctx.reactive_bindings,
+      composable_instances: ctx.composable_instances,
+      script_offset: ctx.script_offset,
+    },
     scope_id,
-    ctx.reactive_bindings,
-    ctx.composable_instances,
     ctx.imported_bindings,
     ctx.ambient_call_handles,
-    ctx.script_offset,
     ctx.index,
   );
   classify_scope_reads(

@@ -13,11 +13,11 @@ use oxc_ast::{
 };
 use oxc_semantic::NodeId;
 use oxc_span::Span;
-use vue_vet_core::{ReactiveBindingFact, ReactiveWriteFact};
+use vue_vet_core::ReactiveWriteFact;
 
 use super::{
-  ComposableShapeMap,
   context::ScopeNodeIndex,
+  reads::ScopeCtx,
   expr,
   follow::{
     FileTraceIndex, FollowOutside, MAX_LOCAL_CALLEE_FOLLOW_DEPTH, follow_local_callees,
@@ -200,52 +200,27 @@ pub(super) fn statement_is_assignment_or_followed_helper(
 }
 
 pub(super) fn collect_scope_writes(
-  semantic: &oxc_semantic::Semantic<'_>,
+  ctx: &ScopeCtx<'_>,
   scope_id: NodeId,
-  reactive_bindings: &[ReactiveBindingFact],
-  composable_instances: &ComposableShapeMap,
   sfc_source: &str,
-  script_offset: usize,
   index: &FileTraceIndex,
 ) -> Vec<ReactiveWriteFact> {
   let mut visiting = BTreeSet::new();
   visiting.insert(scope_id);
-  let mut writes = collect_scope_writes_bounded(
-    semantic,
-    scope_id,
-    reactive_bindings,
-    composable_instances,
-    sfc_source,
-    script_offset,
-    0,
-    &mut visiting,
-    index,
-  );
+  let mut writes = collect_scope_writes_bounded(ctx, scope_id, sfc_source, 0, &mut visiting, index);
   writes.sort_by_key(|write| write.span.offset);
   writes
 }
 
-#[expect(clippy::too_many_arguments, reason = "bounded collector threads scope + visit state")]
 pub(super) fn collect_scope_writes_bounded(
-  semantic: &oxc_semantic::Semantic<'_>,
+  ctx: &ScopeCtx<'_>,
   scope_id: NodeId,
-  reactive_bindings: &[ReactiveBindingFact],
-  composable_instances: &ComposableShapeMap,
   sfc_source: &str,
-  script_offset: usize,
   depth: u32,
   visiting: &mut BTreeSet<NodeId>,
   index: &FileTraceIndex,
 ) -> Vec<ReactiveWriteFact> {
-  let mut writes = collect_scope_writes_local(
-    semantic,
-    scope_id,
-    reactive_bindings,
-    composable_instances,
-    sfc_source,
-    script_offset,
-    index.nodes(),
-  );
+  let mut writes = collect_scope_writes_local(ctx, scope_id, sfc_source, index.nodes());
   follow_local_callees(
     index.callees(),
     scope_id,
@@ -254,15 +229,7 @@ pub(super) fn collect_scope_writes_bounded(
     FollowOutside::Skip,
     |callee_id, _, next_depth, _, visiting| {
       writes.extend(collect_scope_writes_bounded(
-        semantic,
-        callee_id,
-        reactive_bindings,
-        composable_instances,
-        sfc_source,
-        script_offset,
-        next_depth,
-        visiting,
-        index,
+        ctx, callee_id, sfc_source, next_depth, visiting, index,
       ));
     },
   );
@@ -270,14 +237,12 @@ pub(super) fn collect_scope_writes_bounded(
 }
 
 pub(super) fn collect_scope_writes_local(
-  semantic: &oxc_semantic::Semantic<'_>,
+  ctx: &ScopeCtx<'_>,
   scope_id: NodeId,
-  reactive_bindings: &[ReactiveBindingFact],
-  composable_instances: &ComposableShapeMap,
   sfc_source: &str,
-  script_offset: usize,
   nodes: &ScopeNodeIndex,
 ) -> Vec<ReactiveWriteFact> {
+  let ScopeCtx { semantic, reactive_bindings, composable_instances, script_offset } = *ctx;
   let mut writes = Vec::new();
   for &node_id in nodes.writes(scope_id) {
     for (lhs, write_span) in write_targets_from_node(semantic.nodes().kind(node_id)) {
