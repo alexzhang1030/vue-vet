@@ -788,9 +788,10 @@ impl Collector<'_> {
       return None;
     }
     let span = options_expr.span();
-    let once = identity_bool(self.indexes.option_value(span, "once"))?;
-    let deep = identity_bool(self.indexes.option_value(span, "deep"))?;
-    match self.indexes.option_value(span, "immediate") {
+    let closed = self.indexes.closed_options(span, false, true, true, true);
+    let once = identity_bool(closed.once)?;
+    let deep = identity_bool(closed.deep)?;
+    match closed.immediate {
       OptionValue::Absent | OptionValue::Known(Literal::Bool(_)) => {}
       OptionValue::Known(_) | OptionValue::Unknown => return None,
     }

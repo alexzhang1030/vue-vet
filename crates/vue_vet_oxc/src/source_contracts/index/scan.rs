@@ -3,36 +3,36 @@
 use super::{
   ArgUse, Argument, AssignmentOperator, AssignmentTarget, AssignmentTargetMaybeDefault,
   AssignmentTargetProperty, AstKind, AwaitClosedSource, AwaitEscapeSite, AwaitPositionSite,
-  AwaitSite, BindingPattern, CallExpression, CallInfo, CallUse, DemandRole, DirectMemberWrite,
-  DisposeSite, EffectCallback, Expression, ExtractedMethod, FormalParameters, FunctionInfo,
-  GetSpan, HashMap, HashSet, IdentCall, IdentifierReference, Indexes, InjectionSite,
-  MAX_ALIAS_DEPTH, MAX_ESCAPE_DEPTH, MAX_ROLE_ANCESTORS, MemberCall, MemberInfo, MemberUse,
-  MemberWrite, NamedUse, NativeSymbol, NestedWrite, NodeId, ObjectEntry, ObjectPropertyKind,
-  PathCall, PathRead, PathWrite, PrimitiveAtom, ReferenceFlags, ResultDemand, ScriptKind,
-  ShapePrimitiveAtom, SimpleAssignmentTarget, Site, Span, StaticMemberExpression, StmtSite,
-  SymbolFlags, SymbolId, TOREF_CAPABILITY_KEY, UnaryOperator, ValueDemand, ValueRead, ValueWrite,
-  VariableDeclarator, WatchConsumer, WriteLiteral, analyze_class, array_is_controlled_source,
-  array_is_map_entry, array_is_map_iterable, assigned_const_symbol,
-  assignment_poisons_clone_intrinsic, assignment_poisons_map_intrinsic, atom_of_expression,
-  block_is_straight_line, boolean_literal, callee_has_actual_proxy_origin, callee_is_pause,
-  callee_span_matches, capability_mutating_callee, chain_optional, class_binding_symbol,
-  class_new_info, classify_reach, classify_reach_except_chain, classify_role,
-  closed_key_use_is_known, computed_literal_key, enclosing_call,
-  expression_poisons_clone_intrinsic, expression_poisons_map_intrinsic, expression_static_key,
-  function_node, hint_of, intern_extractable_method, intern_native_ctor, intern_scope_method,
-  intern_unresolved_global_name, is_capability_key, is_custom_prototype_key, is_fresh_allocation,
-  is_known_constructor_or_watch, is_known_receiver_method, is_native_structured_clone,
-  is_object_define_property, is_proxy_allocating_api, is_retained_vueuse_source_arg, is_ts_wrapper,
-  is_unresolved_date, known_class_ctor_role, known_const_alias_role, known_injection_key_role,
-  known_map_constructor_key_role, known_static_member_object_role, literal_nullish, literal_of,
-  literal_truthy, mapped, member_call_object_key, member_is_write_context, nth_call_expr,
-  object_entries, object_has_skip_marker, parse_watch_options, peel_member_chain,
-  peel_static_chain, poisons_date_tojson, poisons_json, poisons_native_date,
-  poisons_string_capability, primitive_atom, prototype_receiver_is_native_ctor, reference_symbol,
-  region_of, resolve_vue_api, resolve_vueuse_api, scalar_of, simple_binding_symbol,
-  simple_target_poisons_clone_intrinsic, simple_target_poisons_map_intrinsic, skip_ts_parent,
-  span_key, static_string_key, stopped_child_symbol, summarize_object_props,
-  unresolved_collection_kind, vue_wrapper_skips_capability, watch_option_flags, write_literal,
+  BindingPattern, CallExpression, CallInfo, CallUse, DemandRole, DirectMemberWrite, DisposeSite,
+  EffectCallback, Expression, ExtractedMethod, FormalParameters, FunctionInfo, GetSpan, HashMap,
+  HashSet, IdentCall, IdentifierReference, Indexes, InjectionSite, MAX_ALIAS_DEPTH,
+  MAX_ESCAPE_DEPTH, MAX_ROLE_ANCESTORS, MemberCall, MemberInfo, MemberUse, MemberWrite, NamedUse,
+  NativeSymbol, NestedWrite, NodeId, ObjectEntry, ObjectPropertyKind, PathCall, PathRead,
+  PathWrite, PrimitiveAtom, ReferenceFlags, ResultDemand, ScriptKind, ShapePrimitiveAtom,
+  SimpleAssignmentTarget, Site, Span, StaticMemberExpression, StmtSite, SymbolFlags, SymbolId,
+  TOREF_CAPABILITY_KEY, UnaryOperator, ValueDemand, ValueRead, ValueWrite, VariableDeclarator,
+  WatchConsumer, WriteLiteral, analyze_class, array_is_controlled_source, array_is_map_entry,
+  array_is_map_iterable, assigned_const_symbol, assignment_poisons_clone_intrinsic,
+  assignment_poisons_map_intrinsic, atom_of_expression, block_is_straight_line, boolean_literal,
+  callee_has_actual_proxy_origin, callee_is_pause, callee_span_matches, capability_mutating_callee,
+  chain_optional, class_binding_symbol, class_new_info, classify_reach,
+  classify_reach_except_chain, classify_role, closed_key_use_is_known, computed_literal_key,
+  enclosing_call, expression_poisons_clone_intrinsic, expression_poisons_map_intrinsic,
+  expression_static_key, function_node, hint_of, intern_extractable_method, intern_native_ctor,
+  intern_scope_method, intern_unresolved_global_name, is_capability_key, is_custom_prototype_key,
+  is_fresh_allocation, is_known_constructor_or_watch, is_known_receiver_method,
+  is_native_structured_clone, is_object_define_property, is_proxy_allocating_api,
+  is_retained_vueuse_source_arg, is_ts_wrapper, is_unresolved_date, known_class_ctor_role,
+  known_const_alias_role, known_injection_key_role, known_map_constructor_key_role,
+  known_static_member_object_role, literal_nullish, literal_of, literal_truthy, mapped,
+  member_call_object_key, member_is_write_context, nth_call_expr, object_entries,
+  object_has_skip_marker, parse_watch_options, peel_member_chain, peel_static_chain,
+  poisons_date_tojson, poisons_json, poisons_native_date, poisons_string_capability,
+  primitive_atom, prototype_receiver_is_native_ctor, reference_symbol, region_of, resolve_vue_api,
+  resolve_vueuse_api, scalar_of, simple_binding_symbol, simple_target_poisons_clone_intrinsic,
+  simple_target_poisons_map_intrinsic, skip_ts_parent, span_key, static_string_key,
+  stopped_child_symbol, summarize_object_props, unresolved_collection_kind,
+  vue_wrapper_skips_capability, watch_option_flags, write_literal,
 };
 
 impl Indexes {
@@ -162,7 +162,7 @@ impl Indexes {
           self.poison_expr(semantic, &assignment.right);
           self.taint_assignment_target(semantic, &assignment.left);
           if assignment_poisons_map_intrinsic(semantic, &assignment.left, &self.work) {
-            self.map_intrinsic_poisoned = true;
+            self.native_index.map_intrinsic_poisoned = true;
           }
           let offset = mapped(line_index, sfc_source, script_offset, assignment.span).offset;
           self.index_assignment(
@@ -197,10 +197,10 @@ impl Indexes {
         AstKind::UpdateExpression(update) => {
           self.poison_simple_target(semantic, &update.argument);
           if simple_target_poisons_map_intrinsic(semantic, &update.argument, &self.work) {
-            self.map_intrinsic_poisoned = true;
+            self.native_index.map_intrinsic_poisoned = true;
           }
           if simple_target_poisons_clone_intrinsic(semantic, &update.argument, &self.work) {
-            self.clone_intrinsic_poisoned = true;
+            self.native_index.clone_intrinsic_poisoned = true;
           }
           match &update.argument {
             SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) => {
@@ -240,7 +240,7 @@ impl Indexes {
           self.poison_member_expression(semantic, &unary.argument);
           self.note_delete(semantic, &unary.argument);
           if expression_poisons_map_intrinsic(semantic, &unary.argument, &self.work) {
-            self.map_intrinsic_poisoned = true;
+            self.native_index.map_intrinsic_poisoned = true;
           }
         }
         AstKind::Function(function) => {
@@ -359,10 +359,10 @@ impl Indexes {
           if let Some(ctor) = unresolved_collection_kind(&expression.callee, |ident| {
             reference_symbol(semantic, ident)
           }) {
-            self.collections.insert(span_key(expression.span), ctor);
+            self.native_index.collections.insert(span_key(expression.span), ctor);
           }
           if is_unresolved_date(&expression.callee, |ident| reference_symbol(semantic, ident)) {
-            self.dates.insert(span_key(expression.span));
+            self.native_index.dates.insert(span_key(expression.span));
           }
           self.record_class_new(semantic, expression);
         }
@@ -600,7 +600,7 @@ impl Indexes {
               self.taint_all_native_ctors();
             }
             if let Some(ctor) = self.native_ctor_kind(root) {
-              self.tainted_ctors.insert(ctor);
+              self.native_index.tainted_ctors.insert(ctor);
             }
           }
         }
@@ -642,7 +642,7 @@ impl Indexes {
         if known_injection_key_role(semantic, reference.node_id(), &self.calls, &self.work) {
           continue;
         }
-        if known_class_ctor_role(semantic, reference.node_id(), &self.classes, root) {
+        if known_class_ctor_role(semantic, reference.node_id(), &self.class_index.records, root) {
           continue;
         }
         if known_map_constructor_key_role(semantic, reference.node_id(), &self.work) {
@@ -1072,22 +1072,13 @@ impl Indexes {
       _ => None,
     };
     let owner = self.owner(node_id);
-    self.work.add_writes(1);
-    let site = AwaitSite {
-      offset: mapped(line_index, sfc_source, script_offset, span).offset,
-      callee_api,
-      callable: owner.callable,
-      block: owner.block.unwrap_or(node_id),
-    };
-    self.awaits.push(site);
-    self.work.add_writes(1);
-    self.awaits_by_callable.entry(owner.callable).or_default().push(site);
     let await_span = mapped(line_index, sfc_source, script_offset, span);
     let argument = argument.get_inner_expression();
     let bound =
       argument.get_identifier_reference().and_then(|ident| reference_symbol(semantic, ident));
     let region = region_of(owner, node_id);
-    self.await_index.awaits.push(AwaitPositionSite {
+    self.work.add_writes(1);
+    let site = AwaitPositionSite {
       head: Site {
         offset: await_span.offset,
         span,
@@ -1098,7 +1089,12 @@ impl Indexes {
       end: await_span.offset.saturating_add(await_span.length),
       argument: argument.span(),
       bound,
-    });
+      callee_api,
+      block: owner.block.unwrap_or(node_id),
+    };
+    self.work.add_writes(1);
+    self.awaits_by_callable.entry(owner.callable).or_default().push(site);
+    self.await_index.awaits.push(site);
   }
 
   pub(super) fn finish_practice_indexes(
@@ -1273,13 +1269,13 @@ impl Indexes {
       },
     );
     if is_object_define_property(&call.callee) {
-      self.prototype_mutated = true;
+      self.class_index.prototype_mutated = true;
     }
   }
 
   fn note_delete(&mut self, semantic: &oxc_semantic::Semantic<'_>, argument: &Expression<'_>) {
     if expression_poisons_clone_intrinsic(semantic, argument, &self.work) {
-      self.clone_intrinsic_poisoned = true;
+      self.native_index.clone_intrinsic_poisoned = true;
     }
     self.mark_delete_target(semantic, argument);
   }
@@ -1440,7 +1436,7 @@ impl Indexes {
     if api.is_some_and(|name| {
       matches!(name, "watch" | "watchEffect" | "watchPostEffect" | "watchSyncEffect" | "effect")
     }) {
-      self.watch_options.insert(span_key(call.span), parse_watch_options(call, api));
+      self.options.watch_options.insert(span_key(call.span), parse_watch_options(call, api));
     }
     if let Some(identifier) = call.callee.get_inner_expression().get_identifier_reference()
       && let Some(symbol_id) = reference_symbol(semantic, identifier)
@@ -1580,7 +1576,7 @@ impl Indexes {
     right: &Expression<'_>,
   ) {
     if assignment_poisons_clone_intrinsic(semantic, left, &self.work) {
-      self.clone_intrinsic_poisoned = true;
+      self.native_index.clone_intrinsic_poisoned = true;
     }
     self.note_native_prototype_assignment(semantic, left);
     let simple = operator == AssignmentOperator::Assign;
@@ -1696,28 +1692,28 @@ impl Indexes {
     let callable = owner.callable;
     match left {
       AssignmentTarget::AssignmentTargetIdentifier(identifier) => match identifier.name.as_str() {
-        "Date" => self.date_poisoned = true,
-        "JSON" => self.json_poisoned = true,
-        "String" => self.string_capability_poisoned = true,
+        "Date" => self.native_index.date_poisoned = true,
+        "JSON" => self.native_index.json_poisoned = true,
+        "String" => self.native_index.string_capability_poisoned = true,
         _ => {}
       },
       AssignmentTarget::StaticMemberExpression(member) => {
         let property = member.property.name.as_str();
         if poisons_native_date(&member.object, property, |ident| reference_symbol(semantic, ident))
         {
-          self.date_poisoned = true;
+          self.native_index.date_poisoned = true;
         }
         if poisons_date_tojson(&member.object, property, |ident| reference_symbol(semantic, ident))
         {
-          self.date_poisoned = true;
+          self.native_index.date_poisoned = true;
         }
         if poisons_json(&member.object, property) {
-          self.json_poisoned = true;
+          self.native_index.json_poisoned = true;
         }
         if poisons_string_capability(&member.object, property, |ident| {
           reference_symbol(semantic, ident)
         }) {
-          self.string_capability_poisoned = true;
+          self.native_index.string_capability_poisoned = true;
         }
         if property == "value"
           && let Some((ident, keys)) = peel_member_chain(&member.object, &self.work)
@@ -1769,15 +1765,15 @@ impl Indexes {
       AssignmentTarget::ComputedMemberExpression(member) => {
         if let Some(key) = computed_literal_key(&member.expression) {
           if poisons_json(&member.object, &key) {
-            self.json_poisoned = true;
+            self.native_index.json_poisoned = true;
           }
           if poisons_string_capability(&member.object, &key, |ident| {
             reference_symbol(semantic, ident)
           }) {
-            self.string_capability_poisoned = true;
+            self.native_index.string_capability_poisoned = true;
           }
           if poisons_date_tojson(&member.object, &key, |ident| reference_symbol(semantic, ident)) {
-            self.date_poisoned = true;
+            self.native_index.date_poisoned = true;
           }
         }
         if let Some((ident, keys)) = peel_static_chain(&member.object, &self.work)
@@ -1985,7 +1981,7 @@ impl Indexes {
     {
       let root = self.root_of(symbol_id);
       if property == "prototype" {
-        self.prototype_touch.insert(root);
+        self.class_index.prototype_touch.insert(root);
       }
       if property == "value" {
         if use_site.role.needs_get() || use_site.role.needs_set() {
@@ -2363,28 +2359,28 @@ impl Indexes {
       self.work.add_references(1);
       match semantic.scoping().symbol_name(symbol_id) {
         "String" => {
-          self.shadowed_ctors.insert("String");
+          self.native_index.shadowed_ctors.insert("String");
         }
         "Number" => {
-          self.shadowed_ctors.insert("Number");
+          self.native_index.shadowed_ctors.insert("Number");
         }
         "Boolean" => {
-          self.shadowed_ctors.insert("Boolean");
+          self.native_index.shadowed_ctors.insert("Boolean");
         }
         "BigInt" => {
-          self.shadowed_ctors.insert("BigInt");
+          self.native_index.shadowed_ctors.insert("BigInt");
         }
         "Object" => {
-          self.shadowed_ctors.insert("Object");
+          self.native_index.shadowed_ctors.insert("Object");
         }
         "Symbol" => {
-          self.shadowed_ctors.insert("Symbol");
+          self.native_index.shadowed_ctors.insert("Symbol");
         }
         "Date" => {
-          self.shadowed_ctors.insert("Date");
+          self.native_index.shadowed_ctors.insert("Date");
         }
         "JSON" => {
-          self.shadowed_ctors.insert("JSON");
+          self.native_index.shadowed_ctors.insert("JSON");
         }
         _ => {}
       }
@@ -2419,7 +2415,7 @@ impl Indexes {
     }
     let owner = self.owner(node_id);
     let region = region_of(owner, node_id);
-    self.native_symbols.insert(
+    self.native_index.symbols.insert(
       symbol_id,
       NativeSymbol {
         offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
@@ -2492,7 +2488,7 @@ impl Indexes {
       _ => return,
     };
     if prototype_receiver_is_native_ctor(semantic, object, last_key) {
-      self.prototype_mutated = true;
+      self.class_index.prototype_mutated = true;
     }
   }
 
@@ -2683,7 +2679,7 @@ impl Indexes {
       return;
     };
     let record = analyze_class(class, &self.work);
-    self.classes.insert(symbol_id, record);
+    self.class_index.records.insert(symbol_id, record);
   }
 
   fn record_class_new(
@@ -2696,7 +2692,7 @@ impl Indexes {
       .get_inner_expression()
       .get_identifier_reference()
       .and_then(|ident| reference_symbol(semantic, ident));
-    self.class_news.insert(span_key(expression.span), class_new_info(expression, callee));
+    self.class_index.news.insert(span_key(expression.span), class_new_info(expression, callee));
   }
 
   fn record_stmt_site(
@@ -2898,12 +2894,12 @@ impl Indexes {
 
   fn record_native_ctor_alias(&mut self, local: SymbolId, ctor: &'static str) {
     self.note_query();
-    self.native_ctor_aliases.insert(local, ctor);
+    self.native_index.ctor_aliases.insert(local, ctor);
   }
 
   fn native_ctor_kind(&self, root: SymbolId) -> Option<&'static str> {
     self.note_query();
-    self.native_ctor_aliases.get(&root).copied()
+    self.native_index.ctor_aliases.get(&root).copied()
   }
 
   fn native_ctor_of_identifier(
@@ -3053,7 +3049,7 @@ impl Indexes {
     semantic: &oxc_semantic::Semantic<'_>,
   ) {
     if let Some(ctor) = self.native_ctor_of_identifier(identifier, semantic) {
-      self.tainted_ctors.insert(ctor);
+      self.native_index.tainted_ctors.insert(ctor);
     }
   }
 
@@ -3071,7 +3067,7 @@ impl Indexes {
     self.note_query();
     for name in ["Map", "Set", "Array"] {
       if let Some(ctor) = intern_native_ctor(name) {
-        self.tainted_ctors.insert(ctor);
+        self.native_index.tainted_ctors.insert(ctor);
       }
     }
   }
@@ -3099,7 +3095,7 @@ impl Indexes {
         continue;
       }
       if let Some(ctor) = intern_native_ctor(name) {
-        self.tainted_ctors.insert(ctor);
+        self.native_index.tainted_ctors.insert(ctor);
       } else {
         self.taint_all_native_ctors();
       }
@@ -3121,7 +3117,7 @@ impl Indexes {
       return;
     };
     if let Some(ctor) = self.native_ctor_of_identifier(identifier, semantic) {
-      self.tainted_ctors.insert(ctor);
+      self.native_index.tainted_ctors.insert(ctor);
     }
   }
 
@@ -3246,7 +3242,7 @@ impl Indexes {
     }
     if let Some(name) = static_key {
       if let Some(ctor) = intern_native_ctor(name) {
-        self.tainted_ctors.insert(ctor);
+        self.native_index.tainted_ctors.insert(ctor);
       }
       return;
     }
@@ -3255,7 +3251,7 @@ impl Indexes {
     };
     if let Some(name) = static_string_key(key) {
       if let Some(ctor) = intern_native_ctor(name) {
-        self.tainted_ctors.insert(ctor);
+        self.native_index.tainted_ctors.insert(ctor);
       }
     } else {
       self.taint_all_native_ctors();
@@ -3325,7 +3321,7 @@ impl Indexes {
           return;
         };
         let extract_offset = mapped(line_index, sfc_source, script_offset, member.span).offset;
-        self.extracted_methods.insert(
+        self.class_index.extracted_methods.insert(
           symbol_id,
           ExtractedMethod {
             collection,
@@ -3382,7 +3378,7 @@ impl Indexes {
           ));
         }
         for (symbol_id, extracted) in pending {
-          self.extracted_methods.insert(symbol_id, extracted);
+          self.class_index.extracted_methods.insert(symbol_id, extracted);
         }
       }
       _ => {}

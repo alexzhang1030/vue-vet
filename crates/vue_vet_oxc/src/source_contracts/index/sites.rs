@@ -244,8 +244,9 @@ pub(in crate::source_contracts) struct ExtractedMethod {
   pub block: NodeId,
 }
 
-/// Position shared by demand sites. `AwaitSite` stays separate: it has no span,
-/// region, or reach.
+/// Position shared by demand sites. An early-lane await that has no region or
+/// reach still uses this record; those fields stay on `head` and `callee_api`
+/// says which Vue API was awaited.
 #[derive(Clone, Copy, Debug)]
 pub(in crate::source_contracts) struct Site {
   pub offset: usize,
@@ -543,21 +544,15 @@ pub(in crate::source_contracts) struct MemberCall {
   pub block: NodeId,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub(in crate::source_contracts) struct AwaitSite {
-  pub offset: usize,
-  pub callee_api: Option<&'static str>,
-  pub callable: Option<NodeId>,
-  pub block: NodeId,
-}
-
-/// Await-position site: operand span, bound symbol, region, and reach.
+/// Await-position site. Early-lane `nextTick` proof reads `callee_api` and `block`.
 #[derive(Clone, Copy, Debug)]
 pub(in crate::source_contracts) struct AwaitPositionSite {
   pub head: Site,
   pub end: usize,
   pub argument: Span,
   pub bound: Option<SymbolId>,
+  pub callee_api: Option<&'static str>,
+  pub block: NodeId,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -625,16 +620,7 @@ macro_rules! timed_by_offset {
   };
 }
 
-timed_by_offset!(
-  ValueWrite,
-  MemberWrite,
-  ValueRead,
-  IdentCall,
-  ArgUse,
-  AwaitSite,
-  MemberCall,
-  Site,
-);
+timed_by_offset!(ValueWrite, MemberWrite, ValueRead, IdentCall, ArgUse, MemberCall, Site,);
 
 macro_rules! timed_by_head {
   ($($site:ty),* $(,)?) => {

@@ -1013,7 +1013,21 @@ impl Collector<'_> {
     if self.proven_undefined(expression) {
       return Effective::Absent;
     }
-    match self.indexes.option_value(object, key) {
+    let closed = self.indexes.closed_options(
+      object,
+      key == "flush",
+      key == "immediate",
+      key == "once",
+      key == "deep",
+    );
+    let value = match key {
+      "flush" => closed.flush,
+      "immediate" => closed.immediate,
+      "once" => closed.once,
+      "deep" => closed.deep,
+      _ => OptionValue::Unknown,
+    };
+    match value {
       OptionValue::Absent => Effective::Absent,
       OptionValue::Known(Literal::Bool(value)) => Effective::Known(value),
       OptionValue::Known(_) => Effective::Unknown,

@@ -7,14 +7,14 @@ use oxc_span::Span;
 use vue_vet_core::ScriptKind;
 
 use super::{
-  ArgUse, AwaitClosedSource, AwaitPositionSite, AwaitSite, CAPABILITY_KEYS, CallInfo, CallUse,
-  ClassNewInfo, CollectionCtor, DemandOrigin, DemandRole, DisposeSite, EffectCallback,
-  ExtractedMethod, FunctionInfo, HintClass, Indexes, InjectionSite, Literal, MemberCall,
-  MemberRecord, MemberUse, MemberWrite, NamedUse, NativeSymbol, NestedWrite, ObjectEntry,
-  ObjectProp, OptionValue, PathCall, PathRead, PathWrite, PrimitiveKind, RefInitLookup,
-  ResultDemand, Scalar, ShapeHint, ShapePrimitiveAtom, SnapshotCall, SourceContractStats, Timeline,
-  ValueDemand, ValueRead, ValueReadRole, ValueWrite, WatchConsumer, WatchConsumerOptions,
-  chain_optional, intern_native_ctor, region_of, span_key, timeline,
+  ArgUse, AwaitClosedSource, AwaitPositionSite, CAPABILITY_KEYS, CallInfo, CallUse, ClassNewInfo,
+  CollectionCtor, DemandOrigin, DemandRole, DisposeSite, EffectCallback, ExtractedMethod,
+  FunctionInfo, HintClass, Indexes, InjectionSite, Literal, MemberCall, MemberRecord, MemberUse,
+  MemberWrite, NamedUse, NativeSymbol, NestedWrite, ObjectEntry, ObjectProp, OptionValue, PathCall,
+  PathRead, PathWrite, PrimitiveKind, RefInitLookup, ResultDemand, Scalar, ShapeHint,
+  ShapePrimitiveAtom, SnapshotCall, SourceContractStats, Timeline, ValueDemand, ValueRead,
+  ValueReadRole, ValueWrite, WatchConsumer, WatchConsumerOptions, chain_optional,
+  intern_native_ctor, region_of, span_key, timeline,
 };
 
 impl Indexes {
@@ -66,13 +66,13 @@ impl Indexes {
 
   pub(in crate::source_contracts) fn class_identity_intact(&self, class: SymbolId) -> bool {
     self.note_query();
-    let Some(record) = self.classes.get(&class) else {
+    let Some(record) = self.class_index.records.get(&class) else {
       return false;
     };
     record.ordinary
       && !self.reassigned.contains(&class)
       && !self.escaped.contains(&class)
-      && !self.prototype_touch.contains(&class)
+      && !self.class_index.prototype_touch.contains(&class)
       && !self.unknown_member_touch.contains(&class)
       && !self.capability_touch.contains(&class)
   }
@@ -83,7 +83,7 @@ impl Indexes {
     new_span: Span,
   ) -> bool {
     self.note_query();
-    self.classes.get(&class).is_some_and(|record| record.span.start < new_span.start)
+    self.class_index.records.get(&class).is_some_and(|record| record.span.start < new_span.start)
   }
 
   pub(in crate::source_contracts) fn class_member(
@@ -93,12 +93,12 @@ impl Indexes {
   ) -> Option<&MemberRecord> {
     self.note_query();
     self.work.add_key_lookups(1);
-    self.classes.get(&class).and_then(|record| record.members.get(name))
+    self.class_index.records.get(&class).and_then(|record| record.members.get(name))
   }
 
   pub(in crate::source_contracts) fn new_at(&self, span: Span) -> Option<ClassNewInfo> {
     self.note_query();
-    self.class_news.get(&span_key(span)).copied()
+    self.class_index.news.get(&span_key(span)).copied()
   }
 
   pub(in crate::source_contracts) fn is_optional_chain(
@@ -111,12 +111,12 @@ impl Indexes {
 
   pub(in crate::source_contracts) fn ctor_shadowed(&self, name: &str) -> bool {
     self.note_query();
-    self.shadowed_ctors.contains(name)
+    self.native_index.shadowed_ctors.contains(name)
   }
 
   pub(in crate::source_contracts) fn native_capability_intact(&self) -> bool {
     self.note_query();
-    !self.prototype_mutated
+    !self.class_index.prototype_mutated
       && !self.ctor_shadowed("String")
       && !self.ctor_shadowed("Number")
       && !self.ctor_shadowed("Boolean")
@@ -165,7 +165,7 @@ impl Indexes {
 
   pub(in crate::source_contracts) fn native_symbol(&self, root: SymbolId) -> Option<NativeSymbol> {
     self.note_query();
-    self.native_symbols.get(&root).copied()
+    self.native_index.symbols.get(&root).copied()
   }
 
   pub(in crate::source_contracts) fn provides_on(&self, root: SymbolId) -> &[InjectionSite] {
@@ -258,6 +258,7 @@ impl Indexes {
   ) -> WatchConsumerOptions {
     self.note_query();
     self
+      .options
       .watch_options
       .get(&span_key(call_span))
       .copied()
@@ -492,7 +493,10 @@ impl Indexes {
     self.reads.scheduling_calls.get(&root).map_or(&[], Vec::as_slice)
   }
 
-  pub(in crate::source_contracts) fn awaits_of(&self, callable: Option<NodeId>) -> &[AwaitSite] {
+  pub(in crate::source_contracts) fn awaits_of(
+    &self,
+    callable: Option<NodeId>,
+  ) -> &[AwaitPositionSite] {
     self.note_query();
     self.awaits_by_callable.get(&callable).map_or(&[], Vec::as_slice)
   }
@@ -652,7 +656,7 @@ impl Indexes {
 
   pub(in crate::source_contracts) fn is_native_date(&self, span: Span) -> bool {
     self.note_query();
-    !self.date_poisoned && self.dates.contains(&span_key(span))
+    !self.native_index.date_poisoned && self.native_index.dates.contains(&span_key(span))
   }
 
   pub(in crate::source_contracts) fn ident_demand(
@@ -848,7 +852,7 @@ impl Indexes {
     symbol_id: SymbolId,
   ) -> Option<ExtractedMethod> {
     self.note_query();
-    self.extracted_methods.get(&self.root_of(symbol_id)).copied()
+    self.class_index.extracted_methods.get(&self.root_of(symbol_id)).copied()
   }
 
   pub(in crate::source_contracts) fn capability_poisoned(&self, symbol_id: SymbolId) -> bool {
@@ -892,12 +896,12 @@ impl Indexes {
 
   pub(in crate::source_contracts) fn ctor_tainted(&self, name: &str) -> bool {
     self.note_query();
-    intern_native_ctor(name).is_some_and(|ctor| self.tainted_ctors.contains(ctor))
+    intern_native_ctor(name).is_some_and(|ctor| self.native_index.tainted_ctors.contains(ctor))
   }
 
   pub(in crate::source_contracts) fn collection_ctor(&self, span: Span) -> Option<CollectionCtor> {
     self.note_query();
-    self.collections.get(&span_key(span)).copied()
+    self.native_index.collections.get(&span_key(span)).copied()
   }
 
   pub(in crate::source_contracts) fn is_array_span(&self, span: Span) -> bool {

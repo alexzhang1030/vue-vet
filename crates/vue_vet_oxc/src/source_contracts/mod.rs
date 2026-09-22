@@ -833,7 +833,7 @@ impl Collector<'_> {
         }
       }
       ShapeHint::New(span) => {
-        if self.indexes.collections.contains_key(&span_key(span)) {
+        if self.indexes.native_index.collections.contains_key(&span_key(span)) {
           Shape::Collection
         } else {
           Shape::Unknown
