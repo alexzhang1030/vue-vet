@@ -108,8 +108,8 @@ pub(super) enum OptionValue<T> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Shape {
   Unknown,
-  Primitive,
-  Nullish,
+  /// `Nullish` is `Primitive(PrimitiveKind::Nullish)`. `Unknown` stays the outer variant.
+  Primitive(PrimitiveKind),
   PlainRecord,
   Collection,
   Function,
@@ -120,11 +120,22 @@ pub(super) enum Shape {
 }
 
 impl Shape {
+  pub(super) const fn is_non_nullish_primitive(self) -> bool {
+    matches!(
+      self,
+      Self::Primitive(
+        PrimitiveKind::Number
+          | PrimitiveKind::String
+          | PrimitiveKind::Boolean
+          | PrimitiveKind::BigInt
+      )
+    )
+  }
+
   pub(super) const fn is_non_ref_trigger_target(self) -> bool {
     matches!(
       self,
-      Self::Primitive
-        | Self::Nullish
+      Self::Primitive(_)
         | Self::PlainRecord
         | Self::Collection
         | Self::DeepProxy
@@ -138,7 +149,7 @@ impl Shape {
   }
 
   pub(super) const fn is_primitive_reactive_target(self) -> bool {
-    matches!(self, Self::Primitive | Self::Nullish)
+    matches!(self, Self::Primitive(_))
   }
 
   pub(super) const fn is_deep_mutable_proxy(self) -> bool {
@@ -149,7 +160,7 @@ impl Shape {
     match self {
       Self::RefLike => Some(ToRefIgnoredKeyReason::Ref),
       Self::Function => Some(ToRefIgnoredKeyReason::Function),
-      Self::Primitive | Self::Nullish => Some(ToRefIgnoredKeyReason::Primitive),
+      Self::Primitive(_) => Some(ToRefIgnoredKeyReason::Primitive),
       _ => None,
     }
   }
@@ -1053,19 +1064,19 @@ pub(super) fn classify_vue_result(api: &str, inner: Shape, has_spread: bool) -> 
   match api {
     "reactive" => match inner {
       Shape::RefLike => Shape::RefLike,
-      Shape::Primitive | Shape::Nullish => inner,
+      Shape::Primitive(_) => inner,
       Shape::PlainRecord | Shape::Collection | Shape::DeepProxy => Shape::DeepProxy,
       _ => Shape::Unknown,
     },
     "shallowReactive" => match inner {
       Shape::RefLike => Shape::RefLike,
-      Shape::Primitive | Shape::Nullish => inner,
+      Shape::Primitive(_) => inner,
       Shape::PlainRecord | Shape::Collection => Shape::ShallowProxy,
       _ => Shape::Unknown,
     },
     "readonly" | "shallowReadonly" => match inner {
       Shape::RefLike => Shape::RefLike,
-      Shape::Primitive | Shape::Nullish => inner,
+      Shape::Primitive(_) => inner,
       Shape::PlainRecord | Shape::Collection | Shape::DeepProxy | Shape::ShallowProxy => {
         Shape::ReadonlyProxy
       }

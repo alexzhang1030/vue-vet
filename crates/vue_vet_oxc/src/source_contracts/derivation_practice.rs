@@ -291,7 +291,7 @@ impl Collector<'_> {
     let payload = match info.first_arg {
       None => Some(PrimitiveAtom::Undefined),
       Some(argument) => match self.classify_span(argument, MAX_DEPTH) {
-        Shape::Primitive | Shape::Nullish => self.indexes.primitive_at(argument),
+        Shape::Primitive(_) => self.indexes.primitive_at(argument),
         _ => return None,
       },
     };
