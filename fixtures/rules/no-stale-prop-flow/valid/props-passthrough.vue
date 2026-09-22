@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import Child from './Child.vue'
 const props = defineProps<{ title: string }>()
 </script>
 <template>
-  <p>{{ props.title }}</p>
+  <Child :title="props.title" />
 </template>

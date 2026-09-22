@@ -25,6 +25,8 @@ pub const CACHE_FORMAT_VERSION: u32 = 5;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// Bump when built-in rule set or seed-aware analysis behavior changes.
 ///
+/// v44: `no-stale-prop-flow` reads parent-side Prop edges for plain `let` /
+/// `var` locals. Child reactive prop edges are unchanged. Graph version stays 41.
 /// v41: template-ref demand facts (`no-pre-flush-template-ref-demand`,
 /// `no-v-memo-blocked-ref-demand`) joined from Vize allocation relations.
 /// Graph version stays 41.
@@ -129,7 +131,7 @@ pub const BASELINE_FORMAT_VERSION: u32 = 1;
 /// prefer-watch suppresses self-write sources; computed self-write is impure.
 /// v5: conditional-dep premise withdrawn; after-await registrars deprecated
 /// except defineExpose; absence rules require complete follow coverage.
-pub const RULESET_VERSION: u32 = 43;
+pub const RULESET_VERSION: u32 = 44;
 
 /// Workspace pin for `vize_croquis` / `vize_atelier_core`.
 ///

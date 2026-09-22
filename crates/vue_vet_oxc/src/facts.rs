@@ -7,7 +7,7 @@ use oxc_ast::{
     AssignmentTarget, AssignmentTargetMaybeDefault, AssignmentTargetProperty, BindingIdentifier,
     BindingPattern, CallExpression, Declaration, ExportDefaultDeclarationKind, Expression,
     IdentifierReference, ImportDeclarationSpecifier, ImportOrExportKind, ModuleExportName,
-    ObjectPropertyKind, SimpleAssignmentTarget,
+    ObjectPropertyKind, SimpleAssignmentTarget, VariableDeclarationKind,
   },
 };
 use oxc_semantic::{NodeId, SymbolId};
@@ -203,6 +203,7 @@ pub fn collect_binding_facts(
         span: source_span(line_index, sfc_source, script_offset, scoping.symbol_span(symbol_id)),
         exported,
         plain_initializer: symbol_has_plain_initializer(semantic, symbol_id),
+        mutable: symbol_is_mutable(semantic, symbol_id),
         escaped: exported || escaped_symbols.contains(&symbol_id),
       }
     })
@@ -243,6 +244,27 @@ fn collect_escaped_symbol_ids(semantic: &oxc_semantic::Semantic<'_>) -> BTreeSet
     }
   }
   symbols
+}
+
+fn symbol_is_mutable(semantic: &oxc_semantic::Semantic<'_>, symbol_id: SymbolId) -> bool {
+  let declaration = semantic.symbol_declaration(symbol_id);
+  let declarator_id = match declaration.kind() {
+    AstKind::VariableDeclarator(_) => declaration.id(),
+    AstKind::BindingIdentifier(_) => {
+      let parent = semantic.nodes().parent_id(declaration.id());
+      if !matches!(semantic.nodes().kind(parent), AstKind::VariableDeclarator(_)) {
+        return false;
+      }
+      parent
+    }
+    _ => return false,
+  };
+  match semantic.nodes().parent_kind(declarator_id) {
+    AstKind::VariableDeclaration(declaration) => {
+      matches!(declaration.kind, VariableDeclarationKind::Let | VariableDeclarationKind::Var)
+    }
+    _ => false,
+  }
 }
 
 fn symbol_has_plain_initializer(

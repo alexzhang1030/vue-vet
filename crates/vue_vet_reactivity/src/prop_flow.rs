@@ -1,6 +1,9 @@
 //! Cross-file parent `:prop` → child `props.prop` edges (under-approx).
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+  collections::{BTreeMap, BTreeSet},
+  sync::Arc,
+};
 
 use vue_vet_core::{
   ReactiveBindingKind, ReactiveDependencyEdge, ReactiveDependencyKind, ReactivityGraph, SourceSpan,
@@ -14,6 +17,8 @@ pub struct PropFlowSite<'a> {
   pub element_span: SourceSpan,
   pub parent_template: &'a TemplateFacts,
   pub parent_graph: &'a ReactivityGraph,
+  /// Module id of the parent file. Stale edges are attached here, not on the child.
+  pub parent_module: &'a str,
   pub child_module: &'a str,
 }
 
@@ -86,6 +91,114 @@ pub fn join_prop_flows(children: &mut [Arc<ModuleReactivity>], sites: &[PropFlow
         && left.span.offset == right.span.offset
     });
   }
+}
+
+/// Parent-side Prop edges for plain `let` / `var` values passed as a prop.
+///
+/// Child edges stay the reactive join (`from: "props"`). These edges use
+/// `from` = the parent local so `no-stale-prop-flow` can see it on the parent
+/// graph. `const`, literals, calls, member expressions rooted at a reactive
+/// binding, and `v-model` stay quiet.
+pub fn attach_stale_prop_flows(
+  modules: &mut [Arc<ModuleReactivity>],
+  sites: &[PropFlowSite<'_>],
+  mut is_plain_mutable: impl FnMut(&str, &str) -> bool,
+) {
+  let index = modules
+    .iter()
+    .enumerate()
+    .map(|(index, module)| (module.id.as_str(), index))
+    .collect::<BTreeMap<_, _>>();
+  let mut pending: BTreeMap<usize, Vec<ReactiveDependencyEdge>> = BTreeMap::new();
+  for site in sites {
+    let Some(&parent_idx) = index.get(site.parent_module) else {
+      continue;
+    };
+    let Some(&child_idx) = index.get(site.child_module) else {
+      continue;
+    };
+    let Some(child) = modules.get(child_idx) else {
+      continue;
+    };
+    if !child_has_props_bag(&child.graph) {
+      continue;
+    }
+    let Some(parent) = modules.get(parent_idx) else {
+      continue;
+    };
+    let edges = collect_stale_prop_edges(site, &parent.graph, &mut is_plain_mutable);
+    if edges.is_empty() {
+      continue;
+    }
+    pending.entry(parent_idx).or_default().extend(edges);
+  }
+  for (parent_idx, mut new_edges) in pending {
+    let Some(parent) = modules.get_mut(parent_idx) else {
+      continue;
+    };
+    let parent = Arc::make_mut(parent);
+    let graph = Arc::make_mut(&mut parent.graph);
+    graph.edges.append(&mut new_edges);
+    graph.edges.sort_by(|left, right| {
+      (left.kind, left.from.as_str(), left.to.as_str(), left.property.as_deref(), left.span.offset)
+        .cmp(&(
+          right.kind,
+          right.from.as_str(),
+          right.to.as_str(),
+          right.property.as_deref(),
+          right.span.offset,
+        ))
+    });
+    graph.edges.dedup_by(|left, right| {
+      left.from == right.from
+        && left.to == right.to
+        && left.property == right.property
+        && left.kind == right.kind
+        && left.span.offset == right.span.offset
+    });
+  }
+}
+
+fn collect_stale_prop_edges(
+  site: &PropFlowSite<'_>,
+  parent: &ReactivityGraph,
+  is_plain_mutable: &mut impl FnMut(&str, &str) -> bool,
+) -> Vec<ReactiveDependencyEdge> {
+  let template = site.parent_template;
+  let Some(element) =
+    template.elements.iter().find(|element| element.span.offset == site.element_span.offset)
+  else {
+    return Vec::new();
+  };
+  let reactive =
+    parent.bindings.iter().map(|binding| binding.name.as_str()).collect::<BTreeSet<_>>();
+  let mut edges = Vec::new();
+  for directive in &element.directives {
+    if directive.name.as_str() != "bind" {
+      continue;
+    }
+    let Some(prop_name) = directive.argument.as_deref().filter(|name| !name.is_empty()) else {
+      continue;
+    };
+    let Some(expression) = directive.expression.as_deref() else {
+      continue;
+    };
+    let Some(root) = parse_parent_binding_root(expression) else {
+      continue;
+    };
+    if reactive.contains(root) || !is_plain_mutable(site.parent_module, root) {
+      continue;
+    }
+    edges.push(ReactiveDependencyEdge {
+      from: root.to_owned(),
+      to: "props".into(),
+      to_id: None,
+      property: Some(prop_name.to_owned()),
+      kind: ReactiveDependencyKind::Prop,
+      span: directive.span,
+    });
+  }
+  edges
 }
 
 fn child_has_props_bag(graph: &ReactivityGraph) -> bool {
@@ -254,6 +367,7 @@ mod tests {
         element_span: span(10),
         parent_template: &parent_template,
         parent_graph: &parent_graph,
+        parent_module: "Parent.vue",
         child_module: "Child.vue",
       }],
     );
@@ -271,6 +385,82 @@ mod tests {
         child.graph.edges
       );
     }
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "fixture construction failures must fail the unit test")]
+  fn plain_let_prop_is_a_parent_edge_and_not_a_child_edge() {
+    let parent_template = TemplateFacts {
+      elements: vec![TemplateElementFact {
+        tag: "Child".into(),
+        span: span(10),
+        attributes: Vec::new(),
+        directives: vec![TemplateDirectiveFact {
+          name: "bind".into(),
+          raw_name: ":title".into(),
+          argument: Some("title".into()),
+          expression: Some("title".into()),
+          modifiers: Vec::new(),
+          span: span(12),
+        }],
+        has_children: false,
+        has_accessible_content: false,
+        has_labelable_descendant: false,
+        has_label_ancestor: false,
+        has_accessible_name_ancestor: false,
+        object_bind_has_key: false,
+        is_component: false,
+        has_conditional_ancestor: false,
+        has_for_ancestor: false,
+        has_async_boundary_ancestor: false,
+        has_slot_ancestor: false,
+      }],
+      expressions: Vec::new(),
+      allocations: Vec::new(),
+      ..Default::default()
+    };
+    let parent_graph = ReactivityGraph::default();
+    let child_graph = ReactivityGraph {
+      bindings: vec![ReactiveBindingFact {
+        name: "props".into(),
+        kind: ReactiveBindingKind::Reactive,
+        initialized_with_null: false,
+        alias_of: None,
+        alias_of_span: None,
+        span: span(2),
+      }],
+      ..ReactivityGraph::default()
+    };
+    let mut modules = vec![
+      Arc::new(ModuleReactivity { id: "Parent.vue".into(), graph: Arc::new(parent_graph.clone()) }),
+      Arc::new(ModuleReactivity { id: "Child.vue".into(), graph: Arc::new(child_graph) }),
+    ];
+    let sites = [PropFlowSite {
+      element_span: span(10),
+      parent_template: &parent_template,
+      parent_graph: &parent_graph,
+      parent_module: "Parent.vue",
+      child_module: "Child.vue",
+    }];
+    attach_stale_prop_flows(&mut modules, &sites, |_parent, name| name == "title");
+    let Some(parent) = modules.first() else {
+      panic!("parent module missing");
+    };
+    let edge = parent.graph.edges.iter().find(|edge| edge.kind == ReactiveDependencyKind::Prop);
+    assert!(
+      edge.is_some_and(|edge| {
+        edge.from == "title" && edge.to == "props" && edge.property.as_deref() == Some("title")
+      }),
+      "expected parent stale edge; got {:?}",
+      parent.graph.edges
+    );
+    let Some(child) = modules.get(1) else {
+      panic!("child module missing");
+    };
+    assert!(
+      child.graph.edges.iter().all(|edge| edge.kind != ReactiveDependencyKind::Prop),
+      "child graph must not gain a stale prop edge"
+    );
   }
 
   #[test]
@@ -371,6 +561,7 @@ mod tests {
         element_span: span(10),
         parent_template: &parent_template,
         parent_graph: &parent_graph,
+        parent_module: "Parent.vue",
         child_module: "Child.vue",
       }],
     );
@@ -480,6 +671,7 @@ mod tests {
         element_span: span(10),
         parent_template: &parent_template,
         parent_graph: &parent_graph,
+        parent_module: "Parent.vue",
         child_module: "Child.vue",
       }],
     );
@@ -563,6 +755,7 @@ mod tests {
         element_span: span(10),
         parent_template: &parent_template,
         parent_graph: &parent_graph,
+        parent_module: "Parent.vue",
         child_module: "Child.vue",
       }],
     );
@@ -644,6 +837,7 @@ mod tests {
         element_span: span(10),
         parent_template: &parent_template,
         parent_graph: &parent_graph,
+        parent_module: "Parent.vue",
         child_module: "Child.vue",
       }],
     );
@@ -732,6 +926,7 @@ mod tests {
         element_span: span(10),
         parent_template: &parent_template,
         parent_graph: &parent_graph,
+        parent_module: "Parent.vue",
         child_module: "Child.vue",
       }],
     );

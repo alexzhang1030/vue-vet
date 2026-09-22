@@ -498,7 +498,7 @@ fn records_plain_initializer_and_object_escape() {
   );
   let text = facts.bindings.iter().find(|binding| binding.name == "text");
   assert!(
-    text.is_some_and(|binding| binding.plain_initializer && !binding.escaped),
+    text.is_some_and(|binding| binding.plain_initializer && binding.mutable && !binding.escaped),
     "literal local must be a proven plain initializer: {text:?}"
   );
   let form = facts.bindings.iter().find(|binding| binding.name == "form");
@@ -508,7 +508,7 @@ fn records_plain_initializer_and_object_escape() {
   );
   let target = facts.bindings.iter().find(|binding| binding.name == "target");
   assert!(
-    target.is_some_and(|binding| binding.escaped),
+    target.is_some_and(|binding| binding.escaped && !binding.mutable),
     "object/return uses must mark the binding escaped: {target:?}"
   );
 }
@@ -528,7 +528,7 @@ fn reassigned_binding_is_not_a_proven_plain_local() {
   let facts = analyze("let form;\nform = createForm();", "ts");
   let form = facts.bindings.iter().find(|binding| binding.name == "form");
   assert!(
-    form.is_some_and(|binding| binding.plain_initializer && binding.writes >= 1),
+    form.is_some_and(|binding| binding.plain_initializer && binding.mutable && binding.writes >= 1),
     "declaration-time empty init plus later assignment must record writes: {form:?}"
   );
 }

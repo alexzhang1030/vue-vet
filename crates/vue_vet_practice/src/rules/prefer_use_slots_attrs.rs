@@ -164,6 +164,7 @@ mod tests {
         span: span(),
         exported: false,
         plain_initializer: false,
+        mutable: false,
         escaped: false,
       }],
     );

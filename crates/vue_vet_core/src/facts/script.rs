@@ -39,6 +39,10 @@ const fn is_false(value: &bool) -> bool {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[expect(
+  clippy::struct_excessive_bools,
+  reason = "each flag is an independent serde-stable fact, not one state"
+)]
 pub struct ScriptBindingFact {
   pub name: String,
   pub reads: usize,
@@ -52,6 +56,12 @@ pub struct ScriptBindingFact {
   /// Absence of a call/import is not proof of a nonreactive value.
   #[serde(default, skip_serializing_if = "is_false")]
   pub plain_initializer: bool,
+  /// `let` / `var`, not `const`, a function, or a parameter.
+  ///
+  /// A plain `const` binding cannot be reassigned, so passing it as a prop is
+  /// not a stale flow. `let title = 'hi'` can change without notifying the child.
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub mutable: bool,
   /// Binding value is returned, exported, or stored in an object/array literal.
   #[serde(default, skip_serializing_if = "is_false")]
   pub escaped: bool,
