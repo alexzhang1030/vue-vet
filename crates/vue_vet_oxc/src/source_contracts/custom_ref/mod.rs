@@ -1401,6 +1401,37 @@ fn walk_binding_pattern(
   }
 }
 
+enum AssignmentLeaf<'a> {
+  Expr(&'a Expression<'a>),
+  Array(&'a oxc_ast::ast::ArrayAssignmentTarget<'a>),
+  Object(&'a oxc_ast::ast::ObjectAssignmentTarget<'a>),
+}
+
+/// Shared assignment-target shape. Array and object policies stay with the caller:
+/// the body proof recurses, and the factory inventory treats an array target as unknown.
+fn for_each_assignment_leaf<'a>(
+  target: &'a AssignmentTarget<'a>,
+  mut visit: impl FnMut(AssignmentLeaf<'a>),
+) {
+  match target {
+    AssignmentTarget::AssignmentTargetIdentifier(_) => {}
+    AssignmentTarget::TSAsExpression(inner) => visit(AssignmentLeaf::Expr(&inner.expression)),
+    AssignmentTarget::TSSatisfiesExpression(inner) => {
+      visit(AssignmentLeaf::Expr(&inner.expression));
+    }
+    AssignmentTarget::TSNonNullExpression(inner) => visit(AssignmentLeaf::Expr(&inner.expression)),
+    AssignmentTarget::TSTypeAssertion(inner) => visit(AssignmentLeaf::Expr(&inner.expression)),
+    AssignmentTarget::StaticMemberExpression(member) => visit(AssignmentLeaf::Expr(&member.object)),
+    AssignmentTarget::ComputedMemberExpression(member) => {
+      visit(AssignmentLeaf::Expr(&member.object));
+      visit(AssignmentLeaf::Expr(&member.expression));
+    }
+    AssignmentTarget::PrivateFieldExpression(member) => visit(AssignmentLeaf::Expr(&member.object)),
+    AssignmentTarget::ArrayAssignmentTarget(array) => visit(AssignmentLeaf::Array(array)),
+    AssignmentTarget::ObjectAssignmentTarget(object) => visit(AssignmentLeaf::Object(object)),
+  }
+}
+
 fn walk_assignment_target(
   collector: &mut Collector<'_>,
   target: &AssignmentTarget<'_>,
@@ -1408,31 +1439,9 @@ fn walk_assignment_target(
   executed: bool,
   proof: &mut BodyProof,
 ) {
-  match target {
-    AssignmentTarget::AssignmentTargetIdentifier(_) => {}
-    AssignmentTarget::TSAsExpression(inner) => {
-      walk_expr(collector, &inner.expression, ctx, executed, proof);
-    }
-    AssignmentTarget::TSSatisfiesExpression(inner) => {
-      walk_expr(collector, &inner.expression, ctx, executed, proof);
-    }
-    AssignmentTarget::TSNonNullExpression(inner) => {
-      walk_expr(collector, &inner.expression, ctx, executed, proof);
-    }
-    AssignmentTarget::TSTypeAssertion(inner) => {
-      walk_expr(collector, &inner.expression, ctx, executed, proof);
-    }
-    AssignmentTarget::StaticMemberExpression(member) => {
-      walk_expr(collector, &member.object, ctx, executed, proof);
-    }
-    AssignmentTarget::ComputedMemberExpression(member) => {
-      walk_expr(collector, &member.object, ctx, executed, proof);
-      walk_expr(collector, &member.expression, ctx, executed, proof);
-    }
-    AssignmentTarget::PrivateFieldExpression(member) => {
-      walk_expr(collector, &member.object, ctx, executed, proof);
-    }
-    AssignmentTarget::ArrayAssignmentTarget(array) => {
+  for_each_assignment_leaf(target, |leaf| match leaf {
+    AssignmentLeaf::Expr(expression) => walk_expr(collector, expression, ctx, executed, proof),
+    AssignmentLeaf::Array(array) => {
       for element in array.elements.iter().flatten() {
         walk_assignment_maybe_default(collector, element, ctx, executed, proof);
       }
@@ -1440,7 +1449,7 @@ fn walk_assignment_target(
         walk_assignment_target(collector, &rest.target, ctx, executed, proof);
       }
     }
-    AssignmentTarget::ObjectAssignmentTarget(object) => {
+    AssignmentLeaf::Object(object) => {
       for property in &object.properties {
         match property {
           AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(property) => {
@@ -1464,7 +1473,7 @@ fn walk_assignment_target(
         walk_assignment_target(collector, &rest.target, ctx, executed, proof);
       }
     }
-  }
+  });
 }
 
 fn walk_assignment_maybe_default(
