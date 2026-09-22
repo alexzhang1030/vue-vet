@@ -320,16 +320,7 @@ impl Collector<'_> {
   }
 
   fn ref_init_scalar(&self, root: SymbolId) -> Option<Scalar> {
-    let summary = self.indexes.await_closed_source(root)?;
-    let info = self.indexes.call_info(summary.init_span).or_else(|| {
-      let ShapeHint::Call(call_span) =
-        self.indexes.hints.get(&span_key(summary.init_span)).copied()?
-      else {
-        return None;
-      };
-      self.indexes.call_info(call_span)
-    })?;
-    info.first_arg.map_or(Some(Scalar::Nullish), |argument| self.indexes.await_scalar(argument))
+    self.indexes.ref_init_scalar(root, super::index::RefInitLookup::Closed)
   }
 
   fn incompatible_result_demand(

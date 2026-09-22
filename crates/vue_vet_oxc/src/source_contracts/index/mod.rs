@@ -397,6 +397,15 @@ pub(super) enum OptionFlag {
   Unknown,
 }
 
+/// Which `ref` initializer walk `Indexes::ref_init_scalar` runs.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum RefInitLookup {
+  /// Closed source. A missing argument is nullish.
+  Closed,
+  /// Init span through a hint-call. A missing argument is absent.
+  Direct,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct WatchConsumerOptions {
   pub flush: FlushKind,
@@ -1605,6 +1614,36 @@ impl Indexes {
   pub(super) fn await_scalar(&self, span: Span) -> Option<Scalar> {
     self.work.add_queries(1);
     self.await_index.scalars.get(&span_key(span)).copied()
+  }
+
+  /// Scalar stored in a `ref` initializer.
+  ///
+  /// `Closed` is the until-timeout walk: a closed source, a missing argument
+  /// is nullish, and the lookup is `await_scalar`. `Direct` is the `VueUse` walk:
+  /// the init span itself, a hint-call only, a missing argument is absent, and
+  /// the lookup is `scalar`. The two walks do not charge the same queries.
+  pub(super) fn ref_init_scalar(&self, root: SymbolId, lookup: RefInitLookup) -> Option<Scalar> {
+    match lookup {
+      RefInitLookup::Closed => {
+        let summary = self.await_closed_source(root)?;
+        let info = self.call_info(summary.init_span).or_else(|| {
+          let ShapeHint::Call(call_span) = self.hints.get(&span_key(summary.init_span)).copied()?
+          else {
+            return None;
+          };
+          self.call_info(call_span)
+        })?;
+        info.first_arg.map_or(Some(Scalar::Nullish), |argument| self.await_scalar(argument))
+      }
+      RefInitLookup::Direct => {
+        let init = self.init_span.get(&root).copied()?;
+        let ShapeHint::Call(call_span) = self.hints.get(&span_key(init)).copied()? else {
+          return None;
+        };
+        let info = self.calls.get(&span_key(call_span)).copied()?;
+        info.first_arg.and_then(|argument| self.scalar(argument))
+      }
+    }
   }
 
   pub(super) fn await_closed_source(&self, root: SymbolId) -> Option<AwaitClosedSource> {
