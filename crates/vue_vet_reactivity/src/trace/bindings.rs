@@ -282,6 +282,29 @@ pub(super) struct AmbientCallHandle {
 /// Local name → handles (usually one; multi-site same name is rare).
 pub(super) type AmbientCallHandles = BTreeMap<String, Vec<AmbientCallHandle>>;
 
+/// One call-expression walk split into published (top-level) and scope (nested included) bindings.
+///
+/// Ambient handles follow the scope walk. Callers that ask only for published bindings
+/// discard ambient handles, matching the previous second walk.
+pub(super) struct PartitionedBindings {
+  pub(super) scope: CollectedBindings,
+  pub(super) published: Vec<ReactiveBindingFact>,
+}
+
+struct PartitionSinks {
+  scope: Vec<ReactiveBindingFact>,
+  published: Vec<ReactiveBindingFact>,
+}
+
+impl PartitionSinks {
+  fn extend_fresh(&mut self, nested: bool, fresh: Vec<ReactiveBindingFact>) {
+    if !nested {
+      self.published.extend(fresh.iter().cloned());
+    }
+    self.scope.extend(fresh);
+  }
+}
+
 pub(super) fn collect_reactive_bindings(
   semantic: &oxc_semantic::Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
@@ -291,7 +314,33 @@ pub(super) fn collect_reactive_bindings(
   include_nested: bool,
   named_api_bags: &[NamedApiBag],
 ) -> CollectedBindings {
-  let mut reactive_bindings = Vec::new();
+  let partitioned = collect_reactive_bindings_partitioned(
+    semantic,
+    imported_bindings,
+    sfc_source,
+    script_offset,
+    script_kind,
+    named_api_bags,
+  );
+  if include_nested {
+    partitioned.scope
+  } else {
+    CollectedBindings {
+      bindings: partitioned.published,
+      ambient_call_handles: AmbientCallHandles::new(),
+    }
+  }
+}
+
+pub(super) fn collect_reactive_bindings_partitioned(
+  semantic: &oxc_semantic::Semantic<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  sfc_source: &str,
+  script_offset: usize,
+  script_kind: ScriptKind,
+  named_api_bags: &[NamedApiBag],
+) -> PartitionedBindings {
+  let mut sinks = PartitionSinks { scope: Vec::new(), published: Vec::new() };
   let mut ambient_call_handles = AmbientCallHandles::new();
   for node in semantic.nodes() {
     let AstKind::CallExpression(call) = node.kind() else {
@@ -309,9 +358,8 @@ pub(super) fn collect_reactive_bindings(
     let Some(declarator) = variable_declarator_for_call(semantic, call.node_id.get()) else {
       continue;
     };
-    if !include_nested && expr::is_nested_in_function(semantic, call.node_id.get()) {
-      continue;
-    }
+    let nested = expr::is_nested_in_function(semantic, call.node_id.get());
+    let mut fresh = Vec::new();
 
     // Named API bags from plugins: field seeds + ambient-on-call methods.
     if let Some(api) = named_api_bag(named_api_bags, &callee) {
@@ -324,10 +372,11 @@ pub(super) fn collect_reactive_bindings(
           variable_declarator_node_id(semantic, call.node_id.get()),
           sfc_source,
           script_offset,
-          &mut reactive_bindings,
+          &mut fresh,
           &mut ambient_call_handles,
         );
       }
+      sinks.extend_fresh(nested, fresh);
       continue;
     }
 
@@ -391,7 +440,7 @@ pub(super) fn collect_reactive_bindings(
     let initialized_with_null =
       call.arguments.first().is_some_and(|argument| matches!(argument, Argument::NullLiteral(_)));
     for (name, span) in identifiers {
-      reactive_bindings.push(ReactiveBindingFact {
+      fresh.push(ReactiveBindingFact {
         name,
         kind: binding_kind,
         initialized_with_null,
@@ -400,6 +449,7 @@ pub(super) fn collect_reactive_bindings(
         span: source_span(sfc_source, script_offset, span),
       });
     }
+    sinks.extend_fresh(nested, fresh);
   }
 
   // `const params = useRoute().params` / `const params = route.params`.
@@ -407,11 +457,10 @@ pub(super) fn collect_reactive_bindings(
     semantic,
     imported_bindings,
     script_kind,
-    include_nested,
     sfc_source,
     script_offset,
     named_api_bags,
-    &mut reactive_bindings,
+    &mut sinks,
   );
 
   // `const x = cond ? ref(false) : computed(() => …)` — both arms same reactive kind.
@@ -419,14 +468,16 @@ pub(super) fn collect_reactive_bindings(
     semantic,
     imported_bindings,
     script_kind,
-    include_nested,
     sfc_source,
     script_offset,
     named_api_bags,
-    &mut reactive_bindings,
+    &mut sinks,
   );
 
-  CollectedBindings { bindings: reactive_bindings, ambient_call_handles }
+  PartitionedBindings {
+    scope: CollectedBindings { bindings: sinks.scope, ambient_call_handles },
+    published: sinks.published,
+  }
 }
 
 /// Seed object-destructure of a [`NamedApiBag`]: reactive fields + ambient-on-call methods.
@@ -555,24 +606,19 @@ pub(super) fn variable_declarator_node_id(
 ///
 /// Under-approx: only Vue primitive callees (not unknown helpers). Missing one arm
 /// stays quiet rather than inventing a binding from a single branch.
-#[expect(clippy::too_many_arguments, reason = "conditional init shares binding-collection context")]
-pub(super) fn collect_conditional_init_bindings(
+fn collect_conditional_init_bindings(
   semantic: &oxc_semantic::Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
   script_kind: ScriptKind,
-  include_nested: bool,
   sfc_source: &str,
   script_offset: usize,
   named_api_bags: &[NamedApiBag],
-  reactive_bindings: &mut Vec<ReactiveBindingFact>,
+  sinks: &mut PartitionSinks,
 ) {
   for node in semantic.nodes() {
     let AstKind::VariableDeclarator(declarator) = node.kind() else {
       continue;
     };
-    if !include_nested && expr::is_nested_in_function(semantic, node.id()) {
-      continue;
-    }
     let Some(Expression::ConditionalExpression(cond)) = &declarator.init else {
       continue;
     };
@@ -590,20 +636,26 @@ pub(super) fn collect_conditional_init_bindings(
       continue;
     };
     let span = source_span(sfc_source, script_offset, identifier.span);
-    if reactive_bindings
-      .iter()
-      .any(|binding| binding.name == identifier.name.as_str() && binding.span.offset == span.offset)
-    {
-      continue;
-    }
-    reactive_bindings.push(ReactiveBindingFact {
+    let binding = ReactiveBindingFact {
       name: identifier.name.to_string(),
       kind,
       initialized_with_null: false,
       alias_of: None,
       alias_of_span: None,
       span,
-    });
+    };
+    let nested = expr::is_nested_in_function(semantic, node.id());
+    let absent = |bindings: &[ReactiveBindingFact]| {
+      !bindings.iter().any(|existing| {
+        existing.name == identifier.name.as_str() && existing.span.offset == span.offset
+      })
+    };
+    if !nested && absent(&sinks.published) {
+      sinks.published.push(binding.clone());
+    }
+    if absent(&sinks.scope) {
+      sinks.scope.push(binding);
+    }
   }
 }
 
@@ -711,68 +763,101 @@ pub(super) fn resolved_binding_callee(
 }
 
 /// Seed `const params = useRoute().params` (and `route.params` when `route` is Reactive).
-#[expect(clippy::too_many_arguments, reason = "route slice shares binding-collection context")]
-pub(super) fn collect_route_slice_bindings(
+fn collect_route_slice_bindings(
   semantic: &oxc_semantic::Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
   script_kind: ScriptKind,
-  include_nested: bool,
   sfc_source: &str,
   script_offset: usize,
   named_api_bags: &[NamedApiBag],
-  reactive_bindings: &mut Vec<ReactiveBindingFact>,
+  sinks: &mut PartitionSinks,
 ) {
   for (node_id, node) in semantic.nodes().iter_enumerated() {
     let AstKind::VariableDeclarator(declarator) = node.kind() else {
       continue;
     };
-    if !include_nested && expr::is_nested_in_function(semantic, node_id) {
-      continue;
-    }
-    let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
-      continue;
-    };
-    if reactive_bindings.iter().any(|binding| binding.name == identifier.name.as_str()) {
-      continue;
-    }
-    let Some(init) = &declarator.init else {
-      continue;
-    };
-    let Expression::StaticMemberExpression(member) = init else {
-      continue;
-    };
-    let property = member.property.name.as_str();
-    if !matches!(property, "params" | "query" | "meta") {
-      continue;
-    }
-    let from_use_route = match &member.object {
-      Expression::CallExpression(call) => resolved_binding_callee(
+    let nested = expr::is_nested_in_function(semantic, node_id);
+    if !nested
+      && let Some(binding) = route_slice_binding(
         semantic,
-        &call.callee,
         imported_bindings,
         script_kind,
+        sfc_source,
+        script_offset,
         named_api_bags,
+        declarator,
+        &sinks.published,
       )
-      .is_some_and(|name| name == "useRoute"),
-      Expression::Identifier(object) => reactive_bindings.iter().any(|binding| {
-        binding.name == object.name.as_str()
-          && matches!(
-            binding.kind,
-            ReactiveBindingKind::Reactive | ReactiveBindingKind::ShallowReactive
-          )
-      }),
-      _ => false,
-    };
-    if !from_use_route {
-      continue;
+    {
+      sinks.published.push(binding);
     }
-    reactive_bindings.push(ReactiveBindingFact {
-      name: identifier.name.to_string(),
-      kind: ReactiveBindingKind::Reactive,
-      initialized_with_null: false,
-      alias_of: None,
-      alias_of_span: None,
-      span: source_span(sfc_source, script_offset, identifier.span),
-    });
+    if let Some(binding) = route_slice_binding(
+      semantic,
+      imported_bindings,
+      script_kind,
+      sfc_source,
+      script_offset,
+      named_api_bags,
+      declarator,
+      &sinks.scope,
+    ) {
+      sinks.scope.push(binding);
+    }
   }
+}
+
+#[expect(clippy::too_many_arguments, reason = "route slice shares binding-collection context")]
+fn route_slice_binding(
+  semantic: &oxc_semantic::Semantic<'_>,
+  imported_bindings: &BTreeMap<String, (String, String)>,
+  script_kind: ScriptKind,
+  sfc_source: &str,
+  script_offset: usize,
+  named_api_bags: &[NamedApiBag],
+  declarator: &oxc_ast::ast::VariableDeclarator<'_>,
+  reactive_bindings: &[ReactiveBindingFact],
+) -> Option<ReactiveBindingFact> {
+  let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
+    return None;
+  };
+  if reactive_bindings.iter().any(|binding| binding.name == identifier.name.as_str()) {
+    return None;
+  }
+  let init = declarator.init.as_ref()?;
+  let Expression::StaticMemberExpression(member) = init else {
+    return None;
+  };
+  let property = member.property.name.as_str();
+  if !matches!(property, "params" | "query" | "meta") {
+    return None;
+  }
+  let from_use_route = match &member.object {
+    Expression::CallExpression(call) => resolved_binding_callee(
+      semantic,
+      &call.callee,
+      imported_bindings,
+      script_kind,
+      named_api_bags,
+    )
+    .is_some_and(|name| name == "useRoute"),
+    Expression::Identifier(object) => reactive_bindings.iter().any(|binding| {
+      binding.name == object.name.as_str()
+        && matches!(
+          binding.kind,
+          ReactiveBindingKind::Reactive | ReactiveBindingKind::ShallowReactive
+        )
+    }),
+    _ => false,
+  };
+  if !from_use_route {
+    return None;
+  }
+  Some(ReactiveBindingFact {
+    name: identifier.name.to_string(),
+    kind: ReactiveBindingKind::Reactive,
+    initialized_with_null: false,
+    alias_of: None,
+    alias_of_span: None,
+    span: source_span(sfc_source, script_offset, identifier.span),
+  })
 }

@@ -57,7 +57,7 @@ thread_local! {
 }
 
 #[cfg(test)]
-pub(super) fn import_binding_collect_snapshot() -> (u64, u64) {
+pub fn import_binding_collect_snapshot() -> (u64, u64) {
   (IMPORT_BINDING_BUILDS.with(Cell::get), IMPORT_BINDING_NODE_VISITS.with(Cell::get))
 }
 

@@ -54,7 +54,7 @@ mod uncertain;
 mod writes;
 
 use bindings::{
-  CollectedBindings, collect_component_props_bindings, collect_reactive_bindings,
+  collect_component_props_bindings, collect_reactive_bindings_partitioned,
   collect_typed_reactive_bindings, extend_with_reactive_aliases,
 };
 use follow::FileTraceIndex;
@@ -66,6 +66,8 @@ use kinds::{
 use local::collect_local_composable_usage;
 use notification::collect_notification_facts;
 
+#[cfg(test)]
+pub use kinds::import_binding_collect_snapshot;
 #[cfg(test)]
 pub use local::{ComposableUsageWork, last_composable_usage_work};
 #[cfg(test)]
@@ -164,10 +166,53 @@ pub fn trace_reactivity_seeded(
   // buffer into `Arc<str>` on every module and regresses cold `trace_*` benches.
   let line_index = Arc::new(vue_vet_core::LineIndex::new(sfc_source));
   install_trace_line_index(line_index);
-  let graph =
+  let (graph, _) =
     trace_reactivity_seeded_inner(semantic, sfc_source, script_offset, script_kind, seeds, config);
   clear_trace_line_index();
   graph
+}
+
+/// Graph plus module summary from one binding walk and one import index.
+///
+/// [`prepare_module_summary_with_config`] remains for callers that already hold
+/// a graph. This entry is what the Oxc adapter uses so those facts are not
+/// collected twice on the same semantic.
+#[must_use]
+pub fn trace_script_with_config(
+  semantic: &Semantic<'_>,
+  sfc_source: &str,
+  script_offset: usize,
+  script_kind: ScriptKind,
+  config: &TraceConfig<'_>,
+) -> TracedScript {
+  let line_index = Arc::new(vue_vet_core::LineIndex::new(sfc_source));
+  install_trace_line_index(line_index);
+  let (graph, reuse) = trace_reactivity_seeded_inner(
+    semantic,
+    sfc_source,
+    script_offset,
+    script_kind,
+    &TraceSeeds::default(),
+    config,
+  );
+  clear_trace_line_index();
+  let graph = Arc::new(graph);
+  let summary = summary::prepare_module_summary_reusing(
+    semantic,
+    sfc_source,
+    script_offset,
+    script_kind,
+    Arc::clone(&graph),
+    config,
+    reuse,
+  );
+  TracedScript { graph, summary }
+}
+
+/// One script's published graph and the summary built from the same walk.
+pub struct TracedScript {
+  pub graph: Arc<ReactivityGraph>,
+  pub summary: ModuleSummary,
 }
 
 fn trace_reactivity_seeded_inner(
@@ -177,31 +222,26 @@ fn trace_reactivity_seeded_inner(
   script_kind: ScriptKind,
   seeds: &TraceSeeds,
   config: &TraceConfig<'_>,
-) -> ReactivityGraph {
+) -> (ReactivityGraph, summary::SummaryReuse) {
   let imported_bindings = collect_imported_bindings(semantic);
   let named_api_bags = config.named_api_bags;
   // Include function-local refs when resolving `return { signal }` shapes and when
   // classifying nested tracking scopes. Do not publish them as top-level graph
   // bindings (they would collide with `const { signal } = useX()` seeds by name).
-  let CollectedBindings { bindings: mut scope_bindings, ambient_call_handles } =
-    collect_reactive_bindings(
-      semantic,
-      &imported_bindings,
-      sfc_source,
-      script_offset,
-      script_kind,
-      true,
-      named_api_bags,
-    );
-  let CollectedBindings { mut bindings, .. } = collect_reactive_bindings(
+  // One walk fills both sets. `shape_bindings` is that scope set before typed-ref
+  // and callback-slot augmentation; summary classifies locals from this raw set.
+  let partitioned = collect_reactive_bindings_partitioned(
     semantic,
     &imported_bindings,
     sfc_source,
     script_offset,
     script_kind,
-    false,
     named_api_bags,
   );
+  let shape_bindings = partitioned.scope.bindings.clone();
+  let mut scope_bindings = partitioned.scope.bindings;
+  let ambient_call_handles = partitioned.scope.ambient_call_handles;
+  let mut bindings = partitioned.published;
   // `type: ComputedRef<T>` / `const x: Ref<T> = …` — typed parameters & declarators.
   // Cheap source gate: skip the AST walk when no Ref-like annotation text exists
   // (keeps `trace_1k_modules` / plain `ref()` modules off this path).
@@ -213,6 +253,7 @@ fn trace_reactivity_seeded_inner(
   // Same-file `defineFormProps({ setup({ values }) })` options-object callback bags.
   // Collect is cheap when empty; do not require local `Ref` text (slots come from types).
   let options_slots = summary::collect_local_options_callback_slots(semantic);
+  let options_callback_slots = options_slots.clone();
   if !options_slots.is_empty() {
     let mut options_bindings = Vec::new();
     summary::seed_options_callback_params_at_calls(
@@ -231,6 +272,7 @@ fn trace_reactivity_seeded_inner(
   }
   // Same-file `useX(init, (params: ComputedRef<T>) => …)` typed function callbacks.
   let typed_callback_slots = summary::collect_local_typed_callback_param_slots(semantic);
+  let typed_callback_param_slots = typed_callback_slots.clone();
   if !typed_callback_slots.is_empty() {
     let mut typed_bindings = Vec::new();
     summary::seed_typed_callback_params_at_calls(
@@ -364,5 +406,11 @@ fn trace_reactivity_seeded_inner(
     &mut graph,
   );
   graph.project_effects_from_scopes();
-  graph
+  let reuse = summary::SummaryReuse {
+    imported_bindings,
+    shape_bindings,
+    options_callback_slots,
+    typed_callback_param_slots,
+  };
+  (graph, reuse)
 }

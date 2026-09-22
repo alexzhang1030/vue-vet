@@ -4,6 +4,47 @@ fn ref_only_module(index: usize) -> String {
   format!("import {{ ref }} from 'vue'; export const value{index} = ref({index});")
 }
 
+#[test]
+fn trace_script_builds_one_import_index_and_matches_standalone_summary() {
+  use oxc_allocator::Allocator;
+  use oxc_parser::Parser;
+  use oxc_semantic::SemanticBuilder;
+  use oxc_span::SourceType;
+
+  use crate::TraceConfig;
+  use crate::oxc::{prepare_module_summary_with_config, trace_reactivity_with_config};
+
+  let source = ref_only_module(0);
+  let allocator = Allocator::default();
+  let parsed = Parser::new(&allocator, &source, SourceType::ts()).parse();
+  assert!(parsed.diagnostics.is_empty());
+  let built = SemanticBuilder::new().with_build_nodes(true).build(&parsed.program);
+  assert!(built.diagnostics.is_empty());
+  let config = TraceConfig::empty();
+  let (before, _) = crate::import_binding_collect_snapshot();
+  let traced =
+    crate::trace_script_with_config(&built.semantic, &source, 0, ScriptKind::Script, &config);
+  let (after, _) = crate::import_binding_collect_snapshot();
+  assert_eq!(
+    after.saturating_sub(before),
+    1,
+    "trace+summary share one import index, got {} builds",
+    after.saturating_sub(before)
+  );
+  let graph =
+    trace_reactivity_with_config(&built.semantic, &source, 0, ScriptKind::Script, &config);
+  assert_eq!(*traced.graph, graph);
+  let summary = prepare_module_summary_with_config(
+    &built.semantic,
+    &source,
+    0,
+    ScriptKind::Script,
+    std::sync::Arc::clone(&traced.graph),
+    &config,
+  );
+  assert_eq!(traced.summary, summary);
+}
+
 fn assert_one_summary_import_index(source: &str, scan: crate::SummaryScanWork) {
   assert_eq!(
     scan.import_index_builds, 1,

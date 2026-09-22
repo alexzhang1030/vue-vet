@@ -7,11 +7,9 @@ mod source_contracts;
 mod tracer_extra;
 
 mod a11y_content;
-mod anchor_has_content;
-mod button_has_content;
 mod click_events_have_key_events;
+mod duplicate_define;
 mod form_control_has_label;
-mod heading_has_content;
 mod iframe_has_title;
 mod img_has_alt;
 mod label_has_for;
@@ -22,11 +20,6 @@ mod no_deprecated_slot_scope;
 mod no_deprecated_v_on_native_modifier;
 mod no_detached_effect_scope_without_stop;
 mod no_distracting_elements;
-mod no_duplicate_define_emits;
-mod no_duplicate_define_expose;
-mod no_duplicate_define_options;
-mod no_duplicate_define_props;
-mod no_duplicate_define_slots;
 mod no_late_cancellation_guard;
 mod no_late_scope_dispose;
 mod no_late_watcher_cleanup;
@@ -56,11 +49,11 @@ mod valid_v_text;
 
 pub fn builtins() -> Vec<&'static dyn Rule> {
   let mut rules: Vec<&'static dyn Rule> = vec![
-    &anchor_has_content::RULE,
-    &button_has_content::RULE,
+    &a11y_content::ANCHOR,
+    &a11y_content::BUTTON,
     &click_events_have_key_events::RULE,
     &form_control_has_label::RULE,
-    &heading_has_content::RULE,
+    &a11y_content::HEADING,
     &iframe_has_title::RULE,
     &img_has_alt::RULE,
     &label_has_for::RULE,
@@ -78,11 +71,11 @@ pub fn builtins() -> Vec<&'static dyn Rule> {
     &no_deprecated_slot_scope::RULE,
     &no_deprecated_v_on_native_modifier::RULE,
     &no_distracting_elements::RULE,
-    &no_duplicate_define_emits::RULE,
-    &no_duplicate_define_expose::RULE,
-    &no_duplicate_define_options::RULE,
-    &no_duplicate_define_props::RULE,
-    &no_duplicate_define_slots::RULE,
+    &duplicate_define::EMITS,
+    &duplicate_define::EXPOSE,
+    &duplicate_define::OPTIONS,
+    &duplicate_define::PROPS,
+    &duplicate_define::SLOTS,
     &no_mutating_props::RULE,
     &no_nonreactive_props_destructure::RULE,
     &no_positive_tabindex::RULE,

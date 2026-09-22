@@ -471,6 +471,75 @@ pub(super) struct ValueRead {
   pub block: NodeId,
 }
 
+/// `.value` reads split by contract predicate. One static-member visit fills
+/// the lanes; each predicate stays the one that lane had before they shared a visit.
+#[derive(Default)]
+struct ValueReadLanes {
+  derivation: HashMap<SymbolId, Vec<ValueRead>>,
+  scheduling: HashMap<SymbolId, Vec<ValueRead>>,
+  custom_ref: HashMap<SymbolId, Vec<ValueRead>>,
+  scheduling_calls: HashMap<SymbolId, Vec<MemberCall>>,
+}
+
+impl ValueReadLanes {
+  fn record_custom_ref(&mut self, symbol_id: SymbolId, read: ValueRead) {
+    self.custom_ref.entry(symbol_id).or_default().push(read);
+  }
+
+  fn record_derivation(&mut self, root: SymbolId, read: ValueRead) {
+    self.derivation.entry(root).or_default().push(read);
+  }
+
+  fn record_scheduling(&mut self, root: SymbolId, read: ValueRead) {
+    self.scheduling.entry(root).or_default().push(read);
+  }
+
+  fn record_scheduling_call(&mut self, root: SymbolId, call: MemberCall) {
+    self.scheduling_calls.entry(root).or_default().push(call);
+  }
+
+  fn sort(&mut self, work: &WorkCounter) {
+    let mut derivation = std::mem::take(&mut self.derivation);
+    for bucket in derivation.values_mut() {
+      bucket.sort_by(|left, right| {
+        work.add_queries(1);
+        left.offset.cmp(&right.offset)
+      });
+    }
+    self.derivation = derivation;
+    for reads in self.scheduling.values_mut() {
+      work.add_queries(reads.len() as u64);
+      reads.sort_by_key(|read| read.offset);
+    }
+    for calls in self.scheduling_calls.values_mut() {
+      work.add_queries(calls.len() as u64);
+      calls.sort_by_key(|call| call.offset);
+    }
+    for reads in self.custom_ref.values_mut() {
+      reads.sort_by_key(|read| read.offset);
+    }
+  }
+
+  fn remap_roots(&mut self, mut root_of: impl FnMut(SymbolId) -> SymbolId, mut note: impl FnMut()) {
+    remap_symbol_vec_map(&mut self.custom_ref, &mut root_of, &mut note);
+    remap_symbol_vec_map(&mut self.derivation, &mut root_of, &mut note);
+    remap_symbol_vec_map(&mut self.scheduling, &mut root_of, &mut note);
+    remap_symbol_vec_map(&mut self.scheduling_calls, &mut root_of, &mut note);
+  }
+}
+
+fn remap_symbol_vec_map<T>(
+  map: &mut HashMap<SymbolId, Vec<T>>,
+  root_of: &mut impl FnMut(SymbolId) -> SymbolId,
+  note: &mut impl FnMut(),
+) {
+  let taken = std::mem::take(map);
+  for (symbol_id, mut values) in taken {
+    note();
+    map.entry(root_of(symbol_id)).or_default().append(&mut values);
+  }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(super) struct MemberCall {
   pub offset: usize,
@@ -580,7 +649,7 @@ pub(super) struct Indexes {
   /// uses this list to see outside-updater writes that `value_writes` drops.
   value_write_events: HashMap<SymbolId, Vec<ValueWrite>>,
   pub value_reads: HashMap<SymbolId, Vec<MemberUse>>,
-  pub derivation_value_reads: HashMap<SymbolId, Vec<ValueRead>>,
+  reads: ValueReadLanes,
   pub member_reads_by_root: HashMap<SymbolId, Vec<NamedUse>>,
   pub chained_value_by_root: HashMap<SymbolId, Vec<NamedUse>>,
   pub member_calls_by_root: HashMap<SymbolId, Vec<NamedUse>>,
@@ -590,8 +659,6 @@ pub(super) struct Indexes {
   pub destructure_by_object: HashMap<SymbolId, Vec<(SymbolId, String)>>,
   call_destructure: HashMap<u64, Vec<(SymbolId, String)>>,
   value_writes_by_callable: HashMap<(SymbolId, Option<NodeId>), Vec<ValueWrite>>,
-  pub scheduling_value_reads: HashMap<SymbolId, Vec<ValueRead>>,
-  pub scheduling_member_calls: HashMap<SymbolId, Vec<MemberCall>>,
   pub awaits: Vec<AwaitSite>,
   pub awaits_by_callable: HashMap<Option<NodeId>, Vec<AwaitSite>>,
   pub disposals_by_callable: HashMap<Option<NodeId>, Vec<DisposeSite>>,
@@ -641,7 +708,7 @@ pub(super) struct Indexes {
   pub arg_uses: HashMap<SymbolId, Vec<ArgUse>>,
   pub ident_calls: HashMap<SymbolId, Vec<IdentCall>>,
   pub handle_member_calls: HashMap<(SymbolId, String), Vec<IdentCall>>,
-  pub custom_ref_value_reads: HashMap<SymbolId, Vec<ValueRead>>,
+
   root_members: HashMap<SymbolId, Vec<SymbolId>>,
   inactivity_by_handle_block: HashMap<(SymbolId, NodeId), Vec<IdentCall>>,
   pub atoms: HashMap<u64, PrimitiveAtom>,
@@ -738,7 +805,7 @@ impl Indexes {
       value_writes: HashMap::new(),
       value_write_events: HashMap::new(),
       value_reads: HashMap::new(),
-      derivation_value_reads: HashMap::new(),
+      reads: ValueReadLanes::default(),
       member_reads_by_root: HashMap::new(),
       chained_value_by_root: HashMap::new(),
       member_calls_by_root: HashMap::new(),
@@ -748,8 +815,6 @@ impl Indexes {
       destructure_by_object: HashMap::new(),
       call_destructure: HashMap::new(),
       value_writes_by_callable: HashMap::new(),
-      scheduling_value_reads: HashMap::new(),
-      scheduling_member_calls: HashMap::new(),
       awaits: Vec::new(),
       awaits_by_callable: HashMap::new(),
       disposals_by_callable: HashMap::new(),
@@ -797,7 +862,6 @@ impl Indexes {
       arg_uses: HashMap::new(),
       ident_calls: HashMap::new(),
       handle_member_calls: HashMap::new(),
-      custom_ref_value_reads: HashMap::new(),
       root_members: HashMap::new(),
       inactivity_by_handle_block: HashMap::new(),
       atoms: HashMap::new(),
@@ -919,22 +983,7 @@ impl Indexes {
     for uses in self.value_reads.values_mut() {
       uses.sort_by_key(|use_site| use_site.offset);
     }
-    let mut derivation_reads = std::mem::take(&mut self.derivation_value_reads);
-    for bucket in derivation_reads.values_mut() {
-      bucket.sort_by(|left, right| {
-        self.work.add_queries(1);
-        left.offset.cmp(&right.offset)
-      });
-    }
-    self.derivation_value_reads = derivation_reads;
-    for reads in self.scheduling_value_reads.values_mut() {
-      self.work.add_queries(reads.len() as u64);
-      reads.sort_by_key(|read| read.offset);
-    }
-    for calls in self.scheduling_member_calls.values_mut() {
-      self.work.add_queries(calls.len() as u64);
-      calls.sort_by_key(|call| call.offset);
-    }
+    self.reads.sort(&self.work);
     for awaits in self.awaits_by_callable.values_mut() {
       self.work.add_queries(awaits.len() as u64);
       awaits.sort_by_key(|site| site.offset);
@@ -1003,9 +1052,7 @@ impl Indexes {
     for calls in self.handle_member_calls.values_mut() {
       calls.sort_by_key(|call| call.offset);
     }
-    for reads in self.custom_ref_value_reads.values_mut() {
-      reads.sort_by_key(|read| read.offset);
-    }
+
     for writes in self.nested_writes.values_mut() {
       writes.sort_by_key(|(_, write)| write.offset);
     }
@@ -1225,7 +1272,7 @@ impl Indexes {
 
   pub(super) fn value_reads_of(&self, root: SymbolId) -> &[ValueRead] {
     self.work.add_queries(1);
-    self.custom_ref_value_reads.get(&root).map_or(&[], Vec::as_slice)
+    self.reads.custom_ref.get(&root).map_or(&[], Vec::as_slice)
   }
 
   pub(super) fn value_writes_of(&self, root: SymbolId) -> &[ValueWrite] {
@@ -1446,7 +1493,7 @@ impl Indexes {
     offset: usize,
   ) -> Option<ValueRead> {
     self.work.add_queries(1);
-    let reads = self.derivation_value_reads.get(&root).map_or(&[][..], Vec::as_slice);
+    let reads = self.reads.derivation.get(&root).map_or(&[][..], Vec::as_slice);
     let index = self.work.partition_point(reads, |read| read.offset <= offset);
     reads.get(index..).into_iter().flatten().copied().find(|read| {
       self.work.add_queries(1);
@@ -1485,12 +1532,12 @@ impl Indexes {
 
   pub(super) fn scheduling_value_reads_of(&self, root: SymbolId) -> &[ValueRead] {
     self.work.add_queries(1);
-    self.scheduling_value_reads.get(&root).map_or(&[], Vec::as_slice)
+    self.reads.scheduling.get(&root).map_or(&[], Vec::as_slice)
   }
 
   pub(super) fn member_calls_of(&self, root: SymbolId) -> &[MemberCall] {
     self.work.add_queries(1);
-    self.scheduling_member_calls.get(&root).map_or(&[], Vec::as_slice)
+    self.reads.scheduling_calls.get(&root).map_or(&[], Vec::as_slice)
   }
 
   pub(super) fn awaits_of(&self, callable: Option<NodeId>) -> &[AwaitSite] {
@@ -2286,26 +2333,9 @@ impl Indexes {
       self.work.add_queries(1);
       self.value_reads.entry(self.root_of(symbol_id)).or_default().append(&mut reads);
     }
-    let custom_ref_value_reads = std::mem::take(&mut self.custom_ref_value_reads);
-    for (symbol_id, mut reads) in custom_ref_value_reads {
-      self.work.add_queries(1);
-      self.custom_ref_value_reads.entry(self.root_of(symbol_id)).or_default().append(&mut reads);
-    }
-    let derivation_value_reads = std::mem::take(&mut self.derivation_value_reads);
-    for (symbol_id, mut reads) in derivation_value_reads {
-      self.work.add_queries(1);
-      self.derivation_value_reads.entry(self.root_of(symbol_id)).or_default().append(&mut reads);
-    }
-    let scheduling_value_reads = std::mem::take(&mut self.scheduling_value_reads);
-    for (symbol_id, mut reads) in scheduling_value_reads {
-      self.work.add_queries(1);
-      self.scheduling_value_reads.entry(self.root_of(symbol_id)).or_default().append(&mut reads);
-    }
-    let scheduling_member_calls = std::mem::take(&mut self.scheduling_member_calls);
-    for (symbol_id, mut calls) in scheduling_member_calls {
-      self.work.add_queries(1);
-      self.scheduling_member_calls.entry(self.root_of(symbol_id)).or_default().append(&mut calls);
-    }
+    let mut lanes = std::mem::take(&mut self.reads);
+    lanes.remap_roots(|symbol_id| self.root_of(symbol_id), || self.work.add_queries(1));
+    self.reads = lanes;
     let watches_by_source = std::mem::take(&mut self.watches_by_source);
     for (symbol_id, mut watches) in watches_by_source {
       self.work.add_queries(1);
@@ -2428,25 +2458,16 @@ impl Indexes {
             node_id,
             member,
           );
-          self.record_value_read(semantic, line_index, sfc_source, script_offset, node_id, member);
-          self.record_derivation_value_read(
+          let scheduling_read = self.member_value_is_read(semantic, node_id, member.span);
+          self.record_lane_value_reads(
             semantic,
             line_index,
             sfc_source,
             script_offset,
             node_id,
             member,
+            scheduling_read,
           );
-          if self.member_value_is_read(semantic, node_id, member.span) {
-            self.record_scheduling_value_read(
-              semantic,
-              line_index,
-              sfc_source,
-              script_offset,
-              node_id,
-              member,
-            );
-          }
           self.index_static_member(semantic, kind, member);
         }
         AstKind::VariableDeclarator(declarator) => {
@@ -3254,7 +3275,11 @@ impl Indexes {
     }
   }
 
-  fn record_derivation_value_read(
+  #[expect(
+    clippy::too_many_arguments,
+    reason = "one static-member visit fills custom-ref, derivation, and scheduling lanes"
+  )]
+  fn record_lane_value_reads(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
     line_index: &vue_vet_core::LineIndex,
@@ -3262,13 +3287,10 @@ impl Indexes {
     script_offset: usize,
     node_id: NodeId,
     member: &oxc_ast::ast::StaticMemberExpression<'_>,
+    scheduling_read: bool,
   ) {
     if member.property.name.as_str() != "value" {
       return;
-    }
-    match semantic.nodes().parent_kind(node_id) {
-      AstKind::AssignmentExpression(_) | AstKind::UpdateExpression(_) => return,
-      _ => {}
     }
     let Some(object) = member.object.get_inner_expression().get_identifier_reference() else {
       return;
@@ -3276,15 +3298,34 @@ impl Indexes {
     let Some(symbol_id) = reference_symbol(semantic, object) else {
       return;
     };
-    self.work.add_writes(1);
     let owner = self.owner(node_id);
-    self.derivation_value_reads.entry(self.root_of(symbol_id)).or_default().push(ValueRead {
+    let read = ValueRead {
+      node_id,
       offset: mapped(line_index, sfc_source, script_offset, member.span).offset,
       span: member.span,
       callable: owner.callable,
       block: owner.block.unwrap_or(node_id),
-      node_id,
-    });
+    };
+    // customRef keeps the pre-alias symbol; remap_roots canonicalizes later.
+    // A write context is not a customRef read. Derivation skips every assignment
+    // and update parent, including a read on the right-hand side. Scheduling uses
+    // the caller-computed `member_value_is_read` predicate.
+    if !member_is_write_context(semantic, node_id, member.span) {
+      self.reads.record_custom_ref(symbol_id, read);
+    }
+    match semantic.nodes().parent_kind(node_id) {
+      AstKind::AssignmentExpression(_) | AstKind::UpdateExpression(_) => {}
+      _ => {
+        self.work.add_writes(1);
+        let root = self.root_of(symbol_id);
+        self.reads.record_derivation(root, read);
+      }
+    }
+    if scheduling_read {
+      self.work.add_writes(1);
+      let root = self.root_of(symbol_id);
+      self.reads.record_scheduling(root, read);
+    }
   }
 
   fn intern(&mut self, value: &str) -> u32 {
@@ -3387,35 +3428,6 @@ impl Indexes {
     }
   }
 
-  fn record_scheduling_value_read(
-    &mut self,
-    semantic: &oxc_semantic::Semantic<'_>,
-    line_index: &vue_vet_core::LineIndex,
-    sfc_source: &str,
-    script_offset: usize,
-    node_id: NodeId,
-    member: &oxc_ast::ast::StaticMemberExpression<'_>,
-  ) {
-    if member.property.name.as_str() != "value" {
-      return;
-    }
-    let Some(object) = member.object.get_inner_expression().get_identifier_reference() else {
-      return;
-    };
-    let Some(symbol_id) = reference_symbol(semantic, object) else {
-      return;
-    };
-    self.work.add_writes(1);
-    let owner = self.owner(node_id);
-    self.scheduling_value_reads.entry(self.root_of(symbol_id)).or_default().push(ValueRead {
-      node_id,
-      offset: mapped(line_index, sfc_source, script_offset, member.span).offset,
-      span: member.span,
-      callable: owner.callable,
-      block: owner.block.unwrap_or(node_id),
-    });
-  }
-
   fn record_scheduling_member_call(
     &mut self,
     semantic: &oxc_semantic::Semantic<'_>,
@@ -3439,13 +3451,17 @@ impl Indexes {
     };
     let owner = self.owner(node_id);
     self.work.add_writes(1);
-    self.scheduling_member_calls.entry(self.root_of(symbol_id)).or_default().push(MemberCall {
-      offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
-      method,
-      span: call.span,
-      callable: owner.callable,
-      block: owner.block.unwrap_or(node_id),
-    });
+    let root = self.root_of(symbol_id);
+    self.reads.record_scheduling_call(
+      root,
+      MemberCall {
+        offset: mapped(line_index, sfc_source, script_offset, call.span).offset,
+        method,
+        span: call.span,
+        callable: owner.callable,
+        block: owner.block.unwrap_or(node_id),
+      },
+    );
   }
 
   #[expect(clippy::too_many_arguments, reason = "await indexing needs owner, span, and callee")]
@@ -3939,38 +3955,6 @@ impl Indexes {
       node_id,
       callable,
       block,
-    });
-  }
-
-  fn record_value_read(
-    &mut self,
-    semantic: &oxc_semantic::Semantic<'_>,
-    line_index: &vue_vet_core::LineIndex,
-    sfc_source: &str,
-    script_offset: usize,
-    node_id: NodeId,
-    member: &oxc_ast::ast::StaticMemberExpression<'_>,
-  ) {
-    if member.property.name.as_str() != "value" {
-      return;
-    }
-    if member_is_write_context(semantic, node_id, member.span) {
-      return;
-    }
-    let Some(object) = member.object.get_inner_expression().get_identifier_reference() else {
-      return;
-    };
-    let Some(symbol_id) = reference_symbol(semantic, object) else {
-      return;
-    };
-    let owner = self.owner(node_id);
-    let offset = mapped(line_index, sfc_source, script_offset, member.span).offset;
-    self.custom_ref_value_reads.entry(symbol_id).or_default().push(ValueRead {
-      node_id,
-      offset,
-      span: member.span,
-      callable: owner.callable,
-      block: owner.block.unwrap_or(node_id),
     });
   }
 
