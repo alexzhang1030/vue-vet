@@ -30,16 +30,17 @@ pub use trace::{
 /// module consumers do not need this namespace.
 pub mod oxc {
   pub use crate::trace::{
-    arrow_return_type_kind, arrow_return_type_shape, build_returns_by_function,
+    TracedScript, arrow_return_type_kind, arrow_return_type_shape, build_returns_by_function,
     function_return_type_kind, function_return_type_shape, prepare_module_summary_with_config,
-    trace_reactivity_with_config,
+    trace_reactivity_with_config, trace_script_with_config,
   };
 }
 
 #[cfg(test)]
 pub(crate) use trace::{
-  ComposableUsageWork, NotificationWork, SummaryScanWork, TraceSeeds, last_composable_usage_work,
-  last_notification_work, last_summary_scan_work, trace_reactivity_seeded,
+  ComposableUsageWork, NotificationWork, SummaryScanWork, TraceSeeds,
+  import_binding_collect_snapshot, last_composable_usage_work, last_notification_work,
+  last_summary_scan_work, trace_reactivity_seeded, trace_script_with_config,
   with_forced_full_notification,
 };
 

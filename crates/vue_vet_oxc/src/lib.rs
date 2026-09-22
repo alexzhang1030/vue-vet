@@ -15,7 +15,7 @@ use thiserror::Error;
 use vue_vet_core::{ScriptBlockFacts, ScriptKind, TemplateFacts};
 use vue_vet_plugins::default_trace_config;
 use vue_vet_reactivity::ModuleSummary;
-use vue_vet_reactivity::oxc::{prepare_module_summary_with_config, trace_reactivity_with_config};
+use vue_vet_reactivity::oxc::trace_script_with_config;
 
 mod facts;
 mod jsx;
@@ -201,21 +201,9 @@ fn analyze_module_source_inner(
 
   // Auto-load ecosystem plugins (Nuxt / vue-i18n) at the analysis boundary.
   let trace_config = default_trace_config();
-  let reactivity_graph = Arc::new(trace_reactivity_with_config(
-    &semantic,
-    sfc_source,
-    script_offset,
-    kind,
-    &trace_config,
-  ));
-  let module_trace = Arc::new(prepare_module_summary_with_config(
-    &semantic,
-    sfc_source,
-    script_offset,
-    kind,
-    Arc::clone(&reactivity_graph),
-    &trace_config,
-  ));
+  let traced = trace_script_with_config(&semantic, sfc_source, script_offset, kind, &trace_config);
+  let reactivity_graph = traced.graph;
+  let module_trace = Arc::new(traced.summary);
 
   Ok(ModuleAnalysis {
     script_facts: ScriptBlockFacts {

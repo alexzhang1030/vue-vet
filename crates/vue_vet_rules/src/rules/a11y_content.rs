@@ -1,6 +1,8 @@
-//! Shared helpers for accessible-name content rules.
+//! Shared helpers and the three accessible-name content rules.
 
-use vue_vet_core::TemplateElementFact;
+use vue_vet_core::{
+  Confidence, FactKinds, FactRef, Rule, RuleContext, RuleMeta, Severity, TemplateElementFact,
+};
 
 #[must_use]
 pub(super) const fn is_anchor_like(tag: &str) -> bool {
@@ -89,4 +91,85 @@ pub(super) fn association_token<'a>(
     return None;
   }
   Some(AssocToken::Expr(expression))
+}
+
+const CONTENT_HELP: &str =
+  "Add text content, an img/area with alt, or an aria-label/aria-labelledby binding.";
+
+pub(super) struct ContentRule {
+  meta: &'static RuleMeta,
+  matches: fn(&str) -> bool,
+  message: &'static str,
+}
+
+const fn is_button(tag: &str) -> bool {
+  tag.eq_ignore_ascii_case("button")
+}
+
+const ANCHOR_META: RuleMeta = RuleMeta {
+  id: "vue-vet/accessibility/anchor-has-content",
+  category: "accessibility",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/accessibility/anchor-has-content",
+  group: None,
+};
+
+const BUTTON_META: RuleMeta = RuleMeta {
+  id: "vue-vet/accessibility/button-has-content",
+  category: "accessibility",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/accessibility/button-has-content",
+  group: None,
+};
+
+const HEADING_META: RuleMeta = RuleMeta {
+  id: "vue-vet/accessibility/heading-has-content",
+  category: "accessibility",
+  default_severity: Severity::Warning,
+  confidence: Confidence::High,
+  documentation: "rules/accessibility/heading-has-content",
+  group: None,
+};
+
+pub(super) static ANCHOR: ContentRule = ContentRule {
+  meta: &ANCHOR_META,
+  matches: is_anchor_like,
+  message: "link has no accessible content",
+};
+
+pub(super) static BUTTON: ContentRule = ContentRule {
+  meta: &BUTTON_META,
+  matches: is_button,
+  message: "button has no accessible content",
+};
+
+pub(super) static HEADING: ContentRule = ContentRule {
+  meta: &HEADING_META,
+  matches: is_heading,
+  message: "heading has no accessible content",
+};
+
+impl Rule for ContentRule {
+  fn meta(&self) -> &'static RuleMeta {
+    self.meta
+  }
+
+  fn fact_kinds(&self) -> FactKinds {
+    FactKinds::TEMPLATE_ELEMENT
+  }
+
+  fn run_on(&self, fact: FactRef<'_>, context: &mut RuleContext<'_>) {
+    let FactRef::TemplateElement(element) = fact else {
+      return;
+    };
+    if !(self.matches)(&element.tag)
+      || element.has_accessible_content
+      || has_accessible_name_attrs(element)
+    {
+      return;
+    }
+    context.report(self.meta(), element.span, self.message.into(), Some(CONTENT_HELP.into()));
+  }
 }

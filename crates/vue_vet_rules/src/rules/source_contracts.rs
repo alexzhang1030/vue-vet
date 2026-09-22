@@ -2,7 +2,7 @@
 
 use vue_vet_core::{
   Confidence, CustomRefLostNotificationReason, Rule, RuleContext, RuleGroupId, RuleMeta, Severity,
-  SourceContractSiteFact, ToRefIgnoredKeyReason, WatchCallbackContractReason,
+  SourceContractFacts, SourceContractSiteFact, ToRefIgnoredKeyReason, WatchCallbackContractReason,
   WatchIgnoredOptionReason, WatchSignatureMismatchReason,
 };
 
@@ -267,18 +267,30 @@ const SHARED_DEFAULT_META: RuleMeta = RuleMeta {
   group: Some(RuleGroupId::SourceContracts),
 };
 
-pub(super) struct NoTriggerRefOnNonRef;
-pub(super) static NO_TRIGGER_REF_ON_NON_REF: NoTriggerRefOnNonRef = NoTriggerRefOnNonRef;
+pub(super) static NO_TRIGGER_REF_ON_NON_REF: SiteRule = SiteRule {
+  meta: &TRIGGER_META,
+  sites: trigger_ref_sites,
+  message: "`triggerRef` does not notify watchers unless the argument is a ref",
+  help: "Pass a `ref` / `shallowRef` / `customRef`, or mutate the reactive object instead.",
+};
 
-pub(super) struct NoToRefsOnNonProxy;
-pub(super) static NO_TOREFS_ON_NON_PROXY: NoToRefsOnNonProxy = NoToRefsOnNonProxy;
+pub(super) static NO_TOREFS_ON_NON_PROXY: SiteRule = SiteRule {
+  meta: &TOREFS_META,
+  sites: torefs_sites,
+  message: "`toRefs` expects a reactive object, not a plain object or array",
+  help: "Wrap the value with `reactive` / `readonly` first, or use `toRef` on a real proxy.",
+};
 
 pub(super) struct NoPrimitiveReactiveTarget;
 pub(super) static NO_PRIMITIVE_REACTIVE_TARGET: NoPrimitiveReactiveTarget =
   NoPrimitiveReactiveTarget;
 
-pub(super) struct NoWatchUnwrappedSource;
-pub(super) static NO_WATCH_UNWRAPPED_SOURCE: NoWatchUnwrappedSource = NoWatchUnwrappedSource;
+pub(super) static NO_WATCH_UNWRAPPED_SOURCE: SiteRule = SiteRule {
+  meta: &UNWRAPPED_META,
+  sites: unwrapped_sites,
+  message: "`watch` source is an unwrapped primitive, so later writes will not re-run the callback",
+  help: "Pass the ref itself (`watch(count, …)`) or a getter (`watch(() => state.n, …)`).",
+};
 
 pub(super) struct NoWatchReplacedObjectSource;
 pub(super) static NO_WATCH_REPLACED_OBJECT_SOURCE: NoWatchReplacedObjectSource =
@@ -299,9 +311,12 @@ pub(super) static NO_WATCH_ALIAS_OLD_NEW: NoWatchAliasOldNew = NoWatchAliasOldNe
 pub(super) struct NoToRefIgnoredKey;
 pub(super) static NO_TOREF_IGNORED_KEY: NoToRefIgnoredKey = NoToRefIgnoredKey;
 
-pub(super) struct NoEffectScopeCallbackArgument;
-pub(super) static NO_EFFECT_SCOPE_CALLBACK_ARGUMENT: NoEffectScopeCallbackArgument =
-  NoEffectScopeCallbackArgument;
+pub(super) static NO_EFFECT_SCOPE_CALLBACK_ARGUMENT: SiteRule = SiteRule {
+  meta: &EFFECT_SCOPE_META,
+  sites: effect_scope_sites,
+  message: "`effectScope` treats a function first argument as a truthy detached option; the callback body never runs",
+  help: "Call `effectScope()` or `effectScope(true)` for detached ownership, then `scope.run(callback)`. Do not pass the callback to the constructor.",
+};
 
 pub(super) struct NoInvalidCustomRefInterface;
 pub(super) static NO_INVALID_CUSTOM_REF_INTERFACE: NoInvalidCustomRefInterface =
@@ -371,46 +386,6 @@ pub(super) struct NoSharedDefaultCrossInstanceDemand;
 pub(super) static NO_SHARED_DEFAULT_CROSS_INSTANCE_DEMAND: NoSharedDefaultCrossInstanceDemand =
   NoSharedDefaultCrossInstanceDemand;
 
-impl Rule for NoTriggerRefOnNonRef {
-  fn meta(&self) -> &'static RuleMeta {
-    &TRIGGER_META
-  }
-
-  fn run_once(&self, context: &mut RuleContext<'_>) {
-    for block in &context.script().blocks {
-      for site in &block.source_contracts.trigger_ref_non_ref {
-        report_site(
-          context,
-          self.meta(),
-          site,
-          "`triggerRef` does not notify watchers unless the argument is a ref",
-          "Pass a `ref` / `shallowRef` / `customRef`, or mutate the reactive object instead.",
-        );
-      }
-    }
-  }
-}
-
-impl Rule for NoToRefsOnNonProxy {
-  fn meta(&self) -> &'static RuleMeta {
-    &TOREFS_META
-  }
-
-  fn run_once(&self, context: &mut RuleContext<'_>) {
-    for block in &context.script().blocks {
-      for site in &block.source_contracts.torefs_non_proxy {
-        report_site(
-          context,
-          self.meta(),
-          site,
-          "`toRefs` expects a reactive object, not a plain object or array",
-          "Wrap the value with `reactive` / `readonly` first, or use `toRef` on a real proxy.",
-        );
-      }
-    }
-  }
-}
-
 impl Rule for NoPrimitiveReactiveTarget {
   fn meta(&self) -> &'static RuleMeta {
     &PRIMITIVE_META
@@ -425,26 +400,6 @@ impl Rule for NoPrimitiveReactiveTarget {
           site.span,
           format!("`{api}` cannot make a primitive or null value reactive"),
           Some("Pass a non-null object, or use `ref` for primitive state.".into()),
-        );
-      }
-    }
-  }
-}
-
-impl Rule for NoWatchUnwrappedSource {
-  fn meta(&self) -> &'static RuleMeta {
-    &UNWRAPPED_META
-  }
-
-  fn run_once(&self, context: &mut RuleContext<'_>) {
-    for block in &context.script().blocks {
-      for site in &block.source_contracts.watch_unwrapped_source {
-        report_site(
-          context,
-          self.meta(),
-          site,
-          "`watch` source is an unwrapped primitive, so later writes will not re-run the callback",
-          "Pass the ref itself (`watch(count, …)`) or a getter (`watch(() => state.n, …)`).",
         );
       }
     }
@@ -582,28 +537,6 @@ impl Rule for NoToRefIgnoredKey {
           ),
         };
         context.report(self.meta(), site.span, message.into(), Some(help.into()));
-      }
-    }
-  }
-}
-
-impl Rule for NoEffectScopeCallbackArgument {
-  fn meta(&self) -> &'static RuleMeta {
-    &EFFECT_SCOPE_META
-  }
-
-  fn run_once(&self, context: &mut RuleContext<'_>) {
-    for block in &context.script().blocks {
-      for site in &block.source_contracts.effect_scope_callback {
-        context.report(
-          self.meta(),
-          site.span,
-          "`effectScope` treats a function first argument as a truthy detached option; the callback body never runs".into(),
-          Some(
-            "Call `effectScope()` or `effectScope(true)` for detached ownership, then `scope.run(callback)`. Do not pass the callback to the constructor."
-              .into(),
-          ),
-        );
       }
     }
   }
@@ -1198,6 +1131,43 @@ impl Rule for NoRefHistorySnapshotAlias {
             site.demand_span.column
           )),
         );
+      }
+    }
+  }
+}
+
+pub(super) struct SiteRule {
+  meta: &'static RuleMeta,
+  sites: fn(&SourceContractFacts) -> &[SourceContractSiteFact],
+  message: &'static str,
+  help: &'static str,
+}
+
+const fn trigger_ref_sites(facts: &SourceContractFacts) -> &[SourceContractSiteFact] {
+  facts.trigger_ref_non_ref.as_slice()
+}
+
+const fn torefs_sites(facts: &SourceContractFacts) -> &[SourceContractSiteFact] {
+  facts.torefs_non_proxy.as_slice()
+}
+
+const fn unwrapped_sites(facts: &SourceContractFacts) -> &[SourceContractSiteFact] {
+  facts.watch_unwrapped_source.as_slice()
+}
+
+const fn effect_scope_sites(facts: &SourceContractFacts) -> &[SourceContractSiteFact] {
+  facts.effect_scope_callback.as_slice()
+}
+
+impl Rule for SiteRule {
+  fn meta(&self) -> &'static RuleMeta {
+    self.meta
+  }
+
+  fn run_once(&self, context: &mut RuleContext<'_>) {
+    for block in &context.script().blocks {
+      for site in (self.sites)(&block.source_contracts) {
+        report_site(context, self.meta(), site, self.message, self.help);
       }
     }
   }

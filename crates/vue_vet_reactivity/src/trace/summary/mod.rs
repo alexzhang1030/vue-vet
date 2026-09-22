@@ -602,6 +602,16 @@ fn store_summary_scan_work(work: SummaryScanWork) {
   LAST_SUMMARY_SCAN_WORK.with(|slot| *slot.borrow_mut() = work);
 }
 
+/// Facts a preceding trace already collected. Summary reuses them instead of
+/// walking the same semantic again. Shape bindings are the nested-included
+/// collection from before typed-ref and options-slot augmentation.
+pub(super) struct SummaryReuse {
+  pub(super) imported_bindings: BTreeMap<String, (String, String)>,
+  pub(super) shape_bindings: Vec<vue_vet_core::ReactiveBindingFact>,
+  pub(super) options_callback_slots: BTreeMap<String, OptionsCallbackSlots>,
+  pub(super) typed_callback_param_slots: BTreeMap<String, TypedCallbackParamSlots>,
+}
+
 /// Prepare a module summary with an explicit plugin API-bag catalog.
 pub fn prepare_module_summary_with_config(
   semantic: &Semantic<'_>,
@@ -611,15 +621,61 @@ pub fn prepare_module_summary_with_config(
   local_graph: impl Into<Arc<ReactivityGraph>>,
   config: &super::TraceConfig<'_>,
 ) -> ModuleSummary {
+  prepare_module_summary_inner(
+    semantic,
+    span_source,
+    source_offset,
+    kind,
+    local_graph,
+    config,
+    None,
+  )
+}
+
+pub(super) fn prepare_module_summary_reusing(
+  semantic: &Semantic<'_>,
+  span_source: &str,
+  source_offset: usize,
+  kind: ScriptKind,
+  local_graph: impl Into<Arc<ReactivityGraph>>,
+  config: &super::TraceConfig<'_>,
+  reuse: SummaryReuse,
+) -> ModuleSummary {
+  prepare_module_summary_inner(
+    semantic,
+    span_source,
+    source_offset,
+    kind,
+    local_graph,
+    config,
+    Some(reuse),
+  )
+}
+
+fn prepare_module_summary_inner(
+  semantic: &Semantic<'_>,
+  span_source: &str,
+  source_offset: usize,
+  kind: ScriptKind,
+  local_graph: impl Into<Arc<ReactivityGraph>>,
+  config: &super::TraceConfig<'_>,
+  reuse: Option<SummaryReuse>,
+) -> ModuleSummary {
   let local_graph = local_graph.into();
   let imports = collect_imports(semantic);
   let exports = collect_exports(semantic);
   // One summary-local canonical import index; helpers and return analysis borrow it.
+  // A trace that already built the index passes it in and this counter stays at zero.
   #[cfg(test)]
   let (builds_before, visits_before) = import_binding_collect_snapshot();
-  let imported_bindings = collect_imported_bindings(semantic);
-  let shape_graph = ReactivityGraph {
-    bindings: collect_reactive_bindings(
+  let SummaryReuse {
+    imported_bindings,
+    shape_bindings,
+    options_callback_slots,
+    typed_callback_param_slots,
+  } = reuse.unwrap_or_else(|| {
+    let imported_bindings = collect_imported_bindings(semantic);
+    let shape_bindings = collect_reactive_bindings(
       semantic,
       &imported_bindings,
       span_source,
@@ -628,9 +684,15 @@ pub fn prepare_module_summary_with_config(
       true,
       config.named_api_bags,
     )
-    .bindings,
-    ..ReactivityGraph::default()
-  };
+    .bindings;
+    SummaryReuse {
+      imported_bindings,
+      shape_bindings,
+      options_callback_slots: collect_local_options_callback_slots(semantic),
+      typed_callback_param_slots: collect_local_typed_callback_param_slots(semantic),
+    }
+  });
+  let shape_graph = ReactivityGraph { bindings: shape_bindings, ..ReactivityGraph::default() };
   let locals = collect_local_values(
     semantic,
     &local_graph,
@@ -639,8 +701,6 @@ pub fn prepare_module_summary_with_config(
     span_source,
     &imported_bindings,
   );
-  let options_callback_slots = collect_local_options_callback_slots(semantic);
-  let typed_callback_param_slots = collect_local_typed_callback_param_slots(semantic);
   let provides = collect_provide_sites(
     semantic,
     &imported_bindings,
