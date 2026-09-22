@@ -560,7 +560,7 @@ impl Indexes {
       return;
     };
     if assignment_poisons_map_intrinsic(semantic, target, &self.work) {
-      self.map_intrinsic_poisoned = true;
+      self.native_index.map_intrinsic_poisoned = true;
     }
   }
 

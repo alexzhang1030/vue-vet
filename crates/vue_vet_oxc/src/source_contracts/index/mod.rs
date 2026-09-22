@@ -57,6 +57,9 @@ const MAX_ROLE_ANCESTORS: u8 = 8;
 const MAX_ESCAPE_DEPTH: u8 = 8;
 
 mod awaits;
+mod classes;
+mod natives;
+mod options;
 mod queries;
 mod scan;
 mod sites;
@@ -71,10 +74,6 @@ pub(super) struct ObjectIndex {
   literals: HashMap<u64, Literal>,
 }
 
-#[expect(
-  clippy::struct_excessive_bools,
-  reason = "clone/map intrinsic poison, prototype mutation, and unresolved origin touch are independent whole-file proofs"
-)]
 pub(super) struct Indexes {
   pub vue_imports: HashMap<SymbolId, VueImport>,
   pub vueuse_imports: HashMap<SymbolId, VueUseImport>,
@@ -87,8 +86,8 @@ pub(super) struct Indexes {
   pub capability_poisoned: HashSet<SymbolId>,
   unresolved_escape_spans: Vec<Span>,
   unresolved_global_refs: Vec<(Span, &'static str)>,
-  pub tainted_ctors: HashSet<&'static str>,
-  pub extracted_methods: HashMap<SymbolId, ExtractedMethod>,
+  pub native_index: natives::NativeIndex,
+  pub class_index: classes::ClassIndex,
   pub toref_identity_uncertain: HashSet<SymbolId>,
   pub toref_helper_escape: HashSet<SymbolId>,
   pub value_writes: HashMap<SymbolId, Vec<ValueWrite>>,
@@ -106,8 +105,7 @@ pub(super) struct Indexes {
   pub destructure_by_object: HashMap<SymbolId, Vec<(SymbolId, String)>>,
   call_destructure: HashMap<u64, Vec<(SymbolId, String)>>,
   value_writes_by_callable: HashMap<(SymbolId, Option<NodeId>), Vec<ValueWrite>>,
-  pub awaits: Vec<AwaitSite>,
-  pub awaits_by_callable: HashMap<Option<NodeId>, Vec<AwaitSite>>,
+  pub awaits_by_callable: HashMap<Option<NodeId>, Vec<AwaitPositionSite>>,
   pub disposals_by_callable: HashMap<Option<NodeId>, Vec<DisposeSite>>,
   pub watches_by_source: HashMap<SymbolId, Vec<WatchConsumer>>,
   pub effect_callbacks: HashMap<NodeId, EffectCallback>,
@@ -128,8 +126,7 @@ pub(super) struct Indexes {
   pub literal_span: HashMap<u64, Span>,
   /// Array expression spans whose elements include a spread.
   pub array_spread: HashSet<u64>,
-  pub collections: HashMap<u64, CollectionCtor>,
-  pub clone_intrinsic_poisoned: bool,
+
   pub arrays: HashSet<u64>,
   pub closed_objects: HashMap<u64, bool>,
   pub capability_uncertain: HashSet<SymbolId>,
@@ -140,8 +137,7 @@ pub(super) struct Indexes {
   pub init_span: HashMap<SymbolId, Span>,
   pub value_write_roots: HashSet<SymbolId>,
   pub member_write_roots: HashSet<SymbolId>,
-  pub prototype_mutated: bool,
-  pub shadowed_ctors: HashSet<&'static str>,
+
   stop_offsets: Timeline,
   producer_call_offsets: Timeline,
   allowed_offsets: Timeline,
@@ -149,7 +145,7 @@ pub(super) struct Indexes {
   pub function_by_node: HashMap<NodeId, Span>,
   pub effect_calls: HashMap<u64, ArgUse>,
   pub watch_getters: HashMap<u64, ArgUse>,
-  pub watch_options: HashMap<u64, WatchConsumerOptions>,
+  pub options: options::OptionsIndex,
   pub call_results: HashMap<u64, SymbolId>,
   pub arg_uses: HashMap<SymbolId, Vec<ArgUse>>,
   pub ident_calls: HashMap<SymbolId, Vec<IdentCall>>,
@@ -170,13 +166,11 @@ pub(super) struct Indexes {
   closed_keys: HashMap<u64, HashSet<String>>,
   owners: HashMap<NodeId, Owner>,
   global_this_aliases: HashSet<SymbolId>,
-  native_ctor_aliases: HashMap<SymbolId, &'static str>,
+
   terminations_by_callable: HashMap<Option<NodeId>, Timeline>,
   pub object_literals: HashSet<u64>,
   pub news: HashMap<u64, NewInfo>,
-  pub classes: HashMap<SymbolId, ClassRecord>,
-  pub class_news: HashMap<u64, ClassNewInfo>,
-  pub prototype_touch: HashSet<SymbolId>,
+
   pub map_init_keys: HashMap<u64, Option<Vec<MapKeyRef>>>,
   pub member_calls: HashMap<(SymbolId, String), Vec<MemberCallSite>>,
   pub member_call_by_node: HashMap<NodeId, MemberCallSite>,
@@ -186,7 +180,7 @@ pub(super) struct Indexes {
   wrappers_of_alloc: HashMap<SymbolId, Vec<SymbolId>>,
   pub skip_marker_objects: HashSet<u64>,
   pub skip_written: HashSet<SymbolId>,
-  pub map_intrinsic_poisoned: bool,
+
   pub region_start: HashMap<NodeId, usize>,
   pub init_offset: HashMap<SymbolId, usize>,
   pub known_truthy: HashMap<u64, bool>,
@@ -200,14 +194,9 @@ pub(super) struct Indexes {
   unresolved_origin_touch: bool,
   alloc_capability: HashMap<SymbolId, bool>,
   await_index: AwaitIndexes,
-  native_symbols: HashMap<SymbolId, NativeSymbol>,
   provides_by_key: HashMap<SymbolId, Vec<InjectionSite>>,
   injects_by_key: HashMap<SymbolId, Vec<InjectionSite>>,
   script_kind: ScriptKind,
-  pub(super) dates: HashSet<u64>,
-  pub(super) date_poisoned: bool,
-  pub(super) json_poisoned: bool,
-  pub(super) string_capability_poisoned: bool,
   path_calls: HashMap<SymbolId, Vec<PathCall>>,
   path_reads: HashMap<SymbolId, Vec<PathRead>>,
   path_value_writes: HashMap<SymbolId, Vec<(Vec<String>, PathWrite)>>,
@@ -243,8 +232,8 @@ impl Indexes {
       capability_poisoned: HashSet::new(),
       unresolved_escape_spans: Vec::new(),
       unresolved_global_refs: Vec::new(),
-      tainted_ctors: HashSet::new(),
-      extracted_methods: HashMap::new(),
+      native_index: natives::NativeIndex::default(),
+      class_index: classes::ClassIndex::default(),
       toref_identity_uncertain: HashSet::new(),
       toref_helper_escape: HashSet::new(),
       value_writes: HashMap::new(),
@@ -260,7 +249,6 @@ impl Indexes {
       destructure_by_object: HashMap::new(),
       call_destructure: HashMap::new(),
       value_writes_by_callable: HashMap::new(),
-      awaits: Vec::new(),
       awaits_by_callable: HashMap::new(),
       disposals_by_callable: HashMap::new(),
       watches_by_source: HashMap::new(),
@@ -280,8 +268,7 @@ impl Indexes {
       object_index: ObjectIndex::default(),
       literal_span: HashMap::new(),
       array_spread: HashSet::new(),
-      collections: HashMap::new(),
-      clone_intrinsic_poisoned: false,
+
       arrays: HashSet::new(),
       closed_objects: HashMap::new(),
       capability_uncertain: HashSet::new(),
@@ -292,8 +279,7 @@ impl Indexes {
       init_span: HashMap::new(),
       value_write_roots: HashSet::new(),
       member_write_roots: HashSet::new(),
-      prototype_mutated: false,
-      shadowed_ctors: HashSet::new(),
+
       stop_offsets: Timeline::new(),
       producer_call_offsets: Timeline::new(),
       allowed_offsets: Timeline::new(),
@@ -301,7 +287,7 @@ impl Indexes {
       function_by_node: HashMap::new(),
       effect_calls: HashMap::new(),
       watch_getters: HashMap::new(),
-      watch_options: HashMap::new(),
+      options: options::OptionsIndex::default(),
       call_results: HashMap::new(),
       arg_uses: HashMap::new(),
       ident_calls: HashMap::new(),
@@ -321,13 +307,11 @@ impl Indexes {
       closed_keys: HashMap::new(),
       owners: HashMap::new(),
       global_this_aliases: HashSet::new(),
-      native_ctor_aliases: HashMap::new(),
+
       terminations_by_callable: HashMap::new(),
       object_literals: HashSet::new(),
       news: HashMap::new(),
-      classes: HashMap::new(),
-      class_news: HashMap::new(),
-      prototype_touch: HashSet::new(),
+
       map_init_keys: HashMap::new(),
       member_calls: HashMap::new(),
       member_call_by_node: HashMap::new(),
@@ -337,7 +321,7 @@ impl Indexes {
       wrappers_of_alloc: HashMap::new(),
       skip_marker_objects: HashSet::new(),
       skip_written: HashSet::new(),
-      map_intrinsic_poisoned: false,
+
       region_start: HashMap::new(),
       init_offset: HashMap::new(),
       known_truthy: HashMap::new(),
@@ -351,14 +335,11 @@ impl Indexes {
       unresolved_origin_touch: false,
       alloc_capability: HashMap::new(),
       await_index: AwaitIndexes::default(),
-      native_symbols: HashMap::new(),
+
       provides_by_key: HashMap::new(),
       injects_by_key: HashMap::new(),
       script_kind: kind,
-      dates: HashSet::new(),
-      date_poisoned: false,
-      json_poisoned: false,
-      string_capability_poisoned: false,
+
       path_calls: HashMap::new(),
       path_reads: HashMap::new(),
       path_value_writes: HashMap::new(),
@@ -428,10 +409,9 @@ impl Indexes {
     self.reads.sort(&self.work);
     for awaits in self.awaits_by_callable.values_mut() {
       self.work.add_queries(awaits.len() as u64);
-      awaits.sort_by_key(|site| site.offset);
+      awaits.sort_by_key(|site| site.head.offset);
     }
-    self.work.add_queries(self.awaits.len() as u64);
-    self.awaits.sort_by_key(|site| site.offset);
+    self.work.add_queries(self.await_index.awaits.len() as u64);
     self.await_index.awaits.sort_by_key(|site| site.head.offset);
     for uses in self.await_index.await_method_calls.values_mut() {
       uses.sort_by_key(|use_site| use_site.site.head.offset);
@@ -788,7 +768,7 @@ impl Indexes {
     };
     self.work.add_writes(1);
     if assignment_poisons_clone_intrinsic(semantic, target, &self.work) {
-      self.clone_intrinsic_poisoned = true;
+      self.native_index.clone_intrinsic_poisoned = true;
     }
     self.taint_assignment_target(semantic, target);
     self.mark_pattern_uncertain(semantic, target);

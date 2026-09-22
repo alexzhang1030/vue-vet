@@ -28,7 +28,7 @@ enum ProxyProof {
 
 impl Collector<'_> {
   pub(super) fn collect_structured_clone(&mut self, info: CallInfo) {
-    if self.indexes.clone_intrinsic_poisoned {
+    if self.indexes.native_index.clone_intrinsic_poisoned {
       return;
     }
     if info.has_spread || info.arg_count != 1 {

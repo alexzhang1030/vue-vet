@@ -54,7 +54,7 @@ struct EntryProv {
 
 impl Collector<'_> {
   pub(super) fn collect_all_raw_proxy_map_gets(&mut self) {
-    if self.indexes.map_intrinsic_poisoned {
+    if self.indexes.native_index.map_intrinsic_poisoned {
       return;
     }
     let roots = self.indexes.map_get_roots();
@@ -178,7 +178,7 @@ impl Collector<'_> {
   }
 
   pub(super) fn collect_keyed_map_foreach(&mut self, node_id: NodeId, call: &CallExpression<'_>) {
-    if self.indexes.map_intrinsic_poisoned {
+    if self.indexes.native_index.map_intrinsic_poisoned {
       return;
     }
     let Some(site) = self.member_site(node_id, call, "forEach") else {
@@ -261,7 +261,7 @@ impl Collector<'_> {
 
   fn native_map_root(&mut self, root: SymbolId) -> Option<SymbolId> {
     self.indexes.note_query();
-    if self.indexes.map_intrinsic_poisoned {
+    if self.indexes.native_index.map_intrinsic_poisoned {
       return None;
     }
     if !self.semantic.scoping().symbol_flags(root).contains(SymbolFlags::ConstVariable) {
@@ -333,7 +333,7 @@ impl Collector<'_> {
 
   fn reactive_map_root(&mut self, root: SymbolId) -> Option<SymbolId> {
     self.indexes.note_query();
-    if self.indexes.map_intrinsic_poisoned {
+    if self.indexes.native_index.map_intrinsic_poisoned {
       return None;
     }
     if !self.semantic.scoping().symbol_flags(root).contains(SymbolFlags::ConstVariable) {

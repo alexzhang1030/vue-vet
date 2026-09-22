@@ -78,9 +78,9 @@ impl Collector<'_> {
     if info.vueuse != Some("useCloned") || info.has_spread {
       return;
     }
-    if self.indexes.date_poisoned
-      || self.indexes.json_poisoned
-      || self.indexes.string_capability_poisoned
+    if self.indexes.native_index.date_poisoned
+      || self.indexes.native_index.json_poisoned
+      || self.indexes.native_index.string_capability_poisoned
     {
       return;
     }

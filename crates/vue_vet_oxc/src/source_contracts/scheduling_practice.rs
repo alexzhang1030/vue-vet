@@ -15,7 +15,7 @@ use oxc_semantic::{NodeId, SymbolId};
 use oxc_span::{GetSpan, Span};
 use vue_vet_core::{AttachedEffectScopeFact, LazyComputedAsyncFact, QueuedWatchFlushFact};
 
-use super::index::{AwaitSite, CallInfo, MemberCall, WatchConsumer};
+use super::index::{AwaitPositionSite, CallInfo, MemberCall, WatchConsumer};
 use super::proof::is_ts_wrapper;
 use super::shape::{PrimitiveAtom, ShapeHint, primitive_atom, span_key};
 use super::timeline;
@@ -77,13 +77,13 @@ impl Collector<'_> {
     let Some(tick) = self.next_tick_after(cluster_end, watch_callable, cluster_block) else {
       return;
     };
-    if !self.watcher_active_through(call, tick.offset) {
+    if !self.watcher_active_through(call, tick.head.offset) {
       return;
     }
-    if !self.sink_reads_only_after(watch.sink, tick.offset) {
+    if !self.sink_reads_only_after(watch.sink, tick.head.offset) {
       return;
     }
-    let Some(demand_span) = self.first_sink_read_after(watch.sink, tick.offset) else {
+    let Some(demand_span) = self.first_sink_read_after(watch.sink, tick.head.offset) else {
       return;
     };
     self.facts.scheduling_practice.queued_watch_flush.push(QueuedWatchFlushFact {
@@ -343,7 +343,8 @@ impl Collector<'_> {
     if self.indexes.object_has_spread(span) || !self.scheduling_option_keys_closed(span) {
       return None;
     }
-    let flush = match self.indexes.option_value(span, "flush") {
+    let closed = self.indexes.closed_options(span, true, true, false, false);
+    let flush = match closed.flush {
       super::shape::OptionValue::Known(super::shape::Literal::String) => {
         let super::index::ObjectProp::Value(value) = self.indexes.object_prop(span, "flush")?
         else {
@@ -356,7 +357,7 @@ impl Collector<'_> {
       }
       _ => return None,
     };
-    let immediate = match self.indexes.option_value(span, "immediate") {
+    let immediate = match closed.immediate {
       super::shape::OptionValue::Absent => None,
       super::shape::OptionValue::Known(super::shape::Literal::Bool(value)) => Some(value),
       super::shape::OptionValue::Known(_) | super::shape::OptionValue::Unknown => return None,
@@ -492,11 +493,11 @@ impl Collector<'_> {
     offset: usize,
     callable: Option<NodeId>,
     block: NodeId,
-  ) -> Option<&AwaitSite> {
+  ) -> Option<&AwaitPositionSite> {
     let work = self.indexes.work_counter();
     timeline::after(work, self.indexes.awaits_of(callable), offset).iter().find(|site| {
       self.indexes.note_query();
-      site.callable == callable && site.block == block && site.callee_api == Some("nextTick")
+      site.head.callable == callable && site.block == block && site.callee_api == Some("nextTick")
     })
   }
 
