@@ -85,5 +85,5 @@ handling.
 - Valid: `fixtures/rules/no-proxy-structured-clone/valid/`
 
 Runtime evidence: pinned Vue 3.5.40 + Node `structuredClone`
-(`just oracle-source-contracts`) asserts exception name `DataCloneError` for
+(`just oracle-all`) asserts exception name `DataCloneError` for
 the promised positives and successful clone of the safe controls.

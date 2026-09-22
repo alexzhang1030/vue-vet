@@ -33,29 +33,17 @@ roll-rust: lint-rust test
 roll: roll-rust npm-test
 
 # Refresh committed Vue onTrack oracle fixtures (requires pnpm + Node).
-# Differs from `oracle lane`: writes fixtures via `pnpm oracle:write`.
+# Writes fixtures via `pnpm oracle:write`. Separate from `oracle` and `oracle-all`.
 oracle-refresh:
   cd crates/vue_vet_reactivity/oracle && pnpm install && pnpm oracle:write
 
 # Compare static tracer to committed runtime oracle (no Node required).
-# Differs from `oracle lane`: this is a cargo test, not a Node script.
+# Cargo test. Premise scripts are `oracle-all`.
 oracle:
   cargo test -p vue_vet_reactivity --lib oracle --locked
 
-# Run one Node oracle lane (`just oracle-lane computed-identity` → computed-identity.mjs).
-# Named `oracle-lane` because `oracle` is the cargo onTrack comparison.
-oracle-lane lane:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node {{lane}}.mjs
-
-# Vue 3.5.40 watcher cleanup / effectScope lifetime evidence (two Node files).
-oracle-lifetime:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node lifetime-runs.mjs && node lifetime-ownership-runs.mjs
-
-# Vue 3.5.40 source-contract premises (four Node files).
-oracle-source-contracts:
-  cd crates/vue_vet_reactivity/oracle && pnpm install --frozen-lockfile && node source-contracts.mjs && node watch-api.mjs && node watch-callback-contracts.mjs && node value-contracts.mjs
-
-# Every Node evidence lane (install once). Does not include `oracle` or `oracle-refresh`.
+# Every Node evidence lane (install once). Discovers `oracle/*.mjs`.
+# Does not include `oracle` (cargo onTrack comparison) or `oracle-refresh`.
 oracle-all:
   #!/usr/bin/env bash
   set -euo pipefail

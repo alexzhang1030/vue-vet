@@ -67,7 +67,7 @@ Parent `null`, already-defined values, guarded/optional demands (including a pre
 
 ## Evidence
 
-Vue 3.5.40 compiled-SFC premises live in `crates/vue_vet_reactivity/oracle/model-demand.mjs` (`just oracle-model-demand`). That oracle compiles every project and rule fixture with `@vue/compiler-sfc` 3.5.40 and mounts the shipped parent/child pairs.
+Vue 3.5.40 compiled-SFC premises live in `crates/vue_vet_reactivity/oracle/model-demand.mjs` (`just oracle-all`). That oracle compiles every project and rule fixture with `@vue/compiler-sfc` 3.5.40 and mounts the shipped parent/child pairs.
 
 ## Remediation
 

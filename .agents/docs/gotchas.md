@@ -159,7 +159,7 @@ Product stance and the graph contract live in
   run inside the parent scope. `toValue(() => …)` tracks; `unref` does not
   call. Only `const scope = effectScope(); scope.run(cb)` is a tracking body.
 - `just oracle` compares edges to Vue `onTrack` JSON; it does **not** prove
-  run counts (`just oracle-self-trigger` does). Vue 3.5 coalesces a sync
+  run counts (`self-trigger-runs.mjs` via `just oracle-all` does). Vue 3.5 coalesces a sync
   self-assign in `watch*Effect` into one run; computed self-write is impurity,
   not a loop. `pauseTracking` / `enableTracking` are not public `vue` exports.
 - `ReactiveGuardRole` is metadata on one Conditional read; the per-guard rule
@@ -269,7 +269,7 @@ source-order barriers; generic source5 still uses immediate
   demand proof.
 - Object literals execute computed keys and pattern defaults. Memoized
   closed-key sets are borrowed per key — cloning per call is quadratic.
-- `SourceContractStats` is a fixed nine-`u64` snapshot pinned by `stats.rs`.
+- `SourceContractStats` is a five-`u64` snapshot (`nodes`, `owners`, `object_entries`, `writes`, `queries`) pinned by `stats.rs`. Reference walks, import-source steps, key lookups, and key copies charge `queries`. Production `WorkCounter` stays zero-sized.
 
 ### Identifier escapes
 
@@ -324,14 +324,14 @@ later distinct EventTarget **allocation** while the watcher is active.
 Default `flush: 'pre'` coalesces sync writes, so two batched allocations are a
 safe control. Const handle aliases canonicalize before stop / pause / resume;
 an earlier conditional stop bounds the active interval. `null` handlers create
-no listener. Runtime pin: `just oracle-cleanup-identity`.
+no listener. Runtime pin: `cleanup-identity-runs.mjs` via `just oracle-all`.
 
 ### `once: true` is not a late cancellation-guard window
 
 Vue 3.5 wraps a `once` callback as `_cb(...); watchHandle()`, so `stop()` runs
 every cleanup before the first `await` settles. `no-late-cancellation-guard`
 abstains on literal `once: true` and stays Unknown for non-literal options.
-`watch*Effect` has no `once`. Runtime pin: `just oracle-stale-settlement`.
+`watch*Effect` has no `once`. Runtime pin: `stale-settlement-runs.mjs` via `just oracle-all`.
 
 ### Template-only SFC edits re-run script analysis
 
