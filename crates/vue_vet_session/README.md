@@ -22,7 +22,7 @@ Workspace-internal (`publish = false`). Dependents: `vue-vet`, `vue_vet_lsp`,
 | `ProjectSession::{open, analyze, analyze_fresh, analyze_with_overlays, …}` | Session handle |
 | `apply_changes` / `analyze_affected` / `analyze_affected_product` | Incremental |
 | `SessionOptions` | `root`, `config_path`, `cache_dir`, `no_cache`, `threads`, `selected_groups` |
-| `AnalysisSnapshot` | Arc summary/graph/coverage/issues/work |
+| `AnalysisSnapshot` | Arc summary/graph/coverage/issues/work plus typed evidence and cache telemetry |
 | `ChangeSet` / `ChangeImpact` / `DirtyPlan` / `ScanWorkCounters` | Locality |
 | `AnalysisProduct` | `DiagnosticsOnly` / `DiagnosticsAndNavigation` / `FullReport` |
 | `Explained::{Rule, Finding}` | Explain outcomes |

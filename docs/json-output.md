@@ -26,6 +26,9 @@ format is version 1:
     "affected_file_count": 0,
     "by_severity": { "info": 0, "warning": 0, "error": 0 }
   },
+  "evidence": {
+    "status": "complete"
+  },
   "reactivity": {
     "modules": 2,
     "bindings": 3,
@@ -45,6 +48,16 @@ format is version 1:
   "error": null
 }
 ```
+
+`evidence.status` is the authoritative coverage contract for the facts behind
+the report. It is `complete`, `partial`, or `unavailable`. Partial and
+unavailable scans include `evidence.gaps`, with stable `code` values and
+counts. `project.complete` remains available for compatibility; consumers
+should read both fields when deciding whether an empty finding list is clean.
+
+Cache lookup status and structured rejection reasons live on the session
+snapshot and host telemetry. They stay outside the deterministic JSON result so
+cold and warm scans retain byte-identical analysis output.
 
 `reactivity` is an additive optional field (still `schema_version` 1). It summarizes the
 static tracer so consumers can tell a clean score is not the same as “tracer did

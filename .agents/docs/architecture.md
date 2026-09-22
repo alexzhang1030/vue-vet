@@ -247,6 +247,25 @@ diagnostic normalization and emit findings when unused.
 
 ## Stable boundary
 
+The public analysis contract has three typed layers:
+
+1. `ProjectGraph` carries deterministic nodes, edges, source spans,
+   invalidation inputs, and module reactivity. `PROJECT_GRAPH_SCHEMA_VERSION`
+   names the graph DTO contract independently from convention and rule
+   versions used to invalidate analysis behavior.
+2. `EvidenceSummary` carries `complete`, `partial`, or `unavailable` status
+   with counted `EvidenceGapCode` values. Findings describe observations;
+   evidence describes the coverage behind those observations.
+3. `AnalysisSnapshot`, `ScanSummary`, and `ReportContext` carry the same
+   evidence status across CLI, LSP, MCP, and JSON paths. CLI, MCP, and JSON
+   publish it directly; the LSP host retains it beside its diagnostic product.
+   An empty diagnostic list gains meaning from the evidence status and coverage
+   fields.
+
+Adapters may add facts and stages, while these layers keep their own DTOs and
+deterministic ordering. A new graph field or evidence code needs a focused
+compatibility test and a cache/output version review.
+
 Vue Vet's normalized facts and diagnostics are the architectural seam.
 Dependency AST objects must not cross into public rule, reporter, cache, LSP,
 or agent contracts.

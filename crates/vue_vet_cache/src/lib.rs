@@ -16,8 +16,10 @@ use std::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use vue_vet_core::{Diagnostic, FileId, REACTIVITY_GRAPH_VERSION, ScanSummary};
-use vue_vet_project::{CONVENTIONS_VERSION, OXC_RESOLVER_VERSION, ProjectGraph};
+use vue_vet_core::{CacheRejection, Diagnostic, FileId, REACTIVITY_GRAPH_VERSION, ScanSummary};
+use vue_vet_project::{
+  CONVENTIONS_VERSION, OXC_RESOLVER_VERSION, PROJECT_GRAPH_SCHEMA_VERSION, ProjectGraph,
+};
 
 pub const CACHE_FORMAT_VERSION: u32 = 5;
 pub const BASELINE_FORMAT_VERSION: u32 = 1;
@@ -172,6 +174,22 @@ pub enum CacheLookup {
   Hit(Box<CachePayload>),
   Miss,
   RecoveredCorruption,
+  IncompatibleGraph { found: u32 },
+}
+
+impl CacheLookup {
+  /// Structured reason when this lookup did not reuse persisted work.
+  #[must_use]
+  pub const fn rejection(&self) -> Option<CacheRejection> {
+    match self {
+      Self::Hit(_) => None,
+      Self::Miss => Some(CacheRejection::Absent),
+      Self::RecoveredCorruption => Some(CacheRejection::Undecodable),
+      Self::IncompatibleGraph { found } => {
+        Some(CacheRejection::GraphSchema { found: *found, expected: PROJECT_GRAPH_SCHEMA_VERSION })
+      }
+    }
+  }
 }
 
 #[derive(Debug, Error)]
@@ -223,7 +241,13 @@ impl CacheStore {
     };
     match serde_json::from_slice::<CacheEnvelope>(&bytes) {
       Ok(entry) if entry.version == CACHE_FORMAT_VERSION => {
-        CacheLookup::Hit(Box::new(entry.payload))
+        if entry.payload.graph.has_current_schema() {
+          CacheLookup::Hit(Box::new(entry.payload))
+        } else {
+          let found = entry.payload.graph.schema_version;
+          let _ignored = fs::remove_file(&path);
+          CacheLookup::IncompatibleGraph { found }
+        }
       }
       Ok(_) | Err(_) => {
         let _ignored = fs::remove_file(path);
@@ -305,6 +329,11 @@ pub fn content_key_with_identity<T: AsRef<[u8]>>(
   hash_field(&mut hasher, b"oxc-version", identity.oxc_parser.as_bytes());
   hash_field(&mut hasher, b"oxc-resolver-version", identity.oxc_resolver.as_bytes());
   hash_field(&mut hasher, b"conventions-version", &CONVENTIONS_VERSION.to_le_bytes());
+  hash_field(
+    &mut hasher,
+    b"project-graph-schema-version",
+    &PROJECT_GRAPH_SCHEMA_VERSION.to_le_bytes(),
+  );
   hash_field(&mut hasher, b"ruleset-version", &RULESET_VERSION.to_le_bytes());
   hash_field(&mut hasher, b"reactivity-graph-version", &REACTIVITY_GRAPH_VERSION.to_le_bytes());
   hash_field(&mut hasher, b"config", config);
@@ -605,6 +634,36 @@ mod tests {
     assert!(fs::write(&path, b"not json").is_ok(), "corrupt fixture must be writable");
     assert_eq!(store.load("broken"), CacheLookup::RecoveredCorruption);
     let _ignored = fs::remove_dir_all(root);
+  }
+
+  #[test]
+  fn lookup_exposes_a_stable_rejection_reason() {
+    assert_eq!(CacheLookup::Miss.rejection(), Some(CacheRejection::Absent));
+    assert_eq!(CacheLookup::RecoveredCorruption.rejection(), Some(CacheRejection::Undecodable));
+    assert_eq!(CacheLookup::Hit(Box::new(sample_payload())).rejection(), None);
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "cache fixture failures must fail the unit test")]
+  fn cache_rejects_a_different_graph_schema() {
+    let root = std::env::temp_dir().join(format!("vue_vet_cache-schema-{}", std::process::id()));
+    let store = CacheStore::new(root.clone());
+    let mut payload = sample_payload();
+    payload.graph.schema_version = PROJECT_GRAPH_SCHEMA_VERSION + 1;
+    store
+      .store("schema", &payload)
+      .unwrap_or_else(|error| panic!("store graph schema fixture: {error}"));
+    let lookup = store.load("schema");
+    assert_eq!(lookup, CacheLookup::IncompatibleGraph { found: PROJECT_GRAPH_SCHEMA_VERSION + 1 });
+    assert_eq!(
+      lookup.rejection(),
+      Some(CacheRejection::GraphSchema {
+        found: PROJECT_GRAPH_SCHEMA_VERSION + 1,
+        expected: PROJECT_GRAPH_SCHEMA_VERSION,
+      })
+    );
+    assert!(!store.entry_path("schema").exists(), "incompatible graph cache entry must be removed");
+    fs::remove_dir_all(root).unwrap_or_else(|error| panic!("remove graph schema fixture: {error}"));
   }
 
   fn sample_payload() -> CachePayload {

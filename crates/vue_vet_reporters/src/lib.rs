@@ -52,7 +52,7 @@ use text::render_text;
 pub use text::{render_text_diagnostics, render_text_score_footer};
 
 pub use vue_vet_core::{
-  FindingExplain, RuleExplain, ScopeExplain, ScopeExplainDep, ScopeTrackReason,
+  EvidenceSummary, FindingExplain, RuleExplain, ScopeExplain, ScopeExplainDep, ScopeTrackReason,
 };
 
 pub const JSON_SCHEMA_VERSION: u8 = 1;
@@ -78,7 +78,10 @@ pub struct ReportContext {
   pub framework: ReportFramework,
   pub project_root: String,
   pub analyzed_files: Vec<String>,
+  /// Compatibility field; JSON completeness is derived from [`Self::evidence`].
   pub complete: bool,
+  /// Typed coverage contract for the facts behind this report.
+  pub evidence: EvidenceSummary,
   pub skipped_check_reasons: BTreeMap<String, String>,
   pub reactivity: Option<ReactivityDigest>,
   /// Structural component `uses` / `used_by` (not prop dataflow).
@@ -95,6 +98,7 @@ impl Default for ReportContext {
       project_root: ".".into(),
       analyzed_files: Vec::new(),
       complete: true,
+      evidence: EvidenceSummary::complete(),
       skipped_check_reasons: BTreeMap::new(),
       reactivity: None,
       component_nav: None,
@@ -133,7 +137,8 @@ pub fn render(
 mod tests {
   use serde_json::Value;
   use vue_vet_core::{
-    ByteRange, Confidence, Diagnostic, EditApplicability, FileId, Severity, SourceSpan, TextEdit,
+    ByteRange, Confidence, Diagnostic, EditApplicability, EvidenceGap, EvidenceGapCode,
+    EvidenceSummary, FileId, Severity, SourceSpan, TextEdit,
   };
 
   use super::*;
@@ -208,6 +213,25 @@ mod tests {
   }
 
   #[test]
+  fn json_report_emits_partial_evidence_gaps() {
+    let context = ReportContext {
+      evidence: EvidenceSummary::partial([EvidenceGap { code: EvidenceGapCode::Parse, count: 2 }]),
+      ..fixture_context()
+    };
+    let rendered = render(&fixture_summary(), ReportFormat::Json, &context);
+    let parsed =
+      rendered.as_ref().ok().and_then(|output| serde_json::from_str::<Value>(output).ok());
+    assert_eq!(
+      parsed.as_ref().and_then(|report| report.get("evidence")),
+      Some(&serde_json::json!({"status": "partial", "gaps": [{"code": "parse", "count": 2}]}))
+    );
+    assert_eq!(
+      parsed.as_ref().and_then(|report| report.pointer("/project/complete")),
+      Some(&Value::Bool(false))
+    );
+  }
+
+  #[test]
   fn json_report_uses_the_pre_normalized_file_id() {
     let mut summary = fixture_summary();
     if let Some(diagnostic) = summary.diagnostics.first_mut() {
@@ -276,7 +300,10 @@ mod tests {
   #[test]
   fn incomplete_scan_explains_skipped_checks() {
     let context = ReportContext {
-      complete: false,
+      evidence: EvidenceSummary::partial([EvidenceGap {
+        code: EvidenceGapCode::ModuleReactivity,
+        count: 1,
+      }]),
       skipped_check_reasons: BTreeMap::from([(
         "module_reactivity".into(),
         "module tracing failed".into(),
@@ -306,13 +333,20 @@ mod tests {
   #[test]
   fn operational_error_uses_the_same_parseable_contract() {
     let context = ReportContext {
-      complete: false,
       skipped_check_reasons: BTreeMap::from([("scan".into(), "parser failed".into())]),
       ..fixture_context()
     };
     let rendered = render_error("parser failed", &context);
     let parsed =
       rendered.as_ref().ok().and_then(|output| serde_json::from_str::<Value>(output).ok());
+    assert_eq!(
+      parsed.as_ref().and_then(|report| report.pointer("/evidence/status")).and_then(Value::as_str),
+      Some("unavailable")
+    );
+    assert_eq!(
+      parsed.as_ref().and_then(|report| report.pointer("/project/complete")),
+      Some(&Value::Bool(false))
+    );
     assert_eq!(
       parsed.as_ref().and_then(|report| report.get("ok")).and_then(Value::as_bool),
       Some(false),

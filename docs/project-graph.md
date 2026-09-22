@@ -5,6 +5,13 @@ modules without exposing Vize or Oxc AST objects. Run `vue-vet --print-graph`
 to inspect deterministic JSON nodes, edges, evidence spans, diagnostics, and
 invalidation inputs.
 
+`PROJECT_GRAPH_SCHEMA_VERSION` in `crates/vue_vet_project/src/model.rs` names
+the stable DTO contract and is serialized as `schema_version`. The same value
+participates in the content-addressed cache key. `CONVENTIONS_VERSION` continues
+to track resolver and framework convention semantics. Graph consumers can
+therefore distinguish a wire-shape change from an analysis-behavior change when
+reviewing cache and incremental results.
+
 ## Resolution
 
 Import resolution uses [`oxc_resolver`](https://crates.io/crates/oxc_resolver)

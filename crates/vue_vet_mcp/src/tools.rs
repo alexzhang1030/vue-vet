@@ -298,6 +298,7 @@ fn report_context(path: &Path, snapshot: &AnalysisSnapshot) -> ReportContext {
     project_root,
     analyzed_files: snapshot.analyzed_files.as_ref().to_vec(),
     complete: snapshot.complete(),
+    evidence: snapshot.evidence.clone(),
     skipped_check_reasons,
     reactivity: Some(reactivity_digest(snapshot)),
     component_nav: None,

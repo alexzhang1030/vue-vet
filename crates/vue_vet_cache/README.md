@@ -29,7 +29,7 @@ Values live in `src/lib.rs` (single source of truth; do not copy numbers here):
 - `vize-version`, `oxc-version`, `oxc-resolver-version` from
   `AnalysisStackIdentity::current()` (`CACHE_VIZE_CROQUIS_VERSION`,
   `CACHE_OXC_PARSER_VERSION`, `OXC_RESOLVER_VERSION`)
-- `conventions-version`, `ruleset-version`, `reactivity-graph-version`
+- `conventions-version`, `project-graph-schema-version`, `ruleset-version`, `reactivity-graph-version`
 - serialized effective config bytes
 
 `just compat-matrix` (`crates/vue_vet_cli/tests/compat_matrix.rs`) asserts those
@@ -44,8 +44,9 @@ alone does not prove the field participates in hashing.
 | --- | --- |
 | `CacheStore::{new, entry_path, load, store}` | Disk lookup / atomic write |
 | `CachePayload` | `{ summary, graph }` |
-| `CacheLookup::{Hit, Miss, RecoveredCorruption}` | Load outcome |
-| `content_key` | Deterministic key over files + config + `AnalysisStackIdentity::current()` |
+| `CacheLookup::{Hit, Miss, RecoveredCorruption, IncompatibleGraph}` | Load outcome |
+| `CacheLookup::rejection` / `CacheRejection` | Stable reason for a lookup that reused no persisted work |
+| `content_key` | Deterministic key over files + config + graph/rules/stack identities |
 | `content_key_with_identity` | Same hash with an explicit identity (upgrade / miss tests) |
 | `AnalysisStackIdentity` | `vize_croquis` / `oxc_parser` / `oxc_resolver` actually hashed |
 | `default_cache_dir` | `$XDG_CACHE_HOME/vue-vet` or temp `vue_vet_cache` |
@@ -55,8 +56,8 @@ alone does not prove the field participates in hashing.
 
 ## Constraints
 
-- Writes: temp file + rename. Invalid JSON / wrong version → delete entry and
-  return `RecoveredCorruption` (scan continues).
+- Writes: temp file + rename. Invalid JSON / wrong envelope or graph version →
+  delete the entry and return the matching structured rejection (scan continues).
 - Baseline and diff filtering happen **after** cache lookup so presentation
   modes do not fragment keys.
 - `filter_diff` always retains `category == "project"` findings (remote cause,

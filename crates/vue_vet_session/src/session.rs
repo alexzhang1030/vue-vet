@@ -335,6 +335,11 @@ impl ProjectSession {
   /// # Errors
   ///
   /// Returns analysis or I/O failures.
+  #[expect(
+    clippy::inline_always,
+    reason = "the unchanged affected-scan path must specialize its snapshot publication"
+  )]
+  #[inline(always)]
   pub fn analyze_affected(&self) -> Result<AnalysisSnapshot, SessionError> {
     self.analyze_affected_product(AnalysisProduct::FullReport)
   }
@@ -344,6 +349,11 @@ impl ProjectSession {
   /// # Errors
   ///
   /// Returns analysis or I/O failures.
+  #[expect(
+    clippy::inline_always,
+    reason = "the unchanged affected-scan path must specialize its snapshot publication"
+  )]
+  #[inline(always)]
   pub fn analyze_affected_product(
     &self,
     product: AnalysisProduct,
@@ -644,6 +654,11 @@ impl ProjectSession {
   }
 }
 
+#[expect(
+  clippy::inline_always,
+  reason = "snapshot publication is the unchanged affected-scan benchmark hot path"
+)]
+#[inline(always)]
 fn publish_product(snapshot: &AnalysisSnapshot, product: AnalysisProduct) -> AnalysisSnapshot {
   let graph = match product {
     AnalysisProduct::FullReport => Arc::clone(&snapshot.graph),
@@ -652,6 +667,7 @@ fn publish_product(snapshot: &AnalysisSnapshot, product: AnalysisProduct) -> Ana
     AnalysisProduct::DiagnosticsAndNavigation => {
       let full = snapshot.graph.as_ref();
       Arc::new(ProjectGraph {
+        schema_version: full.schema_version,
         conventions_version: full.conventions_version,
         nodes: full.nodes.clone(),
         edges: full.edges.clone(),
@@ -664,6 +680,7 @@ fn publish_product(snapshot: &AnalysisSnapshot, product: AnalysisProduct) -> Ana
       })
     }
     AnalysisProduct::DiagnosticsOnly => Arc::new(ProjectGraph {
+      schema_version: snapshot.graph.schema_version,
       conventions_version: snapshot.graph.conventions_version,
       nodes: Vec::new(),
       edges: Vec::new(),
@@ -679,8 +696,10 @@ fn publish_product(snapshot: &AnalysisSnapshot, product: AnalysisProduct) -> Ana
     summary: Arc::clone(&snapshot.summary),
     graph,
     cache_status: snapshot.cache_status,
+    cache_rejection: snapshot.cache_rejection,
     coverage: Arc::clone(&snapshot.coverage),
     issues: Arc::clone(&snapshot.issues),
+    evidence: snapshot.evidence.clone(),
     analyzed_files: Arc::clone(&snapshot.analyzed_files),
     work: snapshot.work,
   }

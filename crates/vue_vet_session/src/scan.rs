@@ -11,7 +11,7 @@ use vue_vet_project::ProjectGraph;
 
 use crate::{
   AnalysisCoverage, AnalysisIssue, AnalysisSnapshot, ProgressEvent, ProgressReporter, SessionError,
-  discovery::WorkspaceInputSnapshot, pipeline::scan_with_threads,
+  discovery::WorkspaceInputSnapshot, pipeline::scan_with_threads, types::evidence_summary,
 };
 
 pub use crate::pipeline::AnalysisState;
@@ -42,6 +42,7 @@ pub fn analyze_snapshot(
     .map(|file| file.as_str().to_owned())
     .collect::<Vec<_>>()
     .into();
+  let mut cache_rejection = None;
   let (summary, graph, cache_status, issues, work) = if no_cache {
     let result = scan_with_threads(
       input,
@@ -63,7 +64,9 @@ pub fn analyze_snapshot(
       .map_err(|error| SessionError::message(format!("failed to hash config: {error}")))?;
     let key = content_key(&input.cache_inputs, &serialized_config);
     let store = CacheStore::new(cache_dir.to_path_buf());
-    match store.load(&key) {
+    let lookup = store.load(&key);
+    cache_rejection = lookup.rejection();
+    match lookup {
       // Preserve committed incremental state on hit — do not clear file/module IR.
       // Never hydrate eagerly here: warm disk hits must stay cache-load cheap
       // (CodSpeed `scan_warm_*`, CLI re-scan). Empty IR is fine — the next
@@ -76,26 +79,16 @@ pub fn analyze_snapshot(
         *state = AnalysisState::share_from(previous);
         (payload.summary, payload.graph, "hit", Vec::new(), state.last_work)
       }
-      CacheLookup::Miss => fill_cache(
+      missed => fill_cache(
         &store,
         &key,
         input,
         config,
-        "miss",
-        pool()?,
-        previous,
-        state,
-        cancelled,
-        dirty_files,
-        force_full_parse,
-        progress,
-      )?,
-      CacheLookup::RecoveredCorruption => fill_cache(
-        &store,
-        &key,
-        input,
-        config,
-        "recovered-corruption",
+        match missed {
+          CacheLookup::RecoveredCorruption => "recovered-corruption",
+          CacheLookup::IncompatibleGraph { .. } => "incompatible-graph",
+          _ => "miss",
+        },
         pool()?,
         previous,
         state,
@@ -110,12 +103,15 @@ pub fn analyze_snapshot(
     analyzed_source_files: input.analyzed_source_files.clone(),
     invalidation_inputs: graph.invalidation_inputs.clone(),
   });
+  let evidence = evidence_summary(&graph, &issues);
   Ok(AnalysisSnapshot {
     summary: Arc::new(summary),
     graph: Arc::new(graph),
     cache_status,
+    cache_rejection,
     coverage,
     issues: issues.into(),
+    evidence,
     analyzed_files,
     work,
   })

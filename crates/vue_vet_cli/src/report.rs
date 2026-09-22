@@ -42,6 +42,7 @@ pub fn report_context(cli: &Cli, snapshot: &AnalysisSnapshot) -> ReportContext {
     project_root: report_root(&cli.path),
     analyzed_files: snapshot.analyzed_files.as_ref().to_vec(),
     complete: snapshot.complete(),
+    evidence: snapshot.evidence.clone(),
     skipped_check_reasons,
     reactivity: Some(digest),
     component_nav,
@@ -303,6 +304,10 @@ pub fn operational_failure(cli: &Cli, message: &str) -> ExitCode {
       project_root: report_root(&cli.path),
       analyzed_files: Vec::new(),
       complete: false,
+      evidence: vue_vet_core::EvidenceSummary::unavailable([vue_vet_core::EvidenceGap {
+        code: vue_vet_core::EvidenceGapCode::Analysis,
+        count: 1,
+      }]),
       skipped_check_reasons: BTreeMap::from([("scan".into(), message.into())]),
       reactivity: None,
       component_nav: None,
