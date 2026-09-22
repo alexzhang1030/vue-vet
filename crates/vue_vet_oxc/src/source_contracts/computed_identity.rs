@@ -23,7 +23,7 @@ use vue_vet_core::{StableComputedIdentityFact, StableComputedIdentityReason};
 use super::atom::{PrimitiveAtom, sequences_object_is};
 use super::index::ObjectEntry;
 use super::proof::is_ts_wrapper;
-use super::shape::{Shape, span_key};
+use super::shape::{Literal, OptionValue, Shape, span_key};
 use super::{Collector, MAX_DEPTH};
 
 #[derive(Clone, Copy)]
@@ -780,58 +780,24 @@ impl Collector<'_> {
     let Some(options_expr) = call.arguments.get(2).and_then(Argument::as_expression) else {
       return Some(WatchIdentityOptions { once: false, deep: false, flush: FlushMode::Pre });
     };
-    let Expression::ObjectExpression(object) = options_expr.get_inner_expression() else {
+    let options_expr = options_expr.get_inner_expression();
+    let Expression::ObjectExpression(object) = options_expr else {
       return None;
     };
-    let mut once = false;
-    let mut deep = false;
-    let mut flush = FlushMode::Pre;
-    for property in &object.properties {
-      self.indexes.note_query();
-      match property {
-        ObjectPropertyKind::SpreadProperty(_) => return None,
-        ObjectPropertyKind::ObjectProperty(prop) => {
-          if prop.kind != oxc_ast::ast::PropertyKind::Init || prop.method || prop.shorthand {
-            return None;
-          }
-          if prop.computed {
-            return None;
-          }
-          let name = prop.key.static_name()?;
-          match name.as_ref() {
-            "once" | "deep" => {
-              let Expression::BooleanLiteral(literal) = prop.value.get_inner_expression() else {
-                return None;
-              };
-              if name == "once" {
-                once = literal.value;
-              } else {
-                deep = literal.value;
-              }
-            }
-            "flush" => {
-              let Expression::StringLiteral(literal) = prop.value.get_inner_expression() else {
-                return None;
-              };
-              flush = match literal.value.as_str() {
-                "sync" => FlushMode::Sync,
-                "pre" => FlushMode::Pre,
-                "post" => FlushMode::Post,
-                _ => return None,
-              };
-            }
-            "immediate" => {
-              if !matches!(prop.value.get_inner_expression(), Expression::BooleanLiteral(_)) {
-                return None;
-              }
-            }
-            "equals" => return None,
-            _ => {}
-          }
-        }
-      }
+    if !identity_option_shape(&self.indexes, object) {
+      return None;
     }
-    Some(WatchIdentityOptions { once, deep, flush })
+    let span = options_expr.span();
+    let once = identity_bool(self.indexes.option_value(span, "once"))?;
+    let deep = identity_bool(self.indexes.option_value(span, "deep"))?;
+    match self.indexes.option_value(span, "immediate") {
+      OptionValue::Absent | OptionValue::Known(Literal::Bool(_)) => {}
+      OptionValue::Known(_) | OptionValue::Unknown => return None,
+    }
+    if self.indexes.object_prop(span, "equals").is_some() {
+      return None;
+    }
+    Some(WatchIdentityOptions { once, deep, flush: identity_flush(object)? })
   }
 
   fn const_binding_of_call(&self, node_id: NodeId) -> Option<SymbolId> {
@@ -1041,6 +1007,55 @@ struct WatchIdentityOptions {
   once: bool,
   deep: bool,
   flush: FlushMode,
+}
+
+const fn identity_bool(value: OptionValue<Literal>) -> Option<bool> {
+  match value {
+    OptionValue::Absent => Some(false),
+    OptionValue::Known(Literal::Bool(value)) => Some(value),
+    OptionValue::Known(_) | OptionValue::Unknown => None,
+  }
+}
+
+fn identity_option_shape(
+  indexes: &super::index::Indexes,
+  object: &oxc_ast::ast::ObjectExpression<'_>,
+) -> bool {
+  object.properties.iter().all(|property| {
+    indexes.note_query();
+    match property {
+      ObjectPropertyKind::SpreadProperty(_) => false,
+      ObjectPropertyKind::ObjectProperty(prop) => {
+        prop.kind == oxc_ast::ast::PropertyKind::Init
+          && !prop.method
+          && !prop.shorthand
+          && !prop.computed
+          && prop.key.static_name().is_some()
+      }
+    }
+  })
+}
+
+fn identity_flush(object: &oxc_ast::ast::ObjectExpression<'_>) -> Option<FlushMode> {
+  let mut flush = FlushMode::Pre;
+  for property in &object.properties {
+    let ObjectPropertyKind::ObjectProperty(prop) = property else {
+      return None;
+    };
+    if prop.key.static_name().as_deref() != Some("flush") {
+      continue;
+    }
+    let Expression::StringLiteral(literal) = prop.value.get_inner_expression() else {
+      return None;
+    };
+    flush = match literal.value.as_str() {
+      "sync" => FlushMode::Sync,
+      "pre" => FlushMode::Pre,
+      "post" => FlushMode::Post,
+      _ => return None,
+    };
+  }
+  Some(flush)
 }
 
 fn apply_projection(
