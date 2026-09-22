@@ -103,7 +103,7 @@ pub(super) fn local_getter_parts<'a>(
   Some((function_id, function_body_of(semantic, function_id)))
 }
 
-pub(super) fn property_key_is_name(key: &PropertyKey<'_>, name: &str) -> bool {
+fn property_key_is_name(key: &PropertyKey<'_>, name: &str) -> bool {
   match key {
     PropertyKey::StaticIdentifier(identifier) => identifier.name.as_str() == name,
     PropertyKey::StringLiteral(literal) => literal.value.as_str() == name,
@@ -111,7 +111,7 @@ pub(super) fn property_key_is_name(key: &PropertyKey<'_>, name: &str) -> bool {
   }
 }
 
-pub(super) fn is_assignment_only_body(body: Option<&FunctionBody<'_>>) -> bool {
+fn is_assignment_only_body(body: Option<&FunctionBody<'_>>) -> bool {
   let Some(body) = body else {
     return false;
   };
@@ -168,7 +168,7 @@ pub(super) fn is_assignment_only_followed(
   })
 }
 
-pub(super) fn statement_is_assignment_or_followed_helper(
+fn statement_is_assignment_or_followed_helper(
   semantic: &oxc_semantic::Semantic<'_>,
   expression: &Expression<'_>,
   depth: u32,
@@ -212,7 +212,7 @@ pub(super) fn collect_scope_writes(
   writes
 }
 
-pub(super) fn collect_scope_writes_bounded(
+fn collect_scope_writes_bounded(
   ctx: &ScopeCtx<'_>,
   scope_id: NodeId,
   sfc_source: &str,
@@ -236,7 +236,7 @@ pub(super) fn collect_scope_writes_bounded(
   writes
 }
 
-pub(super) fn collect_scope_writes_local(
+fn collect_scope_writes_local(
   ctx: &ScopeCtx<'_>,
   scope_id: NodeId,
   sfc_source: &str,

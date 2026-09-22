@@ -101,7 +101,7 @@ impl ProvenanceIndex {
     self.record_by_symbol.insert(symbol_id, index);
   }
 
-  pub(super) fn invalidate_symbol(&mut self, symbol_id: SymbolId, work: &WorkCounter) {
+  fn invalidate_symbol(&mut self, symbol_id: SymbolId, work: &WorkCounter) {
     let Some(index) = self.lookup_record(symbol_id, work) else {
       return;
     };
@@ -117,12 +117,7 @@ impl ProvenanceIndex {
     record.valid = false;
   }
 
-  pub(super) fn replace_payload_path(
-    &mut self,
-    symbol_id: SymbolId,
-    path: &[String],
-    work: &WorkCounter,
-  ) {
+  fn replace_payload_path(&mut self, symbol_id: SymbolId, path: &[String], work: &WorkCounter) {
     let Some(index) = self.lookup_record(symbol_id, work) else {
       return;
     };

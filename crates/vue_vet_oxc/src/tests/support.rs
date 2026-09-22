@@ -287,7 +287,7 @@ pub(super) fn assert_cleanup_identity_quiet(body: &str, label: &str) {
   );
 }
 
-pub(super) fn settlement_source(body: &str) -> String {
+fn settlement_source(body: &str) -> String {
   format!(
     "import {{ ref, watch, watchEffect }} from 'vue';\
      const source = ref('one');\
@@ -310,7 +310,7 @@ pub(super) fn settlement_work(source: &str) -> (usize, usize) {
   (facts.late_cancellation_guards.len(), stats.settlement_inner_work())
 }
 
-pub(super) fn template_demand_span(offset: usize) -> vue_vet_core::SourceSpan {
+fn template_demand_span(offset: usize) -> vue_vet_core::SourceSpan {
   vue_vet_core::SourceSpan { offset, length: 4, line: 1, column: offset.saturating_add(1) }
 }
 

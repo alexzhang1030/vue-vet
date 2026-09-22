@@ -331,7 +331,7 @@ pub(super) fn is_global_host(
     && matches!(identifier.name.as_str(), "window" | "globalThis" | "self")
 }
 
-pub(super) fn is_global_name(
+fn is_global_name(
   semantic: &oxc_semantic::Semantic<'_>,
   expression: &Expression<'_>,
   name: &str,

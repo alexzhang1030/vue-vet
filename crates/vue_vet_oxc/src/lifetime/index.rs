@@ -93,7 +93,7 @@ pub(super) struct WatcherOptions {
 
 impl WatcherOptions {
   /// Vue respects `once` only on `watch(source, callback, options)`.
-  pub(super) const fn once_applies(self, api: WatcherApiKind) -> bool {
+  const fn once_applies(self, api: WatcherApiKind) -> bool {
     matches!(api, WatcherApiKind::Watch) && matches!(self.once, Some(true))
   }
 
@@ -640,7 +640,7 @@ fn unprove_exported_pattern(
   }
 }
 
-pub(super) fn is_effect_scope_binding(
+fn is_effect_scope_binding(
   semantic: &oxc_semantic::Semantic<'_>,
   symbol_id: SymbolId,
   vue_exports: &HashMap<SymbolId, String>,
@@ -967,7 +967,7 @@ fn invalidate_scope_receiver(
 }
 
 impl LifetimeIndex {
-  pub(super) fn record_block(&mut self, block_id: NodeId, statements: &[Statement<'_>]) {
+  fn record_block(&mut self, block_id: NodeId, statements: &[Statement<'_>]) {
     if self.blocks.contains_key(&block_id) {
       return;
     }
@@ -1015,7 +1015,7 @@ impl LifetimeIndex {
     }
   }
 
-  pub(super) fn statement_pos(
+  fn statement_pos(
     &self,
     semantic: &oxc_semantic::Semantic<'_>,
     mut node_id: NodeId,
@@ -1039,7 +1039,7 @@ impl LifetimeIndex {
     }
   }
 
-  pub(super) fn stop_follows_watch_through_pure_reads(
+  fn stop_follows_watch_through_pure_reads(
     &self,
     semantic: &oxc_semantic::Semantic<'_>,
     watch_id: NodeId,

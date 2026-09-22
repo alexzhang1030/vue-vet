@@ -88,7 +88,7 @@ pub(super) struct CachedLinkingSnapshot {
 /// `called_locals` is a phase-two skip index, not a linking key. A body edit
 /// that starts calling an already-imported factory must reuse the cached plan
 /// and reparse from source+plan dirtiness, not from a linking-cache miss.
-pub(super) fn linking_surface_eq(left: &Arc<ModuleSummary>, right: &Arc<ModuleSummary>) -> bool {
+fn linking_surface_eq(left: &Arc<ModuleSummary>, right: &Arc<ModuleSummary>) -> bool {
   Arc::ptr_eq(left, right)
     || (left.imports == right.imports
       && left.exports == right.exports

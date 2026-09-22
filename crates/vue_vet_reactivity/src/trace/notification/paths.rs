@@ -25,7 +25,7 @@ pub(super) fn static_key_name(key: &oxc_ast::ast::PropertyKey<'_>) -> Option<Str
   }
 }
 
-pub(super) fn expression_member_chain<'a>(
+fn expression_member_chain<'a>(
   expression: &'a Expression<'a>,
 ) -> Option<(&'a IdentifierReference<'a>, Vec<String>, Span)> {
   let mut segments = Vec::new();

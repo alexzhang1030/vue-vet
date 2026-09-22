@@ -90,7 +90,7 @@ impl LocalCalleeIndex {
     Self { by_scope }
   }
 
-  pub(super) fn for_scope(&self, scope_id: NodeId) -> &[LocalCallee] {
+  fn for_scope(&self, scope_id: NodeId) -> &[LocalCallee] {
     self.by_scope.get(&scope_id).map_or(&[], Vec::as_slice)
   }
 }
@@ -500,7 +500,7 @@ fn unfollowed_call_label(callee: &Expression<'_>) -> String {
 /// Walk-based discovery. Production uses [`LocalCalleeIndex`]. Kept so tests
 /// can prove `for_scope` + a visiting filter matches this walk.
 #[cfg(test)]
-pub(super) fn local_zero_arg_callees_in_scope(
+fn local_zero_arg_callees_in_scope(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
   imported_bindings: &BTreeMap<String, (String, String)>,

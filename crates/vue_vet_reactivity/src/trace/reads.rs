@@ -92,7 +92,7 @@ pub(super) fn collect_scope_reads(
   )
 }
 
-pub(super) fn collect_scope_reads_bounded(
+fn collect_scope_reads_bounded(
   ctx: &ScopeCtx<'_>,
   scope_id: NodeId,
   imported_bindings: &BTreeMap<String, (String, String)>,
@@ -141,7 +141,7 @@ pub(super) fn collect_scope_reads_bounded(
   reads
 }
 
-pub(super) fn collect_scope_reads_local(
+fn collect_scope_reads_local(
   ctx: &ScopeCtx<'_>,
   scope_id: NodeId,
   imported_bindings: &BTreeMap<String, (String, String)>,
@@ -351,7 +351,7 @@ fn local_unwrap_read(
 }
 
 /// Resolve a bare call to a registered ambient-on-call method handle.
-pub(super) fn resolve_ambient_call_handle<'a>(
+fn resolve_ambient_call_handle<'a>(
   semantic: &oxc_semantic::Semantic<'_>,
   identifier: &IdentifierReference<'_>,
   ambient_call_handles: &'a AmbientCallHandles,
@@ -368,7 +368,7 @@ pub(super) fn resolve_ambient_call_handle<'a>(
 
 /// Anchor node for a binding symbol — `VariableDeclarator` when oxc surfaces that
 /// for object-pattern locals (shared by the whole destructure).
-pub(super) fn symbol_declaration_site_decl(
+fn symbol_declaration_site_decl(
   semantic: &oxc_semantic::Semantic<'_>,
   symbol_id: oxc_semantic::SymbolId,
 ) -> Option<NodeId> {
@@ -385,10 +385,7 @@ pub(super) fn symbol_declaration_site_decl(
 
 /// True when this identifier is `obj` in `obj.prop` / `obj[prop]` (already covered
 /// by member-expression reads). Computed keys (`obj[key]`) stay bare reads.
-pub(super) fn identifier_is_member_object(
-  semantic: &oxc_semantic::Semantic<'_>,
-  ident_id: NodeId,
-) -> bool {
+fn identifier_is_member_object(semantic: &oxc_semantic::Semantic<'_>, ident_id: NodeId) -> bool {
   let AstKind::IdentifierReference(identifier) = semantic.nodes().kind(ident_id) else {
     return false;
   };
@@ -403,7 +400,7 @@ pub(super) fn identifier_is_member_object(
   }
 }
 
-pub(super) fn push_guards_in_span(
+fn push_guards_in_span(
   guards: &mut Vec<RawGuard>,
   reads: &[RawReactiveRead],
   span: Span,
@@ -421,7 +418,7 @@ pub(super) fn push_guards_in_span(
   }
 }
 
-pub(super) fn is_early_return(statement: &Statement<'_>) -> bool {
+fn is_early_return(statement: &Statement<'_>) -> bool {
   match statement {
     Statement::ReturnStatement(_) | Statement::ThrowStatement(_) => true,
     Statement::BlockStatement(block) => match block.body.as_slice() {
@@ -432,7 +429,7 @@ pub(super) fn is_early_return(statement: &Statement<'_>) -> bool {
   }
 }
 
-pub(super) fn collect_prefix_early_exits(
+fn collect_prefix_early_exits(
   statements: &[Statement<'_>],
   read_start: u32,
   reads: &[RawReactiveRead],
@@ -469,7 +466,7 @@ pub(super) fn collect_prefix_early_exits(
   }
 }
 
-pub(super) fn path_guards(
+fn path_guards(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
   body: Option<&FunctionBody<'_>>,
@@ -624,11 +621,11 @@ impl ScopeIrIndex {
     }
   }
 
-  pub(super) fn tracking_ir(&self, scope_id: NodeId) -> TrackingScopeIR {
+  fn tracking_ir(&self, scope_id: NodeId) -> TrackingScopeIR {
     TrackingScopeIR { await_ends: self.awaits.get(&scope_id).cloned().unwrap_or_default() }
   }
 
-  pub(super) const fn pause_irs(&self) -> &BTreeMap<NodeId, Vec<(u32, bool)>> {
+  const fn pause_irs(&self) -> &BTreeMap<NodeId, Vec<(u32, bool)>> {
     &self.pause_irs
   }
 }
@@ -666,7 +663,7 @@ fn tracking_await_owner(semantic: &Semantic<'_>, await_id: NodeId) -> Option<Nod
 }
 
 #[cfg(test)]
-pub(super) fn build_tracking_scope_ir(
+fn build_tracking_scope_ir(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
 ) -> TrackingScopeIR {
@@ -683,7 +680,7 @@ pub(super) fn build_tracking_scope_ir(
 }
 
 #[cfg(test)]
-pub(super) fn scope_owns_await(
+fn scope_owns_await(
   semantic: &oxc_semantic::Semantic<'_>,
   scope_id: NodeId,
   await_id: NodeId,
@@ -704,7 +701,7 @@ pub(super) fn scope_owns_await(
   false
 }
 
-pub(super) fn is_after_top_level_await_ir(ir: &TrackingScopeIR, read: &RawReactiveRead) -> bool {
+fn is_after_top_level_await_ir(ir: &TrackingScopeIR, read: &RawReactiveRead) -> bool {
   // Any await that fully precedes the read.
   let index = ir.await_ends.partition_point(|&end| end <= read.span.start);
   index > 0
@@ -795,7 +792,7 @@ fn enrich_function_pause_events(
   events
 }
 
-pub(super) fn is_pause_tracking_call(
+fn is_pause_tracking_call(
   semantic: &Semantic<'_>,
   call: &oxc_ast::ast::CallExpression<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
@@ -804,7 +801,7 @@ pub(super) fn is_pause_tracking_call(
     .is_some_and(|callee| matches!(callee.as_str(), "pauseTracking"))
 }
 
-pub(super) fn is_resume_tracking_call(
+fn is_resume_tracking_call(
   semantic: &Semantic<'_>,
   call: &oxc_ast::ast::CallExpression<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
@@ -950,7 +947,7 @@ fn read_is_after_pause(input: &ClassifyRead<'_>) -> bool {
   pause_state_at(pause_events_for(input.pause_irs, owner), input.read.span.start, paused)
 }
 
-pub(super) fn classify_read(input: &ClassifyRead<'_>) -> ReactiveReadFact {
+fn classify_read(input: &ClassifyRead<'_>) -> ReactiveReadFact {
   let outside = input.read.outside_tracking || read_is_after_pause(input);
   let guards = if outside { Vec::new() } else { classify_path_guards(input) };
   let kind = if outside {

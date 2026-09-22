@@ -195,7 +195,7 @@ pub(super) fn preceding_statement_blocks_read(
 /// True when a prior exit, unknown control, or executed await/yield ends the
 /// subscribed synchronous prefix before `read`. Nested function bodies are not
 /// executed here; source5 reach classification stays on ancestor kinds.
-pub(super) fn preceding_execution_blocks_read(
+fn preceding_execution_blocks_read(
   statements: &[Statement<'_>],
   read: Span,
   semantic: &oxc_semantic::Semantic<'_>,

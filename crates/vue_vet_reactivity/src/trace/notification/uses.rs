@@ -175,7 +175,7 @@ impl_add! {
 
 impl WorkCounter {
   #[cfg(test)]
-  pub(super) fn set_owners(&self, n: usize) {
+  fn set_owners(&self, n: usize) {
     self.owners.set(n);
   }
 
@@ -185,7 +185,7 @@ impl WorkCounter {
     clippy::missing_const_for_fn,
     reason = "zero-sized production counter keeps the test method shape"
   )]
-  pub(super) fn set_owners(&self, n: usize) {
+  fn set_owners(&self, n: usize) {
     let _ = n;
   }
 
@@ -254,12 +254,12 @@ impl WorkCounter {
 /// APIs that can produce `source_views` (and therefore bypasses).
 const NOTIFICATION_SOURCE_APIS: [&str; 4] = ["shallowRef", "shallowReactive", "reactive", "toRaw"];
 
-pub(super) fn is_notification_source_api(name: &str) -> bool {
+fn is_notification_source_api(name: &str) -> bool {
   NOTIFICATION_SOURCE_APIS.contains(&name)
 }
 
 /// Canonical module identities `resolved_vue_callee` treats as Vue / auto-import.
-pub(super) fn is_notification_identity_source(source: &str) -> bool {
+fn is_notification_identity_source(source: &str) -> bool {
   matches!(source, "vue" | "#imports")
 }
 

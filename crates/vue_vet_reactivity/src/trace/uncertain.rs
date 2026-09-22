@@ -50,7 +50,7 @@ pub(super) fn collect_uncertain_scope_accesses(
   .collect()
 }
 
-pub(super) fn collect_uncertain_scope_accesses_bounded(
+fn collect_uncertain_scope_accesses_bounded(
   ctx: &ScopeCtx<'_>,
   scope_id: NodeId,
   imported_bindings: &BTreeMap<String, (String, String)>,
@@ -90,7 +90,7 @@ pub(super) fn collect_uncertain_scope_accesses_bounded(
   names
 }
 
-pub(super) fn collect_uncertain_scope_accesses_local(
+fn collect_uncertain_scope_accesses_local(
   ctx: &ScopeCtx<'_>,
   scope_id: NodeId,
   imported_bindings: &BTreeMap<String, (String, String)>,
@@ -114,7 +114,7 @@ pub(super) fn collect_uncertain_scope_accesses_local(
   names
 }
 
-pub(super) fn uncertain_access_at(
+fn uncertain_access_at(
   semantic: &oxc_semantic::Semantic<'_>,
   kind: AstKind<'_>,
   reactive_bindings: &[ReactiveBindingFact],
@@ -160,7 +160,7 @@ pub(super) fn uncertain_access_at(
   }
 }
 
-pub(super) fn member_expression_root_identifier<'a>(
+fn member_expression_root_identifier<'a>(
   expression: &'a Expression<'a>,
 ) -> Option<&'a IdentifierReference<'a>> {
   match expr::peel_parens(expression) {
@@ -417,7 +417,7 @@ pub(super) fn collect_uncertain_watch_sources(
 }
 
 #[expect(clippy::too_many_arguments, reason = "watch uncertain threads the file callee index")]
-pub(super) fn collect_uncertain_watch_argument(
+fn collect_uncertain_watch_argument(
   semantic: &oxc_semantic::Semantic<'_>,
   argument: &Argument<'_>,
   reactive_bindings: &[ReactiveBindingFact],
@@ -487,7 +487,7 @@ pub(super) fn collect_uncertain_watch_argument(
 }
 
 #[expect(clippy::too_many_arguments, reason = "watch uncertain threads the file callee index")]
-pub(super) fn collect_uncertain_watch_expression(
+fn collect_uncertain_watch_expression(
   semantic: &oxc_semantic::Semantic<'_>,
   expression: &Expression<'_>,
   reactive_bindings: &[ReactiveBindingFact],
@@ -710,7 +710,7 @@ pub(super) struct WatchSourceCtx<'a> {
 }
 
 /// Reads collected from a `watch` source getter function body.
-pub(super) fn collect_watch_getter_reads(
+fn collect_watch_getter_reads(
   ctx: &WatchSourceCtx<'_>,
   scope_id: NodeId,
   body: Option<&FunctionBody<'_>>,
@@ -738,7 +738,7 @@ pub(super) fn collect_watch_getter_reads(
   )
 }
 
-pub(super) fn collect_expression_source_reads(
+fn collect_expression_source_reads(
   semantic: &oxc_semantic::Semantic<'_>,
   expression: &Expression<'_>,
   reactive_bindings: &[ReactiveBindingFact],

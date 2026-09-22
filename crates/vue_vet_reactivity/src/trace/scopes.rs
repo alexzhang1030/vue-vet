@@ -28,7 +28,7 @@ use super::{
 };
 
 /// Locals assigned from `effectScope()` (Vue import / `#imports` / namespace).
-pub(super) fn effect_scope_instance_locals(
+fn effect_scope_instance_locals(
   semantic: &oxc_semantic::Semantic<'_>,
   imported_bindings: &BTreeMap<String, (String, String)>,
 ) -> BTreeSet<String> {
@@ -71,7 +71,7 @@ pub(super) struct ScopeBuild<'a> {
   ir: &'a ScopeIrIndex,
 }
 
-pub(super) fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
+fn finish_scope(build: ScopeBuild<'_>) -> TrackingScopeFact {
   let ctx = ScopeCtx {
     semantic: build.semantic,
     reactive_bindings: build.reactive_bindings,
@@ -328,10 +328,7 @@ pub(super) fn collect_tracking_scopes(
   scopes
 }
 
-pub(super) fn assigned_binding_name(
-  semantic: &oxc_semantic::Semantic<'_>,
-  call_id: NodeId,
-) -> Option<String> {
+fn assigned_binding_name(semantic: &oxc_semantic::Semantic<'_>, call_id: NodeId) -> Option<String> {
   let AstKind::VariableDeclarator(declarator) = semantic.nodes().parent_kind(call_id) else {
     return None;
   };
