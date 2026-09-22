@@ -417,6 +417,32 @@ fn analyze_module_phase_one(
     return Ok(phase_one_from_summary(module, summary));
   }
 
+  with_module_semantic(module, |semantic| {
+    let empty = TraceSeeds::default();
+    let local_graph = Arc::new(trace_reactivity_seeded(
+      semantic,
+      module.span_origin(),
+      module.source_offset,
+      module.kind,
+      &empty,
+      config,
+    ));
+    let summary = Arc::new(prepare_module_summary_with_config(
+      semantic,
+      module.span_origin(),
+      module.source_offset,
+      module.kind,
+      Arc::clone(&local_graph),
+      config,
+    ));
+    Ok(phase_one_from_summary(module, &summary))
+  })
+}
+
+fn with_module_semantic<T>(
+  module: &ModuleSource,
+  body: impl FnOnce(&Semantic<'_>) -> Result<T, TraceModulesError>,
+) -> Result<T, TraceModulesError> {
   let allocator = Allocator::default();
   let source_type = source_type(module)?;
   let parsed = Parser::new(&allocator, module.source.as_ref(), source_type).parse();
@@ -436,26 +462,7 @@ fn analyze_module_phase_one(
       message: join_errors(built.diagnostics.as_slice()),
     });
   }
-  let semantic = built.semantic;
-
-  let empty = TraceSeeds::default();
-  let local_graph = Arc::new(trace_reactivity_seeded(
-    &semantic,
-    module.span_origin(),
-    module.source_offset,
-    module.kind,
-    &empty,
-    config,
-  ));
-  let summary = Arc::new(prepare_module_summary_with_config(
-    &semantic,
-    module.span_origin(),
-    module.source_offset,
-    module.kind,
-    Arc::clone(&local_graph),
-    config,
-  ));
-  Ok(phase_one_from_summary(module, &summary))
+  body(&built.semantic)
 }
 
 fn phase_one_from_summary(module: &ModuleSource, summary: &Arc<ModuleSummary>) -> ModulePhaseOne {
