@@ -755,7 +755,7 @@ impl Collector<'_> {
     {
       return info.first_arg;
     }
-    if self.indexes.objects.contains_key(&span_key(init_span)) {
+    if self.indexes.object_index.objects.contains_key(&span_key(init_span)) {
       return Some(init_span);
     }
     if let ShapeHint::Call(span) = self.indexes.hints.get(&span_key(init_span)).copied()? {

@@ -365,7 +365,7 @@ impl Collector<'_> {
   }
 
   fn scheduling_option_keys_closed(&self, span: Span) -> bool {
-    let Some(entries) = self.indexes.objects.get(&super::shape::span_key(span)) else {
+    let Some(entries) = self.indexes.object_index.objects.get(&super::shape::span_key(span)) else {
       self.indexes.note_query();
       return false;
     };

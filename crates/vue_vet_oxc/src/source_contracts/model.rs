@@ -237,7 +237,7 @@ impl Collector<'_> {
         continue;
       }
       let mut own_paths = Vec::new();
-      if let Some(props) = self.indexes.object_props.get(&span_key(object_span)) {
+      if let Some(props) = self.indexes.object_index.object_props.get(&span_key(object_span)) {
         for (key, prop) in props {
           self.indexes.note_query();
           let super::index::ObjectProp::Value(value) = *prop else {

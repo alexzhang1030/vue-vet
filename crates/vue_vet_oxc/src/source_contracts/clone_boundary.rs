@@ -124,16 +124,14 @@ impl Collector<'_> {
 
   fn is_fresh_supported_root(&self, span: Span) -> bool {
     self.indexes.note_query();
-    let Some(literal) = self
-      .indexes
-      .literal_span
-      .get(&span_key(span))
-      .copied()
-      .or_else(|| self.indexes.objects.contains_key(&span_key(span)).then_some(span))
+    let Some(literal) =
+      self.indexes.literal_span.get(&span_key(span)).copied().or_else(|| {
+        self.indexes.object_index.objects.contains_key(&span_key(span)).then_some(span)
+      })
     else {
       return false;
     };
-    if let Some(entries) = self.indexes.objects.get(&span_key(literal)) {
+    if let Some(entries) = self.indexes.object_index.objects.get(&span_key(literal)) {
       return eligible_object_entries(entries, |n| self.indexes.note_object_entries(n));
     }
     if self.indexes.array_spread.contains(&span_key(literal)) {
@@ -144,7 +142,7 @@ impl Collector<'_> {
       .hints
       .get(&span_key(literal))
       .is_some_and(|hint| matches!(hint, super::shape::ShapeHint::PlainRecord))
-      && !self.indexes.objects.contains_key(&span_key(literal))
+      && !self.indexes.object_index.objects.contains_key(&span_key(literal))
   }
 }
 

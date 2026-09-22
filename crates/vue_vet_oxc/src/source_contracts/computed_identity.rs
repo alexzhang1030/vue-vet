@@ -617,7 +617,7 @@ impl Collector<'_> {
       return None;
     };
     self.indexes.note_query();
-    let entries = self.indexes.objects.get(&span_key(expression.span()))?.clone();
+    let entries = self.indexes.object_index.objects.get(&span_key(expression.span()))?.clone();
     let mut fields = Vec::new();
     let mut source = None;
     let mut source_span = None;
@@ -727,7 +727,7 @@ impl Collector<'_> {
       return None;
     }
     self.indexes.note_query();
-    let entries = self.indexes.objects.get(&span_key(span))?.clone();
+    let entries = self.indexes.object_index.objects.get(&span_key(span))?.clone();
     let mut fields = BTreeMap::new();
     for entry in &entries {
       self.indexes.add_queries(1);
