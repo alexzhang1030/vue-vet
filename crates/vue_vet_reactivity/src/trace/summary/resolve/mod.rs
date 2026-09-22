@@ -425,30 +425,22 @@ fn trace_modules_incremental_in_current_pool(
   let mut keep = reused_ids;
   keep.extend(report.modules.iter().map(|module| module.id.clone()));
   for outcome in outcomes {
-    match outcome {
-      PhaseTwoOutcome::Traced { source, summary, plan, reactivity, seeded } => {
-        report.stats.seeded_reparses += usize::from(seeded);
-        keep.insert(reactivity.id.clone());
-        if let (Some(source), Some(summary), Some(plan)) = (source, summary, plan) {
-          state.entries.insert(
-            reactivity.id.clone(),
-            CachedModuleTrace { source, summary, plan, reactivity: reactivity.clone() },
-          );
-        }
-        report.modules.push(reactivity);
-      }
-      PhaseTwoOutcome::Partial { source, summary, plan, reactivity, error } => {
-        report.issues.push(error);
-        keep.insert(reactivity.id.clone());
-        if let (Some(source), Some(summary), Some(plan)) = (source, summary, plan) {
-          state.entries.insert(
-            reactivity.id.clone(),
-            CachedModuleTrace { source, summary, plan, reactivity: reactivity.clone() },
-          );
-        }
-        report.modules.push(reactivity);
-      }
+    if let Some(error) = outcome.error {
+      report.issues.push(error);
+    } else {
+      report.stats.seeded_reparses += usize::from(outcome.seeded);
     }
+    let reactivity = outcome.reactivity;
+    keep.insert(reactivity.id.clone());
+    if let (Some(source), Some(summary), Some(plan)) =
+      (outcome.source, outcome.summary, outcome.plan)
+    {
+      state.entries.insert(
+        reactivity.id.clone(),
+        CachedModuleTrace { source, summary, plan, reactivity: reactivity.clone() },
+      );
+    }
+    report.modules.push(reactivity);
   }
   if persist {
     if subset {
@@ -525,21 +517,13 @@ fn reused_phase_one(module: &ModuleSource, state: &ModuleTraceState) -> Option<M
   (entry.source.as_ref() == module).then(|| phase_one_from_summary(module, &entry.summary))
 }
 
-enum PhaseTwoOutcome {
-  Traced {
-    source: Option<Arc<ModuleSource>>,
-    summary: Option<Arc<ModuleSummary>>,
-    plan: Option<ModuleSeedPlan>,
-    reactivity: ModuleReactivity,
-    seeded: bool,
-  },
-  Partial {
-    source: Option<Arc<ModuleSource>>,
-    summary: Option<Arc<ModuleSummary>>,
-    plan: Option<ModuleSeedPlan>,
-    reactivity: ModuleReactivity,
-    error: TraceModulesError,
-  },
+struct PhaseTwoOutcome {
+  source: Option<Arc<ModuleSource>>,
+  summary: Option<Arc<ModuleSummary>>,
+  plan: Option<ModuleSeedPlan>,
+  reactivity: ModuleReactivity,
+  seeded: bool,
+  error: Option<TraceModulesError>,
 }
 
 /// Whether materialize would produce seeds. `Known` / `ValueBag` /
@@ -587,12 +571,13 @@ fn finish_unseeded_module(
 ) -> PhaseTwoOutcome {
   let id = module.source().id.clone();
   Arc::make_mut(&mut local_graph).set_module_id(id.clone());
-  PhaseTwoOutcome::Traced {
+  PhaseTwoOutcome {
     source: module.into_persist_source(persist),
     summary,
     plan: persist.then_some(plan),
     reactivity: ModuleReactivity { id, graph: local_graph },
     seeded: false,
+    error: None,
   }
 }
 
@@ -607,21 +592,23 @@ fn trace_dirty_module(
   let seeded = !plan.is_empty();
   let id = module.source().id.clone();
   match trace_module_phase_two(module.source(), Arc::clone(&local_graph), &plan, named_api_bags) {
-    Ok(reactivity) => PhaseTwoOutcome::Traced {
+    Ok(reactivity) => PhaseTwoOutcome {
       source: module.into_persist_source(persist),
       summary,
       plan: persist.then_some(plan),
       reactivity,
       seeded,
+      error: None,
     },
     Err(error) => {
       Arc::make_mut(&mut local_graph).set_module_id(id.clone());
-      PhaseTwoOutcome::Partial {
+      PhaseTwoOutcome {
         source: module.into_persist_source(persist),
         summary,
         plan: persist.then_some(plan),
         reactivity: ModuleReactivity { id, graph: local_graph },
-        error,
+        seeded: false,
+        error: Some(error),
       }
     }
   }
