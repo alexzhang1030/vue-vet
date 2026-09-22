@@ -7,8 +7,6 @@
 //! - [`export_lattice`] — pure lattice rules (no AST).
 //! - [`resolve`] — cross-module fixed point, seed plans, caches, and phase two.
 
-#[cfg(test)]
-use std::cell::RefCell;
 use std::{
   collections::{BTreeMap, BTreeSet},
   sync::Arc,
@@ -28,7 +26,7 @@ use vue_vet_core::{ModuleId, ReactivityGraph, ScriptKind};
 
 use super::bindings::collect_reactive_bindings;
 #[cfg(test)]
-use super::kinds::import_binding_collect_snapshot;
+use super::metrics::{SummaryScanWork, import_binding_collect_snapshot, store_summary_scan_work};
 use super::kinds::{collect_binding_identifiers, collect_imported_bindings, module_export_name};
 use super::{TraceSeeds, collect_inject_sites, collect_provide_sites, trace_reactivity_seeded};
 
@@ -232,30 +230,6 @@ pub fn prepare_standalone_module_source(
   let module = ModuleSource::standalone(id, source, language, ScriptKind::Script);
   let phase = analyze_module_phase_one(&module, &super::TraceConfig::empty())?;
   Ok(module.with_module_summary(phase.facts.summary))
-}
-
-/// Test-only count of the one summary-local `imported_bindings` index build.
-#[cfg(test)]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct SummaryScanWork {
-  pub import_index_builds: u64,
-  pub import_index_node_visits: u64,
-}
-
-#[cfg(test)]
-thread_local! {
-  static LAST_SUMMARY_SCAN_WORK: RefCell<SummaryScanWork> =
-    const { RefCell::new(SummaryScanWork { import_index_builds: 0, import_index_node_visits: 0 }) };
-}
-
-#[cfg(test)]
-pub fn last_summary_scan_work() -> SummaryScanWork {
-  LAST_SUMMARY_SCAN_WORK.with(|slot| *slot.borrow())
-}
-
-#[cfg(test)]
-fn store_summary_scan_work(work: SummaryScanWork) {
-  LAST_SUMMARY_SCAN_WORK.with(|slot| *slot.borrow_mut() = work);
 }
 
 /// Facts a preceding trace already collected. Summary reuses them instead of

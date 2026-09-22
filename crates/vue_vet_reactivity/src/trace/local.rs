@@ -1,8 +1,9 @@
 //! Same-file composable / factory usage: defs, instance bags, and destructure seeds.
 
-#[cfg(test)]
-use std::cell::RefCell;
 use std::collections::BTreeMap;
+
+#[cfg(test)]
+use super::metrics::{ComposableUsageWork, store_composable_usage_work};
 
 use oxc_ast::{
   AstKind,
@@ -13,30 +14,6 @@ use vue_vet_core::{ReactiveBindingFact, ReactiveBindingKind, ReactivityGraph};
 
 use super::kinds::{collect_binding_identifiers, reference_resolves_to_span, source_span};
 use super::{ComposableShapeMap, LocalComposableDefs, LocalComposableExport, summary};
-
-/// Test-only count of the call-use walk after local composable definition collection.
-#[cfg(test)]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct ComposableUsageWork {
-  pub definition_count: u64,
-  pub usage_node_visits: u64,
-}
-
-#[cfg(test)]
-thread_local! {
-  static LAST_COMPOSABLE_USAGE_WORK: RefCell<ComposableUsageWork> =
-    const { RefCell::new(ComposableUsageWork { definition_count: 0, usage_node_visits: 0 }) };
-}
-
-#[cfg(test)]
-pub fn last_composable_usage_work() -> ComposableUsageWork {
-  LAST_COMPOSABLE_USAGE_WORK.with(|slot| *slot.borrow())
-}
-
-#[cfg(test)]
-fn store_composable_usage_work(work: ComposableUsageWork) {
-  LAST_COMPOSABLE_USAGE_WORK.with(|slot| *slot.borrow_mut() = work);
-}
 
 /// Local composable defs + instance/destructure/factory calls in the same file.
 ///
