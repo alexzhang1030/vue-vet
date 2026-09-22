@@ -88,7 +88,7 @@ impl Collector<'_> {
     };
     let Some(keys) = unique_static_option_keys(
       object,
-      self.indexes.objects.get(&span_key(object.span)),
+      self.indexes.object_index.objects.get(&span_key(object.span)),
       self.indexes.work(),
     ) else {
       return;

@@ -126,7 +126,7 @@ impl Indexes {
 
   pub(in crate::source_contracts) fn object_has_spread(&self, object_span: Span) -> bool {
     self.work.add_queries(1);
-    self.objects.get(&span_key(object_span)).is_some_and(|entries| {
+    self.object_index.objects.get(&span_key(object_span)).is_some_and(|entries| {
       entries.iter().any(|entry| {
         self.work.add_object_entries(1);
         matches!(entry, ObjectEntry::Spread)
@@ -136,7 +136,7 @@ impl Indexes {
 
   pub(in crate::source_contracts) fn object_entries(&self, object_span: Span) -> &[ObjectEntry] {
     self.work.add_queries(1);
-    self.objects.get(&span_key(object_span)).map_or(&[], Vec::as_slice)
+    self.object_index.objects.get(&span_key(object_span)).map_or(&[], Vec::as_slice)
   }
 
   pub(in crate::source_contracts) fn await_writes_in(

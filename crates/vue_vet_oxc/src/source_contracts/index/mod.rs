@@ -62,6 +62,15 @@ mod scan;
 mod sites;
 pub(super) use sites::*;
 
+/// Object-literal maps. Callers still see one `Indexes`; these three stay together
+/// because a closed object, its props, and its literal values are one record.
+#[derive(Default)]
+pub(super) struct ObjectIndex {
+  pub objects: HashMap<u64, Vec<ObjectEntry>>,
+  pub object_props: HashMap<u64, HashMap<String, ObjectProp>>,
+  literals: HashMap<u64, Literal>,
+}
+
 #[expect(
   clippy::struct_excessive_bools,
   reason = "clone/map intrinsic poison, prototype mutation, and unresolved origin touch are independent whole-file proofs"
@@ -114,8 +123,7 @@ pub(super) struct Indexes {
   pub primitives: HashMap<u64, ShapePrimitiveAtom>,
   pub callables: HashMap<u64, NodeId>,
   pub calls: HashMap<u64, CallInfo>,
-  pub objects: HashMap<u64, Vec<ObjectEntry>>,
-  pub object_props: HashMap<u64, HashMap<String, ObjectProp>>,
+  pub object_index: ObjectIndex,
   /// Inner object/array span for a (possibly asserted) expression span.
   pub literal_span: HashMap<u64, Span>,
   /// Array expression spans whose elements include a spread.
@@ -200,7 +208,6 @@ pub(super) struct Indexes {
   pub(super) date_poisoned: bool,
   pub(super) json_poisoned: bool,
   pub(super) string_capability_poisoned: bool,
-  literals: HashMap<u64, Literal>,
   path_calls: HashMap<SymbolId, Vec<PathCall>>,
   path_reads: HashMap<SymbolId, Vec<PathRead>>,
   path_value_writes: HashMap<SymbolId, Vec<(Vec<String>, PathWrite)>>,
@@ -270,8 +277,7 @@ impl Indexes {
       primitives: HashMap::new(),
       callables: HashMap::new(),
       calls: HashMap::new(),
-      objects: HashMap::new(),
-      object_props: HashMap::new(),
+      object_index: ObjectIndex::default(),
       literal_span: HashMap::new(),
       array_spread: HashSet::new(),
       collections: HashMap::new(),
@@ -353,7 +359,6 @@ impl Indexes {
       date_poisoned: false,
       json_poisoned: false,
       string_capability_poisoned: false,
-      literals: HashMap::new(),
       path_calls: HashMap::new(),
       path_reads: HashMap::new(),
       path_value_writes: HashMap::new(),
@@ -618,7 +623,7 @@ impl Indexes {
   }
 
   fn precompute_closed_objects(&mut self) {
-    for (key, entries) in &self.objects {
+    for (key, entries) in &self.object_index.objects {
       self.work.add_queries(1);
       let mut closed = true;
       for entry in entries {

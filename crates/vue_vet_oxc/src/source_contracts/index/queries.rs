@@ -614,12 +614,12 @@ impl Indexes {
 
   pub(in crate::source_contracts) fn literal_at(&self, span: Span) -> Option<Literal> {
     self.work.add_queries(1);
-    self.literals.get(&span_key(span)).copied()
+    self.object_index.literals.get(&span_key(span)).copied()
   }
 
   pub(in crate::source_contracts) fn object_is_closed_data(&self, span: Span) -> bool {
     self.work.add_queries(1);
-    let Some(entries) = self.objects.get(&span_key(span)) else {
+    let Some(entries) = self.object_index.objects.get(&span_key(span)) else {
       return false;
     };
     entries.iter().all(|entry| {
@@ -630,7 +630,7 @@ impl Indexes {
 
   pub(in crate::source_contracts) fn object_has_key_named(&self, span: Span, name: &str) -> bool {
     self.work.add_queries(1);
-    let Some(entries) = self.objects.get(&span_key(span)) else {
+    let Some(entries) = self.object_index.objects.get(&span_key(span)) else {
       return false;
     };
     entries.iter().any(|entry| {
@@ -816,7 +816,12 @@ impl Indexes {
     property: &str,
   ) -> Option<ObjectProp> {
     self.work.add_queries(1);
-    self.object_props.get(&span_key(object_span)).and_then(|props| props.get(property)).copied()
+    self
+      .object_index
+      .object_props
+      .get(&span_key(object_span))
+      .and_then(|props| props.get(property))
+      .copied()
   }
 
   /// Shared options read. `undefined` is absent, so only a missing key or an

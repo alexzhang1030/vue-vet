@@ -381,8 +381,8 @@ impl Indexes {
           }
           let entries = object_entries(object);
           let props = summarize_object_props(&entries, &self.work);
-          self.object_props.insert(span_key(object.span), props);
-          self.objects.insert(span_key(object.span), entries);
+          self.object_index.object_props.insert(span_key(object.span), props);
+          self.object_index.objects.insert(span_key(object.span), entries);
           for property in &object.properties {
             if let ObjectPropertyKind::ObjectProperty(property) = property {
               self.record_expr(semantic, kind, &property.value);
@@ -850,8 +850,8 @@ impl Indexes {
       self.await_index.scalars.insert(span_key(expression.span()), scalar);
     }
     if let Some(literal) = literal_of(inner) {
-      self.literals.insert(span_key(inner.span()), literal);
-      self.literals.insert(span_key(expression.span()), literal);
+      self.object_index.literals.insert(span_key(inner.span()), literal);
+      self.object_index.literals.insert(span_key(expression.span()), literal);
     }
     self.intern_expr(semantic, inner);
     if let Expression::CallExpression(call) = inner {
@@ -2621,7 +2621,7 @@ impl Indexes {
   }
 
   pub(super) fn summarize_closed_keys(&mut self) {
-    for (key, entries) in &self.objects {
+    for (key, entries) in &self.object_index.objects {
       let mut keys = HashSet::new();
       let mut closed = true;
       for entry in entries {

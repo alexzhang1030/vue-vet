@@ -226,7 +226,7 @@ impl Collector<'_> {
   }
 
   fn object_keys_allowed(&self, span: Span, allowed: &[&str]) -> bool {
-    let Some(entries) = self.indexes.objects.get(&span_key(span)) else {
+    let Some(entries) = self.indexes.object_index.objects.get(&span_key(span)) else {
       self.indexes.note_query();
       return false;
     };
@@ -275,7 +275,7 @@ impl Collector<'_> {
     if !self.object_is_closed_data(object) {
       return None;
     }
-    let entries = self.indexes.objects.get(&span_key(object))?;
+    let entries = self.indexes.object_index.objects.get(&span_key(object))?;
     let mut found = None;
     for entry in entries {
       self.indexes.note_query();
@@ -847,7 +847,7 @@ impl Collector<'_> {
   }
 
   fn object_literals(&self, object: Span) -> Option<HashMap<String, Option<Literal>>> {
-    let entries = self.indexes.objects.get(&span_key(object))?;
+    let entries = self.indexes.object_index.objects.get(&span_key(object))?;
     let mut props = HashMap::new();
     for entry in entries {
       self.indexes.note_query();

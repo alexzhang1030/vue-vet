@@ -947,7 +947,7 @@ impl Collector<'_> {
 
   fn pure_debug_options(&self, span: Span) -> bool {
     self.indexes.note_query();
-    let Some(entries) = self.indexes.objects.get(&span_key(span)) else {
+    let Some(entries) = self.indexes.object_index.objects.get(&span_key(span)) else {
       return false;
     };
     if !entries.is_empty() {
