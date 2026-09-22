@@ -508,7 +508,7 @@ pub(super) fn apply_factory_binding_pattern(
         let retrieved = if property.computed {
           Retrieved::Unknown
         } else if let Some(name) = property.key.static_name() {
-          lookup_source_prop(summary.as_ref(), name.as_ref(), collector, budget)
+          lookup_source_prop(summary.as_ref(), name.as_ref(), budget)
         } else {
           Retrieved::Unknown
         };
@@ -638,10 +638,8 @@ fn classify_proto_value<'a>(
 fn lookup_source_prop<'a>(
   summary: Option<&SourceProps<'a>>,
   name: &str,
-  collector: &Collector<'_>,
   budget: &mut u32,
 ) -> Retrieved<'a> {
-  collector.indexes.note_query();
   let Some(summary) = summary else {
     return Retrieved::Unknown;
   };
@@ -660,9 +658,7 @@ fn lookup_source_prop<'a>(
         Retrieved::Missing
       }
     }
-    ProtoKind::Inherited(inner) => {
-      lookup_source_prop(Some(inner.as_ref()), name, collector, budget)
-    }
+    ProtoKind::Inherited(inner) => lookup_source_prop(Some(inner.as_ref()), name, budget),
     ProtoKind::Unknown => Retrieved::Unknown,
   }
 }
@@ -718,7 +714,6 @@ fn const_known_prim(
   if !consume_bind(budget) {
     return None;
   }
-  collector.indexes.note_query();
   if !collector.semantic.scoping().symbol_flags(symbol).contains(SymbolFlags::ConstVariable) {
     return None;
   }
@@ -778,12 +773,8 @@ fn apply_factory_object_assignment(
     collector.indexes.note_node();
     match property {
       AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(property) => {
-        let retrieved = lookup_source_prop(
-          summary.as_ref(),
-          property.binding.name.as_str(),
-          collector,
-          &mut budget,
-        );
+        let retrieved =
+          lookup_source_prop(summary.as_ref(), property.binding.name.as_str(), &mut budget);
         if let Some(default) = &property.init {
           let activate = match retrieved {
             Retrieved::Missing => Some(true),
@@ -814,7 +805,7 @@ fn apply_factory_object_assignment(
         let retrieved = if property.computed {
           Retrieved::Unknown
         } else if let Some(name) = property.name.static_name() {
-          lookup_source_prop(summary.as_ref(), name.as_ref(), collector, &mut budget)
+          lookup_source_prop(summary.as_ref(), name.as_ref(), &mut budget)
         } else {
           Retrieved::Unknown
         };

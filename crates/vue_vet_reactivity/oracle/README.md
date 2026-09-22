@@ -74,8 +74,8 @@ public `vue` package in 3.5.x). The static source still names them under
 
 Runtime contract oracles (Node, frozen Vue 3.5.40 lock) live beside this
 onTrack suite: `lifetime-runs.mjs`, `source-contracts.mjs`,
-`lost-notification-runs.mjs`, and `cleanup-identity-runs.mjs`
-(`just oracle-cleanup-identity`). They are not onTrack JSON.
+`lost-notification-runs.mjs`, and `cleanup-identity-runs.mjs`.
+`just oracle-all` runs every premise script. They are not onTrack JSON.
 
 ## Refresh expected JSON
 
@@ -108,12 +108,7 @@ They use this package's locked `node_modules` and are separate from `just oracle
 
 | Recipe | Script | Pin |
 | --- | --- | --- |
-| `just oracle-source-contracts` | `source-contracts.mjs` | Vue 3.5.40 |
-| `just oracle-value-contracts` | `value-contracts.mjs` | Vue 3.5.40 |
-| `just oracle-filter-settlement` | `filter-settlement-contracts.mjs` | Vue 3.5.40 + `@vueuse/core` / `@vueuse/shared` 13.9.0 |
-| `just oracle-self-trigger` | `self-trigger-runs.mjs` | Vue 3.5.40 run counts |
-| `just oracle-lifetime` | `lifetime-runs.mjs` | Vue 3.5.40 |
-| `just oracle-model-demand` | `model-demand.mjs` | Vue 3.5.40 + `@vue/compiler-sfc` / `@vue/server-renderer` 3.5.40 |
+| `just oracle-all` | every `*.mjs` except `harness.mjs` and `run.mjs` | Vue 3.5.40, plus the VueUse and compiler pins named under each script below |
 
 `filter-settlement-contracts.mjs` asserts `useDebounceFn` same-turn supersession
 fulfills `undefined`, sequential/zero-delay/`maxWait: 0` preserves both results,
@@ -124,7 +119,7 @@ promise is an unhandled `TypeError`.
 
 ## Run counts and template host
 
-`just oracle-custom-ref-notification` (`custom-ref-notification-runs.mjs`)
+`custom-ref-notification-runs.mjs`, run by `just oracle-all`,
 asserts Vue 3.5.40 `customRef` run counts for lost `track`, lost `trigger`,
 track-in-setter, standard, backing ref/reactive, deferred trigger, `triggerRef`,
 same-value write, no consumer, stop/pause, helper/unknown factories, post-flush
@@ -132,21 +127,21 @@ first runs, guarded registration, `once`+`immediate`, unread effect paths,
 prior same-value writes, constant setters, coercing `==`, member/IIFE
 capability forwarding, and later accessor replacement.
 
-`just oracle-scheduling-practice` (`scheduling-practice.mjs`) pins Vue 3.5.40
+`scheduling-practice.mjs`, run by `just oracle-all`, pins Vue 3.5.40
 and VueUse core 13.9.0 for queued `watch` flush, attached child `effectScope`,
 and lazy `computedAsync` startup. Independent round-7 probes remain read-only.
 
-`just oracle-until-demand` (`until-demand.mjs`) pins Vue 3.5.40 and VueUse
+`until-demand.mjs`, run by `just oracle-all`, pins Vue 3.5.40 and VueUse
 13.9.0 for `until(ref).toBe` timeout unmatched-demand: timeout fulfills the
 current unmatched value, expected-kind demand throws, current-kind demand is
 valid, an intervening write matches, `throwOnTimeout` rejects, and already
 matched / zero-timeout / optional-chain / compound-assign controls.
 
-`just oracle-injection-demand` (`injection-demand-contracts.mjs`) pins Vue
+`injection-demand-contracts.mjs`, run by `just oracle-all`, pins Vue
 3.5.40 for same-instance `provide`/`inject` on a fresh native `Symbol()`
 key: the fallback lacks a native callable the local provide would supply.
 
-`just oracle-snapshot-demand` (`snapshot-demand.mjs`) installs this package
+`snapshot-demand.mjs`, run by `just oracle-all`, installs this package
 with `--frozen-lockfile` and resolves `vue@3.5.40` / `@vueuse/core@13.9.0` /
 `@vueuse/shared@13.9.0` from the oracle `package.json` only. It pins:
 
@@ -161,7 +156,7 @@ with `--frozen-lockfile` and resolves `vue@3.5.40` / `@vueuse/core@13.9.0` /
 - root replacement, latest-rebase, write-restored-before-demand, drained
   undo, and `clear` / `capacity` follow VueUse 13.9.0 stack semantics
 
-`just oracle-self-trigger` (`self-trigger-runs.mjs`) is separate from onTrack
+`self-trigger-runs.mjs`, run by `just oracle-all`, is separate from onTrack
 JSON. It asserts Vue 3.5.40 execution counts for self-write effects, one-shot
 versus repeating `requestAnimationFrame`, and template host behavior:
 
@@ -173,25 +168,25 @@ versus repeating `requestAnimationFrame`, and template host behavior:
 Those cases use Vue's `createRenderer` custom host, so they do not need a DOM
 package.
 
-`just oracle-model-demand` (`model-demand.mjs`) compiles every SFC under
+`model-demand.mjs`, run by `just oracle-all`, compiles every SFC under
 `fixtures/projects/model-demand/` and the two model-demand rule fixture trees
 with `@vue/compiler-sfc` 3.5.40, then mounts the shipped parent/child pairs
 (createRenderer so `onMounted` runs) for the unsynced-parent and shared-default
 premises.
 
-`just oracle-source-contracts` (`source-contracts.mjs`) is the Vue 3.5.40
+`source-contracts.mjs`, run with the other lanes by `just oracle-all`, is the Vue 3.5.40
 runtime pin for issue #224 API contracts, including `toRef` ignored-key
 overloads (immutable ref vs live `__v_isRef` marker, including pattern
 assignment, constructor arguments, and call / tagged-template receivers,
 including TypeScript instantiation wrappers) and
 `effectScope` constructor callbacks.
 
-`just oracle-computed-identity` (`computed-identity.mjs`) proves Vue 3.5.40
+`computed-identity.mjs`, run by `just oracle-all`, proves Vue 3.5.40
 original vs previous-value-reused computed identity, equal projected values,
 reduced downstream watch/computed work, and the same-value / changed content /
 activation / stop / NaN / signed-zero controls.
 
-`just oracle-lifetime` (`lifetime-runs.mjs` plus `lifetime-ownership-runs.mjs`)
+`lifetime-runs.mjs` plus `lifetime-ownership-runs.mjs`, both run by `just oracle-all`,
 pins Vue 3.5.40 and includes discarded nested-watch / detached-scope ownership:
 outer callbacks fire at least twice after the original `scope.run` returns, the
 owner is stopped, the inner source is mutated, and residual callbacks are
@@ -204,7 +199,7 @@ infinite-execution claims.
 
 ## VueUse demand premises
 
-`just oracle-vueuse-demand` (`vueuse-demand.mjs`) is a Node runtime gate for
+`vueuse-demand.mjs`, run by `just oracle-all`, is a Node runtime gate for
 the two VueUse source-contract rules. It installs this package's lock
 (`vue` 3.5.40, `@vueuse/core` / `@vueuse/shared` 13.9.0) and asserts:
 
@@ -217,7 +212,7 @@ the two VueUse source-contract rules. It installs this package's lock
   seeds share updates; disposing the last shared owner allows a new
   string instance
 
-`just oracle-template-ref-demand` (`template-ref-demand.mjs`) is the Vue
+`template-ref-demand.mjs`, run by `just oracle-all`, is the Vue
 3.5.40 compiled-SFC pin for pre-flush / `v-memo` template-ref demand. It
 resolves `vue`, `@vue/compiler-sfc`, and `@vue/compiler-dom` only from this
 oracle package (`createRequire` on this directory's `package.json`). Both

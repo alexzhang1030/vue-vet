@@ -111,7 +111,6 @@ impl Collector<'_> {
   fn sole_provide(&self, key: SymbolId, origin: DemandOrigin) -> Option<InjectionSite> {
     let mut chosen: Option<InjectionSite> = None;
     for site in self.indexes.provides_on(key) {
-      self.indexes.note_query();
       if site.head.callable != origin.callable || site.head.region != origin.region {
         continue;
       }
@@ -162,7 +161,6 @@ impl Collector<'_> {
   fn single_return_kind(&mut self, body: &FunctionBody<'_>) -> Option<PrimitiveKind> {
     let mut returned: Option<Span> = None;
     for statement in &body.statements {
-      self.indexes.note_query();
       match statement {
         Statement::ReturnStatement(ret) => {
           if returned.is_some() {
@@ -227,7 +225,6 @@ impl Collector<'_> {
     }
     let mut chosen: Option<DemandSite> = None;
     for named in self.indexes.member_calls_on(root) {
-      self.indexes.note_query();
       if !self.indexes.injection_demand_from(&named.site, origin, fallback) {
         continue;
       }
@@ -304,7 +301,6 @@ impl Collector<'_> {
   fn kind_of_symbol(&mut self, symbol_id: SymbolId, remaining: u8) -> Option<PrimitiveKind> {
     let root = self.indexes.root_of(symbol_id);
     if let Some(cached) = self.primitive_kind.get(&root) {
-      self.indexes.note_query();
       return Some(*cached);
     }
     if remaining == 0

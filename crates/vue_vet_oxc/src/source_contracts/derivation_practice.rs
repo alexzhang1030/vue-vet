@@ -145,7 +145,6 @@ impl Collector<'_> {
     };
     let left_root = self.indexes.root_of(left_id);
     let right_root = self.indexes.root_of(right_id);
-    self.indexes.note_query();
     if left_root == right_root {
       return;
     }
@@ -225,7 +224,6 @@ impl Collector<'_> {
     };
     let guard_root = self.indexes.root_of(guard_id);
     let producer_root = self.indexes.root_of(producer_id);
-    self.indexes.note_query();
     if guard_root == producer_root {
       return;
     }
@@ -270,7 +268,6 @@ impl Collector<'_> {
   }
 
   fn ordinary_primitive_ref(&mut self, root: SymbolId) -> Option<OrdinaryRef> {
-    self.indexes.note_query();
     if self.indexes.reassigned.contains(&root)
       || self.is_parameter(root)
       || self.is_exported(root)
@@ -279,11 +276,9 @@ impl Collector<'_> {
       return None;
     }
     let init_span = self.indexes.init_span.get(&root).copied()?;
-    self.indexes.note_query();
     let ShapeHint::Call(call_span) = self.indexes.hints.get(&span_key(init_span)).copied()? else {
       return None;
     };
-    self.indexes.note_query();
     let info = self.indexes.calls.get(&span_key(call_span)).copied()?;
     if info.has_spread || !matches!(info.api, Some("ref" | "shallowRef")) {
       return None;
@@ -299,7 +294,6 @@ impl Collector<'_> {
   }
 
   fn pure_primitive_computed(&mut self, root: SymbolId) -> Option<ComputedProducer> {
-    self.indexes.note_query();
     if self.indexes.reassigned.contains(&root)
       || self.is_parameter(root)
       || self.is_exported(root)
@@ -308,11 +302,9 @@ impl Collector<'_> {
       return None;
     }
     let init_span = self.indexes.init_span.get(&root).copied()?;
-    self.indexes.note_query();
     let ShapeHint::Call(call_span) = self.indexes.hints.get(&span_key(init_span)).copied()? else {
       return None;
     };
-    self.indexes.note_query();
     let info = self.indexes.calls.get(&span_key(call_span)).copied()?;
     if info.has_spread || info.api != Some("computed") || info.arg_count > 2 {
       return None;
@@ -358,7 +350,6 @@ impl Collector<'_> {
 
   fn sink_use_of(&mut self, root: SymbolId) -> SinkOwnership {
     if let Some(summary) = self.sink_use.get(&root).copied() {
-      self.indexes.note_query();
       return summary;
     }
     let user_writes = !self.indexes.value_writes_of(root).is_empty()
@@ -377,17 +368,14 @@ impl Collector<'_> {
         self.indexes.add_references(1);
         match self.sink_reference_role(reference.node_id()) {
           SinkRole::Decl | SinkRole::ValueRead => {}
-          SinkRole::SyncRef(span) => {
-            self.indexes.note_query();
-            match unique {
-              None => unique = Some(span),
-              Some(existing) if existing == span => {}
-              Some(_) => {
-                self.sink_use.insert(root, SinkOwnership::Shared);
-                return SinkOwnership::Shared;
-              }
+          SinkRole::SyncRef(span) => match unique {
+            None => unique = Some(span),
+            Some(existing) if existing == span => {}
+            Some(_) => {
+              self.sink_use.insert(root, SinkOwnership::Shared);
+              return SinkOwnership::Shared;
             }
-          }
+          },
           SinkRole::Other => {
             self.sink_use.insert(root, SinkOwnership::Unknown);
             return SinkOwnership::Unknown;
@@ -401,10 +389,8 @@ impl Collector<'_> {
   }
 
   fn sink_reference_role(&self, node_id: oxc_semantic::NodeId) -> SinkRole {
-    self.indexes.note_query();
     let ident_span = self.semantic.nodes().kind(node_id).span();
     let parent_id = self.semantic.nodes().parent_id(node_id);
-    self.indexes.note_query();
     match self.semantic.nodes().kind(parent_id) {
       oxc_ast::AstKind::VariableDeclarator(_) => SinkRole::Decl,
       oxc_ast::AstKind::StaticMemberExpression(member)
@@ -421,7 +407,6 @@ impl Collector<'_> {
         }
       }
       oxc_ast::AstKind::CallExpression(call) => {
-        self.indexes.note_query();
         let Some(info) = self.indexes.calls.get(&span_key(call.span)).copied() else {
           return SinkRole::Other;
         };
@@ -514,7 +499,6 @@ impl Collector<'_> {
 
   fn producer_demand_of(&mut self, root: SymbolId) -> ProducerDemand {
     if let Some(demand) = self.producer_demand.get(&root).copied() {
-      self.indexes.note_query();
       return demand;
     }
     let mut watch_span = None;
@@ -546,10 +530,8 @@ impl Collector<'_> {
   }
 
   fn producer_reference_role(&self, node_id: oxc_semantic::NodeId) -> ProducerRole {
-    self.indexes.note_query();
     let ident_span = self.semantic.nodes().kind(node_id).span();
     let parent_id = self.semantic.nodes().parent_id(node_id);
-    self.indexes.note_query();
     match self.semantic.nodes().kind(parent_id) {
       oxc_ast::AstKind::VariableDeclarator(_) => ProducerRole::Decl,
       oxc_ast::AstKind::ArrayExpression(_) => self
@@ -568,7 +550,6 @@ impl Collector<'_> {
     let mut current = array_id;
     for _ in 0..8 {
       let parent_id = self.semantic.nodes().parent_id(current);
-      self.indexes.note_query();
       match self.semantic.nodes().kind(parent_id) {
         oxc_ast::AstKind::ParenthesizedExpression(_)
         | oxc_ast::AstKind::TSAsExpression(_)
@@ -577,7 +558,6 @@ impl Collector<'_> {
         | oxc_ast::AstKind::TSTypeAssertion(_)
         | oxc_ast::AstKind::ArrayExpression(_) => current = parent_id,
         oxc_ast::AstKind::CallExpression(call) => {
-          self.indexes.note_query();
           let info = self.indexes.calls.get(&span_key(call.span)).copied()?;
           if info.api != Some("watch") {
             return None;
@@ -598,11 +578,9 @@ impl Collector<'_> {
   fn inactive_dep_write(&self, guard: SymbolId, dep: SymbolId, site: &CallSite) -> Option<Span> {
     let watch_offset = site.offset;
     let guard_init = self.indexes.init_span.get(&guard).copied().and_then(|span| {
-      self.indexes.note_query();
       let ShapeHint::Call(call_span) = self.indexes.hints.get(&span_key(span)).copied()? else {
         return None;
       };
-      self.indexes.note_query();
       let info = self.indexes.calls.get(&span_key(call_span)).copied()?;
       info.first_arg.and_then(|argument| self.indexes.primitive_at(argument))
     });
@@ -657,13 +635,10 @@ impl Collector<'_> {
   }
 
   fn ordinary_primitive_ref_payload(&self, root: SymbolId) -> Option<PrimitiveAtom> {
-    self.indexes.note_query();
     let init_span = self.indexes.init_span.get(&root).copied()?;
-    self.indexes.note_query();
     let ShapeHint::Call(call_span) = self.indexes.hints.get(&span_key(init_span)).copied()? else {
       return None;
     };
-    self.indexes.note_query();
     let info = self.indexes.calls.get(&span_key(call_span)).copied()?;
     info
       .first_arg
@@ -673,10 +648,8 @@ impl Collector<'_> {
   fn guarded_idempotent_sink(&self, callback: &ArrayCallback<'_>) -> Option<SymbolId> {
     let statements = callback.body.statements.as_slice();
     if statements.len() != 1 {
-      self.indexes.add_queries(statements.len() as u64);
       return None;
     }
-    self.indexes.note_query();
     let Statement::IfStatement(if_stmt) = statements.first()? else {
       return None;
     };
@@ -724,7 +697,6 @@ impl Collector<'_> {
   fn guaranteed_execution(&self, node_id: oxc_semantic::NodeId) -> bool {
     let mut current = node_id;
     for _ in 0..32 {
-      self.indexes.note_query();
       let parent_id = self.semantic.nodes().parent_id(current);
       match self.semantic.nodes().kind(parent_id) {
         AstKind::IfStatement(_)
@@ -777,7 +749,6 @@ impl Collector<'_> {
     let ident_span = self.semantic.nodes().kind(node_id).span();
     let mut current = node_id;
     for _ in 0..MAX_DEPTH {
-      self.indexes.note_query();
       let parent_id = self.semantic.nodes().parent_id(current);
       match self.semantic.nodes().kind(parent_id) {
         AstKind::ParenthesizedExpression(_)
@@ -798,7 +769,6 @@ impl Collector<'_> {
           {
             return false;
           }
-          self.indexes.note_query();
           return self
             .indexes
             .calls
@@ -818,19 +788,13 @@ impl Collector<'_> {
     for alias in self.indexes.alias_members(root) {
       names.push(self.symbol_name(*alias));
     }
-    names.sort_by(|left, right| {
-      self.indexes.note_query();
-      left.cmp(right)
-    });
-    let before = names.len();
+    names.sort();
     names.dedup();
-    self.indexes.add_queries(before as u64);
     names
   }
 
   fn root_symbol_ids(&self, root: SymbolId) -> Vec<SymbolId> {
     let aliases = self.indexes.alias_members(root);
-    self.indexes.add_queries(aliases.len() as u64);
     let mut ids = Vec::with_capacity(aliases.len().saturating_add(1));
     ids.push(root);
     ids.extend_from_slice(aliases);
@@ -863,7 +827,6 @@ impl Collector<'_> {
   }
 
   fn assigned_const_handle(&self, call_node: oxc_semantic::NodeId) -> Option<SymbolId> {
-    self.indexes.note_query();
     let parent_id = self.semantic.nodes().parent_id(call_node);
     let oxc_ast::AstKind::VariableDeclarator(declarator) = self.semantic.nodes().kind(parent_id)
     else {
@@ -877,12 +840,10 @@ impl Collector<'_> {
   }
 
   fn is_declaration_reference(&self, node_id: oxc_semantic::NodeId) -> bool {
-    self.indexes.note_query();
     matches!(self.semantic.nodes().parent_kind(node_id), oxc_ast::AstKind::VariableDeclarator(_))
   }
 
   fn identifier_is_callee(&self, node_id: oxc_semantic::NodeId) -> bool {
-    self.indexes.note_query();
     let ident_span = self.semantic.nodes().kind(node_id).span();
     let oxc_ast::AstKind::CallExpression(call) = self.semantic.nodes().parent_kind(node_id) else {
       return false;
@@ -946,7 +907,6 @@ impl Collector<'_> {
   }
 
   fn pure_debug_options(&self, span: Span) -> bool {
-    self.indexes.note_query();
     let Some(entries) = self.indexes.object_index.objects.get(&span_key(span)) else {
       return false;
     };
@@ -1114,12 +1074,10 @@ impl Collector<'_> {
   }
 
   pub(super) fn symbol_is_const(&self, symbol_id: SymbolId) -> bool {
-    self.indexes.note_query();
     self.semantic.scoping().symbol_flags(symbol_id).contains(SymbolFlags::ConstVariable)
   }
 
   pub(super) fn is_parameter(&self, symbol_id: SymbolId) -> bool {
-    self.indexes.note_query();
     let declaration = self.semantic.symbol_declaration(symbol_id);
     matches!(declaration.kind(), oxc_ast::AstKind::FormalParameter(_))
       || matches!(
@@ -1129,16 +1087,13 @@ impl Collector<'_> {
   }
 
   pub(super) fn symbol_name(&self, symbol_id: SymbolId) -> String {
-    self.indexes.note_query();
     self.semantic.scoping().symbol_name(symbol_id).to_string()
   }
 
   pub(super) fn is_exported(&self, symbol_id: SymbolId) -> bool {
-    self.indexes.note_query();
     let mut current = self.semantic.symbol_declaration(symbol_id).id();
     for _ in 0..6 {
       let parent_id = self.semantic.nodes().parent_id(current);
-      self.indexes.note_query();
       match self.semantic.nodes().kind(parent_id) {
         oxc_ast::AstKind::ExportNamedDeclaration(_)
         | oxc_ast::AstKind::ExportDefaultDeclaration(_) => return true,
@@ -1188,17 +1143,14 @@ fn value_read_from_body(
 ) -> Option<SymbolId> {
   if expression_body {
     let statement = body.statements.first()?;
-    collector.indexes.note_query();
     let Statement::ExpressionStatement(expr) = statement else {
       return None;
     };
     return value_member(&expr.expression, collector);
   }
   if body.statements.len() != 1 {
-    collector.indexes.add_queries(body.statements.len() as u64);
     return None;
   }
-  collector.indexes.note_query();
   let Statement::ReturnStatement(ret) = body.statements.first()? else {
     return None;
   };
@@ -1208,7 +1160,6 @@ fn value_read_from_body(
 fn value_member(expression: &Expression<'_>, collector: &Collector<'_>) -> Option<SymbolId> {
   let mut inner = expression;
   for _ in 0..MAX_DEPTH {
-    collector.indexes.add_queries(1);
     match inner {
       Expression::ParenthesizedExpression(paren) => inner = &paren.expression,
       Expression::TSAsExpression(expr) => inner = &expr.expression,

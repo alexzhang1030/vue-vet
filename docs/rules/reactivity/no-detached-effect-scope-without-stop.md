@@ -70,7 +70,7 @@ The same discarded detached scope suppresses nested-watch findings for
 watchers created inside that `run`. Independent after-await orphans stay with
 `no-orphaned-scope-watcher`.
 
-Runtime evidence: Vue 3.5.40 (`just oracle-lifetime`). Tests discard the
+Runtime evidence: Vue 3.5.40 (`just oracle-all`). Tests discard the
 scope, fire the outer callback at least twice after the original owner `run`
 returns, stop that owner, mutate the inner source, and assert residual
 callbacks. Bounded runs are not infinite-execution claims.

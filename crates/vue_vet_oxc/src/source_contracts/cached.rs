@@ -91,10 +91,7 @@ impl Collector<'_> {
     if !self.is_native_local_ref(source) {
       return;
     }
-    if listed.iter().any(|symbol| {
-      self.indexes.note_query();
-      *symbol == source
-    }) {
+    if listed.contains(&source) {
       return;
     }
     let Some(result) = self.bound_const_symbol(node_id) else {
@@ -133,7 +130,6 @@ impl Collector<'_> {
     let mut events = Vec::new();
     let mut block = None;
     for call in self.indexes.identifier_calls_on(root) {
-      self.indexes.note_query();
       if !zero_arg_access(call, origin) {
         continue;
       }
@@ -147,7 +143,6 @@ impl Collector<'_> {
       });
     }
     for demand in self.indexes.result_demands_on(root) {
-      self.indexes.note_query();
       if !self.demand_call_ok(&demand.site, origin)
         || demand.inner.argc != 0
         || demand.inner.has_spread
@@ -166,7 +161,6 @@ impl Collector<'_> {
       });
     }
     for named in self.indexes.member_calls_on(root) {
-      self.indexes.note_query();
       if MEMO_REPAIR.contains(&named.key.as_str())
         && named.site.head.callable == origin.callable
         && named.site.head.region == origin.region
@@ -193,7 +187,6 @@ impl Collector<'_> {
     let mut events = Vec::new();
     let mut block = None;
     for site in self.indexes.value_reads_on(root) {
-      self.indexes.note_query();
       if !self.indexes.demand_from(site, origin) || !site.role.needs_get() {
         continue;
       }
@@ -204,7 +197,6 @@ impl Collector<'_> {
       });
     }
     for demand in self.indexes.value_demands_on(root) {
-      self.indexes.note_query();
       if !self.demand_call_ok(&demand.site, origin)
         || !demand.value_read.head.reach.is_straight()
         || demand.value_read.optional
@@ -224,7 +216,6 @@ impl Collector<'_> {
       });
     }
     for named in self.indexes.member_calls_on(root) {
-      self.indexes.note_query();
       if named.key == "trigger"
         && named.site.head.callable == origin.callable
         && named.site.head.region == origin.region
@@ -239,7 +230,6 @@ impl Collector<'_> {
     }
     for listed_root in listed {
       for write in self.indexes.value_writes_on(*listed_root) {
-        self.indexes.note_query();
         if write.callable != origin.callable {
           continue;
         }
@@ -291,7 +281,6 @@ impl Collector<'_> {
       return None;
     }
     for write in self.indexes.value_writes_on(source) {
-      self.indexes.note_query();
       if write.callable != origin.callable {
         continue;
       }
@@ -325,7 +314,6 @@ impl Collector<'_> {
     let mut cursor = origin.offset;
     let mut chosen: Option<StaleSite> = None;
     for event in events.iter() {
-      self.indexes.note_query();
       if retained.is_some()
         && (self.indexes.has_barrier_between(origin.region, cursor, event.offset)
           || self.indexes.has_foreign_event_between(block, cursor, event.offset))
@@ -371,20 +359,15 @@ impl Collector<'_> {
 
   fn memo_unknown_members(&self, root: SymbolId) -> bool {
     self.indexes.member_calls_on(root).iter().any(|named| {
-      self.indexes.note_query();
       !MEMO_REPAIR.contains(&named.key.as_str()) && !MEMO_UNKNOWN.contains(&named.key.as_str())
     }) || self.indexes.member_reads_on(root).iter().any(|named| {
-      self.indexes.note_query();
       MEMO_UNKNOWN.contains(&named.key.as_str())
         || (!MEMO_REPAIR.contains(&named.key.as_str()) && named.key != "length")
     })
   }
 
   fn controlled_unknown_members(&self, root: SymbolId) -> bool {
-    self.indexes.member_calls_on(root).iter().any(|named| {
-      self.indexes.note_query();
-      named.key != "trigger"
-    })
+    self.indexes.member_calls_on(root).iter().any(|named| named.key != "trigger")
   }
 
   fn demand_call_ok(&self, site: &MemberUse, origin: DemandOrigin) -> bool {

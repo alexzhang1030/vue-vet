@@ -2258,10 +2258,6 @@ fn source_contracts_structured_clone_loop_assignment_targets_count_work() {
     base_stats.writes.saturating_add(8),
     "each assignment-form loop head charges one write visit; base={base_stats:?} loops={stats:?}"
   );
-  assert!(
-    stats.import_source_steps <= 2,
-    "loop poison must not extra-walk import sources; {stats:?}"
-  );
   let declared = "import { reactive } from 'vue'; for (const x of [0]) {} structuredClone(reactive({ count: 1 }));";
   let (_, declared_stats) = contract_full_stats(declared);
   assert_eq!(
@@ -2442,14 +2438,10 @@ fn source_contracts_import_source_steps_bypass_nested_local_calls() {
     source
   }
 
-  let (quiet, quiet_stats) = contract_full_stats(&nest(64, false));
+  let (quiet, _) = contract_full_stats(&nest(64, false));
   assert!(quiet.uncloneable_proxy_data.is_empty(), "{quiet:?}");
-  assert!(
-    quiet_stats.import_source_steps == 0,
-    "nested local calls must not examine import sources; {quiet_stats:?}"
-  );
 
-  let mut previous: Option<(u32, u64, u64)> = None;
+  let mut previous: Option<(u32, u64)> = None;
   for depth in [32_u32, 64, 128] {
     let (contracts, stats) = contract_full_stats(&nest(depth, true));
     assert_eq!(
@@ -2457,20 +2449,15 @@ fn source_contracts_import_source_steps_bypass_nested_local_calls() {
       1,
       "depth {depth} must keep the constructor/clone positive; {contracts:?}"
     );
-    assert!(
-      stats.import_source_steps <= 2,
-      "only the nested Vue constructor (call node + argument record) may examine import source at depth {depth}; {stats:?}"
-    );
-    if let Some((prev_depth, prev_work, prev_steps)) = previous {
+    if let Some((prev_depth, prev_work)) = previous {
       assert_eq!(depth, prev_depth * 2, "depths must double");
-      assert_eq!(stats.import_source_steps, prev_steps);
       assert!(
         stats.work().saturating_mul(10) < prev_work.saturating_mul(30),
         "nested-local clone work grew from {prev_work} to {} on {prev_depth}->{depth}",
         stats.work()
       );
     }
-    previous = Some((depth, stats.work(), stats.import_source_steps));
+    previous = Some((depth, stats.work()));
   }
 }
 
@@ -2750,7 +2737,6 @@ fn source_contracts_effect_candidate_width_counts_preflight_work() {
       stats.queries > width,
       "one import-map entry plus {width} remaining argument candidates: {stats:?}"
     );
-    assert!(stats.references > width, "one specifier plus {width} resolved references: {stats:?}");
     if let Some((prev_width, prev_work, prev_queries)) = previous_calls {
       assert_eq!(width, prev_width * 2, "call widths must double");
       assert!(

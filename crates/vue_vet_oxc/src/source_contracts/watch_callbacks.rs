@@ -68,7 +68,6 @@ impl Collector<'_> {
     let Some(callback) = simple_callback(callback_expr) else {
       return;
     };
-    self.indexes.note_query();
     if self.indexes.reassigned.contains(&callback.new_param)
       || self.indexes.reassigned.contains(&callback.old_param)
     {
@@ -126,7 +125,6 @@ impl Collector<'_> {
         }
       }
       Expression::CallExpression(call) => {
-        self.indexes.note_query();
         let info = self.indexes.calls.get(&span_key(call.span)).copied()?;
         if info.has_spread {
           return None;
@@ -152,7 +150,6 @@ impl Collector<'_> {
     &mut self,
     identifier: &oxc_ast::ast::IdentifierReference<'_>,
   ) -> bool {
-    self.indexes.note_query();
     let Some(symbol_id) = self.reference_symbol(identifier) else {
       return false;
     };
@@ -163,14 +160,12 @@ impl Collector<'_> {
     let Some(init_span) = self.indexes.init_span.get(&root).copied() else {
       return false;
     };
-    self.indexes.note_query();
     let Some(hint) = self.indexes.hints.get(&span_key(init_span)).copied() else {
       return false;
     };
     let ShapeHint::Call(call_span) = hint else {
       return false;
     };
-    self.indexes.note_query();
     let Some(info) = self.indexes.calls.get(&span_key(call_span)).copied() else {
       return false;
     };
@@ -184,7 +179,6 @@ impl Collector<'_> {
   }
 
   fn closed_construction(&mut self, span: Span, remaining: u8) -> bool {
-    self.indexes.note_query();
     if remaining == 0 {
       return false;
     }
@@ -194,7 +188,6 @@ impl Collector<'_> {
     if self.indexes.is_array_literal(span) {
       return true;
     }
-    self.indexes.note_query();
     let Some(hint) = self.indexes.hints.get(&span_key(span)).copied() else {
       return false;
     };
@@ -214,7 +207,6 @@ impl Collector<'_> {
   }
 
   fn closed_watch_options(&self, call: &CallExpression<'_>) -> Option<WatchOptions> {
-    self.indexes.note_query();
     let Some(options_expr) = call.arguments.get(2).and_then(Argument::as_expression) else {
       return Some(WatchOptions { once: false, immediate: false });
     };
@@ -236,10 +228,8 @@ impl Collector<'_> {
     let statements = callback.body.statements.as_slice();
     let first = statements.first()?;
     if statements.iter().any(|statement| matches!(statement, Statement::TryStatement(_))) {
-      self.indexes.add_queries(statements.len() as u64);
       return None;
     }
-    self.indexes.note_query();
     let Statement::IfStatement(if_stmt) = first else {
       return None;
     };
@@ -359,14 +349,12 @@ fn is_param(
   let Some(identifier) = expression.get_inner_expression().get_identifier_reference() else {
     return false;
   };
-  collector.indexes.note_query();
   identifier.name.as_str() == name && collector.reference_symbol(identifier) == Some(symbol_id)
 }
 
 fn is_pure_undefined(expression: &Expression<'_>, collector: &Collector<'_>) -> bool {
   match expression.get_inner_expression() {
     Expression::Identifier(identifier) => {
-      collector.indexes.note_query();
       identifier.name.as_str() == "undefined" && collector.reference_symbol(identifier).is_none()
     }
     Expression::UnaryExpression(unary) if unary.operator == UnaryOperator::Void => {
@@ -377,7 +365,6 @@ fn is_pure_undefined(expression: &Expression<'_>, collector: &Collector<'_>) -> 
 }
 
 fn is_pure_void_operand(expression: &Expression<'_>, collector: &Collector<'_>) -> bool {
-  collector.indexes.note_query();
   match expression.get_inner_expression() {
     Expression::NumericLiteral(_)
     | Expression::BooleanLiteral(_)
@@ -401,7 +388,6 @@ fn later_work_consumes(
   if remaining == 0 {
     return LaterWork::Uncertain;
   }
-  collector.indexes.add_queries(statements.len() as u64);
   for statement in statements {
     match statement {
       Statement::EmptyStatement(_)
@@ -450,7 +436,6 @@ fn expression_consumes(
   if remaining == 0 {
     return false;
   }
-  collector.indexes.note_query();
   match expression.get_inner_expression() {
     Expression::CallExpression(call) => call.arguments.iter().any(|argument| {
       argument.as_expression().is_some_and(|expr| {
@@ -482,7 +467,6 @@ fn mentions_param(
   if remaining == 0 {
     return false;
   }
-  collector.indexes.note_query();
   match expression.get_inner_expression() {
     Expression::Identifier(identifier) => {
       identifier.name.as_str() == new_name

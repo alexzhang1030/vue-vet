@@ -171,7 +171,6 @@ impl Collector<'_> {
     let inner = factory.get_inner_expression();
     let key = span_key(inner.span());
     if let Some(cached) = self.factory_summaries.get(&key) {
-      self.indexes.note_query();
       return cached.clone();
     }
     let summary = self.analyze_factory(inner);
@@ -441,7 +440,6 @@ impl Collector<'_> {
         continue;
       };
       for declarator in &declaration.declarations {
-        self.indexes.note_query();
         let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
           continue;
         };
@@ -480,7 +478,6 @@ impl Collector<'_> {
         continue;
       };
       for declarator in &declaration.declarations {
-        self.indexes.note_query();
         let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
           continue;
         };
@@ -506,7 +503,6 @@ impl Collector<'_> {
           continue;
         };
         for declarator in &declaration.declarations {
-          self.indexes.note_query();
           let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
             continue;
           };
@@ -573,7 +569,6 @@ impl Collector<'_> {
       return true;
     }
     for use_site in self.indexes.arg_uses_of(root) {
-      self.indexes.note_query();
       match (use_site.api, use_site.index) {
         (Some("watch" | "triggerRef"), 0) => {}
         (_, _) if use_site.call_span == factory_span => {}
@@ -585,7 +580,6 @@ impl Collector<'_> {
       return self.symbol_has_unknown_borrow(root, factory_span);
     }
     for symbol_id in members {
-      self.indexes.note_query();
       if self.symbol_has_unknown_borrow(*symbol_id, factory_span) {
         return true;
       }
@@ -595,7 +589,6 @@ impl Collector<'_> {
 
   fn symbol_has_unknown_borrow(&self, symbol_id: SymbolId, factory_span: Span) -> bool {
     for reference in self.semantic.symbol_references(symbol_id) {
-      self.indexes.note_query();
       if !self.reference_is_known_borrow(reference.node_id(), factory_span) {
         return true;
       }
@@ -606,7 +599,6 @@ impl Collector<'_> {
   fn declaration_is_exported(&self, symbol_id: SymbolId) -> bool {
     let mut node_id = self.semantic.scoping().symbol_declaration(symbol_id);
     for _ in 0..8 {
-      self.indexes.note_query();
       match self.semantic.nodes().kind(node_id) {
         AstKind::ExportNamedDeclaration(_) | AstKind::ExportDefaultDeclaration(_) => return true,
         AstKind::Program(_) => return false,
@@ -657,7 +649,6 @@ impl Collector<'_> {
     factory_span: Span,
     ident_span: Span,
   ) -> bool {
-    self.indexes.note_query();
     if call_span == factory_span {
       return true;
     }
@@ -671,7 +662,6 @@ impl Collector<'_> {
   fn first_active_consumer(&self, root: SymbolId) -> Option<ConsumerSite> {
     let mut sites = Vec::new();
     for use_site in self.indexes.arg_uses_of(root) {
-      self.indexes.note_query();
       if use_site.api == Some("watch")
         && use_site.index == 0
         && let Some(site) = self.proven_consumer(*use_site, None)
@@ -680,7 +670,6 @@ impl Collector<'_> {
       }
     }
     for read in self.indexes.value_reads_of(root) {
-      self.indexes.note_query();
       let Some(callable) = read.callable else {
         continue;
       };
@@ -690,7 +679,6 @@ impl Collector<'_> {
       let Some(fn_span) = self.indexes.function_by_node.get(&callable).copied() else {
         continue;
       };
-      self.indexes.note_query();
       let site = self
         .indexes
         .effect_calls
@@ -754,7 +742,6 @@ impl Collector<'_> {
   fn handle_inactive_from(&self, consumer: ConsumerSite) -> Option<usize> {
     let handle = consumer.handle?;
     let root = self.indexes.root_of(handle);
-    self.indexes.note_query();
     if self.indexes.reassigned.contains(&root) || self.indexes.escaped.contains(&root) {
       return Some(consumer.offset);
     }
@@ -774,7 +761,6 @@ impl Collector<'_> {
     let inactive_at = self.handle_inactive_from(consumer);
     let mut current = init.clone();
     for write in self.indexes.value_writes_of(root) {
-      self.indexes.note_query();
       if write.block != consumer.block {
         continue;
       }
@@ -799,10 +785,9 @@ impl Collector<'_> {
 
   fn has_trigger_ref_after(&self, root: SymbolId, write_offset: usize) -> bool {
     let work = self.indexes.work_counter();
-    timeline::after(work, self.indexes.arg_uses_of(root), write_offset).iter().any(|use_site| {
-      self.indexes.note_query();
-      use_site.api == Some("triggerRef") && use_site.index == 0
-    })
+    timeline::after(work, self.indexes.arg_uses_of(root), write_offset)
+      .iter()
+      .any(|use_site| use_site.api == Some("triggerRef") && use_site.index == 0)
   }
 
   fn push_lost(
@@ -1877,7 +1862,6 @@ fn holder_or_unknown_local_object(
   let Some(symbol_id) = collector.reference_symbol(ident) else {
     return false;
   };
-  collector.indexes.note_query();
   let _proven_holder = ctx.aliases.contains_key(&symbol_id)
     || ctx.holders.contains(&symbol_id)
     || ctx.holders.contains(&collector.indexes.root_of(symbol_id));

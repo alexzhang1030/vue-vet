@@ -75,7 +75,7 @@ One-instance mutation, read-only or same-type sharing, fresh factories, supplied
 
 ## Evidence
 
-Vue 3.5.40 compiled-SFC premises live in `crates/vue_vet_reactivity/oracle/model-demand.mjs` (`just oracle-model-demand`). The oracle compiles the module-`<script>` shared object and the object-literal default, mounts two instances, and asserts shared identity plus the sibling demand throw.
+Vue 3.5.40 compiled-SFC premises live in `crates/vue_vet_reactivity/oracle/model-demand.mjs` (`just oracle-all`). The oracle compiles the module-`<script>` shared object and the object-literal default, mounts two instances, and asserts shared identity plus the sibling demand throw.
 
 ## Remediation
 

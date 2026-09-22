@@ -119,7 +119,6 @@ impl Collector<'_> {
     let mut summaries = Vec::new();
     let calls = self.computed_calls.clone();
     for node_id in calls {
-      self.indexes.note_query();
       let Some(summary) = self.summarize_computed(node_id) else {
         continue;
       };
@@ -161,13 +160,11 @@ impl Collector<'_> {
     let mut by_producer: HashMap<SymbolId, Vec<IdentityConsumer>> = HashMap::new();
     let watch_calls = self.watch_calls.clone();
     for node_id in watch_calls {
-      self.indexes.note_query();
       if let Some(consumer) = self.watch_identity_consumer(node_id, &by_binding) {
         by_producer.entry(consumer.computed).or_default().push(consumer);
       }
     }
     for summary in summaries {
-      self.indexes.note_query();
       let Some(getter) = self.computed_getter(summary.site.node) else {
         continue;
       };
@@ -178,7 +175,6 @@ impl Collector<'_> {
         if producer == summary.binding {
           continue;
         }
-        self.indexes.note_query();
         by_producer.entry(producer).or_default().push(IdentityConsumer {
           computed: producer,
           span: summary.computed_span,
@@ -256,11 +252,9 @@ impl Collector<'_> {
     consumers: &HashMap<SymbolId, Vec<IdentityConsumer>>,
   ) -> Option<StableComputedIdentityFact> {
     let (source, source_span, kind) = summary.projection.as_ref()?;
-    self.indexes.note_query();
     let candidates = consumers.get(&summary.binding)?;
     let mut chosen: Option<(Site, Span, usize)> = None;
     for consumer in candidates {
-      self.indexes.note_query();
       if consumer.site.callable != summary.site.callable
         || consumer.site.block != summary.site.block
       {
@@ -451,7 +445,6 @@ impl Collector<'_> {
     expression: &Expression<'_>,
     remaining: u8,
   ) -> Option<(SymbolId, Span, Vec<ArrayOp>)> {
-    self.indexes.note_query();
     if remaining == 0 {
       return None;
     }
@@ -495,7 +488,6 @@ impl Collector<'_> {
       "concat" => {
         let mut extra = Vec::new();
         for argument in &call.arguments {
-          self.indexes.note_query();
           let expr = argument.as_expression()?;
           if let Some(array) = self.primitive_array_of(expr.span()) {
             extra.extend(array);
@@ -519,7 +511,6 @@ impl Collector<'_> {
   fn map_fn(&mut self, expression: &Expression<'_>) -> Option<MapFn> {
     let (param, param_name, body) = simple_one_param_callback(expression)?;
     let expr = callback_expression(&body)?;
-    self.indexes.note_query();
     match expr.get_inner_expression() {
       Expression::Identifier(identifier)
         if identifier.name.as_str() == param_name
@@ -568,7 +559,6 @@ impl Collector<'_> {
   fn filter_fn(&mut self, expression: &Expression<'_>) -> Option<FilterFn> {
     let (param, param_name, body) = simple_one_param_callback(expression)?;
     let expr = callback_expression(&body)?;
-    self.indexes.note_query();
     match expr.get_inner_expression() {
       Expression::BooleanLiteral(literal) if literal.value => Some(FilterFn::Always),
       Expression::Identifier(identifier)
@@ -616,13 +606,11 @@ impl Collector<'_> {
     let Expression::ObjectExpression(_) = expression.get_inner_expression() else {
       return None;
     };
-    self.indexes.note_query();
     let entries = self.indexes.object_index.objects.get(&span_key(expression.span()))?.clone();
     let mut fields = Vec::new();
     let mut source = None;
     let mut source_span = None;
     for entry in &entries {
-      self.indexes.note_query();
       let ObjectEntry::Data { name, value, .. } = entry else {
         return None;
       };
@@ -644,14 +632,11 @@ impl Collector<'_> {
   }
 
   fn member_of_ref_value(&self, span: Span) -> Option<(SymbolId, Span, String)> {
-    self.indexes.note_query();
     let outer = self.indexes.members.get(&span_key(span))?.clone();
-    self.indexes.note_query();
     let inner = self.indexes.members.get(&span_key(outer.object))?;
     if inner.property != "value" {
       return None;
     }
-    self.indexes.note_query();
     let super::shape::ShapeHint::Identifier(Some(symbol_id), _) =
       self.indexes.hints.get(&span_key(inner.object)).copied()?
     else {
@@ -671,15 +656,12 @@ impl Collector<'_> {
   }
 
   fn ref_payload(&mut self, root: SymbolId) -> Option<Payload> {
-    self.indexes.note_query();
     let init = *self.indexes.init_span.get(&root)?;
-    self.indexes.note_query();
     let super::shape::ShapeHint::Call(call_span) =
       self.indexes.hints.get(&span_key(init)).copied()?
     else {
       return None;
     };
-    self.indexes.note_query();
     let info = self.indexes.calls.get(&span_key(call_span)).copied()?;
     if !matches!(info.api, Some("ref" | "shallowRef")) || info.has_spread {
       return None;
@@ -695,7 +677,6 @@ impl Collector<'_> {
     if let Some(direct) = self.array_atoms(span) {
       return Some(direct);
     }
-    self.indexes.note_query();
     let hint = self.indexes.hints.get(&span_key(span)).copied()?;
     match hint {
       super::shape::ShapeHint::Identifier(Some(symbol_id), _) => {
@@ -711,7 +692,6 @@ impl Collector<'_> {
   }
 
   fn array_atoms(&mut self, span: Span) -> Option<Vec<PrimitiveAtom>> {
-    self.indexes.note_query();
     let elements = self.indexes.array_elements.get(&span_key(span))?.clone();
     let mut atoms = Vec::with_capacity(elements.len());
     for element in elements {
@@ -721,16 +701,13 @@ impl Collector<'_> {
   }
 
   fn primitive_object_of(&mut self, span: Span) -> Option<BTreeMap<String, PrimitiveAtom>> {
-    self.indexes.note_query();
     let closed = self.indexes.closed_object_literal(span)?;
     if !closed {
       return None;
     }
-    self.indexes.note_query();
     let entries = self.indexes.object_index.objects.get(&span_key(span))?.clone();
     let mut fields = BTreeMap::new();
     for entry in &entries {
-      self.indexes.note_query();
       let ObjectEntry::Data { name, value, .. } = entry else {
         return None;
       };
@@ -740,14 +717,12 @@ impl Collector<'_> {
   }
 
   fn atom_at(&mut self, span: Span, remaining: u8) -> Option<PrimitiveAtom> {
-    self.indexes.note_query();
     if remaining == 0 {
       return None;
     }
     if let Some(atom) = self.indexes.atoms.get(&span_key(span)) {
       return Some(atom.clone());
     }
-    self.indexes.note_query();
     let hint = self.indexes.hints.get(&span_key(span)).copied()?;
     match hint {
       super::shape::ShapeHint::Identifier(Some(symbol_id), _) => {
@@ -776,7 +751,6 @@ impl Collector<'_> {
   }
 
   fn identity_watch_options(&self, call: &CallExpression<'_>) -> Option<WatchIdentityOptions> {
-    self.indexes.note_query();
     let Some(options_expr) = call.arguments.get(2).and_then(Argument::as_expression) else {
       return Some(WatchIdentityOptions { once: false, deep: false, flush: FlushMode::Pre });
     };
@@ -784,7 +758,7 @@ impl Collector<'_> {
     let Expression::ObjectExpression(object) = options_expr else {
       return None;
     };
-    if !identity_option_shape(&self.indexes, object) {
+    if !identity_option_shape(object) {
       return None;
     }
     let span = options_expr.span();
@@ -804,7 +778,6 @@ impl Collector<'_> {
   fn const_binding_of_call(&self, node_id: NodeId) -> Option<SymbolId> {
     let mut current = node_id;
     for _ in 0..MAX_DEPTH {
-      self.indexes.note_query();
       let parent = self.semantic.nodes().parent_id(current);
       match self.semantic.nodes().kind(parent) {
         wrapper if is_ts_wrapper(wrapper) => current = parent,
@@ -829,7 +802,6 @@ impl Collector<'_> {
   fn computed_binding_escaped_or_mutated(&self, symbol_id: SymbolId) -> bool {
     let root = self.indexes.root_of(symbol_id);
     for reference in self.semantic.symbol_references(root) {
-      self.indexes.note_query();
       if reference.flags().is_write() {
         return true;
       }
@@ -844,7 +816,6 @@ impl Collector<'_> {
     let ident_span = self.semantic.nodes().kind(node_id).span();
     let mut current = node_id;
     for _ in 0..MAX_DEPTH {
-      self.indexes.note_query();
       let parent = self.semantic.nodes().parent_id(current);
       match self.semantic.nodes().kind(parent) {
         wrapper if is_ts_wrapper(wrapper) || matches!(wrapper, AstKind::ChainExpression(_)) => {
@@ -854,7 +825,6 @@ impl Collector<'_> {
           return false;
         }
         AstKind::CallExpression(call) => {
-          self.indexes.note_query();
           let Some(info) = self.indexes.calls.get(&span_key(call.span)).copied() else {
             return true;
           };
@@ -870,7 +840,6 @@ impl Collector<'_> {
   fn first_activation(&self, binding: SymbolId, after: Site) -> Option<Site> {
     let mut chosen: Option<Site> = None;
     for reference in self.semantic.symbol_references(binding) {
-      self.indexes.note_query();
       if reference.flags().is_write() {
         continue;
       }
@@ -910,7 +879,6 @@ impl Collector<'_> {
     end: usize,
   ) -> bool {
     for reference in self.semantic.symbol_references(handle) {
-      self.indexes.note_query();
       let parent = self.semantic.nodes().parent_id(reference.node_id());
       let AstKind::CallExpression(call) = self.semantic.nodes().kind(parent) else {
         continue;
@@ -942,7 +910,6 @@ impl Collector<'_> {
   ) -> Option<Site> {
     let mut chosen: Option<Site> = None;
     for reference in self.semantic.symbol_references(binding) {
-      self.indexes.note_query();
       if reference.flags().is_write() {
         continue;
       }
@@ -984,7 +951,6 @@ impl Collector<'_> {
     if let Expression::Identifier(identifier) = inner
       && self.reference_symbol(identifier.as_ref()).is_none()
     {
-      self.indexes.note_query();
       return PrimitiveAtom::unresolved_global(identifier.name.as_str());
     }
     self.atom_at(expression.span(), MAX_DEPTH)
@@ -1018,21 +984,15 @@ const fn identity_bool(value: OptionValue<Literal>) -> Option<bool> {
   }
 }
 
-fn identity_option_shape(
-  indexes: &super::index::Indexes,
-  object: &oxc_ast::ast::ObjectExpression<'_>,
-) -> bool {
-  object.properties.iter().all(|property| {
-    indexes.note_query();
-    match property {
-      ObjectPropertyKind::SpreadProperty(_) => false,
-      ObjectPropertyKind::ObjectProperty(prop) => {
-        prop.kind == oxc_ast::ast::PropertyKind::Init
-          && !prop.method
-          && !prop.shorthand
-          && !prop.computed
-          && prop.key.static_name().is_some()
-      }
+fn identity_option_shape(object: &oxc_ast::ast::ObjectExpression<'_>) -> bool {
+  object.properties.iter().all(|property| match property {
+    ObjectPropertyKind::SpreadProperty(_) => false,
+    ObjectPropertyKind::ObjectProperty(prop) => {
+      prop.kind == oxc_ast::ast::PropertyKind::Init
+        && !prop.method
+        && !prop.shorthand
+        && !prop.computed
+        && prop.key.static_name().is_some()
     }
   })
 }
@@ -1076,7 +1036,6 @@ fn apply_projection(
     (Payload::Object(fields), ProjectionKind::ObjectFields(keys)) => {
       let mut out = BTreeMap::new();
       for (result_key, source_key) in keys {
-        work.add_queries(1);
         work.add_object_entries(1);
         out.insert(result_key.clone(), fields.get(source_key)?.clone());
       }
@@ -1096,7 +1055,7 @@ fn apply_array_op(
       let mut out = Vec::with_capacity(items.len());
       for item in items {
         work.add_object_entries(1);
-        out.push(apply_map(item, map, work)?);
+        out.push(apply_map(item, map)?);
       }
       Some(out)
     }
@@ -1104,7 +1063,7 @@ fn apply_array_op(
       let mut out = Vec::new();
       for item in items {
         work.add_object_entries(1);
-        if apply_filter(item, filter, work)? {
+        if apply_filter(item, filter)? {
           work.add_object_entries(1);
           out.push(item.clone());
         }
@@ -1133,61 +1092,40 @@ fn apply_array_op(
     ArrayOp::ToSortedDefault => {
       let mut out = items.to_vec();
       work.add_object_entries(out.len() as u64);
-      out.sort_by(|left, right| {
-        work.add_queries(1);
-        left.js_to_string().cmp(&right.js_to_string())
-      });
+      out.sort_by_key(PrimitiveAtom::js_to_string);
       Some(out)
     }
     ArrayOp::ToSortedNumeric => {
       let mut out = items.to_vec();
       work.add_object_entries(out.len() as u64);
-      if out.iter().any(|item| {
-        work.add_queries(1);
-        item.as_f64().is_none()
-      }) {
+      if out.iter().any(|item| item.as_f64().is_none()) {
         return None;
       }
-      out.sort_by(|left, right| {
-        work.add_queries(1);
-        match (left.as_f64(), right.as_f64()) {
-          (Some(left), Some(right)) => {
-            left.partial_cmp(&right).unwrap_or(std::cmp::Ordering::Equal)
-          }
-          _ => std::cmp::Ordering::Equal,
-        }
+      out.sort_by(|left, right| match (left.as_f64(), right.as_f64()) {
+        (Some(left), Some(right)) => left.partial_cmp(&right).unwrap_or(std::cmp::Ordering::Equal),
+        _ => std::cmp::Ordering::Equal,
       });
       Some(out)
     }
   }
 }
 
-fn apply_map(
-  item: &PrimitiveAtom,
-  map: &MapFn,
-  work: &super::stats::WorkCounter,
-) -> Option<PrimitiveAtom> {
-  work.add_queries(1);
+fn apply_map(item: &PrimitiveAtom, map: &MapFn) -> Option<PrimitiveAtom> {
   match map {
     MapFn::Identity => Some(item.clone()),
     MapFn::Negate => item.as_f64().map(|value| PrimitiveAtom::from_f64(-value)),
     MapFn::Not => Some(PrimitiveAtom::Bool(!is_truthy(item))),
-    MapFn::Binary { op, literal, param_left } => binary_eval(*op, item, literal, *param_left, work),
+    MapFn::Binary { op, literal, param_left } => binary_eval(*op, item, literal, *param_left),
   }
 }
 
-fn apply_filter(
-  item: &PrimitiveAtom,
-  filter: &FilterFn,
-  work: &super::stats::WorkCounter,
-) -> Option<bool> {
-  work.add_queries(1);
+fn apply_filter(item: &PrimitiveAtom, filter: &FilterFn) -> Option<bool> {
   match filter {
     FilterFn::Always => Some(true),
     FilterFn::Truthy => Some(is_truthy(item)),
     FilterFn::Falsy => Some(!is_truthy(item)),
     FilterFn::Compare { op, literal, param_left } => {
-      match binary_eval(*op, item, literal, *param_left, work)? {
+      match binary_eval(*op, item, literal, *param_left)? {
         PrimitiveAtom::Bool(value) => Some(value),
         _ => None,
       }
@@ -1200,9 +1138,7 @@ fn binary_eval(
   item: &PrimitiveAtom,
   literal: &PrimitiveAtom,
   param_left: bool,
-  work: &super::stats::WorkCounter,
 ) -> Option<PrimitiveAtom> {
-  work.add_queries(1);
   let (left, right) = if param_left { (item, literal) } else { (literal, item) };
   match op {
     BinaryOperator::Addition => match (left, right) {
@@ -1236,12 +1172,8 @@ fn payloads_equal(left: &Payload, right: &Payload, work: &super::stats::WorkCoun
   match (left, right) {
     (Payload::Array(a), Payload::Array(b)) => sequences_object_is(a, b, work),
     (Payload::Object(a), Payload::Object(b)) => {
-      work.add_queries(1);
       a.len() == b.len()
-        && a.iter().all(|(key, value)| {
-          work.add_queries(1);
-          b.get(key).is_some_and(|other| value.object_is(other))
-        })
+        && a.iter().all(|(key, value)| b.get(key).is_some_and(|other| value.object_is(other)))
     }
     _ => false,
   }
@@ -1439,7 +1371,6 @@ fn collect_computed_reads(
   collector: &Collector<'_>,
   remaining: u8,
 ) -> Option<Vec<SymbolId>> {
-  collector.indexes.note_query();
   if remaining == 0 {
     return None;
   }
@@ -1480,7 +1411,6 @@ fn collect_statement_reads(
   remaining: u8,
   reads: &mut Vec<SymbolId>,
 ) -> Option<()> {
-  collector.indexes.note_query();
   if remaining == 0 {
     return None;
   }
@@ -1514,7 +1444,6 @@ fn collect_expr_reads(
   remaining: u8,
   reads: &mut Vec<SymbolId>,
 ) -> Option<()> {
-  collector.indexes.note_query();
   if remaining == 0 {
     return None;
   }

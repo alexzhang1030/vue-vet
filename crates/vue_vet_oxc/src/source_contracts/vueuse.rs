@@ -70,7 +70,6 @@ impl Collector<'_> {
     let stops = self.stop_handles(node_id, call);
     let mut chosen: Option<(usize, Span, Span, Span)> = None;
     for root in ignore_roots {
-      self.indexes.note_query();
       self.collect_ignore_root(root, source, parent, region, &stops, &mut chosen);
     }
     if let Some((_, write, ignore, await_span)) = chosen {
@@ -93,12 +92,10 @@ impl Collector<'_> {
     chosen: &mut Option<(usize, Span, Span, Span)>,
   ) {
     for site in self.indexes.identifier_calls_on(root) {
-      self.indexes.note_query();
       let site = member_from_call(site);
       self.consider_ignore_call(&site, None, source, parent, region, stops, chosen);
     }
     for named in self.indexes.member_calls_on(root) {
-      self.indexes.note_query();
       if named.key != "ignoreUpdates" {
         continue;
       }
@@ -213,10 +210,7 @@ impl Collector<'_> {
     let calls = self.indexes.identifier_calls_on(root);
     let call_sites: Vec<MemberUse> = calls.iter().map(member_from_call).collect();
     let calls = call_sites.as_slice();
-    let Some(first_pos) = calls.iter().position(|site| {
-      self.indexes.note_query();
-      site.head.offset > factory_offset
-    }) else {
+    let Some(first_pos) = calls.iter().position(|site| site.head.offset > factory_offset) else {
       return;
     };
     let Some(first_site) = calls.get(first_pos) else {
@@ -276,7 +270,6 @@ impl Collector<'_> {
     first_kind: NativeKind,
   ) -> Option<(Span, NativeKind, DemandOrigin)> {
     for later in calls.iter().skip(first_pos.saturating_add(1)) {
-      self.indexes.note_query();
       if later.head.callable != first_site.head.callable
         || later.head.region != first_site.head.region
       {
@@ -323,7 +316,6 @@ impl Collector<'_> {
   fn shared_result_aliases(&self, calls: &[MemberUse]) -> Option<Vec<SymbolId>> {
     let mut aliases = Vec::new();
     for site in calls {
-      self.indexes.note_query();
       let Some(result) = self.indexes.result_of_call(site.head.span) else {
         continue;
       };
@@ -347,7 +339,6 @@ impl Collector<'_> {
   ) -> Option<(MemberUse, String)> {
     let mut chosen: Option<(MemberUse, String)> = None;
     for alias in aliases {
-      self.indexes.note_query();
       if let Some((demand, method)) =
         self.incompatible_demand(*alias, first, later, origin, origin.offset)
         && chosen.as_ref().is_none_or(|(current, _)| demand.head.offset < current.head.offset)
@@ -359,10 +350,7 @@ impl Collector<'_> {
   }
 
   fn alias_repaired_before(&self, aliases: &[SymbolId], start: usize, end: usize) -> bool {
-    aliases.iter().any(|alias| {
-      self.indexes.note_query();
-      self.indexes.has_simple_value_write_between(*alias, start, end)
-    })
+    aliases.iter().any(|alias| self.indexes.has_simple_value_write_between(*alias, start, end))
   }
 
   fn sync_flush_closed_options(&self, options: Option<Span>) -> bool {
@@ -470,10 +458,11 @@ impl Collector<'_> {
   }
 
   fn unordered_source_write(&self, source: SymbolId, updater: Option<NodeId>) -> bool {
-    self.indexes.value_write_events(source).iter().any(|write| {
-      self.indexes.note_query();
-      write.callable != updater && !self.callable_is_async(write.callable)
-    })
+    self
+      .indexes
+      .value_write_events(source)
+      .iter()
+      .any(|write| write.callable != updater && !self.callable_is_async(write.callable))
   }
 
   fn callable_is_async(&self, callable: Option<NodeId>) -> bool {
@@ -497,18 +486,15 @@ impl Collector<'_> {
     if self.indexes.reassigned.contains(&source)
       || self.indexes.unknown_member_touch.contains(&source)
     {
-      self.indexes.note_query();
       return None;
     }
     if self.unordered_source_write(source, callable) {
       return None;
     }
     let writes = self.indexes.value_writes_for(source, callable)?;
-    self.indexes.note_query();
     timeline::after(self.indexes.work_counter(), writes, after)
       .iter()
       .find(|write| {
-        self.indexes.note_query();
         if !write.simple_assign {
           return false;
         }
@@ -543,12 +529,10 @@ impl Collector<'_> {
     region: NodeId,
   ) -> bool {
     for (symbol, key) in self.indexes.call_bindings(call.span) {
-      self.indexes.note_query();
       if key != "stop" {
         continue;
       }
       if self.indexes.identifier_calls_on(*symbol).iter().any(|site| {
-        self.indexes.note_query();
         let site = member_from_call(site);
         site.head.callable == parent && site.head.region == region && self.indexes.demand_ok(&site)
       }) {
@@ -567,7 +551,6 @@ impl Collector<'_> {
   fn stop_handles(&self, node_id: NodeId, call: &CallExpression<'_>) -> StopHandles {
     let mut idents = Vec::new();
     for (symbol, key) in self.indexes.call_bindings(call.span) {
-      self.indexes.note_query();
       if key == "stop" {
         idents.push(*symbol);
       }
@@ -583,9 +566,7 @@ impl Collector<'_> {
     before: usize,
   ) -> bool {
     if stops.idents.iter().any(|symbol| {
-      self.indexes.note_query();
       self.indexes.identifier_calls_on(*symbol).iter().any(|site| {
-        self.indexes.note_query();
         let site = member_from_call(site);
         site.head.callable == Some(updater)
           && site.head.offset < before
@@ -608,7 +589,6 @@ impl Collector<'_> {
   fn ignore_update_roots(&self, node_id: NodeId, call: &CallExpression<'_>) -> Vec<SymbolId> {
     let mut roots = Vec::new();
     for (symbol, key) in self.indexes.call_bindings(call.span) {
-      self.indexes.note_query();
       if key == "ignoreUpdates" {
         roots.push(self.indexes.root_of(*symbol));
       }
@@ -681,7 +661,6 @@ impl Collector<'_> {
   fn callable_is_effect_scope_run(&self, callable: NodeId) -> bool {
     let mut current = callable;
     for _ in 0..8 {
-      self.indexes.note_query();
       let parent = self.semantic.nodes().parent_id(current);
       match self.semantic.nodes().kind(parent) {
         wrapper if is_ts_wrapper(wrapper) || matches!(wrapper, AstKind::ExpressionStatement(_)) => {
@@ -719,7 +698,6 @@ impl Collector<'_> {
   ) -> Option<(MemberUse, String)> {
     let mut chosen: Option<(MemberUse, String)> = None;
     for demand in self.indexes.value_demands_on(root) {
-      self.indexes.note_query();
       if demand.site.head.offset <= after || !self.indexes.demand_from(&demand.site, origin) {
         continue;
       }

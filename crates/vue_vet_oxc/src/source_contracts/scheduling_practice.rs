@@ -200,7 +200,7 @@ impl Collector<'_> {
     if nth_expr(call, 3).is_some() {
       return;
     }
-    if !self.eager_computed_async_options(call) {
+    if !Self::eager_computed_async_options(call) {
       return;
     }
     let Some(producer) = nth_expr(call, 0) else {
@@ -262,7 +262,6 @@ impl Collector<'_> {
     let callback_expr = nth_expr(call, 1)?;
     let source_id = ident_symbol(source_expr, self)?;
     let source = self.indexes.root_of(source_id);
-    self.indexes.note_query();
     let (callback_id, sink) = self.last_value_callback(callback_expr)?;
     if sink == source {
       return None;
@@ -306,7 +305,6 @@ impl Collector<'_> {
       }
       _ => {
         if body.statements.len() != 1 {
-          self.indexes.add_queries(body.statements.len() as u64);
           return None;
         }
         assignment_statement(body.statements.first()?)?
@@ -367,22 +365,17 @@ impl Collector<'_> {
 
   fn scheduling_option_keys_closed(&self, span: Span) -> bool {
     let Some(entries) = self.indexes.object_index.objects.get(&super::shape::span_key(span)) else {
-      self.indexes.note_query();
       return false;
     };
-    entries.iter().all(|entry| {
-      self.indexes.note_query();
-      match entry {
-        super::index::ObjectEntry::Data { name, .. } => {
-          matches!(name.as_str(), "flush" | "immediate")
-        }
-        _ => false,
+    entries.iter().all(|entry| match entry {
+      super::index::ObjectEntry::Data { name, .. } => {
+        matches!(name.as_str(), "flush" | "immediate")
       }
+      _ => false,
     })
   }
 
   fn scheduling_ordinary_primitive_ref(&mut self, root: SymbolId) -> Option<OrdinaryRef> {
-    self.indexes.note_query();
     if self.indexes.reassigned.contains(&root)
       || self.indexes.construction_mutated(root)
       || self.is_parameter(root)
@@ -392,11 +385,9 @@ impl Collector<'_> {
       return None;
     }
     let init_span = self.indexes.init_span.get(&root).copied()?;
-    self.indexes.note_query();
     let ShapeHint::Call(call_span) = self.indexes.hints.get(&span_key(init_span)).copied()? else {
       return None;
     };
-    self.indexes.note_query();
     let info = self.indexes.calls.get(&span_key(call_span)).copied()?;
     if info.has_spread || !matches!(info.api, Some("ref" | "shallowRef")) {
       return None;
@@ -430,7 +421,6 @@ impl Collector<'_> {
     let mut last_atom: Option<PrimitiveAtom> = None;
     let mut changed = 0u8;
     for write in self.indexes.value_writes_of(root) {
-      self.indexes.note_query();
       if write.offset <= watch_offset {
         let atom = self.indexes.primitive_at(write.rhs)?;
         cursor = Some(atom);
@@ -496,7 +486,6 @@ impl Collector<'_> {
   ) -> Option<&AwaitPositionSite> {
     let work = self.indexes.work_counter();
     timeline::after(work, self.indexes.awaits_of(callable), offset).iter().find(|site| {
-      self.indexes.note_query();
       site.head.callable == callable && site.block == block && site.callee_api == Some("nextTick")
     })
   }
@@ -514,7 +503,6 @@ impl Collector<'_> {
 
   fn live_sink_observer(&self, root: SymbolId, start: usize, end: usize, producer: NodeId) -> bool {
     for read in self.indexes.scheduling_value_reads_of(root) {
-      self.indexes.note_query();
       if read.callable == Some(producer) {
         continue;
       }
@@ -536,7 +524,6 @@ impl Collector<'_> {
 
   fn sink_is_queued_closed(&self, root: SymbolId, callback: NodeId, watch_span: Span) -> bool {
     for write in self.indexes.value_writes_of(root) {
-      self.indexes.note_query();
       if write.callable != Some(callback) {
         return false;
       }
@@ -548,7 +535,6 @@ impl Collector<'_> {
 
   fn sink_is_scope_closed(&self, root: SymbolId, callback: NodeId) -> bool {
     for write in self.indexes.value_writes_of(root) {
-      self.indexes.note_query();
       if write.callable != Some(callback) {
         return false;
       }
@@ -578,19 +564,16 @@ impl Collector<'_> {
       return !self.call_is_reassigned(call.span);
     };
     if self.indexes.reassigned.contains(&handle) || self.is_exported(handle) {
-      self.indexes.note_query();
       return false;
     }
     for symbol_id in self.indexes.symbols_for_root(handle) {
       for reference in self.semantic.symbol_references(symbol_id) {
-        self.indexes.note_query();
         let node_id = reference.node_id();
         if self.is_declaration(node_id) {
           continue;
         }
         let ident_span = self.semantic.nodes().kind(node_id).span();
         let parent_id = self.semantic.nodes().parent_id(node_id);
-        self.indexes.note_query();
         match self.semantic.nodes().kind(parent_id) {
           AstKind::CallExpression(stop) if callee_span_matches(stop, ident_span) => {
             if self.span(stop.span).offset < tick_offset {
@@ -608,10 +591,11 @@ impl Collector<'_> {
 
   fn handle_stopped_or_paused(&self, call: &CallExpression<'_>, _callable: Option<NodeId>) -> bool {
     self.assigned_const_root(call.span).is_some_and(|handle| {
-      self.indexes.member_calls_of(handle).iter().any(|site| {
-        self.indexes.note_query();
-        matches!(site.method, "pause" | "resume" | "stop")
-      })
+      self
+        .indexes
+        .member_calls_of(handle)
+        .iter()
+        .any(|site| matches!(site.method, "pause" | "resume" | "stop"))
     })
   }
 
@@ -624,11 +608,9 @@ impl Collector<'_> {
 
   fn enclosing_parent_run(&self, node_id: NodeId) -> Option<ParentRun> {
     let callback = self.indexes.callable_of(node_id)?;
-    self.indexes.note_query();
     let mut current = callback;
     for _ in 0..8 {
       let parent_id = self.semantic.nodes().parent_id(current);
-      self.indexes.note_query();
       match self.semantic.nodes().kind(parent_id) {
         wrapper if is_ts_wrapper(wrapper) || matches!(wrapper, AstKind::ExpressionStatement(_)) => {
           current = parent_id;
@@ -666,11 +648,9 @@ impl Collector<'_> {
       return None;
     }
     let init_span = self.indexes.init_span.get(&root).copied()?;
-    self.indexes.note_query();
     let ShapeHint::Call(call_span) = self.indexes.hints.get(&span_key(init_span)).copied()? else {
       return None;
     };
-    self.indexes.note_query();
     let info = self.indexes.calls.get(&span_key(call_span)).copied()?;
     if info.has_spread || info.api != Some("effectScope") {
       return None;
@@ -701,7 +681,6 @@ impl Collector<'_> {
   fn parent_disposes_child(&self, child: SymbolId, callback: NodeId) -> Option<Span> {
     let mut found = None;
     for site in self.indexes.disposals_of(Some(callback)) {
-      self.indexes.note_query();
       if site.callable != Some(callback) || site.child != Some(child) {
         return None;
       }
@@ -746,7 +725,6 @@ impl Collector<'_> {
       _ => return false,
     };
     if body.statements.len() != 1 {
-      self.indexes.add_queries(body.statements.len() as u64);
       return false;
     }
     let Some(Statement::ExpressionStatement(stmt)) = body.statements.first() else {
@@ -759,10 +737,11 @@ impl Collector<'_> {
   }
 
   fn child_run_watch(&self, child: SymbolId, callback: NodeId) -> Option<&CallExpression<'_>> {
-    let run = self.indexes.member_calls_of(child).iter().find(|site| {
-      self.indexes.note_query();
-      site.method == "run" && site.callable == Some(callback)
-    })?;
+    let run = self
+      .indexes
+      .member_calls_of(child)
+      .iter()
+      .find(|site| site.method == "run" && site.callable == Some(callback))?;
     let node_id = self.indexes.call_node(run.span)?;
     let AstKind::CallExpression(call) = self.semantic.nodes().kind(node_id) else {
       return None;
@@ -785,7 +764,6 @@ impl Collector<'_> {
       _ => return None,
     };
     if body.statements.len() != 1 {
-      self.indexes.add_queries(body.statements.len() as u64);
       return None;
     }
     let Statement::ExpressionStatement(stmt) = body.statements.first()? else {
@@ -799,10 +777,7 @@ impl Collector<'_> {
   }
 
   fn child_explicit_pause(&self, child: SymbolId) -> bool {
-    self.indexes.member_calls_of(child).iter().any(|site| {
-      self.indexes.note_query();
-      matches!(site.method, "pause" | "resume")
-    })
+    self.indexes.member_calls_of(child).iter().any(|site| matches!(site.method, "pause" | "resume"))
   }
 
   fn sole_method_after(
@@ -816,7 +791,6 @@ impl Collector<'_> {
     let mut found = None;
     let work = self.indexes.work_counter();
     for site in timeline::after(work, self.indexes.member_calls_of(root), after) {
-      self.indexes.note_query();
       if site.method != method || site.callable != callable || site.block != block {
         continue;
       }
@@ -830,10 +804,9 @@ impl Collector<'_> {
 
   fn method_between(&self, root: SymbolId, method: &'static str, start: usize, end: usize) -> bool {
     let work = self.indexes.work_counter();
-    timeline::between(work, self.indexes.member_calls_of(root), start, end).iter().any(|site| {
-      self.indexes.note_query();
-      site.method == method
-    })
+    timeline::between(work, self.indexes.member_calls_of(root), start, end)
+      .iter()
+      .any(|site| site.method == method)
   }
 
   #[expect(
@@ -857,7 +830,6 @@ impl Collector<'_> {
     let mut last_atom = None;
     let mut count = 0u8;
     for write in self.indexes.value_writes_of(root) {
-      self.indexes.note_query();
       if write.offset <= start {
         let atom = self.indexes.primitive_at(write.rhs)?;
         cursor = Some(atom);
@@ -892,7 +864,7 @@ impl Collector<'_> {
     first
   }
 
-  fn eager_computed_async_options(&self, call: &CallExpression<'_>) -> bool {
+  fn eager_computed_async_options(call: &CallExpression<'_>) -> bool {
     let Some(options) = nth_expr(call, 2) else {
       return true;
     };
@@ -901,7 +873,6 @@ impl Collector<'_> {
     };
     let mut lazy = None;
     for property in &object.properties {
-      self.indexes.note_query();
       match property {
         ObjectPropertyKind::SpreadProperty(_) => return false,
         ObjectPropertyKind::ObjectProperty(prop) => {
@@ -955,7 +926,6 @@ impl Collector<'_> {
       return false;
     }
     if self.indexes.unknown_member_touch.contains(&root) {
-      self.indexes.note_query();
       return false;
     }
     self.closed_symbol(root, |collector, node_id| {
@@ -973,9 +943,7 @@ impl Collector<'_> {
     call_span: Span,
   ) -> Option<Span> {
     let consumers: Vec<WatchConsumer> = self.indexes.watch_consumers_of(result).to_vec();
-    self.indexes.add_queries(consumers.len() as u64);
     for consumer in consumers {
-      self.indexes.note_query();
       if consumer.span == call_span {
         continue;
       }
@@ -1013,18 +981,18 @@ impl Collector<'_> {
 
   fn handle_invoked_or_uncertain(&self, handle: SymbolId) -> bool {
     if self.indexes.reassigned.contains(&handle) || self.is_exported(handle) {
-      self.indexes.note_query();
       return true;
     }
-    if self.indexes.member_calls_of(handle).iter().any(|site| {
-      self.indexes.note_query();
-      matches!(site.method, "pause" | "resume" | "stop")
-    }) {
+    if self
+      .indexes
+      .member_calls_of(handle)
+      .iter()
+      .any(|site| matches!(site.method, "pause" | "resume" | "stop"))
+    {
       return true;
     }
     for symbol_id in self.indexes.symbols_for_root(handle) {
       for reference in self.semantic.symbol_references(symbol_id) {
-        self.indexes.note_query();
         let node_id = reference.node_id();
         if self.is_declaration(node_id) {
           continue;
@@ -1050,7 +1018,6 @@ impl Collector<'_> {
       if let Some(scope) = self.indexes.run_scope_of(callable) {
         let async_run = self.indexes.is_async_callable(callable);
         for site in self.indexes.member_calls_of(scope) {
-          self.indexes.note_query();
           if site.method == "stop" && site.callable != Some(callable) && async_run {
             return false;
           }
@@ -1108,7 +1075,6 @@ impl Collector<'_> {
       _ => return false,
     };
     if body.statements.len() != 1 {
-      self.indexes.add_queries(body.statements.len() as u64);
       return false;
     }
     let Some(Statement::IfStatement(if_stmt)) = body.statements.first() else {
@@ -1175,10 +1141,7 @@ impl Collector<'_> {
     self
       .indexes
       .primitive_at(literal.span())
-      .or_else(|| {
-        self.indexes.note_query();
-        primitive_atom(literal)
-      })
+      .or_else(|| primitive_atom(literal))
       .is_some_and(|atom| self.indexes.atoms_js_strict_eq(atom, initial))
   }
 
@@ -1208,7 +1171,6 @@ impl Collector<'_> {
   ) -> Option<Span> {
     let mut previous = self.ordinary_init_payload(root);
     for write in self.indexes.value_writes_of(root) {
-      self.indexes.note_query();
       if write.offset <= after {
         previous = Some(self.indexes.primitive_at(write.rhs)?);
         continue;
@@ -1230,11 +1192,9 @@ impl Collector<'_> {
 
   fn ordinary_init_payload(&self, root: SymbolId) -> Option<PrimitiveAtom> {
     let init_span = self.indexes.init_span.get(&root).copied()?;
-    self.indexes.note_query();
     let ShapeHint::Call(call_span) = self.indexes.hints.get(&span_key(init_span)).copied()? else {
       return None;
     };
-    self.indexes.note_query();
     let info = self.indexes.calls.get(&span_key(call_span)).copied()?;
     info
       .first_arg
@@ -1246,7 +1206,6 @@ impl Collector<'_> {
     let mut current = node_id;
     for _ in 0..6 {
       let parent_id = self.semantic.nodes().parent_id(current);
-      self.indexes.note_query();
       match self.semantic.nodes().kind(parent_id) {
         wrapper if is_ts_wrapper(wrapper) => current = parent_id,
         AstKind::VariableDeclarator(declarator) => {
@@ -1267,7 +1226,6 @@ impl Collector<'_> {
 
   fn closed_symbol(&self, root: SymbolId, allowed: impl Fn(&Self, NodeId) -> bool) -> bool {
     if self.indexes.unknown_member_touch.contains(&root) {
-      self.indexes.note_query();
       return false;
     }
     for symbol_id in self.indexes.symbols_for_root(root) {
@@ -1275,7 +1233,6 @@ impl Collector<'_> {
         return false;
       }
       for reference in self.semantic.symbol_references(symbol_id) {
-        self.indexes.note_query();
         if !allowed(self, reference.node_id()) {
           return false;
         }
@@ -1285,16 +1242,13 @@ impl Collector<'_> {
   }
 
   fn is_declaration(&self, node_id: NodeId) -> bool {
-    self.indexes.note_query();
     matches!(self.semantic.nodes().parent_kind(node_id), AstKind::VariableDeclarator(_))
       || matches!(self.semantic.nodes().kind(node_id), AstKind::BindingIdentifier(_))
   }
 
   fn allowed_value_member(&self, node_id: NodeId) -> bool {
-    self.indexes.note_query();
     let ident_span = self.semantic.nodes().kind(node_id).span();
     let parent_id = self.semantic.nodes().parent_id(node_id);
-    self.indexes.note_query();
     match self.semantic.nodes().kind(parent_id) {
       AstKind::StaticMemberExpression(member)
         if member.property.name.as_str() == "value"
@@ -1308,10 +1262,8 @@ impl Collector<'_> {
   }
 
   fn scope_method_reference(&self, node_id: NodeId, methods: &[&str]) -> bool {
-    self.indexes.note_query();
     let ident_span = self.semantic.nodes().kind(node_id).span();
     let parent_id = self.semantic.nodes().parent_id(node_id);
-    self.indexes.note_query();
     match self.semantic.nodes().kind(parent_id) {
       AstKind::StaticMemberExpression(member)
         if methods.contains(&member.property.name.as_str())
@@ -1329,7 +1281,6 @@ impl Collector<'_> {
     let mut current = node_id;
     for _ in 0..8 {
       let parent_id = self.semantic.nodes().parent_id(current);
-      self.indexes.note_query();
       match self.semantic.nodes().kind(parent_id) {
         wrapper if is_ts_wrapper(wrapper) => current = parent_id,
         AstKind::CallExpression(call) if call.span == call_span => {
@@ -1351,7 +1302,6 @@ impl Collector<'_> {
     let mut current = node_id;
     for _ in 0..8 {
       let parent_id = self.semantic.nodes().parent_id(current);
-      self.indexes.note_query();
       match self.semantic.nodes().kind(parent_id) {
         wrapper if is_ts_wrapper(wrapper) => current = parent_id,
         AstKind::CallExpression(call) => {
@@ -1381,7 +1331,6 @@ impl Collector<'_> {
     let mut current = node_id;
     for _ in 0..10 {
       let parent_id = self.semantic.nodes().parent_id(current);
-      self.indexes.note_query();
       match self.semantic.nodes().kind(parent_id) {
         AstKind::ParenthesizedExpression(_)
         | AstKind::TSAsExpression(_)
@@ -1508,7 +1457,6 @@ fn value_from_async_body(
     return pure_source_expr(&stmt.expression, collector);
   }
   if body.statements.len() != 1 {
-    collector.indexes.add_queries(body.statements.len() as u64);
     return None;
   }
   let Statement::ReturnStatement(ret) = body.statements.first()? else {

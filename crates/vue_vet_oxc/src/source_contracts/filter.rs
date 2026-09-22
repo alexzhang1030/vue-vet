@@ -74,8 +74,7 @@ impl Collector<'_> {
   ) {
     let calls = self.indexes.identifier_calls_on(wrapper).to_vec();
     for (index, first) in calls.iter().enumerate() {
-      self.indexes.note_query();
-      if !self.wrapper_call_ok(first, origin) {
+      if !Self::wrapper_call_ok(first, origin) {
         continue;
       }
       let Some(promise) = self.const_result_of(first) else {
@@ -85,8 +84,7 @@ impl Collector<'_> {
         continue;
       }
       for later in calls.iter().skip(index.saturating_add(1)) {
-        self.indexes.note_query();
-        if !self.wrapper_call_ok(later, origin)
+        if !Self::wrapper_call_ok(later, origin)
           || later.head.offset <= first.head.offset
           || later.head.region != first.head.region
           || later.head.callable != first.head.callable
@@ -125,8 +123,7 @@ impl Collector<'_> {
     }
   }
 
-  fn wrapper_call_ok(&self, call: &CallUse, origin: super::proof::DemandOrigin) -> bool {
-    self.indexes.note_query();
+  fn wrapper_call_ok(call: &CallUse, origin: super::proof::DemandOrigin) -> bool {
     call.head.reach.is_straight()
       && !call.optional
       && !call.has_spread
@@ -151,7 +148,6 @@ impl Collector<'_> {
       chosen = Some(site);
     }
     for alias in self.filter_awaited_aliases(promise) {
-      self.indexes.note_query();
       if !self.indexes.result_binding_intact(alias) {
         continue;
       }
@@ -175,12 +171,10 @@ impl Collector<'_> {
   ) -> Option<FilterSite> {
     let mut chosen = None;
     for awaited in self.indexes.await_awaits_for_bound(promise) {
-      self.indexes.note_query();
-      if !self.await_ok(awaited, origin, later.head.offset) {
+      if !Self::await_ok(awaited, origin, later.head.offset) {
         continue;
       }
       for demand in self.indexes.await_await_method_calls_on(awaited.head.span) {
-        self.indexes.note_query();
         let Some(site) = self.demand_site(demand, origin, first, later, awaited, result_kind, true)
         else {
           continue;
@@ -208,7 +202,6 @@ impl Collector<'_> {
     let demands = self.indexes.member_calls_on(demand_root);
     timeline::after(self.indexes.work_counter(), demands, later.head.offset).iter().find_map(
       |named| {
-        self.indexes.note_query();
         let awaited = self.await_before_demand(
           await_root,
           origin,
@@ -221,12 +214,10 @@ impl Collector<'_> {
   }
 
   fn await_ok(
-    &self,
     awaited: &AwaitPositionSite,
     origin: super::proof::DemandOrigin,
     after: usize,
   ) -> bool {
-    self.indexes.note_query();
     awaited.head.offset >= after
       && awaited.head.callable == origin.callable
       && awaited.head.region == origin.region
@@ -242,8 +233,7 @@ impl Collector<'_> {
   ) -> Option<&AwaitPositionSite> {
     let awaits = self.indexes.await_awaits_for_bound(promise);
     timeline::from(self.indexes.work_counter(), awaits, after).iter().find(|awaited| {
-      self.indexes.note_query();
-      self.await_ok(awaited, origin, after) && awaited.head.offset <= demand_offset
+      Self::await_ok(awaited, origin, after) && awaited.head.offset <= demand_offset
     })
   }
 
@@ -327,7 +317,6 @@ impl Collector<'_> {
   ) -> Option<PrimitiveKind> {
     let mut returned: Option<&Expression<'_>> = None;
     for statement in &body.statements {
-      self.indexes.note_query();
       match statement {
         Statement::ReturnStatement(ret) => {
           if returned.is_some() {
@@ -459,7 +448,6 @@ impl Collector<'_> {
   fn filter_awaited_aliases(&self, promise: SymbolId) -> Vec<SymbolId> {
     let mut aliases = Vec::new();
     for awaited in self.indexes.await_awaits_for_bound(promise) {
-      self.indexes.note_query();
       let Some(alias) = self.indexes.await_result_of_await(awaited.head.span) else {
         continue;
       };
@@ -472,7 +460,6 @@ impl Collector<'_> {
   }
 
   fn filter_kind_of_span(&self, span: Span, remaining: u8) -> Option<PrimitiveKind> {
-    self.indexes.note_query();
     if remaining == 0 {
       return None;
     }
@@ -500,7 +487,6 @@ impl Collector<'_> {
 
   fn filter_kind_of_symbol(&self, symbol_id: SymbolId, remaining: u8) -> Option<PrimitiveKind> {
     let root = self.indexes.root_of(symbol_id);
-    self.indexes.note_query();
     if remaining == 0 {
       return None;
     }
@@ -540,10 +526,9 @@ impl Collector<'_> {
   }
 
   fn positive_literal_delay(&self, delay: Option<Span>) -> bool {
-    delay.and_then(|span| self.filter_number_at(span)).is_some_and(|value| {
-      self.indexes.note_query();
-      value.is_finite() && value > 0.0
-    })
+    delay
+      .and_then(|span| self.filter_number_at(span))
+      .is_some_and(|value| value.is_finite() && value > 0.0)
   }
 }
 

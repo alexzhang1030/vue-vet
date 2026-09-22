@@ -747,10 +747,6 @@ impl Indexes {
     self.work.add_object_entries(n);
   }
 
-  pub(super) fn add_queries(&self, n: u64) {
-    self.work.add_queries(n);
-  }
-
   pub(super) const fn work(&self) -> &WorkCounter {
     &self.work
   }
