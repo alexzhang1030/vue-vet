@@ -335,6 +335,11 @@ impl ProjectSession {
   /// # Errors
   ///
   /// Returns analysis or I/O failures.
+  #[expect(
+    clippy::inline_always,
+    reason = "the unchanged affected-scan path must specialize its snapshot publication"
+  )]
+  #[inline(always)]
   pub fn analyze_affected(&self) -> Result<AnalysisSnapshot, SessionError> {
     self.analyze_affected_product(AnalysisProduct::FullReport)
   }
@@ -344,6 +349,11 @@ impl ProjectSession {
   /// # Errors
   ///
   /// Returns analysis or I/O failures.
+  #[expect(
+    clippy::inline_always,
+    reason = "the unchanged affected-scan path must specialize its snapshot publication"
+  )]
+  #[inline(always)]
   pub fn analyze_affected_product(
     &self,
     product: AnalysisProduct,
@@ -644,6 +654,11 @@ impl ProjectSession {
   }
 }
 
+#[expect(
+  clippy::inline_always,
+  reason = "snapshot publication is the unchanged affected-scan benchmark hot path"
+)]
+#[inline(always)]
 fn publish_product(snapshot: &AnalysisSnapshot, product: AnalysisProduct) -> AnalysisSnapshot {
   let graph = match product {
     AnalysisProduct::FullReport => Arc::clone(&snapshot.graph),
