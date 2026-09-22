@@ -33,7 +33,15 @@ const title = ref('hi')
 
 ## Detection
 
-Fact-driven via Vue Vet's Vize / Oxc / reactivity-graph facts (not a parallel regex pattern engine).
+After the reactive prop join, the parent graph gets a Prop edge only when all of these hold:
+
+- the child script has a reactive `props` bag
+- the binding is `v-bind` / `:prop`, not `v-model` and not a whole-object `v-bind`
+- the expression is a bare identifier or a static member chain
+- that root is not already a reactive binding
+- the root is a plain `let` or `var` (`const` cannot go stale)
+
+The edge is `from` = that local, `to` = `props`, `property` = the prop name, span on the directive. Child edges for reactive sources stay `from: "props"` and are not a finding. Literals, calls, `props.title`, destructured `defineProps`, `toRef` / `computed`, and component `v-model` stay quiet.
 
 ## Remediation
 

@@ -208,6 +208,7 @@ mod tests {
       span: span_at(1),
       exported: false,
       plain_initializer: false,
+      mutable: false,
       escaped: false,
     });
     block.bindings.push(ScriptBindingFact {
@@ -217,6 +218,7 @@ mod tests {
       span: span_at(9),
       exported: true,
       plain_initializer: false,
+      mutable: false,
       escaped: false,
     });
     assert!(

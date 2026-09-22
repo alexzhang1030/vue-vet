@@ -169,6 +169,7 @@ mod tests {
             span: span(1),
             exported: true,
             plain_initializer: false,
+            mutable: false,
             escaped: false,
           },
           ScriptBindingFact {
@@ -178,6 +179,7 @@ mod tests {
             span: span(9),
             exported: false,
             plain_initializer: false,
+            mutable: false,
             escaped: false,
           },
         ],
@@ -215,6 +217,7 @@ mod tests {
             span: span(1),
             exported: false,
             plain_initializer: false,
+            mutable: false,
             escaped: false,
           },
           ScriptBindingFact {
@@ -224,6 +227,7 @@ mod tests {
             span: span(9),
             exported: false,
             plain_initializer: false,
+            mutable: false,
             escaped: false,
           },
         ],

@@ -6,7 +6,9 @@ use std::{
 };
 
 use vue_vet_core::ModuleId;
-use vue_vet_reactivity::{ModuleReactivity, PropFlowSite, join_prop_flows};
+use vue_vet_reactivity::{
+  ModuleReactivity, PropFlowSite, attach_stale_prop_flows, join_prop_flows,
+};
 
 use crate::model::{EdgeKind, GraphEdge, ProjectFile};
 use crate::state::{LayeredInputKey, ModuleLayerKey, ProjectGraphState};
@@ -162,6 +164,7 @@ pub fn apply_template_prop_layers(
         element_span: edge.evidence,
         parent_template: &parent_facts.facts.template,
         parent_graph,
+        parent_module: parent_path,
         child_module: child_path,
       })
     })
@@ -169,6 +172,9 @@ pub fn apply_template_prop_layers(
   let rebuilt_files: BTreeSet<&str> = rebuild.iter().copied().map(module_edge_key).collect();
   if should_join_prop_flows(&prop_sites, prop_edges_unchanged, &rebuilt_files) {
     join_prop_flows(&mut module_reactivity, &prop_sites);
+    attach_stale_prop_flows(&mut module_reactivity, &prop_sites, |parent, name| {
+      files_by_path.get(parent).is_some_and(|file| plain_mutable_local(file, name))
+    });
   }
   let modules = Arc::<[Arc<ModuleReactivity>]>::from(module_reactivity);
   let layered = Arc::make_mut(&mut state.layered);
@@ -258,6 +264,15 @@ fn module_edge_key(id: &ModuleId) -> &str {
 
 fn graph_edge_key(node: &str) -> &str {
   node.strip_prefix("file:").unwrap_or(node)
+}
+
+fn plain_mutable_local(file: &ProjectFile, name: &str) -> bool {
+  file.facts.script.blocks.iter().any(|block| {
+    block
+      .bindings
+      .iter()
+      .any(|binding| binding.name == name && binding.plain_initializer && binding.mutable)
+  })
 }
 
 fn should_join_prop_flows(

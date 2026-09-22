@@ -159,6 +159,7 @@ mod tests {
         span: span(0),
         exported: false,
         plain_initializer: false,
+        mutable: false,
         escaped: false,
       }],
       4,
@@ -182,6 +183,7 @@ mod tests {
         span: span(0),
         exported: false,
         plain_initializer: false,
+        mutable: false,
         escaped: false,
       }],
       4,
@@ -206,6 +208,7 @@ mod tests {
         span: span(0),
         exported: false,
         plain_initializer: false,
+        mutable: false,
         escaped: false,
       }],
       3,
@@ -223,6 +226,7 @@ mod tests {
       span: span(0),
       exported: false,
       plain_initializer: false,
+      mutable: false,
       escaped: false,
     }];
     assert!(

@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "vue-vet/reactivity/no-stale-prop-flow",
+    "category": "reactivity",
+    "severity": "warning",
+    "confidence": "high",
+    "documentation": "rules/reactivity/no-stale-prop-flow",
+    "message": "prop flow `title` → `props.title` does not start from a reactive binding",
+    "help": "Pass a ref/computed/reactive field, or read the source inside a tracking scope.",
+    "file": "fixtures/rules/no-stale-prop-flow/invalid/crlf.vue",
+    "span": {
+      "offset": 109,
+      "length": 1,
+      "line": 6,
+      "column": 10
+    }
+  }
+]

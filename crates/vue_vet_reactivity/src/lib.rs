@@ -12,7 +12,7 @@ pub use explain::{
   explain_tracking_scope, module_id_matches, query_module_prefix, scope_covering_span,
   select_tracking_scopes,
 };
-pub use prop_flow::{PropFlowSite, join_prop_flows};
+pub use prop_flow::{PropFlowSite, attach_stale_prop_flows, join_prop_flows};
 pub use trace::{
   ComposableShape, DEEP_WATCH_PROPERTY, ModuleLink, ModuleReactivity, ModuleSource, ModuleSummary,
   ModuleTraceState, NamedApiBag, TraceConfig, TraceModulesError, TraceModulesOptions,

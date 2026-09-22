@@ -1,6 +1,6 @@
 <script setup lang="ts">
-defineProps<{ title: string }>()
+const props = defineProps<{ title: string }>()
 </script>
 <template>
-  <h1>{{ title }}</h1>
+  <h1>{{ props.title }}</h1>
 </template>

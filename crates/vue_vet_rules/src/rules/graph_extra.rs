@@ -204,6 +204,13 @@ impl Rule for NoStalePropFlow {
         if reactive_names.contains(edge.from.as_str()) {
           continue;
         }
+        if !block
+          .bindings
+          .iter()
+          .any(|binding| binding.name == edge.from && binding.plain_initializer && binding.mutable)
+        {
+          continue;
+        }
         if edge.from.contains(':')
           || edge.from.starts_with("effect")
           || edge.from.starts_with("watch_")
