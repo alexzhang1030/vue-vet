@@ -337,26 +337,22 @@ mod tests {
       ..Default::default()
     };
     let mut parent_graph = ReactivityGraph {
-      bindings: vec![ReactiveBindingFact {
-        name: "label".into(),
-        kind: ReactiveBindingKind::Ref,
-        initialized_with_null: false,
-        alias_of: None,
-        alias_of_span: None,
-        span: span(1),
-      }],
+      bindings: vec![ReactiveBindingFact::plain(
+        "label".into(),
+        ReactiveBindingKind::Ref,
+        false,
+        span(1),
+      )],
       ..ReactivityGraph::default()
     };
     parent_graph.set_module_id("Parent.vue");
     let child_graph = ReactivityGraph {
-      bindings: vec![ReactiveBindingFact {
-        name: "props".into(),
-        kind: ReactiveBindingKind::Reactive,
-        initialized_with_null: false,
-        alias_of: None,
-        alias_of_span: None,
-        span: span(2),
-      }],
+      bindings: vec![ReactiveBindingFact::plain(
+        "props".into(),
+        ReactiveBindingKind::Reactive,
+        false,
+        span(2),
+      )],
       ..ReactivityGraph::default()
     };
     let mut children =
@@ -421,14 +417,12 @@ mod tests {
     };
     let parent_graph = ReactivityGraph::default();
     let child_graph = ReactivityGraph {
-      bindings: vec![ReactiveBindingFact {
-        name: "props".into(),
-        kind: ReactiveBindingKind::Reactive,
-        initialized_with_null: false,
-        alias_of: None,
-        alias_of_span: None,
-        span: span(2),
-      }],
+      bindings: vec![ReactiveBindingFact::plain(
+        "props".into(),
+        ReactiveBindingKind::Reactive,
+        false,
+        span(2),
+      )],
       ..ReactivityGraph::default()
     };
     let mut modules = vec![
@@ -522,35 +516,19 @@ mod tests {
     };
     let mut parent_graph = ReactivityGraph {
       bindings: vec![
-        ReactiveBindingFact {
-          name: "label".into(),
-          kind: ReactiveBindingKind::Ref,
-          initialized_with_null: false,
-          alias_of: None,
-          alias_of_span: None,
-          span: span(1),
-        },
-        ReactiveBindingFact {
-          name: "other".into(),
-          kind: ReactiveBindingKind::Ref,
-          initialized_with_null: false,
-          alias_of: None,
-          alias_of_span: None,
-          span: span(2),
-        },
+        ReactiveBindingFact::plain("label".into(), ReactiveBindingKind::Ref, false, span(1)),
+        ReactiveBindingFact::plain("other".into(), ReactiveBindingKind::Ref, false, span(2)),
       ],
       ..ReactivityGraph::default()
     };
     parent_graph.set_module_id("Parent.vue");
     let child_graph = ReactivityGraph {
-      bindings: vec![ReactiveBindingFact {
-        name: "props".into(),
-        kind: ReactiveBindingKind::Reactive,
-        initialized_with_null: false,
-        alias_of: None,
-        alias_of_span: None,
-        span: span(3),
-      }],
+      bindings: vec![ReactiveBindingFact::plain(
+        "props".into(),
+        ReactiveBindingKind::Reactive,
+        false,
+        span(3),
+      )],
       ..ReactivityGraph::default()
     };
     let mut children =
@@ -632,35 +610,19 @@ mod tests {
     };
     let mut parent_graph = ReactivityGraph {
       bindings: vec![
-        ReactiveBindingFact {
-          name: "msg".into(),
-          kind: ReactiveBindingKind::Ref,
-          initialized_with_null: false,
-          alias_of: None,
-          alias_of_span: None,
-          span: span(1),
-        },
-        ReactiveBindingFact {
-          name: "bag".into(),
-          kind: ReactiveBindingKind::Reactive,
-          initialized_with_null: false,
-          alias_of: None,
-          alias_of_span: None,
-          span: span(2),
-        },
+        ReactiveBindingFact::plain("msg".into(), ReactiveBindingKind::Ref, false, span(1)),
+        ReactiveBindingFact::plain("bag".into(), ReactiveBindingKind::Reactive, false, span(2)),
       ],
       ..ReactivityGraph::default()
     };
     parent_graph.set_module_id("Parent.vue");
     let child_graph = ReactivityGraph {
-      bindings: vec![ReactiveBindingFact {
-        name: "props".into(),
-        kind: ReactiveBindingKind::Reactive,
-        initialized_with_null: false,
-        alias_of: None,
-        alias_of_span: None,
-        span: span(3),
-      }],
+      bindings: vec![ReactiveBindingFact::plain(
+        "props".into(),
+        ReactiveBindingKind::Reactive,
+        false,
+        span(3),
+      )],
       ..ReactivityGraph::default()
     };
     let mut children =
@@ -725,26 +687,22 @@ mod tests {
       ..Default::default()
     };
     let mut parent_graph = ReactivityGraph {
-      bindings: vec![ReactiveBindingFact {
-        name: "bag".into(),
-        kind: ReactiveBindingKind::Reactive,
-        initialized_with_null: false,
-        alias_of: None,
-        alias_of_span: None,
-        span: span(1),
-      }],
+      bindings: vec![ReactiveBindingFact::plain(
+        "bag".into(),
+        ReactiveBindingKind::Reactive,
+        false,
+        span(1),
+      )],
       ..ReactivityGraph::default()
     };
     parent_graph.set_module_id("Parent.vue");
     let child_graph = ReactivityGraph {
-      bindings: vec![ReactiveBindingFact {
-        name: "props".into(),
-        kind: ReactiveBindingKind::Reactive,
-        initialized_with_null: false,
-        alias_of: None,
-        alias_of_span: None,
-        span: span(2),
-      }],
+      bindings: vec![ReactiveBindingFact::plain(
+        "props".into(),
+        ReactiveBindingKind::Reactive,
+        false,
+        span(2),
+      )],
       ..ReactivityGraph::default()
     };
     let mut children =
@@ -807,26 +765,22 @@ mod tests {
       ..Default::default()
     };
     let mut parent_graph = ReactivityGraph {
-      bindings: vec![ReactiveBindingFact {
-        name: "bag".into(),
-        kind: ReactiveBindingKind::Reactive,
-        initialized_with_null: false,
-        alias_of: None,
-        alias_of_span: None,
-        span: span(1),
-      }],
+      bindings: vec![ReactiveBindingFact::plain(
+        "bag".into(),
+        ReactiveBindingKind::Reactive,
+        false,
+        span(1),
+      )],
       ..ReactivityGraph::default()
     };
     parent_graph.set_module_id("Parent.vue");
     let child_graph = ReactivityGraph {
-      bindings: vec![ReactiveBindingFact {
-        name: "props".into(),
-        kind: ReactiveBindingKind::Reactive,
-        initialized_with_null: false,
-        alias_of: None,
-        alias_of_span: None,
-        span: span(2),
-      }],
+      bindings: vec![ReactiveBindingFact::plain(
+        "props".into(),
+        ReactiveBindingKind::Reactive,
+        false,
+        span(2),
+      )],
       ..ReactivityGraph::default()
     };
     let mut children =
@@ -896,26 +850,22 @@ mod tests {
       ..Default::default()
     };
     let mut parent_graph = ReactivityGraph {
-      bindings: vec![ReactiveBindingFact {
-        name: "bag".into(),
-        kind: ReactiveBindingKind::Reactive,
-        initialized_with_null: false,
-        alias_of: None,
-        alias_of_span: None,
-        span: span(1),
-      }],
+      bindings: vec![ReactiveBindingFact::plain(
+        "bag".into(),
+        ReactiveBindingKind::Reactive,
+        false,
+        span(1),
+      )],
       ..ReactivityGraph::default()
     };
     parent_graph.set_module_id("Parent.vue");
     let child_graph = ReactivityGraph {
-      bindings: vec![ReactiveBindingFact {
-        name: "props".into(),
-        kind: ReactiveBindingKind::Reactive,
-        initialized_with_null: false,
-        alias_of: None,
-        alias_of_span: None,
-        span: span(2),
-      }],
+      bindings: vec![ReactiveBindingFact::plain(
+        "props".into(),
+        ReactiveBindingKind::Reactive,
+        false,
+        span(2),
+      )],
       ..ReactivityGraph::default()
     };
     let mut children =

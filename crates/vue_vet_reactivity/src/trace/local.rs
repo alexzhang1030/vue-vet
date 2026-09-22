@@ -165,14 +165,12 @@ pub(super) fn collect_local_composable_usage(
           .iter()
           .any(|binding: &ReactiveBindingFact| binding.name == identifier.name.as_str())
         {
-          seeded.push(ReactiveBindingFact {
-            name: identifier.name.to_string(),
-            kind: *kind,
-            initialized_with_null: false,
-            alias_of: None,
-            alias_of_span: None,
-            span: source_span(sfc_source, script_offset, identifier.span),
-          });
+          seeded.push(ReactiveBindingFact::plain(
+            identifier.name.to_string(),
+            *kind,
+            false,
+            source_span(sfc_source, script_offset, identifier.span),
+          ));
         }
       }
       (BindingPattern::BindingIdentifier(identifier), LocalComposableExport::ValueFactory(bag)) => {
@@ -193,14 +191,12 @@ pub(super) fn collect_local_composable_usage(
             if seeded.iter().any(|binding: &ReactiveBindingFact| binding.name == local) {
               continue;
             }
-            seeded.push(ReactiveBindingFact {
-              name: local,
+            seeded.push(ReactiveBindingFact::plain(
+              local,
               kind,
-              initialized_with_null: false,
-              alias_of: None,
-              alias_of_span: None,
-              span: source_span(sfc_source, script_offset, span),
-            });
+              false,
+              source_span(sfc_source, script_offset, span),
+            ));
           }
         }
       }
@@ -268,14 +264,12 @@ pub(super) fn seed_local_member_calls(
             if seeded.iter().any(|binding| binding.name == local) {
               continue;
             }
-            seeded.push(ReactiveBindingFact {
-              name: local,
+            seeded.push(ReactiveBindingFact::plain(
+              local,
               kind,
-              initialized_with_null: false,
-              alias_of: None,
-              alias_of_span: None,
-              span: source_span(sfc_source, script_offset, span),
-            });
+              false,
+              source_span(sfc_source, script_offset, span),
+            ));
           }
         }
       }
@@ -286,14 +280,12 @@ pub(super) fn seed_local_member_calls(
         if seeded.iter().any(|binding| binding.name == identifier.name.as_str()) {
           continue;
         }
-        seeded.push(ReactiveBindingFact {
-          name: identifier.name.to_string(),
-          kind: *kind,
-          initialized_with_null: false,
-          alias_of: None,
-          alias_of_span: None,
-          span: source_span(sfc_source, script_offset, identifier.span),
-        });
+        seeded.push(ReactiveBindingFact::plain(
+          identifier.name.to_string(),
+          *kind,
+          false,
+          source_span(sfc_source, script_offset, identifier.span),
+        ));
       }
       _ => {}
     }

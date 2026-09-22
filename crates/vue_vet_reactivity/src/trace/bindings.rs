@@ -42,14 +42,12 @@ pub(super) fn collect_typed_reactive_bindings(
         let BindingPattern::BindingIdentifier(identifier) = &parameter.pattern else {
           continue;
         };
-        bindings.push(ReactiveBindingFact {
-          name: identifier.name.to_string(),
+        bindings.push(ReactiveBindingFact::plain(
+          identifier.name.to_string(),
           kind,
-          initialized_with_null: false,
-          alias_of: None,
-          alias_of_span: None,
-          span: source_span(sfc_source, script_offset, identifier.span),
-        });
+          false,
+          source_span(sfc_source, script_offset, identifier.span),
+        ));
       }
       AstKind::VariableDeclarator(declarator) => {
         // `const x: Ref<T> = …` or `const x = useVModel(…) as Ref<T>`.
@@ -74,14 +72,12 @@ pub(super) fn collect_typed_reactive_bindings(
         let BindingPattern::BindingIdentifier(identifier) = &declarator.id else {
           continue;
         };
-        bindings.push(ReactiveBindingFact {
-          name: identifier.name.to_string(),
+        bindings.push(ReactiveBindingFact::plain(
+          identifier.name.to_string(),
           kind,
-          initialized_with_null: false,
-          alias_of: None,
-          alias_of_span: None,
-          span: source_span(sfc_source, script_offset, identifier.span),
-        });
+          false,
+          source_span(sfc_source, script_offset, identifier.span),
+        ));
       }
       _ => {}
     }
@@ -201,14 +197,12 @@ pub(super) fn seed_first_formal_as_reactive(
   }) {
     return;
   }
-  bindings.push(ReactiveBindingFact {
-    name: identifier.name.to_string(),
-    kind: ReactiveBindingKind::Reactive,
-    initialized_with_null: false,
-    alias_of: None,
-    alias_of_span: None,
-    span: source_span(sfc_source, script_offset, identifier.span),
-  });
+  bindings.push(ReactiveBindingFact::plain(
+    identifier.name.to_string(),
+    ReactiveBindingKind::Reactive,
+    false,
+    source_span(sfc_source, script_offset, identifier.span),
+  ));
 }
 
 /// Propagate known reactive bindings through `const alias = known` (under-approx).
@@ -440,14 +434,12 @@ pub(super) fn collect_reactive_bindings_partitioned(
     let initialized_with_null =
       call.arguments.first().is_some_and(|argument| matches!(argument, Argument::NullLiteral(_)));
     for (name, span) in identifiers {
-      fresh.push(ReactiveBindingFact {
+      fresh.push(ReactiveBindingFact::plain(
         name,
-        kind: binding_kind,
+        binding_kind,
         initialized_with_null,
-        alias_of: None,
-        alias_of_span: None,
-        span: source_span(sfc_source, script_offset, span),
-      });
+        source_span(sfc_source, script_offset, span),
+      ));
     }
     sinks.extend_fresh(nested, fresh);
   }
@@ -523,14 +515,12 @@ pub(super) fn seed_named_api_bag_destructure(
     };
     for (name, span) in identifiers {
       field_locals.entry(key.clone()).or_default().push((name.clone(), span));
-      reactive_bindings.push(ReactiveBindingFact {
+      reactive_bindings.push(ReactiveBindingFact::plain(
         name,
         kind,
-        initialized_with_null: false,
-        alias_of: None,
-        alias_of_span: None,
-        span: source_span(sfc_source, script_offset, span),
-      });
+        false,
+        source_span(sfc_source, script_offset, span),
+      ));
     }
   }
 
@@ -557,14 +547,12 @@ pub(super) fn seed_named_api_bag_destructure(
     let call_span = source_span(sfc_source, script_offset, call.span);
     let site_name = api_site_binding_name(api.callee, call_span.offset);
     if !reactive_bindings.iter().any(|b| b.name == site_name) {
-      reactive_bindings.push(ReactiveBindingFact {
-        name: site_name.clone(),
-        kind: ReactiveBindingKind::Reactive,
-        initialized_with_null: false,
-        alias_of: None,
-        alias_of_span: None,
-        span: call_span,
-      });
+      reactive_bindings.push(ReactiveBindingFact::plain(
+        site_name.clone(),
+        ReactiveBindingKind::Reactive,
+        false,
+        call_span,
+      ));
     }
     for field in api.ambient_fields {
       ambient.push((site_name.clone(), Some((*field).into())));
@@ -636,14 +624,7 @@ fn collect_conditional_init_bindings(
       continue;
     };
     let span = source_span(sfc_source, script_offset, identifier.span);
-    let binding = ReactiveBindingFact {
-      name: identifier.name.to_string(),
-      kind,
-      initialized_with_null: false,
-      alias_of: None,
-      alias_of_span: None,
-      span,
-    };
+    let binding = ReactiveBindingFact::plain(identifier.name.to_string(), kind, false, span);
     let nested = expr::is_nested_in_function(semantic, node.id());
     let absent = |bindings: &[ReactiveBindingFact]| {
       !bindings.iter().any(|existing| {
@@ -852,12 +833,10 @@ fn route_slice_binding(
   if !from_use_route {
     return None;
   }
-  Some(ReactiveBindingFact {
-    name: identifier.name.to_string(),
-    kind: ReactiveBindingKind::Reactive,
-    initialized_with_null: false,
-    alias_of: None,
-    alias_of_span: None,
-    span: source_span(sfc_source, script_offset, identifier.span),
-  })
+  Some(ReactiveBindingFact::plain(
+    identifier.name.to_string(),
+    ReactiveBindingKind::Reactive,
+    false,
+    source_span(sfc_source, script_offset, identifier.span),
+  ))
 }

@@ -319,14 +319,12 @@ mod tests {
       script: ScriptFacts { blocks: vec![block()] },
     };
     let mut graph = ReactivityGraph::default();
-    graph.bindings.push(vue_vet_core::ReactiveBindingFact {
-      name: "state".into(),
-      kind: vue_vet_core::ReactiveBindingKind::Readonly,
-      initialized_with_null: false,
-      alias_of: None,
-      alias_of_span: None,
-      span: span(),
-    });
+    graph.bindings.push(vue_vet_core::ReactiveBindingFact::plain(
+      "state".into(),
+      vue_vet_core::ReactiveBindingKind::Readonly,
+      false,
+      span(),
+    ));
     assert!(needs_file_rules("ts", &facts, Some(&graph)));
     assert!(!needs_file_rules("ts", &facts, None));
   }
