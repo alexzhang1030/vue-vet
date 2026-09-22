@@ -314,290 +314,173 @@ impl Collector<'_> {
     self.indexes.calls.values().any(|info| matches!(info.api, Some("defineModel" | "onMounted")))
   }
 
-  #[expect(clippy::too_many_lines, reason = "deterministic fact-pack sort is one finish pass")]
+  fn sort_facts<T, F, K>(indexes: &Indexes, items: &mut [T], mut key: F)
+  where
+    F: FnMut(&T) -> K,
+    K: Ord,
+  {
+    items.sort_by(|left, right| {
+      indexes.note_query();
+      key(left).cmp(&key(right))
+    });
+  }
+
   fn finish(mut self) -> (SourceContractFacts, SourceContractStats) {
-    self.facts.trigger_ref_non_ref.sort_by(|left, right| {
-      self.indexes.note_query();
-      left.span.offset.cmp(&right.span.offset)
+    Self::sort_facts(&self.indexes, &mut self.facts.trigger_ref_non_ref, |fact| fact.span.offset);
+    Self::sort_facts(&self.indexes, &mut self.facts.torefs_non_proxy, |fact| fact.span.offset);
+    Self::sort_facts(&self.indexes, &mut self.facts.primitive_reactive_target, |fact| {
+      fact.span.offset
     });
-    self.facts.torefs_non_proxy.sort_by(|left, right| {
-      self.indexes.note_query();
-      left.span.offset.cmp(&right.span.offset)
+    Self::sort_facts(&self.indexes, &mut self.facts.watch_unwrapped_source, |fact| {
+      fact.span.offset
     });
-    self.facts.primitive_reactive_target.sort_by(|left, right| {
-      self.indexes.note_query();
-      left.span.offset.cmp(&right.span.offset)
+    Self::sort_facts(&self.indexes, &mut self.facts.watch_replaced_object_source, |fact| {
+      (fact.source_span.offset, fact.replacement_span.offset)
     });
-    self.facts.watch_unwrapped_source.sort_by(|left, right| {
-      self.indexes.note_query();
-      left.span.offset.cmp(&right.span.offset)
+    Self::sort_facts(&self.indexes, &mut self.facts.watch_ignored_option, |fact| fact.span.offset);
+    Self::sort_facts(&self.indexes, &mut self.facts.watch_signature_mismatch, |fact| {
+      fact.span.offset
     });
-    self.facts.watch_replaced_object_source.sort_by(|left, right| {
-      self.indexes.note_query();
-      (left.source_span.offset, left.replacement_span.offset)
-        .cmp(&(right.source_span.offset, right.replacement_span.offset))
+    Self::sort_facts(&self.indexes, &mut self.facts.watch_callback_contracts, |fact| {
+      (fact.watch_span.offset, fact.guard_span.offset, fact.reason as u8)
     });
-    self.facts.watch_ignored_option.sort_by(|left, right| {
-      self.indexes.note_query();
-      left.span.offset.cmp(&right.span.offset)
+    Self::sort_facts(&self.indexes, &mut self.facts.toref_ignored_key, |fact| fact.span.offset);
+    Self::sort_facts(&self.indexes, &mut self.facts.effect_scope_callback, |fact| fact.span.offset);
+    Self::sort_facts(&self.indexes, &mut self.facts.uncloneable_proxy_data, |fact| {
+      fact.span.offset
     });
-    self.facts.watch_signature_mismatch.sort_by(|left, right| {
-      self.indexes.note_query();
-      left.span.offset.cmp(&right.span.offset)
+    Self::sort_facts(&self.indexes, &mut self.facts.invalid_custom_ref_interface, |fact| {
+      (fact.demand_span.offset, fact.interface_span.offset)
     });
-    self.facts.watch_callback_contracts.sort_by(|left, right| {
-      self.indexes.note_query();
-      (left.watch_span.offset, left.guard_span.offset, left.reason as u8).cmp(&(
-        right.watch_span.offset,
-        right.guard_span.offset,
-        right.reason as u8,
-      ))
+    Self::sort_facts(&self.indexes, &mut self.facts.inactive_scope_result, |fact| {
+      (fact.consumer_span.offset, fact.run_span.offset)
     });
-    self.facts.toref_ignored_key.sort_by(|left, right| {
-      self.indexes.note_query();
-      left.span.offset.cmp(&right.span.offset)
+    Self::sort_facts(&self.indexes, &mut self.facts.missing_torefs_key, |fact| {
+      (fact.demand_span.offset, fact.torefs_span.offset)
     });
-    self.facts.effect_scope_callback.sort_by(|left, right| {
-      self.indexes.note_query();
-      left.span.offset.cmp(&right.span.offset)
-    });
-    self.facts.uncloneable_proxy_data.sort_by(|left, right| {
-      self.indexes.note_query();
-      left.span.offset.cmp(&right.span.offset)
-    });
-    self.facts.invalid_custom_ref_interface.sort_by(|left, right| {
-      self.indexes.note_query();
-      (left.demand_span.offset, left.interface_span.offset)
-        .cmp(&(right.demand_span.offset, right.interface_span.offset))
-    });
-    self.facts.inactive_scope_result.sort_by(|left, right| {
-      self.indexes.note_query();
-      (left.consumer_span.offset, left.run_span.offset)
-        .cmp(&(right.consumer_span.offset, right.run_span.offset))
-    });
-    self.facts.missing_torefs_key.sort_by(|left, right| {
-      self.indexes.note_query();
-      (left.demand_span.offset, left.torefs_span.offset)
-        .cmp(&(right.demand_span.offset, right.torefs_span.offset))
-    });
-    self.facts.extracted_reactive_collection_method.sort_by(|left, right| {
-      self.indexes.note_query();
+    Self::sort_facts(&self.indexes, &mut self.facts.extracted_reactive_collection_method, |fact| {
       (
-        left.call_span.offset,
-        left.extraction_span.offset,
-        left.constructor_span.offset,
-        left.method.as_str(),
+        fact.call_span.offset,
+        fact.extraction_span.offset,
+        fact.constructor_span.offset,
+        fact.method.clone(),
       )
-        .cmp(&(
-          right.call_span.offset,
-          right.extraction_span.offset,
-          right.constructor_span.offset,
-          right.method.as_str(),
-        ))
     });
-    self.facts.raw_proxy_map_key.sort_by(|left, right| {
-      self.indexes.note_query();
-      (left.demand_span.offset, left.get_span.offset)
-        .cmp(&(right.demand_span.offset, right.get_span.offset))
+    Self::sort_facts(&self.indexes, &mut self.facts.raw_proxy_map_key, |fact| {
+      (fact.demand_span.offset, fact.get_span.offset)
     });
-    self.facts.keyed_map_dependency.sort_by(|left, right| {
-      self.indexes.note_query();
-      (left.for_each_span.offset, left.result_span.offset)
-        .cmp(&(right.for_each_span.offset, right.result_span.offset))
+    Self::sort_facts(&self.indexes, &mut self.facts.keyed_map_dependency, |fact| {
+      (fact.for_each_span.offset, fact.result_span.offset)
     });
-    self.facts.custom_ref_lost_notification.sort_by(|left, right| {
-      self.indexes.note_query();
+    Self::sort_facts(&self.indexes, &mut self.facts.custom_ref_lost_notification, |fact| {
       (
-        left.source_span.offset,
-        left.reason,
-        left.consumer_span.offset,
-        left.write_span.offset,
-        left.span.offset,
+        fact.source_span.offset,
+        fact.reason,
+        fact.consumer_span.offset,
+        fact.write_span.offset,
+        fact.span.offset,
       )
-        .cmp(&(
-          right.source_span.offset,
-          right.reason,
-          right.consumer_span.offset,
-          right.write_span.offset,
-          right.span.offset,
-        ))
     });
-    self.facts.memoize_stale_result_demand.sort_by(|left, right| {
-      self.indexes.note_query();
-      (left.demand_span.offset, left.producer_span.offset)
-        .cmp(&(right.demand_span.offset, right.producer_span.offset))
+    Self::sort_facts(&self.indexes, &mut self.facts.memoize_stale_result_demand, |fact| {
+      (fact.demand_span.offset, fact.producer_span.offset)
     });
-    self.facts.controlled_computed_stale_result_demand.sort_by(|left, right| {
-      self.indexes.note_query();
-      (left.demand_span.offset, left.producer_span.offset)
-        .cmp(&(right.demand_span.offset, right.producer_span.offset))
-    });
+    Self::sort_facts(
+      &self.indexes,
+      &mut self.facts.controlled_computed_stale_result_demand,
+      |fact| (fact.demand_span.offset, fact.producer_span.offset),
+    );
     self.collect_stable_computed_identity();
-    self.facts.stable_computed_identity.sort_by(|left, right| {
-      self.indexes.note_query();
+    Self::sort_facts(&self.indexes, &mut self.facts.stable_computed_identity, |fact| {
       (
-        left.computed_span.offset,
-        left.consumer_span.offset,
-        left.replacement_span.offset,
-        left.reason as u8,
+        fact.computed_span.offset,
+        fact.consumer_span.offset,
+        fact.replacement_span.offset,
+        fact.reason as u8,
       )
-        .cmp(&(
-          right.computed_span.offset,
-          right.consumer_span.offset,
-          right.replacement_span.offset,
-          right.reason as u8,
-        ))
     });
-    self.facts.derivation_practice.sync_ref_one_way.sort_by(|left, right| {
-      self.indexes.note_query();
+    Self::sort_facts(&self.indexes, &mut self.facts.derivation_practice.sync_ref_one_way, |fact| {
       (
-        left.call_span.offset,
-        left.source_span.offset,
-        left.sink_span.offset,
-        left.demand_span.offset,
+        fact.call_span.offset,
+        fact.source_span.offset,
+        fact.sink_span.offset,
+        fact.demand_span.offset,
       )
-        .cmp(&(
-          right.call_span.offset,
-          right.source_span.offset,
-          right.sink_span.offset,
-          right.demand_span.offset,
-        ))
     });
-    self.facts.derivation_practice.conditional_watch_source.sort_by(|left, right| {
-      self.indexes.note_query();
-      (
-        left.source_array_span.offset,
-        left.guard_span.offset,
-        left.producer_span.offset,
-        left.idle_write_span.offset,
-      )
-        .cmp(&(
-          right.source_array_span.offset,
-          right.guard_span.offset,
-          right.producer_span.offset,
-          right.idle_write_span.offset,
-        ))
+    Self::sort_facts(
+      &self.indexes,
+      &mut self.facts.derivation_practice.conditional_watch_source,
+      |fact| {
+        (
+          fact.source_array_span.offset,
+          fact.guard_span.offset,
+          fact.producer_span.offset,
+          fact.idle_write_span.offset,
+        )
+      },
+    );
+    Self::sort_facts(
+      &self.indexes,
+      &mut self.facts.scheduling_practice.queued_watch_flush,
+      |fact| (fact.flush_span.offset, fact.write_span.offset, fact.demand_span.offset),
+    );
+    Self::sort_facts(
+      &self.indexes,
+      &mut self.facts.scheduling_practice.attached_effect_scope,
+      |fact| {
+        (
+          fact.detached_span.offset,
+          fact.parent_span.offset,
+          fact.cleanup_span.offset,
+          fact.pause_span.offset,
+          fact.write_span.offset,
+        )
+      },
+    );
+    Self::sort_facts(
+      &self.indexes,
+      &mut self.facts.scheduling_practice.lazy_computed_async,
+      |fact| (fact.call_span.offset, fact.source_span.offset, fact.demand_span.offset),
+    );
+    Self::sort_facts(&self.indexes, &mut self.facts.reactive_private_field_access, |fact| {
+      (fact.demand_span.offset, fact.proxy_span.offset, fact.member_span.offset)
     });
-    self.facts.scheduling_practice.queued_watch_flush.sort_by(|left, right| {
-      self.indexes.note_query();
-      (left.flush_span.offset, left.write_span.offset, left.demand_span.offset).cmp(&(
-        right.flush_span.offset,
-        right.write_span.offset,
-        right.demand_span.offset,
-      ))
+    Self::sort_facts(&self.indexes, &mut self.facts.until_timeout_unmatched_demand, |fact| {
+      (fact.demand_span.offset, fact.comparison_span.offset, fact.source_span.offset)
     });
-    self.facts.scheduling_practice.attached_effect_scope.sort_by(|left, right| {
-      self.indexes.note_query();
-      (
-        left.detached_span.offset,
-        left.parent_span.offset,
-        left.cleanup_span.offset,
-        left.pause_span.offset,
-        left.write_span.offset,
-      )
-        .cmp(&(
-          right.detached_span.offset,
-          right.parent_span.offset,
-          right.cleanup_span.offset,
-          right.pause_span.offset,
-          right.write_span.offset,
-        ))
+    Self::sort_facts(&self.indexes, &mut self.facts.inject_same_instance_provide, |fact| {
+      (fact.demand_span.offset, fact.inject_span.offset, fact.provide_span.offset)
     });
-    self.facts.scheduling_practice.lazy_computed_async.sort_by(|left, right| {
-      self.indexes.note_query();
-      (left.call_span.offset, left.source_span.offset, left.demand_span.offset).cmp(&(
-        right.call_span.offset,
-        right.source_span.offset,
-        right.demand_span.offset,
-      ))
+    Self::sort_facts(&self.indexes, &mut self.facts.ignorable_async_ignore_window, |fact| {
+      (fact.write_span.offset, fact.ignore_span.offset, fact.await_span.offset)
     });
-    self.facts.reactive_private_field_access.sort_by(|left, right| {
-      self.indexes.note_query();
-      (left.demand_span.offset, left.proxy_span.offset, left.member_span.offset).cmp(&(
-        right.demand_span.offset,
-        right.proxy_span.offset,
-        right.member_span.offset,
-      ))
+    Self::sort_facts(
+      &self.indexes,
+      &mut self.facts.shared_composable_first_instance_args,
+      |fact| (fact.demand_span.offset, fact.first_call_span.offset, fact.later_arg_span.offset),
+    );
+    Self::sort_facts(&self.indexes, &mut self.facts.cancelled_filter_promise_demand, |fact| {
+      (fact.demand_span.offset, fact.first_call_span.offset)
     });
-    self.facts.until_timeout_unmatched_demand.sort_by(|left, right| {
-      self.indexes.note_query();
-      (left.demand_span.offset, left.comparison_span.offset, left.source_span.offset).cmp(&(
-        right.demand_span.offset,
-        right.comparison_span.offset,
-        right.source_span.offset,
-      ))
+    Self::sort_facts(&self.indexes, &mut self.facts.json_clone_lossy_type, |fact| {
+      (fact.demand_span.offset, fact.clone_span.offset)
     });
-    self.facts.inject_same_instance_provide.sort_by(|left, right| {
-      self.indexes.note_query();
-      (left.demand_span.offset, left.inject_span.offset, left.provide_span.offset).cmp(&(
-        right.demand_span.offset,
-        right.inject_span.offset,
-        right.provide_span.offset,
-      ))
+    Self::sort_facts(&self.indexes, &mut self.facts.ref_history_snapshot_alias, |fact| {
+      (fact.write_span.offset, fact.demand_span.offset)
     });
-    self.facts.ignorable_async_ignore_window.sort_by(|left, right| {
-      self.indexes.note_query();
-      (left.write_span.offset, left.ignore_span.offset, left.await_span.offset).cmp(&(
-        right.write_span.offset,
-        right.ignore_span.offset,
-        right.await_span.offset,
-      ))
+    Self::sort_facts(&self.indexes, &mut self.facts.model_defaults, |fact| fact.span.offset);
+    Self::sort_facts(&self.indexes, &mut self.facts.shared_object_bindings, |fact| {
+      fact.span.offset
     });
-    self.facts.shared_composable_first_instance_args.sort_by(|left, right| {
-      self.indexes.note_query();
-      (left.demand_span.offset, left.first_call_span.offset, left.later_arg_span.offset).cmp(&(
-        right.demand_span.offset,
-        right.first_call_span.offset,
-        right.later_arg_span.offset,
-      ))
+    Self::sort_facts(&self.indexes, &mut self.facts.ordinary_ref_inits, |fact| fact.span.offset);
+    Self::sort_facts(&self.indexes, &mut self.facts.mounted_member_demands, |fact| {
+      fact.span.offset
     });
-    self.facts.cancelled_filter_promise_demand.sort_by(|left, right| {
-      self.indexes.note_query();
-      (left.demand_span.offset, left.first_call_span.offset)
-        .cmp(&(right.demand_span.offset, right.first_call_span.offset))
+    Self::sort_facts(&self.indexes, &mut self.facts.define_expose, |fact| fact.span.offset);
+    Self::sort_facts(&self.indexes, &mut self.facts.instance_member_demands, |fact| {
+      fact.span.offset
     });
-    self.facts.json_clone_lossy_type.sort_by(|left, right| {
-      self.indexes.note_query();
-      (left.demand_span.offset, left.clone_span.offset)
-        .cmp(&(right.demand_span.offset, right.clone_span.offset))
-    });
-    self.facts.ref_history_snapshot_alias.sort_by(|left, right| {
-      self.indexes.note_query();
-      (left.write_span.offset, left.demand_span.offset)
-        .cmp(&(right.write_span.offset, right.demand_span.offset))
-    });
-    self.facts.model_defaults.sort_by(|left, right| {
-      self.indexes.note_query();
-      left.span.offset.cmp(&right.span.offset)
-    });
-    self.facts.shared_object_bindings.sort_by(|left, right| {
-      self.indexes.note_query();
-      left.span.offset.cmp(&right.span.offset)
-    });
-    self.facts.ordinary_ref_inits.sort_by(|left, right| {
-      self.indexes.note_query();
-      left.span.offset.cmp(&right.span.offset)
-    });
-    self.facts.mounted_member_demands.sort_by(|left, right| {
-      self.indexes.note_query();
-      left.span.offset.cmp(&right.span.offset)
-    });
-    self.facts.define_expose.sort_by(|left, right| {
-      self.indexes.note_query();
-      left.span.offset.cmp(&right.span.offset)
-    });
-    self.facts.instance_member_demands.sort_by(|left, right| {
-      self.indexes.note_query();
-      left.span.offset.cmp(&right.span.offset)
-    });
-    self.facts.instance_path_writes.sort_by(|left, right| {
-      self.indexes.note_query();
-      left.span.offset.cmp(&right.span.offset)
-    });
-    self.facts.model_value_writes.sort_by(|left, right| {
-      self.indexes.note_query();
-      left.span.offset.cmp(&right.span.offset)
-    });
+    Self::sort_facts(&self.indexes, &mut self.facts.instance_path_writes, |fact| fact.span.offset);
+    Self::sort_facts(&self.indexes, &mut self.facts.model_value_writes, |fact| fact.span.offset);
     (self.facts, self.indexes.stats())
   }
 
