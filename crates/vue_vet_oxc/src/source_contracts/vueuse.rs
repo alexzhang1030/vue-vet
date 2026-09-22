@@ -519,12 +519,7 @@ impl Collector<'_> {
   }
 
   fn vueuse_ref_init_scalar(&self, root: SymbolId) -> Option<Scalar> {
-    let init = self.indexes.init_span.get(&root).copied()?;
-    let ShapeHint::Call(call_span) = self.indexes.hints.get(&span_key(init)).copied()? else {
-      return None;
-    };
-    let info = self.indexes.calls.get(&span_key(call_span)).copied()?;
-    info.first_arg.and_then(|argument| self.indexes.scalar(argument))
+    self.indexes.ref_init_scalar(root, super::index::RefInitLookup::Direct)
   }
 
   fn watcher_stopped(
