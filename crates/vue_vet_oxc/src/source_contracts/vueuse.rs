@@ -10,7 +10,7 @@ use oxc_semantic::{NodeId, SymbolId};
 use oxc_span::Span;
 
 use super::Collector;
-use super::index::{CallInfo, CallUse, MemberUse, ObjectProp, UntilAwaitSite, ValueWrite};
+use super::index::{AwaitPositionSite, CallInfo, CallUse, MemberUse, ObjectProp, ValueWrite};
 use super::proof::{
   DemandOrigin, DemandRole, classify_reach, is_ts_wrapper, native_kind_has_method,
 };
@@ -155,7 +155,7 @@ impl Collector<'_> {
     else {
       return;
     };
-    if self.indexes.until_non_await_barrier_between(
+    if self.indexes.await_non_await_barrier_between(
       Some(updater_id),
       await_site.region,
       await_site.offset,
@@ -455,7 +455,7 @@ impl Collector<'_> {
     }
   }
 
-  fn first_straight_await(&self, callable: Option<NodeId>) -> Option<UntilAwaitSite> {
+  fn first_straight_await(&self, callable: Option<NodeId>) -> Option<AwaitPositionSite> {
     self.indexes.straight_awaits_in(callable).min_by_key(|site| site.offset)
   }
 
@@ -502,7 +502,7 @@ impl Collector<'_> {
         if !write.simple_assign {
           return false;
         }
-        if self.indexes.until_non_await_barrier_between(callable, region, after, write.offset) {
+        if self.indexes.await_non_await_barrier_between(callable, region, after, write.offset) {
           return false;
         }
         let previous = match self.indexes.last_value_write_in(source, callable, write.offset) {
@@ -585,7 +585,7 @@ impl Collector<'_> {
         site.callable == Some(updater)
           && site.offset < before
           && self.indexes.demand_ok(&site)
-          && !self.indexes.until_non_await_barrier_between(
+          && !self.indexes.await_non_await_barrier_between(
             Some(updater),
             region,
             site.offset,

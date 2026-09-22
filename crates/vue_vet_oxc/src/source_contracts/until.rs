@@ -8,7 +8,7 @@ use oxc_semantic::{NodeId, SymbolId};
 use oxc_span::Span;
 
 use super::Collector;
-use super::index::{MemberUse, NamedUse, ObjectEntry, UntilAwaitSite, ValueWrite};
+use super::index::{AwaitPositionSite, MemberUse, NamedUse, ObjectEntry, ValueWrite};
 use super::proof::{DemandOrigin, classify_reach, is_ts_wrapper, native_kind_has_method};
 use super::shape::{NativeKind, SYNC_FLUSH, Scalar, Shape, ShapeHint, span_key};
 use super::timeline;
@@ -109,7 +109,7 @@ impl Collector<'_> {
       return None;
     };
     let root = self.indexes.root_of(symbol_id);
-    let summary = self.indexes.until_closed_source(root)?;
+    let summary = self.indexes.await_closed_source(root)?;
     if !summary.closed {
       return None;
     }
@@ -129,7 +129,7 @@ impl Collector<'_> {
     }
     let payload = match info.first_arg {
       None => Scalar::Nullish,
-      Some(argument) => self.indexes.until_scalar(argument)?,
+      Some(argument) => self.indexes.await_scalar(argument)?,
     };
     match payload.kind() {
       NativeKind::Number | NativeKind::String | NativeKind::Boolean | NativeKind::Nullish => {
@@ -139,7 +139,7 @@ impl Collector<'_> {
   }
 
   fn literal_expected(&self, span: Span) -> Option<Scalar> {
-    let scalar = self.indexes.until_scalar(span)?;
+    let scalar = self.indexes.await_scalar(span)?;
     match scalar.kind() {
       NativeKind::Number | NativeKind::String | NativeKind::Boolean | NativeKind::Nullish => {
         Some(scalar)
@@ -167,12 +167,12 @@ impl Collector<'_> {
             timeout = Some(*value);
           }
           "throwOnTimeout" | "deep" => {
-            if self.indexes.until_scalar(*value) != Some(Scalar::Bool(false)) {
+            if self.indexes.await_scalar(*value) != Some(Scalar::Bool(false)) {
               return None;
             }
           }
           "flush" => {
-            if self.indexes.until_scalar(*value) != Some(Scalar::Str(SYNC_FLUSH)) {
+            if self.indexes.await_scalar(*value) != Some(Scalar::Str(SYNC_FLUSH)) {
               return None;
             }
           }
@@ -184,7 +184,7 @@ impl Collector<'_> {
   }
 
   fn finite_timeout(&self, span: Span) -> bool {
-    let Some(Scalar::Number(bits)) = self.indexes.until_scalar(span) else {
+    let Some(Scalar::Number(bits)) = self.indexes.await_scalar(span) else {
       return false;
     };
     f64::from_bits(bits).is_finite()
@@ -198,8 +198,8 @@ impl Collector<'_> {
     }
   }
 
-  fn await_of_to_be(&self, to_be: Span, origin: DemandOrigin) -> Option<UntilAwaitSite> {
-    if let Some(site) = self.indexes.until_await_for_argument(to_be)
+  fn await_of_to_be(&self, to_be: Span, origin: DemandOrigin) -> Option<AwaitPositionSite> {
+    if let Some(site) = self.indexes.await_await_for_argument(to_be)
       && self.await_belongs(site, origin)
     {
       return Some(site);
@@ -208,13 +208,13 @@ impl Collector<'_> {
     let root = self.indexes.root_of(symbol_id);
     self
       .indexes
-      .until_awaits_for_bound(root)
+      .await_awaits_for_bound(root)
       .iter()
       .copied()
       .find(|site| self.await_belongs(*site, origin))
   }
 
-  fn await_belongs(&self, site: UntilAwaitSite, origin: DemandOrigin) -> bool {
+  fn await_belongs(&self, site: AwaitPositionSite, origin: DemandOrigin) -> bool {
     self.indexes.note_query();
     site.callable == origin.callable && site.region == origin.region && site.reach.is_straight()
   }
@@ -228,7 +228,7 @@ impl Collector<'_> {
     callable: Option<NodeId>,
     block: NodeId,
   ) -> Option<(Scalar, Span)> {
-    let summary = self.indexes.until_closed_source(root)?;
+    let summary = self.indexes.await_closed_source(root)?;
     if !summary.closed {
       return None;
     }
@@ -241,12 +241,12 @@ impl Collector<'_> {
     if current.0 == expected {
       return None;
     }
-    for write in self.indexes.until_writes_in(root, start, end) {
+    for write in self.indexes.await_writes_in(root, start, end) {
       self.indexes.note_query();
       if write.callable != callable || write.block != block || !write.simple_assign {
         return None;
       }
-      let next = self.indexes.until_scalar(write.rhs)?;
+      let next = self.indexes.await_scalar(write.rhs)?;
       if next == expected {
         return None;
       }
@@ -266,10 +266,10 @@ impl Collector<'_> {
       return None;
     }
     if let Some(prior) = self.last_same_owner_write(root, callable, block, offset) {
-      let scalar = self.indexes.until_scalar(prior.rhs)?;
+      let scalar = self.indexes.await_scalar(prior.rhs)?;
       return Some((scalar, prior.span));
     }
-    let summary = self.indexes.until_closed_source(root)?;
+    let summary = self.indexes.await_closed_source(root)?;
     let init = self.ref_init_scalar(root)?;
     Some((init, summary.init_span))
   }
@@ -320,7 +320,7 @@ impl Collector<'_> {
   }
 
   fn ref_init_scalar(&self, root: SymbolId) -> Option<Scalar> {
-    let summary = self.indexes.until_closed_source(root)?;
+    let summary = self.indexes.await_closed_source(root)?;
     let info = self.indexes.call_info(summary.init_span).or_else(|| {
       let ShapeHint::Call(call_span) =
         self.indexes.hints.get(&span_key(summary.init_span)).copied()?
@@ -329,26 +329,26 @@ impl Collector<'_> {
       };
       self.indexes.call_info(call_span)
     })?;
-    info.first_arg.map_or(Some(Scalar::Nullish), |argument| self.indexes.until_scalar(argument))
+    info.first_arg.map_or(Some(Scalar::Nullish), |argument| self.indexes.await_scalar(argument))
   }
 
   fn incompatible_result_demand(
     &self,
-    await_site: UntilAwaitSite,
+    await_site: AwaitPositionSite,
     timeout_kind: NativeKind,
     expected_kind: NativeKind,
     origin: DemandOrigin,
   ) -> Option<(MemberUse, String)> {
     let mut chosen: Option<(MemberUse, String)> = None;
-    for named in self.indexes.until_await_method_calls_on(await_site.span) {
+    for named in self.indexes.await_await_method_calls_on(await_site.span) {
       self.consider_demand(named, timeout_kind, expected_kind, origin, true, &mut chosen);
     }
-    if let Some(result) = self.indexes.until_result_of_await(await_site.span) {
+    if let Some(result) = self.indexes.await_result_of_await(await_site.span) {
       let root = self.indexes.root_of(result);
       if self.indexes.result_reassigned(root) {
         return None;
       }
-      for named in self.indexes.until_result_method_calls_on(root) {
+      for named in self.indexes.await_result_method_calls_on(root) {
         self.consider_demand(named, timeout_kind, expected_kind, origin, false, &mut chosen);
       }
     }
@@ -394,14 +394,14 @@ impl Collector<'_> {
       return site.reach.is_straight()
         && site.callable == origin.callable
         && site.region == origin.region
-        && self.indexes.until_interval_open(
+        && self.indexes.await_interval_open(
           origin.callable,
           origin.region,
           origin.offset,
           site.offset,
         );
     }
-    self.indexes.until_demand_from(site, origin)
+    self.indexes.await_demand_from(site, origin)
   }
 }
 
