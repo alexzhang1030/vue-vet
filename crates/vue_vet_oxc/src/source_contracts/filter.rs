@@ -10,7 +10,7 @@ use oxc_semantic::{NodeId, SymbolFlags, SymbolId};
 use oxc_span::{GetSpan, Span};
 
 use super::Collector;
-use super::index::{CallInfo, CallUse, NamedUse, UntilAwaitSite};
+use super::index::{AwaitPositionSite, CallInfo, CallUse, NamedUse};
 use super::proof::skip_ts_parent;
 use super::shape::{PrimitiveAtom, PrimitiveKind, native_callable, native_return_kind};
 use super::timeline;
@@ -95,7 +95,7 @@ impl Collector<'_> {
           continue;
         }
         if self.indexes.has_barrier_between(first.region, first.offset, later.offset)
-          || self.indexes.until_has_await_between(
+          || self.indexes.await_has_await_between(
             first.callable,
             first.region,
             first.offset,
@@ -174,12 +174,12 @@ impl Collector<'_> {
     result_kind: PrimitiveKind,
   ) -> Option<FilterSite> {
     let mut chosen = None;
-    for awaited in self.indexes.until_awaits_for_bound(promise) {
+    for awaited in self.indexes.await_awaits_for_bound(promise) {
       self.indexes.note_query();
       if !self.await_ok(awaited, origin, later.offset) {
         continue;
       }
-      for demand in self.indexes.until_await_method_calls_on(awaited.span) {
+      for demand in self.indexes.await_await_method_calls_on(awaited.span) {
         self.indexes.note_query();
         let Some(site) = self.demand_site(demand, origin, first, later, awaited, result_kind, true)
         else {
@@ -216,7 +216,7 @@ impl Collector<'_> {
 
   fn await_ok(
     &self,
-    awaited: &UntilAwaitSite,
+    awaited: &AwaitPositionSite,
     origin: super::proof::DemandOrigin,
     after: usize,
   ) -> bool {
@@ -233,8 +233,8 @@ impl Collector<'_> {
     origin: super::proof::DemandOrigin,
     after: usize,
     demand_offset: usize,
-  ) -> Option<&UntilAwaitSite> {
-    let awaits = self.indexes.until_awaits_for_bound(promise);
+  ) -> Option<&AwaitPositionSite> {
+    let awaits = self.indexes.await_awaits_for_bound(promise);
     timeline::from(self.indexes.work_counter(), awaits, after).iter().find(|awaited| {
       self.indexes.note_query();
       self.await_ok(awaited, origin, after) && awaited.offset <= demand_offset
@@ -251,7 +251,7 @@ impl Collector<'_> {
     origin: super::proof::DemandOrigin,
     first: &CallUse,
     later: &CallUse,
-    awaited: &UntilAwaitSite,
+    awaited: &AwaitPositionSite,
     result_kind: PrimitiveKind,
     chained_await: bool,
   ) -> Option<FilterSite> {
@@ -452,9 +452,9 @@ impl Collector<'_> {
 
   fn filter_awaited_aliases(&self, promise: SymbolId) -> Vec<SymbolId> {
     let mut aliases = Vec::new();
-    for awaited in self.indexes.until_awaits_for_bound(promise) {
+    for awaited in self.indexes.await_awaits_for_bound(promise) {
       self.indexes.note_query();
-      let Some(alias) = self.indexes.until_result_of_await(awaited.span) else {
+      let Some(alias) = self.indexes.await_result_of_await(awaited.span) else {
         continue;
       };
       if !self.semantic.scoping().symbol_flags(alias).contains(SymbolFlags::ConstVariable) {

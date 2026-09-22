@@ -558,9 +558,9 @@ pub(super) struct AwaitSite {
   pub block: NodeId,
 }
 
-/// Until-demand await site: operand span, bound symbol, region, and reach.
+/// Await-position site: operand span, bound symbol, region, and reach.
 #[derive(Clone, Copy, Debug)]
-pub(super) struct UntilAwaitSite {
+pub(super) struct AwaitPositionSite {
   pub offset: usize,
   pub end: usize,
   pub span: Span,
@@ -572,28 +572,28 @@ pub(super) struct UntilAwaitSite {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct UntilEscapeSite {
+pub(super) struct AwaitEscapeSite {
   pub offset: usize,
   pub until_borrow: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct UntilClosedSource {
+pub(super) struct AwaitClosedSource {
   pub init_span: Span,
   pub closed: bool,
 }
 
 #[derive(Default)]
-struct UntilIndexes {
+struct AwaitIndexes {
   await_method_calls: HashMap<u64, Vec<NamedUse>>,
   result_method_calls: HashMap<SymbolId, Vec<NamedUse>>,
   results_by_await: HashMap<u64, SymbolId>,
-  awaits: Vec<UntilAwaitSite>,
-  await_by_argument: HashMap<u64, UntilAwaitSite>,
-  await_by_bound: HashMap<SymbolId, Vec<UntilAwaitSite>>,
-  awaits_by_region: HashMap<(Option<NodeId>, NodeId), Vec<UntilAwaitSite>>,
-  escapes: HashMap<SymbolId, Vec<UntilEscapeSite>>,
-  closed_sources: HashMap<SymbolId, UntilClosedSource>,
+  awaits: Vec<AwaitPositionSite>,
+  await_by_argument: HashMap<u64, AwaitPositionSite>,
+  await_by_bound: HashMap<SymbolId, Vec<AwaitPositionSite>>,
+  awaits_by_region: HashMap<(Option<NodeId>, NodeId), Vec<AwaitPositionSite>>,
+  escapes: HashMap<SymbolId, Vec<AwaitEscapeSite>>,
+  closed_sources: HashMap<SymbolId, AwaitClosedSource>,
   scalars: HashMap<u64, Scalar>,
   uncertain_value_writes: HashSet<SymbolId>,
   pending_borrow: bool,
@@ -641,7 +641,7 @@ timed_by_offset!(
   MemberUse,
   ValueRead,
   CallUse,
-  UntilAwaitSite,
+  AwaitPositionSite,
   InjectionSite,
   IdentCall,
   ArgUse,
@@ -784,7 +784,7 @@ pub(super) struct Indexes {
   canonical_of: HashMap<SymbolId, Option<SymbolId>>,
   unresolved_origin_touch: bool,
   alloc_capability: HashMap<SymbolId, bool>,
-  until: UntilIndexes,
+  await_index: AwaitIndexes,
   native_symbols: HashMap<SymbolId, NativeSymbol>,
   provides_by_key: HashMap<SymbolId, Vec<InjectionSite>>,
   injects_by_key: HashMap<SymbolId, Vec<InjectionSite>>,
@@ -937,7 +937,7 @@ impl Indexes {
       canonical_of: HashMap::new(),
       unresolved_origin_touch: false,
       alloc_capability: HashMap::new(),
-      until: UntilIndexes::default(),
+      await_index: AwaitIndexes::default(),
       native_symbols: HashMap::new(),
       provides_by_key: HashMap::new(),
       injects_by_key: HashMap::new(),
@@ -1020,20 +1020,20 @@ impl Indexes {
     }
     self.work.add_queries(self.awaits.len() as u64);
     self.awaits.sort_by_key(|site| site.offset);
-    self.until.awaits.sort_by_key(|site| site.offset);
-    for uses in self.until.await_method_calls.values_mut() {
+    self.await_index.awaits.sort_by_key(|site| site.offset);
+    for uses in self.await_index.await_method_calls.values_mut() {
       uses.sort_by_key(|use_site| use_site.site.offset);
     }
-    for uses in self.until.result_method_calls.values_mut() {
+    for uses in self.await_index.result_method_calls.values_mut() {
       uses.sort_by_key(|use_site| use_site.site.offset);
     }
-    for sites in self.until.escapes.values_mut() {
+    for sites in self.await_index.escapes.values_mut() {
       sites.sort_by_key(|site| site.offset);
     }
-    for sites in self.until.awaits_by_region.values_mut() {
+    for sites in self.await_index.awaits_by_region.values_mut() {
       sites.sort_by_key(|site| site.offset);
     }
-    for sites in self.until.await_by_bound.values_mut() {
+    for sites in self.await_index.await_by_bound.values_mut() {
       sites.sort_by_key(|site| site.offset);
     }
     for disposals in self.disposals_by_callable.values_mut() {
@@ -1247,7 +1247,7 @@ impl Indexes {
     }
     site.callable == origin.callable
       && site.region == origin.region
-      && self.until_interval_open(origin.callable, origin.region, origin.offset, site.offset)
+      && self.await_interval_open(origin.callable, origin.region, origin.offset, site.offset)
   }
 
   pub(super) fn inject_site(
@@ -1574,9 +1574,9 @@ impl Indexes {
   pub(super) fn straight_awaits_in(
     &self,
     callable: Option<NodeId>,
-  ) -> impl Iterator<Item = UntilAwaitSite> + '_ {
+  ) -> impl Iterator<Item = AwaitPositionSite> + '_ {
     self.work.add_queries(1);
-    self.until.awaits.iter().copied().filter(move |site| {
+    self.await_index.awaits.iter().copied().filter(move |site| {
       self.work.add_queries(1);
       site.callable == callable && site.reach.is_straight()
     })
@@ -1589,7 +1589,7 @@ impl Indexes {
 
   pub(super) fn scalar(&self, span: Span) -> Option<Scalar> {
     self.work.add_queries(1);
-    self.until.scalars.get(&span_key(span)).copied()
+    self.await_index.scalars.get(&span_key(span)).copied()
   }
 
   pub(super) fn call_bindings(&self, call_span: Span) -> &[(SymbolId, String)] {
@@ -1602,14 +1602,14 @@ impl Indexes {
     self.calls.get(&span_key(span)).copied()
   }
 
-  pub(super) fn until_scalar(&self, span: Span) -> Option<Scalar> {
+  pub(super) fn await_scalar(&self, span: Span) -> Option<Scalar> {
     self.work.add_queries(1);
-    self.until.scalars.get(&span_key(span)).copied()
+    self.await_index.scalars.get(&span_key(span)).copied()
   }
 
-  pub(super) fn until_closed_source(&self, root: SymbolId) -> Option<UntilClosedSource> {
+  pub(super) fn await_closed_source(&self, root: SymbolId) -> Option<AwaitClosedSource> {
     self.work.add_queries(1);
-    self.until.closed_sources.get(&root).copied()
+    self.await_index.closed_sources.get(&root).copied()
   }
 
   pub(super) fn result_of_call(&self, span: Span) -> Option<SymbolId> {
@@ -1698,52 +1698,52 @@ impl Indexes {
       && !self.has_barrier_between(origin.region, origin.offset, write.offset)
   }
 
-  pub(super) fn until_result_of_await(&self, span: Span) -> Option<SymbolId> {
+  pub(super) fn await_result_of_await(&self, span: Span) -> Option<SymbolId> {
     self.work.add_queries(1);
-    self.until.results_by_await.get(&span_key(span)).copied()
+    self.await_index.results_by_await.get(&span_key(span)).copied()
   }
 
-  pub(super) fn until_await_for_argument(&self, argument: Span) -> Option<UntilAwaitSite> {
+  pub(super) fn await_await_for_argument(&self, argument: Span) -> Option<AwaitPositionSite> {
     self.work.add_queries(1);
-    self.until.await_by_argument.get(&span_key(argument)).copied()
+    self.await_index.await_by_argument.get(&span_key(argument)).copied()
   }
 
-  pub(super) fn until_awaits_for_bound(&self, root: SymbolId) -> &[UntilAwaitSite] {
+  pub(super) fn await_awaits_for_bound(&self, root: SymbolId) -> &[AwaitPositionSite] {
     self.work.add_queries(1);
-    self.until.await_by_bound.get(&root).map_or(&[], Vec::as_slice)
+    self.await_index.await_by_bound.get(&root).map_or(&[], Vec::as_slice)
   }
 
-  pub(super) fn until_awaits_by_region(
+  pub(super) fn await_awaits_by_region(
     &self,
     callable: Option<NodeId>,
     region: NodeId,
-  ) -> &[UntilAwaitSite] {
+  ) -> &[AwaitPositionSite] {
     self.work.add_queries(1);
-    self.until.awaits_by_region.get(&(callable, region)).map_or(&[], Vec::as_slice)
+    self.await_index.awaits_by_region.get(&(callable, region)).map_or(&[], Vec::as_slice)
   }
 
-  pub(super) fn until_has_await_between(
+  pub(super) fn await_has_await_between(
     &self,
     callable: Option<NodeId>,
     region: NodeId,
     start: usize,
     end: usize,
   ) -> bool {
-    let sites = self.until_awaits_by_region(callable, region);
+    let sites = self.await_awaits_by_region(callable, region);
     !timeline::between(&self.work, sites, start, end).is_empty()
   }
 
   /// Later `await` expressions are stack-wide barriers. An until timeout
   /// result stays the same value across a later await, so those offsets
   /// must not hide a demand on an earlier settle.
-  pub(super) fn until_demand_from(&self, site: &MemberUse, origin: DemandOrigin) -> bool {
+  pub(super) fn await_demand_from(&self, site: &MemberUse, origin: DemandOrigin) -> bool {
     self.demand_ok(site)
       && site.callable == origin.callable
       && site.region == origin.region
-      && self.until_interval_open(origin.callable, origin.region, origin.offset, site.offset)
+      && self.await_interval_open(origin.callable, origin.region, origin.offset, site.offset)
   }
 
-  pub(super) fn until_interval_open(
+  pub(super) fn await_interval_open(
     &self,
     callable: Option<NodeId>,
     region: NodeId,
@@ -1753,11 +1753,11 @@ impl Indexes {
     if !self.has_barrier_between(region, start, end) {
       return true;
     }
-    self.until_has_await_between(callable, region, start, end)
-      && !self.until_non_await_barrier_between(callable, region, start, end)
+    self.await_has_await_between(callable, region, start, end)
+      && !self.await_non_await_barrier_between(callable, region, start, end)
   }
 
-  pub(super) fn until_non_await_barrier_between(
+  pub(super) fn await_non_await_barrier_between(
     &self,
     callable: Option<NodeId>,
     region: NodeId,
@@ -1770,26 +1770,26 @@ impl Indexes {
     };
     barriers.between(&self.work, start, end).iter().any(|offset| {
       self.work.add_queries(1);
-      !self.until_is_await_offset(callable, region, *offset)
+      !self.await_is_await_offset(callable, region, *offset)
     })
   }
 
-  fn until_is_await_offset(&self, callable: Option<NodeId>, region: NodeId, offset: usize) -> bool {
-    let sites = self.until_awaits_by_region(callable, region);
+  fn await_is_await_offset(&self, callable: Option<NodeId>, region: NodeId, offset: usize) -> bool {
+    let sites = self.await_awaits_by_region(callable, region);
     sites.iter().any(|site| {
       self.work.add_queries(1);
       site.offset == offset
     })
   }
 
-  pub(super) fn until_await_method_calls_on(&self, await_span: Span) -> &[NamedUse] {
+  pub(super) fn await_await_method_calls_on(&self, await_span: Span) -> &[NamedUse] {
     self.work.add_queries(1);
-    self.until.await_method_calls.get(&span_key(await_span)).map_or(&[], Vec::as_slice)
+    self.await_index.await_method_calls.get(&span_key(await_span)).map_or(&[], Vec::as_slice)
   }
 
-  pub(super) fn until_result_method_calls_on(&self, root: SymbolId) -> &[NamedUse] {
+  pub(super) fn await_result_method_calls_on(&self, root: SymbolId) -> &[NamedUse] {
     self.work.add_queries(1);
-    self.until.result_method_calls.get(&root).map_or(&[], Vec::as_slice)
+    self.await_index.result_method_calls.get(&root).map_or(&[], Vec::as_slice)
   }
 
   pub(super) fn result_reassigned(&self, root: SymbolId) -> bool {
@@ -1812,7 +1812,7 @@ impl Indexes {
     self.objects.get(&span_key(object_span)).map_or(&[], Vec::as_slice)
   }
 
-  pub(super) fn until_writes_in(
+  pub(super) fn await_writes_in(
     &self,
     root: SymbolId,
     start: usize,
@@ -2525,7 +2525,7 @@ impl Indexes {
                 self.call_results.insert(span_key(call.span), symbol_id);
               }
               Expression::AwaitExpression(awaited) => {
-                self.until.results_by_await.insert(span_key(awaited.span), symbol_id);
+                self.await_index.results_by_await.insert(span_key(awaited.span), symbol_id);
               }
               _ => {}
             }
@@ -2676,7 +2676,7 @@ impl Indexes {
                   call_info.vueuse == Some("until") && !call_info.has_spread
                 });
               if !is_retained_vueuse_source_arg(info, index) {
-                self.until.pending_borrow = until_borrow;
+                self.await_index.pending_borrow = until_borrow;
                 let skip_injection_key = matches!(api, Some("provide" | "inject")) && index == 0;
                 if !skip_injection_key {
                   self.mark_escape_expr(
@@ -2685,7 +2685,7 @@ impl Indexes {
                     !(api == Some("toRef") && index == 0),
                   );
                 }
-                self.until.pending_borrow = false;
+                self.await_index.pending_borrow = false;
               }
               if capability_mutating_callee(semantic, &call.callee) {
                 self.poison_expr(semantic, expression);
@@ -3239,8 +3239,8 @@ impl Indexes {
       self.store_atom(expression.span(), atom);
     }
     if let Some(scalar) = scalar_of(inner) {
-      self.until.scalars.insert(span_key(inner.span()), scalar);
-      self.until.scalars.insert(span_key(expression.span()), scalar);
+      self.await_index.scalars.insert(span_key(inner.span()), scalar);
+      self.await_index.scalars.insert(span_key(expression.span()), scalar);
     }
     if let Some(literal) = literal_of(inner) {
       self.literals.insert(span_key(inner.span()), literal);
@@ -3480,7 +3480,7 @@ impl Indexes {
     let bound =
       argument.get_identifier_reference().and_then(|ident| reference_symbol(semantic, ident));
     let region = region_of(owner, node_id);
-    self.until.awaits.push(UntilAwaitSite {
+    self.await_index.awaits.push(AwaitPositionSite {
       offset: await_span.offset,
       end: await_span.offset.saturating_add(await_span.length),
       span,
@@ -3954,11 +3954,11 @@ impl Indexes {
       self.toref_helper_escape.insert(root);
     }
     self
-      .until
+      .await_index
       .escapes
       .entry(root)
       .or_default()
-      .push(UntilEscapeSite { offset: 0, until_borrow: self.until.pending_borrow });
+      .push(AwaitEscapeSite { offset: 0, until_borrow: self.await_index.pending_borrow });
   }
 
   fn index_assignment(
@@ -4059,7 +4059,7 @@ impl Indexes {
         self.value_writes.entry(root).or_default().push(event);
       } else {
         self.uncertain.insert(root);
-        self.until.uncertain_value_writes.insert(root);
+        self.await_index.uncertain_value_writes.insert(root);
       }
     } else {
       self.member_write_roots.insert(root);
@@ -4276,7 +4276,7 @@ impl Indexes {
     let root = self.root_of(symbol_id);
     self.uncertain.insert(root);
     if property == "value" {
-      self.until.uncertain_value_writes.insert(root);
+      self.await_index.uncertain_value_writes.insert(root);
     }
     self.capability_poisoned.insert(root);
     if property == TOREF_CAPABILITY_KEY {
@@ -4448,7 +4448,7 @@ impl Indexes {
         self.stop_offsets.push(use_site.offset);
       }
       self.member_call_by_span.insert(span_key(call.span), named.clone());
-      self.until.result_method_calls.entry(root).or_default().push(NamedUse {
+      self.await_index.result_method_calls.entry(root).or_default().push(NamedUse {
         key: named.key.clone(),
         site: MemberUse {
           reach: classify_reach_except_chain(semantic, node_id, &self.work),
@@ -4478,7 +4478,7 @@ impl Indexes {
       };
       let named = NamedUse { key: key.to_string(), site: use_site };
       self.member_call_by_span.insert(span_key(call.span), named.clone());
-      self.until.await_method_calls.entry(span_key(awaited.span)).or_default().push(named);
+      self.await_index.await_method_calls.entry(span_key(awaited.span)).or_default().push(named);
     }
     if let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression() {
       let use_site = MemberUse {
@@ -4937,12 +4937,17 @@ impl Indexes {
   }
 
   fn build_until_await_lookups(&mut self) {
-    for site in &self.until.awaits {
-      self.until.await_by_argument.insert(span_key(site.argument), *site);
-      self.until.awaits_by_region.entry((site.callable, site.region)).or_default().push(*site);
+    for site in &self.await_index.awaits {
+      self.await_index.await_by_argument.insert(span_key(site.argument), *site);
+      self
+        .await_index
+        .awaits_by_region
+        .entry((site.callable, site.region))
+        .or_default()
+        .push(*site);
       if let Some(symbol_id) = site.bound {
         let root = self.root_of(symbol_id);
-        self.until.await_by_bound.entry(root).or_default().push(*site);
+        self.await_index.await_by_bound.entry(root).or_default().push(*site);
       }
     }
   }
@@ -4951,7 +4956,7 @@ impl Indexes {
     let roots: Vec<_> = self.init_span.keys().copied().collect();
     for root in roots {
       self.work.add_queries(1);
-      let foreign_escape = self.until.escapes.get(&root).is_some_and(|sites| {
+      let foreign_escape = self.await_index.escapes.get(&root).is_some_and(|sites| {
         sites.iter().any(|site| {
           self.work.add_queries(1);
           !site.until_borrow
@@ -4963,10 +4968,10 @@ impl Indexes {
       let closed = !foreign_escape
         && !self.mixed_value_owners.contains(&root)
         && !self.reassigned.contains(&root)
-        && !self.until.uncertain_value_writes.contains(&root)
+        && !self.await_index.uncertain_value_writes.contains(&root)
         && !self.unknown_member_touch.contains(&root)
         && !self.capability_touch.contains(&root);
-      self.until.closed_sources.insert(root, UntilClosedSource { init_span, closed });
+      self.await_index.closed_sources.insert(root, AwaitClosedSource { init_span, closed });
     }
   }
 
