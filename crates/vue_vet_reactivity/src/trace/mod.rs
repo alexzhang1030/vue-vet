@@ -1,7 +1,7 @@
 //! Static Vue reactivity dependency tracing.
 //!
 //! Internal stages live in [`summary`] (prepare / return shapes) and
-//! [`summary::link`] (cross-module seeds / incremental).
+//! `summary::resolve` (cross-module seeds / incremental).
 //!
 //! Builds a serializable [`vue_vet_core::ReactivityGraph`] from an Oxc semantic
 //! model (single script) or a resolved module graph ([`trace_modules`]).
