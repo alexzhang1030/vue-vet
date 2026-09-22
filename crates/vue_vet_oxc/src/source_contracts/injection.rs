@@ -12,7 +12,7 @@ use super::index::{CallInfo, InjectionSite, MemberUse, chain_optional};
 use super::proof::{
   DemandOrigin, DemandRole, classify_reach_except_chain, enclosing_call, skip_ts_parent,
 };
-use super::shape::{PrimitiveKind, native_callable, span_key};
+use super::shape::{PrimitiveKind, native_callable};
 
 const KIND_DEPTH: u8 = 8;
 
@@ -290,20 +290,12 @@ impl Collector<'_> {
   }
 
   fn injection_kind_of_span(&mut self, span: Span, remaining: u8) -> Option<PrimitiveKind> {
-    self.indexes.note_query();
-    if remaining == 0 {
-      return None;
-    }
-    let hint = self.indexes.hints.get(&span_key(span)).copied()?;
-    match hint {
-      super::shape::ShapeHint::Primitive(kind) => Some(kind),
-      super::shape::ShapeHint::Nullish | super::shape::ShapeHint::Identifier(_, true) => {
-        Some(PrimitiveKind::Nullish)
-      }
-      super::shape::ShapeHint::Identifier(Some(symbol_id), false) => {
+    match self.indexes.primitive_kind_step(span, remaining) {
+      super::shape::HintClass::Kind(kind) => Some(kind),
+      super::shape::HintClass::Follow(symbol_id) => {
         self.kind_of_symbol(symbol_id, remaining.saturating_sub(1))
       }
-      _ => None,
+      super::shape::HintClass::Other => None,
     }
   }
 

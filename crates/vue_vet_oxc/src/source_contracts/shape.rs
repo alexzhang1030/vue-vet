@@ -157,6 +157,27 @@ pub(super) enum ShapeHint {
   New(Span),
 }
 
+/// What a shape hint contributes to a primitive-kind walk.
+///
+/// Symbol policy stays in the lane: cached, injection, and filter do not
+/// follow an identifier the same way.
+pub(super) enum HintClass {
+  Kind(PrimitiveKind),
+  Follow(SymbolId),
+  Other,
+}
+
+impl ShapeHint {
+  pub(super) const fn classify_primitive(self) -> HintClass {
+    match self {
+      Self::Primitive(kind) => HintClass::Kind(kind),
+      Self::Nullish | Self::Identifier(_, true) => HintClass::Kind(PrimitiveKind::Nullish),
+      Self::Identifier(Some(symbol_id), false) => HintClass::Follow(symbol_id),
+      _ => HintClass::Other,
+    }
+  }
+}
+
 /// Closed primitive payload used to prove a write actually changed.
 /// Interned `Str`/`BigInt` ids live on `Indexes.interned`. Computed-identity
 /// keeps a separate owned `atom::PrimitiveAtom`.

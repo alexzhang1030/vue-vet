@@ -38,8 +38,8 @@ use super::proof::{
   classify_role, enclosing_call, is_custom_prototype_key, is_ts_wrapper, skip_ts_parent,
 };
 use super::shape::{
-  CollectionCtor, Literal, PrimitiveAtom as ShapePrimitiveAtom, Scalar, ShapeHint, VueImport,
-  VueUseImport, hint_of, intern_extractable_method, intern_native_ctor,
+  CollectionCtor, HintClass, Literal, PrimitiveAtom as ShapePrimitiveAtom, Scalar, ShapeHint,
+  VueImport, VueUseImport, hint_of, intern_extractable_method, intern_native_ctor,
   is_actual_proxy_runtime_source, is_fresh_allocation, is_known_receiver_method,
   is_proxy_allocating_api, is_unresolved_date, literal_of, primitive_atom, resolve_vue_api,
   resolve_vueuse_api, scalar_of, span_key, unresolved_collection_kind,
@@ -1515,6 +1515,19 @@ impl Indexes {
     self.work.add_queries(1);
     let owner = self.owner(node_id);
     (owner.callable, owner.block)
+  }
+
+  /// One query, then the shared primitive-hint classification.
+  ///
+  /// Depth `0` and a missing hint are [`HintClass::Other`]. The caller applies
+  /// its own symbol policy on [`HintClass::Follow`]. Filter keeps an atom
+  /// pre-check and calls [`ShapeHint::classify_primitive`] itself.
+  pub(super) fn primitive_kind_step(&self, span: Span, remaining: u8) -> HintClass {
+    self.note_query();
+    if remaining == 0 {
+      return HintClass::Other;
+    }
+    self.hints.get(&span_key(span)).copied().map_or(HintClass::Other, ShapeHint::classify_primitive)
   }
 
   pub(super) fn primitive_at(&self, span: Span) -> Option<ShapePrimitiveAtom> {
