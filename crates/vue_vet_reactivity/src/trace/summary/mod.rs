@@ -25,9 +25,9 @@ use thiserror::Error;
 use vue_vet_core::{ModuleId, ReactivityGraph, ScriptKind};
 
 use super::bindings::collect_reactive_bindings;
+use super::kinds::{collect_binding_identifiers, collect_imported_bindings, module_export_name};
 #[cfg(test)]
 use super::metrics::{SummaryScanWork, import_binding_collect_snapshot, store_summary_scan_work};
-use super::kinds::{collect_binding_identifiers, collect_imported_bindings, module_export_name};
 use super::{TraceSeeds, collect_inject_sites, collect_provide_sites, trace_reactivity_seeded};
 
 mod declared_types;

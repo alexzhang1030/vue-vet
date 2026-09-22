@@ -43,8 +43,8 @@ mod expr;
 mod follow;
 mod inject;
 mod kinds;
-mod metrics;
 mod local;
+mod metrics;
 mod notification;
 mod plugin;
 mod reads;
@@ -72,11 +72,11 @@ pub use metrics::import_binding_collect_snapshot;
 #[cfg(test)]
 pub use metrics::{ComposableUsageWork, last_composable_usage_work};
 #[cfg(test)]
+pub use metrics::{SummaryScanWork, last_summary_scan_work};
+#[cfg(test)]
 pub use notification::{NotificationWork, last_notification_work, with_forced_full_notification};
 use reads::ScopeIrIndex;
 use scopes::{collect_render_scopes, collect_tracking_scopes};
-#[cfg(test)]
-pub use metrics::{SummaryScanWork, last_summary_scan_work};
 
 pub use inject::{
   InjectSite, InjectionKey, ProvideOffer, ProvideSite, collect_inject_sites, collect_provide_sites,
