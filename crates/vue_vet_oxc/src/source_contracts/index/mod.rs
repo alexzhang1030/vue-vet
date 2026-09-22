@@ -1444,18 +1444,15 @@ fn parse_watch_options(call: &CallExpression<'_>, api: Option<&str>) -> WatchCon
     options.once = OptionFlag::Unknown;
     return options;
   };
+  let mut keys_closed = true;
   for property in &object.properties {
     match property {
       ObjectPropertyKind::SpreadProperty(_) => {
-        options.flush = FlushKind::Unknown;
-        options.immediate = OptionFlag::Unknown;
-        options.once = OptionFlag::Unknown;
+        keys_closed = false;
       }
       ObjectPropertyKind::ObjectProperty(property) => {
         let Some(name) = property.key.static_name() else {
-          options.flush = FlushKind::Unknown;
-          options.immediate = OptionFlag::Unknown;
-          options.once = OptionFlag::Unknown;
+          keys_closed = false;
           continue;
         };
         if name == "flush" {
@@ -1473,9 +1470,16 @@ fn parse_watch_options(call: &CallExpression<'_>, api: Option<&str>) -> WatchCon
           options.immediate = bool_option_flag(&property.value);
         } else if name == "once" {
           options.once = bool_option_flag(&property.value);
+        } else {
+          keys_closed = false;
         }
       }
     }
+  }
+  if !keys_closed {
+    options.flush = FlushKind::Unknown;
+    options.immediate = OptionFlag::Unknown;
+    options.once = OptionFlag::Unknown;
   }
   if api == Some("watchPostEffect") {
     options.flush = FlushKind::Post;
