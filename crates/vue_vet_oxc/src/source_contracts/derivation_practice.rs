@@ -17,7 +17,7 @@ use oxc_syntax::symbol::SymbolFlags;
 use vue_vet_core::{ConditionalWatchSourceFact, SyncRefOneWayFact};
 
 use super::index::CallInfo;
-use super::shape::{PrimitiveAtom, Shape, ShapeHint, span_key};
+use super::shape::{Literal, OptionValue, PrimitiveAtom, Shape, ShapeHint, span_key};
 use super::{Collector, MAX_DEPTH};
 
 #[derive(Clone, Copy)]
@@ -982,9 +982,11 @@ impl Collector<'_> {
           match name.as_ref() {
             "direction" => bag.direction = self.effective_string(&prop.value),
             "flush" => bag.flush = self.effective_string(&prop.value),
-            "deep" => bag.deep = self.effective_bool(&prop.value),
-            "immediate" => bag.immediate = self.effective_bool(&prop.value),
-            "once" => bag.once = self.effective_bool(&prop.value),
+            "deep" => bag.deep = self.effective_bool(object.span(), "deep", &prop.value),
+            "immediate" => {
+              bag.immediate = self.effective_bool(object.span(), "immediate", &prop.value);
+            }
+            "once" => bag.once = self.effective_bool(object.span(), "once", &prop.value),
             "transform" => bag.transform = self.effective_empty_object(&prop.value),
             "onTrack" | "onTrigger" => bag.debugger = true,
             _ => return ParsedOptions::Invalid,
@@ -1002,11 +1004,25 @@ impl Collector<'_> {
     self.proven_string(expression).map_or(Effective::Unknown, Effective::Known)
   }
 
-  fn effective_bool(&self, expression: &Expression<'_>) -> Effective<bool> {
+  fn effective_bool(
+    &self,
+    object: Span,
+    key: &str,
+    expression: &Expression<'_>,
+  ) -> Effective<bool> {
     if self.proven_undefined(expression) {
       return Effective::Absent;
     }
-    self.proven_bool(expression).map_or(Effective::Unknown, Effective::Known)
+    match self.indexes.option_value(object, key) {
+      OptionValue::Absent => Effective::Absent,
+      OptionValue::Known(Literal::Bool(value)) => Effective::Known(value),
+      OptionValue::Known(_) => Effective::Unknown,
+      // Const aliases are not literals. Follow the initializer the same way
+      // as before the shared read.
+      OptionValue::Unknown => {
+        self.proven_bool(expression).map_or(Effective::Unknown, Effective::Known)
+      }
+    }
   }
 
   fn effective_empty_object(&self, expression: &Expression<'_>) -> Effective<bool> {
