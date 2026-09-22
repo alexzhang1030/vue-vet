@@ -22,6 +22,7 @@ use vue_vet_core::{StableComputedIdentityFact, StableComputedIdentityReason};
 
 use super::atom::{PrimitiveAtom, sequences_object_is};
 use super::index::ObjectEntry;
+use super::proof::is_ts_wrapper;
 use super::shape::{Shape, span_key};
 use super::{Collector, MAX_DEPTH};
 
@@ -839,12 +840,7 @@ impl Collector<'_> {
       self.indexes.note_query();
       let parent = self.semantic.nodes().parent_id(current);
       match self.semantic.nodes().kind(parent) {
-        AstKind::ParenthesizedExpression(_)
-        | AstKind::TSAsExpression(_)
-        | AstKind::TSSatisfiesExpression(_)
-        | AstKind::TSNonNullExpression(_)
-        | AstKind::TSTypeAssertion(_)
-        | AstKind::TSInstantiationExpression(_) => current = parent,
+        wrapper if is_ts_wrapper(wrapper) => current = parent,
         AstKind::VariableDeclarator(declarator) => {
           let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
             return None;
@@ -884,12 +880,9 @@ impl Collector<'_> {
       self.indexes.note_query();
       let parent = self.semantic.nodes().parent_id(current);
       match self.semantic.nodes().kind(parent) {
-        AstKind::ParenthesizedExpression(_)
-        | AstKind::TSAsExpression(_)
-        | AstKind::TSSatisfiesExpression(_)
-        | AstKind::TSNonNullExpression(_)
-        | AstKind::TSTypeAssertion(_)
-        | AstKind::ChainExpression(_) => current = parent,
+        wrapper if is_ts_wrapper(wrapper) || matches!(wrapper, AstKind::ChainExpression(_)) => {
+          current = parent;
+        }
         AstKind::StaticMemberExpression(member) if member.property.name.as_str() == "value" => {
           return false;
         }

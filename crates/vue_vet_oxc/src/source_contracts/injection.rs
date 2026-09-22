@@ -8,9 +8,10 @@ use oxc_semantic::{NodeId, SymbolFlags, SymbolId};
 use oxc_span::{GetSpan, Span};
 
 use super::Collector;
-use super::demand::skip_ts;
 use super::index::{CallInfo, InjectionSite, MemberUse, chain_optional};
-use super::proof::{DemandOrigin, DemandRole, classify_reach_except_chain};
+use super::proof::{
+  DemandOrigin, DemandRole, classify_reach_except_chain, enclosing_call, skip_ts_parent,
+};
 use super::shape::{PrimitiveKind, native_callable, span_key};
 
 const KIND_DEPTH: u8 = 8;
@@ -205,7 +206,7 @@ impl Collector<'_> {
     if let Some(site) = self.chained_injection_demand(node_id, origin, fallback) {
       return Some(site);
     }
-    let parent = skip_ts(self.semantic, node_id);
+    let parent = skip_ts_parent(self.semantic, node_id, self.indexes.work_counter());
     let AstKind::VariableDeclarator(declarator) = self.semantic.nodes().kind(parent) else {
       return None;
     };
@@ -255,7 +256,7 @@ impl Collector<'_> {
     origin: DemandOrigin,
     fallback: PrimitiveKind,
   ) -> Option<DemandSite<'_>> {
-    let parent = skip_ts(self.semantic, node_id);
+    let parent = skip_ts_parent(self.semantic, node_id, self.indexes.work_counter());
     let member = match self.semantic.nodes().kind(parent) {
       AstKind::StaticMemberExpression(member) => member.property.name.as_str(),
       AstKind::ComputedMemberExpression(member) => {
@@ -266,10 +267,7 @@ impl Collector<'_> {
       }
       _ => return None,
     };
-    let next = skip_ts(self.semantic, parent);
-    let AstKind::CallExpression(outer) = self.semantic.nodes().kind(next) else {
-      return None;
-    };
+    let (next, outer) = enclosing_call(self.semantic, parent, self.indexes.work_counter())?;
     let reach = classify_reach_except_chain(self.semantic, next, self.indexes.work_counter());
     if !reach.is_straight() {
       return None;

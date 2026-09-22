@@ -16,26 +16,10 @@ use oxc_ast::{
 use oxc_semantic::{NodeId, SymbolId};
 use oxc_span::{GetSpan, Span};
 
-use super::proof::ANCESTOR_BUDGET;
 use super::stats::WorkCounter;
 
 const SUSPEND_BUDGET: u8 = 64;
 const GRAMMAR_BUDGET: u8 = 64;
-
-pub(super) fn skip_ts(semantic: &oxc_semantic::Semantic<'_>, mut node_id: NodeId) -> NodeId {
-  for _ in 0..ANCESTOR_BUDGET {
-    let parent = semantic.nodes().parent_id(node_id);
-    match semantic.nodes().kind(parent) {
-      AstKind::ParenthesizedExpression(_)
-      | AstKind::TSAsExpression(_)
-      | AstKind::TSSatisfiesExpression(_)
-      | AstKind::TSNonNullExpression(_)
-      | AstKind::TSTypeAssertion(_) => node_id = parent,
-      _ => return parent,
-    }
-  }
-  node_id
-}
 
 fn identifier_symbol(
   semantic: &oxc_semantic::Semantic<'_>,

@@ -268,7 +268,7 @@ fn expression_is_plain_primitive(
   semantic: &oxc_semantic::Semantic<'_>,
   expression: &Expression<'_>,
 ) -> bool {
-  match peel_ts_parens(expression) {
+  match expression.get_inner_expression() {
     Expression::StringLiteral(_)
     | Expression::NumericLiteral(_)
     | Expression::BooleanLiteral(_)
@@ -667,7 +667,7 @@ fn collect_expression_member_write(
   offset: usize,
   writes: &mut Vec<ScriptMemberWriteFact>,
 ) {
-  match peel_ts_parens(expression) {
+  match expression.get_inner_expression() {
     Expression::StaticMemberExpression(member) => {
       if let Some(write) = member_write(
         &member.object,
@@ -694,10 +694,6 @@ fn collect_expression_member_write(
     }
     _ => {}
   }
-}
-
-fn peel_ts_parens<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
-  expression.get_inner_expression()
 }
 
 fn update_member(

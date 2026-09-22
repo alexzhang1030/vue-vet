@@ -9,7 +9,7 @@ use oxc_span::Span;
 
 use super::Collector;
 use super::index::{MemberUse, NamedUse, ObjectEntry, UntilAwaitSite, ValueWrite};
-use super::proof::{DemandOrigin, classify_reach, native_kind_has_method};
+use super::proof::{DemandOrigin, classify_reach, is_ts_wrapper, native_kind_has_method};
 use super::shape::{NativeKind, SYNC_FLUSH, Scalar, Shape, ShapeHint, span_key};
 use super::timeline;
 use vue_vet_core::UntilTimeoutUnmatchedDemandFact;
@@ -193,12 +193,7 @@ impl Collector<'_> {
   fn to_be_path_is_straight(&self, node_id: NodeId) -> bool {
     let parent = self.semantic.nodes().parent_id(node_id);
     match self.semantic.nodes().kind(parent) {
-      AstKind::AwaitExpression(_)
-      | AstKind::ParenthesizedExpression(_)
-      | AstKind::TSAsExpression(_)
-      | AstKind::TSSatisfiesExpression(_)
-      | AstKind::TSNonNullExpression(_)
-      | AstKind::TSTypeAssertion(_) => true,
+      wrapper if is_ts_wrapper(wrapper) || matches!(wrapper, AstKind::AwaitExpression(_)) => true,
       _ => classify_reach(self.semantic, node_id, self.indexes.work_counter()).is_straight(),
     }
   }
