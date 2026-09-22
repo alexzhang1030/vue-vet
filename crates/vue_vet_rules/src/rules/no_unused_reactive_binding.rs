@@ -143,22 +143,18 @@ mod tests {
   #[test]
   fn exported_outer_does_not_hide_inner_unused_at_later_span() {
     let mut graph = ReactivityGraph::default();
-    graph.bindings.push(ReactiveBindingFact {
-      name: "count".into(),
-      kind: ReactiveBindingKind::Ref,
-      initialized_with_null: false,
-      alias_of: None,
-      alias_of_span: None,
-      span: span(1),
-    });
-    graph.bindings.push(ReactiveBindingFact {
-      name: "count".into(),
-      kind: ReactiveBindingKind::Ref,
-      initialized_with_null: false,
-      alias_of: None,
-      alias_of_span: None,
-      span: span(9),
-    });
+    graph.bindings.push(ReactiveBindingFact::plain(
+      "count".into(),
+      ReactiveBindingKind::Ref,
+      false,
+      span(1),
+    ));
+    graph.bindings.push(ReactiveBindingFact::plain(
+      "count".into(),
+      ReactiveBindingKind::Ref,
+      false,
+      span(9),
+    ));
     let script = ScriptFacts {
       blocks: vec![block(
         vec![
@@ -194,14 +190,12 @@ mod tests {
   #[test]
   fn template_use_keeps_later_top_level_count_quiet() {
     let mut graph = ReactivityGraph::default();
-    graph.bindings.push(ReactiveBindingFact {
-      name: "count".into(),
-      kind: ReactiveBindingKind::Ref,
-      initialized_with_null: false,
-      alias_of: None,
-      alias_of_span: None,
-      span: span(9),
-    });
+    graph.bindings.push(ReactiveBindingFact::plain(
+      "count".into(),
+      ReactiveBindingKind::Ref,
+      false,
+      span(9),
+    ));
     graph.template_reads.push(TemplateReactiveReadFact {
       binding: "count".into(),
       span: span(20),

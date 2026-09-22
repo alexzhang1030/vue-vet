@@ -231,14 +231,12 @@ pub fn resolve_inject_links(
     if let Some(kind) = offer.kind
       && !out.bindings.iter().any(|binding| binding.name == inject.local)
     {
-      out.bindings.push(ReactiveBindingFact {
-        name: inject.local.clone(),
+      out.bindings.push(ReactiveBindingFact::plain(
+        inject.local.clone(),
         kind,
-        initialized_with_null: false,
-        alias_of: None,
-        alias_of_span: None,
-        span: source_span(sfc_source, script_offset, inject.span),
-      });
+        false,
+        source_span(sfc_source, script_offset, inject.span),
+      ));
     }
     if let Some(shape) = offer.instance_shape {
       out.instances.entry(inject.local.clone()).or_insert(shape);

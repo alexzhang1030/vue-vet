@@ -108,22 +108,18 @@ mod tests {
 
   fn size_refs() -> ReactivityGraph {
     let mut graph = ReactivityGraph::default();
-    graph.bindings.push(ReactiveBindingFact {
-      name: "width".into(),
-      kind: ReactiveBindingKind::Ref,
-      initialized_with_null: false,
-      alias_of: None,
-      alias_of_span: None,
-      span: span(0),
-    });
-    graph.bindings.push(ReactiveBindingFact {
-      name: "height".into(),
-      kind: ReactiveBindingKind::Ref,
-      initialized_with_null: false,
-      alias_of: None,
-      alias_of_span: None,
-      span: span(0),
-    });
+    graph.bindings.push(ReactiveBindingFact::plain(
+      "width".into(),
+      ReactiveBindingKind::Ref,
+      false,
+      span(0),
+    ));
+    graph.bindings.push(ReactiveBindingFact::plain(
+      "height".into(),
+      ReactiveBindingKind::Ref,
+      false,
+      span(0),
+    ));
     graph
   }
 

@@ -80,6 +80,19 @@ pub struct ReactiveBindingFact {
   pub alias_of_span: Option<SourceSpan>,
 }
 
+impl ReactiveBindingFact {
+  /// A binding introduced by a Vue API or annotation, not an alias.
+  #[must_use]
+  pub const fn plain(
+    name: String,
+    kind: ReactiveBindingKind,
+    initialized_with_null: bool,
+    span: SourceSpan,
+  ) -> Self {
+    Self { name, kind, initialized_with_null, span, alias_of: None, alias_of_span: None }
+  }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReactiveReadKind {

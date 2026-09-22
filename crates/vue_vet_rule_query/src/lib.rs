@@ -184,22 +184,18 @@ mod tests {
   #[test]
   fn binding_lookups_and_paths_match_historical_formatting() {
     let mut graph = ReactivityGraph::default();
-    graph.bindings.push(ReactiveBindingFact {
-      name: "state".into(),
-      kind: ReactiveBindingKind::Readonly,
-      initialized_with_null: false,
-      alias_of: None,
-      alias_of_span: None,
-      span: span_at(1),
-    });
-    graph.bindings.push(ReactiveBindingFact {
-      name: "state".into(),
-      kind: ReactiveBindingKind::Ref,
-      initialized_with_null: false,
-      alias_of: None,
-      alias_of_span: None,
-      span: span_at(9),
-    });
+    graph.bindings.push(ReactiveBindingFact::plain(
+      "state".into(),
+      ReactiveBindingKind::Readonly,
+      false,
+      span_at(1),
+    ));
+    graph.bindings.push(ReactiveBindingFact::plain(
+      "state".into(),
+      ReactiveBindingKind::Ref,
+      false,
+      span_at(9),
+    ));
     let mut block = setup_block(Vec::new(), Vec::new(), graph);
     block.bindings.push(ScriptBindingFact {
       name: "state".into(),
@@ -248,14 +244,12 @@ mod tests {
       "unresolved operand must not match when a local symbol of that name exists"
     );
     let mut seed_graph = ReactivityGraph::default();
-    seed_graph.bindings.push(ReactiveBindingFact {
-      name: "currentUser".into(),
-      kind: ReactiveBindingKind::Ref,
-      initialized_with_null: false,
-      alias_of: None,
-      alias_of_span: None,
-      span: span_at(40),
-    });
+    seed_graph.bindings.push(ReactiveBindingFact::plain(
+      "currentUser".into(),
+      ReactiveBindingKind::Ref,
+      false,
+      span_at(40),
+    ));
     let seed_block = setup_block(Vec::new(), Vec::new(), seed_graph);
     assert!(
       reactive_binding_for_operand(
@@ -273,22 +267,10 @@ mod tests {
 
   #[test]
   fn canonical_write_identity_uses_alias_root_span_not_nearest_name() {
-    let outer = ReactiveBindingFact {
-      name: "state".into(),
-      kind: ReactiveBindingKind::Ref,
-      initialized_with_null: false,
-      alias_of: None,
-      alias_of_span: None,
-      span: span_at(1),
-    };
-    let inner = ReactiveBindingFact {
-      name: "state".into(),
-      kind: ReactiveBindingKind::Ref,
-      initialized_with_null: false,
-      alias_of: None,
-      alias_of_span: None,
-      span: span_at(20),
-    };
+    let outer =
+      ReactiveBindingFact::plain("state".into(), ReactiveBindingKind::Ref, false, span_at(1));
+    let inner =
+      ReactiveBindingFact::plain("state".into(), ReactiveBindingKind::Ref, false, span_at(20));
     let alias = ReactiveBindingFact {
       name: "alias".into(),
       kind: ReactiveBindingKind::Ref,

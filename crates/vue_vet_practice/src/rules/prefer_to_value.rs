@@ -104,14 +104,12 @@ mod tests {
 
   fn ref_graph(name: &str) -> ReactivityGraph {
     ReactivityGraph {
-      bindings: vec![ReactiveBindingFact {
-        name: name.into(),
-        kind: ReactiveBindingKind::Ref,
-        initialized_with_null: false,
-        span: span(),
-        alias_of: None,
-        alias_of_span: None,
-      }],
+      bindings: vec![ReactiveBindingFact::plain(
+        name.into(),
+        ReactiveBindingKind::Ref,
+        false,
+        span(),
+      )],
       ..ReactivityGraph::default()
     }
   }

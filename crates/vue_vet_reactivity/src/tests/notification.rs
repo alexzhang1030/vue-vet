@@ -1028,14 +1028,12 @@ fn preflight_skips_modules_without_notification_source_identity() {
 }
 
 pub(super) fn seeded_count_fact() -> ReactiveBindingFact {
-  ReactiveBindingFact {
-    name: "seededCount".into(),
-    kind: ReactiveBindingKind::Ref,
-    initialized_with_null: false,
-    span: test_span(9_001),
-    alias_of: None,
-    alias_of_span: None,
-  }
+  ReactiveBindingFact::plain(
+    "seededCount".into(),
+    ReactiveBindingKind::Ref,
+    false,
+    test_span(9_001),
+  )
 }
 
 #[test]

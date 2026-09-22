@@ -212,28 +212,19 @@ pub(super) fn materialize_seeds(
         if seeds.bindings.iter().any(|binding| binding.name == *local) {
           continue;
         }
-        seeds.bindings.push(ReactiveBindingFact {
-          name: local.clone(),
-          kind: *kind,
-          initialized_with_null: false,
-          alias_of: None,
-          alias_of_span: None,
-          span,
-        });
+        seeds.bindings.push(ReactiveBindingFact::plain(local.clone(), *kind, false, span));
       }
       ExportState::Factory(kind) => {
         for call in imported.instances_of(local).chain(bare.instances_of(local)) {
           if seeds.bindings.iter().any(|binding| binding.name == call.local) {
             continue;
           }
-          seeds.bindings.push(ReactiveBindingFact {
-            name: call.local.clone(),
-            kind: *kind,
-            initialized_with_null: false,
-            alias_of: None,
-            alias_of_span: None,
-            span: source_span(span_source, span_base, call.span),
-          });
+          seeds.bindings.push(ReactiveBindingFact::plain(
+            call.local.clone(),
+            *kind,
+            false,
+            source_span(span_source, span_base, call.span),
+          ));
         }
       }
       ExportState::Composable(shape) => {
@@ -241,14 +232,12 @@ pub(super) fn materialize_seeds(
           let Some(kind) = shape.kind_for_destructure(&call.property) else {
             continue;
           };
-          seeds.bindings.push(ReactiveBindingFact {
-            name: call.local.clone(),
+          seeds.bindings.push(ReactiveBindingFact::plain(
+            call.local.clone(),
             kind,
-            initialized_with_null: false,
-            alias_of: None,
-            alias_of_span: None,
-            span: source_span(span_source, span_base, call.span),
-          });
+            false,
+            source_span(span_source, span_base, call.span),
+          ));
         }
         for call in imported.instances_of(local).chain(bare.instances_of(local)) {
           seeds.composable_instances.insert(call.local.clone(), shape.fields.clone());
@@ -302,14 +291,12 @@ pub(super) fn materialize_seeds(
       if let Some(kind) = offer.kind
         && !seeds.bindings.iter().any(|binding| binding.name == inject.local)
       {
-        seeds.bindings.push(ReactiveBindingFact {
-          name: inject.local.clone(),
+        seeds.bindings.push(ReactiveBindingFact::plain(
+          inject.local.clone(),
           kind,
-          initialized_with_null: false,
-          alias_of: None,
-          alias_of_span: None,
-          span: source_span(span_source, span_base, inject.span),
-        });
+          false,
+          source_span(span_source, span_base, inject.span),
+        ));
       }
       if let Some(shape) = &offer.instance_shape {
         seeds.composable_instances.entry(inject.local).or_insert_with(|| shape.clone());
@@ -435,14 +422,12 @@ fn seed_member_calls_from_value_bags(
             if seeds.bindings.iter().any(|binding| binding.name == local) {
               continue;
             }
-            seeds.bindings.push(ReactiveBindingFact {
-              name: local,
+            seeds.bindings.push(ReactiveBindingFact::plain(
+              local,
               kind,
-              initialized_with_null: false,
-              alias_of: None,
-              alias_of_span: None,
-              span: source_span(span_source, span_base, span),
-            });
+              false,
+              source_span(span_source, span_base, span),
+            ));
           }
         }
       }
@@ -453,14 +438,12 @@ fn seed_member_calls_from_value_bags(
         if seeds.bindings.iter().any(|binding| binding.name == identifier.name.as_str()) {
           continue;
         }
-        seeds.bindings.push(ReactiveBindingFact {
-          name: identifier.name.to_string(),
-          kind: *kind,
-          initialized_with_null: false,
-          alias_of: None,
-          alias_of_span: None,
-          span: source_span(span_source, span_base, identifier.span),
-        });
+        seeds.bindings.push(ReactiveBindingFact::plain(
+          identifier.name.to_string(),
+          *kind,
+          false,
+          source_span(span_source, span_base, identifier.span),
+        ));
       }
       _ => {}
     }
