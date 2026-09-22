@@ -109,8 +109,8 @@ use crate::facts::source_span;
 use derivation_practice::{ProducerDemand, SinkOwnership};
 use index::{CallInfo, Indexes, ObjectProp};
 use shape::{
-  CollectionCtor, CollectionKind, Shape, ShapeHint, classify_vue_result, collect_vue_imports,
-  collect_vueuse_imports, is_ref_api, span_key,
+  CollectionCtor, CollectionKind, PrimitiveKind, Shape, ShapeHint, classify_vue_result,
+  collect_vue_imports, collect_vueuse_imports, is_ref_api, span_key,
 };
 pub use shape::{ContractSink, contract_sink};
 use stats::WorkCounter;
@@ -568,11 +568,13 @@ impl Collector<'_> {
         };
         self.classify_symbol(symbol_id, MAX_DEPTH) == Shape::RefLike
           && !self.indexes.payload_uncertain(symbol_id)
-          && self.ref_payload_at(
-            self.indexes.root_of(symbol_id),
-            watch_id,
-            self.span(source.span()).offset,
-          ) == Shape::Primitive
+          && self
+            .ref_payload_at(
+              self.indexes.root_of(symbol_id),
+              watch_id,
+              self.span(source.span()).offset,
+            )
+            .is_non_nullish_primitive()
       }
       Expression::StaticMemberExpression(member) => {
         let Some(object) = member.object.get_inner_expression().get_identifier_reference() else {
@@ -589,17 +591,19 @@ impl Collector<'_> {
           return false;
         }
         !self.indexes.payload_uncertain(symbol_id)
-          && self.member_shape_at(
-            self.indexes.root_of(symbol_id),
-            member.property.name.as_str(),
-            watch_id,
-            self.span(source.span()).offset,
-          ) == Shape::Primitive
+          && self
+            .member_shape_at(
+              self.indexes.root_of(symbol_id),
+              member.property.name.as_str(),
+              watch_id,
+              self.span(source.span()).offset,
+            )
+            .is_non_nullish_primitive()
       }
       Expression::Identifier(identifier) => {
-        matches!(self.classify_identifier(identifier, MAX_DEPTH), Shape::Primitive | Shape::Nullish)
+        matches!(self.classify_identifier(identifier, MAX_DEPTH), Shape::Primitive(_))
       }
-      other => self.classify_span(other.span(), MAX_DEPTH) == Shape::Primitive,
+      other => self.classify_span(other.span(), MAX_DEPTH).is_non_nullish_primitive(),
     }
   }
 
@@ -662,7 +666,7 @@ impl Collector<'_> {
 
   fn ref_payload_at(&mut self, root: SymbolId, watch_id: NodeId, watch_offset: usize) -> Shape {
     let init = self.ref_init_payload(root);
-    if init != Shape::Primitive && init != Shape::Function {
+    if !init.is_non_nullish_primitive() && init != Shape::Function {
       return Shape::Unknown;
     }
     if self.indexes.value_writes_mixed(root) {
@@ -801,8 +805,10 @@ impl Collector<'_> {
     let hint = self.indexes.hints.get(&span_key(span)).copied()?;
     Some(match hint {
       ShapeHint::Unknown | ShapeHint::Identifier(None, _) => Shape::Unknown,
-      ShapeHint::Primitive(_) => Shape::Primitive,
-      ShapeHint::Nullish | ShapeHint::Identifier(_, true) => Shape::Nullish,
+      ShapeHint::Primitive(kind) => Shape::Primitive(kind),
+      ShapeHint::Nullish | ShapeHint::Identifier(_, true) => {
+        Shape::Primitive(PrimitiveKind::Nullish)
+      }
       ShapeHint::PlainRecord => Shape::PlainRecord,
       ShapeHint::Function => Shape::Function,
       ShapeHint::Identifier(Some(symbol_id), false) => {

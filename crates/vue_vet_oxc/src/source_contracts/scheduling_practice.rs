@@ -403,9 +403,7 @@ impl Collector<'_> {
     let payload = match info.first_arg {
       None => Some(PrimitiveAtom::Undefined),
       Some(argument) => match self.classify_span(argument, MAX_DEPTH) {
-        super::shape::Shape::Primitive | super::shape::Shape::Nullish => {
-          self.indexes.primitive_at(argument)
-        }
+        super::shape::Shape::Primitive(_) => self.indexes.primitive_at(argument),
         _ => return None,
       },
     };
