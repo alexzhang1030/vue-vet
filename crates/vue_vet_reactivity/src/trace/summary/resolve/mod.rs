@@ -15,9 +15,6 @@ use std::{
   sync::Arc,
 };
 
-use oxc_allocator::Allocator;
-use oxc_parser::Parser;
-use oxc_semantic::SemanticBuilder;
 use rayon::prelude::*;
 use vue_vet_core::{ModuleId, ReactivityGraph};
 
@@ -25,7 +22,7 @@ use super::super::{ProvideOffer, trace_reactivity_seeded};
 use super::{
   ExportState, ModuleLink, ModulePhaseOne, ModuleReactivity, ModuleSource, ModuleSummary,
   OptionsCallbackSlots, TraceModulesError, TypedCallbackParamSlots,
-  analyze_module_phase_one_cached, join_errors, phase_one_from_summary, source_type,
+  analyze_module_phase_one_cached, phase_one_from_summary,
 };
 pub use cache::ModuleTraceState;
 use cache::{
@@ -625,36 +622,18 @@ fn trace_module_phase_two(
     return Ok(ModuleReactivity { id: module.id.clone(), graph: local_graph });
   }
 
-  let allocator = Allocator::default();
-  let source_type = source_type(module)?;
-  let parsed = Parser::new(&allocator, module.source.as_ref(), source_type).parse();
-  if !parsed.diagnostics.is_empty() {
-    return Err(TraceModulesError::Parse {
-      module: module.id.clone(),
-      message: join_errors(parsed.diagnostics.as_slice()),
-    });
-  }
-  let built = SemanticBuilder::new()
-    .with_build_nodes(true)
-    .with_check_syntax_error(true)
-    .build(&parsed.program);
-  if !built.diagnostics.is_empty() {
-    return Err(TraceModulesError::Semantic {
-      module: module.id.clone(),
-      message: join_errors(built.diagnostics.as_slice()),
-    });
-  }
-  let semantic = built.semantic;
-  let seeds = materialize_seeds(module, &semantic, plan);
-  let config = crate::TraceConfig { named_api_bags };
-  let mut graph = trace_reactivity_seeded(
-    &semantic,
-    module.span_origin(),
-    module.source_offset,
-    module.kind,
-    &seeds,
-    &config,
-  );
-  graph.set_module_id(module.id.clone());
-  Ok(ModuleReactivity { id: module.id.clone(), graph: Arc::new(graph) })
+  super::with_module_semantic(module, |semantic| {
+    let seeds = materialize_seeds(module, semantic, plan);
+    let config = crate::TraceConfig { named_api_bags };
+    let mut graph = trace_reactivity_seeded(
+      semantic,
+      module.span_origin(),
+      module.source_offset,
+      module.kind,
+      &seeds,
+      &config,
+    );
+    graph.set_module_id(module.id.clone());
+    Ok(ModuleReactivity { id: module.id.clone(), graph: Arc::new(graph) })
+  })
 }
