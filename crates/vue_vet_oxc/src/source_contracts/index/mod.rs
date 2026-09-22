@@ -570,7 +570,7 @@ impl Indexes {
 
   fn build_alias_members(&mut self) {
     for (local, root) in &self.alias_root {
-      self.work.add_queries(1);
+      self.note_query();
       if *local == *root {
         continue;
       }
@@ -579,7 +579,7 @@ impl Indexes {
     let mut aliases = std::mem::take(&mut self.aliases_of);
     for members in aliases.values_mut() {
       members.sort_by(|left, right| {
-        self.work.add_queries(1);
+        self.note_query();
         left.cmp(right)
       });
       let before = members.len();
@@ -624,7 +624,7 @@ impl Indexes {
 
   fn precompute_closed_objects(&mut self) {
     for (key, entries) in &self.object_index.objects {
-      self.work.add_queries(1);
+      self.note_query();
       let mut closed = true;
       for entry in entries {
         self.work.add_object_entries(1);
@@ -649,7 +649,7 @@ impl Indexes {
   fn summarize_inactivity(&mut self) {
     for (root, calls) in &self.ident_calls {
       for call in calls {
-        self.work.add_queries(1);
+        self.note_query();
         self.inactivity_by_handle_block.entry((*root, call.block)).or_default().push(*call);
       }
     }
@@ -658,7 +658,7 @@ impl Indexes {
         continue;
       }
       for call in calls {
-        self.work.add_queries(1);
+        self.note_query();
         self.inactivity_by_handle_block.entry((*root, call.block)).or_default().push(*call);
       }
     }
@@ -678,30 +678,30 @@ impl Indexes {
   fn remap_symbol_maps(&mut self) {
     let ident_calls = std::mem::take(&mut self.ident_calls);
     for (symbol_id, mut calls) in ident_calls {
-      self.work.add_queries(1);
+      self.note_query();
       self.ident_calls.entry(self.root_of(symbol_id)).or_default().append(&mut calls);
     }
     let arg_uses = std::mem::take(&mut self.arg_uses);
     for (symbol_id, mut uses) in arg_uses {
-      self.work.add_queries(1);
+      self.note_query();
       self.arg_uses.entry(self.root_of(symbol_id)).or_default().append(&mut uses);
     }
     let value_reads = std::mem::take(&mut self.value_reads);
     for (symbol_id, mut reads) in value_reads {
-      self.work.add_queries(1);
+      self.note_query();
       self.value_reads.entry(self.root_of(symbol_id)).or_default().append(&mut reads);
     }
     let mut lanes = std::mem::take(&mut self.reads);
-    lanes.remap_roots(|symbol_id| self.root_of(symbol_id), || self.work.add_queries(1));
+    lanes.remap_roots(|symbol_id| self.root_of(symbol_id), || self.note_query());
     self.reads = lanes;
     let watches_by_source = std::mem::take(&mut self.watches_by_source);
     for (symbol_id, mut watches) in watches_by_source {
-      self.work.add_queries(1);
+      self.note_query();
       self.watches_by_source.entry(self.root_of(symbol_id)).or_default().append(&mut watches);
     }
     let handle_member_calls = std::mem::take(&mut self.handle_member_calls);
     for ((symbol_id, property), mut calls) in handle_member_calls {
-      self.work.add_queries(1);
+      self.note_query();
       self
         .handle_member_calls
         .entry((self.root_of(symbol_id), property))
@@ -712,7 +712,7 @@ impl Indexes {
 
   fn summarize_root_members(&mut self) {
     for (alias, target) in &self.alias_root {
-      self.work.add_queries(1);
+      self.note_query();
       let bucket = self.root_members.entry(*target).or_default();
       if bucket.is_empty() {
         bucket.push(*target);
@@ -726,7 +726,7 @@ impl Indexes {
   }
 
   pub(super) fn owner_callable_block(&self, node_id: NodeId) -> (Option<NodeId>, Option<NodeId>) {
-    self.work.add_queries(1);
+    self.note_query();
     let owner = self.owner(node_id);
     (owner.callable, owner.block)
   }
@@ -782,7 +782,7 @@ impl Indexes {
     semantic: &oxc_semantic::Semantic<'_>,
     left: &ForStatementLeft<'_>,
   ) {
-    self.work.add_queries(1);
+    self.note_query();
     let Some(target) = left.as_assignment_target() else {
       return;
     };

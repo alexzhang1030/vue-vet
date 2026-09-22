@@ -10,7 +10,7 @@ use super::{
 
 impl Indexes {
   pub(in crate::source_contracts) fn await_result_of_await(&self, span: Span) -> Option<SymbolId> {
-    self.work.add_queries(1);
+    self.note_query();
     self.await_index.results_by_await.get(&span_key(span)).copied()
   }
 
@@ -18,7 +18,7 @@ impl Indexes {
     &self,
     argument: Span,
   ) -> Option<AwaitPositionSite> {
-    self.work.add_queries(1);
+    self.note_query();
     self.await_index.await_by_argument.get(&span_key(argument)).copied()
   }
 
@@ -26,7 +26,7 @@ impl Indexes {
     &self,
     root: SymbolId,
   ) -> &[AwaitPositionSite] {
-    self.work.add_queries(1);
+    self.note_query();
     self.await_index.await_by_bound.get(&root).map_or(&[], Vec::as_slice)
   }
 
@@ -35,7 +35,7 @@ impl Indexes {
     callable: Option<NodeId>,
     region: NodeId,
   ) -> &[AwaitPositionSite] {
-    self.work.add_queries(1);
+    self.note_query();
     self.await_index.awaits_by_region.get(&(callable, region)).map_or(&[], Vec::as_slice)
   }
 
@@ -86,11 +86,11 @@ impl Indexes {
     end: usize,
   ) -> bool {
     let Some(barriers) = self.barriers_by_region.get(&region) else {
-      self.work.add_queries(1);
+      self.note_query();
       return false;
     };
     barriers.between(&self.work, start, end).iter().any(|offset| {
-      self.work.add_queries(1);
+      self.note_query();
       !self.await_is_await_offset(callable, region, *offset)
     })
   }
@@ -98,7 +98,7 @@ impl Indexes {
   fn await_is_await_offset(&self, callable: Option<NodeId>, region: NodeId, offset: usize) -> bool {
     let sites = self.await_awaits_by_region(callable, region);
     sites.iter().any(|site| {
-      self.work.add_queries(1);
+      self.note_query();
       site.head.offset == offset
     })
   }
@@ -107,7 +107,7 @@ impl Indexes {
     &self,
     await_span: Span,
   ) -> &[NamedUse] {
-    self.work.add_queries(1);
+    self.note_query();
     self.await_index.await_method_calls.get(&span_key(await_span)).map_or(&[], Vec::as_slice)
   }
 
@@ -115,17 +115,17 @@ impl Indexes {
     &self,
     root: SymbolId,
   ) -> &[NamedUse] {
-    self.work.add_queries(1);
+    self.note_query();
     self.await_index.result_method_calls.get(&root).map_or(&[], Vec::as_slice)
   }
 
   pub(in crate::source_contracts) fn result_reassigned(&self, root: SymbolId) -> bool {
-    self.work.add_queries(1);
+    self.note_query();
     self.reassigned.contains(&root)
   }
 
   pub(in crate::source_contracts) fn object_has_spread(&self, object_span: Span) -> bool {
-    self.work.add_queries(1);
+    self.note_query();
     self.object_index.objects.get(&span_key(object_span)).is_some_and(|entries| {
       entries.iter().any(|entry| {
         self.work.add_object_entries(1);
@@ -135,7 +135,7 @@ impl Indexes {
   }
 
   pub(in crate::source_contracts) fn object_entries(&self, object_span: Span) -> &[ObjectEntry] {
-    self.work.add_queries(1);
+    self.note_query();
     self.object_index.objects.get(&span_key(object_span)).map_or(&[], Vec::as_slice)
   }
 

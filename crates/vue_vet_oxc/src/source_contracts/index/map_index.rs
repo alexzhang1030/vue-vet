@@ -25,7 +25,7 @@ impl Indexes {
     for (node_id, node) in semantic.nodes().iter_enumerated() {
       match node.kind() {
         AstKind::Program(_) | AstKind::FunctionBody(_) => {
-          self.work.add_queries(1);
+          self.note_query();
           self.region_start.insert(
             node_id,
             mapped(line_index, sfc_source, script_offset, node.kind().span()).offset,
@@ -37,7 +37,7 @@ impl Indexes {
   }
 
   pub(in crate::source_contracts) fn map_has_member_write(&self, root: SymbolId) -> bool {
-    self.work.add_queries(1);
+    self.note_query();
     self.member_write_roots.contains(&root)
   }
 
@@ -46,7 +46,7 @@ impl Indexes {
     root: SymbolId,
     method: &str,
   ) -> bool {
-    self.work.add_queries(1);
+    self.note_query();
     self.member_writes.contains_key(&(root, method.to_string()))
   }
 
@@ -58,7 +58,7 @@ impl Indexes {
   }
 
   pub(in crate::source_contracts) fn wrapped_map_capability_intact(&self, root: SymbolId) -> bool {
-    self.work.add_queries(1);
+    self.note_query();
     if self.unresolved_origin_touch {
       return false;
     }
@@ -79,17 +79,17 @@ impl Indexes {
   }
 
   pub(in crate::source_contracts) fn helper_escaped(&self, root: SymbolId) -> bool {
-    self.work.add_queries(1);
+    self.note_query();
     self.helper_escaped.contains(&root)
   }
 
   pub(in crate::source_contracts) fn escaped(&self, root: SymbolId) -> bool {
-    self.work.add_queries(1);
+    self.note_query();
     self.escaped.contains(&root)
   }
 
   pub(in crate::source_contracts) fn uncertain_root(&self, root: SymbolId) -> bool {
-    self.work.add_queries(1);
+    self.note_query();
     self.uncertain.contains(&root) || self.unknown_member_touch.contains(&root)
   }
 
@@ -102,12 +102,12 @@ impl Indexes {
   }
 
   pub(in crate::source_contracts) fn member_site(&self, node_id: NodeId) -> Option<MemberCallSite> {
-    self.work.add_queries(1);
+    self.note_query();
     self.member_call_by_node.get(&node_id).copied()
   }
 
   pub(in crate::source_contracts) fn map_get_count(&self, root: SymbolId) -> usize {
-    self.work.add_queries(1);
+    self.note_query();
     self.map_gets.get(&root).map_or(0, Vec::len)
   }
 
@@ -116,12 +116,12 @@ impl Indexes {
     root: SymbolId,
     index: usize,
   ) -> Option<MemberCallSite> {
-    self.work.add_queries(1);
+    self.note_query();
     self.map_gets.get(&root).and_then(|gets| gets.get(index)).copied()
   }
 
   pub(in crate::source_contracts) fn map_mutation_count(&self, root: SymbolId) -> usize {
-    self.work.add_queries(1);
+    self.note_query();
     self.map_ops.get(&root).map_or(0, Vec::len)
   }
 
@@ -130,15 +130,15 @@ impl Indexes {
     root: SymbolId,
     index: usize,
   ) -> Option<MapOp> {
-    self.work.add_queries(1);
+    self.note_query();
     self.map_ops.get(&root).and_then(|ops| ops.get(index)).copied()
   }
 
   pub(in crate::source_contracts) fn map_get_roots(&self) -> Vec<SymbolId> {
-    self.work.add_queries(1);
+    self.note_query();
     let mut roots: Vec<SymbolId> = self.map_gets.keys().copied().collect();
     roots.sort_by(|left, right| {
-      self.work.add_queries(1);
+      self.note_query();
       self
         .init_offset
         .get(left)
@@ -150,7 +150,7 @@ impl Indexes {
   }
 
   pub(in crate::source_contracts) fn ctor_key_count(&self, new_span: Span) -> Option<CtorKeyState> {
-    self.work.add_queries(1);
+    self.note_query();
     Some(
       self
         .map_init_keys
@@ -165,27 +165,27 @@ impl Indexes {
     new_span: Span,
     index: usize,
   ) -> Option<MapKeyRef> {
-    self.work.add_queries(1);
+    self.note_query();
     self.map_init_keys.get(&span_key(new_span))?.as_ref()?.get(index).copied()
   }
 
   pub(in crate::source_contracts) fn init_mapped_offset(&self, root: SymbolId) -> Option<usize> {
-    self.work.add_queries(1);
+    self.note_query();
     self.init_offset.get(&root).copied()
   }
 
   pub(in crate::source_contracts) fn region_entry(&self, region: NodeId) -> Option<usize> {
-    self.work.add_queries(1);
+    self.note_query();
     self.region_start.get(&region).copied()
   }
 
   pub(in crate::source_contracts) fn wrapper_span(&self, proxy: SymbolId) -> Option<Span> {
-    self.work.add_queries(1);
+    self.note_query();
     self.proxy_wrapper.get(&proxy).copied()
   }
 
   pub(in crate::source_contracts) fn object_has_skip_marker(&self, span: Span) -> bool {
-    self.work.add_queries(1);
+    self.note_query();
     self.skip_marker_objects.contains(&span_key(span))
   }
 
@@ -205,7 +205,7 @@ impl Indexes {
     let mut member_calls = std::mem::take(&mut self.member_calls);
     for calls in member_calls.values_mut() {
       calls.sort_by(|left, right| {
-        self.work.add_queries(1);
+        self.note_query();
         left.offset.cmp(&right.offset)
       });
       for site in calls.iter() {
@@ -229,7 +229,7 @@ impl Indexes {
     }
     for ops in map_ops.values_mut() {
       ops.sort_by(|left, right| {
-        self.work.add_queries(1);
+        self.note_query();
         left.site.offset.cmp(&right.site.offset)
       });
     }
@@ -260,9 +260,9 @@ impl Indexes {
         continue;
       };
       let origin = self.root_of(raw);
-      self.work.add_queries(1);
+      self.note_query();
       self.proxy_wrapper.insert(symbol, info.span);
-      self.work.add_queries(1);
+      self.note_query();
       self.wrapper_origin.insert(symbol, origin);
     }
     self.build_canonical_origins();
@@ -272,7 +272,7 @@ impl Indexes {
     for (wrapper, origin) in origins {
       match self.canonical_alloc(origin) {
         Some(alloc) => {
-          self.work.add_queries(1);
+          self.note_query();
           self.wrappers_of_alloc.entry(alloc).or_default().push(wrapper);
         }
         None => self.unresolved_origin_touch = true,
@@ -298,10 +298,10 @@ impl Indexes {
     stack: &mut Vec<SymbolId>,
   ) -> Option<SymbolId> {
     if let Some(cached) = self.canonical_of.get(&symbol).copied() {
-      self.work.add_queries(1);
+      self.note_query();
       return cached;
     }
-    self.work.add_queries(1);
+    self.note_query();
     if stack.contains(&symbol) {
       self.canonical_of.insert(symbol, None);
       return None;
@@ -322,7 +322,7 @@ impl Indexes {
   }
 
   pub(in crate::source_contracts) fn canonical_alloc(&self, symbol: SymbolId) -> Option<SymbolId> {
-    self.work.add_queries(1);
+    self.note_query();
     if let Some(cached) = self.canonical_of.get(&symbol).copied() {
       return cached;
     }
@@ -339,7 +339,7 @@ impl Indexes {
         self.unresolved_origin_touch = true;
         continue;
       };
-      self.work.add_queries(1);
+      self.note_query();
       self.member_write_roots.insert(alloc);
       self.member_writes.entry((alloc, property)).or_default().push(write);
     }
@@ -362,7 +362,7 @@ impl Indexes {
   }
 
   pub(in crate::source_contracts) fn compute_alloc_intact(&self, alloc: SymbolId) -> bool {
-    self.work.add_queries(1);
+    self.note_query();
     if !self.receiver_capability_intact(alloc) {
       return false;
     }
@@ -370,7 +370,7 @@ impl Indexes {
       return true;
     };
     wrappers.iter().all(|wrapper| {
-      self.work.add_queries(1);
+      self.note_query();
       self.receiver_capability_intact(*wrapper)
     })
   }
@@ -379,7 +379,7 @@ impl Indexes {
     let mut wrappers = std::mem::take(&mut self.wrappers_of_alloc);
     for list in wrappers.values_mut() {
       list.sort_by(|left, right| {
-        self.work.add_queries(1);
+        self.note_query();
         self
           .init_offset
           .get(left)
@@ -531,7 +531,7 @@ impl Indexes {
     semantic: &oxc_semantic::Semantic<'_>,
     root: SymbolId,
   ) -> bool {
-    self.work.add_queries(1);
+    self.note_query();
     if self.reassigned.contains(&root) {
       return false;
     }
@@ -545,7 +545,7 @@ impl Indexes {
     } else {
       return false;
     };
-    self.work.add_queries(1);
+    self.note_query();
     self.news.get(&span_key(new_span)).is_some_and(|info| info.ctor == Some("Map"))
       && semantic.scoping().symbol_flags(root).contains(SymbolFlags::ConstVariable)
   }
@@ -555,7 +555,7 @@ impl Indexes {
     semantic: &oxc_semantic::Semantic<'_>,
     left: &ForStatementLeft<'_>,
   ) {
-    self.work.add_queries(1);
+    self.note_query();
     let Some(target) = left.as_assignment_target() else {
       return;
     };
@@ -580,7 +580,7 @@ impl Indexes {
     expression: &Expression<'_>,
     depth: u8,
   ) -> WrapperOrigin {
-    self.work.add_queries(1);
+    self.note_query();
     if depth >= 32 {
       return WrapperOrigin::Unknown;
     }
@@ -1343,7 +1343,7 @@ impl Indexes {
     mut node_id: NodeId,
   ) -> ChainPlace {
     for _ in 0..16 {
-      self.work.add_queries(1);
+      self.note_query();
       let parent = semantic.nodes().parent_id(node_id);
       match semantic.nodes().kind(parent) {
         AstKind::ChainExpression(_) => return ChainPlace::Inside,
@@ -1400,7 +1400,7 @@ impl Indexes {
   ) -> ExecKind {
     let mut kind = ExecKind::Always;
     for _ in 0..16 {
-      self.work.add_queries(1);
+      self.note_query();
       match current.get_inner_expression() {
         Expression::StaticMemberExpression(member) => {
           if member.optional {
@@ -1494,7 +1494,7 @@ impl Indexes {
     let identifier = expression.get_inner_expression().get_identifier_reference()?;
     let symbol_id = reference_symbol(semantic, identifier)?;
     let root = self.root_of(symbol_id);
-    self.work.add_queries(1);
+    self.note_query();
     if self.reassigned.contains(&root) {
       return None;
     }
@@ -1518,7 +1518,7 @@ impl Indexes {
       return ExecKind::Maybe;
     };
     let root = self.root_of(symbol_id);
-    self.work.add_queries(1);
+    self.note_query();
     if self.reassigned.contains(&root)
       || !semantic.scoping().symbol_flags(root).contains(SymbolFlags::ConstVariable)
     {
@@ -1553,7 +1553,7 @@ impl Indexes {
     table: &HashMap<u64, bool>,
   ) -> Option<bool> {
     for _ in 0..8 {
-      self.work.add_queries(1);
+      self.note_query();
       if let Some(value) = table.get(&span_key(span)) {
         return Some(*value);
       }
@@ -1563,7 +1563,7 @@ impl Indexes {
           return table.get(&span_key(span)).copied();
         }
         ShapeHint::Identifier(Some(symbol_id), _) => {
-          self.work.add_queries(1);
+          self.note_query();
           span = *self.init_span.get(&self.root_of(symbol_id))?;
         }
         _ => return None,

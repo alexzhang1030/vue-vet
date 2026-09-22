@@ -582,7 +582,7 @@ impl Collector<'_> {
     }
     for symbol_id in self.indexes.symbols_for_root(handle) {
       for reference in self.semantic.symbol_references(symbol_id) {
-        self.indexes.add_queries(1);
+        self.indexes.note_query();
         let node_id = reference.node_id();
         if self.is_declaration(node_id) {
           continue;
@@ -1023,7 +1023,7 @@ impl Collector<'_> {
     }
     for symbol_id in self.indexes.symbols_for_root(handle) {
       for reference in self.semantic.symbol_references(symbol_id) {
-        self.indexes.add_queries(1);
+        self.indexes.note_query();
         let node_id = reference.node_id();
         if self.is_declaration(node_id) {
           continue;
@@ -1274,7 +1274,7 @@ impl Collector<'_> {
         return false;
       }
       for reference in self.semantic.symbol_references(symbol_id) {
-        self.indexes.add_queries(1);
+        self.indexes.note_query();
         if !allowed(self, reference.node_id()) {
           return false;
         }

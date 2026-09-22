@@ -622,7 +622,7 @@ impl Collector<'_> {
     let mut source = None;
     let mut source_span = None;
     for entry in &entries {
-      self.indexes.add_queries(1);
+      self.indexes.note_query();
       let ObjectEntry::Data { name, value, .. } = entry else {
         return None;
       };
@@ -730,7 +730,7 @@ impl Collector<'_> {
     let entries = self.indexes.object_index.objects.get(&span_key(span))?.clone();
     let mut fields = BTreeMap::new();
     for entry in &entries {
-      self.indexes.add_queries(1);
+      self.indexes.note_query();
       let ObjectEntry::Data { name, value, .. } = entry else {
         return None;
       };
@@ -828,7 +828,7 @@ impl Collector<'_> {
   fn computed_binding_escaped_or_mutated(&self, symbol_id: SymbolId) -> bool {
     let root = self.indexes.root_of(symbol_id);
     for reference in self.semantic.symbol_references(root) {
-      self.indexes.add_queries(1);
+      self.indexes.note_query();
       if reference.flags().is_write() {
         return true;
       }
@@ -869,7 +869,7 @@ impl Collector<'_> {
   fn first_activation(&self, binding: SymbolId, after: Site) -> Option<Site> {
     let mut chosen: Option<Site> = None;
     for reference in self.semantic.symbol_references(binding) {
-      self.indexes.add_queries(1);
+      self.indexes.note_query();
       if reference.flags().is_write() {
         continue;
       }
@@ -909,7 +909,7 @@ impl Collector<'_> {
     end: usize,
   ) -> bool {
     for reference in self.semantic.symbol_references(handle) {
-      self.indexes.add_queries(1);
+      self.indexes.note_query();
       let parent = self.semantic.nodes().parent_id(reference.node_id());
       let AstKind::CallExpression(call) = self.semantic.nodes().kind(parent) else {
         continue;
@@ -941,7 +941,7 @@ impl Collector<'_> {
   ) -> Option<Site> {
     let mut chosen: Option<Site> = None;
     for reference in self.semantic.symbol_references(binding) {
-      self.indexes.add_queries(1);
+      self.indexes.note_query();
       if reference.flags().is_write() {
         continue;
       }
