@@ -21,7 +21,10 @@ use vue_vet_reactivity::{
 use crate::context::ProjectContext;
 use crate::conventions::{convention_component_name_with_content, is_nuxt_content_component};
 use crate::layers::apply_template_prop_layers;
-use crate::model::{CONVENTIONS_VERSION, NodeKind, ProjectFile, ProjectGraph, ReactivityIssue};
+use crate::model::{
+  CONVENTIONS_VERSION, NodeKind, PROJECT_GRAPH_SCHEMA_VERSION, ProjectFile, ProjectGraph,
+  ReactivityIssue,
+};
 use crate::model_demand::join_model_demand_facts;
 use crate::passes::ExternalSummaryLoadPass;
 use crate::resolve::{ProjectResolver, normalize_project_root, normalized_path};
@@ -220,6 +223,7 @@ pub fn build_project_graph_incremental_with_options<'a>(
   invalidation_inputs.sort();
   invalidation_inputs.dedup();
   ProjectGraph {
+    schema_version: PROJECT_GRAPH_SCHEMA_VERSION,
     conventions_version: CONVENTIONS_VERSION,
     nodes,
     edges,

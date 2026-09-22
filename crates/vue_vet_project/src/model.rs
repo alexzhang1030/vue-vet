@@ -18,6 +18,14 @@ use vue_vet_reactivity::{ModuleReactivity, ModuleSource};
 /// v14: bare `export * from 'pkg'` follow and widened bare auto-import /
 /// `ForwardReturn` seed resolution.
 pub const CONVENTIONS_VERSION: u32 = 18;
+/// Version of the stable graph DTO consumed by project rules and session
+/// invalidation. Bump when node/edge identity or provenance semantics change.
+pub const PROJECT_GRAPH_SCHEMA_VERSION: u32 = 1;
+
+const fn default_project_graph_schema_version() -> u32 {
+  // Unversioned payloads used the original v1 shape.
+  1
+}
 
 pub const PROJECT_RULE_IDS: [&str; 2] =
   ["vue-vet/project/unresolved-import", "vue-vet/project/unused-component"];
@@ -76,8 +84,11 @@ pub struct GraphEdge {
   pub evidence: SourceSpan,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ProjectGraph {
+  /// Version of the serialized graph DTO contract.
+  #[serde(default = "default_project_graph_schema_version")]
+  pub schema_version: u32,
   pub conventions_version: u32,
   pub nodes: Vec<GraphNode>,
   pub edges: Vec<GraphEdge>,
@@ -94,8 +105,59 @@ pub struct ProjectGraph {
   pub model_demand: BTreeMap<String, vue_vet_core::ModelDemandFileFacts>,
 }
 
+impl Default for ProjectGraph {
+  fn default() -> Self {
+    Self {
+      schema_version: PROJECT_GRAPH_SCHEMA_VERSION,
+      conventions_version: CONVENTIONS_VERSION,
+      nodes: Vec::new(),
+      edges: Vec::new(),
+      diagnostics: Vec::new(),
+      invalidation_inputs: Vec::new(),
+      module_reactivity: Arc::from([]),
+      reactivity_issues: Vec::new(),
+      reactivity_error: None,
+      model_demand: BTreeMap::new(),
+    }
+  }
+}
+
+impl ProjectGraph {
+  /// Stable graph contract version for machine consumers and cache policy.
+  #[must_use]
+  pub const fn schema_version(&self) -> u32 {
+    self.schema_version
+  }
+
+  /// Whether the graph carries the current stable contract.
+  #[must_use]
+  pub const fn has_current_schema(&self) -> bool {
+    self.schema_version() == PROJECT_GRAPH_SCHEMA_VERSION
+  }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ReactivityIssue {
   pub module: Option<ModuleId>,
   pub message: String,
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn graph_schema_is_explicit_and_stable() {
+    let graph = ProjectGraph::default();
+    assert_eq!(graph.schema_version(), PROJECT_GRAPH_SCHEMA_VERSION);
+    assert!(graph.has_current_schema());
+  }
+
+  #[test]
+  fn legacy_graph_payload_defaults_to_current_schema() {
+    let graph = serde_json::from_str::<ProjectGraph>(
+      r#"{"conventions_version":18,"nodes":[],"edges":[],"diagnostics":[],"invalidation_inputs":[],"module_reactivity":[]}"#,
+    );
+    assert_eq!(graph.as_ref().map(|graph| graph.schema_version).ok(), Some(1));
+  }
 }

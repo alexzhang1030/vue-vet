@@ -652,6 +652,7 @@ fn publish_product(snapshot: &AnalysisSnapshot, product: AnalysisProduct) -> Ana
     AnalysisProduct::DiagnosticsAndNavigation => {
       let full = snapshot.graph.as_ref();
       Arc::new(ProjectGraph {
+        schema_version: full.schema_version,
         conventions_version: full.conventions_version,
         nodes: full.nodes.clone(),
         edges: full.edges.clone(),
@@ -664,6 +665,7 @@ fn publish_product(snapshot: &AnalysisSnapshot, product: AnalysisProduct) -> Ana
       })
     }
     AnalysisProduct::DiagnosticsOnly => Arc::new(ProjectGraph {
+      schema_version: snapshot.graph.schema_version,
       conventions_version: snapshot.graph.conventions_version,
       nodes: Vec::new(),
       edges: Vec::new(),
@@ -679,8 +681,10 @@ fn publish_product(snapshot: &AnalysisSnapshot, product: AnalysisProduct) -> Ana
     summary: Arc::clone(&snapshot.summary),
     graph,
     cache_status: snapshot.cache_status,
+    cache_rejection: snapshot.cache_rejection,
     coverage: Arc::clone(&snapshot.coverage),
     issues: Arc::clone(&snapshot.issues),
+    evidence: snapshot.evidence.clone(),
     analyzed_files: Arc::clone(&snapshot.analyzed_files),
     work: snapshot.work,
   }

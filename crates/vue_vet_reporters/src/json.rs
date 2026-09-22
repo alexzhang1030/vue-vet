@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 use vue_vet_core::{
-  Assessment, ByteRange, Confidence, Diagnostic, EditApplicability, FileId, Recommendation,
-  ScanSummary, Severity, SourceSpan, diagnostic_id,
+  Assessment, ByteRange, Confidence, Diagnostic, EditApplicability, EvidenceGap, EvidenceGapCode,
+  EvidenceSummary, FileId, Recommendation, ScanSummary, Severity, SourceSpan, diagnostic_id,
 };
 
 use crate::{
@@ -21,6 +21,7 @@ struct JsonReport<'a> {
   project: JsonProject,
   diagnostics: Vec<JsonDiagnostic<'a>>,
   summary: JsonSummary,
+  evidence: &'a vue_vet_core::EvidenceSummary,
   #[serde(skip_serializing_if = "Option::is_none")]
   reactivity: Option<&'a ReactivityDigest>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -133,6 +134,7 @@ pub fn render_json(
       affected_file_count,
       by_severity,
     },
+    evidence: &context.evidence,
     reactivity: context.reactivity.as_ref(),
     component_nav: context.component_nav.as_ref(),
     error: None,
@@ -151,12 +153,16 @@ pub fn render_error(message: &str, context: &ReportContext) -> Result<String, se
   analyzed_files.sort();
   analyzed_files.dedup();
   let skipped_checks = context.skipped_check_reasons.keys().cloned().collect();
+  let evidence =
+    EvidenceSummary::unavailable([EvidenceGap { code: EvidenceGapCode::Analysis, count: 1 }]);
+  let mut project = json_project(0, context, analyzed_files, skipped_checks);
+  project.complete = false;
   let report = JsonReport {
     schema_version: JSON_SCHEMA_VERSION,
     tool: JsonTool { name: "vue-vet", version: env!("CARGO_PKG_VERSION") },
     ok: false,
     mode: context.mode,
-    project: json_project(0, context, analyzed_files, skipped_checks),
+    project,
     diagnostics: Vec::new(),
     summary: JsonSummary {
       score: None,
@@ -164,6 +170,7 @@ pub fn render_error(message: &str, context: &ReportContext) -> Result<String, se
       affected_file_count: 0,
       by_severity: SeverityCounts::default(),
     },
+    evidence: &evidence,
     reactivity: context.reactivity.as_ref(),
     component_nav: context.component_nav.as_ref(),
     error: Some(JsonError { message }),
@@ -183,7 +190,7 @@ fn json_project(
     analyzed_file_count: analyzed_files.len(),
     analyzed_files,
     files_scanned,
-    complete: context.complete,
+    complete: context.evidence.is_complete(),
     skipped_checks,
     skipped_check_reasons: context.skipped_check_reasons.clone(),
   }

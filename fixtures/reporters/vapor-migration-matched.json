@@ -1310,6 +1310,9 @@
       "error": 0
     }
   },
+  "evidence": {
+    "status": "complete"
+  },
   "reactivity": {
     "modules": 17,
     "bindings": 5,

@@ -6,9 +6,11 @@
 //!
 //! Modules: [`diagnostics`], [`facts`], [`rule`], plus identity/edits/source helpers.
 
+mod cache_rejection;
 mod diagnostics;
 mod digest;
 mod edits;
+mod evidence;
 mod facts;
 mod groups;
 mod identity;
@@ -16,9 +18,11 @@ mod line_index;
 mod rule;
 mod source_context;
 
+pub use cache_rejection::CacheRejection;
 pub use diagnostics::*;
 pub use digest::{content_digest, serde_digest};
 pub use edits::{ByteRange, EditApplicability, EditPlan, EditPlanError, TextEdit};
+pub use evidence::{EvidenceGap, EvidenceGapCode, EvidenceStatus, EvidenceSummary};
 pub use facts::*;
 pub use groups::*;
 pub use identity::{FileId, ModuleId, PhysicalPath, WorkspaceRoot};

@@ -47,6 +47,9 @@
       "error": 0
     }
   },
+  "evidence": {
+    "status": "complete"
+  },
   "reactivity": {
     "modules": 0,
     "bindings": 0,

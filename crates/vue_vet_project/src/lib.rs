@@ -29,8 +29,8 @@ pub use context::{
 };
 pub use conventions::NuxtImportTarget;
 pub use model::{
-  CONVENTIONS_VERSION, EdgeKind, GraphEdge, GraphNode, NodeKind, PROJECT_RULE_IDS, ProjectFile,
-  ProjectGraph, ReactivityIssue,
+  CONVENTIONS_VERSION, EdgeKind, GraphEdge, GraphNode, NodeKind, PROJECT_GRAPH_SCHEMA_VERSION,
+  PROJECT_RULE_IDS, ProjectFile, ProjectGraph, ReactivityIssue,
 };
 pub use model_demand::{ModelDemandStats, join_model_demand_facts};
 pub use passes::{
