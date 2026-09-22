@@ -436,31 +436,46 @@ pub(in crate::source_contracts) struct ValueRead {
   pub block: NodeId,
 }
 
+/// Which contract predicate recorded a `.value` read. The predicates stay
+/// distinct; they share one map.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub(in crate::source_contracts) enum ValueReadRole {
+  CustomRef,
+  Derivation,
+  Scheduling,
+}
+
 /// `.value` reads split by contract predicate. One static-member visit fills
 /// the lanes; each predicate stays the one that lane had before they shared a visit.
 #[derive(Default)]
 pub(in crate::source_contracts) struct ValueReadLanes {
-  pub(in crate::source_contracts) derivation: HashMap<SymbolId, Vec<ValueRead>>,
-  pub(in crate::source_contracts) scheduling: HashMap<SymbolId, Vec<ValueRead>>,
-  pub(in crate::source_contracts) custom_ref: HashMap<SymbolId, Vec<ValueRead>>,
+  reads: HashMap<(SymbolId, ValueReadRole), Vec<ValueRead>>,
   pub(in crate::source_contracts) scheduling_calls: HashMap<SymbolId, Vec<MemberCall>>,
 }
 
 impl ValueReadLanes {
+  pub(in crate::source_contracts) fn of(
+    &self,
+    root: SymbolId,
+    role: ValueReadRole,
+  ) -> &[ValueRead] {
+    self.reads.get(&(root, role)).map_or(&[], Vec::as_slice)
+  }
+
   pub(in crate::source_contracts) fn record_custom_ref(
     &mut self,
     symbol_id: SymbolId,
     read: ValueRead,
   ) {
-    self.custom_ref.entry(symbol_id).or_default().push(read);
+    self.reads.entry((symbol_id, ValueReadRole::CustomRef)).or_default().push(read);
   }
 
   pub(in crate::source_contracts) fn record_derivation(&mut self, root: SymbolId, read: ValueRead) {
-    self.derivation.entry(root).or_default().push(read);
+    self.reads.entry((root, ValueReadRole::Derivation)).or_default().push(read);
   }
 
   pub(in crate::source_contracts) fn record_scheduling(&mut self, root: SymbolId, read: ValueRead) {
-    self.scheduling.entry(root).or_default().push(read);
+    self.reads.entry((root, ValueReadRole::Scheduling)).or_default().push(read);
   }
 
   pub(in crate::source_contracts) fn record_scheduling_call(
@@ -472,24 +487,24 @@ impl ValueReadLanes {
   }
 
   pub(in crate::source_contracts) fn sort(&mut self, work: &WorkCounter) {
-    let mut derivation = std::mem::take(&mut self.derivation);
-    for bucket in derivation.values_mut() {
-      bucket.sort_by(|left, right| {
-        work.add_queries(1);
-        left.offset.cmp(&right.offset)
-      });
-    }
-    self.derivation = derivation;
-    for reads in self.scheduling.values_mut() {
-      work.add_queries(reads.len() as u64);
-      reads.sort_by_key(|read| read.offset);
+    for ((_, role), reads) in &mut self.reads {
+      match role {
+        ValueReadRole::Derivation => {
+          reads.sort_by(|left, right| {
+            work.add_queries(1);
+            left.offset.cmp(&right.offset)
+          });
+        }
+        ValueReadRole::Scheduling => {
+          work.add_queries(reads.len() as u64);
+          reads.sort_by_key(|read| read.offset);
+        }
+        ValueReadRole::CustomRef => reads.sort_by_key(|read| read.offset),
+      }
     }
     for calls in self.scheduling_calls.values_mut() {
       work.add_queries(calls.len() as u64);
       calls.sort_by_key(|call| call.offset);
-    }
-    for reads in self.custom_ref.values_mut() {
-      reads.sort_by_key(|read| read.offset);
     }
   }
 
@@ -498,9 +513,11 @@ impl ValueReadLanes {
     mut root_of: impl FnMut(SymbolId) -> SymbolId,
     mut note: impl FnMut(),
   ) {
-    remap_symbol_vec_map(&mut self.custom_ref, &mut root_of, &mut note);
-    remap_symbol_vec_map(&mut self.derivation, &mut root_of, &mut note);
-    remap_symbol_vec_map(&mut self.scheduling, &mut root_of, &mut note);
+    let taken = std::mem::take(&mut self.reads);
+    for ((symbol_id, role), mut values) in taken {
+      note();
+      self.reads.entry((root_of(symbol_id), role)).or_default().append(&mut values);
+    }
     remap_symbol_vec_map(&mut self.scheduling_calls, &mut root_of, &mut note);
   }
 }

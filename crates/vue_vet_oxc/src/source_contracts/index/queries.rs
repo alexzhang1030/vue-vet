@@ -13,8 +13,8 @@ use super::{
   MemberRecord, MemberUse, MemberWrite, NamedUse, NativeSymbol, NestedWrite, ObjectEntry,
   ObjectProp, OptionValue, PathCall, PathRead, PathWrite, PrimitiveKind, RefInitLookup,
   ResultDemand, Scalar, ShapeHint, ShapePrimitiveAtom, SnapshotCall, SourceContractStats, Timeline,
-  ValueDemand, ValueRead, ValueWrite, WatchConsumer, WatchConsumerOptions, chain_optional,
-  intern_native_ctor, region_of, span_key, timeline,
+  ValueDemand, ValueRead, ValueReadRole, ValueWrite, WatchConsumer, WatchConsumerOptions,
+  chain_optional, intern_native_ctor, region_of, span_key, timeline,
 };
 
 impl Indexes {
@@ -198,7 +198,7 @@ impl Indexes {
 
   pub(in crate::source_contracts) fn value_reads_of(&self, root: SymbolId) -> &[ValueRead] {
     self.work.add_queries(1);
-    self.reads.custom_ref.get(&root).map_or(&[], Vec::as_slice)
+    self.reads.of(root, ValueReadRole::CustomRef)
   }
 
   pub(in crate::source_contracts) fn value_writes_of(&self, root: SymbolId) -> &[ValueWrite] {
@@ -423,7 +423,7 @@ impl Indexes {
     offset: usize,
   ) -> Option<ValueRead> {
     self.work.add_queries(1);
-    let reads = self.reads.derivation.get(&root).map_or(&[][..], Vec::as_slice);
+    let reads = self.reads.of(root, ValueReadRole::Derivation);
     timeline::after(&self.work, reads, offset).iter().copied().find(|read| {
       self.work.add_queries(1);
       read.callable == callable && read.block == block
@@ -484,7 +484,7 @@ impl Indexes {
     root: SymbolId,
   ) -> &[ValueRead] {
     self.work.add_queries(1);
-    self.reads.scheduling.get(&root).map_or(&[], Vec::as_slice)
+    self.reads.of(root, ValueReadRole::Scheduling)
   }
 
   pub(in crate::source_contracts) fn member_calls_of(&self, root: SymbolId) -> &[MemberCall] {
