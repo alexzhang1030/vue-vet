@@ -7,9 +7,9 @@ use oxc_semantic::{NodeId, SymbolFlags, SymbolId};
 use oxc_span::Span;
 
 use super::Collector;
-use super::index::{CallInfo, MemberUse, NestedWrite, ObjectProp, SnapshotCall};
+use super::index::{CallInfo, MemberUse, NestedWrite, SnapshotCall};
 use super::proof::{DemandOrigin, classify_reach, enclosing_call, skip_ts_parent};
-use super::shape::{Literal, span_key};
+use super::shape::{Literal, OptionValue, span_key};
 use super::timeline;
 use vue_vet_core::{JsonCloneLossyTypeFact, RefHistorySnapshotAliasFact};
 
@@ -18,13 +18,6 @@ const CLONE_OPTION_KEYS: &[&str] =
   &["manual", "clone", "deep", "immediate", "flush", "once", "onTrack", "onTrigger"];
 const HISTORY_OPTION_KEYS: &[&str] = &["clone", "dump", "parse", "setSource", "capacity"];
 const EXECUTING_HOOKS: &[&str] = &["onTrack", "onTrigger"];
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum OptionValue<T> {
-  Absent,
-  Known(T),
-  Unknown,
-}
 
 #[derive(Clone, Copy)]
 enum HistoryOpKind {
@@ -247,15 +240,7 @@ impl Collector<'_> {
   }
 
   fn option_value(&self, object: Span, key: &str) -> OptionValue<Literal> {
-    match self.indexes.object_prop(object, key) {
-      None => OptionValue::Absent,
-      Some(ObjectProp::Unknown) => OptionValue::Unknown,
-      Some(ObjectProp::Value(span)) => match self.indexes.literal_at(span) {
-        Some(Literal::Undefined) => OptionValue::Absent,
-        Some(literal) => OptionValue::Known(literal),
-        None => OptionValue::Unknown,
-      },
-    }
+    self.indexes.option_value(object, key)
   }
 
   fn object_is_closed_data(&mut self, span: Span) -> bool {

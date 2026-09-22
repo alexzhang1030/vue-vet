@@ -95,6 +95,16 @@ pub(super) enum Literal {
   Undefined,
 }
 
+/// One options-object read. `Absent` is the only case that takes a default.
+/// A non-literal value or a prop hidden by a spread or computed key is `Unknown`
+/// and the caller abstains.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum OptionValue<T> {
+  Absent,
+  Known(T),
+  Unknown,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Shape {
   Unknown,
