@@ -595,7 +595,7 @@ impl Indexes {
           let node_span = semantic.nodes().kind(reference.node_id()).span();
           if self.unresolved_escape_covers(&leftover, node_span) {
             self.capability_poisoned.insert(root);
-            self.work.add_queries(1);
+            self.note_query();
             if self.global_this_aliases.contains(&root) {
               self.taint_all_native_ctors();
             }
@@ -668,12 +668,12 @@ impl Indexes {
     semantic: &oxc_semantic::Semantic<'_>,
     node_id: NodeId,
   ) -> bool {
-    self.work.add_queries(1);
+    self.note_query();
     let ident_span = semantic.nodes().kind(node_id).span();
     let mut current = node_id;
     for _ in 0..MAX_ROLE_ANCESTORS {
       let parent_id = semantic.nodes().parent_id(current);
-      self.work.add_queries(1);
+      self.note_query();
       match semantic.nodes().kind(parent_id) {
         wrapper if is_ts_wrapper(wrapper) || matches!(wrapper, AstKind::ChainExpression(_)) => {
           current = parent_id;
@@ -712,7 +712,7 @@ impl Indexes {
     let mut current_span = semantic.nodes().kind(node_id).span();
     for _ in 0..MAX_ROLE_ANCESTORS {
       let parent_id = semantic.nodes().parent_id(current);
-      self.work.add_queries(1);
+      self.note_query();
       match semantic.nodes().kind(parent_id) {
         wrapper if is_ts_wrapper(wrapper) || matches!(wrapper, AstKind::ChainExpression(_)) => {
           current = parent_id;
@@ -748,12 +748,12 @@ impl Indexes {
     semantic: &oxc_semantic::Semantic<'_>,
     node_id: NodeId,
   ) -> bool {
-    self.work.add_queries(1);
+    self.note_query();
     let ident_span = semantic.nodes().kind(node_id).span();
     let mut current = node_id;
     for _ in 0..MAX_ROLE_ANCESTORS {
       let parent_id = semantic.nodes().parent_id(current);
-      self.work.add_queries(1);
+      self.note_query();
       match semantic.nodes().kind(parent_id) {
         wrapper if is_ts_wrapper(wrapper) || matches!(wrapper, AstKind::ChainExpression(_)) => {
           current = parent_id;
@@ -818,7 +818,7 @@ impl Indexes {
       && reference_symbol(semantic, identifier).is_none()
       && let Some(atom) = PrimitiveAtom::unresolved_global(identifier.name.as_str())
     {
-      self.work.add_queries(1);
+      self.note_query();
       self.atoms.insert(span_key(inner.span()), atom);
     }
     self.hints.insert(
@@ -913,21 +913,21 @@ impl Indexes {
   }
 
   pub(super) fn intern(&mut self, value: &str) -> u32 {
-    self.work.add_queries(1);
+    self.note_query();
     if let Some(index) = self.interned.iter().position(|existing| {
-      self.work.add_queries(1);
+      self.note_query();
       existing == value
     }) {
       return u32::try_from(index).unwrap_or(u32::MAX);
     }
     let id = u32::try_from(self.interned.len()).unwrap_or(u32::MAX);
     self.interned.push(value.to_string());
-    self.work.add_queries(1);
+    self.note_query();
     id
   }
 
   pub(super) fn store_atom(&mut self, span: Span, atom: ShapePrimitiveAtom) {
-    self.work.add_queries(1);
+    self.note_query();
     self.primitives.insert(span_key(span), atom);
   }
 
@@ -944,7 +944,7 @@ impl Indexes {
     semantic: &oxc_semantic::Semantic<'_>,
     expression: &Expression<'_>,
   ) {
-    self.work.add_queries(1);
+    self.note_query();
     match expression.get_inner_expression() {
       Expression::StringLiteral(literal) => {
         self.store_interned_atom(literal.span, literal.value.as_str(), false);
@@ -1000,7 +1000,7 @@ impl Indexes {
     node_id: NodeId,
     member_span: Span,
   ) -> bool {
-    self.work.add_queries(1);
+    self.note_query();
     match semantic.nodes().parent_kind(node_id) {
       AstKind::UpdateExpression(_) => false,
       AstKind::AssignmentExpression(assignment) => {
@@ -1119,7 +1119,7 @@ impl Indexes {
       let AstKind::CallExpression(call) = semantic.nodes().kind(node_id) else {
         continue;
       };
-      self.work.add_queries(1);
+      self.note_query();
       let Some(info) = self.calls.get(&span_key(call.span)).copied() else {
         continue;
       };
@@ -1185,7 +1185,7 @@ impl Indexes {
         self.watches_by_source.entry(consumer.source).or_default().push(consumer);
         if let Some(callback) = nth_call_expr(call, 1)
           && let Some(callback_id) = function_node(callback, |span| {
-            self.work.add_queries(1);
+            self.note_query();
             self.callables.get(&span_key(span)).copied()
           })
         {
@@ -1199,7 +1199,7 @@ impl Indexes {
         };
         if let Some(callback) = nth_call_expr(call, 0)
           && let Some(callback_id) = function_node(callback, |span| {
-            self.work.add_queries(1);
+            self.note_query();
             self.callables.get(&span_key(span)).copied()
           })
         {
@@ -1216,7 +1216,7 @@ impl Indexes {
       && let Some(symbol_id) = reference_symbol(semantic, object)
       && let Some(callback) = nth_call_expr(call, 0)
       && let Some(callback_id) = function_node(callback, |span| {
-        self.work.add_queries(1);
+        self.note_query();
         self.callables.get(&span_key(span)).copied()
       })
     {
@@ -2021,7 +2021,7 @@ impl Indexes {
       && let Some((ident, mut keys)) = peel_member_chain(&member.object, &self.work)
       && let Some(symbol_id) = reference_symbol(semantic, ident)
     {
-      self.work.add_queries(1);
+      self.note_query();
       keys.push(property.to_string());
       self
         .path_reads
@@ -2600,10 +2600,10 @@ impl Indexes {
   pub(super) fn summarize_until_closed_sources(&mut self) {
     let roots: Vec<_> = self.init_span.keys().copied().collect();
     for root in roots {
-      self.work.add_queries(1);
+      self.note_query();
       let foreign_escape = self.await_index.escapes.get(&root).is_some_and(|sites| {
         sites.iter().any(|site| {
-          self.work.add_queries(1);
+          self.note_query();
           !site.until_borrow
         })
       });
@@ -2762,7 +2762,7 @@ impl Indexes {
     mut node_id: NodeId,
   ) -> bool {
     for _ in 0..MAX_ROLE_ANCESTORS {
-      self.work.add_queries(1);
+      self.note_query();
       let parent = semantic.nodes().parent_id(node_id);
       let current_span = semantic.nodes().kind(node_id).span();
       match semantic.nodes().kind(parent) {
@@ -2851,7 +2851,7 @@ impl Indexes {
       };
       match reference_symbol(semantic, identifier) {
         Some(target) => {
-          self.work.add_queries(1);
+          self.note_query();
           self.alias_root.insert(local, target);
         }
         None if identifier.name.as_str() == "globalThis" => {
@@ -2875,7 +2875,7 @@ impl Indexes {
     member: &StaticMemberExpression<'_>,
     pending: &mut Vec<(SymbolId, SymbolId)>,
   ) {
-    self.work.add_queries(1);
+    self.note_query();
     if member.property.name.as_str() != "prototype" {
       return;
     }
@@ -2884,7 +2884,7 @@ impl Indexes {
     };
     match reference_symbol(semantic, identifier) {
       Some(object) => {
-        self.work.add_queries(1);
+        self.note_query();
         pending.push((local, object));
       }
       None => {
@@ -2897,7 +2897,7 @@ impl Indexes {
 
   pub(super) fn resolve_prototype_aliases(&mut self, pending: Vec<(SymbolId, SymbolId)>) {
     for (local, object) in pending {
-      self.work.add_queries(1);
+      self.note_query();
       if let Some(ctor) = self.native_ctor_kind(self.root_of(object)) {
         self.record_native_ctor_alias(local, ctor);
       }
@@ -2905,12 +2905,12 @@ impl Indexes {
   }
 
   pub(super) fn record_native_ctor_alias(&mut self, local: SymbolId, ctor: &'static str) {
-    self.work.add_queries(1);
+    self.note_query();
     self.native_ctor_aliases.insert(local, ctor);
   }
 
   pub(super) fn native_ctor_kind(&self, root: SymbolId) -> Option<&'static str> {
-    self.work.add_queries(1);
+    self.note_query();
     self.native_ctor_aliases.get(&root).copied()
   }
 
@@ -2919,7 +2919,7 @@ impl Indexes {
     identifier: &IdentifierReference<'_>,
     semantic: &oxc_semantic::Semantic<'_>,
   ) -> Option<&'static str> {
-    self.work.add_queries(1);
+    self.note_query();
     reference_symbol(semantic, identifier).map_or_else(
       || intern_native_ctor(identifier.name.as_str()),
       |symbol_id| self.native_ctor_kind(self.root_of(symbol_id)),
@@ -2929,11 +2929,11 @@ impl Indexes {
   pub(super) fn canonicalize_aliases(&mut self) {
     let locals: Vec<SymbolId> = self.alias_root.keys().copied().collect();
     for local in locals {
-      self.work.add_queries(1);
+      self.note_query();
       let mut current = local;
       let mut depth = 0_u8;
       loop {
-        self.work.add_queries(1);
+        self.note_query();
         let Some(&next) = self.alias_root.get(&current) else {
           break;
         };
@@ -2966,7 +2966,7 @@ impl Indexes {
     expression: &Expression<'_>,
     remaining: u8,
   ) {
-    self.work.add_queries(1);
+    self.note_query();
     if remaining == 0 {
       self.poison_unresolved_escape(semantic, expression);
       return;
@@ -3029,19 +3029,19 @@ impl Indexes {
   }
 
   pub(super) fn merged_unresolved_escape_ranges(&self) -> Vec<(u32, u32)> {
-    self.work.add_queries(1);
+    self.note_query();
     if self.unresolved_escape_spans.is_empty() {
       return Vec::new();
     }
     let mut ranges = Vec::with_capacity(self.unresolved_escape_spans.len());
     for span in &self.unresolved_escape_spans {
-      self.work.add_queries(1);
+      self.note_query();
       ranges.push((span.start, span.end));
     }
     self.work.sort_unstable(&mut ranges);
     let mut merged: Vec<(u32, u32)> = Vec::new();
     for range in ranges {
-      self.work.add_queries(1);
+      self.note_query();
       match merged.last_mut() {
         Some(last) if range.0 <= last.1 => last.1 = last.1.max(range.1),
         _ => merged.push(range),
@@ -3052,7 +3052,7 @@ impl Indexes {
 
   pub(super) fn unresolved_escape_covers(&self, ranges: &[(u32, u32)], span: Span) -> bool {
     let index = self.work.partition_point(ranges, |range| range.0 <= span.start);
-    self.work.add_queries(1);
+    self.note_query();
     index
       .checked_sub(1)
       .and_then(|index| ranges.get(index))
@@ -3080,7 +3080,7 @@ impl Indexes {
   }
 
   pub(super) fn taint_all_native_ctors(&mut self) {
-    self.work.add_queries(1);
+    self.note_query();
     for name in ["Map", "Set", "Array"] {
       if let Some(ctor) = intern_native_ctor(name) {
         self.tainted_ctors.insert(ctor);
@@ -3249,7 +3249,7 @@ impl Indexes {
     static_key: Option<&str>,
     computed_key: Option<&Expression<'_>>,
   ) {
-    self.work.add_queries(1);
+    self.note_query();
     let Some(identifier) = object.get_inner_expression().get_identifier_reference() else {
       return;
     };
@@ -3279,7 +3279,7 @@ impl Indexes {
     semantic: &oxc_semantic::Semantic<'_>,
     identifier: &IdentifierReference<'_>,
   ) -> bool {
-    self.work.add_queries(1);
+    self.note_query();
     reference_symbol(semantic, identifier).map_or_else(
       || identifier.name.as_str() == "globalThis",
       |symbol_id| self.global_this_aliases.contains(&self.root_of(symbol_id)),
