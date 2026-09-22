@@ -120,35 +120,20 @@ pub(in crate::source_contracts) struct PathWrite {
 
 #[derive(Clone, Copy, Debug)]
 pub(in crate::source_contracts) struct SnapshotCall {
-  pub offset: usize,
-  pub span: Span,
-  pub callable: Option<NodeId>,
-  pub region: NodeId,
-  pub reach: Reach,
+  pub head: Site,
   pub optional: bool,
 }
 
 impl SnapshotCall {
   pub(in crate::source_contracts) const fn from_call_use(call: CallUse) -> Self {
-    Self {
-      offset: call.offset,
-      span: call.span,
-      callable: call.callable,
-      region: call.region,
-      reach: call.reach,
-      optional: call.optional,
-    }
+    Self { head: call.head, optional: call.optional }
   }
 }
 
 #[derive(Clone, Copy, Debug)]
 pub(in crate::source_contracts) struct InjectionSite {
-  pub offset: usize,
-  pub span: Span,
-  pub callable: Option<NodeId>,
-  pub region: NodeId,
+  pub head: Site,
   pub block: NodeId,
-  pub reach: Reach,
   pub optional: bool,
   pub argc: u8,
   pub has_spread: bool,
@@ -259,15 +244,32 @@ pub(in crate::source_contracts) struct ExtractedMethod {
   pub block: NodeId,
 }
 
+/// Position shared by demand sites. `AwaitSite` stays separate: it has no span,
+/// region, or reach.
 #[derive(Clone, Copy, Debug)]
-pub(in crate::source_contracts) struct MemberUse {
+pub(in crate::source_contracts) struct Site {
   pub offset: usize,
   pub span: Span,
   pub callable: Option<NodeId>,
   pub region: NodeId,
+  pub reach: Reach,
+}
+
+pub(in crate::source_contracts) trait Located {
+  fn place(&self) -> Site;
+}
+
+impl Located for Site {
+  fn place(&self) -> Site {
+    *self
+  }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(in crate::source_contracts) struct MemberUse {
+  pub head: Site,
   pub optional: bool,
   pub call_optional: bool,
-  pub reach: Reach,
   pub role: DemandRole,
 }
 
@@ -279,13 +281,9 @@ pub(in crate::source_contracts) struct NamedUse {
 
 #[derive(Clone, Copy, Debug)]
 pub(in crate::source_contracts) struct CallUse {
-  pub offset: usize,
-  pub span: Span,
-  pub callable: Option<NodeId>,
-  pub region: NodeId,
+  pub head: Site,
   pub block: NodeId,
   pub optional: bool,
-  pub reach: Reach,
   pub argc: u8,
   pub has_spread: bool,
 }
@@ -539,14 +537,10 @@ pub(in crate::source_contracts) struct AwaitSite {
 /// Await-position site: operand span, bound symbol, region, and reach.
 #[derive(Clone, Copy, Debug)]
 pub(in crate::source_contracts) struct AwaitPositionSite {
-  pub offset: usize,
+  pub head: Site,
   pub end: usize,
-  pub span: Span,
   pub argument: Span,
   pub bound: Option<SymbolId>,
-  pub callable: Option<NodeId>,
-  pub region: NodeId,
-  pub reach: Reach,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -617,19 +611,39 @@ macro_rules! timed_by_offset {
 timed_by_offset!(
   ValueWrite,
   MemberWrite,
-  MemberUse,
   ValueRead,
-  CallUse,
-  AwaitPositionSite,
-  InjectionSite,
   IdentCall,
   ArgUse,
   AwaitSite,
   MemberCall,
+  Site,
 );
+
+macro_rules! timed_by_head {
+  ($($site:ty),* $(,)?) => {
+    $(impl Located for $site {
+      fn place(&self) -> Site {
+        self.head
+      }
+    }
+    impl Timed for $site {
+      fn at(&self) -> usize {
+        self.place().offset
+      }
+    })*
+  };
+}
+
+timed_by_head!(MemberUse, CallUse, AwaitPositionSite, InjectionSite, SnapshotCall);
+
+impl Located for NamedUse {
+  fn place(&self) -> Site {
+    self.site.place()
+  }
+}
 
 impl Timed for NamedUse {
   fn at(&self) -> usize {
-    self.site.offset
+    self.place().offset
   }
 }

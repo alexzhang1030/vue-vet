@@ -141,9 +141,9 @@ impl Collector<'_> {
         return None;
       }
       events.push(TimelineEvent {
-        offset: call.offset,
+        offset: call.head.offset,
         rank: 2,
-        kind: TimelineKind::Access { span: call.span },
+        kind: TimelineKind::Access { span: call.head.span },
       });
     }
     for demand in self.indexes.result_demands_on(root) {
@@ -151,8 +151,8 @@ impl Collector<'_> {
       if !self.demand_call_ok(&demand.site, origin)
         || demand.inner.argc != 0
         || demand.inner.has_spread
-        || demand.inner.callable != origin.callable
-        || demand.inner.region != origin.region
+        || demand.inner.head.callable != origin.callable
+        || demand.inner.head.region != origin.region
       {
         continue;
       }
@@ -160,20 +160,20 @@ impl Collector<'_> {
         return None;
       }
       events.push(TimelineEvent {
-        offset: demand.site.offset,
+        offset: demand.site.head.offset,
         rank: 3,
-        kind: TimelineKind::Demand { span: demand.site.span, member: demand.member.as_str() },
+        kind: TimelineKind::Demand { span: demand.site.head.span, member: demand.member.as_str() },
       });
     }
     for named in self.indexes.member_calls_on(root) {
       self.indexes.note_query();
       if MEMO_REPAIR.contains(&named.key.as_str())
-        && named.site.callable == origin.callable
-        && named.site.region == origin.region
+        && named.site.head.callable == origin.callable
+        && named.site.head.region == origin.region
         && self.indexes.demand_ok(&named.site)
       {
         events.push(TimelineEvent {
-          offset: named.site.offset,
+          offset: named.site.head.offset,
           rank: 1,
           kind: TimelineKind::Repair,
         });
@@ -198,18 +198,18 @@ impl Collector<'_> {
         continue;
       }
       events.push(TimelineEvent {
-        offset: site.offset,
+        offset: site.head.offset,
         rank: 2,
-        kind: TimelineKind::Access { span: site.span },
+        kind: TimelineKind::Access { span: site.head.span },
       });
     }
     for demand in self.indexes.value_demands_on(root) {
       self.indexes.note_query();
       if !self.demand_call_ok(&demand.site, origin)
-        || !demand.value_read.reach.is_straight()
+        || !demand.value_read.head.reach.is_straight()
         || demand.value_read.optional
-        || demand.value_read.callable != origin.callable
-        || demand.value_read.region != origin.region
+        || demand.value_read.head.callable != origin.callable
+        || demand.value_read.head.region != origin.region
         || !demand.value_read.role.needs_get()
       {
         continue;
@@ -218,20 +218,20 @@ impl Collector<'_> {
         return None;
       }
       events.push(TimelineEvent {
-        offset: demand.site.offset,
+        offset: demand.site.head.offset,
         rank: 3,
-        kind: TimelineKind::Demand { span: demand.site.span, member: demand.member.as_str() },
+        kind: TimelineKind::Demand { span: demand.site.head.span, member: demand.member.as_str() },
       });
     }
     for named in self.indexes.member_calls_on(root) {
       self.indexes.note_query();
       if named.key == "trigger"
-        && named.site.callable == origin.callable
-        && named.site.region == origin.region
+        && named.site.head.callable == origin.callable
+        && named.site.head.region == origin.region
         && self.indexes.demand_ok(&named.site)
       {
         events.push(TimelineEvent {
-          offset: named.site.offset,
+          offset: named.site.head.offset,
           rank: 1,
           kind: TimelineKind::Repair,
         });
@@ -594,9 +594,9 @@ fn zero_arg_access(call: &CallUse, origin: DemandOrigin) -> bool {
   call.argc == 0
     && !call.has_spread
     && !call.optional
-    && call.reach.is_straight()
-    && call.callable == origin.callable
-    && call.region == origin.region
+    && call.head.reach.is_straight()
+    && call.head.callable == origin.callable
+    && call.head.region == origin.region
 }
 
 fn same_block(block: &mut Option<NodeId>, next: NodeId) -> bool {

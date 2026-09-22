@@ -405,7 +405,7 @@ impl Indexes {
       }
     }
     for stops in self.stops_by_region.values_mut() {
-      stops.sort_by_key(|stop| stop.offset);
+      stops.sort_by_key(|stop| stop.head.offset);
     }
     for writes in self.member_writes.values_mut() {
       writes.sort_by_key(|write| write.offset);
@@ -418,7 +418,7 @@ impl Indexes {
     }
     self.index_vueuse_value_writes();
     for uses in self.value_reads.values_mut() {
-      uses.sort_by_key(|use_site| use_site.offset);
+      uses.sort_by_key(|use_site| use_site.head.offset);
     }
     self.reads.sort(&self.work);
     for awaits in self.awaits_by_callable.values_mut() {
@@ -427,21 +427,21 @@ impl Indexes {
     }
     self.work.add_queries(self.awaits.len() as u64);
     self.awaits.sort_by_key(|site| site.offset);
-    self.await_index.awaits.sort_by_key(|site| site.offset);
+    self.await_index.awaits.sort_by_key(|site| site.head.offset);
     for uses in self.await_index.await_method_calls.values_mut() {
-      uses.sort_by_key(|use_site| use_site.site.offset);
+      uses.sort_by_key(|use_site| use_site.site.head.offset);
     }
     for uses in self.await_index.result_method_calls.values_mut() {
-      uses.sort_by_key(|use_site| use_site.site.offset);
+      uses.sort_by_key(|use_site| use_site.site.head.offset);
     }
     for sites in self.await_index.escapes.values_mut() {
       sites.sort_by_key(|site| site.offset);
     }
     for sites in self.await_index.awaits_by_region.values_mut() {
-      sites.sort_by_key(|site| site.offset);
+      sites.sort_by_key(|site| site.head.offset);
     }
     for sites in self.await_index.await_by_bound.values_mut() {
-      sites.sort_by_key(|site| site.offset);
+      sites.sort_by_key(|site| site.head.offset);
     }
     for disposals in self.disposals_by_callable.values_mut() {
       self.work.add_queries(disposals.len() as u64);
@@ -452,28 +452,28 @@ impl Indexes {
       watches.sort_by_key(|site| site.offset);
     }
     for uses in self.member_reads_by_root.values_mut() {
-      uses.sort_by_key(|use_site| use_site.site.offset);
+      uses.sort_by_key(|use_site| use_site.site.head.offset);
     }
     for uses in self.chained_value_by_root.values_mut() {
-      uses.sort_by_key(|use_site| use_site.site.offset);
+      uses.sort_by_key(|use_site| use_site.site.head.offset);
     }
     for uses in self.member_calls_by_root.values_mut() {
-      uses.sort_by_key(|use_site| use_site.site.offset);
+      uses.sort_by_key(|use_site| use_site.site.head.offset);
     }
     for sites in self.provides_by_key.values_mut() {
-      sites.sort_by_key(|site| site.offset);
+      sites.sort_by_key(|site| site.head.offset);
     }
     for sites in self.injects_by_key.values_mut() {
-      sites.sort_by_key(|site| site.offset);
+      sites.sort_by_key(|site| site.head.offset);
     }
     for uses in self.identifier_calls.values_mut() {
-      uses.sort_by_key(|use_site| use_site.offset);
+      uses.sort_by_key(|use_site| use_site.head.offset);
     }
     for uses in self.result_demands.values_mut() {
-      uses.sort_by_key(|use_site| use_site.site.offset);
+      uses.sort_by_key(|use_site| use_site.site.head.offset);
     }
     for uses in self.value_demands.values_mut() {
-      uses.sort_by_key(|use_site| use_site.site.offset);
+      uses.sort_by_key(|use_site| use_site.site.head.offset);
     }
     self.stop_offsets.sort(&self.work);
     self.producer_call_offsets.sort(&self.work);
@@ -492,10 +492,10 @@ impl Indexes {
       writes.sort_by_key(|(_, write)| write.offset);
     }
     for calls in self.path_calls.values_mut() {
-      calls.sort_by_key(|call| call.site.offset);
+      calls.sort_by_key(|call| call.site.head.offset);
     }
     for reads in self.path_reads.values_mut() {
-      reads.sort_by_key(|read| read.site.offset);
+      reads.sort_by_key(|read| read.site.head.offset);
     }
     for writes in self.path_value_writes.values_mut() {
       writes.sort_by_key(|(_, write)| write.offset);
@@ -525,12 +525,12 @@ impl Indexes {
     allowed.extend_from(&self.stop_offsets);
     for uses in self.result_demands.values() {
       for demand in uses {
-        allowed.push(demand.site.offset);
+        allowed.push(demand.site.head.offset);
       }
     }
     for uses in self.value_demands.values() {
       for demand in uses {
-        allowed.push(demand.site.offset);
+        allowed.push(demand.site.head.offset);
       }
     }
     self.work.add_queries(u64::try_from(allowed.len()).unwrap_or(u64::MAX));

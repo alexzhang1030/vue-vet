@@ -139,15 +139,15 @@ impl Indexes {
     fallback: PrimitiveKind,
   ) -> bool {
     self.work.add_queries(1);
-    if !site.reach.is_straight() || site.call_optional {
+    if !site.head.reach.is_straight() || site.call_optional {
       return false;
     }
     if site.optional && fallback == PrimitiveKind::Nullish {
       return false;
     }
-    site.callable == origin.callable
-      && site.region == origin.region
-      && self.await_interval_open(origin.callable, origin.region, origin.offset, site.offset)
+    site.head.callable == origin.callable
+      && site.head.region == origin.region
+      && self.await_interval_open(origin.callable, origin.region, origin.offset, site.head.offset)
   }
 
   pub(in crate::source_contracts) fn inject_site(
@@ -507,7 +507,7 @@ impl Indexes {
     self.work.add_queries(1);
     self.await_index.awaits.iter().copied().filter(move |site| {
       self.work.add_queries(1);
-      site.callable == callable && site.reach.is_straight()
+      site.head.callable == callable && site.head.reach.is_straight()
     })
   }
 
@@ -661,11 +661,11 @@ impl Indexes {
     origin: DemandOrigin,
   ) -> bool {
     self.work.add_queries(1);
-    site.reach.is_straight()
+    site.head.reach.is_straight()
       && !site.optional
-      && site.callable == origin.callable
-      && site.region == origin.region
-      && !self.has_barrier_between(origin.region, origin.offset, site.offset)
+      && site.head.callable == origin.callable
+      && site.head.region == origin.region
+      && !self.has_barrier_between(origin.region, origin.offset, site.head.offset)
   }
 
   pub(in crate::source_contracts) fn nested_demand(
@@ -973,7 +973,7 @@ impl Indexes {
 
   pub(in crate::source_contracts) fn demand_ok(&self, site: &MemberUse) -> bool {
     self.work.add_queries(1);
-    site.reach.is_straight() && !site.optional
+    site.head.reach.is_straight() && !site.optional
   }
 
   pub(in crate::source_contracts) fn origin_for(
@@ -1000,9 +1000,9 @@ impl Indexes {
     origin: DemandOrigin,
   ) -> bool {
     self.demand_ok(site)
-      && site.callable == origin.callable
-      && site.region == origin.region
-      && !self.has_barrier_between(origin.region, origin.offset, site.offset)
+      && site.head.callable == origin.callable
+      && site.head.region == origin.region
+      && !self.has_barrier_between(origin.region, origin.offset, site.head.offset)
   }
 
   pub(in crate::source_contracts) fn member_call_at(&self, span: Span) -> Option<&NamedUse> {

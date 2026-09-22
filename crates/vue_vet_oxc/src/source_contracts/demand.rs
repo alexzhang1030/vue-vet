@@ -12,7 +12,7 @@ use oxc_span::{GetSpan, Span};
 
 use super::Collector;
 use super::class::MemberKind;
-use super::index::{CallInfo, MemberUse, NamedUse};
+use super::index::{CallInfo, MemberUse, NamedUse, Site};
 use super::proof::{
   DemandOrigin, DemandRole, ReceiverEffect, callable_receiver_effect, classify_reach,
   classify_role, expression_is_noncallable_literal, is_object_prototype_key, skip_ts_parent,
@@ -137,7 +137,7 @@ impl Collector<'_> {
       return None;
     }
     Some(ReactivePrivateFieldAccessFact {
-      demand_span: self.span(site.site.span),
+      demand_span: self.span(site.site.head.span),
       proxy_span: self.span(proxy),
       member_span: self.span(member.span),
       private_span: self.span(member.private_span),
@@ -262,7 +262,7 @@ impl Collector<'_> {
         &self.indexes,
         root,
         origin,
-        demand.offset,
+        demand.head.offset,
         DemandRole::needs_set,
         interface.set_effect,
       )
@@ -281,7 +281,7 @@ impl Collector<'_> {
         &self.indexes,
         root,
         origin,
-        demand.offset,
+        demand.head.offset,
         DemandRole::needs_get,
         interface.get_effect,
       )
@@ -317,13 +317,15 @@ impl Collector<'_> {
     let role = super::proof::classify_role(self.semantic, parent, self.indexes.work_counter());
     let owner = self.indexes.owner(parent);
     let demand = MemberUse {
-      offset: self.span(member.span).offset,
-      span: member.span,
-      callable: owner.callable,
-      region: owner.region.unwrap_or(origin.region),
+      head: Site {
+        offset: self.span(member.span).offset,
+        span: member.span,
+        callable: owner.callable,
+        region: owner.region.unwrap_or(origin.region),
+        reach,
+      },
       optional: false,
       call_optional: false,
-      reach,
       role,
     };
     if !self.indexes.demand_from(&demand, origin) {
@@ -366,7 +368,7 @@ impl Collector<'_> {
     };
     self.facts.invalid_custom_ref_interface.push(InvalidCustomRefInterfaceFact {
       interface_span: self.span(interface),
-      demand_span: self.span(demand.span),
+      demand_span: self.span(demand.head.span),
       factory_span: self.span(factory),
       missing,
     });
@@ -402,25 +404,32 @@ impl Collector<'_> {
       return;
     }
     let run_site = run.site;
-    let Some(stop) =
-      self.indexes.last_stop_before(root, run_site.callable, run_site.region, run_site.offset)
-    else {
+    let Some(stop) = self.indexes.last_stop_before(
+      root,
+      run_site.head.callable,
+      run_site.head.region,
+      run_site.head.offset,
+    ) else {
       return;
     };
-    if self.indexes.has_barrier_between(run_site.region, stop.offset, run_site.offset) {
+    if self.indexes.has_barrier_between(
+      run_site.head.region,
+      stop.head.offset,
+      run_site.head.offset,
+    ) {
       return;
     }
     let origin = DemandOrigin {
-      callable: run_site.callable,
-      region: run_site.region,
-      offset: run_site.offset,
+      callable: run_site.head.callable,
+      region: run_site.head.region,
+      offset: run_site.head.offset,
     };
     let Some(consumer) = self.run_result_consumer(node_id, call, origin) else {
       return;
     };
     self.facts.inactive_scope_result.push(InactiveScopeResultFact {
       consumer_span: self.span(consumer),
-      stop_span: self.span(stop.span),
+      stop_span: self.span(stop.head.span),
       run_span: self.span(call.span),
     });
   }
@@ -507,7 +516,7 @@ impl Collector<'_> {
         && !self.indexes.key_mutated(root, &named.key)
     }) {
       self.facts.missing_torefs_key.push(MissingToRefsKeyFact {
-        demand_span: self.span(use_site.site.span),
+        demand_span: self.span(use_site.site.head.span),
         torefs_span,
         key: self.indexes.copy_key(&use_site.key),
       });
@@ -527,9 +536,9 @@ impl Collector<'_> {
       else {
         continue;
       };
-      let offset = demand.offset;
+      let offset = demand.head.offset;
       if chosen.as_ref().is_none_or(|(current, _, _)| offset < *current) {
-        chosen = Some((offset, self.span(demand.span), self.indexes.copy_key(key)));
+        chosen = Some((offset, self.span(demand.head.span), self.indexes.copy_key(key)));
       }
     }
     if let Some((_, demand_span, key)) = chosen {
@@ -578,8 +587,12 @@ impl Collector<'_> {
       else {
         continue;
       };
-      if chosen.as_ref().is_none_or(|(current, _, _)| demand.offset < *current) {
-        chosen = Some((demand.offset, self.span(demand.span), self.indexes.copy_key(key.as_ref())));
+      if chosen.as_ref().is_none_or(|(current, _, _)| demand.head.offset < *current) {
+        chosen = Some((
+          demand.head.offset,
+          self.span(demand.head.span),
+          self.indexes.copy_key(key.as_ref()),
+        ));
       }
     }
     if let Some((_, demand_span, key)) = chosen {
@@ -620,13 +633,15 @@ impl Collector<'_> {
     }
     let owner = self.indexes.owner(next);
     let demand = MemberUse {
-      offset: self.span(value.span).offset,
-      span: value.span,
-      callable: owner.callable,
-      region: owner.region.unwrap_or(origin.region),
+      head: Site {
+        offset: self.span(value.span).offset,
+        span: value.span,
+        callable: owner.callable,
+        region: owner.region.unwrap_or(origin.region),
+        reach,
+      },
       optional: false,
       call_optional: false,
-      reach,
       role,
     };
     if !self.indexes.demand_from(&demand, origin) {
@@ -736,11 +751,11 @@ fn min_straight_span(
     if !indexes.demand_from(&named.site, origin) {
       continue;
     }
-    if chosen.is_none_or(|current| named.site.offset < current.offset) {
+    if chosen.is_none_or(|current| named.site.head.offset < current.head.offset) {
       chosen = Some(named.site);
     }
   }
-  chosen.map(|site| site.span)
+  chosen.map(|site| site.head.span)
 }
 
 fn prior_uncertain_other(
