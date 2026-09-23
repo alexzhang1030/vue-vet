@@ -15,7 +15,7 @@ use vue_vet_core::{Confidence, Diagnostic, PRACTICE_CATEGORY, Severity, SourceSp
 pub const CONFIG_FILE: &str = "vue-vet.toml";
 pub const CONFIG_VERSION: u32 = 1;
 
-/// `.js` / `.ts` / `.tsx` files named `*.test.*`, `*.spec.*`, or starting with `test` / `spec`.
+/// `.js` / `.ts` / `.tsx` files named `*.test.*` or `*.spec.*`.
 const DEFAULT_EXCLUDES: &[&str] = &[
   "**/*.test.js",
   "**/*.test.ts",
@@ -23,12 +23,6 @@ const DEFAULT_EXCLUDES: &[&str] = &[
   "**/*.spec.js",
   "**/*.spec.ts",
   "**/*.spec.tsx",
-  "**/test*.js",
-  "**/test*.ts",
-  "**/test*.tsx",
-  "**/spec*.js",
-  "**/spec*.ts",
-  "**/spec*.tsx",
 ];
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -582,9 +576,9 @@ exclude = ["src/generated/**"]
       filter.is_excluded(Path::new("src/Widget.test.tsx"))
         && filter.is_excluded(Path::new("Widget.spec.ts"))
         && filter.is_excluded(Path::new("src/Widget.test.js"))
-        && filter.is_excluded(Path::new("src/test-utils.ts"))
-        && filter.is_excluded(Path::new("src/spec.helper.js"))
-        && filter.is_excluded(Path::new("src/testing.tsx"))
+        && !filter.is_excluded(Path::new("src/test-utils.ts"))
+        && !filter.is_excluded(Path::new("src/spec.helper.js"))
+        && !filter.is_excluded(Path::new("src/testing.tsx"))
         && !filter.is_excluded(Path::new("src/Widget.tsx"))
         && !filter.is_excluded(Path::new("src/helper.ts"))
         && !filter.is_excluded(Path::new("src/Widget.test.jsx"))
@@ -592,7 +586,7 @@ exclude = ["src/generated/**"]
     let configured = Config::parse("version = 1\nexclude = [\"dist/**\"]\n");
     assert!(configured.as_ref().is_ok_and(|config| {
       config.exclude.iter().any(|pattern| pattern == "**/*.test.ts")
-        && config.exclude.iter().any(|pattern| pattern == "**/spec*.js")
+        && config.exclude.iter().any(|pattern| pattern == "**/*.spec.js")
     }));
     let filter = configured.and_then(|config| config.path_filter());
     assert!(filter.as_ref().is_ok_and(|filter| {

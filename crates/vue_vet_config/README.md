@@ -25,8 +25,8 @@ CLI `--print-config`).
 
 Strict hand-rolled TOML subset (not the full `toml` crate): unknown keys and
 non-`[rules]` sections are rejected. Default include is `**/*.vue`. Default
-exclude skips `.js` / `.ts` / `.tsx` files named `*.test.*`, `*.spec.*`, or
-starting with `test` / `spec`. An explicit `exclude` list keeps those patterns.
+exclude skips `.js` / `.ts` / `.tsx` files named `*.test.*` or `*.spec.*`.
+An explicit `exclude` list keeps those patterns.
 
 ### Apply order
 

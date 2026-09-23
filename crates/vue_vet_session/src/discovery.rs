@@ -662,17 +662,21 @@ mod tests {
     let files = snapshot.sources.iter().map(|source| source.file_id.as_str()).collect::<Vec<_>>();
     assert_eq!(
       files,
-      ["src/Widget.test.jsx", "src/Widget.tsx", "src/helper.ts"],
-      "default discovery skips test and spec js/ts/tsx names"
+      [
+        "src/Widget.test.jsx",
+        "src/Widget.tsx",
+        "src/helper.ts",
+        "src/spec.helper.js",
+        "src/test-utils.ts",
+        "src/testing.tsx",
+      ],
+      "default discovery skips *.test and *.spec js/ts/tsx names"
     );
     assert!(
       snapshot.cache_inputs.iter().all(|(path, _)| {
         !path.ends_with("Widget.test.tsx")
           && !path.ends_with("Widget.spec.ts")
           && !path.ends_with("Widget.test.js")
-          && !path.ends_with("test-utils.ts")
-          && !path.ends_with("spec.helper.js")
-          && !path.ends_with("testing.tsx")
       }),
       "skipped test scripts must stay out of the cache key"
     );

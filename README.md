@@ -77,8 +77,8 @@ exclude = ["src/generated/**"]
 ```
 
 The default exclude list skips `.js`, `.ts`, and `.tsx` files named
-`*.test.*` or `*.spec.*`, and files whose names start with `test` or `spec`.
-Writing `exclude` adds to that list; those patterns stay.
+`*.test.*` or `*.spec.*`. Writing `exclude` adds to that list; those
+patterns stay.
 
 `practice` is `on` (default) or `off`. When `off`, ecosystem practice suggestions
 (`category: practice`) are dropped before scoring and reporting; individual
