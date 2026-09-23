@@ -1,6 +1,17 @@
 use super::helpers::*;
 
 #[test]
+fn deny_warnings_accepts_boolish_false() {
+  let path = fixture("rules/no-v-html/invalid/basic.vue");
+  let output = run(&[path.to_string_lossy().as_ref(), "--deny-warnings=no"]);
+  assert!(
+    output.status.success(),
+    "--deny-warnings=no must leave warnings non-fatal: {}",
+    String::from_utf8_lossy(&output.stderr)
+  );
+}
+
+#[test]
 fn unsafe_fixture_has_stable_text_output_and_exit_code() {
   let path = fixture("rules/no-v-html/invalid/basic.vue");
   let output = run(&[path.to_string_lossy().as_ref(), "--deny-warnings"]);

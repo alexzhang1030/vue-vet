@@ -30,9 +30,15 @@ use report::{
   component_nav_digest, operational_failure, print_summary, reactivity_module_stats, report_context,
 };
 
+pub(crate) const fn flag_enabled(value: Option<bool>) -> bool {
+  match value {
+    Some(enabled) => enabled,
+    None => false,
+  }
+}
+
 #[derive(Debug, Parser)]
 #[command(name = "vue-vet", version, about = "Vet your Vue codebase")]
-#[expect(clippy::struct_excessive_bools, reason = "clap maps independent CLI flags to bool fields")]
 struct Cli {
   #[arg(default_value = ".")]
   path: PathBuf,
@@ -58,8 +64,15 @@ struct Cli {
   )]
   progress: ProgressWhen,
 
-  #[arg(long, help = "Return exit code 1 for warnings as well as errors")]
-  deny_warnings: bool,
+  #[arg(
+    long,
+    num_args = 0..=1,
+    default_missing_value = "true",
+    require_equals = true,
+    value_parser = clap::builder::BoolishValueParser::new(),
+    help = "Return exit code 1 for warnings as well as errors"
+  )]
+  deny_warnings: Option<bool>,
 
   /// Skip `*.test` / `*.spec` `.js`, `.ts`, and `.tsx` files.
   ///
@@ -78,11 +91,22 @@ struct Cli {
   #[arg(long, value_name = "FILE", help = "Use an explicit vue-vet.toml")]
   config: Option<PathBuf>,
 
-  #[arg(long, help = "Print the effective configuration as JSON and exit")]
-  print_config: bool,
+  #[arg(
+    long,
+    num_args = 0..=1,
+    default_missing_value = "true",
+    require_equals = true,
+    value_parser = clap::builder::BoolishValueParser::new(),
+    help = "Print the effective configuration as JSON and exit"
+  )]
+  print_config: Option<bool>,
 
   #[arg(
     long,
+    num_args = 0..=1,
+    default_missing_value = "true",
+    require_equals = true,
+    value_parser = clap::builder::BoolishValueParser::new(),
     conflicts_with_all = [
       "print_config",
       "lsp",
@@ -100,7 +124,7 @@ struct Cli {
     ],
     help = "Print the composed rule inventory (independent of project configuration) and exit"
   )]
-  list_rules: bool,
+  list_rules: Option<bool>,
 
   #[arg(
     long,
@@ -113,17 +137,25 @@ struct Cli {
 
   #[arg(
     long,
+    num_args = 0..=1,
+    default_missing_value = "true",
+    require_equals = true,
+    value_parser = clap::builder::BoolishValueParser::new(),
     conflicts_with = "mcp",
     help = "Run the language server on stdio and exit when the client shuts down"
   )]
-  lsp: bool,
+  lsp: Option<bool>,
 
   #[arg(
     long,
+    num_args = 0..=1,
+    default_missing_value = "true",
+    require_equals = true,
+    value_parser = clap::builder::BoolishValueParser::new(),
     conflicts_with = "lsp",
     help = "Run the MCP server on stdio (scan / explain / explain-scope / safe-fix preview) and exit when the client closes"
   )]
-  mcp: bool,
+  mcp: Option<bool>,
 
   #[arg(
     long,
@@ -141,17 +173,35 @@ struct Cli {
   )]
   explain_scope: Option<String>,
 
-  #[arg(long, help = "Print the deterministic project graph as JSON and exit")]
-  print_graph: bool,
-
-  #[arg(long, help = "Print a per-module reactivity tracer breakdown after the normal report")]
-  print_reactivity: bool,
+  #[arg(
+    long,
+    num_args = 0..=1,
+    default_missing_value = "true",
+    require_equals = true,
+    value_parser = clap::builder::BoolishValueParser::new(),
+    help = "Print the deterministic project graph as JSON and exit"
+  )]
+  print_graph: Option<bool>,
 
   #[arg(
     long,
+    num_args = 0..=1,
+    default_missing_value = "true",
+    require_equals = true,
+    value_parser = clap::builder::BoolishValueParser::new(),
+    help = "Print a per-module reactivity tracer breakdown after the normal report"
+  )]
+  print_reactivity: Option<bool>,
+
+  #[arg(
+    long,
+    num_args = 0..=1,
+    default_missing_value = "true",
+    require_equals = true,
+    value_parser = clap::builder::BoolishValueParser::new(),
     help = "Browse per-module reactivity facts in an interactive TUI after the normal report"
   )]
-  reactivity_tui: bool,
+  reactivity_tui: Option<bool>,
 
   #[command(flatten)]
   cache: CacheArgs,
@@ -179,20 +229,38 @@ struct Cli {
 
 #[derive(Args, Debug)]
 struct CacheArgs {
-  #[arg(long, help = "Disable the content-addressed local cache")]
-  no_cache: bool,
+  #[arg(
+    long,
+    num_args = 0..=1,
+    default_missing_value = "true",
+    require_equals = true,
+    value_parser = clap::builder::BoolishValueParser::new(),
+    help = "Disable the content-addressed local cache"
+  )]
+  no_cache: Option<bool>,
 
   #[arg(long, value_name = "DIR", help = "Override the local cache directory")]
   cache_dir: Option<PathBuf>,
 
-  #[arg(long, help = "Print cache hit, miss, or recovery status on stderr")]
-  cache_stats: bool,
+  #[arg(
+    long,
+    num_args = 0..=1,
+    default_missing_value = "true",
+    require_equals = true,
+    value_parser = clap::builder::BoolishValueParser::new(),
+    help = "Print cache hit, miss, or recovery status on stderr"
+  )]
+  cache_stats: Option<bool>,
 }
 
 #[derive(Args, Debug)]
 struct FixArgs {
   #[arg(
     long,
+    num_args = 0..=1,
+    default_missing_value = "true",
+    require_equals = true,
+    value_parser = clap::builder::BoolishValueParser::new(),
     conflicts_with = "fix_safe",
     conflicts_with_all = [
       "baseline",
@@ -209,10 +277,14 @@ struct FixArgs {
     ],
     help = "Validate and preview explicitly safe edits without writing files"
   )]
-  fix_dry_run: bool,
+  fix_dry_run: Option<bool>,
 
   #[arg(
     long,
+    num_args = 0..=1,
+    default_missing_value = "true",
+    require_equals = true,
+    value_parser = clap::builder::BoolishValueParser::new(),
     conflicts_with = "fix_dry_run",
     conflicts_with_all = [
       "baseline",
@@ -229,14 +301,14 @@ struct FixArgs {
     ],
     help = "Atomically apply explicitly safe edits and report a fresh rescan"
   )]
-  fix_safe: bool,
+  fix_safe: Option<bool>,
 }
 
 impl FixArgs {
   const fn mode(&self) -> Option<FixMode> {
-    if self.fix_dry_run {
+    if flag_enabled(self.fix_dry_run) {
       Some(FixMode::DryRun)
-    } else if self.fix_safe {
+    } else if flag_enabled(self.fix_safe) {
       Some(FixMode::Apply)
     } else {
       None
@@ -320,13 +392,13 @@ fn main() -> ExitCode {
     Ok(groups) => groups,
     Err(error) => return operational_failure(&cli, &error),
   };
-  if cli.list_rules {
+  if flag_enabled(cli.list_rules) {
     return run_list_rules(&cli, &selected_groups);
   }
   if matches!(cli.format, OutputFormat::Markdown) {
     return operational_failure(&cli, "--format markdown is only supported with --list-rules");
   }
-  if cli.lsp {
+  if flag_enabled(cli.lsp) {
     return match vue_vet_lsp::run_stdio() {
       Ok(()) => ExitCode::SUCCESS,
       Err(error) => {
@@ -335,7 +407,7 @@ fn main() -> ExitCode {
       }
     };
   }
-  if cli.mcp {
+  if flag_enabled(cli.mcp) {
     return match vue_vet_mcp::run_stdio(cli.path) {
       Ok(()) => ExitCode::SUCCESS,
       Err(error) => {
@@ -354,7 +426,7 @@ fn main() -> ExitCode {
     Ok(opened) => opened,
     Err(error) => return operational_failure(&cli, &error),
   };
-  if cli.print_config {
+  if flag_enabled(cli.print_config) {
     progress.stop();
     return match serde_json::to_string_pretty(session.config()) {
       Ok(output) => {
@@ -398,13 +470,13 @@ fn main() -> ExitCode {
       }
       progress.emit(&ProgressEvent::WritingReport);
       progress.stop();
-      if cli.cache.cache_stats {
+      if flag_enabled(cli.cache.cache_stats) {
         eprintln!("vue-vet cache: {}", snapshot.cache_status);
       }
       if let Some((mode, outcome)) = fix_outcome {
         print_fix_outcome(mode, outcome);
       }
-      if cli.print_graph {
+      if flag_enabled(cli.print_graph) {
         return match serde_json::to_string_pretty(&snapshot.graph) {
           Ok(output) => {
             println!("{output}");
@@ -415,21 +487,21 @@ fn main() -> ExitCode {
           }
         };
       }
-      if cli.reactivity_tui && !matches!(cli.format, OutputFormat::Text) {
+      if flag_enabled(cli.reactivity_tui) && !matches!(cli.format, OutputFormat::Text) {
         return operational_failure(&cli, "--reactivity-tui requires --format text");
       }
       let report_context = report_context(&cli, &snapshot);
       if let Err(error) = print_summary(&snapshot.summary, cli.format, &report_context) {
         return operational_failure(&cli, &format!("failed to serialize report: {error}"));
       }
-      if cli.print_reactivity
-        && !cli.reactivity_tui
+      if flag_enabled(cli.print_reactivity)
+        && !flag_enabled(cli.reactivity_tui)
         && matches!(cli.format, OutputFormat::Text)
         && let Some(digest) = &report_context.reactivity
       {
         print!("{}", render_reactivity_detail(digest));
       }
-      if cli.reactivity_tui {
+      if flag_enabled(cli.reactivity_tui) {
         let module_stats = reactivity_module_stats(&snapshot.graph.module_reactivity);
         let component_nav = component_nav_digest(&snapshot.graph);
         if let Err(error) =
@@ -438,7 +510,11 @@ fn main() -> ExitCode {
           return operational_failure(&cli, &error);
         }
       }
-      if snapshot.summary.fails(cli.deny_warnings) { ExitCode::from(1) } else { ExitCode::SUCCESS }
+      if snapshot.summary.fails(flag_enabled(cli.deny_warnings)) {
+        ExitCode::from(1)
+      } else {
+        ExitCode::SUCCESS
+      }
     }
     Err(error) => fail_with_progress(&cli, &mut progress, &error.to_string()),
   }
@@ -452,7 +528,7 @@ pub(crate) fn open_session(
     root: cli.path.clone(),
     config_path: cli.config.clone(),
     cache_dir: cli.cache.cache_dir.clone(),
-    no_cache: cli.cache.no_cache || cli.fix.mode().is_some(),
+    no_cache: flag_enabled(cli.cache.no_cache) || cli.fix.mode().is_some(),
     threads: cli.threads,
     selected_groups: selected_groups.to_vec(),
   })

@@ -20,7 +20,7 @@ CLI `--print-config`).
 | `CONFIG_VERSION` | `1` — unknown version fails before scan |
 | `Preset` | `recommended` (default) / `none` |
 | `RuleLevel` | `off` / `info` / `warning` / `error` |
-| `PracticeMode` | `on` (default) / `off` |
+| `PracticeMode` | boolish, default on (`yes`/`on`/`true`/`1`, `no`/`off`/`false`/`0`) |
 | `Config` | `version`, `preset`, `practice`, `include`, `exclude`, `ignore_test`, `rules` |
 
 Strict hand-rolled TOML subset (not the full `toml` crate): unknown keys and

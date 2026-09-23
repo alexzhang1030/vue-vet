@@ -28,7 +28,7 @@ pub fn run_explain(cli: &Cli, target: &str) -> ExitCode {
     }
   };
   progress.stop();
-  if cli.cache.cache_stats
+  if crate::flag_enabled(cli.cache.cache_stats)
     && let Explained::Finding { cache_status, .. } = &explained
   {
     eprintln!("vue-vet cache: {cache_status}");
@@ -67,7 +67,7 @@ pub fn run_explain_scope(cli: &Cli, query: &str) -> ExitCode {
     }
   };
   progress.stop();
-  if cli.cache.cache_stats {
+  if crate::flag_enabled(cli.cache.cache_stats) {
     eprintln!("vue-vet cache: {cache_status}");
   }
   let output = match cli.format {

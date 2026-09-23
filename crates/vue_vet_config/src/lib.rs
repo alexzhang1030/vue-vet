@@ -164,10 +164,15 @@ impl Config {
           };
         }
         "practice" => {
-          config.practice = match unquote(value).as_deref() {
-            Ok("on") => PracticeMode::On,
-            Ok("off") => PracticeMode::Off,
-            _ => return invalid(line_number, "practice must be `on` or `off`".into()),
+          config.practice = match parse_boolish(value) {
+            Some(true) => PracticeMode::On,
+            Some(false) => PracticeMode::Off,
+            None => {
+              return invalid(
+                line_number,
+                "practice must be a boolish value (yes/no, on/off, true/false, 1/0)".into(),
+              );
+            }
           };
         }
         "assessment" => {
@@ -540,6 +545,14 @@ exclude = ["src/generated/**"]
   fn practice_off_drops_practice_category_findings() {
     let config = Config::parse("version = 1\npractice = \"off\"\n").unwrap_or_default();
     assert_eq!(config.practice, PracticeMode::Off);
+    assert!(matches!(
+      Config::parse("version = 1\npractice = yes\n"),
+      Ok(config) if config.practice == PracticeMode::On
+    ));
+    assert!(matches!(
+      Config::parse("version = 1\npractice = 0\n"),
+      Ok(config) if config.practice == PracticeMode::Off
+    ));
     let mut practice = diagnostic("vue-vet/practice/vueuse-use-debounce-fn", 1);
     practice.category = PRACTICE_CATEGORY.into();
     let lint = diagnostic("vue-vet/security/no-v-html", 2);
