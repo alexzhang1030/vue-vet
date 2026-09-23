@@ -61,8 +61,19 @@ struct Cli {
   #[arg(long, help = "Return exit code 1 for warnings as well as errors")]
   deny_warnings: bool,
 
-  #[arg(long, help = "Skip .js, .ts, and .tsx files named *.test.* or *.spec.*")]
-  ignore_test: bool,
+  /// Skip `*.test` / `*.spec` `.js`, `.ts`, and `.tsx` files.
+  ///
+  /// Bare `--ignore-test` is true. `=value` uses clap's boolish parser:
+  /// `y` `yes` `t` `true` `on` `1`, and `n` `no` `f` `false` `off` `0`.
+  #[arg(
+    long,
+    num_args = 0..=1,
+    default_missing_value = "true",
+    require_equals = true,
+    value_parser = clap::builder::BoolishValueParser::new(),
+    help = "Skip *.test and *.spec .js/.ts/.tsx files. Value: yes/no, on/off, true/false, 1/0"
+  )]
+  ignore_test: Option<bool>,
 
   #[arg(long, value_name = "FILE", help = "Use an explicit vue-vet.toml")]
   config: Option<PathBuf>,
@@ -446,8 +457,8 @@ pub(crate) fn open_session(
     selected_groups: selected_groups.to_vec(),
   })
   .map_err(|error| error.to_string())?;
-  if cli.ignore_test {
-    session.enable_ignore_test();
+  if let Some(enabled) = cli.ignore_test {
+    session.set_ignore_test(enabled);
   }
   let progress = ProgressController::start(detect_style(progress_enabled(cli.progress)));
   let session = match progress.reporter() {

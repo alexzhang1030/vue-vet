@@ -77,8 +77,9 @@ exclude = ["src/generated/**"]
 ```
 
 `--ignore-test` skips `.js`, `.ts`, and `.tsx` files named `*.test.*` or
-`*.spec.*`. The same switch is `ignore_test = true` in `vue-vet.toml`.
-Off by default.
+`*.spec.*`. The flag alone means true. A value uses the usual boolish words
+(`yes`/`no`, `on`/`off`, `true`/`false`, `1`/`0`). The same switch in
+`vue-vet.toml` is `ignore_test`. Off by default.
 
 `practice` is `on` (default) or `off`. When `off`, ecosystem practice suggestions
 (`category: practice`) are dropped before scoring and reporting; individual

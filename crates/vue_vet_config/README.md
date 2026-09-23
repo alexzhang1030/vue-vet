@@ -25,8 +25,10 @@ CLI `--print-config`).
 
 Strict hand-rolled TOML subset (not the full `toml` crate): unknown keys and
 non-`[rules]` sections are rejected. Default include is `**/*.vue`.
-`ignore_test` defaults to `false`. When `true` (or CLI `--ignore-test`),
-`.js` / `.ts` / `.tsx` files named `*.test.*` or `*.spec.*` are excluded.
+`ignore_test` defaults to `false`. Boolish values match clap:
+`y`/`yes`/`t`/`true`/`on`/`1` and `n`/`no`/`f`/`false`/`off`/`0`.
+When set (or CLI `--ignore-test`), `.js` / `.ts` / `.tsx` files named
+`*.test.*` or `*.spec.*` are excluded.
 
 ### Apply order
 

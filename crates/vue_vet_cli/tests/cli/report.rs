@@ -236,15 +236,27 @@ fn scoped_suppression_hides_a_matching_finding() {
 }
 
 #[test]
-fn ignore_test_flag_sets_effective_config() {
+fn ignore_test_flag_accepts_boolish_values() {
   let project = TempProject::new("ignore-test", "<template><main /></template>\n");
-  let output = run(&[project.root().to_string_lossy().as_ref(), "--print-config", "--ignore-test"]);
-  let parsed: Result<Value, _> = serde_json::from_slice(&output.stdout);
-  assert!(output.status.success(), "print-config must succeed");
-  assert_eq!(
-    parsed.ok().as_ref().and_then(|value| value.get("ignore_test")).and_then(Value::as_bool),
-    Some(true)
-  );
+  let root = project.root().to_string_lossy().into_owned();
+  for (flag, expected) in
+    [("--ignore-test", true), ("--ignore-test=yes", true), ("--ignore-test=0", false)]
+  {
+    let output = run(&[&root, "--print-config", flag]);
+    let parsed: Result<Value, _> = serde_json::from_slice(&output.stdout);
+    assert!(
+      output.status.success(),
+      "{flag} must parse: {}",
+      String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+      parsed.ok().as_ref().and_then(|value| value.get("ignore_test")).and_then(Value::as_bool),
+      Some(expected),
+      "{flag}"
+    );
+  }
+  let rejected = run(&[&root, "--ignore-test=maybe"]);
+  assert!(!rejected.status.success(), "unknown boolish values must fail");
 }
 
 #[test]
