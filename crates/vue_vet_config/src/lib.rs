@@ -15,8 +15,21 @@ use vue_vet_core::{Confidence, Diagnostic, PRACTICE_CATEGORY, Severity, SourceSp
 pub const CONFIG_FILE: &str = "vue-vet.toml";
 pub const CONFIG_VERSION: u32 = 1;
 
-/// `*.test.tsx` and `*.spec.tsx` stay out of the default scan.
-const DEFAULT_EXCLUDES: &[&str] = &["**/*.test.tsx", "**/*.spec.tsx"];
+/// `.js` / `.ts` / `.tsx` files named `*.test.*`, `*.spec.*`, or starting with `test` / `spec`.
+const DEFAULT_EXCLUDES: &[&str] = &[
+  "**/*.test.js",
+  "**/*.test.ts",
+  "**/*.test.tsx",
+  "**/*.spec.js",
+  "**/*.spec.ts",
+  "**/*.spec.tsx",
+  "**/test*.js",
+  "**/test*.ts",
+  "**/test*.tsx",
+  "**/spec*.js",
+  "**/spec*.ts",
+  "**/spec*.tsx",
+];
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -563,22 +576,27 @@ exclude = ["src/generated/**"]
   }
 
   #[test]
-  fn default_exclude_skips_test_and_spec_tsx() {
+  fn default_exclude_skips_test_and_spec_scripts() {
     let filter = Config::default().path_filter();
     assert!(filter.as_ref().is_ok_and(|filter| {
       filter.is_excluded(Path::new("src/Widget.test.tsx"))
-        && filter.is_excluded(Path::new("Widget.spec.tsx"))
+        && filter.is_excluded(Path::new("Widget.spec.ts"))
+        && filter.is_excluded(Path::new("src/Widget.test.js"))
+        && filter.is_excluded(Path::new("src/test-utils.ts"))
+        && filter.is_excluded(Path::new("src/spec.helper.js"))
+        && filter.is_excluded(Path::new("src/testing.tsx"))
         && !filter.is_excluded(Path::new("src/Widget.tsx"))
-        && !filter.is_excluded(Path::new("src/Widget.test.ts"))
+        && !filter.is_excluded(Path::new("src/helper.ts"))
+        && !filter.is_excluded(Path::new("src/Widget.test.jsx"))
     }));
     let configured = Config::parse("version = 1\nexclude = [\"dist/**\"]\n");
     assert!(configured.as_ref().is_ok_and(|config| {
-      config.exclude.iter().any(|pattern| pattern == "**/*.test.tsx")
-        && config.exclude.iter().any(|pattern| pattern == "**/*.spec.tsx")
+      config.exclude.iter().any(|pattern| pattern == "**/*.test.ts")
+        && config.exclude.iter().any(|pattern| pattern == "**/spec*.js")
     }));
     let filter = configured.and_then(|config| config.path_filter());
     assert!(filter.as_ref().is_ok_and(|filter| {
-      filter.is_excluded(Path::new("components/List.test.tsx"))
+      filter.is_excluded(Path::new("components/List.spec.tsx"))
         && filter.is_excluded(Path::new("dist/App.vue"))
     }));
   }

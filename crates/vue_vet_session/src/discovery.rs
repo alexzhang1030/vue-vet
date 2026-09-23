@@ -638,11 +638,22 @@ mod tests {
 
   #[test]
   #[expect(clippy::panic, reason = "discovery fixture failures must fail the unit test")]
-  fn discover_skips_test_and_spec_tsx() {
-    let root = std::env::temp_dir().join(format!("vue-vet-skip-tsx-tests-{}", std::process::id()));
+  fn discover_skips_test_and_spec_scripts() {
+    let root =
+      std::env::temp_dir().join(format!("vue-vet-skip-script-tests-{}", std::process::id()));
     let _ignored = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("src")).unwrap_or_else(|error| panic!("workspace: {error}"));
-    for name in ["Widget.tsx", "Widget.test.tsx", "Widget.spec.tsx", "Widget.test.ts"] {
+    for name in [
+      "Widget.tsx",
+      "helper.ts",
+      "Widget.test.jsx",
+      "Widget.test.tsx",
+      "Widget.spec.ts",
+      "Widget.test.js",
+      "test-utils.ts",
+      "spec.helper.js",
+      "testing.tsx",
+    ] {
       std::fs::write(root.join("src").join(name), "export const value = 1;\n")
         .unwrap_or_else(|error| panic!("{name}: {error}"));
     }
@@ -651,15 +662,19 @@ mod tests {
     let files = snapshot.sources.iter().map(|source| source.file_id.as_str()).collect::<Vec<_>>();
     assert_eq!(
       files,
-      ["src/Widget.test.ts", "src/Widget.tsx"],
-      "default discovery skips *.test.tsx and *.spec.tsx"
+      ["src/Widget.test.jsx", "src/Widget.tsx", "src/helper.ts"],
+      "default discovery skips test and spec js/ts/tsx names"
     );
     assert!(
-      snapshot
-        .cache_inputs
-        .iter()
-        .all(|(path, _)| !path.ends_with(".test.tsx") && !path.ends_with(".spec.tsx")),
-      "skipped tsx tests must stay out of the cache key"
+      snapshot.cache_inputs.iter().all(|(path, _)| {
+        !path.ends_with("Widget.test.tsx")
+          && !path.ends_with("Widget.spec.ts")
+          && !path.ends_with("Widget.test.js")
+          && !path.ends_with("test-utils.ts")
+          && !path.ends_with("spec.helper.js")
+          && !path.ends_with("testing.tsx")
+      }),
+      "skipped test scripts must stay out of the cache key"
     );
     let _ignored = std::fs::remove_dir_all(root);
   }

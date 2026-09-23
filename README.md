@@ -76,8 +76,9 @@ exclude = ["src/generated/**"]
 "vue-vet/accessibility/no-autofocus" = "off"
 ```
 
-The default exclude list skips `**/*.test.tsx` and `**/*.spec.tsx`. Writing
-`exclude` adds to that list; those two patterns stay.
+The default exclude list skips `.js`, `.ts`, and `.tsx` files named
+`*.test.*` or `*.spec.*`, and files whose names start with `test` or `spec`.
+Writing `exclude` adds to that list; those patterns stay.
 
 `practice` is `on` (default) or `off`. When `off`, ecosystem practice suggestions
 (`category: practice`) are dropped before scoring and reporting; individual
