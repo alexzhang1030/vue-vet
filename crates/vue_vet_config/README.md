@@ -24,7 +24,9 @@ CLI `--print-config`).
 | `Config` | `version`, `preset`, `practice`, `include`, `exclude`, `rules` |
 
 Strict hand-rolled TOML subset (not the full `toml` crate): unknown keys and
-non-`[rules]` sections are rejected. Default include is `**/*.vue`.
+non-`[rules]` sections are rejected. Default include is `**/*.vue`. Default
+exclude is `**/*.test.tsx` and `**/*.spec.tsx`; an explicit `exclude` list
+keeps those two patterns.
 
 ### Apply order
 

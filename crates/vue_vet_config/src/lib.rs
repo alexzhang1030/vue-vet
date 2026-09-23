@@ -15,6 +15,9 @@ use vue_vet_core::{Confidence, Diagnostic, PRACTICE_CATEGORY, Severity, SourceSp
 pub const CONFIG_FILE: &str = "vue-vet.toml";
 pub const CONFIG_VERSION: u32 = 1;
 
+/// `*.test.tsx` and `*.spec.tsx` stay out of the default scan.
+const DEFAULT_EXCLUDES: &[&str] = &["**/*.test.tsx", "**/*.spec.tsx"];
+
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Preset {
@@ -81,7 +84,7 @@ impl Default for Config {
       practice: PracticeMode::On,
       assessment: AssessmentMode::Off,
       include: vec!["**/*.vue".into()],
-      exclude: Vec::new(),
+      exclude: default_excludes(),
       rules: BTreeMap::new(),
     }
   }
@@ -165,7 +168,10 @@ impl Config {
           };
         }
         "include" => config.include = parse_string_array(value, line_number)?,
-        "exclude" => config.exclude = parse_string_array(value, line_number)?,
+        "exclude" => {
+          config.exclude = parse_string_array(value, line_number)?;
+          retain_default_excludes(&mut config.exclude);
+        }
         _ => return invalid(line_number, format!("unknown key `{key}`")),
       }
     }
@@ -229,8 +235,30 @@ pub struct PathFilter {
 impl PathFilter {
   #[must_use]
   pub fn matches(&self, path: &Path) -> bool {
-    let normalized = path.to_string_lossy().replace('\\', "/");
+    let normalized = normalized_path(path);
     self.include.is_match(&normalized) && !self.exclude.is_match(&normalized)
+  }
+
+  /// True when `path` matches an exclude glob, independent of `include`.
+  #[must_use]
+  pub fn is_excluded(&self, path: &Path) -> bool {
+    self.exclude.is_match(normalized_path(path))
+  }
+}
+
+fn normalized_path(path: &Path) -> String {
+  path.to_string_lossy().replace('\\', "/")
+}
+
+fn default_excludes() -> Vec<String> {
+  DEFAULT_EXCLUDES.iter().map(|pattern| (*pattern).to_owned()).collect()
+}
+
+fn retain_default_excludes(exclude: &mut Vec<String>) {
+  for pattern in DEFAULT_EXCLUDES {
+    if !exclude.iter().any(|existing| existing == pattern) {
+      exclude.push((*pattern).to_owned());
+    }
   }
 }
 
@@ -532,6 +560,27 @@ exclude = ["src/generated/**"]
       "unknown configuration fields must be rejected"
     );
     assert!(matches!(Config::parse("version = 2"), Err(ConfigError::UnsupportedVersion(2))));
+  }
+
+  #[test]
+  fn default_exclude_skips_test_and_spec_tsx() {
+    let filter = Config::default().path_filter();
+    assert!(filter.as_ref().is_ok_and(|filter| {
+      filter.is_excluded(Path::new("src/Widget.test.tsx"))
+        && filter.is_excluded(Path::new("Widget.spec.tsx"))
+        && !filter.is_excluded(Path::new("src/Widget.tsx"))
+        && !filter.is_excluded(Path::new("src/Widget.test.ts"))
+    }));
+    let configured = Config::parse("version = 1\nexclude = [\"dist/**\"]\n");
+    assert!(configured.as_ref().is_ok_and(|config| {
+      config.exclude.iter().any(|pattern| pattern == "**/*.test.tsx")
+        && config.exclude.iter().any(|pattern| pattern == "**/*.spec.tsx")
+    }));
+    let filter = configured.and_then(|config| config.path_filter());
+    assert!(filter.as_ref().is_ok_and(|filter| {
+      filter.is_excluded(Path::new("components/List.test.tsx"))
+        && filter.is_excluded(Path::new("dist/App.vue"))
+    }));
   }
 
   #[test]

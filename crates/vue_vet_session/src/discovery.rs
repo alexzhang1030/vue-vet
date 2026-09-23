@@ -80,7 +80,10 @@ impl WorkspaceInputSnapshot {
       }
 
       let extension = path.extension().and_then(|extension| extension.to_str());
-      let kind = source_kind(&file_id, extension, filter.matches(file_id.as_path()));
+      if is_excluded_script(&file_id, extension, &filter) {
+        continue;
+      }
+      let kind = source_kind(&file_id, extension, &filter);
       let cache_source = matches!(extension, Some("vue" | "js" | "jsx" | "ts" | "tsx"));
       if !cache_source {
         continue;
@@ -213,6 +216,16 @@ impl WorkspaceInputSnapshot {
       }
 
       let extension = path.extension().and_then(|extension| extension.to_str());
+      if is_excluded_script(&file_id, extension, &filter) {
+        self.sources.retain(|source| source.file_id != file_id);
+        self.update_cache_input(file_id.as_str(), None);
+        if was_source {
+          epochs.bump(ContextChangeKind::SourceMembership);
+          context_dirty = true;
+        }
+        affected_files.insert(file_id);
+        continue;
+      }
       let cache_source = matches!(extension, Some("vue" | "js" | "jsx" | "ts" | "tsx"))
         || self.cache_inputs.iter().any(|(existing, _)| existing == file_id.as_str())
         || resolver_config_inputs(&self.boundary).iter().any(|input| input == file_id.as_str());
@@ -220,7 +233,7 @@ impl WorkspaceInputSnapshot {
         self.update_cache_input(file_id.as_str(), bytes.clone());
       }
 
-      let kind = source_kind(&file_id, extension, filter.matches(file_id.as_path()));
+      let kind = source_kind(&file_id, extension, &filter);
       if let (Some(kind), Some(bytes)) = (kind, bytes) {
         self.upsert_source(SourceInput {
           physical_path: PhysicalPath::new(&path),
@@ -347,6 +360,9 @@ fn merge_overlay_only_sources(
       continue;
     }
     let extension = path.extension().and_then(|extension| extension.to_str());
+    if is_excluded_script(&file_id, extension, filter) {
+      continue;
+    }
     let cache_source = matches!(extension, Some("vue" | "js" | "jsx" | "ts" | "tsx"))
       || context_change_kind_for(file_id.as_str()).is_some();
     if !cache_source {
@@ -354,7 +370,7 @@ fn merge_overlay_only_sources(
     }
     let bytes: Arc<[u8]> = Arc::from(source.as_bytes());
     state.cache_inputs.push((file_id.as_str().to_owned(), Arc::clone(&bytes)));
-    if let Some(kind) = source_kind(&file_id, extension, filter.matches(file_id.as_path())) {
+    if let Some(kind) = source_kind(&file_id, extension, filter) {
       state.sources.push(SourceInput {
         physical_path: PhysicalPath::new(&path),
         file_id: file_id.clone(),
@@ -435,13 +451,25 @@ fn is_package_install_path(file: &FileId) -> bool {
   file.as_str().split(['/', '\\']).any(|segment| segment == "node_modules")
 }
 
-fn source_kind(file: &FileId, extension: Option<&str>, include_vue: bool) -> Option<SourceKind> {
+fn is_excluded_script(
+  file: &FileId,
+  extension: Option<&str>,
+  filter: &vue_vet_config::PathFilter,
+) -> bool {
+  matches!(extension, Some("js" | "jsx" | "ts" | "tsx")) && filter.is_excluded(file.as_path())
+}
+
+fn source_kind(
+  file: &FileId,
+  extension: Option<&str>,
+  filter: &vue_vet_config::PathFilter,
+) -> Option<SourceKind> {
   if is_generated_resolver_input(file) || is_package_install_path(file) {
     return None;
   }
   match extension {
-    Some("vue") if include_vue => Some(SourceKind::Vue),
-    Some(language @ ("js" | "jsx" | "ts" | "tsx")) => {
+    Some("vue") if filter.matches(file.as_path()) => Some(SourceKind::Vue),
+    Some(language @ ("js" | "jsx" | "ts" | "tsx")) if !filter.is_excluded(file.as_path()) => {
       Some(SourceKind::Script { language: language.to_owned() })
     }
     _ => None,
@@ -604,6 +632,34 @@ mod tests {
       snapshot.sources.iter().map(|source| source.file_id.as_str()).collect::<Vec<_>>(),
       ["App.vue"],
       "directories named like source files must not be read"
+    );
+    let _ignored = std::fs::remove_dir_all(root);
+  }
+
+  #[test]
+  #[expect(clippy::panic, reason = "discovery fixture failures must fail the unit test")]
+  fn discover_skips_test_and_spec_tsx() {
+    let root = std::env::temp_dir().join(format!("vue-vet-skip-tsx-tests-{}", std::process::id()));
+    let _ignored = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("src")).unwrap_or_else(|error| panic!("workspace: {error}"));
+    for name in ["Widget.tsx", "Widget.test.tsx", "Widget.spec.tsx", "Widget.test.ts"] {
+      std::fs::write(root.join("src").join(name), "export const value = 1;\n")
+        .unwrap_or_else(|error| panic!("{name}: {error}"));
+    }
+    let snapshot = WorkspaceInputSnapshot::discover(&root, &Config::default(), &BTreeMap::new())
+      .unwrap_or_else(|error| panic!("discover: {error}"));
+    let files = snapshot.sources.iter().map(|source| source.file_id.as_str()).collect::<Vec<_>>();
+    assert_eq!(
+      files,
+      ["src/Widget.test.ts", "src/Widget.tsx"],
+      "default discovery skips *.test.tsx and *.spec.tsx"
+    );
+    assert!(
+      snapshot
+        .cache_inputs
+        .iter()
+        .all(|(path, _)| !path.ends_with(".test.tsx") && !path.ends_with(".spec.tsx")),
+      "skipped tsx tests must stay out of the cache key"
     );
     let _ignored = std::fs::remove_dir_all(root);
   }
