@@ -236,6 +236,18 @@ fn scoped_suppression_hides_a_matching_finding() {
 }
 
 #[test]
+fn ignore_test_flag_sets_effective_config() {
+  let project = TempProject::new("ignore-test", "<template><main /></template>\n");
+  let output = run(&[project.root().to_string_lossy().as_ref(), "--print-config", "--ignore-test"]);
+  let parsed: Result<Value, _> = serde_json::from_slice(&output.stdout);
+  assert!(output.status.success(), "print-config must succeed");
+  assert_eq!(
+    parsed.ok().as_ref().and_then(|value| value.get("ignore_test")).and_then(Value::as_bool),
+    Some(true)
+  );
+}
+
+#[test]
 fn effective_config_is_machine_readable() {
   let project = fixture("projects/configured");
   let output = run(&[project.to_string_lossy().as_ref(), "--print-config"]);

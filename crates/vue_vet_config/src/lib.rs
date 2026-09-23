@@ -15,8 +15,8 @@ use vue_vet_core::{Confidence, Diagnostic, PRACTICE_CATEGORY, Severity, SourceSp
 pub const CONFIG_FILE: &str = "vue-vet.toml";
 pub const CONFIG_VERSION: u32 = 1;
 
-/// `.js` / `.ts` / `.tsx` files named `*.test.*` or `*.spec.*`.
-const DEFAULT_EXCLUDES: &[&str] = &[
+/// `.js` / `.ts` / `.tsx` names skipped when `ignore_test` or `--ignore-test` is set.
+const TEST_FILE_EXCLUDES: &[&str] = &[
   "**/*.test.js",
   "**/*.test.ts",
   "**/*.test.tsx",
@@ -80,6 +80,8 @@ pub struct Config {
   pub assessment: AssessmentMode,
   pub include: Vec<String>,
   pub exclude: Vec<String>,
+  /// Skip `*.test` and `*.spec` `.js` / `.ts` / `.tsx` files. Default `false`.
+  pub ignore_test: bool,
   pub rules: BTreeMap<String, RuleLevel>,
 }
 
@@ -91,7 +93,8 @@ impl Default for Config {
       practice: PracticeMode::On,
       assessment: AssessmentMode::Off,
       include: vec!["**/*.vue".into()],
-      exclude: default_excludes(),
+      exclude: Vec::new(),
+      ignore_test: false,
       rules: BTreeMap::new(),
     }
   }
@@ -175,9 +178,13 @@ impl Config {
           };
         }
         "include" => config.include = parse_string_array(value, line_number)?,
-        "exclude" => {
-          config.exclude = parse_string_array(value, line_number)?;
-          retain_default_excludes(&mut config.exclude);
+        "exclude" => config.exclude = parse_string_array(value, line_number)?,
+        "ignore_test" => {
+          config.ignore_test = match unquote(value).as_deref() {
+            Ok("true") => true,
+            Ok("false") => false,
+            _ => return invalid(line_number, "ignore_test must be `true` or `false`".into()),
+          };
         }
         _ => return invalid(line_number, format!("unknown key `{key}`")),
       }
@@ -230,7 +237,15 @@ impl Config {
   ///
   /// Returns [`ConfigError::InvalidGlob`] when a configured pattern is invalid.
   pub fn path_filter(&self) -> Result<PathFilter, ConfigError> {
-    Ok(PathFilter { include: build_globs(&self.include)?, exclude: build_globs(&self.exclude)? })
+    let mut exclude = self.exclude.clone();
+    if self.ignore_test {
+      for pattern in TEST_FILE_EXCLUDES {
+        if !exclude.iter().any(|existing| existing == *pattern) {
+          exclude.push((*pattern).to_owned());
+        }
+      }
+    }
+    Ok(PathFilter { include: build_globs(&self.include)?, exclude: build_globs(&exclude)? })
   }
 }
 
@@ -255,18 +270,6 @@ impl PathFilter {
 
 fn normalized_path(path: &Path) -> String {
   path.to_string_lossy().replace('\\', "/")
-}
-
-fn default_excludes() -> Vec<String> {
-  DEFAULT_EXCLUDES.iter().map(|pattern| (*pattern).to_owned()).collect()
-}
-
-fn retain_default_excludes(exclude: &mut Vec<String>) {
-  for pattern in DEFAULT_EXCLUDES {
-    if !exclude.iter().any(|existing| existing == pattern) {
-      exclude.push((*pattern).to_owned());
-    }
-  }
 }
 
 #[derive(Clone, Debug)]
@@ -570,28 +573,24 @@ exclude = ["src/generated/**"]
   }
 
   #[test]
-  fn default_exclude_skips_test_and_spec_scripts() {
+  fn ignore_test_skips_test_and_spec_scripts() {
     let filter = Config::default().path_filter();
+    assert!(filter.as_ref().is_ok_and(|filter| {
+      !filter.is_excluded(Path::new("src/Widget.test.tsx"))
+        && !filter.is_excluded(Path::new("src/Widget.spec.ts"))
+        && !filter.is_excluded(Path::new("src/test-utils.ts"))
+    }));
+    let configured = Config::parse("version = 1\nignore_test = true\nexclude = [\"dist/**\"]\n");
+    assert!(configured.as_ref().is_ok_and(|config| config.ignore_test));
+    let filter = configured.and_then(|config| config.path_filter());
     assert!(filter.as_ref().is_ok_and(|filter| {
       filter.is_excluded(Path::new("src/Widget.test.tsx"))
         && filter.is_excluded(Path::new("Widget.spec.ts"))
         && filter.is_excluded(Path::new("src/Widget.test.js"))
-        && !filter.is_excluded(Path::new("src/test-utils.ts"))
-        && !filter.is_excluded(Path::new("src/spec.helper.js"))
-        && !filter.is_excluded(Path::new("src/testing.tsx"))
-        && !filter.is_excluded(Path::new("src/Widget.tsx"))
-        && !filter.is_excluded(Path::new("src/helper.ts"))
-        && !filter.is_excluded(Path::new("src/Widget.test.jsx"))
-    }));
-    let configured = Config::parse("version = 1\nexclude = [\"dist/**\"]\n");
-    assert!(configured.as_ref().is_ok_and(|config| {
-      config.exclude.iter().any(|pattern| pattern == "**/*.test.ts")
-        && config.exclude.iter().any(|pattern| pattern == "**/*.spec.js")
-    }));
-    let filter = configured.and_then(|config| config.path_filter());
-    assert!(filter.as_ref().is_ok_and(|filter| {
-      filter.is_excluded(Path::new("components/List.spec.tsx"))
         && filter.is_excluded(Path::new("dist/App.vue"))
+        && !filter.is_excluded(Path::new("src/test-utils.ts"))
+        && !filter.is_excluded(Path::new("src/Widget.tsx"))
+        && !filter.is_excluded(Path::new("src/Widget.test.jsx"))
     }));
   }
 

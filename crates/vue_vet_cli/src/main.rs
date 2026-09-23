@@ -61,6 +61,9 @@ struct Cli {
   #[arg(long, help = "Return exit code 1 for warnings as well as errors")]
   deny_warnings: bool,
 
+  #[arg(long, help = "Skip .js, .ts, and .tsx files named *.test.* or *.spec.*")]
+  ignore_test: bool,
+
   #[arg(long, value_name = "FILE", help = "Use an explicit vue-vet.toml")]
   config: Option<PathBuf>,
 
@@ -434,7 +437,7 @@ pub(crate) fn open_session(
   cli: &Cli,
   selected_groups: &[RuleGroupId],
 ) -> Result<(ProjectSession, ProgressController), String> {
-  let session = ProjectSession::open(SessionOptions {
+  let mut session = ProjectSession::open(SessionOptions {
     root: cli.path.clone(),
     config_path: cli.config.clone(),
     cache_dir: cli.cache.cache_dir.clone(),
@@ -443,6 +446,9 @@ pub(crate) fn open_session(
     selected_groups: selected_groups.to_vec(),
   })
   .map_err(|error| error.to_string())?;
+  if cli.ignore_test {
+    session.enable_ignore_test();
+  }
   let progress = ProgressController::start(detect_style(progress_enabled(cli.progress)));
   let session = match progress.reporter() {
     Some(reporter) => session.with_progress(reporter),

@@ -21,12 +21,12 @@ CLI `--print-config`).
 | `Preset` | `recommended` (default) / `none` |
 | `RuleLevel` | `off` / `info` / `warning` / `error` |
 | `PracticeMode` | `on` (default) / `off` |
-| `Config` | `version`, `preset`, `practice`, `include`, `exclude`, `rules` |
+| `Config` | `version`, `preset`, `practice`, `include`, `exclude`, `ignore_test`, `rules` |
 
 Strict hand-rolled TOML subset (not the full `toml` crate): unknown keys and
-non-`[rules]` sections are rejected. Default include is `**/*.vue`. Default
-exclude skips `.js` / `.ts` / `.tsx` files named `*.test.*` or `*.spec.*`.
-An explicit `exclude` list keeps those patterns.
+non-`[rules]` sections are rejected. Default include is `**/*.vue`.
+`ignore_test` defaults to `false`. When `true` (or CLI `--ignore-test`),
+`.js` / `.ts` / `.tsx` files named `*.test.*` or `*.spec.*` are excluded.
 
 ### Apply order
 

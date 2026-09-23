@@ -657,7 +657,15 @@ mod tests {
       std::fs::write(root.join("src").join(name), "export const value = 1;\n")
         .unwrap_or_else(|error| panic!("{name}: {error}"));
     }
-    let snapshot = WorkspaceInputSnapshot::discover(&root, &Config::default(), &BTreeMap::new())
+    let kept = WorkspaceInputSnapshot::discover(&root, &Config::default(), &BTreeMap::new())
+      .unwrap_or_else(|error| panic!("discover: {error}"));
+    let kept_files = kept.sources.iter().map(|source| source.file_id.as_str()).collect::<Vec<_>>();
+    assert!(
+      kept_files.contains(&"src/Widget.test.tsx"),
+      "test scripts stay in the scan unless ignore_test is set: {kept_files:?}"
+    );
+    let ignoring = Config { ignore_test: true, ..Config::default() };
+    let snapshot = WorkspaceInputSnapshot::discover(&root, &ignoring, &BTreeMap::new())
       .unwrap_or_else(|error| panic!("discover: {error}"));
     let files = snapshot.sources.iter().map(|source| source.file_id.as_str()).collect::<Vec<_>>();
     assert_eq!(
@@ -670,7 +678,7 @@ mod tests {
         "src/test-utils.ts",
         "src/testing.tsx",
       ],
-      "default discovery skips *.test and *.spec js/ts/tsx names"
+      "ignore_test skips *.test and *.spec js/ts/tsx names"
     );
     assert!(
       snapshot.cache_inputs.iter().all(|(path, _)| {
