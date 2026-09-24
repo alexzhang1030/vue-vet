@@ -24,7 +24,7 @@ pub fn report_context(cli: &Cli, snapshot: &AnalysisSnapshot) -> ReportContext {
       .entry(format!("analysis_{index}"))
       .or_insert_with(|| issue.message.clone());
   }
-  let digest = if cli.print_reactivity {
+  let digest = if crate::flag_enabled(cli.print_reactivity) {
     let stats = reactivity_module_stats(&snapshot.graph.module_reactivity);
     ReactivityDigest::from_modules(&stats, snapshot.graph.reactivity_error.clone())
       .with_modules_detail(&stats)

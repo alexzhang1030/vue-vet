@@ -76,7 +76,14 @@ exclude = ["src/generated/**"]
 "vue-vet/accessibility/no-autofocus" = "off"
 ```
 
-`practice` is `on` (default) or `off`. When `off`, ecosystem practice suggestions
+`--ignore-test` skips `.js`, `.ts`, and `.tsx` files named `*.test.*` or
+`*.spec.*`. The flag alone means true. A value uses the usual boolish words
+(`yes`/`no`, `on`/`off`, `true`/`false`, `1`/`0`). The same switch in
+`vue-vet.toml` is `ignore_test`. Off by default. Other boolean flags
+(`--deny-warnings`, `--no-cache`, `--fix-safe`, and the rest) take the same words.
+
+`practice` defaults to on. It takes the same boolish words as the flags
+(`yes`/`no`, `on`/`off`, `true`/`false`, `1`/`0`). When off, ecosystem practice suggestions
 (`category: practice`) are dropped before scoring and reporting; individual
 practice rule IDs can still be toggled under `[rules]` when practice is on.
 `assessment` is `off` (default) or `vapor`. When `vapor`, the opt-in

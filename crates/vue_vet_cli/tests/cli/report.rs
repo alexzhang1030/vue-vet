@@ -1,6 +1,17 @@
 use super::helpers::*;
 
 #[test]
+fn deny_warnings_accepts_boolish_false() {
+  let path = fixture("rules/no-v-html/invalid/basic.vue");
+  let output = run(&[path.to_string_lossy().as_ref(), "--deny-warnings=no"]);
+  assert!(
+    output.status.success(),
+    "--deny-warnings=no must leave warnings non-fatal: {}",
+    String::from_utf8_lossy(&output.stderr)
+  );
+}
+
+#[test]
 fn unsafe_fixture_has_stable_text_output_and_exit_code() {
   let path = fixture("rules/no-v-html/invalid/basic.vue");
   let output = run(&[path.to_string_lossy().as_ref(), "--deny-warnings"]);
@@ -233,6 +244,30 @@ fn scoped_suppression_hides_a_matching_finding() {
     Some(0),
     "the matching diagnostic must be suppressed"
   );
+}
+
+#[test]
+fn ignore_test_flag_accepts_boolish_values() {
+  let project = TempProject::new("ignore-test", "<template><main /></template>\n");
+  let root = project.root().to_string_lossy().into_owned();
+  for (flag, expected) in
+    [("--ignore-test", true), ("--ignore-test=yes", true), ("--ignore-test=0", false)]
+  {
+    let output = run(&[&root, "--print-config", flag]);
+    let parsed: Result<Value, _> = serde_json::from_slice(&output.stdout);
+    assert!(
+      output.status.success(),
+      "{flag} must parse: {}",
+      String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+      parsed.ok().as_ref().and_then(|value| value.get("ignore_test")).and_then(Value::as_bool),
+      Some(expected),
+      "{flag}"
+    );
+  }
+  let rejected = run(&[&root, "--ignore-test=maybe"]);
+  assert!(!rejected.status.success(), "unknown boolish values must fail");
 }
 
 #[test]

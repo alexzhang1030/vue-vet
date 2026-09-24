@@ -15,6 +15,16 @@ use vue_vet_core::{Confidence, Diagnostic, PRACTICE_CATEGORY, Severity, SourceSp
 pub const CONFIG_FILE: &str = "vue-vet.toml";
 pub const CONFIG_VERSION: u32 = 1;
 
+/// `.js` / `.ts` / `.tsx` names skipped when `ignore_test` or `--ignore-test` is set.
+const TEST_FILE_EXCLUDES: &[&str] = &[
+  "**/*.test.js",
+  "**/*.test.ts",
+  "**/*.test.tsx",
+  "**/*.spec.js",
+  "**/*.spec.ts",
+  "**/*.spec.tsx",
+];
+
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Preset {
@@ -70,6 +80,8 @@ pub struct Config {
   pub assessment: AssessmentMode,
   pub include: Vec<String>,
   pub exclude: Vec<String>,
+  /// Skip `*.test` and `*.spec` `.js` / `.ts` / `.tsx` files. Default `false`.
+  pub ignore_test: bool,
   pub rules: BTreeMap<String, RuleLevel>,
 }
 
@@ -82,6 +94,7 @@ impl Default for Config {
       assessment: AssessmentMode::Off,
       include: vec!["**/*.vue".into()],
       exclude: Vec::new(),
+      ignore_test: false,
       rules: BTreeMap::new(),
     }
   }
@@ -151,10 +164,15 @@ impl Config {
           };
         }
         "practice" => {
-          config.practice = match unquote(value).as_deref() {
-            Ok("on") => PracticeMode::On,
-            Ok("off") => PracticeMode::Off,
-            _ => return invalid(line_number, "practice must be `on` or `off`".into()),
+          config.practice = match parse_boolish(value) {
+            Some(true) => PracticeMode::On,
+            Some(false) => PracticeMode::Off,
+            None => {
+              return invalid(
+                line_number,
+                "practice must be a boolish value (yes/no, on/off, true/false, 1/0)".into(),
+              );
+            }
           };
         }
         "assessment" => {
@@ -166,6 +184,12 @@ impl Config {
         }
         "include" => config.include = parse_string_array(value, line_number)?,
         "exclude" => config.exclude = parse_string_array(value, line_number)?,
+        "ignore_test" => {
+          config.ignore_test = parse_boolish(value).ok_or_else(|| ConfigError::Invalid {
+            line: line_number,
+            message: "ignore_test must be a boolish value (yes/no, on/off, true/false, 1/0)".into(),
+          })?;
+        }
         _ => return invalid(line_number, format!("unknown key `{key}`")),
       }
     }
@@ -217,7 +241,15 @@ impl Config {
   ///
   /// Returns [`ConfigError::InvalidGlob`] when a configured pattern is invalid.
   pub fn path_filter(&self) -> Result<PathFilter, ConfigError> {
-    Ok(PathFilter { include: build_globs(&self.include)?, exclude: build_globs(&self.exclude)? })
+    let mut exclude = self.exclude.clone();
+    if self.ignore_test {
+      for pattern in TEST_FILE_EXCLUDES {
+        if !exclude.iter().any(|existing| existing == *pattern) {
+          exclude.push((*pattern).to_owned());
+        }
+      }
+    }
+    Ok(PathFilter { include: build_globs(&self.include)?, exclude: build_globs(&exclude)? })
   }
 }
 
@@ -229,9 +261,19 @@ pub struct PathFilter {
 impl PathFilter {
   #[must_use]
   pub fn matches(&self, path: &Path) -> bool {
-    let normalized = path.to_string_lossy().replace('\\', "/");
+    let normalized = normalized_path(path);
     self.include.is_match(&normalized) && !self.exclude.is_match(&normalized)
   }
+
+  /// True when `path` matches an exclude glob, independent of `include`.
+  #[must_use]
+  pub fn is_excluded(&self, path: &Path) -> bool {
+    self.exclude.is_match(normalized_path(path))
+  }
+}
+
+fn normalized_path(path: &Path) -> String {
+  path.to_string_lossy().replace('\\', "/")
 }
 
 #[derive(Clone, Debug)]
@@ -405,6 +447,18 @@ fn unquote(value: &str) -> Result<String, String> {
   Err("expected a quoted string".into())
 }
 
+/// Same words as clap's `BoolishValueParser`: `y yes t true on 1` / `n no f false off 0`.
+fn parse_boolish(value: &str) -> Option<bool> {
+  let Ok(value) = unquote(value) else {
+    return None;
+  };
+  match value.to_ascii_lowercase().as_str() {
+    "y" | "yes" | "t" | "true" | "on" | "1" => Some(true),
+    "n" | "no" | "f" | "false" | "off" | "0" => Some(false),
+    _ => None,
+  }
+}
+
 fn parse_rule_level(value: &str) -> Option<RuleLevel> {
   match unquote(value).ok()?.as_str() {
     "off" => Some(RuleLevel::Off),
@@ -491,6 +545,14 @@ exclude = ["src/generated/**"]
   fn practice_off_drops_practice_category_findings() {
     let config = Config::parse("version = 1\npractice = \"off\"\n").unwrap_or_default();
     assert_eq!(config.practice, PracticeMode::Off);
+    assert!(matches!(
+      Config::parse("version = 1\npractice = yes\n"),
+      Ok(config) if config.practice == PracticeMode::On
+    ));
+    assert!(matches!(
+      Config::parse("version = 1\npractice = 0\n"),
+      Ok(config) if config.practice == PracticeMode::Off
+    ));
     let mut practice = diagnostic("vue-vet/practice/vueuse-use-debounce-fn", 1);
     practice.category = PRACTICE_CATEGORY.into();
     let lint = diagnostic("vue-vet/security/no-v-html", 2);
@@ -532,6 +594,35 @@ exclude = ["src/generated/**"]
       "unknown configuration fields must be rejected"
     );
     assert!(matches!(Config::parse("version = 2"), Err(ConfigError::UnsupportedVersion(2))));
+  }
+
+  #[test]
+  fn ignore_test_skips_test_and_spec_scripts() {
+    let filter = Config::default().path_filter();
+    assert!(filter.as_ref().is_ok_and(|filter| {
+      !filter.is_excluded(Path::new("src/Widget.test.tsx"))
+        && !filter.is_excluded(Path::new("src/Widget.spec.ts"))
+        && !filter.is_excluded(Path::new("src/test-utils.ts"))
+    }));
+    let configured = Config::parse("version = 1\nignore_test = ON\nexclude = [\"dist/**\"]\n");
+    assert!(
+      Config::parse("version = 1\nignore_test = 0\n").is_ok_and(|config| !config.ignore_test)
+    );
+    assert!(matches!(
+      Config::parse("version = 1\nignore_test = maybe\n"),
+      Err(ConfigError::Invalid { .. })
+    ));
+    assert!(configured.as_ref().is_ok_and(|config| config.ignore_test));
+    let filter = configured.and_then(|config| config.path_filter());
+    assert!(filter.as_ref().is_ok_and(|filter| {
+      filter.is_excluded(Path::new("src/Widget.test.tsx"))
+        && filter.is_excluded(Path::new("Widget.spec.ts"))
+        && filter.is_excluded(Path::new("src/Widget.test.js"))
+        && filter.is_excluded(Path::new("dist/App.vue"))
+        && !filter.is_excluded(Path::new("src/test-utils.ts"))
+        && !filter.is_excluded(Path::new("src/Widget.tsx"))
+        && !filter.is_excluded(Path::new("src/Widget.test.jsx"))
+    }));
   }
 
   #[test]

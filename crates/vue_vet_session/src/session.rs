@@ -192,6 +192,11 @@ impl ProjectSession {
     }
   }
 
+  /// Override `ignore_test` for this session. CLI `--ignore-test` uses this.
+  pub const fn set_ignore_test(&mut self, enabled: bool) {
+    self.config.ignore_test = enabled;
+  }
+
   #[must_use]
   pub const fn config(&self) -> &Config {
     &self.config

@@ -20,11 +20,15 @@ CLI `--print-config`).
 | `CONFIG_VERSION` | `1` — unknown version fails before scan |
 | `Preset` | `recommended` (default) / `none` |
 | `RuleLevel` | `off` / `info` / `warning` / `error` |
-| `PracticeMode` | `on` (default) / `off` |
-| `Config` | `version`, `preset`, `practice`, `include`, `exclude`, `rules` |
+| `PracticeMode` | boolish, default on (`yes`/`on`/`true`/`1`, `no`/`off`/`false`/`0`) |
+| `Config` | `version`, `preset`, `practice`, `include`, `exclude`, `ignore_test`, `rules` |
 
 Strict hand-rolled TOML subset (not the full `toml` crate): unknown keys and
 non-`[rules]` sections are rejected. Default include is `**/*.vue`.
+`ignore_test` defaults to `false`. Boolish values match clap:
+`y`/`yes`/`t`/`true`/`on`/`1` and `n`/`no`/`f`/`false`/`off`/`0`.
+When set (or CLI `--ignore-test`), `.js` / `.ts` / `.tsx` files named
+`*.test.*` or `*.spec.*` are excluded.
 
 ### Apply order
 
